@@ -28,7 +28,7 @@ import { constants, existsSync, type Dirent } from 'fs'
 import path from 'path'
 import * as pm from './project-manager.js'
 import { thumbCacheBytes } from '../lib/thumbnail-cache.js'
-import { trashFolder } from './app-update.js'
+import { previousAppsDir } from './app-update.js'
 import { PARTS_DIRNAME } from './chapter-parts.js'
 import * as im from './idea-manager.js'
 import { createProjectFactsCache, resolveEpisodePaths } from './utils.js'
@@ -120,7 +120,7 @@ export interface StorageSpaceSummary {
   project_trash_bytes: number | null
   /** Everything in Story's Trash (Story → Trash); null when measurement is unavailable. */
   library_trash_bytes: number | null
-  /** Old app copies in the self-emptying Trash Folder; null when measurement is unavailable. */
+  /** The previous app versions kept for rollback (the last two); null when measurement is unavailable. */
   app_trash_bytes: number | null
 }
 
@@ -234,7 +234,7 @@ export async function storageSpaceSummary(slug: string): Promise<StorageSpaceSum
       const { trashRoots } = await import('./trash.js')
       return strictSizeOf((await trashRoots()).map(root => root.dir))
     }),
-    boundedSpaceMeasurement('app-trash', 'app_trash', () => strictDirSize(trashFolder())),
+    boundedSpaceMeasurement('app-trash', 'app_trash', () => strictDirSize(previousAppsDir())),
   ])
   return { free_bytes, project_trash_bytes, library_trash_bytes, app_trash_bytes }
 }

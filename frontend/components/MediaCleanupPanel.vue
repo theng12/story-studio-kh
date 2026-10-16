@@ -12,7 +12,7 @@
       · This channel in the Trash: <strong>{{ formatMeasurement(space.project_trash_bytes) }}</strong>
       · Whole Trash: <strong>{{ formatMeasurement(space.library_trash_bytes) }}</strong>
       <small>(space comes back when you empty it on <NuxtLink to="/trash">Story → Trash</NuxtLink>)</small>
-      · Old app copies from updates: <strong>{{ formatMeasurement(space.app_trash_bytes) }}</strong> <small>(empties itself after 15 days)</small>
+      · Old app copies from updates: <strong>{{ formatMeasurement(space.app_trash_bytes) }}</strong> <small>(the last 2 versions are kept; older ones go to the Trash)</small>
     </p>
     <p v-if="checkResult" class="cleanup-hint" role="status">{{ checkResult }}</p>
     <p v-if="error" class="cleanup-error" role="alert">{{ error }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check Progress Again</button></p>

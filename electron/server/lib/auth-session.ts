@@ -298,6 +298,32 @@ export function buildRequireSession(
   }
 }
 
+// ── The owner, for the few actions only the owner may take ─────────────────
+//
+// The loopback bypass above lets any process on the Mac in as `__local__`, and
+// desktop mode has no session at all. So the owner-only routes (Trash: Mac
+// Trash, Delete permanently) ask for more: a valid session cookie (the owner's
+// browser, signed in), or this per-boot secret, which main.ts adds to the app
+// window's own requests (the page never sees it) and which no file holds.
+
+export const OWNER_WINDOW_HEADER = 'x-story-owner'
+const OWNER_WINDOW_SECRET = crypto.randomBytes(32).toString('base64url')
+
+/** For main.ts only: the header value its BrowserWindow sends. */
+export function ownerWindowSecret(): string { return OWNER_WINDOW_SECRET }
+
+export function isOwnerRequest(req: any, auth: ServerModeAuth | undefined): boolean {
+  const header = req.headers?.[OWNER_WINDOW_HEADER]
+  if (typeof header === 'string') {
+    const a = Buffer.from(header)
+    const b = Buffer.from(OWNER_WINDOW_SECRET)
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true
+  }
+  if (!auth?.session_secret || !auth.username) return false
+  const payload = verifySession(parseCookieHeader(req.headers?.cookie, 'ssk_session') || '', auth.session_secret)
+  return payload?.username === auth.username
+}
+
 // ── In-memory rate limiter for /api/auth/login ─────────────────────────────
 
 interface RateLimitBucket {

@@ -31,6 +31,7 @@ import { startLogPruning } from './server/services/logger.js'
 import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
 import { isAllowedApplicationNavigation, isSafeExternalUrl } from './server/lib/security.js'
 import { redactSecrets } from './server/lib/redact-secrets.js'
+import { OWNER_WINDOW_HEADER, ownerWindowSecret } from './server/lib/auth-session.js'
 import {
   aggregateBatch, isBatchComplete, shouldNotifyForSingleJob,
   formatBatchMessage, formatSingleJobMessage, formatFailureMessage, getBatchId,
@@ -143,6 +144,13 @@ async function createWindow(port: number) {
       // See electron/preload.cjs and frontend/app.vue for the other half.
       preload: path.join(__dirname, '..', 'preload.cjs'),
     },
+  })
+  // The owner-only Trash actions trust this window by a per-boot secret it sends to
+  // loopback only (auth-session.ts `isOwnerRequest`); the page itself never sees it.
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders((details, callback) => {
+    const url = new URL(details.url)
+    const own = ['127.0.0.1', 'localhost'].includes(url.hostname) && (url.pathname.startsWith('/api/trash/') || url.pathname.startsWith('/api/app-settings/server-mode/'))
+    callback({ requestHeaders: own ? { ...details.requestHeaders, [OWNER_WINDOW_HEADER]: ownerWindowSecret() } : details.requestHeaders })
   })
 
   if (isDev) {

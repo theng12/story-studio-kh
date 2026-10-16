@@ -3,16 +3,21 @@
  *
  * Roots: `<Library>/_trash` (every channel, `<slug>/…`), plus `<folder>/_trash` on any
  * other drive a channel keeps media or finished videos on (a move never crosses
- * drives, see lib/trash-move.ts). Restore puts an item back where it came from;
- * Empty is the owner's alone (routes/trash.ts refuses automation keys) and is the
- * only permanent delete of anything in it.
+ * drives, see lib/trash-move.ts). Restore puts an item back where it came from.
+ * Owner, 2026-10-16 (the mini is managed remotely): items can also go to the Mac's
+ * own Trash (`moveToMacTrash`, recoverable there) or be deleted for good
+ * (`deletePermanently`, index entries of the Library `_trash` or the app's own
+ * `<data>/_trash` only); both act only after a confirmation that matches what is
+ * measured. Delete is the only permanent delete, since the old "Empty Trash" is
+ * retired. Both are the owner's alone (routes/trash.ts) and never run from a timer.
+ * Restore, move and delete run one at a time (`serial`).
  */
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync, appendFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, appendFileSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import * as pm from './project-manager.js'
-import { dataDir } from './app-update.js'
+import { dataDir, trashDir } from './app-update.js'
 import { dirSize } from './storage-audit.js'
 import {
   APP_TRASH, libraryTrashDir, moveToTrashSync, TRASH_DIRNAME, TRASH_INDEX, trashRootFor, type TrashIndexEntry,
@@ -40,7 +45,13 @@ export interface TrashItem {
   restorable: boolean
   /** Why Restore is not offered. */
   restore_note?: string
+  /** Can go to the Mac's own Trash: a real path safely inside a trash root. */
+  movable: boolean
+  /** Can be deleted permanently: also recorded in the Library `_trash` index. */
+  deletable: boolean
 }
+
+interface Totals { items: number; bytes: number }
 
 export interface TrashListing {
   roots: string[]
@@ -49,6 +60,10 @@ export interface TrashListing {
   kinds: Array<{ kind: string; bytes: number; items: number }>
   items: TrashItem[]
   items_total: number
+  /** "Free up space": the oldest dated item, and what "all" means for each action. */
+  oldest: { at: string; path: string; slug: string } | null
+  movable: Totals
+  deletable: Totals
 }
 
 /** The folders a channel keeps media in besides its own: its media drive, the finished-videos folders. */
@@ -79,20 +94,56 @@ export async function trashRoots(): Promise<TrashRoot[]> {
     if (existsSync(old)) add({ dir: old, slug })
     for (const anchor of await anchorsOf(slug, projectDir)) add({ dir: path.dirname(trashRootFor(anchor, projectDir, slug)) })
   }
+  // The app's own `_trash` (`<bucket>/<item>`, indexed): where its leftovers go when the Library is on another drive.
+  add({ dir: trashDir() })
   return [...roots.values()].filter(root => existsSync(root.dir))
 }
 
-function readIndex(dir: string): TrashIndexEntry[] {
+/**
+ * An index line; `removed` marks an item that left the Trash (Mac Trash, deleted): no Restore.
+ * `partial` marks what a delete that stopped partway left: still listed, deletable, never restored.
+ */
+type IndexLine = TrashIndexEntry & { removed?: 'macos-trash' | 'deleted'; partial?: true }
+
+function readIndex(dir: string): IndexLine[] {
   let text: string
   try { text = readFileSync(path.join(dir, TRASH_INDEX), 'utf8') } catch { return [] }
-  const byTarget = new Map<string, TrashIndexEntry>()
+  const byTarget = new Map<string, IndexLine>()
   for (const line of text.split('\n')) {
     try {
-      const entry = JSON.parse(line) as TrashIndexEntry
-      if (entry?.id && entry.to && entry.from) byTarget.set(entry.to, entry) // the latest move to a path wins
+      const entry = JSON.parse(line) as IndexLine
+      if (entry?.id && entry.to && entry.from) byTarget.set(entry.to, entry) // the latest line for a path wins
     } catch { /* a torn line */ }
   }
-  return [...byTarget.values()]
+  return [...byTarget.values()].filter(entry => !entry.removed)
+}
+
+/** Append-only, like every move: a later line for the same path overrides an earlier one. */
+function appendLine(dir: string, entry: TrashIndexEntry, mark: Pick<IndexLine, 'removed' | 'partial'>): void {
+  const line: IndexLine = { ...entry, removed: undefined, partial: undefined, ...mark, at: new Date().toISOString() }
+  appendFileSync(path.join(dir, TRASH_INDEX), `${JSON.stringify(line)}\n`)
+}
+
+// ponytail: one chain for every Restore, Mac-Trash move and delete; they are rare owner clicks.
+let chain: Promise<unknown> = Promise.resolve()
+function serial<T>(fn: () => Promise<T>): Promise<T> {
+  const run = chain.then(fn, fn)
+  chain = run.catch(() => {})
+  return run
+}
+
+/**
+ * `p` lies strictly inside `root` (at least `depth` names below it), no folder on the way is a
+ * symlink leading out, and `p` itself is not a symlink. Anything else is never moved or deleted.
+ */
+function safelyInside(root: string, p: string, depth: number): boolean {
+  const rel = path.relative(path.resolve(root), path.resolve(p))
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || rel.split(path.sep).length < depth) return false
+  try {
+    const realRoot = realpathSync(root)
+    const realParent = realpathSync(path.dirname(path.resolve(p)))
+    return (realParent === realRoot || realParent.startsWith(realRoot + path.sep)) && !lstatSync(p).isSymbolicLink()
+  } catch { return false }
 }
 
 const isLegacy = (kind: string) => kind === 'legacy'
@@ -104,17 +155,34 @@ async function sizeOf(p: string): Promise<number> {
   } catch { return 0 }
 }
 
-export async function listTrash(): Promise<TrashListing> {
+/** Every item, with the root it sits in and its index line (for the actions that need them). */
+interface Scanned { item: TrashItem; root: TrashRoot; entry?: IndexLine }
+
+async function scanTrash(): Promise<{
+  roots: TrashRoot[]; channels: Map<string, { slug: string; bytes: number; items: number }>; items: TrashItem[]; scanned: Scanned[]
+}> {
   const roots = await trashRoots()
+  const libraryRoot = path.resolve(libraryTrashDir(pm.projectsRoot()))
+  // The app's own `<data>/_trash` (unless it is the Library one): all of it is Story Studio's, by bucket.
+  const appRoot = path.resolve(trashDir()) === libraryRoot ? '' : path.resolve(trashDir())
+  const scanned: Scanned[] = []
   const items: TrashItem[] = []
+  const push = (item: Omit<TrashItem, 'movable' | 'deletable'>, root: TrashRoot, entry?: IndexLine) => {
+    const movable = !!item.path && safelyInside(root.dir, item.path, root.slug ? 1 : 2)
+    const indexedRoot = !root.slug && [libraryRoot, appRoot].includes(path.resolve(root.dir))
+    const full = { ...item, movable, deletable: movable && !!entry && indexedRoot }
+    items.push(full)
+    scanned.push({ item: full, root, entry })
+  }
   const channels = new Map<string, { slug: string; bytes: number; items: number }>()
   for (const root of roots) {
-    // Channel folders: every folder at the top of a shared root, or the whole of an old per-channel one.
+    const isApp = path.resolve(root.dir) === appRoot
+    // Channel folders: every folder at the top of a shared root (a bucket of the app's), or the whole of an old per-channel one.
     const groups: Array<{ slug: string; dir: string }> = root.slug
       ? [{ slug: root.slug, dir: root.dir }]
       : readdirSync(root.dir, { withFileTypes: true })
         .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
-        .map(entry => ({ slug: entry.name, dir: path.join(root.dir, entry.name) }))
+        .map(entry => ({ slug: isApp ? APP_TRASH : entry.name, dir: path.join(root.dir, entry.name) }))
     for (const group of groups) {
       const row = channels.get(group.slug) ?? { slug: group.slug, bytes: 0, items: 0 }
       row.bytes += await dirSize(group.dir)
@@ -123,27 +191,30 @@ export async function listTrash(): Promise<TrashListing> {
     const listed = new Set<string>()
     for (const entry of readIndex(root.dir)) {
       if (!existsSync(entry.to) && !isSymlink(entry.to)) continue
-      const slug = root.slug ?? path.relative(root.dir, entry.to).split(path.sep)[0]!
+      const slug = root.slug ?? (isApp ? APP_TRASH : path.relative(root.dir, entry.to).split(path.sep)[0]!)
       const legacy = isLegacy(entry.kind)
       const taken = !legacy && (existsSync(entry.from) || isSymlink(entry.from))
-      items.push({
+      push({
         id: entry.id, slug, kind: entry.kind, path: entry.to, from: legacy ? null : entry.from, at: entry.at,
         bytes: await sizeOf(entry.to),
-        restorable: !legacy && !taken,
+        restorable: !legacy && !taken && !entry.partial,
         ...(legacy ? { restore_note: 'Moved here from an old channel trash; drag it back in Finder if you need it.' }
-          : taken ? { restore_note: 'Something new is at its old place.' } : {}),
-      })
+          : entry.partial ? { restore_note: 'A delete stopped partway through it; delete it again.' }
+            : taken ? { restore_note: 'Something new is at its old place.' } : {}),
+      }, root, entry)
       listed.add(path.resolve(entry.to))
     }
-    // What an old per-channel trash held (moved to `<slug>/legacy`, or still in place): one row per top-level item.
+    // What an old per-channel trash held (moved to `<slug>/legacy`, or still in place), or what an app bucket
+    // holds unrecorded: one row per item.
     for (const group of groups) {
-      const dir = root.slug ? group.dir : path.join(group.dir, 'legacy')
+      const dir = root.slug || isApp ? group.dir : path.join(group.dir, 'legacy')
       for (const name of readdirNames(dir)) {
         const p = path.join(dir, name)
         if (listed.has(path.resolve(p))) continue
-        items.push(legacyItem(group.slug, p, await sizeOf(p), root.slug
+        push(legacyItem(group.slug, p, await sizeOf(p), root.slug
           ? 'Still in the channel folder\'s own _trash; drag it back in Finder if you need it.'
-          : 'Moved here from the channel\'s old _trash; drag it back in Finder if you need it.'))
+          : isApp ? 'In the app\'s own _trash from before items were recorded; drag it back in Finder if you need it.'
+            : 'Moved here from the channel\'s old _trash; drag it back in Finder if you need it.'), root)
       }
     }
   }
@@ -153,10 +224,18 @@ export async function listTrash(): Promise<TrashListing> {
     row.items = itemized.length
     const rest = row.bytes - itemized.reduce((n, item) => n + item.bytes, 0)
     if (rest > 0) {
-      items.push(legacyItem(row.slug, '', rest, 'Moved to the trash before items were recorded; open the channel folder in the Trash in Finder.'))
+      items.push({ ...legacyItem(row.slug, '', rest, 'Moved to the trash before items were recorded; open the channel folder in the Trash in Finder.'), movable: false, deletable: false })
       row.items += 1
     }
   }
+  return { roots, channels, items, scanned }
+}
+
+export async function listTrash(): Promise<TrashListing> {
+  const { roots, channels, items } = await scanTrash()
+  const totals = (pick: (item: TrashItem) => boolean): Totals =>
+    items.filter(pick).reduce((t, item) => ({ items: t.items + 1, bytes: t.bytes + item.bytes }), { items: 0, bytes: 0 })
+  const oldest = items.filter(item => item.at).sort((a, b) => a.at!.localeCompare(b.at!))[0]
   const kinds = new Map<string, { kind: string; bytes: number; items: number }>()
   for (const item of items) {
     const row = kinds.get(item.kind) ?? { kind: item.kind, bytes: 0, items: 0 }
@@ -171,10 +250,13 @@ export async function listTrash(): Promise<TrashListing> {
     kinds: [...kinds.values()].sort((a, b) => b.bytes - a.bytes),
     items: items.slice(0, MAX_ITEMS),
     items_total: items.length,
+    oldest: oldest ? { at: oldest.at!, path: oldest.path, slug: oldest.slug } : null,
+    movable: totals(item => item.movable),
+    deletable: totals(item => item.deletable),
   }
 }
 
-function legacyItem(slug: string, p: string, bytes: number, note: string): TrashItem {
+function legacyItem(slug: string, p: string, bytes: number, note: string): Omit<TrashItem, 'movable' | 'deletable'> {
   return { id: `legacy:${slug}:${p}`, slug, kind: 'legacy', path: p, from: null, at: null, bytes, restorable: false, restore_note: note }
 }
 
@@ -187,12 +269,17 @@ function isSymlink(p: string): boolean {
 }
 
 /** Put one item back where it came from. Refuses when something is already there. */
-export async function restoreTrashItem(id: unknown): Promise<{ restored_to: string }> {
+export function restoreTrashItem(id: unknown): Promise<{ restored_to: string }> {
+  return serial(() => restoreNow(id))
+}
+
+async function restoreNow(id: unknown): Promise<{ restored_to: string }> {
   if (typeof id !== 'string' || !id || id.startsWith('legacy:')) throw fail('Choose an item that can be restored.', 400)
   for (const root of await trashRoots()) {
     const entry = readIndex(root.dir).find(candidate => candidate.id === id)
     if (!entry) continue
     if (isLegacy(entry.kind)) throw fail('This item came from an old channel trash; move it back in Finder.', 409)
+    if (entry.partial) throw fail('A delete stopped partway through this item, so it is not put back; delete it again.', 409)
     if (!existsSync(entry.to) && !isSymlink(entry.to)) throw fail('It is no longer in the Trash.', 404)
     if (existsSync(entry.from) || isSymlink(entry.from)) throw fail(`Something is already at ${entry.from}; nothing was moved.`, 409)
     mkdirSync(path.dirname(entry.from), { recursive: true })
@@ -202,28 +289,77 @@ export async function restoreTrashItem(id: unknown): Promise<{ restored_to: stri
   throw fail('That Trash item was not found. Refresh the Trash and try again.', 404)
 }
 
-/**
- * The owner's "Empty Trash": the one permanent delete of what Story Studio moved
- * aside. Only ever called from routes/trash.ts after the typed confirmation.
- * The migration log stays (it is the record of what moved where).
- */
-export async function emptyTrash(): Promise<{ bytes_freed: number; removed: number; errors: string[] }> {
-  let bytes = 0
-  let removed = 0
-  const errors: string[] = []
-  for (const root of await trashRoots()) {
-    for (const name of await fs.readdir(root.dir).catch(() => [] as string[])) {
-      if (name === MIGRATION_LOG) continue
-      const p = path.join(root.dir, name)
-      const size = await sizeOf(p)
-      try {
-        await fs.rm(p, { recursive: true, force: true })
-        bytes += size; removed += 1
-      } catch (error: any) { errors.push(`${p}: ${error?.message || error}`) }
-    }
-    if (root.slug) { try { rmdirSync(root.dir) } catch { /* not empty */ } }
+/** `'all'` or a list of item ids, narrowed to the items the action may touch. */
+function pick(scanned: Scanned[], ids: unknown, allowed: (item: TrashItem) => boolean): Scanned[] {
+  if (ids === 'all') return scanned.filter(s => allowed(s.item))
+  if (!Array.isArray(ids) || !ids.length || !ids.every(id => typeof id === 'string')) throw fail('Choose the items first.', 400)
+  const wanted = new Set(ids)
+  return scanned.filter(s => wanted.has(s.item.id) && allowed(s.item))
+}
+
+/** What the owner confirmed must still be what is measured now; otherwise nothing happens. */
+function confirmed(scanned: Scanned[], ids: unknown, allowed: (item: TrashItem) => boolean, expected: { count: number; bytes: number }, nothing: string): Scanned[] {
+  const picked = pick(scanned, ids, allowed)
+  const bytes = picked.reduce((n, s) => n + s.item.bytes, 0)
+  if (picked.length !== expected.count || bytes !== expected.bytes) {
+    throw fail(`The Trash changed since you looked: this choice is now ${picked.length} item(s), ${bytes} bytes (you confirmed ${expected.count}, ${expected.bytes} bytes). ${nothing} refresh and confirm again.`, 409)
   }
-  return { bytes_freed: bytes, removed, errors }
+  return picked
+}
+
+/**
+ * Hand items to the Mac's own Trash (Electron's `shell.trashItem`, passed in by the route).
+ * Recoverable there; Restore here is no longer offered. A failed hand-over leaves the item
+ * exactly where it was: there is no fallback, least of all a delete.
+ */
+// A hung Finder move (an unresponsive external SSD) must not hold every later Trash action forever.
+const TRASH_ITEM_TIMEOUT_MS = 120_000
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout
+  return Promise.race([work, new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new Error('the Mac did not finish moving it in time')), ms) })])
+    .finally(() => clearTimeout(timer))
+}
+
+export function moveToMacTrash(
+  ids: unknown, expected: { count: number; bytes: number }, trashItem: (p: string) => Promise<void>,
+): Promise<{ moved: number; bytes: number; errors: string[] }> {
+  return serial(async () => {
+    const { scanned } = await scanTrash()
+    const result = { moved: 0, bytes: 0, errors: [] as string[] }
+    for (const s of confirmed(scanned, ids, item => item.movable, expected, 'Nothing was moved;')) {
+      if (!safelyInside(s.root.dir, s.item.path, s.root.slug ? 1 : 2)) { result.errors.push(`${s.item.path}: not inside Story's Trash; left alone.`); continue }
+      try { await withTimeout(trashItem(s.item.path), TRASH_ITEM_TIMEOUT_MS) } catch (error: any) { result.errors.push(`${s.item.path}: ${error?.message || error}`); continue }
+      result.moved += 1; result.bytes += s.item.bytes
+      if (s.entry) { try { appendLine(s.root.dir, s.entry, { removed: 'macos-trash' }) } catch { /* it is gone from here either way */ } }
+    }
+    return result
+  })
+}
+
+/**
+ * The owner's "Delete permanently" (routes/trash.ts: confirmed, never an automation key, never a
+ * timer). Only items recorded in the Library `_trash` index, re-measured now: if the count or
+ * bytes differ from what the owner confirmed, nothing is deleted. Never touches the Mac's Trash.
+ */
+export function deletePermanently(ids: unknown, expected: { count: number; bytes: number }): Promise<{ deleted: number; bytes_freed: number; errors: string[] }> {
+  return serial(async () => {
+    const { scanned } = await scanTrash()
+    const picked = confirmed(scanned, ids, item => item.deletable, expected, 'Nothing was deleted;')
+    const result = { deleted: 0, bytes_freed: 0, errors: [] as string[] }
+    for (const s of picked) {
+      if (!safelyInside(s.root.dir, s.item.path, 2)) { result.errors.push(`${s.item.path}: not inside Story's Trash; left alone.`); continue }
+      // Recorded first: whatever happens next, Restore is no longer offered for it.
+      try { appendLine(s.root.dir, s.entry!, { removed: 'deleted' }) } catch (error: any) { result.errors.push(`${s.item.path}: ${error?.message || error}`); continue }
+      try { await fs.rm(s.item.path, { recursive: true }) } catch (error: any) {
+        result.errors.push(`${s.item.path}: ${error?.message || error}`)
+        // What is left stays listed so it can be deleted again, never restored half-empty.
+        if (existsSync(s.item.path)) { try { appendLine(s.root.dir, s.entry!, { partial: true }) } catch { /* the removed line stands */ } }
+        continue
+      }
+      result.deleted += 1; result.bytes_freed += s.item.bytes
+    }
+    return result
+  })
 }
 
 function fail(message: string, statusCode: number): Error & { statusCode: number; expose: true } {

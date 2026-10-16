@@ -27,11 +27,13 @@
  *    waits for Install Now. **Install Now** takes the same path but goes ahead after 30 minutes
  *    even if a job that cannot resume is still running.
  * 5. **Swap** with a detached helper (`helperScript`) after this app quits normally: the installed
- *    bundle goes to the self-emptying Trash Folder, `<data>/Trash Folder/<UTC date>/app/`, which
- *    Story deletes 15 days later (`purgeTrashFolder`, as Studio Hub does); the new one moves into
- *    place, and the app is relaunched (through the login agent when it is installed, so it stays
- *    supervised). Download leftovers go to the same Trash Folder (`<UTC date>/app-update/`).
- *    `<data>/_trash` stays the owner's: nothing there is ever deleted.
+ *    bundle goes to `<data>/previous-apps/`; the new one moves into place, and the app is relaunched
+ *    (through the login agent when it is installed, so it stays supervised). Story keeps the last
+ *    two previous versions there and MOVES older ones into Story's Trash
+ *    (`<Library>/_trash/_story-studio/app/`, `keepPreviousApps`); download leftovers go to
+ *    `_story-studio/app-update/`. Owner, 2026-10-16: nothing here deletes anything; the owner frees
+ *    the space from Story → Trash. (This replaced 1.4.261's self-emptying 15-day Trash Folder,
+ *    whose contents `migrateTrashFolder` moves into Story's Trash once.)
  * 6. **Health**: the new version reports `installed` here once it has booted and answered its own
  *    `/api/health`; the helper waits for that and otherwise puts the old app back.
  *
@@ -132,29 +134,80 @@ const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 export function dataDir(): string { return path.dirname(resolveAppSettingsPath()) }
 export function updateDir(): string { return path.join(dataDir(), 'app-update') }
 export function trashDir(): string { return path.join(dataDir(), '_trash') }
-/** The self-emptying Trash Folder (Studio Hub's pattern): dated `<UTC date>/` folders, deleted after 15 days. */
+/** 1.4.261's self-emptying Trash Folder: retired; read only by `migrateTrashFolder`. */
 export function trashFolder(): string { return path.join(dataDir(), 'Trash Folder') }
-export const TRASH_FOLDER_DAYS = 15
-const utcDate = (ms: number) => new Date(ms).toISOString().slice(0, 10)
-/** Where the swap helper keeps the replaced app (and a failed new one) today. */
-export function appTrashDir(now = Date.now()): string { return path.join(trashFolder(), utcDate(now), 'app') }
+/** Where the swap helper keeps the replaced app (and a failed new one): same volume as the data folder. */
+export function previousAppsDir(): string { return path.join(dataDir(), 'previous-apps') }
+export const PREVIOUS_APPS_KEPT = 2
 
 /**
- * The one hard delete in Story Studio: dated Trash Folder subfolders older than 15 days (a folder
- * named for exactly 15 days ago is kept, as in the Hub). Only `YYYY-MM-DD` directories directly
- * inside the Trash Folder; anything else there, `_trash`, and everything outside are never touched.
+ * Keep the last PREVIOUS_APPS_KEPT previous app versions; MOVE every older copy, and every failed
+ * new one, into Story's Trash. Copies the helper left beside the app (`.Story Studio KH.app-…`,
+ * when `previous-apps` is on another volume than the app) count too. The running app (`appBundle`,
+ * or the copy `process.execPath` is inside) is never moved. Never deletes.
  */
-export async function purgeTrashFolder(now = Date.now()): Promise<string[]> {
-  const oldestKept = utcDate(now - TRASH_FOLDER_DAYS * 86_400_000)
-  const names = await fsp.readdir(trashFolder()).catch(() => [] as string[])
-  const purged: string[] = []
-  for (const name of names.sort()) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(name) || name >= oldestKept) continue
-    const day = path.join(trashFolder(), name)
-    if (!(await fsp.lstat(day).catch(() => null))?.isDirectory()) continue // never follows a symlink
-    await fsp.rm(day, { recursive: true, force: true }).then(() => purged.push(name), () => {})
+export async function keepPreviousApps(appBundle?: string): Promise<string[]> {
+  const copies: Array<{ path: string; version: string; failed: boolean }> = []
+  const scan = (dir: string, pattern: RegExp) => {
+    for (const name of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+      const match = pattern.exec(name)
+      if (match) copies.push({ path: path.join(dir, name), version: match[1]!, failed: name.includes('-failed-') })
+    }
   }
-  return purged
+  scan(previousAppsDir(), /^Story Studio KH\.app-(\d+(?:\.\d+)*)/)
+  if (appBundle) scan(path.dirname(appBundle), /^\.Story Studio KH\.app-(\d+(?:\.\d+)*)-(?:previous|failed-)/)
+  const kept = copies.filter(copy => !copy.failed)
+    .sort((a, b) => compareVersions(b.version, a.version) || b.path.localeCompare(a.path))
+    .slice(0, PREVIOUS_APPS_KEPT)
+  const running = (p: string) => (!!appBundle && path.resolve(p) === path.resolve(appBundle))
+    || path.resolve(process.execPath).startsWith(path.resolve(p) + path.sep)
+  const moved: string[] = []
+  for (const copy of copies) {
+    if (kept.includes(copy) || running(copy.path)) continue
+    try { await toTrash(copy.path, 'app'); moved.push(copy.path) } catch (error: any) {
+      console.warn(`[app-update] left ${copy.path} in place: ${error?.message || error}`)
+    }
+  }
+  return moved
+}
+
+/**
+ * Retire the old `<data>/Trash Folder`: move each thing in it into Story's Trash
+ * (`_story-studio/trash-folder/`), once. The old helper's rollback copies
+ * (`<date>/app/Story Studio KH.app-*`) are previous versions, not Trash: they go to `previous-apps`
+ * first (same volume), where `keepPreviousApps` keeps the last two; a day whose copy could not go
+ * there stays put. Renames only, collision-safe names, nothing deleted; emptied folders are removed
+ * only when empty, so a second run finds nothing.
+ */
+export async function migrateTrashFolder(): Promise<string[]> {
+  const moved: string[] = []
+  const root = trashFolder()
+  for (const name of fs.existsSync(root) ? fs.readdirSync(root) : []) {
+    if (name === '.DS_Store') continue
+    const day = path.join(root, name)
+    const apps = path.join(day, 'app')
+    let parked = true
+    for (const app of fs.statSync(apps, { throwIfNoEntry: false })?.isDirectory() ? fs.readdirSync(apps) : []) {
+      if (!app.startsWith('Story Studio KH.app-')) continue
+      try {
+        fs.mkdirSync(previousAppsDir(), { recursive: true })
+        let to = path.join(previousAppsDir(), app)
+        if (fs.existsSync(to)) to += `-${Date.now()}`
+        fs.renameSync(path.join(apps, app), to)
+      } catch (error: any) {
+        parked = false
+        console.warn(`[app-update] left ${path.join(apps, app)} in the old Trash Folder: ${error?.message || error}`)
+      }
+    }
+    if (!parked) continue
+    for (const dir of [apps, day]) { try { fs.rmdirSync(dir) } catch { /* not empty, or not there */ } }
+    if (!fs.existsSync(day)) continue
+    try { await toTrash(path.join(root, name), 'trash-folder'); moved.push(name) } catch (error: any) {
+      console.warn(`[app-update] left ${path.join(root, name)} in the old Trash Folder: ${error?.message || error}`)
+    }
+  }
+  try { fs.rmdirSync(root) } catch { /* not there, or something stayed */ }
+  return moved
 }
 function statePath(): string { return path.join(updateDir(), 'state.json') }
 function resultPath(): string { return path.join(updateDir(), 'helper-result.json') }
@@ -207,8 +260,9 @@ export function compareVersions(a: string, b: string): number {
 
 /**
  * The detached swap helper. Inputs arrive as `SU_*` environment variables, so nothing is quoted
- * into the script. The replaced app and a failed new one go to `SU_TRASH` (today's Trash Folder),
- * by a same-volume rename only; see the one exception below for a Trash Folder on another volume.
+ * into the script. The replaced app and a failed new one go to `SU_KEEP` (`previous-apps`) by a
+ * same-volume rename only, or wait beside the app when that folder is on another volume. The
+ * helper never deletes anything; `keepPreviousApps` moves the surplus into Story's Trash.
  */
 export function helperScript(): string {
   return `#!/bin/bash
@@ -238,24 +292,21 @@ healthy() {
 }
 
 case "$SU_TARGET" in *.app) ;; *) exit 2 ;; esac
-[ -d "$SU_STAGED" ] && [ -n "$SU_TRASH" ] && [ -n "$SU_VERSION" ] || exit 2
+[ -d "$SU_STAGED" ] && [ -n "$SU_KEEP" ] && [ -n "$SU_VERSION" ] || exit 2
 log "update $SU_OLD_VERSION -> $SU_VERSION: waiting for pid $SU_PID to quit"
 for _ in $(seq 1 "\${SU_QUIT_WAIT:-300}"); do kill -0 "$SU_PID" 2>/dev/null || break; sleep 1; done
 if kill -0 "$SU_PID" 2>/dev/null; then result failed "Story Studio did not quit, so nothing was replaced."; exit 1; fi
 
-if ! mkdir -p "$SU_TRASH"; then result failed "Could not create $SU_TRASH; nothing was replaced."; relaunch; exit 1; fi
-KEEP="$SU_TRASH/Story Studio KH.app-$SU_OLD_VERSION"
-FAILED="$SU_TRASH/Story Studio KH.app-$SU_VERSION-failed-$(date +%Y%m%d%H%M%S)"
-APART=
-# ponytail: a Trash Folder on another volume than the app would make every mv here a multi-GB copy.
-# Then, as the Hub installer does, the old app waits beside the target (same volume, still the rollback
-# copy) and is deleted only once the new one reported healthy; a failed new one is deleted too.
-# The single case where Story deletes an app without the 15 days; same-volume is the normal one.
-if [ "$(stat -f %d "$(dirname "$SU_TARGET")")" != "$(stat -f %d "$SU_TRASH")" ]; then
-  APART=1
+if ! mkdir -p "$SU_KEEP"; then result failed "Could not create $SU_KEEP; nothing was replaced."; relaunch; exit 1; fi
+KEEP="$SU_KEEP/Story Studio KH.app-$SU_OLD_VERSION"
+FAILED="$SU_KEEP/Story Studio KH.app-$SU_VERSION-failed-$(date +%Y%m%d%H%M%S)"
+# A previous-apps folder on another volume than the app would make every mv here a multi-GB copy.
+# Then the old app (and a failed new one) waits beside the target instead, hidden; it is never
+# deleted here. Story moves it into its Trash once it is no longer one of the last two versions.
+if [ "$(stat -f %d "$(dirname "$SU_TARGET")")" != "$(stat -f %d "$SU_KEEP")" ]; then
   KEEP="$(dirname "$SU_TARGET")/.Story Studio KH.app-$SU_OLD_VERSION-previous"
   FAILED="$(dirname "$SU_TARGET")/.Story Studio KH.app-$SU_VERSION-failed-$(date +%Y%m%d%H%M%S)"
-  log "the Trash Folder is on another volume; the previous app waits at $KEEP until $SU_VERSION is healthy"
+  log "previous-apps is on another volume; the previous app stays at $KEEP"
 fi
 [ -e "$KEEP" ] && KEEP="$KEEP-$(date +%Y%m%d%H%M%S)"
 if ! mv "$SU_TARGET" "$KEEP"; then
@@ -271,7 +322,6 @@ log "swapped; the previous app is kept at $KEEP"
 relaunch
 for _ in $(seq 1 "\${SU_HEALTH_SECONDS:-${HEALTH_SECONDS}}"); do
   if healthy; then
-    [ -n "$APART" ] && rm -rf "$KEEP" && log "removed the previous app at $KEEP (another volume than the Trash Folder)"
     result installed "$SU_VERSION is running."; exit 0
   fi
   sleep 1
@@ -282,7 +332,6 @@ pkill -TERM -f "$SU_TARGET/Contents/MacOS/" 2>/dev/null
 for _ in $(seq 1 60); do pgrep -f "$SU_TARGET/Contents/MacOS/" >/dev/null || break; sleep 1; done
 pkill -KILL -f "$SU_TARGET/Contents/MacOS/" 2>/dev/null
 if mv "$SU_TARGET" "$FAILED" && mv "$KEEP" "$SU_TARGET"; then
-  [ -n "$APART" ] && rm -rf "$FAILED"
   result rolled_back "$SU_VERSION did not start within \${SU_HEALTH_SECONDS:-${HEALTH_SECONDS}} seconds; $SU_OLD_VERSION is back."
 else
   result failed "$SU_VERSION did not start and the previous app could not be put back; it is at $KEEP."
@@ -315,28 +364,18 @@ function patchState(patch: Partial<UpdateState>): UpdateState {
 }
 
 /**
- * Move something aside, never delete it: into `_trash/<bucket>/`, or with `selfEmptying` into
- * today's Trash Folder (`<UTC date>/<bucket>/`), which `purgeTrashFolder` empties after 15 days.
+ * Move something aside, never delete it: Story's one Trash (`<Library>/_trash/_story-studio/<bucket>`);
+ * the app's own `_trash` only when the Library is on another drive (a rename never crosses drives).
+ * Both record the move for Restore and never replace what is already there.
  */
-/** Into today's self-emptying Trash Folder (`<UTC date>/<bucket>/`): Video Assembly's finished render segments. */
-export function moveToTrashFolder(target: string, bucket: string): Promise<void> {
-  return toTrash(target, bucket, true)
-}
-
-async function toTrash(target: string, bucket: string, selfEmptying = false): Promise<void> {
+async function toTrash(target: string, bucket: string): Promise<void> {
   if (!fs.existsSync(target)) return
-  if (!selfEmptying) {
-    // Story's one Trash (`<Library>/_trash/_story-studio/<bucket>`); the app's own `_trash` only
-    // when the Library is on another drive (a rename never crosses drives).
-    const { projectsRoot } = await import('./project-manager.js')
-    try {
-      moveToTrashSync(target, path.join(libraryTrashDir(projectsRoot()), APP_TRASH, bucket, path.basename(target)), bucket)
-      return
-    } catch (error: any) { if (error?.code !== 'EXDEV') throw error }
-  }
-  const dir = selfEmptying ? path.join(trashFolder(), utcDate(Date.now()), bucket) : path.join(trashDir(), bucket)
-  await fsp.mkdir(dir, { recursive: true })
-  await fsp.rename(target, path.join(dir, `${path.basename(target)}-${Date.now()}`))
+  const { projectsRoot } = await import('./project-manager.js')
+  try {
+    moveToTrashSync(target, path.join(libraryTrashDir(projectsRoot()), APP_TRASH, bucket, path.basename(target)), bucket)
+    return
+  } catch (error: any) { if (error?.code !== 'EXDEV') throw error }
+  moveToTrashSync(target, path.join(trashDir(), bucket, path.basename(target)), bucket)
 }
 
 // ── Runtime wiring ─────────────────────────────────────────────────────────
@@ -410,7 +449,7 @@ export async function onBoot(options: UpdaterOptions): Promise<UpdateState> {
     const next = patchState({ phase: 'installed', installed_at: Date.now(), error: null, staged_app: null,
       install_requested: false, held: false })
     await releaseOurPause()
-    await toTrash(path.join(updateDir(), 'staging', target), 'app-update', true).catch(() => {})
+    await toTrash(path.join(updateDir(), 'staging', target), 'app-update').catch(() => {})
     return next
   }
   let detail = `${target} did not start; ${options.currentVersion} is running.`
@@ -590,8 +629,8 @@ async function download(release: ReleaseDescriptor, file: string): Promise<boole
 
 async function stage(release: ReleaseDescriptor, requestId: string | null = null): Promise<void> {
   const dir = path.join(updateDir(), 'staging', release.version)
-  // Each download is ~240 MB; its leftovers go to the self-emptying Trash Folder, not `_trash`.
-  await toTrash(dir, 'app-update', true)
+  // Each download is ~240 MB; its leftovers go to Story's Trash, where the owner frees the space.
+  await toTrash(dir, 'app-update')
   await fsp.mkdir(dir, { recursive: true })
   patchState({ phase: 'downloading', release, error: null, staged_app: null, held: false,
     gateway_update_request_id: requestId })
@@ -772,7 +811,7 @@ export async function install(): Promise<boolean> {
       SU_PID: String(process.pid),
       SU_TARGET: o.appBundle,
       SU_STAGED: state.staged_app,
-      SU_TRASH: appTrashDir(),
+      SU_KEEP: previousAppsDir(),
       SU_STATE: statePath(),
       SU_RESULT: resultPath(),
       SU_LOG: path.join(updateDir(), 'helper.log'),
@@ -798,9 +837,12 @@ export async function install(): Promise<boolean> {
 let timer: NodeJS.Timeout | null = null
 /** Boot settle, a check-in shortly after startup, then every 30 minutes (and on Check Now). */
 export async function startAppUpdater(options: UpdaterOptions): Promise<void> {
-  await onBoot(options)
-  // The Trash Folder empties itself shortly after startup and on every check (it never throws).
-  const tick = () => { void purgeTrashFolder(); void checkNow() }
+  const booted = await onBoot(options)
+  // Once per launch (after an install too): moves only, never on a timer. Not after a failed boot: the
+  // previous build's helper may still roll back from its KEEP copy in the Trash Folder.
+  if (booted.phase !== 'failed') await migrateTrashFolder().catch(error => console.warn('[app-update] Trash Folder migration:', error))
+  await keepPreviousApps(options.appBundle).catch(error => console.warn('[app-update] previous apps:', error))
+  const tick = () => { void checkNow() }
   setTimeout(tick, 15_000).unref()
   timer = setInterval(tick, CHECK_INTERVAL_MS)
   timer.unref()

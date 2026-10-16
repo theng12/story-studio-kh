@@ -24,6 +24,9 @@ import {
   verifySession,
   parseCookieHeader,
   checkLoginRateLimit,
+  isOwnerRequest,
+  OWNER_WINDOW_HEADER,
+  ownerWindowSecret,
 } from '../lib/auth-session.js'
 
 describe('hashPassword / verifyPassword', () => {
@@ -148,5 +151,29 @@ describe('checkLoginRateLimit', () => {
     assert.equal(checkLoginRateLimit(ipA, 5), false, 'ipA should be blocked')
     // ipB still has its full budget.
     assert.equal(checkLoginRateLimit(ipB, 5), true, 'ipB should be allowed')
+  })
+})
+
+describe('isOwnerRequest (owner-only Trash actions)', () => {
+  const auth = { username: 'owner', password_hash: '', session_secret: 'a'.repeat(64), session_ttl_hours: 1, login_max_attempts_per_minute: 30 }
+  const cookie = (username: string, secret = auth.session_secret) =>
+    `ssk_session=${signSession({ username, exp: Math.floor(Date.now() / 1000) + 60 }, secret)}`
+
+  test('a keyless request with no session and no window secret is not the owner, loopback or not', () => {
+    assert.equal(isOwnerRequest({ headers: {}, ip: '127.0.0.1' }, auth), false)
+    assert.equal(isOwnerRequest({ headers: {} }, undefined), false)
+    assert.equal(isOwnerRequest({ headers: { [OWNER_WINDOW_HEADER]: 'guess' } }, auth), false)
+  })
+
+  test('the app window\'s per-boot secret is the owner, in desktop mode too (no auth configured)', () => {
+    assert.equal(isOwnerRequest({ headers: { [OWNER_WINDOW_HEADER]: ownerWindowSecret() } }, undefined), true)
+    assert.ok(ownerWindowSecret().length >= 43)
+  })
+
+  test('a valid session cookie for the configured user is the owner; another user, secret or no secret is not', () => {
+    assert.equal(isOwnerRequest({ headers: { cookie: cookie('owner') } }, auth), true)
+    assert.equal(isOwnerRequest({ headers: { cookie: cookie('someone') } }, auth), false)
+    assert.equal(isOwnerRequest({ headers: { cookie: cookie('owner', 'b'.repeat(64)) } }, auth), false)
+    assert.equal(isOwnerRequest({ headers: { cookie: cookie('owner') } }, { ...auth, session_secret: '' }), false)
   })
 })

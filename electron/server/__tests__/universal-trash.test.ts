@@ -127,33 +127,28 @@ describe('moving the old per-channel trashes', () => {
   })
 })
 
-describe('Empty Trash is the owner\'s alone', () => {
-  test('a request with an automation key gets 403 (valid or not), a missing confirmation 400, and nothing is deleted until the owner types it', async () => {
-    const { router, EMPTY_TRASH_CONFIRMATION } = await import('../routes/trash.js')
+describe('Empty Trash is retired (owner decision 2026-10-16)', () => {
+  test('POST /trash/empty answers 410 pointing to Delete all permanently and deletes nothing, whatever the body', async () => {
+    const { router } = await import('../routes/trash.js')
     const app = express()
     app.use(express.json())
-    app.use((req: any, _res, next) => { if (req.headers['x-test-via-key']) req.user = { via: 'automation_key' }; next() })
     app.use('/api', router)
     const { slug } = await pm.createProject({ name: 'Empty Channel' })
     const projectDir = pm.getProjectDir(slug)!
     const file = path.join(projectDir, 'x.txt')
     await write(file, 'bytes')
     const landed = move.moveToTrashSync(file, path.join(move.trashRootFor(projectDir, projectDir, slug), 'x.txt'), 'other')
+    const unindexed = path.join(libraryTrash(), slug, 'legacy', 'old.txt')
+    await write(unindexed, 'old')
 
-    for (const headers of [{ Authorization: 'Bearer sk-anything' }, { 'X-Story-Key': 'whatever' }, { 'x-test-via-key': '1' }]) {
-      const refused = await request(app).post('/api/trash/empty').set(headers).send({ confirm: EMPTY_TRASH_CONFIRMATION })
-      assert.equal(refused.status, 403)
-      assert.match(refused.body.detail, /Only the owner/)
+    for (const body of [{ confirm: 'EMPTY TRASH' }, {}, { confirm: true }]) {
+      const gone = await request(app).post('/api/trash/empty').send(body)
+      assert.equal(gone.status, 410)
+      assert.match(gone.body.detail, /Delete all permanently/)
     }
-    assert.equal((await request(app).post('/api/trash/empty').send({})).status, 400)
-    assert.equal((await request(app).post('/api/trash/empty').send({ confirm: 'empty' })).status, 400)
     assert.equal(existsSync(landed), true, 'still in the Trash')
-
-    const emptied = await request(app).post('/api/trash/empty').send({ confirm: EMPTY_TRASH_CONFIRMATION })
-    assert.equal(emptied.status, 200)
-    assert.equal(existsSync(landed), false)
-    assert.ok(emptied.body.bytes_freed >= 5)
-    assert.equal(existsSync(path.join(libraryTrash(), trash.MIGRATION_LOG)), true, 'the migration record stays')
+    assert.equal(existsSync(unindexed), true, 'unindexed items too')
+    assert.equal('emptyTrash' in trash, false, 'the delete-every-root service is gone')
   })
 })
 

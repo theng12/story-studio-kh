@@ -16,6 +16,12 @@ import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import * as updater from '../services/app-update.js'
 
+/** `<Library>/_trash/_story-studio` in the test's own data folder. */
+async function libraryAppTrash(): Promise<string> {
+  const { projectsRoot } = await import('../services/project-manager.js')
+  return path.join(projectsRoot(), '_trash', '_story-studio')
+}
+
 const { publicKey, privateKey } = generateKeyPairSync('ed25519')
 const PUB = (publicKey.export({ type: 'spki', format: 'der' }) as Buffer).subarray(12).toString('base64')
 
@@ -502,7 +508,7 @@ describe('boot settle', () => {
     assert.equal(updater.readState().we_paused, false)
   })
 
-  test('download leftovers go to the self-emptying Trash Folder; what is already in _trash stays', async () => {
+  test('download leftovers move into Story\'s Trash (Library _story-studio/app-update); what is already in _trash stays', async () => {
     const staging = path.join(updater.updateDir(), 'staging', '1.4.258')
     fs.mkdirSync(staging, { recursive: true })
     fs.writeFileSync(path.join(staging, 'Story Studio KH 1.4.258.zip'), 'x')
@@ -512,8 +518,8 @@ describe('boot settle', () => {
     const fetch = (async () => new Response(JSON.stringify({ status: 'ok', version: '1.4.258', boot_complete: true }))) as any
     await updater.onBoot(options(fakeQueue(), { currentVersion: '1.4.258', fetch }))
     assert.equal(fs.existsSync(staging), false)
-    const today = path.join(updater.trashFolder(), new Date().toISOString().slice(0, 10), 'app-update')
-    assert.equal(fs.readdirSync(today).filter(name => name.startsWith('1.4.258-')).length, 1)
+    assert.equal(fs.readFileSync(path.join(await libraryAppTrash(), 'app-update', '1.4.258', 'Story Studio KH 1.4.258.zip'), 'utf8'), 'x')
+    assert.equal(fs.existsSync(updater.trashFolder()), false, 'the retired Trash Folder is not used')
     assert.deepEqual(fs.readdirSync(path.join(updater.trashDir(), 'app-update')), ['staging-1.4.257-1'], '_trash is left alone')
   })
 
@@ -564,20 +570,20 @@ describe('swap helper (temp dir)', () => {
     return {
       target, staged, state,
       env: {
-        SU_PID: String(quitter.pid), SU_TARGET: target, SU_STAGED: staged, SU_TRASH: updater.appTrashDir(),
+        SU_PID: String(quitter.pid), SU_TARGET: target, SU_STAGED: staged, SU_KEEP: updater.previousAppsDir(),
         SU_STATE: state, SU_RESULT: path.join(tmp.dir, 'result.json'), SU_LOG: path.join(tmp.dir, 'helper.log'),
         SU_VERSION: '1.4.258', SU_OLD_VERSION: '1.4.257', SU_LABEL: 'test.never.loaded', SU_HEALTH_SECONDS: '3',
       },
     }
   }
 
-  test('waits for the app to quit, keeps the old app in the Trash Folder, swaps, relaunches, sees it healthy', async () => {
+  test('waits for the app to quit, keeps the old app in previous-apps, swaps, relaunches, sees it healthy', async () => {
     const l = layout()
     // The "relaunched app" reports healthy the way the real one does: by writing its state file.
     const relaunch = `printf '{"phase":"installed","release":{"version":"1.4.258"}}' > ${JSON.stringify(l.state)}`
     await runHelper({ ...l.env, SU_RELAUNCH: relaunch })
     assert.equal(plistVersion(l.target), '1.4.258')
-    assert.equal(plistVersion(path.join(updater.appTrashDir(), 'Story Studio KH.app-1.4.257')), '1.4.257')
+    assert.equal(plistVersion(path.join(updater.previousAppsDir(), 'Story Studio KH.app-1.4.257')), '1.4.257')
     assert.equal(fs.existsSync(updater.trashDir()), false, 'the owner\'s _trash is not used')
     assert.equal(JSON.parse(fs.readFileSync(l.env.SU_RESULT, 'utf8')).outcome, 'installed')
     assert.equal(fs.existsSync(l.staged), false)
@@ -587,8 +593,8 @@ describe('swap helper (temp dir)', () => {
     const l = layout()
     await runHelper({ ...l.env, SU_RELAUNCH: `echo relaunch "$1" >> ${JSON.stringify(path.join(tmp.dir, 'relaunches'))}` })
     assert.equal(plistVersion(l.target), '1.4.257')
-    const trash = fs.readdirSync(updater.appTrashDir())
-    assert.ok(trash.some(n => n.startsWith('Story Studio KH.app-1.4.258-failed-')), trash.join(','))
+    const kept = fs.readdirSync(updater.previousAppsDir())
+    assert.ok(kept.some(n => n.startsWith('Story Studio KH.app-1.4.258-failed-')), kept.join(','))
     assert.equal(JSON.parse(fs.readFileSync(l.env.SU_RESULT, 'utf8')).outcome, 'rolled_back')
     // The relaunch command runs in the background; give the second one a moment to land.
     const relaunches = () => fs.readFileSync(path.join(tmp.dir, 'relaunches'), 'utf8').trim().split('\n').length
@@ -596,7 +602,7 @@ describe('swap helper (temp dir)', () => {
     assert.equal(relaunches(), 2)
   })
 
-  test('a Trash Folder on another volume is never copied into: the old app waits beside the target', async () => {
+  test('previous-apps on another volume is never copied into, and nothing is deleted: the old app stays beside the target', async () => {
     // A small disk image stands in for a data folder on another drive than /Applications.
     const image = path.join(tmp.dir, 'other.dmg')
     const mount = path.join(tmp.dir, 'other-volume')
@@ -604,30 +610,34 @@ describe('swap helper (temp dir)', () => {
     execFileSync('/usr/bin/hdiutil', ['create', '-quiet', '-size', '4m', '-fs', 'HFS+', '-volname', 'other', image])
     execFileSync('/usr/bin/hdiutil', ['attach', '-quiet', '-nobrowse', '-noautoopen', '-mountpoint', mount, image])
     try {
-      const trash = path.join(mount, 'Trash Folder', '2026-10-08', 'app')
+      const keep = path.join(mount, 'previous-apps')
       const apps = path.join(tmp.dir, 'Applications')
-      // Healthy: the previous app waited beside the target and is then removed; nothing crossed over.
+      // Healthy: the previous app waited beside the target and STAYS there; nothing crossed over.
       let l = layout()
       const healthy = `printf '{"phase":"installed","release":{"version":"1.4.258"}}' > ${JSON.stringify(l.state)}`
-      await runHelper({ ...l.env, SU_TRASH: trash, SU_RELAUNCH: healthy })
+      await runHelper({ ...l.env, SU_KEEP: keep, SU_RELAUNCH: healthy })
       assert.equal(JSON.parse(fs.readFileSync(l.env.SU_RESULT, 'utf8')).outcome, 'installed')
       assert.equal(plistVersion(l.target), '1.4.258')
-      assert.deepEqual(fs.readdirSync(apps), ['Story Studio KH.app'])
-      assert.deepEqual(fs.readdirSync(trash), [])
-      // Never healthy: rollback still finds the previous app beside the target.
+      assert.deepEqual(fs.readdirSync(apps).sort(), ['.Story Studio KH.app-1.4.257-previous', 'Story Studio KH.app'])
+      assert.equal(plistVersion(path.join(apps, '.Story Studio KH.app-1.4.257-previous')), '1.4.257')
+      assert.deepEqual(fs.readdirSync(keep), [])
+      // Never healthy: rollback finds the previous app beside the target; the failed one stays beside it too.
       fs.renameSync(l.target, path.join(tmp.dir, 'spent.app'))
       l = layout()
-      await runHelper({ ...l.env, SU_TRASH: trash, SU_RELAUNCH: 'true' })
+      await runHelper({ ...l.env, SU_KEEP: keep, SU_RELAUNCH: 'true' })
       assert.equal(JSON.parse(fs.readFileSync(l.env.SU_RESULT, 'utf8')).outcome, 'rolled_back')
       assert.equal(plistVersion(l.target), '1.4.257')
-      assert.deepEqual(fs.readdirSync(apps), ['Story Studio KH.app'])
-      assert.deepEqual(fs.readdirSync(trash), [])
+      const names = fs.readdirSync(apps).sort()
+      assert.equal(names.length, 3, names.join(','))
+      assert.equal(names[0], '.Story Studio KH.app-1.4.257-previous', 'the first run\'s copy is still there')
+      assert.match(names[1]!, /^\.Story Studio KH\.app-1\.4\.258-failed-/)
+      assert.deepEqual(fs.readdirSync(keep), [])
     } finally {
       execFileSync('/usr/bin/hdiutil', ['detach', '-quiet', '-force', mount])
     }
   })
 
-  test('install() hands the helper today\'s Trash Folder, and the old app lands there', async () => {
+  test('install() hands the helper previous-apps, and the old app lands there', async () => {
     const target = makeApp(path.join(tmp.dir, 'Applications'), '1.4.257')
     const staged = makeApp(fs.mkdtempSync(path.join(tmp.dir, 'staged-')), '1.4.258')
     updater.writeState({ phase: 'ready', release: signed(), staged_app: staged })
@@ -642,8 +652,8 @@ describe('swap helper (temp dir)', () => {
     await waitFor(() => fs.existsSync(result), { label: 'the helper result' })
     assert.equal(JSON.parse(fs.readFileSync(result, 'utf8')).outcome, 'installed')
     assert.equal(plistVersion(target), '1.4.258')
-    assert.match(updater.appTrashDir(), /Trash Folder\/\d{4}-\d{2}-\d{2}\/app$/)
-    assert.equal(plistVersion(path.join(updater.appTrashDir(), 'Story Studio KH.app-1.4.257')), '1.4.257')
+    assert.equal(updater.previousAppsDir(), path.join(updater.dataDir(), 'previous-apps'))
+    assert.equal(plistVersion(path.join(updater.previousAppsDir(), 'Story Studio KH.app-1.4.257')), '1.4.257')
     assert.equal(fs.existsSync(path.join(updater.trashDir(), 'app')), false)
   })
 
@@ -659,30 +669,89 @@ describe('swap helper (temp dir)', () => {
   })
 })
 
-describe('the self-emptying Trash Folder', () => {
-  test('only dated folders inside it older than 15 days are deleted; _trash and everything else stay', async () => {
-    const now = Date.parse('2026-10-08T12:00:00Z')
-    const put = (...p: string[]) => { fs.mkdirSync(path.join(...p), { recursive: true }); fs.writeFileSync(path.join(...p, 'f'), 'x') }
-    const tf = updater.trashFolder()
-    for (const day of ['2026-09-01', '2026-09-22', '2026-09-23', '2026-10-08']) put(tf, day, 'app', 'Story Studio KH.app-1')
-    put(tf, 'notes')                                      // not a date: not ours to judge
-    put(updater.trashDir(), 'app', 'Story Studio KH.app-1.4.250') // the owner's _trash
-    put(updater.trashDir(), '2026-01-01')                 // a dated name in _trash is still his
-    const outside = path.join(tmp.dir, 'outside'); put(outside)
-    fs.symlinkSync(outside, path.join(tf, '2026-01-02')) // a dated symlink is never followed
-    fs.writeFileSync(path.join(tf, '2026-01-03'), 'a file, not a folder')
+describe('previous app versions (owner 2026-10-16: keep the last 2, move older ones to Story\'s Trash)', () => {
+  const put = (...p: string[]) => { fs.mkdirSync(path.join(...p), { recursive: true }); fs.writeFileSync(path.join(...p, 'f'), p.at(-1)!) }
 
-    assert.deepEqual(await updater.purgeTrashFolder(now), ['2026-09-01', '2026-09-22'])
-    assert.deepEqual(fs.readdirSync(tf).sort(), ['2026-01-02', '2026-01-03', '2026-09-23', '2026-10-08', 'notes'])
-    assert.ok(fs.existsSync(path.join(updater.trashDir(), 'app', 'Story Studio KH.app-1.4.250', 'f')))
-    assert.ok(fs.existsSync(path.join(updater.trashDir(), '2026-01-01', 'f')))
-    assert.ok(fs.existsSync(path.join(outside, 'f')))
-    assert.equal(updater.appTrashDir(now), path.join(tf, '2026-10-08', 'app'))
-    assert.equal(path.dirname(tf), updater.dataDir())
+  test('exactly 2 previous versions stay; the 3rd (and a failed one) move into the Library _trash, recorded for Restore', async () => {
+    const keep = updater.previousAppsDir()
+    for (const name of ['Story Studio KH.app-1.4.300', 'Story Studio KH.app-1.4.305', 'Story Studio KH.app-1.4.299', 'Story Studio KH.app-1.4.306-failed-20261016120000']) put(keep, name)
+    const moved = await updater.keepPreviousApps(path.join(tmp.dir, 'Applications', 'Story Studio KH.app'))
+    assert.equal(moved.length, 2)
+    assert.deepEqual(fs.readdirSync(keep).sort(), ['Story Studio KH.app-1.4.300', 'Story Studio KH.app-1.4.305'])
+    const appTrash = path.join(await libraryAppTrash(), 'app')
+    assert.deepEqual(fs.readdirSync(appTrash).sort(), ['Story Studio KH.app-1.4.299', 'Story Studio KH.app-1.4.306-failed-20261016120000'])
+    assert.equal(fs.readFileSync(path.join(appTrash, 'Story Studio KH.app-1.4.299', 'f'), 'utf8'), 'Story Studio KH.app-1.4.299')
+    const index = fs.readFileSync(path.join(path.dirname(path.dirname(appTrash)), '.trash-index.jsonl'), 'utf8')
+    assert.match(index, /Story Studio KH\.app-1\.4\.299/)
+    // A copy left beside the app (previous-apps on another volume) counts as one of the versions.
+    put(tmp.dir, 'Applications', '.Story Studio KH.app-1.4.306-previous')
+    await updater.keepPreviousApps(path.join(tmp.dir, 'Applications', 'Story Studio KH.app'))
+    assert.deepEqual(fs.readdirSync(keep), ['Story Studio KH.app-1.4.305'])
+    assert.ok(fs.readdirSync(appTrash).includes('Story Studio KH.app-1.4.300'))
+    assert.equal(fs.readdirSync(path.join(tmp.dir, 'Applications')).length, 1)
   })
 
-  test('no Trash Folder yet is nothing to do', async () => {
-    assert.deepEqual(await updater.purgeTrashFolder(), [])
+  test('the old Trash Folder is migrated into the Library _trash once: idempotent, collision-safe, nothing deleted; its app copy goes to previous-apps', async () => {
+    const tf = updater.trashFolder()
+    put(tf, '2026-10-01', 'app', 'Story Studio KH.app-1.4.280')
+    put(tf, '2026-10-01', 'app-update', '1.4.279')
+    put(tf, '2026-10-02', 'app-update', '1.4.281')
+    const target = path.join(await libraryAppTrash(), 'trash-folder')
+    put(target, '2026-10-01') // something already there by that name is never replaced
+    assert.deepEqual((await updater.migrateTrashFolder()).sort(), ['2026-10-01', '2026-10-02'])
+    assert.equal(fs.existsSync(tf), false, 'the emptied folder is gone; it was empty')
+    const names = fs.readdirSync(target).sort()
+    assert.equal(names.length, 3, names.join(','))
+    assert.equal(fs.readFileSync(path.join(target, '2026-10-01', 'f'), 'utf8'), '2026-10-01', 'the earlier one is untouched')
+    const migrated = names.find(n => /^2026-10-01\.\d+/.test(n))!
+    assert.ok(migrated, names.join(','))
+    assert.equal(fs.existsSync(path.join(target, migrated, 'app')), false, 'the app copy is not in the Trash')
+    assert.equal(fs.readFileSync(path.join(target, migrated, 'app-update', '1.4.279', 'f'), 'utf8'), '1.4.279')
+    assert.equal(fs.readFileSync(path.join(updater.previousAppsDir(), 'Story Studio KH.app-1.4.280', 'f'), 'utf8'), 'Story Studio KH.app-1.4.280')
+    assert.equal(fs.readFileSync(path.join(target, '2026-10-02', 'app-update', '1.4.281', 'f'), 'utf8'), '1.4.281')
+    const snapshot = JSON.stringify(names)
+    assert.deepEqual(await updater.migrateTrashFolder(), [])
+    assert.equal(JSON.stringify(fs.readdirSync(target).sort()), snapshot, 'a second run moves nothing')
+  })
+
+  test('the old helper\'s rollback copies become previous versions, not deletable Trash: the last 2 stay in previous-apps', async () => {
+    const tf = updater.trashFolder()
+    put(tf, '2026-10-01', 'app', 'Story Studio KH.app-1.4.300')
+    put(tf, '2026-10-03', 'app', 'Story Studio KH.app-1.4.305')
+    put(tf, '2026-10-03', 'app-update', '1.4.306')
+    put(tf, '2026-10-05', 'app', 'Story Studio KH.app-1.4.306')
+    put(updater.previousAppsDir(), 'Story Studio KH.app-1.4.306') // the same name already there: never replaced
+    assert.deepEqual(await updater.migrateTrashFolder(), ['2026-10-03'], 'only what is not an app copy goes to the Trash')
+    assert.equal(fs.existsSync(tf), false)
+    const parked = fs.readdirSync(updater.previousAppsDir()).sort()
+    assert.equal(parked.length, 4, parked.join(','))
+    assert.ok(parked.some(n => /^Story Studio KH\.app-1\.4\.306-\d+$/.test(n)), parked.join(','))
+    const trashFolderCopy = path.join(await libraryAppTrash(), 'trash-folder')
+    assert.deepEqual(fs.readdirSync(trashFolderCopy), ['2026-10-03'])
+    assert.deepEqual(fs.readdirSync(path.join(trashFolderCopy, '2026-10-03')), ['app-update'])
+    await updater.keepPreviousApps(path.join(tmp.dir, 'Applications', 'Story Studio KH.app'))
+    assert.equal(fs.readdirSync(updater.previousAppsDir()).length, 2, 'the last 2 stay')
+    assert.ok(fs.readdirSync(path.join(await libraryAppTrash(), 'app')).includes('Story Studio KH.app-1.4.300'))
+  })
+
+  test('the running app is never moved, even an old copy launched from previous-apps', async () => {
+    const keep = updater.previousAppsDir()
+    for (const v of ['1.4.290', '1.4.300', '1.4.305']) put(keep, `Story Studio KH.app-${v}`)
+    const running = path.join(keep, 'Story Studio KH.app-1.4.290')
+    assert.deepEqual(await updater.keepPreviousApps(running), [], 'appBundle is the old copy')
+    const execPath = process.execPath
+    try {
+      process.execPath = path.join(running, 'Contents', 'MacOS', 'Story Studio KH')
+      assert.deepEqual(await updater.keepPreviousApps(path.join(tmp.dir, 'Applications', 'Story Studio KH.app')), [], 'the process runs from it')
+    } finally { process.execPath = execPath }
+    assert.equal(fs.readdirSync(keep).length, 3)
+    assert.deepEqual(await updater.keepPreviousApps(path.join(tmp.dir, 'Applications', 'Story Studio KH.app')), [running], 'once it no longer runs, it moves')
+  })
+
+  test('app-update.ts deletes nothing: no rm, rmSync, unlink or shell rm anywhere in it (the helper script included)', () => {
+    // rmdir/rmdirSync stay allowed: they only remove an EMPTY folder (the mount point, the emptied Trash Folder).
+    const source = fs.readFileSync(new URL('../services/app-update.ts', import.meta.url), 'utf8')
+    assert.doesNotMatch(source, /\bfsp?\.(rm|rmSync|unlink|unlinkSync)\(|\brm -|\bTRASH_FOLDER_DAYS\b|purgeTrashFolder/)
   })
 })
 

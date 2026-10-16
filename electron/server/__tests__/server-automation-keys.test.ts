@@ -24,7 +24,7 @@ after(async () => {
   await isolated.cleanup()
 })
 
-const { buildRequireSession, readAutomationKeyHeader } = await import('../lib/auth-session.js')
+const { buildRequireSession, readAutomationKeyHeader, OWNER_WINDOW_HEADER, ownerWindowSecret } = await import('../lib/auth-session.js')
 const { getServerModeConfig } = await import('../lib/server-mode.js')
 const settings = await import('../services/app-settings.js')
 const { router: authRouter } = await import('../routes/auth.js')
@@ -154,6 +154,28 @@ test('a key cannot change sign-in settings, mint keys or revoke keys', async () 
   // The owner's own session still can.
   await request(app).delete(`/api/app-settings/server-mode/automation-keys/${other}`).set('x-test-peer', '127.0.0.1').expect(200)
   await request(app).put('/api/app-settings/server-mode/rate-limit').set('x-test-peer', '127.0.0.1')
+    .set(OWNER_WINDOW_HEADER, ownerWindowSecret()).send({ login_max_attempts_per_minute: 30 }).expect(200)
+})
+
+test('a keyless local process cannot reset the sign-in to make itself the owner', async () => {
+  const signIn = async () => JSON.parse(await fs.readFile(settingsFile, 'utf8')).server_mode.auth
+  const before = await signIn()
+  for (const req of [
+    request(app).put('/api/app-settings/server-mode/credentials').send({ username: 'owner', password: 'takeover-password' }),
+    request(app).put('/api/app-settings/server-mode/rate-limit').send({ login_max_attempts_per_minute: 1000 }),
+    request(app).post('/api/app-settings/server-mode/rotate-sessions'),
+  ]) {
+    const res = await req.set('x-test-peer', '127.0.0.1').expect(403)
+    assert.match(res.body.detail, /Only the owner/)
+  }
+  assert.deepEqual(await signIn(), before, 'password, secret and limits unchanged')
+  await request(app).post('/api/auth/login').set('x-test-peer', '127.0.0.1')
+    .send({ username: 'owner', password: 'takeover-password' }).expect(401)
+  // The owner's signed-in browser still can.
+  const login = await request(app).post('/api/auth/login').set('x-test-peer', '100.64.0.9')
+    .send({ username: 'owner', password: 'correct horse battery' }).expect(200)
+  const cookie = String(login.headers['set-cookie']).split(';')[0]
+  await request(app).put('/api/app-settings/server-mode/rate-limit').set('x-test-peer', '100.64.0.9').set('Cookie', cookie)
     .send({ login_max_attempts_per_minute: 30 }).expect(200)
 })
 

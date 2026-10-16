@@ -118,8 +118,8 @@ describe('what is using space', () => {
     await write(path.join(p.paths.video_assets_dir, `${p.code}_Scene01_v1.mp4`), 4000)
     await write(path.join(path.dirname(p.projectDir), '_trash', path.basename(p.projectDir), p.code, 'images', 'x.png'), 700)
     await write(path.join(path.dirname(other.projectDir), '_trash', path.basename(other.projectDir), 'y.png'), 900)
-    const { appTrashDir } = await import('../services/app-update.js')
-    await write(path.join(appTrashDir(), 'Story Studio KH.app-1.4.260', 'z'), 300)
+    const { previousAppsDir } = await import('../services/app-update.js')
+    await write(path.join(previousAppsDir(), 'Story Studio KH.app-1.4.260', 'z'), 300)
 
     const audit = await auditProjectStorage(p.slug)
     const row = audit.episodes.find(entry => entry.episode_code === p.code)!
@@ -132,7 +132,7 @@ describe('what is using space', () => {
     assert.equal(space.project_trash_bytes, 700)
     assert.equal(typeof space.library_trash_bytes, 'number', 'the fixture Library Trash is measurable')
     assert.ok(space.library_trash_bytes !== null && space.library_trash_bytes >= 1600, String(space.library_trash_bytes))
-    assert.equal(space.app_trash_bytes, 300, 'the self-emptying Trash Folder is its own figure')
+    assert.equal(space.app_trash_bytes, 300, 'the kept previous app versions are their own figure')
     assert.deepEqual(audit.space.project_trash_bytes, 700)
   })
 })

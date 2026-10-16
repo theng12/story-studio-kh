@@ -8,6 +8,8 @@
  */
 
 import { Router } from 'express'
+import { isOwnerRequest, readAutomationKeyHeader } from '../lib/auth-session.js'
+import { getServerModeConfig } from '../lib/server-mode.js'
 import { getNotifierSettings, setNotifierSettings } from '../services/job-notifier.js'
 import {
   listProviderKeys, setApiKey, clearApiKey, getApiKey,
@@ -884,6 +886,18 @@ function refuseAutomationKey(req: any, res: any, next: any) {
   next()
 }
 
+// Once a sign-in exists, changing it needs the owner (the app window or a signed-in browser), not
+// just any local process: the loopback bypass would otherwise let one reset the password, sign in
+// and pass every owner-only check (Trash: Delete permanently). First-time setup stays open.
+function requireOwnerOnceConfigured(req: any, res: any, next: any) {
+  const auth = getServerModeConfig()?.auth
+  if (!auth?.username || !auth.session_secret) return next()
+  if (readAutomationKeyHeader(req.headers || {}) !== undefined || !isOwnerRequest(req, auth)) {
+    return res.status(403).json({ detail: 'Only the owner can change sign-in settings, from Settings in the app or a signed-in browser.' })
+  }
+  next()
+}
+
 router.get('/app-settings/server-mode', async (_req, res) => {
   try {
     res.json(await getServerModeSettingsSafe())
@@ -920,7 +934,7 @@ router.put('/app-settings/server-mode', refuseAutomationKey, async (req, res) =>
   }
 })
 
-router.put('/app-settings/server-mode/credentials', refuseAutomationKey, async (req, res) => {
+router.put('/app-settings/server-mode/credentials', refuseAutomationKey, requireOwnerOnceConfigured, async (req, res) => {
   const username = typeof req.body?.username === 'string' ? req.body.username.trim() : ''
   const password = typeof req.body?.password === 'string' ? req.body.password : ''
   const session_ttl_hours = typeof req.body?.session_ttl_hours === 'number'
@@ -936,7 +950,7 @@ router.put('/app-settings/server-mode/credentials', refuseAutomationKey, async (
   }
 })
 
-router.put('/app-settings/server-mode/rate-limit', refuseAutomationKey, async (req, res) => {
+router.put('/app-settings/server-mode/rate-limit', refuseAutomationKey, requireOwnerOnceConfigured, async (req, res) => {
   const n = Number(req.body?.login_max_attempts_per_minute)
   if (!Number.isFinite(n) || n < 1 || n > 1000) {
     return res.status(400).json({ detail: 'login_max_attempts_per_minute must be a number between 1 and 1000' })
@@ -948,7 +962,7 @@ router.put('/app-settings/server-mode/rate-limit', refuseAutomationKey, async (r
   }
 })
 
-router.post('/app-settings/server-mode/rotate-sessions', refuseAutomationKey, async (_req, res) => {
+router.post('/app-settings/server-mode/rotate-sessions', refuseAutomationKey, requireOwnerOnceConfigured, async (_req, res) => {
   try {
     res.json(await rotateServerModeSessionSecret())
   } catch (e: any) {

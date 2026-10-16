@@ -102,7 +102,7 @@ describe('storage space summary timeout boundaries', () => {
 
     await writeFixture(path.join(libraryTrash, slug, 'test-fixtures', 'project-trash.bin'), 11)
     await writeFixture(path.join(projectDir, '_trash', 'test-fixtures', 'legacy-project-trash.bin'), 13)
-    await writeFixture(path.join(updater.trashFolder(), 'test-fixtures', 'app-trash.bin'), 17)
+    await writeFixture(path.join(updater.previousAppsDir(), 'test-fixtures', 'app-trash.bin'), 17)
     storageSpaceSummary = storage.storageSpaceSummary
     baselineSnapshot = await treeSnapshot(fixtureRoot)
   })

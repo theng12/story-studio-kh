@@ -14,11 +14,29 @@ test('the Trash page lists totals per channel and per kind, items with Restore, 
   assert.match(layout, /<NuxtLink to="\/trash" class="sidebar-utility"/)
 })
 
-test('Empty Trash needs the typed phrase on the page; nothing else calls it', () => {
-  assert.equal(page.match(/\/trash\/empty/g)?.length, 1, 'one call site')
-  assert.match(page, /const PHRASE = 'EMPTY TRASH'/)
-  assert.match(page, /:disabled="busy \|\| typed\.trim\(\) !== PHRASE" @click="emptyTrash"/)
-  assert.match(page, /async function emptyTrash\(\) \{\n  if \(typed\.value\.trim\(\) !== PHRASE \|\| emptying\.value\) return/)
+test('Empty Trash is retired (2026-10-16): the page never calls /trash/empty; Delete all permanently replaces it', () => {
+  assert.doesNotMatch(page, /\/trash\/empty|emptyTrash|EMPTY TRASH/)
   assert.match(page, /\nonMounted\(load\)\n/, 'on load it only lists')
-  assert.doesNotMatch(page.slice(page.lastIndexOf('onMounted(')), /emptyTrash/, 'never on load')
+})
+
+// 2026-10-16: the mini is managed remotely. Free up space summary, Move to macOS Trash and
+// Delete permanently (selected or all), each behind a confirmation that shows count and bytes.
+test('Free up space shows total, item count and the oldest item, with both actions for selected items and for all', () => {
+  assert.match(page, /<h2 id="free-space-title">Free up space<\/h2>/)
+  assert.match(page, /formatBytes\(listing\.total_bytes\) \}\}<\/strong> in \{\{ listing\.items_total \}\}/)
+  assert.match(page, /oldest: \{\{ baseName\(listing\.oldest\.path\) \}\}/)
+  for (const [action, scope] of [['macos', 'selected'], ['macos', 'all'], ['delete', 'selected'], ['delete', 'all']]) {
+    assert.match(page, new RegExp(`@click="ask\\('${action}', '${scope}'\\)"`))
+  }
+  assert.match(page, /v-model="selected" type="checkbox"/)
+})
+
+test('the confirmation shows count and bytes, and Delete sends exactly those figures for the server to re-measure', () => {
+  assert.match(page, /`Delete \$\{countLabel\(pending\.count\)\} \(\$\{formatBytes\(pending\.bytes\)\}\) permanently\?/)
+  assert.match(page, /`Move \$\{countLabel\(pending\.count\)\} \(\$\{formatBytes\(pending\.bytes\)\}\) to the Mac's Trash\?/)
+  assert.match(page, /'\/trash\/delete-permanently', \{ ids: p\.ids, confirm: true, expected_count: p\.count, expected_bytes: p\.bytes \}/)
+  assert.match(page, /'\/trash\/macos-trash', \{ ids: p\.ids, expected_count: p\.count, expected_bytes: p\.bytes \}/)
+  assert.equal(page.match(/\/trash\/delete-permanently/g)?.length, 1, 'one call site, from the confirmation only')
+  assert.match(page, /@click="runPending"/)
+  assert.doesNotMatch(page.slice(page.lastIndexOf('onMounted(')), /runPending|delete-permanently|macos-trash/, 'never on load')
 })

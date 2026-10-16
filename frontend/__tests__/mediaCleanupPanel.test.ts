@@ -235,7 +235,7 @@ test('shows free disk and _trash sizes, why uploads are not offered, and checks 
     assert.match(text, /Free on this drive: 5\.00 GB/)
     assert.match(text, /This channel in the Trash: 2\.00 GB/)
     assert.match(text, /Whole Trash: 3\.00 GB/)
-    assert.match(text, /Old app copies from updates: 1\.00 GB \(empties itself after 15 days\)/)
+    assert.match(text, /Old app copies from updates: 1\.00 GB \(the last 2 versions are kept; older ones go to the Trash\)/)
     assert.match(text, /Nothing can be freed here yet\. The reasons are listed above\./)
     assert.match(text, /press Check All Uploads/)
     assert.match(text, /2 uploaded episodes are not offered — see why/)
