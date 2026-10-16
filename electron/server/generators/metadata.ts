@@ -675,6 +675,12 @@ Requirements:
     job.output_lines.push(`Saved → ${json} + ${txt}`)
     job.output_dir = dir
 
+    // Story received a Gateway answer and found it unusable (empty/short description, too few titles or
+    // tags): a Retry that replayed that saved key would be handed the same answer. Chapter marks are
+    // computed locally, not asked of the Gateway, so they do not count.
+    if (missing.some(field => !field.startsWith('chapter marks'))) {
+      job.result = { ...(job.result || {}), chat_answer_rejected: true }
+    }
     const expected = 2 + expectedTitleCount + expectedTagCount
     requireJobCompletion(job, {
       label: 'YouTube finalization',

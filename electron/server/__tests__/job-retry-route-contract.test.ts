@@ -148,6 +148,49 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
       'each retry of a bare metadata job asks the provider afresh',
     )
 
+    // A retry whose earlier chat answer the Gateway already holds must collect it by the saved key,
+    // not mint a new action (live EP0113: the first answer succeeded, Retry paid again). Only a
+    // confirmed failure / never-created request asks afresh; a page-set action is untouched.
+    const evidenceCases: Array<{ label: string; entry: Record<string, unknown>; rejected?: true; reuses: boolean }> = [
+      { label: 'succeeded', entry: { state: 'succeeded' }, reuses: true },
+      { label: 'succeeded but rejected by Story', entry: { state: 'succeeded' }, rejected: true, reuses: false },
+      { label: 'failed', entry: { state: 'failed', failure_code: 'PROVIDER_ERROR' }, reuses: false },
+      { label: 'not created', entry: { state: 'not_created', dispatch_state: 'pre_dispatch' }, reuses: false },
+    ]
+    for (const { label, entry, rejected, reuses } of evidenceCases) {
+      const evidenceProject = await pm.createProject({ name: `Jobs Retry metadata evidence ${label}` })
+      const savedParams = {
+        episode_id: 'EP0113', title: 'Evidence', model: 'saved-metadata-model', force: true, auto_retry: false,
+        generation_action: { id: '33333333-3333-4333-8333-333333333333', kind: 'fresh', origin: 'retry' },
+        generation_action_fingerprint: 'f'.repeat(64),
+      }
+      jq.registerExecutor('metadata', async job => {
+        await jq.recordGenStudioJob(job.job_id, {
+          id: `chat-${label}`, operation: 'chat.response', model_id: 'm', updated_at: new Date().toISOString(),
+          request: { method: 'POST', path: '/v1/chat/responses', idempotency_key: 'story-chat-saved-key', captured_at: new Date().toISOString() },
+          ...entry,
+        } as any)
+        if (rejected) job.result = { ...(job.result || {}), chat_answer_rejected: true }
+        throw new Error('metadata finished without usable fields')
+      })
+      const failed = jq.enqueuePreparedForTest({
+        project_slug: evidenceProject.slug, type: 'metadata', episode_id: 'EP0113', title: `Evidence ${label}`, params: structuredClone(savedParams),
+      })
+      await waitForTerminal(jq, failed.job_id, `${label} evidence original failure`)
+      let ranParams: Record<string, any> | undefined
+      jq.registerExecutor('metadata', async job => { ranParams = structuredClone(job.params) })
+      const retry = await request(app).post(`/api/projects/${evidenceProject.slug}/jobs/${failed.job_id}/retry`).send({})
+      assert.equal(retry.status, 202, JSON.stringify(retry.body))
+      await waitForTerminal(jq, retry.body.job.job_id, `${label} evidence retry`)
+      assert.ok(ranParams, `${label}: the retried metadata job ran`)
+      if (reuses) {
+        assert.deepEqual(ranParams!.generation_action, savedParams.generation_action, `${label}: the saved action (and so its key) is reused`)
+        assert.equal(ranParams!.generation_action_fingerprint, savedParams.generation_action_fingerprint)
+      } else {
+        assert.notEqual(ranParams!.generation_action?.id, savedParams.generation_action.id, `${label}: a fresh action is minted`)
+      }
+    }
+
     for (const [label, params] of [
       ['without a mode', { episode_id: 'EP0004', model: 'saved-thumbnail-model' }],
       ['with thumbnail mode', { episode_id: 'EP0005', mode: 'thumbs', model: 'saved-thumbnail-model' }],

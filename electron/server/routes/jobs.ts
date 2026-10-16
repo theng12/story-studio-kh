@@ -155,6 +155,20 @@ function sendTerminalOnlyConflict(res: import('express').Response, job: Job): vo
   })
 }
 
+/**
+ * A saved chat request key whose answer the Gateway holds or may still hold: its entry succeeded, or
+ * is in flight / an unknown outcome. Not `failed` (settled) and not `not_created` (never reached it).
+ */
+function holdsEarlierChatAnswer(job: Job): boolean {
+  // Story itself rejected the answer it got (metadata sets this): replaying its key would return that
+  // same answer forever, so only a fresh request can fix it (NEW-14).
+  if (job.result?.chat_answer_rejected === true) return false
+  return (job.genstudio_jobs || []).some(entry => entry.operation === 'chat.response'
+    && !!(entry.request?.idempotency_key?.trim() || entry.request_key?.trim())
+    && entry.state !== 'not_created'
+    && (entry.state !== 'failed' || evidenceHoldsUnknownOutcome(entry)))
+}
+
 /** Retry-only repair intent derived from durable job state, never a client form. */
 function retryReplacementParams(job: Job): Record<string, any> | undefined {
   if (job.type === 'image_prompts') {
@@ -164,6 +178,11 @@ function retryReplacementParams(job: Job): Record<string, any> | undefined {
   }
   const existingAction = job.params?.generation_action
   if (job.type === 'metadata' && (!existingAction || existingAction.origin === 'retry')) {
+    // Evidence that the Gateway already holds this job's answer keeps the saved params, so the same
+    // request identity gives the same key and the Gateway replays the first answer — no second charge
+    // ("a retry first collects any earlier answer by its saved key"). Only a confirmed failure or a
+    // request that never reached the Gateway, or no evidence at all, asks for a new answer below.
+    if (holdsEarlierChatAnswer(job)) return undefined
     // A finalizer job with no saved action — the Pipeline and bare-route path —
     // derives its provider request identity from the prompt itself: a Retry would
     // re-ask with that same identity, the provider would replay the short answer,
