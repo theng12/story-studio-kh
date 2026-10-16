@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -161,10 +162,23 @@ export async function checkpointSceneImage(
 ): Promise<ScenePlan> {
   await assertUsableFile(imagePath, `Image for ${sceneId}`)
   await assertDecodableImage(imagePath, `Image for ${sceneId}`)
+  const sha256 = createHash('sha256').update(await fs.readFile(imagePath)).digest('hex')
   return withLock(planPath, async () => {
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     const scene = plan.scenes.find(item => item.id === sceneId)
     if (!scene) throw new Error(`Scene ${sceneId} disappeared before its image could be registered.`)
+
+    // The same bytes registered again (a retry or restart re-running the checkpoint) is not a new
+    // image: whatever the owner decided since (approval, motion choice) stands. Approval is only
+    // ever added here, never cleared. A genuinely different image still waits for the owner below.
+    if (scene.image_path === imagePath && scene.image_sha256 === sha256) {
+      if (autoApproveGenerated === true) {
+        plan.auto_approve_generated = true
+        scene.approved = true
+      }
+      await writeJsonAtomic(planPath, plan, { compact: true })
+      return plan
+    }
 
     // A scene filling in a gap (no image yet) of an episode whose render auto-approved its
     // images is approved the same way; a replacement image still waits for the owner.
@@ -173,6 +187,7 @@ export async function checkpointSceneImage(
     scene.image_path = imagePath
     scene.rendered_prompt = renderedPrompt
     scene.image_version = new Date().toISOString()
+    scene.image_sha256 = sha256
     scene.motion_choice = 'pending'
     // Approval is applied only after the exact output file passed the usable
     // media check above and the matching scene still exists in the fresh plan.

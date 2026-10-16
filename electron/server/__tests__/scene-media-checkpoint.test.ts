@@ -19,6 +19,19 @@ async function writeValidImage(filePath: string): Promise<void> {
   await fs.writeFile(filePath, ONE_PIXEL_PNG)
 }
 
+/** Still a valid PNG, but different bytes: what a re-roll produces. */
+async function writeVariantImage(filePath: string): Promise<void> {
+  await fs.writeFile(filePath, Buffer.concat([ONE_PIXEL_PNG, Buffer.from('variant')]))
+}
+
+async function ownerSetApproved(planPath: string, sceneId: string, approved: boolean): Promise<void> {
+  await withLock(planPath, async () => {
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    plan.scenes.find(scene => scene.id === sceneId)!.approved = approved
+    await fs.writeFile(planPath, JSON.stringify(plan), 'utf-8')
+  })
+}
+
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void
   const promise = new Promise<void>(done => { resolve = done })
@@ -62,9 +75,53 @@ describe('scene media checkpoints', () => {
     let plan = await checkpointSceneImage(planPath, 'scene-2', image2, 'Prompt two', false)
     assert.equal(plan.auto_approve_generated, true)
     assert.equal(plan.scenes.find(scene => scene.id === 'scene-2')?.approved, true)
-    // Regenerating an image that already existed is the owner's call to review.
+    // Regenerating an image that already existed (new bytes) is the owner's call to review.
+    await writeVariantImage(image1)
     plan = await checkpointSceneImage(planPath, 'scene-1', image1, 'Prompt one', false)
     assert.equal(plan.scenes.find(scene => scene.id === 'scene-1')?.approved, false)
+  })
+
+  it('a job re-registering the same image keeps an approval the owner made after it started', async () => {
+    const { dir, planPath } = await fixture()
+    const images = [path.join(dir, 'scene-1.png'), path.join(dir, 'scene-2.png')]
+    await Promise.all(images.map(writeValidImage))
+    // Job starts with auto_approve_generated=false and registers both images.
+    await checkpointSceneImage(planPath, 'scene-1', images[0]!, 'Prompt one', false)
+    await checkpointSceneImage(planPath, 'scene-2', images[1]!, 'Prompt two', false)
+    // The owner approves scene 2 by hand while the job is still running ...
+    await ownerSetApproved(planPath, 'scene-2', true)
+    // ... then the job checkpoints again (retry / restart re-runs the registration with the same file).
+    await checkpointSceneImage(planPath, 'scene-2', images[1]!, 'Prompt two', false)
+    const plan = await checkpointSceneImage(planPath, 'scene-1', images[0]!, 'Prompt one', false)
+    assert.equal(plan.scenes.find(scene => scene.id === 'scene-2')?.approved, true, 'owner approval survives')
+    assert.equal(plan.scenes.find(scene => scene.id === 'scene-1')?.approved, false, 'unapproved stays unapproved')
+  })
+
+  it('a re-registered image keeps its motion choice and still follows auto_approve_generated', async () => {
+    const { dir, planPath } = await fixture()
+    const image = path.join(dir, 'scene-1.png')
+    await writeValidImage(image)
+    await checkpointSceneImage(planPath, 'scene-1', image, 'Prompt one', false)
+    await withLock(planPath, async () => {
+      const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      plan.scenes[0]!.motion_choice = 'still'
+      await fs.writeFile(planPath, JSON.stringify(plan), 'utf-8')
+    })
+    const plan = await checkpointSceneImage(planPath, 'scene-1', image, 'Prompt one', true)
+    assert.equal(plan.scenes[0]?.motion_choice, 'still')
+    assert.equal(plan.scenes[0]?.approved, true, 'an auto-approve job approves the image it generated')
+  })
+
+  it('a regenerated image (new bytes) waits for approval even if the old one was approved', async () => {
+    // Existing semantics, kept on purpose: approval belongs to the picture the owner looked at.
+    const { dir, planPath } = await fixture()
+    const image = path.join(dir, 'scene-1.png')
+    await writeValidImage(image)
+    await checkpointSceneImage(planPath, 'scene-1', image, 'Prompt one', false)
+    await ownerSetApproved(planPath, 'scene-1', true)
+    await writeVariantImage(image)
+    const plan = await checkpointSceneImage(planPath, 'scene-1', image, 'Prompt one', false)
+    assert.equal(plan.scenes[0]?.approved, false)
   })
 
   it('without an auto-approve render, a filled-in image waits for approval', async () => {
