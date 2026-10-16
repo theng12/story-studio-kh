@@ -447,6 +447,8 @@ export async function getImageStatus(
   episodeId: string,
   mode: 'all' | 'thumbnails' = 'all',
   knownPaths?: EpisodePaths,
+  // The single-episode route may walk the whole output tree to find a misplaced prompts file; bulk callers never do.
+  options: { treeFallback?: boolean } = {},
 ): Promise<ImageStatus> {
   const code = episodeId.toUpperCase()
 
@@ -457,12 +459,17 @@ export async function getImageStatus(
   if (mode === 'all') {
     try { scenePromptsPath = await findScenePromptsFile(slug, episodeId) } catch { /* no scene prompts yet */ }
   }
-  if (knownPaths) {
-    const candidate = resolveReadPath(knownPaths.thumb_prompts_docx)
-    if (existsSync(candidate)) thumbPromptsPath = candidate
-  } else {
-    try { thumbPromptsPath = await findThumbPromptsFile(slug, episodeId) } catch { /* no thumb prompts yet */ }
-  }
+  // The same resolver the generator and repair use: the canonical prompts file when it exists, otherwise their search.
+  // With known paths this runs for every episode in bulk passes, so it never walks the whole output tree; the
+  // single-episode route (treeFallback) has no such limit.
+  try {
+    thumbPromptsPath = await findThumbPromptsFile(slug, episodeId, {
+      preferred: knownPaths?.thumb_prompts_docx,
+      noTreeFallback: !!knownPaths && !options.treeFallback,
+    })
+  } catch { /* no thumb prompts yet */ }
+  const thumbFromCanonical = !!knownPaths && !!thumbPromptsPath
+    && path.resolve(thumbPromptsPath) === path.resolve(resolveReadPath(knownPaths.thumb_prompts_docx))
 
   if (!scenePromptsPath && !thumbPromptsPath) {
     // No prompt manifest means there is no authoritative expected set. A
@@ -475,7 +482,11 @@ export async function getImageStatus(
   const dirs = knownPaths
     ? { bgDir: knownPaths.bg_dir, thumbDir: knownPaths.thumb_dir }
     : await resolveImageDirs(slug, promptsPathForDirs, episodeId)
-  const { bgDir, thumbDir } = dirs
+  const { bgDir } = dirs
+  let thumbDir = dirs.thumbDir
+  if (knownPaths && thumbPromptsPath && (!thumbFromCanonical || !existsSync(thumbDir))) {
+    thumbDir = (await resolveImageDirs(slug, thumbPromptsPath, episodeId)).thumbDir
+  }
 
   const result: ImageStatus = { mode: 'all', dir: { bg: bgDir, thumb: thumbDir } }
 
@@ -812,11 +823,13 @@ export async function auditProjectAssets(
     }
 
     // Settle each subcheck independently — one failure mustn't nuke the row.
-    const [audio, images, video, merged] = await Promise.allSettled([
+    // Thumbnails use the same canonical paths computeEpisodeStatus does, so the table and the status agree.
+    const [audio, images, video, merged, thumbs] = await Promise.allSettled([
       getAudioStatus(slug, code),
       getImageStatus(slug, code),
       getVideoStatus(slug, code),
       getAudioMergeStatus(slug, code),
+      resolveEpisodePaths(slug, code, title).then(known => getImageStatus(slug, code, 'thumbnails', known)),
     ])
 
     if (audio.status === 'fulfilled') {
@@ -837,15 +850,20 @@ export async function auditProjectAssets(
           missing: images.value.scenes.missing.length,
         }
       }
-      if (images.value.thumbnails) {
-        row.thumbnails = {
-          total: images.value.thumbnails.total,
-          present: images.value.thumbnails.present,
-          missing: images.value.thumbnails.missing.length,
-        }
-      }
     } else {
       row.errors!.images = (images.reason as any)?.message || 'image check failed'
+    }
+
+    if (thumbs.status === 'fulfilled') {
+      if (thumbs.value.thumbnails) {
+        row.thumbnails = {
+          total: thumbs.value.thumbnails.total,
+          present: thumbs.value.thumbnails.present,
+          missing: thumbs.value.thumbnails.missing.length,
+        }
+      }
+    } else if (!row.errors!.images) {
+      row.errors!.images = (thumbs.reason as any)?.message || 'thumbnail check failed'
     }
 
     if (video.status === 'fulfilled') {
@@ -1167,6 +1185,7 @@ export async function computeEpisodeStatus(
   status.contextual_cues = !cueConfig.enabled
   status.sound_design = !soundConfig.enabled
   let authoritativePaths: EpisodePaths | undefined
+  let episodeTitle = ''
 
   // Hoist ideas.json load to ONCE per call. Previously this function
   // loaded it twice (lines 533 and 664) and the route's per-episode loop
@@ -1191,6 +1210,7 @@ export async function computeEpisodeStatus(
     const CODE = code.toUpperCase()
     const idea = ideasList.find(i => (i.episode_code || '').toUpperCase() === CODE)
     const title = idea?.title || ''
+    episodeTitle = title
     const paths = await resolveEpisodePaths(slug, code, title, cache)
     authoritativePaths = paths
 
@@ -1522,12 +1542,18 @@ export async function computeEpisodeStatus(
 
   // A music episode's thumbnail has no prompt list to complete: one picture in its thumbnail folder
   // (a scene picture the owner chose, or one the image model drew) is a finished thumbnail.
+  // A counted, incomplete prompt list (total > 0) is never overridden by it, except by a picture the owner pinned.
   if (status.music_episode !== undefined && !status.thumbnails && authoritativePaths) {
-    const files = await safeReaddir(authoritativePaths.thumb_dir)
-    for (const file of files) {
-      if (/\.(png|jpe?g|webp)$/i.test(file) && await fileHasContent(path.join(authoritativePaths.thumb_dir, file))) {
-        status.thumbnails = true
-        break
+    const { readSelectedThumbnail } = await import('./upload-overrides.js')
+    const pinned = await readSelectedThumbnail(slug, code, episodeTitle, 'youtube').catch(() => null)
+    const pinnedPresent = !!pinned && /_Thumb_Scene\d+_v\d+\.\w+$/i.test(path.basename(pinned)) && await fileHasContent(path.join(authoritativePaths.thumb_dir, path.basename(pinned)))
+    if (pinnedPresent || !status._thumbnail_images?.total) {
+      const files = await safeReaddir(authoritativePaths.thumb_dir)
+      for (const file of files) {
+        if (/\.(png|jpe?g|webp)$/i.test(file) && await fileHasContent(path.join(authoritativePaths.thumb_dir, file))) {
+          status.thumbnails = true
+          break
+        }
       }
     }
   }

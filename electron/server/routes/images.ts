@@ -24,7 +24,11 @@ const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0
 router.get('/projects/:slug/episodes/:code/image-status', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    const s = await getImageStatus(req.params.slug, req.params.code, 'thumbnails')
+    // Same canonical paths computeEpisodeStatus uses, with the code matched case-insensitively.
+    const code = req.params.code.toUpperCase()
+    const idea = (await im.getIdeas(req.params.slug, 'accepted')).find(i => (i.episode_code || '').toUpperCase() === code)
+    const known = await resolveEpisodePaths(req.params.slug, code, idea?.title || '')
+    const s = await getImageStatus(req.params.slug, code, 'thumbnails', known, { treeFallback: true })
     res.json(s)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Could not compute image status'))

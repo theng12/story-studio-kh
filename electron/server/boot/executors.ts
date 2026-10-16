@@ -205,7 +205,8 @@ function registerCancellationAuditors(): void {
   // for mode 'thumbs' and returns 410 "Legacy Scene Images generation is
   // retired" for anything else.
   registerJobCancellationAuditor('thumb_images', async job => {
-    const status = await getImageStatus(job.project_slug, job.episode_id, 'thumbnails')
+    const known = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const status = await getImageStatus(job.project_slug, job.episode_id, 'thumbnails', known, { treeFallback: true })
     const parts = [status.thumbnails].filter(Boolean)
     return parts.length > 0 && parts.every(part => part!.total > 0 && part!.missing.length === 0) ? 'complete' : 'repair-required'
   })

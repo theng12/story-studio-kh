@@ -14,12 +14,14 @@ import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import request from 'supertest'
 import { writePromptCompletionManifest } from '../services/prompt-completion.js'
 
 let pm: typeof import('../services/project-manager.js')
 let assetStatus: typeof import('../services/asset-status.js')
 let cacheMod: typeof import('../services/episode-status-cache.js')
 let stitcher: typeof import('../services/subtitle-stitcher.js')
+let app: any
 let tmp: { dir: string; cleanup: () => Promise<void> }
 
 const SLUG = 'loose-detect'
@@ -90,6 +92,7 @@ describe('asset-status verified completion', () => {
     assetStatus = await import('../services/asset-status.js')
     cacheMod = await import('../services/episode-status-cache.js')
     stitcher = await import('../services/subtitle-stitcher.js')
+    app = (await import('../app.js')).app
     assert.equal(pm.projectsRoot(), path.join(tmp.dir, 'projects'))
   })
 
@@ -351,5 +354,202 @@ describe('asset-status verified completion', () => {
       assert.notEqual(result.scenes.total, 1,
         'with prompts docx present, scenes count must not come from raw file scan')
     }
+  })
+
+  // ── One thumbnail completion rule for every surface ──────────────────────
+  const THUMB_MD = '# Thumbnail Prompts\n\n1. One\nfirst\n\n2. Two\nsecond\n\n3. Three\nthird\n\n4. Four\nfourth\n'
+
+  async function writeThumbs(thumbDir: string, count: number) {
+    for (let n = 1; n <= count; n++) {
+      await fs.writeFile(path.join(thumbDir, `${CODE}_Thumb0${n}_v1.png`), PNG_BYTES)
+    }
+  }
+
+  async function expectNotDone(episodeCode: string, total: number, present: number) {
+    cacheMod.episodeStatusCache.clear()
+    const status = await assetStatus.computeEpisodeStatus(SLUG, episodeCode)
+    assert.equal(status.thumbnails, false, 'a partial thumbnail set is never done')
+    assert.equal(status._thumbnail_images?.complete, false)
+    assert.deepEqual([status._thumbnail_images?.total, status._thumbnail_images?.present], [total, present])
+    const route = await assetStatus.getImageStatus(SLUG, episodeCode, 'thumbnails',
+      await (await import('../services/utils.js')).resolveEpisodePathsByCode(SLUG, episodeCode))
+    assert.equal(route.thumbnails?.total, total)
+    const audit = await assetStatus.auditProjectAssets(SLUG)
+    const row = audit.find(e => e.episode_id === episodeCode)
+    assert.deepEqual([row?.thumbnails.total, row?.thumbnails.present], [total, present])
+    const { isStepAlreadyDone } = await import('../routes/pipeline.js')
+    assert.equal(isStepAlreadyDone(status, 'thumb_images'), false, 'repair_missing must not skip the step')
+  }
+
+  test('canonical folder: manifest expects 5, 4 thumbnails on disk -> not done on every surface', async () => {
+    const { thumbPromptsDir, thumbDir } = await makeProject()
+    await fs.writeFile(path.join(thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`), THUMB_MD)
+    await writePromptCompletionManifest(thumbPromptsDir, CODE, 'thumbnail', 5)
+    await writeThumbs(thumbDir, 4)
+    await expectNotDone(CODE, 5, 4)
+  })
+
+  test('canonical folder complete (5 of 5) is still done', async () => {
+    const { thumbPromptsDir, thumbDir } = await makeProject()
+    await fs.writeFile(path.join(thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`), THUMB_MD)
+    await writePromptCompletionManifest(thumbPromptsDir, CODE, 'thumbnail', 5)
+    await writeThumbs(thumbDir, 5)
+    const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.thumbnails, true)
+    assert.equal(status._thumbnail_images?.complete, true)
+  })
+
+  test('music episode with 4 of 5 thumbnails is not rescued by the one-picture fallback', async () => {
+    const { episodeDir, thumbPromptsDir, thumbDir } = await makeProject()
+    await fs.writeFile(path.join(episodeDir, 'music_episode.json'), '{}')
+    await fs.writeFile(path.join(thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`), THUMB_MD)
+    await writePromptCompletionManifest(thumbPromptsDir, CODE, 'thumbnail', 5)
+    await writeThumbs(thumbDir, 4)
+    const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.notEqual(status.music_episode, undefined, 'fixture is a music episode')
+    assert.equal(status.thumbnails, false)
+  })
+
+  test('music episode with no prompt list still counts one picture as a thumbnail', async () => {
+    const { episodeDir, thumbDir } = await makeProject()
+    await fs.writeFile(path.join(episodeDir, 'music_episode.json'), '{}')
+    await writeThumbs(thumbDir, 1)
+    const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.thumbnails, true)
+  })
+
+  // The folder the generator searches first is found by name order; two duplicates either side of the canonical
+  // folder (Aaa before it, Zzz after it) mean one of them is searched first in forward or reverse order alike.
+  async function writeDuplicate(name: string, opts: { prompts: string | null; expected?: number; thumbs?: number }) {
+    const { episodeDir } = await ensureProject()
+    const dup = path.join(path.dirname(episodeDir), `${CODE} - ${name}`)
+    const prompts = path.join(dup, `${CODE} - 04 Thumbnail Prompts`)
+    const thumbs = path.join(dup, `${CODE} - 06 Thumbnail Images`)
+    await fs.mkdir(prompts, { recursive: true })
+    if (opts.prompts !== null) await fs.writeFile(path.join(prompts, `${CODE}_Thumbnail_Prompts.md`), opts.prompts)
+    if (opts.expected) await writePromptCompletionManifest(prompts, CODE, 'thumbnail', opts.expected)
+    if (opts.thumbs !== undefined) {
+      await fs.mkdir(thumbs, { recursive: true })
+      await writeThumbs(thumbs, opts.thumbs)
+    }
+    return dup
+  }
+  let currentProject: EpisodeDirs
+  async function ensureProject() { return currentProject }
+  async function completeCanonical() {
+    currentProject = await makeProject()
+    await fs.writeFile(path.join(currentProject.thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`), THUMB_MD)
+    await writePromptCompletionManifest(currentProject.thumbPromptsDir, CODE, 'thumbnail', 5)
+    await writeThumbs(currentProject.thumbDir, 5)
+  }
+
+  test('complete canonical folder + incomplete duplicates -> done, no repair job', async () => {
+    await completeCanonical()
+    await writeDuplicate('Aaa Old Title', { prompts: THUMB_MD, expected: 5, thumbs: 4 })
+    await writeDuplicate('Zzz Old Title', { prompts: THUMB_MD, expected: 5 })
+    const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.thumbnails, true)
+    assert.deepEqual([status._thumbnail_images?.total, status._thumbnail_images?.present], [5, 5])
+    const { isStepAlreadyDone } = await import('../routes/pipeline.js')
+    assert.equal(isStepAlreadyDone(status, 'thumb_images'), true, 'repair_missing skips a finished canonical folder')
+  })
+
+  test('incomplete canonical folder + complete duplicates sorting either side -> the generator and repair resolve the canonical folder', async () => {
+    currentProject = await makeProject()
+    await fs.writeFile(path.join(currentProject.thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`), THUMB_MD)
+    await writePromptCompletionManifest(currentProject.thumbPromptsDir, CODE, 'thumbnail', 5)
+    await writeThumbs(currentProject.thumbDir, 4)
+    await writeDuplicate('Aaa Old Title', { prompts: THUMB_MD, expected: 5, thumbs: 5 })
+    await writeDuplicate('Zzz Old Title', { prompts: THUMB_MD, expected: 5, thumbs: 5 })
+    const canonical = path.join(currentProject.thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`)
+    const { findThumbPromptsFile, resolveImageDirs } = await import('../generators/images.js')
+    assert.equal(await findThumbPromptsFile(SLUG, CODE), canonical, 'the generator writes into the canonical folder')
+    assert.equal((await resolveImageDirs(SLUG, canonical, CODE)).thumbDir, currentProject.thumbDir)
+    await expectNotDone(CODE, 5, 4)
+  })
+
+  test('a duplicate whose prompts list nothing cannot hold a finished episode open', async () => {
+    await completeCanonical()
+    await writeDuplicate('Aaa Old Title', { prompts: '# Thumbnail Prompts\n\nnothing usable here\n' })
+    await writeDuplicate('Zzz Old Title', { prompts: '# Thumbnail Prompts\n\nnothing usable here\n' })
+    const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.thumbnails, true)
+  })
+
+  test('a pinned scene picture completes a music episode whose prompt list is incomplete; a missing pin does not', async () => {
+    const { episodeDir, thumbPromptsDir, thumbDir } = await makeProject()
+    await fs.writeFile(path.join(episodeDir, 'music_episode.json'), '{}')
+    await fs.writeFile(path.join(thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`), THUMB_MD)
+    await writePromptCompletionManifest(thumbPromptsDir, CODE, 'thumbnail', 5)
+    await writeThumbs(thumbDir, 4)
+    const { writeSelectedThumbnail } = await import('../services/upload-overrides.js')
+    const pin = `${CODE}_Thumb_Scene03_v1.png`
+    await writeSelectedThumbnail(SLUG, CODE, TITLE, 'youtube', pin)
+    cacheMod.episodeStatusCache.clear()
+    assert.equal((await assetStatus.computeEpisodeStatus(SLUG, CODE)).thumbnails, false, 'the pin names a file that is not there')
+    await fs.writeFile(path.join(thumbDir, pin), PNG_BYTES)
+    cacheMod.episodeStatusCache.clear()
+    assert.equal((await assetStatus.computeEpisodeStatus(SLUG, CODE)).thumbnails, true, 'the owner replaced the thumbnails with this picture')
+  })
+
+  test('the episode status cache schema is bumped so persisted thumbnails=true rows are recomputed', () => {
+    assert.ok(cacheMod.SCHEMA_VERSION >= 19)
+  })
+
+  test('image-status route: case-insensitive code, canonical folder, then the generator search for a renamed folder', async () => {
+    const { episodeDir, thumbPromptsDir, thumbDir } = await makeProject()
+    await fs.writeFile(path.join(thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`), THUMB_MD)
+    await writePromptCompletionManifest(thumbPromptsDir, CODE, 'thumbnail', 5)
+    await writeThumbs(thumbDir, 4)
+    let res = await request(app).get(`/api/projects/${SLUG}/episodes/${CODE.toLowerCase()}/image-status`)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual([res.body.thumbnails.total, res.body.thumbnails.present], [5, 4])
+
+    // The owner renamed the episode folder: the idea title no longer finds it, the search still does.
+    const renamed = path.join(path.dirname(episodeDir), `${CODE} - Renamed By Owner`)
+    await fs.rename(episodeDir, renamed)
+    res = await request(app).get(`/api/projects/${SLUG}/episodes/${CODE}/image-status`)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual([res.body.thumbnails?.total, res.body.thumbnails?.present], [5, 4])
+  })
+
+  test('image-status keeps working when the thumbnail images folder carries a "✅ " prefix', async () => {
+    const { thumbPromptsDir, thumbDir } = await makeProject()
+    await fs.writeFile(path.join(thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`), THUMB_MD)
+    await writePromptCompletionManifest(thumbPromptsDir, CODE, 'thumbnail', 5)
+    await writeThumbs(thumbDir, 4)
+    const prefixed = path.join(path.dirname(thumbDir), `✅ ${path.basename(thumbDir)}`)
+    await fs.rename(thumbDir, prefixed)
+    const res = await request(app).get(`/api/projects/${SLUG}/episodes/${CODE}/image-status`)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual([res.body.thumbnails?.total, res.body.thumbnails?.present], [5, 4])
+  })
+
+  test('an episode with no folder yet does no whole-tree prompts search in status, only the single-episode route does', async () => {
+    const { projDir, episodeDir } = await makeProject()
+    await fs.mkdir(path.join(projDir, 'stash'), { recursive: true })
+    await fs.rename(episodeDir, path.join(projDir, 'stash', 'old'))
+    const stray = path.join(projDir, 'episodes', 'Season 001', 'Stray Folder')
+    await fs.mkdir(stray, { recursive: true })
+    await fs.writeFile(path.join(stray, `${CODE}_Thumbnail_Prompts.md`), THUMB_MD)
+    cacheMod.episodeStatusCache.clear()
+    const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.thumbnails, false)
+    assert.equal(status._thumbnail_images, undefined, 'status must not have walked the output tree to find the stray file')
+    const res = await request(app).get(`/api/projects/${SLUG}/episodes/${CODE}/image-status`)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(res.body.thumbnails?.total, 4, 'the single-episode route keeps the full search')
+  })
+
+  test('a pinned drawn thumbnail does not complete a 4 of 5 music episode; only scene pictures count', async () => {
+    const { episodeDir, thumbPromptsDir, thumbDir } = await makeProject()
+    await fs.writeFile(path.join(episodeDir, 'music_episode.json'), '{}')
+    await fs.writeFile(path.join(thumbPromptsDir, `${CODE}_Thumbnail_Prompts.md`), THUMB_MD)
+    await writePromptCompletionManifest(thumbPromptsDir, CODE, 'thumbnail', 5)
+    await writeThumbs(thumbDir, 4)
+    const { writeSelectedThumbnail } = await import('../services/upload-overrides.js')
+    await writeSelectedThumbnail(SLUG, CODE, TITLE, 'youtube', `${CODE}_Thumb01_v1.png`)
+    cacheMod.episodeStatusCache.clear()
+    assert.equal((await assetStatus.computeEpisodeStatus(SLUG, CODE)).thumbnails, false)
   })
 })

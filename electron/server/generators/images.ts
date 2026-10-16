@@ -14,7 +14,8 @@ import { isDecodableImage } from '../lib/image-validation.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry } from '../providers/registry.js'
 import { recordTask, recordTaskStrict, hashInput, type TaskManifestEntry } from '../services/task-manifest.js'
-import { resolveSubfolderNames } from '../services/utils.js'
+import { resolveSubfolderNames, resolveEpisodePathsByCode } from '../services/utils.js'
+import { resolveReadPath } from '../lib/episode-artifacts.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
@@ -190,11 +191,11 @@ async function findPromptsFile(
   outputRoot: string,
   code: string,
   candidates: string[],
-  options: { strictIo?: boolean } = {},
+  options: { strictIo?: boolean; noTreeFallback?: boolean } = {},
 ): Promise<string | null> {
   const rethrow = options.strictIo ? (error: unknown) => (error as NodeJS.ErrnoException)?.code !== 'ENOENT' : undefined
   const dirs = await findDirsLevelOrder(outputRoot, 4, name => episodeDirNameMatchesCode(name, code), rethrow)
-  if (!dirs.length) return findFileRecursive(outputRoot, candidates, options)
+  if (!dirs.length) return options.noTreeFallback ? null : findFileRecursive(outputRoot, candidates, options)
   let best: { path: string; rank: number } | null = null
   for (const dir of dirs) {
     const found = await findFileRecursive(dir, candidates, options)
@@ -238,11 +239,18 @@ export async function findScenePromptsFile(
 export async function findThumbPromptsFile(
   slug: string,
   episodeId: string,
-  options: { strictIo?: boolean } = {},
+  // preferred: the canonical prompts path (resolveEpisodePaths().thumb_prompts_docx); looked up when omitted.
+  // noTreeFallback: bulk status callers must not walk the whole output tree for an episode with no folder yet.
+  options: { strictIo?: boolean; noTreeFallback?: boolean; preferred?: string } = {},
 ): Promise<string> {
   const code = episodeId.toUpperCase()
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) throw new Error('Project directory not found')
+
+  // One resolver: the canonical folder wins whenever it has the file, so a stale duplicate folder that sorts
+  // first can never redirect the reader (status) or the writer (generator, repair) away from it.
+  const preferred = resolveReadPath(options.preferred ?? (await resolveEpisodePathsByCode(slug, code)).thumb_prompts_docx)
+  if (existsSync(preferred)) return preferred
 
   // Prefer .md (current), then legacy .docx; new separate file before old combined.
   const candidates = [

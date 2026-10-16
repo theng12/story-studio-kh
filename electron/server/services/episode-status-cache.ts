@@ -61,7 +61,12 @@ import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-path
  * v18 — caption-gap safety modes now determine subtitle completion. Discard v17 rows so statuses
  * computed under the former unconditional gap block are recomputed after upgrade.
  */
-export const SCHEMA_VERSION = 18 as const
+/**
+ * v19 — thumbnail completion is one rule on every surface: a music episode's one-picture fallback no longer
+ * overrides a counted incomplete prompt list, and the canonical folder alone decides.
+ * Discard v18 rows so a persisted `thumbnails=true` is recomputed after upgrade.
+ */
+export const SCHEMA_VERSION = 19 as const
 const MAX_ENTRIES = 1000
 /**
  * Watcher-backed reads (see `trusted()`): how long an entry may be served
