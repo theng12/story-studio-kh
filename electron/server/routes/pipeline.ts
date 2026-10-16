@@ -1147,12 +1147,14 @@ export function resolveStepParams(
     // generator creates "{code} - {stale-title}" folders that don't match
     // the real episode (the duplicate-folders bug from before the typed-
     // preset rollout).
-    const { title: _stalePresetTitle, episode_id: _stale, ...restForm } = form
+    const { title: _stalePresetTitle, episode_id: _stale, customStyleText: _camel, ...restForm } = form
     return {
       ...restForm,
       episode_id: episodeId,
       title: title || form.title || '',
-      customStyleText: data.customStyleText ?? form.customStyleText,
+      // The preset stores camelCase; the executor (generators/episode.ts)
+      // reads only `custom_style_text`, as the Scripts page sends it.
+      custom_style_text: data.customStyleText ?? form.customStyleText,
     }
   }
   if (step === 'introduction-only') {
