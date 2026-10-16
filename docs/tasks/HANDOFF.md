@@ -1,5 +1,13 @@
 # HANDOFF — Story Studio KH
 
+## Released; install pending automatic drain — 2026-10-16 (1.4.306)
+
+Product `58bd99f5200b6e66a3c4f75f0d229ffecc2e80fa` (custom narration guidance now carried into Pipeline outlines/runs) is on main and pushed, fast-forwarded from 80e34dfd via `land/1.4.306-into-main`. Gates: full backend 699/699 files, 6849 pass, 0 fail, 7 skipped; frontend 310/310 files, 2605 pass; content packs 38/38 files, 368 total, 366 pass, 2 skipped; release lane 6/6 files, 57 pass; check:changelog, typography, security, model-drift and check:release pass.
+
+Primary-main DMG `dist/Story Studio KH 1.4.306-arm64.dmg`: 243,038,521 bytes, SHA-256 `16e6dafc00e6bfb95712b7d7d3903bd04cf6e67ebfb901c07d2ed908283a0ee0`; bundled app.asar reports 1.4.306, unsigned/ad-hoc arm64, launch smoke passed. The 1.4.305 DMG moved to `_trash/dist/`. Gateway publication returned 200 and its descriptor matches version, bytes and hash.
+
+The mini (1.4.305) had a running `video_assembly` job (DL0011 final video), so no check or install was forced; it is left to the normal automatic drain. Queue at release: 1 running, 51 queued, 1 paused (owner), 26 done, 2 error; unchanged after ~17 minutes of polling. Confirm the mini reports 1.4.306 before assuming it is installed. Receipts: orchestra `story-306-gate/`.
+
 ## Released and installed — 2026-10-14 (1.4.305)
 
 Product6f09611fbbb6b563d69182d6b16a53701decde10 is integrated/main/pushed. Allten source phases passed on exact runtime/test-equivalent reviewed e732: backend698/698files7050total7046pass4skip0fail, frontend310/310files2605pass, contentpacks38/38files368total366pass2skip, lint/types/allfive static checks. Main's only integration delta is the independently reviewed handoff preserving the304installed record. Earlier failed gates and focused RED/GREEN proof remain retained.
