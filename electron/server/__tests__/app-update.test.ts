@@ -387,6 +387,49 @@ describe('install promptly (owner, 2026-10-09)', () => {
     await installed()
   })
 
+  test('Install now (don\'t wait) installs at once from draining, with jobs that cannot resume still running', async () => {
+    const target = ready()
+    const queue = promptQueue(2)
+    queue.notResuming = ['music_video']
+    wired(queue)
+    await updater.installNow()
+    await lookedAgain(queue)
+    assert.equal(updater.readState().phase, 'draining', 'plain Install Now keeps waiting')
+    await updater.installNow(true)
+    assert.equal(updater.readState().phase, 'installing', 'no wait for the running jobs')
+    assert.equal(updater.readState().immediate, true)
+    assert.equal(queue.runningCount, 2)
+    assert.deepEqual(queue.calls, [true], 'intake stays paused; the updater releases it after the restart')
+    assert.equal(updater.readState().we_paused, true)
+    await installed()
+    assert.equal(plistVersion(target), '1.4.258')
+  })
+
+  test('Install now (don\'t wait) from ready pauses intake and installs without a drain', async () => {
+    ready()
+    const queue = promptQueue(1)
+    queue.notResuming = ['broll_assemble']
+    wired(queue)
+    await updater.installNow(true)
+    assert.equal(updater.readState().phase, 'installing')
+    assert.deepEqual(queue.calls, [true])
+    await installed()
+  })
+
+  test('Install now (don\'t wait) while nothing is staged installs as soon as staging finishes', async () => {
+    updater.writeState({ phase: 'downloading' })
+    const queue = promptQueue(1)
+    queue.notResuming = ['music_video']
+    wired(queue, { fetch: (async () => new Response('', { status: 404 })) as any })
+    await updater.installNow(true)
+    assert.equal(updater.readState().immediate, true, 'the request is recorded')
+    assert.notEqual(updater.readState().phase, 'installing', 'nothing to install yet')
+    const staged = makeApp(fs.mkdtempSync(path.join(tmp.dir, 'staged-')), '1.4.258')
+    updater.writeState({ ...updater.readState(), phase: 'ready', release: signed(), staged_app: staged })
+    await updater.maybeInstall()
+    assert.equal(updater.readState().phase, 'installing', 'no drain once staged')
+  })
+
   test('the owner\'s own pause wins: a queue he paused holds the update, untouched', async () => {
     ready()
     const queue = promptQueue(1)

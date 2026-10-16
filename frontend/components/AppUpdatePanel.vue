@@ -21,8 +21,15 @@
           class="btn btn-primary btn-sm"
           :disabled="!!busy"
           title="Pause new work, let jobs that cannot resume finish (up to 30 minutes), install, restart and resume"
-          @click="installNow"
+          @click="installNow()"
         >{{ busy === 'install' ? 'Starting…' : 'Install Now' }}</button>
+        <button
+          v-if="canInstallImmediately(status.phase) && version"
+          class="btn btn-secondary btn-sm"
+          :disabled="!!busy"
+          title="Stop running jobs now, install and restart; they pick up again after the restart"
+          @click="installNow(true)"
+        >{{ INSTALL_IMMEDIATELY_LABEL }}</button>
       </div>
 
       <label class="app-update-field">
@@ -48,7 +55,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useConfirm } from '~/composables/useConfirm'
-import { PROMPT_INSTALL_TEXT, installNowQuestion, readyText, waitingText } from '~/utils/app-update'
+import { INSTALL_IMMEDIATELY_LABEL, PROMPT_INSTALL_TEXT, canInstallImmediately, installImmediatelyQuestion, installNowQuestion, readyText, waitingText } from '~/utils/app-update'
 
 interface UpdateStatus {
   enabled: boolean
@@ -103,11 +110,11 @@ async function load() {
   status.value = await get<UpdateStatus>('/app-update/status', { cache: 'no-store' })
 }
 
-async function act(kind: 'check' | 'install' | 'trust') {
+async function act(kind: 'check' | 'install' | 'trust', body: Record<string, unknown> = {}) {
   busy.value = kind
   try {
     const path = kind === 'check' ? '/app-update/check' : kind === 'install' ? '/app-update/install-now' : '/app-update/trust-new-key'
-    status.value = await post<UpdateStatus>(path, {})
+    status.value = await post<UpdateStatus>(path, body)
     if (kind === 'install') success('Installing; work resumes after the restart')
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'The update action failed')
@@ -116,10 +123,10 @@ async function act(kind: 'check' | 'install' | 'trust') {
   }
 }
 
-async function installNow() {
-  const question = installNowQuestion(version.value, status.value?.jobs_left ?? 0)
-  if (question && !await ask({ ...question, confirmLabel: 'Install Now', danger: false })) return
-  await act('install')
+async function installNow(immediately = false) {
+  const question = immediately ? installImmediatelyQuestion(version.value) : installNowQuestion(version.value, status.value?.jobs_left ?? 0)
+  if (question && !await ask({ ...question, confirmLabel: immediately ? INSTALL_IMMEDIATELY_LABEL : 'Install Now', danger: false })) return
+  await act('install', immediately ? { immediately: true } : {})
 }
 
 async function save(patch: Record<string, unknown>) {

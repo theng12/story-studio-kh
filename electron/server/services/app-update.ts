@@ -25,7 +25,9 @@
  *    Then it installs. A queue the owner paused himself is his: the update waits for him to resume
  *    it or press Install Now. If he presses Resume during the wait, his choice wins: the update
  *    waits for Install Now. **Install Now** takes the same path but goes ahead after 30 minutes
- *    even if a job that cannot resume is still running.
+ *    even if a job that cannot resume is still running. **Install now (don't wait)** (`immediate`)
+ *    pauses intake and installs at once, interrupting running jobs: the boot scan resumes what it
+ *    can, retries free work, and leaves paid work that cannot resume for Retry.
  * 5. **Swap** with a detached helper (`helperScript`) after this app quits normally: the installed
  *    bundle goes to `<data>/previous-apps/`; the new one moves into place, and the app is relaunched
  *    (through the login agent when it is installed, so it stays supervised). Story keeps the last
@@ -89,6 +91,8 @@ export interface UpdateState {
   we_paused?: boolean
   drain_started_at?: number | null
   install_requested?: boolean
+  /** The owner pressed "Install now (don't wait)": install as soon as staged, without draining. */
+  immediate?: boolean
   /** Gateway manual command acknowledged only once its verified attempt actually starts. */
   gateway_update_request_id?: string | null
   /** The owner pressed Resume during a drain: no automatic install of this release. */
@@ -447,7 +451,7 @@ export async function onBoot(options: UpdaterOptions): Promise<UpdateState> {
   const target = state.release.version
   if (options.currentVersion === target && await selfHealthy(options.port, target)) {
     const next = patchState({ phase: 'installed', installed_at: Date.now(), error: null, staged_app: null,
-      install_requested: false, held: false })
+      install_requested: false, immediate: false, held: false })
     await releaseOurPause()
     await toTrash(path.join(updateDir(), 'staging', target), 'app-update').catch(() => {})
     return next
@@ -460,7 +464,7 @@ export async function onBoot(options: UpdaterOptions): Promise<UpdateState> {
   } catch { /* no result */ }
   // It was installed and did not come up healthy: never this signature again automatically.
   const next = patchState({ phase: options.currentVersion === target ? 'failed' : 'rolled_back', error: detail,
-    skip_signature: state.release.signature, install_requested: false, staged_app: null })
+    skip_signature: state.release.signature, install_requested: false, immediate: false, staged_app: null })
   await releaseOurPause()
   return next
 }
@@ -747,6 +751,8 @@ export async function maybeInstall(): Promise<void> {
     }
     patchState({ phase: 'draining', drain_started_at: o.now?.() ?? Date.now(), we_paused: wePaused })
   }
+  // Install now (don't wait): intake is paused above, running jobs are left to the boot scan.
+  if (readState().immediate) return void await install().catch(e => markFailed(e))
   watchDrain()
 }
 
@@ -765,7 +771,7 @@ function watchDrain(): void {
     if (state.phase !== 'draining') return
     if (state.we_paused && !o.queue.isPaused()) {
       // The owner pressed Resume: his choice wins until Install Now.
-      patchState({ phase: 'ready', held: true, we_paused: false, install_requested: false, drain_started_at: null })
+      patchState({ phase: 'ready', held: true, we_paused: false, install_requested: false, immediate: false, drain_started_at: null })
       return
     }
     const waited = (o.now?.() ?? Date.now()) - (state.drain_started_at || 0)
@@ -783,9 +789,12 @@ function watchDrain(): void {
   drainTimer.unref?.()
 }
 
-/** Owner's "Install Now": drain (whatever the window) and install. */
-export async function installNow(): Promise<UpdateState> {
-  patchState({ install_requested: true, held: false })
+/**
+ * Owner's "Install Now": drain (whatever the window) and install. `immediately` skips the drain and
+ * installs at once, or as soon as the release is staged.
+ */
+export async function installNow(immediately = false): Promise<UpdateState> {
+  patchState({ install_requested: true, held: false, immediate: immediately })
   const state = readState()
   if (state.phase === 'ready' || state.phase === 'draining') await maybeInstall()
   else await checkNow(true)
