@@ -17,7 +17,8 @@ import { after, before, describe, test } from 'node:test'
 import { useTempDataDir } from './_helpers.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
 import { reconcilePendingJobCancellation } from '../services/job-cancellation-reconciler.js'
-import { classifyJobControl } from '../services/job-control.js'
+import { classifyJobControl, classifyJobControls } from '../services/job-control.js'
+import { HELD_MUSIC_RESULT_GUIDANCE } from '../contracts/provider-task-state.js'
 import type { Job } from '../models/types.js'
 
 let cleanup: () => Promise<void>
@@ -189,6 +190,46 @@ describe('read-only reconciliation for a finished job', () => {
       assert.equal(outcome.providerJobs[0]?.job.state, 'succeeded')
     } finally {
       globalThis.fetch = original
+    }
+  })
+})
+
+describe('a held unknown outcome is not a finished task (2026-10-16)', () => {
+  // Dreamlands 571ec142: the Gateway held a music task as `failed` + unknown outcome, and later
+  // finished it. Treating that row as settled offered "Remove from history" and Retry.
+  const music = (fields: Record<string, unknown>) => ({
+    status: 'error' as const,
+    type: 'music_generate' as const,
+    params: {},
+    genstudio_jobs: [{
+      id: 'music-held', operation: 'music.generation' as const, state: 'failed',
+      dispatch_state: 'dispatched' as const, updated_at: '2026-10-15T15:17:14.110Z', ...fields,
+    }],
+  }) as unknown as GateJob
+
+  test('failed unknown-outcome provider evidence is unsettled and blocks clear-history', () => {
+    for (const fields of [
+      { recovery_required: true, recovery_state: 'unknown_outcome' },
+      { recovery_required: true, recovery_state: null },
+      { recovery_state: 'unknown_outcome' },
+    ]) {
+      const control = classifyJobControl(music(fields), capabilities)
+      assert.equal(control.action, 'recheck-provider-status', JSON.stringify(fields))
+      assert.equal(control.financial_effect, 'remote-result-required')
+      // One consistent line: never "finished"/removable, never Retry or Replace, points at the free import.
+      assert.equal(control.reason, HELD_MUSIC_RESULT_GUIDANCE)
+      assert.match(control.reason, /Music Library and use "Recover existing result"/)
+      assert.doesNotMatch(control.reason, /finished job|can be removed/)
+      const controls = classifyJobControls(music(fields), capabilities)
+      assert.ok(controls.every(c => c.action !== 'clear-history'), 'no removal control at all')
+    }
+  })
+
+  test('ordinary settled failed evidence remains clearable', () => {
+    for (const fields of [{ recovery_required: false, recovery_state: null }, {}]) {
+      const control = classifyJobControl(music(fields), capabilities)
+      assert.equal(control.action, 'clear-history', JSON.stringify(fields))
+      assert.equal(control.enabled, true)
     }
   })
 })

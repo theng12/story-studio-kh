@@ -1251,3 +1251,301 @@ test('the generic finalizer keeps a fully released Continuity provider failure c
   assert.match(finalized.error || '', /provider task failed/i)
   assert.equal(auditorCalls, 0)
 })
+
+// ── 2026-10-16: an unknown-outcome hold settles only on explicit Gateway proof ──
+//
+// Dreamlands 571ec142: the Gateway held music task `failed` + `recovery_required: true` +
+// `unknown_outcome` after a Hub artifact 503, then finished it. Story cached the held row as
+// settled, never re-read it, and offered Retry and "Remove from history".
+
+type MusicEvidence = NonNullable<Job['genstudio_jobs']>[number]
+
+function heldMusicEvidence(fields: Partial<MusicEvidence> = {}): MusicEvidence {
+  return {
+    id: 'music-held', operation: 'music.generation', state: 'failed', queue_state: 'failed',
+    dispatch_state: 'dispatched', recovery_required: true, recovery_state: 'unknown_outcome',
+    failure_code: 'PROVIDER_FAILED', request_key: 'story-music-held', updated_at: new Date().toISOString(),
+    ...fields,
+  }
+}
+
+async function finishedMusicJob(name: string, jobId: string, evidence: MusicEvidence): Promise<string> {
+  const { setApiKey } = await import('../services/app-secrets-store.js')
+  await setApiKey('genstudio', 'reconcile-test-key')
+  const project = await pm.createProject({ name })
+  const persisted: Job = {
+    job_id: jobId, project_slug: project.slug, type: 'music_generate', episode_id: '', title: 'Music library top-up',
+    status: 'error', created_at: new Date().toISOString(), started_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(), error: 'Music library top-up incomplete', output_lines: [], params: {},
+    local_execution_complete: true, remote_cancellations: {}, genstudio_jobs: [evidence],
+  }
+  await fs.writeFile(path.join(tempDir, 'projects', project.slug, 'jobs.json'), JSON.stringify({ jobs: [persisted] }))
+  return project.slug
+}
+
+/** Answer only the exact music status GET; record every request so a POST would be seen. */
+function musicStatus(answer: () => Response): { requests: string[]; restore: () => void } {
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async (input, init) => {
+    const method = (init?.method || 'GET').toUpperCase()
+    const url = new URL(String(input))
+    requests.push(`${method} ${url.pathname}`)
+    if (method === 'GET' && url.pathname === '/v1/music/jobs/music-held') return answer()
+    return Response.json({ detail: 'unexpected request' }, { status: 500 })
+  }
+  return { requests, restore: () => { globalThis.fetch = original } }
+}
+
+async function recheck(slug: string, jobId: string): Promise<MusicEvidence> {
+  await jq.getJobs(slug)
+  await jq.recheckJobProviderStatus(slug, jobId)
+  return jq.getJob(jobId)!.genstudio_jobs![0]!
+}
+
+test('held failed music evidence is re-read and fresh succeeded false/null replaces the hold with GET only', async () => {
+  const slug = await finishedMusicJob('Held music succeeds', 'held-music-succeeds', heldMusicEvidence())
+  const before = JSON.parse(await fs.readFile(path.join(tempDir, 'projects', slug, 'jobs.json'), 'utf8')).jobs[0] as Job
+  assert.equal(jq.hasUnsettledProviderEvidence(before), true, 'Retry and history removal stay blocked before proof')
+  const gateway = musicStatus(() => Response.json({
+    id: 'music-held', state: 'succeeded', dispatch_state: 'dispatched', cancelled: false,
+    recovery_required: false, recovery_state: null, failure_code: null,
+  }))
+  try {
+    const entry = await recheck(slug, 'held-music-succeeds')
+    assert.ok(gateway.requests.length >= 1)
+    assert.ok(gateway.requests.every(request => request === 'GET /v1/music/jobs/music-held'), gateway.requests.join(', '))
+    assert.equal(entry.state, 'succeeded')
+    assert.equal(entry.recovery_required, false, 'the stale hold is replaced, not inherited')
+    assert.equal(entry.recovery_state, null)
+    const job = jq.getJob('held-music-succeeds')!
+    assert.equal(jq.hasUnsettledProviderEvidence(job), false)
+    assert.equal(jq.getPublicJob('held-music-succeeds')!.control?.action, 'clear-history')
+    // This job saved no Music Library item plan, so nothing can be awaiting import and the history
+    // is free. The "Recover existing result" line is driven by disk (music-library-existing-task-
+    // recovery.test.ts covers both a missing song and one already imported).
+    assert.ok(job.output_lines.some(line => /This history can now be removed/.test(line)))
+    assert.equal(job.music_results_awaiting_import, undefined)
+    const persisted = JSON.parse(await fs.readFile(path.join(tempDir, 'projects', slug, 'jobs.json'), 'utf8')).jobs[0]
+    assert.equal(persisted.genstudio_jobs[0].state, 'succeeded', 'the gate opens only on the persisted settled snapshot')
+    assert.equal(persisted.genstudio_jobs[0].recovery_required, false)
+  } finally {
+    gateway.restore()
+  }
+})
+
+test('failed evidence with explicit false/null replaces a prior unknown hold', async () => {
+  const slug = await finishedMusicJob('Held music explicit failure', 'held-music-explicit-failure', heldMusicEvidence())
+  const gateway = musicStatus(() => Response.json({
+    id: 'music-held', state: 'failed', dispatch_state: 'dispatched', cancelled: false,
+    recovery_required: false, recovery_state: null, failure_code: 'PROVIDER_FAILED',
+  }))
+  try {
+    const entry = await recheck(slug, 'held-music-explicit-failure')
+    assert.equal(entry.state, 'failed')
+    assert.equal(entry.recovery_required, false)
+    assert.equal(entry.recovery_state, null)
+    assert.equal(jq.hasUnsettledProviderEvidence(jq.getJob('held-music-explicit-failure')!), false)
+    assert.ok(gateway.requests.every(request => request.startsWith('GET ')))
+  } finally {
+    gateway.restore()
+  }
+})
+
+for (const [label, fields] of [
+  ['omitted', {}],
+  ['malformed', { recovery_required: 'false', recovery_state: 7 }],
+] as const) {
+  test(`failed evidence with ${label} recovery fields preserves a prior unknown hold`, async () => {
+    const jobId = `held-music-${label}`
+    const slug = await finishedMusicJob(`Held music ${label}`, jobId, heldMusicEvidence())
+    const gateway = musicStatus(() => Response.json({ id: 'music-held', state: 'failed', dispatch_state: 'dispatched', cancelled: false, ...fields }))
+    try {
+      const entry = await recheck(slug, jobId)
+      assert.equal(entry.state, 'failed')
+      assert.equal(entry.recovery_required, true)
+      assert.equal(entry.recovery_state, 'unknown_outcome')
+      assert.equal(jq.hasUnsettledProviderEvidence(jq.getJob(jobId)!), true)
+      assert.notEqual(jq.getPublicJob(jobId)!.control?.action, 'clear-history')
+      assert.ok(!jq.getJob(jobId)!.output_lines.some(line => /confirmed every recorded provider task/.test(line)))
+    } finally {
+      gateway.restore()
+    }
+  })
+}
+
+for (const [label, fields] of [
+  ['one field missing', { recovery_required: false }],
+  ['a non-text recovery state', { recovery_required: false, recovery_state: 7 }],
+] as const) {
+  test(`failed evidence with ${label} preserves a prior unknown hold`, async () => {
+    const jobId = `held-music-${label.replaceAll(' ', '-')}`
+    const slug = await finishedMusicJob(`Held music ${label}`, jobId, heldMusicEvidence())
+    const gateway = musicStatus(() => Response.json({ id: 'music-held', state: 'failed', dispatch_state: 'dispatched', cancelled: false, ...fields }))
+    try {
+      const entry = await recheck(slug, jobId)
+      assert.equal(entry.recovery_required, true)
+      assert.equal(entry.recovery_state, 'unknown_outcome')
+      assert.equal(jq.hasUnsettledProviderEvidence(jq.getJob(jobId)!), true)
+    } finally {
+      gateway.restore()
+    }
+  })
+}
+
+test('newly failed accepted evidence with ambiguous recovery fields stays unsettled without a fabricated remote value', async () => {
+  const running = heldMusicEvidence({ state: 'running', queue_state: 'running' })
+  delete running.recovery_required
+  delete running.recovery_state
+  delete running.failure_code
+  const slug = await finishedMusicJob('Running music ambiguous failure', 'running-music-ambiguous', running)
+  const gateway = musicStatus(() => Response.json({ id: 'music-held', state: 'failed', dispatch_state: 'dispatched', cancelled: false }))
+  try {
+    const entry = await recheck(slug, 'running-music-ambiguous')
+    assert.equal(entry.state, 'running', 'an unproven failed read is not written as a settled failure')
+    assert.equal(Object.hasOwn(entry, 'recovery_required'), false, 'no recovery value is invented')
+    assert.equal(Object.hasOwn(entry, 'recovery_state'), false)
+    assert.equal(jq.hasUnsettledProviderEvidence(jq.getJob('running-music-ambiguous')!), true)
+  } finally {
+    gateway.restore()
+  }
+})
+
+test('held failed response stays blocked and exact accepted-task 404 is not rewritten as never-created', async () => {
+  const heldSlug = await finishedMusicJob('Held music stays held', 'held-music-stays', heldMusicEvidence())
+  const held = musicStatus(() => Response.json({
+    id: 'music-held', state: 'failed', dispatch_state: 'dispatched', cancelled: false,
+    recovery_required: true, recovery_state: 'unknown_outcome',
+  }))
+  try {
+    const entry = await recheck(heldSlug, 'held-music-stays')
+    assert.equal(entry.recovery_required, true)
+    assert.equal(jq.getJob('held-music-stays')!.history_evidence_check?.state, 'unsettled')
+    assert.notEqual(jq.getPublicJob('held-music-stays')!.control?.action, 'clear-history')
+    assert.ok(!jq.getJob('held-music-stays')!.output_lines.some(line => /confirmed every recorded provider task/.test(line)))
+    assert.ok(held.requests.every(request => request.startsWith('GET ')))
+  } finally {
+    held.restore()
+  }
+
+  const missingSlug = await finishedMusicJob('Held music 404', 'held-music-404', heldMusicEvidence())
+  const missing = musicStatus(() => Response.json({ detail: 'music job not found' }, { status: 404 }))
+  try {
+    const entry = await recheck(missingSlug, 'held-music-404')
+    assert.equal(entry.state, 'failed')
+    assert.notEqual(entry.state, 'not_created')
+    assert.equal(entry.recovery_required, true)
+    assert.equal(jq.hasUnsettledProviderEvidence(jq.getJob('held-music-404')!), true)
+    assert.ok(!jq.getJob('held-music-404')!.output_lines.some(line => /never created/.test(line)))
+    assert.ok(missing.requests.every(request => request.startsWith('GET ')))
+  } finally {
+    missing.restore()
+  }
+})
+
+test('legacy ordinary failed evidence with omitted optional fields remains settled', async () => {
+  const { isUnprovenFailedRead } = await import('../lib/provider-task-state.js')
+  assert.equal(isUnprovenFailedRead({ state: 'failed' }, { state: 'failed' }), false, 'a known legacy failure stays a known failure')
+  const legacy = heldMusicEvidence()
+  delete legacy.recovery_required
+  delete legacy.recovery_state
+  const gateway = musicStatus(() => Response.json({ detail: 'a settled row needs no read' }, { status: 500 }))
+  try {
+    const input = job('unknown')
+    input.remote_cancellations = {}
+    input.genstudio_jobs = [legacy]
+    const outcome = await reconcilePendingJobCancellation(input, 'test-key', { readOnly: true })
+    assert.equal(outcome.kind, 'failed')
+    assert.deepEqual(gateway.requests, [])
+  } finally {
+    gateway.restore()
+  }
+})
+
+// ── Review 2026-10-16 #1: Gateway cc5bcb70 publishes `recovery_required` as a boolean on every
+// envelope (store.py:527, true only for `unknown_outcome`) and labels every plain retryable
+// failure `recovery_state: "retryable"` (store.py:1890), including a hold it later relabels
+// (store.py:582-597). `false` + any text other than `unknown_outcome` is settled proof.
+
+function gatewayStatus(pathname: string, answer: () => Response): { requests: string[]; restore: () => void } {
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async (input, init) => {
+    const method = (init?.method || 'GET').toUpperCase()
+    const url = new URL(String(input))
+    requests.push(`${method} ${url.pathname}`)
+    if (method === 'GET' && url.pathname === pathname) return answer()
+    return Response.json({ detail: 'unexpected request' }, { status: 500 })
+  }
+  return { requests, restore: () => { globalThis.fetch = original } }
+}
+
+test('a running task that fails as plainly retryable settles, for any operation', async () => {
+  for (const [operation, base] of [['voice.tts', '/v1/jobs'], ['music.generation', '/v1/music/jobs']] as const) {
+    const id = `retryable-${operation.replace('.', '-')}`
+    const slug = await finishedMusicJob(`Retryable ${operation}`, `job-${id}`, {
+      id, operation, state: 'running', queue_state: 'running', dispatch_state: 'dispatched', updated_at: new Date().toISOString(),
+    })
+    const gateway = gatewayStatus(`${base}/${id}`, () => Response.json({
+      id, state: 'failed', dispatch_state: 'dispatched', cancelled: false, recovery_required: false, recovery_state: 'retryable',
+    }))
+    try {
+      await jq.getJobs(slug)
+      await jq.recheckJobProviderStatus(slug, `job-${id}`)
+      const entry = jq.getJob(`job-${id}`)!.genstudio_jobs![0]!
+      assert.equal(entry.state, 'failed', operation)
+      assert.equal(entry.recovery_required, false, operation)
+      assert.equal(entry.recovery_state, 'retryable', operation)
+      assert.equal(jq.hasUnsettledProviderEvidence(jq.getJob(`job-${id}`)!), false, `${operation}: Retry and Remove are not held`)
+      assert.equal(jq.getPublicJob(`job-${id}`)!.control?.action, 'clear-history', operation)
+      assert.ok(gateway.requests.every(request => request.startsWith('GET ')))
+    } finally {
+      gateway.restore()
+    }
+  }
+})
+
+test('a held task the Gateway relabels retryable clears the hold', async () => {
+  const slug = await finishedMusicJob('Held music relabelled retryable', 'held-music-retryable', heldMusicEvidence())
+  const gateway = musicStatus(() => Response.json({
+    id: 'music-held', state: 'failed', dispatch_state: 'dispatched', cancelled: false, recovery_required: false, recovery_state: 'retryable',
+  }))
+  try {
+    const entry = await recheck(slug, 'held-music-retryable')
+    assert.equal(entry.recovery_required, false)
+    assert.equal(entry.recovery_state, 'retryable')
+    assert.equal(jq.hasUnsettledProviderEvidence(jq.getJob('held-music-retryable')!), false)
+  } finally {
+    gateway.restore()
+  }
+})
+
+test('pending-cancellation classification and the merge agree on what a failed read proves', async () => {
+  const running = (): Job => {
+    const input = job('requested')
+    input.genstudio_jobs = [{ id: 'provider-1', operation: 'voice.tts', state: 'running', dispatch_state: 'dispatched', updated_at: new Date().toISOString() }]
+    return input
+  }
+  // Unproven: `failed` with no recovery fields over a running row. The merge keeps the row, so the
+  // classification must not call the job failed either.
+  const unproven = gatewayStatus('/v1/jobs/provider-1', () => Response.json({ id: 'provider-1', state: 'failed', dispatch_state: 'dispatched', cancelled: false }))
+  try {
+    const outcome = await reconcilePendingJobCancellation(running(), 'test-key', { readOnly: true })
+    assert.equal(outcome.kind, 'pending')
+    assert.equal(outcome.records['voice.tts:provider-1']?.status, 'unknown')
+    assert.equal(outcome.providerJobs.length, 0, 'an unproven read is not handed to the merge')
+  } finally {
+    unproven.restore()
+  }
+  // Proven: plainly retryable settles in both.
+  const proven = gatewayStatus('/v1/jobs/provider-1', () => Response.json({
+    id: 'provider-1', state: 'failed', dispatch_state: 'dispatched', cancelled: false, recovery_required: false, recovery_state: 'retryable',
+  }))
+  try {
+    const outcome = await reconcilePendingJobCancellation(running(), 'test-key', { readOnly: true })
+    assert.equal(outcome.kind, 'failed')
+    assert.equal((outcome.providerJobs[0]?.job as { recovery_state?: unknown } | undefined)?.recovery_state, 'retryable')
+  } finally {
+    proven.restore()
+  }
+})

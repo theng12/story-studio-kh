@@ -178,7 +178,8 @@ test('Jobs reports whole-batch completed, settling, cancelled, failed, and not-s
   assert.ok((jobs.match(/left in this run/g) || []).length >= 2, 'remaining is the scheduling remainder')
   assert.doesNotMatch(jobs, /<span class="job-stat-label">remaining<\/span>/)
   assert.match(jobs, /\.job-stat\.is-failed strong \{ color: var\(--error\); \}/)
-  assert.match(jobs, /summariseJobItems\(job\.item_progress, job\.genstudio_jobs\)/)
+  // 2026-10-16 — plus, exactly, the server-computed count of finished songs awaiting import.
+  assert.match(jobs, /summariseJobItems\(job\.item_progress, job\.genstudio_jobs(?:, job\.music_results_awaiting_import\?\.length)?\)/)
 })
 
 test('Gateway batch ledger keeps customer cancellations neutral instead of failed', () => {

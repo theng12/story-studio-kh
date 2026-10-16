@@ -2830,6 +2830,13 @@ export interface Job {
     detail?: string
   }
   /**
+   * 2026-10-16 — accepted music tasks the Gateway finished whose songs never reached the library
+   * (no complete recovery receipt, no pool row with the task id). While non-empty the history is
+   * kept: removing it would 404 the item's "Recover existing result". Computed from disk by
+   * `musicResultsAwaitingImport` after a provider re-check and after each recovery.
+   */
+  music_results_awaiting_import?: string[]
+  /**
    * A failed job whose work was finished later (a later run or a repair saved
    * every file it was meant to make). The row stays as history but no longer
    * needs attention. Set only by `services/stale-failures.ts`; cleared when the

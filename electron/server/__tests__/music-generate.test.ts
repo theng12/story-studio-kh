@@ -13,7 +13,7 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, stat, writeFile, readdir } from 'node:fs/promises'
+import fsp, { mkdir, mkdtemp, readFile, stat, writeFile, readdir } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -345,5 +345,89 @@ describe('a WAV track is stored as AAC (v1.4.244)', () => {
     const out = path.join(dir, 'mix.mp3')
     assert.equal(spawnSync('ffmpeg', buildStitchArgs(list, out, 0)).status, 0)
     assert.ok(Math.abs(probe(out) - 29) < 0.06, `stitched ${probe(out)}`)
+  })
+})
+
+describe('direct M4A publication is one staged, synced, no-replace writer (2026-10-16)', () => {
+  // `isMp4Audio` reads only the `ftyp` box marker; the fill makes each body's bytes distinct.
+  const m4a = (fill: number) => Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypM4A '), Buffer.alloc(4096, fill)])
+  const projectLibrary = async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'music-publish-'))
+    const lib = path.join(root, 'projects', 'chan', 'music-library')
+    await mkdir(lib, { recursive: true })
+    return { lib, candidates: path.join(root, 'projects', '_trash', 'chan', 'music-library-publication-candidates') }
+  }
+
+  const candidateBytes = async (candidates: string) =>
+    Promise.all((await readdir(candidates).catch(() => [] as string[])).map(name => readFile(path.join(candidates, name))))
+
+  test('direct M4A publication exposes only a complete synced final file and drops its staging name', async () => {
+    const { lib, candidates } = await projectLibrary()
+    const body = m4a(1)
+    const saved = await saveMusicTrack(lib, 'Rain', 'task-00000001', 1, body)
+    assert.equal(saved.disposition, 'created')
+    assert.equal(saved.size, body.length)
+    assert.match(saved.sha256 || '', /^[0-9a-f]{64}$/)
+    assert.deepEqual(await readFile(path.join(lib, saved.filename)), body)
+    assert.deepEqual(await readdir(lib), [saved.filename], 'no staging file is left beside the library')
+    assert.deepEqual(await candidateBytes(candidates), [], 'a successful save leaves nothing in Trash: the bytes live on under the final name')
+  })
+
+  test('normal and recovery writers racing the same destination admit one exact body; equal replay succeeds and different bytes are retained/refused', async () => {
+    const { lib, candidates } = await projectLibrary()
+    const winner = m4a(2)
+    const other = m4a(3)
+    const results = await Promise.allSettled([
+      saveMusicTrack(lib, 'Rain', 'task-00000002', 1, winner),
+      saveMusicTrack(lib, 'Rain', 'task-00000002', 1, winner),
+      saveMusicTrack(lib, 'Rain', 'task-00000002', 1, other),
+    ])
+    assert.equal(results[0]!.status === 'fulfilled' && results[0]!.value.disposition, 'created')
+    assert.equal(results[1]!.status === 'fulfilled' && results[1]!.value.disposition, 'equal-replay')
+    assert.equal(results[2]!.status, 'rejected')
+    const refusal = (results[2] as PromiseRejectedResult).reason
+    assert.equal(refusal.statusCode, 409)
+    assert.match(refusal.message, /different audio; it was kept and not replaced/)
+    const filename = musicTrackFilename('Rain', 'task-00000002', 1)
+    assert.deepEqual(await readFile(path.join(lib, filename)), winner, 'the final file is never replaced')
+    assert.deepEqual(await readdir(lib), [filename])
+    assert.deepEqual(await candidateBytes(candidates), [other], 'only the refused body is retained in Trash')
+  })
+
+  test('a crash before publication leaves no partial final-path file', async () => {
+    const { lib, candidates } = await projectLibrary()
+    const body = m4a(4)
+    const realLink = fsp.link
+    fsp.link = async () => { throw Object.assign(new Error('simulated crash before publication'), { code: 'EIO' }) }
+    try {
+      await assert.rejects(saveMusicTrack(lib, 'Rain', 'task-00000003', 1, body), /simulated crash before publication/)
+    } finally {
+      fsp.link = realLink
+    }
+    assert.deepEqual(await readdir(lib), [], 'no final file and no partial file')
+    assert.deepEqual(await candidateBytes(candidates), [body], 'the failed publication keeps its only copy in Trash')
+  })
+
+  test('a failure after exclusive publication leaves a complete final file and its staging alias retained in Trash', async () => {
+    const { lib, candidates } = await projectLibrary()
+    const body = m4a(5)
+    const filename = musicTrackFilename('Rain', 'task-00000004', 1)
+    const realOpen = fsp.open
+    fsp.open = (async (target: any, flags?: any, mode?: any) => {
+      if (target === lib && flags === 'r') throw new Error('simulated crash after publication')
+      return realOpen(target, flags, mode)
+    }) as typeof fsp.open
+    try {
+      await assert.rejects(saveMusicTrack(lib, 'Rain', 'task-00000004', 1, body), /simulated crash after publication/)
+    } finally {
+      fsp.open = realOpen
+    }
+    assert.deepEqual(await readFile(path.join(lib, filename)), body, 'the published file is complete')
+    assert.deepEqual(await readdir(lib), [filename])
+    assert.deepEqual(await candidateBytes(candidates), [body])
+    // A restart replays the same bytes harmlessly and adds nothing to Trash.
+    assert.equal((await saveMusicTrack(lib, 'Rain', 'task-00000004', 1, body)).disposition, 'equal-replay')
+    assert.deepEqual(await readdir(lib), [filename])
+    assert.equal((await candidateBytes(candidates)).length, 1)
   })
 })

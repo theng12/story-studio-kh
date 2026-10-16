@@ -1089,7 +1089,7 @@ import {
 import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery, type EpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
-import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, isFreeFleetWork } from '@shared/provider-task-state'
+import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, holdsUnknownProviderOutcome, isFreeFleetWork } from '@shared/provider-task-state'
 import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, pageCount, pageSlice } from '~/utils/jobs-list'
 type RJob = DeepReadonly<Job>
 
@@ -1465,7 +1465,7 @@ watch(jobs, (list) => {
 }, { immediate: true })
 
 function jobCounts(job: RJob) {
-  return summariseJobItems(job.item_progress, job.genstudio_jobs)
+  return summariseJobItems(job.item_progress, job.genstudio_jobs, job.music_results_awaiting_import?.length)
 }
 
 /**
@@ -2746,6 +2746,8 @@ function canRetryManualFailedItemExactly(job: RJob): boolean {
 
 function canReplaceFailedItems(job: RJob): boolean {
   if (job.status !== 'error') return false
+  // A held result may still be adopted; a paid replacement could buy it twice (Dreamlands 571ec142).
+  if ((job.genstudio_jobs || []).some(holdsUnknownProviderOutcome)) return false
   return job.type === 'audio'
     || (job.genstudio_jobs || []).some(entry => entry.operation === 'chat.response')
 }

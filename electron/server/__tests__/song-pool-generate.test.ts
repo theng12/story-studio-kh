@@ -7,7 +7,9 @@ import { test, describe, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import request from 'supertest'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService, type MockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import { STARTING_SONG_FORMULA, STARTING_EPISODE_DEFAULTS } from '../contracts/song-formula.js'
@@ -516,6 +518,45 @@ describe('generating songs', () => {
     assert.ok(retried, 'the settled retry keeps both exact request identities')
     assert.notEqual(retried.music_attempts[0].idempotency_key, retried.music_attempts[1].idempotency_key)
     assert.ok(retried.music_attempts.every((attempt: any) => attempt.accepted_task_id))
+  })
+
+  test('a quit after the scratch save and trim, before the pool move, resumes the same song instead of refusing it', async () => {
+    // A real M4A with an abrupt ending: checkSong fades it in place, so the scratch file no longer
+    // matches the downloaded bytes (song-audio.ts). Review 2026-10-16 #2.
+    const work = await fs.mkdtemp(path.join(os.tmpdir(), 'song-pool-m4a-'))
+    const source = path.join(work, 'take.m4a')
+    assert.equal(spawnSync('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=6', '-c:a', 'aac', '-b:a', '128k', '-f', 'ipod', source]).status, 0)
+    const bytes = await fs.readFile(source)
+    service.queueScenario('chat', { outputText: writerAnswer(1) })
+    service.queueScenario('music', { audioArtifact: bytes })
+    const { generateSongPool } = await import('../generators/song-pool-generate.js')
+    const sp = await import('../services/song-pool.js')
+    const incoming = path.join(sp.poolDir(slug)!, '.incoming')
+    const params = { mode: 'new', count: 1, writer_model: 'mock-chat-v1', music_model: 'mock-music-v1', in_flight: 1, batch_id: 'b_quit_after_trim' }
+    const realRename = fs.rename
+    fs.rename = (async (from: any, to: any) => {
+      if (String(from).startsWith(incoming + path.sep) && !String(to).startsWith(incoming + path.sep)) {
+        throw new Error('simulated quit before the pool move')
+      }
+      return realRename(from, to)
+    }) as typeof fs.rename
+    try {
+      await assert.rejects(generateSongPool(fakeJob(params)))
+    } finally {
+      fs.rename = realRename
+    }
+    const scratch = (await fs.readdir(incoming)).filter(name => name.endsWith('.m4a') && !name.startsWith('.'))
+    assert.equal(scratch.length, 1, 'the trimmed scratch file is left behind')
+    assert.equal((await fs.readFile(path.join(incoming, scratch[0]!))).equals(bytes), false, 'checkSong rewrote it')
+
+    service.queueScenario('music', { audioArtifact: bytes })
+    const resumed = fakeJob(params)
+    await generateSongPool(resumed)
+    assert.equal(resumed.result.complete, true, resumed.output_lines.join('\n'))
+    const songs = (await poolFile()).songs.filter((s: any) => s.batch_id === 'b_quit_after_trim')
+    assert.equal(songs.length, 1)
+    await fs.access(path.join(sp.poolDir(slug)!, songs[0].file))
+    assert.deepEqual((await fs.readdir(incoming)).filter(name => !name.startsWith('.')), [], 'the stale scratch file went to Trash, not into the pool')
   })
 
   test('regenerate: same brief, new seed, old take kept but disabled', async () => {

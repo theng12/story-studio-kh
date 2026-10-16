@@ -29,9 +29,11 @@ import { getAppSetting, getPaidImageReplacementSetting, onAppSettingWritten, set
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
+import { musicResultsAwaitingImport } from './music-library.js'
 import {
   isNeverCreatedProviderTask,
   isActiveGenStudioProviderState,
+  isUnprovenFailedRead,
   isUnsettledProviderEntry as isUnsettledProviderEntryShared,
   shouldRecheckStoredTranscriptionAbsence,
 } from '../lib/provider-task-state.js'
@@ -631,6 +633,8 @@ function mergeGenStudioReconciliationEvidence(
     reserved_credits?: number | null
     settled_credits?: number | null
     released_credits?: number | null
+    recovery_required?: boolean | null
+    recovery_state?: string | null
     transcription_absence_verified_at?: string
   },
 ): void {
@@ -662,12 +666,22 @@ function mergeGenStudioReconciliationEvidence(
   const correctedFalseTranscriptionAbsence = isNeverCreatedProviderTask(prior)
     && shouldRecheckStoredTranscriptionAbsence(prior)
     && provider.id !== evidenceId
+  // The recovery pair is replaced, never inherited: a fresh `succeeded/false/null` must not leave a
+  // stale `true/unknown_outcome` behind. A `failed` read without the explicit pair keeps the prior
+  // state and hold instead (see `isUnprovenFailedRead`).
+  const unproven = isUnprovenFailedRead(prior, provider)
+  const state = unproven ? prior.state : provider.state
+  const { recovery_required: _priorRecoveryRequired, recovery_state: _priorRecoveryState, ...priorBase } =
+    isNeverCreatedProviderTask(prior) ? priorWithoutSyntheticAbsenceFields : prior
+  const recovery = unproven ? prior : provider
   entries[index] = {
-    ...(isNeverCreatedProviderTask(prior) ? priorWithoutSyntheticAbsenceFields : prior),
+    ...priorBase,
     id: provider.id,
     ...(recoveryKey ? { request_key: recoveryKey } : {}),
-    state: provider.state,
-    queue_state: reconciledGenStudioQueueState(provider.state),
+    state,
+    queue_state: reconciledGenStudioQueueState(state),
+    ...(recovery.recovery_required !== undefined ? { recovery_required: recovery.recovery_required } : {}),
+    ...(recovery.recovery_state !== undefined ? { recovery_state: recovery.recovery_state } : {}),
     ...(provider.dispatch_state !== undefined ? { dispatch_state: provider.dispatch_state } : {}),
     ...(provider.cancellable !== undefined ? { cancellable: provider.cancellable } : {}),
     ...(provider.cancelled !== undefined ? { cancelled: provider.cancelled } : {}),
@@ -929,6 +943,7 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
     for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.evidence_id, item.job)
     reportNeverCreatedProviderTasks(job, outcome.absent)
     if (outcome.kind === 'pending' && outcome.reason) reportUnverifiedTranscriptionAbsence(job)
+    await updateMusicImportHold(job)
 
     // v1.2.9 — `needsHistoryEvidenceRefresh` answers false for two entirely
     // different reasons: the evidence really is settled, or the owner abandoned
@@ -946,7 +961,10 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
       // GenStudio confirmed everything is terminal. Nothing is outstanding, so
       // the gate opens on this same snapshot with no further clicks.
       delete job.history_evidence_check
-      job.output_lines.push('The Gateway confirmed every recorded provider task for this job has finished. This history can now be removed.')
+      // A finished song still missing from the library keeps the history (see updateMusicImportHold).
+      if (!job.music_results_awaiting_import?.length) {
+        job.output_lines.push('The Gateway confirmed every recorded provider task for this job has finished. This history can now be removed.')
+      }
       await persistJob(job)
       emitUpdate(job)
       return
@@ -969,6 +987,37 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
     historyEvidenceRefreshing.delete(jobId)
     settled()
   }
+}
+
+/**
+ * 2026-10-16 — keep a stopped Music Library job's history while a song the Gateway finished is not
+ * in the library yet: removing the row would 404 that item's "Recover existing result" and orphan
+ * a paid result. Disk decides (`musicResultsAwaitingImport`); the line is said once per task and
+ * only for a song that really is missing.
+ */
+async function updateMusicImportHold(job: Job): Promise<void> {
+  const awaiting = await musicResultsAwaitingImport(job)
+  const before = new Set(job.music_results_awaiting_import || [])
+  if (awaiting.length) job.music_results_awaiting_import = awaiting
+  else delete job.music_results_awaiting_import
+  for (const taskId of awaiting) {
+    if (before.has(taskId)) continue
+    const line = `The Gateway finished music request ${taskId}, but its song is not in the library yet; nothing was run twice. `
+      + 'Use "Recover existing result" on the Music Library page to import it without a new generation. This history is kept until then.'
+    if (!job.output_lines.includes(line)) job.output_lines.push(line)
+  }
+}
+
+/** Recompute the import hold after an existing-result recovery (routes/music-library.ts). */
+export async function refreshMusicImportHold(projectSlug: string, jobId: string): Promise<void> {
+  await loadPersistedJobs(projectSlug)
+  const job = jobs.get(jobId)
+  if (!job || job.project_slug !== projectSlug) return
+  const before = JSON.stringify(job.music_results_awaiting_import || [])
+  await updateMusicImportHold(job)
+  if (JSON.stringify(job.music_results_awaiting_import || []) === before) return
+  await persistJob(job)
+  emitUpdate(job)
 }
 
 async function recordHistoryEvidenceCheck(
@@ -6730,7 +6779,7 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   // re-applying the unsettled-evidence hold here would put the row back in the
   // dead end that abandoning exists to escape.
   if (!TERMINAL_JOB_STATUSES.has(job.status)) return false
-  if (!job.force_abandoned && hasUnsettledProviderEvidence(job)) return false
+  if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) return false
   clearPaidImageWaitTimer(jobId)
   clearQuotaWaitTimer(jobId)
   // A terminal status does not prove its worker has returned yet.
@@ -6805,7 +6854,8 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
   const clearedIds: string[] = []
   const clearedSceneRenderJobs: Array<Pick<Job, 'episode_id' | 'job_id'>> = []
   for (const [id, job] of jobs.entries()) {
-    if (job.project_slug === projectSlug && matchesHistoryClearStatus(job, status) && (job.force_abandoned || !hasUnsettledProviderEvidence(job))) {
+    if (job.project_slug === projectSlug && matchesHistoryClearStatus(job, status)
+      && (job.force_abandoned || (!hasUnsettledProviderEvidence(job) && !job.music_results_awaiting_import?.length))) {
       clearPaidImageWaitTimer(id)
       clearQuotaWaitTimer(id)
       if (!activeRunJobIds.has(id)) cancelled.delete(id)

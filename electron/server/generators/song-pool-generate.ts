@@ -44,7 +44,7 @@ import { BRIEFS_PER_CALL, SUNG_BRIEFS_PER_CALL, writeBriefs, assemblePrompt, ass
 import { checkSong } from '../services/song-audio.js'
 import { lyricsMatch, srtText } from '../services/lyrics-match.js'
 import * as sp from '../services/song-pool.js'
-import { musicFleetBusyRetryPlan, resolveMusicModel, saveMusicTrack } from './music-generate.js'
+import { musicFleetBusyRetryPlan, musicTrackFilename, resolveMusicModel, saveMusicTrack } from './music-generate.js'
 import { siblingGroupForJob } from '../services/music-library.js'
 import type { Job } from '../models/types.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
@@ -475,6 +475,11 @@ export async function generateSongPool(job: Job): Promise<void> {
             // between used to index the half-made file as a second, "folder" song).
             const staging = path.join(dir, '.incoming')
             await fs.mkdir(staging, { recursive: true })
+            // A quit after an earlier save + trim leaves this exact scratch name behind with trimmed
+            // bytes, which the no-replace writer would refuse for ever. It is never promoted: it goes
+            // to Trash and the fresh download is saved (review 2026-10-16).
+            const scratch = path.join(staging, musicTrackFilename(brief.title, result.jobId, take + 1))
+            if (await fs.stat(scratch).catch(() => null)) sp.trashPoolFile(slug, scratch)
             const { filename, warning } = await saveMusicTrack(staging, brief.title, result.jobId, take + 1, body)
             if (warning) job.output_lines.push(`⚠ ${filename}: ${warning}`)
             const check = await checkSong(path.join(staging, filename), { trim: variety.trim_silence !== false })

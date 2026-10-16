@@ -52,3 +52,27 @@ export function isFreeFleetWork(remotes: ReadonlyArray<{ model_id?: unknown }> |
 
 /** The one wording for an item that is waiting because no Mac could take it yet. */
 export const FREE_MAC_WAIT_REASON = 'Waiting for a free Mac'
+
+/**
+ * A `failed` task the Gateway still holds as an unknown outcome: its result may yet be adopted as
+ * `succeeded` without running anything twice (Dreamlands 571ec142, 2026-10-15). Not finished, not a
+ * failure to retry or replace.
+ */
+export function holdsUnknownProviderOutcome(entry: { state?: unknown; recovery_required?: unknown; recovery_state?: unknown }): boolean {
+  return entry.state === 'failed' && (entry.recovery_required === true || entry.recovery_state === 'unknown_outcome')
+}
+
+/** A Music Library song of this job is held that way. */
+export function holdsUnknownMusicResult(
+  remotes: ReadonlyArray<{ operation?: unknown; state?: unknown; recovery_required?: unknown; recovery_state?: unknown }> | null | undefined,
+): boolean {
+  return (remotes || []).some(remote => remote.operation === 'music.generation' && holdsUnknownProviderOutcome(remote))
+}
+
+/** The ONE line the Jobs control and the job card show for a finished song not in the library yet. */
+export const MUSIC_RESULT_AWAITING_IMPORT_GUIDANCE = 'A song from this job finished at the Gateway but is not in the library yet; nothing was run twice. '
+  + 'Open Music Library and use "Recover existing result" to import it without a new generation. This history is kept until then.'
+
+/** The ONE line the Jobs control and the job card show for a held song. */
+export const HELD_MUSIC_RESULT_GUIDANCE = 'The Gateway is still checking a song from this job; nothing was run twice. '
+  + 'Do not retry or replace it: open Music Library and use "Recover existing result" to import it without a new generation.'

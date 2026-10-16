@@ -75,7 +75,7 @@ export interface MockGenStudioScenario {
   /** Video only. A real artifact fixture lets generator tests exercise media
    * validation without making a provider request. */
   videoArtifact?: Buffer
-  /** TTS only. Bytes served for the audio download (a truncated container, say); silent WAV when absent. */
+  /** TTS and music. Bytes served for the audio download (a truncated container, a real M4A); silent WAV when absent. */
   audioArtifact?: Buffer
 }
 
@@ -1834,7 +1834,7 @@ export class MockGenStudioService {
           response.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': String(ONE_PIXEL_PNG.length) })
           response.end(ONE_PIXEL_PNG)
         } else if (artifact.kind === 'audio' || artifact.kind === 'music') {
-          const wav = (artifact.kind === 'audio' && artifact.job.scenario.audioArtifact) || silentWav()
+          const wav = artifact.job.scenario.audioArtifact || silentWav()
           response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': String(wav.length) })
           response.end(wav)
         } else if (artifact.kind === 'video') {

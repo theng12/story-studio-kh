@@ -25,7 +25,15 @@
  * be unit-tested directly the way `useBatchSummary.ts` is.
  */
 
-import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, isFreeFleetWork } from '@shared/provider-task-state'
+import {
+  effectiveGenStudioTaskState,
+  FREE_MAC_WAIT_REASON,
+  HELD_MUSIC_RESULT_GUIDANCE,
+  MUSIC_RESULT_AWAITING_IMPORT_GUIDANCE,
+  holdsUnknownMusicResult,
+  holdsUnknownProviderOutcome,
+  isFreeFleetWork,
+} from '@shared/provider-task-state'
 
 // ── Shapes ────────────────────────────────────────────────────────────────
 // Structural, not imported from the contract, so a test can hand these
@@ -67,6 +75,9 @@ export interface RemoteJobLike {
   /** Nullable on the wire — GenStudio publishes an explicit null. */
   released_credits?: number | null
   reserved_credits?: number
+  /** A `failed` task the Gateway still holds as an unknown outcome (see `holdsUnknownProviderOutcome`). */
+  recovery_required?: boolean | null
+  recovery_state?: string | null
 }
 
 export interface AutoRetryLike {
@@ -86,6 +97,8 @@ export interface JobLike {
   item_progress?: ItemProgressLike | null
   genstudio_jobs?: ReadonlyArray<RemoteJobLike> | null
   auto_retry?: AutoRetryLike | null
+  /** Music tasks the Gateway finished whose songs are not in the library yet (server-computed). */
+  music_results_awaiting_import?: ReadonlyArray<string> | null
 }
 
 // ── 1. Counts ─────────────────────────────────────────────────────────────
@@ -135,10 +148,16 @@ function count(value: unknown): number {
 export function summariseJobItems(
   progress: ItemProgressLike | null | undefined,
   remoteJobs?: ReadonlyArray<RemoteJobLike> | null,
+  /** Finished songs not in the library yet (`music_results_awaiting_import`). */
+  awaitingImport = 0,
 ): JobItemCounts {
   const total = count(progress?.total)
   const finished = count(progress?.completed)
-  const failed = count(progress?.failed)
+  // A song the Gateway still holds as an unknown outcome, or finished but not imported yet, is
+  // still settling, not "needs another try".
+  const held = Math.min(count(progress?.failed), (remoteJobs || []).filter(remote =>
+    remote.operation === 'music.generation' && holdsUnknownProviderOutcome(remote)).length + count(awaitingImport))
+  const failed = count(progress?.failed) - held
   const cancelled = count(progress?.cancelled)
   const active = progress?.active || []
   const waitingItems = active.filter(item => item.state === 'waiting_retry')
@@ -152,9 +171,9 @@ export function summariseJobItems(
     waiting: waitingItems.length + atGateway,
     waitingForMac: waitingItems.length + atGateway > 0 && waitingItems.every(item => item.reason === FREE_MAC_WAIT_REASON),
     finished,
-    remaining: Math.max(0, total - finished - failed - cancelled),
+    remaining: Math.max(0, total - finished - failed - held - cancelled),
     queued: count(progress?.not_submitted),
-    settling: count(progress?.settling),
+    settling: count(progress?.settling) + held,
     failed,
     cancelled,
   }
@@ -469,6 +488,11 @@ export function describeJobExceptions(
   nowMs: number,
 ): JobExceptionLine[] {
   if (!job) return []
+  // One line for a held song, the same one the job control shows; no retry or credit talk beside it.
+  if (holdsUnknownMusicResult(job.genstudio_jobs)) return [{ key: 'held-music-result', text: HELD_MUSIC_RESULT_GUIDANCE }]
+  if (job.music_results_awaiting_import?.length) {
+    return [{ key: 'music-result-awaiting-import', text: MUSIC_RESULT_AWAITING_IMPORT_GUIDANCE }]
+  }
   const counts = summariseJobItems(job.item_progress, job.genstudio_jobs)
   const waiting = (job.item_progress?.active || []).find(item => item.state === 'waiting_retry')
   const canContinueAutomatically = job.status !== 'paused'

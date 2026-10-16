@@ -5,6 +5,7 @@
  *   PATCH  /api/projects/:slug/music-library/tracks/:filename — title / enabled / tags
  *   DELETE /api/projects/:slug/music-library/tracks/:filename — remove from disk
  *   POST   /api/projects/:slug/music-library/generate         — top up (SPENDS CREDITS)
+ *   POST   /api/projects/:slug/music-library/recover-existing-task — import a finished saved task (FREE, GETs only)
  *   POST   /api/projects/:slug/music-library/preview-mix      — what a mix would use (FREE)
  *   POST   /api/projects/:slug/music-library/render           — build the video (FREE)
  *
@@ -18,13 +19,17 @@
  */
 
 import { Router } from 'express'
+import fs from 'fs/promises'
+import path from 'path'
+import { createHash } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as im from '../services/idea-manager.js'
 import * as lib from '../services/music-library.js'
+import * as sp from '../services/song-pool.js'
 import { DEFAULT_MIX_RULES, buildMusicMix, renderTracklist, type MixCandidate } from '../services/music-mix.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { withLock } from '../lib/atomic-store.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import {
   freshActionFingerprint,
   freshActionMatch,
@@ -33,9 +38,18 @@ import {
   stampFreshGenerationAction,
 } from '../lib/fresh-generation-action.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { listMusicModels, type GenStudioMusicModel } from '../lib/genstudio-client.js'
 import {
+  downloadGenStudioMusicTrack,
+  isGenStudioTaskAbsent,
+  listMusicModels,
+  readSucceededGenStudioMusicJob,
+  type GenStudioMusicModel,
+} from '../lib/genstudio-client.js'
+import {
+  isMp4Audio,
+  musicTrackFilename,
   readMusicLibraryItemsCheckpoint,
+  saveMusicTrack,
   type MusicLibraryItemReceipt as MusicItem,
 } from '../generators/music-generate.js'
 import { musicModelCanServe } from '../contracts/music-model-choice.js'
@@ -81,6 +95,252 @@ function itemHasCurrentUnknownEvidence(item: MusicItem, entries: readonly MusicE
 
 function musicResourceIdentity(job: Readonly<Job>, item: MusicItem): string {
   return `music-library:${String(job.params?.brief_id || '')}:${item.item_key}`
+}
+
+// ── Recover an existing result (2026-10-16) ─────────────────────────────────
+//
+// Dreamlands job 571ec142: the Gateway accepted "Night-Woven Wool", held it as an unknown outcome
+// after a Hub artifact 503, and later finished it. Story had no way to import that already-made
+// track except Retry, which is the generation path. This reads the exact saved accepted task with
+// GETs only (status + outputs), imports every take into the same library, and keeps a receipt so a
+// repeat or a crash never writes twice. It never POSTs a generation, mints a key or picks a model.
+
+interface ExistingTaskBinding {
+  version: 1
+  project_slug: string
+  source_job_id: string
+  source_item_key: string
+  brief_id: string
+  request_identity: string
+  idempotency_key: string
+  task_id: string
+  model_id: string
+}
+interface ExistingTaskOutput {
+  asset_id: string
+  take: number
+  filename: string
+  sha256: string
+  size: number
+  state: 'prepared' | 'complete'
+}
+type ExistingTaskReceipt = ExistingTaskBinding & {
+  state: 'prepared' | 'complete'
+  outputs: ExistingTaskOutput[]
+  completed_at: string | null
+}
+
+const httpError = (statusCode: number, detail: string) => Object.assign(new Error(detail), { statusCode })
+const sha256Of = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
+const exactKeys = (value: unknown, keys: string[]): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value)
+  && Object.keys(value).sort().join() === [...keys].sort().join()
+
+/** The exact saved accepted-task identity of one Music Library item, from disk only; a string is the refusal. */
+function existingTaskBinding(
+  job: Readonly<Job>, itemKey: string,
+): { binding: ExistingTaskBinding; item: MusicItem; evidence: MusicEvidence } | string {
+  if (job.type !== 'music_generate' || job.episode_id !== '' || job.params?.song_pool === true) {
+    return 'This is not a Music Library job.'
+  }
+  if (job.status !== 'done' && job.status !== 'error' && job.status !== 'cancelled') {
+    return 'The source Music Library job has not stopped.'
+  }
+  const matches = (musicItems(job) || []).filter(candidate => candidate.item_key === itemKey)
+  const item = matches[0]
+  const briefId = typeof job.params?.brief_id === 'string' ? job.params.brief_id : ''
+  if (matches.length !== 1 || !item?.accepted_task_id || !briefId) return 'This item has no saved accepted Gateway task.'
+  if (item.request.output_format !== 'm4a') {
+    return 'This item was saved for WAV/MP3 delivery; recovering an existing result covers M4A items only.'
+  }
+  const rows = (job.genstudio_jobs || []).filter(entry => entry.operation === 'music.generation'
+    && (entry.id === item.accepted_task_id || evidenceKey(entry) === item.idempotency_key))
+  const evidence = rows[0]
+  if (rows.length !== 1 || evidence!.id !== item.accepted_task_id || evidenceKey(evidence!) !== item.idempotency_key
+    || (evidence!.model_id !== undefined && evidence!.model_id !== item.request.model_id)) {
+    return 'The saved Gateway evidence does not match this item exactly.'
+  }
+  return {
+    item,
+    evidence: evidence!,
+    binding: {
+      version: 1,
+      project_slug: job.project_slug,
+      source_job_id: job.job_id,
+      source_item_key: item.item_key,
+      brief_id: briefId,
+      request_identity: item.request_identity,
+      idempotency_key: item.idempotency_key,
+      task_id: item.accepted_task_id,
+      model_id: item.request.model_id,
+    },
+  }
+}
+
+/** A preexisting receipt is a closed schema bound to the freshly derived identity; anything else fails closed. */
+async function readExistingTaskReceipt(file: string, binding: ExistingTaskBinding): Promise<ExistingTaskReceipt | null> {
+  let value: unknown
+  try {
+    value = JSON.parse(await fs.readFile(file, 'utf8'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null
+    throw httpError(409, 'The saved recovery receipt for this item is unreadable; it was kept as it is.')
+  }
+  const keys = [...Object.keys(binding), 'state', 'outputs', 'completed_at']
+  const outputKeys = ['asset_id', 'take', 'filename', 'sha256', 'size', 'state']
+  const ok = exactKeys(value, keys)
+    && Object.entries(binding).every(([key, expected]) => value[key] === expected)
+    && (value.state === 'prepared' || value.state === 'complete')
+    && (value.completed_at === null || typeof value.completed_at === 'string')
+    && Array.isArray(value.outputs)
+    && value.outputs.every(out => exactKeys(out, outputKeys)
+      && typeof out.asset_id === 'string' && !!out.asset_id
+      && Number.isInteger(out.take) && (out.take as number) > 0
+      && typeof out.filename === 'string' && out.filename === path.basename(out.filename)
+      && typeof out.sha256 === 'string' && /^[0-9a-f]{64}$/.test(out.sha256)
+      && Number.isInteger(out.size) && (out.size as number) > 0
+      && (out.state === 'prepared' || out.state === 'complete'))
+    && new Set((value.outputs as ExistingTaskOutput[]).map(out => out.asset_id)).size === value.outputs.length
+  if (!ok) throw httpError(409, 'The saved recovery receipt for this item does not match it; it was kept as it is.')
+  return value as unknown as ExistingTaskReceipt
+}
+
+/** Exact bytes on disk plus the library row's immutable origin; mutable owner choices are not compared. */
+async function existingTaskOutputIsGood(
+  dir: string, binding: ExistingTaskBinding, out: ExistingTaskOutput, tracks: lib.LibraryTrack[],
+): Promise<boolean> {
+  const bytes = await fs.readFile(path.join(dir, out.filename)).catch(() => null)
+  return !!bytes && bytes.length === out.size && sha256Of(bytes) === out.sha256
+    && tracks.some(track => track.filename === out.filename && track.genstudio_job_id === binding.task_id
+      && track.brief_id === binding.brief_id && track.sibling_index === out.take)
+}
+
+/** The owner removed this file from the library (a rejected row): that choice is kept. */
+async function ownerRemoved(slug: string, filename: string): Promise<boolean> {
+  return (await sp.readPool(slug)).songs.some(song => song.file === filename && song.status === 'rejected')
+}
+
+/** The run itself reported this item missing (for example one take of several never downloaded). */
+function itemMissingFromRun(job: Readonly<Job>, item: MusicItem): boolean {
+  const missing = (job.result as { completion?: { missing?: unknown } } | undefined)?.completion?.missing
+  return Array.isArray(missing) && missing.some(entry => typeof entry === 'string' && entry.startsWith(`${item.plan.title}: `))
+}
+
+async function recoverExistingMusicTask(slug: string, sourceJobId: string, itemKey: string) {
+  const job = (await jq.findJobs(slug, candidate => candidate.job_id === sourceJobId))[0]
+  if (!job) throw httpError(404, 'That Music Library job is not in this project.')
+  const admitted = existingTaskBinding(job, itemKey)
+  if (typeof admitted === 'string') throw httpError(409, `${admitted} Nothing was read or imported.`)
+  const { binding, item } = admitted
+  const dir = await lib.getLibraryDir(slug)
+  if (!dir) throw httpError(404, 'Project not found')
+  const receiptFile = lib.existingTaskReceiptPath(dir, sourceJobId, itemKey)
+  const prior = await readExistingTaskReceipt(receiptFile, binding)
+  const done = (reused: boolean, receipt: ExistingTaskReceipt, library: lib.LibraryState) => ({
+    reused, source_job_id: sourceJobId, source_item_key: itemKey, gateway_job_id: binding.task_id,
+    filenames: receipt.outputs.map(out => out.filename), library,
+  })
+  if (prior?.state === 'complete') {
+    const library = await lib.listLibrary(slug)
+    for (const out of prior.outputs) {
+      if (await existingTaskOutputIsGood(dir, binding, out, library.tracks) || await ownerRemoved(slug, out.filename)) continue
+      throw httpError(409, `${out.filename} no longer matches its recovery receipt; it was not put back.`)
+    }
+    return done(true, prior, library)
+  }
+
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) throw httpError(503, 'Add your Gateway API Key in Settings first. Nothing was read or imported.')
+  const unavailable = (error: unknown, what: string) => (error as { statusCode?: number })?.statusCode
+    ? error
+    : isGenStudioTaskAbsent(error)
+      ? httpError(409, `The Gateway has no readable record of this accepted ${what}; nothing was imported and no new request was made.`)
+      : httpError(503, `The Gateway could not be read for this ${what} (${error instanceof Error ? error.message : String(error)}); the saved task is kept, try again later.`)
+  const result = await readSucceededGenStudioMusicJob(apiKey, binding.task_id, binding.model_id)
+    .catch(error => { throw unavailable(error, 'music task') })
+  if (prior && prior.outputs.some(out => !result.tracks.some((track, take) => track.assetId === out.asset_id && take + 1 === out.take))) {
+    throw httpError(409, 'The Gateway now lists different outputs than this item\'s recovery receipt; nothing was changed.')
+  }
+
+  const receipt: ExistingTaskReceipt = prior || { ...binding, state: 'prepared', outputs: [], completed_at: null }
+  const group = result.tracks.length > 1 ? lib.siblingGroupForJob(binding.task_id) : undefined
+  const title = (take: number) => result.tracks.length > 1 ? `${item.plan.title} — take ${take}` : item.plan.title
+  for (const [index, track] of result.tracks.entries()) {
+    const take = index + 1
+    const filename = musicTrackFilename(item.plan.title, binding.task_id, take)
+    const receipted = receipt.outputs.find(out => out.asset_id === track.assetId)
+    if (receipted && receipted.filename !== filename) throw httpError(409, 'The recovery receipt names a different file for this take; nothing was changed.')
+    // A good take is skipped; one the owner removed since stays removed and never blocks the rest.
+    if (receipted?.state === 'complete' && (await existingTaskOutputIsGood(dir, binding, receipted, (await lib.listLibrary(slug)).tracks)
+      || await ownerRemoved(slug, filename))) continue
+    if (!receipted && await fs.stat(path.join(dir, filename)).then(() => true, () => false)) {
+      // A file this flow never receipted is completed only when its library row already carries this
+      // task (a partly delivered item). Anything else is refused BEFORE a receipt exists that a
+      // second click could use to claim it.
+      const row = (await sp.readPool(slug)).songs.find(song => song.file === filename && song.status !== 'rejected')
+      if (row?.gateway_job_id !== binding.task_id) {
+        throw httpError(409, `${filename} is already in the library and is not proven to be this result; nothing was changed.`)
+      }
+    }
+    const body = await downloadGenStudioMusicTrack(track.url, result.downloadHeaders, {}, take)
+      .catch(error => { throw unavailable(error, 'music output') })
+    if (!isMp4Audio(body)) throw httpError(409, `Take ${take} is not M4A audio; nothing was imported for it.`)
+    const sha256 = sha256Of(body)
+    if (receipted && (receipted.sha256 !== sha256 || receipted.size !== body.length)) {
+      throw httpError(409, `Take ${take} changed since it was first received; nothing was replaced.`)
+    }
+    const out: ExistingTaskOutput = receipted || { asset_id: track.assetId, take, filename, sha256, size: body.length, state: 'prepared' }
+    if (!receipted) {
+      receipt.outputs.push(out)
+      await writeJsonAtomic(receiptFile, receipt)
+    }
+    await lib.publishGeneratedTrack(slug, {
+      filename,
+      origin: { gateway_job_id: binding.task_id, brief_id: binding.brief_id, sibling_group: group, sibling_index: take },
+      title: title(take),
+      tags: item.plan.tags,
+      // Only a receipt from an earlier call proves this flow wrote a same-byte file already on disk.
+      claimReplay: !!receipted,
+      publish: () => saveMusicTrack(dir, item.plan.title, binding.task_id, take, body),
+    })
+    if (!await existingTaskOutputIsGood(dir, binding, out, (await lib.listLibrary(slug)).tracks)) {
+      throw httpError(409, `${filename} did not read back exactly after saving; its receipt stays prepared.`)
+    }
+    out.state = 'complete'
+    await writeJsonAtomic(receiptFile, receipt)
+  }
+  receipt.state = 'complete'
+  receipt.completed_at = new Date().toISOString()
+  await writeJsonAtomic(receiptFile, receipt)
+  return done(false, receipt, await lib.listLibrary(slug))
+}
+
+/** Free, read-only listing classification for one item; never calls the Gateway. */
+function existingTaskRecovery(
+  job: Readonly<Job>, item: MusicItem, recovered: Set<string>, songs: sp.SongRecord[],
+): { recovery: 'none' | 'check-existing' | 'ready' | 'recovered'; recovery_reason: string } {
+  const admitted = existingTaskBinding(job, item.item_key)
+  if (typeof admitted === 'string') return { recovery: 'none', recovery_reason: admitted }
+  if (recovered.has(`${job.job_id}:${item.item_key}`)) {
+    return { recovery: 'recovered', recovery_reason: 'This existing result was imported into the library.' }
+  }
+  // Every pool row, whatever its status: an owner removal is the owner's choice, not a missing song.
+  const rows = songs.filter(song => song.gateway_job_id === admitted.binding.task_id)
+  if (rows.some(song => song.status === 'rejected')) {
+    return { recovery: 'none', recovery_reason: 'You removed this song from the library, so it is not offered again.' }
+  }
+  if (rows.length && !itemMissingFromRun(job, item)) {
+    return { recovery: 'none', recovery_reason: 'This result is already in the library.' }
+  }
+  const { evidence } = admitted
+  if (evidence.state === 'succeeded' && evidence.cancelled !== true) {
+    return { recovery: 'ready', recovery_reason: 'The Gateway finished this song but it never reached the library (delivery failed). Recovering reads that result again; nothing new is generated.' }
+  }
+  if (evidence.state === 'failed' && evidence.cancelled !== true && evidence.recovery_required !== true && evidence.recovery_state !== 'unknown_outcome') {
+    return { recovery: 'none', recovery_reason: 'Generation failed: the Gateway made no result for this song, so there is nothing to recover.' }
+  }
+  if (evidence.cancelled === true) return { recovery: 'none', recovery_reason: 'This request was cancelled.' }
+  return { recovery: 'check-existing', recovery_reason: 'The Gateway had not confirmed this song\'s result. Checking reads the same request; it never starts a new one.' }
 }
 
 function manualClientFingerprint(body: Record<string, unknown>, sourceJobId: string, sourceItemKey: string): string {
@@ -189,6 +449,18 @@ router.get('/projects/:slug/music-library/manual-redo-sources', async (req, res)
     const slug = req.params.slug
     if (!await requireProject(slug)) return res.status(404).json({ detail: 'Project not found' })
     const jobs = await jq.findJobs(slug, () => true)
+    const dir = await lib.getLibraryDir(slug)
+    const songs = dir ? (await sp.readPool(slug)).songs : []
+    // Completed existing-result receipts, for the classification below (local files only; no Gateway call).
+    const recovered = new Set<string>()
+    for (const job of dir ? jobs : []) {
+      if (job.type !== 'music_generate' || job.episode_id !== '') continue
+      for (const item of musicItems(job) || []) {
+        const state = await fs.readFile(lib.existingTaskReceiptPath(dir!, job.job_id, item.item_key), 'utf8')
+          .then(text => JSON.parse(text)?.state).catch(() => undefined)
+        if (state === 'complete') recovered.add(`${job.job_id}:${item.item_key}`)
+      }
+    }
     const sources = jobs.flatMap(job => {
       if (job.type !== 'music_generate' || job.episode_id !== '') return []
       const items = musicItems(job)
@@ -212,12 +484,40 @@ router.get('/projects/:slug/music-library/manual-redo-sources', async (req, res)
           label: item.plan.title,
           eligible,
           reason,
+          ...existingTaskRecovery(job, item, recovered, songs),
         }
       })
     })
     res.json({ sources })
   } catch (e: any) {
     res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Could not read Music Library replacement sources'))
+  }
+})
+
+/**
+ * Import an already finished result of a saved accepted music task (FREE: GETs only). The body names
+ * only the saved job and item; the task, key, model, brief and file names all come from disk.
+ */
+router.post('/projects/:slug/music-library/recover-existing-task', async (req, res) => {
+  const body = req.body
+  if (!exactKeys(body, ['source_job_id', 'source_item_key'])
+    || typeof body.source_job_id !== 'string' || !body.source_job_id
+    || typeof body.source_item_key !== 'string' || !body.source_item_key) {
+    return res.status(400).json({ detail: 'Send exactly source_job_id and source_item_key.' })
+  }
+  const slug = req.params.slug
+  const sourceJobId = body.source_job_id
+  const sourceItemKey = body.source_item_key
+  try {
+    if (!await requireProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const outcome = await withLock(`music-library-existing-task:${slug}:${sourceJobId}:${sourceItemKey}`,
+      () => recoverExistingMusicTask(slug, sourceJobId, sourceItemKey))
+    // An imported song frees its job's history (job-queue `music_results_awaiting_import`).
+    await jq.refreshMusicImportHold(slug, sourceJobId)
+    return res.status(outcome.reused ? 200 : 201).json(outcome)
+  } catch (e: any) {
+    if ([404, 409, 502, 503].includes(e?.statusCode)) return res.status(e.statusCode).json({ detail: e.message })
+    return res.status(500).json(humanizeBackendError(e, 'Could not import the existing music result'))
   }
 })
 

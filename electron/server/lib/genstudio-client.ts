@@ -722,6 +722,9 @@ export class GenStudioMusicTerminalFailureError extends GenStudioTerminalFailure
       job.cancelled === true
         ? `The music job ${job.id} was cancelled at the Gateway. `
           + `${releasedCreditSettlement(job)} Retry submits a new job. ${paidOnly(job, 'No legacy fallback was attempted.')}`
+        : holdsUnknownOutcome(job)
+          ? `The Gateway is still checking this music result${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}; nothing was run twice. `
+            + 'Once it finishes, "Recover existing result" on the Music Library page imports it without a new generation.'
         : `The Gateway could not make the music${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
           + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
           + paidOnly(job, 'No legacy fallback was attempted.'),
@@ -6146,6 +6149,46 @@ export class GenStudioMusicArtifactUnavailableError extends Error {
     super(`Track ${trackNumber} is no longer on the gateway (HTTP ${status}); it was cleaned up before it was saved. Re-run the top-up to make it again.`)
     this.name = 'GenStudioMusicArtifactUnavailableError'
   }
+}
+
+/**
+ * Read ONE already accepted music task and return its published outputs. A single authenticated
+ * `GET /v1/music/jobs/{id}`: it never polls, submits, cancels, recovers by key or picks another
+ * model. Anything but this exact task/model as a settled, uncancelled success with unique outputs
+ * is refused with `statusCode: 409`; transport and HTTP failures propagate unchanged.
+ */
+export async function readSucceededGenStudioMusicJob(
+  apiKey: string,
+  taskId: string,
+  modelId: string,
+): Promise<GenStudioMusicResult> {
+  const baseUrl = await getGenStudioUrl()
+  const job = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/music/jobs/${encodeURIComponent(taskId)}`,
+    { headers: authorization(apiKey) },
+    {},
+    Date.now() + GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    apiKey,
+    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    [],
+    true,
+    1,
+  ) as GenStudioMusicJob
+  const refuse = (detail: string) => Object.assign(new Error(detail), { statusCode: 409 })
+  if (!job || typeof job !== 'object' || Array.isArray(job) || job.id !== taskId) {
+    throw refuse('The Gateway answered for a different music task; nothing was imported.')
+  }
+  if (job.model_id !== modelId) throw refuse('The Gateway reports a different model for this music task; nothing was imported.')
+  if (job.state !== 'succeeded' || job.cancelled === true) {
+    throw refuse(holdsUnknownOutcome(job)
+      ? 'The Gateway is still checking this music result; nothing was run twice. Try again later.'
+      : `This music task is ${job.cancelled === true ? 'cancelled' : job.state}, not finished with a result; nothing was imported and no new request was made.`)
+  }
+  const ids = Array.isArray(job.outputs) ? job.outputs.map(o => typeof o?.asset_id === 'string' ? o.asset_id.trim() : '') : []
+  if (!ids.length || ids.some(id => !id) || new Set(ids).size !== ids.length) {
+    throw refuse('The Gateway finished this music task without a usable output list; nothing was imported.')
+  }
+  return musicResult(baseUrl, apiKey, job)
 }
 
 /** Reconnect to an already accepted music task. Never submits new work. */

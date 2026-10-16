@@ -5,6 +5,11 @@ import type {
   JobRemoteOperation,
 } from '../models/types.js'
 import { isSettledProviderEntry, isUnsettledProviderEntry } from '../lib/provider-task-state.js'
+import {
+  HELD_MUSIC_RESULT_GUIDANCE,
+  MUSIC_RESULT_AWAITING_IMPORT_GUIDANCE,
+  holdsUnknownMusicResult,
+} from '../contracts/provider-task-state.js'
 import { isProvenLocalStopCapableJob as isSafelyStoppableLocalJob } from './job-retry-policy.js'
 
 export { isSafelyStoppableLocalJob as isProvenLocalStopCapableJob }
@@ -136,6 +141,14 @@ function unsettledHistoryControl(
   job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations' | 'history_evidence_check'>,
   evidence: JobEvidence[],
 ): JobControl {
+  // A held song is the Gateway's own answer, not a stale snapshot: one line, pointing at the free
+  // import, and never "finished" or removable (Dreamlands 571ec142).
+  if (holdsUnknownMusicResult(evidence)) {
+    return control(
+      'recheck-provider-status', true, 'Check the Gateway again', HELD_MUSIC_RESULT_GUIDANCE,
+      'PROVIDER_WORK_ALREADY_STARTED', 'remote-result-required',
+    )
+  }
   const { text: outstanding, plural } = describeUnsettled(job, evidence)
   const check = job.history_evidence_check
   if (check?.state === 'unreachable') {
@@ -209,7 +222,7 @@ function isFinishedJob(status: Job['status']): boolean {
  * GenStudio evidence before offering a provider cancellation request.
  */
 function classifyProviderJobControl(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned' | 'music_results_awaiting_import'>,
   capabilities: JobControlCapabilities,
 ): JobControl {
   const evidence = job.genstudio_jobs || []
@@ -239,6 +252,13 @@ function classifyProviderJobControl(
     // refreshFinishedJobProviderEvidence in job-queue.ts) and records the
     // answer, and each of the three outcomes gets its own honest wording.
     return unsettledHistoryControl(job, evidence)
+  }
+  // A finished song not in the library yet: removing the row would orphan its free import.
+  if (isFinishedJob(job.status) && job.music_results_awaiting_import?.length) {
+    return control(
+      'return-later', false, 'Recover in Music Library', MUSIC_RESULT_AWAITING_IMPORT_GUIDANCE,
+      'PROVIDER_WORK_ALREADY_STARTED', 'remote-result-required',
+    )
   }
   if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
     return control('clear-history', true, 'Remove from history', 'This finished job can be removed from the job list. Its files and provider evidence stay intact.', 'READY', 'history-only')
@@ -337,7 +357,7 @@ function classifyProviderJobControl(
  * Neither action is allowed to impersonate the other.
  */
 export function classifyJobControls(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned'>
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned' | 'music_results_awaiting_import'>
     & Partial<Pick<Job, 'pause_requested' | 'resume_after_pause'>>,
   capabilities: JobControlCapabilities,
 ): JobControl[] {
@@ -396,7 +416,7 @@ export function classifyJobControls(
 
 /** Backwards-compatible primary control; public snapshots also include all controls. */
 export function classifyJobControl(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned' | 'music_results_awaiting_import'>,
   capabilities: JobControlCapabilities,
 ): JobControl {
   return classifyProviderJobControl(job, capabilities)

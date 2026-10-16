@@ -198,6 +198,20 @@
           {{ manualRedoPosting ? 'Starting…' : 'Start separate attempt' }}
         </button>
       </section>
+
+      <section v-if="recoverableSources.length" class="music-manual-redo mt-3" aria-labelledby="music-recover-title">
+        <strong id="music-recover-title">Recover an existing result</strong>
+        <p>
+          Reads a song the Gateway already accepted and imports its result into this library.
+          Free: nothing new is generated and no new request is sent.
+        </p>
+        <div v-for="source in recoverableSources" :key="`recover:${source.source_job_id}:${source.source_item_key}`" class="ml-row mt-2">
+          <span>{{ source.label }} — {{ source.recovery_reason }}</span>
+          <button type="button" class="btn btn-secondary" :disabled="!!recoveringSource" @click="recoverExistingResult(source)">
+            {{ recoveringSource === `${source.source_job_id}::${source.source_item_key}` ? 'Recovering…' : 'Recover existing result' }}
+          </button>
+        </div>
+      </section>
     </section>
 
     <!-- ── 3. Build a video — FREE ────────────────────────────────── -->
@@ -319,6 +333,8 @@ interface ManualMusicSource {
   label: string
   eligible: boolean
   reason: string
+  recovery?: 'none' | 'check-existing' | 'ready' | 'recovered'
+  recovery_reason?: string
 }
 interface ManualMusicSubmission {
   projectSlug: string
@@ -408,6 +424,10 @@ let manualRedoPostingOperationId = ''
 let manualSourcesSequence = 0
 
 const eligibleManualRedoSources = computed(() => manualRedoSources.value.filter(source => source.eligible))
+// Free existing-result recovery: separate from the paid manual redo and its preference.
+const recoverableSources = computed(() => manualRedoSources.value.filter(source =>
+  source.recovery === 'check-existing' || source.recovery === 'ready'))
+const recoveringSource = ref('')
 const selectedManualRedoSource = computed(() => eligibleManualRedoSources.value.find(source =>
   `${source.source_job_id}::${source.source_item_key}` === manualSourceChoice.value) || null)
 const manualMusicModel = computed(() => musicModels.value.find(model => model.id === manualMusicModelId.value) || null)
@@ -650,6 +670,24 @@ async function load() {
     if (current()) libraryLoadError.value = e?.data?.detail || e?.message || 'Could not load the music library.'
   } finally {
     if (current()) libraryLoading.value = false
+  }
+}
+
+/** Import an already finished accepted result. Posts only the two saved selectors; never generates. */
+async function recoverExistingResult(source: ManualMusicSource): Promise<void> {
+  if (recoveringSource.value) return
+  recoveringSource.value = `${source.source_job_id}::${source.source_item_key}`
+  try {
+    await post(`/projects/${slug.value}/music-library/recover-existing-task`, {
+      source_job_id: source.source_job_id,
+      source_item_key: source.source_item_key,
+    })
+    success(`${source.label} is in the library.`)
+    await Promise.all([load(), loadManualRedoSources()])
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not recover the existing result.')
+  } finally {
+    recoveringSource.value = ''
   }
 }
 

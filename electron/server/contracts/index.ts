@@ -835,6 +835,8 @@ export interface JobEnqueuedResponse {
     at: string
     detail?: string
   }
+  /** Music tasks the Gateway finished whose songs are not in the library yet. See `Job.music_results_awaiting_import`. */
+  music_results_awaiting_import?: string[]
   /** A failed job whose files were all made later — kept as history, no longer needs attention. */
   resolved?: { at: string; reason: string }
   /** v1.2.8 — the owner stopped tracking this job without provider confirmation. */

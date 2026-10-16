@@ -17,6 +17,7 @@
 
 import {
   GENSTUDIO_TASK_NOT_CREATED_STATE,
+  holdsUnknownProviderOutcome,
   isNeverCreatedProviderTask,
 } from '../contracts/provider-task-state.js'
 
@@ -85,13 +86,31 @@ const SETTLED_PROVIDER_STATES: ReadonlySet<string> = new Set([
   'succeeded', 'failed', 'cancelled', GENSTUDIO_TASK_NOT_CREATED_STATE,
 ])
 
+type ProviderEntryState = { state?: unknown; cancelled?: boolean | null; recovery_required?: unknown; recovery_state?: unknown }
+
+/**
+ * True when a fresh `failed` read may NOT replace stored evidence. The Gateway (cc5bcb70 store.py)
+ * publishes `recovery_required` as a boolean on every envelope, true only for `unknown_outcome`,
+ * and labels a plain retryable failure `recovery_state: "retryable"`. So `false` with `null` or any
+ * other text is settled proof, and an explicit hold is written as a hold. Only a missing or
+ * non-boolean `recovery_required`, or a missing or non-text `recovery_state`, proves nothing — unless
+ * the stored row was already an ordinary known failure. No local code invents the fields.
+ */
+export function isUnprovenFailedRead(prior: ProviderEntryState, fresh: ProviderEntryState): boolean {
+  if (fresh.state !== 'failed' || fresh.cancelled === true) return false
+  if (holdsUnknownProviderOutcome(fresh)) return false
+  if (fresh.recovery_required === false && (fresh.recovery_state === null || typeof fresh.recovery_state === 'string')) return false
+  return !(prior.state === 'failed' && prior.cancelled !== true && !holdsUnknownProviderOutcome(prior))
+}
+
 /** True when this recorded provider task can no longer change. */
-export function isSettledProviderEntry(entry: { state?: unknown; cancelled?: boolean | null }): boolean {
+export function isSettledProviderEntry(entry: ProviderEntryState): boolean {
   if (shouldRecheckStoredTranscriptionAbsence(entry)) return false
-  return entry.cancelled === true || SETTLED_PROVIDER_STATES.has(String(entry.state))
+  if (entry.cancelled === true) return true
+  return !holdsUnknownProviderOutcome(entry) && SETTLED_PROVIDER_STATES.has(String(entry.state))
 }
 
 /** True when this recorded provider task's outcome can still change. */
-export function isUnsettledProviderEntry(entry: { state?: unknown; cancelled?: boolean | null }): boolean {
+export function isUnsettledProviderEntry(entry: ProviderEntryState): boolean {
   return !isSettledProviderEntry(entry)
 }

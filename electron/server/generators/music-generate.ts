@@ -25,8 +25,11 @@
 
 import fs from 'fs/promises'
 import path from 'path'
+import { createHash, randomBytes } from 'crypto'
 
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
+import { withLock } from '../lib/atomic-store.js'
+import { TRASH_DIRNAME, moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { musicWindowSizer, runRollingWindow } from '../lib/music-window.js'
 
 import * as jq from '../services/job-queue.js'
@@ -50,7 +53,9 @@ import {
   waitUnlessStopped,
 } from '../lib/genstudio-fleet-busy.js'
 import {
+  MUSIC_LIBRARY_DIRNAME,
   getLibraryDir,
+  publishGeneratedTrack,
   siblingGroupForJob,
   upsertTrackMeta,
 } from '../services/music-library.js'
@@ -299,7 +304,71 @@ export function musicTrackFilename(title: string, jobId: string, takeIndex: numb
 
 const isWav = (b: Buffer) => b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WAVE'
 /** ISO-BMFF audio (`ftyp` brand M4A/M4B/mp42/isom), i.e. what `output_format: m4a` returns. */
-const isMp4Audio = (b: Buffer) => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp'
+export const isMp4Audio = (b: Buffer) => b.length > 12 && b.toString('latin1', 4, 8) === 'ftyp'
+
+const sha256Of = (b: Buffer) => createHash('sha256').update(b).digest('hex')
+
+/** Keep a refused/failed publication candidate in Story's Trash (never deleted); a failed move leaves the hidden file. */
+function retainPublicationCandidate(dir: string, staging: string, filename: string, sha256: string): void {
+  // `dir` is a project's music-library folder or a hidden folder inside it (the Song Pool's
+  // `.incoming`); any other folder keeps its candidates in a `_trash` beside it.
+  const library = path.basename(dir) === MUSIC_LIBRARY_DIRNAME ? dir : path.dirname(dir)
+  const projectDir = path.dirname(library)
+  const trash = path.basename(library) === MUSIC_LIBRARY_DIRNAME
+    ? trashRootFor(projectDir, projectDir, path.basename(projectDir))
+    : path.join(path.dirname(dir), TRASH_DIRNAME)
+  try {
+    moveToTrashSync(staging, path.join(trash, 'music-library-publication-candidates',
+      `${filename}.${sha256.slice(0, 16)}.m4a`), 'music')
+  } catch { /* the complete hidden staging file stays beside the library; nothing promotes or deletes it */ }
+}
+
+/**
+ * The one writer for every direct-M4A destination (normal generation, the Song Pool's staging
+ * folder, existing-task recovery). The complete body goes to a hidden same-directory staging file,
+ * is synced, then published with `link`, which never replaces: a reader sees no final file or the
+ * complete one. A final file with the same bytes is a harmless replay; different bytes are refused
+ * (409), the final file is left untouched and the refused body is kept in Trash. The link — not a
+ * caller's lock — is the cross-writer fence.
+ */
+async function publishM4aNoReplace(
+  dir: string, filename: string, body: Buffer,
+): Promise<{ sha256: string; size: number; disposition: 'created' | 'equal-replay' }> {
+  const sha256 = sha256Of(body)
+  const final = path.join(dir, filename)
+  return withLock(`music-m4a-publish:${final}`, async () => {
+    const staging = path.join(dir, `.${filename}.staging-${process.pid}-${randomBytes(4).toString('hex')}`)
+    const handle = await fs.open(staging, 'wx')
+    try {
+      await handle.writeFile(body)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    let disposition: 'created' | 'equal-replay' = 'created'
+    try {
+      await fs.link(staging, final)
+      const folder = await fs.open(dir, 'r')
+      try { await folder.sync() } finally { await folder.close() }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'EEXIST') {
+        retainPublicationCandidate(dir, staging, filename, sha256)
+        throw error
+      }
+      const existing = await fs.readFile(final)
+      if (existing.length !== body.length || sha256Of(existing) !== sha256) {
+        retainPublicationCandidate(dir, staging, filename, sha256)
+        throw Object.assign(new Error(`${filename} already holds different audio; it was kept and not replaced.`), { statusCode: 409 })
+      }
+      disposition = 'equal-replay'
+    }
+    // The exact bytes now live under the final name (this link, or an identical file already
+    // there), so dropping the staging name loses nothing. Only a refused or failed publication
+    // keeps its candidate, in Trash, because then it may be the only copy.
+    await fs.unlink(staging).catch(() => { /* a leftover hidden staging name is harmless and never promoted */ })
+    return { sha256, size: body.length, disposition }
+  })
+}
 
 /**
  * Store one paid track. An MP4/M4A body (the Hub already encoded AAC because we asked
@@ -312,12 +381,11 @@ const isMp4Audio = (b: Buffer) => b.length > 12 && b.toString('latin1', 4, 8) ==
  */
 export async function saveMusicTrack(
   dir: string, title: string, jobId: string, takeIndex: number, body: Buffer,
-): Promise<{ filename: string; warning?: string }> {
+): Promise<{ filename: string; warning?: string; sha256?: string; size?: number; disposition?: 'created' | 'equal-replay' }> {
   const rawName = musicTrackFilename(title, jobId, takeIndex, 'mp3')
   if (isMp4Audio(body)) {
     const filename = musicTrackFilename(title, jobId, takeIndex)
-    await fs.writeFile(path.join(dir, filename), body)
-    return { filename }
+    return { filename, ...(await publishM4aNoReplace(dir, filename, body)) }
   }
   if (!isWav(body)) {
     await fs.writeFile(path.join(dir, rawName), body)
@@ -540,9 +608,30 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
           const body = await downloadGenStudioMusicTrack(track.url, result.downloadHeaders, {
             isCancelled: () => jq.isCancelled(job.job_id),
           }, take + 1)
-          const { filename, warning } = await saveMusicTrack(
-            dir, plan.title, result.jobId, take + 1, body)
-          if (warning) job.output_lines.push(`⚠ ${filename}: ${warning}`)
+          const title = result.tracks.length > 1 ? `${plan.title} — take ${take + 1}` : plan.title
+          let filename: string
+          if (isMp4Audio(body)) {
+            // Direct M4A: published and bound in one Song Pool transaction, so an owner edit or
+            // removal made while this downloaded is never undone (see publishGeneratedTrack).
+            filename = musicTrackFilename(plan.title, result.jobId, take + 1)
+            await publishGeneratedTrack(job.project_slug, {
+              filename,
+              origin: {
+                gateway_job_id: result.jobId,
+                brief_id: briefId,
+                sibling_group: result.tracks.length > 1 ? group : undefined,
+                sibling_index: take + 1,
+              },
+              title,
+              tags: plan.tags,
+              claimReplay: true,
+              publish: () => saveMusicTrack(dir, plan.title, result.jobId, take + 1, body),
+            })
+          } else {
+            const saved = await saveMusicTrack(dir, plan.title, result.jobId, take + 1, body)
+            filename = saved.filename
+            if (saved.warning) job.output_lines.push(`⚠ ${filename}: ${saved.warning}`)
+          }
           const trackPath = path.join(dir, filename)
           // MEASURED HERE, at save time, and this is not optional.
           //
@@ -560,17 +649,20 @@ export async function generateMusicLibraryTracks(job: Job): Promise<void> {
               + 'Re-adding the track usually fixes this.',
             )
           }
-          await upsertTrackMeta(job.project_slug, filename, {
-            ...(durationSec !== undefined ? { duration_sec: durationSec } : {}),
-            title: result.tracks.length > 1 ? `${plan.title} — take ${take + 1}` : plan.title,
-            enabled: true,
-            sibling_group: result.tracks.length > 1 ? group : undefined,
-            sibling_index: take + 1,
-            brief_id: briefId,
-            tags: plan.tags,
-            genstudio_job_id: result.jobId,
-            added_at: new Date().toISOString(),
-          })
+          // A direct M4A row was already bound (with its duration) inside the pool transaction.
+          if (!isMp4Audio(body)) {
+            await upsertTrackMeta(job.project_slug, filename, {
+              ...(durationSec !== undefined ? { duration_sec: durationSec } : {}),
+              title,
+              enabled: true,
+              sibling_group: result.tracks.length > 1 ? group : undefined,
+              sibling_index: take + 1,
+              brief_id: briefId,
+              tags: plan.tags,
+              genstudio_job_id: result.jobId,
+              added_at: new Date().toISOString(),
+            })
+          }
           savedByIndex[index]!.push(filename)
         }
         job.output_lines.push(

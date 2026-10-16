@@ -278,8 +278,9 @@ test('safe source summaries require one exact Library receipt and matching unres
   try {
     const response = await request(app).get(`/api/projects/${project.slug}/music-library/manual-redo-sources`)
     assert.equal(response.status, 200, JSON.stringify(response.body))
+    // 2026-10-16 — additive free existing-result classification (no ids or keys in it).
     assert.deepEqual(Object.keys(response.body.sources[0]).sort(),
-      ['eligible', 'label', 'reason', 'source_item_key', 'source_job_id'])
+      ['eligible', 'label', 'reason', 'recovery', 'recovery_reason', 'source_item_key', 'source_job_id'])
     const byJob = new Map(response.body.sources.map((row: any) => [row.source_job_id, row]))
     assert.equal((byJob.get(exact.job_id) as any)?.eligible, true)
     assert.equal((byJob.get(wrongEvidence.job_id) as any)?.eligible, false)

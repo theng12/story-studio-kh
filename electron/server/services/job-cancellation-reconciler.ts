@@ -8,7 +8,13 @@ import {
   type GenStudioCancellationFields,
   type GenStudioJob,
 } from '../lib/genstudio-client.js'
-import { GENSTUDIO_TASK_NOT_CREATED_STATE, isNeverCreatedProviderTask, shouldRecheckStoredTranscriptionAbsence } from '../lib/provider-task-state.js'
+import {
+  GENSTUDIO_TASK_NOT_CREATED_STATE,
+  isNeverCreatedProviderTask,
+  isSettledProviderEntry,
+  isUnprovenFailedRead,
+  shouldRecheckStoredTranscriptionAbsence,
+} from '../lib/provider-task-state.js'
 import { idempotencyKeyFromPendingEntryId } from '../lib/genstudio-request-preview.js'
 import type { Job, JobRemoteCancellation } from '../models/types.js'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
@@ -148,7 +154,8 @@ function settledEvidenceAsProviderTask(
 ): (GenStudioJob & GenStudioCancellationFields) | null {
   if (!entry.id || entry.id.startsWith('pending:')) return null
   if (isNeverCreatedProviderTask(entry)) return null
-  if (!isSettledGenStudioJob(entry)) return null
+  // A held unknown outcome is `failed` on the wire but may still be adopted: re-read it.
+  if (!isSettledGenStudioJob(entry) || !isSettledProviderEntry(entry)) return null
   // Structurally this already IS a provider response: every field below was
   // copied from one by `mergeGenStudioReconciliationEvidence`. The cast only
   // narrows `state`, stored as the wider `string`, back to the published
@@ -273,6 +280,16 @@ export async function reconcilePendingJobCancellation(
           record.operation, baseUrl, apiKey, record.provider_job_id, {}, deadline,
         )
       }
+      // Same rule the evidence merge applies: an unproven `failed` read keeps the record waiting
+      // instead of classifying the job failed while its evidence row stays as it was.
+      const priorEvidence = (job.genstudio_jobs || []).find(entry => entry.operation === record.operation
+        && entry.id === record.provider_job_id) || record
+      if (isUnprovenFailedRead(priorEvidence, provider)) {
+        const errorReason = `Gateway reported ${record.operation} ${record.provider_job_id} failed without confirming its recovery state; the earlier evidence is kept.`
+        records[key] = { ...record, status: 'unknown', reconciliation_error: errorReason, updated_at: new Date().toISOString() }
+        reason = errorReason
+        continue
+      }
       records[key] = asRecord(record, provider, observedStatus(provider))
       providerJobs.push({ operation: record.operation, evidence_id: record.provider_job_id, job: provider })
     } catch (error) {
@@ -363,15 +380,23 @@ export async function reconcilePendingJobCancellation(
         continue
       }
       const provider = pendingLookup.provider
+      // A `failed` read without the explicit settled pair is not proof over an accepted/held row.
+      if (isUnprovenFailedRead(evidence, provider)) {
+        return { kind: 'pending', records, providerJobs, absent, reason: `Gateway reported ${evidence.operation} ${evidenceId} failed without confirming its recovery state; the earlier evidence is kept.` }
+      }
       providerJobs.push({ operation: evidence.operation, evidence_id: evidenceId, job: provider })
       observed.add(key)
     } catch (error) {
-      // v1.2.8 — GenStudio does not have this task. Whether the id was durable
-      // or only an idempotency key, "no such request for this account" means
-      // it was never created: nothing ran, nothing was reserved, nothing was
-      // charged. Record it as terminal and keep going, rather than holding the
-      // whole job on an outcome that will never arrive.
-      if (isGenStudioTaskAbsent(error)) {
+      // v1.2.8 — GenStudio does not have this task. "No such request for this
+      // account" under a saved idempotency key means it was never created:
+      // nothing ran, nothing was reserved, nothing was charged. Record it as
+      // terminal and keep going, rather than holding the whole job on an
+      // outcome that will never arrive. 2026-10-16 — an exact task id that was
+      // dispatched or held is NOT proven absent by a 404 (a wrong-route read
+      // returned exactly that for a task that later succeeded); it stays held.
+      if (isGenStudioTaskAbsent(error)
+        && (pendingEvidence || (evidence.dispatch_state !== 'dispatched'
+          && evidence.recovery_required !== true && evidence.recovery_state !== 'unknown_outcome'))) {
         providerJobs.push({ operation: evidence.operation, evidence_id: evidenceId, job: absentProviderTask(evidenceId) })
         observed.add(key)
         absent.push({ operation: evidence.operation, evidence_id: evidenceId })
@@ -385,7 +410,7 @@ export async function reconcilePendingJobCancellation(
 
   const values = Object.values(records)
   if (values.some(record => PENDING.has(record.status))) return { kind: 'pending', records, providerJobs, absent, reason }
-  if (providerJobs.some(item => !isSettledGenStudioJob(item.job))) return { kind: 'pending', records, providerJobs, absent, reason }
+  if (providerJobs.some(item => !isSettledGenStudioJob(item.job) || !isSettledProviderEntry(item.job))) return { kind: 'pending', records, providerJobs, absent, reason }
   if (providerJobs.some(item => item.job.state === 'failed' && item.job.cancelled !== true)) {
     return { kind: 'failed', records, providerJobs, absent, reason }
   }
