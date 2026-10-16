@@ -7,6 +7,7 @@ import { afterEach, describe, it } from 'node:test'
 import { auditSceneClipCompletion, auditSceneImageCompletion, checkpointSceneClip, checkpointSceneImage, countScenesAwaitingApproval } from '../services/scene-media-checkpoint.js'
 import type { ScenePlan } from '../models/types.js'
 import { tinyVideoBytes } from './fixtures/tiny-video.js'
+import { sceneReviewAutoApproveOn } from '../services/preset-authority.js'
 import { withLock } from '../lib/atomic-store.js'
 
 const tempDirs: string[] = []
@@ -122,6 +123,39 @@ describe('scene media checkpoints', () => {
     await writeVariantImage(image)
     const plan = await checkpointSceneImage(planPath, 'scene-1', image, 'Prompt one', false)
     assert.equal(plan.scenes[0]?.approved, false)
+  })
+
+  it('a job that captured auto-approve off approves its next new image once the channel setting is turned on', async () => {
+    const { dir, planPath } = await fixture()
+    const image1 = path.join(dir, 'scene-1.png')
+    const image2 = path.join(dir, 'scene-2.png')
+    await Promise.all([writeValidImage(image1), writeValidImage(image2)])
+    let settingOn = false
+    let reads = 0
+    const live = async () => { reads++; return settingOn }
+    let plan = await checkpointSceneImage(planPath, 'scene-1', image1, 'Prompt one', false, live)
+    assert.equal(plan.scenes[0]?.approved, false, 'setting still off')
+    settingOn = true // owner turns automatic scene approval on while the job runs
+    plan = await checkpointSceneImage(planPath, 'scene-2', image2, 'Prompt two', false, live)
+    assert.equal(plan.scenes[1]?.approved, true)
+    assert.equal(plan.scenes[0]?.approved, false, 'an earlier image is not swept up')
+    assert.equal(reads, 2, 'read once per checkpoint')
+    // Turning the setting off again never downgrades what was approved.
+    settingOn = false
+    plan = await checkpointSceneImage(planPath, 'scene-2', image2, 'Prompt two', false, live)
+    assert.equal(plan.scenes[1]?.approved, true)
+  })
+
+  it('reads the channel setting from the active Scene Review preset', () => {
+    const config = (data: Record<string, unknown>, active = 'p1') => ({
+      scene_review_genstudio_presets: [{ id: 'p1', name: 'A', data }, { id: 'p2', name: 'B', data: { auto_approve_generated: true } }],
+      'scene_review_genstudio_last_preset_scene-review': active,
+    })
+    assert.equal(sceneReviewAutoApproveOn(config({ auto_approve_generated: true })), true)
+    assert.equal(sceneReviewAutoApproveOn(config({ auto_approve_generated: false })), false)
+    assert.equal(sceneReviewAutoApproveOn(config({}, 'p2')), true, 'follows the active preset, not the first')
+    assert.equal(sceneReviewAutoApproveOn(config({}, 'gone')), false)
+    assert.equal(sceneReviewAutoApproveOn(null), false)
   })
 
   it('without an auto-approve render, a filled-in image waits for approval', async () => {

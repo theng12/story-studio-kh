@@ -35,7 +35,7 @@ import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { Job, ScenePlan } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
-import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
+import { checkpointSceneImage, liveSceneAutoApprove } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { buildGenStudioImageIdempotencyKey } from '../lib/genstudio-client.js'
@@ -315,7 +315,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     stagingPath,
     outPath,
     async () => {
-      await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt, params.auto_approve_generated === true)
+      await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt, params.auto_approve_generated === true, liveSceneAutoApprove(job.project_slug))
     },
   )
   if (!promoted) throw new Error('A newer image request owns this scene; the late result was not applied.')

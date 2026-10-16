@@ -47,6 +47,14 @@ export function resolveExactPreset(
     : { preset: null, missingReason: `The selected ${label} preset is missing or was deleted. Pick another preset, then retry.` }
 }
 
+/** The channel's CURRENT automatic scene approval: the active Scene Review preset (the one Pipeline
+ * runs, keys mirror PRESET_KEYS.scene_review) saved with `auto_approve_generated` on. */
+export function sceneReviewAutoApproveOn(config: unknown): boolean {
+  const { preset } = resolveExactPreset(
+    config, 'scene_review_genstudio_presets', ['scene_review_genstudio_last_preset_scene-review'], undefined, 'Scene Review')
+  return preset?.data?.auto_approve_generated === true
+}
+
 const SCENE_PLAN_REUSABLE_KEYS = [
   'model',
   'use_research',

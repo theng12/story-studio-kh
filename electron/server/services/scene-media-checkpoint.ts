@@ -6,6 +6,8 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
 import type { ScenePlan } from '../models/types.js'
+import { sceneReviewAutoApproveOn } from './preset-authority.js'
+import * as pm from './project-manager.js'
 
 export interface SceneImageCompletionAudit {
   expected: number
@@ -153,12 +155,18 @@ export async function countScenesAwaitingApproval(planPath: string): Promise<num
   return plan.scenes.filter(scene => scene.approved !== true && !!scene.image_path).length
 }
 
+/** The channel's auto scene approval as it is NOW, for a job that captured the flag off when it started. */
+export const liveSceneAutoApprove = (slug: string) => async (): Promise<boolean> =>
+  sceneReviewAutoApproveOn(await pm.getConfig(slug).catch(() => null))
+
 export async function checkpointSceneImage(
   planPath: string,
   sceneId: string,
   imagePath: string,
   renderedPrompt: string,
   autoApproveGenerated = false,
+  /** Asked once, under the lock, only for a new image of a job that captured auto-approve off. */
+  liveAutoApprove?: () => Promise<boolean>,
 ): Promise<ScenePlan> {
   await assertUsableFile(imagePath, `Image for ${sceneId}`)
   await assertDecodableImage(imagePath, `Image for ${sceneId}`)
@@ -192,6 +200,7 @@ export async function checkpointSceneImage(
     // Approval is applied only after the exact output file passed the usable
     // media check above and the matching scene still exists in the fresh plan.
     scene.approved = autoApproveGenerated === true || (fillIn && plan.auto_approve_generated === true)
+      || (!!liveAutoApprove && await liveAutoApprove())
     await writeJsonAtomic(planPath, plan, { compact: true })
     return plan
   })
