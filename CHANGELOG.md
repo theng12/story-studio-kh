@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.307 — 2026-10-16
+
+- Music Library can recover songs a music task already finished (Dreamlands track 3) without making them again.
+- Every channel keeps what YouTube last said about each upload, including older scheduled ones, so a resync no longer loses schedules. The overview shows how many videos are not checked yet.
+- Thumbnail repair and completion read one episode folder, so a missing thumbnail is always repaired and a leftover folder never triggers new pictures.
+- A job whose Gateway check was missed (for example during a power cut) is checked again on its own, so Retry is not blocked.
+- Free work that a restart interrupted is retried automatically once the Gateway and fleet are back. Paid, paused and cancelled work is left alone.
+
 ## v1.4.306 — 2026-10-16
 
 - Pipeline runs now keep the channel's custom narration guidance in outlines and their expansions, as manual runs already did. Existing episodes are unchanged.
