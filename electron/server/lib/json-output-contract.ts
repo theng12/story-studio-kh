@@ -200,6 +200,19 @@ export function parseJsonOutput(raw: string): unknown {
   try {
     return JSON.parse(text)
   } catch {
+    // A trailing comma (`[1, 2,]`, `{"a": 1,}`) is the one presentation slip models make in
+    // otherwise complete JSON, and `parseStructuredJson` already forgives it further down —
+    // but this gate runs first, so that forgiveness never applied to a Gateway answer. DM0008:
+    // a whole 18-chapter outline was rejected, then every retry replayed the same Gateway job
+    // by its key and was rejected the same way. Only commas OUTSIDE strings are dropped, and
+    // only after a failed strict parse, so valid JSON is never touched; anything else that is
+    // wrong (truncation, a missing comma) still fails, and the schema check still follows.
+    const repaired = text.replace(/"(?:[^"\\]|\\.)*"|,(\s*[}\]])/g, (kept, closer) => closer ?? kept)
+    if (repaired !== text) {
+      try {
+        return JSON.parse(repaired)
+      } catch { /* not just a trailing comma */ }
+    }
     throw new Error('The Gateway returned invalid JSON. The result was rejected locally.')
   }
 }
