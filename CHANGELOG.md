@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.308 — 2026-10-16
+
+- Story → Trash can move items to the Mac's Trash and permanently delete them, so space can be freed on a Mac you're not sitting at. Permanent delete asks you to confirm the exact number of items and size, and only works from the app window or your signed-in browser — never from an automation key or another program.
+- App updates now keep the last 2 previous versions (for rolling back) instead of purging after 15 days.
+- Sign-in settings can only be changed by you once a sign-in exists.
+
 ## v1.4.307 — 2026-10-16
 
 - Music Library can recover songs a music task already finished (Dreamlands track 3) without making them again.
