@@ -45,6 +45,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { fileExistsWithContent, isTransportFailure } from '../lib/http-retry.js'
+import { isPendingGenStudioEntryId } from '../lib/genstudio-request-preview.js'
 import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { recordSectionTimeline } from '../services/script-subtitles.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
@@ -1191,11 +1192,28 @@ export async function generateAudio(job: Job): Promise<void> {
     // agrees with the manifest and is NOT a contradiction. Treating it as one ended a
     // resumed narration job ("Saved Gateway task identity does not match …") while five
     // chapters were still being made (Dreamlands E2E, 2026-10-03, after a Story restart).
+    //
+    // 2026-10-16 (DM0001) — the mirror image: an id alone with NO key. The manifest records
+    // its identity BEFORE the POST, so a submit whose response never came back leaves
+    // `task_id: ''` beside a real key, and the evidence names that same request as
+    // `pending:<key>` (the reconciler later settles it `not_created`). Requiring
+    // `evidence.id === manifest.task_id` made `pending:` a contradiction it can never
+    // satisfy, so every part the Gateway had confirmed it never created failed the job —
+    // "Saved Gateway task identity does not match …" while 26 other parts sat on disk.
+    // A placeholder id proves there is no provider task to conflict with; the pair is
+    // legitimate when the key agrees, and re-submitting under that same key is safe
+    // (the Gateway replays by key rather than making a second task). A REAL id that
+    // disagrees with the manifest stays fail-closed below.
+    const evidenceKeys = relatedEvidence.length === 1
+      ? [relatedEvidence[0]!.request_key, relatedEvidence[0]!.request?.idempotency_key]
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          .map(value => value.trim())
+      : []
     const exactEvidence = relatedEvidence.length === 1
-      && relatedEvidence[0]!.id === reusableEntry?.task_id
-      && [relatedEvidence[0]!.request_key, relatedEvidence[0]!.request?.idempotency_key]
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .every(value => value.trim() === reusableEntry?.idempotency_key)
+      && (relatedEvidence[0]!.id === reusableEntry?.task_id
+        || (isPendingGenStudioEntryId(relatedEvidence[0]!.id || '') && !reusableEntry?.task_id))
+      // `.every` on an empty list is the "carries no key" case above: the id already agreed.
+      && evidenceKeys.every(value => value === reusableEntry?.idempotency_key)
     if (relatedEvidence.length && !exactEvidence) {
       throw new Error(`Saved Gateway task identity does not match ${chunkFilename}; no provider work was submitted.`)
     }
