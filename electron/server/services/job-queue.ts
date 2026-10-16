@@ -3124,6 +3124,49 @@ async function hasManifestOnlyPaidImageCommitment(attempt: PaidImageReplacementA
   }
 }
 
+// ── Automatic retry of work a restart interrupted ──────────────────────────
+//
+// A restart that cannot resume a job ends it "Interrupted by app restart". Free local/fleet work
+// (the same jobs resolveJobAutoRetryPolicy retries during a run) is then retried like the owner's
+// Retry once the Gateway and fleet had time to come back, instead of waiting days for a click
+// (DK0116/DK0080 final videos, 11-16 Oct). The count rides in params because Retry mints a new
+// job id; the bound is the policy's own max_attempts.
+
+const INTERRUPTED_BY_RESTART = 'Interrupted by app restart'
+let restartRetryDelayMs = 60_000
+export function _setRestartRetryDelayForTesting(ms: number): void { restartRetryDelayMs = ms }
+
+function markInterruptedByRestart(j: Job): void {
+  j.status = 'error'
+  j.error = INTERRUPTED_BY_RESTART
+  j.finished_at = j.finished_at || new Date().toISOString()
+  scheduleRestartRetry(j.job_id)
+}
+
+function scheduleRestartRetry(jobId: string): void {
+  setTimeout(() => {
+    retryInterruptedJob(jobId).catch(error => console.warn('[job-queue] automatic retry after restart skipped', { job_id: jobId, error: (error as Error)?.message }))
+  }, restartRetryDelayMs).unref()
+}
+
+async function retryInterruptedJob(jobId: string): Promise<void> {
+  const { episodeRecoveryStep } = await import('./episode-recovery.js')
+  const job = jobs.get(jobId)
+  if (!job || job.status !== 'error' || job.error !== INTERRUPTED_BY_RESTART) return
+  if (queuePaused) return scheduleRestartRetry(jobId) // a paused queue keeps it until Resume
+  const policy = resolveJobAutoRetryPolicy(job)
+  const attempt = (Number(job.params?.restart_retry_attempt) || 1) + 1
+  if (!policy.eligible || attempt > policy.max_attempts || job.pause_origin || job.pause_requested
+    || job.force_abandoned || cancelled.has(jobId) || hasCancellationContext(job) || hasUnsettledProviderEvidence(job)
+    // Owner Retry sends episode steps through the episode recovery plan; those stay manual.
+    || episodeRecoveryStep(job.type)) return
+  const retried = jobs.get(retryTerminalJob(job.project_slug, jobId, { ...job.params, restart_retry_attempt: attempt }).job_id)
+  if (!retried) return
+  retried.output_lines.push(`↻ Retried automatically after the app restarted (attempt ${attempt} of ${policy.max_attempts}).`)
+  await persistJob(retried)
+  emitUpdate(retried)
+}
+
 // ── Lazy load persisted jobs on first access ────────────────────────────────
 
 /** Returns the jobs a restart still left interrupted, so their independent Pipeline steps can start. */
@@ -3182,9 +3225,7 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
                   queue.pending.push(j)
                   resumedTypes.add(j.type as JobType)
                 } else {
-                  j.status = 'error'
-                  j.error = 'Interrupted by app restart'
-                  j.finished_at = j.finished_at || new Date().toISOString()
+                  markInterruptedByRestart(j)
                 }
                 mutated = true
               }
@@ -3276,9 +3317,7 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
                 reconciliationJobs.push(j.job_id)
               } else {
                 observePersistedRunningJobLoadStage(j, 'interrupted-terminalization')
-                j.status = 'error'
-                j.error = 'Interrupted by app restart'
-                j.finished_at = j.finished_at || new Date().toISOString()
+                markInterruptedByRestart(j)
                 interrupted.push(j)
               }
             }
