@@ -151,12 +151,13 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
     // A retry whose earlier chat answer the Gateway already holds must collect it by the saved key,
     // not mint a new action (live EP0113: the first answer succeeded, Retry paid again). Only a
     // confirmed failure / never-created request asks afresh; a page-set action is untouched.
-    const evidenceCases = [
+    const evidenceCases: Array<{ label: string; entry: Record<string, unknown>; rejected?: true; reuses: boolean }> = [
       { label: 'succeeded', entry: { state: 'succeeded' }, reuses: true },
+      { label: 'succeeded but rejected by Story', entry: { state: 'succeeded' }, rejected: true, reuses: false },
       { label: 'failed', entry: { state: 'failed', failure_code: 'PROVIDER_ERROR' }, reuses: false },
       { label: 'not created', entry: { state: 'not_created', dispatch_state: 'pre_dispatch' }, reuses: false },
-    ] as const
-    for (const { label, entry, reuses } of evidenceCases) {
+    ]
+    for (const { label, entry, rejected, reuses } of evidenceCases) {
       const evidenceProject = await pm.createProject({ name: `Jobs Retry metadata evidence ${label}` })
       const savedParams = {
         episode_id: 'EP0113', title: 'Evidence', model: 'saved-metadata-model', force: true, auto_retry: false,
@@ -169,6 +170,7 @@ void test('Jobs Retry preserves saved fresh actions, adds thumbnail fill-gaps, a
           request: { method: 'POST', path: '/v1/chat/responses', idempotency_key: 'story-chat-saved-key', captured_at: new Date().toISOString() },
           ...entry,
         } as any)
+        if (rejected) job.result = { ...(job.result || {}), chat_answer_rejected: true }
         throw new Error('metadata finished without usable fields')
       })
       const failed = jq.enqueuePreparedForTest({

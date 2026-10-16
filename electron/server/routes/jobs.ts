@@ -160,6 +160,9 @@ function sendTerminalOnlyConflict(res: import('express').Response, job: Job): vo
  * is in flight / an unknown outcome. Not `failed` (settled) and not `not_created` (never reached it).
  */
 function holdsEarlierChatAnswer(job: Job): boolean {
+  // Story itself rejected the answer it got (metadata sets this): replaying its key would return that
+  // same answer forever, so only a fresh request can fix it (NEW-14).
+  if (job.result?.chat_answer_rejected === true) return false
   return (job.genstudio_jobs || []).some(entry => entry.operation === 'chat.response'
     && !!(entry.request?.idempotency_key?.trim() || entry.request_key?.trim())
     && entry.state !== 'not_created'
