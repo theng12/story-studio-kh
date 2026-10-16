@@ -3195,7 +3195,11 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
           // mutation so jobs.json and the in-memory queue cannot disagree.
           let mutated = repairedOnLoad.has(j.job_id)
           if (j.status === 'queued') {
-            if (hasUnsettledProviderEvidence(j)) {
+            // Checkpointed Gateway audio/transcription reclaims its own evidence by saved task id and
+            // key, exactly as the running branch below trusts it to; diverting an owner-resumed job
+            // to reconcile-only ended it in error without the executor ever running (DM0003/DM0005).
+            if (hasUnsettledProviderEvidence(j)
+              && (hasCancellationContext(j) || await bootRecoveryKind(j) !== 'genstudio')) {
               j.status = 'running'
               j.local_execution_complete = true
               j.started_at ||= new Date().toISOString()

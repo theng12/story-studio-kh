@@ -189,6 +189,84 @@ describe('startup recovery for explicitly checkpointed Gateway assets', () => {
       await service.close()
     }
   })
+
+  // DM0003/DM0005, 16 Oct: pause → restart → explicit Resume left the job `queued`; a second
+  // restart before its lane picked it up turned that Resume into reconcile-only, and the job ended
+  // in error ("no record of 10 requests" / "needs repair") without the executor ever running — so
+  // neither the uncollected parts nor the never-sent ones were fetched, and no auto-retry followed.
+  test('an owner-resumed audio job still queued at restart rejoins its lane instead of ending in error', async () => {
+    const service = await startMockGenStudioService()
+    const { setGenStudioUrl } = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    try {
+      await setGenStudioUrl(service.baseUrl)
+      await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+      service.queueScenario('tts', { states: ['succeeded'] })
+      const collectKey = 'story-tts-resumed-uncollected'
+      const submitted = await fetch(`${service.baseUrl}/v1/audio/jobs`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+          'Idempotency-Key': collectKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model_id: 'mock-tts-v1', voice_id: 'mock-voice', text: 'collect me', speed: 1 }),
+      }).then(response => response.json()) as { id: string }
+
+      const project = await pm.createProject({ name: 'Gateway TTS Resumed Restart' })
+      const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+      const jobId = 'genstudio-tts-resumed-restart'
+      let executions = 0
+      jq.registerExecutor('audio', async job => {
+        executions++
+        // Same durable identities reach the executor; it reclaims them rather than minting new ones.
+        assert.equal((job.params as any).genstudio_recovery.assets.collect.job_id, submitted.id)
+        assert.equal((job.params as any).genstudio_recovery.assets.never_sent.idempotency_key, 'story-tts-never-sent')
+      })
+      service.requests.length = 0
+      const now = new Date().toISOString()
+      await fs.writeFile(jobsFile, JSON.stringify({ jobs: [{
+        job_id: jobId,
+        project_slug: project.slug,
+        type: 'audio',
+        episode_id: 'EP0003',
+        title: 'Pipeline: Audio — EP0003',
+        status: 'queued',
+        created_at: now,
+        started_at: null,
+        finished_at: null,
+        error: null,
+        local_execution_complete: true,
+        output_lines: ['Resume requested — verifying saved assets and accepted provider tasks before submitting missing work.'],
+        params: {
+          genstudio_recovery: {
+            version: 1,
+            route: 'genstudio',
+            assets: {
+              collect: { operation: 'tts', idempotency_key: collectKey, job_id: submitted.id, state: 'running', updated_at: now },
+              never_sent: { operation: 'tts', idempotency_key: 'story-tts-never-sent', state: 'prepared', updated_at: now },
+            },
+          },
+        },
+        genstudio_jobs: [
+          { id: submitted.id, operation: 'voice.tts', state: 'running', dispatch_state: 'dispatched', request_key: collectKey, updated_at: now },
+          { id: 'pending:story-tts-never-sent', operation: 'voice.tts', state: 'not_created', queue_state: 'not_created', request_key: 'story-tts-never-sent', updated_at: now },
+        ],
+        remote_cancellations: {},
+      }] }))
+
+      await jq.getJobs(project.slug)
+      await waitFor(() => executions === 1 || jq.getJob(jobId)?.status === 'error', 'resumed audio job reached its executor or ended')
+      const resumed = jq.getJob(jobId)!
+      assert.equal(executions, 1, resumed.output_lines.join('\n'))
+      await waitForDone(jobId, jobsFile)
+      assert.doesNotMatch(resumed.output_lines.join('\n'), /will not submit a replacement request|no record of \d+ requests? from this job/i)
+      assert.equal(service.providerSubmissionCount('tts'), 1)
+    } finally {
+      await setApiKey('genstudio', '')
+      await service.close()
+    }
+  })
 })
 
 /**
