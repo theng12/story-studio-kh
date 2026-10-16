@@ -8,6 +8,7 @@ What's new in each release. Newest first.
 
 - Script-only Pipeline runs with Auto-approve go straight from the outline to writing the chapters again, instead of stopping with "Pipeline handoff failed before this step started". Runs that already failed this way are left as they are.
 - A completed structured answer from the Gateway is accepted when it has one trailing comma before a closing bracket, instead of being rejected as invalid JSON and stopping the step.
+- A job you resumed while the app was starting runs again instead of ending in error, so a queued audio or transcription step is no longer lost by a restart.
 
 ## v1.4.309 — 2026-10-16
 
