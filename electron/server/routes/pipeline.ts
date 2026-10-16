@@ -1154,7 +1154,7 @@ export function resolveStepParams(
       title: title || form.title || '',
       // The preset stores camelCase; the executor (generators/episode.ts)
       // reads only `custom_style_text`, as the Scripts page sends it.
-      custom_style_text: data.customStyleText ?? form.customStyleText,
+      custom_style_text: data.customStyleText ?? form.customStyleText ?? restForm.custom_style_text,
     }
   }
   if (step === 'introduction-only') {
