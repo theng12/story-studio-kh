@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.309 — 2026-10-16
+
+- A running scene-image job never undoes scene approvals you made by hand, and its new pictures follow the channel's current Auto-approve setting even if it was switched on after the job started.
+- Retrying a YouTube Finalizer collects the answer the Gateway already made instead of paying for a new one; it asks fresh only when Story itself rejected that answer.
+
 ## v1.4.308 — 2026-10-16
 
 - Story → Trash can move items to the Mac's Trash and permanently delete them, so space can be freed on a Mac you're not sitting at. Permanent delete asks you to confirm the exact number of items and size, and only works from the app window or your signed-in browser — never from an automation key or another program.
