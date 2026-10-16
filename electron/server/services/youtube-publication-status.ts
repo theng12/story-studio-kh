@@ -14,12 +14,19 @@ import type { VideoPublicationDetails } from '../lib/youtube-client.js'
 import { listRecentUploads, listVideoPublicationDetails, registryCredentialFor } from '../lib/youtube-client.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
+import { logLine } from './logger.js'
 import {
   listYouTubeOperations,
   readYouTubeOperation,
   updatePinnedYouTubeOperation,
 } from './youtube-operation-store.js'
 import type { RemoteSyncState } from './youtube-project-publishing-store.js'
+import {
+  YOUTUBE_VIDEO_NOT_FOUND,
+  classifyYouTubeSyncFailure,
+  observationFromDetails,
+  recordYouTubePublicationObservations,
+} from './youtube-publication-cache.js'
 
 /** Lifecycles that are YouTube's final word. Never overwritten by an absence. */
 const TERMINAL: ReadonlySet<YouTubeVideoLifecycle> = new Set(['ready', 'failed', 'rejected'])
@@ -44,7 +51,7 @@ export interface YouTubePublicationState {
 }
 
 /** `provider_status` written when YouTube answered and the video was not in the answer. */
-export const YOUTUBE_VIDEO_NOT_FOUND = 'not_found'
+export { YOUTUBE_VIDEO_NOT_FOUND }
 
 /**
  * YouTube itself confirmed the video is gone: it answered the channel owner's
@@ -120,6 +127,26 @@ export function mapYouTubePublicationState(
 }
 
 /**
+ * Every operation answer also lands in the channel's publication cache, so all
+ * readers see one observed status. Logged, never fatal: the record is the receipt.
+ */
+async function observeOperations(
+  slug: string,
+  channelId: string,
+  records: Array<{ video_id?: string; episode_code: string }>,
+  details: Record<string, VideoPublicationDetails>,
+): Promise<void> {
+  const checkedAt = new Date().toISOString()
+  const checks = records
+    .filter(record => !!record.video_id
+      && (!details[record.video_id]?.channelId || details[record.video_id]!.channelId === channelId))
+    .map(record => observationFromDetails(record.video_id!, details[record.video_id!] ?? null, checkedAt, 'operation', record.episode_code))
+  await recordYouTubePublicationObservations({ project_slug: slug, channel_id: channelId, checks }).catch((error) => {
+    logLine('warn', `[youtube-status] publication cache not written: ${(error as Error)?.message || 'unknown'}`, { project_slug: slug })
+  })
+}
+
+/**
  * Read one operation's video from YouTube and persist the outcome.
  *
  * Returns the mapped state and whether it was written. A `status_unavailable`
@@ -144,6 +171,7 @@ export async function syncYouTubePublicationState(input: {
   const details = await listVideoPublicationDetails(input.project_slug, input.account_id, [record.video_id])
   const remoteDetails = details[record.video_id]
   const state = mapYouTubePublicationState(remoteDetails ?? null)
+  await observeOperations(input.project_slug, record.channel_id, [record], details)
 
   if (state.lifecycle === 'status_unavailable' && TERMINAL.has(record.lifecycle)) {
     return { state, persisted: false, ...(remoteDetails ? { details: remoteDetails } : {}) }
@@ -174,26 +202,6 @@ export interface ProjectSyncResult {
   updated: number
   outcome: 'ok' | 'partial' | 'failed'
   error_code?: RemoteSyncState['error_code']
-}
-
-/**
- * Why a sync did not happen, in terms a screen can act on.
- *
- * "We never reached YouTube" and "YouTube answered and refused" are different
- * facts: the first is the user's network, the second is their account or their
- * quota. Rendering both as "sync failed" tells them nothing about what to do.
- */
-function classifySyncFailure(error: unknown): RemoteSyncState['error_code'] {
-  const code = (error as { code?: string } | null)?.code
-  if (code === 'YOUTUBE_QUOTA_EXHAUSTED') return 'quota_exhausted'
-  // Google answered and refused the sign-in: not the network. (Recording a new
-  // code would make older builds read the project state as corrupt.)
-  if (code === 'YOUTUBE_RECONNECT_REQUIRED') return 'provider_error'
-  if (code === 'YOUTUBE_TOKEN_REFRESH_FAILED') return (error as { transient?: boolean }).transient ? 'offline' : 'provider_error'
-  const message = error instanceof Error ? error.message : String(error)
-  // youtube-client throws this exact shape once YouTube has actually answered.
-  if (/failed \(\d{3}\)/.test(message) || /quota/i.test(message)) return 'provider_error'
-  return 'offline'
 }
 
 /** Accepted by YouTube but not yet a final answer: what the background check follows. */
@@ -227,7 +235,7 @@ export async function syncProjectYouTubePublicationStates(input: {
   } catch (error) {
     // The request itself failed, so nothing was learned about any video. The
     // local records are left exactly as they were.
-    return { channel_id: channelId, checked: 0, updated: 0, outcome: 'failed', error_code: classifySyncFailure(error) }
+    return { channel_id: channelId, checked: 0, updated: 0, outcome: 'failed', error_code: classifyYouTubeSyncFailure(error) }
   }
 
   // The owner's own credential sees every video on the channel. An answer
@@ -238,6 +246,7 @@ export async function syncProjectYouTubePublicationStates(input: {
     return { channel_id: channelId, checked: 0, updated: 0, outcome: 'failed', error_code: 'provider_error' }
   }
 
+  await observeOperations(input.project_slug, channelId, records, details)
   let updated = 0
   let failedWrites = 0
   for (const record of records) {

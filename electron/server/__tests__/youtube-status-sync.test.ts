@@ -152,7 +152,7 @@ describe('Check All Uploads', () => {
 })
 
 describe('background check', () => {
-  test('asks only about unfinished uploads, and backs off after a failure', async () => {
+  test('asks about unfinished uploads first, then stale finished ones, and backs off after a failure', async () => {
     const s = await setup()
     await s.accepted(await s.episode('Pending'), 'vid-pending')
     await s.accepted(await s.episode('Done'), 'vid-done', 'ready')
@@ -167,8 +167,13 @@ describe('background check', () => {
     assert.equal(fake.calls.length, 1, 'backing off: no second request a minute later')
 
     fake.respond({ method: 'GET', path: '/youtube/v3/videos?part=snippet,status,processingDetails&id=vid-pending', body: { items: [video('vid-pending', 'uploaded')] } })
+    // The ready upload has never been observed, so the bounded stale refresh asks about it too.
+    fake.respond({ method: 'GET', path: '/youtube/v3/videos?part=snippet,status,processingDetails&id=vid-done', body: { items: [video('vid-done', 'processed')] } })
     await runYouTubeStatusSyncPass(now + 7 * 60 * 60 * 1000)
-    assert.equal(fake.calls.length, 2)
+    assert.deepEqual(fake.calls.slice(1).map(call => call.path), [
+      '/youtube/v3/videos?part=snippet,status,processingDetails&id=vid-pending',
+      '/youtube/v3/videos?part=snippet,status,processingDetails&id=vid-done',
+    ])
     const pending = (await s.operations.listYouTubeOperations(s.slug)).find(record => record.video_id === 'vid-pending')
     assert.equal(pending?.lifecycle, 'processing')
   })

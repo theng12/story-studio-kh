@@ -276,6 +276,43 @@ describe('Upload Center Overview', () => {
     stale.destroy()
   })
 
+  test('never checked, partially checked and fully checked read as three different sentences', async () => {
+    const channel = { channel_id: 'UC-x', title: 'My Channel', status: 'connected' }
+    const recent = new Date(Date.now() - 60_000).toISOString()
+    const never = await mount(overview({
+      assigned_channel: channel, quota: quota(), operation_count: 0, last_remote_sync_at: null,
+      publication_coverage: { unchecked_videos: 72 },
+    }))
+    assert.match(never.text, /Not checked with YouTube yet/)
+    never.destroy()
+
+    // Checks exist, but 72 legacy uploads were never asked about: not "not checked", not "all checked".
+    const partial = await mount(overview({
+      assigned_channel: channel, quota: quota(), operation_count: 30, last_remote_sync_at: recent,
+      publication_coverage: { unchecked_videos: 72 },
+    }))
+    assert.match(partial.text, /Last checked with YouTube/)
+    assert.match(partial.text, /72 videos not checked yet — run Check All Uploads/)
+    assert.doesNotMatch(partial.text, /Not checked with YouTube yet/)
+    partial.destroy()
+
+    const stalePartial = await mount(overview({
+      assigned_channel: channel, quota: quota(), operation_count: 30,
+      last_remote_sync_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+      publication_coverage: { unchecked_videos: 1 },
+    }))
+    assert.match(stalePartial.text, /may be out of date · 1 video not checked yet/)
+    stalePartial.destroy()
+
+    const full = await mount(overview({
+      assigned_channel: channel, quota: quota(), operation_count: 102, last_remote_sync_at: recent,
+      publication_coverage: { unchecked_videos: 0 },
+    }))
+    assert.match(full.text, /Last checked with YouTube/)
+    assert.doesNotMatch(full.text, /not checked yet/)
+    full.destroy()
+  })
+
   test('data older than a day is called out rather than shown as current', async () => {
     const old = new Date(Date.now() - 40 * 60 * 60 * 1000).toISOString()
     const mounted = await mount(overview({

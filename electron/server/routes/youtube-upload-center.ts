@@ -92,6 +92,22 @@ import {
   syncYouTubePublicationState,
 } from '../services/youtube-publication-status.js'
 import { checkAllYouTubeUploads } from '../services/youtube-status-sync.js'
+import {
+  YOUTUBE_VIDEO_NOT_FOUND,
+  cachedObservation,
+  classifyYouTubeSyncFailure,
+  isObservationStale,
+  legacyUploadsFor,
+  newestObservation,
+  publicationCacheView,
+  readYouTubePublicationCache,
+  receiptObservation,
+  recordYouTubePublicationObservations,
+  refreshYouTubePublications,
+  snapshotObservation,
+  type ObservedPublication,
+  type PublicationCache,
+} from '../services/youtube-publication-cache.js'
 import { registryCredentialFor } from '../lib/youtube-client.js'
 import { ANALYTICS_METRICS, VIDEO_FACTS, fetchProjectAnalytics } from '../services/youtube-analytics-cache.js'
 import { cursorKey } from '../services/youtube-page-cursor.js'
@@ -312,20 +328,55 @@ function localUploadProjection(
   return { state: 'unknown', reason: UPLOAD_STORE_UNREADABLE }
 }
 
+const NOT_FOUND_AT_LAST_CHECK = 'YouTube did not return this video at the last check. Check it again to confirm.'
+
+/** The newest observation of this exact video on this channel. An other-channel upload is never read from this cache. */
+function observedForEpisode(
+  code: string,
+  operation: YouTubeOperationRecordV1 | undefined,
+  remote: Awaited<ReturnType<typeof remoteVideoFor>>,
+  publishingState: Awaited<ReturnType<typeof readYouTubeProjectPublishingState>> | null,
+  cache: PublicationCache,
+  channelId: string | null,
+): ObservedPublication | undefined {
+  const videoId = operation?.video_id ?? (remote && !remote.other_channel ? remote.video_id : undefined)
+  if (!videoId) return undefined
+  const receipt = publishingState?.episode_video_links[code]
+  return newestObservation(
+    operation ? snapshotObservation(operation) : undefined,
+    receipt && receipt.channel_id === channelId && receipt.video_id === videoId ? receiptObservation(code, receipt) : undefined,
+    cachedObservation(cache, channelId, videoId),
+  )
+}
+
+/**
+ * `observed` is the newest thing YouTube said about this exact video on this
+ * channel - operation snapshot, verified receipt or the publication cache, as
+ * `newestObservation` chose. Never local intent.
+ */
 function publicationProjection(
-  episodeCode: string,
   operation: YouTubeOperationRecordV1 | undefined,
   remote: Awaited<ReturnType<typeof remoteVideoFor>>,
   publishingState: Awaited<ReturnType<typeof readYouTubeProjectPublishingState>> | null,
   channelId: string | null,
+  observed: ObservedPublication | undefined,
   unavailableReason?: string,
 ): YouTubePublicationProjection {
   if (unavailableReason) return { state: 'unknown', reason: unavailableReason }
+  const visibility = observed?.privacy_status
+  const videoId = operation?.video_id ?? remote?.video_id
+  const publishedAt = (publishingState?.reconcile?.channel_id === channelId
+    ? publishingState?.reconcile?.remote_videos.find(video => video.video_id === videoId)?.published_at
+    : undefined) ?? observed?.published_at
+  const fromObservation = (common: { visibility?: string; last_checked_at?: string }): YouTubePublicationProjection => {
+    if (observed?.upload_status === YOUTUBE_VIDEO_NOT_FOUND) return { state: 'unknown', ...common, reason: NOT_FOUND_AT_LAST_CHECK }
+    if (visibility === 'public') return { state: 'published', ...common, ...(publishedAt ? { published_at: publishedAt } : {}) }
+    if (observed?.scheduled_for) return { state: 'scheduled', ...common, scheduled_at: observed.scheduled_for }
+    return { state: 'uploaded', ...common }
+  }
 
   if (operation) {
-    const snapshot = operation.remote_snapshot
-    const visibility = snapshot?.privacy_status
-    const lastCheckedAt = snapshot?.fetched_at || operation.processing?.checked_at
+    const lastCheckedAt = observed?.checked_at || operation.processing?.checked_at
     const common = {
       ...(visibility ? { visibility } : {}),
       ...(lastCheckedAt ? { last_checked_at: lastCheckedAt } : {}),
@@ -345,36 +396,20 @@ function publicationProjection(
         ? 'Not found on YouTube: it was deleted or removed. “I Deleted This Video on YouTube” allows a new upload once YouTube confirms it.'
         : word
           ? `YouTube reported a status Story Studio does not recognise (${word}).`
-          : 'YouTube did not return this video at the last check. Check it again to confirm.' }
+          : NOT_FOUND_AT_LAST_CHECK }
     }
     if (operation.lifecycle === 'processing') return { state: 'processing', ...common }
     if (operation.lifecycle === 'preparing' || operation.lifecycle === 'uploading') return { state: 'unpublished' }
-    if (visibility === 'public') {
-      const publishedAt = publishingState?.reconcile?.channel_id === channelId
-        ? publishingState.reconcile.remote_videos.find(video => video.video_id === operation.video_id)?.published_at
-        : undefined
-      return { state: 'published', ...common, ...(publishedAt ? { published_at: publishedAt } : {}) }
-    }
-    if (snapshot?.scheduled_for) {
-      return { state: 'scheduled', ...common, scheduled_at: snapshot.scheduled_for }
-    }
-    return { state: 'uploaded', ...common }
+    return fromObservation(common)
   }
 
   if (!remote) return { state: 'unpublished' }
-  const receipt = publishingState?.episode_video_links[episodeCode]
-  const publication = receipt && receipt.channel_id === channelId && receipt.video_id === remote.video_id
-    ? receipt.publication
-    : undefined
-  if (publication) {
-    const common = { visibility: publication.privacy_status, last_checked_at: publication.verified_at }
-    if (publication.privacy_status === 'public') return { state: 'published', ...common }
-    if (publication.scheduled_for) return { state: 'scheduled', ...common, scheduled_at: publication.scheduled_for }
-    return { state: 'uploaded', ...common }
+  if (observed?.checked_at) {
+    return fromObservation({ ...(visibility ? { visibility } : {}), last_checked_at: observed.checked_at })
   }
-  // Legacy sidecars and reconcile links prove a remote video identity only.
-  // Their schedule and privacy fields may be local intent, and `uploaded_at`
-  // is an acceptance time rather than a publication date.
+  // Never observed: a legacy sidecar or reconcile link proves a remote video
+  // identity only. Its schedule and privacy fields may be local intent, and
+  // `uploaded_at` is an acceptance time rather than a publication date.
   return {
     state: 'uploaded',
     ...(remote.other_channel && remote.channel_id
@@ -413,11 +448,19 @@ router.get('/projects/:slug/youtube/overview', async (req, res) => {
       }
     }
 
-    const lastSync = records
-      .map(record => record.remote_snapshot?.fetched_at)
-      .filter((value): value is string => !!value)
-      .sort()
-      .at(-1) ?? null
+    // Whole-channel freshness is the OLDEST answer among the videos we know,
+    // never the newest single one: one fresh operation must not make 72
+    // unchecked or day-old schedules look current.
+    // Legacy uploads the cache was never told about count as UNCHECKED, so one
+    // fresh operation cannot make a back catalogue look current. The sweep runs
+    // once for this request; if ideas or a sidecar cannot be read, coverage is
+    // reported without legacy uploads (`legacy_included: false`) rather than
+    // failing the whole overview.
+    const coverage = assignment && publishing
+      ? publicationCacheView(publishing, await readYouTubePublicationCache(slug).catch(() => ({})), records, assignment.channel_id, {
+        legacy: await legacyUploadsFor(slug, assignment.channel_id, createProjectFactsCache(slug)).catch(() => undefined),
+      }).coverage
+      : null
 
     res.json({
       assigned_channel: channel,
@@ -431,15 +474,45 @@ router.get('/projects/:slug/youtube/overview', async (req, res) => {
       attention: counted.attention,
       episodes_needing_attention: counted.recordsNeedingAttention,
       operation_count: records.length,
-      // When the data was last actually READ from YouTube. This is what
-      // staleness is measured against.
-      last_remote_sync_at: lastSync,
+      // When the data was last actually READ from YouTube: the OLDEST answer.
+      // null means only "nothing was ever checked"; videos never checked are
+      // counted in `publication_coverage.unchecked_videos`, not folded in here.
+      last_remote_sync_at: coverage?.oldest_checked_at ?? null,
+      // How much of the channel that covers: checked / unchecked / not-found /
+      // stale counts and the uploads-listing state. null = no channel or unreadable state.
+      publication_coverage: coverage,
       // And what happened the last time we TRIED. A failed attempt must not
       // make stale data look fresh, so the two are reported separately.
       last_sync_attempt: publishing?.remote_sync ?? null,
     })
   } catch (error) {
     fail(res, error, 'Failed to read the YouTube Upload Center overview.')
+  }
+})
+
+/**
+ * Every schedule and status YouTube itself reported for the assigned channel,
+ * each with its own `checked_at` and `stale`, plus listing coverage. Read-only
+ * and provider-free: refreshing is POST /youtube/sync (and the background pass).
+ * `videos` includes known-but-never-checked videos without `checked_at`.
+ */
+router.get('/projects/:slug/youtube/publication-cache', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const channelId = await currentChannelId(slug)
+    if (!channelId) {
+      res.json({ channel_id: null, unavailable_reason: 'no_channel_assigned', coverage: null, videos: [], schedules: [] })
+      return
+    }
+    const [state, cache, records, legacy] = await Promise.all([
+      readYouTubeProjectPublishingState(slug),
+      readYouTubePublicationCache(slug),
+      listYouTubeOperations(slug),
+      legacyUploadsFor(slug, channelId, createProjectFactsCache(slug)).catch(() => undefined),
+    ])
+    res.json(publicationCacheView(state, cache, records, channelId, { legacy }))
+  } catch (error) {
+    fail(res, error, 'Failed to read the saved YouTube publication status.')
   }
 })
 
@@ -503,6 +576,8 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
     } catch {
       publishingStateUnreadable = true
     }
+    // A missing or unreadable cache reads as empty: rows fall back to their receipts.
+    const publicationCache = await readYouTubePublicationCache(slug).catch(() => ({}))
     let jobs: Job[] = []
     let jobsUnreadable = false
     try {
@@ -621,11 +696,11 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
               ? `${code} already has an upload in progress.`
               : '')
         const publication = publicationProjection(
-          code,
           publicationOperation,
           remote,
           publishingState,
           channelId,
+          observedForEpisode(code, publicationOperation, remote, publishingState, publicationCache, channelId),
           remoteStoresUnreadable ? REMOTE_STORE_UNREADABLE : unreadable || sidecarUnreadable || undefined,
         )
         const schedule_blocked_reason = storeBlockedReason
@@ -721,12 +796,18 @@ router.get('/projects/:slug/youtube/library', async (req, res) => {
       !!record.video_id && onCurrentChannel(current, record.channel_id)
     ))
 
+    const publicationCache = await readYouTubePublicationCache(slug).catch(() => ({}))
     res.json({
-      videos: published.map(record => ({
-        ...publicOperation(record),
-        comparison: compareYouTubeVideo(record),
-        playlists: record.playlists,
-      })),
+      videos: published.map(record => {
+        const observed = newestObservation(snapshotObservation(record), cachedObservation(publicationCache, current, record.video_id))
+        return {
+          ...publicOperation(record),
+          comparison: compareYouTubeVideo(record),
+          playlists: record.playlists,
+          // What YouTube last said (snapshot or the newer cached answer). Absent = never observed.
+          ...(observed ? { observed_publication: { ...observed, stale: isObservationStale(observed) } } : {}),
+        }
+      }),
       empty_reason: emptyLibraryReason(!!assignment, records.length, published.length),
       total: published.length,
     })
@@ -1204,7 +1285,18 @@ router.post('/projects/:slug/youtube/reconcile/remote-refresh', async (req, res)
     // The account that signs in to the ASSIGNED channel, not merely the
     // project default — see `accountForCurrentChannel`.
     const { accountId, channelId } = await accountForCurrentChannel(slug)
-    const uploads = await listRecentUploads(slug, accountId)
+    const attemptedAt = new Date().toISOString()
+    let uploads: Awaited<ReturnType<typeof listRecentUploads>>
+    try {
+      uploads = await listRecentUploads(slug, accountId)
+    } catch (error) {
+      // The last successful listing stays; only the attempt is recorded.
+      await recordYouTubePublicationObservations({
+        project_slug: slug, channel_id: channelId,
+        listing: { attempted_at: attemptedAt, outcome: 'failed', error_code: classifyYouTubeSyncFailure(error) },
+      }).catch(() => {})
+      throw error
+    }
     await recordYouTubeReconcileCache({
       project_slug: slug,
       channel_id: channelId,
@@ -1215,10 +1307,35 @@ router.post('/projects/:slug/youtube/reconcile/remote-refresh', async (req, res)
       })),
       truncated: uploads.truncated,
     })
+    const listed = uploads.videos.filter(video => !!video.videoId)
+    await recordYouTubePublicationObservations({
+      project_slug: slug, channel_id: channelId,
+      listing: {
+        attempted_at: attemptedAt, outcome: uploads.truncated ? 'partial' : 'complete',
+        videos: listed.map(video => ({
+          video_id: video.videoId,
+          ...(video.title ? { title: video.title } : {}),
+          ...(video.publishedAt ? { published_at: video.publishedAt } : {}),
+        })),
+      },
+    }).catch(() => {}) // the reconcile cache above is saved; this cache catches up next listing
+    // The listing carries no publishAt, so ask videos.list about the listed
+    // videos, bounded like the listing itself (200 videos, 4 calls).
+    const details = await refreshYouTubePublications({
+      project_slug: slug, account_id: accountId, channel_id: channelId, max_calls: 4,
+      videos: new Map(listed.map(video => [video.videoId, { source: 'channel_listing' as const }])),
+    })
     // Reported, because every conclusion drawn from this listing depends on
     // whether it is the whole channel. "In Story Studio only" means "YouTube
     // does not have this" — which is false for anything past the cap.
-    res.json({ listed: uploads.videos.length, truncated: uploads.truncated })
+    res.json({
+      listed: uploads.videos.length,
+      truncated: uploads.truncated,
+      publication_refresh: {
+        outcome: details.outcome, requested: details.requested, recorded: details.recorded,
+        unrequested: details.unrequested, ...(details.error_code ? { error_code: details.error_code } : {}),
+      },
+    })
   } catch (error) {
     fail(res, error, 'Failed to list this channel’s videos.')
   }
@@ -2529,11 +2646,12 @@ async function previewUploadCenterPlan(
   // A local plan claim is movable only while it is still local planning data.
   // Queue state and any canonical/legacy YouTube evidence belong to the
   // upload/publication flows and must never be reassigned by this local save.
-  const [schedule, jobs, operations, publishingState] = await Promise.all([
+  const [schedule, jobs, operations, publishingState, publicationCache] = await Promise.all([
     readItemSchedule(slug),
     getJobs(slug, { type: 'youtube_upload' }),
     listYouTubeOperations(slug),
     readYouTubeProjectPublishingState(slug),
+    readYouTubePublicationCache(slug).catch(() => ({})),
   ])
   const activeUploadCodes = new Set(jobs
     .filter(job => job.type === 'youtube_upload'
@@ -2562,7 +2680,8 @@ async function previewUploadCenterPlan(
         || (remote.source === 'operation_record'
           && !remote.video_id && OPEN_LIFECYCLES.includes(record.lifecycle))))
     const publication = publicationProjection(
-      code, operation, remote, publishingState, channelId,
+      operation, remote, publishingState, channelId,
+      observedForEpisode(code, operation, remote, publishingState, publicationCache, channelId),
     )
     if (publication.state === 'uploaded'
       && !publication.scheduled_at

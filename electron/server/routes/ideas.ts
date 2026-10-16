@@ -27,6 +27,8 @@ import { readVideoVisualSource } from '../services/video-visual-source.js'
 import { readLocalMediaCleanupStatus } from '../services/episode-media-cleanup.js'
 import { readYouTubeRetentionStores } from '../services/youtube-remote-video.js'
 import { readEpisodeUploadStatus } from '../services/episode-upload-status.js'
+import { getProjectYouTubeAssignment } from '../services/youtube-connection-store.js'
+import { readYouTubePublicationCache } from '../services/youtube-publication-cache.js'
 import {
   previewReseason, applyReseason, revertReseason,
   readReseasonUndo, deleteReseasonUndo, isReseasonUndoExpired,
@@ -940,6 +942,12 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
   const projectFacts = createProjectFactsCache(slug)
   // Publishing is a separate saved receipt, not another required generation stage.
   const uploadStores = await readYouTubeRetentionStores(slug, projectFacts).catch(() => null)
+  // What YouTube last reported, and the assigned channel (only to place a legacy
+  // receipt that names none). A missing or unreadable cache reads as empty.
+  const uploadPublications = {
+    channel_id: await getProjectYouTubeAssignment(slug).then(assignment => assignment?.channel_id ?? null).catch(() => null),
+    cache: await readYouTubePublicationCache(slug).catch(() => ({})),
+  }
   const uploadJobs = await jq.getJobs(slug, { type: 'youtube_upload' }).then(jobs => jobs
     .sort((a, b) => b.created_at.localeCompare(a.created_at))).catch(() => null)
 
@@ -1036,7 +1044,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       local_media_status: rowReads.local_media_status,
       youtube_upload: uploadStores && uploadJobs
         ? await readEpisodeUploadStatus(slug, code, idea.title || '', uploadStores, projectFacts,
-          uploadJobs.find(job => job.episode_id === code))
+          uploadJobs.find(job => job.episode_id === code), uploadPublications)
           .catch(() => ({ state: 'unknown', reason: 'The saved upload record could not be read.' }))
         : { state: 'unknown', reason: 'The saved YouTube publishing or queue records could not be read.' },
       visual_source: episodeVisualSource,
