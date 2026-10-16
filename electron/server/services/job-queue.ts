@@ -886,6 +886,17 @@ function scheduleCancellationReconciliation(jobId: string): void {
 // what the current state is, writes the answer into the stored evidence, and
 // lets the gate decide again.
 const historyEvidenceRefreshing = new Map<string, Promise<void>>()
+// A check that could not reach the Gateway (or found work still running) used to
+// be the last one: the row then held Retry at 409 until a restart or a click.
+// ponytail: fixed interval, back off if many stuck rows ever make this chatty.
+const historyEvidenceRetryTimers = new Map<string, NodeJS.Timeout>()
+let historyEvidenceRetryMs = 30_000
+
+export function _setHistoryEvidenceRetryMsForTesting(ms: number): () => void {
+  const previous = historyEvidenceRetryMs
+  historyEvidenceRetryMs = ms
+  return () => { historyEvidenceRetryMs = previous }
+}
 
 function isFinishedStatus(status: Job['status']): boolean {
   return status === 'done' || status === 'error' || status === 'cancelled'
@@ -968,6 +979,15 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
   } finally {
     historyEvidenceRefreshing.delete(jobId)
     settled()
+    const latest = jobs.get(jobId)
+    if (latest && needsHistoryEvidenceRefresh(latest) && !historyEvidenceRetryTimers.has(jobId)) {
+      const timer = setTimeout(() => {
+        historyEvidenceRetryTimers.delete(jobId)
+        scheduleHistoryEvidenceRefresh(jobId)
+      }, historyEvidenceRetryMs)
+      timer.unref()
+      historyEvidenceRetryTimers.set(jobId, timer)
+    }
   }
 }
 
