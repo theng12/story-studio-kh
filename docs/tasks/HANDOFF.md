@@ -1,5 +1,30 @@
 # HANDOFF — Story Studio KH
 
+## Source verified; DMG and install pending — 2026-10-17 (1.4.310)
+
+Three accepted fixes on `release/1.4.310` (base `main` f9a4ba11 = 1.4.309): the script-only Pipeline
+outline handoff (`7b297e55`, independently reviewed ACCEPT — a finished outline is no longer counted
+as a competing chapter writer for the duration of its own chain dispatch), the trailing-comma repair
+at the strict structured-output gate (`d2693566`, reviewed ACCEPT against the real DM0008 Gateway
+answer), and the owner-resumed audio job requeue at boot (`143b85dc`, reviewed ACCEPT — a queued
+Gateway audio/transcription job with unsettled evidence is requeued instead of diverted to
+reconcile-only). Version and changelog are `1.4.310` in `package.json` and `package-lock.json`.
+
+Gates on this tree: full backend 707/707 files, 6959 tests, 6952 pass, 0 fail, 7 skipped, configured
+projects root byte-identical; electron typecheck, lint (0 errors), frontend typecheck; check:changelog,
+check:typography, check:security, check:model-drift, check:release; content packs 368 tests, 366 pass,
+2 skipped. The release lane's one failure is its built-bundle existence check, which only passes after
+`npm run dist:smoke` (AGENTS: it runs after the DMG build). The guard `no-new-wallclock-sleeps` was
+red on `main` before this release (three test files added after its baseline was written, plus a
+baseline entry for `ttl-cache.test.ts`, deleted in v1.4.204); the baseline was reconciled with the
+guard's own documented `UPDATE_TIMING_BASELINE=1` procedure and the three sleeps are fail-open
+observation windows per its triage table. A deterministic `waitFor` conversion of those three files is
+in progress separately and is expected to replace that baseline edit.
+
+Not included: the immediate-install feature (`63d39c3e`, accepted with a follow-up guard pending).
+DMG build, publication, and the mini's normal guarded update still have to be verified; the mini is
+on 1.4.309 with an unpaused queue.
+
 ## Released; install pending automatic drain — 2026-10-16 (1.4.306)
 
 Product `58bd99f5200b6e66a3c4f75f0d229ffecc2e80fa` (custom narration guidance now carried into Pipeline outlines/runs) is on main and pushed, fast-forwarded from 80e34dfd via `land/1.4.306-into-main`. Gates: full backend 699/699 files, 6849 pass, 0 fail, 7 skipped; frontend 310/310 files, 2605 pass; content packs 38/38 files, 368 total, 366 pass, 2 skipped; release lane 6/6 files, 57 pass; check:changelog, typography, security, model-drift and check:release pass.
