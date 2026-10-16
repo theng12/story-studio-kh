@@ -91,6 +91,8 @@ test('a finished chat job whose only evidence check missed the Gateway is checke
       return Response.json({
         id: CHAT_ID, state: 'failed', failure_code: 'UNKNOWN_OUTCOME',
         dispatch_state: 'dispatched', cancellable: false, cancelled: false,
+        // What gateway store.py publishes for this hold (recovery_required = state == unknown_outcome).
+        recovery_required: true, recovery_state: 'unknown_outcome',
       })
     }
     return Response.json({ code: 'JOB_NOT_FOUND', detail: 'No such job.' }, { status: 404 })
