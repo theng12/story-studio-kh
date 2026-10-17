@@ -844,7 +844,7 @@ import type { AudioQualityMode, AudioQualityPlan } from '~/types/audio-quality'
 import { ESTIMATE_STEPS, estimateBatchUsd, formatUsd, stepQuantity, type EstimateStep } from '~/utils/genstudio-price-usd'
 import { episodesFromQuery } from '~/utils/board-selection'
 import { readQueryState, sameQuery, writeQueryState } from '~/utils/route-query-state'
-import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
+import { UNCONFIRMED_SUBMISSION, secureOperationId } from '~/composables/useFreshGenerationAction'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Pipeline')
@@ -2548,8 +2548,13 @@ async function openConfirm(repair: boolean) {
   const requestId = ++preflightRequestId
   const targetSlug = slug.value
   repairMode.value = repair
-  if (repair && !repairActionId.value) repairActionId.value = crypto.randomUUID()
-  if (!repair && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
+  try {
+    if (repair && !repairActionId.value) repairActionId.value = secureOperationId()
+    if (!repair && forceRerun.value && !runActionId.value) runActionId.value = secureOperationId()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'This browser cannot create a secure request identity, so nothing was sent.')
+    return
+  }
   preflighting.value = true
   preflightSummary.value = ''
   preflightBlocked.value = []
@@ -2567,7 +2572,7 @@ async function openConfirm(repair: boolean) {
       ...(Object.keys(modelPoliciesForRun()).length ? { model_policies: modelPoliciesForRun() } : {}),
       force: repair ? false : forceRerun.value,
       ...(repair ? { repair_missing: true, action_id: repairActionId.value } : {}),
-      ...(!repair && forceRerun.value ? { operation_id: runActionId.value || crypto.randomUUID() } : {}),
+      ...(!repair && forceRerun.value ? { operation_id: runActionId.value || secureOperationId() } : {}),
     }
     const result = await post<any>(`/projects/${targetSlug}/pipeline/preflight`, body)
     if (requestId !== preflightRequestId || slug.value !== targetSlug) return
@@ -2622,7 +2627,7 @@ async function submit(retry?: PipelineSubmission) {
   try {
     if (retry) body = structuredClone(retry.body)
     else {
-      if (!submittedRepair && forceRerun.value && !runActionId.value) runActionId.value = crypto.randomUUID()
+      if (!submittedRepair && forceRerun.value && !runActionId.value) runActionId.value = secureOperationId()
       submittedEpisodeIds = [...selectedEpisodes]
       body = {
         episode_ids: submittedEpisodeIds,

@@ -391,6 +391,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { secureOperationId } from '~/composables/useFreshGenerationAction'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
 import type { OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 
@@ -725,7 +726,7 @@ async function regenerate(scene: Scene) {
   await act('Pictures', async () => {
     await post(`/projects/${slug.value}/scene-review/${code.value}/continuity-render`, {
       ...renderBody(), single_scene_id: scene.id, force: replacing,
-      ...(replacing ? { operation_id: crypto.randomUUID() } : {}),
+      ...(replacing ? { operation_id: secureOperationId() } : {}),
     })
     success(`${replacing ? 'New picture' : 'Picture'} for scene ${scene.scene_index} is being made on the fleet.`)
   })

@@ -310,7 +310,7 @@ test('missing secure entropy is shown as a preparation error without POST or pen
 
     assert.deepEqual(submissions, [], 'preparation failure cannot reach POST')
     assert.equal(action.hasPending.value, false)
-    assert.equal(errors[0], 'This browser cannot create a secure request identity. Open Story Studio in a secure browser connection and try again.')
+    assert.equal(errors[0], 'This browser cannot create a secure request identity, so nothing was sent.')
   })
 })
 

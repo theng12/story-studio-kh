@@ -669,6 +669,7 @@ import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstu
 import { isFreeToRun } from '../../../utils/genstudio-price-usd.js'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
+import { secureOperationId } from '~/composables/useFreshGenerationAction'
 
 // usePresets captures the project slug at setup. Recreate this page for a
 // project navigation so saved render controls cannot target the prior project.
@@ -1365,12 +1366,18 @@ function nextManualFinishActionId(action: typeof finishAction, context: Omit<Man
   if (action.value?.slug === context.slug
     && action.value.episodeId === context.episodeId
     && action.value.sourceJobId === context.sourceJobId) return action.value.id
-  if (!globalThis.crypto?.randomUUID) {
-    showError('This browser cannot start this action safely. Restart Story Studio and try again.')
+  // One identity for one deliberate action: kept while this exact scope is
+  // unresolved (a retry cannot double-charge), renewed when project, episode or
+  // source job changes. The shared helper creates a CSPRNG UUIDv4 where
+  // `crypto.randomUUID` is absent — it is restricted to secure contexts, so a
+  // plain-HTTP connection (the shop mini) has `getRandomValues` but not it.
+  try {
+    action.value = { ...context, id: secureOperationId() }
+    return action.value.id
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'This browser cannot create a secure request identity, so nothing was sent.')
     return null
   }
-  action.value = { ...context, id: globalThis.crypto.randomUUID() }
-  return action.value.id
 }
 
 async function loadManualRedoPreference(): Promise<void> {
