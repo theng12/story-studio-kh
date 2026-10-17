@@ -20,14 +20,20 @@
  *    So once the release is staged and the boot scan has loaded the saved jobs (`loaded`), the
  *    updater pauses new intake (a queue-origin pause; jobs the owner paused stay paused) and waits
  *    only for (a) Gateway submissions already sent to be answered, so each has the task id it is
- *    recovered by (`inFlightSubmits`, at most SUBMIT_SETTLE_MS), and (b) running jobs a restart
- *    would NOT continue (`wouldNotResume`, the boot scan's own rule), which are never interrupted.
- *    Then it installs. A queue the owner paused himself is his: the update waits for him to resume
+ *    recovered by (`inFlightSubmits`, at most SUBMIT_SETTLE_MS), (b) running jobs a restart
+ *    would NOT continue (`wouldNotResume`, the boot scan's own rule), which are never interrupted,
+ *    and (c) the one non-queue maintenance operation holding the Mac (Free up space, Clear Uploaded
+ *    Videos), which a restart also kills mid-file and cannot resume. Then it installs. While the
+ *    drain is claimed no NEW maintenance operation may start, so the check above cannot be overtaken
+ *    by work begun a moment before the quit. A queue the owner paused himself is his: the update
+ *    waits for him to resume
  *    it or press Install Now. If he presses Resume during the wait, his choice wins: the update
  *    waits for Install Now. **Install Now** takes the same path but goes ahead after 30 minutes
- *    even if a job that cannot resume is still running. **Install now (don't wait)** (`immediate`)
- *    pauses intake and installs at once, interrupting running jobs: the boot scan resumes what it
- *    can, retries free work, and leaves paid work that cannot resume for Retry.
+ *    even if a job that cannot resume is still running — never for (c): that ceiling is for work the
+ *    boot scan picks up, and only **Install now (don't wait)** below may cut a cleanup short.
+ *    **Install now (don't wait)** (`immediate`) pauses intake and installs at once, interrupting
+ *    running jobs: the boot scan resumes what it can, retries free work, and leaves paid work that
+ *    cannot resume for Retry.
  * 5. **Swap** with a detached helper (`helperScript`) after this app quits normally: the installed
  *    bundle goes to `<data>/previous-apps/`; the new one moves into place, and the app is relaunched
  *    (through the login agent when it is installed, so it stays supervised). Story keeps the last
@@ -411,6 +417,12 @@ export interface QueueControl {
   inFlightSubmits?(): number
   /** Types of the running jobs a restart would not continue (job-queue `runningJobsThatWouldNotResume`). */
   wouldNotResume?(): Promise<string[]>
+  /**
+   * The one non-queue maintenance operation holding this Mac (episode-media-cleanup's registry:
+   * Free up space, Clear Uploaded Videos), or null. A restart kills it mid-file and it cannot resume,
+   * so an install waits for it exactly as it waits for a job that would not resume.
+   */
+  maintenance?(): { id: string; kind: string; status: string } | null
 }
 
 export interface UpdaterOptions {
@@ -476,6 +488,18 @@ function forgetPauseToken(): void {
 
 /** main.ts's quit path asks this so a "jobs are running, quit?" question never blocks an update. */
 export function isQuittingForUpdate(): boolean { return quittingForUpdate }
+
+/**
+ * True while an install owns the Mac and will restart it: the drain has been claimed, or the swap
+ * helper is already waiting for this process to quit. Non-queue work a restart would kill mid-file
+ * asks this before starting, so it cannot begin in the window between the updater's "nothing is
+ * running" check and its quit. The phase always moves on — `onBoot` settles a stale `draining` or
+ * `installing` on the next launch — so this cannot wedge the Mac.
+ */
+export function isUpdateHoldingForRestart(): boolean {
+  const phase = readState().phase
+  return phase === 'draining' || phase === 'installing'
+}
 
 export function defaultSettings(raw: unknown): UpdateSettings {
   const v = (raw && typeof raw === 'object' ? raw : {}) as Partial<UpdateSettings>
@@ -788,12 +812,21 @@ export function jobsLeft(queue: QueueControl): number {
   return s.running + s.queued + s.paused
 }
 
-/** What a prompt install is still waiting for: submissions in flight, and running jobs that would not resume. */
-async function waitingFor(queue: QueueControl): Promise<{ submits: number; jobs: string[] }> {
+/**
+ * What a prompt install is still waiting for: submissions in flight, running jobs that would not
+ * resume, and the one non-queue maintenance operation a restart would kill mid-file. The maintenance
+ * entry is passed through as it is — the words for it belong with the other words, in the UI.
+ */
+async function waitingFor(queue: QueueControl): Promise<{
+  submits: number
+  jobs: string[]
+  maintenance: { id: string; kind: string; status: string } | null
+}> {
   return {
     submits: queue.inFlightSubmits?.() ?? 0,
     // A queue without the boot rule (tests, older wiring) waits for every running job, as Install Now did.
     jobs: queue.wouldNotResume ? await queue.wouldNotResume() : Array<string>(queue.running()).fill('job'),
+    maintenance: queue.maintenance?.() ?? null,
   }
 }
 
@@ -884,7 +917,12 @@ function watchDrain(): void {
     const left = await waitingFor(o.queue)
     const submitsSettled = left.submits === 0 || waited > SUBMIT_SETTLE_MS
     const ownerOverride = !!state.install_requested && waited > DRAIN_TIMEOUT_MS
-    if ((submitsSettled && left.jobs.length === 0) || ownerOverride) {
+    // The maintenance term is deliberately OUTSIDE the override's OR: the 30-minute ceiling exists
+    // for work the boot scan picks up again, and a cleanup is killed mid-file by a restart. So a
+    // normal install — including the Gateway's remote "Update now" and the owner's own Install Now —
+    // never interrupts one, however long it runs. Only "Install now (don't wait)", which bypasses
+    // this drain entirely, may cut it short.
+    if (!left.maintenance && ((submitsSettled && left.jobs.length === 0) || ownerOverride)) {
       // Re-read after the awaits above: an "Install now (don't wait)" press (or another tick) may
       // have moved this release to `installing` or `failed` while this tick was asking the queue,
       // and a hand-off from here would be a second helper and a `draining` write over it.

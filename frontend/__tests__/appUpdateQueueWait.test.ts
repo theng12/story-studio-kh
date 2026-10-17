@@ -20,6 +20,25 @@ test('while it waits, it names what for: requests already sent, and jobs that ca
   )
 })
 
+test('a storage operation that cannot resume is named too, as a review or a cleanup', () => {
+  // Free up space / Clear Uploaded Videos are not queue jobs, so `jobs` is empty and it is named on
+  // its own: without this the line would say the update is waiting for nothing.
+  assert.equal(
+    waitingText('1.4.265', { submits: 0, jobs: [], maintenance: { kind: 'run', status: 'running' } }),
+    'Installing Story Studio 1.4.265: new work is paused; waiting for the media cleanup to finish'
+      + ' (it cannot pick up where it stopped). Everything else resumes after the restart.',
+  )
+  assert.equal(
+    waitingText('1.4.265', { submits: 0, jobs: [], maintenance: { kind: 'preview', status: 'verifying' } }),
+    'Installing Story Studio 1.4.265: new work is paused; waiting for the file review to finish'
+      + ' (it cannot pick up where it stopped). Everything else resumes after the restart.',
+  )
+  assert.equal(
+    waitingText('1.4.265', { submits: 0, jobs: [], maintenance: null }),
+    'Installing Story Studio 1.4.265: new work is paused. Everything else resumes after the restart.',
+  )
+})
+
 test('Install Now asks like Quit does, and only when the queue holds jobs', () => {
   assert.equal(installNowQuestion('1.4.265', 0), null)
   const q = installNowQuestion('1.4.265', 2)!

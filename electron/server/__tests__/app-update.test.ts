@@ -80,12 +80,17 @@ function fakeQueue(running = 0, paused = false, queued = 0) {
   return q
 }
 
-/** The real wiring's two extra answers (routes/app-update.ts): submissions in flight, jobs that would not resume. */
+/** The real wiring's three extra answers (routes/app-update.ts): submissions in flight, jobs that
+ * would not resume, and the one non-queue maintenance operation holding the Mac. */
 function promptQueue(running = 0) {
-  const q = Object.assign(fakeQueue(running), { submits: 0, notResuming: [] as string[], looks: 0 })
+  const q = Object.assign(fakeQueue(running), {
+    submits: 0, notResuming: [] as string[], looks: 0,
+    maintenanceOp: null as { id: string; kind: string; status: string } | null,
+  })
   return Object.assign(q, {
     inFlightSubmits: () => q.submits,
     wouldNotResume: async () => { q.looks++; return q.notResuming },
+    maintenance: () => q.maintenanceOp,
   })
 }
 
@@ -378,7 +383,7 @@ describe('install promptly (owner, 2026-10-09)', () => {
     assert.deepEqual(queue.calls, [true], 'new intake is paused (a queue-origin pause)')
     await lookedAgain(queue)
     assert.equal(updater.readState().phase, 'draining', 'a submission already sent is answered first')
-    assert.deepEqual((await updater.status()).waiting_for, { submits: 1, jobs: [] })
+    assert.deepEqual((await updater.status()).waiting_for, { submits: 1, jobs: [], maintenance: null })
     queue.submits = 0
     await installed()
     assert.equal(plistVersion(target), '1.4.258')
@@ -408,8 +413,42 @@ describe('install promptly (owner, 2026-10-09)', () => {
     clock.t += 10 * 60 * 60_000
     await lookedAgain(queue)
     assert.equal(updater.readState().phase, 'draining', 'never interrupted automatically')
-    assert.deepEqual((await updater.status()).waiting_for, { submits: 0, jobs: ['music_video'] })
+    assert.deepEqual((await updater.status()).waiting_for, { submits: 0, jobs: ['music_video'], maintenance: null })
     queue.notResuming = []
+    await installed()
+  })
+
+  test('the one non-queue maintenance operation is waited for too: a restart would kill it mid-file', async () => {
+    ready()
+    const queue = promptQueue()
+    queue.maintenanceOp = { id: 'op-1', kind: 'run', status: 'running' }
+    wired(queue)
+    await updater.maybeInstall()
+    clock.t += 10 * 60 * 60_000
+    await lookedAgain(queue)
+    assert.equal(updater.readState().phase, 'draining', 'never interrupted automatically, with no time limit')
+    assert.deepEqual((await updater.status()).waiting_for, {
+      submits: 0, jobs: [], maintenance: { id: 'op-1', kind: 'run', status: 'running' },
+    })
+    // It finishes, fails or is stopped: the registry reports nothing active and the install goes ahead.
+    queue.maintenanceOp = null
+    await installed()
+  })
+
+  test('the 30-minute override never interrupts a maintenance operation, not even on Install Now', async () => {
+    ready()
+    const queue = promptQueue()
+    queue.maintenanceOp = { id: 'op-1', kind: 'run', status: 'running' }
+    wired(queue)
+    await updater.installNow()
+    await lookedAgain(queue)
+    assert.equal(updater.readState().phase, 'draining')
+    // The ceiling covers jobs the boot scan picks up again; a restart kills a cleanup mid-file, so
+    // only "Install now (don't wait)" may cut it short. Time alone must never do it.
+    clock.t += updater.DRAIN_TIMEOUT_MS + 60_000
+    await lookedAgain(queue)
+    assert.equal(updater.readState().phase, 'draining', 'the override must not reach a cleanup')
+    queue.maintenanceOp = null
     await installed()
   })
 

@@ -17,6 +17,7 @@ import * as updater from '../services/app-update.js'
 import { getAppSetting, setAppSetting, getGenStudioUrl } from '../services/app-settings.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { acquireQueuePauseOwned, areBootJobsLoaded, getQueuePauseOwner, getQueueStats, initializeQueuePauseState, isQueuePaused, releaseQueuePauseOwned, runningJobsThatWouldNotResume } from '../services/job-queue.js'
+import { activeMaintenanceOperation } from '../services/episode-media-cleanup.js'
 import { inFlightSubmits } from '../lib/inflight-submits.js'
 import { projectsRoot } from '../services/project-manager.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -66,6 +67,10 @@ export async function startStoryUpdater(input: {
       loaded: areBootJobsLoaded,
       inFlightSubmits,
       wouldNotResume: async () => (await runningJobsThatWouldNotResume()).map(job => job.type),
+      // Free up space / Clear Uploaded Videos: not queue jobs, so nothing else would hold an install
+      // for them, yet a restart kills them mid-file. `main.ts` wires this the same way it wires the
+      // queue, and `episode-media-cleanup` refuses new operations while the drain is claimed.
+      maintenance: activeMaintenanceOperation,
     },
     getSettings,
     saveSettings,

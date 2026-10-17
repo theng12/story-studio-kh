@@ -11,8 +11,11 @@ export function readyText(version: string, queuePaused: boolean): string {
     : `Update ${version} ready. ${PROMPT_INSTALL_TEXT}.`
 }
 
-/** While a prompt install waits: what for (requests already sent, jobs that could not resume). */
-export function waitingText(version: string, waitingFor?: { submits: number; jobs: string[] } | null): string {
+/** While a prompt install waits: what for (requests already sent, jobs that could not resume, a storage operation). */
+export function waitingText(
+  version: string,
+  waitingFor?: { submits: number; jobs: string[]; maintenance?: { kind: string; status: string } | null } | null,
+): string {
   const parts: string[] = []
   const submits = waitingFor?.submits ?? 0
   const left = waitingFor?.jobs ?? []
@@ -20,6 +23,12 @@ export function waitingText(version: string, waitingFor?: { submits: number; job
   if (left.length) {
     const kinds = [...new Set(left.map(type => type.replace(/_/g, ' ')))].join(', ')
     parts.push(`${jobs(left.length)} that cannot pick up where ${left.length === 1 ? 'it' : 'they'} stopped (${kinds})`)
+  }
+  const maintenance = waitingFor?.maintenance
+  if (maintenance) {
+    // Not a queue job: it is Free up space or Clear Uploaded Videos, and a restart kills it mid-file.
+    const what = maintenance.kind === 'preview' ? 'the file review' : 'the media cleanup'
+    parts.push(`${what} to finish (it cannot pick up where it stopped)`)
   }
   return `Installing Story Studio ${version}: new work is paused${parts.length ? `; waiting for ${parts.join(' and ')}` : ''}. Everything else resumes after the restart.`
 }

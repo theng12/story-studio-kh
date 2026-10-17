@@ -11,6 +11,7 @@ import { assertDecodableImage } from '../lib/image-validation.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { SCENE_ANALYSIS_DIR } from './outline-masks.js'
 import type { Job } from '../models/types.js'
+import { isUpdateHoldingForRestart } from './app-update.js'
 import * as im from './idea-manager.js'
 import * as jq from './job-queue.js'
 import * as pm from './project-manager.js'
@@ -313,6 +314,16 @@ const consumedPreviews = new Set<string>()
 const PREVIEW_TTL_MS = 30 * 60 * 1_000
 const OPERATION_RETENTION_MS = 2 * 60 * 60 * 1_000
 const MAX_OPERATIONS = 200
+/**
+ * The statuses at which an operation no longer holds this Mac. Everything else counts as holding it,
+ * so a status this build does not recognise keeps the Mac held rather than releasing it by accident.
+ * One predicate, used by the start gate, the retention prune and the updater's wait alike, so the
+ * three can never disagree about whether a cleanup is running.
+ */
+const TERMINAL_OPERATION_STATUSES = new Set<MediaCleanupOperation['status']>(['completed', 'failed', 'stopped'])
+function isActiveOperation(operation: MediaCleanupOperation): boolean {
+  return !TERMINAL_OPERATION_STATUSES.has(operation.status)
+}
 const CATEGORIES = new Set<MediaCleanupCategory>(['images', 'chapter_audio', 'narration_parts', 'merged_audio', 'master_audio', 'motion_clips', 'final_video', 'scene_analysis'])
 /** 1.4.281's levelled lossless master beside the merged mp3 (`lib/level-audio.ts`): `{name}.master.flac`. */
 const MASTER_AUDIO = /\.master\.flac$/i
@@ -347,12 +358,12 @@ function pruneState(): void {
     }
   }
   for (const [id, operation] of operations) {
-    if (!['queued', 'running', 'stopping'].includes(operation.status)
+    if (!isActiveOperation(operation)
       && now - Date.parse(operation.updated_at) > OPERATION_RETENTION_MS) operations.delete(id)
   }
   if (operations.size <= MAX_OPERATIONS) return
   const removable = [...operations.values()]
-    .filter(operation => !['queued', 'running', 'stopping'].includes(operation.status))
+    .filter(operation => !isActiveOperation(operation))
     .sort((left, right) => Date.parse(left.updated_at) - Date.parse(right.updated_at))
   for (const operation of removable) {
     if (operations.size <= MAX_OPERATIONS) break
@@ -939,6 +950,14 @@ async function buildPreview(
 
 function beginOperation(slug: string, kind: MediaCleanupOperation['kind'], stage: MediaCleanupOperation['stage']): MediaCleanupOperation {
   pruneState()
+  // An update that owns the Mac will restart it in a moment, and a restart kills this work mid-file:
+  // it cannot resume. Refusing here — the one place every start path routes through — closes the
+  // window between the updater's "nothing is running" check and its quit, in which a new operation
+  // would otherwise begin and then be interrupted. Nothing was started, so the caller retries after
+  // the restart. This never touches an operation already running: only new ones are refused.
+  if (isUpdateHoldingForRestart()) {
+    throw fail('Story Studio is installing an update and will restart in a moment, so nothing was started. Try again once it has restarted.', 409)
+  }
   const now = isoNow()
   const operation: MediaCleanupOperation = {
     id: randomUUID(), project_slug: slug, kind, status: 'queued', stage,
@@ -950,7 +969,18 @@ function beginOperation(slug: string, kind: MediaCleanupOperation['kind'], stage
 
 // Server-wide, not per project: one cleanup (hashing, re-encoding) at a time on the Mac mini.
 function hasActiveOperation(): boolean {
-  return [...operations.values()].some(operation => ['queued', 'running', 'stopping'].includes(operation.status))
+  return [...operations.values()].some(isActiveOperation)
+}
+
+/**
+ * The one cleanup/maintenance operation holding this Mac, or null. The same predicate as
+ * `hasActiveOperation()`; this form exists so a caller that has to WAIT can say what it is waiting
+ * for. The global gate above allows at most one, so the first match is the whole answer.
+ */
+export function activeMaintenanceOperation(): Pick<MediaCleanupOperation, 'id' | 'kind' | 'status'> | null {
+  pruneState()
+  const operation = [...operations.values()].find(isActiveOperation)
+  return operation ? { id: operation.id, kind: operation.kind, status: operation.status } : null
 }
 
 function finishOperation(operation: MediaCleanupOperation, status: 'completed' | 'failed' | 'stopped', error?: unknown): void {

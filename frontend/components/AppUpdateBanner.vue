@@ -23,7 +23,7 @@ interface UpdateBannerStatus {
   settings?: { auto_install: boolean }
   jobs_left?: number
   queue_paused?: boolean
-  waiting_for?: { submits: number; jobs: string[] } | null
+  waiting_for?: { submits: number; jobs: string[]; maintenance?: { kind: string; status: string } | null } | null
 }
 
 const { get, post } = useApi()
