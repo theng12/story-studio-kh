@@ -20,6 +20,14 @@ import path from 'path'
 import { assertWriteIsolatedInTests } from './test-isolation.js'
 
 const locks = new Map<string, Promise<unknown>>()
+/**
+ * Callers queued on a key that have not started yet.
+ *
+ * Maintained ONLY for `__pendingLockWaitersForTests`, so a test can wait on a
+ * real signal instead of sleeping. It changes no ordering, timing or error
+ * behaviour of the lock itself.
+ */
+const pendingWaiters = new Map<string, number>()
 const CROSS_PROCESS_LOCK_WAIT_MS = 10_000
 const CROSS_PROCESS_LOCK_RETRY_MS = 20
 const CROSS_PROCESS_STALE_LOCK_MS = 60_000
@@ -37,9 +45,18 @@ interface CrossProcessLockOwner {
  * the next one.
  */
 export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  pendingWaiters.set(key, (pendingWaiters.get(key) ?? 0) + 1)
   const prev = locks.get(key) ?? Promise.resolve()
+  // Starting: this caller is no longer waiting. Delete at zero so the counter
+  // does not accumulate an entry for every path ever locked.
+  const run = () => {
+    const remaining = Math.max(0, (pendingWaiters.get(key) ?? 1) - 1)
+    if (remaining === 0) pendingWaiters.delete(key)
+    else pendingWaiters.set(key, remaining)
+    return fn()
+  }
   // Chain fn whether prev resolved or rejected — one failure shouldn't deadlock the lock.
-  const next: Promise<T> = prev.then(fn, fn)
+  const next: Promise<T> = prev.then(run, run)
   // Store a rejection-swallowing version so later waiters aren't poisoned.
   const tail = next.catch(() => {})
   locks.set(key, tail)
@@ -48,6 +65,19 @@ export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
     if (locks.get(key) === tail) locks.delete(key)
   })
   return next
+}
+
+/**
+ * Test-only: how many callers are queued on `key` and have not started yet.
+ *
+ * A test that must prove work is **queued behind** a lock — rather than merely
+ * that it finished — needs a real observable. A millisecond sleep only bets
+ * that the machine scheduled it promptly, which is the class
+ * `__tests__/no-new-wallclock-sleeps.test.ts` exists to stop. Read-only, never
+ * called by product code, and it changes nothing about the lock's ordering.
+ */
+export function __pendingLockWaitersForTests(key: string): number {
+  return pendingWaiters.get(key) ?? 0
 }
 
 function sleep(milliseconds: number): Promise<void> {
