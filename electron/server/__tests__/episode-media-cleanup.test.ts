@@ -1275,3 +1275,330 @@ describe('Free up space says why an uploaded episode is not offered', () => {
     assert.match(listed.not_offered[0]!.reason, /YouTube no longer has this video/)
   })
 })
+
+// ── All-channel (Library) maintenance — owner request 2026-10-17 ─────────────
+//
+// One control shrinks scene images across every channel, one clears uploaded
+// final videos older than 7 days of PRODUCTION across every channel. The
+// backend enumerates the channels itself; the request carries only the action.
+// These share the per-channel operation registry and its one-at-a-time lock.
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** A second (or third) channel: a folder in the Library with a project.json. */
+async function seedChannel(slug: string, name: string): Promise<void> {
+  const dir = path.join(pm.projectsRoot(), slug)
+  await fs.mkdir(dir, { recursive: true })
+  await fs.writeFile(path.join(dir, 'project.json'), JSON.stringify({
+    slug, name, episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
+    folder_template: '{season_prefix} {season_num}/{code} - {title}/',
+    subfolder_names: DEFAULT_SUBFOLDER_NAMES, created_at: new Date().toISOString(),
+  }))
+  await fs.writeFile(path.join(dir, 'config.json'), '{}')
+  await fs.writeFile(path.join(dir, 'ideas.json'), JSON.stringify({ ideas: [], next_episode_number: 1, recycled_numbers: [] }))
+}
+
+async function seedEpisodeIn(slug: string, code: string, title = `Episode ${code}`) {
+  const [idea] = await im.addIdeas(slug, [{
+    title, logline: '', themes: [], suggested_chapters: 1, suggested_length: 'short', mood: 'calm',
+  }], 'test')
+  await im.acceptIdea(slug, idea!.id, false, { override_code: code })
+  const paths = await pathsService.resolveEpisodePathsByCode(slug, code)
+  await Promise.all([
+    fs.mkdir(paths.bg_dir, { recursive: true }), fs.mkdir(paths.thumb_dir, { recursive: true }),
+    fs.mkdir(paths.audio_dir, { recursive: true }), fs.mkdir(paths.merged_audio_dir, { recursive: true }),
+    fs.mkdir(paths.video_assets_dir, { recursive: true }), fs.mkdir(paths.video_dir, { recursive: true }),
+    fs.mkdir(paths.script_dir, { recursive: true }), fs.mkdir(paths.subtitles_dir, { recursive: true }),
+  ])
+  const final = path.join(paths.video_dir, `${code}_final_video.mp4`)
+  await fs.writeFile(final, `final-${code}`)
+  return { code, title, paths, final }
+}
+
+/** Age a file to exactly `ageMs` before now (production age is the file's mtime here). */
+async function ageFile(file: string, ageMs: number): Promise<void> {
+  const when = new Date(Date.now() - ageMs)
+  await fs.utimes(file, when, when)
+}
+
+/** The app's own production record: the video-assembly source stamp written at render completion. */
+async function writeProductionStamp(finalPath: string, code: string): Promise<void> {
+  const { writeVideoAssemblySourceStamp } = await import('../services/video-visual-source.js')
+  await writeVideoAssemblySourceStamp(finalPath, code, 'scene_plan')
+}
+
+async function overwriteProductionStamp(finalPath: string, code: string, stamp: unknown): Promise<void> {
+  const { videoAssemblySourceStampPath } = await import('../services/video-visual-source.js')
+  await fs.writeFile(videoAssemblySourceStampPath(finalPath, code), JSON.stringify(stamp))
+}
+
+async function connectChannel(slug: string, channelId: string, title: string): Promise<void> {
+  await connections.configureYouTubeApplication({ client_id: 'cleanup-client', client_secret: 'cleanup-secret' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: channelId, title, granted_scopes: ['youtube.upload'] },
+    tokens: { access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() + 3_600_000 },
+  })
+  await connections.assignProjectYouTubeChannel({ project_slug: slug, channel_id: channelId, expected_previous_channel_id: null })
+}
+
+async function markUploadedIn(
+  slug: string, episode: { code: string; title: string; final: string }, channelId: string, acceptedAt?: string,
+): Promise<void> {
+  const payload = {
+    snippet_json: JSON.stringify({ title: episode.title, description: '', tags: [], categoryId: '24' }),
+    status_json: JSON.stringify({ privacyStatus: 'public' }),
+    source_sha256: 'a'.repeat(64),
+  }
+  const opened = await operations.createYouTubeOperation({
+    project_slug: slug, episode_code: episode.code, channel_id: channelId,
+    source_revision: await sourceVideo.resolveYouTubeSourceRevision(episode.final),
+    metadata_revision: payload.source_sha256, final_payload: payload, origin: 'manual', final_action: 'manual_upload',
+  })
+  const accepted = await operations.acceptYouTubeOperation({
+    project_slug: slug, operation_id: opened.operation_id, expected_revision: opened.revision,
+    channel_id: channelId, video_id: `video-${episode.code}`,
+    accepted_at: acceptedAt ?? new Date().toISOString(), final_payload: payload,
+  })
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: accepted.operation_id, expected_revision: accepted.revision,
+    mutate(record) { record.lifecycle = 'ready' },
+  })
+}
+
+/** Every listed video answers as processed on `channelId`; a different channelId proves nothing. */
+function mockYouTube(channelId: string, episodes: Array<{ code: string; title: string }>): void {
+  __setYouTubeTransportForTests((async () => new Response(JSON.stringify({
+    items: episodes.map(ep => ({
+      id: `video-${ep.code}`,
+      status: { uploadStatus: 'processed', privacyStatus: 'private' },
+      snippet: { channelId, title: ep.title, description: '', tags: [] },
+    })),
+  }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch)
+}
+
+async function waitForLibraryOperation(operationId: string) {
+  return waitForValue(() => {
+    const current = cleanup.getLibraryMediaCleanupOperation(operationId)
+    return current && ['completed', 'failed', 'stopped'].includes(current.status) ? current : null
+  }, { timeoutMs: 5_000, label: `library cleanup operation ${operationId}` })
+}
+
+async function libraryPreview(action: 'shrink_images' | 'clear_uploaded_finals') {
+  const started = await cleanup.startLibraryMediaCleanupPreview(action)
+  const operation = await waitForLibraryOperation(started.operation_id)
+  assert.equal(operation.status, 'completed', operation.error)
+  assert.ok(operation.library_preview)
+  return { operation, preview: operation.library_preview }
+}
+
+async function libraryRun(previewId: string) {
+  const started = await cleanup.startLibraryMediaCleanupRun({ preview_id: previewId })
+  return waitForLibraryOperation(started.operation_id)
+}
+
+describe('all-channel (Library) maintenance', () => {
+  test('shrink images spans every channel, including one that is not the current channel, and needs no upload', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    await seedChannel('chan-b', 'Channel B')
+    const a = await seedEpisodeIn('chan-a', 'EP0001', 'A one')
+    const b = await seedEpisodeIn('chan-b', 'EP0001', 'B one')
+    const sceneA = path.join(a.paths.bg_dir, 's001.png')
+    const sceneB = path.join(b.paths.bg_dir, 's001.png')
+    await scenePng(sceneA)
+    await scenePng(sceneB)
+
+    const { operation, preview } = await libraryPreview('shrink_images')
+
+    assert.equal(operation.library, true)
+    assert.equal(operation.library_action, 'shrink_images')
+    assert.equal(operation.channels_total, 3, 'every channel in the Library is counted, empty ones included')
+    assert.deepEqual(preview.channels.map(channel => channel.slug).sort(), ['chan-a', 'chan-b'])
+    assert.deepEqual(preview.files.map(file => file.path).sort(), [sceneA, sceneB].sort())
+    assert.deepEqual([...new Set(preview.files.map(file => file.project_slug))].sort(), ['chan-a', 'chan-b'])
+    assert.equal(preview.files.find(file => file.path === sceneA)!.channel_name, 'Channel A')
+    assert.equal(preview.files.every(file => file.production_ms === null), true, 'shrinking needs no production date and no upload')
+    assert.equal(preview.files.every(file => file.upload_proof === null), true)
+  })
+
+  test('clear uploaded finals needs both a verified upload and production older than 7 days, across channels', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    await seedChannel('chan-b', 'Channel B')
+    const oldUploaded = await seedEpisodeIn('chan-a', 'EP0001', 'Old uploaded')
+    const recentUploaded = await seedEpisodeIn('chan-a', 'EP0002', 'Recent uploaded')
+    const oldUnuploaded = await seedEpisodeIn('chan-b', 'EP0001', 'Old unuploaded')
+    await ageFile(oldUploaded.final, 9 * DAY_MS)
+    await ageFile(recentUploaded.final, 2 * DAY_MS)
+    await ageFile(oldUnuploaded.final, 20 * DAY_MS)
+    await writeProductionStamp(oldUploaded.final, 'EP0001')
+    await writeProductionStamp(recentUploaded.final, 'EP0002')
+    await writeProductionStamp(oldUnuploaded.final, 'EP0001')
+    await connectChannel('chan-a', 'chan-a-chan', 'Channel A')
+    await connectChannel('chan-b', 'chan-b-chan', 'Channel B')
+    await markUploadedIn('chan-a', oldUploaded, 'chan-a-chan')
+    await markUploadedIn('chan-a', recentUploaded, 'chan-a-chan')
+    mockYouTube('chan-a-chan', [oldUploaded, recentUploaded])
+
+    const { preview } = await libraryPreview('clear_uploaded_finals')
+
+    assert.deepEqual(preview.files.map(file => file.path), [oldUploaded.final], 'only the uploaded, old-enough final')
+    assert.equal(preview.files[0]!.production_ms, Math.round((await fs.stat(oldUploaded.final)).mtimeMs))
+    const chanA = preview.channels.find(channel => channel.slug === 'chan-a')!
+    assert.match(chanA.blocked_reasons.join(' '), /produced less than 7 days ago/)
+    const chanB = preview.channels.find(channel => channel.slug === 'chan-b')!
+    assert.match(chanB.blocked_reasons.join(' '), /no ready canonical upload/)
+    assert.equal(preview.files.some(file => file.path === oldUnuploaded.final), false)
+  })
+
+  test('clear uploaded finals skips the 7-day boundary, a future production date and an unknown one, each with its reason', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const justUnder = await seedEpisodeIn('chan-a', 'EP0001', 'Just under seven days')
+    const justOver = await seedEpisodeIn('chan-a', 'EP0002', 'Just over seven days')
+    const future = await seedEpisodeIn('chan-a', 'EP0003', 'Produced in the future')
+    const unknown = await seedEpisodeIn('chan-a', 'EP0004', 'No production record')
+    await ageFile(justUnder.final, 7 * DAY_MS - 60_000)
+    await ageFile(justOver.final, 7 * DAY_MS + 60_000)
+    const futureMs = Date.now() + 60 * 60_000
+    await fs.utimes(future.final, new Date(futureMs), new Date(futureMs))
+    await ageFile(unknown.final, 9 * DAY_MS)
+    await writeProductionStamp(justUnder.final, 'EP0001')
+    await writeProductionStamp(justOver.final, 'EP0002')
+    await writeProductionStamp(future.final, 'EP0003')
+    // No stamp for EP0004: its production date is unknown.
+    await connectChannel('chan-a', 'chan-a-chan', 'Channel A')
+    await markUploadedIn('chan-a', justUnder, 'chan-a-chan')
+    await markUploadedIn('chan-a', justOver, 'chan-a-chan')
+    // The future final's own upload is stamped even further ahead, so it is listed (not filtered as newer than its upload).
+    await markUploadedIn('chan-a', future, 'chan-a-chan', new Date(futureMs + 60 * 60_000).toISOString())
+    await markUploadedIn('chan-a', unknown, 'chan-a-chan')
+    mockYouTube('chan-a-chan', [justUnder, justOver, future, unknown])
+
+    const { preview } = await libraryPreview('clear_uploaded_finals')
+
+    assert.deepEqual(preview.files.map(file => file.path), [justOver.final], 'just under seven days old is not yet old enough')
+    const reasons = preview.channels.find(channel => channel.slug === 'chan-a')!.blocked_reasons.join(' ')
+    assert.match(reasons, /produced less than 7 days ago/)
+    assert.match(reasons, /production date is in the future/)
+    assert.match(reasons, /No production record beside this final/)
+  })
+
+  test('clear uploaded finals never treats a video on another channel as proof', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'On another channel')
+    await ageFile(episode.final, 9 * DAY_MS)
+    await writeProductionStamp(episode.final, 'EP0001')
+    await connectChannel('chan-a', 'chan-a-chan', 'Channel A')
+    await markUploadedIn('chan-a', episode, 'chan-a-chan')
+    mockYouTube('some-other-channel', [episode])
+
+    const { preview } = await libraryPreview('clear_uploaded_finals')
+
+    assert.equal(preview.files.length, 0)
+    assert.match(preview.channels.find(channel => channel.slug === 'chan-a')!.blocked_reasons.join(' '), /did not confirm the video on the current channel/)
+  })
+
+  test('an episode whose own work is queued or running is left out of every channel action, with its reason', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'Busy')
+    const scene = path.join(episode.paths.bg_dir, 's001.png')
+    await scenePng(scene)
+    const restore = cleanup._setMediaCleanupHooksForTests({
+      getJobs: async () => [{
+        project_slug: 'chan-a', episode_id: 'EP0001', type: 'video_assembly', status: 'running',
+      } as any],
+    })
+    try {
+      const { preview } = await libraryPreview('shrink_images')
+      assert.equal(preview.files.length, 0)
+      assert.match(preview.channels.find(channel => channel.slug === 'chan-a')!.blocked_reasons.join(' '), /queued or running for this episode/)
+    } finally {
+      restore()
+    }
+  })
+
+  test('an all-channel preview never removes a file that changed after it was reviewed', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'Changes after review')
+    const scene = path.join(episode.paths.bg_dir, 's001.png')
+    await scenePng(scene)
+    const { preview } = await libraryPreview('shrink_images')
+    assert.deepEqual(preview.files.map(file => file.path), [scene])
+
+    await fs.writeFile(scene, 'a different scene written after the review')
+
+    const operation = await libraryRun(preview.preview_id)
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(operation.result?.compressed_count, 0)
+    assert.match(operation.result!.items[0]!.reason || '', /changed after preview/)
+    assert.equal(existsSync(scene), true)
+  })
+
+  test('an all-channel clear preview never authorizes a final whose production date stopped being provable before the run', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'Stamp goes missing')
+    await ageFile(episode.final, 9 * DAY_MS)
+    await writeProductionStamp(episode.final, 'EP0001')
+    await connectChannel('chan-a', 'chan-a-chan', 'Channel A')
+    await markUploadedIn('chan-a', episode, 'chan-a-chan')
+    mockYouTube('chan-a-chan', [episode])
+    const { preview } = await libraryPreview('clear_uploaded_finals')
+    assert.deepEqual(preview.files.map(file => file.path), [episode.final])
+
+    // Between preview and run the production record no longer matches the file: the age is no longer provable.
+    await overwriteProductionStamp(episode.final, 'EP0001', {
+      schema_version: 1, episode_code: 'EP0001', final_video: { size: 999, mtime_ms: 0 },
+    })
+
+    const operation = await libraryRun(preview.preview_id)
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(operation.result?.removed_count, 0)
+    assert.equal(existsSync(episode.final), true, 'the final stays where it is')
+    assert.match(operation.result!.items[0]!.reason || '', /does not match the current file/)
+  })
+
+  test('all-channel maintenance shares the one-at-a-time lock with per-channel cleanup', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    await seedEpisodeIn('chan-a', 'EP0001', 'Holds the lock')
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    const restore = cleanup._setMediaCleanupHooksForTests({ getJobs: async () => { await held; return [] } })
+    try {
+      const started = await cleanup.startLibraryMediaCleanupPreview('shrink_images')
+      await assert.rejects(() => cleanup.startLibraryMediaCleanupPreview('shrink_images'), /already running on this Mac/)
+      await assert.rejects(() => cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: ['images'] }), /already running on this Mac/)
+      release()
+      const operation = await waitForLibraryOperation(started.operation_id)
+      assert.equal(operation.status, 'completed', operation.error)
+    } finally {
+      release()
+      restore()
+    }
+  })
+
+  test('stopping an all-channel run finishes the current file and leaves the rest, with progress kept', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'Two scenes')
+    const one = path.join(episode.paths.bg_dir, 's001.png')
+    const two = path.join(episode.paths.bg_dir, 's002.png')
+    await scenePng(one)
+    await scenePng(two)
+    const { preview } = await libraryPreview('shrink_images')
+    assert.equal(preview.files.length, 2)
+
+    const started = await cleanup.startLibraryMediaCleanupRun({ preview_id: preview.preview_id })
+    let requested = false
+    const restore = cleanup._setMediaCleanupHooksForTests({
+      afterFile: async () => { if (!requested) { requested = true; cleanup.stopLibraryMediaCleanupOperation(started.operation_id) } },
+    })
+    try {
+      const operation = await waitForLibraryOperation(started.operation_id)
+      assert.equal(operation.status, 'stopped')
+      assert.equal(operation.done, 1, 'the current file finished before stopping')
+      assert.equal(operation.total, 2)
+      assert.equal(existsSync(one), true, 'the first scene is now a JPEG under the same name')
+      assert.equal(existsSync(two), true, 'the second scene is left for a later run')
+      assert.equal(operation.result?.compressed_count, 1)
+    } finally {
+      restore()
+    }
+  })
+})

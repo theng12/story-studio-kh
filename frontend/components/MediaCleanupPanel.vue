@@ -17,7 +17,14 @@
     <p v-if="checkResult" class="cleanup-hint" role="status">{{ checkResult }}</p>
     <p v-if="error" class="cleanup-error" role="alert">{{ error }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check Progress Again</button></p>
     <ul v-if="listWarnings.length" class="cleanup-warnings"><li v-for="warning in listWarnings" :key="warning">{{ warning }}</li></ul>
-    <h4 class="space-option-title">Recommended: shrink and tidy uploaded episodes</h4>
+    <h4 class="space-option-title">All channels</h4>
+    <p class="cleanup-hint">One control for every channel at once, so you never change channels one by one. Story Studio lists your channels itself. Nothing is deleted: files move to Story’s Trash or the PNG originals do, and the space comes back when you empty the Trash.</p>
+    <div class="cleanup-preset cleanup-library-actions">
+      <button class="btn btn-secondary" :disabled="busy || loading" @click="startLibraryPreview('shrink_images')">Shrink Scene Images (All Channels)</button>
+      <button class="btn btn-secondary" :disabled="busy || loading" @click="startLibraryPreview('clear_uploaded_finals')">Clear Uploaded Videos Older Than 7 Days (All Channels)</button>
+    </div>
+    <p v-if="libraryError" class="cleanup-error" role="alert">{{ libraryError }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check Progress Again</button></p>
+    <h4 class="space-option-title">This channel only</h4>
     <p class="cleanup-hint">Scene images are re-saved as smaller JPEGs; motion clips, chapter narration (with its kept narration parts) and the final video move to the Trash. Thumbnails, merged narration, subtitles, scripts and prompts stay. You see what it frees before anything changes.</p>
     <template v-if="episodes !== null">
       <p v-if="!episodes.length">Nothing can be freed here yet.{{ listWarnings.length ? ' The reasons are listed above.' : ' No episode has a YouTube upload confirmed on this project’s channel, or narration parts to free.' }}</p>
@@ -66,6 +73,7 @@
     </details>
     <div v-if="operation" class="cleanup-progress" role="status" aria-live="polite">
       <strong>{{ operationLabel }}</strong>
+      <span v-if="operation.channels_total">{{ operation.channels_done ?? 0 }} / {{ operation.channels_total }} channels</span>
       <span v-if="operation.total">{{ operation.done }} / {{ operation.total }} {{ operation.stage === 'verifying' ? 'final videos' : operation.kind === 'preview' ? 'episodes' : 'files' }}<template v-if="operation.bytes_total"> · {{ formatBytes(operation.bytes_done ?? 0) }} of {{ formatBytes(operation.bytes_total) }}</template></span>
       <progress v-if="busy && (operation.bytes_total || operation.total)" :value="operation.bytes_total ? operation.bytes_done : operation.done" :max="operation.bytes_total || operation.total" aria-label="Storage operation progress" />
       <p v-if="busy && operation.detail" class="cleanup-hint">{{ operation.detail }}</p>
@@ -78,7 +86,7 @@
         <details v-if="operation.result.items?.length" class="disclosure"><summary>View file outcomes</summary><ul class="cleanup-files"><li v-for="(item, index) in operation.result.items" :key="index"><span class="cleanup-path">{{ item.path || item.source_path || item.file }}</span> — {{ item.outcome || item.status }}<span v-if="item.reason">: {{ item.reason }}</span></li></ul></details>
       </template>
     </div>
-    <div v-if="preview" class="cleanup-review">
+    <div v-if="preview && !isLibraryPreview(preview)" class="cleanup-review">
       <h4>Review {{ preview.files.length }} files · {{ formatBytes(preview.total_bytes) }}</h4>
       <p>Only this reviewed selection can be changed. Files are checked again before each action.</p>
       <ul v-if="previewWarnings.length" class="cleanup-warnings"><li v-for="warning in previewWarnings" :key="warning">{{ warning }}</li></ul>
@@ -97,6 +105,22 @@
         <div class="cleanup-action-buttons"><button class="btn btn-secondary" :disabled="busy" @click="dismissReview">Dismiss Review</button><button class="btn btn-primary" :disabled="busy || picking || !preview.files.length || (!preview.preset && mode === 'archive' && !destination.trim())" @click="runCleanup">{{ submitting ? 'Starting…' : preview.preset === 'convert_png' ? 'Convert to JPEG' : preview.preset ? 'Free Up Space' : mode === 'archive' ? 'Archive Reviewed Files' : 'Move Reviewed Files to the Trash' }}</button></div>
       </div>
     </div>
+    <div v-if="preview && isLibraryPreview(preview)" class="cleanup-review">
+      <h4>{{ libraryPreviewTitle }}</h4>
+      <p>Every channel is listed here and each file is checked again before it is touched. Files whose channel, upload proof or production date cannot be confirmed are left where they are, with the reason shown.</p>
+      <ul v-if="preview.blocked_reasons.length" class="cleanup-warnings"><li v-for="warning in preview.blocked_reasons" :key="warning">{{ warning }}</li></ul>
+      <details v-for="channel in preview.channels" :key="channel.slug" class="cleanup-file-group disclosure">
+        <summary>{{ channel.name }} · {{ channel.files.length }} files · {{ formatBytes(channel.total_bytes) }}</summary>
+        <ul v-if="channel.blocked_reasons.length" class="cleanup-warnings"><li v-for="reason in channel.blocked_reasons" :key="reason">{{ reason }}</li></ul>
+        <ul class="cleanup-files"><li v-for="file in channel.files" :key="file.path"><span class="cleanup-path">{{ file.episode_code }} · {{ file.relative_path }}</span><span>{{ formatBytes(file.bytes) }}</span><span v-if="file.production_ms">{{ productionLabel(file.production_ms) }}</span></li></ul>
+      </details>
+      <p v-if="preview.estimate" class="cleanup-estimate"><strong>Frees about {{ formatBytes(libraryFreedBytes) }}</strong> once you empty the Trash.</p>
+      <div class="cleanup-actions">
+        <p v-if="preview.action === 'shrink_images'"><strong>Shrink scene images:</strong> each PNG scene is re-saved as a JPEG under the same name across all listed channels; the PNG originals move to <code class="cleanup-path">{{ libraryTrashText }}</code>.</p>
+        <p v-else><strong>Clear uploaded videos:</strong> each final video is verified against its own channel’s YouTube upload and must be older than 7 days of production; verified ones move to <code class="cleanup-path">{{ libraryTrashText }}</code>. Nothing is deleted; space is freed when you empty the Trash.</p>
+        <div class="cleanup-action-buttons"><button class="btn btn-secondary" :disabled="busy" @click="dismissReview">Dismiss Review</button><button class="btn btn-primary" :disabled="busy || !preview.files.length" @click="runLibraryCleanup">{{ submitting ? 'Starting…' : preview.action === 'shrink_images' ? 'Shrink Images on All Channels' : 'Clear Videos on All Channels' }}</button></div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -112,7 +136,11 @@ interface CleanupEpisode { episode_code: string; title: string; video_id: string
 interface ReviewedFile { path: string; relative_path: string; bytes: number; category: Category }
 interface Estimate { compress_files: number; compress_bytes_before: number; compress_bytes_after: number; already_jpeg_files: number; trash_files: number; trash_bytes: number }
 interface Preview { preview_id: string; project_slug: string; total_bytes: number; preset?: 'archive_episode' | 'convert_png'; trash_roots?: string[]; estimate?: Estimate; files: ReviewedFile[]; blocked_reasons: string[]; episodes: { episode_code: string; files: ReviewedFile[]; excluded?: { path: string; reason: string }[]; blocked_reasons: string[] }[] }
-interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; bytes_done?: number; bytes_total?: number; current: string; detail?: string; error?: string; preview?: Preview; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number } }
+type LibraryAction = 'shrink_images' | 'clear_uploaded_finals'
+interface LibraryFile extends ReviewedFile { project_slug: string; channel_name: string; episode_code: string; production_ms: number | null }
+interface LibraryChannel { slug: string; name: string; files: LibraryFile[]; total_bytes: number; blocked_reasons: string[] }
+interface LibraryPreview { preview_id: string; action: LibraryAction; created_at: string; expires_at: string; channels: LibraryChannel[]; files: LibraryFile[]; total_bytes: number; blocked_reasons: string[]; trash_roots: string[]; estimate: Estimate }
+interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; bytes_done?: number; bytes_total?: number; current: string; detail?: string; error?: string; preview?: Preview; library?: boolean; library_action?: LibraryAction; library_preview?: LibraryPreview; channels_done?: number; channels_total?: number; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number } }
 interface Space { free_bytes: number | null; project_trash_bytes: number | null; library_trash_bytes: number | null; app_trash_bytes: number | null }
 interface Leftover { kind: 'audio_quality_copy' | 'render_scratch'; episode_code: string; path: string; bytes: number }
 const props = defineProps<{ slug: string }>()
@@ -128,8 +156,11 @@ const submitting = ref(false)
 const stopping = ref(false)
 const picking = ref(false)
 const polling = ref(false)
-const preview = ref<Preview | null>(null)
+const preview = ref<Preview | LibraryPreview | null>(null)
 const operation = ref<Operation | null>(null)
+/** Which operation family is in flight, so the poller reads the right endpoint. */
+const scope = ref<'channel' | 'library'>('channel')
+const libraryError = ref('')
 const mode = ref<'archive' | 'remove'>('remove')
 const destination = ref('')
 const space = ref<Space | null>(null)
@@ -164,7 +195,25 @@ const estimateText = computed(() => {
   return `${e.compress_files} ${e.compress_files === 1 ? 'image' : 'images'} ${formatBytes(e.compress_bytes_before)} → ~${formatBytes(e.compress_bytes_after)}${e.already_jpeg_files ? ` (${e.already_jpeg_files} already JPEG)` : ''}; ${formatBytes(moved + e.compress_bytes_before)} moved to the Trash — space is freed when you empty the Trash.`
 })
 const busy = computed(() => submitting.value || !!operation.value && ['queued', 'running', 'stopping'].includes(operation.value.status))
-const previewWarnings = computed(() => [...new Set([...(preview.value?.blocked_reasons || []), ...(preview.value?.episodes.flatMap(ep => ep.blocked_reasons.map(reason => `${ep.episode_code}: ${reason}`)) || [])])])
+function isLibraryPreview(value: Preview | LibraryPreview | null): value is LibraryPreview { return !!value && 'action' in value }
+const previewWarnings = computed(() => isLibraryPreview(preview.value) ? [] : [...new Set([...(preview.value?.blocked_reasons || []), ...((preview.value as Preview | null)?.episodes.flatMap(ep => ep.blocked_reasons.map(reason => `${ep.episode_code}: ${reason}`)) || [])])])
+const libraryPreviewTitle = computed(() => {
+  const value = preview.value
+  if (!isLibraryPreview(value)) return ''
+  const verb = value.action === 'shrink_images' ? 'Shrink' : 'Clear'
+  return `${verb} ${value.files.length} files across ${value.channels.length} ${value.channels.length === 1 ? 'channel' : 'channels'} · ${formatBytes(value.total_bytes)}`
+})
+const libraryFreedBytes = computed(() => {
+  const value = preview.value
+  if (!isLibraryPreview(value) || !value.estimate) return 0
+  return value.action === 'shrink_images'
+    ? value.estimate.compress_bytes_before - value.estimate.compress_bytes_after
+    : value.estimate.trash_bytes + value.estimate.compress_bytes_before - value.estimate.compress_bytes_after
+})
+const libraryTrashText = computed(() => {
+  const value = preview.value
+  return isLibraryPreview(value) && value.trash_roots?.length ? `Story’s Trash (${value.trash_roots.join(' and ')})` : 'Story’s Trash'
+})
 const operationLabel = computed(() => {
   const op = operation.value
   if (!op) return ''
@@ -183,6 +232,7 @@ const resultSummary = computed(() => {
   return `${changed} files changed; ${items.length - changed - pending} skipped or could not finish.${pending ? ` ${pending} need review after interruption.` : ''} ${formatBytes(result?.bytes_reclaimed ?? result?.bytes_freed ?? 0)} reclaimed on the source drive.${result?.bytes_moved ? ` ${formatBytes(result.bytes_moved)} archived.` : ''}${trashed}`
 })
 function formatBytes(bytes: number) { return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB` }
+function productionLabel(ms: number) { return `produced ${new Date(ms).toLocaleDateString()}` }
 function formatMeasurement(bytes: number | null) { return bytes === null ? 'could not be measured' : formatBytes(bytes) }
 function isSpace(value: any): value is Space {
   return value && ['free_bytes', 'project_trash_bytes', 'library_trash_bytes', 'app_trash_bytes']
@@ -233,6 +283,7 @@ async function checkAllUploads() {
 async function startConvert(codes: string[]) {
   if (busy.value || !codes.length) return
   const version = generation, slug = props.slug
+  scope.value = 'channel'
   submitting.value = true; error.value = ''; preview.value = null
   try {
     const result = await post<{ operation_id: string }>(`/projects/${slug}/media-cleanup/preview`, { episode_codes: [...codes], preset: 'convert_png' })
@@ -278,24 +329,31 @@ async function trashLeftovers() {
 async function pollOperation() {
   if (polling.value || !operation.value) return
   if (timer) clearTimeout(timer)
-  const version = generation, slug = props.slug, id = operation.value.id
+  const version = generation, slug = props.slug, id = operation.value.id, library = scope.value === 'library'
   polling.value = true
   try {
-    const result = await get<Operation>(`/projects/${slug}/media-cleanup/operations/${id}`)
+    const result = await get<Operation>(library
+      ? `/library/media-cleanup/operations/${id}`
+      : `/projects/${slug}/media-cleanup/operations/${id}`)
     if (!current(version) || operation.value?.id !== id) return
-    operation.value = result; error.value = ''
+    operation.value = result; error.value = ''; libraryError.value = ''
     if (result.status === 'completed' && result.preview) preview.value = result.preview
+    if (result.status === 'completed' && result.library_preview) preview.value = result.library_preview
     if (['queued', 'running', 'stopping'].includes(result.status)) timer = setTimeout(() => void pollOperation(), 1000)
   } catch (e: any) {
     if (current(version)) {
-      error.value = message(e)
+      const note = message(e)
       if (e?.statusCode === 404 || e?.status === 404) {
         forget(slug); operation.value = null
-        error.value = 'This operation is no longer running, possibly after an app restart. Refresh uploads and review the files again; completed cleanup records are retained.'
+        const text = 'This operation is no longer running, possibly after an app restart. Refresh uploads and review the files again; completed cleanup records are retained.'
+        if (library) libraryError.value = text
+        else error.value = text
       } else {
         // One missed read (the engine busy for a moment) used to freeze the progress and leave
         // every button disabled. Keep following the operation; it carries on regardless.
-        error.value = `${message(e)} Checking again…`
+        const text = `${note} Checking again…`
+        if (library) libraryError.value = text
+        else error.value = text
         timer = setTimeout(() => void pollOperation(), 3000)
       }
     }
@@ -304,6 +362,7 @@ async function pollOperation() {
 async function startPreview(preset = false) {
   if (busy.value || !selected.value.length || (!preset && !categories.value.length)) return
   const version = generation, slug = props.slug
+  scope.value = 'channel'
   submitting.value = true; error.value = ''; preview.value = null
   try {
     const result = await post<{ operation_id: string }>(`/projects/${slug}/media-cleanup/preview`, preset ? { episode_codes: [...selected.value], preset: 'archive_episode' } : { episode_codes: [...selected.value], categories: [...categories.value] })
@@ -314,8 +373,42 @@ async function startPreview(preset = false) {
   } catch (e) { if (current(version)) error.value = message(e) }
   finally { if (current(version)) submitting.value = false }
 }
+async function startLibraryPreview(action: LibraryAction) {
+  if (busy.value || loading.value) return
+  const version = generation
+  scope.value = 'library'
+  submitting.value = true; error.value = ''; libraryError.value = ''; preview.value = null
+  try {
+    const result = await post<{ operation_id: string }>('/library/media-cleanup/preview', { action })
+    if (!current(version)) return
+    operation.value = { id: result.operation_id, project_slug: '*', kind: 'preview', status: 'queued', stage: 'checking', done: 0, total: 0, current: '' }
+    void pollOperation()
+  } catch (e) { if (current(version)) libraryError.value = message(e) }
+  finally { if (current(version)) submitting.value = false }
+}
+async function runLibraryCleanup() {
+  const reviewed = preview.value
+  if (busy.value || !isLibraryPreview(reviewed) || !reviewed.files.length) return
+  const version = generation
+  const shrink = reviewed.action === 'shrink_images'
+  scope.value = 'library'
+  submitting.value = true; error.value = ''; libraryError.value = ''
+  try {
+    const channels = reviewed.channels.length
+    const approved = await ask(shrink
+      ? { title: `Shrink scene images on ${channels} ${channels === 1 ? 'channel' : 'channels'}?`, message: `${reviewed.files.length} PNG scene ${reviewed.files.length === 1 ? 'image' : 'images'} (${formatBytes(reviewed.total_bytes)}) across ${channels} ${channels === 1 ? 'channel' : 'channels'} are re-saved as JPEG under the same names, saving about ${formatBytes(libraryFreedBytes.value)}. The PNG originals move to ${libraryTrashText.value}; scene plans, approvals and Video Assembly keep working. Nothing is regenerated.`, confirmLabel: 'Shrink Images', danger: false }
+      : { title: `Clear uploaded videos older than 7 days on ${channels} ${channels === 1 ? 'channel' : 'channels'}?`, message: `${reviewed.files.length} final ${reviewed.files.length === 1 ? 'video' : 'videos'} (${formatBytes(reviewed.total_bytes)}) across ${channels} ${channels === 1 ? 'channel' : 'channels'} are checked against their own channel’s YouTube upload and must be older than 7 days of production. Verified ones move to ${libraryTrashText.value}; nothing is deleted and the space is freed when you empty the Trash. Anything that cannot be confirmed stays where it is.`, confirmLabel: 'Clear Videos', danger: false })
+    if (!approved || !current(version)) return
+    const result = await post<{ operation_id: string }>('/library/media-cleanup/run', { preview_id: reviewed.preview_id })
+    if (!current(version)) return
+    preview.value = null
+    operation.value = { id: result.operation_id, project_slug: '*', kind: 'run', status: 'queued', stage: 'checking', done: 0, total: reviewed.files.length, current: '' }
+    void pollOperation()
+  } catch (e) { if (current(version)) libraryError.value = message(e) }
+  finally { if (current(version)) submitting.value = false }
+}
 async function runCleanup() {
-  const reviewed0 = preview.value
+  const reviewed0 = preview.value as Preview | null
   const chosen0 = reviewed0?.preset ? 'compress' : mode.value
   if (busy.value || picking.value || !reviewed0?.files.length || (chosen0 === 'archive' && !destination.value.trim())) return
   const version = generation, slug = props.slug, reviewed = reviewed0, chosenMode = chosen0, folder = destination.value.trim()
@@ -337,8 +430,8 @@ async function stopOperation() {
   if (!operation.value || stopping.value) return
   const version = generation, slug = props.slug, id = operation.value.id
   stopping.value = true
-  try { await post(`/projects/${slug}/media-cleanup/operations/${id}/stop`, {}); if (current(version)) void pollOperation() }
-  catch (e) { if (current(version)) error.value = message(e) }
+  try { await post(scope.value === 'library' ? `/library/media-cleanup/operations/${id}/stop` : `/projects/${slug}/media-cleanup/operations/${id}/stop`, {}); if (current(version)) void pollOperation() }
+  catch (e) { if (current(version)) { const text = message(e); if (scope.value === 'library') libraryError.value = text; else error.value = text } }
   finally { if (current(version)) stopping.value = false }
 }
 async function browse() {
@@ -350,19 +443,22 @@ async function browse() {
   finally { if (current(version)) picking.value = false }
 }
 function dismissReview() {
+  const wasLibrary = scope.value === 'library'
   preview.value = null
-  if (operation.value?.kind === 'preview') { forget(props.slug); operation.value = null }
+  scope.value = 'channel'
+  if (operation.value?.kind === 'preview') { if (!wasLibrary) forget(props.slug); operation.value = null }
 }
 function restore() {
   let id: string | null = null
   try { id = localStorage.getItem(`media-cleanup:${props.slug}`) } catch { /* No saved operation. */ }
   if (id) { operation.value = { id, project_slug: props.slug, kind: 'run', status: 'queued', stage: 'checking', done: 0, total: 0, current: '' }; void pollOperation() }
 }
-watch([selected, categories], () => { if (!busy.value) dismissReview() }, { deep: true })
+watch([selected, categories], () => { if (!busy.value && scope.value === 'channel') dismissReview() }, { deep: true })
 watch(() => props.slug, () => {
   generation++; if (timer) clearTimeout(timer)
   episodes.value = null; selected.value = []; categories.value = []; preview.value = null; operation.value = null; error.value = ''; listWarnings.value = []; destination.value = ''; mode.value = 'remove'
   space.value = null; notOffered.value = []; allEpisodes.value = []; convertCode.value = ''; checkResult.value = ''; leftovers.value = null; leftoverResult.value = ''
+  scope.value = 'channel'; libraryError.value = ''
   loading.value = false; submitting.value = false; picking.value = false; polling.value = false; stopping.value = false
   void loadEpisodes().then(restore)
 })
@@ -383,6 +479,7 @@ p { color: var(--text-secondary); line-height: 1.5; margin: 8px 0 12px; }
 .cleanup-convert .input { flex: 1; min-width: 200px; }
 .cleanup-not-offered { margin: 8px 0 12px; }
 .cleanup-selection, .cleanup-action-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+/* Retains the pending one-line fix (d81f346e): the preset button row had no rule and sat flush on the list. */
 .cleanup-preset { margin: 16px 0; }
 .cleanup-episodes, .cleanup-files { max-height: 320px; overflow: auto; }
 .cleanup-episode { display: flex; gap: 12px; align-items: center; padding: 12px 4px; border-bottom: 1px solid var(--border); }
