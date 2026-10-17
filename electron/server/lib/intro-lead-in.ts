@@ -169,10 +169,17 @@ const MERGED_AUDIO_FILENAME = /_merged_audio(?:_v\d+)?\.(?:mp3|wav|m4a)$/i
  * differently from its neighbour. Sorted by CODE UNIT, not by locale, so `.`
  * (0x2E) precedes `_` (0x5F) and the base track wins over a `_v2` — the order
  * `resolveEpisodeIntroLeadIn` has always used. It is the selection the subtitle
- * stitcher and the merged-record readers share; `scanEpisodeAssets` still orders
- * by `readdir` (documented to agree) and `describeMergedAudioOpening` matches a
- * record to one file by `output_filename`, so this is not yet the ONLY selection
- * in the codebase. Null when the folder holds none.
+ * stitcher and the merged-record readers share. Null when the folder holds none.
+ *
+ * This is NOT yet the only merged-track selection in the codebase. Others, each
+ * answering a different question and not to be conflated with this one:
+ * `scanEpisodeAssets` (generators/video.ts) takes the first audio file in raw
+ * `readdir` order; `describeMergedAudioOpening` (services/merged-audio-opening.ts)
+ * matches a completion record to one file by `output_filename`;
+ * `routes/scene-review.ts` picks the LARGEST by byte size; and
+ * `asset-status.ts`'s `inspectAudioMergeAtPaths` picks the HIGHEST `_vN` and
+ * verifies it against the record. Where a caller already holds the scan's file
+ * (the renderer, the plan builder), pass THAT file rather than re-selecting here.
  */
 export function selectMergedAudioFilename(entries: readonly string[], episodeCode: string): string | null {
   const code = episodeCode.toUpperCase()

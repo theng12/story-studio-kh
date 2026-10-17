@@ -18,7 +18,6 @@ import { renderSubtitlePreflightFrames } from '../lib/subtitle-preflight-frames.
 import { canvasForShortEdge, displayAspectRatio, resolveRenderCanvas } from '../lib/render-canvas.js'
 import { inspectSourceAspect } from '../lib/source-aspect.js'
 import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
-import { selectMergedAudioFilename } from '../lib/intro-lead-in.js'
 import { TRANSITIONS, groupedTransitions, getTransition } from '../models/transitions.js'
 import { getAnimation, groupAnimationDefs, toAnimationDef } from '../models/animations.js'
 import { buildAnimationFilter } from '../lib/animation-filters.js'
@@ -1588,18 +1587,14 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       // available, so the disagreement is reported here. Detection only: nothing
       // rewrites a plan that generated images hang off.
       scene_plan_timeline: await resolveScenePlanPath(slug, episodeId, assets.episode_dir)
-        .then(async planPath => {
-          // Name the merged track this episode renders with. The completion record is written once
-          // per episode code and OVERWRITTEN, so with `write_mode: 'new'` leaving a `_v2` beside the
-          // base it can describe a file the app does not select — and reporting the plan as drifted
-          // against that file is a false advisory, the same one the Pipeline admission fixed.
-          const mergedFilename = assets.merged_audio[0]
-            ? selectMergedAudioFilename(await fs.readdir(path.dirname(assets.merged_audio[0].path)).catch(() => [] as string[]), episodeId)
-            : null
-          return inspectPlanTimelineDrift(planPath, path.join(subtitlesDir, `${episodeId.toUpperCase()}_stitched.srt`),
-            assets.merged_audio[0] && path.join(path.dirname(assets.merged_audio[0].path), `${episodeId.toUpperCase()}_merged_audio.completion.json`),
-            mergedFilename)
-        })
+        .then(planPath => inspectPlanTimelineDrift(planPath, path.join(subtitlesDir, `${episodeId.toUpperCase()}_stitched.srt`),
+          assets.merged_audio[0] && path.join(path.dirname(assets.merged_audio[0].path), `${episodeId.toUpperCase()}_merged_audio.completion.json`),
+          // Name the merged track THIS episode renders with: `assets.merged_audio[0]` is exactly the
+          // file the plan was built from (scene-plan.ts records `source_merged_audio` from the same
+          // scan) and the file `req.merged_audio_path` renders. The completion record is written once
+          // per code and OVERWRITTEN, so it can describe a `_v2` beside the base; reporting the plan
+          // as drifted against a file the plan never used is a false advisory.
+          assets.merged_audio[0]?.filename ?? null))
         .catch(() => ({ checked: false, stale: false, drift_sec: null, reason: '' })),
     })
   } catch (e: any) {
