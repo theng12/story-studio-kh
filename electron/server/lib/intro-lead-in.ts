@@ -160,6 +160,27 @@ export async function computeIntroLeadInSec(
  */
 const MERGED_AUDIO_FILENAME = /_merged_audio(?:_v\d+)?\.(?:mp3|wav|m4a)$/i
 
+/**
+ * The merged track the app treats as this episode's narration, chosen from a
+ * `merged_audio_dir` listing.
+ *
+ * ONE selection, shared by every reader, because `write_mode: 'new'` can leave
+ * `{code}_merged_audio_v2.mp3` (and `_v3`…) beside the original: two readers
+ * that each pick their own file answer "which narration?" differently, and the
+ * pipeline then refuses a plan the renderer would happily use. Sorted by CODE
+ * UNIT, not by locale, so `.` (0x2E) precedes `_` (0x5F) and the base track
+ * wins over a `_v2` — the order `resolveEpisodeIntroLeadIn` and
+ * `scanEpisodeAssets` have always relied on. Null when the folder holds none.
+ */
+export function selectMergedAudioFilename(entries: readonly string[], episodeCode: string): string | null {
+  const code = episodeCode.toUpperCase()
+  return entries
+    .filter(name => !name.startsWith('.')
+      && name.toLowerCase().startsWith(`${code.toLowerCase()}_`)
+      && MERGED_AUDIO_FILENAME.test(name))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0] ?? null
+}
+
 /** What an episode's merge folder says about the head of its narration. */
 export interface EpisodeIntroLeadIn {
   status: 'measured' | 'unmeasurable'
@@ -222,17 +243,9 @@ async function resolveEpisodeIntroLeadInUnsafe(
 ): Promise<EpisodeIntroLeadIn> {
   const code = episodeCode.toUpperCase()
   const entries = await fs.readdir(mergedAudioDir).catch(() => [] as string[])
-  // Sorted explicitly rather than trusting readdir order, so this is
-  // deterministic — and sorted by CODE UNIT, not by locale, so it agrees with
-  // the readdir order `scanEpisodeAssets` relies on when it hands the renderer
-  // `merged_audio[0]`. With a base track and a `_v2` beside it, `.` (0x2E)
-  // precedes `_` (0x5F) and the base track wins in both places; a locale
-  // compare ignores that punctuation weight and picks the other one.
-  const mergedName = entries
-    .filter(name => !name.startsWith('.')
-      && name.toLowerCase().startsWith(`${code.toLowerCase()}_`)
-      && MERGED_AUDIO_FILENAME.test(name))
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0]
+  // ONE selection (see `selectMergedAudioFilename`): the base track wins over a
+  // `_v2` by code-unit order, so every reader agrees which merge is the narration.
+  const mergedName = selectMergedAudioFilename(entries, code)
   if (!mergedName) {
     return {
       status: 'unmeasurable',

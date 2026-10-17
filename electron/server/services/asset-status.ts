@@ -61,6 +61,7 @@ import { inspectPromptCompletion, legacyPromptsPresent } from './prompt-completi
 import { inspectMetadataCompletion, legacyMetadataPresent } from './metadata-completion.js'
 import { COVERAGE_FAIL_SEC, inspectScenePlanCoverage } from './scene-planner.js'
 import { planMergedAudioDrift, planNarrationShortfallSec, readNarrationRecord } from '../lib/scene-plan-timeline.js'
+import { selectMergedAudioFilename } from '../lib/intro-lead-in.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
 import { DEFAULT_SOUND_DESIGN_SETTINGS, normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
@@ -1363,6 +1364,14 @@ export async function computeEpisodeStatus(
         const promptIntegrity = inspectScenePromptIntegrity(scenes)
         const subtitleIntegrity = await readSubtitleTimelineIntegrity(byCode.subtitles_dir, code)
         const coverageIntegrity = inspectScenePlanCoverage(plan)
+        // Which merged track is THIS episode's narration — the same selection the
+        // stitcher and the renderer use (the base track over a `_v2`). The
+        // completion record is written once per code and overwritten, so without
+        // naming the file we are asking about, the drift / shortfall checks below
+        // can compare the plan against a `_v2` the app does not render with, and
+        // refuse a Final Video the renderer would accept (PR0002/PR0003).
+        const mergedEntries = await fs.readdir(byCode.merged_audio_dir).catch(() => [] as string[])
+        const mergedFilename = selectMergedAudioFilename(mergedEntries, code)
         status.scene_plan = scenes.length > 0
           && promptIntegrity.complete
           && (musicDir || subtitleIntegrity.complete)
@@ -1370,12 +1379,14 @@ export async function computeEpisodeStatus(
           // 1.4.276 — a plan timed against an older merged narration is not done:
           // run-batch re-runs the step, which refuses to continue it (DL0004).
           && !(plan?.source_merged_audio && (await planMergedAudioDrift(plan,
-            path.join(byCode.merged_audio_dir, `${code.toUpperCase()}_merged_audio.completion.json`)))?.stale)
+            path.join(byCode.merged_audio_dir, `${code.toUpperCase()}_merged_audio.completion.json`),
+            mergedFilename))?.stale)
           // 1.4.288 — nor is a plan that stops before today's narration ends (AF EP0136),
           // so Pipeline re-runs Scene Plan instead of finding it at Video Assembly.
           && (musicDir || planNarrationShortfallSec(scenes, await readNarrationRecord(
             path.join(byCode.merged_audio_dir, `${code.toUpperCase()}_merged_audio.completion.json`),
             path.join(byCode.subtitles_dir, `${code.toUpperCase()}_stitched.srt.json`),
+            mergedFilename,
           )) <= COVERAGE_FAIL_SEC)
         // Both are OPTIONAL features. An episode that never proposed a cue has
         // nothing outstanding, so it is not pending — the same rule Video

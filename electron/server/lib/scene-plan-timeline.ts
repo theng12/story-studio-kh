@@ -184,11 +184,28 @@ export function compareMergedAudio(
   }
 }
 
-/** The merge's own completion record: its length and where the narration starts. Null when absent. */
-export async function readMergedAudioRecord(completionPath: string): Promise<{ duration_sec: number; lead_in_sec: number } | null> {
+/**
+ * The merge's own completion record: its length and where the narration starts. Null when absent.
+ *
+ * `expectedFilename` is the merged track the caller treats as this episode's
+ * narration (see `selectMergedAudioFilename`). `write_mode: 'new'` leaves
+ * `{code}_merged_audio_v2.mp3` beside the base while the record is written once
+ * per code and OVERWRITTEN, so it can describe a `_v2` the rest of the app does
+ * not select — the same misattribution `describeMergedAudioOpening` guards
+ * against. When the record names a different file it says nothing about this
+ * one, so it is ignored (null) rather than compared against the wrong track.
+ * Omit `expectedFilename` only when the caller genuinely does not know which
+ * file it is asking about.
+ */
+export async function readMergedAudioRecord(
+  completionPath: string,
+  expectedFilename?: string | null,
+): Promise<{ duration_sec: number; lead_in_sec: number } | null> {
   try {
     const fs = await import('fs/promises')
     const record = JSON.parse(await fs.readFile(completionPath, 'utf-8'))
+    if (expectedFilename && typeof record?.output_filename === 'string'
+      && record.output_filename !== expectedFilename) return null
     const duration = Number(record?.duration_sec)
     return duration > 0 ? { duration_sec: duration, lead_in_sec: Number(record?.opening?.lead_in_sec) || 0 } : null
   } catch {
@@ -203,8 +220,9 @@ export async function readMergedAudioRecord(completionPath: string): Promise<{ d
 export async function readNarrationRecord(
   mergedCompletionPath: string,
   stitchedMetaPath: string,
+  expectedMergedFilename?: string | null,
 ): Promise<{ duration_sec: number; lead_in_sec: number } | null> {
-  const merged = await readMergedAudioRecord(mergedCompletionPath)
+  const merged = await readMergedAudioRecord(mergedCompletionPath, expectedMergedFilename)
   if (merged) return merged
   try {
     const fs = await import('fs/promises')
@@ -239,8 +257,9 @@ export function planNarrationShortfallSec(
 export async function planMergedAudioDrift(
   plan: { source_merged_audio?: { duration_sec?: number }; scenes?: Array<{ end_sec: number }> },
   mergedAudioCompletionPath: string,
+  expectedMergedFilename?: string | null,
 ): Promise<TimelineDrift | null> {
-  const merged = await readMergedAudioRecord(mergedAudioCompletionPath)
+  const merged = await readMergedAudioRecord(mergedAudioCompletionPath, expectedMergedFilename)
   if (!merged) return null
   const scenes = Array.isArray(plan.scenes) ? plan.scenes : []
   return compareMergedAudio(plan.source_merged_audio, merged.duration_sec,
@@ -265,6 +284,8 @@ export async function inspectPlanTimelineDrift(
   stitchedSrtPath: string,
   /** 1.4.276 — `{CODE}_merged_audio.completion.json`; also compares the merged narration length. */
   mergedAudioCompletionPath?: string,
+  /** The merged track this episode renders with (see `selectMergedAudioFilename`). */
+  expectedMergedFilename?: string | null,
 ): Promise<(TimelineDrift & { checked: boolean })> {
   const nothing = { checked: false, stale: false, drift_sec: null, reason: '' }
   try {
@@ -279,7 +300,7 @@ export async function inspectPlanTimelineDrift(
       } catch { /* no stitched transcript: nothing to say about captions */ }
     }
     if (captions.stale || !mergedAudioCompletionPath || !plan?.source_merged_audio) return captions
-    const audio = await planMergedAudioDrift(plan, mergedAudioCompletionPath)
+    const audio = await planMergedAudioDrift(plan, mergedAudioCompletionPath, expectedMergedFilename)
     return audio ? { checked: true, ...audio } : captions
   } catch {
     return nothing
