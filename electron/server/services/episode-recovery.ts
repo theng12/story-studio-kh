@@ -595,9 +595,17 @@ export async function dispatchEpisodeRecoveryStep(
       const [next, ...rest] = plan.continuation
       const expected = { ...next.params, episode_id: plan.episode_id, pipeline_chain: rest,
         ...(plan.pipeline_batch_id ? { pipeline_batch_id: plan.pipeline_batch_id } : {}) }
+      const continuationJobId = plan.continuation_job_id || `recovery-${plan.id}-continuation`
       const activeTail = jobs.filter(job => job.type === next.type
         && ['queued', 'running', 'paused'].includes(job.status))
+      // 1.4.312 — a crash between enqueueing this continuation and saving the plan leaves the job
+      // this plan started in place under its deterministic id, while `expected` is still the plan's
+      // pre-refresh snapshot, so the settings check above no longer matches the job it created. That
+      // id is this plan's own identity for the edge — `enqueueEpisodeRecoveryOnce` refuses an id
+      // whose project, episode or type differ — so the job it names IS this continuation. Adopting
+      // it closes the window without loosening the settings check for any other job.
       const compatible = activeTail.find(job => matchesSavedParams(job, expected))
+        ?? activeTail.find(job => job.job_id === continuationJobId)
       if (compatible) {
         plan.continuation_job_id = compatible.job_id
         plan.continuation_dispatched = true
@@ -614,7 +622,7 @@ export async function dispatchEpisodeRecoveryStep(
       const enqueueParams = next.type === 'video_assembly'
         ? await jq.withCurrentFinalVideoParams(plan.project_slug, plan.episode_id, expected)
         : expected
-      await jq.enqueueEpisodeRecoveryOnce(plan.continuation_job_id || `recovery-${plan.id}-continuation`, {
+      await jq.enqueueEpisodeRecoveryOnce(continuationJobId, {
         project_slug: plan.project_slug, episode_id: plan.episode_id, type: next.type, title: next.title,
         params: enqueueParams,
       })
