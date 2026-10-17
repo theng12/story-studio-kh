@@ -72,7 +72,7 @@ interface UpdateStatus {
   jobs_left?: number
   queue_paused?: boolean
   pause_recovery_note?: string | null
-  waiting_for?: { submits: number; jobs: string[] } | null
+  waiting_for?: { submits: number; jobs: string[]; maintenance?: { kind: string; status: string } | null } | null
   trusted_fingerprint: string | null
   open_at_login: boolean
 }
