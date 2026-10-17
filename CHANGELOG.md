@@ -9,7 +9,7 @@ What's new in each release. Newest first.
 - A YouTube schedule is now confirmed by the actual time it was set for instead of comparing the stored text, so a schedule that really went through no longer reports a false drift warning or a false scheduling error.
 - A normal app update (including one started from another Mac) now waits for a media cleanup to finish or to be Stopped before it installs, even if that takes longer than the usual 30-minute limit. The explicit "Install now (don't wait)" button is unchanged and still installs at once.
 - Free up space gains two controls above the per-channel block: one shrinks scene images across every channel, one clears uploaded final videos across every channel — and a final video is only cleared when its upload is freshly verified on its own channel and its production is strictly older than 7 days.
-- Video Assembly now uses the one merged audio file chosen for the episode, consistently in the plan, the reconciliation and the render, instead of four different rules picking independently.
+- When an episode has more than one merged audio track, the track you pick in Step 1 is now the one used from start to finish — the plan, the reconciliation and the render all follow your pick, where before each part chose for itself and could use a different track. Episodes with one track, or where you have not picked, behave as before.
 
 ## v1.4.315 — 2026-10-17
 
