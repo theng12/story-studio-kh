@@ -1,6 +1,5 @@
 import { createHash } from 'crypto'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
-import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 
 export const PIPELINE_MODEL_POLICY_STAGES = [
   'ideas',
@@ -45,9 +44,6 @@ export interface PipelinePolicyCheckpointStore {
   write(key: string, value: PipelinePolicyAttemptCheckpoint): Promise<void>
 }
 
-export type PipelineModelPolicies = Partial<Record<PipelineModelPolicyStage, PipelineModelPolicy>>
-
-const STAGE_SET = new Set<string>(PIPELINE_MODEL_POLICY_STAGES)
 const ATTEMPT_STATUSES = new Set<PipelinePolicyAttemptStatus>([
   'in_flight', 'accepted', 'succeeded', 'failed_unaccepted', 'failed_terminal', 'unknown', 'waiting', 'exhausted',
 ])
@@ -77,46 +73,6 @@ export function readPipelinePolicyAttemptCheckpoint(value: unknown): PipelinePol
   return candidate as unknown as PipelinePolicyAttemptCheckpoint
 }
 
-/**
- * Parse the public Pipeline override contract before any jobs are queued.
- * Product ids are normalized through the same migration boundary used by the
- * AI client; no provider or name based equivalence is inferred here.
- */
-export function normalizePipelineModelPolicies(value: unknown): PipelineModelPolicies {
-  if (value === undefined) return {}
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('model_policies must be an object keyed by eligible Pipeline stages')
-  }
-
-  const result: PipelineModelPolicies = {}
-  for (const [stage, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (!STAGE_SET.has(stage)) {
-      throw new Error(`model_policies does not support the '${stage}' stage`)
-    }
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-      throw new Error(`model_policies.${stage} must contain mode and models`)
-    }
-    const candidate = raw as Record<string, unknown>
-    if (candidate.mode !== undefined && candidate.mode !== 'single') {
-      throw new Error(`model_policies.${stage} takes one writing model. To fall back across several models, make a pool in GatewayKH and choose it here.`)
-    }
-    if (!Array.isArray(candidate.models) || candidate.models.length === 0 ||
-        candidate.models.some(model => typeof model !== 'string' || !model.trim())) {
-      throw new Error(`model_policies.${stage}.models must contain non-empty product ids`)
-    }
-    const models = candidate.models.map(model => resolveGenStudioModelId('chat', model as string))
-    if (models.some(model => !model)) {
-      throw new Error(`model_policies.${stage}.models contains an invalid product id`)
-    }
-    const normalized = models as string[]
-    if (normalized.length !== 1) {
-      throw new Error(`model_policies.${stage} takes exactly one writing model. To fall back across several models, make a pool in GatewayKH and choose it here.`)
-    }
-    result[stage as PipelineModelPolicyStage] = { mode: 'single', models: normalized }
-  }
-  return result
-}
-
 export function pipelinePolicyInputFingerprint(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32)
 }
@@ -139,10 +95,6 @@ export function pipelinePolicyCheckpointStore(
   }
 }
 
-export function assignedPipelinePolicy(policy: PipelineModelPolicy): AssignedPipelineModelPolicy {
-  return { ...policy, assigned_model: policy.models[0]! }
-}
-
 export function pipelinePolicyForJob(jobParams: unknown, stage: PipelineModelPolicyStage): AssignedPipelineModelPolicy | null {
   const raw = (jobParams as Record<string, unknown> | null | undefined)?.pipeline_model_policy
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
@@ -160,20 +112,4 @@ export function pipelinePolicyForJob(jobParams: unknown, stage: PipelineModelPol
   // Older builds could queue several models for one step; only the one this
   // episode was assigned ever runs now.
   return { mode: 'single', models: [assignedModel], assigned_model: assignedModel }
-}
-
-/** Return blocking catalogue messages for an already-normalized policy. */
-export function validatePipelineModelCatalogue(
-  policies: PipelineModelPolicies,
-  catalogue: Array<{ id: string; available: boolean; qualification_only: boolean }>,
-): string[] {
-  const errors: string[] = []
-  for (const [stage, policy] of Object.entries(policies)) {
-    for (const modelId of policy?.models || []) {
-      const model = findGenStudioProduct(catalogue, modelId)
-      if (!model) errors.push(`model_policies.${stage}: product "${modelId}" is not in the live Gateway catalogue`)
-      else if (model.qualification_only) errors.push(`model_policies.${stage}: product "${modelId}" is qualification-only and cannot be selected here`)
-    }
-  }
-  return errors
 }

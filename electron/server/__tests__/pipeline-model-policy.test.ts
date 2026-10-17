@@ -1,11 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  normalizePipelineModelPolicies,
   pipelinePolicyForJob,
   type PipelinePolicyAttemptCheckpoint,
   type PipelinePolicyCheckpointStore,
-  validatePipelineModelCatalogue,
 } from '../lib/pipeline-model-policy.js'
 import { assertPipelineModelRequestCapabilities, executePipelineModelPolicy, isSafePipelineModelAdvance, resolveLivePipelineModel } from '../lib/ai-client.js'
 import {
@@ -25,23 +23,6 @@ function checkpointStore(entries = new Map<string, PipelinePolicyAttemptCheckpoi
   }
 }
 
-test('A Pipeline run takes exactly one writing model per step and normalizes transport prefixes', () => {
-  const policies = normalizePipelineModelPolicies({
-    'script-only': { mode: 'single', models: ['genstudio-chat:deepseek-v4-flash'] },
-    metadata: { models: ['pool::gemini-free-all'] },
-  })
-  assert.deepEqual(policies['script-only'], { mode: 'single', models: ['deepseek-v4-flash'] })
-  assert.deepEqual(policies.metadata, { mode: 'single', models: ['pool::gemini-free-all'] })
-})
-
-test('Several models for one step are refused with the way to fall back across models', () => {
-  assert.throws(() => normalizePipelineModelPolicies({ audio: { mode: 'single', models: ['a'] } }), /does not support/)
-  assert.throws(() => normalizePipelineModelPolicies({ metadata: { mode: 'single', models: ['a', 'b'] } }), /exactly one writing model.*pool in GatewayKH/)
-  assert.throws(() => normalizePipelineModelPolicies({ metadata: { mode: 'backup', models: ['a', 'b'] } }), /one writing model.*pool in GatewayKH/)
-  assert.throws(() => normalizePipelineModelPolicies({ metadata: { mode: 'distribute', models: ['a', 'b'] } }), /one writing model/)
-  assert.throws(() => normalizePipelineModelPolicies({ metadata: { mode: 'single', models: [] } }), /non-empty/)
-})
-
 test('A stored policy runs only its assigned model; a retired-lineup policy defers to the job model', () => {
   const policy = (value: unknown) => pipelinePolicyForJob({ pipeline_model_policy: { metadata: value } }, 'metadata')
   assert.equal(policy({ mode: 'single', models: ['primary'], assigned_model: 'other' }), null)
@@ -56,16 +37,6 @@ test('A stored policy runs only its assigned model; a retired-lineup policy defe
   )
   // Queued under the retired lineup: `params.model` already names the one model.
   assert.equal(policy({ mode: 'backup', models: ['a', 'b'], assigned_model: 'a', wait_for_availability: true }), null)
-})
-
-test('Pipeline catalogue validation names missing and qualification-only products', () => {
-  const policies = normalizePipelineModelPolicies({ metadata: { mode: 'single', models: ['model-b'] } })
-  assert.deepEqual(validatePipelineModelCatalogue(policies, [
-    { id: 'model-a', available: true, qualification_only: false },
-  ]), ['model_policies.metadata: product "model-b" is not in the live Gateway catalogue'])
-  assert.match(validatePipelineModelCatalogue(policies, [
-    { id: 'model-b', available: true, qualification_only: true },
-  ])[0]!, /qualification-only/)
 })
 
 test('A proven uncharged stop requires a typed zero-settlement terminal failure', () => {

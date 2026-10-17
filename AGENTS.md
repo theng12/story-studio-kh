@@ -198,7 +198,12 @@ inventory choose a usable fallback and persist that healed choice.
 **Retired — do not restore.** The Co-writer feature (page, navigation, API routes, local-storage
 stores, completion dependencies) · the shared Brand profile system (`/brands`, `brand_id`, Brand
 routes and storage, Brand-level prompt, voice, logo, pronunciation, art-style, metadata or format
-overrides) · text-to-video · the Add Custom Model form · Render Studio · remote assembly.
+overrides) · text-to-video · the Add Custom Model form · Render Studio · remote assembly · the
+per-run Pipeline writing-model override — the "Models for this run" picker and the `model_policies`
+batch request field it fed. **Owner, 2026-10-17:** Story Studio does not own the writing model; a
+run uses the model its active preset names, and the Gateway owns any fallback across its own pool.
+The new Pipeline admission reads no `model_policies`; only the compatibility readers for
+already-queued jobs remain (`pipelinePolicyForJob`, the checkpoint readers, `params.model`).
 Independent project controls remain valid, including title prefix/suffix branding, branded intro
 visuals, project art styles, and Video Assembly logo and presentation controls.
 
