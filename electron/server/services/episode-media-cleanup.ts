@@ -22,6 +22,7 @@ import { readSidecarStrict, type UploadSidecar } from './upload-sidecar.js'
 import { isYouTubeVideoRemoved } from './youtube-project-publishing-store.js'
 import { exportsAnchorFor, resolveExternalFinalVideoDir } from './external-video-store.js'
 import { resolveAssetPath } from './path-resolver.js'
+import { videoAssemblySourceStampPath } from './video-visual-source.js'
 import { narrationPartsToFree, PARTS_DIRNAME, trashEpisodeParts, trashTargetFor } from './chapter-parts.js'
 import {
   createProjectFactsCache,
@@ -62,6 +63,21 @@ const ALREADY_JPEG = 'Already a JPEG.'
  * nothing is regenerated. Originals go to `_trash`.
  */
 export const CONVERT_PNG_PRESET = 'convert_png'
+/**
+ * All-channel maintenance (owner request 2026-10-17): one control that shrinks
+ * scene images across every channel, and one that clears uploaded final videos
+ * across every channel. The backend enumerates the channels itself
+ * (`pm.listProjects()`), so the frontend never passes a channel list.
+ *
+ * The clear control only touches a final video that is BOTH a freshly verified
+ * upload on its own channel AND older than this many days of PRODUCTION age.
+ * Production age, not upload age: a video uploaded today that was produced two
+ * weeks ago still qualifies, and a video produced yesterday does not.
+ */
+export const LIBRARY_PRODUCTION_AGE_MS = 7 * 24 * 60 * 60 * 1000
+export type LibraryCleanupAction = 'shrink_images' | 'clear_uploaded_finals'
+/** `project_slug` sentinel for an all-channel (Library) operation; never a real channel slug. */
+export const LIBRARY_SCOPE = '*'
 /** Upload proof for an upload made before receipts existed, once "Check All Uploads" confirmed it. */
 const LEGACY_PROOF_PREFIX = 'legacy_sidecar:'
 
@@ -151,6 +167,41 @@ export interface MediaCleanupRunResult {
   bytes_after: number
 }
 
+/** One reviewed file of an all-channel preview; the channel travels with the file. */
+export interface LibraryCleanupFile extends MediaCleanupFile {
+  project_slug: string
+  channel_name: string
+  episode_code: string
+  /**
+   * The app's render-completed production time in ms, or null when it is unknown.
+   * Only the `clear_uploaded_finals` action uses it; the shrink action leaves it null.
+   */
+  production_ms: number | null
+}
+
+export interface LibraryCleanupChannel {
+  slug: string
+  name: string
+  files: LibraryCleanupFile[]
+  total_bytes: number
+  /** Why some of this channel's episodes were left out, in words. */
+  blocked_reasons: string[]
+}
+
+export interface LibraryCleanupPreview {
+  preview_id: string
+  action: LibraryCleanupAction
+  created_at: string
+  expires_at: string
+  channels: LibraryCleanupChannel[]
+  files: LibraryCleanupFile[]
+  total_bytes: number
+  blocked_reasons: string[]
+  /** The `_trash` folder(s) removed files land in (clear) or the JPEG originals go to (shrink). */
+  trash_roots: string[]
+  estimate: MediaCleanupPreview['estimate']
+}
+
 export interface MediaCleanupOperation {
   id: string
   project_slug: string
@@ -175,6 +226,14 @@ export interface MediaCleanupOperation {
   /** Clear Uploaded Videos' outcome (`startTrackedCleanup`). */
   final_cleanup?: import('./storage-audit.js').CleanupResult
   stop_requested?: boolean
+  /** Set on an all-channel (Library) maintenance operation; `project_slug` is then `LIBRARY_SCOPE`. */
+  library?: boolean
+  library_action?: LibraryCleanupAction
+  /** The all-channel preview, when `library` is set (`preview` stays for the per-channel path). */
+  library_preview?: LibraryCleanupPreview
+  /** Channels walked so far of the total, so the all-channel progress line can name its place. */
+  channels_done?: number
+  channels_total?: number
 }
 
 export interface LocalMediaCleanupCategoryStatus {
@@ -249,6 +308,7 @@ interface RootSpec {
 
 const operations = new Map<string, MediaCleanupOperation>()
 const previews = new Map<string, MediaCleanupPreview>()
+const libraryPreviews = new Map<string, LibraryCleanupPreview>()
 const consumedPreviews = new Set<string>()
 const PREVIEW_TTL_MS = 30 * 60 * 1_000
 const OPERATION_RETENTION_MS = 2 * 60 * 60 * 1_000
@@ -277,6 +337,12 @@ function pruneState(): void {
   for (const [id, preview] of previews) {
     if (Date.parse(preview.expires_at) <= now) {
       previews.delete(id)
+      consumedPreviews.delete(id)
+    }
+  }
+  for (const [id, preview] of libraryPreviews) {
+    if (Date.parse(preview.expires_at) <= now) {
+      libraryPreviews.delete(id)
       consumedPreviews.delete(id)
     }
   }
@@ -1219,6 +1285,14 @@ async function mutateReviewedFile(
   file: MediaCleanupFile,
   mode: MediaCleanupMode,
   destination: string | undefined,
+  /**
+   * An extra, action-specific refusal re-checked at mutation, under the same
+   * per-file lock and after the file's identity is confirmed. The all-channel
+   * clear passes the production-age gate here, so an old preview can never
+   * authorize a file whose age is no longer provable. The per-channel path
+   * passes nothing and is unchanged.
+   */
+  gate?: () => Promise<string | null>,
 ): Promise<MediaCleanupRunResult['items'][number]> {
   const code = preview.episodes.find(episode => episode.files.some(candidate => candidate.path === file.path))!.episode_code
   const active = await relevantActiveJobs(slug, code, [file.category])
@@ -1230,6 +1304,10 @@ async function mutateReviewedFile(
   if (staleUpload) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: staleUpload }
   const changed = await exactFileStillReviewed(file)
   if (changed) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: changed }
+  if (gate) {
+    const refused = await gate()
+    if (refused) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: refused }
+  }
   if (!formatOnly && Math.floor((await fs.stat(file.path)).mtimeMs) > Date.parse(file.upload_proof!.uploaded_at)) {
     return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: 'The file is newer than its upload proof.' }
   }
@@ -1524,12 +1602,333 @@ export async function startMediaCleanupRun(
   return { operation_id: operation.id }
 }
 
+// ── All-channel (Library) maintenance ─────────────────────────────────────
+//
+// Owner request 2026-10-17: one control that shrinks scene images across every
+// channel, and one that clears uploaded final videos across every channel,
+// instead of changing channel-by-channel. Both reuse this file's operation
+// registry, its one-operation-at-a-time global lock (`hasActiveOperation`) and
+// its per-file mutation path (`mutateReviewedFile`), so they can never run
+// beside a per-channel cleanup or a second all-channel run. The backend
+// enumerates the channels itself (`pm.listProjects()`); the frontend never
+// passes a channel list.
+
+function validateLibraryAction(value: unknown): LibraryCleanupAction {
+  if (value === 'shrink_images' || value === 'clear_uploaded_finals') return value
+  throw fail('Choose an all-channel maintenance action.')
+}
+
+/**
+ * The app's authoritative production time for a final video, or null with a reason.
+ *
+ * The only durable, per-final production record in the current contract is the
+ * video-assembly source stamp the app writes beside the final when the render
+ * completes (`{code}_video_assembly_source.json`, `writeVideoAssemblySourceStamp`).
+ * It records the final's size and mtime the moment production finished. When both
+ * still match the file on disk, the recorded time IS that render's production
+ * time.
+ *
+ * A legacy or imported final with no stamp — or a stamp that no longer matches
+ * the file — has NO authoritative production date: it is unknown, so the
+ * all-channel clear leaves it alone and says why. A production time is never
+ * guessed from a bare filesystem mtime or from the filename.
+ */
+async function finalVideoProductionTime(
+  finalVideoPath: string,
+  code: string,
+): Promise<{ ms: number | null; reason?: string }> {
+  let raw: string
+  try {
+    raw = await fs.readFile(videoAssemblySourceStampPath(finalVideoPath, code), 'utf8')
+  } catch {
+    return { ms: null, reason: 'No production record beside this final, so its production date is unknown.' }
+  }
+  let stamp: { final_video?: { size?: unknown; mtime_ms?: unknown } } | null
+  try {
+    stamp = JSON.parse(raw) as typeof stamp
+  } catch {
+    return { ms: null, reason: 'Its production record is unreadable, so its production date is unknown.' }
+  }
+  const recorded = stamp?.final_video
+  let stat: Awaited<ReturnType<typeof fs.stat>>
+  try {
+    stat = await fs.stat(finalVideoPath)
+  } catch {
+    return { ms: null, reason: 'The final video is missing.' }
+  }
+  if (!recorded
+    || !Number.isSafeInteger(recorded.size) || !Number.isFinite(recorded.mtime_ms)
+    || recorded.size !== stat.size || recorded.mtime_ms !== Math.round(stat.mtimeMs)) {
+    return { ms: null, reason: 'Its production record does not match the current file, so its production date is unknown.' }
+  }
+  return { ms: recorded.mtime_ms as number }
+}
+
+/** The production-age refusal for the all-channel clear, or null when the final is old enough. */
+async function productionAgeRefusal(file: LibraryCleanupFile): Promise<string | null> {
+  const produced = await finalVideoProductionTime(file.path, file.episode_code)
+  if (produced.ms === null) return produced.reason ?? 'Its production date is unknown, so it is left where it is.'
+  const now = Date.now()
+  if (produced.ms > now) return 'Its production date is in the future, so it is left where it is.'
+  if (produced.ms >= now - LIBRARY_PRODUCTION_AGE_MS) {
+    return `Produced less than ${LIBRARY_PRODUCTION_AGE_MS / (24 * 60 * 60 * 1000)} days ago, so it is left where it is.`
+  }
+  return null
+}
+
+function libraryCategories(action: LibraryCleanupAction): MediaCleanupCategory[] {
+  return action === 'shrink_images' ? ['images'] : ['final_video']
+}
+
+/**
+ * What the all-channel action would do, without doing any of it: every channel,
+ * every eligible file, with its channel, size and — for the clear action — its
+ * production date, and a reason for everything left out.
+ */
+async function buildLibraryPreview(
+  action: LibraryCleanupAction,
+  operation: MediaCleanupOperation,
+): Promise<LibraryCleanupPreview> {
+  const shrink = action === 'shrink_images'
+  const projects = await pm.listProjects()
+  operation.channels_total = projects.length
+  operation.channels_done = 0
+  const channels: LibraryCleanupChannel[] = []
+  const allFiles: LibraryCleanupFile[] = []
+  const blocked: string[] = []
+  for (const project of projects) {
+    if (operation.stop_requested) break
+    const slug = (project as { slug?: string }).slug
+    if (!slug) continue
+    const name = (project as { name?: string }).name || slug
+    operation.channels_done = (operation.channels_done || 0) + 1
+    operation.current = name
+    operation.detail = `Listing ${name}`
+    operation.updated_at = isoNow()
+    let accepted: Awaited<ReturnType<typeof im.getIdeas>>
+    try {
+      accepted = await im.getIdeas(slug, 'accepted')
+    } catch {
+      blocked.push(`${name}: its episodes could not be read, so nothing here was offered.`)
+      continue
+    }
+    const codes = accepted.map(idea => String(idea.episode_code || '').toUpperCase()).filter(Boolean)
+    if (!codes.length) continue
+    const acceptedByCode = new Map(accepted.map(idea => [String(idea.episode_code || '').toUpperCase(), idea]))
+    const inventory = await loadUploadInventory(slug, codes)
+    const channelFiles: LibraryCleanupFile[] = []
+    const channelBlocked: string[] = []
+    for (const code of codes) {
+      if (operation.stop_requested) break
+      operation.current = `${name}/${code}`
+      operation.updated_at = isoNow()
+      const idea = acceptedByCode.get(code)
+      const proof = currentUploadProof(code, inventory)
+      // The shrink control needs no upload (any episode); the clear control does.
+      if (!shrink && !proof) {
+        channelBlocked.push(`${code}: ${inventory.why.get(code) || 'no ready canonical upload on the current channel'}`)
+        continue
+      }
+      const active = await relevantActiveJobs(slug, code, libraryCategories(action))
+      if (active.length) { channelBlocked.push(busyReason(code, active)); continue }
+      for (const root of await rootsFor(slug, code, idea?.title || '', libraryCategories(action))) {
+        if (operation.stop_requested) break
+        const discovered = await discoverRoot(root, shrink ? null : proof, () => operation.stop_requested === true, code, shrink)
+        for (const file of discovered.files) {
+          const base: LibraryCleanupFile = { ...file, project_slug: slug, channel_name: name, episode_code: code, production_ms: null }
+          if (shrink) { channelFiles.push(base); continue }
+          const reason = await verifyFinalProof(slug, code, idea?.title || '', file, readingProgress(operation, file, 'Matching'))
+            .catch((error: any) => `${error?.message || error}`)
+          if (reason) { channelBlocked.push(`${code} ${path.basename(file.path)}: ${reason}`); continue }
+          const produced = await finalVideoProductionTime(file.path, code)
+          if (produced.ms === null) { channelBlocked.push(`${code} ${path.basename(file.path)}: ${produced.reason}`); continue }
+          const now = Date.now()
+          if (produced.ms > now) { channelBlocked.push(`${code} ${path.basename(file.path)}: its production date is in the future, so it is left where it is.`); continue }
+          if (produced.ms >= now - LIBRARY_PRODUCTION_AGE_MS) { channelBlocked.push(`${code} ${path.basename(file.path)}: produced less than 7 days ago, so it is left where it is.`); continue }
+          channelFiles.push({ ...base, production_ms: produced.ms })
+        }
+        channelBlocked.push(...discovered.excluded.map(item => `${code}: ${item.reason}`))
+      }
+    }
+    if (channelFiles.length || channelBlocked.length) {
+      channels.push({ slug, name, files: channelFiles, total_bytes: channelFiles.reduce((n, f) => n + f.bytes, 0), blocked_reasons: channelBlocked })
+      allFiles.push(...channelFiles)
+    }
+  }
+  const shrinkable = allFiles.filter(file => file.category === 'images' && !file.already_jpeg)
+  const trashed = allFiles.filter(file => file.category !== 'images')
+  const sum = (list: MediaCleanupFile[]) => list.reduce((total, file) => total + file.bytes, 0)
+  return {
+    preview_id: randomUUID(),
+    action,
+    created_at: isoNow(),
+    expires_at: new Date(Date.now() + PREVIEW_TTL_MS).toISOString(),
+    channels,
+    files: allFiles,
+    total_bytes: sum(allFiles),
+    blocked_reasons: blocked,
+    trash_roots: [...new Set(allFiles.map(file => {
+      const at = file.trash_path.indexOf(`${path.sep}_trash${path.sep}`)
+      return at < 0 ? path.dirname(file.trash_path) : file.trash_path.slice(0, at + '/_trash'.length)
+    }))],
+    estimate: {
+      compress_files: shrinkable.length,
+      compress_bytes_before: sum(shrinkable),
+      compress_bytes_after: Math.round(sum(shrinkable) * JPEG_SIZE_RATIO),
+      already_jpeg_files: allFiles.filter(file => file.already_jpeg).length,
+      trash_files: trashed.length,
+      trash_bytes: sum(trashed),
+    },
+  }
+}
+
+/** A per-channel `MediaCleanupPreview` view of an all-channel preview, so the shared per-file path can run. */
+function channelPreviewFor(preview: LibraryCleanupPreview, slug: string): MediaCleanupPreview {
+  const channel = preview.channels.find(item => item.slug === slug)
+  const files = channel?.files || []
+  const byCode = new Map<string, MediaCleanupEpisodePreview>()
+  for (const file of files) {
+    const episode = byCode.get(file.episode_code)
+      || { episode_code: file.episode_code, upload_proof: file.upload_proof, files: [], excluded: [], blocked_reasons: [] }
+    episode.files.push(file)
+    byCode.set(file.episode_code, episode)
+  }
+  return {
+    preview_id: preview.preview_id,
+    project_slug: slug,
+    created_at: preview.created_at,
+    expires_at: preview.expires_at,
+    categories: libraryCategories(preview.action),
+    episodes: [...byCode.values()],
+    files,
+    total_bytes: channel?.total_bytes || 0,
+    blocked_reasons: channel?.blocked_reasons || [],
+    ...(preview.action === 'shrink_images' ? { preset: CONVERT_PNG_PRESET as const } : {}),
+    trash_roots: preview.trash_roots,
+    estimate: preview.estimate,
+  }
+}
+
+async function runLibraryPreview(
+  preview: LibraryCleanupPreview,
+  operation: MediaCleanupOperation,
+  mode: MediaCleanupMode,
+): Promise<MediaCleanupRunResult> {
+  const result: MediaCleanupRunResult = {
+    mode, items: [],
+    archived_count: 0, removed_count: 0, compressed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0,
+    bytes_reclaimed: 0, bytes_moved: 0, bytes_trashed: 0, bytes_after: 0,
+  }
+  operation.result = result
+  operation.total = preview.files.length
+  operation.bytes_total = preview.files.reduce((n, file) => n + file.bytes, 0)
+  const priorConcurrency = sharp.concurrency()
+  if (mode === 'compress') { sharp.concurrency(1); sharp.cache(false) }
+  try {
+    for (const file of preview.files) {
+      if (operation.stop_requested) break
+      operation.current = `${file.channel_name}/${file.path}`
+      operation.updated_at = isoNow()
+      // The clear action's age gate is re-checked at mutation, under the file's
+      // own lock, so an old preview can never authorize a final whose production
+      // date is no longer provable.
+      const gate = preview.action === 'clear_uploaded_finals' ? () => productionAgeRefusal(file) : undefined
+      const apply = () => jq.withEpisodeMediaCleanupLock(file.project_slug, file.episode_code,
+        () => mutateReviewedFile(file.project_slug, channelPreviewFor(preview, file.project_slug), operation, file, mode, undefined, gate))
+      const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
+      result.items.push(item)
+      if (item.outcome === 'archived') result.archived_count += 1
+      else if (item.outcome === 'removed') result.removed_count += 1
+      else if (item.outcome === 'compressed') result.compressed_count += 1
+      else if (item.outcome === 'skipped') result.skipped_count += 1
+      else if (item.outcome === 'failed') result.failed_count += 1
+      else result.pending_count += 1
+      result.bytes_reclaimed += item.bytes_reclaimed
+      result.bytes_trashed += item.bytes_moved
+      result.bytes_after += item.bytes_after ?? 0
+      operation.done += 1
+      operation.bytes_done += file.bytes
+      operation.detail = ''
+      await hooks.afterFile?.()
+    }
+  } finally {
+    if (mode === 'compress') { sharp.concurrency(priorConcurrency); sharp.cache(true) }
+  }
+  return result
+}
+
+export async function startLibraryMediaCleanupPreview(action: unknown): Promise<{ operation_id: string }> {
+  const validated = validateLibraryAction(action)
+  pruneState()
+  if (hasActiveOperation()) throw fail('A media cleanup check or operation is already running on this Mac. Wait for it to finish.', 409)
+  const operation = beginOperation(LIBRARY_SCOPE, 'preview', 'checking')
+  operation.library = true
+  operation.library_action = validated
+  setImmediate(() => void (async () => {
+    operation.status = 'running'
+    operation.updated_at = isoNow()
+    try {
+      const preview = await buildLibraryPreview(validated, operation)
+      if (operation.stop_requested) { finishOperation(operation, 'stopped'); return }
+      libraryPreviews.set(preview.preview_id, preview)
+      operation.library_preview = preview
+      finishOperation(operation, 'completed')
+    } catch (error) {
+      finishOperation(operation, 'failed', error)
+    }
+  })())
+  return { operation_id: operation.id }
+}
+
+export async function startLibraryMediaCleanupRun(input: { preview_id: unknown }): Promise<{ operation_id: string }> {
+  pruneState()
+  const previewId = typeof input.preview_id === 'string' ? input.preview_id.trim() : ''
+  const preview = libraryPreviews.get(previewId)
+  if (!preview || Date.parse(preview.expires_at) <= Date.now()) {
+    throw fail('That all-channel preview is missing or expired. Check the files again.', 409)
+  }
+  if (consumedPreviews.has(previewId)) throw fail('That all-channel preview was already used. Check the files again.', 409)
+  if (hasActiveOperation()) throw fail('A media cleanup check or operation is already running on this Mac. Wait for it to finish.', 409)
+  const mode: MediaCleanupMode = preview.action === 'shrink_images' ? 'compress' : 'remove'
+  const operation = beginOperation(LIBRARY_SCOPE, 'run', mode === 'compress' ? 'compressing' : 'removing')
+  operation.library = true
+  operation.library_action = preview.action
+  consumedPreviews.add(previewId)
+  setImmediate(() => void (async () => {
+    operation.status = 'running'
+    operation.updated_at = isoNow()
+    try {
+      operation.result = await runLibraryPreview(preview, operation, mode)
+      finishOperation(operation, operation.stop_requested ? 'stopped' : 'completed')
+    } catch (error) {
+      finishOperation(operation, 'failed', error)
+    }
+  })())
+  return { operation_id: operation.id }
+}
+
+export function getLibraryMediaCleanupOperation(id: string): MediaCleanupOperation | null {
+  pruneState()
+  const operation = operations.get(id)
+  return operation?.library ? cloneOperation(operation) : null
+}
+
+export function stopLibraryMediaCleanupOperation(id: string): MediaCleanupOperation | null {
+  const operation = operations.get(id)
+  if (!operation?.library) return null
+  if (operation.status === 'queued' || operation.status === 'running' || operation.status === 'stopping') {
+    operation.stop_requested = true
+    operation.status = 'stopping'
+    operation.updated_at = isoNow()
+  }
+  return cloneOperation(operation)
+}
+
 export function getMediaCleanupOperation(slug: string, id: string): MediaCleanupOperation | null {
   pruneState()
   const operation = operations.get(id)
   return operation?.project_slug === slug ? cloneOperation(operation) : null
 }
-
 export function stopMediaCleanupOperation(slug: string, id: string): MediaCleanupOperation | null {
   const operation = operations.get(id)
   if (!operation || operation.project_slug !== slug) return null
@@ -1550,6 +1949,7 @@ export function _setMediaCleanupHooksForTests(next: CleanupHooks): () => void {
 export function _resetMediaCleanupStateForTests(): void {
   operations.clear()
   previews.clear()
+  libraryPreviews.clear()
   consumedPreviews.clear()
   hooks = {}
 }

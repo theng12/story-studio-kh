@@ -2,16 +2,57 @@ import { Router } from 'express'
 
 import { respondWithError } from '../lib/humanize-backend-error.js'
 import {
+  getLibraryMediaCleanupOperation,
   getMediaCleanupOperation,
   listMediaCleanupEpisodes,
+  startLibraryMediaCleanupPreview,
+  startLibraryMediaCleanupRun,
   startMediaCleanupPreview,
   startMediaCleanupRun,
+  stopLibraryMediaCleanupOperation,
   stopMediaCleanupOperation,
 } from '../services/episode-media-cleanup.js'
 import { listStorageLeftovers, trashStorageLeftovers } from '../services/storage-leftovers.js'
 import { storageSpaceSummary } from '../services/storage-audit.js'
 
 export const router = Router()
+
+// ── All-channel maintenance (owner request 2026-10-17) ─────────────────────
+//
+// One control that shrinks scene images across every channel and one that
+// clears uploaded final videos older than 7 days of production across every
+// channel, instead of changing channel-by-channel. The backend enumerates the
+// channels itself; the request carries only the action. These share the
+// per-channel registry and its one-at-a-time global lock, so they can never
+// run beside a per-channel cleanup.
+
+router.post('/library/media-cleanup/preview', async (req, res) => {
+  try {
+    res.status(202).json(await startLibraryMediaCleanupPreview(req.body?.action))
+  } catch (error) {
+    respondWithError(res, error, 'Could not start the all-channel check')
+  }
+})
+
+router.post('/library/media-cleanup/run', async (req, res) => {
+  try {
+    res.status(202).json(await startLibraryMediaCleanupRun({ preview_id: req.body?.preview_id }))
+  } catch (error) {
+    respondWithError(res, error, 'Could not start the all-channel maintenance')
+  }
+})
+
+router.get('/library/media-cleanup/operations/:id', (req, res) => {
+  const operation = getLibraryMediaCleanupOperation(req.params.id)
+  if (!operation) return res.status(404).json({ detail: 'All-channel maintenance operation not found' })
+  res.json(operation)
+})
+
+router.post('/library/media-cleanup/operations/:id/stop', (req, res) => {
+  const operation = stopLibraryMediaCleanupOperation(req.params.id)
+  if (!operation) return res.status(404).json({ detail: 'All-channel maintenance operation not found' })
+  res.json({ operation_id: operation.id, status: operation.status })
+})
 
 router.get('/projects/:slug/media-cleanup/episodes', async (req, res) => {
   try {

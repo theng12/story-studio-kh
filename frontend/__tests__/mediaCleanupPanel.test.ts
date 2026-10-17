@@ -294,3 +294,37 @@ test('Convert PNG scenes to JPEG works per episode and for the whole channel, an
     assert.deepEqual(calls.at(-1).body, { episode_codes: ['EP0001', 'EP0002'], preset: 'convert_png' })
   } finally { ui.close() }
 })
+
+test('the All channels controls review every channel at once and run the chosen action across them', async () => {
+  const calls: any[] = []
+  const asked: string[] = []
+  const file = { path: '/Library/chan-a/EP0001/s001.png', relative_path: 's001.png', category: 'images', bytes: 2048, project_slug: 'chan-a', channel_name: 'Channel A', episode_code: 'EP0001', production_ms: null }
+  const libraryPreview = {
+    preview_id: 'lib-1', action: 'shrink_images', created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 600_000).toISOString(),
+    channels: [{ slug: 'chan-a', name: 'Channel A', files: [file], total_bytes: 2048, blocked_reasons: [] }],
+    files: [file], total_bytes: 2048, blocked_reasons: [], trash_roots: ['/Library/_trash'],
+    estimate: { compress_files: 1, compress_bytes_before: 2048, compress_bytes_after: 240, already_jpeg_files: 0, trash_files: 0, trash_bytes: 0 },
+  }
+  const libraryOperation = { id: 'lib-op', project_slug: '*', kind: 'preview', status: 'completed', stage: null, done: 1, total: 1, current: '', library: true, library_action: 'shrink_images', library_preview: libraryPreview }
+  const ui = await mount({
+    get: async (url: string) => {
+      if (url.endsWith('/episodes')) return listed
+      if (url.endsWith('/space')) return null
+      if (url.includes('/library/media-cleanup/operations/')) return libraryOperation
+      return { id: 'preview-op', project_slug: 'first', kind: 'preview', status: 'completed', stage: null, done: 1, total: 1, current: '', preview }
+    },
+    post: async (url: string, body: any) => { calls.push({ url, body }); return { operation_id: url.includes('/library/') ? 'lib-op' : 'preview-op' } },
+  }, async (options: any) => { asked.push(options.title); return true })
+  try {
+    button(ui.host, 'Shrink Scene Images (All Channels)').click()
+    for (let i = 0; i < 5; i++) await flush()
+    assert.deepEqual(calls[0], { url: '/library/media-cleanup/preview', body: { action: 'shrink_images' } })
+    const text = ui.host.textContent || ''
+    assert.match(text, /Shrink 1 files across 1 channel/)
+    assert.match(text, /Channel A/)
+    button(ui.host, 'Shrink Images on All Channels').click()
+    for (let i = 0; i < 5; i++) await flush()
+    assert.equal(asked.includes('Shrink scene images on 1 channel?'), true, 'the whole library is confirmed first')
+    assert.deepEqual(calls[1], { url: '/library/media-cleanup/run', body: { preview_id: 'lib-1' } })
+  } finally { ui.close() }
+})
