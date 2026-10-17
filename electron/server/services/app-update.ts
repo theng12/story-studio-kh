@@ -428,6 +428,8 @@ let checking: Promise<UpdateState> | null = null
 let drainTimer: NodeJS.Timeout | null = null
 let idleTimer: NodeJS.Timeout | null = null
 let quittingForUpdate = false
+/** How long the quit is given before the hand-off is called off (`_setQuitDeadlineForTesting`). */
+let quitDeadlineMs = 6 * 60_000
 /**
  * The one in-flight install hand-off, set synchronously by `install()` before its first await.
  * Two callers race here — a drain tick suspended in `wouldNotResume`/`inFlightSubmits` and an
@@ -765,8 +767,14 @@ export async function maybeInstall(): Promise<void> {
     }
     // Anything the call above suspended through may have moved this release on (a second press, a
     // drain tick, an install): only the caller that still sees the same state may claim the drain.
+    // A caller sent home here still took the pause above, so it records that before it returns:
+    // otherwise the winner (which found the queue already paused and skipped `setPaused`) leaves
+    // `we_paused` false, and `releaseOurPause` cannot lift the updater's own pause after the restart.
     const now = readState()
-    if (now.phase !== 'ready' || now.drain_started_at !== before.drain_started_at) return
+    if (now.phase !== 'ready' || now.drain_started_at !== before.drain_started_at) {
+      if (wePaused && !before.we_paused) patchState({ we_paused: true })
+      return
+    }
     patchState({ phase: 'draining', drain_started_at: o.now?.() ?? Date.now(), we_paused: wePaused })
     claimed = true
   }
@@ -865,9 +873,12 @@ export async function install(): Promise<boolean> {
   // If the quit never happens the helper gives up after 5 minutes; say so here too.
   setTimeout(() => {
     quittingForUpdate = false
+    // Nothing was replaced and this process is still here (a `will-prevent-unload` veto aborts the
+    // quit), so the claim is free again: a later press, or the next automatic attempt, may hand off.
+    installing = null
     markFailed('Story Studio did not quit for the update; nothing was replaced.')
     void releaseOurPause()
-  }, 6 * 60_000).unref()
+  }, quitDeadlineMs).unref()
   return true
 }
 
@@ -916,8 +927,11 @@ export function _resetForTesting(): void {
   timer = null
   quittingForUpdate = false
   installing = null
+  quitDeadlineMs = 6 * 60_000
 }
 export function _configureForTesting(options: UpdaterOptions): void { opts = options }
+/** Test seam for the quit deadline (the 6-minute timer that calls the hand-off off). */
+export function _setQuitDeadlineForTesting(ms: number): void { quitDeadlineMs = ms }
 
 // ── Open at Login (and come back after a crash) ────────────────────────────
 //

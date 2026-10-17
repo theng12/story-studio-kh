@@ -9,6 +9,15 @@ while downloading. The banner and Settings → Updates both offer it behind the 
 Commits: `63d39c3e` (feature) and the guard fix below. Source-only: no version bump, no changelog
 entry, no DMG, no install; the next release must add the CHANGELOG line.
 
+Guard follow-up (independent re-review of the guard, 2026-10-17 — two blockers, both fixed):
+B1 the claim was never freed when the quit was vetoed (`will-prevent-unload` aborts it), so after the
+6-minute "did not quit" failure every later install — immediate, plain or automatic — stalled in
+`draining` with intake paused; the quit-deadline timer now frees the claim (`installing = null`).
+B2 a caller that paused intake and then lost the race returned without recording `we_paused`, so
+after the restart `releaseOurPause` could not lift the updater's own pause and the owner's intake
+stayed stopped; that caller now records the pause it took. Both regressions are covered by
+deterministic tests (the quit deadline is a test seam, `_setQuitDeadlineForTesting`).
+
 Concurrency guard (independent review N1, confirmed): a drain tick suspended in
 `wouldNotResume`/`inFlightSubmits` could spawn a second helper and write `draining` over the
 `installing` an immediate press had committed. `install()` now has one claimed in-flight hand-off
