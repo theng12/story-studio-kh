@@ -123,3 +123,26 @@ test('status.scene_plan is false when the record describes the SELECTED file and
   const status = await statusFor(slug, code)
   assert.equal(status.scene_plan, false, 'a genuinely stale plan must still be refused')
 })
+
+test('inspectPlanTimelineDrift names the selected file, so a _v2 record is not reported as drift', async () => {
+  const { inspectPlanTimelineDrift } = await import('../lib/scene-plan-timeline.js')
+  const dir = await fs.mkdtemp(path.join(process.env.TMPDIR || '/tmp', 'plan-drift-'))
+  const planPath = path.join(dir, 'scene_plan.json')
+  await fs.writeFile(planPath, JSON.stringify({
+    source_merged_audio: { duration_sec: 952.582 },
+    scenes: [{ end_sec: 952.58229 }],
+  }))
+  const srtPath = path.join(dir, 'EP0001_stitched.srt')
+  await fs.writeFile(srtPath, '')
+  const completionPath = path.join(dir, 'EP0001_merged_audio.completion.json')
+  await fs.writeFile(completionPath, JSON.stringify({
+    output_filename: 'EP0001_merged_audio_v2.mp3', duration_sec: 956, opening: { lead_in_sec: 0 },
+  }))
+
+  // The record describes the _v2, not the file the app selected -> no drift.
+  const guarded = await inspectPlanTimelineDrift(planPath, srtPath, completionPath, 'EP0001_merged_audio.mp3')
+  assert.equal(guarded.stale, false)
+  // Same record, but now it is the file we are asking about -> the real drift is reported.
+  const unguarded = await inspectPlanTimelineDrift(planPath, srtPath, completionPath, 'EP0001_merged_audio_v2.mp3')
+  assert.equal(unguarded.stale, true)
+})

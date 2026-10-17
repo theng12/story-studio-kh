@@ -164,13 +164,15 @@ const MERGED_AUDIO_FILENAME = /_merged_audio(?:_v\d+)?\.(?:mp3|wav|m4a)$/i
  * The merged track the app treats as this episode's narration, chosen from a
  * `merged_audio_dir` listing.
  *
- * ONE selection, shared by every reader, because `write_mode: 'new'` can leave
- * `{code}_merged_audio_v2.mp3` (and `_v3`…) beside the original: two readers
- * that each pick their own file answer "which narration?" differently, and the
- * pipeline then refuses a plan the renderer would happily use. Sorted by CODE
- * UNIT, not by locale, so `.` (0x2E) precedes `_` (0x5F) and the base track
- * wins over a `_v2` — the order `resolveEpisodeIntroLeadIn` and
- * `scanEpisodeAssets` have always relied on. Null when the folder holds none.
+ * `write_mode: 'new'` can leave `{code}_merged_audio_v2.mp3` (and `_v3`…) beside
+ * the original, and a reader that picks its own file answers "which narration?"
+ * differently from its neighbour. Sorted by CODE UNIT, not by locale, so `.`
+ * (0x2E) precedes `_` (0x5F) and the base track wins over a `_v2` — the order
+ * `resolveEpisodeIntroLeadIn` has always used. It is the selection the subtitle
+ * stitcher and the merged-record readers share; `scanEpisodeAssets` still orders
+ * by `readdir` (documented to agree) and `describeMergedAudioOpening` matches a
+ * record to one file by `output_filename`, so this is not yet the ONLY selection
+ * in the codebase. Null when the folder holds none.
  */
 export function selectMergedAudioFilename(entries: readonly string[], episodeCode: string): string | null {
   const code = episodeCode.toUpperCase()
