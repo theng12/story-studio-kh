@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.317 — 2026-10-17
+
+- Free up space is now two buttons on every channel: one shrinks scene images across all channels, and one cleans up all channels in a single step — clearing uploaded final videos only when the upload is freshly verified on its own channel and the production is older than seven days, plus unused leftovers. The duplicate per-channel, per-category and conversion tools are gone; moving uploaded videos to another drive lives under Where your files are.
+- New Publishing Overview: one page shows what is actually scheduled across every channel, keeping confirmed YouTube schedules, planned local dates and readiness separate so a plan never hides a gap. A store that cannot be read is shown as unknown, never as zero.
+- Gateway embedding answers are checked before use — row count, index order, vector width and unusable values are refused and a valid vector is normalized — so a malformed answer can no longer affect idea matching. The settings hint now says the chosen model must be able to tell the channel's ideas apart in the channel's own language.
+
 ## v1.4.316 — 2026-10-17
 
 - A YouTube schedule is now confirmed by the actual time it was set for instead of comparing the stored text, so a schedule that really went through no longer reports a false drift warning or a false scheduling error.
