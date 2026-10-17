@@ -123,6 +123,8 @@ describe('a chained Final Video resolves the channel look when its job is submit
     const link = (head.params.pipeline_chain as any[]).find(l => l.params?.pipeline_step === 'video_assembly')
     assert.ok(link, 'the batch chained Final Video after its head step')
     assert.deepEqual(link.params.effect_stack, [], 'the link captured the channel look as it was at submit')
+    assert.ok(Array.isArray(link.params.pipeline_preset_keys) && link.params.pipeline_preset_keys.length > 0,
+      'the link records which keys its preset produced, so the refresh can drop exactly those')
 
     // 2. The owner applies the base look. Nothing already queued is touched.
     await setChannelLook(slug, BASE_LOOK)
@@ -161,6 +163,9 @@ describe('a chained Final Video resolves the channel look when its job is submit
     // The episode's own decision still travels with the link, untouched.
     assert.ok(chainedJob.params.pacing, 'the episode pacing the batch captured is still on the job')
     assert.equal(chainedJob.params.visual_source, head.params.visual_source)
+    // The bookkeeping the refresh needs does not reach the render request.
+    assert.equal(chainedJob.params.pipeline_preset_keys, undefined)
+    assert.equal(chainedJob.params.pipeline_preset_id, undefined)
     // The refresh is said out loud on the handoff, never silent.
     assert.match(jq.getJob(head.job_id)!.output_lines.join('\n'), /resolved from the channel's current Video Assembly preset/)
   })
