@@ -298,7 +298,7 @@ const props = defineProps<{
 }>()
 
 const defaultVolumes = computed(() => props.defaultVolumes || {
-  volume: 11,
+  volume: 8,
   post_narration_volume: 40,
   fade_in: 3,
   fade_out: 5,
