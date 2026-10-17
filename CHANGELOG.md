@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.316 — 2026-10-17
+
+- A YouTube schedule is now confirmed by the actual time it was set for instead of comparing the stored text, so a schedule that really went through no longer reports a false drift warning or a false scheduling error.
+- A normal app update now waits for a media cleanup that is running instead of interrupting it. The 30-minute limit does not cut that wait short.
+- Free up space gains two controls above the per-channel block: one shrinks scene images across every channel, one clears uploaded final videos across every channel — and a final video is only cleared when its upload is freshly verified on its own channel and its production is strictly older than 7 days.
+- Video Assembly now uses the one merged audio file chosen for the episode, consistently in the plan, the reconciliation and the render, instead of four different rules picking independently.
+
 ## v1.4.315 — 2026-10-17
 
 - Scene Review's Finish and Replacement now work when Story Studio is opened over plain HTTP (for example from another Mac on your network) instead of refusing with a browser-identity error. The same secure request identity is now used by the Pipeline, the Episode Builder and the publish action.
