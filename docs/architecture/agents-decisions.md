@@ -107,8 +107,9 @@ The owner's rule, 2026-08-03:
   onto a different episode.
 - **`pacing`** in Character Sheet presets — the customer chose "1–3 seconds", applied a preset to
   set the **art style**, and silently got that preset's rhythm instead. **50 of 53 episodes in a
-  real project ended up at 4–8s, none of it chosen.** *(This incident is now superseded for
-  `pacing` only, by the owner's 2026-08-18 reversal — see §5.)*
+  real project ended up at 4–8s, none of it chosen.** *(That exclusion was lifted on 2026-08-18 and
+  put back on 2026-10-17, for a different reason — the timing editor is Scene Plan's now. The key is
+  excluded again, so the fix described here is the one in force; see §5 for all three dates.)*
 - **`references.sheet`** in the same presets — ORed into `use_episode_sheet`, so applying any
   preset turned "Use episode anchor" **on**, pointing at a sheet that may not exist.
 
@@ -169,38 +170,80 @@ look, leave the window alone.**
 
 ## 5. The decided exceptions, in full
 
-### `pacing` is preset data again — reinstated 2026-08-18
+### `pacing` left Character Sheet presets again — 2026-10-17
 
-**The owner reversed the 2026-08-03 exclusion himself, and this is his call to make.** He was shown
-the original incident, including the 50 of 53 episodes, and was offered a safer alternative — a
-separate, explicit bulk pacing action that could never fire as a side effect. He declined it and
-chose the full reversal:
+**The rule in force: `pacing` is NOT in Character Sheet presets.** This key has now moved three
+times, so the whole history is recorded here — a reader who finds only one of the three will
+conclude the code is wrong.
 
-> *"Put pacing back in presets."*
+> *2026-08-03* — **excluded.** The owner set "Visual pacing" to 1–3 seconds, applied a preset to
+> change the **art style**, and the preset's stored `pacing` replaced that choice: 50 of 53
+> episodes of a live project ended up on a 4–8s band nobody picked.
+>
+> *2026-08-18* — **reinstated, by the owner**, with the incident in front of him. He was offered a
+> safer alternative — a separate, explicit bulk pacing action that could never fire as a side
+> effect — and declined it: *"Put pacing back in presets."*
+>
+> *2026-10-17* — **excluded again, by the owner.** The timing editor has since moved: scene rhythm
+> belongs to Scene Plan's **Visual timing & motion** panel, and Scene Review reads the episode's
+> rhythm back from the plan. The Character Sheet is a visual-setup page — cast, episode anchor,
+> channel look — and a preset applied there must not move the episode's rhythm. He asked for the
+> leftover to be cleaned up, having seen the green notice on that page, and the instruction
+> explicitly overrides the 2026-08-18 entry.
 
-**Do not "fix" this back.** A reader who thinks scene rhythm has wrongly crept into presets is
-looking at a deliberate 2026-08-18 decision, not a regression.
+**The notice was deleted, not reworded.** The Character Sheet used to show *"The preset includes
+scene rhythm — it set 1–3 seconds on this page…"* / *"That preset has no saved scene rhythm…"*.
+With `pacing` excluded there is nothing left for it to report, and a notice describing a setting
+the page no longer owns is exactly the leftover being removed. Deleting the notice is the visible
+half; the load-bearing half is that the exclusion is real in both directions.
 
-The reversal is scoped to `pacing`. Two things did **not** change: `use_episode_sheet` and `sheet`
-stay excluded (he asked about rhythm only, and widening a reversal past what was asked is not
-licensed by it), and the exclusion mechanism itself is unchanged — `usePresets` still strips
-excluded keys on read as well as write, and stored preset files are still never rewritten.
+**What did NOT change, in either reversal.** `use_episode_sheet` and `sheet` stay excluded — the
+owner has only ever asked about rhythm. The exclusion mechanism is unchanged: `usePresets` still
+strips excluded keys on read as well as write, and **stored preset files are still never
+rewritten**. Presets that still carry a band — every one saved between 2026-08-18 and 2026-10-17
+does — are stripped **at the boundary**, on the way in, before `apply` sees them.
 
-**The mirror-image trap.** Because `usePresets` stripped `pacing` on **save** as well as load, every
-preset saved between 2026-08-03 and 2026-08-18 contains no `pacing` at all — for anyone who kept
-working through August, that is most of them. Un-excluding the key alone would let
-`normalizeContinuityConfig` fall back to `DEFAULT_SCENE_PACING` and reset the customer's chosen
-rhythm to 1–3s: the same discard as the original incident, in the other direction. Hence the rule
-in both directions: a preset that **stores** a rhythm applies it; a preset that stores **none**
-leaves the live rhythm untouched, and a half-written band (one end missing) counts as none.
-**The Character Sheet says which of the two happened**, because a rhythm that correctly does not
-move is indistinguishable on screen from a feature that does not work.
+**The mirror-image trap, which the 2026-10-17 change re-arms.** Because the strip happens on read
+as well as save, a preset body arriving at `apply` has had `pacing` removed — and
+`normalizeContinuityConfig` would then substitute its own `DEFAULT_SCENE_PACING` (1–3s) for every
+preset. That is the 2026-08-03 incident with the sign flipped, and it is why the live rhythm is
+carried across the apply **explicitly**, as one whole deep-cloned value rather than a field-by-field
+merge: an ordered profile keeps its periods, and a half-written band can never be completed from
+the default. The same carry protects the episode anchor and `motion_level`.
 
-`storedPresetPacing` / `applyContinuityPagePreset` in
-`frontend/composables/useContinuityConfig.ts` own this, and
-`frontend/__tests__/continuityPresetPacing.test.ts` asserts both directions. That test file was
-**rewritten, not deleted** — it carries the reversal's date and reasoning at the top so the next
-reader can see this was decided rather than quietly dropped.
+**Both sides of the boundary own it.** `CONTINUITY_PRESET_EXCLUDE_KEYS` (now including `pacing`) and
+`applyContinuityPagePreset` in `frontend/composables/useContinuityConfig.ts` are the frontend half.
+`applyContinuityPresetForPipeline` in `electron/server/routes/pipeline.ts` is the backend half: the
+Pipeline's `character_sheet` step folds a saved preset into `continuity.json` inline, and it carries
+`current.pacing` across for the same reason, so an unattended batch run cannot apply a stale band
+either. `frontend/__tests__/continuityPresetPacing.test.ts` asserts all of it, and
+`electron/server/__tests__/pipeline-visual-source.test.ts` covers the batch path. That test file has
+been **rewritten, not deleted**, twice — it carries all three dates and the reasoning at the top so
+the next reader can see each move was decided rather than quietly dropped.
+
+**The preset payload is not where the rhythm is decided, so the rule is enforced where the file is
+written.** Excluding the key stops a *preset* from carrying a rhythm; it does nothing about the other
+way the same value arrives — the Character Sheet saves the whole config it loaded, so a rhythm set in
+Scene Plan in between was written back from the stale copy. The exclusion was therefore only half the
+fix, and the other half sits on the save boundary: `writeContinuityConfig` in
+`electron/server/routes/continuity.ts` keeps the `pacing` already on disk **unless the payload claims
+it**, the claim is `claim_pacing: true` (`PACING_AUTHORITY_CLAIM`), and `VisualTimingMotion.vue` is
+the only writer that sends it. Only an explicit `true` claims, so a caller that gets the claim wrong
+fails toward "the rhythm does not move". The read happens inside `withLock(sidecarPath, …)`, because
+a plain read-then-write would still lose a timing save that landed in the gap between them. The
+pipeline step and the Character Sheet claim nothing and are covered by the same rule — including any
+page written later, which is the property that makes this root-complete rather than a second special
+case. `electron/server/__tests__/continuity-pacing-ownership.test.ts` asserts the contract.
+
+**What this does NOT fix, and must not be claimed to.** The other whole-config fields — anchors,
+style bible, denoise, references — still revert on a stale save. That is the broader
+episode-staleness family in §4, and the pacing-authority contract deliberately does not reach it.
+
+**`storedPresetPacing` still exists, deliberately.** Scene Plan's own timing preset is the surface
+that *does* carry a rhythm (`VisualTimingMotion.vue` → `applyPreset`), so the helper that reads a
+stored band out of a preset body is still live and still needed. The exclusion is scoped to the
+Character Sheet, not to `pacing`.
+
 
 ### `auto_approve` is preset data on Contextual Cues — decided 2026-08-17
 

@@ -233,7 +233,12 @@ describe('Pipeline episode visual source', () => {
     assert.match(response.body.blocked[0].reason, /Image Pool.*selection is missing/i)
   })
 
-  test('a Character Sheet preset without a complete band preserves live episode timing and motion', async () => {
+  test('a Character Sheet preset never replaces the live episode rhythm, motion or anchor', async () => {
+    // The preset below still stores a `pacing` block on disk — the shape every
+    // preset saved between 2026-08-18 and 2026-10-17 has. It has no authority
+    // now: `pacing` is excluded from continuity_page presets (owner,
+    // 2026-10-17) and Scene Plan owns the episode's rhythm. Here the stored
+    // band is even a half-written one, which was never applicable anyway.
     const project = await pm.createProject({ name: 'Pipeline Character Sheet Preserve' })
     await pm.updateConfig(project.slug, {
       continuity_page_presets: [{
@@ -280,7 +285,7 @@ describe('Pipeline episode visual source', () => {
     assert.equal(saved.references.sheet, true)
   })
 
-  test('an explicitly saved preset band is applied before downstream jobs snapshot pacing', async () => {
+  test('a Character Sheet preset band is NOT applied — downstream jobs snapshot the episode\'s own rhythm', async () => {
     const project = await pm.createProject({ name: 'Pipeline Character Sheet Pacing Snapshot' })
     await pm.updateConfig(project.slug, {
       ...presets(),
@@ -309,10 +314,15 @@ describe('Pipeline episode visual source', () => {
     assert.equal(response.status, 201, JSON.stringify(response.body))
     rememberJobs(project.slug, response.body.jobs)
     const job = jq.getJob(response.body.jobs[0].job_id)!
-    assert.deepEqual(job.params.pacing, { min_sec: 8, max_sec: 12 })
+    // The preset stores 8–12s; the episode is on 1–3s. The episode wins, and
+    // the downstream Scene Plan job snapshots the episode's band, not the
+    // preset's — the preset's look applied, its rhythm did not.
+    assert.deepEqual(job.params.pacing, { min_sec: 1, max_sec: 3 },
+      'a Character Sheet preset has no authority over the episode rhythm')
     assert.deepEqual(job.params.motion_scope, { mode: 'selected', scene_ids: ['scene-a'] })
     const saved = JSON.parse(await fs.readFile(path.join(episode.dir, 'continuity.json'), 'utf8'))
-    assert.deepEqual(saved.pacing, { min_sec: 8, max_sec: 12 })
+    assert.deepEqual(saved.pacing, { min_sec: 1, max_sec: 3 }, 'the sidecar keeps the episode\'s own band')
+    assert.deepEqual(saved.motion_scope, { mode: 'selected', scene_ids: ['scene-a'] })
 
     await fs.writeFile(path.join(episode.dir, 'continuity.json'), JSON.stringify({
       ...saved,
@@ -320,7 +330,7 @@ describe('Pipeline episode visual source', () => {
       motion_scope: { mode: 'off' },
       motion_level: 1,
     }))
-    assert.deepEqual(job.params.pacing, { min_sec: 8, max_sec: 12 },
+    assert.deepEqual(job.params.pacing, { min_sec: 1, max_sec: 3 },
       'accepted work keeps the baseline captured before a later sidecar edit')
     assert.deepEqual(job.params.motion_scope, { mode: 'selected', scene_ids: ['scene-a'] })
     assert.equal(job.params.motion_level, 4)

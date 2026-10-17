@@ -120,7 +120,11 @@ export const router = Router()
 //   - character_sheet  → NOT a job. Config-only: applies the saved
 //                        `continuity_page` preset to continuity.json inline at
 //                        submit time (before scene_plan runs). Handled in the
-//                        run-batch loop, never enqueued.
+//                        run-batch loop, never enqueued. The preset's LOOK is
+//                        applied; the episode's rhythm is not — `pacing` is
+//                        excluded from this preset (owner, 2026-10-17) and
+//                        Scene Plan's "Visual timing & motion" owns it. See
+//                        applyContinuityPresetForPipeline.
 // The `script-only` step is also expanded, at chain-build time, into the
 // outline-first pair `outline_only` → `expand_chapters` (both auto-approved)
 // to match what the Scripts page actually runs by hand.
@@ -473,15 +477,23 @@ async function readPipelineContinuityConfig(
   return buildContinuityConfig(value as Partial<ContinuityConfig>, mode)
 }
 
-function storedPipelinePresetPacing(data: Partial<ContinuityConfig> | null | undefined): ScenePacing | null {
-  const pacing = data?.pacing as unknown
-  if (!pacing || typeof pacing !== 'object' || Array.isArray(pacing)) return null
-  const band = pacing as Record<string, unknown>
-  if (!Number.isFinite(band.min_sec) || !Number.isFinite(band.max_sec)) return null
-  return parseScenePacing(pacing)
-}
-
-/** Apply the same deliberate preset boundary as Character Sheet's manual flow. */
+/**
+ * Apply the same deliberate preset boundary as Character Sheet's manual flow.
+ *
+ * The episode's rhythm is NOT one of the things this fold may decide. A
+ * `continuity_page` preset is a LOOK; `pacing` is excluded from it (owner,
+ * 2026-10-17 — see `CONTINUITY_PRESET_EXCLUDE_KEYS`), and Scene Plan's "Visual
+ * timing & motion" panel owns the episode's rhythm. So the live value read off
+ * disk is carried across whole, whatever the preset body happens to contain:
+ * `...data` is spread first precisely so the explicit `pacing` below wins, and
+ * a stale preset that still stores a band (every one saved between 2026-08-18
+ * and 2026-10-17 does) is stripped here at the boundary rather than being
+ * rewritten on disk.
+ *
+ * The read-then-write pair in the caller is what makes this atomic: the batch
+ * reads the episode's current continuity.json, folds the preset's look into
+ * it, and writes the result back once.
+ */
 export function applyContinuityPresetForPipeline(
   current: ContinuityConfig,
   data: Partial<ContinuityConfig> | null | undefined,
@@ -489,7 +501,7 @@ export function applyContinuityPresetForPipeline(
   const keepEpisodeSheet = current.use_episode_sheet === true || current.references?.sheet === true
   return {
     ...(data || {}),
-    pacing: storedPipelinePresetPacing(data) ?? current.pacing,
+    pacing: current.pacing,
     motion_scope: current.motion_scope,
     motion_level: data?.motion_level ?? current.motion_level,
     use_episode_sheet: keepEpisodeSheet,
