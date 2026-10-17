@@ -90,6 +90,36 @@ This is not a release: version allocation, complete release gates, main integrat
 main-built DMG remain the release owner's work. No live pause/settings/HTTP/install or production
 job edits were performed by this follow-up worker.
 
+## Released; mini update requested — 2026-10-17 (1.4.316)
+
+Main `2ea94d598a232ed2972cf18a152f7983597776cc` is pushed. Four independently reviewed source-accepted
+candidates, plus five accepted test/type corrections found by running the gates:
+
+- `cbb01a66` one explicit episode-owned merged-audio choice (single resolver; render, stitch, plan gate,
+  Scene Review, audio-merge status and B-Roll agree where the owner has pinned; an accepted job keeps
+  its snapshot; a vanished accepted track is refused, never substituted).
+- `9be8c47d` two machine-wide Free up space controls — shrink images on all channels; clear uploaded
+  final videos on all channels only when the upload is freshly verified on its own channel and the
+  production is strictly older than 7 days, re-checked at mutation.
+- `b9c7ee85` a normal install (including a remote "Update now") waits for a media cleanup to finish or
+  be Stopped, even beyond 30 minutes; only the explicit "Install now (don't wait)" button bypasses it.
+- `a7cc7270` + `ea105d20` YouTube schedules confirmed by instant rather than by comparing text.
+
+Gates on the final tree, every one with a captured exit: full backend **exit 0** — 718/718 files, 7064
+tests, 7057 pass, 0 fail, 7 skipped, projects root byte-identical; frontend lane exit 0, 312/312 files,
+2623 pass; content packs exit 0, 368 tests, 366 pass, 2 skipped; electron typecheck, frontend typecheck,
+lint and the five static checks all 0; wide focused coverage exit 0, 337/337. The gates caught five
+candidate defects — a missing test hook, a `queued`-vs-`running` race, a bare fixture that could not
+reach the code under test, a stale refusal regex and a TS1355 `as const` — each corrected under
+independent review and re-gated. Earlier failing logs are preserved in `story-316-gate/`.
+
+DMG from the main checkout: `dist/Story Studio KH 1.4.316-arm64.dmg`, 243,095,313 bytes, SHA-256
+`7c09eb3fa192ecda2d4ccf4accbbf28603354f01722d7f5c3be739bd542c83f1`, app.asar 1.4.316, ad-hoc arm64,
+launch smoke passed; the 1.4.315 DMG moved to `_trash/dist/` with its bytes preserved. One publish
+POST, HTTP 200, readback matched. The mini's normal guarded update was requested once
+(`update_request_id ebf86063fa0741908a5f300172c5b8f5`) under the owner's direct approval; the owner's
+queue-pause state is untouched by this worker.
+
 ## Released; install pending the normal path — 2026-10-17 (1.4.315)
 
 Main `d5188dc7f96614a8dda21e77ae73fa6555ac62ac` is pushed. Six independently reviewed source-accepted
