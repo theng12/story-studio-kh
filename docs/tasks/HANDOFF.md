@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## Released; install pending the normal path — 2026-07-17 (1.4.312)
+## Released; install pending the normal path — 2026-10-17 (1.4.312)
 
 Main `dab23457f784fa1f3a9e52babaf414af4c675e53` is pushed. Two accepted product fixes:
 
