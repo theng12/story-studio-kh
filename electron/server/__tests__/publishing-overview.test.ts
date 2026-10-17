@@ -20,10 +20,12 @@ import fs from 'node:fs/promises'
 
 import { useTempDataDir } from './_helpers.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
+import type { UploadSchedule } from '../services/upload-plans.js'
 
 let pm: typeof import('../services/project-manager.js')
 let svc: typeof import('../services/publishing-overview.js')
 let plans: typeof import('../services/upload-plans.js')
+let cadence: typeof import('../services/publish-cadence.js')
 let connections: typeof import('../services/youtube-connection-store.js')
 let im: typeof import('../services/idea-manager.js')
 let pub: typeof import('../services/youtube-publication-cache.js')
@@ -35,6 +37,7 @@ before(async () => {
   pm = await import('../services/project-manager.js')
   svc = await import('../services/publishing-overview.js')
   plans = await import('../services/upload-plans.js')
+  cadence = await import('../services/publish-cadence.js')
   connections = await import('../services/youtube-connection-store.js')
   im = await import('../services/idea-manager.js')
   pub = await import('../services/youtube-publication-cache.js')
@@ -52,12 +55,37 @@ const SCHEDULE = { weekdays: [1, 3, 5], time_local: '18:00', timezone: 'UTC', st
 const CHANNEL = 'UC-pub'
 
 /**
+ * A project whose publishing cadence is REALLY stored.
+ *
+ * `pm.createProject({ publish_cadence })` does NOT store it: that write sits
+ * inside `if (!existsSync(configPath))`, and the blank template already ships a
+ * config.json (`electron/templates/blank/config.json`), so the block is skipped
+ * and the argument is silently dropped. Seeding that way made every
+ * cadence-dependent assertion below read an absent plan ("Publishing plan not
+ * set") — a fixture bug, not a product one: `POST /projects` validates with a
+ * `.strict()` schema that has no `publish_cadence` key, so no product path can
+ * supply one at creation either, and the owner's rhythm is stored by
+ * `saveChannelSchedule` instead.
+ *
+ * So the cadence is seeded through the product's own writer, which is exactly
+ * what `saveChannelSchedule` calls, and `readCadence` reads it back unchanged.
+ */
+async function projectWithCadence(name: string, prefix: string, schedule: UploadSchedule = SCHEDULE) {
+  const created = await pm.createProject({ name, episode_prefix: prefix })
+  await cadence.writeCadence(created.slug, {
+    schedule,
+    defaults: { privacy_status: 'private', made_for_kids: false },
+  })
+  return created
+}
+
+/**
  * A channel that is ASSIGNED and CONNECTED, so `resolveYouTubeCredential`
  * answers with a channel id and the confirmed (YouTube) half of the overview is
  * reachable at all.
  */
 async function connectedProject(name: string, prefix: string) {
-  const created = await pm.createProject({ name, episode_prefix: prefix, publish_cadence: { schedule: SCHEDULE } })
+  const created = await projectWithCadence(name, prefix)
   await connections.configureYouTubeApplication({ client_id: 'po-client', client_secret: 'po-client-secret-value' })
   await saveYouTubeChannelGrantForTest({
     channel: { channel_id: CHANNEL, title: 'Publishing Channel', granted_scopes: ['youtube.upload'] },
@@ -151,11 +179,7 @@ test('a channel with no cadence says "Publishing plan not set" — never a guess
 
 test('a LOCAL plan never clears a CONFIRMED gap — the uncovered slot is the first', async () => {
   const now = Date.now()
-  const created = await pm.createProject({
-    name: 'Gap Channel',
-    episode_prefix: 'GP',
-    publish_cadence: { schedule: SCHEDULE },
-  })
+  const created = await projectWithCadence('Gap Channel', 'GP')
   const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
   assert.ok(expected.length >= 4, 'fixture needs at least four slots')
 
@@ -183,7 +207,7 @@ test('a LOCAL plan never clears a CONFIRMED gap — the uncovered slot is the fi
 
 test('confirmed coverage is what clears a slot; a local plan alone does not', async () => {
   const now = Date.now()
-  const created = await pm.createProject({ name: 'Both Channel', episode_prefix: 'BP', publish_cadence: { schedule: SCHEDULE } })
+  const created = await projectWithCadence('Both Channel', 'BP')
   const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
   assert.ok(expected.length >= 3)
   // Two locally planned dates, no confirmed schedules.
@@ -287,11 +311,16 @@ test('next_unplanned_slot_at is the first slot with neither a confirmed schedule
   // …but "unplanned" also requires no local intent, so it is the third.
   assert.equal(channel.planned.next_unplanned_slot_at, expected[2])
   assert.equal(channel.coverage.at_risk, false)
-  // One confirmed event, one planned event (with its identity absent for a
-  // non-episode key), and one empty marker for the slot with nothing on it.
+  // One confirmed event; the locally planned date carries its own marker (with
+  // its identity absent for a non-episode key); and EVERY expected slot with
+  // nothing on it gets an empty marker — not one marker for "the" empty slot.
+  // The horizon is 12 slots, two of which are occupied here, so 12 − 2 = 10
+  // empty markers plus the one local plan. Pinned as the rule rather than a
+  // literal, because `expected.length >= 4` above already rules out a count of 2.
   assert.equal(overview.calendar.filter(e => e.kind === 'confirmed').length, 1)
   const planned = overview.calendar.filter(e => e.kind === 'planned')
-  assert.equal(planned.length, 2)
+  assert.equal(planned.length, 1 + (expected.length - 2))
+  assert.equal(planned.filter(e => e.empty === true).length, expected.length - 2)
   assert.equal(planned.find(e => e.at === expected[1]!)!.empty, undefined)
   assert.equal(planned.find(e => e.at === expected[2]!)!.empty, true)
 })
@@ -519,22 +548,25 @@ test('an unreadable plan is "could not read", not "not set"', async () => {
 
 test('a cadence that cannot produce a slot is treated as no plan', async () => {
   const now = Date.now()
-  await pm.createProject({
-    name: 'Empty Rhythm',
-    episode_prefix: 'ER',
+  const created = await pm.createProject({ name: 'Empty Rhythm', episode_prefix: 'ER' })
+  // The record IS stored and IS unusable — a cadence that can never produce a
+  // slot is worse than none, because it looks configured. Written through the
+  // config directly because `writeCadence` (correctly) refuses this shape.
+  await pm.updateConfig(created.slug, {
     publish_cadence: { schedule: { weekdays: [], time_local: '18:00', timezone: 'UTC' } },
-  })
+  } as any)
 
   const overview = await svc.readPublishingOverview({ now })
   // Readable, and genuinely empty: false, not null.
   assert.equal(overview.channels[0]!.plan_set, false)
   assert.equal(overview.channels[0]!.plan_error, undefined)
+  assert.deepEqual(overview.channels[0]!.planned.slots, [])
 })
 
 test('channels are ordered by earliest confirmed gap, then closest to finished', async () => {
   const now = Date.now()
   await pm.createProject({ name: 'Zeta No Plan', episode_prefix: 'ZP' })
-  await pm.createProject({ name: 'Alpha Plan', episode_prefix: 'AP', publish_cadence: { schedule: SCHEDULE } })
+  await projectWithCadence('Alpha Plan', 'AP')
 
   const overview = await svc.readPublishingOverview({ now })
 
@@ -550,7 +582,7 @@ test('channels are ordered by earliest confirmed gap, then closest to finished',
 
 test('no production ETA is invented anywhere in the payload', async () => {
   const now = Date.now()
-  await pm.createProject({ name: 'Shape Channel', episode_prefix: 'SP', publish_cadence: { schedule: SCHEDULE } })
+  await projectWithCadence('Shape Channel', 'SP')
 
   const overview = await svc.readPublishingOverview({ now })
   const serialized = JSON.stringify(overview).toLowerCase()
