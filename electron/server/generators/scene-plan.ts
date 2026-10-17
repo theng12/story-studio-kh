@@ -22,7 +22,7 @@ import { findSubfolder } from '../lib/folder-resolver.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { getConfig } from '../services/project-manager.js'
-import { computeStoryStartSec, scenePlanLeadInShiftSec } from '../lib/intro-lead-in.js'
+import { computeStoryStartSec, scenePlanLeadInShiftSec, selectMergedAudioFilename } from '../lib/intro-lead-in.js'
 import { resolveProjectOpening } from '../services/opening-assets.js'
 import { describeOpeningHead, measureOpeningSec } from '../lib/opening-duration.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
@@ -1365,9 +1365,15 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const { plan, creativeDirection } = loaded
     // 1.4.288 — before any prompt is bought, the scenes must reach the end of today's narration.
     // A short plan fails here, at Scene Plan, not an hour later at Video Assembly (AF EP0136).
+    // The completion record is written once per code and can describe a `_v2` beside the base,
+    // so name the merged track this episode actually renders with (the same selection the
+    // stitcher and renderer use) rather than trusting whatever the record happens to name.
+    const mergedEntries = await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])
+    const mergedFilename = selectMergedAudioFilename(mergedEntries, episode_id)
     const narration = await readNarrationRecord(
       path.join(paths.merged_audio_dir, `${episode_id.toUpperCase()}_merged_audio.completion.json`),
       path.join(paths.subtitles_dir, `${episode_id.toUpperCase()}_stitched.srt.json`),
+      mergedFilename,
     )
     const shortfallSec = planNarrationShortfallSec(plan.scenes, narration)
     // 1.4.300 "Scene Plan reaches the end of the narration" (Off/Warn): the last scene holds to the end.

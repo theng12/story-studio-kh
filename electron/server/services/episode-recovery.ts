@@ -17,6 +17,7 @@ import { ensureStitchedSubtitle, type EnsureStitchedOptions } from '../lib/subti
 import { verifyWrittenSubtitleTimeline } from './scene-timeline-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
+import { selectMergedAudioFilename } from '../lib/intro-lead-in.js'
 import { hashSubtitleAudioSources, inspectChapterSubtitleCompletion } from './subtitle-completion.js'
 import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
 import { readLocalMediaCleanupStatus } from './episode-media-cleanup.js'
@@ -544,7 +545,8 @@ async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
   const status = await computeEpisodeStatus(plan.project_slug, plan.episode_id)
   const scenePlanPath = await resolveScenePlanPath(plan.project_slug, plan.episode_id, paths.episode_dir)
   const drift = await inspectPlanTimelineDrift(scenePlanPath, path.join(paths.subtitles_dir, `${plan.episode_id.toUpperCase()}_stitched.srt`),
-    path.join(paths.merged_audio_dir, `${plan.episode_id.toUpperCase()}_merged_audio.completion.json`))
+    path.join(paths.merged_audio_dir, `${plan.episode_id.toUpperCase()}_merged_audio.completion.json`),
+    selectMergedAudioFilename(await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[]), plan.episode_id))
   verified.scene_plan_run = status.scene_plan && !drift.stale
   verified.contextual_cues = status.contextual_cues === true
     && (!plan.steps.contextual_cues || status.contextual_cues_generated === true)
