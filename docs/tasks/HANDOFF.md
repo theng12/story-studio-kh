@@ -1,5 +1,27 @@
 # HANDOFF — Story Studio KH
 
+## Released; install pending the normal path — 2026-10-17 (1.4.311)
+
+Main `298870d53d009bf6a53aa582e13117ba814c1642` is pushed. This release is internal only: the three
+test files that carried fixed-ms sleeps before an assertion now use deterministic waits
+(`ff723989`, review passed: 32 tests, 10 repeats, typecheck), and the guard's transitional baseline
+allowances for them were removed in a new commit (`124c3d80`) so the allowance is 0/0/0 rather than
+the 2/1/1 recorded in 1.4.310's `603315a4`. No product source changed and no app behaviour differs.
+
+Gates: full backend 707/707 files, 6959 tests, 6952 pass, 0 fail, 7 skipped, projects root
+byte-identical (taken under a gate lease with no competing suite); electron and frontend typechecks,
+lint 0 errors, check:changelog/typography/security/model-drift/release, content packs 366/368 pass
+2 skipped, release lane 57/57 on main after the build.
+
+DMG built from the main checkout: `dist/Story Studio KH 1.4.311-arm64.dmg`, 243,032,560 bytes,
+SHA-256 `760f2cef64b8d2f6d5c038e0148875835a2061a132c9b2decfedf4f5a7a602a0`, bundled app.asar
+1.4.311, ad-hoc arm64, launch smoke passed; the 1.4.310 DMG moved to `_trash/dist/`. Gateway
+publication was one POST (HTTP 200) with a matching readback. Receipts: orchestra `story-311-gate/`.
+
+The mini still reads 1.4.310 with the 1.4.311 update available; this worker did not request an
+install (that action was denied earlier and the hold stands). Excluded, still under review:
+immediate-install `63d39c3e` + guard `7ee410e4`, and audio evidence identity `2281552a`.
+
 ## Released and installed — 2026-10-17 (1.4.310)
 
 Main `87ea6b5dca28163ad07d2c661d81335966c0fb14` is pushed; the mini reports 1.4.310 with
