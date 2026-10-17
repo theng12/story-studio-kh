@@ -155,8 +155,13 @@ test('resolveEpisodeIntroLeadIn refuses a pin that no longer names a real track'
 
   const lead = await resolveEpisodeIntroLeadIn(paths.episode_dir, paths.merged_audio_dir, code)
   assert.equal(lead.status, 'unmeasurable')
-  assert.match(lead.reason || '', /selected merged audio/i)
-  assert.match(lead.reason || '', /_v3\.mp3/)
+  // Pin the facts that make the refusal actionable — WHICH pin, WHICH episode, and
+  // WHERE it was not found — rather than a phrase this module never writes. A regex
+  // on wording that does not exist passes on nothing and hides a real message change.
+  const reason = lead.reason || ''
+  assert.ok(reason.includes(`("${code}_merged_audio_v3.mp3")`), `the pin is named: ${reason}`)
+  assert.ok(reason.toLowerCase().includes(code.toLowerCase()), `the episode is named: ${reason}`)
+  assert.ok(reason.includes(`is not in ${paths.merged_audio_dir}`), `the folder it is missing from is named: ${reason}`)
 })
 
 // ── The renderer's own scan agrees ──────────────────────────────────────────
