@@ -8,7 +8,7 @@ What's new in each release. Newest first.
 
 - Scene Review's Finish and Replacement now work when Story Studio is opened over plain HTTP (for example from another Mac on your network) instead of refusing with a browser-identity error. The same secure request identity is now used by the Pipeline, the Episode Builder and the publish action.
 - Free Up Space: the button is spaced from the episode list instead of sitting flush against it.
-- Settings' left rail now shows This Mac / This Channel clearly, with the heading and the selected item tinted.
+- Settings' left rail now shows This Mac / This Channel clearly: each group heading gets a scope-coloured dot and the selected item a matching tint, using the same colours as the header legend.
 - Scene pictures and previews are served with the media type read from the file's bytes, so a picture whose file name has the wrong extension still displays.
 - The Pipeline no longer offers "Models for this run": the writing model comes from the preset you selected, through the Gateway (owner, 2026-10-17). The preset selector no longer overflows its panel.
 - Character Sheet no longer carries a leftover preset scene-rhythm notice or applies pacing. The episode's rhythm stays with Scene Plan's Visual timing & motion, and saving a visual setup keeps the episode timing you already have.
