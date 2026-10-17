@@ -42,6 +42,7 @@ import path from 'node:path'
 import * as pm from './project-manager.js'
 import * as jq from './job-queue.js'
 import { getIdeas } from './idea-manager.js'
+import type { StoredIdea } from './idea-manager.js'
 import { readCadence } from './publish-cadence.js'
 import { listPlans, getActivePlanId, computeSlots, readItemSchedule, localDayKeyInTz, type UploadSchedule } from './upload-plans.js'
 import {
@@ -188,7 +189,7 @@ async function readConfirmed(
 
 async function readReadiness(
   slug: string,
-  ideas: Array<{ episode_code?: string; title?: string }>,
+  ideas: StoredIdea[],
   ideasUnreadable: boolean,
   facts: ProjectFactsCache,
 ): Promise<{
@@ -437,7 +438,7 @@ export async function buildChannelOverview(
   // would arrive here as the same list and every count over it would be a
   // confident zero. The probe is what tells them apart.
   let ideasUnreadable = !(await ideaStoreReadable(slug, facts))
-  let ideas: Array<{ episode_code?: string; title?: string }> = []
+  let ideas: StoredIdea[] = []
   if (!ideasUnreadable) {
     try { ideas = await getIdeas(slug, 'accepted', facts) }
     catch { ideasUnreadable = true }
