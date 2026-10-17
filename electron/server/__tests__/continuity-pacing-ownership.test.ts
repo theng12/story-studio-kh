@@ -34,6 +34,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 const EP_A = 'EP001'
 const EP_B = 'EP002'
@@ -50,10 +51,6 @@ let dirA: string
 let dirB: string
 let sidecarA: string
 let sidecarB: string
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
 
 /** The whole continuity config the Character Sheet page would send. */
 function pagePayload(overrides: Record<string, unknown> = {}) {
@@ -240,52 +237,58 @@ describe('the fresh-episode and isolation cases', () => {
 })
 
 describe('the preserve read happens inside the sidecar lock', () => {
-  test('a save queues behind the sidecar key and reads AFTER it, not before', async () => {
-    // Two properties, and both need proving — a single final-state assertion
-    // cannot carry them on its own, because a writer that landed later would
-    // mask a missing lock.
-    //
-    //  (a) the save takes the sidecar key at all (a save that never locks
-    //      finishes while the key is held);
-    //  (b) the read happens INSIDE that lock. The writer below lands a NEW
-    //      rhythm from inside the held lock, AFTER the delay — so a save that
-    //      read before taking the lock would have read the old band and would
-    //      write it back. That is the assertion that carries T1.
-    const { withLock } = await import('../lib/atomic-store.js')
+  test('the save queues behind the sidecar key and reads AFTER the writer it waited for', async () => {
+    // Driven by the lock itself, not by a duration. `withLock` is a per-key
+    // promise chain, so "queued behind the key" is a real, observable state
+    // (`__pendingLockWaitersForTests`) rather than a bet that a machine was
+    // prompt — the class `no-new-wallclock-sleeps.test.ts` exists to stop.
+    const { withLock, __pendingLockWaitersForTests } = await import('../lib/atomic-store.js')
     await seedSidecar(sidecarA, { ...pagePayload(), pacing: { ...SCENE_PLAN_RHYTHM } })
 
     const LANDED_WHILE_WAITING = { min_sec: 21, max_sec: 30 }
-    const gate = withLock(sidecarA, async () => {
-      await sleep(80)
-      // The timing editor's write, landing while the visual save is in flight.
+    let release!: () => void
+    const released = new Promise<void>(resolve => { release = resolve })
+
+    // The timing editor's write: it takes the sidecar key and holds it until
+    // the test releases it, then lands the new rhythm — exactly what a Scene
+    // Plan timing save does while a visual save is in flight.
+    //
+    // `writerHoldsKey` is the other half of the signal below: the writer is
+    // itself a waiter until its callback starts, so the wait must know it has
+    // that callback running before a queued caller means "the save".
+    let writerHoldsKey = false
+    const timingWrite = withLock(sidecarA, async () => {
+      writerHoldsKey = true
+      await released
       await fs.writeFile(
         sidecarA,
         JSON.stringify({ ...pagePayload(), pacing: { ...LANDED_WHILE_WAITING } }, null, 2),
         'utf-8',
       )
-      await sleep(80)
     })
 
-    const inFlight = Promise.resolve(
+    const save = Promise.resolve(
       request(app).put(`/api/projects/${slug}/continuity/${EP_A}`).send(pagePayload()),
     )
 
-    // (a) Advisory and timing-based: a save that does not take the key at all
-    // completes in a few ms, long before this probe. The assertion below is
-    // what carries the value.
-    const raced = await Promise.race([
-      inFlight.then(() => 'completed'),
-      sleep(60).then(() => 'waited'),
-    ])
-    assert.equal(raced, 'waited', 'the save must queue behind the sidecar key, not run through it')
+    // (a) The save takes the key — proven, not assumed. A save that never
+    // locked would never appear as a waiter, and this wait would time out
+    // instead of passing. This is deliberately not reduced to a final-state
+    // assertion: a writer landing later would mask a missing lock.
+    await waitFor(
+      () => writerHoldsKey && __pendingLockWaitersForTests(sidecarA) >= 1,
+      { label: 'the visual save to queue behind the sidecar key' },
+    )
 
-    await gate
-    const res = await inFlight
+    release()
+    await timingWrite
+    const res = await save
     assert.equal(res.status, 200, JSON.stringify(res.body))
 
-    // (b) The load-bearing assertion. A read taken before `withLock` would have
-    // carried SCENE_PLAN_RHYTHM back out; a read taken inside it preserves what
-    // landed while the save waited.
+    // (b) Load-bearing, and exact now that (a) fixed the order: the save had
+    // ALREADY reached `withLock` before the timing write ran. A read taken
+    // before the lock would therefore have read SCENE_PLAN_RHYTHM and written
+    // it back; a read inside the lock keeps what landed while it waited.
     assert.deepEqual(
       (await readSidecar(sidecarA)).pacing,
       LANDED_WHILE_WAITING,
