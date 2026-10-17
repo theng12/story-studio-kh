@@ -1113,18 +1113,23 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       // `hasRecoverableUnsettledGenStudioEvidence` was never cancelled by anybody. The paused branch
       // above already fixed exactly this wording; the terminal branch was missed.
       //
-      // The terminal state stays `error` with the evidence retained, and nothing new is submitted: an
-      // unknown outcome may already have been accepted and charged, and the generator refuses to
+      // The terminal state stays `error` with the evidence retained, and this branch submits nothing:
+      // an unknown outcome may already have been accepted and charged, and the generator refuses to
       // repair while it is unknown precisely because a second request would race work already paid
-      // for (`requestUnresolved` in generators/scene-plan.ts). The wording below is the one the
-      // prompt-repair route already uses for this state, so the owner reads the same sentence
-      // wherever it appears.
+      // for (`requestUnresolved` in generators/scene-plan.ts).
+      //
+      // SCOPE — the sentence must describe THIS reconciliation, not Story Studio at large. An earlier
+      // pass on the same job may legitimately have re-sent a lost writing request as a fresh one
+      // (DM0009's own log says so, and that re-send is why one of its rows is `succeeded`), so any
+      // unqualified "did not submit fresh paid work" would contradict the job's own output list a few
+      // lines above. The paused branch above is scoped the same way ("no new generation request was
+      // sent"), which is true even when a re-send happened earlier.
       const unprovenOutcome = evidence.some(entry => (
         entry.state === 'failed' && entry.cancelled !== true && evidenceHoldsUnknownOutcome(entry)
       ))
       job.status = 'error'
       job.error = unprovenOutcome
-        ? 'The Gateway could not prove whether an earlier request was accepted. Story Studio kept that evidence and did not submit fresh paid work. Check the Gateway before trying again.'
+        ? 'The Gateway could not prove whether an earlier request was accepted. Story Studio retained that evidence. This reconciliation sent no new generation request. Check the Gateway before trying again.'
         : hasCancellationContext(job)
           ? 'A Gateway provider task failed after cancellation reconciliation. Provider evidence is retained.'
           : 'A Gateway provider task failed. Provider evidence is retained.'

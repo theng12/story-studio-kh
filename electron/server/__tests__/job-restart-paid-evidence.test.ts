@@ -251,7 +251,7 @@ test('H-17: a stuck running row cannot be retried, only abandoned', async () => 
 test('H-17: an unknown-outcome failure is not reported as a settled provider failure', async () => {
   const project = await pm.createProject({ name: 'Restart scene plan unknown outcome' })
   const jobId = 'restart-scene-plan-uncertain'
-  await seed(project.slug, interruptedJob('scene_plan_run', jobId, project.slug, [
+  const job = interruptedJob('scene_plan_run', jobId, project.slug, [
     {
       id: 'chat-settled-1', operation: 'chat.response', state: 'succeeded',
       request_key: 'story-chat-settled-1', updated_at: new Date().toISOString(),
@@ -267,7 +267,14 @@ test('H-17: an unknown-outcome failure is not reported as a settled provider fai
       id: 'chat-inflight-1', operation: 'chat.response', state: 'accepted',
       request_key: 'story-chat-inflight-1', updated_at: new Date().toISOString(),
     },
-  ]))
+  ])
+  // DM0009's own list, verbatim: an earlier pass DID send a fresh request, and that
+  // re-send is why one of its rows is `succeeded`. The terminal line lands in this
+  // same list, so it must not contradict the line above it.
+  job.output_lines = [
+    'The writing service lost track of a writing request after it was sent; Story sends it once more as a fresh request. The safety check "Lost writing request" is set to Off for this channel, so this carries on.',
+  ]
+  await seed(project.slug, job)
   calls.length = 0
 
   await jq.getJobs(project.slug)
@@ -293,9 +300,20 @@ test('H-17: an unknown-outcome failure is not reported as a settled provider fai
     'the unknown outcome must be named as unknown',
   )
   assert.match(
-    String(settled.error), /did not submit fresh paid work/i,
-    'the owner must be told nothing new was sent',
+    String(settled.error), /this reconciliation sent no new generation request/i,
+    'the "sent nothing" claim must be scoped to this reconciliation',
   )
+  // And it must NOT make the unscoped claim: DM0009's own log records an earlier pass re-sending a
+  // lost writing request as a fresh one, so an unqualified "did not submit fresh paid work" would
+  // contradict the job's own output list a few lines above it.
+  assert.doesNotMatch(
+    String(settled.error), /did not submit fresh paid work/i,
+    'an unqualified claim about Story Studio at large is false on a job that re-sent earlier',
+  )
+  // The owner reads ONE list. The earlier re-send line and this terminal line must coexist in it.
+  const list = settled.output_lines.join('\n')
+  assert.match(list, /once more as a fresh request/i, 'the earlier re-send must still be recorded')
+  assert.doesNotMatch(list, /did not submit fresh paid work/i, 'nothing in the list may deny that re-send')
   // Unknown outcome means Story Studio must submit nothing new: the request may
   // already have been accepted and charged.
   assert.equal(calls.some(call => call.method !== 'GET'), false, JSON.stringify(calls))
