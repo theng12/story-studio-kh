@@ -57,7 +57,7 @@ test('fails before recording an action when secure browser entropy is unavailabl
     const action = useFreshGenerationAction()
     assert.throws(
       () => action.begin({ episode: 'EP0001' }),
-      (error: any) => error?.data?.detail === 'This browser cannot create a secure request identity. Open Story Studio in a secure browser connection and try again.',
+      (error: any) => error?.data?.detail === 'This browser cannot create a secure request identity, so nothing was sent.',
     )
     assert.equal(action.hasPending.value, false)
   })
