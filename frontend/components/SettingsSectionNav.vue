@@ -32,7 +32,7 @@
     <nav v-else aria-label="Settings sections">
       <section v-for="zone in zones" :key="zone.id" class="settings-nav-scope" :data-settings-scope="zone.id">
         <header>
-          <strong>{{ zone.title }}</strong>
+          <strong><span class="settings-nav-scope-dot" aria-hidden="true" />{{ zone.title }}</strong>
           <span>{{ zone.scope }}</span>
         </header>
         <a
@@ -79,9 +79,13 @@ function go(hit: SettingEntry): void {
 }
 .settings-search input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 nav { display: grid; gap: 14px; }
-.settings-nav-scope { display: grid; gap: 2px; }
+/* This Mac / This Channel: a scope-coloured dot on each group heading and a matching selected item, from the existing --settings-gold / --settings-green tokens. */
+.settings-nav-scope { display: grid; gap: 2px; --scope-color: var(--text-muted); }
+.settings-nav-scope[data-settings-scope="machine"] { --scope-color: var(--settings-gold); }
+.settings-nav-scope[data-settings-scope="project"] { --scope-color: var(--settings-green); }
 .settings-nav-scope > header { display: grid; gap: 1px; margin: 0 0 4px; padding: 0 8px; }
 .settings-nav-scope > header strong { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 600; }
+.settings-nav-scope-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; vertical-align: middle; background: var(--scope-color); }
 .settings-nav-scope > header span { color: var(--text-muted); font-size: var(--font-xs); }
 .settings-nav-scope a {
   display: grid; gap: 1px; padding: 7px 8px; border-radius: 6px;
@@ -91,7 +95,7 @@ nav { display: grid; gap: 14px; }
 .settings-nav-scope a span { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .settings-nav-scope a:hover { background: var(--bg-tertiary); }
 .settings-nav-scope a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.settings-nav-scope a.active { background: var(--accent-dim); }
+.settings-nav-scope a.active { background: color-mix(in srgb, var(--scope-color) 16%, transparent); box-shadow: inset 2px 0 0 var(--scope-color); }
 .settings-nav-scope a.active strong { font-weight: 600; }
 .settings-search-results { display: grid; gap: 2px; }
 .settings-search-hit {
