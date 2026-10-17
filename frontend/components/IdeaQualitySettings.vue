@@ -41,6 +41,7 @@
           </select>
         </label>
         <p v-if="embeddingNote" class="hint">{{ embeddingNote }}</p>
+        <p class="hint">The model you choose must be able to tell this channel’s ideas apart — including in the language you write them in. Watch-only mode rejects nothing, so it only reports scores. When the meaning check cannot be used, the run log says so and the improved word check is used instead.</p>
         <label>Counts as a repeat at similarity <input v-model.number="form.semantic_threshold" class="input input-sm" type="number" min="0.5" max="0.999" step="0.01" /></label>
       </fieldset>
 
