@@ -22,6 +22,7 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 
 const SLUG = 'reconcile-after-stitch'
 const CODE = 'EP0001'
@@ -44,28 +45,45 @@ before(async () => {
 after(async () => { await tmp.cleanup() })
 
 /**
- * Two chapters, each one cue matching one scene's transcript, a merged track
- * whose lead-in the record can measure (so no ffprobe is needed), and a plan
- * whose two scenes overlap by a second — enough to trigger the auto-reconcile.
- * Deliberately NO `{CODE}_stitched.srt`: the pass must create it.
+ * Two chapters, each one cue matching one scene's transcript, the chapter audio
+ * those cues were made from, a merged track whose lead-in the record can measure,
+ * and a plan whose two scenes overlap by a second — enough to trigger the
+ * auto-reconcile. Deliberately NO `{CODE}_stitched.srt`: the pass must create it.
+ *
+ * The chapter audio is not decoration. The stitcher refuses to build captions
+ * whose audio identity it cannot check (`inspectSubtitleSourceFreshness`), and a
+ * section whose `${CODE}_${slug}.mp3` is missing counts as changed — that is
+ * AGENTS.md §6 working ("I could not measure it" is not "it matches"). A fixture
+ * without it never reaches the stitch at all. The audio is written BEFORE the
+ * SRTs so the transcripts are not older than the narration they describe.
  */
 async function episode() {
   const episodeDir = path.join(tmp.dir, 'projects', SLUG, 'episodes', 'Season 001', `${CODE} - Ep 1`)
   const imagesDir = path.join(episodeDir, 'scene_images')
+  const audioDir = path.join(episodeDir, `${CODE} - 07 Audio Assets`)
   const mergedDir = path.join(episodeDir, `${CODE} - 08 Audio Merge Output`)
   const subtitlesDir = path.join(episodeDir, `${CODE} - 09 Subtitles Output`)
-  for (const dir of [imagesDir, mergedDir, subtitlesDir]) await fs.mkdir(dir, { recursive: true })
+  for (const dir of [imagesDir, audioDir, mergedDir, subtitlesDir]) await fs.mkdir(dir, { recursive: true })
 
   await fs.writeFile(path.join(episodeDir, 'audio_chapters.json'), JSON.stringify({
     gap_duration_s: 1,
     sections: [{ slug: 'chapter_1', duration_s: 6 }, { slug: 'chapter_2', duration_s: 6 }],
   }))
+  const tone = (file: string, seconds: number) => runFfmpeg([
+    '-y', '-f', 'lavfi', '-i', `anullsrc=channel_layout=mono:sample_rate=8000,atrim=duration=${seconds}`,
+    '-codec:a', 'libmp3lame', '-q:a', '9', file,
+  ])
+  await tone(path.join(audioDir, `${CODE}_chapter_1.mp3`), 6)
+  await tone(path.join(audioDir, `${CODE}_chapter_2.mp3`), 6)
+
   await fs.writeFile(path.join(subtitlesDir, `${CODE}_chapter_1.srt`),
     '1\n00:00:00,000 --> 00:00:06,000\nalpha one two three\n')
   await fs.writeFile(path.join(subtitlesDir, `${CODE}_chapter_2.srt`),
     '1\n00:00:00,000 --> 00:00:06,000\nbravo one two three\n')
 
-  await fs.writeFile(path.join(mergedDir, `${CODE}_merged_audio.mp3`), 'not really audio')
+  // 6 + 1s gap + 6 = 13s, so the merged track is exactly the narration the plan
+  // is timed to and the re-anchor keeps the plan's own 13s end.
+  await tone(path.join(mergedDir, `${CODE}_merged_audio.mp3`), 13)
   await fs.writeFile(path.join(mergedDir, `${CODE}_merged_audio.completion.json`), JSON.stringify({
     output_filename: `${CODE}_merged_audio.mp3`,
     duration_sec: 13,
@@ -91,20 +109,27 @@ test('a first-pass render stitches the chosen track before re-anchoring the plan
 
   const { prepareUnifiedVideoAssemblyInputs } = await import('../generators/video.js')
   const job = { output_lines: [] as string[] } as any
-  // Whatever later gates this bare fixture does not satisfy are not the subject here.
-  await prepareUnifiedVideoAssemblyInputs(SLUG, CODE, { subtitles: { enabled: true } } as any, job).catch(() => {})
+  // The fixture is bare past its captions, so a later gate may still stop the
+  // pass — allowed. What is NOT allowed is stopping before the captions step has
+  // written either line, and a bare `.catch(() => {})` here hid exactly that: a
+  // thrown captions blocker left an empty log that read as a passing order. The
+  // error is captured and carried into every assertion message instead.
+  const failure = await prepareUnifiedVideoAssemblyInputs(SLUG, CODE, { subtitles: { enabled: true } } as any, job)
+    .then(() => null, (error: Error) => error)
+  const log = (): string => job.output_lines.join('\n')
+    + (failure ? `\n(prepareUnifiedVideoAssemblyInputs threw: ${failure.message})` : '')
 
   const stitchIdx = job.output_lines.findIndex((line: string) => /^Subtitles: stitched /.test(line))
   const reconcileIdx = job.output_lines.findIndex((line: string) => /^Scene Plan: .*re-anchored the timings/.test(line))
 
-  assert.ok(stitchIdx >= 0, `the chosen track was stitched:\n${job.output_lines.join('\n')}`)
+  assert.ok(stitchIdx >= 0, `the chosen track was stitched:\n${log()}`)
   assert.ok(
     reconcileIdx >= 0,
-    `the plan was re-anchored against those captions:\n${job.output_lines.join('\n')}`,
+    `the plan was re-anchored against those captions:\n${log()}`,
   )
   assert.ok(
     stitchIdx < reconcileIdx,
-    `the stitch must feed the reconciliation, not follow it:\n${job.output_lines.join('\n')}`,
+    `the stitch must feed the reconciliation, not follow it:\n${log()}`,
   )
   assert.ok(existsSync(stitched), 'the pass produced the stitched timeline it re-anchored against')
 })
