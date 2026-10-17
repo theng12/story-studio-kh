@@ -13,7 +13,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { after, beforeEach, test } from 'node:test'
+import { after, before, beforeEach, test } from 'node:test'
 
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
