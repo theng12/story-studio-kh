@@ -80,6 +80,37 @@ Not included: the immediate-install feature (`63d39c3e`, accepted with a follow-
 DMG build, publication, and the mini's normal guarded update still have to be verified; the mini is
 on 1.4.309 with an unpaused queue.
 
+## Source candidate, not released — 2026-10-16 (immediate install, branch feat/install-update-immediately)
+
+"Install now (don't wait)" (owner request, 2026-10-16): `POST /app-update/install-now` takes
+`{immediately:true}`; the queue is paused, the state persisted (`immediate:true`), and `install()`
+runs without the drain — from `ready` or `draining`, or as soon as staging finishes when pressed
+while downloading. The banner and Settings → Updates both offer it behind the existing confirm.
+Commits: `63d39c3e` (feature) and the guard fix below. Source-only: no version bump, no changelog
+entry, no DMG, no install; the next release must add the CHANGELOG line.
+
+Guard follow-up (independent re-review of the guard, 2026-10-17 — two blockers, both fixed):
+B1 the claim was never freed when the quit was vetoed (`will-prevent-unload` aborts it), so after the
+6-minute "did not quit" failure every later install — immediate, plain or automatic — stalled in
+`draining` with intake paused; the quit-deadline timer now frees the claim (`installing = null`).
+B2 a caller that paused intake and then lost the race returned without recording `we_paused`, so
+after the restart `releaseOurPause` could not lift the updater's own pause and the owner's intake
+stayed stopped; that caller now records the pause it took. Both regressions are covered by
+deterministic tests (the quit deadline is a test seam, `_setQuitDeadlineForTesting`).
+
+Concurrency guard (independent review N1, confirmed): a drain tick suspended in
+`wouldNotResume`/`inFlightSubmits` could spawn a second helper and write `draining` over the
+`installing` an immediate press had committed. `install()` now has one claimed in-flight hand-off
+(`installing` in services/app-update.ts), `maybeInstall` re-reads the state after its `setPaused`
+await and only claims the drain if the release has not moved on, and the drain tick re-reads the
+phase before handing off. Two regression tests cover immediate+immediate (both held in `setPaused`)
+and suspended drain+immediate; both fail on the pre-fix source.
+
+Known, deliberate behaviour (review N2, no setting added): the immediate request is standing intent,
+like the existing `install_requested` — a request recorded while release X downloads installs the
+next offered release (Y) immediately, without a second confirmation. Say so in the release notes
+when this ships.
+
 ## Released; install pending automatic drain — 2026-10-16 (1.4.306)
 
 Product `58bd99f5200b6e66a3c4f75f0d229ffecc2e80fa` (custom narration guidance now carried into Pipeline outlines/runs) is on main and pushed, fast-forwarded from 80e34dfd via `land/1.4.306-into-main`. Gates: full backend 699/699 files, 6849 pass, 0 fail, 7 skipped; frontend 310/310 files, 2605 pass; content packs 38/38 files, 368 total, 366 pass, 2 skipped; release lane 6/6 files, 57 pass; check:changelog, typography, security, model-drift and check:release pass.

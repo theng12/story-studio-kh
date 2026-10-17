@@ -3,7 +3,7 @@
  *
  *   GET  /app-update/status          state, settings, pinned key fingerprint, Open at Login
  *   POST /app-update/check           Check Now
- *   POST /app-update/install-now     install the staged release now (automatic installs are prompt too; see services/app-update.ts)
+ *   POST /app-update/install-now     { immediately? } install the staged release now; immediately skips the wait for running jobs (automatic installs are prompt too; see services/app-update.ts)
  *   PUT  /app-update/settings        { auto_install? }
  *   POST /app-update/trust-new-key   forget the pinned release key (the next check pins the new one)
  *   PUT  /app-update/open-at-login   { enabled }
@@ -84,7 +84,7 @@ function handle(fn: (req: any) => Promise<unknown>) {
 
 router.get('/app-update/status', handle(() => updater.status()))
 router.post('/app-update/check', handle(async () => { await updater.checkNow(true); return updater.status() }))
-router.post('/app-update/install-now', handle(async () => { await updater.installNow(); return updater.status() }))
+router.post('/app-update/install-now', handle(async (req) => { await updater.installNow(req.body?.immediately === true); return updater.status() }))
 router.put('/app-update/settings', handle(async (req) => {
   const body = req.body || {}
   const patch: Partial<updater.UpdateSettings> = {}

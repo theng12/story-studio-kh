@@ -32,3 +32,14 @@ export function installNowQuestion(version: string, jobsLeft: number): { title: 
     message: `Install Now pauses new work, waits for requests already sent to the Gateway and for jobs that cannot pick up where they stopped (up to 30 minutes), installs ${version} and restarts. Work resumes after the restart; anything that cannot shows Retry in Jobs.`,
   }
 }
+
+/** "Install now (don't wait)": offered while a release is downloading, ready or waiting on the drain. */
+export const INSTALL_IMMEDIATELY_LABEL = "Install now (don't wait)"
+export const canInstallImmediately = (phase: string | undefined): boolean => ['downloading', 'ready', 'draining'].includes(phase || '')
+
+export function installImmediatelyQuestion(version: string): { title: string; message: string } {
+  return {
+    title: INSTALL_IMMEDIATELY_LABEL,
+    message: `Running jobs are stopped now and pick up again after the restart (paid work that cannot resume waits for Retry). Install Story Studio ${version} now?`,
+  }
+}

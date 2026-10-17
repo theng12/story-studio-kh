@@ -25,7 +25,9 @@
  *    Then it installs. A queue the owner paused himself is his: the update waits for him to resume
  *    it or press Install Now. If he presses Resume during the wait, his choice wins: the update
  *    waits for Install Now. **Install Now** takes the same path but goes ahead after 30 minutes
- *    even if a job that cannot resume is still running.
+ *    even if a job that cannot resume is still running. **Install now (don't wait)** (`immediate`)
+ *    pauses intake and installs at once, interrupting running jobs: the boot scan resumes what it
+ *    can, retries free work, and leaves paid work that cannot resume for Retry.
  * 5. **Swap** with a detached helper (`helperScript`) after this app quits normally: the installed
  *    bundle goes to `<data>/previous-apps/`; the new one moves into place, and the app is relaunched
  *    (through the login agent when it is installed, so it stays supervised). Story keeps the last
@@ -89,6 +91,12 @@ export interface UpdateState {
   we_paused?: boolean
   drain_started_at?: number | null
   install_requested?: boolean
+  /**
+   * The owner pressed "Install now (don't wait)": install as soon as staged, without draining.
+   * Standing intent like `install_requested`: a request recorded while one release downloads
+   * installs the next offered release immediately, without a second confirmation.
+   */
+  immediate?: boolean
   /** Gateway manual command acknowledged only once its verified attempt actually starts. */
   gateway_update_request_id?: string | null
   /** The owner pressed Resume during a drain: no automatic install of this release. */
@@ -420,6 +428,16 @@ let checking: Promise<UpdateState> | null = null
 let drainTimer: NodeJS.Timeout | null = null
 let idleTimer: NodeJS.Timeout | null = null
 let quittingForUpdate = false
+/** How long the quit is given before the hand-off is called off (`_setQuitDeadlineForTesting`). */
+let quitDeadlineMs = 6 * 60_000
+/**
+ * The one in-flight install hand-off, set synchronously by `install()` before its first await.
+ * Two callers race here — a drain tick suspended in `wouldNotResume`/`inFlightSubmits` and an
+ * "Install now (don't wait)" press (or two presses) — and only the winner may spawn the helper or
+ * patch the state, so the loser can neither start a second helper nor write `draining` over the
+ * `installing` the winner committed.
+ */
+let installing: Promise<boolean> | null = null
 
 /** main.ts's quit path asks this so a "jobs are running, quit?" question never blocks an update. */
 export function isQuittingForUpdate(): boolean { return quittingForUpdate }
@@ -447,7 +465,7 @@ export async function onBoot(options: UpdaterOptions): Promise<UpdateState> {
   const target = state.release.version
   if (options.currentVersion === target && await selfHealthy(options.port, target)) {
     const next = patchState({ phase: 'installed', installed_at: Date.now(), error: null, staged_app: null,
-      install_requested: false, held: false })
+      install_requested: false, immediate: false, held: false })
     await releaseOurPause()
     await toTrash(path.join(updateDir(), 'staging', target), 'app-update').catch(() => {})
     return next
@@ -460,7 +478,7 @@ export async function onBoot(options: UpdaterOptions): Promise<UpdateState> {
   } catch { /* no result */ }
   // It was installed and did not come up healthy: never this signature again automatically.
   const next = patchState({ phase: options.currentVersion === target ? 'failed' : 'rolled_back', error: detail,
-    skip_signature: state.release.signature, install_requested: false, staged_app: null })
+    skip_signature: state.release.signature, install_requested: false, immediate: false, staged_app: null })
   await releaseOurPause()
   return next
 }
@@ -734,20 +752,40 @@ export async function maybeInstall(): Promise<void> {
   const o = opts!
   const state = readState()
   if (state.phase !== 'ready' && state.phase !== 'draining') return
-  if (state.phase === 'ready') {
-    if (!state.install_requested) {
+  const before = readState()
+  let claimed = before.phase === 'draining'
+  if (before.phase === 'ready') {
+    if (!before.install_requested) {
       const settings = await o.getSettings()
-      if (!settings.auto_install || state.held) return
-      if (o.queue.loaded?.() === false || (o.queue.isPaused() && !state.we_paused)) return watchIdle()
+      if (!settings.auto_install || before.held) return
+      if (o.queue.loaded?.() === false || (o.queue.isPaused() && !before.we_paused)) return watchIdle()
     }
-    let wePaused = !!state.we_paused
+    let wePaused = !!before.we_paused
     if (!o.queue.isPaused()) {
       await o.queue.setPaused(true)
       wePaused = true
     }
+    // Anything the call above suspended through may have moved this release on (a second press, a
+    // drain tick, an install): only the caller that still sees the same state may claim the drain.
+    // A caller sent home here still took the pause above, so it records that before it returns:
+    // otherwise the winner (which found the queue already paused and skipped `setPaused`) leaves
+    // `we_paused` false, and `releaseOurPause` cannot lift the updater's own pause after the restart.
+    const now = readState()
+    if (now.phase !== 'ready' || now.drain_started_at !== before.drain_started_at) {
+      if (wePaused && !before.we_paused) patchState({ we_paused: true })
+      return
+    }
     patchState({ phase: 'draining', drain_started_at: o.now?.() ?? Date.now(), we_paused: wePaused })
+    claimed = true
   }
-  watchDrain()
+  // Install now (don't wait): intake is paused above, running jobs are left to the boot scan. The
+  // promise is claimed before this function yields again, so an overlapping press, or the drain
+  // tick below, cannot start a second helper or write `draining` over the `installing` it commits.
+  if (readState().immediate && !installing) {
+    installing = install().catch(e => { installing = null; markFailed(e); return false })
+  }
+  if (installing) return
+  if (claimed) watchDrain()
 }
 
 function watchIdle(): void {
@@ -765,7 +803,7 @@ function watchDrain(): void {
     if (state.phase !== 'draining') return
     if (state.we_paused && !o.queue.isPaused()) {
       // The owner pressed Resume: his choice wins until Install Now.
-      patchState({ phase: 'ready', held: true, we_paused: false, install_requested: false, drain_started_at: null })
+      patchState({ phase: 'ready', held: true, we_paused: false, install_requested: false, immediate: false, drain_started_at: null })
       return
     }
     const waited = (o.now?.() ?? Date.now()) - (state.drain_started_at || 0)
@@ -773,6 +811,10 @@ function watchDrain(): void {
     const submitsSettled = left.submits === 0 || waited > SUBMIT_SETTLE_MS
     const ownerOverride = !!state.install_requested && waited > DRAIN_TIMEOUT_MS
     if ((submitsSettled && left.jobs.length === 0) || ownerOverride) {
+      // Re-read after the awaits above: an "Install now (don't wait)" press (or another tick) may
+      // have moved this release to `installing` or `failed` while this tick was asking the queue,
+      // and a hand-off from here would be a second helper and a `draining` write over it.
+      if (readState().phase !== 'draining') return
       await install().catch(e => markFailed(e))
       return
     }
@@ -783,9 +825,12 @@ function watchDrain(): void {
   drainTimer.unref?.()
 }
 
-/** Owner's "Install Now": drain (whatever the window) and install. */
-export async function installNow(): Promise<UpdateState> {
-  patchState({ install_requested: true, held: false })
+/**
+ * Owner's "Install Now": drain (whatever the window) and install. `immediately` skips the drain and
+ * installs at once, or as soon as the release is staged.
+ */
+export async function installNow(immediately = false): Promise<UpdateState> {
+  patchState({ install_requested: true, held: false, immediate: immediately })
   const state = readState()
   if (state.phase === 'ready' || state.phase === 'draining') await maybeInstall()
   else await checkNow(true)
@@ -828,9 +873,12 @@ export async function install(): Promise<boolean> {
   // If the quit never happens the helper gives up after 5 minutes; say so here too.
   setTimeout(() => {
     quittingForUpdate = false
+    // Nothing was replaced and this process is still here (a `will-prevent-unload` veto aborts the
+    // quit), so the claim is free again: a later press, or the next automatic attempt, may hand off.
+    installing = null
     markFailed('Story Studio did not quit for the update; nothing was replaced.')
     void releaseOurPause()
-  }, 6 * 60_000).unref()
+  }, quitDeadlineMs).unref()
   return true
 }
 
@@ -878,8 +926,12 @@ export function _resetForTesting(): void {
   if (timer) clearInterval(timer)
   timer = null
   quittingForUpdate = false
+  installing = null
+  quitDeadlineMs = 6 * 60_000
 }
 export function _configureForTesting(options: UpdaterOptions): void { opts = options }
+/** Test seam for the quit deadline (the 6-minute timer that calls the hand-off off). */
+export function _setQuitDeadlineForTesting(ms: number): void { quitDeadlineMs = ms }
 
 // ── Open at Login (and come back after a crash) ────────────────────────────
 //
