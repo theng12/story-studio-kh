@@ -1,5 +1,29 @@
 # HANDOFF — Story Studio KH
 
+## Released; install pending the normal path — 2026-07-17 (1.4.312)
+
+Main `dab23457f784fa1f3a9e52babaf414af4c675e53` is pushed. Two accepted product fixes:
+
+- audio evidence identity (`2281552a`, independent review ACCEPT): a chapter part whose Gateway
+  request was settled `not_created` is re-sent under the same idempotency key instead of failing as a
+  mismatched identity, while a real id that disagrees stays fail-closed. Review limit: the actual
+  manifest was not read, so the live DM0001 case is **not** claimed proven.
+- scene-plan admission (`aa68e511`, narrow source review ACCEPT): the merged-audio record is read for
+  the file the plan and the renderer actually use. Not a production clearance for PR0002/PR0003 —
+  intended audio selection is still unresolved and the routes still have four selectors.
+
+Gates: full backend 708/708 files, 6965 tests, 6958 pass, 0 fail, 7 skipped, projects root
+byte-identical; electron/frontend typecheck, lint 0 errors, five static checks, content packs,
+release lane 57/57 on main after the build. DMG from the main checkout:
+`dist/Story Studio KH 1.4.312-arm64.dmg`, 243,033,360 bytes, SHA-256
+`2fefe804c84451e39f7780034ce1cc30ba3affde2e90dd9b745d544683e0ae06`, app.asar 1.4.312, ad-hoc arm64,
+launch smoke passed. One publish POST, HTTP 200, readback matched. Receipts: `story-312-gate/`.
+
+The mini installed 1.4.311 by itself (verified read-only) and now offers 1.4.312; this worker issued
+no install POST. Excluded: the advisory `c3676bb2`/`f521d3bb` pair and immediate-install
+`63d39c3e`+`7ee410e4`+`d8c788cc` — both accepted, both slated for the next product release rather than
+restarting this green gate.
+
 ## Released; install pending the normal path — 2026-10-17 (1.4.311)
 
 Main `298870d53d009bf6a53aa582e13117ba814c1642` is pushed. This release is internal only: the three
