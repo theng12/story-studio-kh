@@ -2,14 +2,18 @@
  * 1.4.312 — a chained Final Video is resolved from the channel's CURRENT Video Assembly preset
  * when its job is submitted, not frozen into the chain when the batch was submitted.
  *
- * Production (pronom, 2026-10-17). Batch `e30d2222` was submitted at 09:16:37Z, so every later
- * step's params were resolved then. The owner applied the channel's base look at 09:38:24Z. When
- * the chain reached Final Video the links were dispatched at 16:41–16:47Z carrying
- * `effect_stack: []` with no `scene_effects` / `color_grading` (PR0001 `0c30f3bc`, PR0013
- * `ffb0a4f1`), while a run-batch of the same single step at 17:23Z carried the base look
+ * Production (pronom, 2026-10-16). Batch `e30d2222` was submitted at 09:16:37Z, so every later
+ * step's params were resolved then. The owner applied the channel's base look at 09:38:24Z, 22
+ * minutes later. When the chain reached Final Video its links were dispatched hours after that
+ * carrying `effect_stack: []` with no `scene_effects` / `color_grading` (`3d9d83de` 16:41:05Z,
+ * `2bcbc851` 16:44:27Z, `c07dfed1` 16:47:37Z, and PR0001 `0c30f3bc` on 2026-10-17T00:07:29Z), while
+ * a run-batch of the same single step 35 minutes after `c07dfed1` carried the base look
  * (`Colour grade: cool-moonlight`, `Heavy Vignette`, `Fog / Mist`, `Fine Film Grain`, PR0005
- * `ff0b55d9`). The channel's look is a reusable channel choice; the episode's own decision
- * (pacing, motion scope, visual source, the run's force / repair stamps) is still frozen at submit.
+ * `ff0b55d9`, 2026-10-16T17:23:04Z). PR0013 `ffb0a4f1` shows the same empty shape from a different
+ * batch (`c06ff328`, 2026-10-17T02:16:30Z) whose own capture instant the receipts do not record, so
+ * it is not part of that dispatch window and is not evidence for the timing claim. The channel's
+ * look is a reusable channel choice; the episode's own decision (pacing, motion scope, visual
+ * source, the run's force / repair stamps) is still frozen at submit.
  */
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
@@ -124,7 +128,7 @@ describe('a chained Final Video resolves the channel look when its job is submit
     assert.ok(link, 'the batch chained Final Video after its head step')
     assert.deepEqual(link.params.effect_stack, [], 'the link captured the channel look as it was at submit')
     assert.ok(Array.isArray(link.params.pipeline_preset_keys) && link.params.pipeline_preset_keys.length > 0,
-      'the link records which keys its preset produced, so the refresh can drop exactly those')
+      'the link records every key its resolution produced — the preset fields plus episode_id/title — so the refresh can drop exactly those')
 
     // 2. The owner applies the base look. Nothing already queued is touched.
     await setChannelLook(slug, BASE_LOOK)
@@ -176,7 +180,7 @@ describe('a chained Final Video resolves the channel look when its job is submit
     const { resolveChainedVideoAssemblyParams } = await import('../routes/pipeline.js')
     const captured = { episode_id: 'EP0001', title: 'One', effect_stack: [], resolution: '720p', pacing: { mode: 'variable', min_sec: 3, max_sec: 6 } }
     assert.equal(await resolveChainedVideoAssemblyParams(slug, 'EP0001', captured), captured,
-      'without the record of which keys the preset produced, the link is returned unchanged')
+      'without the record of which keys the resolution produced, the link is returned unchanged')
   })
 
   test('a channel that deliberately has no look still gets no look, and a look switched off is off', async () => {    const slug = await seedChannel('Chained no-look')

@@ -1833,24 +1833,29 @@ export function withNamedEffectsFrame(config: any, bundle: StoredPreset): Stored
  * deliberate for the EPISODE's own decision (pacing, motion scope, visual source: a later settings
  * edit must not retarget a queued chain), but the channel's Effects look is a reusable channel
  * choice, and a look applied after the batch was submitted never reached the queued Final Video. On
- * pronom (2026-10-17) the chain's links were dispatched carrying `effect_stack: []` with no
- * `scene_effects` / `color_grading` (PR0001 `0c30f3bc`, PR0013 `ffb0a4f1`) while a run-batch of the
- * same single step, 36 minutes later, carried the channel's base look (PR0005 `ff0b55d9`).
+ * pronom (2026-10-16) batch `e30d2222`, submitted 09:16:37Z, was 22 minutes older than the channel's
+ * base look (09:38:24Z); its Final Video links were dispatched hours later still carrying the 09:16
+ * capture — `effect_stack: []` with no `scene_effects` / `color_grading` (`3d9d83de` 16:41:05Z,
+ * `2bcbc851` 16:44:27Z, `c07dfed1` 16:47:37Z, `0c30f3bc` on 2026-10-17T00:07:29Z) — while a
+ * run-batch of the same single step, 35 minutes after `c07dfed1`, carried the look (`ff0b55d9`,
+ * 2026-10-16T17:23:04Z). PR0013 `ffb0a4f1` shows the same empty shape from a different batch
+ * (`c06ff328`, 2026-10-17T02:16:30Z) whose own capture instant the receipts do not record.
  *
  * `dispatchChainLink` calls this when it enqueues the link, so the job's params are resolved from the
  * channel's preset at the moment THAT job is submitted — exactly what a run-batch of that one step
  * does, through the same code: `findActivePreset` (honouring the preset the batch named explicitly)
- * + `withNamedEffectsFrame` + `resolveStepParams`. The keys the link's preset produced at submit
- * (`pipeline_preset_keys`) are dropped first, so an effect switched off in the meantime is off rather
- * than left behind by the capture, and a channel that deliberately has no look still gets none. The
+ * + `withNamedEffectsFrame` + `resolveStepParams`. `pipeline_preset_keys` — every key the step's
+ * resolution produced, which is the preset's own fields plus the `episode_id` and `title` the
+ * resolver sets — is dropped first, so an effect switched off in the meantime is off rather than
+ * left behind by the capture, and a channel that deliberately has no look still gets none. The
  * job's params are then the snapshot the render reads: nothing is re-read at render time, and no
  * queued job is rewritten.
  *
  * The link is returned unchanged when the channel now has no usable preset for the step — the
  * batch's accepted snapshot is a complete request, and losing the step would be worse. It is also
  * returned unchanged when the link carries no `pipeline_preset_keys`: without that record there is
- * no way to tell the preset's keys from the episode's, and a half-refreshed link (a current look
- * merged over a stale one) would be worse than the accepted snapshot it replaces.
+ * no way to tell the resolution's keys from the episode's, and a half-refreshed link (a current
+ * look merged over a stale one) would be worse than the accepted snapshot it replaces.
  */
 export async function resolveChainedVideoAssemblyParams(
   slug: string,
@@ -2688,11 +2693,12 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         if (step === 'scene_plan') params.prompt_char_cap = pipelineScenePlanPromptCap
         // 1.4.282 — readable on the job: exactly what this render bakes in. Never read by the render.
         if (step === 'video_assembly') {
-          // 1.4.312 — which keys this step's preset produced, and the preset the batch chose for it.
-          // Final Video is the one chained step resolved again when its job is actually submitted
-          // (`resolveChainedVideoAssemblyParams`), because the channel's Video Assembly preset is the
-          // channel's reusable look. Everything the preset did not produce — the episode's own visual
-          // settings, the step facts, the run's force / repair stamps — is carried across untouched.
+          // 1.4.312 — every key this step's resolution produced, and the preset the batch chose for
+          // it. Final Video is the one chained step resolved again when its job is actually
+          // submitted (`resolveChainedVideoAssemblyParams`), because the channel's Video Assembly
+          // preset is the channel's reusable look. Everything the resolution did not produce — the
+          // episode's own visual settings, the step facts, the run's force / repair stamps — is
+          // carried across untouched.
           const presetKeys = Object.keys(params)
           params = {
             ...params,

@@ -452,6 +452,85 @@ test('a recovered Final Video continuation is resolved from the channel look whe
   } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })
 
+test('an accepted continuation job is adopted by its deterministic id when the plan lost the link', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Recovered continuation identity' })
+    await pm.updateConfig(project.slug, {
+      video_bundle_presets: [{ id: 'va', name: 'Video Assembly', data: { fallback: {
+        effects: { color_grading: { enabled: true, preset: 'cool-moonlight' } },
+      } } }],
+      video_bundle_last_preset: 'va',
+    } as any)
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const plan = createEpisodeRecoveryPlan([{ ...source('continuity_render'), project_slug: project.slug }])
+    plan.continuation = [{
+      type: 'video_assembly',
+      title: 'Pipeline: Final Video — EP0001',
+      params: {
+        episode_id: 'EP0001', title: 'One', effect_stack: [], resolution: '720p',
+        pipeline_step: 'video_assembly', pipeline_requires: ['scene_review', 'audio_merge'],
+        pipeline_preset_keys: ['episode_id', 'title', 'effect_stack', 'resolution'],
+      },
+    }]
+    const facts = { verified: ready, message: 'Complete' }
+
+    await dispatchEpisodeRecoveryStep(plan, facts, [])
+    const accepted = (await jq.getJobs(project.slug)).filter(job => job.type === 'video_assembly')
+    assert.equal(accepted.length, 1, 'the continuation was enqueued once')
+
+    // The crash window: the job is on disk, the plan still says nothing was dispatched and holds no
+    // link to it. Its refreshed params no longer deep-equal the plan's pre-refresh snapshot, so the
+    // settings check alone would refuse the job this plan itself started.
+    plan.continuation_dispatched = false
+    delete (plan as { continuation_job_id?: string }).continuation_job_id
+
+    await dispatchEpisodeRecoveryStep(plan, facts, await jq.getJobs(project.slug))
+
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'video_assembly').length, 1,
+      'the accepted job is adopted, not duplicated')
+    assert.equal(plan.continuation_job_id, accepted[0]!.job_id, 'the plan links the job it started')
+    assert.equal(plan.continuation_dispatched, true)
+    assert.doesNotMatch(plan.message, /different saved settings/)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('a continuation still refuses an accepted job that is not the one it started', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Recovered continuation conflict' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const plan = createEpisodeRecoveryPlan([{ ...source('continuity_render'), project_slug: project.slug }])
+    plan.continuation = [{
+      type: 'video_assembly',
+      title: 'Pipeline: Final Video — EP0001',
+      params: {
+        episode_id: 'EP0001', title: 'One', effect_stack: [], resolution: '720p',
+        pipeline_step: 'video_assembly',
+        pipeline_preset_keys: ['episode_id', 'title', 'effect_stack', 'resolution'],
+      },
+    }]
+    // Somebody else's accepted Final Video: its own id, and genuinely different settings.
+    const other = jq.enqueuePreparedForTest({
+      project_slug: project.slug, type: 'video_assembly', episode_id: 'EP0001', title: 'Someone else',
+      params: { episode_id: 'EP0001', resolution: '4k', effect_stack: ['Colour grade: warm-sunset'] },
+    })
+
+    await dispatchEpisodeRecoveryStep(plan, { verified: ready, message: 'Complete' }, await jq.getJobs(project.slug))
+
+    assert.deepEqual((await jq.getJobs(project.slug)).filter(job => job.type === 'video_assembly').map(job => job.job_id),
+      [other.job_id], 'no competing continuation was queued')
+    assert.match(plan.message, /different saved settings/)
+    assert.notEqual(plan.continuation_dispatched, true)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
 test('mixed episode recovery advances ordinary prerequisites but stops at manual image Finish', async () => {
   const temp = await useTempDataDir()
   const jq = await import('../services/job-queue.js')
