@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.311 — 2026-10-17
+
+- The release checks no longer depend on a fixed wait, so a slow or busy Mac cannot make a test pass or fail by timing alone. This is internal: nothing in the app behaves differently.
+
 ## v1.4.310 — 2026-10-16
 
 - Script-only Pipeline runs with Auto-approve go straight from the outline to writing the chapters again, instead of stopping with "Pipeline handoff failed before this step started". Runs that already failed this way are left as they are.
