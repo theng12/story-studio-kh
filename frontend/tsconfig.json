@@ -18,7 +18,8 @@
       "@shared/scene-effect-presets": ["../electron/server/contracts/scene-effect-presets.ts"],
       "@shared/effect-loops": ["../electron/server/contracts/effect-loops.ts"],
       "@shared/effect-params": ["../electron/server/contracts/effect-params.ts"],
-      "@shared/effects-look": ["../electron/server/contracts/effects-look.ts"]
+      "@shared/effects-look": ["../electron/server/contracts/effects-look.ts"],
+      "@shared/publishing-overview": ["../electron/server/contracts/publishing-overview.ts"]
     },
     "noUncheckedIndexedAccess": false,
     "noImplicitAny": false,

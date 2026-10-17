@@ -1,0 +1,565 @@
+/**
+ * The global Publishing Overview's honesty rules.
+ *
+ * These tests exist because the feature's whole job is to NOT lie: a channel
+ * with no plan must say so, a LOCAL plan must never clear a CONFIRMED coverage
+ * gap, an empty slot in the MIDDLE of a schedule must be found (not just "after
+ * the last date"), an unreadable store must be unknown (never a zero), and
+ * nothing may invent a production ETA.
+ *
+ * Real temp filesystem, real readers — no mocked stores. The three time
+ * concepts (confirmed / planned / readiness) are seeded and asserted separately
+ * so a merge of any two would fail here.
+ *
+ * NOTE: written but UNRUN — adda owns the execution lease.
+ */
+
+import { test, before, after, beforeEach } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+
+import { useTempDataDir } from './_helpers.js'
+import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
+
+let pm: typeof import('../services/project-manager.js')
+let svc: typeof import('../services/publishing-overview.js')
+let plans: typeof import('../services/upload-plans.js')
+let connections: typeof import('../services/youtube-connection-store.js')
+let im: typeof import('../services/idea-manager.js')
+let pub: typeof import('../services/youtube-publication-cache.js')
+let store: typeof import('../services/youtube-project-publishing-store.js')
+
+let tmp: { dir: string; cleanup: () => Promise<void> }
+
+before(async () => {
+  pm = await import('../services/project-manager.js')
+  svc = await import('../services/publishing-overview.js')
+  plans = await import('../services/upload-plans.js')
+  connections = await import('../services/youtube-connection-store.js')
+  im = await import('../services/idea-manager.js')
+  pub = await import('../services/youtube-publication-cache.js')
+  store = await import('../services/youtube-project-publishing-store.js')
+})
+beforeEach(async () => {
+  await tmp?.cleanup()
+  tmp = await useTempDataDir()
+})
+after(async () => { await tmp?.cleanup() })
+
+/** A fixed Monday-anchored three-a-week cadence in UTC, so slots are deterministic. */
+const SCHEDULE = { weekdays: [1, 3, 5], time_local: '18:00', timezone: 'UTC', start_date: '2020-01-06' }
+
+const CHANNEL = 'UC-pub'
+
+/**
+ * A channel that is ASSIGNED and CONNECTED, so `resolveYouTubeCredential`
+ * answers with a channel id and the confirmed (YouTube) half of the overview is
+ * reachable at all.
+ */
+async function connectedProject(name: string, prefix: string) {
+  const created = await pm.createProject({ name, episode_prefix: prefix, publish_cadence: { schedule: SCHEDULE } })
+  await connections.configureYouTubeApplication({ client_id: 'po-client', client_secret: 'po-client-secret-value' })
+  await saveYouTubeChannelGrantForTest({
+    channel: { channel_id: CHANNEL, title: 'Publishing Channel', granted_scopes: ['youtube.upload'] },
+    tokens: { access_token: 'po-access', refresh_token: 'po-refresh', expires_at: Date.now() + 3_600_000 },
+  })
+  await connections.assignProjectYouTubeChannel({
+    project_slug: created.slug, channel_id: CHANNEL, expected_previous_channel_id: null,
+  })
+  return created
+}
+
+/** What YouTube reported: private videos with a publishAt. The real coverage. */
+async function seedConfirmed(
+  slug: string,
+  entries: Array<{ video_id: string; scheduled_for: string; episode_code?: string; checked_at?: string }>,
+  listing: { attempted_at?: string; outcome: 'complete' | 'partial' | 'failed' } = { outcome: 'complete' },
+): Promise<void> {
+  const now = new Date().toISOString()
+  await pub.recordYouTubePublicationObservations({
+    project_slug: slug,
+    channel_id: CHANNEL,
+    checks: entries.map(entry => ({
+      video_id: entry.video_id,
+      source: 'reconcile' as const,
+      ...(entry.episode_code ? { episode_code: entry.episode_code } : {}),
+      checked_at: entry.checked_at ?? now,
+      privacy_status: 'private',
+      scheduled_for: entry.scheduled_for,
+      title: 'Scheduled episode',
+    })),
+    listing: { attempted_at: listing.attempted_at ?? now, outcome: listing.outcome },
+  })
+}
+
+/** An accepted episode with a finished, admissible final video and no YouTube copy. */
+async function acceptedEpisode(slug: string, code: string, title: string): Promise<void> {
+  const [idea] = await im.addIdeas(slug, [{
+    title, logline: 'l', themes: ['t'], suggested_chapters: 3, suggested_length: '10 min', mood: 'm',
+  }], 'test-model')
+  await im.promoteToAccepted(slug, idea!.id, { episode_code: code })
+  const paths = await (await import('../services/utils.js')).resolveEpisodePaths(slug, code, title)
+  await fs.mkdir(paths.video_dir, { recursive: true })
+  await fs.writeFile(`${paths.video_dir}/${code}_final_video.mp4`, Buffer.alloc(2048, 1))
+}
+
+/**
+ * An accepted episode with NO finished video — the purely LOCAL fact that means
+ * "needs generating". Nothing about it depends on the YouTube link read.
+ */
+async function pendingEpisode(slug: string, code: string): Promise<void> {
+  const [idea] = await im.addIdeas(slug, [{
+    title: `Pending ${code}`, logline: 'l', themes: ['t'], suggested_chapters: 3, suggested_length: '10 min', mood: 'm',
+  }], 'test-model')
+  await im.promoteToAccepted(slug, idea!.id, { episode_code: code })
+}
+
+/**
+ * An accepted episode whose read FAILS: its code does not match the project's
+ * episode prefix, so `resolveEpisodePaths` refuses it (`episodeNumber` throws)
+ * exactly as a genuinely corrupt episode record would. Nothing can be said about
+ * this episode — which is the point.
+ */
+async function unreadableEpisode(slug: string, code: string): Promise<void> {
+  const [idea] = await im.addIdeas(slug, [{
+    title: `Unreadable ${code}`, logline: 'l', themes: ['t'], suggested_chapters: 3, suggested_length: '10 min', mood: 'm',
+  }], 'test-model')
+  await im.promoteToAccepted(slug, idea!.id, { episode_code: code })
+}
+
+test('a channel with no cadence says "Publishing plan not set" — never a guessed rhythm', async () => {
+  const now = Date.now()
+  await pm.createProject({ name: 'No Plan Channel', episode_prefix: 'NP' })
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+
+  assert.equal(channel.plan_set, false)
+  assert.deepEqual(channel.planned.slots, [])
+  assert.equal(channel.planned.next_uncovered_slot_at, null)
+  assert.equal(channel.coverage.next_uncovered_slot, null)
+  assert.equal(channel.coverage.at_risk, false)
+  // No channel connected AND nothing ever checked: unknown, not a confident zero.
+  assert.equal(channel.confirmed.freshness, 'unknown')
+  assert.equal(channel.confirmed.error, 'no_channel_assigned')
+  assert.equal(channel.confirmed.count, 0)
+  // The next step still points somewhere real, and there is nothing concrete
+  // to recommend yet.
+  assert.equal(channel.next_action.url, `/projects/no-plan-channel/board`)
+  assert.deepEqual(channel.recommendations, [])
+})
+
+test('a LOCAL plan never clears a CONFIRMED gap — the uncovered slot is the first', async () => {
+  const now = Date.now()
+  const created = await pm.createProject({
+    name: 'Gap Channel',
+    episode_prefix: 'GP',
+    publish_cadence: { schedule: SCHEDULE },
+  })
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  assert.ok(expected.length >= 4, 'fixture needs at least four slots')
+
+  // A locally chosen date on the THIRD slot only, and NOTHING confirmed.
+  await pm.updateConfig(created.slug, { upload_item_schedule: { 'import:covered': expected[2]! } } as any)
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+
+  assert.equal(channel.plan_set, true)
+  // The local plan does NOT cover the gap: the FIRST slot is still uncovered
+  // because YouTube has confirmed nothing.
+  assert.equal(channel.coverage.next_uncovered_slot, expected[0])
+  assert.equal(channel.coverage.at_risk, true)
+  // The slot really was seen as locally planned — otherwise the assertion above
+  // could pass for the wrong reason (an unreadable schedule map).
+  assert.equal(channel.planned.slots[2]!.planned, true)
+  assert.equal(channel.planned.slots[2]!.confirmed, false)
+  // And the local plan is visible as an event, with no invented episode identity
+  // for a non-episode key.
+  assert.equal(channel.coverage.planned_date_count, 1)
+  assert.equal(channel.planned.assignments[0]!.at, expected[2])
+  assert.equal(channel.planned.assignments[0]!.episode_code, undefined)
+})
+
+test('confirmed coverage is what clears a slot; a local plan alone does not', async () => {
+  const now = Date.now()
+  const created = await pm.createProject({ name: 'Both Channel', episode_prefix: 'BP', publish_cadence: { schedule: SCHEDULE } })
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  assert.ok(expected.length >= 3)
+  // Two locally planned dates, no confirmed schedules.
+  await pm.updateConfig(created.slug, {
+    upload_item_schedule: { 'import:a': expected[0]!, 'import:b': expected[1]! },
+  } as any)
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+  // Both planned slots still read as uncovered (nothing confirmed).
+  assert.equal(channel.planned.slots[0]!.planned, true)
+  assert.equal(channel.planned.slots[0]!.confirmed, false)
+  assert.equal(channel.coverage.next_uncovered_slot, expected[0])
+  assert.equal(channel.coverage.last_planned_date, expected[1]!.slice(0, 10))
+  assert.equal(channel.coverage.last_confirmed_date, null)
+  assert.equal(channel.coverage.scheduled_video_count, 0)
+})
+
+// ── The central rule, with a REAL confirmed schedule ─────────────────────
+//
+// Every test above seeds no confirmed schedule at all, which left the feature's
+// whole point untested. These seed what YouTube actually reported and assert
+// that it — and only it — covers a slot.
+
+test('a confirmed schedule covers its slot: the gap moves past it and the channel is not at risk', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Confirmed Channel', 'CF')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  assert.ok(expected.length >= 3, 'fixture needs at least three slots')
+  await seedConfirmed(created.slug, [
+    { video_id: 'vid-confirmed', scheduled_for: expected[0]!, episode_code: 'EP0001' },
+  ], { outcome: 'complete' })
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+
+  // The confirmed schedule sits on the FIRST slot and covers it.
+  assert.equal(channel.planned.slots[0]!.confirmed, true)
+  assert.equal(channel.planned.slots[0]!.planned, false)
+  // So the earliest gap is the NEXT one, not the first slot.
+  assert.equal(channel.coverage.next_uncovered_slot, expected[1])
+  assert.equal(channel.planned.next_uncovered_slot_at, expected[1])
+  // And the channel is NOT at risk: its very next slot is covered.
+  assert.equal(channel.coverage.at_risk, false)
+  assert.equal(channel.coverage.last_confirmed_date, expected[0]!.slice(0, 10))
+  assert.equal(channel.coverage.scheduled_video_count, 1)
+  assert.equal(channel.confirmed.next_at, expected[0])
+  assert.equal(channel.confirmed.count, 1)
+
+  // A complete, fully-observed listing is the only thing that earns "fresh".
+  assert.equal(channel.confirmed.freshness, 'fresh')
+
+  // The confirmed event is on the calendar, as its own kind, with its video id.
+  const confirmedEvents = overview.calendar.filter(entry => entry.kind === 'confirmed')
+  assert.equal(confirmedEvents.length, 1)
+  assert.equal(confirmedEvents[0]!.at, expected[0])
+  assert.equal(confirmedEvents[0]!.video_id, 'vid-confirmed')
+  assert.equal(confirmedEvents[0]!.channel_slug, created.slug)
+})
+
+test('one video covers one slot: two confirmed videos on one day do not cover two slots', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Double Channel', 'DB')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  assert.ok(expected.length >= 3)
+  // Two videos, the SAME publishAt — a double upload on one day.
+  await seedConfirmed(created.slug, [
+    { video_id: 'vid-a', scheduled_for: expected[0]! },
+    { video_id: 'vid-b', scheduled_for: expected[0]! },
+  ], { outcome: 'complete' })
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+
+  assert.equal(channel.coverage.scheduled_video_count, 2)
+  // The day is covered once, and the second video does NOT spill onto the next
+  // slot: two facts, not four.
+  assert.equal(channel.planned.slots[0]!.confirmed, true)
+  assert.equal(channel.planned.slots[1]!.confirmed, false)
+  assert.equal(channel.coverage.next_uncovered_slot, expected[1])
+  assert.equal(channel.coverage.at_risk, false)
+})
+
+test('next_unplanned_slot_at is the first slot with neither a confirmed schedule nor a local plan', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Planned Channel', 'PC')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  assert.ok(expected.length >= 4)
+  await seedConfirmed(created.slug, [{ video_id: 'vid-first', scheduled_for: expected[0]! }], { outcome: 'complete' })
+  // A locally chosen date on the SECOND slot — planned, but NOT confirmed.
+  await pm.updateConfig(created.slug, { upload_item_schedule: { 'import:local': expected[1]! } } as any)
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+
+  assert.equal(channel.planned.slots[0]!.confirmed, true)
+  assert.equal(channel.planned.slots[1]!.planned, true)
+  assert.equal(channel.planned.slots[1]!.confirmed, false)
+  // Uncovered = no CONFIRMED schedule, so the second slot is still the gap…
+  assert.equal(channel.coverage.next_uncovered_slot, expected[1])
+  // …but "unplanned" also requires no local intent, so it is the third.
+  assert.equal(channel.planned.next_unplanned_slot_at, expected[2])
+  assert.equal(channel.coverage.at_risk, false)
+  // One confirmed event, one planned event (with its identity absent for a
+  // non-episode key), and one empty marker for the slot with nothing on it.
+  assert.equal(overview.calendar.filter(e => e.kind === 'confirmed').length, 1)
+  const planned = overview.calendar.filter(e => e.kind === 'planned')
+  assert.equal(planned.length, 2)
+  assert.equal(planned.find(e => e.at === expected[1]!)!.empty, undefined)
+  assert.equal(planned.find(e => e.at === expected[2]!)!.empty, true)
+})
+
+test('freshness is stale for a partial listing or a stale observation, never a confident fresh', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Stale Channel', 'ST')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+
+  // A truncated (partial) channel listing: we have not seen everything.
+  await seedConfirmed(created.slug, [{ video_id: 'vid-partial', scheduled_for: expected[0]! }], { outcome: 'partial' })
+  let overview = await svc.readPublishingOverview({ now })
+  assert.equal(overview.channels[0]!.confirmed.freshness, 'stale')
+  // The schedule itself is still real coverage — staleness is about trust.
+  assert.equal(overview.channels[0]!.coverage.scheduled_video_count, 1)
+
+  // Now a complete listing, but one observation older than the TTL.
+  const old = new Date(now - pub.PUBLICATION_CACHE_TTL_MS * 2).toISOString()
+  await seedConfirmed(created.slug, [{ video_id: 'vid-old', scheduled_for: expected[1]!, checked_at: old }], { outcome: 'complete' })
+  overview = await svc.readPublishingOverview({ now })
+  assert.equal(overview.channels[0]!.confirmed.freshness, 'stale')
+})
+
+test('a locally planned date never makes a channel look covered', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Local Only Channel', 'LO')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  await pm.updateConfig(created.slug, {
+    upload_item_schedule: { 'import:a': expected[0]!, 'import:b': expected[1]!, 'import:c': expected[2]! },
+  } as any)
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+
+  // Three local dates, zero YouTube confirmations: still the FIRST slot is the
+  // gap, and the channel is at risk.
+  assert.equal(channel.coverage.scheduled_video_count, 0)
+  assert.equal(channel.coverage.last_confirmed_date, null)
+  assert.equal(channel.coverage.next_uncovered_slot, expected[0])
+  assert.equal(channel.coverage.at_risk, true)
+  assert.equal(overview.calendar.filter(e => e.kind === 'confirmed').length, 0)
+})
+
+// ── Honesty: an unreadable read is not a smaller number ──────────────────
+
+test('an episode whose read fails is UNKNOWN — the ready count is null, never silently short', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Half Read Channel', 'HR')
+  await acceptedEpisode(created.slug, 'HR0001', 'Ready One')
+  // A code that cannot belong to this project's prefix: unreadable, not zero.
+  await unreadableEpisode(created.slug, 'ZZ0002')
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+
+  // One episode really is ready; one could not be read. The answer is "unknown",
+  // not "1" — a count short by its failures would mean two things at once.
+  assert.equal(channel.readiness.ready_unknown, 1)
+  assert.equal(channel.readiness.ready_to_publish, null)
+  assert.equal(channel.coverage.ready_video_count, null)
+  // The count is not claimed…
+  assert.notEqual(channel.priority.reason, 'close_to_complete')
+  // …but the concrete episode we COULD read is still offered, with its route.
+  assert.equal(channel.recommendations[0]!.episode_code, 'HR0001')
+  assert.equal(channel.recommendations[0]!.kind, 'ready_to_publish')
+  assert.equal(channel.recommendations[0]!.url, `/projects/${created.slug}/upload/publish?episode_id=HR0001`)
+  assert.equal(channel.next_action.episode_code, 'HR0001')
+})
+
+test('a clean sweep reports the real ready count and a recommendation from a real finished episode', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Ready Channel', 'RD')
+  await acceptedEpisode(created.slug, 'RD0001', 'Ready One')
+  await acceptedEpisode(created.slug, 'RD0002', 'Ready Two')
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+
+  assert.equal(channel.readiness.ready_unknown, 0)
+  assert.equal(channel.readiness.ready_to_publish, 2)
+  assert.equal(channel.coverage.ready_video_count, 2)
+  // The episode is admitted by the SAME selector the upload route uses, so a
+  // suggestion here is one the upload route would also accept.
+  assert.deepEqual(channel.recommendations.map(r => r.episode_code), ['RD0001', 'RD0002'])
+  assert.equal(channel.next_action.url, `/projects/${created.slug}/upload/publish?episode_id=RD0001`)
+})
+
+test('a corrupt idea store is UNKNOWN, a genuinely empty one a real 0 — both pinned apart', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Idea Store Channel', 'IS')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  assert.ok(expected.length >= 1, 'fixture needs at least one slot')
+  // One locally chosen date on a key that names no episode, so the identity
+  // question is asked of the SAME key in both halves below.
+  await pm.updateConfig(created.slug, { upload_item_schedule: { 'import:local': expected[0]! } } as any)
+
+  // (a) READABLE and genuinely empty: every count over the episode list is a
+  // real 0, and the channel can say so.
+  let overview = await svc.readPublishingOverview({ now })
+  let channel = overview.channels[0]!
+  assert.equal(channel.readiness.episodes, 0)
+  assert.equal(channel.readiness.episodes_with_code, 0)
+  assert.equal(channel.readiness.ready_to_publish, 0)
+  assert.equal(channel.readiness.ready_unknown, 0)
+  assert.equal(channel.readiness.on_youtube, 0)
+  assert.equal(channel.readiness.in_progress, 0)
+  assert.equal(channel.readiness.needs_attention, 0)
+  assert.equal(channel.readiness.error, undefined)
+  assert.equal(channel.coverage.ready_video_count, 0)
+  // An absent episode_code on a NON-episode key means "this key names no
+  // episode" — the other answer, spelled the other way.
+  assert.equal(channel.planned.assignments[0]!.episode_code, undefined)
+  assert.equal(channel.planned.assignments[0]!.identity_unknown, undefined)
+
+  // (b) The same store, now present but UNPARSEABLE. `getIdeas`'s own reader
+  // degrades a corrupt ideas.json to an EMPTY store, so without the probe this
+  // half would report the same confident 0s as (a).
+  await fs.writeFile(`${pm.projectsRoot()}/${created.slug}/ideas.json`, '{ this is not json')
+  overview = await svc.readPublishingOverview({ now })
+  channel = overview.channels[0]!
+
+  assert.equal(channel.readiness.episodes, null)
+  assert.equal(channel.readiness.episodes_with_code, null)
+  assert.equal(channel.readiness.ready_to_publish, null)
+  assert.equal(channel.readiness.on_youtube, null)
+  assert.equal(channel.readiness.in_progress, null)
+  assert.equal(channel.readiness.needs_attention, null)
+  assert.equal(channel.coverage.ready_video_count, null)
+  assert.equal(typeof channel.readiness.error, 'string')
+  assert.match(channel.readiness.error!, /could not read this channel's ideas/)
+
+  // The SAME planned key now means "unknown", never "not an episode", and no
+  // episode link may be invented for it.
+  assert.equal(channel.planned.assignments[0]!.episode_code, undefined)
+  assert.equal(channel.planned.assignments[0]!.identity_unknown, true)
+  const plannedEntry = overview.calendar.find(e => e.kind === 'planned' && e.at === expected[0]!)!
+  assert.equal(plannedEntry.identity_unknown, true)
+  assert.equal(plannedEntry.episode_code, undefined)
+  // Nothing is recommended from a store that could not be read, and no count is
+  // presented as complete.
+  assert.deepEqual(channel.recommendations, [])
+  assert.equal(channel.next_action.kind, 'none')
+  assert.notEqual(channel.priority.reason, 'close_to_complete')
+})
+
+test('a failed YouTube link read leaves the ready count unknown and never claims "not on YouTube yet"', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Link Read Channel', 'LR')
+  // Two finished episodes, and one accepted episode with no finished video.
+  await acceptedEpisode(created.slug, 'LR0001', 'Already On YouTube')
+  await acceptedEpisode(created.slug, 'LR0002', 'Finished Locally')
+  await pendingEpisode(created.slug, 'LR0003')
+  // LR0001 really is on YouTube. LR0002 is a finished local video with no copy.
+  await store.linkYouTubeEpisodeVideo({
+    project_slug: created.slug,
+    episode_code: 'LR0001',
+    channel_id: CHANNEL,
+    video_id: 'vid-linked',
+    source: 'upload',
+    decided_at: new Date(now).toISOString(),
+  })
+
+  // Baseline: the linked episode is NOT suggested, the unlinked finished one IS,
+  // and the missing-video one is offered for generation — a purely LOCAL fact.
+  let overview = await svc.readPublishingOverview({ now })
+  let channel = overview.channels[0]!
+  assert.equal(channel.readiness.on_youtube, 1)
+  assert.equal(channel.readiness.ready_to_publish, 1)
+  assert.equal(channel.coverage.ready_video_count, 1)
+  assert.deepEqual(channel.recommendations.map(r => r.episode_code), ['LR0002', 'LR0003'])
+  assert.equal(channel.recommendations[0]!.kind, 'ready_to_publish')
+  assert.equal(channel.recommendations[0]!.reason, 'Finished video, not on YouTube yet.')
+  assert.equal(channel.recommendations[1]!.kind, 'needs_generation')
+  // The linked episode is not in the list at all — that is what the link read
+  // bought us, and what a failed read must not silently un-buy.
+  assert.equal(channel.recommendations.some(r => r.episode_code === 'LR0001'), false)
+
+  // Now the link read FAILS. We can no longer tell which finished episode is
+  // already on YouTube, so "finished AND not already published" cannot be
+  // decided: the count is unknown and no publish claim may be made.
+  await fs.writeFile(`${pm.projectsRoot()}/${created.slug}/youtube/project-state.json`, '{ this is not json')
+  overview = await svc.readPublishingOverview({ now })
+  channel = overview.channels[0]!
+
+  assert.equal(channel.readiness.on_youtube, null)
+  assert.equal(channel.readiness.ready_to_publish, null)
+  assert.equal(channel.coverage.ready_video_count, null)
+  // The per-episode reads SUCCEEDED — it is the link read that failed, and the
+  // reason says exactly that rather than blaming the sweep.
+  assert.equal(channel.readiness.ready_unknown, 0)
+  assert.match(channel.readiness.error!, /could not read which episodes are already on YouTube/)
+
+  // The harm: LR0001 IS on YouTube, and LR0002 might be. No "not on YouTube yet"
+  // may survive the failure — not as a recommendation, not as a next step.
+  assert.deepEqual(channel.recommendations.filter(r => r.kind === 'ready_to_publish'), [])
+  assert.equal(JSON.stringify(channel.recommendations).includes('not on YouTube yet'), false)
+  assert.notEqual(channel.next_action.kind, 'ready_to_publish')
+  // The needs-generation suggestion is kept — its reason is a verified LOCAL
+  // fact (no finished video), which the failed link read does not touch.
+  assert.deepEqual(channel.recommendations.map(r => r.episode_code), ['LR0003'])
+  assert.equal(channel.recommendations[0]!.kind, 'needs_generation')
+  assert.equal(channel.recommendations[0]!.reason, 'Accepted, no finished video yet.')
+  assert.equal(channel.next_action.kind, 'needs_generation')
+  assert.notEqual(channel.priority.reason, 'close_to_complete')
+})
+
+test('an unreadable plan is "could not read", not "not set"', async () => {
+  const now = Date.now()
+  const created = await pm.createProject({ name: 'Corrupt Plan Channel', episode_prefix: 'CP' })
+  // A config.json that cannot be parsed: `pm.getConfig` throws JsonCorruptError,
+  // so the cadence read fails. That is NOT the same answer as "there is none".
+  await fs.writeFile(`${pm.projectsRoot()}/${created.slug}/config.json`, '{ this is not json')
+
+  const overview = await svc.readPublishingOverview({ now })
+  const channel = overview.channels[0]!
+
+  assert.equal(channel.plan_set, null)
+  assert.equal(typeof channel.plan_error, 'string')
+  assert.ok(channel.plan_error!.length > 0)
+  // And nothing is invented from the failure: no slots, no risk, no gap.
+  assert.deepEqual(channel.planned.slots, [])
+  assert.equal(channel.coverage.next_uncovered_slot, null)
+  assert.equal(channel.coverage.at_risk, false)
+})
+
+test('a cadence that cannot produce a slot is treated as no plan', async () => {
+  const now = Date.now()
+  await pm.createProject({
+    name: 'Empty Rhythm',
+    episode_prefix: 'ER',
+    publish_cadence: { schedule: { weekdays: [], time_local: '18:00', timezone: 'UTC' } },
+  })
+
+  const overview = await svc.readPublishingOverview({ now })
+  // Readable, and genuinely empty: false, not null.
+  assert.equal(overview.channels[0]!.plan_set, false)
+  assert.equal(overview.channels[0]!.plan_error, undefined)
+})
+
+test('channels are ordered by earliest confirmed gap, then closest to finished', async () => {
+  const now = Date.now()
+  await pm.createProject({ name: 'Zeta No Plan', episode_prefix: 'ZP' })
+  await pm.createProject({ name: 'Alpha Plan', episode_prefix: 'AP', publish_cadence: { schedule: SCHEDULE } })
+
+  const overview = await svc.readPublishingOverview({ now })
+
+  const first = overview.channels[0]!
+  assert.equal(first.slug, 'alpha-plan')
+  assert.equal(first.priority.reason, 'earliest_uncovered_slot')
+  assert.ok(first.priority.at)
+
+  const last = overview.channels.at(-1)!
+  assert.equal(last.slug, 'zeta-no-plan')
+  assert.equal(last.priority.reason, 'none')
+})
+
+test('no production ETA is invented anywhere in the payload', async () => {
+  const now = Date.now()
+  await pm.createProject({ name: 'Shape Channel', episode_prefix: 'SP', publish_cadence: { schedule: SCHEDULE } })
+
+  const overview = await svc.readPublishingOverview({ now })
+  const serialized = JSON.stringify(overview).toLowerCase()
+  for (const forbidden of ['"eta"', 'eta_seconds', 'estimated_finish', 'finish_at', 'runway', 'estimated_publish']) {
+    assert.equal(serialized.includes(forbidden), false, `payload must not carry ${forbidden}`)
+  }
+  // The three time concepts are present as separate fields, not collapsed.
+  const channel = overview.channels[0]!
+  assert.ok('confirmed' in channel && 'planned' in channel && 'readiness' in channel)
+  // And the next action is a real, existing route.
+  assert.match(channel.next_action.url, /^\/projects\/shape-channel\//)
+})
