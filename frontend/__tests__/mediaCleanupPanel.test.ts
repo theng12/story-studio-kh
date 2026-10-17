@@ -190,6 +190,43 @@ test('a running all-channel operation shows progress and Stop stops it', async (
   } finally { ui.close() }
 })
 
+test('Stop claims Stopping… at once, and a stale running read cannot repaint it as a live Stop', async () => {
+  const posts: string[] = []
+  let stopRequested = false
+  const ui = await mount({
+    get: async (url: string) => {
+      if (url.endsWith('/space')) return space
+      if (url.includes('/library/media-cleanup/operations/')) {
+        // The server keeps answering the pre-stop `running` snapshot while it
+        // finishes the current file; the stop itself took effect (stopping).
+        return { id: 'lib-op', project_slug: '*', kind: 'preview', status: 'running', stage: 'compressing', done: 1, total: 4, current: 'Channel A', library: true, library_action: 'shrink_images' }
+      }
+      return {}
+    },
+    post: async (url: string) => {
+      posts.push(url)
+      if (url.endsWith('/stop')) { stopRequested = true; return { operation_id: 'lib-op', status: 'stopping' } }
+      return { operation_id: 'lib-op' }
+    },
+  })
+  try {
+    button(ui.host, 'Shrink Images (All Channels)').click()
+    for (let i = 0; i < 5; i++) await flush()
+    assert.ok(button(ui.host, 'Stop'), 'the running operation offers Stop')
+    stopRequested = false
+    button(ui.host, 'Stop').click()
+    // The POST resolved; before the next poll answers, the panel must already read Stopping….
+    await flush()
+    assert.equal(stopRequested, true, 'the stop POST was sent once')
+    assert.match(ui.host.textContent || '', /Stopping after the current file…/, 'the panel claims Stopping… as soon as the backend accepted the stop')
+    // A poll already in flight (or re-triggered) comes back with the stale `running` snapshot.
+    for (let i = 0; i < 5; i++) await flush()
+    assert.doesNotMatch(ui.host.textContent || '', /Shrinking images/, 'the stale read must not repaint the panel as still running')
+    assert.match(ui.host.textContent || '', /Stopping after the current file…/)
+    assert.equal([...ui.host.querySelectorAll('button')].some(b => b.textContent?.trim() === 'Stop'), false, 'no live Stop button while the stop is accepted')
+  } finally { ui.close() }
+})
+
 test('one missed progress read does not freeze the operation: it keeps checking and then shows the review', async () => {
   let reads = 0
   const ui = await mount({

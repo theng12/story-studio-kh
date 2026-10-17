@@ -100,6 +100,8 @@ const space = ref<Space | null>(null)
 let generation = 0
 let disposed = false
 let timer: ReturnType<typeof setTimeout> | undefined
+/** The one operation id whose Stop the backend accepted and the panel has not yet seen. */
+let stopRequestedId: string | null = null
 /** One machine-wide operation id (never channel-owned), so a run survives a page or channel change. */
 const LIBRARY_OPERATION_KEY = 'media-cleanup:library'
 /** True between restore() and its first poll answer, so a restored already-finished operation never reopens the review. */
@@ -203,6 +205,21 @@ async function pollOperation() {
   try {
     const result = await get<Operation>(`/library/media-cleanup/operations/${id}`)
     if (!current(version) || operation.value?.id !== id) return
+    // A Stop press wins over a stale read. A progress read already in flight when
+    // Stop was clicked can come back `running` after the backend has accepted the
+    // stop; painting it would flip the panel back to a live Stop — the "Stop did
+    // nothing" look the owner reported. Until a read confirms `stopping` (the
+    // server's own state from the moment the stop was accepted) or a terminal
+    // status, keep the stop state the owner was promised. At most one read can be
+    // stale: after the POST, every new read returns `stopping` from the server.
+    if (stopRequestedId === id && ['queued', 'running'].includes(result.status)) {
+      operation.value = { ...result, status: 'stopping' }
+      error.value = ''
+      resuming = false
+      timer = setTimeout(() => void pollOperation(), 1000)
+      return
+    }
+    stopRequestedId = null
     operation.value = result; error.value = ''
     if (['queued', 'running', 'stopping'].includes(result.status)) {
       resuming = false // it is genuinely in flight; progress and Stop keep updating
@@ -279,7 +296,17 @@ async function stopOperation() {
   if (!operation.value || stopping.value) return
   const version = generation, id = operation.value.id
   stopping.value = true
-  try { await post(`/library/media-cleanup/operations/${id}/stop`, {}); if (current(version)) void pollOperation() }
+  // Claim "Stopping…" immediately: the POST answer already said the backend took
+  // the stop, so the owner must not keep seeing a live Stop button (or have to
+  // press again) while the poller still shows an older `running` snapshot.
+  try {
+    await post(`/library/media-cleanup/operations/${id}/stop`, {})
+    if (current(version)) {
+      stopRequestedId = id
+      operation.value = { ...operation.value!, status: 'stopping' }
+      void pollOperation()
+    }
+  }
   catch (e) { if (current(version)) error.value = message(e) }
   finally { if (current(version)) stopping.value = false }
 }
@@ -292,6 +319,7 @@ watch(() => props.slug, () => {
   preview.value = null; operation.value = null; error.value = ''; checkResult.value = ''
   space.value = null; checkingYouTube.value = false
   submitting.value = false; confirming.value = false; stopping.value = false; polling.value = false
+  stopRequestedId = null
   resuming = false
   void loadSpace()
   restore()
