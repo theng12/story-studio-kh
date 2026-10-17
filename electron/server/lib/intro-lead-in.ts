@@ -22,8 +22,18 @@
  */
 
 import { getAudioDuration } from './ffmpeg-utils.js'
-import fs from 'fs/promises'
 import path from 'path'
+import {
+  MERGED_AUDIO_FILENAME,
+  resolveEpisodeMergedAudioChoice,
+  selectMergedAudioFilename,
+} from './merged-audio-selection.js'
+
+// The merged-track selection moved to `lib/merged-audio-selection.ts` in v1.4.314
+// so the renderer, the plan builder, Scene Review and B-Roll can share ONE
+// answer. Re-exported here because every existing importer reaches for it on this
+// module, and because this is where the subtitle-timing half of the story lives.
+export { MERGED_AUDIO_FILENAME, selectMergedAudioFilename }
 
 /** Σ section durations + (n−1) inter-section gaps. Section durations already
  *  include inter-part chunk silences (see audio-merge v1.0.317). */
@@ -143,52 +153,13 @@ export async function computeIntroLeadInSec(
 /**
  * Which files in a merge folder are actual merged AUDIO.
  *
- * Deliberately identical to `isMergedFilename` in `generators/video.ts` (the
- * asset scanner), because the timing computed here must describe the very file
- * the renderer will lay under the pictures. Two rules, both learned from a
- * shipped defect:
- *
- *  - It must END at a real audio extension. v1.3.4: this used to be
- *    `startsWith('{code}_merged_audio.')`, which also matched the
- *    `{code}_merged_audio.completion.json` record the merge has written beside
- *    the track since 2026-07-14 — and `c` sorts before `m`, so the record won.
- *    ffprobe returned nothing for a JSON file, and the lead-in silently became
- *    0 for every episode merged after that date.
- *  - It must accept the `_v2`, `_v3` … variants Audio Assembly writes in
- *    `write_mode: 'new'`. The old prefix test rejected those outright, which is
- *    the same defect one release earlier.
+ * `MERGED_AUDIO_FILENAME`, `selectMergedAudioFilename` and the owner's explicit
+ * per-episode pin now live in `lib/merged-audio-selection.ts`, so the renderer,
+ * the plan builder, Scene Review and B-Roll share ONE answer to "which merged
+ * track is this episode's narration?". This module consumes that answer; it no
+ * longer keeps a second copy of the rule. See that file for why the base track
+ * wins over a `_v2` when nothing is pinned, and how a pin is validated.
  */
-const MERGED_AUDIO_FILENAME = /_merged_audio(?:_v\d+)?\.(?:mp3|wav|m4a)$/i
-
-/**
- * The merged track the app treats as this episode's narration, chosen from a
- * `merged_audio_dir` listing.
- *
- * `write_mode: 'new'` can leave `{code}_merged_audio_v2.mp3` (and `_v3`…) beside
- * the original, and a reader that picks its own file answers "which narration?"
- * differently from its neighbour. Sorted by CODE UNIT, not by locale, so `.`
- * (0x2E) precedes `_` (0x5F) and the base track wins over a `_v2` — the order
- * `resolveEpisodeIntroLeadIn` has always used. It is the selection the subtitle
- * stitcher and the merged-record readers share. Null when the folder holds none.
- *
- * This is NOT yet the only merged-track selection in the codebase. Others, each
- * answering a different question and not to be conflated with this one:
- * `scanEpisodeAssets` (generators/video.ts) takes the first audio file in raw
- * `readdir` order; `describeMergedAudioOpening` (services/merged-audio-opening.ts)
- * matches a completion record to one file by `output_filename`;
- * `routes/scene-review.ts` picks the LARGEST by byte size; and
- * `asset-status.ts`'s `inspectAudioMergeAtPaths` picks the HIGHEST `_vN` and
- * verifies it against the record. Where a caller already holds the scan's file
- * (the renderer, the plan builder), pass THAT file rather than re-selecting here.
- */
-export function selectMergedAudioFilename(entries: readonly string[], episodeCode: string): string | null {
-  const code = episodeCode.toUpperCase()
-  return entries
-    .filter(name => !name.startsWith('.')
-      && name.toLowerCase().startsWith(`${code.toLowerCase()}_`)
-      && MERGED_AUDIO_FILENAME.test(name))
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0] ?? null
-}
 
 /** What an episode's merge folder says about the head of its narration. */
 export interface EpisodeIntroLeadIn {
@@ -251,10 +222,25 @@ async function resolveEpisodeIntroLeadInUnsafe(
   episodeCode: string,
 ): Promise<EpisodeIntroLeadIn> {
   const code = episodeCode.toUpperCase()
-  const entries = await fs.readdir(mergedAudioDir).catch(() => [] as string[])
-  // ONE selection (see `selectMergedAudioFilename`): the base track wins over a
-  // `_v2` by code-unit order, so every reader agrees which merge is the narration.
-  const mergedName = selectMergedAudioFilename(entries, code)
+  // ONE selection: the owner's pinned track if he made one, else the base track
+  // over a `_v2` by code-unit order — so the stitcher, the renderer and the plan
+  // builder all agree which merge is the narration (see `merged-audio-selection`).
+  const choice = await resolveEpisodeMergedAudioChoice(mergedAudioDir, code)
+  if (choice.source === 'invalid') {
+    // A pin that no longer names a file in this folder is not silently swapped
+    // for another track: which narration the video carries is the owner's call.
+    // Report it as unmeasurable, which the stitcher already turns into a loud
+    // refusal with a repair instruction — never a quiet re-selection.
+    return {
+      status: 'unmeasurable',
+      seconds: 0,
+      reason: `the merged track selected for ${code} ("${choice.pinned}") is not in ${mergedAudioDir} `
+        + '(it may have been deleted or renamed). Choose this episode\'s narration again in Video Assembly Step 1.',
+    }
+  }
+  const mergedName = choice.source === 'selected'
+    ? choice.filename
+    : selectMergedAudioFilename(choice.entries, code)
   if (!mergedName) {
     return {
       status: 'unmeasurable',

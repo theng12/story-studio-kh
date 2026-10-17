@@ -25,6 +25,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
+import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseHttpByteRange } from '../lib/http-byte-range.js'
 import { decodableImageSignature, isDecodableImage, peekDecodableImageSignature } from '../lib/image-validation.js'
@@ -473,21 +474,28 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       })
     }
 
-    // Locate merged audio for the synced player. Walk merged_audio_dir
-    // for the largest .mp3 (same heuristic as broll-assemble's
-    // findNarrationPath uses).
+    // Locate merged audio for the synced player. The owner's explicit choice
+    // wins when he made one (v1.4.314); otherwise this keeps its long-standing
+    // "largest .mp3" rule so an episode nobody pinned is unchanged.
     let audioPath: string | null = null
     let audioVersion: string | null = null
     if (existsSync(paths.merged_audio_dir)) {
       const files = await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])
-      let bestSize = 0
-      for (const f of files) {
-        if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
-        const stat = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
-        if (stat && stat.size > bestSize) {
-          bestSize = stat.size
-          audioPath = path.join(paths.merged_audio_dir, f)
-          audioVersion = `${stat.size}-${Math.trunc(stat.mtimeMs)}`
+      const choice = await resolveEpisodeMergedAudioChoice(paths.merged_audio_dir, episodeId)
+      // A pin that no longer names a real track leaves the player empty rather
+      // than quietly playing a different narration.
+      if (choice.source !== 'invalid') {
+        const pinned = choice.source === 'selected' ? choice.filename : null
+        let bestSize = 0
+        for (const f of files) {
+          if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
+          if (pinned && f !== pinned) continue
+          const stat = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
+          if (stat && stat.size > bestSize) {
+            bestSize = stat.size
+            audioPath = path.join(paths.merged_audio_dir, f)
+            audioVersion = `${stat.size}-${Math.trunc(stat.mtimeMs)}`
+          }
         }
       }
     }
@@ -1577,16 +1585,23 @@ router.get('/projects/:slug/scene-review/:episodeId/audio', async (req, res) => 
   try {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     if (!existsSync(paths.merged_audio_dir)) return res.status(404).json({ detail: 'No merged audio' })
-    // Pick the largest audio file (same heuristic as the status endpoint).
+    // The owner's explicit choice when he made one (v1.4.314), else the largest
+    // file — the same answer the status endpoint above gives, so the player and
+    // the scene list never describe different tracks.
     let audioPath: string | null = null
     let bestSize = 0
     const files = await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])
-    for (const f of files) {
-      if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
-      const stat = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
-      if (stat && stat.size > bestSize) {
-        bestSize = stat.size
-        audioPath = path.join(paths.merged_audio_dir, f)
+    const choice = await resolveEpisodeMergedAudioChoice(paths.merged_audio_dir, episodeId)
+    const pinned = choice.source === 'selected' ? choice.filename : null
+    if (choice.source !== 'invalid') {
+      for (const f of files) {
+        if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
+        if (pinned && f !== pinned) continue
+        const stat = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
+        if (stat && stat.size > bestSize) {
+          bestSize = stat.size
+          audioPath = path.join(paths.merged_audio_dir, f)
+        }
       }
     }
     if (!audioPath) return res.status(404).json({ detail: 'No merged audio file' })

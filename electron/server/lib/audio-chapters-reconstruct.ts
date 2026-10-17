@@ -25,6 +25,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { getAudioDuration } from './ffmpeg-utils.js'
+import { resolveEpisodeMergedAudioChoice } from './merged-audio-selection.js'
 import { chapterKeyOf, compareChapterFilenames, isActiveChapterAudioFilename } from '../generators/audio-merge.js'
 
 const AUDIO_RE = /\.(mp3|wav|m4a)$/i
@@ -131,8 +132,17 @@ export async function reconstructAudioChapters(opts: {
 
   let mergedDuration: number | undefined
   if (mergedAudioDir) {
-    const merged = await largestAudioFile(mergedAudioDir)
-    if (merged) mergedDuration = await getAudioDuration(merged).catch(() => undefined)
+    // v1.4.314 — measure the track this episode renders with: the owner's pinned
+    // merge when he made one, else the largest file (the long-standing rule). A
+    // pin that no longer names a real track leaves the gap at its default rather
+    // than measuring a track the app will not use.
+    const choice = await resolveEpisodeMergedAudioChoice(mergedAudioDir, episodeCode)
+    const chosenPath = choice.source === 'selected'
+      ? path.join(mergedAudioDir, choice.filename!)
+      : choice.source === 'unset'
+        ? await largestAudioFile(mergedAudioDir)
+        : null
+    if (chosenPath) mergedDuration = await getAudioDuration(chosenPath).catch(() => undefined)
   }
 
   return buildReconstructedSidecar(files, episodeCode, mergedDuration)

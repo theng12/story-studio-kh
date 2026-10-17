@@ -133,6 +133,7 @@ import {
   type MergedAudioOpening,
 } from '../services/merged-audio-opening.js'
 import { scenePlanLeadInShiftSec, shiftScenesForLeadIn } from '../lib/intro-lead-in.js'
+import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { compareMergedAudio } from '../lib/scene-plan-timeline.js'
 import {
   buildImagePoolPlayOrder,
@@ -1169,6 +1170,21 @@ export interface ScannedAssets {
     duration?: number
     opening?: MergedAudioOpening
   }>
+  /**
+   * Which merged track this episode's narration is, and why (v1.4.314).
+   *
+   * `merged_audio[0]` is always this track when `source` is `selected` or
+   * `unset`; when it is `invalid` the owner's pin names a file that is no longer
+   * here, and `merged_audio[0]` is the legacy order but MUST NOT be rendered —
+   * callers that choose the artifact refuse instead of substituting.
+   */
+  merged_audio_selection?: {
+    source: 'selected' | 'unset' | 'invalid'
+    /** The pinned basename, when the owner chose one. */
+    pinned: string | null
+    /** The track `merged_audio[0]` resolves to, when there is one. */
+    filename: string | null
+  }
   intro_videos: Array<{ filename: string; path: string }>
   music_files: Array<{ filename: string; path: string; duration?: number }>
   rendered_videos: Array<{ filename: string; path: string; mtime: number }>
@@ -1194,7 +1210,18 @@ async function recordMusicEpisodePlays(job: Job, slug: string, code: string): Pr
 
 // ── Scan Episode Assets ────────────────────────────────────────────────────
 
-export async function scanEpisodeAssets(slug: string, episodeId: string): Promise<ScannedAssets> {
+export async function scanEpisodeAssets(
+  slug: string,
+  episodeId: string,
+  /**
+   * v1.4.314 — the merged track to put FIRST (`merged_audio[0]`), used by the
+   * render to keep an already-accepted job on the narration it was accepted with
+   * (see `prepareUnifiedVideoAssemblyInputs`). Ignored when it is not a member of
+   * this episode's merged-audio folder. Omitted by every read-only caller, which
+   * then follows the episode's own pin (or the legacy order when there is none).
+   */
+  opts?: { preferredMergedFilename?: string | null },
+): Promise<ScannedAssets> {
   const code = episodeId.toUpperCase()
   const projectDir = pm.getProjectDir(slug)
   const outputRoot = await pm.getProjectOutputRoot(slug)
@@ -1443,6 +1470,35 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
         duration,
       })
     }
+
+    // v1.4.314 — `merged_audio[0]` is the narration every downstream reader uses
+    // (the render, the plan's lead-in shift, the coverage/drift checks, the
+    // Image-Pool duration). Before this, it was simply the first file in raw
+    // `readdir` order, which need not be the track the owner chose. Put the
+    // chosen track first so the scan agrees with the stitcher, the plan gate,
+    // Scene Review and B-Roll. An episode nobody pinned keeps the exact order it
+    // had before — the fix is the explicit choice, not a global re-ordering.
+    const choice = await resolveEpisodeMergedAudioChoice(mergedAudioDir, code)
+    const preferred = (opts?.preferredMergedFilename || '').trim()
+    let chosen: string | null = null
+    if (preferred && result.merged_audio.some(entry => entry.filename === preferred)) {
+      // An accepted job's own snapshot wins over a later change of choice, so a
+      // queued render never silently switches narration under the customer.
+      chosen = preferred
+    } else if (choice.source === 'selected') {
+      chosen = choice.filename
+    }
+    if (chosen) {
+      const at = result.merged_audio.findIndex(entry => entry.filename === chosen)
+      if (at > 0) result.merged_audio.unshift(...result.merged_audio.splice(at, 1))
+    }
+    result.merged_audio_selection = {
+      source: choice.source,
+      pinned: choice.pinned,
+      // What `merged_audio[0]` actually resolves to — null only when the pin is
+      // invalid and there is therefore no track this episode may render.
+      filename: choice.source === 'invalid' ? null : (chosen ?? result.merged_audio[0]?.filename ?? null),
+    }
   }
 
   // If merged audio exists, intro/chapter audio is stale — the audio assembly
@@ -1663,6 +1719,30 @@ function isInsideDir(child: string, parent: string): boolean {
 }
 
 /**
+ * Bring `{CODE}_stitched.srt` up to date for the episode's CHOSEN merged track.
+ *
+ * Shared by the auto-repair prologue in `prepareUnifiedVideoAssemblyInputs`
+ * (which re-anchors the Scene Plan against these captions) and
+ * `resolveEpisodeSubtitleFile` (which then decides what to burn). Idempotent —
+ * `ensureStitchedSubtitle` is a no-op once the timeline is already the correct
+ * consequence of the chosen track, so the second call in a pass writes nothing.
+ */
+async function stitchEpisodeSubtitles(
+  subtitlesDir: string,
+  stitchPaths: { episodeDir: string; mergedAudioDir: string; audioDir: string },
+  episodeId: string,
+) {
+  const { ensureStitchedSubtitle } = await import('../lib/subtitle-autostitch.js')
+  return ensureStitchedSubtitle({
+    episodeDir: stitchPaths.episodeDir,
+    subtitlesDir,
+    mergedAudioDir: stitchPaths.mergedAudioDir,
+    audioDir: stitchPaths.audioDir,
+    episodeCode: episodeId.toUpperCase(),
+  })
+}
+
+/**
  * Fill in the episode's own subtitle file when the caller named none (v1.3.4).
  *
  * `routes/pipeline.ts` builds the batch request from a saved video bundle and
@@ -1726,14 +1806,8 @@ export async function resolveEpisodeSubtitleFile(
   // cannot be performed, which is why it sits in preflight and not in the
   // encoder.
   if (stitchPaths) {
-    const { ensureStitchedSubtitle, describeAutoStitch } = await import('../lib/subtitle-autostitch.js')
-    const outcome = await ensureStitchedSubtitle({
-      episodeDir: stitchPaths.episodeDir,
-      subtitlesDir,
-      mergedAudioDir: stitchPaths.mergedAudioDir,
-      audioDir: stitchPaths.audioDir,
-      episodeCode: episodeId.toUpperCase(),
-    })
+    const outcome = await stitchEpisodeSubtitles(subtitlesDir, stitchPaths, episodeId)
+    const { describeAutoStitch } = await import('../lib/subtitle-autostitch.js')
     job?.output_lines.push(describeAutoStitch(outcome, episodeId.toUpperCase()))
   }
 
@@ -1952,7 +2026,42 @@ export async function prepareUnifiedVideoAssemblyInputs(
    *  omits it. */
   job?: Job,
 ): Promise<ScannedAssets> {
-  let assets = await scanEpisodeAssets(slug, episodeId)
+  // v1.4.314 — an accepted job carries the merged track it was accepted with in
+  // its own params (`req.merged_audio_path`, set at queue time). Hold on to it
+  // BEFORE the scan overwrites it: a queued render must keep rendering the
+  // narration it was accepted with, never silently switch to a newer choice.
+  const acceptedMergedPath = (req.merged_audio_path || '').trim() || null
+  const acceptedMergedName = acceptedMergedPath ? path.basename(acceptedMergedPath) : null
+  let assets = await scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: acceptedMergedName })
+
+  // The owner pinned a track and it is no longer in this episode's folder. Do NOT
+  // pick another one for him: which narration the video carries is his call, so
+  // refuse loudly and name the repair, exactly as the subtitle ownership guard
+  // refuses a foreign transcript rather than substituting one.
+  const selection = assets.merged_audio_selection
+  if (selection?.source === 'invalid') {
+    const message = `Video Assembly is blocked: ${episodeId.toUpperCase()}'s selected merged audio `
+      + `"${selection.pinned}" is not in this episode's merged-audio folder (it may have been deleted or `
+      + 'renamed). Choose this episode\'s narration again in Video Assembly Step 1, then retry.'
+    await safetyGate(slug, 'merged_audio_selection', job, message)
+    throw new Error(message)
+  }
+  // An accepted job carries the merged track it was accepted with, in its own
+  // params. If that exact file is no longer in this episode's folder, REFUSE —
+  // never fall back to whatever is chosen now, not even with a note in the log.
+  // Which narration the video carries is the owner's call, and acceptance pins
+  // it: silently rendering a different track would produce a video the customer
+  // never approved. This is the same "refuse, do not substitute" rule the
+  // subtitle ownership guard applies to a foreign transcript.
+  if (acceptedMergedName && !assets.merged_audio.some(entry => entry.filename === acceptedMergedName)) {
+    const message = `Video Assembly is blocked: this render was accepted with ${episodeId.toUpperCase()}'s `
+      + `merged audio "${acceptedMergedName}", which is no longer in this episode's merged-audio folder `
+      + '(it may have been deleted or renamed). Restore that track, or choose this episode\'s narration again '
+      + 'in Video Assembly Step 1 and queue a new render, then retry.'
+    await safetyGate(slug, 'merged_audio_selection', job, message)
+    throw new Error(message)
+  }
+
   // Timing overlaps of any size, and a plan timed against a slightly different narration, are
   // repaired with the Scene Plan's own "Reconcile timings", which keeps every scene and image, and
   // the render goes on (1.4.278 for small overlaps; 1.4.296 for all of them and for narration
@@ -1960,10 +2069,30 @@ export async function prepareUnifiedVideoAssemblyInputs(
   const overlaps = repairableTimingOverlaps(assets.scene_plan_timing)
   const audioDrift = assets.scene_plan_timing?.audio_stale_reason
   if (job && (overlaps || audioDrift)) {
+    // Re-anchoring measures the plan against this episode's stitched captions, and
+    // those captions are offset by the CHOSEN merged track's intro lead-in. Bring
+    // the stitch up to date FIRST, so the plan is re-anchored to the timeline this
+    // render will actually use. The other order (reconcile, then stitch) re-anchored
+    // the plan to the PREVIOUS track's captions and then rewrote them, leaving the
+    // plan a whole lead-in out of step inside one pass — reachable on any
+    // render-only/batch run, where the page's preflight never brought the stitch up
+    // to date first. The subtitle resolution below re-runs this and finds it already
+    // fresh, so nothing is stitched twice.
+    if (req.subtitles?.enabled) {
+      const stitchPaths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+      const { describeAutoStitch } = await import('../lib/subtitle-autostitch.js')
+      const outcome = await stitchEpisodeSubtitles(stitchPaths.subtitles_dir, {
+        episodeDir: stitchPaths.episode_dir,
+        mergedAudioDir: stitchPaths.merged_audio_dir,
+        audioDir: stitchPaths.audio_dir,
+      }, episodeId)
+      // `fresh` is what the resolution below will report; say it once, there.
+      if (outcome.status !== 'fresh') job.output_lines.push(describeAutoStitch(outcome, episodeId.toUpperCase()))
+    }
     const { reconcileScenePlanTimings } = await import('../services/scene-plan-reconcile.js')
     try {
       const repaired = await reconcileScenePlanTimings(slug, episodeId, { auto: true })
-      assets = await scanEpisodeAssets(slug, episodeId)
+      assets = await scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: acceptedMergedName })
       job.output_lines.push(
         'Scene Plan: '
         + [overlaps ? `${overlaps.count} timing overlap(s) totalling ${overlaps.totalSec.toFixed(1)}s (largest ${overlaps.maxSec.toFixed(1)}s)` : '',

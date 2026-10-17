@@ -327,6 +327,57 @@
               preload="none"
               :src="getAudioPreviewUrl(scannedAssets.merged_audio[0].path)"
             />
+            <!-- v1.4.314 — when Audio Assembly has written more than one merge
+                 (`write_mode: 'new'` leaves `_v2` beside the base track), the
+                 owner chooses which one this episode's video carries. The choice
+                 is stored per episode and honoured by the subtitle stitcher, the
+                 plan gate, the render, Scene Review and B-Roll alike, so they
+                 cannot disagree about the narration. "Auto" keeps the app's own
+                 base-track rule. -->
+            <div v-if="scannedAssets.merged_audio.length > 1" class="merged-audio-picker mt-1">
+              <p class="text-muted text-xs mb-1">
+                This episode has {{ scannedAssets.merged_audio.length }} merged tracks. Pick the one its video uses.
+              </p>
+              <p
+                v-if="scannedAssets.merged_audio_selection?.source === 'invalid'"
+                class="validation-msg"
+                data-testid="merged-audio-selection-invalid"
+              >
+                The chosen track "{{ scannedAssets.merged_audio_selection.pinned }}" is no longer in this
+                episode's folder. Pick a track again before rendering.
+              </p>
+              <label class="merged-audio-pick">
+                <input
+                  type="radio"
+                  name="merged-audio-pick"
+                  :checked="!scannedAssets.merged_audio_selection?.pinned"
+                  :disabled="selectingMergedAudio"
+                  @change="selectMergedAudio(null)"
+                />
+                <strong>Auto</strong>
+                <span class="text-muted text-xs">— the app's own rule (the base track)</span>
+              </label>
+              <label
+                v-for="track in scannedAssets.merged_audio"
+                :key="track.filename"
+                class="merged-audio-pick"
+              >
+                <input
+                  type="radio"
+                  name="merged-audio-pick"
+                  :checked="scannedAssets.merged_audio_selection?.pinned === track.filename"
+                  :disabled="selectingMergedAudio"
+                  :title="`Use ${track.filename} for this episode's video`"
+                  @change="selectMergedAudio(track.filename)"
+                />
+                <code>{{ track.filename }}</code>
+                <span class="text-muted text-xs">{{ formatDuration(track.duration) }}</span>
+                <span
+                  v-if="scannedAssets.merged_audio_selection?.filename === track.filename"
+                  class="badge badge-success ml-1"
+                >✓ used</span>
+              </label>
+            </div>
           </template>
           <div v-else class="validation-msg" data-testid="merged-audio-missing">
             <template v-if="scannedAssets.audio_sections?.length">
@@ -2960,6 +3011,8 @@ const assemblyJobActiveForEpisode = computed(() => isJobActiveFor(episodeId.valu
 const ffmpegStatus = ref<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean; hw_encoders?: { h264: boolean; h265: boolean }; check_error?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
+// v1.4.314 — pinning which merged track this episode's video uses.
+const selectingMergedAudio = ref(false)
 const imagePoolNarrationDuration = computed(() => Number(
   scannedAssets.value?.merged_audio?.[0]?.duration
   || scannedAssets.value?.narration_full?.duration
@@ -4317,6 +4370,38 @@ async function loadSubtitlesStatus() {
     subtitlesStatus.value = null
     subtitlesStatusError.value = e?.data?.detail || e?.message || 'Could not read subtitle files for this episode'
     subtitlesStatusLoading.value = false
+  }
+}
+
+/**
+ * v1.4.314 — choose which merged track THIS episode's video uses, or pass null
+ * to go back to the app's own rule (the base track).
+ *
+ * Like the subtitle pin, the choice is a dotfile inside the episode's own
+ * merged-audio folder, so it is episode-scoped on disk and cannot follow the
+ * customer to another episode. Every reader that picks a merged track — the
+ * subtitle stitcher, the Scene Plan gate, the render, Scene Review and B-Roll —
+ * consults it first, so they cannot disagree about the narration.
+ */
+async function selectMergedAudio(filename: string | null) {
+  if (!episodeId.value || selectingMergedAudio.value) return
+  const scope = videoEpisodeSequence
+  selectingMergedAudio.value = true
+  try {
+    await put(`/projects/${slug.value}/video-editor/merged-audio/select/${episodeId.value}`, { filename })
+    if (scope !== videoEpisodeSequence) return
+    // Re-read rather than assuming: the backend decides what a pin means, and a
+    // pin naming a file it will not use must not be shown as if it won.
+    await scanAssets()
+    if (scope !== videoEpisodeSequence) return
+    success(filename
+      ? `This episode's video will use ${filename}`
+      : 'Back to the automatic merged-track choice')
+  } catch (e: any) {
+    if (scope !== videoEpisodeSequence) return
+    showError(e?.data?.detail || e?.message || 'Could not change the merged track')
+  } finally {
+    if (scope === videoEpisodeSequence) selectingMergedAudio.value = false
   }
 }
 
@@ -6715,6 +6800,11 @@ onUnmounted(() => {
   background: color-mix(in srgb, #f59e0b 10%, transparent);
 }
 .merged-audio-player { width: 100%; max-width: 520px; display: block; }
+/* v1.4.314 — pick which merged track this episode's video uses. */
+.merged-audio-picker { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.merged-audio-pick { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.merged-audio-pick input { margin: 0; }
+.merged-audio-pick code { font-size: 12px; }
 
 /* Chips are buttons now — keep the exact same box, add the affordance. */
 .scene-thumb-openable { cursor: pointer; font-family: inherit; transition: border-color 0.12s, color 0.12s, transform 0.08s; }

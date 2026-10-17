@@ -10,6 +10,7 @@ import path from 'path'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
+import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from './utils.js'
 import { resolveTranscriptSrtPath, stitchedSrtPath } from './subtitle-correction.js'
 import { computePlanCoverage, reconcilePlanToSubtitles, removeNonRenderableScenes } from './scene-planner.js'
@@ -51,13 +52,30 @@ export async function reconcileScenePlanTimings(
 
   // Keep the measured audio duration as its own fact. The authoritative plan
   // end below uses whichever reaches later: playable audio or verified captions.
+  //
+  // v1.4.314 — when the owner has pinned this episode's narration, measure the
+  // pinned track: it is the same file the stitcher and the renderer use, so the
+  // re-anchor measures the timeline the render will actually carry (for
+  // PR0002/PR0003 the base 14-voice test merge was the LARGER file, so measuring
+  // by size re-anchored to the track the owner had NOT chosen).
+  //
+  // An episode nobody pinned keeps this site's own long-standing rule unchanged:
+  // the largest audio file. A pin that no longer names a real track measures
+  // nothing (audioDur stays 0, so the plan end follows the captions) rather than
+  // measuring some other track — the render refuses an invalid pin, and this
+  // repair must not silently answer with a different narration.
   let audioDur = 0
   if (existsSync(paths.merged_audio_dir)) {
-    let best = 0
-    for (const f of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
-      if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
-      const st = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
-      if (st && st.size > best) { best = st.size; audioDur = (await getAudioDuration(path.join(paths.merged_audio_dir, f))) || 0 }
+    const choice = await resolveEpisodeMergedAudioChoice(paths.merged_audio_dir, episodeId)
+    if (choice.source === 'selected' && choice.filename) {
+      audioDur = (await getAudioDuration(path.join(paths.merged_audio_dir, choice.filename))) || 0
+    } else if (choice.source === 'unset') {
+      let best = 0
+      for (const f of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
+        if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
+        const st = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
+        if (st && st.size > best) { best = st.size; audioDur = (await getAudioDuration(path.join(paths.merged_audio_dir, f))) || 0 }
+      }
     }
   }
 

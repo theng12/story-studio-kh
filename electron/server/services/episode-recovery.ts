@@ -17,7 +17,7 @@ import { ensureStitchedSubtitle, type EnsureStitchedOptions } from '../lib/subti
 import { verifyWrittenSubtitleTimeline } from './scene-timeline-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
-import { selectMergedAudioFilename } from '../lib/intro-lead-in.js'
+import { resolveEpisodeMergedAudioChoice, expectedMergedAudioFilename } from '../lib/merged-audio-selection.js'
 import { hashSubtitleAudioSources, inspectChapterSubtitleCompletion } from './subtitle-completion.js'
 import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
 import { readLocalMediaCleanupStatus } from './episode-media-cleanup.js'
@@ -544,9 +544,18 @@ async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
   if (!verified.subtitle_stitch || plan.target === 'subtitle_stitch') return facts
   const status = await computeEpisodeStatus(plan.project_slug, plan.episode_id)
   const scenePlanPath = await resolveScenePlanPath(plan.project_slug, plan.episode_id, paths.episode_dir)
-  const drift = await inspectPlanTimelineDrift(scenePlanPath, path.join(paths.subtitles_dir, `${plan.episode_id.toUpperCase()}_stitched.srt`),
-    path.join(paths.merged_audio_dir, `${plan.episode_id.toUpperCase()}_merged_audio.completion.json`),
-    selectMergedAudioFilename(await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[]), plan.episode_id))
+  // v1.4.314 — the same merged-track choice the stitcher and renderer use: the
+  // owner's pin when he made one, else the base-track rule. A pin that no longer
+  // names a real track is NOT ready: the drift check must not fall back to the
+  // completion record (which may describe a different track) and claim the plan is
+  // verified. The render refuses an invalid pin too.
+  const mergedChoice = await resolveEpisodeMergedAudioChoice(paths.merged_audio_dir, plan.episode_id)
+  const expectedMerged = expectedMergedAudioFilename(mergedChoice, plan.episode_id)
+  const drift = expectedMerged.ok
+    ? await inspectPlanTimelineDrift(scenePlanPath, path.join(paths.subtitles_dir, `${plan.episode_id.toUpperCase()}_stitched.srt`),
+        path.join(paths.merged_audio_dir, `${plan.episode_id.toUpperCase()}_merged_audio.completion.json`),
+        expectedMerged.filename)
+    : { stale: true }
   verified.scene_plan_run = status.scene_plan && !drift.stale
   verified.contextual_cues = status.contextual_cues === true
     && (!plan.steps.contextual_cues || status.contextual_cues_generated === true)
