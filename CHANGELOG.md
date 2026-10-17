@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.312 — 2026-10-17
+
+- A chapter part whose Gateway request was confirmed as never created no longer fails as a mismatched identity. Story re-sends it under the same key, so the Gateway replays instead of making a second task, and a part whose saved answer really disagrees is still refused.
+
 ## v1.4.311 — 2026-10-17
 
 - The release checks no longer depend on a fixed wait, so a slow or busy Mac cannot make a test pass or fail by timing alone. This is internal: nothing in the app behaves differently.
