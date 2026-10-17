@@ -1,5 +1,31 @@
 # HANDOFF — Story Studio KH
 
+## Released; install pending the normal path — 2026-10-17 (1.4.313)
+
+Main `4d4a15dd72d462b9cc64b3b03420cd266eebbeb2` is pushed. Two accepted changes:
+
+- **Install now (don't wait)** (`63d39c3e` + `7ee410e4` + `d8c788cc`, final independent review
+  ACCEPT): the update banner and Settings → Updates can install a staged version at once, pausing the
+  queue instead of waiting for the drain, behind the existing confirmation. The immediate request is
+  deliberate standing intent: a request recorded while version X was downloading installs the next
+  offered version immediately, with no second confirmation.
+- **Timeline-drift advisory** (`c3676bb2` + `f521d3bb`, final review ACCEPT): the Final Video
+  step's advisory now uses the merged audio file the render itself selected, so a record describing a
+  different file no longer raises a false drift warning. This is an annotation, not a refusal, and is
+  **not** a production clearance for PR0002/PR0003 — intended audio selection is still unresolved.
+
+Gates: full backend 708/708 files, 6974 tests, 6967 pass, 0 fail, 7 skipped, projects root
+byte-identical; electron/frontend typecheck, lint 0 errors, five static checks, release lane 57/57
+after the build. DMG from the main checkout: `dist/Story Studio KH 1.4.313-arm64.dmg`,
+243,035,915 bytes, SHA-256 `21b2c7f8d1e3dbdb914adb1481af11af9005a23db38f202aa7c600f0346c4a65`,
+app.asar 1.4.313, ad-hoc arm64, launch smoke passed. One publish POST, HTTP 200, readback matched.
+Receipts: `story-313-gate/`.
+
+Not in this release: the chained-video-effects fix `dda1e3cc` (final ACCEPT, held back only because
+this gate was already green) and every unaccepted item (scene-plan wording `10067a5f`, the
+pause-ownership follow-up, the effects recovery-identity follow-up). No install POST was issued for
+the mini; the earlier denial stands.
+
 ## Released; install pending the normal path — 2026-10-17 (1.4.312)
 
 Main `dab23457f784fa1f3a9e52babaf414af4c675e53` is pushed. Two accepted product fixes:
