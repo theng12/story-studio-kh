@@ -90,6 +90,42 @@ This is not a release: version allocation, complete release gates, main integrat
 main-built DMG remain the release owner's work. No live pause/settings/HTTP/install or production
 job edits were performed by this follow-up worker.
 
+## Released; install pending the normal path — 2026-10-17 (1.4.315)
+
+Main `d5188dc7f96614a8dda21e77ae73fa6555ac62ac` is pushed. Six independently reviewed source-accepted
+changes plus three accepted test corrections, integrated with **no merge conflicts**:
+
+- `cef8f4a1` (+`a6edc27b`) — Scene Review Finish/Replacement work over plain HTTP through the exported
+  `secureOperationId()` (CSPRNG fallback instead of a refusal), shared by Pipeline, Episode Builder and
+  publish. `d81f346e` Free Up Space spacing. `f80fce8e` Settings rail scope colours. `0047dcf9`
+  scene-image media type read from the bytes (with the vision containment fix). `fa1a00d2` the per-run
+  Pipeline writing-model override retired. `5249df37` (+`773cef2e`) Character Sheet pacing ownership.
+- Post-gate corrections: `10e33309` (a stale UUID source pin), `93bc2bf3` (a pre-existing manual-redo
+  test race), `032da5ed` (the new pacing test's fixed-ms sleeps replaced by a real lock signal — the
+  only product-file change, a read-only queued-waiter test accessor in `lib/atomic-store.ts`,
+  explicitly authorised as a targeted exception).
+
+Gates, all with captured exits: full backend **exit 0**, 713/713 files, 7013 tests, 7006 pass, 0 fail,
+7 skipped, projects root byte-identical (the first run on this tree failed with three defects — a stale
+pin, the wall-clock guard, and a pre-existing settlement race — all three corrected and re-gated);
+frontend lane exit 0, 312/312 files, 2621 pass; content packs exit 0, 368 tests 366 pass 2 skipped;
+types, lint and the five static checks all 0; release lane 57/57 after the build. DMG from the main
+checkout: `dist/Story Studio KH 1.4.315-arm64.dmg`, 243,038,510 bytes, SHA-256
+`ab892e6c932d89889d8c5d76ba4402e0499c916ebe116ae92f17493150ebac6d`, app.asar 1.4.315, ad-hoc arm64,
+launch smoke passed; the 1.4.314 DMG moved to `_trash/dist/` with its bytes preserved. One publish
+POST, HTTP 200, readback matched. Receipts: `story-315-gate/`.
+
+Visual evidence (isolated app, no production data): Settings rail dots/tint verified light, dark and at
+375px; the Pipeline preset selector does not overflow at 1920/1280/375 with a long label; the UUID
+helper returns a UUIDv4 with `crypto.randomUUID` removed; the Free Up Space button's 16px margin and
+16px list gap verified at 1280 and 375 through a mocked API response (the fixture episode could not be
+listed for real because the app resolves the project directory away from where it was written).
+Screenshots in `agent-reports-20261016/story-315-proof/`.
+
+The mini is on 1.4.314 by its own path and its queue is **held** (32 paused, 12 queued, 0 running).
+This worker issued no install POST: machine-wide absence of a media-cleanup operation cannot be proven
+through any existing read route, so the install stays held pending real evidence.
+
 ## Released; install pending the normal path — 2026-10-17 (1.4.312)
 
 Main `dab23457f784fa1f3a9e52babaf414af4c675e53` is pushed. Two accepted product fixes:
