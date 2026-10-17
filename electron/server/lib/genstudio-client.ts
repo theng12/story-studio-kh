@@ -5617,9 +5617,16 @@ export async function listVideoModels(apiKey: string): Promise<GenStudioVideoMod
   return (await listVideoModelsSnapshot(apiKey)).value
 }
 
-function videoSourceMediaType(filename: string, bytes?: Uint8Array): string {
+export function videoSourceMediaType(filename: string, bytes?: Uint8Array): string {
   // The bytes win over the name: "Archive episode" re-saves scene images as JPEG under their .png names.
-  if (bytes && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  // One rule — the canonical sniffer — so PNG, JPEG AND WebP are read from the bytes,
+  // not only the JPEG magic: the gateway relays `data:image/{png|jpeg|webp}`, so a
+  // WebP saved under a `.png` name must declare what it really is (the type the
+  // vision check and the durable reference record already use).
+  const sniffed = bytes
+    ? sniffImageMediaType(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+    : null
+  if (sniffed) return sniffed
   switch (path.extname(filename).toLowerCase()) {
     case '.png': return 'image/png'
     case '.webp': return 'image/webp'

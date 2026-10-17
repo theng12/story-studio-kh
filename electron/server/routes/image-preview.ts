@@ -16,9 +16,10 @@
  *     free; switching any input invalidates and triggers a fresh render.
  *
  *   GET  /api/image-preview-cache/:hash
- *     200: image/png (immutable cache headers)
+ *     200: the preview's real type (image/png | image/jpeg | image/webp), from the
+ *          bytes, with immutable cache headers
  *     404: hash not in cache
- *     Streams the cached PNG so the renderer can drop the URL into a
+ *     Streams the cached preview so the renderer can drop the URL into a
  *     stable <img src=…> binding.
  */
 
@@ -31,6 +32,7 @@ import * as pm from '../services/project-manager.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { getCached, savePreview, pathForHash } from '../services/image-preview-cache.js'
+import { imageMediaTypeForFile } from '../lib/image-media-type.js'
 import type { ImageModelConfig } from '../models/types.js'
 import { resolveImageProviderParams } from '../models/image-provider-params.js'
 import { resolveConfiguredAspectRatio, resolveImageModelConfig } from '../services/image-model-resolver.js'
@@ -231,7 +233,7 @@ router.post('/projects/:slug/preview-image', validateBody(PreviewImageSchema), a
   })
 })
 
-// ── GET cached PNG ────────────────────────────────────────────────────────
+// ── GET cached preview ────────────────────────────────────────────────────
 
 router.get('/image-preview-cache/:hash', async (req, res) => {
   // Hash IS the content key (sha256 prefix). Restrict to hex to make
@@ -244,6 +246,11 @@ router.get('/image-preview-cache/:hash', async (req, res) => {
   // serve with immutable cache headers — the frontend picks up new
   // renders by URL change (different hash for different prompt/model/etc).
   res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
-  res.setHeader('Content-Type', 'image/png')
+  // The provider decides the format and `savePreview` stores its bytes unchanged
+  // under a `.png` name, so the declared type comes from the BYTES, not the name
+  // — the same rule as the scene-image previews. `send` honours an
+  // already-set Content-Type over the extension (send 1.2.1 `type()` returns
+  // early when the header is present), so the sniffed type wins over `.png`.
+  res.setHeader('Content-Type', await imageMediaTypeForFile(abs))
   res.sendFile(path.resolve(abs))
 })
