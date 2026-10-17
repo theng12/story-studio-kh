@@ -7,6 +7,7 @@ What's new in each release. Newest first.
 ## v1.4.312 — 2026-10-17
 
 - A chapter part whose Gateway request was confirmed as never created no longer fails as a mismatched identity. Story re-sends it under the same key, so the Gateway replays instead of making a second task, and a part whose saved answer really disagrees is still refused.
+- A channel whose narration file changed no longer refuses the Final Video step with a missing scene plan: the merged-audio record is read for the file the plan and the renderer actually use, so the step is admitted when the plan really is complete.
 
 ## v1.4.311 — 2026-10-17
 
