@@ -776,6 +776,7 @@
 
 <script setup lang="ts">
 import { applyRowSelection, spreadPublishTimes } from '~/utils/upload-bulk'
+import { secureOperationId } from '~/composables/useFreshGenerationAction'
 import { PUBLISH_PAGE, readPublishView, writePublishView, type PublishSort, type PublishStatus } from '~/utils/publish-view'
 import { sameQuery } from '~/utils/route-query-state'
 
@@ -1894,7 +1895,7 @@ async function refinalizeSelected(): Promise<void> {
       episode_ids: rows.map(ep => ep.episode_code),
       steps: ['metadata'],
       force: true,
-      operation_id: crypto.randomUUID(),
+      operation_id: secureOperationId(),
     })
     if (!actionIsCurrent(action)) return
     for (const job of [...(result.jobs || []), ...(result.reused_jobs || [])]) {

@@ -194,7 +194,7 @@ describe('Pipeline stage selection', () => {
 
   test('offers one explicit recover-first repair action with replay-stable authority', () => {
     assert.match(pipeline, />Repair Selected Gaps<\/button>/)
-    assert.match(pipeline, /repairActionId\.value = crypto\.randomUUID\(\)/)
+    assert.match(pipeline, /repairActionId\.value = secureOperationId\(\)/)
     assert.match(pipeline, /repair_missing: true, action_id: repairActionId\.value/)
     assert.match(pipeline, /force: submittedRepair \? false : forceRerun\.value/)
     assert.match(pipeline, /one fresh attempt at the current live price/)

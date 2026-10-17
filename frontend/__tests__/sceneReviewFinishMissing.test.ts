@@ -25,7 +25,7 @@ async function loadSceneReview(): Promise<Component> {
   const freshActionUrl = await import.meta.resolve('../composables/useFreshGenerationAction.ts')
   const support = `
     import { computed, defineComponent as _defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from ${JSON.stringify(vueUrl)}
-    import { useFreshGenerationAction } from ${JSON.stringify(freshActionUrl)}
+    import { secureOperationId, useFreshGenerationAction } from ${JSON.stringify(freshActionUrl)}
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
     const useRoute = () => globalThis.__sceneReviewRoute
@@ -433,4 +433,97 @@ test('Check again re-reads the uncertain job in place instead of ordering a repl
 
 test('render banner explains Pause / Cancel in a visible line, not only a tooltip (owner decision 2026-10-03)', () => {
   assert.match(source, /class="review-control-hint"\n?\s*><strong>\{\{ control\.label \}\}:<\/strong> \{\{ control\.reason \}\}<\/small>/)
+})
+
+// ── The plain-HTTP identity path ──────────────────────────────────────────────
+// `crypto.randomUUID` is secure-context-only; the shop mini is served over plain
+// HTTP, where `getRandomValues` exists but randomUUID does not. Reported
+// 2026-10-17: Finish refused with "Restart Story Studio" before the POST.
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+async function withBrowserCrypto<T>(fake: unknown, run: () => Promise<T>): Promise<T> {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+  Object.defineProperty(globalThis, 'crypto', { value: fake, configurable: true, writable: true })
+  try {
+    return await run()
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'crypto', original)
+    else delete (globalThis as any).crypto
+  }
+}
+
+async function mountFinishReady(): Promise<Awaited<ReturnType<typeof mount>>> {
+  const mounted = await mount([])
+  mounted.state.stats.value = { total_scenes: 2, with_image: 1, approved: 0, all_approved: false }
+  mounted.state.promptIntegrity.value = { complete: true, empty_ids: [], duplicate_ids: [] }
+  mounted.state.subtitleIntegrity.value = { complete: true, missing_sections: [] }
+  mounted.state.form.value.model = 'published-image-model'
+  mounted.state.form.value.aspect_ratio = '16:9'
+  return mounted
+}
+
+test('over plain HTTP (no randomUUID, getRandomValues present) Finish still sends one v4 action id', async () => {
+  await withBrowserCrypto({
+    getRandomValues: (bytes: Uint8Array) => {
+      for (let index = 0; index < bytes.length; index++) bytes[index] = index + 1
+      return bytes
+    },
+  }, async () => {
+    const mounted = await mountFinishReady()
+    try {
+      const pending = mounted.state.finishMissingImages()
+      await nextTick()
+      mounted.state.episodeId.value = 'EP0002' // stops the background poll after the POST
+      await pending
+      assert.equal(mounted.calls.length, 1, 'the Finish POST must happen over HTTP, not be refused')
+      assert.equal(mounted.calls[0].path, '/projects/fixture-project/scene-review/EP0001/finish-missing')
+      assert.match(mounted.calls[0].body.action_id, UUID_V4, 'a CSPRNG v4 identity, not a refusal')
+      assert.deepEqual((globalThis as any).__sceneReviewErrors, [], 'no refusal message on the HTTP path')
+    } finally { mounted.unmount() }
+  })
+})
+
+test('with no CSPRNG at all Finish refuses before POSTing, with a truthful sentence and no restart advice', async () => {
+  await withBrowserCrypto({}, async () => {
+    const mounted = await mountFinishReady()
+    try {
+      await mounted.state.finishMissingImages()
+      assert.equal(mounted.calls.length, 0, 'nothing may be sent without an identity')
+      const error = String((globalThis as any).__sceneReviewErrors.at(-1) || '')
+      assert.match(error, /cannot create a secure request identity/i)
+      assert.match(error, /nothing was sent/i)
+      assert.ok(!/restart/i.test(error), 'no restart advice')
+      assert.ok(!/connection|settings|secure browser|browser security/i.test(error), 'no connection or settings advice')
+    } finally { mounted.unmount() }
+  })
+})
+
+test('a replacement retry reuses the same source/action identity over plain HTTP too', async () => {
+  await withBrowserCrypto({
+    getRandomValues: (bytes: Uint8Array) => {
+      for (let index = 0; index < bytes.length; index++) bytes[index] = index + 1
+      return bytes
+    },
+  }, async () => {
+    const mounted = await mount([manual({ job_id: 'source-http', params: { manual_image_finish: { uncertain_scene_ids: ['scene-http'] } } })], {
+      settings: [{ enabled: true }],
+      replaceResponses: [new Error('unknown response'), new Error('unknown response')],
+    })
+    try {
+      mounted.state.form.value.model = 'published-image-model'
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const pending = mounted.state.replaceUncertainImages()
+        await nextTick()
+        mounted.acceptConfirmation()
+        await pending
+      }
+      const replacements = mounted.calls.filter(call => call.path.endsWith('/replace-uncertain'))
+      assert.equal(replacements.length, 2)
+      assert.equal(replacements[0].body.source_job_id, 'source-http', 'the source job key is preserved')
+      assert.match(replacements[0].body.action_id, UUID_V4)
+      assert.equal(replacements[1].body.action_id, replacements[0].body.action_id,
+        'an ambiguous retry keeps the same identity, so it cannot double-charge')
+    } finally { mounted.unmount() }
+  })
 })

@@ -67,7 +67,7 @@ describe('Episode Builder page', () => {
   test('pictures go through the fleet scene renderer and are accepted as they arrive', () => {
     assert.match(page, /scene-review\/\$\{code\.value\}\/continuity-render/)
     assert.match(page, /auto_approve_generated: true/)
-    assert.match(page, /operation_id: crypto\.randomUUID\(\)/, 'a deliberate re-roll carries its own identity')
+    assert.match(page, /operation_id: secureOperationId\(\)/, 'a deliberate re-roll carries its own identity')
   })
 
   test('the image model is picked on the page, never assigned', () => {

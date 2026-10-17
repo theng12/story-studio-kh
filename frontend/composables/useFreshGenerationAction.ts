@@ -3,11 +3,23 @@ import { computed, ref } from 'vue'
 /** What the owner reads when a paid/queued request was sent but no answer came back. */
 export const UNCONFIRMED_SUBMISSION = 'Story Studio sent this request but did not hear back. Click Retry: it resends the same request, so nothing is made or charged twice. Changing the selection starts a new request instead.'
 
-function secureOperationId(): string {
+/**
+ * One request identity for a paid/queued action, secure in every connection.
+ *
+ * `crypto.randomUUID` is restricted to secure contexts, so on a plain-HTTP
+ * connection (the shop mini, a LAN address) it is simply absent while
+ * `crypto.getRandomValues` — the CSPRNG, and not context-restricted — is there.
+ * Branching on `randomUUID` alone therefore refuses actions over HTTP that the
+ * browser can create safely; every caller of this helper gets the same rule:
+ * randomUUID when present, otherwise a CSPRNG UUIDv4, never a Math.random or
+ * clock-based identity. Only a browser with neither is refused, and that refusal
+ * says what happened rather than guessing at a fix.
+ */
+export function secureOperationId(): string {
   const browserCrypto = globalThis.crypto
   if (typeof browserCrypto?.randomUUID === 'function') return browserCrypto.randomUUID()
   if (typeof browserCrypto?.getRandomValues !== 'function') {
-    const detail = 'This browser cannot create a secure request identity. Open Story Studio in a secure browser connection and try again.'
+    const detail = 'This browser cannot create a secure request identity, so nothing was sent.'
     const error = new Error(detail) as Error & { data: { detail: string } }
     error.data = { detail }
     throw error
