@@ -383,6 +383,7 @@ p { color: var(--text-secondary); line-height: 1.5; margin: 8px 0 12px; }
 .cleanup-convert .input { flex: 1; min-width: 200px; }
 .cleanup-not-offered { margin: 8px 0 12px; }
 .cleanup-selection, .cleanup-action-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.cleanup-preset { margin: 16px 0; }
 .cleanup-episodes, .cleanup-files { max-height: 320px; overflow: auto; }
 .cleanup-episode { display: flex; gap: 12px; align-items: center; padding: 12px 4px; border-bottom: 1px solid var(--border); }
 .cleanup-episode > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
