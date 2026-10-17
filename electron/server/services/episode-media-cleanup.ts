@@ -25,6 +25,7 @@ import { exportsAnchorFor, resolveExternalFinalVideoDir } from './external-video
 import { resolveAssetPath } from './path-resolver.js'
 import { videoAssemblySourceStampPath } from './video-visual-source.js'
 import { narrationPartsToFree, PARTS_DIRNAME, trashEpisodeParts, trashTargetFor } from './chapter-parts.js'
+import { listStorageLeftovers, trashStorageLeftovers, type LeftoverKind } from './storage-leftovers.js'
 import {
   createProjectFactsCache,
   resolveEpisodePathsByCode,
@@ -76,7 +77,15 @@ export const CONVERT_PNG_PRESET = 'convert_png'
  * weeks ago still qualifies, and a video produced yesterday does not.
  */
 export const LIBRARY_PRODUCTION_AGE_MS = 7 * 24 * 60 * 60 * 1000
-export type LibraryCleanupAction = 'shrink_images' | 'clear_uploaded_finals'
+/**
+ * `cleanup_all` is the merged all-channel sweep the owner asked for (2026-10-17):
+ * the verified-and-older-than-7-days final videos of `clear_uploaded_finals`
+ * AND the unused leftovers `storage-leftovers` already offers, in one review and
+ * one run. It is a distinct action rather than a widening of
+ * `clear_uploaded_finals`, so an old client that asks to clear finals never
+ * silently starts trashing leftover folders too.
+ */
+export type LibraryCleanupAction = 'shrink_images' | 'clear_uploaded_finals' | 'cleanup_all'
 /** `project_slug` sentinel for an all-channel (Library) operation; never a real channel slug. */
 export const LIBRARY_SCOPE = '*'
 /** Upload proof for an upload made before receipts existed, once "Check All Uploads" confirmed it. */
@@ -166,6 +175,10 @@ export interface MediaCleanupRunResult {
   bytes_trashed: number
   /** Bytes of the JPEGs that replaced the compressed originals. */
   bytes_after: number
+  /** `cleanup_all` only: leftover folders moved to `_trash`, their bytes, and any left in place. */
+  leftovers_moved?: number
+  leftovers_bytes_moved?: number
+  leftovers_left?: number
 }
 
 /** One reviewed file of an all-channel preview; the channel travels with the file. */
@@ -175,7 +188,8 @@ export interface LibraryCleanupFile extends MediaCleanupFile {
   episode_code: string
   /**
    * The app's render-completed production time in ms, or null when it is unknown.
-   * Only the `clear_uploaded_finals` action uses it; the shrink action leaves it null.
+   * Only the final-clearing actions (`clear_uploaded_finals`, `cleanup_all`) use
+   * it; the shrink action leaves it null.
    */
   production_ms: number | null
 }
@@ -187,6 +201,37 @@ export interface LibraryCleanupChannel {
   total_bytes: number
   /** Why some of this channel's episodes were left out, in words. */
   blocked_reasons: string[]
+}
+
+/** One unused leftover offered by `cleanup_all`, with the channel it belongs to. */
+export interface LibraryLeftover {
+  project_slug: string
+  channel_name: string
+  kind: LeftoverKind
+  episode_code: string
+  path: string
+  bytes: number
+  /** Where it moves: a `_trash` the owner empties himself. */
+  trash_path: string
+}
+
+/**
+ * Two channels can name the same physical leftover folder (a shared or symlinked
+ * episode folder). It is one folder, so it is offered, counted and moved once.
+ * Identity is the real path when it exists, the resolved path otherwise; the
+ * first owner keeps the entry so a reported path is never rewritten.
+ */
+export function dedupeLibraryLeftovers(items: LibraryLeftover[]): LibraryLeftover[] {
+  const seen = new Set<string>()
+  const out: LibraryLeftover[] = []
+  for (const item of items) {
+    let key: string
+    try { key = realpathSync(item.path) } catch { key = path.resolve(item.path) }
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(item)
+  }
+  return out
 }
 
 export interface LibraryCleanupPreview {
@@ -201,6 +246,12 @@ export interface LibraryCleanupPreview {
   /** The `_trash` folder(s) removed files land in (clear) or the JPEG originals go to (shrink). */
   trash_roots: string[]
   estimate: MediaCleanupPreview['estimate']
+  /**
+   * `cleanup_all` only: the unused leftovers offered alongside the finals,
+   * reported separately so the review never presents a leftover folder as an
+   * uploaded video. Absent for the single-purpose actions.
+   */
+  leftovers?: { count: number; total_bytes: number; items: LibraryLeftover[] }
 }
 
 export interface MediaCleanupOperation {
@@ -1644,7 +1695,7 @@ export async function startMediaCleanupRun(
 // passes a channel list.
 
 function validateLibraryAction(value: unknown): LibraryCleanupAction {
-  if (value === 'shrink_images' || value === 'clear_uploaded_finals') return value
+  if (value === 'shrink_images' || value === 'clear_uploaded_finals' || value === 'cleanup_all') return value
   throw fail('Choose an all-channel maintenance action.')
 }
 
@@ -1726,6 +1777,9 @@ async function buildLibraryPreview(
   const channels: LibraryCleanupChannel[] = []
   const allFiles: LibraryCleanupFile[] = []
   const blocked: string[] = []
+  // `cleanup_all` gathers the unused leftovers of every channel here; the other
+  // actions never touch this list.
+  const libraryLeftovers: LibraryLeftover[] = []
   for (const project of projects) {
     if (operation.stop_requested) break
     const slug = (project as { slug?: string }).slug
@@ -1780,6 +1834,18 @@ async function buildLibraryPreview(
         channelBlocked.push(...discovered.excluded.map(item => `${code}: ${item.reason}`))
       }
     }
+    if (action === 'cleanup_all') {
+      // The leftovers list is its own authority (fresh per read). A channel whose
+      // episodes are busy or unreadable offers none of its own, and a scan that
+      // fails is reported — never flattened to "nothing here".
+      try {
+        for (const item of await listStorageLeftovers(slug)) libraryLeftovers.push({ project_slug: slug, channel_name: name, ...item })
+      } catch (error: any) {
+        const reason = `${name}: its leftover files could not be read (${error?.message || error}), so none were offered.`
+        channelBlocked.push(reason)
+        blocked.push(reason)
+      }
+    }
     if (channelFiles.length || channelBlocked.length) {
       channels.push({ slug, name, files: channelFiles, total_bytes: channelFiles.reduce((n, f) => n + f.bytes, 0), blocked_reasons: channelBlocked })
       allFiles.push(...channelFiles)
@@ -1788,6 +1854,8 @@ async function buildLibraryPreview(
   const shrinkable = allFiles.filter(file => file.category === 'images' && !file.already_jpeg)
   const trashed = allFiles.filter(file => file.category !== 'images')
   const sum = (list: MediaCleanupFile[]) => list.reduce((total, file) => total + file.bytes, 0)
+  // Two channels naming one physical folder is one folder: dedupe before counting.
+  const uniqueLeftovers = dedupeLibraryLeftovers(libraryLeftovers)
   return {
     preview_id: randomUUID(),
     action,
@@ -1797,6 +1865,7 @@ async function buildLibraryPreview(
     files: allFiles,
     total_bytes: sum(allFiles),
     blocked_reasons: blocked,
+    ...(action === 'cleanup_all' ? { leftovers: { count: uniqueLeftovers.length, total_bytes: uniqueLeftovers.reduce((n, item) => n + item.bytes, 0), items: uniqueLeftovers } } : {}),
     trash_roots: [...new Set(allFiles.map(file => {
       const at = file.trash_path.indexOf(`${path.sep}_trash${path.sep}`)
       return at < 0 ? path.dirname(file.trash_path) : file.trash_path.slice(0, at + '/_trash'.length)
@@ -1850,8 +1919,11 @@ async function runLibraryPreview(
     bytes_reclaimed: 0, bytes_moved: 0, bytes_trashed: 0, bytes_after: 0,
   }
   operation.result = result
-  operation.total = preview.files.length
-  operation.bytes_total = preview.files.reduce((n, file) => n + file.bytes, 0)
+  const leftovers = preview.action === 'cleanup_all' ? preview.leftovers?.items || [] : []
+  // Leftover folders count toward the run's progress too, so a sweep that is
+  // still moving leftovers never reads as 100% done.
+  operation.total = preview.files.length + leftovers.length
+  operation.bytes_total = preview.files.reduce((n, file) => n + file.bytes, 0) + leftovers.reduce((n, item) => n + item.bytes, 0)
   const priorConcurrency = sharp.concurrency()
   if (mode === 'compress') { sharp.concurrency(1); sharp.cache(false) }
   try {
@@ -1862,7 +1934,7 @@ async function runLibraryPreview(
       // The clear action's age gate is re-checked at mutation, under the file's
       // own lock, so an old preview can never authorize a final whose production
       // date is no longer provable.
-      const gate = preview.action === 'clear_uploaded_finals' ? () => productionAgeRefusal(file) : undefined
+      const gate = preview.action === 'clear_uploaded_finals' || preview.action === 'cleanup_all' ? () => productionAgeRefusal(file) : undefined
       const apply = () => jq.withEpisodeMediaCleanupLock(file.project_slug, file.episode_code,
         () => mutateReviewedFile(file.project_slug, channelPreviewFor(preview, file.project_slug), operation, file, mode, undefined, gate))
       const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
@@ -1884,7 +1956,55 @@ async function runLibraryPreview(
   } finally {
     if (mode === 'compress') { sharp.concurrency(priorConcurrency); sharp.cache(true) }
   }
+  if (preview.action === 'cleanup_all' && preview.leftovers?.items.length) {
+    await sweepLibraryLeftovers(preview.leftovers.items, operation, result)
+  }
   return result
+}
+
+/**
+ * `cleanup_all`'s second half: move the offered leftovers to `_trash`, channel by
+ * channel. Each channel re-lists its own leftovers at move time (`trashStorageLeftovers`
+ * re-reads before every move and honours a per-file stop), so a job that started
+ * meanwhile keeps its folder and a folder that is gone is reported, never guessed.
+ * Runs under the same operation, so Stop is honoured and progress keeps moving.
+ */
+async function sweepLibraryLeftovers(
+  items: LibraryLeftover[],
+  operation: MediaCleanupOperation,
+  result: MediaCleanupRunResult,
+): Promise<void> {
+  const bySlug = new Map<string, LibraryLeftover[]>()
+  for (const item of items) bySlug.set(item.project_slug, [...(bySlug.get(item.project_slug) || []), item])
+  let moved = 0, bytesMoved = 0, left = 0
+  for (const [slug, group] of bySlug) {
+    if (operation.stop_requested) {
+      // Stopped before this channel: everything still offered is reported as left,
+      // and counted as accounted-for so progress matches the other stopped paths.
+      left += group.length
+      operation.done += group.length
+      continue
+    }
+    operation.current = `${slug} · leftover files`
+    operation.detail = 'Moving leftover files to the Trash'
+    operation.updated_at = isoNow()
+    try {
+      const outcome = await trashStorageLeftovers(slug, group.map(item => item.path), { shouldStop: () => operation.stop_requested === true })
+      const movedBytes = outcome.moved.reduce((n, item) => n + item.bytes, 0)
+      moved += outcome.moved.length
+      bytesMoved += movedBytes
+      left += outcome.left.length
+      operation.done += outcome.moved.length + outcome.left.length
+      operation.bytes_done += movedBytes
+    } catch {
+      // A channel whose leftovers cannot be swept leaves all of them in place.
+      left += group.length
+      operation.done += group.length
+    }
+  }
+  result.leftovers_moved = moved
+  result.leftovers_bytes_moved = bytesMoved
+  result.leftovers_left = left
 }
 
 export async function startLibraryMediaCleanupPreview(action: unknown): Promise<{ operation_id: string }> {

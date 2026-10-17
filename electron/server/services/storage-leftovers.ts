@@ -110,8 +110,12 @@ export async function listStorageLeftovers(slug: string): Promise<StorageLeftove
  * Move the chosen leftovers to `_trash`. Each path must still be on a fresh
  * listing (so a job that started meanwhile protects its folder). A move that
  * cannot happen — another drive, a permission — leaves the folder in place.
+ *
+ * `options.shouldStop`, when given, is checked before each move so a long sweep
+ * can be stopped between files; everything not yet moved is reported as left.
+ * Callers that pass nothing keep the original all-or-report behaviour.
  */
-export async function trashStorageLeftovers(slug: string, paths: unknown): Promise<{
+export async function trashStorageLeftovers(slug: string, paths: unknown, options?: { shouldStop?: () => boolean }): Promise<{
   moved: Array<{ path: string; to: string; bytes: number }>
   left: Array<{ path: string; reason: string }>
 }> {
@@ -121,9 +125,14 @@ export async function trashStorageLeftovers(slug: string, paths: unknown): Promi
   const offered = new Map((await listStorageLeftovers(slug)).map(item => [item.path, item]))
   const moved: Array<{ path: string; to: string; bytes: number }> = []
   const left: Array<{ path: string; reason: string }> = []
-  for (const requested of new Set(paths as string[])) {
-    const item = offered.get(requested)
-    if (!item) { left.push({ path: requested, reason: 'No longer offered (in use again, or already gone).' }); continue }
+  const requested = [...new Set(paths as string[])]
+  for (let index = 0; index < requested.length; index += 1) {
+    if (options?.shouldStop?.()) {
+      for (const remaining of requested.slice(index)) left.push({ path: remaining, reason: 'Stopped before it was moved.' })
+      break
+    }
+    const item = offered.get(requested[index]!)
+    if (!item) { left.push({ path: requested[index]!, reason: 'No longer offered (in use again, or already gone).' }); continue }
     if (!existsSync(item.path)) { left.push({ path: item.path, reason: 'Already gone.' }); continue }
     try {
       moved.push({ path: item.path, to: moveToTrashSync(item.path, item.trash_path, 'leftovers'), bytes: item.bytes })

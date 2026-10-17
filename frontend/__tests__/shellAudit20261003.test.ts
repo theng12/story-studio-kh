@@ -30,7 +30,10 @@ test('Settings: no native alert()/confirm(), and destructive per-row actions ask
   const script = settings.slice(settings.indexOf('<script'))
   assert.doesNotMatch(script, /(?<![.\w])alert\(/)
   assert.doesNotMatch(script, /(?<![.\w])confirm\(/)
-  for (const fn of ['runBulkCleanup', 'clearMediaRoot', 'cleanupOneSidecar', 'cleanupAllChunkedSidecars', 'deletePreset']) {
+  // v1.4.317 — the per-episode bulk clear (runBulkCleanup) moved out of Settings into
+  // the all-channel "Clean Up All Channels" action in MediaCleanupPanel, so it is no
+  // longer a destructive function defined on this page.
+  for (const fn of ['clearMediaRoot', 'cleanupOneSidecar', 'cleanupAllChunkedSidecars', 'deletePreset']) {
     assert.match(script, new RegExp(`async function ${fn}\\([^)]*\\) \\{[\\s\\S]{0,400}?await ask\\(`), fn)
   }
   assert.doesNotMatch(settings, /\{'\{code\}'\}|Define it under Named Roots|e\.g\. \$\{MEDIA\}/)

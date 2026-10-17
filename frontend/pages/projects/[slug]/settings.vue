@@ -285,66 +285,9 @@
               <p v-if="exportsStatus" :class="['settings-status', exportsStatusKind]">{{ exportsStatus }}</p>
             </div>
 
-          </section>
-
-          <section class="card settings-panel" data-setting="self-contained-all">
-            <SelfContainedPanel />
-          </section>
-
-          <!-- v1.4.249 — ONE Free Up Space card ("four overlapping ways to free space"):
-               the recommended preset first, then the other ways as options of the
-               same card, then the read-only "What's using space" view. -->
-          <section class="card settings-panel" data-setting="free-up-space">
-            <MediaCleanupPanel :slug="slug" />
-            <details class="disclosure space-option" data-setting="clear-uploaded-finals">
-              <summary><strong>Clear uploaded final videos (verified)</strong><small>Each final video is checked against its YouTube upload, then moved to Story's Trash (Story → Trash). Anything that cannot be checked stays.</small></summary>
-              <div class="space-option-body">
-                <div class="flex gap-2 items-center">
-                  <button v-if="!storage" class="btn btn-secondary btn-sm" :disabled="auditLoading" @click="loadStorageAudit">
-                    {{ auditLoading ? 'Checking…' : 'Check Uploaded Videos' }}
-                  </button>
-                  <button
-                    v-else
-                    class="btn btn-primary btn-sm"
-                    :disabled="bulkRunning || uploadedFinalsTotalBytes === 0"
-                    :title="uploadedFinalsTotalBytes === 0 ? 'No verification candidates have local final videos' : `Verify and clear ${uploadedFinalsCount} local final video(s) — up to ${formatBytes(uploadedFinalsTotalBytes)}`"
-                    @click="runBulkCleanup"
-                  >
-                    {{ bulkRunning ? 'Verifying…' : `Clear Uploaded Videos (${formatBytes(uploadedFinalsTotalBytes)})` }}
-                  </button>
-                  <button v-if="bulkRunning && bulkOperation" class="btn btn-secondary btn-sm" :disabled="bulkOperation.status === 'stopping'" @click="stopBulkCleanup">Stop</button>
-                </div>
-                <div v-if="bulkRunning && bulkOperation" class="storage-result mt-2" role="status" aria-live="polite">
-                  <strong>{{ bulkProgressText }}</strong>
-                  <progress v-if="bulkOperation.bytes_total" :value="bulkOperation.bytes_done" :max="bulkOperation.bytes_total" aria-label="Verifying uploaded videos" />
-                  <p v-if="bulkOperation.detail" class="text-muted text-xs">{{ bulkOperation.detail }}</p>
-                  <p class="text-muted text-xs">Each video is read once to match it with its YouTube upload, then YouTube is asked about it (up to a minute each). You can leave this page; renders keep going.</p>
-                </div>
-                <p v-if="bulkError" class="error-text mt-2" role="alert">{{ bulkError }}</p>
-                <p v-if="storage && uploadedFinalsTotalBytes === 0 && !bulkRunning" class="settings-hint">
-                  No uploaded episode has a local final video left to clear.
-                </p>
-                <div v-if="lastBulkCleanup" class="storage-result mt-2">
-                  <strong>Cleanup:</strong>
-                  {{ lastBulkCleanup.deleted_count }} file(s) moved to the Trash after verification ({{ formatBytes(lastBulkCleanup.bytes_freed) }}); the space is freed when you empty it on <NuxtLink to="/trash">Story → Trash</NuxtLink>.
-                  <span v-if="lastBulkCleanup.skipped_count">{{ lastBulkCleanup.skipped_count }} kept locally (could not verify).</span>
-                  <span v-if="lastBulkCleanup.failed_count" class="error-text">{{ lastBulkCleanup.failed_count }} failed.</span>
-                  <ul v-if="lastBulkCleanup.items.length" class="cleanup-item-results">
-                    <li v-for="item in lastBulkCleanup.items" :key="`${item.episode_code}:${item.file}`">
-                      <strong>{{ item.episode_code }}:</strong>
-                      {{ item.status === 'deleted' ? 'moved to the Trash after verification' : (item.reason || item.status) }}
-                    </li>
-                  </ul>
-                </div>
-                <details class="settings-tech-details disclosure">
-                  <summary>Details</summary>
-                  <p class="text-muted text-xs">
-                    The file's SHA-256 is compared with the accepted upload, and the current processed video on the
-                    assigned YouTube channel is refreshed. Unverified or legacy upload records stay local.
-                  </p>
-                </details>
-              </div>
-            </details>
+            <!-- v1.4.317 — the archive sweep moved here from Free up space, which now offers
+                 only the two all-channel actions ("too many options"). It is about where finished
+                 videos live, not a cleanup control. -->
             <details class="disclosure space-option" data-setting="move-uploaded" :open="archiveBusy || !!archivePreview || !!archiveResult">
               <summary><strong>Move uploaded videos to another drive</strong><small>Finished videos confirmed on YouTube, from every channel, are copied to a folder you choose and checked there before the original is removed. Everything else stays put.</small></summary>
               <div class="space-option-body">
@@ -443,6 +386,20 @@
               </div>
               </div>
             </details>
+
+          </section>
+
+          <section class="card settings-panel" data-setting="self-contained-all">
+            <SelfContainedPanel />
+          </section>
+
+          <!-- v1.4.317 — Free Up Space is now just the two all-channel actions
+               (Shrink images, Clean up all channels) in the panel, plus the read-only
+               "What's using space" breakdown. The old per-channel/category/conversion
+               tools, the verified-clear duplicate and the archive sweep were removed
+               from this screen; the archive moved up to "Where your files are". -->
+          <section class="card settings-panel" data-setting="free-up-space">
+            <MediaCleanupPanel :slug="slug" />
             <details class="disclosure space-option" data-setting="episode-storage">
               <summary><strong>What's using space</strong><small>Space used by each episode in this channel, largest first.</small></summary>
               <div class="space-option-body storage-panel">
@@ -467,7 +424,7 @@
                   <span class="dot">·</span>
                   <span title="Per-scene motion clips, including the episode's Video Assets folder"><strong>Per-scene clips:</strong> {{ formatBytes(storage.project_bytes_per_scene_clips) }}</span>
                   <span class="dot">·</span>
-                  <span title="Kept per-part narration takes (hidden .parts folders), already counted in each episode's audio. They stay until you move them with Free up space › Choose exactly which files › Narration parts.">
+                  <span title="Kept per-part narration takes (hidden .parts folders), already counted in each episode's audio.">
                     <strong>Narration parts:</strong> {{ formatBytes(storage.project_bytes_narration_parts ?? 0) }}
                   </span>
                   <span v-if="storage.project_bytes_thumbnail_cache" class="dot">·</span>
@@ -2371,12 +2328,6 @@ interface MediaMigrationResult {
   bytes_moved: number
   files_moved: number
 }
-interface CleanupResult {
-  deleted_count: number; skipped_count: number; failed_count: number
-  bytes_freed: number
-  items: Array<{ episode_code: string; file: string; status: string; bytes_freed: number; reason?: string }>
-}
-
 const storage = ref<StorageAudit | null>(null)
 const auditLoading = ref(false)
 const previewCacheClearing = ref(false)
@@ -2395,20 +2346,6 @@ const mediaRootOk = ref(false)
 const mediaMigrateRunning = ref(false)
 const lastMediaMigration = ref<MediaMigrationResult | null>(null)
 const lastMigration = ref<MigrationResult | null>(null)
-const bulkRunning = ref(false)
-const lastBulkCleanup = ref<CleanupResult | null>(null)
-/** Clear Uploaded Videos runs as a background operation (1.4.289): what it is doing, and how far. */
-interface BulkOperation { id: string; status: string; done: number; total: number; bytes_done: number; bytes_total: number; current: string; detail: string; error?: string; final_cleanup?: CleanupResult }
-const bulkOperation = ref<BulkOperation | null>(null)
-const bulkError = ref('')
-let bulkPoll: ReturnType<typeof setTimeout> | null = null
-const bulkProgressText = computed(() => {
-  const op = bulkOperation.value
-  if (!op) return ''
-  if (op.status === 'stopping') return 'Stopping after this episode…'
-  if (!op.total) return 'Finding the uploaded videos…'
-  return `Verifying ${Math.min(op.done + 1, op.total)} of ${op.total} episodes · ${formatBytes(op.bytes_done)} of ${formatBytes(op.bytes_total)} checked`
-})
 
 // v1.0.71: chunked-progress sidecar cleanup (manual; never auto-wipes).
 // listChunkedSidecars walks every accepted episode and tags each as
@@ -2445,18 +2382,6 @@ const sortedStorageRows = computed<StorageEntry[]>(() => {
   if (!storage.value) return []
   return [...storage.value.episodes].sort((a, b) => b.bytes_total - a.bytes_total)
 })
-
-// Bulk cleanup offers only candidates with a current content-hash receipt.
-// The backend re-verifies exact bytes and current provider state before rm.
-const uploadedFinals = computed<StorageEntry[]>(() => {
-  if (!storage.value) return []
-  return storage.value.episodes.filter(e => e.cleanup_eligible
-    && (e.bytes_final_video > 0 || e.bytes_external_final_video > 0))
-})
-const uploadedFinalsCount = computed(() => uploadedFinals.value.length)
-const uploadedFinalsTotalBytes = computed(() =>
-  uploadedFinals.value.reduce((s, e) => s + e.bytes_final_video + e.bytes_external_final_video, 0),
-)
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -2544,57 +2469,6 @@ async function clearPreviewCache() {
   } finally {
     previewCacheClearing.value = false
   }
-}
-
-async function runBulkCleanup() {
-  if (!storage.value || uploadedFinalsCount.value === 0) return
-  const ok = await ask({
-    title: 'Verify and clear local videos?',
-    message: `Verify ${uploadedFinalsCount.value} local final video file(s) (${formatBytes(uploadedFinalsTotalBytes.value)}) before clearing them?\n\n` +
-    `Story Studio checks each file is the exact one you uploaded and that YouTube still has it, right before clearing it. ` +
-    `Any file it cannot verify stays local and is reported below.`,
-    confirmLabel: `Verify & clear ${uploadedFinalsCount.value} files`, danger: true,
-  })
-  if (!ok) return
-  bulkRunning.value = true
-  bulkError.value = ''
-  lastBulkCleanup.value = null
-  try {
-    const { operation_id } = await post<{ operation_id: string }>(`/projects/${slug.value}/storage/bulk-cleanup-final/start`, {})
-    bulkOperation.value = { id: operation_id, status: 'queued', done: 0, total: 0, bytes_done: 0, bytes_total: 0, current: '', detail: '' }
-    void pollBulkCleanup()
-  } catch (e: any) {
-    bulkRunning.value = false
-    bulkError.value = `${e?.data?.detail || e?.message || 'Clearing uploaded videos could not start.'}`
-  }
-}
-
-async function pollBulkCleanup() {
-  const op = bulkOperation.value
-  if (!op) return
-  try {
-    const next = await get<BulkOperation>(`/projects/${slug.value}/media-cleanup/operations/${op.id}`)
-    bulkOperation.value = next
-    if (['queued', 'running', 'stopping'].includes(next.status)) { bulkPoll = setTimeout(() => void pollBulkCleanup(), 1000); return }
-    bulkRunning.value = false
-    lastBulkCleanup.value = next.final_cleanup ?? null
-    if (next.status === 'failed') bulkError.value = `Clearing uploaded videos stopped: ${next.error || 'unknown error'}. Nothing that was not verified was moved; press the button again to retry.`
-    await loadStorageAudit()
-  } catch (e: any) {
-    if (e?.statusCode === 404 || e?.status === 404) {
-      bulkRunning.value = false; bulkOperation.value = null
-      bulkError.value = 'The clearing is no longer running (Story Studio restarted?). Check the uploaded videos again.'
-      return
-    }
-    bulkPoll = setTimeout(() => void pollBulkCleanup(), 3000) // one missed read: keep following it
-  }
-}
-
-async function stopBulkCleanup() {
-  const op = bulkOperation.value
-  if (!op) return
-  try { bulkOperation.value = { ...op, ...await post<{ status: string }>(`/projects/${slug.value}/media-cleanup/operations/${op.id}/stop`, {}) } }
-  catch (e: any) { bulkError.value = `${e?.data?.detail || e?.message || 'Could not stop it.'}` }
 }
 
 // v1.0.71: chunked-sidecar scan + cleanup handlers. Mirrors the storage
@@ -2941,7 +2815,6 @@ async function restoreArchiveInFlight() {
 }
 
 onBeforeUnmount(() => {
-  if (bulkPoll) clearTimeout(bulkPoll)
   archivePanelDisposed = true
   if (archivePoll) clearInterval(archivePoll)
   archivePoll = null
@@ -4655,7 +4528,7 @@ async function deleteProject() {
 .settings-content .storage-panel .btn { white-space: nowrap; }
 .settings-content .storage-panel .flex.gap-2 { flex: 0 0 auto; }
 .files-where { display: grid; gap: 18px; }
-/* Free Up Space options — the same rules as MediaCleanupPanel's own .space-option. */
+/* Collapsible option rows (Free up space's "What's using space", and the archive sweep under "Where your files are") — the same rules as MediaCleanupPanel's own .space-option. */
 .space-option { border-top: 1px solid var(--border); padding: 12px 0; }
 .space-option > summary small { display: block; margin: 2px 0 0 18px; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .space-option-body { padding: 4px 0 0 18px; }

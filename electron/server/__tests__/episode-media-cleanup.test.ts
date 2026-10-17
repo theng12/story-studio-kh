@@ -1383,7 +1383,7 @@ async function waitForLibraryOperation(operationId: string) {
   }, { timeoutMs: 5_000, label: `library cleanup operation ${operationId}` })
 }
 
-async function libraryPreview(action: 'shrink_images' | 'clear_uploaded_finals') {
+async function libraryPreview(action: 'shrink_images' | 'clear_uploaded_finals' | 'cleanup_all') {
   const started = await cleanup.startLibraryMediaCleanupPreview(action)
   const operation = await waitForLibraryOperation(started.operation_id)
   assert.equal(operation.status, 'completed', operation.error)
@@ -1496,6 +1496,76 @@ describe('all-channel (Library) maintenance', () => {
     assert.match(preview.channels.find(channel => channel.slug === 'chan-a')!.blocked_reasons.join(' '), /did not confirm the video on the current channel/)
   })
 
+  test('clean up all channels reviews verified old finals and unused leftovers together, reported separately', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const uploaded = await seedEpisodeIn('chan-a', 'EP0001', 'Old uploaded')
+    await ageFile(uploaded.final, 9 * DAY_MS)
+    await writeProductionStamp(uploaded.final, 'EP0001')
+    await connectChannel('chan-a', 'chan-a-chan', 'Channel A')
+    await markUploadedIn('chan-a', uploaded, 'chan-a-chan')
+    mockYouTube('chan-a-chan', [uploaded])
+    // An unused leftover: a settled audio-quality candidate nothing is recorded for.
+    const leftover = path.join(uploaded.paths.episode_dir, '.audio-quality-candidates', 'orphan', 'audio', 'a.mp3')
+    await fs.mkdir(path.dirname(leftover), { recursive: true })
+    await fs.writeFile(leftover, Buffer.alloc(100, 1))
+
+    const { preview } = await libraryPreview('cleanup_all')
+
+    assert.equal(preview.action, 'cleanup_all')
+    assert.deepEqual(preview.files.map(file => file.path), [uploaded.final], 'the verified, old-enough final')
+    assert.equal(preview.leftovers?.count, 1, 'the unused leftover is reported separately, not as an uploaded video')
+    assert.equal(preview.leftovers?.items[0]?.kind, 'audio_quality_copy')
+    assert.equal(preview.leftovers?.items[0]?.project_slug, 'chan-a')
+    assert.equal(preview.leftovers?.items[0]?.channel_name, 'Channel A')
+    assert.ok((preview.leftovers?.total_bytes || 0) > 0)
+    assert.equal(preview.files.some(file => file.path === leftover), false, 'a leftover folder is never listed among the finals')
+  })
+
+  test('clean up all channels moves both the verified finals and the leftovers to _trash, and never deletes', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const uploaded = await seedEpisodeIn('chan-a', 'EP0001', 'Old uploaded')
+    await ageFile(uploaded.final, 9 * DAY_MS)
+    await writeProductionStamp(uploaded.final, 'EP0001')
+    await connectChannel('chan-a', 'chan-a-chan', 'Channel A')
+    await markUploadedIn('chan-a', uploaded, 'chan-a-chan')
+    mockYouTube('chan-a-chan', [uploaded])
+    const candidate = path.join(uploaded.paths.episode_dir, '.audio-quality-candidates', 'orphan', 'audio', 'a.mp3')
+    await fs.mkdir(path.dirname(candidate), { recursive: true })
+    await fs.writeFile(candidate, Buffer.alloc(100, 1))
+
+    const { preview } = await libraryPreview('cleanup_all')
+    assert.equal(preview.files.length, 1)
+    assert.equal(preview.leftovers?.count, 1)
+
+    const operation = await libraryRun(preview.preview_id)
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(operation.result?.removed_count, 1, 'the final moved to _trash')
+    assert.equal(operation.result?.leftovers_moved, 1, 'the leftover folder moved to _trash')
+    assert.equal(operation.result?.leftovers_left, 0)
+    assert.equal(existsSync(uploaded.final), false)
+    assert.equal(existsSync(path.join(uploaded.paths.episode_dir, '.audio-quality-candidates', 'orphan')), false)
+  })
+
+  test('clear uploaded finals stays final-only: the merged sweep is its own action, never a silent widening', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const uploaded = await seedEpisodeIn('chan-a', 'EP0001', 'Old uploaded')
+    await ageFile(uploaded.final, 9 * DAY_MS)
+    await writeProductionStamp(uploaded.final, 'EP0001')
+    await connectChannel('chan-a', 'chan-a-chan', 'Channel A')
+    await markUploadedIn('chan-a', uploaded, 'chan-a-chan')
+    mockYouTube('chan-a-chan', [uploaded])
+    const candidate = path.join(uploaded.paths.episode_dir, '.audio-quality-candidates', 'orphan', 'audio', 'a.mp3')
+    await fs.mkdir(path.dirname(candidate), { recursive: true })
+    await fs.writeFile(candidate, Buffer.alloc(100, 1))
+
+    const { preview } = await libraryPreview('clear_uploaded_finals')
+    assert.equal(preview.leftovers, undefined, 'the clear action has no leftovers part')
+    const operation = await libraryRun(preview.preview_id)
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(operation.result?.leftovers_moved, undefined)
+    assert.equal(existsSync(candidate), true, 'the clear action leaves the leftover untouched')
+  })
+
   test('an episode whose own work is queued or running is left out of every channel action, with its reason', async () => {
     await seedChannel('chan-a', 'Channel A')
     const episode = await seedEpisodeIn('chan-a', 'EP0001', 'Busy')
@@ -1599,6 +1669,134 @@ describe('all-channel (Library) maintenance', () => {
       assert.equal(operation.result?.compressed_count, 1)
     } finally {
       restore()
+    }
+  })
+
+  test('the same physical leftover folder reached from two channels is counted once', () => {
+    const item = (slug: string, target: string) => ({
+      project_slug: slug, channel_name: slug, kind: 'render_scratch' as const,
+      episode_code: 'EP0001', path: target, bytes: 10, trash_path: `${target}.trash`,
+    })
+    const deduped = cleanup.dedupeLibraryLeftovers([
+      item('chan-a', '/tmp/shared/.tmp_x'),
+      item('chan-b', '/tmp/shared/.tmp_x'),
+      item('chan-a', '/tmp/other/.tmp_y'),
+    ])
+    assert.equal(deduped.length, 2, 'one entry per physical folder, not one per channel')
+    assert.equal(deduped[0]!.project_slug, 'chan-a', 'the first owner keeps the entry')
+    assert.equal(deduped[1]!.path, '/tmp/other/.tmp_y')
+  })
+
+  test('a leftover scan that fails is reported, never flattened to "nothing here"', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    await seedEpisodeIn('chan-a', 'EP0001', 'A')
+    const leftoversModule = await import('../services/storage-leftovers.js')
+    const prior = leftoversModule._leftoverHooks.getJobs
+    leftoversModule._leftoverHooks.getJobs = async () => { throw new Error('scratch unreadable') }
+    try {
+      const { preview } = await libraryPreview('cleanup_all')
+      assert.equal(preview.leftovers?.count, 0)
+      assert.match(preview.blocked_reasons.join(' '), /leftover files could not be read/, 'the failure is named, not swallowed')
+      assert.match(preview.channels.find(channel => channel.slug === 'chan-a')!.blocked_reasons.join(' '), /leftover files could not be read/)
+    } finally {
+      leftoversModule._leftoverHooks.getJobs = prior
+    }
+  })
+
+  test('a cleanup_all run with no eligible finals still reports leftover progress', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'A')
+    const leftover = path.join(episode.paths.episode_dir, '.audio-quality-candidates', 'orphan', 'audio', 'a.mp3')
+    await fs.mkdir(path.dirname(leftover), { recursive: true })
+    await fs.writeFile(leftover, Buffer.alloc(64, 1))
+
+    const { preview } = await libraryPreview('cleanup_all')
+    assert.equal(preview.files.length, 0, 'no uploaded final is eligible')
+    assert.equal(preview.leftovers?.count, 1)
+
+    const operation = await libraryRun(preview.preview_id)
+    assert.equal(operation.status, 'completed', operation.error)
+    assert.equal(operation.total, 1, 'the leftover folder counts toward progress')
+    assert.equal(operation.done, 1)
+    assert.equal(operation.result?.leftovers_moved, 1)
+    assert.equal(operation.result?.leftovers_left, 0)
+    assert.equal(existsSync(path.join(episode.paths.episode_dir, '.audio-quality-candidates', 'orphan')), false)
+  })
+
+  test('stopping a cleanup_all sweep leaves the rest and counts them as left', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    await seedChannel('chan-b', 'Channel B')
+    const a = await seedEpisodeIn('chan-a', 'EP0001', 'A')
+    const b = await seedEpisodeIn('chan-b', 'EP0001', 'B')
+    for (const episode of [a, b]) {
+      const dir = path.join(episode.paths.episode_dir, '.audio-quality-candidates', 'orphan', 'audio')
+      await fs.mkdir(dir, { recursive: true })
+      await fs.writeFile(path.join(dir, 'a.mp3'), Buffer.alloc(64, 1))
+    }
+
+    const { preview } = await libraryPreview('cleanup_all')
+    assert.equal(preview.leftovers?.count, 2)
+
+    // Stop as the second channel's leftovers are listed, so the first channel
+    // finishes and everything after it is reported as left.
+    const leftoversModule = await import('../services/storage-leftovers.js')
+    const prior = leftoversModule._leftoverHooks.getJobs
+    let runId = ''
+    let calls = 0
+    leftoversModule._leftoverHooks.getJobs = async () => {
+      calls += 1
+      if (calls === 2 && runId) cleanup.stopLibraryMediaCleanupOperation(runId)
+      return []
+    }
+    try {
+      const started = await cleanup.startLibraryMediaCleanupRun({ preview_id: preview.preview_id })
+      runId = started.operation_id
+      const operation = await waitForLibraryOperation(runId)
+      assert.equal(operation.status, 'stopped')
+      assert.equal(operation.total, 2)
+      assert.equal(operation.result?.leftovers_moved, 1, 'the first channel was swept')
+      assert.equal(operation.result?.leftovers_left, 1, 'the rest are reported as left, not dropped')
+      assert.equal(operation.done, 2, 'both folders were accounted for: one moved, one skipped')
+    } finally {
+      leftoversModule._leftoverHooks.getJobs = prior
+    }
+  })
+
+  test('a sweep stopped on the first channel counts every later channel as accounted for', async () => {
+    const slugs = ['chan-a', 'chan-b', 'chan-c']
+    for (const slug of slugs) await seedChannel(slug, slug)
+    for (const slug of slugs) {
+      const episode = await seedEpisodeIn(slug, 'EP0001', slug)
+      const dir = path.join(episode.paths.episode_dir, '.audio-quality-candidates', 'orphan', 'audio')
+      await fs.mkdir(dir, { recursive: true })
+      await fs.writeFile(path.join(dir, 'a.mp3'), Buffer.alloc(64, 1))
+    }
+
+    const { preview } = await libraryPreview('cleanup_all')
+    assert.equal(preview.leftovers?.count, 3)
+
+    // Stop while the first channel's leftovers are listed, so the later channels
+    // are skipped whole (the `continue` branch) rather than mid-move.
+    const leftoversModule = await import('../services/storage-leftovers.js')
+    const prior = leftoversModule._leftoverHooks.getJobs
+    let runId = ''
+    let calls = 0
+    leftoversModule._leftoverHooks.getJobs = async () => {
+      calls += 1
+      if (calls === 1 && runId) cleanup.stopLibraryMediaCleanupOperation(runId)
+      return []
+    }
+    try {
+      const started = await cleanup.startLibraryMediaCleanupRun({ preview_id: preview.preview_id })
+      runId = started.operation_id
+      const operation = await waitForLibraryOperation(runId)
+      assert.equal(operation.status, 'stopped')
+      assert.equal(operation.total, 3)
+      assert.equal(operation.result?.leftovers_moved, 0)
+      assert.equal(operation.result?.leftovers_left, 3)
+      assert.equal(operation.done, 3, 'skipped channels count as accounted for, not under-counted')
+    } finally {
+      leftoversModule._leftoverHooks.getJobs = prior
     }
   })
 })

@@ -90,29 +90,28 @@ async function storageSummaryFragment() {
   return (await import(`data:text/javascript;base64,${Buffer.from(module.code.replaceAll('"vue"', JSON.stringify(await import.meta.resolve('vue')))).toString('base64')}`)).default
 }
 
-test('Free Up Space is one card: recommended preset first, then the other ways, then what is using space', () => {
+test('Free Up Space is one card: the two all-channel actions, then what is using space', () => {
   const start = template.indexOf('data-setting="free-up-space"')
   const card = template.slice(start, template.indexOf('</section>', template.indexOf('data-setting="episode-storage"')))
-  const order = ['<MediaCleanupPanel', 'data-setting="clear-uploaded-finals"', 'data-setting="move-uploaded"', 'data-setting="episode-storage"']
-    .map(marker => card.indexOf(marker))
+  const order = ['<MediaCleanupPanel', 'data-setting="episode-storage"'].map(marker => card.indexOf(marker))
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!)), `card order ${order}`)
-  // Inside the panel: the two all-channel actions lead, then "This channel only", then "Other ways".
-  const allChannels = panel.indexOf('All channels')
-  const shrinkAll = panel.indexOf('Shrink Scene Images (All Channels)')
-  const clearAll = panel.indexOf('Clear Uploaded Videos Older Than 7 Days (All Channels)')
-  const thisChannel = panel.indexOf('This channel only')
-  const selected = panel.indexOf('Free Up Space for {{ selected.length }} Selected')
-  const other = panel.indexOf('Other ways')
-  const exact = panel.indexOf('Choose exactly which files')
-  assert.ok(allChannels > 0 && shrinkAll > allChannels && clearAll > shrinkAll && clearAll < thisChannel, 'both all-channel actions sit under "All channels" and lead the panel')
-  assert.ok(thisChannel > 0 && thisChannel < selected && selected < other && other < exact, 'this-channel path, then "Other ways", then "Choose exactly which files"')
-  // Each option says in one sentence what happens and where files go.
-  assert.match(card, /Clear uploaded final videos \(verified\)<\/strong><small>[^<]*moved to Story's Trash \(Story → Trash\)/)
-  assert.match(card, /Move uploaded videos to another drive<\/strong><small>[^<]*copied to a folder you choose/)
-  assert.match(panel, /Choose exactly which files<\/strong><small>[^<]*the Trash, or are copied to a folder you choose/)
-  // The archive sweep is no longer a second entry point inside "Where your files are".
+  // The panel offers exactly the two all-channel actions, shrink first.
+  const shrinkAll = panel.indexOf('Shrink Images (All Channels)')
+  const cleanAll = panel.indexOf('Clean Up All Channels')
+  assert.ok(shrinkAll > 0 && cleanAll > shrinkAll, 'both all-channel actions are present, shrink first')
+  // The duplicated per-channel / category / conversion / leftover tools are gone from the panel.
+  for (const gone of ['This channel only', 'Other ways', 'Choose exactly which files', 'Convert PNG scenes to JPEG', 'data-setting="leftover-files"', 'data-setting="convert-png"', 'Free Up Space for {{ selected.length }} Selected']) {
+    assert.ok(panel.indexOf(gone) < 0, `${gone} is removed from the panel`)
+  }
+  // The verified-clear duplicate and the archive sweep are gone from the card.
+  assert.doesNotMatch(card, /clear-uploaded-finals|Clear uploaded final videos \(verified\)/)
+  assert.doesNotMatch(card, /data-setting="move-uploaded"|Move uploaded videos to another drive/)
+  // The archive sweep now lives under "Where your files are", not in Free up space.
   const where = template.slice(template.indexOf('Where your files are'), start)
-  assert.doesNotMatch(where, /archive|Move Uploaded Videos/i)
+  assert.match(where, /data-setting="move-uploaded"/)
+  // The read-only breakdown stays, and nothing promises a permanent delete.
+  assert.match(card, /What's using space/)
+  assert.doesNotMatch(card, /permanent/i)
 })
 
 test('"What\'s using space" is read-only and no longer lives under Project files & behavior', () => {
