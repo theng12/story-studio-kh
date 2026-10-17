@@ -14,6 +14,7 @@ import path from 'path'
 import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import { isPreviewablePath } from '../lib/preview-roots.js'
+import { imageMediaTypeForFile } from '../lib/image-media-type.js'
 import { GENSTUDIO_VISION_UNAVAILABLE } from '../lib/vision-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { callChatWithGenStudio, listChatModels, uploadImageSourceWithGenStudio, type GenStudioChatModel } from '../lib/genstudio-client.js'
@@ -66,15 +67,6 @@ function referenceLimitsSource(model: GenStudioChatModel): 'model' | 'story' {
   return model.accepted_image_mime_types.length || model.max_image_bytes > 0 || model.max_image_dimension > 0
     ? 'model'
     : 'story'
-}
-function imageMime(filename: string): string {
-  switch (path.extname(filename).toLowerCase()) {
-    case '.png': return 'image/png'
-    case '.jpg': case '.jpeg': return 'image/jpeg'
-    case '.webp': return 'image/webp'
-    case '.gif': return 'image/gif'
-    default: return ''
-  }
 }
 function thumbnailReferenceDir(slug: string): string {
   const projectDir = pm.getProjectDir(slug)
@@ -140,12 +132,28 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
   const sourcePath = typeof req.body?.source_path === 'string' ? req.body.source_path.trim() : ''
   const modelId = typeof req.body?.model_id === 'string' ? req.body.model_id.trim() : ''
   if (!sourcePath || !modelId) return res.status(400).json({ detail: 'source_path and model_id are required' })
+  // CONTAINMENT. `source_path` comes straight from the request body. Before
+  // this the only gate was the image extension, so any image on the machine
+  // could be read AND UPLOADED to GenStudio — a read-and-exfiltrate
+  // primitive, not just a read. Same rule as the preview routes: the Library
+  // and media folders the owner configured. See `lib/preview-roots.ts`.
+  // It runs FIRST — before the media-type read below — so an out-of-scope path
+  // is never opened, and the accepted-types refusal can never name an
+  // out-of-scope file's type (2026-10-17 review, R1).
+  if (!await isPreviewablePath(sourcePath, slug)) {
+    return res.status(403).json({
+      detail: 'That file is outside this project. Reference images must come from your Library or a media folder you configured.',
+    })
+  }
   try {
     const apiKey = await getApiKey('genstudio')
     if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
     const model = (await listChatModels(apiKey)).find(item => item.id === modelId && eligibleThumbnailVisionModel(item))
     if (!model) return res.status(422).json({ detail: 'Select a currently available vision model that supports structured JSON output.' })
-    const mime = imageMime(sourcePath)
+    // The bytes decide the type, not the name: a JPEG saved under `.png` is a
+    // JPEG, and the model's own accepted-types list must be checked against what
+    // is actually sent. See `lib/image-media-type.ts`.
+    const mime = await imageMediaTypeForFile(sourcePath)
     if (!mime) {
       return res.status(422).json({ detail: `Story Studio cannot send ${path.extname(sourcePath) || 'that file type'} to a model. Use a PNG, JPEG, WebP or GIF.` })
     }
@@ -154,16 +162,6 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
     // own upload rules answer for it.
     if (model.accepted_image_mime_types.length && !model.accepted_image_mime_types.includes(mime)) {
       return res.status(422).json({ detail: `This model accepts ${model.accepted_image_mime_types.join(', ')}, not this file type.` })
-    }
-    // CONTAINMENT. `source_path` comes straight from the request body. Before
-    // this the only gate was the image extension, so any image on the machine
-    // could be read AND UPLOADED to GenStudio — a read-and-exfiltrate
-    // primitive, not just a read. Same rule as the preview routes: the Library
-    // and media folders the owner configured. See `lib/preview-roots.ts`.
-    if (!await isPreviewablePath(sourcePath, slug)) {
-      return res.status(403).json({
-        detail: 'That file is outside this project. Reference images must come from your Library or a media folder you configured.',
-      })
     }
     const bytes = await fs.readFile(sourcePath)
     if (!bytes.length) return res.status(422).json({ detail: 'Reference image is empty.' })

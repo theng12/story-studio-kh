@@ -18,6 +18,7 @@ import { renderSubtitlePreflightFrames } from '../lib/subtitle-preflight-frames.
 import { canvasForShortEdge, displayAspectRatio, resolveRenderCanvas } from '../lib/render-canvas.js'
 import { inspectSourceAspect } from '../lib/source-aspect.js'
 import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
+import { imageMediaTypeForBytes, imageMediaTypeForFile, imageMediaTypeForFilename } from '../lib/image-media-type.js'
 import { TRANSITIONS, groupedTransitions, getTransition } from '../models/transitions.js'
 import { getAnimation, groupAnimationDefs, toAnimationDef } from '../models/animations.js'
 import { buildAnimationFilter } from '../lib/animation-filters.js'
@@ -514,11 +515,15 @@ router.get('/projects/:slug/video-editor/preview-media', async (req, res) => {
     })
   }
   if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
+  // Image types resolve through the shared helper so the BYTES decide the type
+  // (a JPEG named `.png` is a JPEG — the reported 2026-10-17 symptom, and the
+  // same rule as `preview-image`); the video types keep their extension map.
   const mimeTypes: Record<string, string> = {
-    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif',
     '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.mkv': 'video/x-matroska',
   }
-  const mime = mimeTypes[path.extname(filePath).toLowerCase()]
+  const mime = imageMediaTypeForFilename(filePath)
+    ? await imageMediaTypeForFile(filePath)
+    : mimeTypes[path.extname(filePath).toLowerCase()]
   if (!mime) return res.status(403).json({ detail: 'Unsupported preview media type' })
   try {
     const stat = await fs.stat(filePath)
@@ -575,22 +580,17 @@ router.get('/projects/:slug/video-editor/preview-image', async (req, res) => {
   if (!existsSync(filePath)) return res.status(404).json({ detail: 'File not found' })
 
   // Gate by file type only — localhost backend, user-picked paths OK.
-  const ext = path.extname(filePath).toLowerCase()
-  const mimeTypes: Record<string, string> = {
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.webp': 'image/webp',
-    '.gif': 'image/gif',
-  }
-  if (!mimeTypes[ext]) {
+  if (!imageMediaTypeForFilename(filePath)) {
     return res.status(403).json({ detail: 'Only image files may be previewed' })
   }
-  const mime = mimeTypes[ext]
 
   try {
     const data = await fs.readFile(filePath)
-    res.set('Content-Type', mime)
+    // The BYTES decide the type. Scene images are legitimately JPEG under a
+    // `{scene_id}.png` name — the gateway relays the provider's own format, and
+    // "smaller files" re-encodes PNG to JPEG under the same name — so naming the
+    // extension here served `image/png` for JPEG bytes (reported 2026-10-17).
+    res.set('Content-Type', imageMediaTypeForBytes(data, filePath))
     // Generated images are frequently replaced at the same path. Revalidate
     // rather than trusting an hour-old Chromium decode/cache entry, which can
     // otherwise leave every preview card blank until the app is restarted.
