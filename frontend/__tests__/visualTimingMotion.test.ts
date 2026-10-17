@@ -432,7 +432,9 @@ describe('Visual timing and motion', () => {
   test('Character Sheet omits the retired timing card', () => {
     assert.doesNotMatch(characterSheet, /<h3>Visual timing & motion<\/h3>/)
     assert.doesNotMatch(characterSheet, /Open Scene Plan/)
-    assert.match(characterSheet, /pacingPresetNotice/)
+    // The pacing notice and its state were deleted with the preset boundary
+    // change, not reworded — this page no longer owns scene rhythm.
+    assert.doesNotMatch(characterSheet, /pacingPresetNotice/, 'the pacing notice state must be deleted')
     assert.doesNotMatch(characterSheet, /<select id="cs-visual-pacing"/)
     assert.doesNotMatch(characterSheet, /formulaPacingProfile/)
   })
