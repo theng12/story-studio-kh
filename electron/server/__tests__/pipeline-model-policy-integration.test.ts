@@ -10,7 +10,7 @@ import { _setAutomaticRetryForTesting } from '../services/job-retry-policy.js'
 // These tests pin manual Retry; writing jobs auto-retry after a minute since R1 (2026-10-07).
 _setAutomaticRetryForTesting(false)
 
-test('Retry of a Pipeline run redoes an uncharged failure once, on the run\'s own model', async t => {
+test('a retired model_policies field no longer changes the run: the preset\'s own model is used', async t => {
   const isolated = await useTempDataDir()
   const mock = await startMockGenStudioService()
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
@@ -32,42 +32,34 @@ test('Retry of a Pipeline run redoes an uncharged failure once, on the run\'s ow
   const project = await pm.createProject({ name: 'Pipeline run model fixture', episode_prefix: 'EP', episode_digits: 4 })
   await pm.updateConfig(project.slug, {
     research_presets: [{ id: 'research-1', name: 'Existing preset', data: { form: {
-      research_mode: 'model-knowledge', source_model: 'preset-model', max_sources: 3,
+      research_mode: 'model-knowledge', source_model: 'mock-chat-v1', max_sources: 3,
     } } }],
     research_last_preset_research: 'research-1',
   } as any)
   const before = await pm.getConfig(project.slug)
-  const [idea] = await ideas.addIdeas(project.slug, [{ title: 'Runs retain their identity', logline: '', themes: [], suggested_chapters: 1, suggested_length: 'short', mood: 'calm' }], 'mock-chat-v1')
+  const [idea] = await ideas.addIdeas(project.slug, [{ title: 'Runs use the preset model', logline: '', themes: [], suggested_chapters: 1, suggested_length: 'short', mood: 'calm' }], 'mock-chat-v1')
   const accepted = await ideas.acceptIdea(project.slug, idea!.id, false)
+  // The owner retired "Models for this run" (2026-10-17): Story no longer owns
+  // the writing model, the Gateway does. A body still carrying the old
+  // `model_policies` field is ignored — the preset's own model runs, and the
+  // step is not blocked by a product the retired picker named. (Under the old
+  // admission this body would have been refused at the live catalogue check,
+  // or the job would have run on `policy-only-model` instead of the preset.)
   const body = {
     episode_ids: [accepted.episode_code], steps: ['research'],
-    model_policies: { research: { mode: 'single', models: ['mock-chat-v1'] } },
+    model_policies: { research: { mode: 'single', models: ['policy-only-model'] } },
   }
-  // The request is accepted and then fails, charging nothing. Retry redoes it
-  // with ONE fresh request on the same model (1.4.248 Retry rule); a charged
-  // failure keeps its key instead (unit test "retains an accepted recovery key").
-  mock.queueScenario('chat', { states: ['accepted', 'failed'], failureCode: 'provider_error' })
+  mock.queueScenario('chat', { states: ['succeeded'], outputText: '{"claims":[],"summary":"own model"}' })
   const started = await request(app).post(`/api/projects/${project.slug}/pipeline/run-batch`).send(body)
   assert.equal(started.status, 201, JSON.stringify(started.body))
-  const firstId = started.body.jobs[0].job_id
-  const terminal = async (id: string) => waitFor(() => ['done', 'error', 'cancelled'].includes(jq.getJob(id)?.status || ''), { label: 'Pipeline run settles', timeoutMs: 10_000 })
-  await terminal(firstId)
-  assert.equal(mock.providerSubmissionCount('chat'), 1)
-  const first = jq.getJob(firstId)!
-  assert.equal(first.params.generation_action, undefined)
-  const attempts = Object.values(first.params.pipeline_model_checkpoints || {}) as Array<Record<string, unknown>>
-  assert.equal(attempts.length, 1)
-  assert.equal(attempts[0]!.candidate_model, 'mock-chat-v1')
-  assert.equal(attempts[0]!.candidate_index, 0)
-  assert.equal(attempts[0]!.status, 'failed_unaccepted')
-  const retried = await request(app).post(`/api/projects/${project.slug}/jobs/${firstId}/retry`)
-  assert.equal(retried.status, 202, JSON.stringify(retried.body))
-  assert.notEqual(retried.body.job.job_id, firstId)
-  await terminal(retried.body.job.job_id)
-  const fresh = mock.submissions.filter(item => item.operation === 'chat' && !item.replay)
-  assert.equal(fresh.length, 2, 'exactly one fresh request for the uncharged failure')
-  assert.deepEqual(fresh.map(item => item.parsedBody?.model_id), ['mock-chat-v1', 'mock-chat-v1'])
-  assert.notEqual(fresh[0]!.idempotencyKey, fresh[1]!.idempotencyKey)
+  const jobId = started.body.jobs[0].job_id
+  await waitFor(() => ['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || ''), { label: 'Research settles', timeoutMs: 10_000 })
+  const job = jq.getJob(jobId)!
+  assert.equal(job.params.model, 'mock-chat-v1', 'the preset’s own writing model runs')
+  assert.equal(job.params.pipeline_model_policy, undefined, 'a new admission writes no per-run model policy')
+  assert.equal(job.params.pipeline_model_checkpoints, undefined)
+  const submissions = mock.submissions.filter(item => item.operation === 'chat' && !item.replay)
+  assert.deepEqual(submissions.map(item => item.parsedBody?.model_id), ['mock-chat-v1'])
   const after = await pm.getConfig(project.slug)
   assert.deepEqual(after!.research_presets, before!.research_presets, 'per-run choices must not mutate saved presets')
 })

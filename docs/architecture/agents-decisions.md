@@ -265,7 +265,32 @@ exposed to this. Do not add new callers to it without deciding what an unmeasura
 
 ---
 
-## 7. Related records kept elsewhere
+## 7. Boundaries — retired surfaces
+
+### The per-run Pipeline writing model — retired 2026-10-17
+
+"Models for this run" let one batch override the writing model of seven steps (research,
+script-only, introduction-only, image_prompts, metadata, scene_plan, contextual_cues) through a
+per-step picker, a `model_policies` batch request field, and a Story-side admission
+(`normalizePipelineModelPolicies` → `validatePipelineModelCatalogue` → `assignedPipelinePolicy`,
+writing `params.pipeline_model_policy` + `params.model`).
+
+**Owner, 2026-10-17:** the picker overflows its step cards, and — the larger point — Story Studio
+should not own the writing model at all. The Gateway already does. A run uses the model its active
+preset names; falling back across several models is a Gateway pool the owner makes in
+GatewayKH → Providers → Pools. The removal takes the whole surface: the picker and its dead CSS,
+the `model_policies` request field, the admission and its catalogue validation, and the write-side
+library helpers. **Do not restore it.**
+
+**What was kept, deliberately.** Already-queued jobs carry `params.pipeline_model_policy` and
+`params.model`, and their recovery is model-preserving and key-preserving
+(`executePipelineModelPolicy`, the checkpoint readers, `pipelinePolicyForJob`). The removal *reads*
+that state and never rewrites it — the same rule as §5's "never rewrite stored presets or project
+data to compensate". The new admission simply never writes it.
+
+---
+
+## 8. Related records kept elsewhere
 
 - **`docs/genstudio-handoff/`** — everything Story Studio is waiting on from GenStudio, plus the
   wiring notes. Disposable by design; closed items move to `docs/handoffs-retired/`.

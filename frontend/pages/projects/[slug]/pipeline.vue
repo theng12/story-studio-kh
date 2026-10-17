@@ -132,7 +132,6 @@
               missing: stepChecked[entry.id] && !presetNameFor(entry.id) && !noPresetStep(entry.id) && !musicPresetOptional(entry.id),
               costly: entry.costly,
               disabled: stepDisabled(entry.id) && !stepChecked[entry.id],
-              'policy-expanded': modelPolicyExpanded[entry.id],
             }"
             :title="stepDisabledReason(entry.id)"
           >
@@ -181,41 +180,6 @@
                   class="preset-link"
                   title="Open the page that owns these settings."
                 >Tune →</NuxtLink>
-              </div>
-              <div v-if="modelPolicyFor(entry.id)" class="step-model-policy" @click.stop>
-                <details class="disclosure" @toggle="setModelPolicyExpanded(entry.id, ($event.target as HTMLDetailsElement).open)">
-                  <summary>
-                    Models for this run
-                    <span class="step-model-policy-summary">{{ modelPolicySummary(entry.id) }}</span>
-                  </summary>
-                  <div class="step-model-policy-body">
-                    <label class="step-model-policy-toggle">
-                      <input
-                        type="checkbox"
-                        :checked="modelPolicyFor(entry.id)!.enabled"
-                        @change="setModelPolicyEnabled(entry.id, ($event.target as HTMLInputElement).checked)"
-                      />
-                      Use a different writing model for this run
-                    </label>
-                    <template v-if="modelPolicyFor(entry.id)!.enabled">
-                      <div class="step-model-policy-candidates">
-                        <div class="step-model-policy-candidate">
-                          <ModelSelector
-                            :model-value="modelPolicyFor(entry.id)!.model"
-                            :project-slug="slug"
-                            label="Writing model"
-                            @update:model-value="setModelPolicyModel(entry.id, $event)"
-                            @model-meta="setModelPolicyModelMeta(entry.id, $event)"
-                          />
-                          <p v-if="modelPolicyLimits(entry.id)" class="step-model-policy-limits">
-                            {{ modelPolicyLimits(entry.id) }}
-                          </p>
-                        </div>
-                      </div>
-                      <p v-if="modelPolicyError(entry.id)" class="step-model-policy-error" role="status">{{ modelPolicyError(entry.id) }}</p>
-                    </template>
-                  </div>
-                </details>
               </div>
               <div v-if="stepDisabled(entry.id)" class="step-warning">{{ stepDisabledReason(entry.id) }}</div>
               <div v-else-if="entry.warning" class="step-warning">⚠ {{ entry.warning }}</div>
@@ -799,11 +763,6 @@
         the receipt confirms the actual queued count. If a step fails, only the later steps that need it wait (for example,
         a failed thumbnail does not stop the audio or the video); Retry the failed job in Jobs and the waiting steps continue on their own.
       </p>
-      <p v-if="modelPolicyRunSummary.length" class="text-muted text-sm mt-2">
-        <template v-for="(line, index) in modelPolicyRunSummary" :key="line">
-          <span v-if="index"> </span>{{ line }}
-        </template>
-      </p>
 
       <!-- Force re-run toggle: skip-when-done is the default so routine
            runs over partially-complete episodes don't burn tokens on
@@ -1164,121 +1123,6 @@ async function dismissLineupNotice(): Promise<void> {
     await post(`/projects/${slug.value}/settings/llm-lineup-notice/dismiss`, {})
   } catch { /* closed for this visit; it comes back next time if the save failed */ }
 }
-
-type EligibleModelPolicyStep = Extract<StepId,
-  'script-only' | 'introduction-only' | 'research' | 'metadata' | 'image_prompts' | 'scene_plan' | 'contextual_cues'>
-/** One writing model per step for this run (a Gateway pool counts as one). */
-interface ModelPolicyDraft {
-  enabled: boolean
-  model: string
-}
-interface ModelPolicyModelMeta {
-  id: string
-  context_window_tokens?: number
-  context_limit_tokens?: number
-  max_output_tokens?: number
-}
-
-const MODEL_POLICY_STEPS = new Set<EligibleModelPolicyStep>([
-  'script-only', 'introduction-only', 'research', 'metadata', 'image_prompts', 'scene_plan', 'contextual_cues',
-])
-const modelPolicies = reactive<Record<EligibleModelPolicyStep, ModelPolicyDraft>>({
-  research: { enabled: false, model: '' },
-  'script-only': { enabled: false, model: '' },
-  'introduction-only': { enabled: false, model: '' },
-  image_prompts: { enabled: false, model: '' },
-  metadata: { enabled: false, model: '' },
-  scene_plan: { enabled: false, model: '' },
-  contextual_cues: { enabled: false, model: '' },
-})
-const modelPolicyModelMeta = reactive<Record<EligibleModelPolicyStep, ModelPolicyModelMeta | null>>({
-  research: null,
-  'script-only': null,
-  'introduction-only': null,
-  image_prompts: null,
-  metadata: null,
-  scene_plan: null,
-  contextual_cues: null,
-})
-const modelPolicyExpanded = reactive<Record<StepId, boolean>>({
-  research: false, 'script-only': false, 'introduction-only': false,
-  image_prompts: false, thumb_images: false, audio: false, audio_merge: false,
-  metadata: false, subtitles: false, character_sheet: false, scene_plan: false,
-  contextual_cues: false, scene_review: false, motion_review: false, video_assembly: false,
-  music_build: false,
-})
-
-function modelPolicyFor(stepId: StepId): ModelPolicyDraft | null {
-  return MODEL_POLICY_STEPS.has(stepId as EligibleModelPolicyStep)
-    ? modelPolicies[stepId as EligibleModelPolicyStep]
-    : null
-}
-function resetModelPolicies(): void {
-  for (const stepId of MODEL_POLICY_STEPS) {
-    modelPolicies[stepId].enabled = false
-    modelPolicies[stepId].model = ''
-    modelPolicyModelMeta[stepId] = null
-    modelPolicyExpanded[stepId] = false
-  }
-}
-function setModelPolicyEnabled(stepId: StepId, enabled: boolean): void {
-  const policy = modelPolicyFor(stepId)
-  if (policy) policy.enabled = enabled
-}
-function setModelPolicyExpanded(stepId: StepId, expanded: boolean): void {
-  modelPolicyExpanded[stepId] = expanded
-}
-function setModelPolicyModel(stepId: StepId, modelId: string): void {
-  const policy = modelPolicyFor(stepId)
-  if (!policy) return
-  policy.model = modelId
-  modelPolicyModelMeta[stepId as EligibleModelPolicyStep] = null
-}
-function setModelPolicyModelMeta(stepId: StepId, model: ModelPolicyModelMeta | null): void {
-  const policy = modelPolicyFor(stepId)
-  if (policy && model?.id === policy.model) {
-    modelPolicyModelMeta[stepId as EligibleModelPolicyStep] = model
-  }
-}
-function modelPolicyLimits(stepId: StepId): string {
-  const model = modelPolicyModelMeta[stepId as EligibleModelPolicyStep]
-  if (!model || model.id !== modelPolicyFor(stepId)?.model) return ''
-  const context = model.context_window_tokens ?? model.context_limit_tokens
-  const output = model.max_output_tokens
-  const facts: string[] = []
-  if (typeof context === 'number' && context > 0) facts.push(`Context window: ${context.toLocaleString()} tokens.`)
-  if (typeof output === 'number' && output > 0) facts.push(`Max output: ${output.toLocaleString()} tokens.`)
-  if (typeof context === 'number' && context > 0 && typeof output === 'number' && output > 0) {
-    facts.push(`Input capacity estimate at this output: ${Math.max(0, context - output).toLocaleString()} tokens. The Gateway validates the exact prompt fit.`)
-  }
-  return facts.join(' ')
-}
-function modelPolicyError(stepId: StepId): string {
-  const policy = modelPolicyFor(stepId)
-  return policy?.enabled && !policy.model ? 'Choose a writing model, or untick this to use the preset\'s model.' : ''
-}
-function modelPolicySummary(stepId: StepId): string {
-  const policy = modelPolicyFor(stepId)
-  if (!policy?.enabled) return 'Preset\'s model'
-  return policy.model ? 'Different model for this run' : 'Choose a model'
-}
-type RunModelPolicy = { mode: 'single'; models: string[] }
-function modelPoliciesForRun(): Partial<Record<EligibleModelPolicyStep, RunModelPolicy>> {
-  const result: Partial<Record<EligibleModelPolicyStep, RunModelPolicy>> = {}
-  for (const step of checkedStepsOrdered.value) {
-    const policy = modelPolicyFor(step.id)
-    if (policy?.enabled && policy.model) {
-      result[step.id as EligibleModelPolicyStep] = { mode: 'single', models: [policy.model] }
-    }
-  }
-  return result
-}
-const modelPolicyRunSummary = computed(() => Object.keys(modelPoliciesForRun()).map(stepId =>
-  `${stepById(stepId as StepId).label} uses the writing model chosen above for this run.`))
-
-// These choices apply only to the current batch. A project change must never
-// carry one channel's explicit products into another channel's request.
-watch(slug, resetModelPolicies)
 
 // Tri-state (E-03): true = the channel opens with an Introduction, false = it
 // does not, null = the read failed. Encoding "could not check" as `false` used
@@ -2350,8 +2194,6 @@ const blockingIssues = computed<string[]>(() => {
     }
   }
   for (const step of checkedStepsOrdered.value) {
-    const policyError = modelPolicyError(step.id)
-    if (policyError) issues.push(`${step.label}: ${policyError}`)
     if (noPresetStep(step.id)) continue   // runs on built-in defaults
     // A music episode renders with its own settings; a Video Assembly preset is optional there.
     if (musicPresetOptional(step.id)) continue
@@ -2429,7 +2271,6 @@ const batchEstimate = computed(() => {
   if (repairMode.value) return null
   const eligible = preflightEligibleEpisodeIds.value
   const runEpisodes = episodes.value.filter(ep => eligible ? eligible.includes(ep.episode_code) : selectedEpisodes.has(ep.episode_code))
-  const policies = modelPoliciesForRun() as Record<string, unknown>
   const steps: EstimateStep[] = []
   for (const step of checkedStepsOrdered.value) {
     const spec = ESTIMATE_STEPS[step.id]
@@ -2453,7 +2294,6 @@ const batchEstimate = computed(() => {
         scenesTotal: ep.scene_images?.total ?? 0,
         scenesPresent: ep.scene_images?.present ?? 0,
       })), forceRerun.value),
-      ...(policies[step.id] ? { modelOverride: 'this run picks the model from a model policy, not the preset' } : {}),
     })
   }
   const estimate = estimateBatchUsd(steps)
@@ -2564,7 +2404,6 @@ async function openConfirm(repair: boolean) {
       episode_ids: [...selectedEpisodes],
       steps: checkedStepsOrdered.value.map(s => s.id),
       preset_ids: presetIdsForRun(),
-      ...(Object.keys(modelPoliciesForRun()).length ? { model_policies: modelPoliciesForRun() } : {}),
       force: repair ? false : forceRerun.value,
       ...(repair ? { repair_missing: true, action_id: repairActionId.value } : {}),
       ...(!repair && forceRerun.value ? { operation_id: runActionId.value || crypto.randomUUID() } : {}),
@@ -2628,7 +2467,6 @@ async function submit(retry?: PipelineSubmission) {
         episode_ids: submittedEpisodeIds,
         steps: checkedStepsOrdered.value.map(s => s.id),
         preset_ids: presetIdsForRun(),
-        ...(Object.keys(modelPoliciesForRun()).length ? { model_policies: modelPoliciesForRun() } : {}),
         force: submittedRepair ? false : forceRerun.value,
         ...(submittedRepair ? { repair_missing: true, action_id: repairActionId.value } : {}),
         ...(!submittedRepair && forceRerun.value ? { operation_id: runActionId.value } : {}),
@@ -2799,6 +2637,7 @@ async function submit(retry?: PipelineSubmission) {
   display: flex;
   gap: 10px;
   padding: 12px;
+  min-width: 0;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -2807,13 +2646,12 @@ async function submit(retry?: PipelineSubmission) {
 .step-tile.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .step-tile.missing  { border-color: color-mix(in srgb, var(--warning) 60%, var(--border)); background: color-mix(in srgb, var(--warning) 8%, transparent); }
 .step-tile.costly { border-style: dashed; }
-.step-tile.policy-expanded { grid-column: 1 / -1; }
 .step-tile.disabled { opacity: 0.55; cursor: not-allowed; }
 .step-tile.disabled .step-toggle { cursor: not-allowed; }
 .step-toggle { align-self: flex-start; flex: 0 0 auto; margin-top: 2px; }
 .step-warning { margin-top: 4px; font-size: var(--font-xs); color: color-mix(in srgb, var(--warning) 70%, var(--text-primary)); }
-.step-body { flex: 1; }
-.step-head { display: flex; align-items: center; gap: 8px; }
+.step-body { flex: 1; min-width: 0; }
+.step-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .step-icon { font-size: 16px; }
 .step-preset {
   margin-top: 6px;
@@ -2823,14 +2661,15 @@ async function submit(retry?: PipelineSubmission) {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 .step-preset-label {
   font-weight: 500;
   color: var(--text-secondary);
 }
 .step-preset-select {
-  flex: 1;
-  min-width: 120px;
+  flex: 1 1 120px;
+  min-width: 0;
   max-width: 220px;
   font-size: var(--font-xs);
   padding: 2px 6px;
@@ -2846,20 +2685,6 @@ async function submit(retry?: PipelineSubmission) {
 .preset-missing { color: color-mix(in srgb, var(--warning) 70%, var(--text-primary)); font-size: var(--font-xs); }
 .preset-link { color: var(--accent); text-decoration: underline; font-size: var(--font-xs); }
 .step-preset-none { font-size: var(--font-xs); color: var(--text-muted); font-style: italic; }
-.step-model-policy { margin-top: 8px; font-size: var(--font-xs); }
-.step-model-policy summary { color: var(--text-secondary); cursor: pointer; }
-.step-model-policy-summary { color: var(--text-muted); margin-left: 4px; }
-.step-model-policy-body { display: grid; gap: 8px; margin-top: 8px; }
-.step-model-policy-toggle { display: flex; align-items: flex-start; gap: 6px; color: var(--text-secondary); }
-.step-model-policy-candidates { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
-.step-model-policy-candidate { display: grid; gap: 4px; }
-.step-model-policy-candidate :deep(.form-group) { margin: 0; }
-.step-model-policy-limits { margin: 0; color: var(--text-muted); line-height: 1.4; }
-.step-model-policy-error { margin: 0; color: color-mix(in srgb, var(--warning) 70%, var(--text-primary)); }
-
-@media (max-width: 560px) {
-  .step-model-policy-candidates { grid-template-columns: minmax(0, 1fr); }
-}
 
 /* ── Episode list ─────────────────────────────────────────────────────── */
 .episode-list {

@@ -221,15 +221,13 @@ test('the active Scene Plan preset outranks old episode pacing while episode-own
   )
 })
 
-test('accepted Pipeline UUID/body adoption is decided before current preset, catalogue, or preflight state', () => {
+test('accepted Pipeline UUID/body adoption is decided before current preset or preflight state', () => {
   const runBatch = pipelineSource.slice(
     pipelineSource.indexOf('async function runBatch'),
     pipelineSource.indexOf("router.post('/projects/:slug/pipeline/run-batch'"),
   )
   const acceptedLookup = runBatch.indexOf('existingActionJobs')
   assert.ok(acceptedLookup >= 0, 'the route has an accepted-action lookup')
-  assert.ok(acceptedLookup < runBatch.indexOf('validatePipelinePoliciesAgainstCatalogue'),
-    'accepted UUID lookup precedes today\'s live catalogue validation')
   assert.ok(acceptedLookup < runBatch.indexOf('preflightBatch('),
     'accepted UUID lookup precedes current preset and episode preflight')
 })

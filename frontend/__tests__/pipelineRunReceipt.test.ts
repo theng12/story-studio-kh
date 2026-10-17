@@ -27,7 +27,6 @@ function harness(
     pendingPipelineSubmission: shallowRef<any>(null),
     checkedStepsOrdered: ref([{ id: 'metadata' }]),
     batchBlocked: ref<any[]>([]), batchHasJobs: ref(false), batchReceipt: ref<any>(null),
-    modelPoliciesForRun: () => ({}),
     presetIdsForRun: () => ({ metadata: 'metadata-preset' }),
     notices: [] as string[], requests: [] as string[], requestBodies: [] as any[], navigations: [] as string[],
     actions: [] as Array<() => void>, failures: reject ? 1 : 0, outcomes,
@@ -229,4 +228,20 @@ test('a late submission cannot replace the new project receipt or release its ac
   assert.equal(page.showConfirm.value, true)
   assert.equal(page.submitting.value, true, 'the previous request must not release new-project controls')
   assert.deepEqual(page.notices, [])
+})
+
+// Owner decision 2026-10-17 — Story Studio no longer owns the writing model. The
+// per-run "Models for this run" picker and its `model_policies` request field are
+// retired: a run uses the model its active preset names, and the Gateway owns any
+// fallback across its own pool. This pins the request contract so the retired
+// field cannot creep back into the batch body, and pins that the surface is gone
+// from the page rather than merely hidden.
+test('the batch request carries no per-run writing-model override', async () => {
+  const page = harness({ enqueued: 1, total_jobs_planned: 1 })
+  await page.submit()
+  assert.equal(page.requests.length, 1)
+  const body = page.requestBodies[0]
+  assert.deepEqual(Object.keys(body).sort(), ['episode_ids', 'force', 'preset_ids', 'steps'])
+  assert.equal('model_policies' in body, false)
+  assert.doesNotMatch(source, /Models for this run|model_policies|modelPoliciesForRun|step-model-policy|policy-expanded/)
 })

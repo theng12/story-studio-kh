@@ -54,8 +54,7 @@ import {
   type EstimateStep,
 } from '../lib/disk.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
-import { listChatModels, listImageModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
+import { listImageModels, listTranscriptionModels, publishedVideoControls } from '../lib/genstudio-client.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { requireSceneClipGenStudioModel } from '../generators/scene-clip.js'
 import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
@@ -71,13 +70,6 @@ import {
   inspectSubtitleCompletion,
 } from '../services/subtitle-completion.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
-import {
-  assignedPipelinePolicy,
-  normalizePipelineModelPolicies,
-  validatePipelineModelCatalogue,
-  type PipelineModelPolicies,
-  type PipelineModelPolicyStage,
-} from '../lib/pipeline-model-policy.js'
 import { readVideoVisualSource, resolveImagePoolSelection } from '../services/video-visual-source.js'
 import type { VideoVisualSource } from '../services/video-visual-source.js'
 import { parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
@@ -2089,7 +2081,7 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 export function parseBatchRequest(body: any): {
   episodeIds: string[]; steps: BatchStep[]; force: boolean; repairMissing: boolean;
   actionId: string; operationId: string; presetIds: Partial<Record<BatchStep, string>>;
-  presetIdError: string | null; modelPolicies: PipelineModelPolicies; modelPolicyError: string | null
+  presetIdError: string | null
 } {
   const episodeIds = Array.isArray(body?.episode_ids) ? body.episode_ids.filter((x: any) => typeof x === 'string' && x) : []
   const stepsRaw: any[] = Array.isArray(body?.steps) ? body.steps : []
@@ -2107,13 +2099,6 @@ export function parseBatchRequest(body: any): {
       else presetIds = Object.fromEntries(entries.map(([step, id]) => [step, (id as string).trim()])) as Partial<Record<BatchStep, string>>
     }
   }
-  let modelPolicies: PipelineModelPolicies = {}
-  let modelPolicyError: string | null = null
-  try {
-    modelPolicies = normalizePipelineModelPolicies(body?.model_policies)
-  } catch (error: any) {
-    modelPolicyError = error?.message || 'Invalid model_policies'
-  }
   return {
     episodeIds,
     steps,
@@ -2123,14 +2108,11 @@ export function parseBatchRequest(body: any): {
     operationId: typeof body?.operation_id === 'string' ? body.operation_id.trim() : '',
     presetIds,
     presetIdError,
-    modelPolicies,
-    modelPolicyError,
   }
 }
 
 function repairRequestError(request: ReturnType<typeof parseBatchRequest>): string | null {
   if (request.presetIdError) return request.presetIdError
-  if (request.modelPolicyError) return request.modelPolicyError
   if (request.repairMissing) {
     if (request.operationId) return 'operation_id cannot be combined with repair_missing'
     if (!UUID_V4.test(request.actionId)) return 'repair_missing requires a valid action_id UUID'
@@ -2141,41 +2123,6 @@ function repairRequestError(request: ReturnType<typeof parseBatchRequest>): stri
   if (request.force && !UUID_V4.test(request.operationId)) return 'force requires a valid operation_id UUID'
   if (!request.force && request.operationId) return 'operation_id is only valid with force'
   return null
-}
-
-async function validatePipelinePoliciesAgainstCatalogue(policies: PipelineModelPolicies): Promise<string | null> {
-  if (!Object.keys(policies).length) return null
-  const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return 'model_policies requires a configured Gateway API Key so each selected product can be checked before submission.'
-  let catalogue
-  try {
-    catalogue = await listChatModels(apiKey)
-  } catch {
-    return 'model_policies could not be checked against the Gateway’s live language-model catalogue. Nothing was started; retry when the catalogue is reachable.'
-  }
-  const errors = validatePipelineModelCatalogue(policies, catalogue)
-  const structuredStages = new Set<PipelineModelPolicyStage>(['research', 'image_prompts', 'scene_plan', 'contextual_cues'])
-  for (const [stage, policy] of Object.entries(policies) as Array<[PipelineModelPolicyStage, PipelineModelPolicies[PipelineModelPolicyStage]]>) {
-    if (!policy) continue
-    for (const modelId of policy.models) {
-      const model = findGenStudioProduct(catalogue, modelId)
-      if (!model) continue
-      if (model.locked === true) {
-        errors.push(`model_policies.${stage}: product "${modelId}" is locked for this account`)
-      }
-      // A temporarily unavailable row is still the owner's choice: it is
-      // re-checked before its own request. Validate submission capabilities
-      // only for products that are currently usable.
-      if (model.available !== false && (!Number.isInteger(model.max_output_tokens) || model.max_output_tokens < 1)) {
-        errors.push(`model_policies.${stage}: product "${modelId}" publishes no usable max_output_tokens for this workflow`)
-      }
-      if (model.available !== false && structuredStages.has(stage)
-        && (model.supports_structured_output !== true || model.structured_output_mode === 'none')) {
-        errors.push(`model_policies.${stage}: product "${modelId}" does not publish structured-output support required by this stage`)
-      }
-    }
-  }
-  return errors.length ? errors.join('; ') : null
 }
 
 function stableJson(value: unknown): string {
@@ -2279,8 +2226,6 @@ router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   const { episodeIds, steps: requestedSteps, force } = parsed
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
-  const policyError = await validatePipelinePoliciesAgainstCatalogue(parsed.modelPolicies)
-  if (policyError) return res.status(422).json({ detail: policyError })
   if (!episodeIds.length) return res.status(400).json({ detail: 'episode_ids must be a non-empty array' })
   if (!requestedSteps.length) return res.status(400).json({ detail: 'steps must include at least one valid pipeline step' })
   const steps = await applyChannelSegmentIntent(slug, requestedSteps)
@@ -2353,7 +2298,7 @@ function acceptedPipelineReplay(
 async function runBatch(req: Request<{ slug: string }>, res: Response) {
   const { slug } = req.params
   const parsed = parseBatchRequest(req.body)
-  const { episodeIds: episode_ids, steps: requestedSteps, force, repairMissing, actionId, operationId, modelPolicies, presetIds } = parsed
+  const { episodeIds: episode_ids, steps: requestedSteps, force, repairMissing, actionId, operationId, presetIds } = parsed
   let existingActionJobs: Awaited<ReturnType<typeof jq.findJobs>> = []
   if (force && UUID_V4.test(operationId)) {
     const rawFingerprint = stampFreshGenerationAction(req.body || {}, operationId).generation_action_fingerprint
@@ -2390,8 +2335,6 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   const requestError = repairRequestError(parsed)
   if (requestError) return res.status(400).json({ detail: requestError })
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-  const policyError = await validatePipelinePoliciesAgainstCatalogue(modelPolicies)
-  if (policyError) return res.status(422).json({ detail: policyError })
   // `force: true` disables per-step idempotency skipping — every selected
   // step runs even if its output already exists. Default is to skip done
   // steps so the batch doesn't silently burn tokens on regeneration.
@@ -2483,7 +2426,6 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     default_chat_model: null,
     introduction_chat_model: preflight.introductionChatModel,
     script_chat_model: preflight.scriptSideChatModel,
-    model_policies: modelPolicies,
     visual_settings: Object.fromEntries(
       [...preflight.visualSettingsByEpisode.entries()].map(([episodeId, settings]) => [episodeId, settings]),
     ),
@@ -2661,24 +2603,16 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       if (step === 'character_sheet') continue
       if (step === 'script-only') {
         const outlineParams = resolveStepParams('script-only', episodeId, idea.title || '', presetByStep['script-only'], effectiveFormat)
-        const scriptPolicy = modelPolicies['script-only']
-        const assignedScriptPolicy = scriptPolicy
-          ? assignedPipelinePolicy(scriptPolicy)
-          : null
-        if (assignedScriptPolicy) {
-          outlineParams.model = assignedScriptPolicy.assigned_model
-          outlineParams.pipeline_model_policy = { 'script-only': assignedScriptPolicy }
-        }
         const episodePaths = await resolveEpisodePathsByCode(slug, episodeId)
         const completion = await inspectChunkedScriptCompletion(episodePaths.script_dir, episodeId)
         if (completion.resumable) {
           // An approved outline plus partial chapter files is recoverable.
           // Resume only missing work; rebuilding the outline could discard
           // reviewed creative decisions and spend unnecessary credits.
-          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script (finish missing chapters) — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...(outlineParams.pipeline_model_policy ? { pipeline_model_policy: outlineParams.pipeline_model_policy } : {}) } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script (finish missing chapters) — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true } })
         } else {
           chain.push({ type: 'outline_only' as JobType, title: `Pipeline: Script outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })
-          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...(outlineParams.pipeline_model_policy ? { pipeline_model_policy: outlineParams.pipeline_model_policy } : {}) } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true } })
         }
         continue
       }
@@ -2713,13 +2647,6 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           reason: `${pipelineStepLabel(step)}: ${error?.message || String(error)} Fix the saved preset for this step, then run the batch again.`,
         })
         continue
-      }
-      const policyStage = step as PipelineModelPolicyStage
-      const stepPolicy = modelPolicies[policyStage]
-      if (stepPolicy) {
-        const assigned = assignedPipelinePolicy(stepPolicy)
-        params.model = assigned.assigned_model
-        params.pipeline_model_policy = { [policyStage]: assigned }
       }
       if (step === 'subtitles' && pipelineTranscriptionParams) {
         Object.assign(params, pipelineTranscriptionParams)

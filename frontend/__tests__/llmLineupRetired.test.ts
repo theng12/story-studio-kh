@@ -55,7 +55,7 @@ test('an empty writing page gets the model kept from the retired lineup, and onl
 
 function loadNotice(record: Record<string, unknown> | undefined) {
   const start = pipeline.indexOf("// The retired LLM lineup's one-time notice")
-  const end = pipeline.indexOf('type EligibleModelPolicyStep =', start)
+  const end = pipeline.indexOf('// Tri-state (E-03)', start)
   assert.ok(start >= 0 && end > start, 'the lineup notice must remain a self-contained block')
   const posted: string[] = []
   const js = ts.transpileModule(`${pipeline.slice(start, end)}\nreturn { lineupNotice, dismissLineupNotice }`, {
