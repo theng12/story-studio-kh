@@ -16,6 +16,8 @@ test('Settings advanced panels speak plain English; the technical wording sits i
     }
   }
   assert.match(settings, /<details[^>]*class="settings-tech-details disclosure">\s*<summary>Details<\/summary>[\s\S]*?aggregate credit ceiling/)
-  assert.match(settings, /<details class="settings-tech-details disclosure">\s*<summary>Details<\/summary>[\s\S]*?SHA-256 is compared/)
+  // The per-channel "verify clears SHA-256" Details was deliberately removed with the
+  // duplicated per-channel cleanup tools (1.4.317 two-button cleanup). No product panel
+  // promises that comparison any more, so this clause is retired rather than the panel restored.
   assert.match(serverMode, /<details class="ssm-details disclosure">\s*<summary>Details — port and network address<\/summary>/)
 })

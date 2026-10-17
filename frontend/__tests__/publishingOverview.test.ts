@@ -57,6 +57,10 @@ async function mount(options: MountOptions = {}) {
   // (and the notice's default slot actually renders).
   app.component('PlainBackLink', { render: () => null })
   app.component('WorkspaceNotice', { render(this: any) { return this.$slots.default ? this.$slots.default() : null } })
+  // The page links rows with <NuxtLink class="plan-link">; without Nuxt's runtime the
+  // tag resolves to nothing, so stub it as a real anchor (class falls through) the
+  // same way the sibling suites do — otherwise a.plan-link is always absent.
+  app.component('NuxtLink', defineComponent({ props: ['to'], setup: (p, { slots }) => () => h('a', { href: p.to }, slots.default?.()) }))
   app.mount(host)
   await flush()
   return { host, refreshCalls, close: () => { app.unmount(); host.remove() } }
