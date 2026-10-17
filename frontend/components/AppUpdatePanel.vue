@@ -13,6 +13,7 @@
       </p>
       <p v-if="status.error && ['failed', 'rolled_back'].includes(status.phase)" class="error-box">{{ status.error }}</p>
       <p v-else-if="status.last_check_error" class="text-muted">{{ status.last_check_error }}</p>
+      <p v-if="status.pause_recovery_note" class="settings-hint" role="status">{{ status.pause_recovery_note }}</p>
 
       <div class="flex gap-2 app-update-actions">
         <button class="btn btn-secondary btn-sm" :disabled="!!busy" @click="act('check')">{{ busy === 'check' ? 'Checking…' : 'Check Now' }}</button>
@@ -70,6 +71,7 @@ interface UpdateStatus {
   settings: { auto_install: boolean }
   jobs_left?: number
   queue_paused?: boolean
+  pause_recovery_note?: string | null
   waiting_for?: { submits: number; jobs: string[] } | null
   trusted_fingerprint: string | null
   open_at_login: boolean

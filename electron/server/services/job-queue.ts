@@ -25,7 +25,7 @@ import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType,
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { isChatTextJob, isLocalTextModel, isNonRetryableError, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
-import { getAppSetting, getPaidImageReplacementSetting, onAppSettingWritten, setAppSetting } from './app-settings.js'
+import { getAllAppSettings, getPaidImageReplacementSetting, onAppSettingWritten, setAppSettings } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
@@ -1204,10 +1204,19 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
 // Durable Story-side queue hold. When set, pump() will not dequeue the next
 // job. The Jobs workspace controls it explicitly; provider jobs already
 // accepted upstream are allowed to checkpoint before becoming paused.
+//
+// The hold is a boolean plus an OWNER token. `job_queue_paused` stays a boolean
+// so a build from before this owner existed still reads the hold on rollback
+// (an object there would read as "not true" and unpause). `job_queue_pause_owner`
+// names the updater token that took the hold, or null for the owner's own pause.
+// The two move in ONE atomic settings write (see setQueuePausedUnlocked), so a
+// crash never leaves a paused queue owned by a token that no longer holds it.
 let queuePaused = false
+let queuePauseOwner: string | null = null
 let queuePauseLoaded = false
 let queuePauseInitialization: Promise<void> | null = null
 const QUEUE_PAUSED_KEY = 'job_queue_paused'
+const QUEUE_PAUSE_OWNER_KEY = 'job_queue_pause_owner'
 const QUEUE_PAUSE_TRANSITION_LOCK = 'job-queue:pause-transition'
 
 export class JobPausedError extends Error {
@@ -4271,27 +4280,98 @@ export function _isJobWorkerActiveForTesting(jobId: string): boolean {
 export function initializeQueuePauseState(): Promise<void> {
   if (queuePauseLoaded) return Promise.resolve()
   if (!queuePauseInitialization) {
-    queuePauseInitialization = (async () => {
-      queuePaused = (await getAppSetting(QUEUE_PAUSED_KEY).catch(() => false)) === true
+    const load = (async () => {
+      // ONE snapshot for both keys, so a hold and its owner always come from the same write.
+      const snapshot = await getAllAppSettings()
+      // Strict legacy read: only a boolean `true` holds the queue. An owned hold from this version
+      // is still a boolean `true` beside a token, so a build from before the owner existed reads
+      // the same hold on rollback instead of unpausing.
+      queuePaused = snapshot[QUEUE_PAUSED_KEY] === true
+      const owner = snapshot[QUEUE_PAUSE_OWNER_KEY]
+      queuePauseOwner = typeof owner === 'string' && owner.length > 0 ? owner : null
       queuePauseLoaded = true
     })()
+    // A read that fails must NOT resolve as "not loaded, queue unpaused": an acquire would then
+    // overwrite a durable hold nobody managed to read. Reset so the next call retries, and rethrow.
+    queuePauseInitialization = load.catch((error) => {
+      queuePauseInitialization = null
+      throw error
+    })
   }
   return queuePauseInitialization
 }
 
+/** Test-only: drop the cached pause state so a later initialize re-reads the durable settings. */
+export function _resetQueuePauseStateForTesting(): void {
+  queuePaused = false
+  queuePauseOwner = null
+  queuePauseLoaded = false
+  queuePauseInitialization = null
+}
+
+/**
+ * The owner's own Pause or Resume (Jobs workspace). It is authoritative and takes ownership of the
+ * hold: it clears any updater token, so a stale token can never lift a pause the owner set
+ * afterwards. Works even when the queue is already paused (a second Pause still drops the token).
+ */
 export function setQueuePaused(paused: boolean): Promise<void> {
   // Pause and Resume each have a durable phase plus a cooperative worker
   // phase.  Serializing only app-settings writes lets an older Pause request
   // install a safe-point hold after a newer Resume has already scanned for
   // paused rows.  Keep the whole intent transition ordered instead.
-  return withLock(QUEUE_PAUSE_TRANSITION_LOCK, () => setQueuePausedUnlocked(paused))
+  return withLock(QUEUE_PAUSE_TRANSITION_LOCK, () => setQueuePausedUnlocked(paused, null))
 }
 
-async function setQueuePausedUnlocked(paused: boolean): Promise<void> {
+/**
+ * Take (or confirm) the updater's own hold on the queue, under the SAME transition lock a manual
+ * Pause/Resume takes — so a manual intent already queued ahead of this call is applied first and
+ * this reads its result. Returns true only when `token` holds the pause afterwards: idempotent for
+ * the same token, and a refusal (no write) for a hold owned by anyone else — the owner's own pause.
+ */
+export function acquireQueuePauseOwned(token: string): Promise<boolean> {
+  return withLock(QUEUE_PAUSE_TRANSITION_LOCK, async () => {
+    await initializeQueuePauseState()
+    if (queuePaused && queuePauseOwner !== token) return false
+    if (!queuePaused) await setQueuePausedUnlocked(true, token)
+    return true
+  })
+}
+
+/**
+ * Release the updater's own hold, and only its own. The token is checked against the pause actually
+ * in force, inside the lock, so a token left over from an owner Resume (followed by his own
+ * re-pause) can never lift the owner's hold. A token with no pause of its own behind it is dropped
+ * without touching any foreign pause.
+ */
+export function releaseQueuePauseOwned(token: string): Promise<boolean> {
+  return withLock(QUEUE_PAUSE_TRANSITION_LOCK, async () => {
+    await initializeQueuePauseState()
+    if (!queuePaused || queuePauseOwner !== token) {
+      if (queuePauseOwner === token && !queuePaused) {
+        await setAppSettings({ [QUEUE_PAUSE_OWNER_KEY]: null })
+        queuePauseOwner = null
+      }
+      return false
+    }
+    await setQueuePausedUnlocked(false, null)
+    return true
+  })
+}
+
+/** The token that holds the current pause, or null for the owner's own (unowned) pause. */
+export function getQueuePauseOwner(): string | null {
+  return queuePauseOwner
+}
+
+async function setQueuePausedUnlocked(paused: boolean, owner: string | null): Promise<void> {
   await initializeQueuePauseState()
   if (paused) {
+    // Intake is fenced immediately (the base behaviour). Ownership is only believed AFTER the
+    // durable write lands: a failed write must not leave this process thinking it owns a hold the
+    // disk does not record (which would let it later "release" someone else's pause).
     queuePaused = true
-    await setAppSetting(QUEUE_PAUSED_KEY, true)
+    await setAppSettings({ [QUEUE_PAUSED_KEY]: true, [QUEUE_PAUSE_OWNER_KEY]: owner })
+    queuePauseOwner = owner
     // The global hold prevents every queued item from being submitted. For
     // GenStudio-backed work already running, request a cooperative safe-point
     // pause: accepted items finish downloading, but workers claim no new item.
@@ -4312,7 +4392,7 @@ async function setQueuePausedUnlocked(paused: boolean): Promise<void> {
     && job.pause_requested === true
     && job.pause_origin === 'queue'
   ))
-  await setAppSetting(QUEUE_PAUSED_KEY, false)
+  await setAppSettings({ [QUEUE_PAUSED_KEY]: false, [QUEUE_PAUSE_OWNER_KEY]: null })
   for (const job of pendingQueuePauseCheckpoints) {
     if (
       job.status === 'running'
@@ -4322,6 +4402,7 @@ async function setQueuePausedUnlocked(paused: boolean): Promise<void> {
     ) queuePauseReleaseCheckpoints.add(job.job_id)
   }
   queuePaused = false
+  queuePauseOwner = null
   await transitionPausedJobsToQueuedByProject([...jobs.values()].filter(job => (
     job.status === 'paused' && job.pause_origin === 'queue'
   )))

@@ -58,9 +58,22 @@ function plistVersion(app: string): string {
 
 function fakeQueue(running = 0, paused = false, queued = 0) {
   const q = {
-    paused, runningCount: running, queued, pausedJobs: 0, calls: [] as boolean[],
+    paused, owner: null as string | null, runningCount: running, queued, pausedJobs: 0, calls: [] as boolean[],
     isPaused: () => q.paused,
-    setPaused: async (p: boolean) => { q.calls.push(p); q.paused = p },
+    setPaused: async (p: boolean) => { q.calls.push(p); q.paused = p; q.owner = null },
+    pauseOwner: () => q.paused ? q.owner : null,
+    acquirePause: async (token: string) => {
+      if (q.paused) return q.owner === token
+      const transition = q.setPaused(true)
+      q.owner = token
+      await transition
+      return true
+    },
+    releasePause: async (token: string) => {
+      if (!q.paused || q.owner !== token) return false
+      await q.setPaused(false)
+      return true
+    },
     running: () => q.runningCount,
     summary: () => ({ running: q.runningCount, queued: q.queued, paused: q.pausedJobs }),
   }
@@ -425,7 +438,8 @@ describe('install promptly (owner, 2026-10-09)', () => {
     assert.equal(updater.readState().immediate, true)
     assert.equal(queue.runningCount, 2)
     assert.deepEqual(queue.calls, [true], 'intake stays paused; the updater releases it after the restart')
-    assert.equal(updater.readState().we_paused, true)
+    assert.equal(updater.readState().we_paused, false, 'older rollback code cannot use its boolean-only release')
+    assert.equal(updater.readState().pause_owner_token, queue.owner, 'new boot retains the authoritative claim')
     await installed()
     assert.equal(plistVersion(target), '1.4.258')
   })
@@ -462,11 +476,11 @@ describe('install promptly (owner, 2026-10-09)', () => {
     wired(queue, keepAppAlive)
     // Both presses read the same `ready` state: hold each one inside `setPaused`, then release them
     // one at a time so the second continuation runs after the first has committed `installing`.
-    const paused = queue.setPaused
+    const acquire = queue.acquirePause
     const releases: Array<() => void> = []
-    queue.setPaused = async (p: boolean) => {
+    queue.acquirePause = async (token: string) => {
       await new Promise<void>(resolve => { releases.push(resolve) })
-      return paused(p)
+      return acquire(token)
     }
     const presses = Promise.all([updater.installNow(true), updater.installNow(true)])
     await waitFor(() => releases.length === 2, { label: 'both presses waiting on the queue' })
@@ -536,11 +550,11 @@ describe('install promptly (owner, 2026-10-09)', () => {
     const queue = promptQueue(1)
     queue.notResuming = ['music_video']
     // The automatic caller pauses intake, then hangs inside `setPaused` (after the queue is paused).
-    const paused = queue.setPaused
+    const acquire = queue.acquirePause
     let pauses = 0
     let release!: () => void
     const held = new Promise<void>(resolve => { release = resolve })
-    queue.setPaused = async (p: boolean) => { await paused(p); pauses += 1; await held }
+    queue.acquirePause = async (token: string) => { const owned = await acquire(token); pauses += 1; await held; return owned }
     wired(queue, keepAppAlive)
     const automatic = updater.maybeInstall()
     await waitFor(() => pauses === 1, { label: 'the automatic caller pausing intake' })
@@ -550,7 +564,8 @@ describe('install promptly (owner, 2026-10-09)', () => {
     assert.deepEqual(queue.calls, [true], 'the press did not pause a queue that was already paused')
     release()
     await automatic
-    assert.equal(updater.readState().we_paused, true, 'the pause the automatic caller took is recorded for releaseOurPause')
+    assert.equal(updater.readState().pause_owner_token, queue.owner, 'the winning handoff retains the shared ownership token')
+    assert.equal(updater.readState().we_paused, false, 'a late caller cannot restore the unsafe legacy release flag')
   })
 
   test('an immediate press on a queue the owner paused himself never claims the pause', async () => {
@@ -562,6 +577,63 @@ describe('install promptly (owner, 2026-10-09)', () => {
     assert.equal(updater.readState().phase, 'installing')
     assert.equal(updater.readState().we_paused, false, 'his pause is not the updater\'s to lift')
     assert.deepEqual(queue.calls, [], 'his pause was left alone')
+  })
+
+  test('quit failure preserves the owner Resume then Pause that superseded the updater', async t => {
+    ready()
+    const queue = promptQueue(1)
+    queue.notResuming = ['music_video']
+    wired(queue, keepAppAlive)
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    updater._setQuitDeadlineForTesting(6 * 60_000)
+    await updater.installNow(true)
+    assert.equal(updater.readState().phase, 'installing')
+    await queue.setPaused(false)
+    await queue.setPaused(true)
+    t.mock.timers.tick(6 * 60_000)
+    await new Promise<void>(resolve => setImmediate(resolve))
+    assert.equal(updater.readState().phase, 'failed')
+    assert.equal(queue.paused, true, 'quit failure cannot release the owner\'s later pause')
+    assert.deepEqual(queue.calls, [true, false, true], 'no updater Resume follows the owner Pause')
+  })
+
+  test('owner Resume then Pause during acquisition prevents an immediate handoff', async () => {
+    ready()
+    const queue = promptQueue(1)
+    const acquire = queue.acquirePause
+    let entered!: () => void, release!: () => void
+    const started = new Promise<void>(resolve => { entered = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    queue.acquirePause = async token => { const owned = await acquire(token); entered(); await gate; return owned }
+    wired(queue, keepAppAlive)
+    const press = updater.installNow(true)
+    await started
+    await queue.setPaused(false)
+    await queue.setPaused(true)
+    release()
+    await press
+    assert.equal(updater.readState().phase, 'ready')
+    assert.equal(updater.readState().held, true)
+    assert.equal(queue.paused, true)
+    assert.equal(handoffs(), 0)
+  })
+
+  test('owner Pause while a drain check is suspended prevents automatic handoff', async () => {
+    ready()
+    const queue = promptQueue(1)
+    let entered!: () => void, release!: () => void
+    const started = new Promise<void>(resolve => { entered = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    queue.wouldNotResume = async () => { entered(); await gate; return [] }
+    wired(queue, keepAppAlive)
+    await updater.maybeInstall()
+    await started
+    await queue.setPaused(true)
+    release()
+    await waitFor(() => updater.readState().phase === 'ready', { label: 'owner pause superseding drain' })
+    assert.equal(updater.readState().held, true)
+    assert.equal(queue.paused, true)
+    assert.equal(handoffs(), 0)
   })
 
   test('the owner\'s own pause wins: a queue he paused holds the update, untouched', async () => {
@@ -579,9 +651,10 @@ describe('install promptly (owner, 2026-10-09)', () => {
 
   test('a pause the updater made before a restart is its own, not the owner\'s: the install continues', async () => {
     ready()
-    updater.writeState({ ...updater.readState(), we_paused: true })
+    updater.writeState({ ...updater.readState(), we_paused: true, pause_owner_token: 'restart-owned' })
     const queue = promptQueue(1)
     queue.paused = true
+    queue.owner = 'restart-owned'
     wired(queue)
     await updater.maybeInstall()
     assert.equal(updater.readState().phase, 'draining')
@@ -676,13 +749,45 @@ describe('Gateway update request receipts', () => {
 
 describe('boot settle', () => {
   test('the new version healthy: installed, and the queue pause the updater made is released', async () => {
-    updater.writeState({ phase: 'installing', release: signed(), we_paused: true, installing_at: Date.now() })
+    updater.writeState({ phase: 'installing', release: signed(), we_paused: false, pause_owner_token: 'healthy-owned', installing_at: Date.now() })
     const queue = fakeQueue(0, true)
+    queue.owner = 'healthy-owned'
     const fetch = (async () => new Response(JSON.stringify({ status: 'ok', version: '1.4.258', boot_complete: true }))) as any
     const state = await updater.onBoot(options(queue, { currentVersion: '1.4.258', fetch }))
     assert.equal(state.phase, 'installed')
     assert.deepEqual(queue.calls, [false])
     assert.equal(updater.readState().we_paused, false)
+  })
+
+  test('a failed updater release retains its claim and reports recovery, then retries on boot', async () => {
+    updater.writeState({ phase: 'installing', release: signed(), pause_owner_token: 'retry-release', installing_at: Date.now() })
+    const queue = fakeQueue(0, true)
+    queue.owner = 'retry-release'
+    const release = queue.releasePause
+    queue.releasePause = async () => { throw new Error('fixture release write failed') }
+    const fetch = (async () => Response.json({ status: 'ok', version: '1.4.258', boot_complete: true })) as any
+    const bootOptions = options(queue, { currentVersion: '1.4.258', fetch })
+    await updater.onBoot(bootOptions)
+    assert.equal(updater.readState().pause_owner_token, 'retry-release')
+    assert.equal(queue.paused, true)
+    assert.match(String((await updater.status()).pause_recovery_note), /Resume/i)
+    queue.releasePause = release
+    await updater.onBoot(bootOptions)
+    assert.equal(queue.paused, false)
+    assert.equal(updater.readState().pause_owner_token, null)
+    assert.equal((await updater.status()).pause_recovery_note, null)
+  })
+
+  test('a legacy boolean hold stays paused with visible recovery guidance until Resume', async () => {
+    updater.writeState({ phase: 'installing', release: signed(), we_paused: true, installing_at: Date.now() })
+    const queue = fakeQueue(0, true)
+    const fetch = (async () => Response.json({ status: 'ok', version: '1.4.258', boot_complete: true })) as any
+    await updater.onBoot(options(queue, { currentVersion: '1.4.258', fetch }))
+    assert.equal(queue.paused, true, 'the old boolean cannot prove who owns this pause')
+    assert.deepEqual(queue.calls, [])
+    assert.match(String((await updater.status()).pause_recovery_note), /Resume/i)
+    await queue.setPaused(false)
+    assert.equal((await updater.status()).pause_recovery_note ?? null, null, 'guidance clears after Resume')
   })
 
   test('download leftovers move into Story\'s Trash (Library _story-studio/app-update); what is already in _trash stays', async () => {
@@ -701,10 +806,11 @@ describe('boot settle', () => {
   })
 
   test('the old version came back: rolled back, the version is skipped, the queue resumed', async () => {
-    updater.writeState({ phase: 'installing', release: signed(), we_paused: true, installing_at: Date.now() - 5000 })
+    updater.writeState({ phase: 'installing', release: signed(), we_paused: false, pause_owner_token: 'rollback-owned', installing_at: Date.now() - 5000 })
     fs.writeFileSync(path.join(updater.updateDir(), 'helper-result.json'),
       JSON.stringify({ outcome: 'rolled_back', detail: '1.4.258 did not start', at: Math.floor(Date.now() / 1000) }))
     const queue = fakeQueue(0, true)
+    queue.owner = 'rollback-owned'
     const state = await updater.onBoot(options(queue))
     assert.equal(state.phase, 'rolled_back')
     assert.equal(state.skip_signature, signed().signature)
