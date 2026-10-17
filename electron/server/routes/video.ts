@@ -1588,7 +1588,13 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       // rewrites a plan that generated images hang off.
       scene_plan_timeline: await resolveScenePlanPath(slug, episodeId, assets.episode_dir)
         .then(planPath => inspectPlanTimelineDrift(planPath, path.join(subtitlesDir, `${episodeId.toUpperCase()}_stitched.srt`),
-          assets.merged_audio[0] && path.join(path.dirname(assets.merged_audio[0].path), `${episodeId.toUpperCase()}_merged_audio.completion.json`)))
+          assets.merged_audio[0] && path.join(path.dirname(assets.merged_audio[0].path), `${episodeId.toUpperCase()}_merged_audio.completion.json`),
+          // Name the merged track THIS episode renders with: `assets.merged_audio[0]` is exactly the
+          // file the plan was built from (scene-plan.ts records `source_merged_audio` from the same
+          // scan) and the file `req.merged_audio_path` renders. The completion record is written once
+          // per code and OVERWRITTEN, so it can describe a `_v2` beside the base; reporting the plan
+          // as drifted against a file the plan never used is a false advisory.
+          assets.merged_audio[0]?.filename ?? null))
         .catch(() => ({ checked: false, stale: false, drift_sec: null, reason: '' })),
     })
   } catch (e: any) {

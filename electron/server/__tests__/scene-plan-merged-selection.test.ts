@@ -2,7 +2,11 @@ import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
+
+// Must be set before ../app.js is imported so the throwaway server does not listen.
+process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
 
 /**
  * PR0002/PR0003 (2026-10-16): a Final Video run was refused `missing_prerequisite
@@ -14,10 +18,12 @@ import { useTempDataDir } from './_helpers.js'
  * checking `output_filename`, so the drift / shortfall predicates compared the
  * plan against a file the app does not render with and reported it stale.
  *
- * These pin the one-selection rule and the admission outcome both ways.
+ * These pin the selection, the record guard, the admission outcome, and the
+ * Video/Subtitles status route that carries the same advisory.
  */
 
 let cleanup: () => Promise<void>
+let app: any
 let pm: typeof import('../services/project-manager.js')
 let im: typeof import('../services/idea-manager.js')
 let episodeStatusCache: typeof import('../services/episode-status-cache.js').episodeStatusCache
@@ -43,6 +49,7 @@ before(async () => {
   cleanup = temp.cleanup
   pm = await import('../services/project-manager.js')
   im = await import('../services/idea-manager.js')
+  ;({ app } = await import('../app.js'))
   ;({ episodeStatusCache } = await import('../services/episode-status-cache.js'))
   ;({ resolveEpisodePathsByCode } = await import('../services/utils.js'))
 })
@@ -122,4 +129,40 @@ test('status.scene_plan is false when the record describes the SELECTED file and
   await writeMerges(paths, code, { recordNames: 'base', recordDuration: 956 })
   const status = await statusFor(slug, code)
   assert.equal(status.scene_plan, false, 'a genuinely stale plan must still be refused')
+})
+
+test('GET video-editor/subtitles/status reports drift for the SELECTED merged file only', async () => {
+  const { slug, code, paths } = await seedEpisode('Subtitles status merged selection')
+  // A plan with no caption stamp, so this pins the merged-audio branch alone.
+  await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+    schema_version: 1,
+    generated_at: '2026-10-16T09:27:47.852Z',
+    total_duration_sec: 952.58229,
+    source_merged_audio: { duration_sec: 952.582 },
+    opening_mode: 'from-start',
+    scenes: [{ id: 'scene-0001', scene_index: 1, start_sec: 0, end_sec: 952.58229, visual_prompt: 'A quiet archive.' }],
+  }))
+  // Exactly ONE merged file on disk, so scanEpisodeAssets.merged_audio[0] is THIS file
+  // whatever the filesystem readdir order — the name the route must hand to the drift
+  // check. (A dummy file is enough; the status path never needs a real probe.)
+  await fs.mkdir(paths.merged_audio_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.mp3`), 'ID3')
+  const recordPath = path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`)
+
+  // (a) The record names a DIFFERENT file (the `_v2` shape) and disagrees with the plan:
+  //     it must be ignored, not reported as this plan drifting.
+  await fs.writeFile(recordPath, JSON.stringify({
+    output_filename: `${code}_merged_audio_v2.mp3`, duration_sec: 956, opening: { lead_in_sec: 0 },
+  }))
+  const mismatch = await request(app).get(`/api/projects/${slug}/video-editor/subtitles/status/${code}`)
+  assert.equal(mismatch.status, 200, JSON.stringify(mismatch.body))
+  assert.equal(mismatch.body.scene_plan_timeline.stale, false, 'a record for another file must not report drift')
+
+  // (b) The record names the SELECTED file and disagrees with the plan: the real drift is kept.
+  await fs.writeFile(recordPath, JSON.stringify({
+    output_filename: `${code}_merged_audio.mp3`, duration_sec: 956, opening: { lead_in_sec: 0 },
+  }))
+  const matching = await request(app).get(`/api/projects/${slug}/video-editor/subtitles/status/${code}`)
+  assert.equal(matching.status, 200, JSON.stringify(matching.body))
+  assert.equal(matching.body.scene_plan_timeline.stale, true, 'drift for the selected file must still be reported')
 })
