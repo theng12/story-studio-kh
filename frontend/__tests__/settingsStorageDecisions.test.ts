@@ -96,11 +96,16 @@ test('Free Up Space is one card: recommended preset first, then the other ways, 
   const order = ['<MediaCleanupPanel', 'data-setting="clear-uploaded-finals"', 'data-setting="move-uploaded"', 'data-setting="episode-storage"']
     .map(marker => card.indexOf(marker))
   assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1]!)), `card order ${order}`)
-  // Inside the panel: recommended preset, then "Other ways" with Choose exactly which files.
-  const recommended = panel.indexOf('Recommended: shrink and tidy uploaded episodes')
+  // Inside the panel: the two all-channel actions lead, then "This channel only", then "Other ways".
+  const allChannels = panel.indexOf('All channels')
+  const shrinkAll = panel.indexOf('Shrink Scene Images (All Channels)')
+  const clearAll = panel.indexOf('Clear Uploaded Videos Older Than 7 Days (All Channels)')
+  const thisChannel = panel.indexOf('This channel only')
+  const selected = panel.indexOf('Free Up Space for {{ selected.length }} Selected')
   const other = panel.indexOf('Other ways')
   const exact = panel.indexOf('Choose exactly which files')
-  assert.ok(recommended > 0 && recommended < panel.indexOf('Free Up Space for {{ selected.length }} Selected') && other < exact && recommended < other)
+  assert.ok(allChannels > 0 && shrinkAll > allChannels && clearAll > shrinkAll && clearAll < thisChannel, 'both all-channel actions sit under "All channels" and lead the panel')
+  assert.ok(thisChannel > 0 && thisChannel < selected && selected < other && other < exact, 'this-channel path, then "Other ways", then "Choose exactly which files"')
   // Each option says in one sentence what happens and where files go.
   assert.match(card, /Clear uploaded final videos \(verified\)<\/strong><small>[^<]*moved to Story's Trash \(Story → Trash\)/)
   assert.match(card, /Move uploaded videos to another drive<\/strong><small>[^<]*copied to a folder you choose/)

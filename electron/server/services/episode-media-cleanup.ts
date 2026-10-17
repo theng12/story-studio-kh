@@ -1803,7 +1803,7 @@ function channelPreviewFor(preview: LibraryCleanupPreview, slug: string): MediaC
     files,
     total_bytes: channel?.total_bytes || 0,
     blocked_reasons: channel?.blocked_reasons || [],
-    ...(preview.action === 'shrink_images' ? { preset: CONVERT_PNG_PRESET as const } : {}),
+    ...(preview.action === 'shrink_images' ? { preset: CONVERT_PNG_PRESET } : {}),
     trash_roots: preview.trash_roots,
     estimate: preview.estimate,
   }
