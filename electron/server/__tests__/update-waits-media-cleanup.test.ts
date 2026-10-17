@@ -82,6 +82,10 @@ test('a running cleanup holds the Mac, and a stop request keeps holding until th
     return CLEAN
   })
 
+  // `beginOperation` files the operation as `queued` and its executor only starts on the next tick,
+  // so wait for the state that actually parks on the gate instead of assuming the tick has run.
+  await waitFor(() => cleanup.activeMaintenanceOperation()?.status === 'running',
+    { label: 'the operation to start running' })
   const running = cleanup.activeMaintenanceOperation()
   assert.equal(running?.kind, 'run', 'a run, not a read-only review, is what an install waits for')
   assert.equal(running?.status, 'running')
