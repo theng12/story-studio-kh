@@ -1847,14 +1847,18 @@ export function withNamedEffectsFrame(config: any, bundle: StoredPreset): Stored
  * queued job is rewritten.
  *
  * The link is returned unchanged when the channel now has no usable preset for the step — the
- * batch's accepted snapshot is a complete request, and losing the step would be worse.
+ * batch's accepted snapshot is a complete request, and losing the step would be worse. It is also
+ * returned unchanged when the link carries no `pipeline_preset_keys`: without that record there is
+ * no way to tell the preset's keys from the episode's, and a half-refreshed link (a current look
+ * merged over a stale one) would be worse than the accepted snapshot it replaces.
  */
 export async function resolveChainedVideoAssemblyParams(
   slug: string,
   episodeId: string,
   linkParams: Record<string, any>,
 ): Promise<Record<string, any>> {
-  const presetKeys: string[] = Array.isArray(linkParams.pipeline_preset_keys) ? linkParams.pipeline_preset_keys : []
+  if (!Array.isArray(linkParams.pipeline_preset_keys)) return linkParams
+  const presetKeys: string[] = linkParams.pipeline_preset_keys
   const explicitPresetId = typeof linkParams.pipeline_preset_id === 'string' && linkParams.pipeline_preset_id
     ? linkParams.pipeline_preset_id
     : undefined

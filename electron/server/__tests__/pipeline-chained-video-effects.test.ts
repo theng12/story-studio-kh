@@ -170,8 +170,16 @@ describe('a chained Final Video resolves the channel look when its job is submit
     assert.match(jq.getJob(head.job_id)!.output_lines.join('\n'), /resolved from the channel's current Video Assembly preset/)
   })
 
-  test('a channel that deliberately has no look still gets no look, and a look switched off is off', async () => {
-    const slug = await seedChannel('Chained no-look')
+  test('a link written before this release is left as the accepted snapshot, not half-refreshed', async () => {
+    const slug = await seedChannel('Chained unmarked link')
+    await setChannelLook(slug, BASE_LOOK)
+    const { resolveChainedVideoAssemblyParams } = await import('../routes/pipeline.js')
+    const captured = { episode_id: 'EP0001', title: 'One', effect_stack: [], resolution: '720p', pacing: { mode: 'variable', min_sec: 3, max_sec: 6 } }
+    assert.equal(await resolveChainedVideoAssemblyParams(slug, 'EP0001', captured), captured,
+      'without the record of which keys the preset produced, the link is returned unchanged')
+  })
+
+  test('a channel that deliberately has no look still gets no look, and a look switched off is off', async () => {    const slug = await seedChannel('Chained no-look')
     const episode = await seedEpisode(slug, 'No look episode')
     await setChannelLook(slug, { ...BASE_LOOK })
 
