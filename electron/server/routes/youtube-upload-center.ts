@@ -25,6 +25,7 @@ import { Router } from 'express'
 
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { withLock } from '../lib/atomic-store.js'
+import { sameInstant } from '../lib/publish-instant.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import type {
   YouTubeEpisodePublishableProjection,
@@ -3172,7 +3173,7 @@ async function applyVideoVisibility(input: {
     ...(requirePrivacyStatus ? { requirePrivacyStatus } : {}),
   })
   if (updated.id !== remote.video_id || updated.status?.privacyStatus !== privacy
-    || (updated.status?.publishAt ?? null) !== publishAt) {
+    || !sameInstant(updated.status?.publishAt, publishAt)) {
     throw scheduleRouteError(502, publishAt
       ? 'YouTube did not confirm the requested private schedule. The local receipt was not changed.'
       : `YouTube did not confirm ${episodeCode} as ${privacy}. The local receipt was not changed.`)
