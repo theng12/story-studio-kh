@@ -227,3 +227,136 @@ test('H-17: a stuck running row cannot be retried, only abandoned', async () => 
     assert.ok(isTerminal(row.status))
   }
 })
+
+/**
+ * DM0009, 2026-10-16 — the sibling of the H-17 control above, and the message
+ * that control does not cover.
+ *
+ * The job's evidence held one `succeeded` pack, one `failed` pack whose code was
+ * `PROVIDER_SUBMISSION_UNCERTAIN` — the Gateway's own way of saying it could not
+ * prove whether the request was taken — and one in-flight re-send. The restart
+ * reconciled, the re-send settled as succeeded, and the finalizer then reported
+ * "A Gateway provider task failed after cancellation reconciliation. Provider
+ * evidence is retained." Neither clause was true: the recorded outcome was
+ * unknown rather than failed, and no cancellation was ever requested
+ * (`remote_cancellations` was empty). The owner was told about an action he never
+ * took, on work the Gateway had not finished answering about.
+ *
+ * The terminal state itself is right and is what H-17 pins: an error the owner can
+ * Retry, with the provider evidence kept and nothing new submitted. Only the claim
+ * was wrong — the same defect this codebase already fixed once for the paused
+ * branch, where a job that "was never cancelled by anybody" stopped being told it
+ * was reconciling a cancellation.
+ */
+test('H-17: an unknown-outcome failure is not reported as a settled provider failure', async () => {
+  const project = await pm.createProject({ name: 'Restart scene plan unknown outcome' })
+  const jobId = 'restart-scene-plan-uncertain'
+  const job = interruptedJob('scene_plan_run', jobId, project.slug, [
+    {
+      id: 'chat-settled-1', operation: 'chat.response', state: 'succeeded',
+      request_key: 'story-chat-settled-1', updated_at: new Date().toISOString(),
+    },
+    {
+      id: 'chat-uncertain-1', operation: 'chat.response', state: 'failed',
+      failure_code: 'PROVIDER_SUBMISSION_UNCERTAIN',
+      request_key: 'story-chat-uncertain-1', updated_at: new Date().toISOString(),
+    },
+    {
+      // Forces the restart down the reconcile-first path (H-17) rather than the
+      // chat resume, exactly as DM0009's in-flight re-send did.
+      id: 'chat-inflight-1', operation: 'chat.response', state: 'accepted',
+      request_key: 'story-chat-inflight-1', updated_at: new Date().toISOString(),
+    },
+  ])
+  // DM0009's own list, verbatim: an earlier pass DID send a fresh request, and that
+  // re-send is why one of its rows is `succeeded`. The terminal line lands in this
+  // same list, so it must not contradict the line above it.
+  job.output_lines = [
+    'The writing service lost track of a writing request after it was sent; Story sends it once more as a fresh request. The safety check "Lost writing request" is set to Off for this channel, so this carries on.',
+  ]
+  await seed(project.slug, job)
+  calls.length = 0
+
+  await jq.getJobs(project.slug)
+  await waitFor(
+    () => isTerminal(jq.getJob(jobId)?.status),
+    { label: 'scene_plan_run with an uncertain sibling reached a terminal state', timeoutMs: 12_000 },
+  ).catch(() => {})
+  await jq._waitForJobPersistenceForTesting()
+
+  const settled = jq.getJob(jobId)!
+  assert.equal(settled.status, 'error', settled.output_lines.join(' | '))
+  assert.doesNotMatch(
+    String(settled.error), /cancellation/i,
+    'no cancellation was requested on this job, so none may be named',
+  )
+  assert.doesNotMatch(
+    String(settled.error), /task failed/i,
+    'the recorded outcome is unknown, not a proven provider failure',
+  )
+  // Positively: it must say what is actually true, not merely avoid the wrong words.
+  assert.match(
+    String(settled.error), /could not prove whether an earlier request was accepted/i,
+    'the unknown outcome must be named as unknown',
+  )
+  assert.match(
+    String(settled.error), /this reconciliation sent no new generation request/i,
+    'the "sent nothing" claim must be scoped to this reconciliation',
+  )
+  // And it must NOT make the unscoped claim: DM0009's own log records an earlier pass re-sending a
+  // lost writing request as a fresh one, so an unqualified "did not submit fresh paid work" would
+  // contradict the job's own output list a few lines above it.
+  assert.doesNotMatch(
+    String(settled.error), /did not submit fresh paid work/i,
+    'an unqualified claim about Story Studio at large is false on a job that re-sent earlier',
+  )
+  // The owner reads ONE list. The earlier re-send line and this terminal line must coexist in it.
+  const list = settled.output_lines.join('\n')
+  assert.match(list, /once more as a fresh request/i, 'the earlier re-send must still be recorded')
+  assert.doesNotMatch(list, /did not submit fresh paid work/i, 'nothing in the list may deny that re-send')
+  // Unknown outcome means Story Studio must submit nothing new: the request may
+  // already have been accepted and charged.
+  assert.equal(calls.some(call => call.method !== 'GET'), false, JSON.stringify(calls))
+  // The evidence is preserved, including the unknown-outcome row itself.
+  assert.ok(settled.genstudio_jobs?.some(entry => entry.id === 'chat-uncertain-1'))
+  assert.equal(settled.genstudio_jobs?.find(entry => entry.id === 'chat-uncertain-1')?.state, 'failed')
+})
+
+/**
+ * The other half of the same message: a genuinely failed provider task on a job
+ * with no cancellation context must still fail loudly, and still must not claim a
+ * cancellation that never happened.
+ */
+test('H-17: a proven provider failure with no cancellation context names no cancellation', async () => {
+  const project = await pm.createProject({ name: 'Restart scene plan real failure' })
+  const jobId = 'restart-scene-plan-failed'
+  await seed(project.slug, interruptedJob('scene_plan_run', jobId, project.slug, [
+    {
+      id: 'chat-settled-2', operation: 'chat.response', state: 'succeeded',
+      request_key: 'story-chat-settled-2', updated_at: new Date().toISOString(),
+    },
+    {
+      id: 'chat-failed-2', operation: 'chat.response', state: 'failed',
+      failure_code: 'LANGUAGE_PROVIDER_FAILED',
+      request_key: 'story-chat-failed-2', updated_at: new Date().toISOString(),
+    },
+    {
+      id: 'chat-inflight-2', operation: 'chat.response', state: 'accepted',
+      request_key: 'story-chat-inflight-2', updated_at: new Date().toISOString(),
+    },
+  ]))
+  calls.length = 0
+
+  await jq.getJobs(project.slug)
+  await waitFor(
+    () => isTerminal(jq.getJob(jobId)?.status),
+    { label: 'scene_plan_run with a failed sibling reached a terminal state', timeoutMs: 12_000 },
+  ).catch(() => {})
+  await jq._waitForJobPersistenceForTesting()
+
+  const settled = jq.getJob(jobId)!
+  assert.equal(settled.status, 'error', settled.output_lines.join(' | '))
+  assert.doesNotMatch(String(settled.error), /cancellation/i)
+  assert.equal(calls.some(call => call.method !== 'GET'), false)
+  assert.ok(settled.genstudio_jobs?.some(entry => entry.id === 'chat-failed-2'))
+})

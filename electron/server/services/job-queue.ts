@@ -40,7 +40,7 @@ import {
 import { isFreeFleetWork, reconciledGenStudioQueueState } from '../contracts/provider-task-state.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
 import { assertManualGenerationRedoAction } from '../lib/fresh-generation-action.js'
-import { holdsUnknownOutcome, isSubmissionUncertainCode } from '../lib/genstudio-client.js'
+import { evidenceHoldsUnknownOutcome, holdsUnknownOutcome, isSubmissionUncertainCode } from '../lib/genstudio-client.js'
 import { isRetryableZeroSettlementImageFailureCode } from './image-paid-replacement.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
@@ -1101,8 +1101,38 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       job.error = null
       job.output_lines.push('The Gateway confirmed cancellation for every provider task.')
     } else if (evidence.some(entry => entry.state === 'failed' && entry.cancelled !== true)) {
+      // DM0009, 2026-10-16. Two claims this branch used to make whether or not they were true.
+      //
+      // "A provider task failed" — but an entry whose code says the submission outcome is UNKNOWN
+      // (`PROVIDER_SUBMISSION_UNCERTAIN`, the Gateway's own way of saying it could not prove whether
+      // it took the request) is not a proven failure, and `evidenceHoldsUnknownOutcome` is the
+      // predicate this codebase already reads it with (`routes/jobs.ts`). Reading it as a failure
+      // here also asserted a settled outcome the Gateway never gave.
+      //
+      // "after cancellation reconciliation" — but a job that arrived from
+      // `hasRecoverableUnsettledGenStudioEvidence` was never cancelled by anybody. The paused branch
+      // above already fixed exactly this wording; the terminal branch was missed.
+      //
+      // The terminal state stays `error` with the evidence retained, and this branch submits nothing:
+      // an unknown outcome may already have been accepted and charged, and the generator refuses to
+      // repair while it is unknown precisely because a second request would race work already paid
+      // for (`requestUnresolved` in generators/scene-plan.ts).
+      //
+      // SCOPE — the sentence must describe THIS reconciliation, not Story Studio at large. An earlier
+      // pass on the same job may legitimately have re-sent a lost writing request as a fresh one
+      // (DM0009's own log says so, and that re-send is why one of its rows is `succeeded`), so any
+      // unqualified "did not submit fresh paid work" would contradict the job's own output list a few
+      // lines above. The paused branch above is scoped the same way ("no new generation request was
+      // sent"), which is true even when a re-send happened earlier.
+      const unprovenOutcome = evidence.some(entry => (
+        entry.state === 'failed' && entry.cancelled !== true && evidenceHoldsUnknownOutcome(entry)
+      ))
       job.status = 'error'
-      job.error = 'A Gateway provider task failed after cancellation reconciliation. Provider evidence is retained.'
+      job.error = unprovenOutcome
+        ? 'The Gateway could not prove whether an earlier request was accepted. Story Studio retained that evidence. This reconciliation sent no new generation request. Check the Gateway before trying again.'
+        : hasCancellationContext(job)
+          ? 'A Gateway provider task failed after cancellation reconciliation. Provider evidence is retained.'
+          : 'A Gateway provider task failed. Provider evidence is retained.'
       job.output_lines.push(job.error)
     } else if (
       evidence.some(entry => entry.cancelled === true)
