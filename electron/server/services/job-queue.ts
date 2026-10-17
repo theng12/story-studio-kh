@@ -3870,15 +3870,60 @@ async function continuePipelineAfterFailure(job: Job): Promise<void> {
   job.output_lines.push(`This episode's run kept going with the steps that don't need this one: ${pipelineStepLabels(split.survivors)}.`)
 }
 
+/**
+ * 1.4.312 — resolve a Final Video link against the channel's CURRENT Video Assembly preset, so a
+ * look applied after the batch was submitted still reaches this render. Every boundary that turns a
+ * batch's captured chain link into a job calls this: the chain handoff below, and restart
+ * recovery's continuation enqueue. Retry does NOT: it re-runs an accepted job with its accepted
+ * params, which is what the owner asked for when they pressed Retry.
+ */
+export async function withCurrentFinalVideoParams(
+  slug: string,
+  episodeId: string,
+  params: Record<string, any>,
+): Promise<Record<string, any>> {
+  const { resolveChainedVideoAssemblyParams } = await import('../routes/pipeline.js')
+  return resolveChainedVideoAssemblyParams(slug, episodeId, params)
+}
+
+/**
+ * 1.4.312 — Final Video is the one chained step resolved again when its job is actually submitted:
+ * the channel's Video Assembly preset is the channel's reusable look, so a look applied after the
+ * batch was submitted still reaches this render (`withCurrentFinalVideoParams`). The link's captured
+ * params stay the accepted snapshot for Retry and recovery — only this enqueue is refreshed, and the
+ * handoff job says so when the look moved.
+ */
+async function refreshChainedFinalVideoParams(job: Job, nextParams: Record<string, any>): Promise<Record<string, any>> {
+  try {
+    const refreshed = await withCurrentFinalVideoParams(job.project_slug, job.episode_id!, nextParams)
+    const before = Array.isArray(nextParams.effect_stack) ? nextParams.effect_stack as string[] : []
+    const after = Array.isArray(refreshed.effect_stack) ? refreshed.effect_stack as string[] : []
+    if (refreshed !== nextParams && JSON.stringify(before) !== JSON.stringify(after)) {
+      job.output_lines.push(`Final Video was resolved from the channel's current Video Assembly preset: effects now `
+        + `${after.join(' · ') || 'none'} (this batch captured ${before.join(' · ') || 'none'}). Nothing already produced was changed.`)
+    }
+    return refreshed
+  } catch (error) {
+    // The batch's accepted snapshot is a complete request: a refresh that cannot read the channel's
+    // preset must never lose the step.
+    job.output_lines.push(`Could not re-read the channel's Video Assembly preset for this step `
+      + `(${error instanceof Error ? error.message : String(error)}); the batch's saved settings were used.`)
+    return nextParams
+  }
+}
+
 async function dispatchChainLink(job: Job, nextStep: any, rest: unknown[]): Promise<void> {
   chainHandoffJobIds.add(job.job_id)
   try {
     const batchId = job.params.pipeline_batch_id
-    const nextParams = {
+    let nextParams: Record<string, any> = {
       ...structuredClone(nextStep.params || {}),
       episode_id: job.episode_id,
       pipeline_chain: rest,
       ...(batchId ? { pipeline_batch_id: batchId } : {}),
+    }
+    if (nextStep.type === 'video_assembly' && typeof job.episode_id === 'string' && job.episode_id) {
+      nextParams = await refreshChainedFinalVideoParams(job, nextParams)
     }
     const joined = nextStep.type === 'continuity_render' && !nextParams.single_scene_id
       ? await joinActiveBulkSceneRender({

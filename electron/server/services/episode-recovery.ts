@@ -607,9 +607,16 @@ export async function dispatchEpisodeRecoveryStep(
         plan.message = `An accepted ${next.type} job already owns different saved settings; Story kept it and did not queue competing work.`
         return
       }
+      // 1.4.312 — Final Video is resolved from the channel's CURRENT Video Assembly preset when its
+      // job is actually submitted, so a look applied after the batch was submitted still reaches
+      // this render. `expected` above stays the plan's accepted snapshot, for the compatibility
+      // check; only what is enqueued is resolved afresh.
+      const enqueueParams = next.type === 'video_assembly'
+        ? await jq.withCurrentFinalVideoParams(plan.project_slug, plan.episode_id, expected)
+        : expected
       await jq.enqueueEpisodeRecoveryOnce(plan.continuation_job_id || `recovery-${plan.id}-continuation`, {
         project_slug: plan.project_slug, episode_id: plan.episode_id, type: next.type, title: next.title,
-        params: expected,
+        params: enqueueParams,
       })
       plan.continuation_dispatched = true
     }

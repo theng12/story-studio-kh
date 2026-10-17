@@ -1825,6 +1825,62 @@ export function withNamedEffectsFrame(config: any, bundle: StoredPreset): Stored
   return bundle.data ? { ...bundle, data: merged } : { ...bundle, ...merged }
 }
 
+/**
+ * 1.4.312 — resolve a chained Final Video against the channel's CURRENT Video Assembly preset.
+ *
+ * A batch resolves every step's params when the batch is submitted, and a later step's params ride
+ * along in `pipeline_chain` until the earlier steps finish — which can be hours. Freezing the run is
+ * deliberate for the EPISODE's own decision (pacing, motion scope, visual source: a later settings
+ * edit must not retarget a queued chain), but the channel's Effects look is a reusable channel
+ * choice, and a look applied after the batch was submitted never reached the queued Final Video. On
+ * pronom (2026-10-17) the chain's links were dispatched carrying `effect_stack: []` with no
+ * `scene_effects` / `color_grading` (PR0001 `0c30f3bc`, PR0013 `ffb0a4f1`) while a run-batch of the
+ * same single step, 36 minutes later, carried the channel's base look (PR0005 `ff0b55d9`).
+ *
+ * `dispatchChainLink` calls this when it enqueues the link, so the job's params are resolved from the
+ * channel's preset at the moment THAT job is submitted — exactly what a run-batch of that one step
+ * does, through the same code: `findActivePreset` (honouring the preset the batch named explicitly)
+ * + `withNamedEffectsFrame` + `resolveStepParams`. The keys the link's preset produced at submit
+ * (`pipeline_preset_keys`) are dropped first, so an effect switched off in the meantime is off rather
+ * than left behind by the capture, and a channel that deliberately has no look still gets none. The
+ * job's params are then the snapshot the render reads: nothing is re-read at render time, and no
+ * queued job is rewritten.
+ *
+ * The link is returned unchanged when the channel now has no usable preset for the step — the
+ * batch's accepted snapshot is a complete request, and losing the step would be worse. It is also
+ * returned unchanged when the link carries no `pipeline_preset_keys`: without that record there is
+ * no way to tell the preset's keys from the episode's, and a half-refreshed link (a current look
+ * merged over a stale one) would be worse than the accepted snapshot it replaces.
+ */
+export async function resolveChainedVideoAssemblyParams(
+  slug: string,
+  episodeId: string,
+  linkParams: Record<string, any>,
+): Promise<Record<string, any>> {
+  if (!Array.isArray(linkParams.pipeline_preset_keys)) return linkParams
+  const presetKeys: string[] = linkParams.pipeline_preset_keys
+  const explicitPresetId = typeof linkParams.pipeline_preset_id === 'string' && linkParams.pipeline_preset_id
+    ? linkParams.pipeline_preset_id
+    : undefined
+  let config: any
+  try {
+    config = await pm.getConfig(slug)
+  } catch {
+    return linkParams
+  }
+  const { preset } = findActivePreset(config, 'video_assembly', explicitPresetId)
+  if (!preset) return linkParams
+  const fresh = resolveStepParams(
+    'video_assembly',
+    episodeId,
+    typeof linkParams.title === 'string' ? linkParams.title : '',
+    withNamedEffectsFrame(config, preset),
+  )
+  const carried = Object.fromEntries(Object.entries(linkParams).filter(([key]) =>
+    !presetKeys.includes(key) && key !== 'pipeline_preset_keys' && key !== 'pipeline_preset_id'))
+  return { ...fresh, ...carried, effect_stack: describeEffectStack(fresh) }
+}
+
 const fileLabel = (p: unknown) => String(p || '').split('/').pop() || String(p || '')
 
 /**
@@ -2631,7 +2687,20 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
         if (step === 'scene_plan') params.prompt_char_cap = pipelineScenePlanPromptCap
         // 1.4.282 — readable on the job: exactly what this render bakes in. Never read by the render.
-        if (step === 'video_assembly') params = { ...params, effect_stack: describeEffectStack(params) }
+        if (step === 'video_assembly') {
+          // 1.4.312 — which keys this step's preset produced, and the preset the batch chose for it.
+          // Final Video is the one chained step resolved again when its job is actually submitted
+          // (`resolveChainedVideoAssemblyParams`), because the channel's Video Assembly preset is the
+          // channel's reusable look. Everything the preset did not produce — the episode's own visual
+          // settings, the step facts, the run's force / repair stamps — is carried across untouched.
+          const presetKeys = Object.keys(params)
+          params = {
+            ...params,
+            effect_stack: describeEffectStack(params),
+            ...(presetIds[step] ? { pipeline_preset_id: presetIds[step] } : {}),
+            pipeline_preset_keys: presetKeys,
+          }
+        }
       } catch (error: any) {
         skipped.push({
           episode_id: episodeId,

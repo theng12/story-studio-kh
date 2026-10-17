@@ -409,6 +409,49 @@ test('a restored continuation cannot dispatch copied manual image authority', as
   } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })
 
+test('a recovered Final Video continuation is resolved from the channel look when it is enqueued', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Recovered Final Video look' })
+    await pm.updateConfig(project.slug, {
+      video_bundle_presets: [{ id: 'va', name: 'Video Assembly', data: { fallback: {
+        timeline: { transition: { type: 'crossfade', duration: 0.6 } },
+        effects: { color_grading: { enabled: true, preset: 'cool-moonlight' } },
+        export: { resolution: '1080p', aspect_ratio: '16:9' },
+      } } }],
+      video_bundle_last_preset: 'va',
+    } as any)
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const plan = createEpisodeRecoveryPlan([{ ...source('continuity_render'), project_slug: project.slug }])
+    plan.continuation = [{
+      type: 'video_assembly',
+      title: 'Pipeline: Final Video — EP0001',
+      // The batch captured Final Video before the channel had any look.
+      params: {
+        episode_id: 'EP0001', title: 'One', effect_stack: [], resolution: '720p',
+        pipeline_step: 'video_assembly', pipeline_requires: ['scene_review', 'audio_merge'],
+        pacing: { mode: 'variable', min_sec: 3, max_sec: 6 }, visual_source: 'scene_plan',
+        pipeline_preset_keys: ['episode_id', 'title', 'effect_stack', 'resolution'],
+      },
+    }]
+
+    await dispatchEpisodeRecoveryStep(plan, { verified: ready, message: 'Complete' }, [])
+
+    const job = (await jq.getJobs(project.slug)).find(candidate => candidate.type === 'video_assembly')
+    assert.ok(job, 'the continuation was enqueued')
+    assert.deepEqual(job.params.effect_stack, ['Colour grade: cool-moonlight'])
+    assert.deepEqual(job.params.color_grading, { enabled: true, preset: 'cool-moonlight' })
+    assert.equal(job.params.resolution, '1080p', 'the preset keys the batch captured are replaced, not kept')
+    assert.deepEqual(job.params.pacing, { mode: 'variable', min_sec: 3, max_sec: 6 },
+      'the episode decision the plan restored is carried across')
+    assert.equal(job.params.visual_source, 'scene_plan')
+    assert.equal(job.params.pipeline_preset_keys, undefined)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
 test('mixed episode recovery advances ordinary prerequisites but stops at manual image Finish', async () => {
   const temp = await useTempDataDir()
   const jq = await import('../services/job-queue.js')
