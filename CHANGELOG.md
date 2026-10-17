@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.315 — 2026-10-17
+
+- Scene Review's Finish and Replacement now work when Story Studio is opened over plain HTTP (for example from another Mac on your network) instead of refusing with a browser-identity error. The same secure request identity is now used by the Pipeline, the Episode Builder and the publish action.
+- Free Up Space: the button is spaced from the episode list instead of sitting flush against it.
+- Settings' left rail now shows This Mac / This Channel clearly, with the heading and the selected item tinted.
+- Scene pictures and previews are served with the media type read from the file's bytes, so a picture whose file name has the wrong extension still displays.
+- The Pipeline no longer offers "Models for this run": the writing model comes from the preset you selected, through the Gateway (owner, 2026-10-17). The preset selector no longer overflows its panel.
+- Character Sheet no longer carries a leftover preset scene-rhythm notice or applies pacing. The episode's rhythm stays with Scene Plan's Visual timing & motion, and saving a visual setup keeps the episode timing you already have.
+
 ## v1.4.314 — 2026-10-17
 
 - A Final Video step that runs later in a Pipeline chain now picks up the channel's current look when its own job is submitted, instead of the look that was set when the batch first started, so a look you set in between is applied. A restart that recovers the same step does the same. This applies to steps created from now on: a step that already existed without the new bookkeeping keeps the look it was accepted with.

@@ -1,5 +1,40 @@
 # HANDOFF — Story Studio KH
 
+## Source integrated; focused proof and visual checks next — 2026-10-17 (1.4.315)
+
+Branch `release/1.4.315` from `main 9b3d08a9` (1.4.314, published). Six independently reviewed
+source-accepted changes, integrated with **no merge conflicts**:
+
+- `cef8f4a1` (chain `9b3d08a9` → `a6edc27b` → `cef8f4a1`) — Scene Review Finish/Replacement use the
+  exported `secureOperationId()` (`crypto.randomUUID` → CSPRNG UUIDv4 from `getRandomValues` →
+  truthful refusal) instead of refusing whenever `randomUUID` is absent, which is the plain-HTTP case.
+  The four sibling request-identity sites (Pipeline ×3, Episode Builder, publish) share the helper.
+  Review limit: every test on that branch was unrun at review time; the lanes must actually run.
+- `d81f346e` — Free Up Space button spacing (one CSS line).
+- `f80fce8e` — Settings left-rail scope colours (one file).
+- `0047dcf9` — scene-image media type read from the bytes (`lib/image-media-type.ts` + 4 routes +
+  client); two release-note items: an out-of-scope `source_path` returns 403 before the
+  "Add a Gateway API Key first" 400, and containment now sits outside the vision route's try/catch so
+  an `allowedPreviewRoots` throw surfaces as the app's 500 rather than the route's 502.
+- `fa1a00d2` — the per-run Pipeline writing-model override is retired; the writing model comes from
+  the selected preset through the Gateway, and the preset selector no longer overflows.
+- `5249df37` — Character Sheet no longer carries the leftover preset scene-rhythm notice or applies
+  pacing; Scene Plan's "Visual timing & motion" stays authoritative, the save boundary keeps the
+  on-disk rhythm unless the payload claims it (`claim_pacing: true`), and old presets are stripped at
+  the boundary, never rewritten.
+
+Union check on the shared `frontend/pages/projects/[slug]/pipeline.vue`: the secure-identity helper is
+present (5 references, including the import and the run/replacement call sites) and the per-run
+override is gone (0 remnants). No conflict markers anywhere in the tree. On the server
+`routes/pipeline.ts` the picker removal and the Character Sheet pacing boundary coexist: the
+`character_sheet` header comment now says the preset's LOOK is applied and the episode's rhythm is
+not, and `applyContinuityPresetForPipeline` carries the same boundary.
+
+Still owed before release: focused proofs (UUID/frontend runner, the 10 MIME cases, the Pipeline
+contract, the Character Sheet 10 cases), desktop/mobile light/dark visual evidence, the full backend /
+frontend / content-pack lanes, types, lint and the five static checks, then main integration, a
+main-built DMG, the post-build release lane, one pinned publish and a readback.
+
 ## Released; install pending the normal path — 2026-10-17 (1.4.313)
 
 Main `4d4a15dd72d462b9cc64b3b03420cd266eebbeb2` is pushed. Two accepted changes:
