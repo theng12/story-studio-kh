@@ -19,8 +19,8 @@ candidates plus four accepted corrections found by running the gates:
   count, index order, width, sparse/non-finite/all-zero/overflow refused, unit normalisation) plus
   an honest hint line.
 - Version/changelog `99915045`; corrections `d2715232` (NuxtLink stub + retired SHA-256 pin) and
-  `569ad3f3` (type-only `StoredIdea[]`, TS2322) and `39d12be5` (a497d803: the review button no
-  longer claims "Starting…" before the confirmation is accepted).
+  `569ad3f3` (type-only `StoredIdea[]`, TS2322) and `39d12be5` (patch sha256 `a497d803…`: the
+  review button no longer claims "Starting…" before the confirmation is accepted).
 
 Gates on the landing tree, all with captured exits: full backend **exit 0** — 721/721 files, 7304
 tests, 7303 pass, 0 fail, 1 skipped, projects root byte-identical; frontend exit 0 — 313/313 files,
@@ -29,11 +29,11 @@ frontend typecheck, lint and the five static checks all 0. Artifact from the mai
 `dist/Story Studio KH 1.4.317-arm64.dmg`, 243,073,904 bytes, SHA-256
 `a694b9e9980a4a5671d3c4403bb4d0b4af32869f795a88b3e034b2fc22b19413`, app.asar 1.4.317, launch smoke
 passed, release lane 57/57 after the build. One publish POST, HTTP 200, readback matched
-(published_at 1792261454). The mini installed 1.4.317 through its normal updater lifecycle
-(installed_at 21:50:21Z under request `2439aa2ccb2843a3a61db56678195239`; the transfer needed three
-automatic check-in cycles after two mid-download transport aborts and a tailnet brownout — attempt
-count per the updater logs is unknown, no attempt-count or causation claim is made). No OS reboot,
-no kill, no second install POST. All four SSD kit copies were refreshed by the parent (a0846).
+(published_at 1792261454). The mini installed 1.4.317 through its updater lifecycle (installed_at
+2026-10-17T21:50:21.837Z under request `2439aa2ccb2843a3a61db56678195239`). A prior
+download-aborted error remained visible across check-ins; later automatic transfer and installation
+completed. The exact attempt count and cause of the abort are unknown. No OS reboot, no kill, no
+second install POST. All four SSD kit copies were refreshed by the parent (a0846).
 Receipts: `_orchestra/codex-takeover-20261012/story-317-gate/`.
 
 ## Source candidate, not released — 2026-10-18 (1.4.318)
