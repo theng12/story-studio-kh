@@ -515,6 +515,187 @@ test('scheduling normalizes a valid offset timestamp before provider receipt and
   assert.equal(JSON.parse(fake.calls[1]!.body!).status.publishAt, publishAt)
 })
 
+test('scheduling accepts the same instant YouTube serialized differently and records the local receipt', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const operationId = await acceptedOperation(slug, episodeCode, 'video-instant')
+  // The owner asked for 03:04:05Z. Story Studio normalizes the request to
+  // 03:04:05.000Z, but YouTube echoes the SAME instant back without the
+  // fractional seconds. A strict string compare would 502 after a successful
+  // write; the local receipt must still be recorded.
+  const requested = '2031-01-02T03:04:05Z'
+  const normalized = '2031-01-02T03:04:05.000Z'
+
+  const fake = new FakeYouTube()
+  fake.respond({ method: 'GET', path: '/youtube/v3/videos?part=snippet,status&id=video-instant', body: { items: [{
+    id: 'video-instant', etag: 'instant-etag',
+    snippet: { title: 'Instant', description: '', tags: [], categoryId: '24' },
+    status: { privacyStatus: 'private' },
+  }] } })
+  fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=status', body: {
+    id: 'video-instant', status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05Z' },
+  } })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({ publish_at: requested, confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.equal(res.body.scheduled_at, normalized, 'the response carries the normalized instant')
+  assert.equal(res.body.privacy_status, 'private')
+  const record = await operations.readYouTubeOperation(slug, operationId)
+  assert.equal(record?.remote_snapshot?.privacy_status, 'private')
+  assert.equal(record?.remote_snapshot?.scheduled_for, normalized,
+    'the local receipt is written even though YouTube serialized the instant without milliseconds')
+})
+
+test('scheduling refuses an instant YouTube moved and records no receipt', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const operationId = await acceptedOperation(slug, episodeCode, 'video-wrong-instant')
+  const fake = new FakeYouTube()
+  fake.respond({ method: 'GET', path: '/youtube/v3/videos?part=snippet,status&id=video-wrong-instant', body: { items: [{
+    id: 'video-wrong-instant', etag: 'wrong-instant-etag',
+    snippet: { title: 'Wrong instant', description: '', tags: [], categoryId: '24' },
+    status: { privacyStatus: 'private' },
+  }] } })
+  // One hour later than requested: a genuinely different instant is still refused.
+  fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=status', body: {
+    id: 'video-wrong-instant', status: { privacyStatus: 'private', publishAt: '2031-01-02T04:04:05Z' },
+  } })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({ publish_at: '2031-01-02T03:04:05Z', confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 502)
+  assert.match(res.body.detail, /did not confirm the requested private schedule/i)
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot, undefined,
+    'a wrong instant leaves no local receipt')
+})
+
+test('scheduling refuses a malformed publish time from YouTube and records no receipt', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const operationId = await acceptedOperation(slug, episodeCode, 'video-bad-time')
+  const fake = new FakeYouTube()
+  fake.respond({ method: 'GET', path: '/youtube/v3/videos?part=snippet,status&id=video-bad-time', body: { items: [{
+    id: 'video-bad-time', etag: 'bad-time-etag',
+    snippet: { title: 'Bad time', description: '', tags: [], categoryId: '24' },
+    status: { privacyStatus: 'private' },
+  }] } })
+  // An unparseable value is never treated as a match.
+  fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=status', body: {
+    id: 'video-bad-time', status: { privacyStatus: 'private', publishAt: 'not-a-real-instant' },
+  } })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({ publish_at: '2031-01-02T03:04:05Z', confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 502)
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot, undefined)
+})
+
+test('scheduling refuses a privacy YouTube did not confirm and records no receipt', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const operationId = await acceptedOperation(slug, episodeCode, 'video-wrong-privacy')
+  const fake = new FakeYouTube()
+  fake.respond({ method: 'GET', path: '/youtube/v3/videos?part=snippet,status&id=video-wrong-privacy', body: { items: [{
+    id: 'video-wrong-privacy', etag: 'wrong-privacy-etag',
+    snippet: { title: 'Wrong privacy', description: '', tags: [], categoryId: '24' },
+    status: { privacyStatus: 'private' },
+  }] } })
+  fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=status', body: {
+    id: 'video-wrong-privacy', status: { privacyStatus: 'public', publishAt: '2031-01-02T03:04:05.000Z' },
+  } })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({ publish_at: '2031-01-02T03:04:05Z', confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 502)
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot, undefined)
+})
+
+test('scheduling refuses a video id YouTube did not confirm and records no receipt', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const operationId = await acceptedOperation(slug, episodeCode, 'video-id-check')
+  const fake = new FakeYouTube()
+  fake.respond({ method: 'GET', path: '/youtube/v3/videos?part=snippet,status&id=video-id-check', body: { items: [{
+    id: 'video-id-check', etag: 'id-check-etag',
+    snippet: { title: 'Id check', description: '', tags: [], categoryId: '24' },
+    status: { privacyStatus: 'private' },
+  }] } })
+  fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=status', body: {
+    id: 'some-other-video', status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05.000Z' },
+  } })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/schedule`)
+    .send({ publish_at: '2031-01-02T03:04:05Z', confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 502)
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot, undefined)
+})
+
+test('clearing a schedule is refused when YouTube still reports a pending publish time', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const operationId = await acceptedOperation(slug, episodeCode, 'video-still-scheduled')
+  const fake = new FakeYouTube()
+  fake.respond({ method: 'GET', path: '/youtube/v3/videos?part=snippet,status&id=video-still-scheduled', body: { items: [{
+    id: 'video-still-scheduled', etag: 'still-scheduled-etag',
+    snippet: { title: 'Still scheduled', description: '', tags: [], categoryId: '24' },
+    status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05Z' },
+  }] } })
+  // "Set visibility" clears the schedule (publishAt: null). YouTube echoing a
+  // pending publish time must refuse, so no local receipt claims "no schedule".
+  fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=status', body: {
+    id: 'video-still-scheduled', status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05Z' },
+  } })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/visibility`)
+    .send({ privacy_status: 'private', confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 502)
+  assert.match(res.body.detail, /did not confirm/i)
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot, undefined)
+})
+
+test('clearing a schedule succeeds when YouTube confirms no pending publish time', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const operationId = await acceptedOperation(slug, episodeCode, 'video-cleared')
+  const fake = new FakeYouTube()
+  fake.respond({ method: 'GET', path: '/youtube/v3/videos?part=snippet,status&id=video-cleared', body: { items: [{
+    id: 'video-cleared', etag: 'cleared-etag',
+    snippet: { title: 'Cleared', description: '', tags: [], categoryId: '24' },
+    status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05Z' },
+  }] } })
+  fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=status', body: {
+    id: 'video-cleared', status: { privacyStatus: 'private' },
+  } })
+  __setYouTubeTransportForTests(fake.transport())
+
+  const res = await request(app)
+    .post(`/api/projects/${slug}/youtube/episodes/${episodeCode}/visibility`)
+    .send({ privacy_status: 'private', confirm: true, expected_channel_id: CHANNEL })
+
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.equal(res.body.scheduled_at, null)
+  assert.equal((await operations.readYouTubeOperation(slug, operationId))?.remote_snapshot?.scheduled_for, null)
+})
+
 test('scheduling refuses a channel changed after review without a provider call', async () => {
   const slug = await registryOnlyProject()
   const { episodeCode } = await acceptedEpisode(slug)
