@@ -136,6 +136,36 @@ test('declining the confirmation runs nothing', async () => {
   } finally { ui.close() }
 })
 
+test('the panel claims nothing until the confirmation is accepted, and one accepted review posts one run', async () => {
+  const calls: any[] = []
+  let approve: (value: boolean) => void = () => {}
+  const ask = () => new Promise<boolean>(resolve => { approve = resolve })
+  const ui = await mount({
+    get: async (url: string) => url.endsWith('/space') ? space : libraryOperation('shrink_images', shrinkPreview),
+    post: async (url: string, body: any) => { calls.push({ url, body }); return { operation_id: 'run-op' } },
+  }, ask)
+  try {
+    button(ui.host, 'Shrink Images (All Channels)').click()
+    for (let i = 0; i < 5; i++) await flush()
+    // Opening the confirmation must not claim the run already started — the defect the owner saw
+    // (a review reading "Starting…" behind the modal the instant its button was pressed).
+    confirmButton(ui.host).click(); await flush()
+    assert.equal(confirmButton(ui.host).textContent?.trim(), 'Confirming…', 'an open confirmation is not "Starting…"')
+    assert.doesNotMatch(ui.host.textContent || '', /Starting…/, 'nothing claims to be starting before the owner approves')
+    assert.equal(calls.filter(c => c.url.endsWith('/run')).length, 0, 'nothing is posted before approval')
+    // A repeat click while the confirmation is open must not open a second dialog or post.
+    confirmButton(ui.host).click(); await flush()
+    assert.equal(calls.filter(c => c.url.endsWith('/run')).length, 0, 'a repeat click still posts nothing')
+    // Accepting is the change the owner sees: the panel locks, reads Starting…, and posts the one
+    // reviewed operation exactly once.
+    approve(true)
+    for (let i = 0; i < 5; i++) await flush()
+    const runs = calls.filter(c => c.url.endsWith('/run'))
+    assert.equal(runs.length, 1, 'one accepted review posts exactly one run')
+    assert.deepEqual(runs[0].body, { preview_id: 'lib-1' })
+  } finally { ui.close() }
+})
+
 test('a running all-channel operation shows progress and Stop stops it', async () => {
   const posts: string[] = []
   let reads = 0

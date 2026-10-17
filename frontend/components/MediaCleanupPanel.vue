@@ -58,7 +58,7 @@
       <div class="cleanup-actions">
         <p v-if="preview.action === 'shrink_images'"><strong>Shrink scene images:</strong> each PNG scene is re-saved as a JPEG under the same name across all listed channels; the PNG originals move to <code class="cleanup-path">{{ libraryTrashText }}</code>.</p>
         <p v-else><strong>Clean up all channels:</strong> verified uploaded videos older than 7 days of production, and unused leftover files, move to <code class="cleanup-path">{{ libraryTrashText }}</code>. Nothing is deleted; space is freed when you empty the Trash.</p>
-        <div class="cleanup-action-buttons"><button class="btn btn-secondary" :disabled="busy" @click="dismissReview">Dismiss Review</button><button class="btn btn-primary" :disabled="busy || !hasLibraryWork" @click="runLibraryCleanup">{{ submitting ? 'Starting…' : preview.action === 'shrink_images' ? 'Shrink Images on All Channels' : 'Clean Up All Channels' }}</button></div>
+        <div class="cleanup-action-buttons"><button class="btn btn-secondary" :disabled="busy || confirming" @click="dismissReview">Dismiss Review</button><button class="btn btn-primary" :disabled="busy || confirming || !hasLibraryWork" @click="runLibraryCleanup">{{ confirming ? 'Confirming…' : submitting ? 'Starting…' : preview.action === 'shrink_images' ? 'Shrink Images on All Channels' : 'Clean Up All Channels' }}</button></div>
       </div>
     </div>
   </section>
@@ -90,6 +90,8 @@ const preview = ref<LibraryPreview | null>(null)
 const operation = ref<Operation | null>(null)
 const error = ref('')
 const submitting = ref(false)
+/** A confirmation is on screen for the reviewed run, but nothing has been accepted yet. */
+const confirming = ref(false)
 const stopping = ref(false)
 const polling = ref(false)
 const checkingYouTube = ref(false)
@@ -245,17 +247,25 @@ async function startLibraryPreview(action: LibraryAction) {
 }
 async function runLibraryCleanup() {
   const reviewed = preview.value
-  if (busy.value || !reviewed || !hasLibraryWork.value) return
+  if (busy.value || confirming.value || !reviewed || !hasLibraryWork.value) return
   const version = generation
   const shrink = reviewed.action === 'shrink_images'
-  submitting.value = true; error.value = ''
+  let approved = false
+  confirming.value = true; error.value = ''
   try {
     const channels = reviewed.channels.length
     const leftoverCount = reviewed.leftovers?.count || 0
-    const approved = await ask(shrink
+    approved = await ask(shrink
       ? { title: `Shrink scene images on ${channels} ${channels === 1 ? 'channel' : 'channels'}?`, message: `${reviewed.files.length} PNG scene ${reviewed.files.length === 1 ? 'image' : 'images'} (${formatBytes(reviewed.total_bytes)}) across ${channels} ${channels === 1 ? 'channel' : 'channels'} are re-saved as JPEG under the same names, saving about ${formatBytes(libraryFreedBytes.value)}. The PNG originals move to ${libraryTrashText.value}; scene plans, approvals and Video Assembly keep working. Nothing is regenerated.`, confirmLabel: 'Shrink Images', danger: false }
       : { title: 'Clean up all channels?', message: `${reviewed.files.length} uploaded final ${reviewed.files.length === 1 ? 'video' : 'videos'} (${formatBytes(reviewed.total_bytes)}) older than 7 days of production, each checked against its own channel’s YouTube upload, and ${leftoverCount} unused leftover ${leftoverCount === 1 ? 'folder' : 'folders'} (${formatBytes(reviewed.leftovers?.total_bytes || 0)}) move to ${libraryTrashText.value}. Nothing is deleted; the space is freed when you empty the Trash. Anything that cannot be confirmed stays where it is.`, confirmLabel: 'Clean Up', danger: false })
-    if (!approved || !current(version)) return
+  } finally { confirming.value = false }
+  // Nothing is claimed as started until the user accepts: the review stays exactly as it was
+  // while the confirmation is on screen, so approving it — not the click that opened it — is the
+  // change the owner sees. Only then does the panel lock and read Starting…, and one accepted
+  // review id is posted once (confirming guards a second dialog, busy/submitting a second run).
+  if (!approved || !current(version)) return
+  submitting.value = true
+  try {
     const result = await post<{ operation_id: string }>('/library/media-cleanup/run', { preview_id: reviewed.preview_id })
     if (!current(version)) return
     remember(result.operation_id)
@@ -281,7 +291,7 @@ watch(() => props.slug, () => {
   generation++; if (timer) clearTimeout(timer)
   preview.value = null; operation.value = null; error.value = ''; checkResult.value = ''
   space.value = null; checkingYouTube.value = false
-  submitting.value = false; stopping.value = false; polling.value = false
+  submitting.value = false; confirming.value = false; stopping.value = false; polling.value = false
   resuming = false
   void loadSpace()
   restore()
