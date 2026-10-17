@@ -62,6 +62,7 @@ import { inspectMetadataCompletion, legacyMetadataPresent } from './metadata-com
 import { COVERAGE_FAIL_SEC, inspectScenePlanCoverage } from './scene-planner.js'
 import { planMergedAudioDrift, planNarrationShortfallSec, readNarrationRecord } from '../lib/scene-plan-timeline.js'
 import { selectMergedAudioFilename } from '../lib/intro-lead-in.js'
+import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
 import { DEFAULT_SOUND_DESIGN_SETTINGS, normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
@@ -691,27 +692,57 @@ export async function inspectAudioMergeAtPaths(
 ): Promise<AudioMergeStatus> {
   const code = episodeId.toUpperCase()
   const files = await safeReaddir(paths.merged_audio_dir)
-  const re = new RegExp(`^${code}_merged_audio(?:_v(\\d+))?\\.mp3$`)
+
+  // v1.4.314 — the owner's explicit choice wins over this module's own
+  // "highest `_vN`" rule, so `audio-merge-status` and B-Roll report the very
+  // track the Final Video path renders. No pin → the legacy highest-version rule
+  // is kept exactly, so an episode nobody pinned is unchanged.
+  const choice = await resolveEpisodeMergedAudioChoice(paths.merged_audio_dir, code)
+  if (choice.source === 'invalid') {
+    // A pin that names a file no longer here is not swapped for another track:
+    // which narration the video carries is the owner's call. `present: false`
+    // makes B-Roll's narration authority refuse rather than fall back to raw
+    // audio, and the status carries the pin so the page can say what happened.
+    return { present: false, file: choice.pinned ?? undefined, dir: paths.merged_audio_dir }
+  }
+
+  const completionPath = path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`)
   let best: { version: number; file: string } | null = null
-  for (const file of files) {
-    const match = file.match(re)
-    if (!match || !await fileHasContent(path.join(paths.merged_audio_dir, file))) continue
-    const version = match[1] ? parseInt(match[1], 10) : 1
-    if (!best || version > best.version) best = { version, file }
+  if (choice.source === 'selected') {
+    const file = choice.filename!
+    if (!await fileHasContent(path.join(paths.merged_audio_dir, file))) {
+      return { present: false, file, dir: paths.merged_audio_dir }
+    }
+    best = { version: 0, file }
+  } else {
+    const re = new RegExp(`^${code}_merged_audio(?:_v(\\d+))?\\.mp3$`)
+    for (const file of files) {
+      const match = file.match(re)
+      if (!match || !await fileHasContent(path.join(paths.merged_audio_dir, file))) continue
+      const version = match[1] ? parseInt(match[1], 10) : 1
+      if (!best || version > best.version) best = { version, file }
+    }
   }
 
   if (!best) return { present: false, dir: paths.merged_audio_dir }
   const mergedPath = path.join(paths.merged_audio_dir, best.file)
-  const completionPath = path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`)
   if (existsSync(completionPath)) {
     try {
       const completion = JSON.parse(await fs.readFile(completionPath, 'utf-8'))
-      const stat = await fs.stat(mergedPath)
-      const verified = completion?.output_filename === best.file
-        && Number(completion?.bytes) === stat.size
-        && stat.size > 0
-        && Number(completion?.duration_sec) > 0
-      if (!verified) return { present: false, file: best.file, dir: paths.merged_audio_dir }
+      // The record is written once per code and OVERWRITTEN, so it describes the
+      // LAST merge. When the owner has pinned a different track it says nothing
+      // about the pinned one and is skipped — comparing against the wrong file
+      // is the misattribution this release is fixing.
+      if (completion?.output_filename === best.file) {
+        const stat = await fs.stat(mergedPath)
+        const verified = Number(completion?.bytes) === stat.size
+          && stat.size > 0
+          && Number(completion?.duration_sec) > 0
+        if (!verified) return { present: false, file: best.file, dir: paths.merged_audio_dir }
+      } else if (choice.source !== 'selected') {
+        // Legacy rule: with no pin the record must name the highest version.
+        return { present: false, file: best.file, dir: paths.merged_audio_dir }
+      }
     } catch { return { present: false, file: best.file, dir: paths.merged_audio_dir } }
   }
   if (!await mergedAudioSourcesAreCurrent(paths.episode_dir, paths.audio_dir, mergedPath)) {
@@ -1364,18 +1395,25 @@ export async function computeEpisodeStatus(
         const promptIntegrity = inspectScenePromptIntegrity(scenes)
         const subtitleIntegrity = await readSubtitleTimelineIntegrity(byCode.subtitles_dir, code)
         const coverageIntegrity = inspectScenePlanCoverage(plan)
-        // Which merged track is THIS episode's narration — the same selection the
-        // stitcher and the renderer use (the base track over a `_v2`). The
-        // completion record is written once per code and overwritten, so without
-        // naming the file we are asking about, the drift / shortfall checks below
-        // can compare the plan against a `_v2` the app does not render with, and
-        // refuse a Final Video the renderer would accept (PR0002/PR0003).
-        const mergedEntries = await fs.readdir(byCode.merged_audio_dir).catch(() => [] as string[])
-        const mergedFilename = selectMergedAudioFilename(mergedEntries, code)
+        // Which merged track is THIS episode's narration — the owner's explicit
+        // choice when he made one, else the base track over a `_v2` (v1.4.314).
+        // The completion record is written once per code and overwritten, so
+        // without naming the file we are asking about, the drift / shortfall
+        // checks below can compare the plan against a `_v2` the app does not
+        // render with, and refuse a Final Video the renderer would accept
+        // (PR0002/PR0003).
+        const mergedChoice = await resolveEpisodeMergedAudioChoice(byCode.merged_audio_dir, code)
+        const mergedFilename = mergedChoice.source === 'selected'
+          ? mergedChoice.filename
+          : mergedChoice.source === 'invalid'
+            ? null
+            : selectMergedAudioFilename(mergedChoice.entries, code)
         status.scene_plan = scenes.length > 0
           && promptIntegrity.complete
           && (musicDir || subtitleIntegrity.complete)
           && (!coverageIntegrity.authoritative || coverageIntegrity.complete)
+          // A pin that no longer names a real track cannot certify the plan.
+          && mergedChoice.source !== 'invalid'
           // 1.4.276 — a plan timed against an older merged narration is not done:
           // run-batch re-runs the step, which refuses to continue it (DL0004).
           && !(plan?.source_merged_audio && (await planMergedAudioDrift(plan,

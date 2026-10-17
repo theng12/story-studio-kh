@@ -17,6 +17,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
+import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { findIncompleteSubtitleSections } from '../services/subtitle-stitcher.js'
@@ -658,16 +659,30 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
     const plan = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
     if (!plan.scenes?.length) return res.status(400).json({ detail: 'scene_plan.json has no scenes.' })
 
-    // Largest audio file in merged_audio/ — same heuristic the assemblers use.
+    // The merged track this episode renders with — the owner's explicit choice
+    // when he made one (v1.4.314), else the largest file (the long-standing
+    // heuristic). Repairing coverage against a track the render will not use
+    // would re-time the plan to the wrong narration.
     if (!existsSync(paths.merged_audio_dir)) {
       return res.status(400).json({ detail: 'No merged audio yet — run Audio Merge first, then repair coverage.' })
     }
+    const mergedChoice = await resolveEpisodeMergedAudioChoice(paths.merged_audio_dir, episodeId)
+    if (mergedChoice.source === 'invalid') {
+      return res.status(409).json({
+        detail: `${episodeId.toUpperCase()}'s selected merged audio "${mergedChoice.pinned}" is not in this `
+          + 'episode\'s merged-audio folder. Choose this episode\'s narration again in Video Assembly Step 1, then retry.',
+      })
+    }
     let audioPath = ''
-    let bestSize = 0
-    for (const f of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
-      if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
-      const st = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
-      if (st && st.size > bestSize) { bestSize = st.size; audioPath = path.join(paths.merged_audio_dir, f) }
+    if (mergedChoice.source === 'selected') {
+      audioPath = path.join(paths.merged_audio_dir, mergedChoice.filename!)
+    } else if (mergedChoice.source === 'unset') {
+      let bestSize = 0
+      for (const f of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
+        if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
+        const st = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
+        if (st && st.size > bestSize) { bestSize = st.size; audioPath = path.join(paths.merged_audio_dir, f) }
+      }
     }
     if (!audioPath) return res.status(400).json({ detail: 'No merged audio file found — run Audio Merge first.' })
     const audioDur = (await getAudioDuration(audioPath)) || 0

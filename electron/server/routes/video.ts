@@ -57,6 +57,7 @@ import {
 } from '../contracts/subtitle-preview.js'
 import { resolveSubtitlesDir, resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { readSelectedSubtitle, resolveBurnSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
+import { isEpisodeMergedAudioFilename, writeSelectedMergedAudio } from '../lib/merged-audio-selection.js'
 import { inspectSubtitleText, type SubtitleQualityReport } from '../lib/subtitle-quality.js'
 import { inspectSubtitleCompletion, inspectSubtitleSourceFreshness } from '../services/subtitle-completion.js'
 import { inspectExistingTranscriptSource } from '../services/subtitle-correction.js'
@@ -1902,6 +1903,54 @@ router.put('/projects/:slug/video-editor/subtitles/select/:episodeId', async (re
     res.json({ selected_subtitle: filename || null })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not set subtitle selection'))
+  }
+})
+
+/**
+ * v1.4.314 — CHOOSE which merged track is this episode's narration.
+ *
+ * `write_mode: 'new'` can leave `{CODE}_merged_audio_v2.mp3` beside the base
+ * track, and until now the Final Video path, `audio-merge-status`, Scene Review
+ * and B-Roll each picked their own (PR0002/PR0003). This pins one, exactly as
+ * the subtitle pin above does, so every one of them renders the track the owner
+ * chose. Body: `{ filename: "<basename>" }` to pin, or `{ filename: null|"" }`
+ * to clear (→ the app's own base-track rule). Returns `{ selected_merged_audio }`.
+ *
+ * A pin is validated by MEMBERSHIP: it must name a real merged track that starts
+ * with this episode's code and is present in this episode's folder, so a foreign
+ * or dangling pin is refused rather than stored.
+ */
+router.put('/projects/:slug/video-editor/merged-audio/select/:episodeId', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const raw = req.body?.filename
+  const filename = typeof raw === 'string' ? raw.trim() : ''
+
+  // A pin is a bare basename of a real track in this episode's own folder. Reject a
+  // path-shaped or dot-leading value up front — exactly as the subtitle pin above
+  // does — so a value that would read back as `invalid` is never stored at all.
+  if (filename && (
+    filename.includes('/') ||
+    filename.includes('\\') ||
+    filename.startsWith('.') ||
+    !isEpisodeMergedAudioFilename(filename, episodeId)
+  )) {
+    return res.status(400).json({
+      detail: `Not a merged-audio file for ${episodeId.toUpperCase()}: ${filename}. `
+        + `Choose one of this episode's own ${episodeId.toUpperCase()}_merged_audio*.{mp3,wav,m4a} tracks.`,
+    })
+  }
+
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, 'audio_chapters.json')
+    const dir = paths.merged_audio_dir
+    // Only allow pinning a file that actually exists (avoid a dangling pin).
+    if (filename && !existsSync(path.join(dir, filename))) {
+      return res.status(404).json({ detail: `Merged audio file not found: ${filename}` })
+    }
+    await writeSelectedMergedAudio(dir, filename || null)
+    res.json({ selected_merged_audio: filename || null })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not set merged-audio selection'))
   }
 })
 

@@ -22,7 +22,8 @@ import { findSubfolder } from '../lib/folder-resolver.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { getConfig } from '../services/project-manager.js'
-import { computeStoryStartSec, scenePlanLeadInShiftSec, selectMergedAudioFilename } from '../lib/intro-lead-in.js'
+import { computeStoryStartSec, scenePlanLeadInShiftSec } from '../lib/intro-lead-in.js'
+import { resolveEpisodeMergedAudioChoice, expectedMergedAudioFilename } from '../lib/merged-audio-selection.js'
 import { resolveProjectOpening } from '../services/opening-assets.js'
 import { describeOpeningHead, measureOpeningSec } from '../lib/opening-duration.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
@@ -1366,14 +1367,23 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // 1.4.288 — before any prompt is bought, the scenes must reach the end of today's narration.
     // A short plan fails here, at Scene Plan, not an hour later at Video Assembly (AF EP0136).
     // The completion record is written once per code and can describe a `_v2` beside the base,
-    // so name the merged track this episode actually renders with (the same selection the
-    // stitcher and renderer use) rather than trusting whatever the record happens to name.
-    const mergedEntries = await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])
-    const mergedFilename = selectMergedAudioFilename(mergedEntries, episode_id)
+    // so name the merged track this episode actually renders with (v1.4.314 — the owner's
+    // explicit choice when he made one, else the same base-track rule the stitcher uses)
+    // rather than trusting whatever the record happens to name.
+    const mergedChoice = await resolveEpisodeMergedAudioChoice(paths.merged_audio_dir, episode_id)
+    const expectedMerged = expectedMergedAudioFilename(mergedChoice, episode_id)
+    // A pin that no longer names a real track must not be measured against the completion
+    // record: the record may describe a different track, and `null` would tell the reader to
+    // skip its filename check. Refuse and name the repair, exactly as the render path does.
+    if (!expectedMerged.ok) {
+      throw new Error(`Scene Plan is blocked: ${episode_id.toUpperCase()}'s selected merged audio `
+        + `"${expectedMerged.pinned}" is not in this episode's merged-audio folder (it may have been `
+        + 'deleted or renamed). Choose this episode\'s narration again in Video Assembly Step 1, then retry.')
+    }
     const narration = await readNarrationRecord(
       path.join(paths.merged_audio_dir, `${episode_id.toUpperCase()}_merged_audio.completion.json`),
       path.join(paths.subtitles_dir, `${episode_id.toUpperCase()}_stitched.srt.json`),
-      mergedFilename,
+      expectedMerged.filename,
     )
     const shortfallSec = planNarrationShortfallSec(plan.scenes, narration)
     // 1.4.300 "Scene Plan reaches the end of the narration" (Off/Warn): the last scene holds to the end.
