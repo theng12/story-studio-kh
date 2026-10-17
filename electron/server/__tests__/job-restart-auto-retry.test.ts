@@ -69,7 +69,10 @@ const retriedJob = (projectSlug: string, episode: string) => jq.getJobs(projectS
 describe('automatic retry of jobs a restart interrupted', () => {
   test('an eligible interrupted final video is retried once after the delay, with a log line', async () => {
     const project = await pm.createProject({ name: 'Restart Retry Eligible' })
-    await boot(project.slug, [runningJob(project.slug, 'DK0116')])
+    // CONTROL is armed last in the same boot scan with the same delay: once it has been retried,
+    // every retry timer armed before it has fired, so the exactly-once assertion below needs no
+    // fixed wall-clock window. Same idiom as the ineligible-jobs test below.
+    await boot(project.slug, [runningJob(project.slug, 'DK0116'), runningJob(project.slug, 'CONTROL')])
     assert.equal(jq.getJob('interrupted-DK0116')?.error, 'Interrupted by app restart')
     assert.equal(ran.length, 0, 'nothing runs synchronously inside the boot scan')
 
@@ -80,26 +83,36 @@ describe('automatic retry of jobs a restart interrupted', () => {
     assert.equal(jq.getJob('interrupted-DK0116'), null, 'the failed row is replaced, as a manual Retry does')
     assert.match(retried.output_lines.join('\n'), LINE)
     assert.equal(retried.params.restart_retry_attempt, 2)
-    await sleep(200)
+    await waitFor(async () => (await retriedJob(project.slug, 'CONTROL'))?.status === 'done', {
+      label: 'the later control job to be retried, so every earlier retry timer has fired',
+    })
     assert.equal(ran.filter(run => run.episode === 'DK0116').length, 1, 'retried exactly once')
   })
 
   test('paid, unsettled, cancelled and exhausted interrupted jobs stay failed for a manual Retry', async () => {
     const project = await pm.createProject({ name: 'Restart Retry Ineligible' })
     const now = new Date().toISOString()
-    await boot(project.slug, [
-      runningJob(project.slug, 'PAID', 'thumb_images', { params: { model: 'gpt-image-2' } }),
-      runningJob(project.slug, 'UNSETTLED'),
-      runningJob(project.slug, 'CANCELLED', 'video_assembly', { remote_cancellations: {
-        'video.generation:remote': { status: 'confirmed', operation: 'video.generation', provider_job_id: 'remote', requested_at: now, updated_at: now },
-      } as Job['remote_cancellations'] }),
-      runningJob(project.slug, 'EXHAUSTED', 'video_assembly', { params: { restart_retry_attempt: 3 } }),
-      // Scheduled last with the same delay: once it is retried, every timer above has fired.
-      runningJob(project.slug, 'CONTROL'),
-    ])
-    // Evidence that appears before the delay ends is checked when the retry fires.
-    await jq.mutateAuthoritativeJob(project.slug, 'interrupted-UNSETTLED', current => ({ ...current,
-      genstudio_jobs: [{ id: 'gs-1', operation: 'video.generation', state: 'accepted', updated_at: now }] }))
+    // The queue is held while the evidence below is written: a held retry re-arms instead of running,
+    // so the evidence is provably in place before any retry can fire. Relying on the write landing
+    // inside the retry delay made this test fail about two runs in five.
+    await jq.setQueuePaused(true)
+    try {
+      await boot(project.slug, [
+        runningJob(project.slug, 'PAID', 'thumb_images', { params: { model: 'gpt-image-2' } }),
+        runningJob(project.slug, 'UNSETTLED'),
+        runningJob(project.slug, 'CANCELLED', 'video_assembly', { remote_cancellations: {
+          'video.generation:remote': { status: 'confirmed', operation: 'video.generation', provider_job_id: 'remote', requested_at: now, updated_at: now },
+        } as Job['remote_cancellations'] }),
+        runningJob(project.slug, 'EXHAUSTED', 'video_assembly', { params: { restart_retry_attempt: 3 } }),
+        // Scheduled last with the same delay: once it is retried, every timer above has fired.
+        runningJob(project.slug, 'CONTROL'),
+      ])
+      // Evidence that appears before the retry fires is checked when it fires.
+      await jq.mutateAuthoritativeJob(project.slug, 'interrupted-UNSETTLED', current => ({ ...current,
+        genstudio_jobs: [{ id: 'gs-1', operation: 'video.generation', state: 'accepted', updated_at: now }] }))
+    } finally {
+      await jq.setQueuePaused(false)
+    }
 
     await waitFor(async () => (await retriedJob(project.slug, 'CONTROL'))?.status === 'done', {
       label: 'the control job to be retried',
@@ -116,12 +129,19 @@ describe('automatic retry of jobs a restart interrupted', () => {
   test('a paused queue holds the retry until Resume', async () => {
     const project = await pm.createProject({ name: 'Restart Retry Paused' })
     await jq.setQueuePaused(true)
+    // The retry delay is dropped to 0 so the retry timer is provably DUE while the queue is paused:
+    // it is armed during the load and expires in the same event-loop turn as the yield below, so the
+    // hold is asserted after a real retry attempt rather than after a fixed wall-clock guess. The
+    // delay is restored before the assertions so the paused re-arm cannot spin.
+    jq._setRestartRetryDelayForTesting(0)
     try {
       await boot(project.slug, [runningJob(project.slug, 'PAUSED')])
-      await sleep(400)
+      await sleep(0)
+      jq._setRestartRetryDelayForTesting(50)
       assert.equal(jq.getJob('interrupted-PAUSED')?.status, 'error')
       assert.equal(await retriedJob(project.slug, 'PAUSED'), undefined, 'not retried while the queue is paused')
     } finally {
+      jq._setRestartRetryDelayForTesting(50)
       await jq.setQueuePaused(false)
     }
     await waitFor(async () => (await retriedJob(project.slug, 'PAUSED'))?.status === 'done', {
