@@ -1,5 +1,14 @@
 # HANDOFF — Story Studio KH
 
+## Released and installed — 2026-10-17 (1.4.310)
+
+Main `87ea6b5dca28163ad07d2c661d81335966c0fb14` is pushed; the mini reports 1.4.310 with
+`boot_complete` true and an unpaused queue. Publication was one POST (HTTP 200) with a matching
+readback. The worker's own guarded update POST was denied by the permission classifier and was not
+worked around, so the install came from another authorized path — the exact cause is not proven and
+is recorded as such. Evidence: `_orchestra/codex-takeover-20261012/story-310-gate/installed-evidence.json`
+plus `agent-reports-20261016/story-310-release.md`.
+
 ## Source verified; DMG and install pending — 2026-10-17 (1.4.310)
 
 Three accepted fixes on `release/1.4.310` (base `main` f9a4ba11 = 1.4.309): the script-only Pipeline
