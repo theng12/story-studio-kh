@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.314 — 2026-10-17
+
+- A Final Video step that runs later in a Pipeline chain now picks up the channel's current look when its own job is submitted, instead of using the look that was set when the batch first started, so a look you set in between is applied. A restart that recovers the same step does the same. A step created before this change keeps the look it was accepted with.
+- The updater can no longer lift a queue pause you set yourself: pausing and resuming is yours to decide, and a failed update now says so in Settings → Updates and retries on the next start instead of silently leaving your queue stopped.
+
 ## v1.4.313 — 2026-10-17
 
 - Install now (don't wait): the update banner and Settings → Updates can install a staged version straight away, pausing the queue instead of waiting for the drain, behind the confirmation you already get. Like the existing update request, an immediate request is standing intent — if it was recorded while one version was downloading, the next version offered installs immediately too, without a second confirmation.
