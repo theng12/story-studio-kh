@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.318 — 2026-10-18
+
+- Free Up Space: while a reviewed cleanup is running, Stop now shows "Stopping…" immediately after the stop request is accepted instead of waiting for the next progress read, and an in-flight status read that still reports the old "Running" state can no longer repaint the button over the stop request. The file being worked on finishes as before. The confirmation modal already waited for approval before claiming a run started (1.4.317).
+
 ## v1.4.317 — 2026-10-17
 
 - Free up space is now two buttons on every channel: one shrinks scene images across all channels, and one cleans up all channels in a single step — clearing uploaded final videos only when the upload is freshly verified on its own channel and the production is older than seven days, plus unused leftovers. The duplicate per-channel, per-category and conversion tools are gone; moving uploaded videos to another drive lives under Where your files are.
