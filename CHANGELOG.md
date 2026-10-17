@@ -6,10 +6,10 @@ What's new in each release. Newest first.
 
 ## v1.4.314 — 2026-10-17
 
-- A Final Video step that runs later in a Pipeline chain now picks up the channel's current look when its own job is submitted, instead of using the look that was set when the batch first started, so a look you set in between is applied. A restart that recovers the same step does the same. A step created before this change keeps the look it was accepted with.
-- The updater can no longer lift a queue pause you set yourself: pausing and resuming is yours to decide, and a failed update now says so in Settings → Updates and retries on the next start instead of silently leaving your queue stopped.
-- New Audio Assembly forms start background music at 8% (about 22 dB under the voice) instead of 11%, matching the level your channels already use.
-- A cancelled step whose Gateway outcome could not be confirmed is no longer reported as a failed task, and its message no longer claims the reconciliation sent no new request when an earlier pass did.
+- A Final Video step that runs later in a Pipeline chain now picks up the channel's current look when its own job is submitted, instead of the look that was set when the batch first started, so a look you set in between is applied. A restart that recovers the same step does the same. This applies to steps created from now on: a step that already existed without the new bookkeeping keeps the look it was accepted with.
+- The updater preserves a queue pause you set yourself. If releasing its own update pause fails, Settings → Updates shows recovery guidance and the app retries that release on its next start.
+- New Audio Assembly forms start background music at 8% (about 22 dB under the voice) instead of 11%. Existing saved settings stay as you chose them.
+- A step with an unconfirmed Gateway outcome now describes that uncertainty without falsely claiming it was cancelled. The message refers only to the reconciliation check, preserving the earlier request history.
 
 ## v1.4.313 — 2026-10-17
 
