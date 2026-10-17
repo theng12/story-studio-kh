@@ -77,6 +77,14 @@ async function stoppedSource(
       params: { auto_retry: false },
     })
     await waitFor(() => jq.getJob(job.job_id)?.status === 'error', { label: 'source job to stop' })
+    // The terminal status is recorded before the worker's `finally` releases the
+    // run: job-queue.ts sets `error` and only later deletes the id from
+    // `activeRunJobIds`. A redo admitted in that window is refused 409 "still
+    // finishing locally" (the queue's own admission check reads
+    // `activeRunJobIds`), so wait for the real settlement signal — the same
+    // predicate the queue reads — not just the status. `_isJobWorkerActiveForTesting`
+    // is that predicate; no sleep, no widened timeout.
+    await waitFor(() => !jq._isJobWorkerActiveForTesting(job.job_id), { label: 'source job to settle' })
     return jq.getJob(job.job_id)!
   } finally {
     restore()
