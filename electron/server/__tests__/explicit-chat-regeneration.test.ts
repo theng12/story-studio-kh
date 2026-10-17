@@ -39,7 +39,12 @@ test('each visible fresh action retains one caller operation id until its submit
     assert.match(code, /useFreshGenerationAction\(\)/)
   }
   assert.match(files.at(-1)!, /runActionId/)
-  assert.match(files.at(-1)!, /crypto\.randomUUID\(\)/)
+  // Pipeline mints its forced-rerun identity through the SAME shared helper the pages above use, so
+  // one rule covers every caller — the helper falls back to the CSPRNG where `crypto.randomUUID` is
+  // absent (a plain-HTTP connection). A local mint here would be a second rule.
+  assert.match(files.at(-1)!, /import \{[^}]*secureOperationId[^}]*\} from '~\/composables\/useFreshGenerationAction'/)
+  assert.match(files.at(-1)!, /runActionId\.value = secureOperationId\(\)/)
+  assert.doesNotMatch(files.at(-1)!, /crypto\.randomUUID\(\)/)
 })
 
 test('server-owned fresh action reaches chat identity and forced Pipeline children', async () => {
