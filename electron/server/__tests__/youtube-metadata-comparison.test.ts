@@ -253,4 +253,79 @@ describe('three-way metadata comparison', () => {
     assert.equal(result.fields.every(field => field.local === null), true)
     assert.notEqual(stateOf(result, 'title'), 'in_sync')
   })
+
+  test('the same schedule instant serialized differently is in sync (first observation)', () => {
+    // Story Studio stores the owner's publish_at raw; YouTube echoes the same
+    // instant without the fractional seconds. Comparing the raw strings would
+    // report a change YouTube never made.
+    const result = compareYouTubeVideo(record({
+      status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05.000Z' },
+      live: { privacy_status: 'private', scheduled_for: '2031-01-02T03:04:05Z' },
+    }), NOW)
+    assert.equal(stateOf(result, 'scheduled_for'), 'in_sync')
+    assert.equal(result.needs_attention, false)
+  })
+
+  test('the same schedule instant serialized differently is in sync with a prior snapshot', () => {
+    const result = compareYouTubeVideo(record({
+      status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05.000Z' },
+      live: { privacy_status: 'private', scheduled_for: '2031-01-02T03:04:05Z' },
+      previous: { privacy_status: 'private', scheduled_for: '2031-01-02T03:04:05.000Z' },
+    }), NOW)
+    assert.equal(stateOf(result, 'scheduled_for'), 'in_sync')
+    assert.equal(stateOf(result, 'privacy_status'), 'in_sync')
+    assert.equal(result.needs_attention, false)
+  })
+
+  test('an offset spelling of the same schedule instant is in sync', () => {
+    const result = compareYouTubeVideo(record({
+      status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05.000Z' },
+      live: { privacy_status: 'private', scheduled_for: '2031-01-02T10:04:05+07:00' },
+      previous: { privacy_status: 'private', scheduled_for: '2031-01-02T03:04:05.000Z' },
+    }), NOW)
+    assert.equal(stateOf(result, 'scheduled_for'), 'in_sync')
+  })
+
+  test('a genuinely different schedule instant is not in sync', () => {
+    const firstLook = compareYouTubeVideo(record({
+      status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05.000Z' },
+      live: { privacy_status: 'private', scheduled_for: '2031-01-02T04:04:05Z' },
+    }), NOW)
+    assert.equal(stateOf(firstLook, 'scheduled_for'), 'youtube_changed')
+
+    const withPrior = compareYouTubeVideo(record({
+      status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05.000Z' },
+      live: { privacy_status: 'private', scheduled_for: '2031-01-02T04:04:05Z' },
+      previous: { privacy_status: 'private', scheduled_for: '2031-01-02T04:04:05Z' },
+    }), NOW)
+    assert.equal(stateOf(withPrior, 'scheduled_for'), 'story_studio_changed')
+  })
+
+  test('a malformed schedule value stays a visible difference, never in sync', () => {
+    const versusValid = compareYouTubeVideo(record({
+      status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05.000Z' },
+      live: { privacy_status: 'private', scheduled_for: 'not-a-date' },
+      previous: { privacy_status: 'private', scheduled_for: 'not-a-date' },
+    }), NOW)
+    assert.notEqual(stateOf(versusValid, 'scheduled_for'), 'in_sync')
+
+    const twoDistinctMalformed = compareYouTubeVideo(record({
+      status: { privacyStatus: 'private', publishAt: 'not-a-date' },
+      live: { privacy_status: 'private', scheduled_for: 'still-not-a-date' },
+      previous: { privacy_status: 'private', scheduled_for: 'still-not-a-date' },
+    }), NOW)
+    assert.notEqual(stateOf(twoDistinctMalformed, 'scheduled_for'), 'in_sync',
+      'a malformed value keeps its own spelling instead of collapsing into a blank')
+  })
+
+  test('only scheduled_for is canonicalized; other fields still compare exactly', () => {
+    const result = compareYouTubeVideo(record({
+      snippet: { title: 'Local Title' },
+      status: { privacyStatus: 'private', publishAt: '2031-01-02T03:04:05.000Z' },
+      live: { title: 'Remote Title', privacy_status: 'private', scheduled_for: '2031-01-02T03:04:05Z' },
+      previous: { title: 'Remote Title', privacy_status: 'private', scheduled_for: '2031-01-02T03:04:05Z' },
+    }), NOW)
+    assert.equal(stateOf(result, 'scheduled_for'), 'in_sync', 'same instant, different spelling, agrees')
+    assert.equal(stateOf(result, 'title'), 'story_studio_changed', 'a real title difference is still reported')
+  })
 })

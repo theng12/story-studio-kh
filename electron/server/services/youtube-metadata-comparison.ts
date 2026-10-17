@@ -15,6 +15,7 @@
  */
 
 import type { YouTubeOperationRecordV1 } from './youtube-operation-record-reader.js'
+import { canonicalInstant } from '../lib/publish-instant.js'
 
 /** The fields worth comparing. Thumbnails are handled separately - see below. */
 export const COMPARED_FIELDS = ['title', 'description', 'tags', 'privacy_status', 'scheduled_for'] as const
@@ -149,9 +150,19 @@ export function compareYouTubeVideo(
   const lastSynced = snapshotValues(record.previous_remote_snapshot) ?? live
 
   const fields: FieldComparison[] = COMPARED_FIELDS.map(field => {
-    const localValue = normalize(local[field])
-    const lastValue = lastSynced ? normalize(lastSynced[field]) : null
-    const liveValue = live ? normalize(live[field]) : null
+    // `scheduled_for` is a date YouTube may spell differently for the same
+    // instant (`...:05.000Z` vs `...:05Z`, or an offset), so canonicalize it
+    // before comparing. Every other field is compared exactly. A value that
+    // does not parse keeps its own spelling, so a malformed value stays a
+    // visible difference instead of collapsing into a shared blank.
+    const present = (source: Partial<Record<ComparedField, unknown>> | undefined): string | null => {
+      if (!source) return null
+      const normalized = normalize(source[field])
+      return field === 'scheduled_for' ? canonicalInstant(normalized) : normalized
+    }
+    const localValue = present(local)
+    const lastValue = present(lastSynced)
+    const liveValue = present(live)
 
     const decision = record.drift[field]
     const base: FieldComparison = {

@@ -25,6 +25,7 @@ import { Router } from 'express'
 
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { withLock } from '../lib/atomic-store.js'
+import { sameInstant } from '../lib/publish-instant.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import type {
   YouTubeEpisodePublishableProjection,
@@ -3121,25 +3122,6 @@ function normalizeFutureScheduleTime(value: string): string | null {
 }
 
 /**
- * Compare the requested schedule instant to the one YouTube echoed back.
- *
- * YouTube serializes the same instant differently from `toISOString()` — it
- * commonly returns `2031-01-02T03:04:05Z` where Story Studio sent
- * `2031-01-02T03:04:05.000Z` — so the raw strings are not comparable and a
- * strict `!==` would reject a schedule YouTube just accepted. Two values agree
- * only when both are the same finite instant. `null` means "no schedule" and
- * agrees only with `null`; a value that does not parse to a real instant is
- * never a match, so a genuinely wrong or malformed echo is still refused.
- */
-function samePublishInstant(actual: string | null | undefined, expected: string | null): boolean {
-  const left = actual ?? null
-  if (left === null || expected === null) return left === expected
-  const leftMs = Date.parse(left)
-  const rightMs = Date.parse(expected)
-  return Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs === rightMs
-}
-
-/**
  * Change one current-channel video's visibility on YouTube and record exactly
  * what YouTube confirmed. Shared by Schedule and Set visibility (bulk Publish
  * actions use both) so the identity, channel and receipt rules cannot drift
@@ -3191,7 +3173,7 @@ async function applyVideoVisibility(input: {
     ...(requirePrivacyStatus ? { requirePrivacyStatus } : {}),
   })
   if (updated.id !== remote.video_id || updated.status?.privacyStatus !== privacy
-    || !samePublishInstant(updated.status?.publishAt, publishAt)) {
+    || !sameInstant(updated.status?.publishAt, publishAt)) {
     throw scheduleRouteError(502, publishAt
       ? 'YouTube did not confirm the requested private schedule. The local receipt was not changed.'
       : `YouTube did not confirm ${episodeCode} as ${privacy}. The local receipt was not changed.`)
