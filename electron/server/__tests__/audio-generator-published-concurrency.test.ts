@@ -341,3 +341,172 @@ void test('audio generation honors selected-model fanout and independent New ver
     await temp.cleanup()
   }
 })
+
+/**
+ * DM0001, 2026-10-16 — a request whose acceptance was never recorded.
+ *
+ * The manifest writes its identity BEFORE the POST, so a submit whose response
+ * never came back leaves `task_id: ''` next to a real `idempotency_key`. The
+ * job's evidence then names the same request as `pending:<key>` and the
+ * reconciler settles it as `not_created`. The identity guard required
+ * `evidence.id === manifest.task_id`, which `pending:` can never satisfy, so it
+ * called a legitimate pair a contradiction and failed every part the Gateway
+ * had confirmed it never created — the owner's narration stopped with
+ * "Saved Gateway task identity does not match …" while 26 other parts were
+ * already on disk.
+ *
+ * These two tests take their own data dir: the test above calls `temp.cleanup()`,
+ * which deletes `STORY_STUDIO_DATA_DIR`, so the module-level dir is gone by now.
+ */
+void test('a never-created pending request is not an identity contradiction', async () => {
+  const own = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    await setGenStudioUrl(service.baseUrl)
+    await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    service.ttsModels = [ttsModel('model-pending', 1)]
+    clearGenStudioCatalogCache()
+    const project = await pm.createProject({ name: 'Pending identity', episode_prefix: 'EP', episode_digits: 3 })
+    const outputRoot = await pm.getProjectOutputRoot(project.slug)
+    const episodeId = 'EP007'
+    const narrationDir = path.join(outputRoot!, `${episodeId} - Script`)
+    await fs.mkdir(narrationDir, { recursive: true })
+    await fs.writeFile(path.join(narrationDir, `${episodeId}_Script_Narration.md`), [
+      '# Narration',
+      '## Chapter 1: One', 'The request was prepared but never accepted.',
+    ].join('\n\n'))
+
+    const job: any = {
+      job_id: 'audio-pending-identity',
+      project_slug: project.slug,
+      type: 'audio',
+      episode_id: episodeId,
+      title: 'Pending identity',
+      status: 'running',
+      created_at: new Date().toISOString(),
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      error: null,
+      output_lines: [],
+      params: {
+        episode_id: episodeId, model: 'model-pending', voice: 'mock-voice', sections: 'all',
+        speed: 1, force: false, no_overwrite: false,
+      },
+    }
+    service.queueScenario('tts', { states: ['succeeded'] })
+    await generateAudio(job)
+    const firstSubmission = service.submissions.find(item => item.operation === 'tts')!
+    assert.ok(firstSubmission, 'the first run submitted its part')
+
+    const audioDir = await resolveAudioDir(project.slug, path.join(narrationDir, `${episodeId}_Script_Narration.md`), episodeId)
+    const manifestPath = path.join(audioDir, '.task-manifest.json')
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf-8'))
+    const outputName = Object.keys(manifest.tasks)[0]!
+    const savedEntry = manifest.tasks[outputName]
+    assert.equal(savedEntry.idempotency_key, firstSubmission.idempotencyKey)
+
+    // Simulate the lost acceptance: the identity is durable, the task id is not.
+    // Remove the bytes too, so this part is genuinely the one left to make.
+    manifest.tasks[outputName] = { ...savedEntry, task_id: '' }
+    await fs.writeFile(manifestPath, JSON.stringify(manifest))
+    await fs.rm(path.join(audioDir, outputName), { force: true })
+
+    // Evidence exactly as the reconciler leaves it after a 404 under the saved key.
+    const pendingJob = structuredClone(job)
+    pendingJob.job_id = 'audio-pending-identity-retry'
+    pendingJob.output_lines = []
+    pendingJob.genstudio_jobs = [{
+      id: `pending:${firstSubmission.idempotencyKey}`,
+      operation: 'voice.tts',
+      state: 'not_created',
+      queue_state: 'not_created',
+      request_key: firstSubmission.idempotencyKey,
+      updated_at: new Date().toISOString(),
+    }]
+    service.reset()
+    service.ttsModels = [ttsModel('model-pending', 1)]
+    clearGenStudioCatalogCache()
+    service.queueScenario('tts', { states: ['succeeded'] })
+    const error = await generateAudio(pendingJob).then(() => null, (e: Error) => e)
+    assert.doesNotMatch(String(error?.message ?? ''), /identity does not match/,
+      'a never-created request under the saved key is safe to submit again, not a contradiction')
+    const resubmitted = service.submissions.find(item => item.operation === 'tts')
+    assert.equal(resubmitted?.idempotencyKey, firstSubmission.idempotencyKey,
+      'the resubmission keeps the same Story-to-provider identity')
+  } finally {
+    await setApiKey('genstudio', '')
+    await service.close()
+    await own.cleanup()
+  }
+})
+
+void test('a contradictory task id under the saved key still fails closed', async () => {
+  const own = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    await setGenStudioUrl(service.baseUrl)
+    await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    service.ttsModels = [ttsModel('model-conflict', 1)]
+    clearGenStudioCatalogCache()
+    const project = await pm.createProject({ name: 'Contradictory identity', episode_prefix: 'EP', episode_digits: 3 })
+    const outputRoot = await pm.getProjectOutputRoot(project.slug)
+    const episodeId = 'EP008'
+    const narrationDir = path.join(outputRoot!, `${episodeId} - Script`)
+    await fs.mkdir(narrationDir, { recursive: true })
+    await fs.writeFile(path.join(narrationDir, `${episodeId}_Script_Narration.md`), [
+      '# Narration',
+      '## Chapter 1: One', 'Two identities must never be reconciled silently.',
+    ].join('\n\n'))
+
+    const job: any = {
+      job_id: 'audio-conflict-identity',
+      project_slug: project.slug,
+      type: 'audio',
+      episode_id: episodeId,
+      title: 'Contradictory identity',
+      status: 'running',
+      created_at: new Date().toISOString(),
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      error: null,
+      output_lines: [],
+      params: {
+        episode_id: episodeId, model: 'model-conflict', voice: 'mock-voice', sections: 'all',
+        speed: 1, force: false, no_overwrite: false,
+      },
+    }
+    service.queueScenario('tts', { states: ['succeeded'] })
+    await generateAudio(job)
+    const firstSubmission = service.submissions.find(item => item.operation === 'tts')!
+    const audioDir = await resolveAudioDir(project.slug, path.join(narrationDir, `${episodeId}_Script_Narration.md`), episodeId)
+    const manifestPath = path.join(audioDir, '.task-manifest.json')
+    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf-8'))
+    const outputName = Object.keys(manifest.tasks)[0]!
+    await fs.rm(path.join(audioDir, outputName), { force: true })
+
+    // A REAL provider task id that does not agree with the manifest identity.
+    const conflictingJob = structuredClone(job)
+    conflictingJob.job_id = 'audio-conflict-identity-retry'
+    conflictingJob.output_lines = []
+    conflictingJob.genstudio_jobs = [{
+      id: 'a-real-provider-task-that-is-not-this-one',
+      operation: 'voice.tts',
+      state: 'succeeded',
+      request_key: firstSubmission.idempotencyKey,
+      updated_at: new Date().toISOString(),
+    }]
+    service.reset()
+    service.ttsModels = [ttsModel('model-conflict', 1)]
+    clearGenStudioCatalogCache()
+    await assert.rejects(
+      generateAudio(conflictingJob),
+      /identity does not match/,
+      'a real task id under a different identity must stay fail-closed',
+    )
+    assert.equal(service.providerSubmissionCount('tts'), 0, 'no fresh POST after a contradictory identity')
+  } finally {
+    await setApiKey('genstudio', '')
+    await service.close()
+    await own.cleanup()
+  }
+})
