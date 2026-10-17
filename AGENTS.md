@@ -110,9 +110,23 @@ dominant half.
 
 **Decided exceptions — do not "fix" these back:**
 
-- `pacing` **is** in Character Sheet presets. The 2026-08-03 exclusion was **reversed by the owner
-  on 2026-08-18**. A reader who thinks scene rhythm wrongly crept back in is looking at a
-  deliberate decision, not a regression.
+- `pacing` **is not** in Character Sheet presets. It was put back in on 2026-08-18 and **taken back
+  out by the owner on 2026-10-17**, when the timing editor moved: Scene Plan's **Visual timing &
+  motion** panel owns the episode's rhythm and Scene Review reads it back from the plan. A reader
+  who thinks the 2026-08-18 reinstatement is still in force is looking at a decision that was
+  superseded; a reader who thinks it was quietly "fixed" back is looking at a deliberate
+  2026-10-17 call. The Character Sheet's green *"The preset includes scene rhythm"* notice was
+  **deleted** with it, not reworded — this page no longer owns rhythm, so a preset applied there
+  has nothing to report.
+- **The preset exclusion is only half the rule; the SAVE BOUNDARY carries the other half.** A
+  preset is one way a stale value reaches `continuity.json`, not the only one — the Character Sheet
+  also saves the whole config it loaded. So the boundary enforces it too: a whole-config save keeps
+  the `pacing` already on disk **unless its payload claims it** (`claim_pacing: true`), and Scene
+  Plan's timing panel is the only writer that claims. A save that does not claim cannot move the
+  rhythm — including one written later, which is the point: the rule is a property of the boundary,
+  not a list of pages someone must remember to update. Do not "fix" a page by making it stop
+  sending `pacing`: `buildContinuityConfig` substitutes the 1–3s default for an absent value, which
+  is the 2026-08-03 incident with the sign flipped.
 - `auto_approve` **is** in Contextual Cues presets, and the page announces it every time a preset
   sets it — in both directions.
 - `use_episode_sheet` and `sheet` **stay excluded** (the anchor defect is a separate matter).
@@ -127,16 +141,18 @@ dominant half.
   it. Carry the live value across the apply explicitly and test for the value's real presence
   rather than trusting the merge.
 - **Never rewrite stored presets or project data to compensate.** Whichever way an exclusion
-  moves, leave what is on disk alone.
+  moves, leave what is on disk alone. Presets still carrying a key that has since been excluded are
+  stripped **at the boundary** — on read, before `apply` sees them — and their files are untouched.
 
 **Scene rhythm stays per-episode. Do not add a project-level pacing default.** Proposed and
 rejected by the owner, 2026-08-03: *"it needs to be a deliberate choice on each episode by the
-user. not all stories or videos need the same pacing."* **This rule was NOT reversed** with
-`pacing`'s reinstatement. Every episode chooses its rhythm in Scene Plan's **Visual timing &
-motion** panel; no project setting, Content Series Formula, or visual style may choose it on the
-customer's behalf. Character Sheet shows the saved rhythm and links there; it does not own a second
-editor. A preset is not a counter-example: a project default applies itself unasked, while a preset
-does nothing until the customer applies it to one episode.
+user. not all stories or videos need the same pacing."* **This rule has never been reversed** —
+not by the 2026-08-18 reinstatement of `pacing` in Character Sheet presets, and not by its
+2026-10-17 removal. Every episode chooses its rhythm in Scene Plan's **Visual timing & motion**
+panel; no project setting, Content Series Formula, or visual style may choose it on the customer's
+behalf. The Character Sheet neither shows nor owns it. The exclusion is scoped to the Character
+Sheet's presets, not to `pacing`: Scene Plan's own preset may carry a rhythm, because that panel is
+the thing that owns it — and at the save boundary the same panel is the only writer that claims it.
 
 ## 6. A zero that means two things is a defect
 

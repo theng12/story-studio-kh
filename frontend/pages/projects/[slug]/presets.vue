@@ -160,7 +160,7 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
     key: 'continuity_page',
     label: 'Character Sheet',
     icon: '🧑',
-    hint: 'Character sheet look, cast, and scene rhythm.',
+    hint: 'Character sheet look, cast, and reference toggles.',
     configKey: 'continuity_page',
     editLink: '/character-sheet',
   },

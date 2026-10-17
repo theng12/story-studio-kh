@@ -428,7 +428,16 @@ async function save(): Promise<void> {
       motion_scope: normalizeMotionScope(draft.value.motion_scope),
     })
     saving.value = true
-    const saved = await put<{ ok: true; config: ContinuityConfig }>(`/projects/${slug.value}/continuity/${props.episodeId}`, snapshot)
+    // This panel is the episode's timing owner, so it CLAIMS authority over
+    // `pacing` — the only writer that does. Every other whole-config save (the
+    // Character Sheet's *Save visual setup*, the pipeline's inline
+    // Character-Sheet step) leaves the claim out and the server keeps whatever
+    // rhythm is already on disk, so a stale visual save cannot undo a change
+    // made here. See PACING_AUTHORITY_CLAIM in electron/server/routes/continuity.ts.
+    const saved = await put<{ ok: true; config: ContinuityConfig }>(
+      `/projects/${slug.value}/continuity/${props.episodeId}`,
+      { ...snapshot, claim_pacing: true },
+    )
     if (!current()) return
     savedEpisodeConfig.value = normalizeContinuityConfig(saved.config)
     draft.value = normalizeContinuityConfig(savedEpisodeConfig.value)

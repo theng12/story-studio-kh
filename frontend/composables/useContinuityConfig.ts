@@ -114,22 +114,39 @@ export function normalizeContinuityConfig(value?: Partial<ContinuityConfig> | nu
 /**
  * Keys stripped from Character Sheet presets on BOTH save and apply.
  *
- * A preset here is a LOOK plus the rhythm that look is usually cut at.
- * Anything that is really a per-episode decision the customer made
- * deliberately must not ride along inside one — the same boundary AGENTS.md
- * draws for Video Assembly presets and `title_image.image_path`.
+ * A preset here is a LOOK. Anything that is really a per-episode decision the
+ * customer made deliberately must not ride along inside one — the same boundary
+ * AGENTS.md draws for Video Assembly presets and `title_image.image_path`.
  *
- * `pacing` IS NO LONGER EXCLUDED — reinstated 2026-08-18 at the owner's
- * explicit direction. It was excluded on 2026-08-03 after a preset's stored
- * 4–8s band silently overwrote a chosen 1–3s on 50 of 53 episodes. Shown that
- * history again, and offered a separate explicit bulk-pacing action that could
- * never fire as a side effect, the owner chose the full reversal: "Put pacing
- * back in presets." Scene rhythm now saves into a preset and applies with it.
- * See `applyContinuityPagePreset` for the half of the change that keeps the
- * reversal from re-running the original incident on already-saved presets.
+ * `pacing` IS EXCLUDED — put back in the list by the owner on 2026-10-17.
+ * Read the whole history before touching this line: it has moved twice, and
+ * only the newest direction is in force.
  *
- * `use_episode_sheet` + `sheet` — STILL EXCLUDED, and the 2026-08-03 rule
- * still stands for them. Whether this episode uses its uploaded anchor image
+ *   2026-08-03  EXCLUDED. A preset's stored 4–8s band silently replaced a
+ *               chosen 1–3s on 50 of 53 episodes of a live project.
+ *   2026-08-18  REINSTATED by the owner, incident in front of him: "Put pacing
+ *               back in presets." Character Sheet presets carried rhythm again,
+ *               and the page announced which of the two had happened.
+ *   2026-10-17  EXCLUDED again, by the owner, because the timing editor moved.
+ *               Scene rhythm belongs to Scene Plan's "Visual timing & motion"
+ *               panel and is read back by Scene Review; the Character Sheet is
+ *               a visual-setup page that neither shows nor owns it. A preset
+ *               applied there must not move an episode's rhythm. That is why
+ *               the notice the page used to carry is DELETED rather than
+ *               reworded — with the key excluded there is nothing left for it
+ *               to report, and a notice describing a setting this page no
+ *               longer owns is the leftover the owner asked to be cleaned up.
+ *
+ * What the 2026-10-17 rule does NOT do: it never rewrites a stored preset.
+ * `continuity_page_presets` on disk that still carry a `pacing` block keep it
+ * byte-for-byte; it is stripped at the boundary — on the way in, before `apply`
+ * ever sees it — exactly as `usePresets` already treats the anchor keys.
+ * `applyContinuityPagePreset` is the other half: the live rhythm is carried
+ * across an apply explicitly, so `normalizeContinuityConfig`'s
+ * `DEFAULT_SCENE_PACING` can never be what a preset leaves behind.
+ *
+ * `use_episode_sheet` + `sheet` — excluded, unchanged since 2026-08-03.
+ * Whether this episode uses its uploaded anchor image
  * (`img2img-references/master.png`) is episode state, not a channel look: an
  * episode that has no sheet uploaded must not be switched to "use the sheet"
  * because a style preset said so. Both names are stripped because
@@ -139,6 +156,10 @@ export function normalizeContinuityConfig(value?: Partial<ContinuityConfig> | nu
  * exactly one path, `references.sheet`, so the deep strip is precise (the
  * unrelated `character.references.images` lives on a different object entirely
  * and is never part of this payload).
+ *
+ * `motion_scope` is excluded for the same episode-state reason, and
+ * `motion_level` is carried across the apply rather than excluded (an older
+ * preset without one must not reset the live choice).
  *
  * DELIBERATELY LEFT IN — these are genuinely reusable look data:
  *   `references.prev_render`  chain each render to the previous one
@@ -159,6 +180,8 @@ export const CONTINUITY_PRESET_EXCLUDE_KEYS = [
   'use_episode_sheet',
   'sheet',
   'motion_scope',
+  // 2026-10-17 — Scene Plan owns the episode's rhythm; see the history above.
+  'pacing',
   // Spread rather than re-typed: v1.4.205 exported the list after a caller
   // re-typing it (which is how a page silently loses the per-episode guards).
   ...DEFAULT_EXCLUDE_KEYS,
@@ -167,10 +190,12 @@ export const CONTINUITY_PRESET_EXCLUDE_KEYS = [
 /**
  * The scene rhythm a preset body actually STORES, or `null` when it stores none.
  *
- * Between 2026-08-03 and 2026-08-18 `pacing` was an excluded key, and
- * `usePresets` strips excluded keys on SAVE as well as on load — so every
- * preset saved in that window contains no `pacing` whatsoever. Those presets
- * far outnumber the older ones for anybody who kept working through August.
+ * The caller is the Scene Plan **Visual timing & motion** panel
+ * (`frontend/components/VisualTimingMotion.vue`), which owns the episode's
+ * rhythm and its own preset — the one surface where a stored rhythm still has
+ * authority (owner, 2026-10-17). The Character Sheet deliberately does not call
+ * this any more: `pacing` is excluded from `continuity_page_presets`, so a
+ * preset reaching that page has no rhythm to report and nothing to apply.
  *
  * A missing rhythm must mean "this preset has nothing to say about rhythm",
  * never "reset the rhythm". A half-written band is treated the same way: a
@@ -198,15 +223,19 @@ export function storedPresetPacing(
  * explicitly, read through the same OR the normalizer uses so a config still
  * carrying only the legacy `references.sheet` mirror survives too.
  *
- * `pacing` (2026-08-18) now travels WITH the preset — but the identical trap
- * sits on this side of the reversal. Simply un-excluding the key would let
- * `normalizeContinuityConfig` fall back to the built-in `DEFAULT_SCENE_PACING`
- * band for every preset saved during the exclusion window, i.e. almost all of
- * them, silently resetting a customer's chosen rhythm to 1–3s. So the rule is
- * explicit in both directions: a preset that STORES a rhythm applies it; a
- * preset that stores none leaves the live rhythm exactly as it was. The
- * Character Sheet says which of the two happened, because a rhythm that does
- * not move looks identical to a feature that does not work.
+ * `pacing` is carried across the same way, and for the same reason, since the
+ * owner put it back in the exclusion list on 2026-10-17. Reading it off `data`
+ * is already impossible — `usePresets` strips it before `apply` runs — but the
+ * explicit carry is what makes the *preserve* half real rather than incidental:
+ * without it `normalizeContinuityConfig` would substitute `DEFAULT_SCENE_PACING`
+ * (1–3s) for every preset, which is the original 2026-08-03 incident with the
+ * sign flipped. It is deep-cloned as one whole value rather than merged field
+ * by field, so an extended profile (ordered periods, `settled_*` holds) survives
+ * intact and a half-written band can never be completed from the default.
+ *
+ * `motion_level` is carried the same way — an older preset without one must not
+ * reset the live intensity — while `motion_scope` is excluded outright as
+ * episode state.
  *
  * Normalizing explicitly also keeps retired composition fields in older
  * presets from silently returning to newly saved continuity configs.
@@ -216,7 +245,7 @@ export function applyContinuityPagePreset(
   data: Partial<ContinuityConfig> | null | undefined,
 ): ContinuityConfig {
   const pacing = JSON.parse(
-    JSON.stringify(storedPresetPacing(data) ?? current.pacing),
+    JSON.stringify(current.pacing),
   ) as ContinuityConfig['pacing']
   const keepEpisodeSheet = current.use_episode_sheet === true || current.references?.sheet === true
   const motionLevel = typeof data?.motion_level === 'number'

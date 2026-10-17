@@ -402,10 +402,13 @@ function setStatus(cue: Cue, status: Cue['status']): void { cue.status = status;
 // applied or not." The preset genuinely stores it, and it stays there — he was
 // offered removal and declined (AGENTS.md, Preset Boundaries, 2026-08-18).
 //
-// So it is announced instead, in BOTH directions, exactly as v1.2.5 announces
-// scene rhythm on the Character Sheet. A silent switch-OFF is the same defect
-// as a silent switch-on; a preset that stores nothing changes nothing and says
-// nothing, which is why `storedPresetAutoApprove` has three answers and not two.
+// So it is announced instead, in BOTH directions. A silent switch-OFF is the
+// same defect as a silent switch-on; a preset that stores nothing changes
+// nothing and says nothing, which is why `storedPresetAutoApprove` has three
+// answers and not two. (The scene-rhythm notice this was modelled on was
+// deleted on 2026-10-17, when the owner took `pacing` back out of Character
+// Sheet presets — that setting is Scene Plan's, so there is nothing for a
+// Character Sheet preset to report. This notice stands on its own.)
 const autoApproveNotice = ref<{ on: boolean; changed: boolean } | null>(null)
 /** Any hand edit of the tick-box supersedes what the last applied preset said. */
 function onAutoApproveEdited(): void { autoApproveNotice.value = null }

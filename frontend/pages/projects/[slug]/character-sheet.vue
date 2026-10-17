@@ -28,21 +28,6 @@
       @generate="saveConfig"
     />
 
-    <WorkspaceNotice
-      v-if="pacingPresetNotice"
-      class="mt-3"
-      :tone="pacingPresetNotice.applied ? 'success' : 'info'"
-      :title="pacingPresetNotice.applied ? 'The preset includes scene rhythm' : 'That preset has no saved scene rhythm'"
-    >
-      <template v-if="pacingPresetNotice.applied">
-        It set {{ pacingPresetNotice.band }} on this page. Save visual setup to keep it; manage the episode’s timing in Scene Plan.
-      </template>
-      <template v-else>
-        It was saved while presets did not record rhythm, so this episode stays on
-        {{ pacingPresetNotice.band }} — nothing was reset. Manage the episode’s timing in Scene Plan.
-      </template>
-    </WorkspaceNotice>
-
     <WorkspaceNotice v-if="configLoadError" class="mt-3" tone="warning" title="This episode’s saved setup could not be read">
       {{ configLoadError }} Saving is turned off so the saved setup is not overwritten.
       <button class="btn btn-ghost btn-sm" @click="loadConfig">Retry</button>
@@ -215,7 +200,6 @@ import {
   applyContinuityPagePreset,
   continuityDefaults,
   normalizeContinuityConfig,
-  storedPresetPacing,
 } from '../../../composables/useContinuityConfig.js'
 import type { ContinuityConfig, ContinuityPagePreset } from '../../../composables/useContinuityConfig.js'
 
@@ -233,19 +217,6 @@ const episodeId = ref('')
 // Config shape, defaults, and the preset boundary live in the composable so
 // they are importable by tests — see composables/useContinuityConfig.ts.
 const config = ref<ContinuityConfig>(continuityDefaults())
-// v1.2.5 — a Character Sheet preset carries the scene rhythm again (AGENTS.md,
-// Preset Boundaries; the owner's reversal of 2026-08-03, made 2026-08-18).
-// Presets saved during the exclusion window store NO rhythm, so applying one
-// correctly leaves the episode's rhythm alone — which looks exactly like a
-// feature that does not work. Say which of the two happened, every time.
-const pacingPresetNotice = ref<{ applied: boolean; band: string } | null>(null)
-function pacingBandLabel(pacing: ContinuityConfig['pacing']): string {
-  return pacing.mode === 'variable'
-    ? `${pacing.periods.length} ordered pacing periods`
-    : `${pacing.min_sec}–${pacing.max_sec} seconds`
-}
-/** Any hand edit of the rhythm supersedes what the last applied preset said. */
-function onPacingEdited(): void { pacingPresetNotice.value = null }
 
 // v1.0.356 — ONE whole-page preset for the entire continuity setup. Replaces
 // the fragmented style controls the user had to manage separately. A channel's
@@ -261,7 +232,15 @@ function onPacingEdited(): void { pacingPresetNotice.value = null }
 // Snapshot/apply cover the FULL config minus the transient `updated_at` and
 // minus the episode's own anchor toggle — the look/episode-state boundary is
 // documented on CONTINUITY_PRESET_EXCLUDE_KEYS / applyContinuityPagePreset.
-// Scene rhythm is part of a preset again as of v1.2.5.
+//
+// Scene rhythm is NOT part of this preset. It was, between 2026-08-18 and the
+// owner's 2026-10-17 reversal: `pacing` is an excluded key again, the panel
+// that sets it is Scene Plan's "Visual timing & motion", and Scene Review reads
+// it back from the plan. The green notice this page used to carry about the
+// preset's scene rhythm is deleted with it, not reworded — this page no longer
+// owns rhythm, so a preset applied here has nothing to report and the live
+// value never moves. (Full history: AGENTS.md §5 and
+// docs/architecture/agents-decisions.md §5.)
 const pagePresets = usePresets<ContinuityPagePreset>({
   slug: slug.value,
   configKey: 'continuity_page',
@@ -274,11 +253,9 @@ const pagePresets = usePresets<ContinuityPagePreset>({
     return JSON.parse(JSON.stringify(rest)) as ContinuityPagePreset
   },
   apply: (data) => {
-    // Read the stored rhythm BEFORE the fold, because after it the live and
-    // preset values are indistinguishable when the two happen to agree.
-    const applied = storedPresetPacing(data) !== null
+    // The live episode rhythm is carried across the fold untouched; see
+    // applyContinuityPagePreset. Nothing here reads or reports it.
     config.value = applyContinuityPagePreset(config.value, data)
-    pacingPresetNotice.value = { applied, band: pacingBandLabel(config.value.pacing) }
   },
 })
 
@@ -622,7 +599,6 @@ watch([slug, episodeId], () => {
   configLoadError.value = ''
   charactersLoaded.value = false
   droppedAnchorNotice.value = ''
-  onPacingEdited()   // the last apply said nothing about the episode now open
   void loadCharacters()
   void loadConfig()
   void loadRefs()

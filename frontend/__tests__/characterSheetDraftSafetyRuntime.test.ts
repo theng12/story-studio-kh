@@ -20,7 +20,7 @@ async function loadPage(): Promise<Component> {
   const vueUrl = await import.meta.resolve('vue')
   const support = `
     import { computed, defineComponent as _defineComponent, h, ref, watch } from ${JSON.stringify(vueUrl)}
-    import { CONTINUITY_PRESET_EXCLUDE_KEYS, applyContinuityPagePreset, continuityDefaults, normalizeContinuityConfig, storedPresetPacing } from ${JSON.stringify(continuityUrl)}
+    import { CONTINUITY_PRESET_EXCLUDE_KEYS, applyContinuityPagePreset, continuityDefaults, normalizeContinuityConfig } from ${JSON.stringify(continuityUrl)}
     const F = new Proxy({}, { get: (_, k) => globalThis.__csFixture[k] })
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
