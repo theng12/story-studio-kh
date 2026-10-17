@@ -43,7 +43,7 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
-import { createHash, createPublicKey, verify } from 'node:crypto'
+import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
@@ -87,8 +87,15 @@ export interface UpdateState {
   release?: ReleaseDescriptor | null
   staged_app?: string | null
   error?: string | null
-  /** True only when THIS updater paused the queue; only then does it resume it. */
+  /** True only when THIS updater paused the queue; display only — the release is authorized by `pause_owner_token`, never by this flag. */
   we_paused?: boolean
+  /**
+   * The durable token (services/job-queue.ts) that holds the queue pause this updater took. This —
+   * not `we_paused` — authorizes `releaseOurPause`: the token is checked against the pause actually
+   * in force, so a stale flag (an owner Resume then his own re-pause) can never lift the owner's
+   * hold. Null once released, or never set by a build from before the owner existed.
+   */
+  pause_owner_token?: string | null
   drain_started_at?: number | null
   install_requested?: boolean
   /**
@@ -390,7 +397,12 @@ async function toTrash(target: string, bucket: string): Promise<void> {
 
 export interface QueueControl {
   isPaused(): boolean
-  setPaused(paused: boolean): Promise<void>
+  /** The token that holds the current pause, or null for the owner's own (unowned) pause. */
+  pauseOwner(): string | null
+  /** Take or confirm this updater's own hold; false when the pause is the owner's own. */
+  acquirePause(token: string): Promise<boolean>
+  /** Release this updater's own hold; false when the token no longer holds the pause. */
+  releasePause(token: string): Promise<boolean>
   running(): number
   summary(): { running: number; queued: number; paused: number }
   /** False until the boot scan has loaded every channel's saved jobs; nothing is judged before that. */
@@ -439,6 +451,29 @@ let quitDeadlineMs = 6 * 60_000
  */
 let installing: Promise<boolean> | null = null
 
+/**
+ * This process's queue-pause owner token. Minted once and persisted before the acquire is awaited,
+ * so concurrent callers of one install attempt share the SAME token — the winner never lacks the
+ * loser's claim, and a bare boolean never authorizes a release. Reset on release and on a fresh
+ * process (a restart reads it back from `pause_owner_token`).
+ */
+let ourPauseToken: string | null = null
+
+function ensurePauseToken(): string {
+  if (!ourPauseToken) {
+    const existing = readState().pause_owner_token
+    const token = existing || randomUUID()
+    if (!existing) patchState({ pause_owner_token: token })
+    ourPauseToken = token
+  }
+  return ourPauseToken
+}
+
+function forgetPauseToken(): void {
+  ourPauseToken = null
+  if (readState().pause_owner_token) patchState({ pause_owner_token: null })
+}
+
 /** main.ts's quit path asks this so a "jobs are running, quit?" question never blocks an update. */
 export function isQuittingForUpdate(): boolean { return quittingForUpdate }
 
@@ -461,7 +496,10 @@ export async function onBoot(options: UpdaterOptions): Promise<UpdateState> {
   const state = readState()
   if (state.phase === 'downloading') return patchState({ phase: 'idle' })
   if (state.phase === 'draining') return patchState({ phase: 'ready', drain_started_at: null })
-  if (state.phase !== 'installing' || !state.release) return state
+  if (state.phase !== 'installing' || !state.release) {
+    if (state.pause_owner_token && ['installed', 'failed', 'rolled_back'].includes(state.phase)) await releaseOurPause()
+    return readState()
+  }
   const target = state.release.version
   if (options.currentVersion === target && await selfHealthy(options.port, target)) {
     const next = patchState({ phase: 'installed', installed_at: Date.now(), error: null, staged_app: null,
@@ -496,11 +534,27 @@ async function selfHealthy(port: number, version: string): Promise<boolean> {
   return false
 }
 
+/**
+ * Release the queue pause THIS updater took — and only that one. Authority is the durable owner
+ * token (services/job-queue.ts), checked against the pause actually in force under the queue's own
+ * lock; the bare `we_paused` flag is display only and never authorizes a release. So an owner
+ * Resume followed by his own re-pause (which clears our token) can never be lifted here. A legacy
+ * `we_paused` with no token proves nothing, so that hold is left standing (fail-safe) and reported
+ * by `status()` rather than silently dropped.
+ */
 async function releaseOurPause(): Promise<void> {
-  if (!opts || !readState().we_paused) return
-  // Only a queue this updater paused is resumed; Resume releases only queue-origin pauses.
-  if (opts.queue.isPaused()) await opts.queue.setPaused(false)
-  patchState({ we_paused: false })
+  if (!opts) return
+  const token = readState().pause_owner_token
+  if (!token) return
+  try { await opts.queue.releasePause(token) } catch (error: any) {
+    patchState({ error: `The queue could not resume after the update: ${error?.message || error}. Press Resume to continue.` })
+    return // Keep the claim: a failed settings write is not a released or superseded pause.
+  }
+  if (readState().pause_owner_token !== token) return
+  ourPauseToken = null
+  const error = readState().error
+  patchState({ pause_owner_token: null, we_paused: false,
+    ...(error?.startsWith('The queue could not resume after the update:') ? { error: null } : {}) })
 }
 
 export async function report(): Promise<Record<string, unknown>> {
@@ -758,23 +812,37 @@ export async function maybeInstall(): Promise<void> {
     if (!before.install_requested) {
       const settings = await o.getSettings()
       if (!settings.auto_install || before.held) return
-      if (o.queue.loaded?.() === false || (o.queue.isPaused() && !before.we_paused)) return watchIdle()
+      if (o.queue.loaded?.() === false) return watchIdle()
     }
-    let wePaused = !!before.we_paused
-    if (!o.queue.isPaused()) {
-      await o.queue.setPaused(true)
-      wePaused = true
+    // Take or confirm the updater's own hold on the queue, under the queue's own lock. Ownership
+    // is proven by a durable token, never by a bare boolean: the token is minted and persisted
+    // before the await so a concurrent caller shares it, and a foreign hold — the owner's own
+    // pause — refuses the acquire (no write).
+    let wePaused: boolean
+    if (o.queue.isPaused()) {
+      // Already held: ours only if the queue's own record still names our token. The owner's own
+      // pause, or a token an owner Resume invalidated, is his — not ours to release.
+      const token = before.pause_owner_token
+      wePaused = !!token && o.queue.pauseOwner?.() === token
+    } else {
+      wePaused = await o.queue.acquirePause(ensurePauseToken())
+      if (!wePaused) forgetPauseToken()
     }
-    // Anything the call above suspended through may have moved this release on (a second press, a
+    if (!wePaused && !before.install_requested) {
+      // The owner's own pause holds an automatic install until he Resumes or presses Install Now.
+      return watchIdle()
+    }
+    // Anything the awaits above suspended through may have moved this release on (a second press, a
     // drain tick, an install): only the caller that still sees the same state may claim the drain.
-    // A caller sent home here still took the pause above, so it records that before it returns:
-    // otherwise the winner (which found the queue already paused and skipped `setPaused`) leaves
-    // `we_paused` false, and `releaseOurPause` cannot lift the updater's own pause after the restart.
+    // A caller sent home here already recorded its token above, so `releaseOurPause` still knows the
+    // pause was ours — no separate boolean needs writing.
     const now = readState()
-    if (now.phase !== 'ready' || now.drain_started_at !== before.drain_started_at) {
-      if (wePaused && !before.we_paused) patchState({ we_paused: true })
+    if (now.phase !== 'ready' || now.drain_started_at !== before.drain_started_at) return
+    if (wePaused && (!o.queue.isPaused() || o.queue.pauseOwner?.() !== now.pause_owner_token)) {
+      holdAfterOwnerChange()
       return
     }
+    if (now.held) return
     patchState({ phase: 'draining', drain_started_at: o.now?.() ?? Date.now(), we_paused: wePaused })
     claimed = true
   }
@@ -794,6 +862,12 @@ function watchIdle(): void {
   idleTimer.unref?.()
 }
 
+function holdAfterOwnerChange(): void {
+  ourPauseToken = null
+  patchState({ phase: 'ready', held: true, we_paused: false, pause_owner_token: null,
+    install_requested: false, immediate: false, drain_started_at: null })
+}
+
 function watchDrain(): void {
   if (drainTimer) return
   const tick = async () => {
@@ -801,9 +875,9 @@ function watchDrain(): void {
     const o = opts!
     const state = readState()
     if (state.phase !== 'draining') return
-    if (state.we_paused && !o.queue.isPaused()) {
-      // The owner pressed Resume: his choice wins until Install Now.
-      patchState({ phase: 'ready', held: true, we_paused: false, install_requested: false, immediate: false, drain_started_at: null })
+    if ((state.pause_owner_token || state.we_paused)
+      && (!o.queue.isPaused() || o.queue.pauseOwner?.() !== state.pause_owner_token)) {
+      holdAfterOwnerChange()
       return
     }
     const waited = (o.now?.() ?? Date.now()) - (state.drain_started_at || 0)
@@ -815,6 +889,11 @@ function watchDrain(): void {
       // have moved this release to `installing` or `failed` while this tick was asking the queue,
       // and a hand-off from here would be a second helper and a `draining` write over it.
       if (readState().phase !== 'draining') return
+      if ((state.pause_owner_token || state.we_paused)
+        && (!o.queue.isPaused() || o.queue.pauseOwner?.() !== state.pause_owner_token)) {
+        holdAfterOwnerChange()
+        return
+      }
       await install().catch(e => markFailed(e))
       return
     }
@@ -846,7 +925,11 @@ export async function install(): Promise<boolean> {
   }
   const script = path.join(updateDir(), 'swap-app.sh')
   fs.writeFileSync(script, helperScript(), { mode: 0o755 })
-  writeState({ ...state, phase: 'installing', from_version: o.currentVersion, error: null, installing_at: Date.now() })
+  // The hand-off clears the display flag but KEEPS the owner token: a new build releases via the
+  // token, while a build from before the token existed reads `we_paused` false and so cannot lift a
+  // pause the owner set himself (bounded rollback mitigation). A genuinely updater-paused queue
+  // then stays paused for the owner to Resume — the safe direction, documented in the handoff.
+  writeState({ ...state, phase: 'installing', from_version: o.currentVersion, error: null, installing_at: Date.now(), we_paused: false })
   const child = spawn('/bin/bash', [script], {
     detached: true,
     stdio: 'ignore',
@@ -901,6 +984,8 @@ export async function status(): Promise<Record<string, unknown>> {
   const settings = opts ? await opts.getSettings() : defaultSettings(null)
   const state = readState()
   const { trusted_publisher_key, ...rest } = settings
+  const queuePaused = opts ? opts.queue.isPaused() : false
+  const ownedByUs = !!state.pause_owner_token && opts?.queue.pauseOwner?.() === state.pause_owner_token
   return {
     enabled: !!opts,
     current_version: opts?.currentVersion ?? null,
@@ -908,7 +993,13 @@ export async function status(): Promise<Record<string, unknown>> {
     ...state,
     settings: rest,
     jobs_left: opts ? jobsLeft(opts.queue) : 0,
-    queue_paused: opts ? opts.queue.isPaused() : false,
+    queue_paused: queuePaused,
+    // The queue is still paused and this update is not holding it (a legacy `we_paused`, or a token
+    // an owner Resume invalidated): computed live, so it never lingers once the owner Resumes.
+    pause_recovery_note: queuePaused && ((state.error?.startsWith('The queue could not resume after the update:'))
+      || (!ownedByUs && (state.we_paused === true || !!state.pause_owner_token)))
+      ? 'The queue is still paused; press Resume to continue.'
+      : null,
     waiting_for: opts && state.phase === 'draining' ? await waitingFor(opts.queue) : null,
     trusted_fingerprint: trusted_publisher_key ? fingerprint(trusted_publisher_key) : null,
     open_at_login: openAtLogin(),
@@ -927,6 +1018,7 @@ export function _resetForTesting(): void {
   timer = null
   quittingForUpdate = false
   installing = null
+  ourPauseToken = null
   quitDeadlineMs = 6 * 60_000
 }
 export function _configureForTesting(options: UpdaterOptions): void { opts = options }

@@ -1,5 +1,34 @@
 # HANDOFF — Story Studio KH
 
+## Source follow-up reviewed and committed separately — 2026-10-17 (updater pause ownership)
+
+Isolated `fix/updater-pause-ownership` starts at release/1.4.313 `4d4a15dd`, which already
+contains the accepted immediate-install commits `63d39c3e` / `7ee410e4` / `d8c788cc`.
+The follow-up replaces boolean-only pause release with durable ownership checked under the
+existing queue transition lock. Explicit owner Pause/Resume supersedes updater ownership,
+including Pause while already paused; `job_queue_paused` remains a boolean for older builds.
+
+Legacy `we_paused` alone cannot establish ownership. Preserve the hold and show recovery guidance
+in Settings → Updates. The installing handoff must not leave that legacy flag authorizing an
+older restored binary to lift an owner's later pause. On an actual rollback to an older binary,
+a genuine updater hold may therefore remain until the owner presses Resume; its old UI has only
+the general rollback error. New-source rollback tests do not prove the old binary safe.
+
+Independent final source review ACCEPT followed corrections for a failed release losing its token
+and ownership changes during suspended acquire/drain checks. Release failures retain the claim,
+show recovery guidance and retry on the next boot. The unchanged real-queue regression on the
+pre-fix base completed 4 tests: 1 pass, 3 behavioral failures (exit 1, 1/1 file complete, isolated
+projects sentinel unchanged). Under the release owner's explicit serial window, the initial focused
+run completed 3/3 files, 58/58 tests, exit 0. The corrected runtime run completed 3/3 files, 62 tests,
+61 pass / 1 fail, exit 1: the added order test used an invalid `outline` queue key. Correcting only
+that fixture to the existing serial `chapter-only` lane passed the queue-only rerun: 1/1 file,
+5/5 tests, exit 0. All runtime race regressions passed, both sentinels stayed byte-identical, and
+final Electron typecheck exited 0. These filtered checks are NOT the full backend release gate.
+
+This is not a release: version allocation, complete release gates, main integration, push and
+main-built DMG remain the release owner's work. No live pause/settings/HTTP/install or production
+job edits were performed by this follow-up worker.
+
 ## Released; install pending the normal path — 2026-10-17 (1.4.312)
 
 Main `dab23457f784fa1f3a9e52babaf414af4c675e53` is pushed. Two accepted product fixes:

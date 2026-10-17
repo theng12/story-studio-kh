@@ -280,13 +280,23 @@ function announceWrite(key: string): void {
   }
 }
 
-export async function setAppSetting(key: string, value: any): Promise<void> {
+/**
+ * Write several settings in ONE atomic read-modify-write, so a reader never sees half a change.
+ * `job-queue.ts` uses this to move the queue pause flag and its owner token together: a crash can
+ * never leave a paused queue attributed to a token that no longer holds it, or the reverse.
+ */
+export async function setAppSettings(patch: Record<string, any>): Promise<void> {
+  const keys = Object.keys(patch)
   await withLock(appSettingsPath(), async () => {
     const settings = await readSettingsForWrite()
-    settings[key] = value
+    for (const key of keys) settings[key] = patch[key]
     await writeSettings(settings)
   })
-  announceWrite(key)
+  for (const key of keys) announceWrite(key)
+}
+
+export async function setAppSetting(key: string, value: any): Promise<void> {
+  await setAppSettings({ [key]: value })
 }
 
 /** Machine-local visibility preference. Missing or corrupt storage fails closed. */

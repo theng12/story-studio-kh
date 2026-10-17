@@ -16,7 +16,7 @@ import path from 'node:path'
 import * as updater from '../services/app-update.js'
 import { getAppSetting, setAppSetting, getGenStudioUrl } from '../services/app-settings.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { areBootJobsLoaded, getQueueStats, initializeQueuePauseState, isQueuePaused, runningJobsThatWouldNotResume, setQueuePaused } from '../services/job-queue.js'
+import { acquireQueuePauseOwned, areBootJobsLoaded, getQueuePauseOwner, getQueueStats, initializeQueuePauseState, isQueuePaused, releaseQueuePauseOwned, runningJobsThatWouldNotResume } from '../services/job-queue.js'
 import { inFlightSubmits } from '../lib/inflight-submits.js'
 import { projectsRoot } from '../services/project-manager.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -58,7 +58,9 @@ export async function startStoryUpdater(input: {
     quit: input.quit,
     queue: {
       isPaused: isQueuePaused,
-      setPaused: setQueuePaused,
+      pauseOwner: getQueuePauseOwner,
+      acquirePause: acquireQueuePauseOwned,
+      releasePause: releaseQueuePauseOwned,
       running: () => getQueueStats().running,
       summary: () => { const s = getQueueStats(); return { running: s.running, queued: s.queued, paused: s.paused } },
       loaded: areBootJobsLoaded,
