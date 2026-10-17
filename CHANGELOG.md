@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.313 — 2026-10-17
+
+- Install now (don't wait): the update banner and Settings → Updates can install a staged version straight away, pausing the queue instead of waiting for the drain, behind the confirmation you already get. Like the existing update request, an immediate request is standing intent — if it was recorded while one version was downloading, the next version offered installs immediately too, without a second confirmation.
+- The Final Video step's timeline-drift advisory now uses the merged audio file the render itself selected, so a record describing a different file no longer raises a false drift warning.
+
 ## v1.4.312 — 2026-10-17
 
 - A chapter part whose Gateway request was confirmed as never created no longer fails as a mismatched identity. Story re-sends it under the same key, so the Gateway replays instead of making a second task, and a part whose saved answer really disagrees is still refused.
