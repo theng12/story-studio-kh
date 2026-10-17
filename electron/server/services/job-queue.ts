@@ -3862,16 +3862,31 @@ async function continuePipelineAfterFailure(job: Job): Promise<void> {
 }
 
 /**
+ * 1.4.312 — resolve a Final Video link against the channel's CURRENT Video Assembly preset, so a
+ * look applied after the batch was submitted still reaches this render. Every boundary that turns a
+ * batch's captured chain link into a job calls this: the chain handoff below, and restart
+ * recovery's continuation enqueue. Retry does NOT: it re-runs an accepted job with its accepted
+ * params, which is what the owner asked for when they pressed Retry.
+ */
+export async function withCurrentFinalVideoParams(
+  slug: string,
+  episodeId: string,
+  params: Record<string, any>,
+): Promise<Record<string, any>> {
+  const { resolveChainedVideoAssemblyParams } = await import('../routes/pipeline.js')
+  return resolveChainedVideoAssemblyParams(slug, episodeId, params)
+}
+
+/**
  * 1.4.312 — Final Video is the one chained step resolved again when its job is actually submitted:
  * the channel's Video Assembly preset is the channel's reusable look, so a look applied after the
- * batch was submitted still reaches this render (`resolveChainedVideoAssemblyParams`). The link's
- * captured params stay the accepted snapshot for Retry and recovery — only this enqueue is
- * refreshed, and the handoff job says so when the look moved.
+ * batch was submitted still reaches this render (`withCurrentFinalVideoParams`). The link's captured
+ * params stay the accepted snapshot for Retry and recovery — only this enqueue is refreshed, and the
+ * handoff job says so when the look moved.
  */
 async function refreshChainedFinalVideoParams(job: Job, nextParams: Record<string, any>): Promise<Record<string, any>> {
   try {
-    const { resolveChainedVideoAssemblyParams } = await import('../routes/pipeline.js')
-    const refreshed = await resolveChainedVideoAssemblyParams(job.project_slug, job.episode_id!, nextParams)
+    const refreshed = await withCurrentFinalVideoParams(job.project_slug, job.episode_id!, nextParams)
     const before = Array.isArray(nextParams.effect_stack) ? nextParams.effect_stack as string[] : []
     const after = Array.isArray(refreshed.effect_stack) ? refreshed.effect_stack as string[] : []
     if (refreshed !== nextParams && JSON.stringify(before) !== JSON.stringify(after)) {
