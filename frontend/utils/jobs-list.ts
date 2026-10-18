@@ -34,6 +34,72 @@ export function capList<T>(list: readonly T[], showAll: boolean, cap = ACTIVE_LI
   return showAll ? [...list] : list.slice(0, cap)
 }
 
+export interface JobOrderFields {
+  job_id: string
+  status: string
+  type: string
+  created_at?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  queue_position?: number
+}
+
+const asTime = (value?: string | null) => Date.parse(value || '') || 0
+const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+/** Known kinds keep the page's tab order; unknown ones follow alphabetically. */
+function byKind(a: string, b: string, kindRank: Map<string, number>): number {
+  const ai = kindRank.get(a)
+  const bi = kindRank.get(b)
+  if (ai !== undefined && bi !== undefined) return ai - bi
+  if (ai !== undefined) return -1
+  if (bi !== undefined) return 1
+  return byText(a, b)
+}
+
+/**
+ * The one display order for the Jobs page, independent of how the live store
+ * happens to have assembled its array: running first (earliest started),
+ * then queued in true dispatch order (kinds in `kindOrder`, then the lane's
+ * own `queue_position`), then paused, then finished newest-finished first.
+ * Ties fall back to created_at then job_id, so an SSE/poll update can never
+ * reshuffle rows that did not change.
+ */
+export function orderJobsForDisplay<T extends JobOrderFields>(
+  list: readonly T[],
+  kindOrder: readonly string[] = [],
+): T[] {
+  const kindRank = new Map(kindOrder.map((type, index) => [type, index]))
+  const statusRank = (job: T) => job.status === 'running' ? 0
+    : job.status === 'queued' ? 1
+      : job.status === 'paused' ? 2
+        : 3
+  const position = (job: T) => typeof job.queue_position === 'number' && job.queue_position > 0
+    ? job.queue_position
+    : Number.POSITIVE_INFINITY
+  return [...list].sort((a, b) => {
+    const rank = statusRank(a) - statusRank(b)
+    if (rank) return rank
+    if (statusRank(a) === 0) {
+      return asTime(a.started_at) - asTime(b.started_at)
+        || asTime(a.created_at) - asTime(b.created_at)
+        || byText(a.job_id, b.job_id)
+    }
+    if (statusRank(a) === 1) {
+      return byKind(a.type, b.type, kindRank)
+        || position(a) - position(b)
+        || asTime(a.created_at) - asTime(b.created_at)
+        || byText(a.job_id, b.job_id)
+    }
+    if (statusRank(a) === 2) {
+      return asTime(a.created_at) - asTime(b.created_at) || byText(a.job_id, b.job_id)
+    }
+    return asTime(b.finished_at) - asTime(a.finished_at)
+      || asTime(b.created_at) - asTime(a.created_at)
+      || byText(a.job_id, b.job_id)
+  })
+}
+
 /**
  * The page's own paid/free rule, shared with its "Credits:" line: a job spent
  * credits when it sent Gateway requests that were not all free Studio Hub work.

@@ -406,6 +406,9 @@
             >{{ projectName(job.project_slug) }}</NuxtLink>
             <span v-else-if="isUniversal" class="job-project">App tools</span>
             <span class="job-type">{{ jobDisplayLabel(job) }}</span>
+            <span v-if="job.status === 'queued' && job.queue_position" class="job-queue-position"
+              title="Position among queued jobs of this kind; earlier runs first."
+            >#{{ job.queue_position }} in its queue</span>
             <span class="job-episode">{{ job.episode_id }}</span>
             <span v-if="job.title" class="job-title text-muted" :title="job.title">- {{ job.title }}</span>
           </div>
@@ -416,6 +419,14 @@
                 class="btn btn-xs btn-ghost"
                 :aria-label="jobWorkspaceLink(job)!.ariaLabel"
               >{{ jobWorkspaceLink(job)!.label }}</NuxtLink>
+            <template v-if="job.status === 'queued'">
+              <button class="btn btn-xs btn-ghost" :disabled="controlBusy.has(job.job_id) || (job.queue_position || 0) <= 1"
+                title="Move earlier among queued jobs of this kind" @click="moveInQueue(job, 'up')">Up</button>
+              <button class="btn btn-xs btn-ghost" :disabled="controlBusy.has(job.job_id)"
+                title="Move later among queued jobs of this kind" @click="moveInQueue(job, 'down')">Down</button>
+              <button class="btn btn-xs btn-ghost" :disabled="controlBusy.has(job.job_id) || (job.queue_position || 0) <= 1"
+                title="Move to the front among queued jobs of this kind" @click="moveInQueue(job, 'top')">Top</button>
+            </template>
             <button
               v-if="canResumeJob(job)"
               class="btn btn-xs btn-primary"
@@ -1090,7 +1101,7 @@ import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery, type EpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
 import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, holdsUnknownProviderOutcome, isFreeFleetWork } from '@shared/provider-task-state'
-import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, pageCount, pageSlice } from '~/utils/jobs-list'
+import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice } from '~/utils/jobs-list'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -2257,11 +2268,16 @@ const filterTabs = computed(() => {
     { type: 'youtube_upload',       label: 'YouTube' },
   ]
   const knownTypes = new Set(types.map(tab => tab.type))
+  // Discovered kinds join in a fixed alphabetical order, not in whichever
+  // order a live update happened to first mention them.
+  const extra: Array<{ type: string, label: string }> = []
   for (const type of projectScopedJobs.value.map(job => job.type)) {
     if (knownTypes.has(type)) continue
     knownTypes.add(type)
-    types.push({ type, label: jobTypeLabel(type) })
+    extra.push({ type, label: jobTypeLabel(type) })
   }
+  extra.sort((a, b) => (a.type < b.type ? -1 : a.type > b.type ? 1 : 0))
+  types.push(...extra)
   return types.map(t => ({
     ...t,
     count: t.type === 'all'
@@ -2287,19 +2303,25 @@ const emptyMessage = computed(() => emptyState.value.message)
 
 // ── Sorting ─────────────────────────────────────────────────────────────
 
-const sortKey = ref('created_at')
-const sortDir = ref<'asc' | 'desc'>('desc')
+const sortKey = ref('queue')
+const sortDir = ref<'asc' | 'desc'>('asc')
 
 const sortColumns = [
+  { key: 'queue', label: 'Queue' },
   { key: 'project_slug', label: 'Channel' },
   { key: 'status', label: 'Status' },
   { key: 'type', label: 'Type' },
   { key: 'episode_id', label: 'Episode' },
   { key: 'created_at', label: 'Created' },
-  { key: 'duration', label: 'Duration' },
 ]
 
 function toggleSort(key: string) {
+  // The queue order is the page's stable default and has no reverse.
+  if (key === 'queue') {
+    sortKey.value = 'queue'
+    sortDir.value = 'asc'
+    return
+  }
   if (sortKey.value === key) {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
   } else {
@@ -2321,19 +2343,24 @@ const filteredJobs = computed(() => {
 
 const sortedJobs = computed(() => {
   const list = [...filteredJobs.value]
+  // One deterministic default: running, queued in true dispatch order per
+  // kind, paused, then finished newest-first. A live update replaces a row;
+  // it can never reorder the rows around it.
+  if (sortKey.value === 'queue') {
+    return orderJobsForDisplay(list, filterTabs.value.map(tab => tab.type))
+  }
   const dir = sortDir.value === 'asc' ? 1 : -1
 
   list.sort((a, b) => {
-    if (sortKey.value === 'duration') {
-      return (getJobDurationMs(a) - getJobDurationMs(b)) * dir
-    }
     if (sortKey.value === 'status') {
       const order: Record<string, number> = { running: 0, paused: 1, queued: 2, error: 3, done: 4, recovered: 5, cancelled: 6 }
       return ((order[jobDisplayStatus(a)] ?? 6) - (order[jobDisplayStatus(b)] ?? 6)) * dir
+        || (a.job_id < b.job_id ? -1 : a.job_id > b.job_id ? 1 : 0)
     }
     const aVal = (a as any)[sortKey.value] || ''
     const bVal = (b as any)[sortKey.value] || ''
-    return aVal < bVal ? -dir : aVal > bVal ? dir : 0
+    return (aVal < bVal ? -dir : aVal > bVal ? dir : 0)
+      || (a.job_id < b.job_id ? -1 : a.job_id > b.job_id ? 1 : 0)
   })
 
   return list
@@ -2343,12 +2370,12 @@ const currentPage = ref(1)
 
 const activeJobs = computed(() => {
   const list = sortedJobs.value.filter(j => j.status === 'running' || j.status === 'queued' || j.status === 'paused')
-  // Pin running ahead of queued regardless of the user's sort-column pick.
+  // Pin running → queued → paused regardless of the user's sort-column pick.
   // The chosen sort still governs order WITHIN each group (stable sort
-  // preserves sortedJobs's relative order for ties). This keeps the Active
-  // section reading top-to-bottom as "what's executing now" → "what's next".
+  // preserves sortedJobs's relative order for ties), so the Active section
+  // reads top-to-bottom as "executing now" → "what runs next" → "held".
   return list.slice().sort((a, b) => {
-    const rank = (s: string) => s === 'running' ? 0 : s === 'paused' ? 1 : 2
+    const rank = (s: string) => s === 'running' ? 0 : s === 'queued' ? 1 : 2
     return rank(a.status) - rank(b.status)
   })
 })
@@ -2870,6 +2897,27 @@ async function resumeJob(job: RJob) {
 }
 
 const pausedJobCount = computed(() => projectScopedJobs.value.filter(job => job.status === 'paused').length)
+
+/** Reorder one QUEUED job among queued jobs of its own kind. The server owns
+ * the lane; it answers with every job in that lane so each row's position
+ * badge refreshes together. */
+async function moveInQueue(job: RJob, direction: 'up' | 'down' | 'top') {
+  if (controlBusy.value.has(job.job_id)) return
+  controlBusy.value = new Set(controlBusy.value).add(job.job_id)
+  try {
+    const response = await post<{ queue?: Job[] }>(`${jobQueuePath(job)}/move`, { direction })
+    for (const row of response?.queue || []) {
+      projectQueue.applyUpdate(row)
+      universalQueue.applyUpdate(row)
+    }
+  } catch (e: any) {
+    showError(customerJobText(e?.data?.detail || 'Failed to move this job in its queue', job))
+  } finally {
+    const next = new Set(controlBusy.value)
+    next.delete(job.job_id)
+    controlBusy.value = next
+  }
+}
 
 async function resumePausedJobs() {
   if (bulkResumeBusy.value || pausedJobCount.value === 0) return
@@ -4054,6 +4102,7 @@ function clearFailed() { return clearHistory('failed') }
   min-width: 0;
 }
 .job-type { flex: 0 0 auto; font-weight: 600; font-size: 13px; color: var(--text-primary); }
+.job-queue-position { flex: 0 0 auto; font-size: 12px; color: var(--text-muted); }
 .job-episode { flex: 0 0 auto; font-size: 13px; color: var(--accent); font-weight: 500; }
 .job-title {
   min-width: 0;

@@ -2059,6 +2059,10 @@ function serializeJob(job: Job, view: 'full' | 'stream' = 'full'): RendererJob {
   rendererJob.control = classifyJobControl(job, {
     remoteCancellationAudited: hasJobCancellationAuditor(job.type),
   })
+  if (rendererJob.status === 'queued') {
+    const lane = queues[job.type]
+    rendererJob.queue_position = lane ? lane.pending.findIndex(candidate => candidate.job_id === job.job_id) + 1 : 0
+  }
   return rendererJob
 }
 
@@ -3643,6 +3647,11 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
           }
         }
       }
+    }
+    // A manual order set from the Jobs page (queue_rank) outranks insertion
+    // order; unranked jobs keep their FIFO place behind the ordered ones.
+    for (const queue of Object.values(queues)) {
+      queue.pending.sort((a, b) => (a.queue_rank ?? Infinity) - (b.queue_rank ?? Infinity))
     }
     if ([...resumedTypes].some(type => IMAGE_EPISODE_TYPES.has(type))) {
       pumpImageEpisodeGroup(imageEpisodeConcurrency)
@@ -6210,12 +6219,7 @@ export async function findJobs(
   const projectJobs: Job[] = []
   for (const job of jobs.values()) {
     if (job.project_slug === projectSlug && predicate(job)) {
-      const j = serializeJob(job, view)
-      if (j.status === 'queued') {
-        const q = queues[job.type]
-        j.queue_position = q ? q.pending.findIndex(p => p.job_id === j.job_id) + 1 : 0
-      }
-      projectJobs.push(j)
+      projectJobs.push(serializeJob(job, view))
     }
   }
 
@@ -6238,6 +6242,49 @@ export function getJob(jobId: string): Job | null {
 export function getPublicJob(jobId: string): RendererJob | null {
   const job = jobs.get(jobId)
   return job ? serializeJob(job) : null
+}
+
+export type QueuedJobMove = 'up' | 'down' | 'top'
+
+/**
+ * Move one QUEUED job inside its own type lane. Dispatch reads a lane's
+ * `pending` array and `queue_rank` restores that order after a restart, so
+ * reordering the array (and its ranks) is the whole feature. Running, paused
+ * and finished rows are refused; a lane is one type, so no cross-type move
+ * can even be expressed.
+ */
+export async function moveQueuedJob(
+  projectSlug: string,
+  jobId: string,
+  direction: QueuedJobMove,
+): Promise<{ job: RendererJob; queue: RendererJob[] } | null> {
+  const job = jobs.get(jobId)
+  if (!job || job.project_slug !== projectSlug || job.status !== 'queued') return null
+  const lane = queues[job.type]?.pending
+  const index = lane ? lane.findIndex(candidate => candidate.job_id === jobId) : -1
+  // A queued row held outside the lane (paid/quota wait) has no order to move.
+  if (!lane || index < 0) return null
+  const target = direction === 'top'
+    ? 0
+    : direction === 'up'
+      ? Math.max(0, index - 1)
+      : Math.min(lane.length - 1, index + 1)
+  if (target !== index) {
+    lane.splice(index, 1)
+    lane.splice(target, 0, job)
+  }
+  // Dense ranks over the whole lane: a restart restores exactly this order,
+  // and a job queued later (no rank) waits behind the ordered ones.
+  const changed: Job[] = []
+  lane.forEach((candidate, position) => {
+    if (candidate.queue_rank === position) return
+    candidate.queue_rank = position
+    changed.push(candidate)
+  })
+  await Promise.all(changed.map(candidate => persistJob(candidate).catch(error => {
+    console.error('[job-queue] Failed to persist queue order:', error)
+  })))
+  return { job: serializeJob(job), queue: lane.map(candidate => serializeJob(candidate)) }
 }
 
 /**
