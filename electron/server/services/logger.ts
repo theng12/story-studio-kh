@@ -8,6 +8,8 @@ import path from 'path'
 import { createRequire } from 'module'
 import { redactSecrets, redactSensitiveValue } from '../lib/redact-secrets.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
+import { moveToTrashSync, libraryTrashDir } from '../lib/trash-move.js'
+import { trashDir } from './app-update.js'
 
 const require = createRequire(import.meta.url)
 
@@ -49,14 +51,31 @@ function currentLogFile(): string {
   return path.join(resolveLogDir(), `server-${todayStamp()}.log`)
 }
 
-/** Delete log files older than 7 days. Covers both request logs
+/**
+ * One expired log into Story's Trash. A rename cannot cross volumes, so a Library
+ * on another drive falls back to the app's own `<data>/_trash/_logs` — the same
+ * two-step `app-update.ts`'s `toTrash` uses.
+ */
+function moveLogToTrash(file: string, name: string, libraryTrash: string): void {
+  try {
+    moveToTrashSync(file, path.join(libraryTrash, name), 'logs')
+  } catch (error: any) {
+    if (error?.code !== 'EXDEV') throw error
+    moveToTrashSync(file, path.join(trashDir(), '_logs', name), 'logs')
+  }
+}
+
+/** Move log files older than 7 days into Story's Trash (`<Library>/_trash/_logs`,
+ *  the app's own `_trash/_logs` when the Library is on another drive) instead of
+ *  unlinking them (owner rule: every removal goes to `_trash`; the retention sweep
+ *  hands them to the Mac's Trash later). Covers both request logs
  *  (`server-YYYY-MM-DD.log`) and main-process crash logs
  *  (`main-YYYY-MM-DD.log`, introduced alongside the uncaughtException
  *  handler in `main.ts`). Any other `.log` file in this dir is left alone.
  *
  *  ── Why this is async and why it is no longer called from `logLine` ──
  *
- *  This is a directory listing plus a stat and an unlink per file. It used to
+ *  This is a directory listing plus a stat and a move per file. It used to
  *  run INSIDE the request logger, hourly, on whichever unlucky request happened
  *  to cross the hour boundary — synchronously, on the event loop, which meant
  *  that request and every other request in flight stopped dead until the disk
@@ -72,13 +91,19 @@ export async function pruneOldLogs(): Promise<void> {
   assertWriteIsolatedInTests(dir, 'logger')
   try {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+    // Story's one Trash; the app's own volume takes it when the Library is on another drive
+    // (the same fallback `app-update.ts` uses). A move that fails leaves the file for the next sweep.
+    const { projectsRoot } = await import('./project-manager.js')
+    const target = path.join(libraryTrashDir(projectsRoot()), '_logs')
+    // Same guard as the log dir itself: a test may only sweep inside its claimed temp dir.
+    assertWriteIsolatedInTests(target, 'logger')
     for (const name of await fs.promises.readdir(dir)) {
       if (!name.endsWith('.log')) continue
       if (!name.startsWith('server-') && !name.startsWith('main-')) continue
       const full = path.join(dir, name)
       try {
         const stat = await fs.promises.stat(full)
-        if (stat.mtimeMs < cutoff) await fs.promises.unlink(full)
+        if (stat.mtimeMs < cutoff) moveLogToTrash(full, name, target)
       } catch { /* a file that vanished under us needs no pruning */ }
     }
   } catch {}

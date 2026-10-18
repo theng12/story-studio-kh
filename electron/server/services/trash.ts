@@ -9,8 +9,10 @@
  * (`deletePermanently`, index entries of the Library `_trash` or the app's own
  * `<data>/_trash` only); both act only after a confirmation that matches what is
  * measured. Delete is the only permanent delete, since the old "Empty Trash" is
- * retired. Both are the owner's alone (routes/trash.ts) and never run from a timer.
- * Restore, move and delete run one at a time (`serial`).
+ * retired. The owner's manual actions are his alone (routes/trash.ts); the
+ * automatic age handoff (`handoffOldTrash`, services/retention.ts) is app-initiated
+ * and only ever moves items to the Mac's Trash, never deletes. Restore, move,
+ * handoff and delete run one at a time (`serial`).
  */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, appendFileSync } from 'node:fs'
 import fs from 'node:fs/promises'
@@ -320,18 +322,75 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
     .finally(() => clearTimeout(timer))
 }
 
+/**
+ * Electron's `shell.trashItem`, or null where the Mac's Trash is unreachable
+ * (a bare node server, a test): the server runs in the app's main process on
+ * the Mac itself in both app modes.
+ */
+export async function electronTrashItem(): Promise<((p: string) => Promise<void>) | null> {
+  try {
+    const { shell } = await import('electron') as any
+    return typeof shell?.trashItem === 'function' ? (p: string) => shell.trashItem(p) : null
+  } catch { return null }
+}
+
+/** Move each picked item to the Mac's Trash, recording every success in its root's index. */
+async function handOver(
+  picked: Scanned[], trashItem: (p: string) => Promise<void>, result: { moved: number; bytes: number; errors: string[] },
+): Promise<void> {
+  for (const s of picked) {
+    if (!safelyInside(s.root.dir, s.item.path, s.root.slug ? 1 : 2)) { result.errors.push(`${s.item.path}: not inside Story's Trash; left alone.`); continue }
+    try { await withTimeout(trashItem(s.item.path), TRASH_ITEM_TIMEOUT_MS) } catch (error: any) { result.errors.push(`${s.item.path}: ${error?.message || error}`); continue }
+    result.moved += 1; result.bytes += s.item.bytes
+    if (s.entry) { try { appendLine(s.root.dir, s.entry, { removed: 'macos-trash' }) } catch { /* it is gone from here either way */ } }
+  }
+}
+
 export function moveToMacTrash(
   ids: unknown, expected: { count: number; bytes: number }, trashItem: (p: string) => Promise<void>,
 ): Promise<{ moved: number; bytes: number; errors: string[] }> {
   return serial(async () => {
     const { scanned } = await scanTrash()
     const result = { moved: 0, bytes: 0, errors: [] as string[] }
-    for (const s of confirmed(scanned, ids, item => item.movable, expected, 'Nothing was moved;')) {
-      if (!safelyInside(s.root.dir, s.item.path, s.root.slug ? 1 : 2)) { result.errors.push(`${s.item.path}: not inside Story's Trash; left alone.`); continue }
-      try { await withTimeout(trashItem(s.item.path), TRASH_ITEM_TIMEOUT_MS) } catch (error: any) { result.errors.push(`${s.item.path}: ${error?.message || error}`); continue }
-      result.moved += 1; result.bytes += s.item.bytes
-      if (s.entry) { try { appendLine(s.root.dir, s.entry, { removed: 'macos-trash' }) } catch { /* it is gone from here either way */ } }
+    await handOver(confirmed(scanned, ids, item => item.movable, expected, 'Nothing was moved;'), trashItem, result)
+    return result
+  })
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * When the item arrived in Story's Trash: the index line's `at`, or — for what
+ * was moved before the index existed — its on-disk mtime. No evidence means it
+ * is NOT old: it stays.
+ */
+async function arrivedBy(s: Scanned, cutoff: number): Promise<boolean> {
+  if (s.item.at) {
+    const at = Date.parse(s.item.at)
+    if (Number.isFinite(at)) return at <= cutoff
+  }
+  try { return lstatSync(s.item.path).mtimeMs <= cutoff } catch { return false }
+}
+
+/**
+ * The owner's automatic age handoff (2026-10-18): every item that can go to the
+ * Mac's Trash and has waited `olderThanDays` in Story's Trash is handed over.
+ * App-initiated, never a delete; the manual buttons stay. Serialised with every
+ * other Trash action, so a handoff can never race an owner's click.
+ */
+export function handoffOldTrash(
+  input: { olderThanDays: number; now?: number }, trashItem: (p: string) => Promise<void>,
+): Promise<{ eligible: number; moved: number; bytes: number; errors: string[] }> {
+  return serial(async () => {
+    const { scanned } = await scanTrash()
+    const now = input.now ?? Date.now()
+    const cutoff = now - Math.max(1, Math.floor(input.olderThanDays)) * DAY_MS
+    const aged: Scanned[] = []
+    for (const s of scanned) {
+      if (s.item.movable && await arrivedBy(s, cutoff)) aged.push(s)
     }
+    const result = { eligible: aged.length, moved: 0, bytes: 0, errors: [] as string[] }
+    await handOver(aged, trashItem, result)
     return result
   })
 }

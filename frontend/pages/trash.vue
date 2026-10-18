@@ -37,6 +37,21 @@
         </div>
       </section>
 
+      <section class="card retention" aria-labelledby="retention-title">
+        <h2 id="retention-title">Automatic retention</h2>
+        <p class="muted">Generated files age out by themselves: anything in this Trash waits the number of days below, then moves to the Mac's own Trash (recoverable there; macOS empties it after its own 30 days). The same daily check runs the Free up space → Clean Up All Channels rule — verified uploads older than 7 days of production, plus unused leftovers — with no change to that rule. The buttons above still work; this only adds what happens when nobody clicks.</p>
+        <div class="retention-controls">
+          <label>Move Trash items to the Mac's Trash after
+            <input v-model.number="retentionDays" type="number" min="1" max="365" :disabled="retentionSaving" /> days
+          </label>
+          <label class="retention-toggle"><input v-model="autoCleanup" type="checkbox" :disabled="retentionSaving" /> Automatic cleanup</label>
+          <button class="btn btn-secondary btn-sm" :disabled="retentionSaving || !retentionDirty" @click="saveRetention">{{ retentionSaving ? 'Saving…' : 'Save' }}</button>
+        </div>
+        <p v-if="retention && !retention.mac_trash_available" class="muted" role="status">The Mac's Trash is only reachable while Story Studio runs as the app on the Mac, so the automatic handoff is skipped here.</p>
+        <p v-if="retention?.last_handoff" class="muted">Last Trash handoff: {{ formatRetentionRun(retention.last_handoff) }}</p>
+        <p v-if="retention?.last_auto_cleanup" class="muted">Last automatic cleanup: {{ formatRetentionRun(retention.last_auto_cleanup) }}</p>
+      </section>
+
       <div class="totals">
         <article><span>In the Trash</span><strong>{{ formatBytes(listing.total_bytes) }}</strong><small>{{ listing.items_total }} {{ listing.items_total === 1 ? 'item' : 'items' }}</small></article>
         <article><span>Channels</span><strong>{{ listing.channels.length }}</strong><small>with something in the Trash</small></article>
@@ -109,6 +124,11 @@ interface Listing {
   roots: string[]; total_bytes: number; channels: { slug: string; bytes: number; items: number }[]; kinds: { kind: string; bytes: number; items: number }[]
   items: TrashItem[]; items_total: number; oldest: { at: string; path: string; slug: string } | null; movable: Totals; deletable: Totals
 }
+interface RetentionRun { at: string; status: 'completed' | 'failed' | 'skipped'; detail: string; moved?: number; bytes?: number }
+interface Retention {
+  trash_handoff_days: number; auto_cleanup_enabled: boolean; mac_trash_available: boolean
+  last_handoff: RetentionRun | null; last_auto_cleanup: RetentionRun | null
+}
 type Action = 'macos' | 'delete'
 
 const KINDS: Record<string, string> = {
@@ -120,8 +140,12 @@ const KINDS: Record<string, string> = {
   app: 'Older app versions', 'app-update': 'Update downloads', 'trash-folder': 'From the old app Trash Folder',
   legacy: 'From the old channel trash', other: 'Other',
 }
-const { get, post } = useApi()
+const { get, post, put } = useApi()
 const listing = ref<Listing | null>(null)
+const retention = ref<Retention | null>(null)
+const retentionDays = ref(7)
+const autoCleanup = ref(true)
+const retentionSaving = ref(false)
 const loading = ref(false)
 const error = ref('')
 const notice = ref('')
@@ -133,10 +157,16 @@ const pending = ref<{ action: Action; ids: string[] | 'all'; count: number; byte
 const acting = ref(false)
 const busy = computed(() => loading.value || acting.value || !!restoring.value)
 const shown = computed(() => (listing.value?.items || []).filter(item => (!channel.value || item.slug === channel.value) && (!kind.value || item.kind === kind.value)))
+const retentionDirty = computed(() => {
+  const saved = retention.value
+  if (!saved) return false
+  return retentionDays.value !== saved.trash_handoff_days || autoCleanup.value !== saved.auto_cleanup_enabled
+})
 
 function message(e: any, fallback: string) { return e?.data?.detail || e?.message || fallback }
 function formatBytes(n: number) { return n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB` }
 function formatDate(iso: string) { return new Date(iso).toLocaleString() }
+function formatRetentionRun(run: RetentionRun) { return `${formatDate(run.at)} — ${run.status}: ${run.detail}` }
 function baseName(p: string) { return p.split('/').filter(Boolean).pop() || p }
 function kindLabel(k: string) { return KINDS[k] || k.replaceAll('_', ' ').replaceAll('-', ' ') }
 function channelLabel(slug: string) { return slug === '_story-studio' ? 'Story Studio (the app)' : slug === '_character-library' ? 'Character Library' : slug.replaceAll('-', ' ') }
@@ -145,12 +175,33 @@ function countLabel(n: number) { return `${n} ${n === 1 ? 'item' : 'items'}` }
 
 async function load() {
   loading.value = true; error.value = ''
+  void loadRetention()
   try {
     listing.value = await get<Listing>('/trash')
     const ids = new Set(listing.value.items.map(item => item.id))
     selected.value = selected.value.filter(id => ids.has(id))
   } catch (e) { error.value = message(e, 'Could not read the Trash.') }
   finally { loading.value = false }
+}
+async function loadRetention() {
+  try {
+    const saved = await get<Retention>('/trash/retention')
+    retention.value = saved
+    retentionDays.value = saved.trash_handoff_days
+    autoCleanup.value = saved.auto_cleanup_enabled
+  } catch (e) { error.value = message(e, 'Could not read the retention settings.') }
+}
+async function saveRetention() {
+  if (retentionSaving.value) return
+  retentionSaving.value = true; error.value = ''; notice.value = ''
+  try {
+    const saved = await put<Retention>('/trash/retention', { trash_handoff_days: retentionDays.value, auto_cleanup_enabled: autoCleanup.value })
+    retention.value = saved
+    retentionDays.value = saved.trash_handoff_days
+    autoCleanup.value = saved.auto_cleanup_enabled
+    notice.value = 'Retention saved.'
+  } catch (e) { error.value = message(e, 'Could not save the retention settings.') }
+  finally { retentionSaving.value = false }
 }
 function selectedFor(action: Action) {
   return (listing.value?.items || []).filter(item => selected.value.includes(item.id) && (action === 'delete' ? item.deletable : item.movable))
@@ -223,6 +274,9 @@ tr.picked td { background: var(--accent-dim); }
 .pick { flex: 0 0 16px; }
 .item-main { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
 .free-space { margin-top: 0; }
+.retention-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-bottom: 8px; }
+.retention-controls input[type='number'] { width: 5em; margin: 0 4px; }
+.retention-toggle { display: inline-flex; align-items: center; gap: 6px; }
 .free-space .summary { margin: 0 0 6px; }
 .free-space .summary strong { font-size: 20px; }
 .free-space .muted { margin: 0 0 10px; line-height: 1.5; }

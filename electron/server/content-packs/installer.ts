@@ -22,8 +22,11 @@ import {
 } from './runtime-types.js'
 import { withContentPackCoordinationLock, withContentPackStateTransaction } from './state.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
+import { moveToTrashSync, libraryTrashDir, APP_TRASH } from '../lib/trash-move.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
+import { trashDir } from '../services/app-update.js'
 import { logLine } from '../services/logger.js'
+import { projectsRoot } from '../services/project-manager.js'
 
 const DIRECTORY_MODE = 0o700
 const FILE_MODE = 0o600
@@ -528,6 +531,29 @@ export async function quarantineContentPackBytes(
 }
 
 /**
+ * Every removal goes to Story's Trash (owner rule, 2026-10-18: generated files
+ * age out by themselves; nothing is hard-deleted). The target is the Library's
+ * one Trash, or — a rename cannot cross volumes — the app's own `<data>/_trash`
+ * when the Library is on another drive, the same two-step `app-update.ts` uses.
+ * `relativeTarget` keeps the provenance: `staging/<id>`, `removed/<id>`,
+ * `quarantine/<file>`.
+ */
+export function moveContentPackToTrash(source: string, relativeTarget: string, kind = 'content-pack'): string {
+  const bucket = path.join(APP_TRASH, 'content-packs', relativeTarget)
+  try {
+    const target = path.join(libraryTrashDir(projectsRoot()), bucket)
+    // Under the test runner, writing outside the claimed temp dir is a hard error (never the real `_trash`).
+    assertWriteIsolatedInTests(target, 'content-pack-trash')
+    return moveToTrashSync(source, target, kind)
+  } catch (error: any) {
+    if (error?.code !== 'EXDEV') throw error
+    const target = path.join(trashDir(), bucket)
+    assertWriteIsolatedInTests(target, 'content-pack-trash')
+    return moveToTrashSync(source, target, kind)
+  }
+}
+
+/**
  * A failed attempt keeps its bytes so the failure can be examined. Once the
  * IDENTICAL archive installs, that copy stops being evidence and becomes a
  * standing accusation against a pack that works.
@@ -547,11 +573,11 @@ export async function releaseQuarantinedContentPackBytes(
   let released = false
   for (const target of [`${archivePath}.json`, archivePath]) {
     try {
-      // lstat, never stat: a symlink planted here must be removed as the link
+      // lstat, never stat: a symlink planted here must be moved as the link
       // it is, never followed to whatever it points at.
       const entry = await fs.lstat(target)
       if (!entry.isFile()) continue
-      await fs.unlink(target)
+      moveContentPackToTrash(target, path.join('quarantine', path.basename(target)))
       released = true
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error

@@ -11,14 +11,17 @@
  * delete): a request carrying an automation key is refused with 403 whether or not
  * the key is valid, from loopback too, and so is one that is neither the app's own
  * window nor a signed-in browser (`isOwnerRequest`): a keyless loopback request is
- * not the owner. Nothing calls them from a timer.
+ * not the owner. The owner's own actions never come from a timer; the automatic
+ * age handoff that does run from one lives in `services/retention.ts`, moves only
+ * to the Mac's Trash, and is governed by `GET/PUT /trash/retention`.
  */
 import { Router } from 'express'
 
 import { isOwnerRequest, readAutomationKeyHeader } from '../lib/auth-session.js'
 import { respondWithError } from '../lib/humanize-backend-error.js'
 import { getServerModeConfig } from '../lib/server-mode.js'
-import { deletePermanently, listTrash, moveToMacTrash, restoreTrashItem } from '../services/trash.js'
+import { deletePermanently, electronTrashItem, listTrash, moveToMacTrash, restoreTrashItem } from '../services/trash.js'
+import { getRetentionSettings, setRetentionSettings } from '../services/retention.js'
 
 export const router = Router()
 
@@ -26,16 +29,18 @@ const viaAutomationKey = (req: any) => req.user?.via === 'automation_key' || rea
 const notOwner = (req: any) => viaAutomationKey(req) || !isOwnerRequest(req, getServerModeConfig()?.auth)
 const counted = (body: any) => Number.isSafeInteger(body?.expected_count) && Number.isSafeInteger(body?.expected_bytes)
 
-/** Electron's `shell.trashItem`: the server runs in the app's main process, on the Mac itself, in both modes. */
-async function electronTrashItem(): Promise<((p: string) => Promise<void>) | null> {
-  try {
-    const { shell } = await import('electron') as any
-    return typeof shell?.trashItem === 'function' ? (p: string) => shell.trashItem(p) : null
-  } catch { return null }
-}
-
 router.get('/trash', async (_req, res) => {
   try { res.json(await listTrash()) } catch (error) { respondWithError(res, error, 'Could not read the Trash') }
+})
+
+/** Automatic retention: the age handoff and the automatic all-channel cleanup (services/retention.ts). */
+router.get('/trash/retention', async (_req, res) => {
+  try { res.json({ ...await getRetentionSettings(), mac_trash_available: !!(await electronTrashItem()) }) } catch (error) { respondWithError(res, error, 'Could not read the retention settings') }
+})
+
+router.put('/trash/retention', async (req: any, res) => {
+  if (notOwner(req)) return res.status(403).json({ detail: 'Only the owner can change retention, from Story → Trash in the app or a signed-in browser. Automation keys never can.' })
+  try { res.json({ ...await setRetentionSettings(req.body || {}), mac_trash_available: !!(await electronTrashItem()) }) } catch (error) { respondWithError(res, error, 'Could not save the retention settings') }
 })
 
 router.post('/trash/restore', async (req, res) => {

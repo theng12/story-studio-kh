@@ -820,6 +820,17 @@ void electronApp.whenReady().then(async () => {
       logCrash('auto-backup', e)
     }
 
+    // 1.4.321 — automatic retention (owner, 2026-10-18): Story's Trash hands items to the
+    // Mac's Trash after `trash_handoff_days`, and the verified all-channel cleanup runs
+    // itself. Both daily, on this app's existing boot-timer pattern; both settings live on
+    // Story → Trash. Skipped with a clear status where the Mac's Trash is unreachable.
+    try {
+      const { startRetentionScheduler } = await import('./server/services/retention.js')
+      startRetentionScheduler(e => logCrash('retention', e))
+    } catch (e) {
+      logCrash('retention', e)
+    }
+
     // Remote updates from the Gateway (services/app-update.ts). Packaged builds only: a dev run
     // has no bundle to replace. Not awaited: settling a previous install waits for /api/health.
     if (electronApp.isPackaged && process.platform === 'darwin') {
