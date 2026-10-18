@@ -551,7 +551,7 @@ export async function buildChannelOverview(
   const planSet: boolean | null = usable ? true : (planError ? null : false)
   const tz = usable?.timezone || 'UTC'
 
-  const itemSchedule = await readItemSchedule(slug).catch(() => ({} as Record<string, string>))
+  const itemSchedule = await readItemSchedule(slug, facts).catch(() => ({} as Record<string, string>))
   const localPlanned = Object.entries(itemSchedule)
     .filter(([, iso]) => !!iso)
     .map(([key, iso]) => ({ code: key, at: iso }))

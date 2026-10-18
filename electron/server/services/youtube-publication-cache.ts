@@ -383,7 +383,7 @@ export async function legacyUploadsFor(slug: string, channelId: string, facts?: 
     .filter(record => record.channel_id === channelId && !!record.video_id)
     .map(record => record.episode_code.toUpperCase()))
   const out = new Map<string, string>()
-  for (const idea of await im.getIdeas(slug, 'accepted')) {
+  for (const idea of await im.getIdeas(slug, 'accepted', facts)) {
     const code = String(idea.episode_code || '').toUpperCase()
     if (!code || withRecord.has(code)) continue
     const sidecar = await readSidecarStrict(slug, code, 'youtube', facts).catch(() => null)

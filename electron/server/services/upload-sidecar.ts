@@ -16,7 +16,7 @@
 import fsp from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
-import { resolveEpisodePathsByCodeWithSidecar, resolveEpisodePaths, type ProjectFactsCache } from './utils.js'
+import { resolveEpisodePathsByCodeWithSidecar, resolveEpisodePaths, projectFactsFor, type ProjectFactsCache } from './utils.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { UploadPlatform } from './upload-store.js'
 
@@ -119,9 +119,18 @@ function sidecarPath(episodeDir: string, platform: UploadPlatform): string {
 }
 
 async function readSidecarAtPath(filePath: string): Promise<UploadSidecar | null> {
-  if (!existsSync(filePath)) return null
+  // One `readFile`, not `existsSync` + `readFile`. A missing file fails the
+  // open with ENOENT, which is the same answer the probe gave, at one syscall
+  // instead of two — and a sweep asks this question once per episode per
+  // channel. A directory, an unreadable file or malformed JSON all still land
+  // in the same `null` they always did.
+  let raw: string
   try {
-    const raw = await fsp.readFile(filePath, 'utf-8')
+    raw = await fsp.readFile(filePath, 'utf-8')
+  } catch {
+    return null
+  }
+  try {
     const data = JSON.parse(raw)
     return data && typeof data === 'object' ? data as UploadSidecar : null
   } catch {
@@ -130,8 +139,17 @@ async function readSidecarAtPath(filePath: string): Promise<UploadSidecar | null
 }
 
 async function readSidecarAtPathStrict(filePath: string): Promise<UploadSidecar | null> {
-  if (!existsSync(filePath)) return null
-  const data = JSON.parse(await fsp.readFile(filePath, 'utf-8'))
+  // Same shape as the tolerant read, same reason: absent is one failed open.
+  // Absent is `null` (uploadable) and every other failure PROPAGATES — this is
+  // the one guard standing between a damaged episode and a second public video.
+  let raw: string
+  try {
+    raw = await fsp.readFile(filePath, 'utf-8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null
+    throw error
+  }
+  const data = JSON.parse(raw)
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new Error(`${path.basename(filePath)} is not a sidecar object.`)
   }
@@ -159,6 +177,40 @@ export async function readSidecar(slug: string, episode_code: string, fallback_t
 }
 
 /**
+ * The sidecar for one episode, read at most ONCE per request.
+ *
+ * A sweep asks about the same episode from three readers — the item schedule,
+ * the legacy-upload index and the readiness sweep's `remoteVideoFor` — and each
+ * one re-resolved the episode folder and re-read and re-parsed the same file.
+ * On a 250-episode channel that is three times the disk work for one answer.
+ *
+ * Request-scoped by construction: it is only memoized when the caller supplied
+ * its request's facts cache, so every caller that passes none (generators,
+ * writers, the upload job) reads disk exactly as before. The slug is recorded
+ * by `projectFactsFor`, so a cache reused for another project is ignored rather
+ * than wrong. A failed read is not remembered.
+ */
+function memoizedSidecarRead(
+  slug: string,
+  episode_code: string,
+  platform: UploadPlatform,
+  cache: ProjectFactsCache | undefined,
+  strict: boolean,
+  read: () => Promise<UploadSidecar | null>,
+): Promise<UploadSidecar | null> {
+  const scoped = projectFactsFor(cache, slug)
+  if (!scoped) return read()
+  const key = `${platform}:${episode_code}${strict ? ':strict' : ''}`
+  const store = (scoped.sidecars ??= new Map())
+  const hit = store.get(key)
+  if (hit) return hit as Promise<UploadSidecar | null>
+  const pending = read()
+  store.set(key, pending)
+  pending.catch(() => { if (store.get(key) === pending) store.delete(key) })
+  return pending
+}
+
+/**
  * Returns the parsed sidecar regardless of upload state — including
  * planning stubs whose only meaningful field is `scheduled_for`. Use
  * this when the question is "what's the planned schedule / privacy /
@@ -178,9 +230,11 @@ export async function readSidecarRaw(slug: string, episode_code: string, fallbac
   // The caller's request-scoped facts cache, threaded to the resolver that
   // already accepts one. Without it a sweep re-parsed ideas.json and project.json
   // per episode — the resolver is the expensive part, not the file read.
-  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_code, `${platform}_upload.json`, cache)
-  const p = sidecarPath(paths.episode_dir, platform)
-  return readSidecarAtPath(p)
+  return memoizedSidecarRead(slug, episode_code, platform, cache, false, async () => {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_code, `${platform}_upload.json`, cache)
+    const p = sidecarPath(paths.episode_dir, platform)
+    return readSidecarAtPath(p)
+  })
 }
 
 /**
@@ -198,9 +252,11 @@ export async function readSidecarRaw(slug: string, episode_code: string, fallbac
  * offered to the tolerant callers, whose behaviour is unchanged.
  */
 export async function readSidecarStrict(slug: string, episode_code: string, platform: UploadPlatform, cache?: ProjectFactsCache): Promise<UploadSidecar | null> {
-  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_code, `${platform}_upload.json`, cache)
-  const p = sidecarPath(paths.episode_dir, platform)
-  return readSidecarAtPathStrict(p)
+  return memoizedSidecarRead(slug, episode_code, platform, cache, true, async () => {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_code, `${platform}_upload.json`, cache)
+    const p = sidecarPath(paths.episode_dir, platform)
+    return readSidecarAtPathStrict(p)
+  })
 }
 
 /**

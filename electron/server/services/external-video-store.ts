@@ -40,7 +40,7 @@ import path from 'path'
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import * as pm from './project-manager.js'
-import { projectMetaOnce, type ProjectFactsCache } from './utils.js'
+import { projectMetaOnce, projectFactsFor, type ProjectFactsCache } from './utils.js'
 
 /**
  * Where finished videos go. Always `<Library>/Exports`.
@@ -115,13 +115,14 @@ export async function resolveExternalFinalVideoDir(
   // before the change is still where it was, so when this episode has nothing
   // in the current folder, look in the folders it replaced. Writers pass
   // `forWrite` and always get the current folder.
-  if (options.forWrite || existsSync(current)) return current
+  if (options.forWrite) return current
+  if (await exportSeasonHas(current, slug, cache)) return current
   const others = cache
     ? await (cache.otherExportBases ??= previousExportRootsOrEmpty().then(p => otherChannelBases(slug, base, p)))
     : await otherChannelBases(slug, base, await previousExportRootsOrEmpty())
   for (const earlierBase of others) {
     const candidate = path.join(earlierBase, episodeRel)
-    if (existsSync(candidate)) return candidate
+    if (await exportSeasonHas(candidate, slug, cache)) return candidate
   }
   return current
 }
@@ -176,6 +177,40 @@ async function otherChannelBases(slug: string, current: string, previousRoots: s
   ]
   const seen = new Set([path.resolve(current)])
   return bases.filter(b => !seen.has(path.resolve(b)) && seen.add(path.resolve(b)))
+}
+
+/**
+ * Is there anything at `dir`? Answered for the WHOLE season folder at once.
+ *
+ * The finished-video probe asked this per episode — once for the current
+ * Exports folder and once per earlier base — which on a 250-episode channel is
+ * ~500 `existsSync` calls to learn what ONE `readdir` of the enclosing
+ * `Season NNN/` folder says about every episode in it. A request-scoped facts
+ * cache turns the question into an in-memory membership test; a caller that
+ * supplies none reads the disk exactly as before.
+ *
+ * A folder that is NOT THERE is an empty set, not a failure: nothing can sit
+ * inside a directory that does not exist, so the listing and the per-episode
+ * probe agree without the probe. Any other failure IS `null`, and the caller
+ * falls back to `existsSync` — an unreadable-but-present folder must not be
+ * reported as an absent episode.
+ */
+async function exportSeasonHas(dir: string, slug: string, cache?: ProjectFactsCache): Promise<boolean> {
+  const name = path.basename(dir)
+  const scoped = projectFactsFor(cache, slug)
+  if (!scoped) return existsSync(dir)
+  const store = (scoped.exportSeasonFolders ??= new Map())
+  const seasonDir = path.dirname(dir)
+  let listing = store.get(seasonDir)
+  if (!listing) {
+    listing = fs.readdir(seasonDir).then(
+      names => new Set(names),
+      (error: NodeJS.ErrnoException) => (error?.code === 'ENOENT' ? new Set<string>() : null),
+    )
+    store.set(seasonDir, listing)
+  }
+  const names = await listing
+  return names ? names.has(name) : existsSync(dir)
 }
 
 /**
