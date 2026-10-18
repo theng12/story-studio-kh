@@ -15,7 +15,7 @@ What's new in each release. Newest first.
 - Publishing Overview now has Coverage and Calendar tabs, a channel search (name, slug or connected YouTube title), sortable coverage columns with unknown values last, Week/Month/Year calendar ranges with Previous/Next/Today, and paging — and stays usable on narrower windows.
 - Idea-campaign generation now sizes its work adaptively — one or more adaptive calls, capped at 100 ideas in total — instead of fixed calls of ten.
 - Jobs: queued jobs show their place in their own queue ("#N in its queue") with Up, Down and Top buttons to reorder jobs of the same kind (for example Video Assembly); the order survives a restart. The Jobs list now keeps one steady order — running, then queued in the order they will run, then paused, then finished newest first — instead of jumping around on live updates.
-- Publishing Overview no longer counts videos that are already on YouTube as waiting to upload; it now uses the same upload evidence as the Upload Center.
+- Publishing Overview now agrees with the Upload Center: videos already on YouTube (including ones uploaded through older paths) count as on YouTube instead of waiting to upload, and an upload that is queued or running counts as in progress, not ready. A video YouTube is still processing shows its accepted schedule date ("Scheduled … · YouTube still processing") in the Upload Center.
 - Trash ages out by itself: items older than 7 days (adjustable on the Trash page) move to the macOS Trash automatically, and the Free up space cleanup runs automatically with the same safe rule as its button (can be switched off). Expired logs and removed content packs now go to the Trash instead of being deleted.
 
 ## v1.4.319 — 2026-10-18
