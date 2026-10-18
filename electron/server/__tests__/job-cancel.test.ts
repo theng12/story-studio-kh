@@ -1171,7 +1171,15 @@ describe('cancelled history cleanup waits for a live worker to return', () => {
         } else if (retirement === 'clear') {
           assert.equal(await jq.clearFinished(project.slug), 1)
         } else {
-          replacement = jq.retryTerminalJob(project.slug, original.job_id)
+          assert.throws(
+            () => jq.retryTerminalJob(project.slug, original.job_id),
+            (error: any) => {
+              assert.equal(error.status, 409)
+              assert.match(error.message, /still finishing locally|worker|stopping/i)
+              return true
+            },
+            'Retry must be refused while the cancelled worker is still settling',
+          )
         }
         flagWhileHeld = jq.isCancelled(original.job_id)
 
@@ -1184,11 +1192,24 @@ describe('cancelled history cleanup waits for a live worker to return', () => {
         })
 
         release()
+        await waitForValue(
+          () => !jq._isJobWorkerActiveForTesting(original.job_id) ? true : undefined,
+          { label: `the ${retirement} original worker to settle`, timeoutMs: 2_000 },
+        )
+        if (retirement === 'retry') {
+          replacement = jq.retryTerminalJob(project.slug, original.job_id)
+        }
         await jq.setQueuePaused(false)
         await waitForValue(
           () => jq.getJob(marker.job_id)?.status === 'done' ? jq.getJob(marker.job_id) : undefined,
           { label: `the ${retirement} marker to finish`, timeoutMs: 2_000 },
         )
+        if (replacement) {
+          await waitForValue(
+            () => jq.getJob(replacement!.job_id)?.status === 'done' ? jq.getJob(replacement!.job_id) : undefined,
+            { label: `the ${retirement} retry replacement to finish`, timeoutMs: 2_000 },
+          )
+        }
 
         assert.equal(flagWhileHeld, true, 'retiring history must not clear a live worker\'s flag')
         assert.equal(checkpointFlag, true, 'the worker must still observe cancellation at its checkpoint')
@@ -1265,7 +1286,7 @@ test('rejects deterministic episode-recovery ID reuse until the retired worker e
       () => jq.enqueueEpisodeRecoveryOnce(originalId, originalOptions),
       (error: any) => {
         assert.equal(error.status, 409)
-        assert.match(error.message, /worker|stopping/i)
+        assert.match(error.message, /still finishing locally|worker|stopping/i)
         return true
       },
     )

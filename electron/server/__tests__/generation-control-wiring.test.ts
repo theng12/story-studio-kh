@@ -113,7 +113,12 @@ async function waitForTerminalJob(
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const status = jq.getJob(jobId)?.status
-    if (status && status !== 'queued' && status !== 'running') return
+    // A terminal status is published before runJob's finally block releases the
+    // worker slot, and the queue refuses Retry/enqueue while the previous
+    // executor is still unwinding (job-queue.ts assertNoSettlingWorker). Require
+    // the slot to be free too, or a following Retry races the settling worker.
+    if (status && status !== 'queued' && status !== 'running'
+      && !jq._isJobWorkerActiveForTesting(jobId)) return
     await new Promise(resolve => setTimeout(resolve, 20))
   }
 }

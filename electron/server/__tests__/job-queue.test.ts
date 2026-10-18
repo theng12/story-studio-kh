@@ -541,6 +541,17 @@ describe('retryTerminalJob()', () => {
     }
     assert.equal(jq.getJob(original.job_id)?.status, 'error')
 
+    // `waitFor`, not a fixed-ms poll: the suite forbids a new `setTimeout`
+    // followed by an assertion (see no-new-wallclock-sleeps), and it is right
+    // to — a fixed sleep asserts that this machine schedules promptly, which
+    // stops being true under load.
+    await waitFor(
+      () => !jq._isJobWorkerActiveForTesting(original.job_id),
+      { label: 'the failed worker to settle before Retry is admitted', timeoutMs: 2_000 },
+    )
+    assert.equal(jq._isJobWorkerActiveForTesting(original.job_id), false,
+      'the failed worker must settle before Retry is admitted')
+
     jq.registerExecutor('continuity_render', async () => {})
     const retried = jq.retryTerminalJob(proj.slug, original.job_id)
     assert.equal(retried.params.model, 'genstudio-image:current-model')

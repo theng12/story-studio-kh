@@ -20,7 +20,8 @@ async function waitForTerminal(
 ): Promise<void> {
   await waitFor(() => {
     const status = jq.getJob(jobId)?.status
-    return status === 'error' || status === 'cancelled' || status === 'done'
+    return (status === 'error' || status === 'cancelled' || status === 'done')
+      && !jq._isJobWorkerActiveForTesting(jobId)
   }, { label, timeoutMs: 2_000 })
 }
 

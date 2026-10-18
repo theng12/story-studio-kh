@@ -128,7 +128,12 @@ void test('image and music routes retain one paid provider request per operation
       try {
         await waitFor(() => {
           const status = jq.getJob(jobId)?.status
-          return status === 'done' || status === 'error' || status === 'cancelled'
+          // The queue refuses Retry/enqueue while the previous executor is still
+          // unwinding (job-queue.ts assertNoSettlingWorker): a terminal row is not
+          // yet an admission window. Wait for the owned worker slot too, exactly as
+          // pipeline-explicit-regeneration's terminal helper does.
+          return (status === 'done' || status === 'error' || status === 'cancelled')
+            && !jq._isJobWorkerActiveForTesting(jobId)
         }, { label, timeoutMs: 10_000 })
       } catch (error) {
         const current = jq.getJob(jobId)

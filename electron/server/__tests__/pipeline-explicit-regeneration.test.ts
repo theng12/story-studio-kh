@@ -42,9 +42,13 @@ test('forced Pipeline chat work replays one action, survives Jobs Retry, and a n
   }], 'mock-chat-v1')
   const accepted = await ideas.acceptIdea(project.slug, idea!.id, false)
 
+  // The queue refuses Retry/enqueue while the previous executor is still unwinding
+  // (job-queue.ts assertNoSettlingWorker): a terminal row is not yet an admission window. Wait for
+  // the owned worker slot too, exactly as job-retry-route-contract's waitForTerminal does.
   const terminal = async (jobId: string, label: string) => waitFor(() => {
     const status = jq.getJob(jobId)?.status
-    return status === 'done' || status === 'error' || status === 'cancelled'
+    return (status === 'done' || status === 'error' || status === 'cancelled')
+      && !jq._isJobWorkerActiveForTesting(jobId)
   }, { label, timeoutMs: 10_000 })
   const body = (operationId: string) => ({
     episode_ids: [accepted.episode_code], steps: ['research'], force: true, operation_id: operationId,
