@@ -831,6 +831,16 @@ void electronApp.whenReady().then(async () => {
       logCrash('retention', e)
     }
 
+    // 1.4.322 — the TTS and chat catalogues are kept warm off the job path, so a paid job never
+    // waits on a catalogue refresh. On the overloaded production mini those refreshes timed out at
+    // the old 8-second ceiling and the stale-catalogue guard then refused work.
+    try {
+      const { startGenStudioCatalogRefreshScheduler } = await import('./server/services/genstudio-catalog-refresh.js')
+      startGenStudioCatalogRefreshScheduler(e => logCrash('genstudio-catalog-refresh', e))
+    } catch (e) {
+      logCrash('genstudio-catalog-refresh', e)
+    }
+
     // Remote updates from the Gateway (services/app-update.ts). Packaged builds only: a dev run
     // has no bundle to replace. Not awaited: settling a previous install waits for /api/health.
     if (electronApp.isPackaged && process.platform === 'darwin') {
