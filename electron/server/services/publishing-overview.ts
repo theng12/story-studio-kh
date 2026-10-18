@@ -22,7 +22,9 @@
  *               chosen date on an episode (readItemSchedule). INTENT. A local
  *               plan never clears a confirmed gap.
  *   readiness — the channel-counts rule (episodeStepJobStates) plus the same
- *               rendered-video check the Upload route admits with.
+ *               rendered-video check the Upload route admits with, and the SAME
+ *               `remoteVideoFor` remote-evidence predicate /youtube/publishable
+ *               asks (operation record, reconcile link, legacy sidecar).
  *
  * Everything degrades per channel and per fact: an unreadable store is
  * `unknown`, never a zero. A channel with no usable cadence says
@@ -31,7 +33,7 @@
  * instead of claiming there is none. A readiness sweep that could not read an
  * episode reports `ready_to_publish: null` with `ready_unknown`; an unreadable
  * episode list makes every count over it null rather than 0; a failed YouTube
- * link read makes `ready_to_publish` null and suppresses the publish
+ * evidence read makes `ready_to_publish` null and suppresses the publish
  * suggestion, because "finished and NOT already on YouTube" cannot be decided.
  * `readiness.error` says which read failed.
  */
@@ -53,6 +55,7 @@ import {
 } from './youtube-publication-cache.js'
 import { readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
 import { listYouTubeOperations } from './youtube-operation-store.js'
+import { remoteVideoFor } from './youtube-remote-video.js'
 import { readYouTubeConnectionRegistry, getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { resolveYouTubeCredential } from './youtube-credential.js'
 import { createProjectFactsCache, projectDirFor, resolveEpisodePaths, type ProjectFactsCache } from './utils.js'
@@ -191,6 +194,7 @@ async function readReadiness(
   slug: string,
   ideas: StoredIdea[],
   ideasUnreadable: boolean,
+  channelId: string | null,
   facts: ProjectFactsCache,
 ): Promise<{
   readiness: PublishingOverviewChannel['readiness']
@@ -213,15 +217,27 @@ async function readReadiness(
     reasons.push("Story Studio could not read this channel's ideas, so it cannot say how many episodes it has.")
   }
 
-  // Which episodes YouTube already has. When this read fails the set below stays
-  // EMPTY, so the skip guard in the sweep would skip nothing and every finished
-  // episode would look unpublished — a claim about a fact we failed to read.
+  // Which episodes YouTube already has. This is the SAME question, answered by
+  // the SAME predicate, as /youtube/publishable: `remoteVideoFor` reads all
+  // three authoritative stores (operation record, reconcile link, legacy
+  // sidecar), channel-scoped. Reading only `episode_video_links` counted an
+  // episode published through the old page (sidecar only) or by an operation
+  // whose link was never written as "not on YouTube yet" — so the overview
+  // recommended an upload the Upload Center correctly refuses.
+  //
+  // The operation index and publishing state are hoisted out of the per-episode
+  // sweep for the same reason the Publish page hoists them: the state read
+  // takes a lock, and calling it per episode serialises the batch.
   let onYouTube: number | null = null
   const onYouTubeCodes = new Set<string>()
+  let publishingState: Awaited<ReturnType<typeof readYouTubeProjectPublishingState>> | null = null
+  let records: Awaited<ReturnType<typeof listYouTubeOperations>> = []
   let linksUnreadable = false
+  let operationsUnreadable = false
   if (!ideasUnreadable) {
     try {
-      const links = (await readYouTubeProjectPublishingState(slug, facts)).episode_video_links
+      publishingState = await readYouTubeProjectPublishingState(slug, facts)
+      const links = publishingState.episode_video_links
       for (const code of codes) {
         if (Object.hasOwn(links, code)) onYouTubeCodes.add(code)
       }
@@ -230,7 +246,19 @@ async function readReadiness(
       linksUnreadable = true
       reasons.push("Story Studio could not read which episodes are already on YouTube.")
     }
+    try {
+      records = await listYouTubeOperations(slug, facts)
+    } catch {
+      // Same rule as the state read: without the operation records the remote
+      // half cannot be decided, so the ready count must be unknown, never a
+      // confident number computed over evidence we failed to read.
+      operationsUnreadable = true
+      reasons.push('Story Studio could not read its YouTube upload records.')
+    }
   }
+  // Either store missing makes "already on YouTube" undecidable for the sweep.
+  const remoteUnreadable = linksUnreadable || operationsUnreadable
+  const remoteReadable = !remoteUnreadable && publishingState !== null
 
   const inProgress = new Set<string>()
   const needsAttention = new Set<string>()
@@ -273,8 +301,15 @@ async function readReadiness(
       for (let i = 0; i < withCode.length; i += READINESS_BATCH) {
         const batch = withCode.slice(i, i + READINESS_BATCH)
         await Promise.all(batch.map(async (idea) => {
-          if (onYouTubeCodes.has(idea.episode_code)) return
           try {
+            // ANY authoritative remote evidence means this video is already
+            // uploaded and MUST NOT be recommended as a new one. This is the
+            // `/youtube/publishable` predicate itself, not a second copy of it.
+            // A corrupt per-episode sidecar throws here and lands in `unknown`,
+            // exactly as one corrupt row degrades alone on the Publish page.
+            if (remoteReadable && await remoteVideoFor(
+              slug, idea.episode_code, idea.title, channelId, records, publishingState!, facts,
+            )) return
             const paths = await resolveEpisodePaths(slug, idea.episode_code, idea.title, facts)
             const source = await findYouTubeSourceVideoPath(paths, slug, idea.episode_code, idea.title, facts)
             ;(source ? ready : pending).push(idea.episode_code)
@@ -283,10 +318,10 @@ async function readReadiness(
       }
       readyUnknown = unknown.length
       // "Ready to publish" means finished AND not already on YouTube. With the
-      // link read failed the second half is unknown, so the count is unknown and
-      // no publish suggestion may be built from the `ready` list.
-      readyToPublish = (readyUnknown || linksUnreadable) ? null : ready.length
-      readyCodes = linksUnreadable ? [] : ready.sort()
+      // remote evidence unreadable the second half is unknown, so the count is
+      // unknown and no publish suggestion may be built from the `ready` list.
+      readyToPublish = (readyUnknown || remoteUnreadable) ? null : ready.length
+      readyCodes = remoteUnreadable ? [] : ready.sort()
       pendingCodes = pending.sort()
     } catch {
       readyToPublish = null
@@ -479,7 +514,7 @@ export async function buildChannelOverview(
     lastSlotAt = computed.at(-1) ?? null
   }
 
-  const { readiness, readyToPublish, readyCodes, pendingCodes } = await readReadiness(slug, ideas, ideasUnreadable, facts)
+  const { readiness, readyToPublish, readyCodes, pendingCodes } = await readReadiness(slug, ideas, ideasUnreadable, channelId, facts)
   const recommendations = buildRecommendations(slug, readyCodes, pendingCodes)
 
   const lastConfirmedDate = confirmed.schedules

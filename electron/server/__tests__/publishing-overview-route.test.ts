@@ -22,12 +22,18 @@ const pm = await import('../services/project-manager.js')
 const im = await import('../services/idea-manager.js')
 const connections = await import('../services/youtube-connection-store.js')
 const store = await import('../services/youtube-project-publishing-store.js')
+const operations = await import('../services/youtube-operation-store.js')
+const sidecars = await import('../services/upload-sidecar.js')
 const { router } = await import('../routes/publishing-overview.js')
+// The Publish page's own list, so a parity test can ask BOTH surfaces the same
+// question instead of trusting the overview's copy of the predicate.
+const { router: uploadRouter } = await import('../routes/youtube-upload-center.js')
 await boot.cleanup()
 
 const app = express()
 app.use(express.json())
 app.use('/api', router)
+app.use('/api', uploadRouter)
 
 let tmp: { dir: string; cleanup: () => Promise<void> } | undefined
 afterEach(async () => { await tmp?.cleanup(); tmp = undefined })
@@ -150,4 +156,80 @@ test('a failed YouTube link read is unknown through the route, with no publish r
   assert.equal(typeof channel.readiness.error, 'string')
   assert.deepEqual(channel.recommendations, [])
   assert.equal(JSON.stringify(channel.recommendations).includes('not on YouTube yet'), false)
+})
+
+test('operation-record and legacy-sidecar evidence excludes an episode from ready counts, matching /youtube/publishable', async () => {
+  tmp = await useTempDataDir()
+  const created = await connectedProject('Remote Evidence', 'RE')
+  await acceptedEpisode(created.slug, 'RE0001', 'Operation Only')
+  await acceptedEpisode(created.slug, 'RE0002', 'Sidecar Only')
+  await acceptedEpisode(created.slug, 'RE0003', 'Never Uploaded')
+
+  // RE0001: an accepted operation record carries the video id, but the episode
+  // link is deliberately absent. The two stores are written independently, so
+  // the overview must not treat "no link" as "never uploaded".
+  const operation = await operations.createYouTubeOperation({
+    project_slug: created.slug, episode_code: 'RE0001', channel_id: CHANNEL,
+    source_revision: 'src-RE0001', metadata_revision: 'meta-RE0001',
+    origin: 'manual', final_action: 'manual_upload',
+  })
+  await operations.acceptYouTubeOperation({
+    project_slug: created.slug, operation_id: operation.operation_id,
+    expected_revision: operation.revision, channel_id: CHANNEL,
+    video_id: 'vid-operation-only', accepted_at: '2026-10-01T00:00:00.000Z',
+    final_payload: { snippet_json: '{}', status_json: '{}', source_sha256: 'a'.repeat(64) },
+  })
+  // Accept writes the episode link too; drop it so the durable operation record
+  // is the ONLY trace of this upload — the reported shape where the link write
+  // was lost and the record survived.
+  const statePath = `${pm.projectsRoot()}/${created.slug}/youtube/project-state.json`
+  const state = JSON.parse(await fs.readFile(statePath, 'utf-8'))
+  delete state.episode_video_links.RE0001
+  await fs.writeFile(statePath, JSON.stringify(state))
+
+  // RE0002: published before v1.5.0, so only the legacy sidecar knows it.
+  await sidecars.writeSidecar(created.slug, 'RE0002', 'Sidecar Only', {
+    platform: 'youtube', video_id: 'vid-sidecar-only', account_id: 'old-account',
+    channel_id: CHANNEL, uploaded_at: '2026-09-01T00:00:00.000Z', last_sync_at: '',
+    scheduled_for: null, privacy_status: 'private', title: 'Sidecar Only',
+    description: '', tags: [], thumbnail_set: true,
+  })
+
+  const overview = await request(app).get('/api/publishing/overview')
+  assert.equal(overview.status, 200)
+  const channel = overview.body.channels[0]
+  assert.equal(channel.readiness.ready_unknown, 0)
+  assert.equal(channel.readiness.ready_to_publish, 1)
+  assert.equal(channel.coverage.ready_video_count, 1)
+  // Only the episode with NO remote evidence anywhere may be recommended.
+  assert.deepEqual(channel.recommendations.map((r: any) => r.episode_code), ['RE0003'])
+  assert.equal(channel.recommendations.some((r: any) => r.episode_code === 'RE0001'), false)
+  assert.equal(channel.recommendations.some((r: any) => r.episode_code === 'RE0002'), false)
+
+  // The Publish page's own list, through its actual route: both episodes are
+  // already on YouTube and neither is offered for upload.
+  const publishable = await request(app).get(`/api/projects/${created.slug}/youtube/publishable`)
+  assert.equal(publishable.status, 200)
+  const rows: any[] = publishable.body.episodes
+  const rowFor = (code: string) => rows.find((row: any) => row.episode_code === code)
+  assert.equal(rowFor('RE0001').has_remote_video, true)
+  assert.equal(rowFor('RE0001').remote_source, 'operation_record')
+  assert.match(rowFor('RE0001').blocked_reason, /already on YouTube/)
+  assert.equal(rowFor('RE0002').has_remote_video, true)
+  assert.equal(rowFor('RE0002').remote_source, 'legacy_sidecar')
+  assert.match(rowFor('RE0002').blocked_reason, /already on YouTube/)
+  assert.equal(rowFor('RE0003').has_remote_video, false)
+  assert.doesNotMatch(String(rowFor('RE0003').blocked_reason || ''), /already on YouTube/)
+
+  // Parity: the ready recommendations are exactly the publishable rows that
+  // have a finished video and no authoritative remote copy — one predicate,
+  // two surfaces, so they cannot drift apart again.
+  assert.deepEqual(
+    rows
+      .filter((row: any) => row.has_video && !row.has_remote_video)
+      .map((row: any) => row.episode_code),
+    channel.recommendations
+      .filter((r: any) => r.kind === 'ready_to_publish')
+      .map((r: any) => r.episode_code),
+  )
 })
