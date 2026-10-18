@@ -1,6 +1,25 @@
 # HANDOFF — Story Studio KH
 
-## Source prepared, not released — 2026-10-18 (1.4.320)
+## Gated and landed on main — 2026-10-18 (1.4.320)
+
+Main carries the reviewed 1.4.320 integration plus, folded into the same release: queued-job
+reorder within a kind (Up/Down/Top, durable `queue_rank`) and one stable Jobs order
+(`frontend/utils/jobs-list.ts` `orderJobsForDisplay`); Publishing Overview agreement with the Upload
+Center (ready / on_youtube via `remoteVideoFor`, active uploads in_progress, processing videos keep
+YouTube's accepted publishAt); automatic retention (`services/retention.ts`: `_trash` → macOS Trash
+after `trash_handoff_days`, default 7; automatic Free up space via the button's own path, default ON;
+expired logs and content-pack removals go to `_trash`). The 8 merged-tree backend failures and 12
+frontend harness failures were superseded test expectations (no product change); see the test
+commits on main.
+
+Full gate on main `6c584d3d`'s product tree: lint, check:changelog/typography/security/model-drift,
+typecheck, test:backend 7470 tests / 7469 pass / 0 fail (unfiltered), test:frontend 2663/2663,
+test:release 63/63, test:content-packs 366 pass / 0 fail — all exit 0. Next: push, `dist:smoke`
+from main, publication and the mini's normal update (`_orchestra/codex-takeover-20261012/tools/ship-story.py`).
+Open after 320: upload POST response latency (>120 s while the job is accepted) and Publishing
+Overview read time under load — production reported both; triage in progress.
+
+## Historical — 1.4.320 source preparation (SUPERSEDED by the section above)
 
 Branch `release/1.4.320-integration` in `_worktrees/story-studio-kh/release-320-integration`, from main
 `285e2c7a3406858cb72c065dfa76c96644ebbaa3` (1.4.319, released and installed — see below; tree
