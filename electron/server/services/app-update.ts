@@ -9,7 +9,10 @@
  *    and update phase, and answers with the signed release plus any "Update now" the admin pressed.
  * 2. **Verify** the release's Ed25519 signature against the publisher key this Mac pinned the
  *    first time it saw one (and that pin never changes silently), then download the file and
- *    check its signed size and sha256 before anything else touches it.
+ *    check its signed size and sha256 before anything else touches it. A ~240 MB file does not
+ *    fit in one check over a slow link, so a partial download is RESUMED with `Range`/`If-Range`
+ *    across checks (see `download`) — but only the transfer resumes: the digest is always checked
+ *    over the whole file, and a partial or unverified file is never installed.
  * 3. **Stage** it: extract the .app (DMG via a read-only mount, or a .zip), strip
  *    `com.apple.quarantine` defensively (a file Story writes itself is not quarantined: only apps
  *    with `LSFileQuarantineEnabled`, such as browsers, add it), check the bundle reports the signed
@@ -464,6 +467,13 @@ let quitDeadlineMs = 6 * 60_000
 let installing: Promise<boolean> | null = null
 
 /**
+ * Live progress of the download in flight, for the Settings card — a ~240 MB file on a slow link
+ * takes many checks, and without this the card can only say "downloading". In memory only: a
+ * restart resumes the file and the count starts from the bytes on disk again.
+ */
+let progress: { downloaded: number; total: number } | null = null
+
+/**
  * This process's queue-pause owner token. Minted once and persisted before the acquire is awaited,
  * so concurrent callers of one install attempt share the SAME token — the winner never lacks the
  * loser's claim, and a bare boolean never authorizes a release. Reset on release and on a fresh
@@ -681,14 +691,26 @@ function markFailed(error: unknown): UpdateState {
 }
 
 /**
- * Download the whole file (the Gateway serves it without Range; any interruption starts again from
- * zero next time) and check its signed size and sha256. Every failure here means the file is not
- * fully available yet (404, a short or still-uploading file, a dropped connection): nothing is
- * recorded as a failed install, and the next check tries again.
+ * Download the whole file, RESUMING what a previous attempt left behind, and check its signed size
+ * and sha256. The owner's link is a Tailscale relay at ~115 KB/s, so ~240 MB cannot finish inside
+ * one check; without a resume every attempt restarted at byte zero and died at the same place.
+ *
+ * A `.part` shorter than the signed size is a prefix: it is hashed and the rest asked for with
+ * `Range: bytes=<n>-` plus `If-Range: <sha256>`. The Gateway answers 206 for a prefix of THIS
+ * artifact, 200 (the whole file) when the validator no longer matches a re-published artifact or it
+ * has no ranges, and 416 when the part is at or past the end. A 200 replaces the part rather than
+ * appending to it — two artifacts are never mixed — a 416 sends it to Trash, and an over-long or
+ * complete-but-wrong part is started over the same way. Only the bytes are resumed: the signed size
+ * and sha256 are still checked over the WHOLE file before it is renamed into place.
+ *
+ * The only clock here is inactivity: 30 s with no byte arriving aborts. There is deliberately no
+ * wall-clock deadline, so a download that keeps moving is never killed for being slow. Every
+ * failure means the file is not fully available yet (404, a short or still-uploading file, a
+ * dropped connection): nothing is recorded as a failed install, and the next check tries again.
  */
 async function download(release: ReleaseDescriptor, file: string): Promise<boolean> {
+  const part = `${file}.part`
   const controller = new AbortController()
-  const deadline = setTimeout(() => controller.abort(), 15 * 60_000)
   let inactivity: ReturnType<typeof setTimeout> | undefined
   const progressing = () => {
     clearTimeout(inactivity)
@@ -698,39 +720,65 @@ async function download(release: ReleaseDescriptor, file: string): Promise<boole
   try {
     const { url, key } = await opts!.gateway()
     const f = opts!.fetch ?? fetch
+    // Only a strict prefix of the signed size is worth resuming; anything else is replaced below.
+    const before = fs.statSync(part, { throwIfNoEntry: false })?.size ?? 0
+    const resumeAt = before > 0 && before < release.bytes ? before : 0
     const response = await f(`${url.replace(/\/+$/, '')}/v1/apps/story/release/file`, {
-      headers: { Authorization: `Bearer ${key}`, 'X-Caller': STORY_CALLER },
+      headers: { Authorization: `Bearer ${key}`, 'X-Caller': STORY_CALLER,
+        ...(resumeAt ? { Range: `bytes=${resumeAt}-`, 'If-Range': release.sha256 } : {}) },
       signal: controller.signal,
     })
+    if (response.status === 416) {
+      // The part is at or past the end of what the Gateway holds, so it cannot be a prefix of this
+      // artifact: it goes to Story's Trash and the next check starts the file over from zero.
+      await toTrash(part, 'app-update')
+      throw new Error('the Gateway holds no bytes past the part already downloaded')
+    }
     if (!response.ok || !response.body) throw new Error(`the Gateway answered ${response.status} to the download`)
+    const resuming = response.status === 206 && resumeAt > 0
     const hash = createHash('sha256')
     let size = 0
+    if (resuming) {
+      // Re-hash the prefix this part already holds: the digest below must cover the whole file.
+      await pipeline(fs.createReadStream(part), new Transform({
+        transform(chunk, _enc, done) { hash.update(chunk); size += chunk.length; done() },
+      }))
+    }
+    if (progress) progress.downloaded = size
     await pipeline(Readable.fromWeb(response.body as any), new Transform({
-      transform(chunk, _enc, done) { progressing(); hash.update(chunk); size += chunk.length; done(null, chunk) },
-    }), fs.createWriteStream(`${file}.part`), { signal: controller.signal })
+      transform(chunk, _enc, done) {
+        progressing(); hash.update(chunk); size += chunk.length
+        if (progress) progress.downloaded = size
+        done(null, chunk)
+      },
+    }), fs.createWriteStream(part, { flags: size ? 'a' : 'w' }), { signal: controller.signal })
     if (size !== release.bytes || hash.digest('hex') !== release.sha256) {
       throw new Error('the downloaded file does not match the signed release yet')
     }
-    await fsp.rename(`${file}.part`, file)
+    await fsp.rename(part, file)
     return true
   } catch (e: any) {
     patchState({ phase: 'idle', staged_app: null,
       error: `${release.version} is not fully available yet (${String(e?.message || e)}); trying again at the next check.` })
     return false
   } finally {
-    clearTimeout(deadline)
     clearTimeout(inactivity)
+    progress = null
   }
 }
 
 async function stage(release: ReleaseDescriptor, requestId: string | null = null): Promise<void> {
   const dir = path.join(updateDir(), 'staging', release.version)
-  // Each download is ~240 MB; its leftovers go to Story's Trash, where the owner frees the space.
-  await toTrash(dir, 'app-update')
+  // ~240 MB may take many checks on a slow link, so the staging dir — and the `.part` inside it —
+  // is KEPT while it belongs to this same release (same signed sha256) and trashed only when a
+  // different release replaces it. What is kept here is a partial download, never an install:
+  // nothing is extracted, verified or renamed into place until the whole file's sha256 matches.
+  if (readState().release?.sha256 !== release.sha256) await toTrash(dir, 'app-update')
   await fsp.mkdir(dir, { recursive: true })
   patchState({ phase: 'downloading', release, error: null, staged_app: null, held: false,
     gateway_update_request_id: requestId })
   const file = path.join(dir, release.filename)
+  progress = { downloaded: 0, total: release.bytes }
   if (!await download(release, file)) return
   try {
     const app = await extractApp(file, path.join(dir, 'app'))
@@ -1028,6 +1076,7 @@ export async function status(): Promise<Record<string, unknown>> {
     enabled: !!opts,
     current_version: opts?.currentVersion ?? null,
     machine: machineName(),
+    ...(progress ? { downloaded_bytes: progress.downloaded, total_bytes: progress.total } : {}),
     ...state,
     settings: rest,
     jobs_left: opts ? jobsLeft(opts.queue) : 0,
@@ -1057,6 +1106,7 @@ export function _resetForTesting(): void {
   quittingForUpdate = false
   installing = null
   ourPauseToken = null
+  progress = null
   quitDeadlineMs = 6 * 60_000
 }
 export function _configureForTesting(options: UpdaterOptions): void { opts = options }

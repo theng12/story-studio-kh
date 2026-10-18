@@ -224,7 +224,8 @@ describe('download, stage, drain and resume', () => {
       assert.equal(checking, updater.checkNow(), 'in-flight checks share one promise')
       for (let i = 0; i < 1000 && downloads !== 1; i++) await new Promise(r => setImmediate(r))
       assert.equal(downloads, 1)
-      // A total deadline covers headers and body, even when a response never finishes.
+      // 30 s with no byte arriving aborts, and that is the only clock: there is no wall-clock
+      // deadline (a slow-but-moving download must never be killed), so a stall of any length ends here.
       t.mock.timers.tick(15 * 60_000)
       for (let i = 0; i < 25; i++) await new Promise(r => setImmediate(r))
       try {
