@@ -537,7 +537,13 @@ onMounted(load)
 .toolbar .field:last-child { max-width: 360px; }
 /* The table scrolls inside its own box, never the page. */
 .table-wrap { overflow-x: auto; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
-.uc-table { border-collapse: collapse; width: 100%; font-size: var(--font-sm); }
+/*
+  Load-bearing, not decoration: each cell's `.sr-only` span is `position: absolute`,
+  so with no positioned ancestor its containing block is the initial one and
+  `.table-wrap`'s `overflow-x: auto` cannot clip it — the page itself then scrolls
+  sideways. This makes the table the containing block.
+*/
+.uc-table { position: relative; border-collapse: collapse; width: 100%; font-size: var(--font-sm); }
 .uc-table th, .uc-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: right; vertical-align: top; }
 .uc-table thead th { position: sticky; top: 0; background: var(--surface); white-space: nowrap; }
 .uc-table .sticky { position: sticky; left: 0; z-index: 1; background: var(--surface); text-align: left; min-width: 150px; max-width: 220px; }
