@@ -449,8 +449,13 @@ test('every long-form workflow declares a product-derived budget', () => {
     ['script chapter + intro', '../generators/episode.ts', /outputBudget: 'long'/],
     ['scene planner windows', '../services/scene-planner.ts', /outputBudget: 'maximum'/],
     ['metadata description', '../generators/metadata.ts', /outputBudget: 'standard'/],
-    ['idea campaign', '../generators/idea-campaign.ts', /outputBudget: \{ tier: 'long'/],
-    ['shared freeform ideas', '../services/freeform-idea-generation.ts', /outputBudget: \{ tier: 'long'/],
+    // 1.4.320 — an idea campaign sizes its batches adaptively (one call or more,
+    // capped at 100), so both idea paths reserve from the count they are about to
+    // ask for rather than a fixed fraction of the ceiling: the same
+    // workload-derived shape the chunked narration batches above use. See
+    // idea-campaign-throughput.test.ts for the sizing itself.
+    ['idea campaign', '../generators/idea-campaign.ts', /outputBudget: \{ tier: 'workload', minimumTokens: ideaOutputTokenBudget\(/],
+    ['shared freeform ideas', '../services/freeform-idea-generation.ts', /outputBudget: input\.outputBudget\s*\?\? \{ tier: 'workload', minimumTokens: ideaOutputTokenBudget\(/],
   ]
   for (const [label, file, pattern] of expectations) {
     assert.match(source(file), pattern, `${label} lost its output budget`)
