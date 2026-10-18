@@ -1,5 +1,31 @@
 # HANDOFF — Story Studio KH
 
+## Source prepared, not released — 2026-10-18 (1.4.319)
+
+Branch `release/1.4.319` in `_worktrees/story-studio-kh/release-319`, from main
+`44601361e37209d28a7356c0ea89a81f487c1a53` (1.4.318, released and installed; tree
+`75518e819d24637ad95c8fce500233a074bc83a7`). One accepted change, integrated as an exact 2-file
+candidate (patch sha256 `5659261fcd0ba0a74428b738267530b707812e09f251962b9c8282a96786f07c`,
+commit `d46443bc`): queue admission now refuses a Retry or fresh start while the previous worker for
+the same project, episode and type is still settling locally after its row turned terminal or was
+removed from history, with a truthful "still finishing locally" message; episode recovery and Finish
+missing images share that refusal; and a Jobs "Finish missing images" row no longer dispatches beside
+any other live Scene Review worker for the episode, keeping its FIFO place and re-checking inside the
+durable-write window. Version `1.4.319` in both `package.json` and `package-lock.json`; newest-first
+changelog entry added.
+
+Focused proof accepted by the parent (`queue-executor-admission-proof-20261018/coordinator-acceptance.json`,
+four actual phase receipts): probe 1 pass exit 0; baseline — the pre-fix source at the pinned file
+hashes plus the same 19 tests — RED exit 1 (19 tests, 3 pass, 16 fail), including the held-executor
+false Retry admission at case 1 line 238; candidate 19 pass exit 0 (1/1 file); compatibility 19 pass
+exit 0 (3/3 files; source and tree pins unchanged, process group absent). This is a focused proof,
+not the release gate. Test 17 proves the immediate failed-write state and fixture cleanup only — not
+later-flush or restart orphan prevention. Separate Finish persistence, image and Publishing work is
+not included.
+
+NOT RELEASED: the mandatory full unfiltered backend gate, the remaining release gates, a main-built
+DMG, publication readback and install are still owed on this tree; no push or main landing yet.
+
 ## Released and installed — 2026-10-17 (1.4.317)
 
 Main `39d12be55b22003098b93a42ab7f564007ae5087` is pushed (landed through
@@ -36,24 +62,17 @@ completed. The exact attempt count and cause of the abort are unknown. No OS reb
 second install POST. All four SSD kit copies were refreshed by the parent (a0846).
 Receipts: `_orchestra/codex-takeover-20261012/story-317-gate/`.
 
-## Source candidate, not released — 2026-10-18 (1.4.318)
+## Released and installed — 2026-10-18 (1.4.318)
 
-Branch `release/1.4.318` in `_worktrees/story-studio-kh/release-318`, from main `39d12be5`
-(1.4.317, installed). One accepted change, integrated; version `1.4.318` in both `package.json`
-and `package-lock.json`; newest-first changelog entry added.
+Main/origin `44601361e37209d28a7356c0ea89a81f487c1a53`, tree `75518e819d24637ad95c8fce500233a074bc83a7`. The release contains the accepted Free Up Space Stop display fix: after an accepted Stop request the interface retains “Stopping…” despite an older in-flight running-status response. The current file still finishes through the existing cancellation boundary. This does not establish the cause of the original incident or faster backend cancellation.
 
-- `6b5948fe` (cherry-pick of `c9a807d1d519554fb977e91858396908bede88d9`, patch sha256
-  `1e1bf0a388952b6d51578d2638001896964dc2d08ecbce9349fd92ab15e00290`, exact 2-file diff) — Free Up
-  Space: while a reviewed cleanup runs, Stop shows "Stopping…" immediately after the accepted stop
-  POST, and a stale in-flight status read can no longer repaint "Running" over it. The file being
-  worked on finishes as before. Independent review accepted the commit; existing frontend proof on
-  the candidate: full lane 313 files / 2637 tests / 2637 pass / 0 fail / 0 skip / exit 0, plus the
-  discriminating RED on the old component (17 tests, 16 pass, 1 expected fail, exit 1). The
-  release copy claims only what the code does — nothing about the cause of the owner's original
-  incident, and no faster backend cancellation.
+Full unfiltered backend gate exit 0: 721/721 files, 7,108 tests, 7,101 pass, 0 fail, 7 skip; configured projects root byte-identical. Frontend exit 0: 313/313 files, 2,637 tests, all pass. Content packs exit 0: 38/38 files, 368 tests, 366 pass, 2 skip. Both typechecks, lint and five static checks exit 0. Existing discriminating old-component RED: 17 tests, 16 pass, 1 expected failure. Mock browser evidence has the limits recorded in `story-318-gate/ship-summary.md`; do not restore withdrawn timing/stale-payload claims.
 
-NOT RELEASED: the mandatory full unfiltered backend gate, remaining release gates, main-built
-DMG, publication readback and install are still owed on this tree; no push or main landing yet.
+Final DMG built from canonical main: `dist/Story Studio KH 1.4.318-arm64.dmg`, 243,073,666 bytes, SHA-256 `75baf05a08eaced20c07b669279694741e9f82bc7ad49421d6961eea88441e88`; bundled app.asar 1.4.318, 98-package closure, launch smoke passed, postbuild release lane 57/57 exit 0. One publication POST HTTP 200 with exact readback, published_at 1792284182.
+
+Mini installation verified at 2026-10-18T02:11:35.695019Z: health ok, version 1.4.318, boot_complete true, updater installed/current318/from317/error null/install_requested false/staged app null. Original request `2c7ca3962b8f45b5b693f9382c39d307`; no repeat install POST, force, generic restart or pause change. Exact earlier aborted-download count and cause remain unknown. All four installation SSD Story318 copies were refreshed and verified; later Hub184 SSD work is separate. Preserve owner `p18-lane-pause.json` and owner pauses.
+
+Receipts under `_orchestra/codex-takeover-20261012/story-318-gate/`: gate-summary.md, coordinator-gate-acceptance.md, coordinator-ship-acceptance.md, ship-summary.md, mini-installed-318.json, coordinator-mini-install-acceptance.md. SSD receipts under `ssd-refresh-20261017-story317/`. Source-only draft: no tests/builds/git mutations/live operations were run to produce this text.
 
 ## Source integrated; focused proof and visual checks next — 2026-10-17 (1.4.315)
 

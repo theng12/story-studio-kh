@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.319 — 2026-10-18
+
+- Retry and a fresh start are now refused with a clear "still finishing locally" message while the previous job of the same project, episode and type is still winding down after its row already reported done, error or cancelled — or was removed from history — instead of claiming it is "already queued/running". Once that worker settles, the action is admitted.
+- A Jobs "Finish missing images" row now waits until no other Scene Review worker for the episode is still live, both before dispatch and again just before its durable row is re-queued, so two continuity executors can no longer run over the same episode. The row keeps its place in the queue and the other image lane keeps running.
+
 ## v1.4.318 — 2026-10-18
 
 - Free Up Space: while a reviewed cleanup is running, Stop now shows "Stopping…" immediately after the stop request is accepted instead of waiting for the next progress read, and an in-flight status read that still reports the old "Running" state can no longer repaint the button over the stop request. The file being worked on finishes as before. The confirmation modal already waited for approval before claiming a run started (1.4.317).
