@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import type { ContentPackVerificationPolicy } from './archive.js'
 import {
+  moveContentPackToTrash,
   verifyInstalledContentPackClosure,
   verifyInstalledContentPackVersion,
 } from './installer.js'
@@ -200,7 +201,8 @@ async function removePendingVersion(
     return 'already-deleted'
   }
   await assertSafeDirectoryChain(removalRoot(paths), tombstone)
-  await fs.rm(tombstone, { recursive: true, force: false, maxRetries: 2 })
+  // Owner rule: a removed version goes to Story's Trash, never a hard delete.
+  moveContentPackToTrash(tombstone, path.join('removed', path.basename(tombstone)))
   await fsyncDirectory(path.dirname(tombstone))
   return 'deleted'
 }
