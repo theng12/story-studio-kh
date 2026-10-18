@@ -29,7 +29,6 @@ import { sameInstant } from '../lib/publish-instant.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import type {
   YouTubeEpisodePublishableProjection,
-  YouTubeLocalUploadProjection,
   YouTubePublicationProjection,
 } from '../contracts/youtube-upload-center.js'
 import {
@@ -83,6 +82,7 @@ import {
 } from '../services/upload-plans.js'
 import { readSidecarStrict, setScheduledFor } from '../services/upload-sidecar.js'
 import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES } from '../services/youtube-remote-video.js'
+import { UPLOAD_STORE_UNREADABLE, latestEpisodeUploadJob, localUploadProjection } from '../services/youtube-local-upload.js'
 import { movableLocalClaims } from '../services/episode-autoschedule.js'
 import * as im from '../services/idea-manager.js'
 import { getProjectDir } from '../services/project-manager.js'
@@ -253,16 +253,6 @@ function unavailableReason(hasApplication: boolean, hasChannels: boolean, assign
 }
 
 const REMOTE_STORE_UNREADABLE = 'Story Studio cannot read the local YouTube records.'
-const UPLOAD_STORE_UNREADABLE = 'Story Studio cannot read the local upload records.'
-
-function latestEpisodeUploadJob(jobs: Job[], episodeCode: string, channelId: string | null): Job | undefined {
-  return jobs
-    .filter(job => job.type === 'youtube_upload'
-      && job.episode_id === episodeCode
-      && job.params?.expected_channel_id === channelId)
-    .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
-    .at(-1)
-}
 
 function newestOperations(records: YouTubeOperationRecordV1[]): YouTubeOperationRecordV1[] {
   return records
@@ -272,61 +262,6 @@ function newestOperations(records: YouTubeOperationRecordV1[]): YouTubeOperation
       return updated || Date.parse(b.record.created_at) - Date.parse(a.record.created_at) || b.index - a.index
     })
     .map(({ record }) => record)
-}
-
-function uploadTransferProjection(job: Job): Pick<YouTubeLocalUploadProjection, 'progress' | 'bytes_done' | 'bytes_total' | 'speed_bps' | 'eta_seconds'> {
-  const finite = (value: unknown): number | undefined =>
-    typeof value === 'number' && Number.isFinite(value) ? value : undefined
-  const progress = finite(job.progress)
-  const bytes_done = finite(job.bytes_done)
-  const bytes_total = finite(job.bytes_total)
-  const speed_bps = finite(job.speed_bps)
-  const eta_seconds = finite(job.eta_seconds)
-  return {
-    ...(progress !== undefined ? { progress } : {}),
-    ...(bytes_done !== undefined ? { bytes_done } : {}),
-    ...(bytes_total !== undefined ? { bytes_total } : {}),
-    ...(speed_bps !== undefined ? { speed_bps } : {}),
-    ...(eta_seconds !== undefined ? { eta_seconds } : {}),
-  }
-}
-
-function localUploadProjection(
-  job: Job | undefined,
-  operation: YouTubeOperationRecordV1 | undefined,
-  operationsUnreadable: boolean,
-  remote: Awaited<ReturnType<typeof remoteVideoFor>>,
-): YouTubeLocalUploadProjection {
-  if (job?.status === 'queued') return { state: 'queued', job_id: job.job_id, ...uploadTransferProjection(job) }
-  if (job?.status === 'paused') {
-    return { state: 'queued', job_id: job.job_id, ...uploadTransferProjection(job), reason: 'Upload job is paused.' }
-  }
-  if (job?.status === 'running') return { state: 'running', job_id: job.job_id, ...uploadTransferProjection(job) }
-  if (operationsUnreadable) return { state: 'unknown', reason: UPLOAD_STORE_UNREADABLE }
-  // A current-channel video identity proves that an upload completed even if
-  // a later local retry failed or its terminal queue record is stale.
-  if (remote) return { state: 'succeeded' }
-  if (job) {
-    if (job.status === 'error' || job.status === 'cancelled') {
-      return {
-        state: 'failed', job_id: job.job_id,
-        reason: job.error || (job.status === 'cancelled' ? 'Upload was cancelled.' : 'Upload failed.'),
-      }
-    }
-    return { state: 'succeeded', job_id: job.job_id }
-  }
-  if (!operation) return { state: 'none' }
-  if (operation.lifecycle === 'preparing' || operation.lifecycle === 'uploading') return { state: 'running' }
-  if (operation.video_id) return { state: 'succeeded' }
-  if (operation.lifecycle === 'failed' || operation.lifecycle === 'rejected') {
-    return {
-      state: 'failed',
-      reason: operation.processing?.failure_reason
-        || operation.processing?.rejection_reason
-        || 'Upload failed before YouTube accepted it.',
-    }
-  }
-  return { state: 'unknown', reason: UPLOAD_STORE_UNREADABLE }
 }
 
 const NOT_FOUND_AT_LAST_CHECK = 'YouTube did not return this video at the last check. Check it again to confirm.'
