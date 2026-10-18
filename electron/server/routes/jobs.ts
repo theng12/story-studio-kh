@@ -24,6 +24,16 @@ const JOB_TYPE_SET = new Set<string>(JOB_TYPES)
 type ResumePausedBody = { project_slug?: string; type?: JobType }
 type HistoryClearQuery = { status?: jq.JobHistoryClearStatus }
 
+type QueueMoveBody = { direction?: jq.QueuedJobMove }
+
+function parseQueueMoveBody(body: unknown): { value: jq.QueuedJobMove } | { error: string } {
+  const direction = body && typeof body === 'object' && !Array.isArray(body)
+    ? (body as QueueMoveBody).direction
+    : undefined
+  if (direction === 'up' || direction === 'down' || direction === 'top') return { value: direction }
+  return { error: 'direction must be "up", "down", or "top".' }
+}
+
 function parseHistoryClearQuery(query: unknown): { value: HistoryClearQuery } | { error: string } {
   if (!query || typeof query !== 'object' || Array.isArray(query)) return { error: 'Invalid query.' }
   const status = (query as Record<string, unknown>).status
@@ -515,6 +525,16 @@ router.post('/jobs/all/:jobId/resume', async (req, res) => {
   res.status(202).json({ ok: true, job })
 })
 
+router.post('/jobs/all/:jobId/move', async (req, res) => {
+  const parsed = parseQueueMoveBody(req.body)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  const existing = jq.getJob(req.params.jobId)
+  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  const moved = await jq.moveQueuedJob(existing.project_slug, existing.job_id, parsed.value)
+  if (!moved) return res.status(409).json({ detail: 'Only queued jobs waiting in their own queue can be moved.' })
+  res.json({ ok: true, ...moved })
+})
+
 router.post('/jobs/all/:jobId/cancel', async (req, res, next) => {
   const existing = await findUniversalJob(req.params.jobId)
   if (!existing) return res.status(404).json({ detail: 'Job not found' })
@@ -806,6 +826,16 @@ router.post('/projects/:slug/jobs/:jobId/resume', async (req, res) => {
   const job = await jq.resumeJob(req.params.jobId)
   if (!job) return res.status(409).json({ detail: 'Only paused jobs can be resumed.' })
   res.status(202).json({ ok: true, job })
+})
+
+router.post('/projects/:slug/jobs/:jobId/move', async (req, res) => {
+  const parsed = parseQueueMoveBody(req.body)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  const existing = jq.getJob(req.params.jobId)
+  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  const moved = await jq.moveQueuedJob(req.params.slug, req.params.jobId, parsed.value)
+  if (!moved) return res.status(409).json({ detail: 'Only queued jobs waiting in their own queue can be moved.' })
+  res.json({ ok: true, ...moved })
 })
 
 router.post('/projects/:slug/jobs/:jobId/cancel', async (req, res, next) => {

@@ -406,6 +406,9 @@
             >{{ projectName(job.project_slug) }}</NuxtLink>
             <span v-else-if="isUniversal" class="job-project">App tools</span>
             <span class="job-type">{{ jobDisplayLabel(job) }}</span>
+            <span v-if="job.status === 'queued' && job.queue_position" class="job-queue-position"
+              title="Position among queued jobs of this kind; earlier runs first."
+            >#{{ job.queue_position }} in its queue</span>
             <span class="job-episode">{{ job.episode_id }}</span>
             <span v-if="job.title" class="job-title text-muted" :title="job.title">- {{ job.title }}</span>
           </div>
@@ -416,6 +419,14 @@
                 class="btn btn-xs btn-ghost"
                 :aria-label="jobWorkspaceLink(job)!.ariaLabel"
               >{{ jobWorkspaceLink(job)!.label }}</NuxtLink>
+            <template v-if="job.status === 'queued'">
+              <button class="btn btn-xs btn-ghost" :disabled="controlBusy.has(job.job_id) || (job.queue_position || 0) <= 1"
+                title="Move earlier among queued jobs of this kind" @click="moveInQueue(job, 'up')">Up</button>
+              <button class="btn btn-xs btn-ghost" :disabled="controlBusy.has(job.job_id)"
+                title="Move later among queued jobs of this kind" @click="moveInQueue(job, 'down')">Down</button>
+              <button class="btn btn-xs btn-ghost" :disabled="controlBusy.has(job.job_id) || (job.queue_position || 0) <= 1"
+                title="Move to the front among queued jobs of this kind" @click="moveInQueue(job, 'top')">Top</button>
+            </template>
             <button
               v-if="canResumeJob(job)"
               class="btn btn-xs btn-primary"
@@ -2871,6 +2882,27 @@ async function resumeJob(job: RJob) {
 
 const pausedJobCount = computed(() => projectScopedJobs.value.filter(job => job.status === 'paused').length)
 
+/** Reorder one QUEUED job among queued jobs of its own kind. The server owns
+ * the lane; it answers with every job in that lane so each row's position
+ * badge refreshes together. */
+async function moveInQueue(job: RJob, direction: 'up' | 'down' | 'top') {
+  if (controlBusy.value.has(job.job_id)) return
+  controlBusy.value = new Set(controlBusy.value).add(job.job_id)
+  try {
+    const response = await post<{ queue?: Job[] }>(`${jobQueuePath(job)}/move`, { direction })
+    for (const row of response?.queue || []) {
+      projectQueue.applyUpdate(row)
+      universalQueue.applyUpdate(row)
+    }
+  } catch (e: any) {
+    showError(customerJobText(e?.data?.detail || 'Failed to move this job in its queue', job))
+  } finally {
+    const next = new Set(controlBusy.value)
+    next.delete(job.job_id)
+    controlBusy.value = next
+  }
+}
+
 async function resumePausedJobs() {
   if (bulkResumeBusy.value || pausedJobCount.value === 0) return
   bulkResumeCount.value = pausedJobCount.value
@@ -4054,6 +4086,7 @@ function clearFailed() { return clearHistory('failed') }
   min-width: 0;
 }
 .job-type { flex: 0 0 auto; font-weight: 600; font-size: 13px; color: var(--text-primary); }
+.job-queue-position { flex: 0 0 auto; font-size: 12px; color: var(--text-muted); }
 .job-episode { flex: 0 0 auto; font-size: 13px; color: var(--accent); font-weight: 500; }
 .job-title {
   min-width: 0;

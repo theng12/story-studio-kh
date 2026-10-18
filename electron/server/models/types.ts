@@ -2755,6 +2755,10 @@ export interface Job {
   /** Proven pending keys; normal/listicle calls may recover only by exact membership. */
   genstudio_chat_recovery_keys?: string[]
   queue_position?: number
+  /** Durable manual position inside this job's own type lane, assigned when
+   * the owner moves a queued job. Jobs without it keep their enqueue order and
+   * wait behind the explicitly ordered ones after a restart. */
+  queue_rank?: number
   /**
    * Which account served each provider the job called. Keyed by canonical
    * providerId (`openai`, `fal`, …). Populated by the resolver whenever
