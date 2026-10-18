@@ -56,6 +56,7 @@ import {
 import { readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
 import { listYouTubeOperations } from './youtube-operation-store.js'
 import { remoteVideoFor } from './youtube-remote-video.js'
+import { uploadInFlight, latestEpisodeUploadJob, localUploadProjection } from './youtube-local-upload.js'
 import { readYouTubeConnectionRegistry, getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { resolveYouTubeCredential } from './youtube-credential.js'
 import { createProjectFactsCache, projectDirFor, resolveEpisodePaths, type ProjectFactsCache } from './utils.js'
@@ -217,19 +218,24 @@ async function readReadiness(
     reasons.push("Story Studio could not read this channel's ideas, so it cannot say how many episodes it has.")
   }
 
-  // Which episodes YouTube already has. This is the SAME question, answered by
-  // the SAME predicate, as /youtube/publishable: `remoteVideoFor` reads all
-  // three authoritative stores (operation record, reconcile link, legacy
-  // sidecar), channel-scoped. Reading only `episode_video_links` counted an
+  // Which episodes YouTube already has, and which have an upload under way.
+  // Both answers come from the SAME channel-scoped predicate the Publish page's
+  // `/youtube/publishable` route asks — `remoteVideoFor`, over all three
+  // authoritative stores (operation record, reconcile link, legacy sidecar) —
+  // and both are produced in ONE pass below, so the two figures can never be
+  // read from different evidence. Counting only `episode_video_links` made an
   // episode published through the old page (sidecar only) or by an operation
-  // whose link was never written as "not on YouTube yet" — so the overview
-  // recommended an upload the Upload Center correctly refuses.
+  // whose link was never written look unpublished: the overview recommended an
+  // upload the Upload Center correctly refuses, and `on_youtube` under-reported
+  // the same episodes (TerraNash 39 vs 200, Story Sprout 2 vs 62, KH Boundless
+  // 30 vs 102 — the missing ones are operation and legacy-sidecar records).
   //
   // The operation index and publishing state are hoisted out of the per-episode
   // sweep for the same reason the Publish page hoists them: the state read
   // takes a lock, and calling it per episode serialises the batch.
   let onYouTube: number | null = null
   const onYouTubeCodes = new Set<string>()
+  const uploading = new Set<string>()
   let publishingState: Awaited<ReturnType<typeof readYouTubeProjectPublishingState>> | null = null
   let records: Awaited<ReturnType<typeof listYouTubeOperations>> = []
   let linksUnreadable = false
@@ -237,11 +243,6 @@ async function readReadiness(
   if (!ideasUnreadable) {
     try {
       publishingState = await readYouTubeProjectPublishingState(slug, facts)
-      const links = publishingState.episode_video_links
-      for (const code of codes) {
-        if (Object.hasOwn(links, code)) onYouTubeCodes.add(code)
-      }
-      onYouTube = onYouTubeCodes.size
     } catch {
       linksUnreadable = true
       reasons.push("Story Studio could not read which episodes are already on YouTube.")
@@ -260,6 +261,21 @@ async function readReadiness(
   const remoteUnreadable = linksUnreadable || operationsUnreadable
   const remoteReadable = !remoteUnreadable && publishingState !== null
 
+  // The queue, read once. Which episodes have an upload queued, paused or
+  // running right now is the Publish page's own question — asked through the
+  // same `localUploadProjection` the Upload Center projects per row — because
+  // such an episode is IN PROGRESS, never "finished and awaiting upload".
+  let uploadJobs: Awaited<ReturnType<typeof jq.getJobs>> = []
+  let uploadJobsError: string | undefined
+  if (!ideasUnreadable) {
+    try {
+      uploadJobs = await jq.getJobs(slug, { type: 'youtube_upload' })
+    } catch (e: any) {
+      uploadJobsError = e?.message || 'the upload queue could not be read'
+      reasons.push(uploadJobsError!)
+    }
+  }
+
   const inProgress = new Set<string>()
   const needsAttention = new Set<string>()
   let stepError: string | undefined
@@ -277,12 +293,13 @@ async function readReadiness(
   // Both figures are filtered by the accepted-episode set, so neither is
   // computable without it — a 0 there would be a confident count over an empty
   // list nobody actually read.
-  const stepKnown = !ideasUnreadable && !stepError
+  const stepKnown = !ideasUnreadable && !stepError && !uploadJobsError
 
-  // Ready = a finished, admissible final video and no YouTube copy yet — the
-  // exact pair the Upload route admits on (resolveEpisodePaths +
-  // findYouTubeSourceVideoPath). The complement (accepted, not on YouTube, no
-  // finished video) is what still needs generating.
+  // Ready = a finished, admissible final video, no YouTube copy yet, and no
+  // upload already under way — the exact triple the Upload Center's own row
+  // states (resolveEpisodePaths + findYouTubeSourceVideoPath + local.upload).
+  // The complement (accepted, not on YouTube, no finished video) is what still
+  // needs generating.
   //
   // An episode whose read FAILED is neither: it is counted as UNKNOWN, and the
   // whole figure becomes null rather than a smaller, confident-looking number
@@ -293,6 +310,10 @@ async function readReadiness(
   let readyUnknown = 0
   let readyCodes: string[] = []
   let pendingCodes: string[] = []
+  // An episode whose remote read THREW may or may not be on YouTube, so it also
+  // makes `on_youtube` unknown rather than short.
+  let remoteUnknown = 0
+  let sweepFailed = false
   if (!ideasUnreadable) {
     try {
       const ready: string[] = []
@@ -302,14 +323,42 @@ async function readReadiness(
         const batch = withCode.slice(i, i + READINESS_BATCH)
         await Promise.all(batch.map(async (idea) => {
           try {
-            // ANY authoritative remote evidence means this video is already
-            // uploaded and MUST NOT be recommended as a new one. This is the
-            // `/youtube/publishable` predicate itself, not a second copy of it.
-            // A corrupt per-episode sidecar throws here and lands in `unknown`,
-            // exactly as one corrupt row degrades alone on the Publish page.
-            if (remoteReadable && await remoteVideoFor(
-              slug, idea.episode_code, idea.title, channelId, records, publishingState!, facts,
-            )) return
+            let remote: Awaited<ReturnType<typeof remoteVideoFor>> | null = null
+            if (remoteReadable) {
+              try {
+                remote = await remoteVideoFor(
+                  slug, idea.episode_code, idea.title, channelId, records, publishingState!, facts,
+                )
+              } catch (error) {
+                // A corrupt per-episode sidecar throws here. It lands in
+                // `unknown` — one corrupt row degrades alone, exactly as it does
+                // on the Publish page — and it also makes `on_youtube` unknown.
+                remoteUnknown += 1
+                throw error
+              }
+            }
+            // ANY authoritative remote evidence that names a video means this
+            // video is already on YouTube and MUST NOT be recommended as a new
+            // upload. This is the `/youtube/publishable` predicate itself, not a
+            // second copy of it.
+            if (remote?.video_id) {
+              onYouTubeCodes.add(idea.episode_code)
+              return
+            }
+            // An upload under way is neither ready nor waiting for generation.
+            // Two shapes, one answer: an operation record in an open,
+            // non-terminal lifecycle that has no video id yet (which is exactly
+            // what `remoteVideoFor` returns there), and the Publish page's own
+            // queued/paused/running upload-job states. The operation record is
+            // not passed to `localUploadProjection` because with `remote`
+            // supplied its operation branches can only report states this sweep
+            // does not ask about; the one that matters is covered above.
+            if (remote || uploadInFlight(localUploadProjection(
+              latestEpisodeUploadJob(uploadJobs, idea.episode_code, channelId), undefined, operationsUnreadable, remote,
+            ).state)) {
+              uploading.add(idea.episode_code)
+              return
+            }
             const paths = await resolveEpisodePaths(slug, idea.episode_code, idea.title, facts)
             const source = await findYouTubeSourceVideoPath(paths, slug, idea.episode_code, idea.title, facts)
             ;(source ? ready : pending).push(idea.episode_code)
@@ -323,8 +372,19 @@ async function readReadiness(
       readyToPublish = (readyUnknown || remoteUnreadable) ? null : ready.length
       readyCodes = remoteUnreadable ? [] : ready.sort()
       pendingCodes = pending.sort()
+      // `on_youtube` counts episodes with authoritative remote evidence that
+      // names a video — the same set `/youtube/publishable` reports as
+      // `remote_video_id`. A remote read that failed for any episode leaves it
+      // short, so it is unknown rather than a smaller confident number.
+      onYouTube = (remoteUnreadable || remoteUnknown > 0) ? null : onYouTubeCodes.size
+      // An upload under way belongs with the step jobs: both mean "this episode
+      // is being worked on", and the Publish page shows it as queued or running
+      // rather than ready.
+      for (const code of uploading) inProgress.add(code)
     } catch {
       readyToPublish = null
+      onYouTube = null
+      sweepFailed = true
       // A null count beside "0 unknown" would read as a complete sweep. Every
       // coded episode is unknown when the sweep itself did not finish.
       readyUnknown = withCode.length
@@ -341,7 +401,7 @@ async function readReadiness(
       ready_to_publish: readyToPublish,
       ready_unknown: readyUnknown,
       on_youtube: onYouTube,
-      in_progress: stepKnown ? inProgress.size : null,
+      in_progress: (stepKnown && !sweepFailed) ? inProgress.size : null,
       needs_attention: stepKnown ? needsAttention.size : null,
       ...(reasons.length ? { error: reasons.join(' ') } : {}),
     },

@@ -24,6 +24,7 @@ const connections = await import('../services/youtube-connection-store.js')
 const store = await import('../services/youtube-project-publishing-store.js')
 const operations = await import('../services/youtube-operation-store.js')
 const sidecars = await import('../services/upload-sidecar.js')
+const jobQueue = await import('../services/job-queue.js')
 const { router } = await import('../routes/publishing-overview.js')
 // The Publish page's own list, so a parity test can ask BOTH surfaces the same
 // question instead of trusting the overview's copy of the predicate.
@@ -39,6 +40,8 @@ let tmp: { dir: string; cleanup: () => Promise<void> } | undefined
 afterEach(async () => { await tmp?.cleanup(); tmp = undefined })
 
 const CHANNEL = 'UC-pub-route'
+/** A publishAt YouTube itself reported for a video it is still processing. */
+const PUBLISH_AT = '2026-10-20T15:00:00Z'
 
 /** A channel that is ASSIGNED and CONNECTED, so the confirmed half is reachable. */
 async function connectedProject(name: string, prefix: string) {
@@ -201,6 +204,11 @@ test('operation-record and legacy-sidecar evidence excludes an episode from read
   assert.equal(channel.readiness.ready_unknown, 0)
   assert.equal(channel.readiness.ready_to_publish, 1)
   assert.equal(channel.coverage.ready_video_count, 1)
+  // on_youtube counts the SAME episodes the Publish page knows have a video —
+  // an operation record and a legacy sidecar are both authoritative evidence,
+  // and counting only `episode_video_links` reported 2 where 62 were known
+  // (Story Sprout) or 39 where 200 were (TerraNash).
+  assert.equal(channel.readiness.on_youtube, 2)
   // Only the episode with NO remote evidence anywhere may be recommended.
   assert.deepEqual(channel.recommendations.map((r: any) => r.episode_code), ['RE0003'])
   assert.equal(channel.recommendations.some((r: any) => r.episode_code === 'RE0001'), false)
@@ -232,4 +240,121 @@ test('operation-record and legacy-sidecar evidence excludes an episode from read
       .filter((r: any) => r.kind === 'ready_to_publish')
       .map((r: any) => r.episode_code),
   )
+  // …and the on_youtube total is the same episodes the Publish page shows with
+  // a remote video id.
+  assert.equal(rows.filter((row: any) => !!row.remote_video_id).length, channel.readiness.on_youtube)
+})
+
+test('an episode whose upload is under way counts as in_progress, never ready — matching the publishable route', async () => {
+  tmp = await useTempDataDir()
+  const created = await connectedProject('Upload In Flight', 'UF')
+  await acceptedEpisode(created.slug, 'UF0001', 'Queued Upload')
+  await acceptedEpisode(created.slug, 'UF0002', 'Uploading Now')
+  await acceptedEpisode(created.slug, 'UF0003', 'Never Uploaded')
+
+  // UF0001: a queued upload job — the Publish page's own `local.upload.state:
+  // queued`. Inserted through the queue's test seam so no executor starts.
+  const queued = jobQueue.enqueuePreparedForTest({
+    project_slug: created.slug,
+    type: 'youtube_upload',
+    episode_id: 'UF0001',
+    title: 'Queued Upload',
+    params: { expected_channel_id: CHANNEL },
+    episode_recovery_job_id: `publishing-overview-${Date.now()}`,
+  })
+  try {
+    // UF0002: an operation record in an open, non-terminal lifecycle with no
+    // video id yet — an upload under way that the queue row no longer shows.
+    await operations.createYouTubeOperation({
+      project_slug: created.slug, episode_code: 'UF0002', channel_id: CHANNEL,
+      source_revision: 'src-UF0002', metadata_revision: 'meta-UF0002',
+      origin: 'manual', final_action: 'manual_upload',
+    })
+
+    const overview = await request(app).get('/api/publishing/overview')
+    assert.equal(overview.status, 200)
+    const channel = overview.body.channels[0]
+    // Both in-flight shapes are IN PROGRESS…
+    assert.equal(channel.readiness.in_progress, 2)
+    // …neither is ready, and neither has a video on YouTube yet.
+    assert.equal(channel.readiness.ready_to_publish, 1)
+    assert.equal(channel.readiness.ready_unknown, 0)
+    assert.equal(channel.readiness.on_youtube, 0)
+    assert.deepEqual(channel.recommendations.map((r: any) => r.episode_code), ['UF0003'])
+
+    // The Publish page agrees: the queued row is queued, the in-flight
+    // operation is blocked as an upload in progress, and only UF0003 is offered.
+    const publishable = await request(app).get(`/api/projects/${created.slug}/youtube/publishable`)
+    assert.equal(publishable.status, 200)
+    const rows: any[] = publishable.body.episodes
+    const rowFor = (code: string) => rows.find((row: any) => row.episode_code === code)
+    assert.equal(rowFor('UF0001').local.upload.state, 'queued')
+    assert.match(rowFor('UF0001').blocked_reason, /queued/i)
+    assert.match(rowFor('UF0002').blocked_reason, /in progress/i)
+    assert.deepEqual(
+      rows
+        .filter((row: any) => row.has_video && !row.has_remote_video && !['queued', 'running'].includes(row.local?.upload?.state))
+        .map((row: any) => row.episode_code),
+      channel.recommendations
+        .filter((r: any) => r.kind === 'ready_to_publish')
+        .map((r: any) => r.episode_code),
+    )
+  } finally {
+    await jobQueue.requestJobCancellation(created.slug, queued.job_id)
+    jobQueue.removeTerminalJob(created.slug, queued.job_id)
+    // The queue persists in the background; let it settle before the temp data
+    // root goes away, or the late write lands outside it.
+    await jobQueue._waitForJobPersistenceForTesting()
+  }
+})
+
+test('a publishAt YouTube accepted counts as scheduled while the video is still processing — both surfaces', async () => {
+  tmp = await useTempDataDir()
+  const created = await connectedProject('Still Processing', 'SP')
+  await acceptedEpisode(created.slug, 'SP0001', 'Still Processing')
+
+  // A fresh upload YouTube has accepted but not finished processing: the
+  // operation is in `processing`, and its remote snapshot carries the private
+  // publishAt YouTube itself reported (Origin Field EP0001, 2026-10-18).
+  const operation = await operations.createYouTubeOperation({
+    project_slug: created.slug, episode_code: 'SP0001', channel_id: CHANNEL,
+    source_revision: 'src-SP0001', metadata_revision: 'meta-SP0001',
+    origin: 'manual', final_action: 'manual_upload',
+  })
+  const accepted = await operations.acceptYouTubeOperation({
+    project_slug: created.slug, operation_id: operation.operation_id,
+    expected_revision: operation.revision, channel_id: CHANNEL,
+    video_id: 'vid-still-processing', accepted_at: '2026-10-18T14:45:29.003Z',
+    final_payload: { snippet_json: '{}', status_json: '{}', source_sha256: 'b'.repeat(64) },
+  })
+  await operations.updateYouTubeOperation({
+    project_slug: created.slug, operation_id: operation.operation_id,
+    expected_revision: accepted.revision,
+    mutate(record) {
+      record.lifecycle = 'processing'
+      record.processing = { checked_at: '2026-10-18T14:45:29.248Z', provider_status: 'uploaded' }
+      record.remote_snapshot = {
+        fetched_at: '2026-10-18T14:45:29.248Z', title: 'Still Processing', description: '', tags: [],
+        privacy_status: 'private', scheduled_for: PUBLISH_AT,
+      }
+    },
+  })
+
+  // The Upload Center keeps the processing state AND the date YouTube accepted.
+  const publishable = await request(app).get(`/api/projects/${created.slug}/youtube/publishable`)
+  assert.equal(publishable.status, 200)
+  const row = publishable.body.episodes.find((entry: any) => entry.episode_code === 'SP0001')
+  assert.equal(row.publication.state, 'processing')
+  assert.equal(row.publication.visibility, 'private')
+  assert.equal(row.publication.scheduled_at, PUBLISH_AT)
+  // The date is YouTube's own answer, not a local plan: same field either way.
+  assert.equal(row.plan.scheduled_at, PUBLISH_AT)
+
+  // The Overview counts the same video as confirmed-scheduled for that date.
+  const overview = await request(app).get('/api/publishing/overview')
+  assert.equal(overview.status, 200)
+  const channel = overview.body.channels[0]
+  assert.equal(channel.confirmed.count, 1)
+  assert.equal(channel.confirmed.schedules[0].video_id, 'vid-still-processing')
+  assert.equal(channel.confirmed.schedules[0].scheduled_for, PUBLISH_AT)
 })
