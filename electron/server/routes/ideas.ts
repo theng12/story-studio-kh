@@ -11,6 +11,7 @@ import { resolveSubfolderNames } from '../services/utils.js'
 import type { Format, Job } from '../models/types.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { projectContentLanguageDirective } from '../lib/content-language.js'
 import { withLock } from '../lib/atomic-store.js'
 import {
   freshActionMatch,
@@ -449,10 +450,11 @@ router.post('/projects/:slug/ideas/reference-pool/refresh', async (req, res) => 
  * array (the loader rejects formats with malformed examples, so they're safe
  * to embed).
  */
-function buildPastePrompt(
+export function buildPastePrompt(
   format: Format,
   titleTemplate?: string,
   namesAvoidance = '',
+  languageDirectiveText = '',
 ): string {
   const exampleJson = format.idea.exampleIdeas?.length
     ? JSON.stringify(format.idea.exampleIdeas, null, 2)
@@ -501,7 +503,7 @@ Rules:
     ? `"${lenMin} min"`
     : `any minutes-string between "${lenMin} min" and "${lenMax} min"`
 
-  return `${format.idea.systemPromptRole}
+  return `${format.idea.systemPromptRole}${languageDirectiveText ? `\n\n${languageDirectiveText}` : ''}
 Return a JSON array of idea objects ONLY — no prose before or after. If your
 client insists on markdown fences, use \`\`\`json ... \`\`\` — the importer strips them.
 
@@ -545,7 +547,7 @@ router.get('/projects/:slug/ideas/paste-prompt', async (req, res) => {
   // Same "don't reuse recent main character names" line the in-app idea
   // generators carry, so a pasted batch doesn't bring back last week's hero.
   const namesAvoidance = await recentCharacterNamesAvoidance(req.params.slug)
-  res.type('text/plain').send(buildPastePrompt(format, titleTemplate, namesAvoidance))
+  res.type('text/plain').send(buildPastePrompt(format, titleTemplate, namesAvoidance, projectContentLanguageDirective(project)))
 })
 
 /**

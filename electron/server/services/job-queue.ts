@@ -15,6 +15,7 @@ import { boundGenStudioRequestPreviews, pendingGenStudioEntryId, type GenStudioR
 import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { balancedReplacementSettlement, mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
 import { projectsRoot, getProjectDir } from './project-manager.js'
 import { reapRecordedChildren, recordChildProcess } from './orphan-reaper.js'
@@ -1888,14 +1889,7 @@ async function persistProjectSnapshot(projectSlug: string): Promise<void> {
   // global map is lazy, so replacing from it can erase unloaded durable jobs.
   await Promise.all(Array.from(jobs.values())
     .filter(job => job.project_slug === projectSlug)
-    .map(job => {
-      const incoming = safeJob(job)
-      return persistProjectMutation(projectSlug, {
-        kind: 'transform',
-        jobId: job.job_id,
-        transform: current => mergeDurableJobEvidence(current, incoming),
-      })
-    }))
+    .map(job => persistJob(job)))
 }
 
 /**
@@ -1913,22 +1907,25 @@ export async function withProjectJobRemovalGuard<T>(
   }
   projectRemovalInProgress.add(projectSlug)
   try {
-    return await withLock(path.join(projectDir, 'jobs.json'), async () => {
-      const active = Array.from(jobs.values()).find(job => (
-        job.project_slug === projectSlug
-        && (!TERMINAL_JOB_STATUSES.has(job.status) || hasUnsettledProviderEvidence(job))
-      ))
-      if (active) {
-        throw Object.assign(
-          new Error(`Project has active or unsettled provider job ${active.job_id}. Return later until Story Studio confirms final settlement.`),
-          { statusCode: 409 },
-        )
-      }
-      // This is under the same mutex as persistJob, so a queued snapshot
-      // finishes before the restart-safe disk evidence is inspected.
-      const { assertProjectJobsSafeToRemove } = await import('./project-job-removal-guard.js')
-      await assertProjectJobsSafeToRemove(projectDir)
-      return action()
+    const state = projectPersistenceState(projectSlug)
+    return await withProjectStaging(state, async () => {
+      assertPersistenceCertain(state)
+      return withLock(path.join(projectDir, 'jobs.json'), async () => {
+        const active = Array.from(jobs.values()).find(job => (
+          job.project_slug === projectSlug
+          && (!TERMINAL_JOB_STATUSES.has(job.status) || hasUnsettledProviderEvidence(job))
+        ))
+        if (active) {
+          throw Object.assign(
+            new Error(`Project has active or unsettled provider job ${active.job_id}. Return later until Story Studio confirms final settlement.`),
+            { statusCode: 409 },
+          )
+        }
+        // Lock order is staging → path. Neither inspection nor action may enqueue a mutation.
+        const { assertProjectJobsSafeToRemove } = await import('./project-job-removal-guard.js')
+        await assertProjectJobsSafeToRemove(projectDir)
+        return action()
+      })
     })
   } finally {
     projectRemovalInProgress.delete(projectSlug)
@@ -2065,7 +2062,28 @@ function serializeJob(job: Job, view: 'full' | 'stream' = 'full'): RendererJob {
   return rendererJob
 }
 
+type FinishPersistenceTransaction = {
+  jobId: string
+  entryLive: Job | null
+  observations: Job[]
+}
+class JobPersistenceUncertainError extends Error {
+  status = 409
+  expose = true
+  constructor() {
+    super('This project’s queue write could not be reconciled. No new local work will start; preserve the saved jobs and resolve the write before retrying.')
+    this.name = 'JobPersistenceUncertainError'
+  }
+}
 type ProjectPersistenceState = {
+  stagingTail: Promise<void> | null
+  stagingPending: number
+  transactions: number
+  startRequested: boolean
+  transaction: FinishPersistenceTransaction | null
+  uncertainty: { old: unknown; attempted: unknown; observed: unknown; error: unknown; published?: boolean; observations?: Job[] } | null
+  envelope: Record<string, unknown>
+  deletedIds: Set<string>
   baseline: Map<string, Job> | null
   hydratePromise: Promise<void> | null
   revision: number
@@ -2086,12 +2104,37 @@ function projectPersistenceState(projectSlug: string): ProjectPersistenceState {
   let state = projectPersistence.get(projectSlug)
   if (!state) {
     state = {
+      stagingTail: null, stagingPending: 0, transactions: 0, startRequested: false, transaction: null, uncertainty: null, envelope: {}, deletedIds: new Set(),
       baseline: null, hydratePromise: null, revision: 0, durableRevision: 0,
       writing: null, dirty: false, pendingMutations: 0, waiters: [], lastWriteAt: 0, wake: null,
     }
     projectPersistence.set(projectSlug, state)
   }
   return state
+}
+
+function persistenceFenced(projectSlug: string): boolean {
+  return Boolean(projectPersistence.get(projectSlug)?.uncertainty)
+}
+function assertPersistenceCertain(state: ProjectPersistenceState): void {
+  if (state.uncertainty) throw new JobPersistenceUncertainError()
+}
+
+/** Normal turns stage only; their durable promise must be awaited AFTER releasing this gate. */
+async function withProjectStaging<T>(state: ProjectPersistenceState, action: () => Promise<T>): Promise<T> {
+  const previous = state.stagingTail
+  state.stagingPending++
+  let release!: () => void
+  const turn = new Promise<void>(resolve => { release = resolve })
+  state.stagingTail = turn
+  try {
+    if (previous) await previous
+    return await action()
+  } finally {
+    state.stagingPending--
+    release()
+    if (state.stagingTail === turn) state.stagingTail = null
+  }
 }
 
 async function hydrateProjectBaseline(projectSlug: string, state: ProjectPersistenceState): Promise<void> {
@@ -2110,6 +2153,8 @@ async function hydrateProjectBaseline(projectSlug: string, state: ProjectPersist
           const parsed = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }
           if (!Array.isArray(parsed.jobs)) throw new Error('jobs.json does not contain a jobs array')
           durable = parsed.jobs as Job[]
+          const { jobs: _rows, ...envelope } = parsed
+          state.envelope = envelope
         }
       } catch (error) {
         state.hydratePromise = null
@@ -2119,6 +2164,34 @@ async function hydrateProjectBaseline(projectSlug: string, state: ProjectPersist
     })
   }
   await state.hydratePromise
+}
+
+function captureProjectSnapshot(input: Map<string, Job>) {
+  // Hydrated rows are made safe once; ordinary writes still redact only changed entries.
+  for (const [id, row] of input) {
+    if (!alreadySafeJobs.has(row)) input.set(id, markSafe(capFinishedLog(safeJob(row))))
+  }
+  return { entries: new Map(input), jobs: retainJobsForPersistence([...input.values()]) }
+}
+async function writeProjectSnapshot(file: string, snapshot: { jobs: Job[]; [key: string]: unknown }): Promise<void> {
+  if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('persist', file)
+  await writeJsonAtomic(file, snapshot, { compact: true })
+  jobPersistenceCounters.atomic_writes++
+}
+function pruneProjectSnapshot(projectSlug: string, input: Map<string, Job>, captured: ReturnType<typeof captureProjectSnapshot>): void {
+  const retained = new Set(captured.jobs.map(job => job.job_id))
+  const forgotten: string[] = []
+  for (const [id, row] of captured.entries) {
+    if (retained.has(id) || input.get(id) !== row) continue
+    input.delete(id)
+    const live = jobs.get(id)
+    if (!live || live.project_slug !== projectSlug || !TERMINAL_JOB_STATUSES.has(live.status)
+      || activeRunJobIds.has(id) || (!live.force_abandoned && hasUnsettledProviderEvidence(live))) continue
+    jobs.delete(id)
+    cancelled.delete(id)
+    forgotten.push(id)
+  }
+  if (forgotten.length) emitCleared(projectSlug, forgotten)
 }
 
 async function drainProjectPersistence(projectSlug: string, state: ProjectPersistenceState): Promise<void> {
@@ -2145,40 +2218,12 @@ async function drainProjectPersistence(projectSlug: string, state: ProjectPersis
       const revision = state.revision
       failedRevision = revision
       const baseline = state.baseline!
-      // Every entry written by applyProjectMutation is already a redacted copy; only the ones
-      // hydrated from disk are not, and each is made safe once here. Redacting the WHOLE baseline
-      // on every write (up to 750 history jobs per project, structuredClone + a deep secret scan
-      // each) cost 0.5-2.5 s of main-process CPU per write on a busy project.
-      for (const [jobId, job] of baseline) {
-        if (!alreadySafeJobs.has(job)) baseline.set(jobId, markSafe(capFinishedLog(safeJob(job))))
-      }
-      const baselineEntries = new Map(baseline)
-      const snapshot = retainJobsForPersistence(Array.from(baseline.values()))
-      const retainedIds = new Set(snapshot.map(job => job.job_id))
+      const captured = captureProjectSnapshot(baseline)
       const p = jobsPath(projectSlug)
       assertWriteIsolatedInTests(p, 'job-queue')
       await withLock(p, async () => {
-        if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('persist', p)
-        await writeJsonAtomic(p, { jobs: snapshot }, { compact: true })
-        jobPersistenceCounters.atomic_writes++
-        const dropped: string[] = []
-        for (const [jobId, captured] of baselineEntries) {
-          if (!retainedIds.has(jobId) && baseline.get(jobId) === captured) {
-            baseline.delete(jobId)
-            dropped.push(jobId)
-          }
-        }
-        // S10: history that fell off disk leaves memory too, or a long uptime kept every finished
-        // job ever run (cloned and redacted on each snapshot). Same rules as removeTerminalJob.
-        const forgotten = dropped.filter(jobId => {
-          const live = jobs.get(jobId)
-          if (!live || live.project_slug !== projectSlug || !TERMINAL_JOB_STATUSES.has(live.status)
-            || activeRunJobIds.has(jobId) || (!live.force_abandoned && hasUnsettledProviderEvidence(live))) return false
-          jobs.delete(jobId)
-          cancelled.delete(jobId)
-          return true
-        })
-        if (forgotten.length) emitCleared(projectSlug, forgotten)
+        await writeProjectSnapshot(p, { ...state.envelope, jobs: captured.jobs })
+        pruneProjectSnapshot(projectSlug, baseline, captured)
       })
       state.durableRevision = revision
       state.lastWriteAt = Date.now()
@@ -2224,11 +2269,16 @@ export const SOFT_CHECKPOINT_SPACING_MS = 1_000
 let coalesceSoftCheckpoints = true
 
 function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJobMutation, soft = false): Promise<void> {
-  if (mutation.kind === 'delete') state.baseline!.delete(mutation.jobId)
-  else {
+  if (mutation.kind === 'delete') {
+    state.baseline!.delete(mutation.jobId)
+    state.deletedIds.add(mutation.jobId)
+  } else {
     const previous = state.baseline!.get(mutation.jobId) || null
     const next = mutation.transform(previous ? structuredClone(previous) : null)
-    if (next) state.baseline!.set(mutation.jobId, markSafe(capFinishedLog(safeJob(next))))
+    if (next) {
+      state.deletedIds.delete(mutation.jobId)
+      state.baseline!.set(mutation.jobId, markSafe(capFinishedLog(safeJob(next))))
+    }
   }
   const revision = ++state.revision
   state.dirty = true
@@ -2238,7 +2288,12 @@ function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJ
 }
 
 function startProjectPersistence(projectSlug: string, state: ProjectPersistenceState): void {
-  if (!state.writing) {
+  if (state.transaction) { state.startRequested = true; return }
+  if (!state.writing && state.stagingTail) {
+    void state.stagingTail.then(() => startProjectPersistence(projectSlug, state))
+    return
+  }
+  if (!state.writing && !state.transaction && !state.uncertainty) {
     state.writing = drainProjectPersistence(projectSlug, state)
     void state.writing.catch(() => {})
   }
@@ -2248,16 +2303,11 @@ async function persistProjectMutation(projectSlug: string, mutation: ProjectJobM
   const state = projectPersistenceState(projectSlug)
   state.pendingMutations++
   try {
-    await hydrateProjectBaseline(projectSlug, state)
-    // The baseline is process-owned and applyProjectMutation is synchronous.
-    // Locking this tiny in-memory step serializes every member of a batch
-    // behind the writer, defeating snapshot coalescing. The writer still
-    // holds the jobs.json lock for the only disk mutation; mutations arriving
-    // while it is writing are picked up by its next dirty pass.
-    const durable = applyProjectMutation(state, mutation, soft)
-    // Let the current synchronous burst of mutations join the same snapshot
-    // before the writer captures its baseline. This is what makes a project
-    // batch one atomic write instead of one write per record.
+    const { durable } = await withProjectStaging(state, async () => {
+      assertPersistenceCertain(state)
+      await hydrateProjectBaseline(projectSlug, state)
+      return { durable: applyProjectMutation(state, mutation, soft) }
+    })
     queueMicrotask(() => startProjectPersistence(projectSlug, state))
     await durable
   } finally {
@@ -2266,15 +2316,20 @@ async function persistProjectMutation(projectSlug: string, mutation: ProjectJobM
 }
 
 /** Wait for already-started background writes before a test removes its data root. */
+export function _finishPersistenceStateForTesting(projectSlug: string) {
+  const state = projectPersistence.get(projectSlug)
+  return { transactions: state?.transactions || 0, pending: state?.pendingMutations || 0, staging: state?.stagingPending || 0, uncertain: Boolean(state?.uncertainty) }
+}
 export async function _waitForJobPersistenceForTesting(): Promise<void> {
   let observedIdle = false
   while (true) {
     const states = [...projectPersistence.values()]
+    if (states.some(state => state.uncertainty)) throw new JobPersistenceUncertainError()
     const active = states.flatMap(state => [
       ...(state.writing ? [state.writing] : []),
       ...(state.baseline === null && state.hydratePromise ? [state.hydratePromise] : []),
     ])
-    if (active.length === 0 && states.every(state => state.pendingMutations === 0)) {
+    if (active.length === 0 && states.every(state => state.pendingMutations === 0 && state.transactions === 0 && state.stagingPending === 0)) {
       if (observedIdle) return
       observedIdle = true
       await new Promise<void>(resolve => setImmediate(resolve))
@@ -2295,13 +2350,14 @@ export async function drainJobPersistenceForShutdown(timeoutMs: number): Promise
     let observedIdle = false
     while (!stopped) {
       const states = [...projectPersistence.values()]
-      if (states.some(state => state.dirty && !state.writing && state.pendingMutations === 0)) return false
+      if (states.some(state => state.uncertainty)) return false
+      if (states.some(state => state.dirty && !state.writing && state.pendingMutations === 0 && state.transactions === 0 && state.stagingPending === 0)) return false
       const active = states.flatMap(state => [
         ...(state.writing ? [state.writing] : []),
         ...(state.baseline === null && state.hydratePromise ? [state.hydratePromise] : []),
       ])
       const idle = childrenByJob.size === 0 && active.length === 0
-        && states.every(state => state.pendingMutations === 0 && !state.dirty)
+        && states.every(state => state.pendingMutations === 0 && state.transactions === 0 && state.stagingPending === 0 && !state.dirty)
       if (idle) {
         if (observedIdle) return true
         observedIdle = true
@@ -2436,11 +2492,21 @@ function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
 }
 
 async function persistJob(job: Job, soft = false): Promise<void> {
+  const state = projectPersistence.get(job.project_slug)
+  const transaction = state?.transaction
+  if (state?.uncertainty && jobs.get(job.job_id) === job) {
+    (state.uncertainty.observations ||= []).push(safeJob(job))
+  }
+  // Capture before waiting: Finish publication must not erase an observed provider receipt or params delta.
+  const observation = transaction?.jobId === job.job_id && jobs.get(job.job_id) === job ? safeJob(job) : null
+  if (observation) transaction!.observations.push(observation)
   const incoming = safeJob(job)
   await persistProjectMutation(job.project_slug, {
     kind: 'transform',
     jobId: job.job_id,
-    transform: current => mergeDurableJobEvidence(current, incoming),
+    transform: current => observation && transaction?.entryLive && current
+      ? reconcileFinishObservation(current, transaction.entryLive, observation)
+      : mergeDurableJobEvidence(current, incoming),
   }, soft)
   const settled = TERMINAL_JOB_STATUSES.has(job.status)
     || (job.status === 'paused' && !hasUnsettledProviderEvidence(job))
@@ -2486,6 +2552,175 @@ export async function inspectAuthoritativeJob(
   })
 }
 
+type StrictJobsSnapshot = { jobs: Job[]; [key: string]: unknown }
+async function readStrictJobsSnapshot(file: string): Promise<StrictJobsSnapshot | null> {
+  let text: string
+  try { text = await fs.readFile(file, 'utf8') } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+  const value = JSON.parse(text)
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.jobs)) throw new Error('Invalid queue snapshot')
+  const ids = new Set<string>()
+  for (const row of value.jobs) {
+    if (!row || typeof row !== 'object' || typeof row.job_id !== 'string' || !row.job_id || ids.has(row.job_id)) throw new Error('Invalid or duplicate queue identity')
+    ids.add(row.job_id)
+  }
+  return value
+}
+
+function mergeObservedParams(base: unknown, candidate: unknown, observed: unknown): unknown {
+  if (isDeepStrictEqual(base, observed)) return structuredClone(candidate)
+  if (isDeepStrictEqual(base, candidate) || isDeepStrictEqual(candidate, observed)) return structuredClone(observed)
+  const object = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value))
+  if (!object(base) || !object(candidate) || !object(observed)) throw new JobPersistenceUncertainError()
+  const result = { ...candidate }
+  for (const key of new Set([...Object.keys(base), ...Object.keys(observed)])) {
+    const had = Object.hasOwn(base, key)
+    const has = Object.hasOwn(observed, key)
+    if (had === has && isDeepStrictEqual(base[key], observed[key])) continue
+    if (!has) {
+      if (Object.hasOwn(candidate, key) && !isDeepStrictEqual(candidate[key], base[key])) throw new JobPersistenceUncertainError()
+      delete result[key]
+    } else if (!had) {
+      if (Object.hasOwn(candidate, key) && !isDeepStrictEqual(candidate[key], observed[key])) throw new JobPersistenceUncertainError()
+      result[key] = structuredClone(observed[key])
+    } else result[key] = mergeObservedParams(base[key], candidate[key], observed[key])
+  }
+  return result
+}
+function reconcileFinishObservation(candidate: Job, entry: Job, observed: Job): Job {
+  // Lifecycle belongs to the admission unless a later observation explicitly changes it.
+  const next = { ...candidate, params: mergeObservedParams(entry.params, candidate.params, observed.params) as Job['params'] }
+  for (const key of ['status', 'pause_requested', 'pause_origin', 'force_abandoned'] as const) {
+    if (!isDeepStrictEqual(entry[key], observed[key])) {
+      if (!isDeepStrictEqual(candidate[key], entry[key]) && !isDeepStrictEqual(candidate[key], observed[key])) throw new JobPersistenceUncertainError()
+      Object.assign(next, { [key]: observed[key] })
+    }
+  }
+  return mergeDurableJobEvidence(observed, next)
+}
+
+/** Finish alone owns unpublished admission intent; ordinary failed observations remain retained. */
+async function persistFinishAdmission(
+  projectSlug: string, jobId: string, mutate: (job: Job) => Job | null,
+  handoff: (job: Job) => void,
+): Promise<Job | null> {
+  const state = projectPersistenceState(projectSlug)
+  if (state.transaction) {
+    throw Object.assign(new Error('Another Finish missing images request for this project is still being saved. Wait until it finishes, then try again.'), { status: 409, expose: true })
+  }
+  const transaction: FinishPersistenceTransaction = { jobId, entryLive: jobs.get(jobId) ? safeJob(jobs.get(jobId)!) : null, observations: [] }
+  state.transactions++
+  state.transaction = transaction // Capture callbacks even while this turn waits for staging ownership.
+  let published = false
+  try {
+    return await withProjectStaging(state, async () => {
+      assertPersistenceCertain(state)
+      await hydrateProjectBaseline(projectSlug, state)
+      let attempted: StrictJobsSnapshot | null = null
+      let old: StrictJobsSnapshot | null = null
+      let oldRead = false
+      try {
+        if (state.writing) await state.writing.catch(() => {})
+        const revision = state.revision
+        const baseline = state.baseline!
+        return await withLock(jobsPath(projectSlug), async () => {
+          const file = jobsPath(projectSlug)
+          old = await readStrictJobsSnapshot(file)
+          oldRead = true
+          const found = baseline.get(jobId)
+          if (!found) return null
+          const changed = mutate(structuredClone(found))
+          if (!changed) return null
+          const candidate = new Map(baseline)
+          // Preserve unknown disk fields/rows, and their ordering, instead of replacing from a lazy map.
+          const ordered = new Map((old?.jobs || []).filter(row => !state.deletedIds.has(row.job_id)).map(row => [row.job_id, row]))
+          for (const [id, row] of candidate) {
+            const diskRow = ordered.get(id)
+            if (diskRow) {
+              for (const key of Object.keys(diskRow)) {
+                if (!Object.hasOwn(row, key)) throw new JobPersistenceUncertainError()
+              }
+            }
+            ordered.set(id, row)
+          }
+          // A disk-only row is an unknown writer's state, not permission to drop or rewrite it.
+          if ([...ordered.keys()].some(id => !baseline.has(id))) throw new JobPersistenceUncertainError()
+          let next = mergeDurableJobEvidence(found, changed)
+          const observe = () => {
+            const live = jobs.get(jobId)
+            if (live && transaction.entryLive) {
+              for (const observation of [...transaction.observations, safeJob(live)]) next = reconcileFinishObservation(next, transaction.entryLive, observation)
+            }
+          }
+          observe()
+          ordered.set(jobId, markSafe(capFinishedLog(safeJob(next))))
+          const captured = captureProjectSnapshot(ordered)
+          attempted = { ...(old || {}), jobs: captured.jobs }
+          try {
+            await writeProjectSnapshot(file, attempted)
+            published = true
+          } catch (error) {
+            let observed: StrictJobsSnapshot | null = null
+            try {
+              observed = await readStrictJobsSnapshot(file)
+              // Reconcile against the canonical serialized form actually written. JSON drops
+              // own undefined-valued keys (the Finish mutate's cleared fields), so the durable
+              // bytes never equal the raw in-memory object; the round-trip is still exact, so a
+              // genuine third-party write differs and still fences below.
+              const intended: StrictJobsSnapshot = JSON.parse(JSON.stringify(attempted))
+              if (isDeepStrictEqual(observed, intended)) published = true
+              else if (isDeepStrictEqual(observed, old)) throw error
+              else {
+                state.uncertainty = { old, attempted, observed, error }
+                throw new JobPersistenceUncertainError()
+              }
+            } catch (readError) {
+              if (readError === error) throw error
+              state.uncertainty ||= { old, attempted, observed, error: readError }
+              throw new JobPersistenceUncertainError()
+            }
+          }
+          // Last look occurs synchronously with BOTH live publication and pending handoff.
+          observe()
+          const stored = ordered.get(jobId)!
+          const finalRow = markSafe(capFinishedLog(safeJob(next)))
+          const observationChanged = !isDeepStrictEqual(stored, finalRow)
+          ordered.set(jobId, finalRow)
+          state.baseline = ordered
+          const { jobs: _rows, ...envelope } = attempted
+          state.envelope = envelope
+          state.durableRevision = revision
+          state.lastWriteAt = Date.now()
+          state.dirty = observationChanged
+          const ready = state.waiters.filter(waiter => waiter.revision <= revision)
+          state.waiters = state.waiters.filter(waiter => waiter.revision > revision)
+          ready.forEach(waiter => waiter.resolve())
+          pruneProjectSnapshot(projectSlug, ordered, captured)
+          handoff(next)
+          return structuredClone(next)
+        })
+      } catch (error) {
+        if (published || error instanceof JobPersistenceUncertainError || !oldRead) {
+          state.uncertainty ||= { old, attempted, observed: null, error }
+          state.uncertainty.published = published
+          const live = jobs.get(jobId)
+          state.uncertainty.observations = [...transaction.observations, ...(live ? [safeJob(live)] : [])]
+          throw new JobPersistenceUncertainError()
+        }
+        throw error
+      }
+    })
+  } finally {
+    state.transaction = null
+    state.transactions--
+    const requested = state.startRequested
+    state.startRequested = false
+    if (!state.uncertainty && (requested || (published && state.dirty))) queueMicrotask(() => startProjectPersistence(projectSlug, state))
+  }
+}
+
 /** The paired write side of `loadAuthoritativeJob`, retained as one test seam. */
 export async function writeAuthoritativeJob(job: Job): Promise<void> {
   await persistJob(job)
@@ -2494,7 +2729,7 @@ export async function writeAuthoritativeJob(job: Job): Promise<void> {
 /** Test-only fixture reset; production mutations must use the canonical writer. */
 export function _forgetProjectPersistenceForTesting(projectSlug: string): void {
   const state = projectPersistence.get(projectSlug)
-  if (state?.writing || state?.pendingMutations) throw new Error(`Cannot reset active persistence for ${projectSlug}`)
+  if (state?.writing || state?.pendingMutations || state?.transactions) throw new Error(`Cannot reset active persistence for ${projectSlug}`)
   projectPersistence.delete(projectSlug)
 }
 
@@ -2510,15 +2745,18 @@ export async function mutateAuthoritativeJob(
   const state = projectPersistenceState(projectSlug)
   state.pendingMutations++
   try {
-    await hydrateProjectBaseline(projectSlug, state)
-    const result = await withLock(jobsPath(projectSlug), async () => {
-      const found = state.baseline!.get(jobId)
-      if (!found) return null
-      const transformed = mutate(structuredClone(found))
-      if (!transformed) return null
-      const next = mergeDurableJobEvidence(found, transformed)
-      const durable = applyProjectMutation(state, { kind: 'transform', jobId, transform: () => next })
-      return { next, durable }
+    const result = await withProjectStaging(state, async () => {
+      assertPersistenceCertain(state)
+      await hydrateProjectBaseline(projectSlug, state)
+      return withLock(jobsPath(projectSlug), async () => {
+        const found = state.baseline!.get(jobId)
+        if (!found) return null
+        const transformed = mutate(structuredClone(found))
+        if (!transformed) return null
+        const next = mergeDurableJobEvidence(found, transformed)
+        const durable = applyProjectMutation(state, { kind: 'transform', jobId, transform: () => next })
+        return { next, durable }
+      })
     })
     if (!result) return null
     startProjectPersistence(projectSlug, state)
@@ -3607,7 +3845,7 @@ function nextImageGroupJob(type: JobType): Job | null {
   const index = recoveryIndex >= 0
     ? recoveryIndex
     : pending.findIndex(job => !job.started_at)
-  if (index < 0) return null
+  if (index < 0 || persistenceFenced(pending[index].project_slug)) return null
   // A Jobs "Finish missing images" row is a bulk Scene Review over the episode
   // and must not start beside ANY other live Scene Review worker for it. The
   // previous executor is still a real worker after it writes a terminal status
@@ -3675,7 +3913,7 @@ function pump(type: JobType): void {
           return active?.type === type && active.project_slug === candidate.project_slug
             && active.episode_id === candidate.episode_id
         })) : 0
-      if (index < 0) break
+      if (index < 0 || persistenceFenced(q.pending[index].project_slug)) break
       const job = q.pending.splice(index, 1)[0]!
       groupActive[group] = (groupActive[group] || 0) + 1
       runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
@@ -3687,7 +3925,7 @@ function pump(type: JobType): void {
       queueMicrotask(() => pump(type))
     }
   } else {
-    if (q.running || q.pending.length === 0) return
+    if (q.running || q.pending.length === 0 || persistenceFenced(q.pending[0].project_slug)) return
     q.running = true
     const job = q.pending.shift()!
     runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
@@ -4046,7 +4284,12 @@ async function runJob(type: JobType, job: Job): Promise<void> {
   const q = queues[type]
   activeRunJobIds.add(job.job_id)
   activeRunJobRecords.set(job.job_id, job)
+  const deferUncertain = () => {
+    job.status = 'queued'
+    if (!pendingContains(type, job.job_id)) q.pending.unshift(job)
+  }
   try {
+    if (persistenceFenced(job.project_slug)) { deferUncertain(); return }
     if (cancelled.has(job.job_id)) {
       job.status = 'cancelled'
       job.finished_at = new Date().toISOString()
@@ -4073,8 +4316,12 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     job.pause_requested = false
     job.started_at ||= new Date().toISOString()
     jobs.set(job.job_id, job)
-    await persistJob(job)
+    try { await persistJob(job) } catch (error) {
+      if (persistenceFenced(job.project_slug)) { deferUncertain(); return }
+      throw error
+    }
     if (!jobs.has(job.job_id)) return
+    if (persistenceFenced(job.project_slug)) { deferUncertain(); return }
     emitUpdate(job)
 
     try {
@@ -4115,6 +4362,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           if (cancelled.has(job.job_id)) throw new Error('Cancelled by user')
           throwIfPauseRequested(job.job_id)
           await assertQueuedVisualSource(job)
+          if (persistenceFenced(job.project_slug)) { deferUncertain(); return }
           // Run the executor inside a per-job AsyncLocalStorage context so any
           // child processes spawned deep in the call tree register against this
           // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
@@ -5491,6 +5739,7 @@ export async function enqueueOrRun(opts: {
     params: opts.params || {},
   }
   try {
+    if (persistenceFenced(job.project_slug)) throw new JobPersistenceUncertainError()
     await runWithJobContentPackProvenance(job.content_pack_provenance, () => executor(job))
     assertJobDidNotDeclareIncomplete(job)
     job.status = 'done'
@@ -5658,6 +5907,7 @@ function assertEnqueueAdmission(
   if (projectRemovalInProgress.has(opts.project_slug)) {
     throw Object.assign(new Error('Project removal is in progress. Return later before starting new work.'), { statusCode: 409 })
   }
+  if (persistenceFenced(opts.project_slug)) throw new JobPersistenceUncertainError()
   if (!queues[opts.type]) throw new Error(`No queue lane registered for job type: ${opts.type}`)
   if (opts.type === 'continuity_render'
     && finishMissingReservations.has(finishMissingReservationKey(opts.project_slug, opts.episode_id))) {
@@ -6058,7 +6308,7 @@ export async function finishMissingImagesInPlace(
       const now = new Date().toISOString()
       const manualActionId = randomUUID()
       const directActionId = randomUUID()
-      const durable = await mutateAuthoritativeJob(projectSlug, jobId, current => {
+      const durable = await persistFinishAdmission(projectSlug, jobId, current => {
         if (current.project_slug !== projectSlug || current.type !== 'continuity_render') return null
         if (current.status === 'queued' || current.status === 'running') {
           const marker = current.params?.jobs_finish_missing_images
@@ -6126,21 +6376,21 @@ export async function finishMissingImagesInPlace(
           'Finish missing images requested from Jobs — checking saved images and provider work before submitting anything new.',
         ]
         return next
+      }, row => {
+        const queued = jobs.get(jobId) || row
+        Object.assign(queued, row)
+        if (!('force_abandoned' in row)) delete queued.force_abandoned
+        jobs.set(jobId, queued)
+        cancelled.delete(jobId)
+        pauseRequested.delete(jobId)
+        if (!pendingContains('continuity_render', jobId)) queues.continuity_render.pending.push(queued)
+        emitUpdate(queued)
       })
       if (!durable) {
         throw Object.assign(new Error('This image job changed before Finish missing images could be queued. Refresh Jobs and try again.'), { status: 409, expose: true })
       }
-      const live = jobs.get(jobId)
-      const queued = live || durable
-      Object.assign(queued, durable)
-      if (!('force_abandoned' in durable)) delete queued.force_abandoned
-      jobs.set(jobId, queued)
-      cancelled.delete(jobId)
-      pauseRequested.delete(jobId)
-      if (!pendingContains('continuity_render', jobId)) queues.continuity_render.pending.push(queued)
-      emitUpdate(queued)
       pumpImageEpisodeGroup(imageEpisodeConcurrency)
-      return { job: structuredClone(queued), reused: false }
+      return { job: structuredClone(jobs.get(jobId) || durable), reused: false }
     })
   } finally {
     if (reservationKey && finishMissingReservations.get(reservationKey) === jobId) {
@@ -6868,7 +7118,15 @@ async function stopLocalJobUnlocked(job: Job): Promise<Job> {
   cancelled.add(job.job_id)
   job.status = 'cancelled'
   job.finished_at = new Date().toISOString()
-  job.output_lines.push('Local processing stopped. This operation sent no provider generation request.')
+  // A stop offered while a provider request is already submitted must not claim nothing was sent.
+  // The batch keeps its idempotency key, so a later retry collects the same answer without a second
+  // POST; the copy says exactly that instead of promising a charge that may already exist.
+  const evidence = job.genstudio_jobs || []
+  job.output_lines.push(!evidence.length
+    ? 'Local processing stopped. This operation sent no provider generation request.'
+    : evidence.some(isUnsettledProviderEntry)
+      ? 'Stopped on this Mac. No further provider requests will be sent. A request already sent may still finish and be charged; its result stays collectable when you retry.'
+      : 'Stopped on this Mac. No further provider requests will be sent. Every recorded provider task has finished.')
   killChildrenFor(job.job_id)
   await persistJob(job)
   emitUpdate(job)

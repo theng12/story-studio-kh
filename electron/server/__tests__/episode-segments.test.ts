@@ -345,15 +345,24 @@ describe('an unattended batch follows the channel, not a checkbox', () => {
   before(async () => { pipeline = await import('../routes/pipeline.js') })
 
   test('a channel that opens with one gets the step without anyone asking', async () => {
-    await seedProject('batch-wants-opening')
+    await seedProject('batch-wants-opening', { auto_introduction_enabled: true })
     await segments.saveChannelSegment('batch-wants-opening', INTRODUCTION_SEGMENT_ID, { enabled: true })
     const steps = await pipeline.applyChannelSegmentIntent('batch-wants-opening', ['script-only', 'audio'])
     assert.deepEqual(steps, ['script-only', 'introduction-only', 'audio'],
       'and it comes after the chapters it introduces, not at the end of the run')
   })
 
+  test('the project activation switch defaults OFF even when the recipe is on', async () => {
+    // The future-only master switch is deliberately OFF unless the owner turns
+    // it on. A recipe that used to imply automation no longer does.
+    await seedProject('batch-default-off')
+    await segments.saveChannelSegment('batch-default-off', INTRODUCTION_SEGMENT_ID, { enabled: true })
+    const steps = await pipeline.applyChannelSegmentIntent('batch-default-off', ['script-only', 'audio'])
+    assert.deepEqual(steps, ['script-only', 'audio'])
+  })
+
   test('a channel that does not use openings never grows an extra call', async () => {
-    await seedProject('batch-no-opening')
+    await seedProject('batch-no-opening', { auto_introduction_enabled: true })
     await segments.saveChannelSegment('batch-no-opening', INTRODUCTION_SEGMENT_ID, { enabled: false })
     const steps = await pipeline.applyChannelSegmentIntent('batch-no-opening', ['script-only', 'audio'])
     assert.deepEqual(steps, ['script-only', 'audio'])
@@ -379,9 +388,19 @@ describe('an unattended batch follows the channel, not a checkbox', () => {
   })
 
   test('asking for it explicitly does not queue it twice', async () => {
-    await seedProject('explicit-request')
+    await seedProject('explicit-request', { auto_introduction_enabled: true })
     await segments.saveChannelSegment('explicit-request', INTRODUCTION_SEGMENT_ID, { enabled: true })
     const steps = await pipeline.applyChannelSegmentIntent('explicit-request', ['script-only', 'introduction-only'])
     assert.deepEqual(steps, ['script-only', 'introduction-only'])
+  })
+
+  test('the master switch strips an opening the Pipeline selection sent', async () => {
+    // The Pipeline page has no manual Introduction checkbox; it derives the
+    // step from the channel. With the project switch OFF an opening already in
+    // the payload must still be dropped, so default OFF cannot be bypassed.
+    await seedProject('batch-payload-off')
+    await segments.saveChannelSegment('batch-payload-off', INTRODUCTION_SEGMENT_ID, { enabled: true })
+    const steps = await pipeline.applyChannelSegmentIntent('batch-payload-off', ['script-only', 'introduction-only'])
+    assert.deepEqual(steps, ['script-only'])
   })
 })

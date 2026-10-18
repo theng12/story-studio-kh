@@ -1285,6 +1285,9 @@ watch(() => form.style, (s) => {
  * asks what it says. Do not reintroduce local intro state here.
  */
 const channelIntroEnabled = ref(false)
+// Future-only master switch. The recipe alone no longer arms the automatic
+// opening after a script run; the owner must opt in under Settings.
+const autoIntroductionEnabled = computed(() => project.value?.auto_introduction_enabled === true)
 const channelIntroWordTarget = ref(0)
 async function loadChannelIntroduction(): Promise<void> {
   try {
@@ -2057,7 +2060,7 @@ async function submitOutline(): Promise<boolean> {
     // When enabled, the channel opening is generated only after THIS episode's
     // approved outline has become completed chapters. Armed only once the
     // request is accepted, and only for the episode it was made for.
-    autoIntroForEpisode.value = channelIntroEnabled.value ? targetEpisode : ''
+    autoIntroForEpisode.value = channelIntroEnabled.value && autoIntroductionEnabled.value ? targetEpisode : ''
     success('Outline build queued — review when it finishes!')
     const ok = await waitForJob(job.job_id)
     if (!ownsOutlineSubmit(submitOwner) || slug.value !== captureSlug || form.episode_id !== targetEpisode) return false
@@ -2102,7 +2105,7 @@ function waitForJob(jobId: string, timeoutMs = 10 * 60 * 1000): Promise<boolean>
   })
 }
 
-async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true }): Promise<boolean> {
+async function submitIntroduction(opts: { confirm?: boolean; automatic?: boolean } = { confirm: true }): Promise<boolean> {
   // Generate introduction only (requires script to exist on disk).
   // `opts.confirm` lets generateAll() skip the confirmation dialog for the
   // intro stage — the user already approved the combined run up front.
@@ -2120,13 +2123,20 @@ async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true 
 
   submitting.value = true
   try {
-    const job = await post<{ job_id: string }>(`/projects/${slug.value}/generate/introduction-only`, {
+    const result = await post<{ job_id?: string; skipped?: boolean }>(`/projects/${slug.value}/generate/introduction-only`, {
       ...params,
       operation_id: operationId,
+      ...(opts.automatic ? { automatic: true } : {}),
     })
     freshScriptAction.complete(operationId)
+    if (!result?.job_id) {
+      // The server declined the AUTOMATIC tail because this episode predates
+      // the activation fact. Nothing is missing and nothing was charged; the
+      // manual Introduction page stays available.
+      return true
+    }
     success('Introduction generation queued!')
-    return await waitForJob(job.job_id)
+    return await waitForJob(result.job_id)
   } catch (e: any) {
     console.error('[scripts] queue introduction generation failed:', e)
     const detail = e.data?.detail
@@ -2154,10 +2164,9 @@ watch(scriptGenerated, (now, prev) => {
   if (!pageReadyForAutoIntro.value) return
   const armed = autoIntroForEpisode.value
   if (now && !prev && armed && armed === form.episode_id && selectedEpisode.value?.episode_code === armed
-      && channelIntroEnabled.value && !introDone.value && !submitting.value) {
+      && channelIntroEnabled.value && autoIntroductionEnabled.value && !introDone.value && !submitting.value) {
     autoIntroForEpisode.value = ''
-    success(`Channel opening auto-generating for ${armed}…`)
-    void submitIntroduction({ confirm: false })
+    void submitIntroduction({ confirm: false, automatic: true })
   }
 })
 onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500) })

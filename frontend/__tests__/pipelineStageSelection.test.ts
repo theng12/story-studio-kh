@@ -64,8 +64,8 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, /id: 'introduction-only',[^\n]*label: 'Introduction'[^\n]*optional: true/)
     assert.match(pipeline, /if \(stepId === 'introduction-only'\) return true/,
       'it is never hand-toggled here any more')
-    assert.match(pipeline, /stepChecked\['introduction-only'\] = !!stepChecked\['script-only'\] && channelIntroEnabled\.value/,
-      'it is derived from the channel setting and the Script step, in one place')
+    assert.match(pipeline, /stepChecked\['introduction-only'\] = !!stepChecked\['script-only'\][\s\S]{0,80}channelIntroEnabled\.value === true[\s\S]{0,80}autoIntroductionEnabled\.value/,
+      'it is derived from the channel setting, the project master switch, and the Script step, in one place')
     assert.match(pipeline, /Runs automatically — this channel opens with an Introduction/)
     assert.match(pipeline, /An Introduction is not a choice here — it follows what the channel says/,
       'the "required stages" shortcut must not still describe it as staying off')
@@ -74,8 +74,8 @@ describe('Pipeline stage selection', () => {
   test('the page says a run will produce openings BEFORE it is started', () => {
     // The behaviour change is the point of v1.4.73, but a surprise is still a
     // surprise. This has to be visible at selection time, not in the receipt.
-    assert.match(pipeline, /Every episode in this run will also get an Introduction/)
-    assert.match(pipeline, /v-if="channelIntroEnabled && stepChecked\['script-only'\]"/)
+    assert.match(pipeline, /New episodes in this run will also get an Introduction/)
+    assert.match(pipeline, /v-if="autoIntroductionEnabled && channelIntroEnabled && stepChecked\['script-only'\]"/)
   })
 
   test('the Introduction step points at the page that owns it, and has no preset', () => {

@@ -2,6 +2,12 @@ import type { ImageModelConfig, ImageOutputOption, ProjectConfig } from '../mode
 import { listImageModels, type GenStudioImageModel, type GenStudioImageOutputOption } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId } from './genstudio-model-migration.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
+import {
+  isPublishedAspectRatio,
+  publishedAspectRatios,
+  storyDefaultAspectRatio,
+  storyDefaultOutputOption,
+} from '../contracts/genstudio-image-defaults.js'
 
 /**
  * Every capability field is parsed exactly once, in the catalogue mapper in
@@ -65,26 +71,32 @@ export function publishedAvailabilityProblem(model: GenStudioImageModel): string
 /**
  * Resolve the aspect ratio a submission may actually use.
  *
- * An empty request falls back to the model's PUBLISHED default rather than a
- * hardcoded '16:9', and a ratio the model does not publish is refused instead
- * of being silently substituted (which would bill the customer for a frame
- * they did not choose).
+ * An empty request is MISSING, not a literal 16:9: it uses the shared Story
+ * default (`contracts/genstudio-image-defaults.ts`) — 16:9 when the live
+ * catalogue publishes a renderable 16:9, otherwise the model's own published
+ * fallback. That is the owner's 2026-10-17 reversal of the old
+ * "provider default only" rule. A ratio the model does not publish is still
+ * refused instead of being silently substituted (which would bill the
+ * customer for a frame they did not choose).
  */
 export function resolvePublishedAspectRatio(
   model: GenStudioImageModel,
   requested: string | undefined,
 ): string {
   const wanted = (requested || '').trim()
-  const ratios = model.aspect_ratios || []
-  const fallback = (model.default_aspect_ratio || '').trim() || ratios[0] || ''
   if (!wanted) {
+    const fallback = storyDefaultAspectRatio(model)
     if (!fallback) {
       throw new Error(`${model.display_name} publishes no aspect ratios. Refresh the model picker and choose a current model.`)
     }
     return fallback
   }
-  if (ratios.length && !ratios.includes(wanted)) {
-    throw new Error(`${model.display_name} does not support ${wanted}. Choose ${ratios.join(', ')}.`)
+  // Rows are authoritative when the catalogue publishes them: a ratio whose
+  // row exists is renderable even if the separate list omits it. Only a model
+  // with NO published contract keeps the old pass-through behaviour.
+  const published = publishedAspectRatios(model)
+  if (published.length && !isPublishedAspectRatio(model, wanted)) {
+    throw new Error(`${model.display_name} does not support ${wanted}. Choose ${published.join(', ')}.`)
   }
   return wanted
 }
@@ -100,16 +112,18 @@ export function resolveConfiguredAspectRatio(
   requested: string | undefined,
 ): string {
   const wanted = (requested || '').trim()
-  const ratios = config.aspect_ratios || []
-  const fallback = (config.default_aspect_ratio || '').trim() || ratios[0] || ''
   if (!wanted) {
+    const fallback = storyDefaultAspectRatio(config)
     if (!fallback) {
       throw new Error(`${config.label} publishes no aspect ratios. Refresh the model picker and choose a current model.`)
     }
     return fallback
   }
-  if (ratios.length && !ratios.includes(wanted)) {
-    throw new Error(`${config.label} does not support ${wanted}. Choose ${ratios.join(', ')}.`)
+  // Same rows-authoritative contract as the catalogue-side twin above. A
+  // legacy saved config with no published list or rows still passes through.
+  const published = publishedAspectRatios(config)
+  if (published.length && !isPublishedAspectRatio(config, wanted)) {
+    throw new Error(`${config.label} does not support ${wanted}. Choose ${published.join(', ')}.`)
   }
   return wanted
 }
@@ -167,10 +181,11 @@ export function selectPublishedOutputOption<T extends {
 }
 
 /**
- * The row a picker should preselect for a model, with no ratio chosen yet.
+ * The row a picker should preselect for a model when no ratio was chosen.
  *
- * `is_default` first, then the published `default_resolution` +
- * `default_aspect_ratio` pair. Nothing is chosen by position.
+ * Shared Story-default policy: a renderable 16:9 row first, then the model's
+ * published default. Nothing is chosen by position when the catalogue names
+ * no default.
  */
 export function defaultPublishedOutputOption<T extends {
   resolution: string
@@ -181,14 +196,11 @@ export function defaultPublishedOutputOption<T extends {
   defaultResolution: string | undefined,
   defaultAspectRatio: string | undefined,
 ): T | undefined {
-  const rows = options || []
-  if (!rows.length) return undefined
-  const flagged = rows.find(row => row.is_default)
-  if (flagged) return flagged
-  const resolution = (defaultResolution || '').trim()
-  const ratio = (defaultAspectRatio || '').trim()
-  if (!resolution || !ratio) return undefined
-  return rows.find(row => row.resolution === resolution && row.aspect_ratio === ratio)
+  return storyDefaultOutputOption({
+    output_options: options,
+    default_resolution: defaultResolution,
+    default_aspect_ratio: defaultAspectRatio,
+  }) ?? undefined
 }
 
 /** Catalogue-side wrapper used at the charged submit boundary. */

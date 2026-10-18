@@ -606,6 +606,36 @@
             </div>
           </section>
 
+          <section class="card settings-panel" data-setting="content-language">
+            <header class="settings-card-head">
+              <h3>Language &amp; introductions</h3>
+              <p>Audience-facing text — scripts, introductions, ideas and descriptions — follows this language. Existing text is not rewritten.</p>
+            </header>
+            <div class="form-group">
+              <label for="settings-content-language">Audience language</label>
+              <select id="settings-content-language" v-model="projectForm.content_language" class="input">
+                <option value="">Not set (legacy prompts)</option>
+                <option value="en">English</option>
+                <option value="km">Khmer</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="flex gap-2" style="align-items:center">
+                <input v-model="projectForm.auto_introduction_enabled" type="checkbox" />
+                <span>Automatically add introductions to newly created episodes</span>
+              </label>
+              <p class="text-muted text-sm">
+                Off by default. Turning it on affects only episodes created afterwards; existing episodes are never
+                given an automatic introduction, marked as missing one, or backfilled. Generate one explicitly when you
+                want it. This channel's Introduction recipe must also be enabled.
+              </p>
+            </div>
+            <div class="flex gap-2" style="align-items:center">
+              <button class="btn btn-primary btn-sm" @click="saveProject('language')">Save Language &amp; Introductions</button>
+              <SaveIndicator v-bind="savedHintProps('project_language')" />
+            </div>
+          </section>
+
           <AdvancedDisclosure :label="`Advanced: custom formulas (${nicheLibraryCount})`" data-setting="custom-formulas">
             <div class="card settings-panel">
         <div class="niche-library-header">
@@ -3864,7 +3894,11 @@ const projectForm = reactive<{
    * AI-generated content).
    */
   mark_as_ai_generated: boolean | undefined
-}>({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, category_id: undefined, mark_as_ai_generated: undefined })
+  /** Audience-facing language; '' = legacy (no directive). */
+  content_language: '' | 'en' | 'km'
+  /** Future-only automatic introductions; default OFF. */
+  auto_introduction_enabled: boolean
+}>({ name: '', episode_prefix: '', season_prefix: 'Season', season_size: 20, category_id: undefined, mark_as_ai_generated: undefined, content_language: '', auto_introduction_enabled: false })
 
 // ── Per-project Art Style (v1.0.518) ──────────────────────────────────────
 // The project's active art style is persisted as config.active_style_preset_id
@@ -4198,6 +4232,10 @@ watch(project, (p) => {
     projectForm.season_prefix = p.season_prefix || 'Season'
     projectForm.season_size = p.season_size || 20
     serverSeasonSize.value = p.season_size || 20
+    projectForm.content_language = p.content_language === 'en' || p.content_language === 'km'
+      ? p.content_language
+      : ''
+    projectForm.auto_introduction_enabled = p.auto_introduction_enabled === true
     // Level B external media root (lives on project meta). Seed the Storage-tab
     // control + verify it resolves on this machine for the status line.
     mediaRootInput.value = (p as any).media_root || ''
@@ -4333,7 +4371,7 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection): Promi
   try {
     const targetSlug = slug.value
     const section = requestedSection || (activeTab.value as ProjectSettingsSaveSection)
-    if (!['identity', 'publishing', 'files'].includes(section)) return false
+    if (!['identity', 'publishing', 'files', 'language'].includes(section)) return false
     const draftBeforeSave = { ...projectForm }
     const plan = projectSettingsSavePlan(section, draftBeforeSave, serverSeasonSize.value)
 
@@ -4365,7 +4403,7 @@ async function saveProject(requestedSection?: ProjectSettingsSaveSection): Promi
     // Mutate only the acknowledged fields in place. Replacing the whole refs
     // would hydrate every section and discard drafts hidden behind another link.
     stampSaved(`project_${section}`)
-    success(`${section === 'identity' ? 'Channel identity' : section === 'publishing' ? 'Publishing defaults' : 'Channel files'} saved!`)
+    success(`${section === 'identity' ? 'Channel identity' : section === 'publishing' ? 'Publishing defaults' : section === 'language' ? 'Language and introductions' : 'Channel files'} saved!`)
     return true
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to save')

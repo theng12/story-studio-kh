@@ -38,6 +38,16 @@ const PAUSABLE_SUBMISSION_TYPES = new Set<Job['type']>([
   // in-flight batch continue submitting work after promising otherwise.
   'audio', 'subtitles_transcribe', 'continuity_render', ])
 
+// A local batch executor can be stopped between batches even while one provider request is already in
+// flight. Its submitting entry carries only a placeholder id (`pending:<idempotency-key>`), so it is
+// not a remote-cancel target — but the executor polls `isCancelled` and never appends the request it
+// already paid for, leaving that batch's saved key collectable on a later retry.
+//
+// Keep this set separate from `SAFE_LOCAL_STOP_TYPES` (job-retry-policy.ts). That set proves NO
+// provider request was ever sent, and the no-evidence copy promises nothing is charged. Merging the
+// two would make that promise on a job whose paid response may still arrive.
+const SUBMISSION_STOP_CAPABLE_TYPES = new Set<Job['type']>(['idea_campaign'])
+
 function canPauseNewSubmissions(job: Pick<Job, 'type' | 'params'>): boolean {
   return PAUSABLE_SUBMISSION_TYPES.has(job.type)
     || (job.type === 'scene_plan_run' && job.params?.auto_repair_missing_prompts === true)
@@ -288,6 +298,13 @@ function classifyProviderJobControl(
   }
 
   if (evidence.some(isSubmissionUncertain)) {
+    // Stop the local batch loop, but never claim the request already sent was stopped: the Gateway
+    // may still finish and charge it. The batch keeps its idempotency key, so a later retry collects
+    // that same answer without a second POST. Every other type keeps the honest "cannot tell" refusal
+    // — without a remote target there is no safe cancellation to offer.
+    if (SUBMISSION_STOP_CAPABLE_TYPES.has(job.type)) {
+      return control('stop-local', true, 'Stop', 'Stops this campaign on this Mac now. No further batches will be sent. The request already sent may still finish and be charged; its answer stays collectable when you retry.', 'READY', 'provider-work-may-settle')
+    }
     return control('return-later', false, 'Checking submission', 'Story Studio cannot yet prove whether every provider request was accepted. It will reconcile before any new submission.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
   }
 

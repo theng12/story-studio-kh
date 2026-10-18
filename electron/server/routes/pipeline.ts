@@ -12,6 +12,7 @@ import { paidFallbacksWarning } from '../services/app-settings.js'
 import { Router, type Request, type Response } from 'express'
 import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
+import { episodeIsIntroEligible } from '../lib/episode-creation-facts.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import type { ContinuityConfig, Format, JobType, ProjectMeta } from '../models/types.js'
@@ -708,7 +709,18 @@ async function preflightBatch(
     }
     try {
       const source = await readVideoVisualSource(slug, episodeId, projectFacts)
-      const episodeSteps = applicablePipelineStepsForVisualSource(steps, source.source).applicable
+      let episodeSteps = applicablePipelineStepsForVisualSource(steps, source.source).applicable
+      // Future-only fact: an automatic opening is added only to an episode
+      // whose creation snapshot said intro_eligible. Old/imported episodes
+      // have no such fact and are never enqueued, marked missing, or backfilled.
+      let introExcluded = false
+      if (episodeSteps.includes('introduction-only')) {
+        const episodePaths = await resolveEpisodePathsByCode(slug, episodeId, projectFacts).catch(() => null)
+        if (!episodePaths || !await episodeIsIntroEligible(episodePaths.episode_dir)) {
+          episodeSteps = episodeSteps.filter(step => step !== 'introduction-only')
+          introExcluded = true
+        }
+      }
       if (episodeSteps.includes('video_assembly') && source.source === 'image_pool') {
         await resolveImagePoolSelection(slug, episodeId)
       }
@@ -724,7 +736,7 @@ async function preflightBatch(
         startingPacing,
         projectFacts,
       )
-      return { episodeId, episodeSteps, visualSettings }
+      return { episodeId, episodeSteps, visualSettings, introExcluded }
     } catch (error: any) {
       return {
         episodeId,
@@ -737,6 +749,7 @@ async function preflightBatch(
       }
     }
   })
+  const introIneligibleEpisodes = new Set<string>()
   for (const row of visualRows) {
     if (row.issue) {
       issues.push(row.issue)
@@ -744,6 +757,13 @@ async function preflightBatch(
     }
     row.episodeSteps?.forEach(step => requiredSteps.add(step))
     if (row.visualSettings) visualSettingsByEpisode.set(row.episodeId, row.visualSettings)
+    if (row.introExcluded) {
+      introIneligibleEpisodes.add(row.episodeId)
+      warnings.push(
+        `${row.episodeId}: Introduction was not added automatically because this episode was created ` +
+        'before automatic introductions were enabled. Generate one explicitly if you want it — this does not block anything.',
+      )
+    }
   }
 
   const presetByStep: Partial<Record<BatchStep, StoredPreset>> = {}
@@ -824,7 +844,11 @@ async function preflightBatch(
   const statusRows = await mapWithConcurrency(episodeIds, async episodeId => {
     const visualSettings = visualSettingsByEpisode.get(episodeId)
     if (!ideaByCode.has(episodeId) || !visualSettings) return null
-    const episodeSteps = applicablePipelineStepsForVisualSource(runSteps(), visualSettings.visual_source).applicable
+    let episodeSteps = applicablePipelineStepsForVisualSource(runSteps(), visualSettings.visual_source).applicable
+    const autoIntroExcluded = introIneligibleEpisodes.has(episodeId)
+    if (autoIntroExcluded) {
+      episodeSteps = episodeSteps.filter(step => step !== 'introduction-only')
+    }
     const status = await episodeStatusCache.get(slug, episodeId, ideas, projectFacts)
     const episodeIssues: PreflightIssue[] = []
     const available = new Set<BatchStep>()
@@ -911,7 +935,7 @@ async function preflightBatch(
       episodeIssues.push({ code: 'captions_missing', episode_id: episodeId, step: 'video_assembly', requires: 'subtitles', message: captionGap })
     }
     if (captionsMode !== 'warn') captionGap = null
-    return { episodeId, status, issues: episodeIssues, captionGap, ordered: added.length ? ordered : null, added }
+    return { episodeId, status, issues: episodeIssues, captionGap, ordered: (added.length || autoIntroExcluded) ? ordered : null, added }
   })
   const captionGaps: string[] = []
   const stepsByEpisode = new Map<string, BatchStep[]>()
@@ -961,7 +985,10 @@ async function preflightBatch(
     effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel, introductionChatModel,
     visualSettingsByEpisode, projectFacts, startingPacing, musicChannel,
     videoEffects: requiredSteps.has('video_assembly') ? withCaptionGaps(videoEffectsAnswer(config, presetByStep.video_assembly, musicChannel), captionGaps) : null,
-    steps: runSteps(), stepsByEpisode, stepsAdded,
+    // Drop an opening that no eligible episode will run. Explicit manual
+    // generation uses its own route and is unaffected.
+    steps: steps.filter(step => step !== 'introduction-only' || requiredSteps.has(step)),
+    stepsByEpisode, stepsAdded,
     stepsLeftOut: [...leftOut.entries()].map(([step, reason]) => ({ step, reason })),
     retiredMediaBlocks,
   }
@@ -1464,7 +1491,11 @@ export function resolveStepParams(
       episode_id: episodeId,
       title: title || '',
       model: data.model,
-      aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
+      // No ratio in the preset is MISSING, not 16:9: the image resolver
+      // applies the shared Story default against the live catalogue.
+      ...(typeof data.aspect_ratio === 'string' && data.aspect_ratio.trim()
+        ? { aspect_ratio: data.aspect_ratio.trim() }
+        : {}),
       seed: Number.isInteger(data.seed) ? data.seed : undefined,
       auto_approve_generated: data.auto_approve_generated === true,
     }
@@ -2222,10 +2253,23 @@ async function pipelineSubtitleRepairComplete(slug: string, episodeId: string): 
  * told a run will produce is what the run produces.
  */
 export async function applyChannelSegmentIntent(slug: string, steps: BatchStep[]): Promise<BatchStep[]> {
-  if (!steps.includes('script-only')) return steps
-  if (steps.includes('introduction-only')) return steps
+  // The opening in a Pipeline run is ALWAYS automatic: the Pipeline page has
+  // no manual Introduction checkbox, so its presence in the payload is not an
+  // owner override. Manual generation has its own `/generate/introduction-only`
+  // route and is untouched.
+  if (!steps.includes('introduction-only') && !steps.includes('script-only')) return steps
+  // Future-only master switch, default OFF. Requires BOTH the project switch
+  // and the channel's Introduction recipe. Turning either on later never
+  // retroactively changes existing episodes: those carry no `intro_eligible:
+  // true` fact, so preflight filters the step per episode.
+  const project = await pm.getProject(slug).catch(() => null)
   const { channelWantsIntroduction } = await import('../services/channel-segments.js')
-  if (!await channelWantsIntroduction(slug)) return steps
+  const wantsAutomaticIntro = project?.auto_introduction_enabled === true
+    && await channelWantsIntroduction(slug)
+  if (steps.includes('introduction-only')) {
+    return wantsAutomaticIntro ? steps : steps.filter(step => step !== 'introduction-only')
+  }
+  if (!wantsAutomaticIntro) return steps
   const out = [...steps]
   out.splice(out.indexOf('script-only') + 1, 0, 'introduction-only')
   return out

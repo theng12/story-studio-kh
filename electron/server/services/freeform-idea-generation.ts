@@ -6,7 +6,9 @@
 import { callAiWithRetry, type CallAiContext } from '../lib/ai-client.js'
 import { type Format, type GenerateIdeasRequest } from '../models/types.js'
 import { ideaOutputTokenBudget } from './idea-output-budget.js'
+import type { OutputBudget } from './output-token-budget.js'
 import { ideaBatchOutputContract } from '../lib/story-output-contracts.js'
+import type { TextOutputContract } from '../lib/json-output-contract.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { sample } from './reference-pool.js'
 
@@ -367,6 +369,28 @@ export interface GenerateFreeformIdeaBatchInput {
   requestIdentity?: string
   /** Reuse a prompt the caller already built for this batch. */
   preparePrompt?: () => string
+  /**
+   * Record the provider key the moment it is prepared, so a restarted campaign can collect this
+   * request by its own key instead of rebuilding a body that would mint a different one.
+   */
+  onRequestPrepared?: (idempotencyKey: string) => void | Promise<void>
+  onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
+  /** Replay an already-accepted request by its saved key, read-only, before any new dispatch. */
+  recoverByIdempotencyKey?: boolean
+  allowedRecoveryKeys?: string[]
+  /**
+   * The provider key captured for a replayed batch, passed back VERBATIM. The provider's recovery
+   * branch only fires when this is set (genstudio-client:8167), and reusing the saved key is what
+   * lets a changed catalogue still collect the original request.
+   */
+  idempotencyKey?: string
+  /** The contract the ORIGINAL request was sent with, so a recovered answer parses identically. */
+  outputContract?: TextOutputContract
+  /**
+   * The budget the ORIGINAL request was sized with. A replay reuses it rather than re-sizing from
+   * today's count, so the body (and therefore the provider key) is the one that was sent.
+   */
+  outputBudget?: OutputBudget
 }
 
 /**
@@ -388,9 +412,20 @@ export async function generateFreeformIdeaBatch(input: GenerateFreeformIdeaBatch
     slug: input.slug,
     jobId: input.jobId,
     signal: input.signal,
-    outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(input.request.count) },
-    outputContract: ideaBatchOutputContract(),
+    // A replayed batch carries the budget it was ORIGINALLY sent with; a fresh one is sized now,
+    // with the count's own workload floor and the SAME tier the campaign passes its batches, so the
+    // two idea call paths carry the same figure for the same count.
+    outputBudget: input.outputBudget
+      ?? { tier: 'workload', minimumTokens: ideaOutputTokenBudget(input.request.count) },
+    // A replayed batch carries the contract it was ORIGINALLY sent with: the recovered answer is the
+    // original job's, so it must be parsed by the same shape.
+    outputContract: input.outputContract ?? ideaBatchOutputContract(),
     requestIdentity: input.requestIdentity,
+    ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+    ...(input.onRequestPrepared ? { onRequestPrepared: input.onRequestPrepared } : {}),
+    ...(input.onJobAccepted ? { onJobAccepted: input.onJobAccepted } : {}),
+    ...(input.recoverByIdempotencyKey ? { recoverByIdempotencyKey: true } : {}),
+    ...(input.allowedRecoveryKeys ? { allowedRecoveryKeys: input.allowedRecoveryKeys } : {}),
   }
   const raw = await callAiWithRetry(input.request.model, '', prompt, input.apiKeys, false, context)
   return parseFreeformIdeas(raw)

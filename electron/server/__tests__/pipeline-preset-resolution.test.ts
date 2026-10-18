@@ -31,6 +31,33 @@ describe('resolveStepParams — Scene Review approval automation', () => {
     })
     assert.equal(params.auto_approve_generated, true)
   })
+
+  test('a preset without a ratio leaves it for the shared Story default', () => {
+    // A blank preset must not become a literal 16:9 the selected model may not
+    // publish: the image resolver applies the shared default against the live
+    // catalogue when the ratio is absent.
+    const missing = resolveStepParams('scene_review', 'EP0001', 'Episode', {
+      id: 'scene-review-no-ratio',
+      name: 'No ratio',
+      data: { model: 'image-model' },
+    })
+    assert.equal(Object.hasOwn(missing, 'aspect_ratio'), false)
+
+    const blank = resolveStepParams('scene_review', 'EP0001', 'Episode', {
+      id: 'scene-review-blank-ratio',
+      name: 'Blank ratio',
+      data: { model: 'image-model', aspect_ratio: '   ' },
+    })
+    assert.equal(Object.hasOwn(blank, 'aspect_ratio'), false)
+
+    // An explicit ratio still travels exactly as saved.
+    const explicit = resolveStepParams('scene_review', 'EP0001', 'Episode', {
+      id: 'scene-review-portrait',
+      name: 'Portrait ratio',
+      data: { model: 'image-model', aspect_ratio: '9:16' },
+    })
+    assert.equal(explicit.aspect_ratio, '9:16')
+  })
 })
 
 describe('findActivePreset — script-only / introduction-only', () => {

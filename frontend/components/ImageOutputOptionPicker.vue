@@ -4,6 +4,9 @@
       <span class="output-label">Output size</span>
       <span class="output-sub">Published by {{ modelName }} — each row is one size Gateway renders, at its own price.</span>
     </div>
+    <!-- Only when the Story default cannot be honoured: name the published
+         fallback honestly instead of pretending 16:9 exists. -->
+    <p v-if="preferredConstraint" class="output-constraint">{{ preferredConstraint }}</p>
     <div class="output-grid" role="radiogroup" aria-label="Published output size">
       <button
         v-for="option in options"
@@ -18,7 +21,7 @@
         <span class="output-main">
           <span class="output-res">{{ option.resolution }}</span>
           <span class="output-ratio">{{ option.aspect_ratio }}</span>
-          <span v-if="option.is_default" class="output-default">Default</span>
+          <span v-if="defaultLabel(option)" class="output-default" :title="defaultTitle(option)">{{ defaultLabel(option) }}</span>
         </span>
         <span class="output-dims">{{ option.width.toLocaleString() }}×{{ option.height.toLocaleString() }} px</span>
         <span class="output-cost" :class="`basis-${costFor(option).basis}`" :title="costFor(option).title">
@@ -42,8 +45,13 @@
  * GenStudio applies its own default resolution — no invented ladder.
  */
 import {
+  PREFERRED_IMAGE_ASPECT_RATIO,
+  findOutputOption,
+  isPublishedAspectRatio,
+  outputOptionDefaultRole,
   publishedOutputOptions,
   reconcileOutputOption,
+  storyDefaultAspectRatio,
   type OutputOptionChoice,
   type PublishedOutputOption,
 } from '../utils/genstudio-output-options.js'
@@ -62,7 +70,13 @@ const props = withDefaults(defineProps<{
   referenceGuided?: boolean
   /** Keep an attempted request's raw row while the live catalog keeps changing. */
   preserveAutomaticSelection?: boolean
-}>(), { referenceGuided: false, preserveAutomaticSelection: false })
+  /**
+   * The ratio currently on screen — remembered, preset, or project format.
+   * Passed to the first reconcile so the Story default cannot overwrite an
+   * explicit choice before the customer sees it.
+   */
+  preferredAspectRatio?: string
+}>(), { referenceGuided: false, preserveAutomaticSelection: false, preferredAspectRatio: '' })
 
 const emit = defineEmits<{
   'update:modelValue': [choice: OutputOptionChoice | null]
@@ -75,6 +89,35 @@ const notice = ref('')
 
 const options = computed<PublishedOutputOption[]>(() => publishedOutputOptions(props.model))
 const modelName = computed(() => props.model?.display_name || 'this model')
+
+function optionRole(option: PublishedOutputOption) {
+  return outputOptionDefaultRole(option, props.model)
+}
+
+/** `Default` is Story Studio's choice; `Gateway default` is the provider's. */
+function defaultLabel(option: PublishedOutputOption): string {
+  const role = optionRole(option)
+  if (role === 'story-default') return 'Default'
+  if (role === 'gateway-default') return 'Gateway default'
+  return ''
+}
+
+function defaultTitle(option: PublishedOutputOption): string {
+  const role = optionRole(option)
+  if (role === 'story-default') return 'Story Studio uses this when no size is chosen.'
+  if (role === 'gateway-default') return "The Gateway's own default; used only when Story Studio cannot prefer 16:9."
+  return ''
+}
+
+/** A truthful constraint line, shown only when the Story default is unavailable. */
+const preferredConstraint = computed(() => {
+  if (!options.value.length) return ''
+  if (isPublishedAspectRatio(props.model, PREFERRED_IMAGE_ASPECT_RATIO)) return ''
+  const fallback = storyDefaultAspectRatio(props.model)
+  return fallback
+    ? `This model does not publish ${PREFERRED_IMAGE_ASPECT_RATIO}; Story Studio uses ${fallback} instead.`
+    : `This model does not publish ${PREFERRED_IMAGE_ASPECT_RATIO}.`
+})
 
 function isActive(option: PublishedOutputOption): boolean {
   return props.modelValue?.resolution === option.resolution
@@ -97,11 +140,14 @@ function choose(option: PublishedOutputOption): void {
  * Re-resolve the pick against whatever model is now selected.
  *
  * The pair survives when the new model publishes that exact combination.
- * Otherwise it moves to the new model's own default and the change is stated
- * out loud rather than applied behind the customer's back.
+ * Otherwise it moves to the row at the page's current ratio, or the new
+ * model's Story default, and the change is stated out loud rather than
+ * applied behind the customer's back.
  */
 function reconcile(): void {
-  const result = reconcileOutputOption(props.modelValue, props.model)
+  const result = reconcileOutputOption(props.modelValue, props.model, {
+    preferredAspectRatio: props.preferredAspectRatio,
+  })
   const next = result.option
     ? { resolution: result.option.resolution, aspect_ratio: result.option.aspect_ratio }
     : null
@@ -109,8 +155,12 @@ function reconcile(): void {
   const same = (!next && !current)
     || (!!next && !!current && next.resolution === current.resolution && next.aspect_ratio === current.aspect_ratio)
   if (!same && props.preserveAutomaticSelection && current) {
-    notice.value = `The live catalog no longer publishes ${current.resolution} at ${current.aspect_ratio}. `
-      + 'Retry keeps the original output; choose a live size to start a different request.'
+    // Retry keeps the raw attempted output; only say the catalog moved when it
+    // actually stopped publishing that pair.
+    notice.value = findOutputOption(props.model, current)
+      ? ''
+      : `The live catalog no longer publishes ${current.resolution} at ${current.aspect_ratio}. `
+        + 'Retry keeps the original output; choose a live size to start a different request.'
     return
   }
   notice.value = result.notice
@@ -118,7 +168,11 @@ function reconcile(): void {
   if (!same) emit('update:modelValue', next)
 }
 
-watch([() => props.model, () => props.preserveAutomaticSelection], reconcile, { immediate: true, deep: true })
+watch(
+  [() => props.model, () => props.preserveAutomaticSelection, () => props.preferredAspectRatio],
+  reconcile,
+  { immediate: true, deep: true },
+)
 </script>
 
 <style scoped>
@@ -126,6 +180,7 @@ watch([() => props.model, () => props.preserveAutomaticSelection], reconcile, { 
 .output-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
 .output-label { font-size: var(--font-sm); font-weight: 600; color: var(--text); }
 .output-sub { font-size: var(--font-xs); color: var(--text-muted); line-height: 1.4; }
+.output-constraint { margin: 0 0 6px; font-size: var(--font-xs); color: var(--text-muted); line-height: 1.4; }
 .output-grid { display: grid; gap: 6px; }
 .output-row {
   display: grid;

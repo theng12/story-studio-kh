@@ -7,6 +7,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { callAiWithModelPolicy, callAiWithRetry, type CallAiContext } from '../lib/ai-client.js'
 import { matchChapterFile, introMarkerPath, resolveArtifact, resolveReadPath } from '../lib/episode-artifacts.js'
+import { projectContentLanguageDirective } from '../lib/content-language.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 import { applyRecencyToFormat, recordUsage } from '../services/recency-tracker.js'
@@ -202,7 +203,7 @@ export function stripImagePromptSections(standards: string): string {
   return out.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
-function systemPrompt(format: Format, productionStandards: string): string {
+export function systemPrompt(format: Format, productionStandards: string, languageDirectiveText = ''): string {
   // Formula-derived rules remain authoritative. This legacy free-form file is
   // now an optional project-specific instruction layer, never permission to
   // replace a Formula's point of view, evidence policy, or structure.
@@ -234,7 +235,7 @@ function systemPrompt(format: Format, productionStandards: string): string {
 - Spell things as they should be said (e.g. "Doctor" not "Dr.", "and" not "&").
 - Write ordinary numbers as words in the narration. Use conventional spoken years: 1871 is "eighteen seventy-one", 2001 is "two thousand one", and 2010 is "twenty ten". Write dates, quantities, percentages, and currency exactly as the voice should say them. Keep digits only when they are intentionally exact identifiers, URLs, citations, equations, model names, file names, addresses, or other technical literals. Required structural headings must retain their requested chapter or section numbers as digits.`
 
-  const baseSystem = `${format.script.systemPromptRole}
+  const baseSystem = `${format.script.systemPromptRole}${languageDirectiveText ? `\n\n${languageDirectiveText}` : ''}
 
 ${standardsBody ? `OPTIONAL PROJECT INSTRUCTIONS — apply these only when they do not conflict with the Series Formula or Additional rules:
 
@@ -313,7 +314,7 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   format = applyPerspectiveToFormat(format, resolvePerspective((req as any).perspective, format), (req as any).custom_perspective)
   format = applyCreativeFreedom(format, req)
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const sysPrompt = systemPrompt(format, standards)
+  const sysPrompt = systemPrompt(format, standards, projectContentLanguageDirective(project))
   const paths = await resolveEpisodePaths(project_slug, episode_id, title)
   const savedGuidance = (await readSidecar(paths.script_dir, episode_id))?.generation_params?.manual_guidance?.trim()
   const requestGuidance = typeof req.manual_guidance === 'string' ? req.manual_guidance.trim() : undefined
@@ -584,7 +585,7 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   await fs.mkdir(paths.script_dir, { recursive: true })
 
   const apiKeys = { anthropic_api_key: config.anthropic_api_key, openai_api_key: config.openai_api_key, kie_api_key: config.kie_api_key }
-  const sysPrompt = systemPrompt(format, standards)
+  const sysPrompt = systemPrompt(format, standards, projectContentLanguageDirective(project))
   const introStandardsText = (config as any).intro_standards || ''
 
   job.output_lines.push(`Generating introduction...`)
@@ -927,7 +928,7 @@ async function setupChunkedJobContext(
     kie_api_key: config.kie_api_key,
   }
   const narratorStyle = customStyleText || narratorStyleFor(format, style).description
-  const sysPrompt = `${systemPrompt(format, standards)}
+  const sysPrompt = `${systemPrompt(format, standards, projectContentLanguageDirective(project))}
 
 NARRATOR STYLE — binding for both outline and chapter prose:
 ${narratorStyle}`

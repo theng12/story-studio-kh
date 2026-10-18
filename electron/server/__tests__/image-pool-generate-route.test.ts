@@ -26,7 +26,7 @@ before(async () => {
   queue = jobQueue
   projectSlug = (await projectManager.createProject({ name: 'Image Pool Resolution Route' })).slug
 
-  for (const name of ['Published resolution', 'Omitted resolution', 'Invalid resolution']) {
+  for (const name of ['Published resolution', 'Omitted resolution', 'Invalid resolution', 'Omitted ratio', 'Blank ratio']) {
     const folder = path.join(temp.dir, name.toLowerCase().replaceAll(' ', '-'))
     await fs.mkdir(folder, { recursive: true })
     poolIds.push((await poolManager.createPool({ name, folder_path: folder, media: 'image' })).id)
@@ -74,4 +74,16 @@ test('POST image-pool/generate leaves resolution absent when the client omits it
 test('POST image-pool/generate does not forward a non-string resolution', async () => {
   const job = await enqueue(poolIds[2]!, { resolution: 2048 })
   assert.equal(Object.hasOwn(job.params, 'resolution'), false)
+})
+
+test('POST image-pool/generate omits a missing aspect ratio instead of writing 16:9', async () => {
+  // The image resolver applies the shared Story default against the live
+  // catalogue; the route must preserve "the caller named none".
+  const job = await enqueue(poolIds[3]!, { aspect_ratio: undefined })
+  assert.equal(Object.hasOwn(job.params, 'aspect_ratio'), false)
+})
+
+test('POST image-pool/generate omits a blank aspect ratio', async () => {
+  const job = await enqueue(poolIds[4]!, { aspect_ratio: '   ' })
+  assert.equal(Object.hasOwn(job.params, 'aspect_ratio'), false)
 })

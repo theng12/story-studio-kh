@@ -23,9 +23,13 @@ async function loadSceneReview(): Promise<Component> {
   const script = compileScript(descriptor, { id: 'scene-review-finish-missing' })
   const vueUrl = await import.meta.resolve('vue')
   const freshActionUrl = await import.meta.resolve('../composables/useFreshGenerationAction.ts')
+  const outputOptionsUrl = await import.meta.resolve('../utils/genstudio-output-options.ts')
+  const creditCostUrl = await import.meta.resolve('../utils/genstudio-credit-cost.ts')
   const support = `
     import { computed, defineComponent as _defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from ${JSON.stringify(vueUrl)}
     import { secureOperationId, useFreshGenerationAction } from ${JSON.stringify(freshActionUrl)}
+    import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, publishedOutputOptions, storyDefaultAspectRatio } from ${JSON.stringify(outputOptionsUrl)}
+    import { CREDIT_BASIS_LABEL, describeImageUnitCost } from ${JSON.stringify(creditCostUrl)}
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
     const useRoute = () => globalThis.__sceneReviewRoute
@@ -40,7 +44,7 @@ async function loadSceneReview(): Promise<Component> {
     const useEpisodes = () => ({ updateEpisode: () => undefined, revalidateAfterMutation: () => undefined })
     const useRememberedForm = () => undefined
     const usePresets = () => ({ load: async () => undefined })
-    const useGenStudioImageModels = () => ({ models: ref([]), refresh: async () => undefined })
+    const useGenStudioImageModels = () => ({ models: globalThis.__sceneReviewModels, refresh: async () => undefined })
     const useJobs = () => ({
       jobs: globalThis.__sceneReviewJobs,
       isJobActiveFor: (episodeId, types) => globalThis.__sceneReviewJobs.value.some(job =>
@@ -48,11 +52,8 @@ async function loadSceneReview(): Promise<Component> {
     })
     const resolveActiveSceneRenderJob = (episodeId, cached, jobs) => jobs.find(job =>
       job.episode_id === episodeId && ['queued', 'running', 'paused'].includes(job.status)) || null
-    const findOutputOption = () => null
-    const publishedOutputOptions = () => []
-    const describeImageUnitCost = () => ({ basis: 'unpublished', text: 'Not published', title: '' })
-    const CREDIT_BASIS_LABEL = { unpublished: 'Credit cost' }
-    const findGenStudioProduct = () => null
+    const findGenStudioProduct = (models, id) => (models || []).find(model =>
+      model.id === id || (model.legacy_ids || []).includes(id)) || null
     const customerSafeJobText = (value) => String(value || '')
     const jobRequestIds = () => []
   `
@@ -131,6 +132,7 @@ async function mount(jobs: JobFixture[], options: {
   const replaceResponses = [...(options.replaceResponses || [])]
   ;(globalThis as any).__sceneReviewRoute = route
   ;(globalThis as any).__sceneReviewJobs = jobState
+  ;(globalThis as any).__sceneReviewModels = ref([])
   ;(globalThis as any).__sceneReviewErrors = []
   ;(globalThis as any).__sceneReviewConfirm = {
     ask: (confirmationOptions: any) => new Promise<boolean>(resolve => {
@@ -180,6 +182,7 @@ async function mount(jobs: JobFixture[], options: {
     host,
     route,
     jobs: jobState,
+    models: (globalThis as any).__sceneReviewModels,
     state: (globalThis as any).__sceneReviewState,
     calls,
     confirmations,
@@ -204,6 +207,36 @@ test('mounted Scene Review keeps still-generating and uncertain subsets separate
   assert.ok(mounted.host.querySelector('#check-again'), mounted.host.innerHTML)
   assert.ok(mounted.host.querySelector('#replace-anyway'), mounted.host.innerHTML)
   mounted.unmount()
+})
+
+test('a listed-but-rowless remembered ratio is repaired to a renderable row and announced', async () => {
+  // F3 regression: `aspect_ratios` keeps listing 16:9 while `output_options`
+  // no longer has a 16:9 row. The watcher must judge renderable rows, repair
+  // the form to a real row's ratio, and announce the forced change.
+  const mounted = await mount([])
+  try {
+    mounted.state.form.value.model = 'row-model'
+    mounted.models.value = [{
+      id: 'row-model',
+      display_name: 'Row Model',
+      available: true,
+      qualification_only: false,
+      chargeable: true,
+      credits_per_image: 3,
+      aspect_ratios: ['16:9', '1:1'],
+      default_aspect_ratio: '1:1',
+      supports_reference_images: false,
+      max_reference_images: 0,
+      output_options: [
+        { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: true, credits_per_image: 3 },
+      ],
+    }]
+    await flush()
+    assert.equal(mounted.state.form.value.aspect_ratio, '1:1',
+      'the rowless 16:9 is repaired even while the ratio list still names it')
+    assert.match(String((globalThis as any).__sceneReviewErrors.at(-1) || ''),
+      /does not publish 16:9[\s\S]*Switched to 1:1/)
+  } finally { mounted.unmount() }
 })
 
 test('off, corrupt, and failed settings hide only exceptional replacement controls', async () => {

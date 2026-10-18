@@ -36,9 +36,11 @@ import {
   aggregateBatch, isBatchComplete, shouldNotifyForSingleJob,
   formatBatchMessage, formatSingleJobMessage, formatFailureMessage, getBatchId,
   getNotifierSettings, formatQuitWarning, formatApprovalWaitMessage,
+  summarizeBatchEpisodes,
 } from './server/services/job-notifier.js'
 import { isQuittingForUpdate } from './server/services/app-update.js'
 import type { Job } from './server/models/types.js'
+import type { BatchEpisodeOutcome } from './server/services/job-notifier.js'
 
 // ── Single-instance lock ────────────────────────────────────────────────────
 // Two copies of the app would both embed an Express server writing to the
@@ -429,6 +431,35 @@ async function dispatchNotification(
   }
 }
 
+/**
+ * The episode's authoritative title, from the same idea store record that
+ * named its folder (resolveEpisodeTitleByCode) — '' when the store has no
+ * record for the code. Never guessed from the job: an unknown title leaves
+ * the stable episode code in the message standing alone (owner request
+ * 2026-10-18 — name the episode the ping is about, not just its code).
+ */
+async function episodeTitleFor(job: Pick<Job, 'project_slug' | 'episode_id'>): Promise<string> {
+  const code = (job.episode_id || '').trim()
+  if (!code) return ''
+  try {
+    const { resolveEpisodeTitleByCode } = await import('./server/services/utils.js')
+    return await resolveEpisodeTitleByCode(job.project_slug, code)
+  } catch { return '' }
+}
+
+/** Per-episode outcomes for a finished batch; one idea-store read for the
+ *  whole batch (the facts cache is created per call). */
+async function batchEpisodeOutcomes(slug: string, batchJobs: Job[]): Promise<BatchEpisodeOutcome[]> {
+  const codes = [...new Set(batchJobs.map(j => (j.episode_id || '').trim()).filter(Boolean))]
+  const titles = new Map<string, string>()
+  try {
+    const { createProjectFactsCache, resolveEpisodeTitleByCode } = await import('./server/services/utils.js')
+    const cache = createProjectFactsCache(slug)
+    for (const code of codes) titles.set(code, await resolveEpisodeTitleByCode(slug, code, cache))
+  } catch { /* codes survive; titles stay '' */ }
+  return summarizeBatchEpisodes(batchJobs, titles)
+}
+
 function installJobNotifier(): void {
   jobEvents.on('update', (job: Job) => {
     // Only act on terminal transitions. `update` also fires for queued→
@@ -465,13 +496,16 @@ function installJobNotifier(): void {
       //    gate. Deduped via notifiedJobs so it fires at most once per job.
       if (events.failures && job.status === 'error' && !notifiedJobs.has(job.job_id)) {
         notifiedJobs.add(job.job_id)
-        await dispatchNotification(formatFailureMessage(job, projectLabel), job.project_slug, settings)
+        await dispatchNotification(formatFailureMessage(job, projectLabel, await episodeTitleFor(job)), job.project_slug, settings)
       }
 
       // 1b. Scene Review waiting on the owner (it needs him, like a failure does).
-      const approvalWait = formatApprovalWaitMessage(job, projectLabel)
+      // The title is resolved only when the ping will actually fire; the gate
+      // above stays a pure check.
+      let approvalWait = formatApprovalWaitMessage(job, projectLabel)
       if (events.failures && approvalWait && !notifiedJobs.has(`approval:${job.job_id}`)) {
         notifiedJobs.add(`approval:${job.job_id}`)
+        approvalWait = formatApprovalWaitMessage(job, projectLabel, await episodeTitleFor(job)) ?? approvalWait
         await dispatchNotification(approvalWait, job.project_slug, settings)
       }
 
@@ -482,7 +516,11 @@ function installJobNotifier(): void {
           const stats = aggregateBatch(allJobs, batchId)
           if (isBatchComplete(stats)) {
             notifiedBatches.add(batchId)
-            await dispatchNotification(formatBatchMessage(stats, projectLabel), job.project_slug, settings)
+            // Name the episodes the run touched: a batch's jobs are chained
+            // steps, so only the grouped per-episode view says which episode
+            // the summary is about (owner request 2026-10-18).
+            const episodes = await batchEpisodeOutcomes(job.project_slug, allJobs).catch(() => [] as BatchEpisodeOutcome[])
+            await dispatchNotification(formatBatchMessage(stats, projectLabel, episodes), job.project_slug, settings)
           }
         }
         return
@@ -497,7 +535,7 @@ function installJobNotifier(): void {
         && (Date.parse(job.finished_at) - Date.parse(job.started_at)) >= settings.min_duration_ms
       if (wantsLongJobPing) {
         notifiedJobs.add(job.job_id)
-        await dispatchNotification(formatSingleJobMessage(job, projectLabel), job.project_slug, settings)
+        await dispatchNotification(formatSingleJobMessage(job, projectLabel, await episodeTitleFor(job)), job.project_slug, settings)
       }
     })().catch((e) => logCrash('job-notifier', e))
   })

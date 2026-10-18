@@ -9,6 +9,7 @@ import {
   resolveConfiguredAspectRatio,
   resolveConfiguredOutputOption,
   resolveImageModelConfig,
+  resolvePublishedAspectRatio,
 } from '../services/image-model-resolver.js'
 import { resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { hashStylePreviewKey } from '../services/style-preview-cache.js'
@@ -225,6 +226,82 @@ test('aspect ratios default from the catalogue and reject unpublished values', (
   assert.throws(() => resolveConfiguredAspectRatio(config, '16:9'), /does not support 16:9/)
 })
 
+test('an omitted aspect ratio prefers a live 16:9 over the provider default', () => {
+  // Owner decision 2026-10-17: missing means "Story prefers 16:9 when the
+  // selected model publishes it", not "always the provider's own default".
+  const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel({
+    aspect_ratios: ['1:1', '16:9'], default_aspect_ratio: '1:1',
+  }))
+  assert.equal(resolveConfiguredAspectRatio(config, undefined), '16:9')
+  assert.equal(resolveConfiguredAspectRatio(config, ''), '16:9')
+  // An explicit choice is preserved, and an explicit unpublished value is
+  // still refused loudly — the default never silently substitutes one.
+  assert.equal(resolveConfiguredAspectRatio(config, '1:1'), '1:1')
+  assert.throws(() => resolveConfiguredAspectRatio(config, '9:16'), /does not support 9:16/)
+})
+
+test('16:9 listed in aspect_ratios without a row is not a renderable default', () => {
+  const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel({
+    aspect_ratios: ['16:9', '1:1'], default_aspect_ratio: '1:1',
+    output_options: [{ resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: true }],
+    default_resolution: '1K',
+  }))
+  // A 16:9 request would be refused at the row boundary, so it cannot be the
+  // default. The provider's valid published default answers instead.
+  const ratio = resolveConfiguredAspectRatio(config, undefined)
+  assert.equal(ratio, '1:1')
+  const row = resolveConfiguredOutputOption(config, ratio, undefined)
+  assert.equal(row?.aspect_ratio, ratio, 'the resolved row belongs to the resolved ratio')
+  assert.equal(row?.resolution, '1K')
+})
+
+test('an explicit ratio published only by a row is accepted on both resolvers', () => {
+  // F4 regression: rows are authoritative. A model whose `aspect_ratios` omits
+  // 9:16 but whose output row publishes it can render 9:16, so an explicit
+  // 9:16 must not be refused by the list-only check.
+  const published = publishedModel({
+    aspect_ratios: ['16:9'], default_aspect_ratio: '16:9',
+    default_resolution: '1K',
+    output_options: [
+      { resolution: '1K', aspect_ratio: '9:16', width: 1080, height: 1920, is_default: false },
+    ],
+  })
+  assert.equal(resolvePublishedAspectRatio(published, '9:16'), '9:16')
+  assert.equal(resolvePublishedAspectRatio(published, undefined), '9:16',
+    'the omitted path also resolves the only renderable row ratio')
+
+  const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', published)
+  assert.equal(resolveConfiguredAspectRatio(config, '9:16'), '9:16')
+  assert.equal(resolveConfiguredOutputOption(config, '9:16', undefined)?.resolution, '1K')
+  // A ratio with no row is still refused, and the message lists row ratios.
+  assert.throws(() => resolveConfiguredAspectRatio(config, '4:3'), /does not support 4:3\. Choose 9:16\./)
+  assert.throws(() => resolvePublishedAspectRatio(published, '4:3'), /does not support 4:3\. Choose 9:16\./)
+})
+
+test('a rowless model still validates against its published ratio list', () => {
+  const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel({
+    aspect_ratios: ['9:16', '1:1'], default_aspect_ratio: '9:16',
+  }))
+  assert.equal(resolveConfiguredAspectRatio(config, '1:1'), '1:1')
+  assert.throws(() => resolveConfiguredAspectRatio(config, '16:9'), /does not support 16:9\. Choose 9:16, 1:1\./)
+})
+
+test('the resolved default ratio always has a selectable published row', () => {
+  const config = buildImageModelConfig({ image_models: {} }, 'genstudio-image-fast-v1', publishedModel({
+    aspect_ratios: ['1:1', '16:9'], default_aspect_ratio: '1:1',
+    output_options: [
+      { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: true },
+      { resolution: '2K', aspect_ratio: '16:9', width: 2560, height: 1440, is_default: false },
+    ],
+    default_resolution: '2K',
+  }))
+  const ratio = resolveConfiguredAspectRatio(config, undefined)
+  assert.equal(ratio, '16:9')
+  const row = resolveConfiguredOutputOption(config, ratio, undefined)
+  assert.equal(row?.aspect_ratio, '16:9')
+  assert.equal(row?.resolution, '2K', 'the published default resolution is used at the default ratio')
+})
+
 test('a saved config with no published ratios still resolves the caller value', () => {
   // Degradation path for projects saved before the published fields existed.
   const legacy = { label: 'Legacy', credits_per_image: 0, endpoint: '', poll: '', type: 'jobs', api_model: 'x' }
@@ -272,12 +349,29 @@ test('a model with no published output options degrades to aspect ratio alone', 
   assert.equal(resolveConfiguredOutputOption(legacy as any, '16:9', undefined), undefined)
 })
 
-test('the default row is flagged, then the published pair — never chosen by position', () => {
+test('the default row is a 16:9 row, then the published pair — never chosen by position', () => {
   assert.equal(defaultPublishedOutputOption(OUTPUT_OPTIONS, '1K', '16:9')?.width, 1920)
+  // A provider-flagged 1:1 row does not outrank a live 16:9 row.
+  const flaggedSquare = [
+    { ...OUTPUT_OPTIONS[1]!, is_default: true },
+    { ...OUTPUT_OPTIONS[0]!, is_default: false },
+  ]
+  assert.equal(defaultPublishedOutputOption(flaggedSquare, '1K', '1:1')?.aspect_ratio, '16:9')
   const unflagged = OUTPUT_OPTIONS.map(row => ({ ...row, is_default: false }))
   assert.equal(defaultPublishedOutputOption(unflagged, '2K', '16:9')?.width, 2560)
   // Neither flagged nor matching the published pair: no row wins by position.
   assert.equal(defaultPublishedOutputOption(unflagged, '4K', '16:9'), undefined)
+})
+
+test('render routes leave a missing aspect ratio to the shared Story default', () => {
+  for (const relative of ['scene-review.ts', 'pipeline.ts', 'broll-project.ts', 'image-references.ts']) {
+    const source = readFileSync(new URL(`../routes/${relative}`, import.meta.url), 'utf8')
+    assert.doesNotMatch(
+      source,
+      /aspect_ratio[^\n]*\?\s*[^:\n]+\s*:\s*'16:9'/,
+      `${relative} must omit a missing ratio instead of substituting 16:9`,
+    )
+  }
 })
 
 test('a chosen resolution reaches the wire, and no size instruction contradicts it', async () => {
@@ -348,6 +442,42 @@ test('an empty aspect ratio submits the model default rather than a hardcoded 16
       idempotencyIdentity: 'default-ratio',
     })
     assert.equal(calls.bodies[0].aspect_ratio, '9:16')
+  })
+})
+
+test('an omitted ratio submits live 16:9 even when the Gateway flags 1:1', async () => {
+  await withGenStudio([publishedModel({ aspect_ratios: ['1:1', '16:9'], default_aspect_ratio: '1:1' })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'story-default-ratio-key',
+      aspectRatio: undefined,
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: 'story-default-ratio',
+    })
+    assert.equal(calls.bodies[0].aspect_ratio, '16:9')
+  })
+})
+
+test('an omitted ratio and resolution land on one published row', async () => {
+  await withGenStudio([publishedModel({
+    aspect_ratios: ['1:1', '16:9'], default_aspect_ratio: '1:1', default_resolution: '2K',
+    output_options: [
+      { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: true },
+      { resolution: '2K', aspect_ratio: '16:9', width: 2560, height: 1440, is_default: false },
+    ],
+  })], async (calls) => {
+    const provider = registry.getImageProvider('genstudio-image')!
+    await provider.generateImage({
+      prompt: 'A calm river at dusk.',
+      apiKey: 'story-default-row-key',
+      modelId: 'genstudio-image-fast-v1',
+      providerParams: { provider: 'genstudio-image' },
+      idempotencyIdentity: 'story-default-row',
+    })
+    assert.equal(calls.bodies[0].aspect_ratio, '16:9')
+    assert.equal(calls.bodies[0].resolution, '2K')
   })
 })
 

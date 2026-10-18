@@ -226,6 +226,7 @@
           v-if="selectedGenStudioModel"
           v-model="outputOption"
           :model="selectedGenStudioModel"
+          :preferred-aspect-ratio="form.aspect_ratio"
           @switched="onOutputOptionSwitched"
         />
         <p v-if="selectedGenStudioModel" class="sr-cost" :class="`basis-${sceneImageCost.basis}`" :title="sceneImageCost.title">
@@ -664,7 +665,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { resolveActiveSceneRenderJob } from '~/utils/scene-render-job-state'
 import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentation.js'
-import { findOutputOption, publishedOutputOptions, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
+import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, publishedOutputOptions, storyDefaultAspectRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
 import { isFreeToRun } from '../../../utils/genstudio-price-usd.js'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
@@ -890,6 +891,16 @@ function onOutputOptionSwitched(notice: string): void { showError(notice) }
 watch(outputOption, (choice) => {
   if (choice?.aspect_ratio) form.value.aspect_ratio = choice.aspect_ratio
 })
+// ...and the other way: a ratio picked from the dropdown that no longer
+// matches the chosen row clears the row, so the request cannot pair a ratio
+// with a resolution the model never published at that ratio.
+watch(() => form.value.aspect_ratio, (ratio) => {
+  const current = outputOption.value
+  if (!current || current.aspect_ratio === ratio) return
+  const same = outputOptionsForRatio(selectedGenStudioModel.value, ratio)
+    .find(row => row.resolution === current.resolution)
+  outputOption.value = same ? { resolution: same.resolution, aspect_ratio: same.aspect_ratio } : null
+})
 const sceneImageCost = computed(() => describeImageUnitCost(
   selectedGenStudioModel.value,
   findOutputOption(selectedGenStudioModel.value, outputOption.value),
@@ -903,9 +914,27 @@ const genStudioImageBody = computed(() => selectedGenStudioModel.value ? {
     ? {}
     : { seed: Math.max(0, Math.min(2147483647, Number(form.value.seed))) }),
 } : {})
-watch([selectedGenStudioModel, () => form.value.aspect_ratio], ([model]) => {
+watch([
+  selectedGenStudioModel,
+  () => form.value.aspect_ratio,
+  () => selectedGenStudioModel.value?.aspect_ratios,
+  () => selectedGenStudioModel.value?.output_options,
+], ([model]) => {
   if (!model) return
-  if (!model.aspect_ratios.includes(form.value.aspect_ratio)) form.value.aspect_ratio = model.default_aspect_ratio
+  // Rows are authoritative when the model publishes them: a ratio still listed
+  // in `aspect_ratios` whose row disappeared is not renderable and must be
+  // repaired here, before submit reaches the row boundary.
+  if (isPublishedAspectRatio(model, form.value.aspect_ratio)) return
+  // A forced change is announced: a remembered/preset ratio the new model does
+  // not publish is replaced by the shared Story default (16:9 when published),
+  // never silently by an arbitrary ratio.
+  const previous = form.value.aspect_ratio
+  const fallback = storyDefaultAspectRatio(model)
+  if (!fallback || fallback === previous) return
+  form.value.aspect_ratio = fallback
+  // A missing value is filled silently; only a real choice that was dropped is
+  // announced.
+  if (previous) showError(`${model.display_name} does not publish ${previous}. Switched to ${fallback}.`)
 })
 // CSS aspect-ratio string ("16:9" → "16 / 9") so the thumbnail boxes re-shape
 // to whatever ratio is selected — making the enforced frame visible.

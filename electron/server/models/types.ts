@@ -63,6 +63,13 @@ export const DEFAULT_SUBFOLDER_NAMES: SubfolderNames = {
   video_assets:  '{code} - 11 Video Assets',
 }
 
+/**
+ * The channel's audience-facing content language. Two values only: the
+ * catalogue is deliberately not open-ended. An absent value keeps legacy
+ * prompts byte-identical (English by convention, never an explicit directive).
+ */
+export type ContentLanguage = 'en' | 'km'
+
 export interface ProjectMeta {
   name: string
   slug: string
@@ -143,6 +150,23 @@ export interface ProjectMeta {
    * fresh episode Continuity settings begin; per-episode Character Sheet
    * settings can still refine it. */
   continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
+
+  /**
+   * Audience-facing language for generated prompts. Absent = legacy, no
+   * directive (byte-identical to pre-1.4.320 prompts). The project setting
+   * outranks the language of recipe examples/style references; those stay
+   * authoritative for structure and voice only.
+   */
+  content_language?: ContentLanguage | null
+
+  /**
+   * Future-only introduction activation. Default OFF (absent/false): no
+   * episode is given an automatic opening. When true, episodes created from
+   * this point capture `intro_eligible: true` in their `episode_info.json`;
+   * only those episodes ever receive the automatic Pipeline step. Existing
+   * episodes are never backfilled or gated for a missing introduction.
+   */
+  auto_introduction_enabled?: boolean
 
   /**
    * Niche primitive — subject-domain layer orthogonal to Format. Format
@@ -1628,6 +1652,10 @@ export interface CreateProjectRequest {
   niche_id?: string
   /** Optional Topic Packs under niche_id; absent uses formula defaults. */
   topic_pack_ids?: string[]
+  /** Audience-facing language. Absent keeps legacy prompts unchanged. */
+  content_language?: ContentLanguage
+  /** Future-only automatic introductions; absent = OFF. */
+  auto_introduction_enabled?: boolean
 }
 
 export interface UpdateProjectRequest {
@@ -1647,6 +1675,10 @@ export interface UpdateProjectRequest {
   continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
   format_overrides?: DeepPartial<Format>
   content_mode?: 'format' | 'freeform'
+  /** Audience-facing language. `null` clears back to legacy (no directive). */
+  content_language?: ContentLanguage | null
+  /** Future-only automatic introductions; false turns it off. */
+  auto_introduction_enabled?: boolean
 }
 
 /**
@@ -1874,7 +1906,15 @@ export interface ImageModelConfig {
   supports_seed?: boolean
   /** Ratios the model publishes. Empty/absent = nothing published to validate against. */
   aspect_ratios?: string[]
-  /** Ratio used when a request names none. Never defaulted to '16:9' locally. */
+  /**
+   * Ratio the model itself declares as its default.
+   *
+   * NOT the ratio used for an omitted request. Owner decision 2026-10-17:
+   * a missing ratio prefers 16:9 when the live catalogue publishes a
+   * renderable 16:9, then falls back to this published default — see
+   * `contracts/genstudio-image-defaults.ts`. Do not "fix" that back to
+   * "never default to 16:9 locally"; that was the previous, reversed rule.
+   */
   default_aspect_ratio?: string
   /** Resolution label used when a request names none. Never invented locally. */
   default_resolution?: string

@@ -12,13 +12,13 @@ describe('idea output token budget', () => {
   })
 
   test('scales regular and campaign batches by expected JSON object count', () => {
-    assert.equal(ideaOutputTokenBudget(10), 7_168)
-    assert.equal(ideaOutputTokenBudget(13), 9_216)
+    assert.equal(ideaOutputTokenBudget(10), 7_424)
+    assert.equal(ideaOutputTokenBudget(13), 9_344)
   })
 
-  test('keeps unusually large requests below the Gateway model ceiling', () => {
-    assert.equal(ideaOutputTokenBudget(100), 16_384)
-    assert.equal(ideaOutputTokenBudget(10_000), 16_384)
+  test('scales large batches without the old 16,384 cap', () => {
+    assert.equal(ideaOutputTokenBudget(100), 65_024)
+    assert.equal(ideaOutputTokenBudget(10_000), 65_024)
   })
 
   test('wires the bounded budget into the shared freeform helper and campaign calls', () => {
@@ -31,9 +31,9 @@ describe('idea output token budget', () => {
       'utf8',
     )
 
-    // The count-scaled number is now a FLOOR inside a product-derived budget,
-    // so it can never exceed the selected product's published output limit.
-    assert.match(freeformHelper, /outputBudget: \{ tier: 'long', minimumTokens: ideaOutputTokenBudget\(input\.request\.count\) \}/)
-    assert.match(campaign, /outputBudget: \{ tier: 'long', minimumTokens: ideaOutputTokenBudget\(assignments\.length\) \}/)
+    // The count-scaled number is a FLOOR inside a product-derived budget: the resolver clamps the
+    // request to the selected product's published output limit.
+    assert.match(freeformHelper, /\?\? \{ tier: 'workload', minimumTokens: ideaOutputTokenBudget\(input\.request\.count\) \}/)
+    assert.match(campaign, /outputBudget: \{ tier: 'workload', minimumTokens: ideaOutputTokenBudget\(assignments\.length\) \}/)
   })
 })

@@ -1,4 +1,4 @@
-export type ProjectSettingsSaveSection = 'identity' | 'publishing' | 'files'
+export type ProjectSettingsSaveSection = 'identity' | 'publishing' | 'files' | 'language'
 
 export function projectSettingsSavePlan(
   section: ProjectSettingsSaveSection,
@@ -22,6 +22,20 @@ export function projectSettingsSavePlan(
           ? draft.mark_as_ai_generated
           : null,
       },
+      hasPendingSeasonSize: false,
+    }
+  }
+  if (section === 'language') {
+    return {
+      // `null` is the explicit "clear back to legacy" sentinel for the enum;
+      // undefined would be omitted and could never clear a saved value.
+      project: {
+        content_language: draft.content_language === 'en' || draft.content_language === 'km'
+          ? draft.content_language
+          : null,
+        auto_introduction_enabled: draft.auto_introduction_enabled === true,
+      },
+      config: null,
       hasPendingSeasonSize: false,
     }
   }

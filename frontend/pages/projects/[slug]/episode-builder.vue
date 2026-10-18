@@ -709,7 +709,10 @@ function resetPrompt() {
 function renderBody() {
   return {
     model: imageForm.value.model,
-    aspect_ratio: outputOption.value?.aspect_ratio || '16:9',
+    // No chosen row means the ratio is MISSING: omit it and let the backend
+    // apply the shared Story default, instead of forcing a 16:9 the selected
+    // model may not publish.
+    ...(outputOption.value?.aspect_ratio ? { aspect_ratio: outputOption.value.aspect_ratio } : {}),
     ...(outputOption.value?.resolution ? { resolution: outputOption.value.resolution } : {}),
     auto_approve_generated: true,
   }
@@ -760,11 +763,17 @@ async function useStill(filename: string, usedBy?: string | null) {
 }
 
 // Pictures preset: the image model Pipeline's Scene Pictures step uses (shared with Scene Review's presets).
-const picturePresets = usePresets<{ model: string; aspect_ratio: string; auto_approve_generated?: boolean }>({
+const picturePresets = usePresets<{ model: string; aspect_ratio?: string; auto_approve_generated?: boolean }>({
   slug: slug.value,
   configKey: 'scene_review_genstudio',
   presetType: 'scene-review',
-  snapshot: () => ({ model: imageForm.value.model, aspect_ratio: outputOption.value?.aspect_ratio || '16:9', auto_approve_generated: true }),
+  snapshot: () => ({
+    model: imageForm.value.model,
+    // Omitted when no row is chosen — a missing ratio is resolved by the
+    // backend's shared Story default, never stored as a local 16:9.
+    ...(outputOption.value?.aspect_ratio ? { aspect_ratio: outputOption.value.aspect_ratio } : {}),
+    auto_approve_generated: true,
+  }),
   apply: (data) => { if (typeof data?.model === 'string') imageForm.value.model = data.model },
 })
 async function finishPreset(work: Promise<unknown> | unknown, message: string) {

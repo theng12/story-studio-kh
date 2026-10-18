@@ -813,7 +813,11 @@ router.post('/projects/:slug/image-pool/generate', async (req, res) => {
         pool_id: poolId,
         prompts,
         model,
-        aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        // Absent/blank is MISSING, not 16:9: the image resolver applies the
+        // shared Story default against the live catalogue.
+        ...(typeof body.aspect_ratio === 'string' && body.aspect_ratio.trim()
+          ? { aspect_ratio: body.aspect_ratio.trim() }
+          : {}),
         ...(typeof body.resolution === 'string' ? { resolution: body.resolution } : {}),
         seed: Number.isInteger(body.seed) ? body.seed : undefined,
         variants: Number.isFinite(Number(body.variants)) ? Number(body.variants) : 1,

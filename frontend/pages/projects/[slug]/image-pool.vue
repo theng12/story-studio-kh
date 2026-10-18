@@ -162,6 +162,7 @@
           v-if="selectedGenStudioModel"
           v-model="genOutputOption"
           :model="selectedGenStudioModel"
+          :preferred-aspect-ratio="genAspectRatio"
           :preserve-automatic-selection="pendingManualImagePoolSubmission?.attempted === true"
           @switched="onOutputOptionSwitched"
           @selected="onManualImagePoolUserEdit"
@@ -206,7 +207,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { findOutputOption, outputOptionsForRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
+import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, storyDefaultAspectRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageBatchEstimate } from '../../../utils/genstudio-credit-cost.js'
 import { UNCONFIRMED_SUBMISSION } from '../../../composables/useFreshGenerationAction'
 
@@ -280,11 +281,21 @@ let manualRedoSourcesSequence = 0
 let manualPostingOperationId = ''
 let manualImagePoolScopeEpoch = 0
 const selectedGenStudioModel = computed(() => genStudioModels.value.find(model => model.id === genModel.value))
-watch([genModel, () => genStudioModels.value.length], () => {
+watch([genModel, () => genStudioModels.value.length, () => selectedGenStudioModel.value?.aspect_ratios,
+  () => selectedGenStudioModel.value?.output_options], () => {
   if (pendingManualImagePoolSubmission.value) return
   const model = selectedGenStudioModel.value
   if (!model) return
-  if (!model.aspect_ratios.includes(genAspectRatio.value)) genAspectRatio.value = model.default_aspect_ratio
+  // Rows win over the separate ratio list: a listed ratio with no live row is
+  // not renderable, so the watcher repairs it instead of letting submit fail.
+  if (isPublishedAspectRatio(model, genAspectRatio.value)) return
+  // A forced change is announced: a ratio the new model does not publish is
+  // replaced by the shared Story default (16:9 when published), never silently.
+  const previous = genAspectRatio.value
+  const fallback = storyDefaultAspectRatio(model)
+  if (!fallback || fallback === previous) return
+  genAspectRatio.value = fallback
+  if (previous) showInfo(`${model.display_name} does not publish ${previous}. Switched to ${fallback}.`)
 })
 
 /**
@@ -683,7 +694,10 @@ async function generateIntoPool(): Promise<void> {
       pool_id: poolId.value,
       prompts: promptLines.value,
       model: genModel.value,
-      aspect_ratio: selectedGenStudioModel.value ? genAspectRatio.value : '16:9',
+      // In-session ratio: the page's own select owns it. A missing value (no
+      // selected model) is left for the backend's shared Story default rather
+      // than forcing a literal 16:9.
+      ...(selectedGenStudioModel.value ? { aspect_ratio: genAspectRatio.value } : {}),
       // Sent only when the customer picked a published row, so a model with no
       // output options keeps submitting exactly what it did before.
       resolution: genOutputOption.value?.resolution || undefined,

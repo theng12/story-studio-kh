@@ -27,6 +27,9 @@ import {
   formatDuration,
   formatBatchMessage,
   formatFailureMessage,
+  formatSingleJobMessage,
+  summarizeBatchEpisodes,
+  BATCH_EPISODE_LINE_LIMIT,
   shouldNotifyFailure,
   labelForJobType,
   getBatchId,
@@ -36,6 +39,7 @@ import {
   formatQuitWarning,
   formatApprovalWaitMessage,
 } from '../services/job-notifier.js'
+import { formatTelegramText } from '../services/telegram-notifier.js'
 import type { Job } from '../models/types.js'
 
 let cleanup: () => Promise<void>
@@ -367,5 +371,227 @@ describe('Scene Review waiting on the owner', () => {
     const { readFile } = await import('node:fs/promises')
     const main = await readFile(new URL('../../main.ts', import.meta.url), 'utf8')
     assert.match(main, /formatApprovalWaitMessage\(job, projectLabel\)[\s\S]{0,200}!notifiedJobs\.has\(`approval:\$\{job\.job_id\}`\)[\s\S]{0,200}dispatchNotification\(approvalWait/)
+  })
+})
+
+// ── Owner request 2026-10-18: notifications must name the episode ──────────
+// The owner's screenshot showed "Done: Chapter expansion — Domnak Kmouch /
+// DM0013 — 9m 44s" (no title) and "Pipeline finished — Story Sprout / 1/1
+// episodes succeeded. Elapsed 15h 47m." (no episode at all). These pin the
+// episode code + title detail, the episode-vs-step counts, the bounded long-
+// batch summary, and the Telegram escaping/length contracts.
+
+describe('episode identity in single-job notifications', () => {
+  const began = '2026-10-18T00:00:00.000Z'
+  const ended = '2026-10-18T00:09:44.000Z' // 9m 44s — the owner's example duration
+
+  test('a done job carries its episode code AND title', () => {
+    const j = mkJob({ status: 'done', type: 'expand_chapters', episode_id: 'DM0013', started_at: began, finished_at: ended })
+    const p = formatSingleJobMessage(j, 'Domnak Kmouch', 'The Lost Temple')
+    assert.equal(p.title, 'Done: Chapter expansion — Domnak Kmouch')
+    assert.equal(p.body, 'DM0013 — The Lost Temple — 9m 44s')
+  })
+
+  test('no title on record → the stable code stands alone, never a guess', () => {
+    const j = mkJob({ status: 'done', type: 'expand_chapters', episode_id: 'DM0013', started_at: began, finished_at: ended })
+    assert.equal(formatSingleJobMessage(j, 'Domnak Kmouch', '').body, 'DM0013 — 9m 44s')
+    assert.equal(formatSingleJobMessage(j, 'Domnak Kmouch', '   ').body, 'DM0013 — 9m 44s')
+    assert.equal(formatSingleJobMessage(j, 'Domnak Kmouch').body, 'DM0013 — 9m 44s')
+  })
+
+  test('cancelled keeps its own honest tag', () => {
+    const j = mkJob({ status: 'cancelled', type: 'expand_chapters', episode_id: 'DM0013', started_at: began, finished_at: ended })
+    assert.equal(formatSingleJobMessage(j, 'Domnak Kmouch', 'The Lost Temple').title, 'Cancelled: Chapter expansion — Domnak Kmouch')
+  })
+
+  test('a job with no episode id shows no identity', () => {
+    const base = mkJob({ status: 'done', started_at: began, finished_at: ended })
+    const p = formatSingleJobMessage({ ...base, episode_id: '' }, 'Domnak Kmouch', 'The Lost Temple')
+    assert.equal(p.body, '9m 44s')
+  })
+
+  test('failure detail names the episode and scrubs credentials', () => {
+    const j = mkJob({ status: 'error', type: 'expand_chapters', episode_id: 'DM0013', error: 'provider said sk-abcdefgh12345678 was rejected' })
+    const p = formatFailureMessage(j, 'Domnak Kmouch', 'The Lost Temple')
+    assert.equal(p.title, 'Failed: Chapter expansion — Domnak Kmouch')
+    assert.equal(p.body, 'DM0013 — The Lost Temple — provider said [REDACTED] was rejected')
+  })
+
+  test('approval-wait ping names the episode too', () => {
+    const j = { job_id: 'r2', type: 'continuity_render', status: 'done', episode_id: 'DM0013', result: { awaiting_approval: 1 } } as unknown as Job
+    const p = formatApprovalWaitMessage(j, 'Domnak Kmouch', 'The Lost Temple')
+    assert.equal(p?.body, 'DM0013 — The Lost Temple — Scene Review. Open it to approve the scenes.')
+    assert.equal(formatApprovalWaitMessage(j, 'Domnak Kmouch')?.body, 'DM0013 — Scene Review. Open it to approve the scenes.')
+  })
+})
+
+describe('summarizeBatchEpisodes()', () => {
+  const step = (code: string, status: Job['status'], extra: Partial<Job> = {}) =>
+    mkJob({ status, episode_id: code, ...extra })
+
+  test('groups step jobs by episode; states rank failed > cancelled > done', () => {
+    const jobs = [
+      step('DM0013', 'done', { job_id: 'a1', type: 'script-only', created_at: '2026-10-18T00:00:00.000Z', finished_at: '2026-10-18T00:30:00.000Z' }),
+      step('DM0013', 'done', { job_id: 'a2', type: 'expand_chapters', created_at: '2026-10-18T00:30:00.000Z', finished_at: '2026-10-18T00:40:00.000Z' }),
+      step('DM0014', 'error', { job_id: 'b1', type: 'expand_chapters', error: 'provider timed out' }),
+      step('DM0015', 'cancelled', { job_id: 'c1', type: 'expand_chapters' }),
+    ]
+    const out = summarizeBatchEpisodes(jobs, new Map([['DM0013', 'The Lost Temple']]))
+    assert.deepEqual(out.map(e => e.episode_id), ['DM0014', 'DM0015', 'DM0013'])
+    assert.equal(out[0].state, 'failed')
+    assert.equal(out[0].failed_step, 'Chapter expansion')
+    assert.equal(out[0].failed_error, 'provider timed out')
+    assert.equal(out[0].title, '') // no record → code alone, never guessed
+    assert.equal(out[1].state, 'cancelled')
+    assert.equal(out[2].state, 'done')
+    assert.equal(out[2].title, 'The Lost Temple')
+    assert.equal(out[2].steps_done, 2)
+    assert.equal(out[2].steps_total, 2)
+  })
+
+  test('the earliest failure is the one reported, single-line', () => {
+    const jobs = [
+      step('DM0014', 'error', { job_id: 'late', type: 'image_prompts', error: 'second failure', created_at: '2026-10-18T03:00:00.000Z' }),
+      step('DM0014', 'error', { job_id: 'early', type: 'expand_chapters', error: 'first failure\nwith details', created_at: '2026-10-18T01:00:00.000Z' }),
+      step('DM0014', 'error', { job_id: 'mid', type: 'audio', error: 'other failure', created_at: '2026-10-18T02:00:00.000Z' }),
+    ]
+    const out = summarizeBatchEpisodes(jobs)
+    assert.equal(out[0].failed_step, 'Chapter expansion')
+    assert.equal(out[0].failed_error, 'first failure with details')
+  })
+
+  test('a credential-shaped error is scrubbed before it reaches the message', () => {
+    const out = summarizeBatchEpisodes([step('DM0014', 'error', { type: 'audio', error: 'upstream: sk-abcdefgh12345678' })])
+    assert.equal(out[0].failed_error, 'upstream: [REDACTED]')
+  })
+
+  test('a job still active marks the episode running, not done', () => {
+    const jobs = [step('DM0013', 'done'), step('DM0013', 'queued', { job_id: 'q1' })]
+    assert.equal(summarizeBatchEpisodes(jobs)[0].state, 'running')
+  })
+
+  test('rows with no episode id are skipped, not shown as a blank line', () => {
+    const bare = { ...mkJob({ status: 'done' }), episode_id: '' }
+    assert.deepEqual(summarizeBatchEpisodes([bare]), [])
+  })
+})
+
+describe('formatBatchMessage() — per-episode detail', () => {
+  const STATS = { batch_id: 'B', total: 1, success: 1, fail: 0, cancelled: 0, earliest_created_at: null, latest_finished_at: null, elapsed_ms: 56_820_000, still_active: 0 }
+
+  test("the owner's 1-episode run names its episode (episodes, not steps)", () => {
+    const jobs = [mkJob({ status: 'done', type: 'expand_chapters', episode_id: 'DM0013', params: { pipeline_batch_id: 'B' } })]
+    const episodes = summarizeBatchEpisodes(jobs, new Map([['DM0013', 'The Lost Temple']]))
+    const { title, body } = formatBatchMessage({ ...STATS }, 'Story Sprout', episodes)
+    assert.equal(title, 'Pipeline finished — Story Sprout')
+    assert.equal(body, '1/1 episodes succeeded. Elapsed 15h 47m.\nDM0013 — The Lost Temple: done · 1 step')
+  })
+
+  test('seven step jobs are ONE episode — the count says so', () => {
+    const jobs = Array.from({ length: 7 }, (_, i) => mkJob({ status: 'done', job_id: `s${i}`, episode_id: 'DM0013', created_at: `2026-10-18T0${i}:00:00.000Z`, finished_at: '2026-10-18T09:00:00.000Z' }))
+    const episodes = summarizeBatchEpisodes(jobs, new Map([['DM0013', 'The Lost Temple']]))
+    const { body } = formatBatchMessage({ ...STATS, total: 7, success: 7 }, undefined, episodes)
+    assert.match(body, /^1\/1 episodes succeeded\./)
+    assert.match(body, /DM0013 — The Lost Temple: done · 7 steps/)
+  })
+
+  test('mixed done / failed / cancelled: counts, honest state lines, failure detail', () => {
+    const jobs = [
+      mkJob({ status: 'done', job_id: 'a1', episode_id: 'DM0013', type: 'script-only' }),
+      mkJob({ status: 'error', job_id: 'b1', episode_id: 'DM0014', type: 'expand_chapters', error: 'provider timed out' }),
+      mkJob({ status: 'cancelled', job_id: 'c1', episode_id: 'DM0015', type: 'script-only' }),
+    ]
+    const episodes = summarizeBatchEpisodes(jobs, new Map([['DM0013', 'The Lost Temple'], ['DM0014', 'River of Night']]))
+    const { title, body } = formatBatchMessage({ ...STATS, total: 3, success: 1, fail: 1, cancelled: 1, elapsed_ms: 7_500_000 }, 'Story Sprout', episodes)
+    assert.equal(title, 'Pipeline finished with issues — Story Sprout')
+    assert.equal(body, [
+      '1/3 episodes succeeded. 1 failed. 1 cancelled. Elapsed 2h 5m.',
+      'DM0014 — River of Night: failed at Chapter expansion — provider timed out',
+      'DM0015: cancelled',
+      'DM0013 — The Lost Temple: done · 1 step',
+    ].join('\n'))
+  })
+
+  test('a long batch bounds its detail with an explicit omitted count', () => {
+    const n = BATCH_EPISODE_LINE_LIMIT + 2
+    const jobs = Array.from({ length: n }, (_, i) => mkJob({ status: 'done', job_id: `j${i}`, episode_id: `DM${1000 + i}` }))
+    const episodes = summarizeBatchEpisodes(jobs)
+    const { body } = formatBatchMessage({ ...STATS, total: n, success: n }, 'Story Sprout', episodes)
+    const lines = body.split('\n')
+    assert.equal(lines.length, 1 + BATCH_EPISODE_LINE_LIMIT + 1) // header + shown + omitted marker
+    assert.match(lines[lines.length - 1]!, /^… and 2 more \(all done\)$/)
+    assert.ok(!body.includes(`DM${1000 + n - 1}`), 'omitted episodes are counted, never silently kept')
+  })
+
+  test('omitted failures are still counted explicitly', () => {
+    const n = BATCH_EPISODE_LINE_LIMIT + 3
+    const jobs = [
+      ...Array.from({ length: BATCH_EPISODE_LINE_LIMIT + 2 }, (_, i) => mkJob({ status: 'error', job_id: `e${i}`, episode_id: `DM${2000 + i}`, type: 'audio', error: 'boom' })),
+      mkJob({ status: 'done', job_id: 'ok', episode_id: 'DM2100' }),
+    ]
+    const episodes = summarizeBatchEpisodes(jobs)
+    assert.equal(episodes.length, n)
+    const { body } = formatBatchMessage({ ...STATS, total: n, success: 1, fail: n - 1, elapsed_ms: 60_000 }, undefined, episodes)
+    assert.match(body, /1\/11 episodes succeeded\. 10 failed\./)
+    assert.match(body, /… and 3 more \(2 failed\)/)
+  })
+
+  test('an empty episode list falls back to the aggregate wording (nothing invented)', () => {
+    const { body } = formatBatchMessage({ ...STATS, total: 2, success: 1, fail: 1, elapsed_ms: 60_000 }, 'P', [])
+    assert.equal(body, '1/2 episodes succeeded. 1 failed. Elapsed 1m 0s.')
+  })
+
+  test('very long titles are truncated, never dropped silently', () => {
+    const long = 'A'.repeat(200)
+    const jobs = [mkJob({ status: 'done', episode_id: 'DM0013' })]
+    const episodes = summarizeBatchEpisodes(jobs, new Map([['DM0013', long]]))
+    const { body } = formatBatchMessage({ ...STATS }, undefined, episodes)
+    assert.ok(body.includes(`DM0013 — ${'A'.repeat(80)}: done`))
+    assert.ok(!body.includes('A'.repeat(81)))
+  })
+})
+
+describe('Telegram text — escaping, Khmer titles, and the 4096 cap', () => {
+  test('HTML specials are escaped; Khmer text passes through intact', () => {
+    const text = formatTelegramText({ title: 'ព្រះអាទិត្យ & <មាស>', body: 'DM0013 — The Lost & Found <script>' })
+    assert.ok(text.startsWith('<b>ព្រះអាទិត្យ &amp; &lt;មាស&gt;</b>\n'))
+    assert.ok(text.endsWith('DM0013 — The Lost &amp; Found &lt;script&gt;'))
+    assert.ok(!text.includes('<មាស>'))
+    assert.ok(!text.includes('<script>'))
+  })
+
+  test('a long Khmer batch stays inside the Telegram length cap', () => {
+    const khmer = 'ព្រះរាជាណាចក្រកម្ពុជា និងរឿងព្រេងបុរាណ & អច្ឆរិយៈ'
+    const jobs = [
+      ...Array.from({ length: BATCH_EPISODE_LINE_LIMIT + 4 }, (_, i) => mkJob({ status: 'done', job_id: `k${i}`, episode_id: `DM${3000 + i}` })),
+      mkJob({ status: 'error', job_id: 'kf', episode_id: 'DM3900', type: 'audio', error: 'provider <timeout> & retry exhausted' }),
+    ]
+    const titles = new Map<string, string>(jobs.map(j => [j.episode_id, khmer] as [string, string]))
+    const episodes = summarizeBatchEpisodes(jobs, titles)
+    const text = formatTelegramText(formatBatchMessage({ ...{ batch_id: 'B', total: jobs.length, success: jobs.length - 1, fail: 1, cancelled: 0, earliest_created_at: null, latest_finished_at: null, elapsed_ms: 56_820_000, still_active: 0 } }, 'Domnak Kmouch', episodes))
+    assert.ok(text.length <= 4096, `telegram text must stay ≤4096 chars, got ${text.length}`)
+    assert.match(text, /… and 5 more/)
+    assert.match(text, /DM3900/) // the failure line is always shown, never omitted
+  })
+
+  test('the sender still applies the hard cap as a backstop', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const src = await readFile(new URL('../services/telegram-notifier.ts', import.meta.url), 'utf8')
+    assert.match(src, /text: truncateChars\(text, 4096\)/)
+  })
+})
+
+describe('main.ts wiring resolves and passes episode identity', () => {
+  test('all four builders receive the resolved title; the batch resolves in one idea-store read', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const main = await readFile(new URL('../../main.ts', import.meta.url), 'utf8')
+    assert.match(main, /formatFailureMessage\(job, projectLabel, await episodeTitleFor\(job\)\)/)
+    assert.match(main, /formatSingleJobMessage\(job, projectLabel, await episodeTitleFor\(job\)\)/)
+    assert.match(main, /formatApprovalWaitMessage\(job, projectLabel, await episodeTitleFor\(job\)\)/)
+    assert.match(main, /formatBatchMessage\(stats, projectLabel, episodes\)/)
+    assert.match(main, /summarizeBatchEpisodes\(batchJobs, titles\)/)
+    assert.match(main, /createProjectFactsCache\(slug\)/)
+    assert.match(main, /resolveEpisodeTitleByCode\(slug, code, cache\)/)
+    assert.match(main, /if \(!code\) return ''/) // empty id → no lookup, no guess
   })
 })

@@ -234,6 +234,15 @@
 
         <NichePicker v-model="form.niche_id" :disabled="creating" />
 
+        <div class="form-group">
+          <label for="content-language">Audience language</label>
+          <select id="content-language" v-model="form.content_language" class="input" :disabled="creating">
+            <option value="">Not set (legacy prompts)</option>
+            <option value="en">English</option>
+            <option value="km">Khmer</option>
+          </select>
+        </div>
+
         <details class="naming-options disclosure">
           <summary>Episode naming options</summary>
           <div class="naming-grid">
@@ -338,6 +347,7 @@ const form = reactive({
   season_prefix: 'Season',
   season_size: 20,
   niche_id: '',
+  content_language: '',
 })
 
 function errorMessage(error: any, fallback: string): string {
@@ -468,6 +478,7 @@ function resetForm(): void {
     season_prefix: 'Season',
     season_size: 20,
     niche_id: '',
+    content_language: '',
   })
   createError.value = ''
 }
@@ -496,6 +507,7 @@ async function createProject(): Promise<void> {
       season_prefix: form.season_prefix.trim() || 'Season',
       season_size: Math.max(1, Number(form.season_size) || 20),
       niche_id: form.niche_id || undefined,
+      content_language: form.content_language || undefined,
     })
     const href = projectHref(project)
     if (!href) throw new Error('The new channel did not return a valid project identifier.')

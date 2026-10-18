@@ -68,9 +68,27 @@ export function mergeCovered(entries: CoveredMap['entries'], add: unknown): Cove
   return out
 }
 
-// ponytail: fixed per-group caps on our OWN list (not a model limit); subjects are never dropped.
-// Chat products publish no prompt-character figure, so the cap cannot be derived from the model.
+// ponytail: fixed per-group caps on our OWN list (not a model limit); chat products publish no
+// prompt-character figure, so the cap cannot be derived from the model.
+//
+// Two views, two needs:
+//  - the IDEA prompt (`renderCoveredBlock`) never drops a subject, because its whole job is "never
+//    make another episode about any of these" — dropping one lets a repeat through. It caps only
+//    people, places and eras.
+//  - the HELPER prompt (`helperPrompt`) shows the map only so a new item can reuse an existing
+//    NAME, so it caps every group. That is what stops the helper prompt growing with the channel's
+//    whole history. The cost is named: a name left out of the view can come back as a second entry
+//    for the same thing, because `mergeCovered` matches by exact name. The STORED map keeps every
+//    entry either way, and the list is most-covered first — the order a repeat is likeliest to
+//    appear in.
 const OTHER_GROUP_CAP = 40
+
+/** The bounded view of the map the helper is shown. This is a view ceiling; the stored map is never trimmed. */
+function helperMapView(entries: CoveredMap['entries']): CoveredMap['entries'] {
+  const view = emptyEntries()
+  for (const group of COVERED_GROUPS) view[group] = entries[group].slice(0, OTHER_GROUP_CAP)
+  return view
+}
 
 function list(entries: CoveredEntry[]): string {
   return entries.map(entry => entry.count > 1 ? `${entry.name} ×${entry.count}` : entry.name).join('; ')
@@ -102,7 +120,7 @@ export function renderCoveredBlock(map: CoveredMap | null, mode: 'freeform' | 'p
 function helperPrompt(channel: string, description: string, map: CoveredMap['entries'], ideas: HistoryIdea[]): string {
   const lines = ideas.map(idea => `- ${idea.title} | ${(idea.logline || '').slice(0, 300)} | ${(idea.themes || []).join(', ')}`)
   return `You maintain a covered-topics map for the YouTube channel "${channel}"${description ? ` (${description})` : ''}.
-CURRENT MAP: ${JSON.stringify(map)}
+CURRENT MAP: ${JSON.stringify(helperMapView(map))}
 NEW EPISODES (title | logline | themes):
 ${lines.join('\n')}
 

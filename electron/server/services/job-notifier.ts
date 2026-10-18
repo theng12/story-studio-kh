@@ -17,6 +17,7 @@
 import { getAppSetting, setAppSetting } from './app-settings.js'
 import type { Job } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { redactSecrets } from '../lib/redact-secrets.js'
 import { awaitingApprovalLabel } from '../contracts/episode-step-jobs.js'
 
 /** Telegram bot channel (v1.0.60+). Independent of the desktop channel
@@ -226,47 +227,207 @@ export function shouldNotifyFailure(job: Job, events?: NotificationEvents): bool
   return job.status === 'error'
 }
 
-export function formatFailureMessage(job: Job, projectLabel?: string): NotificationPayload {
-  const ep = job.episode_id ? `${job.episode_id} — ` : ''
-  const err = (job.error || '').trim()
+/**
+ * `DM0013 — The Lost Temple`, or the bare code when no title is on record.
+ * Never invents one: an unknown title leaves the stable episode code standing
+ * alone (owner request 2026-10-18 — the ping must say WHICH episode it worked
+ * on, and the code alone doesn't tell a human that).
+ */
+function episodeIdentity(code: string, title?: string): string {
+  const t = (title || '').trim()
+  return t ? `${code} — ${truncateChars(t, 80)}` : code
+}
+
+export function formatFailureMessage(job: Job, projectLabel?: string, episodeTitle?: string): NotificationPayload {
+  const ep = job.episode_id ? `${episodeIdentity(job.episode_id, episodeTitle)} — ` : ''
+  // Errors travel to the owner's phone; reuse the existing scrubber so a
+  // provider that echoes a key or a credential-bearing URL can't ride along.
+  const err = redactSecrets((job.error || '').trim())
   return {
     title: suffixProject(`Failed: ${labelForJobType(job.type)}`, projectLabel),
     body: `${ep}${err ? truncateChars(err, 160) : 'Job failed.'}`,
   }
 }
 
-export function formatBatchMessage(stats: BatchStats, projectLabel?: string): NotificationPayload {
-  const baseTitle = stats.fail > 0 || stats.cancelled > 0
-    ? 'Pipeline finished with issues'
-    : 'Pipeline finished'
-  const parts: string[] = [`${stats.success}/${stats.total} episodes succeeded.`]
-  if (stats.fail > 0) parts.push(`${stats.fail} failed.`)
-  if (stats.cancelled > 0) parts.push(`${stats.cancelled} cancelled.`)
-  parts.push(`Elapsed ${formatDuration(stats.elapsed_ms)}.`)
-  return { title: suffixProject(baseTitle, projectLabel), body: parts.join(' ') }
+/**
+ * How many per-episode lines a Pipeline summary carries before the tail
+ * collapses into "… and N more (…)". Bounded so a 30-episode batch stays one
+ * readable notification — and comfortably inside Telegram's 4096-char cap,
+ * even when every line is a full-length failure — while an ordinary run
+ * names every episode it touched.
+ */
+export const BATCH_EPISODE_LINE_LIMIT = 8
+
+/** One episode's outcome inside a finished Pipeline batch. */
+export interface BatchEpisodeOutcome {
+  episode_id: string
+  /** The episode's authoritative title, from the same idea record that named
+   *  its folder; '' when the store has no record — the code stands alone
+   *  rather than a title guessed from the id. */
+  title: string
+  /** `running` is only reachable when summarised before the batch settles. */
+  state: 'done' | 'failed' | 'cancelled' | 'running'
+  /** Batch jobs that finished `done` for this episode (steps that ran through). */
+  steps_done: number
+  /** Every batch job recorded for this episode. */
+  steps_total: number
+  /** Friendly label of the first failing step, when the episode failed. */
+  failed_step?: string
+  /** That step's error — whitespace-collapsed and scrubbed (redactSecrets). */
+  failed_error?: string
 }
 
-export function formatSingleJobMessage(job: Job, projectLabel?: string): NotificationPayload {
+/**
+ * Group a batch's jobs by episode for the Pipeline summary.
+ *
+ * Episodes are the unit the summary sentence actually claims ("N/M episodes
+ * succeeded"); a batch's jobs are chained STEPS, so one 15-hour episode is
+ * many jobs and counting jobs would report "7/7 episodes" for one episode.
+ * Failures sort first — they are the lines worth reading — with run order
+ * kept inside each state group. `titles` comes from the idea store
+ * (episode code → title); codes missing from it keep the stable code alone.
+ */
+export function summarizeBatchEpisodes(
+  jobs: Job[],
+  titles?: ReadonlyMap<string, string> | null,
+): BatchEpisodeOutcome[] {
+  const groups = new Map<string, Job[]>()
+  for (const j of jobs) {
+    const code = (j.episode_id || '').trim()
+    if (!code) continue // A row with no episode id has no identity to show.
+    const list = groups.get(code)
+    if (list) list.push(j)
+    else groups.set(code, [j])
+  }
+
+  const ranked: Array<{ outcome: BatchEpisodeOutcome; rank: number; first_seen: string }> = []
+  for (const [code, group] of groups) {
+    let stepsDone = 0
+    let failed: Job | null = null
+    let anyCancelled = false
+    let anyActive = false
+    let firstSeen = group[0]!.created_at
+    for (const j of group) {
+      if (j.created_at && j.created_at < firstSeen) firstSeen = j.created_at
+      switch (j.status) {
+        case 'done': stepsDone++; break
+        case 'error': if (!failed || j.created_at < failed.created_at) failed = j; break
+        case 'cancelled': anyCancelled = true; break
+        case 'queued':
+        case 'running': anyActive = true; break
+      }
+    }
+    const state: BatchEpisodeOutcome['state'] = failed ? 'failed'
+      : anyCancelled ? 'cancelled'
+      : anyActive ? 'running'
+      : 'done'
+    const outcome: BatchEpisodeOutcome = {
+      episode_id: code,
+      title: String(titles?.get(code) || '').trim(),
+      state,
+      steps_done: stepsDone,
+      steps_total: group.length,
+    }
+    if (failed) {
+      outcome.failed_step = labelForJobType(failed.type)
+      const err = redactSecrets((failed.error || '').trim()).replace(/\s+/g, ' ').trim()
+      if (err) outcome.failed_error = err
+    }
+    const rank = state === 'failed' ? 0 : state === 'cancelled' ? 1 : state === 'running' ? 2 : 3
+    ranked.push({ outcome, rank, first_seen: firstSeen })
+  }
+
+  ranked.sort((a, b) => a.rank - b.rank || a.first_seen.localeCompare(b.first_seen))
+  return ranked.map(r => r.outcome)
+}
+
+/** One line of the per-episode detail under a Pipeline summary. */
+function formatBatchEpisodeLine(e: BatchEpisodeOutcome): string {
+  const name = episodeIdentity(e.episode_id, e.title)
+  switch (e.state) {
+    case 'done':
+      return `${name}: done · ${e.steps_done} step${e.steps_done === 1 ? '' : 's'}`
+    case 'failed': {
+      const at = e.failed_step ? ` at ${e.failed_step}` : ''
+      const why = e.failed_error ? ` — ${truncateChars(e.failed_error, 120)}` : ''
+      return `${name}: failed${at}${why}`
+    }
+    case 'cancelled':
+      return `${name}: cancelled`
+    default:
+      return `${name}: still running`
+  }
+}
+
+/** "… and 4 more (2 failed, 1 cancelled)" — the explicit count of episodes
+ *  the line limit omitted, so nothing disappears silently from the summary. */
+function formatOmittedEpisodes(omitted: BatchEpisodeOutcome[]): string {
+  const failed = omitted.filter(e => e.state === 'failed').length
+  const cancelled = omitted.filter(e => e.state === 'cancelled').length
+  const bits: string[] = []
+  if (failed > 0) bits.push(`${failed} failed`)
+  if (cancelled > 0) bits.push(`${cancelled} cancelled`)
+  return `… and ${omitted.length} more (${bits.length > 0 ? bits.join(', ') : 'all done'})`
+}
+
+/**
+ * Per-run summary when a pipeline batch finishes.
+ *
+ * With `episodes` (from summarizeBatchEpisodes) the counts and the detail
+ * lines describe EPISODES — the sentence's own unit; each episode is named
+ * by code and title, up to BATCH_EPISODE_LINE_LIMIT lines. Without it the
+ * aggregate job counts are kept, so callers that never resolved episode
+ * identity see the original wording.
+ */
+export function formatBatchMessage(
+  stats: BatchStats,
+  projectLabel?: string,
+  episodes?: BatchEpisodeOutcome[] | null,
+): NotificationPayload {
+  const detail = episodes && episodes.length > 0 ? episodes : null
+  const total = detail ? detail.length : stats.total
+  const success = detail ? detail.filter(e => e.state === 'done').length : stats.success
+  const fail = detail ? detail.filter(e => e.state === 'failed').length : stats.fail
+  const cancelled = detail ? detail.filter(e => e.state === 'cancelled').length : stats.cancelled
+
+  const baseTitle = fail > 0 || cancelled > 0
+    ? 'Pipeline finished with issues'
+    : 'Pipeline finished'
+  const parts: string[] = [`${success}/${total} episodes succeeded.`]
+  if (fail > 0) parts.push(`${fail} failed.`)
+  if (cancelled > 0) parts.push(`${cancelled} cancelled.`)
+  parts.push(`Elapsed ${formatDuration(stats.elapsed_ms)}.`)
+  const header = parts.join(' ')
+
+  if (!detail) return { title: suffixProject(baseTitle, projectLabel), body: header }
+
+  const lines = [header, ...detail.slice(0, BATCH_EPISODE_LINE_LIMIT).map(formatBatchEpisodeLine)]
+  const omitted = detail.slice(BATCH_EPISODE_LINE_LIMIT)
+  if (omitted.length > 0) lines.push(formatOmittedEpisodes(omitted))
+  return { title: suffixProject(baseTitle, projectLabel), body: lines.join('\n') }
+}
+
+export function formatSingleJobMessage(job: Job, projectLabel?: string, episodeTitle?: string): NotificationPayload {
   const elapsed = job.started_at && job.finished_at
     ? Date.parse(job.finished_at) - Date.parse(job.started_at)
     : 0
   const tag = job.status === 'done'  ? 'Done'
            : job.status === 'error' ? 'Failed'
            :                          'Cancelled'
-  const prefix = job.episode_id ? `${job.episode_id} — ` : ''
+  const identity = job.episode_id ? `${episodeIdentity(job.episode_id, episodeTitle)} — ` : ''
   return {
     title: suffixProject(`${tag}: ${labelForJobType(job.type)}`, projectLabel),
-    body: `${prefix}${formatDuration(elapsed)}`,
+    body: `${identity}${formatDuration(elapsed)}`,
   }
 }
 
 /** A scene render finished and Scene Review now waits on the owner's approval. */
-export function formatApprovalWaitMessage(job: Job, projectLabel?: string): NotificationPayload | null {
+export function formatApprovalWaitMessage(job: Job, projectLabel?: string, episodeTitle?: string): NotificationPayload | null {
   const label = job.status === 'done' ? awaitingApprovalLabel(job.result?.awaiting_approval) : ''
   if (!label) return null
   return {
     title: suffixProject(label, projectLabel),
-    body: `${job.episode_id ? `${job.episode_id} — ` : ''}Scene Review. Open it to approve the scenes.`,
+    body: `${job.episode_id ? `${episodeIdentity(job.episode_id, episodeTitle)} — ` : ''}Scene Review. Open it to approve the scenes.`,
   }
 }
 

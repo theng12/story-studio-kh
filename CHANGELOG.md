@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.320 — 2026-10-18
+
+- Saving a Finish missing images request now keeps the admission and provider callbacks in one coordinated write, so a failed request cannot reappear on a later save and a late callback cannot undo an accepted request.
+- Stopping an idea campaign now records the stop intent durably, so a campaign whose worker is still finishing (or whose submit response was lost in transit) settles as stopped instead of being silently re-admitted.
+- Image generation defaults to a landscape 16:9 output when no ratio is chosen, instead of the provider's square default; an explicit ratio is still respected.
+- A missing or unusable image prompt now fails fast with a clear message instead of being retried, so a run no longer burns attempts on a prompt that cannot succeed.
+- A project can carry a content language, and automatic intro generation is offered only for episodes created from now on — no intro is added or changed for an existing episode.
+- Telegram notifications now show the episode being worked on properly.
+- Publishing Overview now has Coverage and Calendar tabs, a channel search (name, slug or connected YouTube title), sortable coverage columns with unknown values last, Week/Month/Year calendar ranges with Previous/Next/Today, and paging — and stays usable on narrower windows.
+- Idea-campaign generation now sizes its work adaptively — one or more adaptive calls, capped at 100 ideas in total — instead of fixed calls of ten.
+
 ## v1.4.319 — 2026-10-18
 
 - Retry and a fresh start are now refused with a clear "still finishing locally" message while the previous job of the same project, episode and type is still winding down after its row already reported done, error or cancelled — or was removed from history — instead of claiming it is "already queued/running". Once that worker settles, the action is admitted.

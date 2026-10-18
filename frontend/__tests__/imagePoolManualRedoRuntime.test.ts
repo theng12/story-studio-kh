@@ -18,7 +18,7 @@ async function loadPage(): Promise<Component> {
   const creditCostUrl = await import.meta.resolve('../utils/genstudio-credit-cost.ts')
   const support = `
     import { computed, defineComponent as _defineComponent, onMounted, onUnmounted, ref, watch } from ${JSON.stringify(vueUrl)}
-    import { findOutputOption, outputOptionsForRatio } from ${JSON.stringify(outputOptionsUrl)}
+    import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, storyDefaultAspectRatio } from ${JSON.stringify(outputOptionsUrl)}
     import { CREDIT_BASIS_LABEL, describeImageBatchEstimate } from ${JSON.stringify(creditCostUrl)}
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
@@ -144,6 +144,7 @@ async function mountFixture(options: {
   const actions: Array<{ message: string; label: string; run: () => void | Promise<void> }> = []
   const errors: string[] = []
   const successes: string[] = []
+  const infos: string[] = []
   const posts: Array<{ path: string; body: Record<string, any> }> = []
   const api = {
     get: async (url: string) => {
@@ -173,7 +174,7 @@ async function mountFixture(options: {
     },
     __imagePoolToast: {
       success: (message: string) => successes.push(message),
-      info: () => undefined,
+      info: (message: string) => infos.push(message),
       error: (message: string) => errors.push(message),
       showAction: (message: string, label: string, run: () => void | Promise<void>) => actions.push({ message, label, run }),
     },
@@ -199,10 +200,34 @@ async function mountFixture(options: {
   return {
     app, host, state, route, models, summaries, preference, calls, resolvers, confirmationState,
     preferenceLoads, preferenceResets: () => preferenceResets,
-    asks, actions, errors, successes, posts, jobs,
+    asks, actions, errors, successes, infos, posts, jobs,
     unmount: () => { app.unmount(); host.remove() },
   }
 }
+
+test('a listed-but-rowless ratio is repaired to a renderable row and announced', async () => {
+  // F3 regression: the ratio list still names 16:9, but its output row is gone.
+  // The watcher must use the row contract, repair the form, and announce it.
+  const fixture = await mountFixture()
+  try {
+    fixture.models.value = [{
+      ...fixture.models.value[0]!,
+      aspect_ratios: ['16:9', '1:1'],
+      default_aspect_ratio: '1:1',
+      output_options: [{
+        resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024,
+        is_default: true, credits_per_image: 3, price_version: 'row-square-v1',
+      }],
+    }]
+    await nextTick()
+    assert.equal(fixture.state.genAspectRatio.value, '1:1',
+      'the rowless 16:9 is repaired even while the ratio list still names it')
+    assert.ok(fixture.infos.some(message =>
+      /does not publish 16:9/.test(message) && /Switched to 1:1/.test(message)))
+  } finally {
+    fixture.unmount()
+  }
+})
 
 test('preference off hides only the exceptional action and leaves ordinary Generate unchanged', async () => {
   const fixture = await mountFixture({ preference: false })

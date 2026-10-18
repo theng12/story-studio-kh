@@ -6,6 +6,15 @@
  * visually and structurally distinct (legend + per-event kind). The error,
  * empty, refresh, multi-channel and day-grouping states are mounted too.
  *
+ * The responsive-controls pass adds mounted checks for: full-width layout with
+ * contained tables, Coverage/Calendar keyboard tabs (the Content Store's
+ * roving-tabindex pattern), one channel search across BOTH tabs (name, slug and
+ * connected YouTube title), sortable coverage columns (asc/desc, unknown last,
+ * stable ties, API priority default), filter/sort BEFORE the 25-channel page
+ * slice, local-date Week/Month/Year calendar ranges with Previous/Next/Today,
+ * bounded 25-EVENT pagination (65 entries on one day), the next-12 expected-slot
+ * marker horizon, and preserved recommendation reasons/actions.
+ *
  * NOTE: written but UNRUN — adda owns the execution lease.
  */
 
@@ -82,6 +91,15 @@ function channel(overrides: any = {}) {
   }
 }
 
+// ---- Calendar fixtures are LOCAL dates in the CURRENT month ------------------
+// The default Month view is anchored on today, so fixed October-2026 strings
+// would silently fall out of range whenever the suite runs later.
+const NOW = new Date()
+
+function monthDay(day: number, hour = 18, minute = 0): string {
+  return new Date(NOW.getFullYear(), NOW.getMonth(), day, hour, minute, 0, 0).toISOString()
+}
+
 const BETA = channel({
   slug: 'beta', name: 'Beta Channel',
   channel: { channel_id: 'UC2', title: 'Beta on YouTube' },
@@ -133,11 +151,72 @@ const OVERVIEW = {
   cache_ttl_ms: 86400000,
   channels: [channel(), NEVER_CHECKED, BETA],
   calendar: [
-    { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed', at: '2026-10-20T18:00:00.000Z', episode_code: 'EP0001', video_id: 'vid1', title: 'First' },
-    { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'planned', at: '2026-10-22T18:00:00.000Z', empty: true },
+    { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed', at: monthDay(20), episode_code: 'EP0001', video_id: 'vid1', title: 'First' },
+    { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'planned', at: monthDay(22), empty: true },
   ],
 }
 
+// ---- Small mount helpers -----------------------------------------------------
+function overviewWith(channels: any[], calendar: any[] = []) {
+  return { generated_at: '2026-10-17T00:00:00.000Z', cache_ttl_ms: 1, channels, calendar }
+}
+
+function coverage(overrides: any = {}) {
+  return {
+    last_confirmed_date: null, last_planned_date: null, next_uncovered_slot: null,
+    scheduled_video_count: 0, planned_date_count: 0, ready_video_count: null, at_risk: false,
+    ...overrides,
+  }
+}
+
+function makeChannel(name: string, coverageOverrides: any = {}, extra: any = {}) {
+  return channel({
+    slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+    name,
+    coverage: coverage(coverageOverrides),
+    ...extra,
+  })
+}
+
+function rowNames(host: HTMLElement): string[] {
+  return [...host.querySelectorAll('table.coverage-table tbody tr')]
+    .map(row => (row.querySelector('.channel-link')?.textContent || '').trim())
+}
+
+function headerButton(host: HTMLElement, label: string): HTMLButtonElement {
+  const button = [...host.querySelectorAll('table.coverage-table th button')]
+    .find(candidate => (candidate.textContent || '').trim().startsWith(label))
+  assert.ok(button, `sortable header "${label}" exists`)
+  return button as HTMLButtonElement
+}
+
+function tabButton(host: HTMLElement, label: string): HTMLButtonElement {
+  const button = [...host.querySelectorAll('[role="tab"]')]
+    .find(candidate => (candidate.textContent || '').trim().startsWith(label))
+  assert.ok(button, `tab "${label}" exists`)
+  return button as HTMLButtonElement
+}
+
+function buttonByText(host: HTMLElement, selector: string, text: string): HTMLButtonElement {
+  const button = [...host.querySelectorAll(selector)]
+    .find(candidate => (candidate.textContent || '').trim() === text)
+  assert.ok(button, `button "${text}" exists`)
+  return button as HTMLButtonElement
+}
+
+function calendarViewButton(host: HTMLElement, label: string): HTMLButtonElement {
+  return buttonByText(host, '.calendar-view-button', label)
+}
+
+async function search(host: HTMLElement, value: string) {
+  const input = host.querySelector('input.channel-search') as HTMLInputElement
+  assert.ok(input, 'channel search input renders')
+  input.value = value
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await flush()
+}
+
+// ---- Existing honesty checks -------------------------------------------------
 test('a plan-less channel says "Publishing plan not set"; an unchecked channel says never checked, not zero', async () => {
   const ui = await mount({ overview: OVERVIEW })
   try {
@@ -261,10 +340,10 @@ test('an unresolved planned identity is spelled differently from a key that name
       ],
       calendar: [
         // A planned date whose episode identity could not be resolved…
-        { channel_slug: 'noread', channel_name: 'No Read Channel', kind: 'planned', at: '2026-10-22T18:00:00.000Z', identity_unknown: true },
+        { channel_slug: 'noread', channel_name: 'No Read Channel', kind: 'planned', at: monthDay(22), identity_unknown: true },
         // …beside one that genuinely carries an identity, so the list is proven
         // to render identities at all.
-        { channel_slug: 'noread', channel_name: 'No Read Channel', kind: 'planned', at: '2026-10-23T18:00:00.000Z', episode_code: 'NR0001' },
+        { channel_slug: 'noread', channel_name: 'No Read Channel', kind: 'planned', at: monthDay(23), episode_code: 'NR0001' },
       ],
     },
   })
@@ -323,8 +402,8 @@ test('multiple channels render one row each and events group into local days', a
       cache_ttl_ms: 1,
       channels: [channel(), channel({ slug: 'gamma', name: 'Gamma Channel', next_action: { kind: 'none', episode_code: null, label: 'Open the Production Board', url: '/projects/gamma/board' } })],
       calendar: [
-        { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed', at: '2026-10-20T18:00:00.000Z', video_id: 'v1' },
-        { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'planned', at: '2026-10-22T18:00:00.000Z', empty: true },
+        { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed', at: monthDay(20), video_id: 'v1' },
+        { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'planned', at: monthDay(22), empty: true },
       ],
     },
   })
@@ -332,5 +411,297 @@ test('multiple channels render one row each and events group into local days', a
     assert.equal(ui.host.querySelectorAll('table.coverage-table tbody tr').length, 2)
     // Two different days → two day groups.
     assert.equal(ui.host.querySelectorAll('.calendar-day').length, 2)
+  } finally { ui.close() }
+})
+
+// ---- Responsive controls -----------------------------------------------------
+test('the page fills the window, contains wide tables, and compacts without dropping recommendations', async () => {
+  const source = readFileSync(new URL('../pages/publishing.vue', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /max-width:\s*1180px/, 'the old 1180px cap is gone')
+  assert.match(source, /\.publishing-page\s*\{[^}]*width:\s*100%/, 'the page uses the full width')
+  assert.match(source, /\.publishing-page\s*\{[^}]*box-sizing:\s*border-box/)
+  assert.match(source, /\.coverage-scroll\s*\{[^}]*overflow-x:\s*auto/, 'wide tables scroll inside their container')
+  assert.match(source, /\.coverage-table\s*\{[^}]*min-width:\s*860px/)
+  assert.match(source, /@media \(max-width: 420px\)/, '375px gets its own layout')
+
+  const ui = await mount({ overview: OVERVIEW })
+  try {
+    // Compact layout still renders the recommendation reasons and actions.
+    const recLinks = [...ui.host.querySelectorAll('.rec-list .rec-link')]
+    assert.equal(recLinks.length, 1)
+    assert.match(recLinks[0].textContent || '', /Publish EP0003/)
+    assert.equal(recLinks[0].getAttribute('title'), 'Finished video, not on YouTube yet.')
+    assert.match(ui.host.textContent || '', /Publish EP0002/)
+  } finally { ui.close() }
+})
+
+test('Coverage and Calendar are keyboard tabs using the Content Store roving-tabindex pattern', async () => {
+  const ui = await mount({ overview: OVERVIEW })
+  try {
+    const tablist = ui.host.querySelector('[role="tablist"]') as HTMLElement
+    assert.ok(tablist, 'tablist exists')
+    const coverageTab = tabButton(ui.host, 'Coverage')
+    const calendarTab = tabButton(ui.host, 'Calendar')
+
+    assert.equal(coverageTab.getAttribute('aria-selected'), 'true')
+    assert.equal(coverageTab.tabIndex, 0)
+    assert.equal(calendarTab.getAttribute('aria-selected'), 'false')
+    assert.equal(calendarTab.tabIndex, -1)
+    assert.equal(coverageTab.getAttribute('aria-controls'), 'publishing-panel-coverage')
+    assert.equal(calendarTab.getAttribute('aria-controls'), 'publishing-panel-calendar')
+
+    const coveragePanel = ui.host.querySelector('#publishing-panel-coverage') as HTMLElement
+    const calendarPanel = ui.host.querySelector('#publishing-panel-calendar') as HTMLElement
+    assert.equal(coveragePanel.getAttribute('role'), 'tabpanel')
+    assert.equal(coveragePanel.getAttribute('aria-labelledby'), 'publishing-tab-coverage')
+    assert.equal(calendarPanel.getAttribute('role'), 'tabpanel')
+    assert.equal(calendarPanel.getAttribute('aria-labelledby'), 'publishing-tab-calendar')
+    assert.equal(coveragePanel.hidden, false)
+    assert.equal(calendarPanel.hidden, true)
+
+    tablist.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    await flush()
+    assert.equal(calendarTab.getAttribute('aria-selected'), 'true')
+    assert.equal(calendarTab.tabIndex, 0)
+    assert.equal(document.activeElement, calendarTab, 'focus follows the arrow key')
+    assert.equal(calendarPanel.hidden, false)
+    assert.equal(coveragePanel.hidden, true)
+
+    // Home/End jump to the ends of the tablist like the Content Store tabs.
+    tablist.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    await flush()
+    assert.equal(coverageTab.getAttribute('aria-selected'), 'true')
+    tablist.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    await flush()
+    assert.equal(calendarTab.getAttribute('aria-selected'), 'true')
+  } finally { ui.close() }
+})
+
+test('one channel search matches name, slug and connected YouTube title on BOTH tabs', async () => {
+  const quiet = makeChannel('Quiet Channel', {}, {
+    slug: 'quiet-slug',
+    channel: { channel_id: 'UCQ', title: 'Moonrise Studio' },
+    confirmed: { next_at: null, count: 0, last_checked_at: null, freshness: 'unknown', schedules: [] },
+  })
+  const other = makeChannel('Other Channel', {}, {
+    slug: 'other',
+    channel: { channel_id: 'UCO', title: 'Other Studio' },
+    confirmed: { next_at: null, count: 0, last_checked_at: null, freshness: 'unknown', schedules: [] },
+  })
+  const at = monthDay(12)
+  const ui = await mount({
+    overview: overviewWith([quiet, other], [
+      { channel_slug: 'quiet-slug', channel_name: 'Quiet Channel', kind: 'confirmed', at, video_id: 'q1' },
+      { channel_slug: 'other', channel_name: 'Other Channel', kind: 'confirmed', at, video_id: 'o1' },
+    ]),
+  })
+  try {
+    await search(ui.host, 'quiet') // name
+    assert.deepEqual(rowNames(ui.host), ['Quiet Channel'])
+    await search(ui.host, 'quiet-slug') // slug
+    assert.deepEqual(rowNames(ui.host), ['Quiet Channel'])
+    await search(ui.host, 'moonrise') // connected YouTube title
+    assert.deepEqual(rowNames(ui.host), ['Quiet Channel'])
+
+    // The same filter applies to the Calendar tab.
+    tabButton(ui.host, 'Calendar').click()
+    await flush()
+    assert.equal(ui.host.querySelectorAll('.calendar-event').length, 1)
+    assert.match(ui.host.querySelector('.calendar-event')!.textContent || '', /Quiet Channel/)
+
+    await search(ui.host, 'other')
+    assert.equal(ui.host.querySelectorAll('.calendar-event').length, 1)
+    assert.match(ui.host.querySelector('.calendar-event')!.textContent || '', /Other Channel/)
+  } finally { ui.close() }
+})
+
+test('coverage columns sort asc/desc, unknown last, stable ties, and API priority by default', async () => {
+  const sortable = [
+    makeChannel('Zulu', { planned_date_count: 1 }),
+    makeChannel('Alpha', { planned_date_count: 3 }),
+    makeChannel('Mike', { planned_date_count: 3 }),
+  ]
+  const ui = await mount({ overview: overviewWith(sortable) })
+  try {
+    // Default is the API's own priority order, not alphabetical.
+    assert.deepEqual(rowNames(ui.host), ['Zulu', 'Alpha', 'Mike'])
+
+    const nameHeader = headerButton(ui.host, 'Channel')
+    nameHeader.click(); await flush()
+    assert.deepEqual(rowNames(ui.host), ['Alpha', 'Mike', 'Zulu'])
+    assert.equal(nameHeader.closest('th')!.getAttribute('aria-sort'), 'ascending')
+    nameHeader.click(); await flush()
+    assert.deepEqual(rowNames(ui.host), ['Zulu', 'Mike', 'Alpha'])
+    assert.equal(nameHeader.closest('th')!.getAttribute('aria-sort'), 'descending')
+    nameHeader.click(); await flush()
+    assert.deepEqual(rowNames(ui.host), ['Zulu', 'Alpha', 'Mike'])
+    assert.equal(nameHeader.closest('th')!.getAttribute('aria-sort'), 'none')
+
+    // Equal values keep the API's order in both directions (stable ties).
+    const plannedHeader = headerButton(ui.host, 'Planned dates')
+    plannedHeader.click(); await flush()
+    assert.deepEqual(rowNames(ui.host), ['Zulu', 'Alpha', 'Mike'])
+    plannedHeader.click(); await flush()
+    assert.deepEqual(rowNames(ui.host), ['Alpha', 'Mike', 'Zulu'])
+  } finally { ui.close() }
+})
+
+test('unknown coverage values sort last in BOTH directions', async () => {
+  const ready = [
+    makeChannel('Ready One', { ready_video_count: 1 }),
+    makeChannel('Ready Unknown', { ready_video_count: null }),
+    makeChannel('Ready Zero', { ready_video_count: 0 }),
+  ]
+  const ui = await mount({ overview: overviewWith(ready) })
+  try {
+    const readyHeader = headerButton(ui.host, 'Ready')
+    readyHeader.click(); await flush()
+    assert.deepEqual(rowNames(ui.host), ['Ready Zero', 'Ready One', 'Ready Unknown'])
+    readyHeader.click(); await flush()
+    assert.deepEqual(rowNames(ui.host), ['Ready One', 'Ready Zero', 'Ready Unknown'])
+  } finally { ui.close() }
+})
+
+test('filter and sort run BEFORE the 25-channel page slice; a filter change resets the page', async () => {
+  const many = Array.from({ length: 60 }, (_, index) =>
+    makeChannel(`Channel ${String(index).padStart(2, '0')}`, { planned_date_count: index }))
+  const ui = await mount({ overview: overviewWith(many) })
+  try {
+    assert.equal(ui.host.querySelectorAll('table.coverage-table tbody tr').length, 25)
+    assert.match(ui.host.querySelector('nav[aria-label="Coverage pages"]')!.textContent || '', /Page 1 of 3/)
+    assert.match(ui.host.textContent || '', /1–25 of 60 channels/)
+
+    const next = buttonByText(ui.host, 'nav[aria-label="Coverage pages"] button', 'Next')
+    next.click(); await flush()
+    assert.equal(ui.host.querySelectorAll('table.coverage-table tbody tr').length, 25)
+    assert.deepEqual(rowNames(ui.host)[0], 'Channel 25')
+    assert.match(ui.host.querySelector('nav[aria-label="Coverage pages"]')!.textContent || '', /Page 2 of 3/)
+
+    next.click(); await flush()
+    assert.equal(ui.host.querySelectorAll('table.coverage-table tbody tr').length, 10)
+    assert.deepEqual(rowNames(ui.host)[0], 'Channel 50')
+    assert.match(ui.host.querySelector('nav[aria-label="Coverage pages"]')!.textContent || '', /Page 3 of 3/)
+
+    // Searching while on page 3 resets to page 1 and filters before slicing.
+    await search(ui.host, 'Channel 59')
+    assert.deepEqual(rowNames(ui.host), ['Channel 59'])
+    assert.equal(ui.host.querySelector('nav[aria-label="Coverage pages"]'), null)
+  } finally { ui.close() }
+})
+
+test('calendar Week/Month/Year uses local dates with Previous/Next/Today and a range label', async () => {
+  const today = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate(), 9, 0, 0, 0)
+  const ui = await mount({
+    overview: overviewWith([BETA], [
+      { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed', at: today.toISOString(), video_id: 'today' },
+      { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'planned', at: monthDay(10), episode_code: 'EP0010' },
+    ]),
+  })
+  try {
+    tabButton(ui.host, 'Calendar').click(); await flush()
+    const monthLabel = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(today)
+    const range = () => (ui.host.querySelector('.calendar-range')?.textContent || '').trim()
+
+    // Default view is Month, anchored on the local today.
+    assert.equal(range(), monthLabel)
+    assert.equal(ui.host.querySelectorAll('.calendar-event').length, 2)
+
+    buttonByText(ui.host, '.calendar-nav button', 'Previous').click(); await flush()
+    const previousMonth = range()
+    assert.notEqual(previousMonth, monthLabel)
+    buttonByText(ui.host, '.calendar-nav button', 'Next').click(); await flush()
+    assert.equal(range(), monthLabel)
+    buttonByText(ui.host, '.calendar-nav button', 'Next').click(); await flush()
+    assert.notEqual(range(), monthLabel)
+    buttonByText(ui.host, '.calendar-nav button', 'Today').click(); await flush()
+    assert.equal(range(), monthLabel)
+
+    // Year covers the whole local year and keeps the entries.
+    calendarViewButton(ui.host, 'Year').click(); await flush()
+    assert.equal(range(), String(today.getFullYear()))
+    assert.equal(ui.host.querySelectorAll('.calendar-event').length, 2)
+
+    // Week is a local Monday–Sunday window and always includes today.
+    calendarViewButton(ui.host, 'Week').click(); await flush()
+    assert.match(range(), /–/)
+    const weekLabel = range()
+    assert.ok(ui.host.querySelectorAll('.calendar-event').length >= 1)
+    buttonByText(ui.host, '.calendar-nav button', 'Previous').click(); await flush()
+    assert.notEqual(range(), weekLabel)
+    buttonByText(ui.host, '.calendar-nav button', 'Next').click(); await flush()
+    assert.equal(range(), weekLabel)
+  } finally { ui.close() }
+})
+
+test('month and year ranges include their local boundary days', async () => {
+  const firstDay = new Date(NOW.getFullYear(), NOW.getMonth(), 1, 0, 5).toISOString()
+  const lastDay = new Date(NOW.getFullYear(), NOW.getMonth() + 1, 0, 23, 55).toISOString()
+  const yearFirst = new Date(NOW.getFullYear(), 0, 1, 0, 5).toISOString()
+  const yearLast = new Date(NOW.getFullYear(), 11, 31, 23, 55).toISOString()
+  const ui = await mount({
+    overview: overviewWith([BETA], [
+      { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed', at: firstDay, video_id: 'first', title: 'First day' },
+      { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed', at: lastDay, video_id: 'last', title: 'Last day' },
+      { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed', at: yearFirst, video_id: 'yfirst', title: 'Year first' },
+      { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed', at: yearLast, video_id: 'ylast', title: 'Year last' },
+    ]),
+  })
+  try {
+    tabButton(ui.host, 'Calendar').click(); await flush()
+    const text = ui.host.textContent || ''
+    assert.match(text, /First day/)
+    assert.match(text, /Last day/)
+
+    calendarViewButton(ui.host, 'Year').click(); await flush()
+    assert.equal(ui.host.querySelectorAll('.calendar-event').length, 4)
+  } finally { ui.close() }
+})
+
+test('calendar paginates EVENTS in bounded batches of 25, even 65 entries on one day', async () => {
+  const calendar = Array.from({ length: 65 }, (_, index) => ({
+    channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed',
+    at: monthDay(15, 10, index), video_id: `video-${index}`, title: `Video ${index}`,
+  }))
+  const ui = await mount({ overview: overviewWith([BETA], calendar) })
+  try {
+    tabButton(ui.host, 'Calendar').click(); await flush()
+    assert.equal(ui.host.querySelectorAll('.calendar-event').length, 25)
+    assert.equal(ui.host.querySelectorAll('.calendar-day').length, 1, 'all 65 are one local day')
+    const nav = () => ui.host.querySelector('nav[aria-label="Calendar event pages"]')!
+    assert.match(nav().textContent || '', /Events 1–25 of 65/)
+
+    buttonByText(ui.host, 'nav[aria-label="Calendar event pages"] button', 'Next').click(); await flush()
+    assert.equal(ui.host.querySelectorAll('.calendar-event').length, 25)
+    assert.equal(ui.host.querySelectorAll('.calendar-day').length, 1)
+    assert.match(nav().textContent || '', /Events 26–50 of 65/)
+
+    buttonByText(ui.host, 'nav[aria-label="Calendar event pages"] button', 'Next').click(); await flush()
+    assert.equal(ui.host.querySelectorAll('.calendar-event').length, 15)
+    assert.match(nav().textContent || '', /Events 51–65 of 65/)
+  } finally { ui.close() }
+})
+
+test('expected-slot markers explain the plan’s next-12 horizon; every returned entry is preserved', async () => {
+  // The API bounds markers to PLANNED_SLOT_HORIZON (12) per channel. The page
+  // must EXPLAIN that horizon rather than claim a complete year — and it must
+  // never drop markers or actual entries the API returned for the range.
+  const markers = Array.from({ length: 20 }, (_, index) => ({
+    channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'planned', at: monthDay(index + 1), empty: true,
+  }))
+  const actual = [
+    { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'confirmed', at: monthDay(21), video_id: 'a1', title: 'Real confirmed' },
+    { channel_slug: 'beta', channel_name: 'Beta Channel', kind: 'planned', at: monthDay(22), episode_code: 'EP0009' },
+  ]
+  const ui = await mount({ overview: overviewWith([BETA], [...markers, ...actual]) })
+  try {
+    tabButton(ui.host, 'Calendar').click(); await flush()
+    assert.equal(ui.host.querySelectorAll('.calendar-event.event-empty').length, 20)
+    // Every actual confirmed/planned entry is still there.
+    assert.equal(ui.host.querySelectorAll('.calendar-event.event-confirmed').length, 1)
+    assert.equal(ui.host.querySelectorAll('.calendar-event.event-planned:not(.event-empty)').length, 1)
+    assert.match(ui.host.textContent || '', /EP0009/)
+    // The horizon is named as the plan's next 12 slots, not an annual promise.
+    assert.match(ui.host.textContent || '', /next 12 slots/)
+    assert.match(ui.host.textContent || '', /not a\s+complete\s+annual horizon/)
   } finally { ui.close() }
 })

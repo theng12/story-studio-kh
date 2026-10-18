@@ -1,6 +1,67 @@
 # HANDOFF — Story Studio KH
 
-## Source prepared, not released — 2026-10-18 (1.4.319)
+## Source prepared, not released — 2026-10-18 (1.4.320)
+
+Branch `release/1.4.320-integration` in `_worktrees/story-studio-kh/release-320-integration`, from main
+`285e2c7a3406858cb72c065dfa76c96644ebbaa3` (1.4.319, released and installed — see below; tree
+`036c3d04…`). 70 changed product/test/config/doc paths (55 modified + 15 new) integrated SOURCE-only
+and independently reviewed PASS (`story-320-integration/MERGED-SOURCE-FREEZE-20261018/`, review
+`67df2cca…`): Finish missing-images admission/persistence (a "Finish missing images" save keeps its
+admission and provider callbacks in one coordinated write, so a failed request cannot reappear on a
+later save and a late callback cannot undo an accepted request) + Recovery stop-intent,
+Image default landscape, image-prompts fail-fast, content-language future-only intros (no intro added
+or changed for an existing episode), Telegram episode details, Publishing Overview Coverage/Calendar
+tabs + search/sort/Week-Month-Year/paging, and Adaptive idea batching (one or more adaptive calls,
+cap 100). Five shared files are carried as reviewed composites and three merged-tree tests as reviewed
+re-anchors. Version `1.4.320` in both `package.json` and `package-lock.json`; newest-first changelog
+entry added.
+
+NOT RELEASED: the merged runtime is UNRUN. Still owed before any landing: the standalone Finish
+RED/GREEN + 319-compatibility proof; the Image, Language and Publishing focused proofs; the mandatory
+full unfiltered backend gate and the remaining 11 gates on the merged tree; the main-built DMG; the
+post-build release lane; publication readback and install. No push or main landing yet.
+
+**Correction (approved Finish-persistence fix + independent corrective review, 2026-10-18).** The
+"70 … independently reviewed PASS" above is review `67df2cca…` of the **original** merged-source
+freeze `1376925129…` and binds that freeze's bytes only. After it, **two** of the original 70 paths
+changed (the other 68 are byte-identical): `electron/server/__tests__/queue-finish-persistence-admission.test.ts`
+— `ffd24309…` (blob `a1983677…`) → `7906e0b1…` (blob `a80c1ac6…`), which adds to the case15 cleanup
+at test line 352 an **expected-refusal** assertion
+(`assert.rejects(…, error.code === 'CANCELLATION_STATUS_UNKNOWN')`, matching the product's deliberate
+"waiting for authoritative provider settlement" control) on top of the earlier `6d51efa3…`
+finally-359 `.catch(() => {})` guard — and `electron/server/services/job-queue.ts` — `0af27c87…`
+(blob `1d5a5f6b…`) → `8ef3df8f…` (blob `94f17108…`), where the Finish write-failure reconciliation
+now compares `observed` against the **canonical serialized** form of `attempted`
+(`JSON.parse(JSON.stringify(attempted))`), so an acknowledged rename finalizes `published = true`
+instead of fencing `JobPersistenceUncertainError`. The remaining paths are the four version-320
+metadata files (package.json / package-lock.json / CHANGELOG.md / this HANDOFF). The corrected bytes
+passed an independent corrective review (`aa3b`, PASS); the runtime fresh proof is UNRUN. Record:
+`story-320-integration/INTEGRATION-FREEZE.md`,
+`finish-persistence-proof-20261018/FINISH-CANDIDATE03-DIAGNOSIS.md`, and the corrected freeze
+`MERGED-SOURCE-FREEZE-FINAL74-CORRECTED-20261018/`.
+
+## Released and installed — 2026-10-18 (1.4.319)
+
+Main `285e2c7a3406858cb72c065dfa76c96644ebbaa3` (tree `036c3d04c129e86af7ddcaf4c221eb94a6992c67`) is
+pushed and installed; `origin/main` matches. The single accepted change is the queue admission fix:
+Retry and a fresh start are refused with a truthful "still finishing locally" message while the
+previous worker for the same project, episode and type is still settling locally after its row turned
+terminal or was removed from history; episode recovery and Finish missing images share that refusal,
+and a Jobs "Finish missing images" row no longer dispatches beside any other live Scene Review worker
+for the episode, keeping its FIFO place.
+
+Gates on the landing tree, all with captured exits: full backend **exit 0** — 722/722 files, 7127
+tests, 7120 pass, 0 fail, 7 skipped; frontend **exit 0** — 313/313 files, 2637 tests; content packs
+**exit 0** — 38/38 files, 368 tests, 366 pass, 2 skipped; electron typecheck, frontend typecheck, lint
+and the five static checks (`check:changelog`, `check:typography`, `check:security`, `check:model-drift`,
+`check:release`) all 0. Artifact from the main checkout: `dist/Story Studio KH 1.4.319-arm64.dmg`,
+243,086,330 bytes, SHA-256 `47d73d8794b3d68dd4abfb632904fde83206729524ebc079eb8c1f6749925950`,
+app.asar 1.4.319; the postbuild release lane (`test:release`) ran 63/63 tests across 7 files, exit 0.
+One publish POST, HTTP 200, readback matched (published_at 1792321516). The mini installed 1.4.319
+through its normal updater lifecycle (installed_at `2026-10-18T11:36:16.336717+00:00`, from 1.4.318,
+boot complete true).
+
+## Historical — 1.4.319 source preparation (SUPERSEDED — 1.4.319 is now released and installed; see the section above)
 
 Branch `release/1.4.319` in `_worktrees/story-studio-kh/release-319`, from main
 `44601361e37209d28a7356c0ea89a81f487c1a53` (1.4.318, released and installed; tree

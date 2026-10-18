@@ -58,6 +58,12 @@ export const CreateProjectSchema = z.object({
   // apply unchanged. Same length cap as niche route's id validator.
   niche_id: z.string().max(80).optional(),
   topic_pack_ids: z.array(z.string().min(1).max(80)).max(24).optional(),
+  // Audience-facing language. Absent keeps legacy prompts byte-identical;
+  // the two-value catalogue is deliberate (extend when a third language is
+  // actually needed).
+  content_language: z.enum(['en', 'km']).optional(),
+  // Future-only automatic introductions. Absent = OFF.
+  auto_introduction_enabled: z.boolean().optional(),
 }).strict()
 export type CreateProjectBody = z.infer<typeof CreateProjectSchema>
 
@@ -87,6 +93,11 @@ export const UpdateProjectSchema = z.object({
   // v1.0.270 — 'freeform' makes the format drive visuals only; idea + script
   // use neutral prompts. Empty/absent = 'format' (current behavior).
   content_mode: z.enum(['format', 'freeform']).optional(),
+  // Audience-facing language. `null` is the explicit "clear back to legacy"
+  // sentinel (undefined is omitted by the save path, so it cannot clear).
+  content_language: z.enum(['en', 'km']).nullable().optional(),
+  // Future-only automatic introductions. false turns it off deliberately.
+  auto_introduction_enabled: z.boolean().optional(),
   // Level B (opt-in) external media root — a portable ${NAME} token or absolute
   // path. Empty string clears it (back to everything under the episodes folder).
   media_root: z.string().max(512).optional(),
@@ -358,6 +369,10 @@ export interface ProjectMetaResponse {
       | 'subtitle-style' | 'scene-effect' | 'overlay'
   }>
   continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
+  /** Audience-facing language for generated text. Absent = legacy prompts. */
+  content_language?: 'en' | 'km' | null
+  /** Future-only automatic introductions; absent = OFF. */
+  auto_introduction_enabled?: boolean
 }
 
 /** Shape of `GET /projects` — list view summary, never includes keys. */
@@ -557,6 +572,9 @@ export const GenerateIntroductionOnlySchema = z.object({
   word_target: z.number().int().positive().optional(),
   custom_opening: z.string().optional(),
   beats: z.array(z.string()).optional(),
+  /** Set only by the Scripts page's post-outline tail. The server then
+   *  requires the episode's frozen `intro_eligible` fact; manual calls omit it. */
+  automatic: z.boolean().optional(),
 }).passthrough()
 export type GenerateIntroductionOnlyBody = z.infer<typeof GenerateIntroductionOnlySchema>
 

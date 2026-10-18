@@ -93,6 +93,7 @@
         v-if="activeGenStudioModel"
         v-model="outputOption"
         :model="activeGenStudioModel"
+        :preferred-aspect-ratio="activeForm.aspect_ratio"
         :reference-guided="thumbnailReferenceActive"
         @switched="onOutputOptionSwitched"
       />
@@ -335,7 +336,7 @@
 </template>
 
 <script setup lang="ts">
-import { findOutputOption, outputOptionsForRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
+import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, storyDefaultAspectRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
 import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentation.js'
 
@@ -453,23 +454,33 @@ const activeGenStudioModel = computed(() =>
 )
 
 function normalizeImageAspectRatio(target: ImagesSubForm): boolean {
-  const ratios = modelArs(target.model) || []
-  if (!ratios.includes(target.aspect_ratio)) {
-    const model = genStudioImageModels.value.find(row => row.id === target.model)
-    const defaultRatio = model?.default_aspect_ratio
-    target.aspect_ratio = defaultRatio && ratios.includes(defaultRatio) ? defaultRatio : ratios[0] || ''
-  }
-  return !!target.aspect_ratio && ratios.includes(target.aspect_ratio)
+  const model = genStudioImageModels.value.find(row => row.id === target.model)
+  // Rows are authoritative when present: a ratio still listed in
+  // `aspect_ratios` whose row disappeared cannot be submitted.
+  if (isPublishedAspectRatio(model, target.aspect_ratio)) return true
+  // A missing/unpublished ratio uses the shared Story default (16:9 when the
+  // live model publishes it); the project format/preset/remembered value was
+  // already applied above and is preserved whenever it is still published.
+  const preferred = storyDefaultAspectRatio(model)
+  target.aspect_ratio = isPublishedAspectRatio(model, preferred) ? preferred : ''
+  return isPublishedAspectRatio(model, target.aspect_ratio)
 }
 
 // The saved form follows its actual catalogue list, including same-count
-// refreshes and preset edits. Preserve any choice the model still publishes.
+// refreshes and preset edits. Preserve any choice the model still publishes;
+// a forced replacement is announced so the customer sees what changed.
 watch(() => {
   const target = form.thumbnail
   const model = genStudioImageModels.value.find(row => row.id === target.model)
   return [target.model, target.aspect_ratio, modelArs(target.model),
-    model?.default_aspect_ratio]
-}, () => normalizeImageAspectRatio(form.thumbnail), { immediate: true })
+    model?.default_aspect_ratio, model?.output_options]
+}, () => {
+  const before = form.thumbnail.aspect_ratio
+  normalizeImageAspectRatio(form.thumbnail)
+  const after = form.thumbnail.aspect_ratio
+  if (!before || !after || before === after) return
+  showInfo(`${activeModelLabel.value || 'The selected model'} does not publish ${before}. Switched to ${after}.`)
+}, { immediate: true })
 
 // ── Presets ─────────────────────────────────────────────────────────────
 // v1.0.88+: presets are SPLIT per kind (thumbnail_generator vs
@@ -1034,9 +1045,11 @@ async function prepareGeneration(forceOverride?: boolean, ask = true): Promise<a
     : { action: 'Start Thumbnail Images?', details })
   if (!confirmed) return null
   // Never replace a confirmed choice with a new model/ratio behind the dialog.
+  // The ratio check is rows-authoritative, exactly like the backend: a ratio
+  // published only by an output row is valid even when `aspect_ratios` omits it.
   if (activeForm.value.model !== params.model
     || activeForm.value.aspect_ratio !== params.aspect_ratio
-    || !modelArs(params.model)?.includes(params.aspect_ratio)) {
+    || !isPublishedAspectRatio(activeGenStudioModel.value, params.aspect_ratio)) {
     showError('The image model or picture shape changed during confirmation. Review the current selection and generate again to confirm it.')
     return null
   }

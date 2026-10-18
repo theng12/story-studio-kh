@@ -58,7 +58,7 @@ test('E-03: a failed Introduction read is unknown, never "this channel has no In
   }
   const pipeline = page('pipeline.vue')
   // Only a KNOWN-true channel includes the Introduction step.
-  assert.match(pipeline, /stepChecked\['introduction-only'\] = !!stepChecked\['script-only'\] && channelIntroEnabled\.value === true/)
+  assert.match(pipeline, /stepChecked\['introduction-only'\] = !!stepChecked\['script-only'\][\s\S]{0,80}channelIntroEnabled\.value === true[\s\S]{0,80}autoIntroductionEnabled\.value/)
   // And the step reason distinguishes "unknown" from "no opening".
   assert.match(pipeline, /if \(channelIntroEnabled\.value === null\)[\s\S]{0,200}could not check/i)
   assert.match(pipeline, /channelIntroUnknown/, 'the page must surface the unknown state')

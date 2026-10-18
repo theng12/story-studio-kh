@@ -207,6 +207,8 @@ async function findPromptsFile(
 
 export class ImagePromptsMissingError extends Error {
   readonly code = 'IMAGE_PROMPTS_MISSING' as const
+  /** Bad input: the prompts file is absent, so running the job again stops here again — no automatic retry (services/job-retry-policy.ts isNonRetryableError). Manual Retry works once the prompts exist. */
+  readonly retryable = false
 
   constructor(readonly kind: 'scene' | 'thumbnail', readonly episodeId: string) {
     const code = episodeId.toUpperCase()

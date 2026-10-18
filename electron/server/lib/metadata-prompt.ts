@@ -55,6 +55,8 @@ export function buildDescriptionPrompt(
   /** YouTube's description limit in BYTES (lib/youtube-description-limit.ts). */
   maxChars: number,
   format?: Format | null,
+  /** Audience-language directive; empty keeps legacy prompts byte-identical. */
+  languageDirectiveText = '',
 ): string {
   let sectionInstructions = ''
   // Every capitalised name this prompt is about to use to address an
@@ -129,6 +131,6 @@ Include these sections IN THIS ORDER:
 ${sectionInstructions}${internalSectionNamesDirective(internalNames)}
 
 ${separatorLine}
-Total length must stay under ${maxChars.toLocaleString('en-US')} bytes of UTF-8 — about ${maxChars.toLocaleString('en-US')} characters of English, or about ${Math.floor(maxChars / 3).toLocaleString('en-US')} characters of Khmer or another non-Latin script. Keep every chapter mark; shorten the prose instead.
+${languageDirectiveText ? `${languageDirectiveText}\n\n` : ''}Total length must stay under ${maxChars.toLocaleString('en-US')} bytes of UTF-8 — about ${maxChars.toLocaleString('en-US')} characters of English, or about ${Math.floor(maxChars / 3).toLocaleString('en-US')} characters of Khmer or another non-Latin script. Keep every chapter mark; shorten the prose instead.
 Output ONLY the description text, ready to copy-paste. No meta-commentary.`
 }

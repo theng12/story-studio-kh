@@ -6,7 +6,8 @@ import pathMod from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { hasAnyTextProviderKey } from '../lib/ai-client.js'
-import { resolveEpisodePaths, resolveEpisodePathsForRead, resolveEpisodeTitleByCode } from '../services/utils.js'
+import { resolveEpisodePaths, resolveEpisodePathsForRead, resolveEpisodePathsByCode, resolveEpisodeTitleByCode } from '../services/utils.js'
+import { episodeIsIntroEligible } from '../lib/episode-creation-facts.js'
 import { resolveReadPath, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
 import { hasIntroductionScriptSource } from '../lib/narration-assembly.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
@@ -1013,6 +1014,20 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
   const { slug } = req.params
   const project = await pm.getProject(slug)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
+
+  // Future-only gate for the Scripts page's automatic post-outline tail. The
+  // page cannot know an episode's creation snapshot; the frozen fact decides.
+  // Manual generation (no `automatic`) always stays available.
+  if (req.body.automatic === true) {
+    const paths = await resolveEpisodePathsByCode(slug, req.body.episode_id).catch(() => null)
+    if (!paths || !await episodeIsIntroEligible(paths.episode_dir)) {
+      return res.status(200).json({
+        skipped: true,
+        reason: 'Automatic introductions only apply to episodes created after they were enabled. ' +
+          'Generate one from the Introduction page if you want it.',
+      })
+    }
+  }
 
   let manualReplay
   try {

@@ -215,12 +215,13 @@
            somebody ticking a box. That is the point of the change, but a
            surprise is still a surprise. -->
       <WorkspaceNotice
-        v-if="channelIntroEnabled && stepChecked['script-only']"
+        v-if="autoIntroductionEnabled && channelIntroEnabled && stepChecked['script-only']"
         tone="info"
-        title="Every episode in this run will also get an Introduction"
+        title="New episodes in this run will also get an Introduction"
       >
         This channel is set to open with one, so it is written automatically alongside the chapters —
-        there is nothing to tick. It adds a few hundred words per episode and no separate audio charge.
+        there is nothing to tick. Episodes created before automatic introductions were enabled keep
+        their existing shape. It adds a few hundred words per episode and no separate audio charge.
         Change it under <NuxtLink :to="`/projects/${slug}/introduction`">Introduction</NuxtLink>.
       </WorkspaceNotice>
 
@@ -817,7 +818,7 @@ const place = readQueryState(route.query, PLACE)
 const { get, post, patch: patchApi } = useApi()
 const { success, error: showError, info: showInfo, showAction } = useToast()
 const { ask } = useConfirm()
-const { config, refreshConfig } = useProject()
+const { config, refreshConfig, project } = useProject()
 const pipelineQualityAction = useFreshGenerationAction()
 
 // ── Active pipeline (format-aware) ──────────────────────────────────────
@@ -1131,6 +1132,9 @@ async function dismissLineupNotice(): Promise<void> {
 // answered (AGENTS.md §6).
 const channelIntroEnabled = ref<boolean | null>(null)
 const channelIntroUnknown = computed(() => channelIntroEnabled.value === null)
+// Future-only master switch (Settings). Off by default; the channel recipe
+// alone no longer implies automation, and old episodes are never backfilled.
+const autoIntroductionEnabled = computed(() => project.value?.auto_introduction_enabled === true)
 async function loadChannelIntroduction(): Promise<void> {
   try {
     const data = await get<{ segments?: Record<string, { enabled: boolean }> }>(
@@ -1152,7 +1156,9 @@ function clearSelectedSteps(): void {
  * the channel setting the run will actually follow.
  */
 function syncDerivedSteps(): void {
-  stepChecked['introduction-only'] = !!stepChecked['script-only'] && channelIntroEnabled.value === true
+  stepChecked['introduction-only'] = !!stepChecked['script-only']
+    && channelIntroEnabled.value === true
+    && autoIntroductionEnabled.value
 }
 
 function selectRequiredSteps(): void {
@@ -1185,7 +1191,7 @@ function selectAllSteps(): void {
 // Intro depends on script context: it introduces chapters, so it cannot run
 // without them. It therefore follows the Script step exactly — on when the
 // channel wants an opening and chapters are being written, off otherwise.
-watch([() => stepChecked['script-only'], channelIntroEnabled], syncDerivedSteps, { immediate: true })
+watch([() => stepChecked['script-only'], channelIntroEnabled, autoIntroductionEnabled], syncDerivedSteps, { immediate: true })
 function stepDisabled(stepId: StepId): boolean {
   if (stepId === 'introduction-only') return true
   return false
@@ -1194,6 +1200,9 @@ function stepDisabledReason(stepId: StepId): string {
   if (stepId !== 'introduction-only') return ''
   if (channelIntroEnabled.value === null) {
     return 'Story Studio could not check whether this channel opens with an Introduction, so the step stays off rather than being guessed. Open Introduction to confirm, then Retry.'
+  }
+  if (!autoIntroductionEnabled.value) {
+    return 'Automatic introductions are off in Settings. Turn them on there (and enable Introduction for this channel) to add openings to new episodes.'
   }
   if (!channelIntroEnabled.value) {
     return 'This channel does not open with an Introduction. Turn it on under Introduction in the sidebar.'

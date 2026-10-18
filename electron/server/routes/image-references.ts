@@ -211,7 +211,11 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/composition/
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
   const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : ''
   const model = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
-  const aspectRatio = typeof req.body?.aspect_ratio === 'string' ? req.body.aspect_ratio.trim() : '16:9'
+  // Absent/blank is MISSING, not 16:9: the composition generator resolves the
+  // shared Story default against the live catalogue.
+  const aspectRatio = typeof req.body?.aspect_ratio === 'string' && req.body.aspect_ratio.trim()
+    ? req.body.aspect_ratio.trim()
+    : undefined
   const title = typeof req.body?.title === 'string' ? req.body.title : ''
   if (!prompt) return res.status(400).json({ detail: 'prompt is required' })
   if (!model) return res.status(400).json({ detail: 'model is required' })
@@ -224,7 +228,13 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/composition/
     type: 'composition_generate' as JobType,
     episode_id: episodeId,
     title: `Composition template — ${episodeId}`,
-    params: { episode_id: episodeId, title, prompt, model, aspect_ratio: aspectRatio },
+    params: {
+      episode_id: episodeId,
+      title,
+      prompt,
+      model,
+      ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
+    },
   })
   res.status(201).json(job)
 })

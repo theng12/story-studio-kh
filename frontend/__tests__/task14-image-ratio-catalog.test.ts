@@ -27,7 +27,7 @@ async function setupWith(row: ReturnType<typeof model>, confirm?: () => Promise<
   const confirmations: any[] = []
   const errors: string[] = []
   const fixture = {
-    models, errors,
+    models, errors, infos: [] as string[],
     api: {
       get: async () => ({}),
       post: async (url: string, body: unknown) => {
@@ -45,7 +45,7 @@ async function setupWith(row: ReturnType<typeof model>, confirm?: () => Promise<
   const vueUrl = import.meta.resolve('vue')
   const support = `
     import { computed, defineComponent as _defineComponent, reactive, ref, watch } from ${JSON.stringify(vueUrl)}
-    import { findOutputOption } from ${JSON.stringify(new URL('../utils/genstudio-output-options.ts', import.meta.url).href)}
+    import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, storyDefaultAspectRatio } from ${JSON.stringify(new URL('../utils/genstudio-output-options.ts', import.meta.url).href)}
     import { CREDIT_BASIS_LABEL, describeImageUnitCost } from ${JSON.stringify(new URL('../utils/genstudio-credit-cost.ts', import.meta.url).href)}
     import { customerSafeJobText, jobRequestIds } from ${JSON.stringify(new URL('../utils/job-presentation.ts', import.meta.url).href)}
     const fixture = globalThis.__task14ImageFixture
@@ -56,7 +56,7 @@ async function setupWith(row: ReturnType<typeof model>, confirm?: () => Promise<
     const useFreshGenerationAction = () => ({ begin: () => 'task14-operation', complete: () => undefined })
     const useProject = () => ({ config: ref({ image_models: {} }) })
     const useGenStudioImageModels = () => ({ models: fixture.models, refresh: async () => undefined })
-    const useToast = () => ({ success: () => undefined, error: message => fixture.errors.push(message) })
+    const useToast = () => ({ success: () => undefined, error: message => fixture.errors.push(message), info: message => fixture.infos.push(message) })
     const useGenerating = () => ({ imageGenerating: ref(false), thumbImageGenerating: ref(false) })
     const useConfirmation = () => ({ confirmGeneration: fixture.confirmGeneration })
     const useJobs = () => ({ isJobActiveFor: () => false, jobs: ref([]) })
@@ -80,6 +80,7 @@ async function setupWith(row: ReturnType<typeof model>, confirm?: () => Promise<
     const state: any = scope.run(() => Component.setup({}, { expose: () => undefined }))
     return {
       state, models, sent, confirmations, errors,
+      infos: fixture.infos,
       dispose: async () => { scope.stop(); await rm(directory, { recursive: true, force: true }) },
     }
   } catch (error) {
@@ -91,21 +92,76 @@ async function setupWith(row: ReturnType<typeof model>, confirm?: () => Promise<
   }
 }
 
-test('Images initializes from the published default and retains a still-published customer choice', async () => {
+test('Images initializes a missing ratio to the published 16:9 Story default and retains a still-published customer choice', async () => {
   const fixture = await setupWith(model(['4:3', '16:9', '1:1'], '1:1'))
   try {
     const { state, models, sent } = fixture
     state.form.thumbnail.model = 'task14-image'
     await nextTick()
-    assert.equal(state.form.thumbnail.aspect_ratio, '1:1', 'the synthetic 16:9 must not outrank the published default')
+    assert.equal(state.form.thumbnail.aspect_ratio, '16:9',
+      'a missing ratio prefers the live-published 16:9 over the provider default')
     await state.submit()
-    assert.equal(sent.at(-1)?.aspect_ratio, '1:1')
+    assert.equal(sent.at(-1)?.aspect_ratio, '16:9')
 
-    state.form.thumbnail.aspect_ratio = '16:9'
+    state.form.thumbnail.aspect_ratio = '1:1'
     models.value = [model(['4:3', '16:9', '1:1'], '4:3')]
     await nextTick()
-    assert.equal(state.form.thumbnail.aspect_ratio, '16:9', 'retain a still-published explicit choice')
+    assert.equal(state.form.thumbnail.aspect_ratio, '1:1', 'retain a still-published explicit choice')
 
+  } finally { await fixture.dispose() }
+})
+
+test('Images repairs a listed-but-rowless ratio to a renderable row and announces it', async () => {
+  // F3 regression: `aspect_ratios` keeps listing 16:9 while `output_options`
+  // no longer has a 16:9 row. Rows are authoritative, so the watcher must
+  // repair the form (not return early on the stale list) and say so.
+  const fixture = await setupWith(model(['16:9', '1:1'], '16:9'))
+  try {
+    const { state, models, infos, sent } = fixture
+    state.form.thumbnail.model = 'task14-image'
+    await nextTick()
+    assert.equal(state.form.thumbnail.aspect_ratio, '16:9')
+
+    models.value = [{
+      ...model(['16:9', '1:1'], '1:1'),
+      output_options: [
+        { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: true, credits_per_image: 3 },
+      ],
+    }]
+    await nextTick()
+    assert.equal(state.form.thumbnail.aspect_ratio, '1:1',
+      'a rowless 16:9 is not renderable even while aspect_ratios still lists it')
+    assert.ok(infos.some(message => /does not publish 16:9/.test(message) && /Switched to 1:1/.test(message)),
+      'the forced repair is announced')
+    await state.submit()
+    assert.equal(sent.at(-1)?.aspect_ratio, '1:1')
+  } finally { await fixture.dispose() }
+})
+
+test('Images confirms and submits a ratio published only by an output row', async () => {
+  // R1 regression: the confirmation re-check used `modelArs` (the ratio list),
+  // so a row-only 9:16 was refused client-side while both backend resolvers
+  // accept it. The same rows-authoritative predicate must guard confirmation.
+  const rowOnly = {
+    ...model(['16:9'], '16:9'),
+    output_options: [
+      { resolution: '1K', aspect_ratio: '16:9', width: 1920, height: 1080, is_default: true, credits_per_image: 3 },
+      { resolution: '1K', aspect_ratio: '9:16', width: 1080, height: 1920, is_default: false, credits_per_image: 3 },
+    ],
+  }
+  const fixture = await setupWith(rowOnly)
+  try {
+    const { state, sent, confirmations, errors } = fixture
+    state.form.thumbnail.model = 'task14-image'
+    await nextTick()
+    state.activeForm.value.aspect_ratio = '9:16'
+    await nextTick()
+    await state.submit()
+    assert.equal(confirmations[0]?.aspect_ratio, '9:16')
+    assert.equal(sent.at(-1)?.aspect_ratio, '9:16',
+      'a ratio the output rows publish is accepted end to end')
+    assert.ok(!errors.some(message => /changed during confirmation/.test(message)),
+      'the row-only ratio must not be refused as a changed picture shape')
   } finally { await fixture.dispose() }
 })
 

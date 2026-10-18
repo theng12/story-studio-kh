@@ -87,10 +87,47 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
 }
 
+/** Telegram Bot API's hard text limit — sendMessage rejects longer text. */
+export const TELEGRAM_TEXT_LIMIT = 4096
+
+/** The three literal characters the bold wrapper costs: `<b>` + `</b>` + `\n`. */
+const BOLD_OVERHEAD = '<b>'.length + '</b>'.length + '\n'.length
+
+/** How many characters `escapeHtml` turns one UTF-16 unit into. */
+function escapedLength(code: number): number {
+  return code === 0x26 /* & */ ? 5 : code === 0x3c /* < */ || code === 0x3e /* > */ ? 4 : 1
+}
+
+/**
+ * Longest prefix of `text` whose ESCAPED length fits `budget`, cutting on the
+ * unescaped input so the cut can never land inside an entity (`&amp;`) or a tag.
+ *
+ * The cut is delegated to `truncateChars`, so a surrogate pair is never split.
+ * Bounding BEFORE escaping is the point: `sendTelegramMessage`'s backstop counts
+ * UTF-16 units of the FINAL, escaped string, so escaping first would let a cut
+ * split `&amp;` into `&am` and Telegram would refuse the message as invalid HTML.
+ */
+function prefixForEscapedBudget(text: string, budget: number): string {
+  if (budget <= 0) return ''
+  let used = 0
+  let i = 0
+  for (; i < text.length; i++) {
+    const cost = escapedLength(text.charCodeAt(i))
+    if (used + cost > budget) break
+    used += cost
+  }
+  return truncateChars(text, i)
+}
+
 export function formatTelegramText(payload: NotificationPayload): string {
-  const title = escapeHtml(payload.title || '')
-  const body = escapeHtml(payload.body || '')
-  return `<b>${title}</b>\n${body}`.trim()
+  // Bound the UNESCAPED title and body so the escaped result — and the sender's
+  // `truncateChars(text, 4096)` backstop — can never cut through an entity or a
+  // tag, while the bold tag stays closed. Payloads that already fit are returned
+  // unchanged, so ordinary notifications keep their exact wording.
+  const budget = TELEGRAM_TEXT_LIMIT - BOLD_OVERHEAD
+  const escapedTitle = escapeHtml(prefixForEscapedBudget(payload.title || '', budget))
+  const escapedBody = escapeHtml(prefixForEscapedBudget(payload.body || '', budget - escapedTitle.length))
+  return `<b>${escapedTitle}</b>\n${escapedBody}`.trim()
 }
 
 /**

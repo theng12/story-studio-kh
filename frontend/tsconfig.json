@@ -19,7 +19,8 @@
       "@shared/effect-loops": ["../electron/server/contracts/effect-loops.ts"],
       "@shared/effect-params": ["../electron/server/contracts/effect-params.ts"],
       "@shared/effects-look": ["../electron/server/contracts/effects-look.ts"],
-      "@shared/publishing-overview": ["../electron/server/contracts/publishing-overview.ts"]
+      "@shared/publishing-overview": ["../electron/server/contracts/publishing-overview.ts"],
+      "@shared/genstudio-image-defaults": ["../electron/server/contracts/genstudio-image-defaults.ts"]
     },
     "noUncheckedIndexedAccess": false,
     "noImplicitAny": false,

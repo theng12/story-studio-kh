@@ -12,6 +12,26 @@
  * is ever synthesised to fill the gap.
  */
 
+import {
+  preferredOutputOptionAtRatio,
+  storyDefaultOutputOption,
+} from '@shared/genstudio-image-defaults'
+
+// `export { ... }` without `from` binds LOCAL names; these four are re-exported
+// directly from the shared contract because nothing in this module declares
+// them. The two imported helpers above are exported locally below.
+export {
+  PREFERRED_IMAGE_ASPECT_RATIO,
+  isPublishedAspectRatio,
+  outputOptionDefaultRole,
+  storyDefaultAspectRatio,
+} from '@shared/genstudio-image-defaults'
+
+export {
+  preferredOutputOptionAtRatio,
+  storyDefaultOutputOption,
+}
+
 export interface PublishedOutputOption {
   resolution: string
   aspect_ratio: string
@@ -62,24 +82,20 @@ export function outputOptionsForRatio(
 }
 
 /**
- * The row a picker preselects: `is_default` first, then the published
- * `default_resolution` + `default_aspect_ratio` pair.
+ * The row a picker preselects when nothing was chosen: the Story default
+ * (16:9 when the model publishes a renderable 16:9 row), falling back through
+ * the model's own published default. See
+ * `electron/server/contracts/genstudio-image-defaults.ts` for the shared
+ * policy the backend applies to omitted requests too.
  *
- * Returns `null` when neither resolves. No row is chosen by position — "first
- * row wins" would silently commit the customer to a size and a price they
- * never picked.
+ * Returns `null` when no published row can be selected. No row is chosen by
+ * position — "first row wins" would silently commit the customer to a size
+ * and a price they never picked.
  */
 export function defaultOutputOption(
   model: OutputOptionSource | null | undefined,
 ): PublishedOutputOption | null {
-  const published = rows(model)
-  if (!published.length) return null
-  const flagged = published.find(row => row.is_default)
-  if (flagged) return flagged
-  const resolution = (model?.default_resolution || '').trim()
-  const ratio = (model?.default_aspect_ratio || '').trim()
-  if (!resolution || !ratio) return null
-  return published.find(row => row.resolution === resolution && row.aspect_ratio === ratio) || null
+  return storyDefaultOutputOption(model)
 }
 
 /** The exact published row for a pair, or `null` when the model has none. */
@@ -107,17 +123,32 @@ export interface OutputOptionReconciliation {
   notice: string
 }
 
+export interface ReconcileOutputOptionOptions {
+  /**
+   * The ratio currently on screen, remembered, or in the applied preset.
+   *
+   * It is a PREFERENCE, not a selection: an exact published pair still wins,
+   * because that pair is the row the customer actually picked. The preference
+   * only decides the first reconcile (no pair yet) and a deliberate ratio
+   * change — without it, a null starting pair would let the Story default
+   * overwrite a remembered 9:16 or 1:1 on mount.
+   */
+  preferredAspectRatio?: string
+}
+
 /**
  * Carry a customer's current pick across a model switch.
  *
  * The pair is preserved when the new model publishes that exact combination.
- * Otherwise it falls back to the new model's own default AND says so, because
- * submitting a different combination than the one on screen is how a customer
- * ends up paying for output they did not choose.
+ * Otherwise it falls back to the row at the preferred ratio (the ratio on
+ * screen) or the new model's Story default AND says so, because submitting a
+ * different combination than the one on screen is how a customer ends up
+ * paying for output they did not choose.
  */
 export function reconcileOutputOption(
   previous: OutputOptionChoice | null | undefined,
   model: OutputOptionSource | null | undefined,
+  reconcile: ReconcileOutputOptionOptions = {},
 ): OutputOptionReconciliation {
   const published = rows(model)
   // No published rows: this model has no resolution contract, so there is
@@ -125,10 +156,29 @@ export function reconcileOutputOption(
   if (!published.length) return { option: null, needsChoice: false, notice: '' }
 
   const label = model?.display_name || 'This model'
+  const preferred = (reconcile.preferredAspectRatio || '').trim()
+  const preferredPublished = !!preferred && published.some(row => row.aspect_ratio === preferred)
   const kept = findOutputOption(model, previous)
+
+  // An exact published pair still wins, silently: it is the row the customer
+  // actually picked. The preference only speaks when there is no pair to keep.
   if (kept) return { option: kept, needsChoice: false, notice: '' }
 
-  const fallback = defaultOutputOption(model)
+  const preferredRow = preferredPublished ? preferredOutputOptionAtRatio(model, preferred) : null
+  // A published preferred ratio can still have NO unique row (several sizes,
+  // none flagged or declared). That is ratio-only, never permission to fall
+  // through to a DIFFERENT ratio's Story default — that would silently discard
+  // the remembered/preset ratio the customer can still use.
+  if (preferredPublished && !preferredRow) {
+    return {
+      option: null,
+      needsChoice: true,
+      notice: `${label} publishes ${preferred} at more than one size and names no default. `
+        + 'Choose one of its published sizes; otherwise the ratio is sent without a resolution and the Gateway applies its own.',
+    }
+  }
+
+  const fallback = preferredRow ?? storyDefaultOutputOption(model)
   if (!previous?.resolution || !previous?.aspect_ratio) {
     return fallback
       ? { option: fallback, needsChoice: false, notice: '' }

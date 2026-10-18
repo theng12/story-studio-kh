@@ -24,6 +24,7 @@ import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { getContentLanguage, languageDirective } from '../lib/content-language.js'
 import { inspectMusicStitch, musicMetadataContext } from '../services/music-episode-store.js'
 import {
   metadataFormulaPlan,
@@ -201,6 +202,9 @@ export async function generateMetadata(job: Job): Promise<void> {
 
   const config = await pm.getConfig(project_slug)
   if (!config) throw new Error('Project config not found')
+  // The project's content language is the authority for audience-facing text:
+  // description, title options and tags. Empty = legacy, byte-identical.
+  const audienceLanguageDirective = languageDirective(await getContentLanguage(project_slug))
 
   // Model + defaults. Batch mode inherits whatever the user set on the
   // Metadata page; a missing model is resolved against GenStudio's live
@@ -391,10 +395,13 @@ export async function generateMetadata(job: Job): Promise<void> {
       // rule covers the 'metadata' scope (e.g. prayer's scripture refs).
       // No-op for niches that don't ship recencyAvoidance or don't
       // include 'metadata' in their scopes.
+      // The project's content language is the authority for audience-facing
+      // text. Absent = empty directive, byte-identical legacy prompt.
+      const descriptionLanguageDirective = audienceLanguageDirective
       const descPrompt = await prependAvoidanceToPrompt(
         project_slug,
         'metadata',
-        buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, promptFormat),
+        buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, promptFormat, descriptionLanguageDirective),
         episode_id,
       ) + await noEmojiDirective()
       const descRaw = await callMetadataAi('', descPrompt, false,
@@ -497,7 +504,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       // an engineer owns: it is data, editable per niche and per format.
       const titlePurpose = musicStitch.music ? MUSIC_TITLE_PURPOSE : fmtMeta?.purposeNote || DEFAULT_TITLE_PURPOSE
       const titleTone = formula?.titleGuidance || fmtMeta?.titleStyleHint || DEFAULT_TITLE_TONE
-      const titlePrompt = `Generate ${title_count} SEO-optimized video title options ${titlePurpose}.
+      const titlePrompt = `Generate ${title_count} SEO-optimized video title options ${titlePurpose}.${audienceLanguageDirective ? `\n${audienceLanguageDirective}` : ''}
 Episode: ${episode_id} — ${title}
 Story context:
 ${truncateChars(storyContext, 1500)}
@@ -566,7 +573,7 @@ Requirements:
       const broadKeywordsLine = fmtMeta?.broadKeywords?.length
         ? `\n- Broad keywords to draw from: ${fmtMeta.broadKeywords.join(', ')}.`
         : ''
-      const tagPrompt = `Generate ${tag_count} YouTube tags ${tagsContext}.
+      const tagPrompt = `Generate ${tag_count} YouTube tags ${tagsContext}.${audienceLanguageDirective ? `\n${audienceLanguageDirective}` : ''}
 Episode: ${episode_id} — ${title}
 Description excerpt:
 ${truncateChars(description, 500)}

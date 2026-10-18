@@ -22,15 +22,15 @@ async function loadPage(): Promise<Component> {
   assert.equal(template.errors.length, 0)
   const vueUrl = await import.meta.resolve('vue')
   const freshActionUrl = await import.meta.resolve('../composables/useFreshGenerationAction.ts')
+  const outputOptionsUrl = await import.meta.resolve('../utils/genstudio-output-options.ts')
   const support = `
     import { computed, defineComponent as _defineComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from ${JSON.stringify(vueUrl)}
     import { useFreshGenerationAction } from ${JSON.stringify(freshActionUrl)}
+    import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, publishedOutputOptions, storyDefaultAspectRatio } from ${JSON.stringify(outputOptionsUrl)}
     const CREDIT_BASIS_LABEL = { fixed: 'Fixed' }
     const describeImageUnitCost = () => ({ basis: 'fixed', text: '' })
     const isFreeToRun = () => false
     const findGenStudioProduct = () => null
-    const findOutputOption = () => null
-    const publishedOutputOptions = () => []
     const resolveActiveSceneRenderJob = () => null
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined

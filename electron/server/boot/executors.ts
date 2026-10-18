@@ -291,6 +291,23 @@ function registerCancellationAuditors(): void {
       return isResearchComplete(research) ? 'complete' : 'repair-required'
     } catch { return 'repair-required' }
   })
+  // Idea Campaign — reuse the generator's own completion proof (idea-campaign.ts:338-359): the
+  // campaign is complete when the project holds at least the clamped wanted count of ideas under
+  // this EXACT campaign_id. Read-only: it never writes the job, the batch record or its
+  // idempotency_key, so a later Retry still collects the accepted request by key with no second
+  // POST. The submitting/unknown outcome is deliberately not solved here — job-control.ts:290
+  // classifies uncertain submission as return-later before any auditor is consulted.
+  registerJobCancellationAuditor('idea_campaign', async job => {
+    const campaignId = typeof job.params?.campaign_id === 'string' ? job.params.campaign_id : ''
+    if (!campaignId.trim()) return 'repair-required'
+    const wanted = Math.max(1, Math.min(100, Math.round(Number(job.params?.count) || 0)))
+    const { getIdeas } = await import('../services/idea-manager.js')
+    const ideas = await getIdeas(job.project_slug)
+    const completed = Array.isArray(ideas)
+      ? ideas.filter(idea => idea.campaign_id === campaignId).length
+      : 0
+    return completed >= wanted ? 'complete' : 'repair-required'
+  })
 }
 
 export function registerAllExecutors(options: { loadSettings?: boolean } = {}): void {

@@ -39,6 +39,23 @@ conventions meet, `null` never reaches arithmetic, and callers downstream are fa
 (`productCeiling` throws rather than inventing a ceiling). Do not "fix" it into a nullable type —
 see `docs/genstudio-handoff/gateway-kh-story-studio-wiring.md`.
 
+### Image ratios: a missing choice prefers 16:9 — 2026-10-17
+
+**This reverses the earlier "never defaulted to '16:9' locally" rule.** The owner, 2026-10-17:
+when no image ratio was chosen, generation should use 16:9 **if the selected live model publishes
+it**; otherwise the model's own published default. The reported symptom was the opposite: the
+provider's flagged 1:1 row silently filled Scene Review's empty picker.
+
+The reversal does **not** license inventing anything. With `output_options[]` a real 16:9 ROW must
+exist; when it does not, the default falls to the provider's published default (or its first live
+option) and the UI states the constraint. An explicit ratio the model does not publish is still
+refused loudly, and stored presets/project data are never rewritten — a remembered/preset 9:16 or
+1:1 keeps winning while the selected model publishes it. The policy lives in
+`electron/server/contracts/genstudio-image-defaults.ts`, shared by the frontend picker and the
+backend resolvers; `image-model-resolver.ts` and `models/types.ts` point back to it. The picker
+labels the Story-chosen row **Default** and a different provider-flagged row **Gateway default**,
+so the two roles cannot be confused.
+
 ---
 
 ## 2. Provider transparency

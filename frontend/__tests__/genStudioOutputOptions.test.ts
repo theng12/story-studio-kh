@@ -5,10 +5,13 @@ import {
   defaultOutputOption,
   describeOutputOption,
   findOutputOption,
+  isPublishedAspectRatio,
+  outputOptionDefaultRole,
   outputOptionsForRatio,
   publishedOutputOptions,
   publishedOutputRatios,
   reconcileOutputOption,
+  storyDefaultAspectRatio,
 } from '../utils/genstudio-output-options.js'
 import {
   CREDIT_BASIS_LABEL,
@@ -52,7 +55,7 @@ test('rows are never recombined into a ratio list crossed with a resolution list
   assert.equal(findOutputOption(model, { resolution: '2K', aspect_ratio: '1:1' }), null)
 })
 
-test('the default row is the flagged one, then the published default pair — never the first row', () => {
+test('the Story default row is a 16:9 row, then the published default — never the first row', () => {
   assert.equal(defaultOutputOption(model), ONE_K_16_9)
 
   const unflagged = {
@@ -63,14 +66,122 @@ test('the default row is the flagged one, then the published default pair — ne
   }
   assert.equal(defaultOutputOption(unflagged)?.resolution, '2K')
 
-  // Nothing flagged and no matching published pair: no row is chosen by
-  // position, because "first row wins" silently bills an unchosen size.
-  const undecidable = { display_name: 'Undecidable', output_options: [{ ...ONE_K_1_1 }, { ...TWO_K_16_9 }] }
-  assert.equal(defaultOutputOption(undecidable), null)
-  const result = reconcileOutputOption(null, undecidable)
-  assert.equal(result.option, null)
-  assert.equal(result.needsChoice, true)
-  assert.match(result.notice, /publishes no default output size/)
+  // 16:9 is published (a row exists), so it is the Story default even when
+  // nothing is flagged and the declaration names no matching pair. The sole
+  // 16:9 row is the only valid size at that ratio; no unrelated row is used.
+  const undecidableAtOtherRatios = {
+    display_name: 'Undecidable',
+    output_options: [{ ...ONE_K_1_1 }, { ...TWO_K_16_9 }],
+  }
+  assert.equal(defaultOutputOption(undecidableAtOtherRatios), undecidableAtOtherRatios.output_options[1])
+
+  // Several rows at 16:9 with no named default: ratio-only, never position.
+  const ambiguous = {
+    display_name: 'Ambiguous',
+    default_resolution: '4K',
+    output_options: [
+      { resolution: '1K', aspect_ratio: '16:9', width: 1920, height: 1080, is_default: false },
+      { resolution: '2K', aspect_ratio: '16:9', width: 2560, height: 1440, is_default: false },
+    ],
+  }
+  assert.equal(defaultOutputOption(ambiguous), null)
+  assert.equal(storyDefaultAspectRatio(ambiguous), '16:9')
+})
+
+test('a provider-flagged 1:1 row does not outrank a published 16:9 row', () => {
+  // The reported screenshot shape: the Gateway flags 1:1 as its default while
+  // the model also publishes 16:9. A missing choice must not become 1:1.
+  const screenshot = {
+    display_name: 'Gateway Image',
+    default_resolution: '1K',
+    default_aspect_ratio: '1:1',
+    output_options: [
+      { ...ONE_K_1_1, is_default: true },
+      { ...ONE_K_16_9, is_default: false },
+    ],
+  }
+  assert.equal(storyDefaultAspectRatio(screenshot), '16:9')
+  assert.equal(defaultOutputOption(screenshot), screenshot.output_options[1])
+  // One Story Default on the 16:9 row; the provider's own 1:1 default is
+  // labelled differently so the two roles cannot be confused.
+  assert.equal(outputOptionDefaultRole(screenshot.output_options[1], screenshot), 'story-default')
+  assert.equal(outputOptionDefaultRole(screenshot.output_options[0], screenshot), 'gateway-default')
+
+  // When the flagged row IS the Story default row, it carries ONE label.
+  assert.equal(outputOptionDefaultRole(ONE_K_16_9, model), 'story-default')
+  assert.equal(outputOptionDefaultRole(ONE_K_1_1, model), null)
+})
+
+test('a model publishing no 16:9 uses its published default, never an invented 16:9', () => {
+  const portrait = {
+    display_name: 'Portrait Only',
+    default_resolution: '1K',
+    default_aspect_ratio: '9:16',
+    output_options: [{ resolution: '1K', aspect_ratio: '9:16', width: 1080, height: 1920, is_default: true }],
+  }
+  assert.equal(isPublishedAspectRatio(portrait, '16:9'), false)
+  assert.equal(storyDefaultAspectRatio(portrait), '9:16')
+  assert.equal(defaultOutputOption(portrait)?.aspect_ratio, '9:16')
+
+  // 16:9 listed under aspect_ratios but with no row is NOT renderable: the
+  // submit boundary would refuse the pair, so it cannot be the default.
+  const ratioOnlyRowless = {
+    display_name: 'Ratio List Only',
+    default_aspect_ratio: '16:9',
+    aspect_ratios: ['16:9', '1:1'],
+    output_options: [{ resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: true }],
+  }
+  assert.equal(isPublishedAspectRatio(ratioOnlyRowless, '16:9'), false)
+  assert.equal(storyDefaultAspectRatio(ratioOnlyRowless), '1:1')
+})
+
+test('a preferred ratio picks its published row on the first reconcile, silently', () => {
+  const withPortrait = { ...model, output_options: [...model.output_options, { resolution: '1K', aspect_ratio: '9:16', width: 1080, height: 1920, is_default: false }] }
+  const result = reconcileOutputOption(null, withPortrait, { preferredAspectRatio: '9:16' })
+  assert.equal(result.option?.aspect_ratio, '9:16')
+  assert.equal(result.notice, '')
+  assert.equal(result.needsChoice, false)
+  // A remembered/preset ratio that is not published is not invented; the
+  // Story default answers instead.
+  const unavailable = reconcileOutputOption(null, model, { preferredAspectRatio: '9:16' })
+  assert.equal(unavailable.option, ONE_K_16_9)
+  assert.equal(unavailable.notice, '')
+})
+
+test('a preferred ratio with several rows and no named default stays ratio-only', () => {
+  // F2 regression: the preferred ratio IS renderable (two valid 9:16 rows) but
+  // the catalogue names no default at it. Falling through to the Story-default
+  // ratio would silently replace the remembered/preset 9:16 with the sole
+  // selectable 16:9 row.
+  const ambiguousPortrait = {
+    display_name: 'Ambiguous Portrait',
+    output_options: [
+      { resolution: '1K', aspect_ratio: '16:9', width: 1920, height: 1080, is_default: false },
+      { resolution: '1K', aspect_ratio: '9:16', width: 1080, height: 1920, is_default: false },
+      { resolution: '2K', aspect_ratio: '9:16', width: 1440, height: 2560, is_default: false },
+    ],
+  }
+  const first = reconcileOutputOption(null, ambiguousPortrait, { preferredAspectRatio: '9:16' })
+  assert.equal(first.option, null, 'no arbitrary row and no different-ratio row may be selected')
+  assert.equal(first.needsChoice, true)
+  assert.match(first.notice, /9:16/)
+  assert.doesNotMatch(first.notice, /16:9/)
+
+  // The same holds when a previous, now-unpublished pair exists: the ratio on
+  // screen still wins over the Story-default ratio.
+  const moved = reconcileOutputOption({ resolution: '4K', aspect_ratio: '9:16' }, ambiguousPortrait, {
+    preferredAspectRatio: '9:16',
+  })
+  assert.equal(moved.option, null)
+  assert.equal(moved.needsChoice, true)
+})
+
+test('an exact published pair outranks a different preferred ratio', () => {
+  const result = reconcileOutputOption({ resolution: '1K', aspect_ratio: '1:1' }, model, {
+    preferredAspectRatio: '16:9',
+  })
+  assert.equal(result.option, ONE_K_1_1)
+  assert.equal(result.notice, '')
 })
 
 test('a model switch keeps a pair the new model publishes, silently', () => {
@@ -396,6 +507,32 @@ test('the image submit paths send a chosen resolution and stop inventing a size 
   assert.match(images, /ImageOutputOptionPicker/)
   const pool = readFileSync(new URL('../pages/projects/[slug]/image-pool.vue', import.meta.url), 'utf8')
   assert.match(pool, /resolution: genOutputOption\.value\?\.resolution \|\| undefined/)
+})
+
+test('model-switch watchers judge renderable rows, not the separate ratio list', () => {
+  const page = (file: string) =>
+    readFileSync(new URL(`../pages/projects/[slug]/${file}`, import.meta.url), 'utf8')
+  assert.match(page('scene-review.vue'), /isPublishedAspectRatio\(model, form\.value\.aspect_ratio\)/)
+  assert.match(page('image-pool.vue'), /isPublishedAspectRatio\(model, genAspectRatio\.value\)/)
+  assert.match(page('images.vue'), /isPublishedAspectRatio\(model, target\.aspect_ratio\)/)
+})
+
+test('an omitted image ratio is left to the shared Story default, not a literal 16:9', () => {
+  // Every render boundary that used to substitute '16:9' for a missing ratio
+  // must omit it instead; the shared policy chooses against the live model.
+  for (const file of [
+    '../../electron/server/routes/scene-review.ts',
+    '../../electron/server/routes/pipeline.ts',
+    '../../electron/server/routes/broll-project.ts',
+    '../../electron/server/routes/image-references.ts',
+  ]) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8')
+    assert.doesNotMatch(source, /aspect_ratio[^\n]*\?\s*[^:\n]+\s*:\s*'16:9'/, file)
+  }
+  const builder = readFileSync(
+    new URL('../pages/projects/[slug]/episode-builder.vue', import.meta.url), 'utf8',
+  )
+  assert.doesNotMatch(builder, /aspect_ratio:[^\n]*\|\|\s*'16:9'/)
 })
 
 test('the model picker shows the reference and seed limits it already enforces', () => {

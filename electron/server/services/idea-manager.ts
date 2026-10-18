@@ -236,9 +236,8 @@ export async function addIdeas(
   return mutateStore(slug, (store) => {
     const batchId = batchIdOverride || `batch-${Date.now()}`
     const now = new Date().toISOString()
-
-    const newIdeas: StoredIdea[] = ideas.map((idea, i) => ({
-      id: `idea-${Date.now()}-${i}`,
+    const buildIdea = (idea: (typeof ideas)[number], index: number): StoredIdea => ({
+      id: `idea-${Date.now()}-${index}`,
       ...idea,
       title: sanitizeIdeaTitle(idea.title),
       status: 'new' as IdeaStatus,
@@ -247,7 +246,28 @@ export async function addIdeas(
       accepted_at: null,
       batch_id: batchId,
       model_used: model,
-    }))
+    })
+    // A batch identity that is already stored means part or all of this append already happened —
+    // the crash window between the write and the caller's checkpoint. Append only the items NOT
+    // already stored under that identity: returning the stored subset alone would silently drop the
+    // remainder the caller still needs, and appending everything would double the stored ones. The
+    // identity is the item's own stored content (its sanitized title and logline), not its position,
+    // so a re-sent batch matches whatever landed regardless of order. Check and push share one
+    // `mutateStore`, so a concurrent retry cannot slip between them, existing rows keep their order,
+    // and callers that pass no batch identity keep the old append-only behaviour.
+    if (batchIdOverride) {
+      const already = store.ideas.filter(idea => idea.batch_id === batchId)
+      if (already.length) {
+        const present = new Set(already.map(idea => `${idea.title}\u0000${idea.logline}`))
+        const missing = ideas.filter(idea => !present.has(`${sanitizeIdeaTitle(idea.title)}\u0000${idea.logline}`))
+        if (!missing.length) return already
+        const added = missing.map((idea, index) => buildIdea(idea, already.length + index))
+        store.ideas.push(...added)
+        return [...already, ...added]
+      }
+    }
+
+    const newIdeas: StoredIdea[] = ideas.map(buildIdea)
 
     store.ideas.push(...newIdeas)
     return newIdeas
@@ -554,6 +574,13 @@ export async function acceptIdea(
     accepted_at: idea.accepted_at,
     created_from_idea: idea.id,
     project: meta.name,
+    // Future-only introduction activation. This is the authoritative creation
+    // snapshot: only a channel with the switch ON writes the fact. An old,
+    // imported, or OFF-created episode has no such fact and is never
+    // auto-enqueued, marked missing, or backfilled. `content_language` is
+    // omitted when unset (legacy), never written as a guess.
+    ...(meta.auto_introduction_enabled === true ? { intro_eligible: true } : {}),
+    content_language: meta.content_language ?? undefined,
   }
   await fs.writeFile(
     path.join(paths.episode_dir, 'episode_info.json'),

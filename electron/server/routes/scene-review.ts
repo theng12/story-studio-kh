@@ -585,6 +585,15 @@ interface ManualFinishMarker {
   request_fingerprint?: string
 }
 
+/**
+ * A named ratio is an explicit choice; absent or blank is MISSING and is left
+ * for the shared Story default in the image resolver. Routes must never turn
+ * "the caller named none" into a literal 16:9, which a model may not publish.
+ */
+function normalizedAspectRatio(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
 function finishRequestFingerprint(
   slug: string,
   episodeId: string,
@@ -600,7 +609,7 @@ function finishRequestFingerprint(
     source_job_id: marker.source_job_id || '',
     scene_ids: [...sceneIds].sort(),
     model: typeof body.model === 'string' ? body.model.trim() : '',
-    aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+    aspect_ratio: normalizedAspectRatio(body.aspect_ratio) ?? '',
     resolution: typeof body.resolution === 'string' ? body.resolution.trim() : '',
     width: typeof body.width === 'number' ? body.width : null,
     height: typeof body.height === 'number' ? body.height : null,
@@ -648,11 +657,13 @@ function continuityRenderParams(
   // Missing-only and episode-batch recovery deliberately retain their legacy
   // queue semantics.
   const operationId = singleSceneId && body.force === true ? readOperationId(body, true) : null
+  const aspectRatio = normalizedAspectRatio(body.aspect_ratio)
   const params = {
     episode_id: episodeId,
     title: typeof body.title === 'string' ? body.title : '',
     model: typeof body.model === 'string' ? body.model.trim() : '',
-    aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+    // Missing is omitted, not stored as a ratio the model may not publish.
+    ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
     resolution: typeof body.resolution === 'string' && body.resolution.trim() ? body.resolution.trim() : undefined,
     width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
     height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
@@ -677,6 +688,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   const operationId = typeof body.operation_id === 'string' ? body.operation_id.trim() : ''
+  const aspectRatio = normalizedAspectRatio(body.aspect_ratio)
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
   if (!model) return res.status(400).json({ detail: 'model is required' })
   if (!OPERATION_ID.test(operationId)) return res.status(400).json({ detail: 'operation_id must be a UUID for an explicit image re-roll.' })
@@ -685,7 +697,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
     && candidate.params?.generation_action?.id === operationId
     && candidate.params?.scene_id === sceneId
     && candidate.params?.model === model
-    && candidate.params?.aspect_ratio === (typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9')
+    && candidate.params?.aspect_ratio === aspectRatio
     && candidate.params?.resolution === (typeof body.resolution === 'string' && body.resolution.trim() ? body.resolution.trim() : undefined)
     && candidate.params?.width === (typeof body.width === 'number' && body.width > 0 ? body.width : undefined)
     && candidate.params?.height === (typeof body.height === 'number' && body.height > 0 ? body.height : undefined)
@@ -720,7 +732,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
           title: typeof body.title === 'string' ? body.title : '',
           scene_id: sceneId,
           model,
-          aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+          ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
           resolution: typeof body.resolution === 'string' && body.resolution.trim() ? body.resolution.trim() : undefined,
           width: typeof body.width === 'number' && body.width > 0 ? body.width : undefined,
           height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
@@ -787,7 +799,7 @@ async function enqueueMissingScenes(
     const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
     let skipped = 0
-    const aspect_ratio = typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9'
+    const aspect_ratio = normalizedAspectRatio(body.aspect_ratio)
     const width = typeof body.width === 'number' && body.width > 0 ? body.width : undefined
     const height = typeof body.height === 'number' && body.height > 0 ? body.height : undefined
 

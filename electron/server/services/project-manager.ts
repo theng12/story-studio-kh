@@ -882,6 +882,11 @@ export async function createProject(
     // the project.
     ...(req.niche_id ? { niche_id: req.niche_id } : {}),
     ...(req.topic_pack_ids?.length ? { topic_pack_ids: [...new Set(req.topic_pack_ids)] } : {}),
+    // Absent stays absent: a legacy create must not gain a language field and
+    // change prompt bytes. The two-value enum is the whole catalogue.
+    ...(req.content_language ? { content_language: req.content_language } : {}),
+    // Default OFF: only an explicit true is persisted.
+    ...(req.auto_introduction_enabled === true ? { auto_introduction_enabled: true } : {}),
     ...(initialContentPins.content_pack_versions
       ? { content_pack_versions: structuredClone(initialContentPins.content_pack_versions) }
       : {}),

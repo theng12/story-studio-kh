@@ -3,7 +3,9 @@ import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
-import { callAiWithRetry, type CallAiContext } from '../lib/ai-client.js'
+import { callAiWithRetry, resolveLivePipelineModel, type CallAiContext } from '../lib/ai-client.js'
+import { listChatModels } from '../lib/genstudio-client.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { composeNicheWithTopicPacks, loadNiche } from '../services/niche-loader.js'
 import {
@@ -18,8 +20,8 @@ import {
   type SimilarityCandidate,
 } from '../services/idea-similarity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { ideaOutputTokenBudget } from '../services/idea-output-budget.js'
-import { ideaCampaignOutputContract } from '../lib/story-output-contracts.js'
+import { ideaBatchForPublishedCeiling, ideaOutputTokenBudget } from '../services/idea-output-budget.js'
+import { ideaBatchOutputContract, ideaCampaignOutputContract } from '../lib/story-output-contracts.js'
 import {
   applyFormulaEpisodeProfile,
   applyFormulaEpisodeProfileTitle,
@@ -28,9 +30,16 @@ import {
 import { truncateChars } from '../lib/well-formed-text.js'
 import { applyEmojiPolicy, NO_EMOJI_DIRECTIVE } from '../lib/emoji-policy.js'
 import { recentCharacterNamesAvoidance } from '../services/recent-character-names.js'
-import { buildFreeformIdeaPrompt, generateFreeformIdeaBatch, renderRealSubjectsBlock, renderVarietyBlock, rewriteLeadingCount, varietySeedLabel, varietySlots, type AvoidItem } from '../services/freeform-idea-generation.js'
+import { buildFreeformIdeaPrompt, generateFreeformIdeaBatch, renderRealSubjectsBlock, renderVarietyBlock, rewriteLeadingCount, varietySeedLabel, varietySlots, type AvoidItem, type VarietySlot } from '../services/freeform-idea-generation.js'
 import { readIdeaUpgrades } from '../services/idea-upgrades.js'
 import { renderCoveredBlock, updateCoveredMap } from '../services/covered-topics.js'
+import {
+  ideaBatchAppendKey,
+  ideaBatchRecordState,
+  nextIdeaBatchOrdinal,
+  writeIdeaBatch,
+  type IdeaBatchRecord,
+} from '../services/idea-campaign-recovery.js'
 import { withGrownPack } from '../services/grown-pack.js'
 import { getReferencePool, sample, unusedReferenceItems, type ReferencePool } from '../services/reference-pool.js'
 import { embedTexts } from '../lib/embeddings-client.js'
@@ -316,17 +325,46 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   let plannerNiche = niche || fallbackNiche(format, request)
   let activePackIds = (plannerNiche.activeTopicPacks || []).map(pack => pack.id)
 
+  // The durable batch record is read BEFORE anything paid or live — before the helper model, the
+  // catalogue, Wikipedia, the planner and the names lookup. A captured-but-unresolved batch is
+  // COLLECTED from that record; nothing it already paid for is run again.
+  const batchState = ideaBatchRecordState(job.params)
+  if (batchState.state === 'malformed') {
+    throw new Error(
+      'This campaign has a saved batch record that cannot be read, so nothing was sent. '
+      + 'Clear the "idea_batch" entry in this job\'s params and start a new campaign.',
+    )
+  }
+  let replayBatch = batchState.state === 'pending' ? batchState.record : null
+
   const projectIdeas = await im.getIdeas(job.project_slug)
   const alreadyCompleted = projectIdeas.filter(idea => idea.campaign_id === request.campaign_id)
-  if (alreadyCompleted.length >= wanted) {
+  // A keyless capture never reached the provider, so a complete campaign may simply resolve it. A
+  // KEYED capture is a paid request the provider accepted and never delivered — it must be collected
+  // (below), never silently resolved into unrecoverability.
+  if (alreadyCompleted.length >= wanted && !replayBatch?.idempotency_key) {
     job.progress = 100
     job.output_lines.push(`Campaign already complete — ${alreadyCompleted.length}/${wanted} verified ideas.`)
+    if (replayBatch) {
+      // The campaign is complete, so a captured batch is not collected — that would exceed what was
+      // asked for. It is marked resolved so it cannot linger or be replayed forever.
+      replayBatch.resolved = true
+      writeIdeaBatch(job, replayBatch)
+      await jq.checkpointJobState(job)
+      job.output_lines.push(`A batch prepared earlier (ordinal ${replayBatch.ordinal}) was left uncollected because the campaign is already complete.`)
+      replayBatch = null
+    }
     requireJobCompletion(job, {
       label: 'Idea Campaign',
       expected: wanted,
       completed: wanted,
     })
     return
+  }
+  if (alreadyCompleted.length >= wanted && replayBatch) {
+    // Complete, but the batch carries a key the provider accepted. Collect it and drop the excess:
+    // nothing is appended beyond what was asked for, and the paid request is not lost.
+    job.output_lines.push(`Campaign already complete, but a batch prepared earlier (ordinal ${replayBatch.ordinal}) was already accepted by the provider; collecting it and discarding the excess.`)
   }
 
   const history = await collectFormulaHistory(job.project_slug, formulaId || plannerNiche.id)
@@ -360,7 +398,8 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   }
   let coveredBlock = ''
   let coveredSubjects: string[] = []
-  if (upgrades.covered_map) {
+  // A replay never runs the helper model: it already paid for this batch's map delta.
+  if (upgrades.covered_map && !replayBatch) {
     const covered = await updateCoveredMap({
       slug: job.project_slug,
       helperModel: upgrades.helper_model,
@@ -390,7 +429,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   const isFormulaFreeform = isFormulaFreeformFor(activePackIds, topicPackIds)
   // #5: real Wikipedia subjects for formula-only channels (pack channels get them through #3's grow).
   let referencePool: ReferencePool | null = null
-  if (upgrades.real_sources && isFormulaFreeform) {
+  if (upgrades.real_sources && isFormulaFreeform && !replayBatch) {
     const reference = await getReferencePool(job.project_slug, upgrades.reference_categories)
     referencePool = reference.pool
     job.output_lines.push(`Real subjects: ${reference.note}.`)
@@ -400,7 +439,8 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   // fit are still made and saved; the job then fails loudly naming the rest,
   // instead of refusing the whole batch up front.
   let coverageShortfall = 0
-  if (!isFormulaFreeform) {
+  // A replay keeps the assignments it reserved; re-planning would change the batch.
+  if (!isFormulaFreeform && !replayBatch) {
     const usedFingerprints = history
       .map(idea => idea.idea_fingerprint)
       .filter((value): value is string => !!value)
@@ -414,51 +454,117 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     }
   }
 
-  const namesAvoidance = await recentCharacterNamesAvoidance(job.project_slug)
+  const namesAvoidance = replayBatch ? '' : await recentCharacterNamesAvoidance(job.project_slug)
   const created: im.StoredIdea[] = []
   // Ideas the meaning check rejected as repeats (1.4.300 "idea repeat" safety check, used below).
   const repeats: Array<StoryIdea & { campaign_id: string }> = []
-  const batchSize = 10
-  const maxCalls = Math.max(4, Math.ceil(remaining / batchSize) * 4)
+  /**
+   * How many ideas ONE request may ask for, from what the selected product publishes for output.
+   *
+   * The owner's rule (2026-10-18): a single request takes every remaining idea, up to the batch cap,
+   * whenever the published ceiling permits; a smaller ceiling takes what it holds and the loop comes
+   * back for the rest. The fixed ten-call sequence is gone.
+   *
+   * The catalogue is read live for each batch through the same APIs the covered-map helper uses, so
+   * a published limit is never a stored number and never inferred. A product the catalogue cannot
+   * resolve, or a figure it publishes malformed, fails HERE — loudly and before any request — rather
+   * than being read as "no ceiling" and silently sized. Only a product that genuinely publishes no
+   * ceiling attempts the whole remaining batch with the wire field omitted.
+   */
+  const ideaBatchForModel = async (needed: number): Promise<number> => {
+    const apiKey = await getApiKey('genstudio')
+    const published = resolveLivePipelineModel(request.model, apiKey ? await listChatModels(apiKey) : []).max_output_tokens
+    const sizing = ideaBatchForPublishedCeiling(published, needed)
+    if (sizing.batch !== null) return sizing.batch
+    throw new Error(
+      `The selected product publishes a ${sizing.ceiling}-token output ceiling, and one complete idea does not fit in the ${sizing.budget} tokens that ceiling leaves for the answer. Choose a product with a larger output limit in Settings, then press Retry.`,
+    )
+  }
+  // Sized once for the loop guard: four times the batches this run would need if each came back
+  // whole, and never fewer calls than the retired fixed ten-idea batch ever had. `10` below is only
+  // that historical ALLOWANCE denominator, not a batch size — every batch is sized live above.
+  //
+  // A replay keeps today's catalogue out of its path: the captured batch already carries its own
+  // count and body, so the guard is sized from that count rather than a live read — collecting a
+  // request already paid for must not depend on what the catalogue publishes now. It also keeps the
+  // divisor non-zero when `remaining` is 0 (a keyed capture collected for an already-complete
+  // campaign), which a live `ideaBatchForModel(remaining)` would divide by.
+  const firstBatch = replayBatch ? replayBatch.count : await ideaBatchForModel(remaining)
+  const maxCalls = Math.max(4, Math.ceil(remaining / Math.min(firstBatch, 10)) * 4)
   let calls = 0
+  // A batch captured but never resolved is REPLAYED from its own record rather than rebuilt. The
+  // provider derives its idempotency key from the request body, so only the same body collects the
+  // answer that was already accepted — a rebuilt body would carry a new key and buy a second job.
+  if (replayBatch) {
+    job.output_lines.push(`Collecting batch ${replayBatch.ordinal} prepared by an earlier run (${replayBatch.count} idea(s)); it is not sent again.`)
+  }
   job.progress = Math.round((alreadyCompleted.length / wanted) * 100)
   job.output_lines.push(isFormulaFreeform
     ? 'Idea Campaign ' + request.campaign_id + ': Formula-only freeform generation; ' + wanted + ' required, ' + alreadyCompleted.length + ' already complete.'
     : 'Idea Campaign ' + request.campaign_id + ': ' + wanted + ' required, ' + alreadyCompleted.length + ' already complete, ' + assignmentPool.length + ' unused coverage assignments available.')
 
-  while (alreadyCompleted.length + created.length < wanted && (isFormulaFreeform || assignmentPool.length) && calls < maxCalls) {
+  // A captured batch is collected even when nothing new is needed or the pool is empty: the request
+  // was already paid for, and collecting it must not depend on today's planning.
+  while ((replayBatch || (alreadyCompleted.length + created.length < wanted && (isFormulaFreeform || assignmentPool.length))) && calls < maxCalls) {
     if (jq.isCancelled(job.job_id)) throw new Error('Idea Campaign cancelled')
     const needed = wanted - alreadyCompleted.length - created.length
-    const count = Math.min(batchSize, needed)
-    const sequence = (Number((request as any).pipeline_idea_batch_sequence) || 0) + 1
+    const count = replayBatch ? replayBatch.count : await ideaBatchForModel(needed)
+    const ordinal = replayBatch?.ordinal ?? nextIdeaBatchOrdinal(job.params)
     calls++
     const controller = new AbortController()
     const watcher = setInterval(() => {
       if (jq.isCancelled(job.job_id)) controller.abort()
     }, 500)
     let candidates: Array<StoryIdea & { campaign_id: string }>
+    let batchRecord: IdeaBatchRecord | null = null
     try {
       if (isFormulaFreeform) {
-        job.output_lines.push('Generating freeform batch ' + calls + ': ' + count + ' idea(s)…')
-        const requestForBatch = { ...request, count }
+        job.output_lines.push((replayBatch ? 'Collecting freeform batch ' : 'Generating freeform batch ') + calls + ': ' + count + ' idea(s)…')
+        // A replay dispatches the CAPTURED model as well as the captured text: the model is part of
+        // the request body, and the provider derives its key from the body. A channel whose preset
+        // model changed between runs must still send the body this batch was bound to.
+        const requestForBatch = { ...request, count, ...(replayBatch ? { model: replayBatch.model } : {}) }
         const avoid: AvoidItem[] = similarityPool.map(item => ({
           title: item.title, mood: item.mood, themes: item.themes,
         }))
-        const slots = upgrades.variety_seeds ? varietySlots(count, plannerNiche.vocabulary?.theme) : []
+        // A replay uses the slots it captured: `varietySlots` draws from Math.random, so calling it
+        // again would drift the seed labels away from the captured prompt.
+        const slots = replayBatch
+          ? ((replayBatch.slots as VarietySlot[] | undefined) ?? [])
+          : (upgrades.variety_seeds ? varietySlots(count, plannerNiche.vocabulary?.theme) : [])
         const realSubjects = referencePool
           ? sample(unusedReferenceItems(referencePool, coveredSubjects, similarityPool.map(item => item.title)), count * 3)
           : []
-        let prompt = withBlock(withBlock(withBlock(withNamesAvoidance(buildFreeformIdeaPrompt(
+        let prompt = replayBatch?.prompt ?? withBlock(withBlock(withBlock(withNamesAvoidance(buildFreeformIdeaPrompt(
           requestForBatch, format, standards, avoid, undefined,
           request.title_template, undefined,
         ), namesAvoidance), coveredBlock), renderVarietyBlock(slots)), renderRealSubjectsBlock(realSubjects))
+        batchRecord = replayBatch ?? {
+          ordinal, count, model: request.model, prompt,
+          request_identity: `${job.project_slug}:${request.campaign_id}:ideas:${ordinal}`,
+          outputBudget: { tier: 'workload', minimumTokens: ideaOutputTokenBudget(count) },
+          outputContract: ideaBatchOutputContract(),
+          slots, keys: slots.map(slot => varietySeedLabel(slot)),
+        }
+        // The caller's prompt is the one sent (`preparePrompt` wins inside the service), so it can be
+        // persisted BEFORE the request: a restart replays this exact body instead of buying another.
+        writeIdeaBatch(job, batchRecord)
+        await jq.checkpointJobState(job)
         const responseItems = await generateFreeformIdeaBatch({
           request: requestForBatch, format, standards, avoid, apiKeys,
           slug: job.project_slug, jobId: job.job_id, signal: controller.signal,
           titleTemplate: request.title_template,
-          onPrompt: value => { prompt = value },
-          requestIdentity: `${job.project_slug}:${request.campaign_id}:ideas:${sequence}`,
+          onPrompt: value => { prompt = value; batchRecord!.prompt = value },
+          requestIdentity: batchRecord.request_identity,
           preparePrompt: () => prompt,
+          outputContract: batchRecord.outputContract,
+          outputBudget: batchRecord.outputBudget,
+          ...(batchRecord.idempotency_key ? { idempotencyKey: batchRecord.idempotency_key } : {}),
+          onRequestPrepared: async key => { batchRecord!.idempotency_key = key; writeIdeaBatch(job, batchRecord!); await jq.checkpointJobState(job) },
+          onJobAccepted: async providerJobId => { batchRecord!.provider_job_id = providerJobId; writeIdeaBatch(job, batchRecord!); await jq.checkpointJobState(job) },
+          ...(replayBatch?.idempotency_key
+            ? { recoverByIdempotencyKey: true, allowedRecoveryKeys: [replayBatch.idempotency_key] }
+            : {}),
         })
         candidates = await Promise.all(responseItems
           .map((item, index) => ({ item, slot: slots[index] }))
@@ -473,20 +579,45 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
             return slot ? { ...idea, idea_dimensions: { variety_seed: varietySeedLabel(slot) } } : idea
           }))
       } else {
-        const assignments = assignmentPool.splice(0, count)
-        job.output_lines.push('Generating coverage batch ' + calls + ': ' + assignments.length + ' reserved idea(s)…')
-        const prompt = withBlock(withNamesAvoidance(campaignPrompt({
+        // A replay uses the reserved assignments it captured — never today's planner, whose output
+        // could differ and would change the body (and therefore the provider key).
+        const assignments = replayBatch
+          ? ((replayBatch.assignments as IdeaAssignment[] | undefined) ?? [])
+          : assignmentPool.splice(0, count)
+        if (replayBatch && assignments.length !== replayBatch.count) {
+          throw new Error(`Batch ${ordinal} was captured without its reserved subjects, so it was not sent again. Start a new campaign.`)
+        }
+        job.output_lines.push((replayBatch ? 'Collecting coverage batch ' : 'Generating coverage batch ') + calls + ': ' + assignments.length + ' reserved idea(s)…')
+        const prompt = replayBatch ? replayBatch.prompt : withBlock(withNamesAvoidance(campaignPrompt({
           request, format, niche: plannerNiche, assignments, avoid: similarityPool, standards,
         }), namesAvoidance), coveredBlock)
+        batchRecord = replayBatch ?? {
+          ordinal, count: assignments.length, model: request.model, prompt,
+          request_identity: `${job.project_slug}:${request.campaign_id}:ideas:${ordinal}`,
+          outputBudget: { tier: 'workload', minimumTokens: ideaOutputTokenBudget(assignments.length) },
+          outputContract: ideaCampaignOutputContract(assignments.map(item => item.idea_key)),
+          assignments, keys: assignments.map(item => item.idea_key),
+        }
+        // Persist the exact body BEFORE it can be charged, so a restart replays this request instead
+        // of buying a second one under a freshly derived key.
+        writeIdeaBatch(job, batchRecord)
+        await jq.checkpointJobState(job)
         const context: CallAiContext = {
           slug: job.project_slug,
           jobId: job.job_id,
           signal: controller.signal,
-          outputBudget: { tier: 'long', minimumTokens: ideaOutputTokenBudget(assignments.length) },
-          outputContract: ideaCampaignOutputContract(assignments.map(item => item.idea_key)),
-          requestIdentity: `${job.project_slug}:${request.campaign_id}:ideas:${sequence}`,
+          outputBudget: batchRecord.outputBudget,
+          outputContract: batchRecord.outputContract,
+          requestIdentity: batchRecord.request_identity,
+          ...(batchRecord.idempotency_key ? { idempotencyKey: batchRecord.idempotency_key } : {}),
+          // Record the key the provider generated, as it is prepared — no key format of ours.
+          onRequestPrepared: async key => { batchRecord!.idempotency_key = key; writeIdeaBatch(job, batchRecord!); await jq.checkpointJobState(job) },
+          onJobAccepted: async providerJobId => { batchRecord!.provider_job_id = providerJobId; writeIdeaBatch(job, batchRecord!); await jq.checkpointJobState(job) },
+          ...(replayBatch?.idempotency_key
+            ? { recoverByIdempotencyKey: true, allowedRecoveryKeys: [replayBatch.idempotency_key] }
+            : {}),
         }
-        const raw = await callAiWithRetry(request.model, '', prompt, apiKeys, false, context)
+        const raw = await callAiWithRetry(batchRecord.model, '', prompt, apiKeys, false, context)
         const responseItems = parseArray(raw)
         const byKey = new Map(
           responseItems
@@ -568,16 +699,41 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     watchStats.generated += candidates.length
     watchStats.rejected_words += filtered.rejected.length
     const survivors = rejectedByMeaning.size ? filtered.kept.filter(item => !rejectedByMeaning.has(item)) : filtered.kept
-    const kept = isFormulaFreeform ? survivors.slice(0, needed) : survivors
+    // A replay may carry more ideas than are still needed (the campaign filled from elsewhere): keep
+    // only what is still wanted, so nothing is appended beyond the requested count.
+    const kept = replayBatch
+      ? survivors.slice(0, Math.max(0, needed))
+      : (isFormulaFreeform ? survivors.slice(0, needed) : survivors)
+    // A cancellation that arrived while the provider was answering stops HERE: nothing is appended,
+    // and the batch stays unresolved so a later run can still collect the answer it already paid for.
+    if (jq.isCancelled(job.job_id)) throw new Error('Idea Campaign cancelled')
+    let appended: im.StoredIdea[] = []
+    // Everything stored under this batch's identity, which is what the record's provenance names.
+    let storedUnderBatch: im.StoredIdea[] = []
     if (kept.length) {
+      // Rows already stored before this call. `addIdeas` returns the COMPLETE set under the batch
+      // identity (an already-stored row plus whatever this call added), so a crash-retry of a
+      // partly-appended batch would otherwise count the stored rows a second time — they are already
+      // in `alreadyCompleted` — and push `completed` past `wanted`, where `requireJobCompletion`
+      // compares strictly. Only the rows this call actually added are new. The snapshot is taken
+      // before the call and is sound for THIS identity because the queue admits one idea_campaign
+      // per (project, episode) at a time and identities are campaign-namespaced, so no other run can
+      // append under `campaign:batch:ordinal` in between.
+      const knownIds = new Set([...projectIdeas, ...created].map(idea => idea.id))
+      // Keyed by this batch's durable identity, so a crash between the append and the record below
+      // cannot append the same batch twice.
       const stored = await im.addIdeas(
         job.project_slug,
         kept,
-        request.model,
-        request.campaign_id,
+        // The model this batch was actually generated on: on a replay that is the captured one, so
+        // `model_used` describes the answer's own provenance rather than today's preset.
+        batchRecord!.model,
+        ideaBatchAppendKey(request.campaign_id, ordinal),
       )
-      created.push(...stored)
-      const savedCandidates = stored.map(idea => ({
+      storedUnderBatch = stored
+      appended = stored.filter(idea => !knownIds.has(idea.id))
+      created.push(...appended)
+      const savedCandidates = appended.map(idea => ({
         title: idea.title,
         logline: idea.logline,
         themes: idea.themes,
@@ -585,7 +741,18 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       }))
       // Newest-first on both paths, matching collectFormulaHistory's order.
       similarityPool.unshift(...savedCandidates)
-      job.output_lines.push(`  ✓ Saved ${stored.length}; campaign now ${alreadyCompleted.length + created.length}/${wanted}.`)
+      job.output_lines.push(`  ✓ Saved ${appended.length}; campaign now ${alreadyCompleted.length + created.length}/${wanted}.`)
+    }
+    // The batch is answered. Mark it resolved even when nothing usable survived the filters, so a
+    // filtered-out answer cannot be collected in a loop, and never replay it again.
+    if (batchRecord) {
+      batchRecord.resolved = true
+      // The whole set under the identity, not just this call's remainder: a batch partly appended by
+      // an earlier run stays named in full.
+      if (storedUnderBatch.length) batchRecord.idea_ids = storedUnderBatch.map(idea => idea.id)
+      writeIdeaBatch(job, batchRecord)
+      await jq.checkpointJobState(job)
+      replayBatch = null
     }
     job.progress = Math.min(99, Math.round(((alreadyCompleted.length + created.length) / wanted) * 100))
   }

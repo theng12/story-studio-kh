@@ -1,8 +1,9 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { JobType } from '../models/types.js'
-import { resolveJobAutoRetryPolicy } from '../services/job-retry-policy.js'
+import { resolveJobAutoRetryPolicy, isNonRetryableError } from '../services/job-retry-policy.js'
 import { terminalRetryIdentity } from '../generators/audio.js'
+import { ImagePromptsMissingError } from '../generators/images.js'
 
 function policy(type: JobType, params: Record<string, any> = {}) {
   return resolveJobAutoRetryPolicy({ type, params })
@@ -172,5 +173,16 @@ describe('local auto-retry policy', () => {
     assert.equal(local.max_attempts, 3)
     assert.deepEqual(local.delays_ms, [2_000, 8_000])
     assert.equal(policy('audio', { model: 'macos-say', auto_retry: false }).eligible, false)
+  })
+
+  test('a missing image-prompts file fails fast instead of burning automatic retries', () => {
+    // Production, 2026-10-18: DM0010 thumb_images exhausted 3/3 in six minutes on
+    // "Could not find thumbnail prompts for DM0010. Generate the prompts first." — a retry
+    // cannot create the prompts file, so it stops at the same point every time.
+    for (const kind of ['scene', 'thumbnail'] as const) {
+      assert.equal(isNonRetryableError(new ImagePromptsMissingError(kind, 'DM0010')), true, kind)
+    }
+    // Only that input error is fail-fast: free-fleet image work still retries a transient fault by itself.
+    assert.equal(policy('thumb_images', { model: 'studio-hub::org/model' }).eligible, true)
   })
 })

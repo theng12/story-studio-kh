@@ -173,3 +173,24 @@ test('real picker clicks identify deliberate edits even while automatic reconcil
     fixture.unmount()
   }
 })
+
+test('mounted picker labels the Story default and a different Gateway default truthfully', async () => {
+  const fixture = await mountHarness(false)
+  try {
+    // The provider flags 1:1 while the same model still publishes 16:9: the
+    // Story default is 16:9, and the flagged row is labelled as the Gateway's.
+    fixture.models.value = [model('image-a', [
+      { resolution: '1K', aspect_ratio: '16:9', width: 1920, height: 1080, is_default: false, credits_per_image: 3 },
+      { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: true, credits_per_image: 3 },
+    ])]
+    await nextTick()
+    await nextTick()
+    const labels = [...fixture.host.querySelectorAll('.output-row')]
+      .map(row => row.querySelector('.output-default')?.textContent?.trim() || '')
+    assert.deepEqual(labels, ['Default', 'Gateway default'])
+    assert.deepEqual(fixture.chosenOutput.value, { resolution: '1K', aspect_ratio: '16:9' },
+      'the exact published pair survives, while the Story default is 16:9')
+  } finally {
+    fixture.unmount()
+  }
+})
