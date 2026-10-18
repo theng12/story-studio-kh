@@ -1,11 +1,12 @@
 /**
  * The interactive source-revision cache (v1.4.152).
  *
- * Upload Center's Review and Upload clicks each hashed the whole rendered
- * final. This pins the two properties that make remembering the hash safe:
- * the cached answer IS the byte-for-byte digest, and any change to the file's
- * size, mtime or inode re-reads every byte. The uncached function is the one
- * every delete/move/archive path still calls; it must keep hashing.
+ * Upload Center's Review click hashed the whole rendered final (Upload no
+ * longer does — see the source-scan test at the bottom). This pins the two
+ * properties that make remembering the hash safe: the cached answer IS the
+ * byte-for-byte digest, and any change to the file's size, mtime or inode
+ * re-reads every byte. The uncached function is the one every delete/move/
+ * archive path still calls; it must keep hashing.
  */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -84,22 +85,31 @@ describe('YouTube source revision cache', () => {
     assert.equal(await resolveYouTubeSourceRevisionCached(missing), sha256(Buffer.from('now present')))
   })
 
-  test('admission and moves to the Trash use the cache; archiving and the upload itself re-hash every byte', async () => {
+  test('the upload REQUEST never reads the rendered bytes; the upload itself re-hashes them, and moves to the Trash use the cache', async () => {
     const read = (rel: string) => fs.readFile(new URL(rel, import.meta.url), 'utf8')
     const center = await read('../routes/youtube-upload-center.ts')
     const previewStart = center.indexOf("router.post('/projects/:slug/youtube/preview'")
     const uploadStart = center.indexOf("router.post('/projects/:slug/youtube/upload'")
     const uploadEnd = center.indexOf("router.post('/projects/:slug/youtube/plan/preview'")
     assert.ok(previewStart > 0 && uploadStart > previewStart && uploadEnd > uploadStart)
+    // Preview is an explicit Review click: hashing there is what the owner reviews.
     assert.match(center.slice(previewStart, uploadStart), /resolveYouTubeSourceRevisionCached\(sourcePath\)/)
-    assert.match(center.slice(uploadStart, uploadEnd), /resolveYouTubeSourceRevisionCached\(sourceVideoPath\)/)
+    // The upload POST must NOT hash. It carried a whole-file SHA-256 of the
+    // rendered final on the request path — 115.6 s on the Mac mini for a
+    // 96-minute final whose bytes were not in the page cache (2026-10-18,
+    // PR0011), past the caller's 120 s timeout. The reviewed revision now
+    // travels to the job, which hashes the open handle it uploads from.
+    assert.doesNotMatch(center.slice(uploadStart, uploadEnd), /await resolveYouTubeSourceRevision/)
+    assert.match(center.slice(uploadStart, uploadEnd), /expected_source_revision: reviewedSourceRevision/)
     // 1.4.289: Clear Uploaded Videos and Free up space only MOVE a final to Story's Trash (undoable), so the
     // match with its upload is read once and re-checked by size, mtime and inode (it read each final three times).
     const remote = await read('../services/youtube-remote-video.ts')
     const archiveProof = remote.slice(remote.indexOf('export async function youtubeArchiveProofForFile'))
     assert.match(archiveProof.slice(0, archiveProof.indexOf('\n}\n')), /await resolveYouTubeSourceRevision\(filePath\)/, 'archiving (which removes the original) re-reads every byte')
     assert.doesNotMatch(await read('../generators/youtube-upload.ts'), /resolveYouTubeSourceRevisionCached/, 'the upload hashes the bytes it sends')
-    // The upload generator still hashes the open handle it sends from.
+    // The upload generator still hashes the open handle it sends from, and the
+    // route hands it the revision the owner reviewed to compare that against.
     assert.match(await read('../generators/youtube-upload.ts'), /resolveYouTubeSourceRevisionFromHandle\(sourceHandle\)/)
+    assert.match(await read('../generators/youtube-upload.ts'), /params\.expected_source_revision && sourceRevision !== params\.expected_source_revision/)
   })
 })

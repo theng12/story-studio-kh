@@ -2434,10 +2434,27 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       })
       return
     }
-    // Cached by size/mtime/inode: Review then Upload hashed the whole final
-    // twice before anything was queued. The generator re-hashes the handle it
-    // sends from and refuses a file that changed after this check.
-    const expectedSourceRevision = await resolveYouTubeSourceRevisionCached(sourceVideoPath)
+    // The reviewed revision travels to the job. This route does NOT re-derive
+    // it, and that is the whole point of this block.
+    //
+    // It used to read and SHA-256 the entire rendered final here — a 2-4 GB
+    // read for a 96-minute 1080p render — to answer "do the bytes still match
+    // what was reviewed?". On the Mac mini that read competes with the running
+    // upload's own reads of the same file: measured 2026-10-18, the same POST
+    // took 2.3 s when the bytes were still in the page cache and 115.6 s when
+    // they were not (PR0011, job created 115.58 s after the request, past the
+    // caller's 120 s timeout). The 1.4.152 size/mtime/inode cache only helps
+    // while its entry survives; any move, re-copy or restart of the final
+    // makes the next POST pay the full read again.
+    //
+    // The generator answers the SAME question better and already answers it:
+    // it hashes the OPEN HANDLE it uploads from
+    // (`resolveYouTubeSourceRevisionFromHandle`) and runs the same
+    // `reviewed_unchanged` safety check on that digest — refusing before any
+    // operation record is written, before any quota is charged and before a
+    // single byte is sent. So the request path keeps the cheap question (is
+    // there a rendered file at all — above) and the exact one moves to the
+    // bytes actually sent.
     const reviewedSourceRevision = typeof req.body?.expected_source_revision === 'string'
       ? req.body.expected_source_revision.trim()
       : ''
@@ -2445,14 +2462,6 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       res.status(400).json({
         code: 'YOUTUBE_CONFIRMATION_REQUIRED',
         detail: 'Review the rendered video before confirming its upload.',
-      })
-      return
-    }
-    if (reviewedSourceRevision !== expectedSourceRevision && !await letThrough('reviewed_unchanged',
-      'The rendered video changed after review; uploading the video as it is now.')) {
-      res.status(409).json({
-        code: 'YOUTUBE_PREVIEW_STALE',
-        detail: 'The rendered video changed after review. Review and confirm the upload again; nothing was uploaded.',
       })
       return
     }
@@ -2513,7 +2522,12 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
         account_id: accountId,
         expected_channel_id: channelId,
         expected_package_revision: built.package_revision,
-        expected_source_revision: expectedSourceRevision,
+        // The revision the owner actually reviewed. The generator compares it
+        // with the hash of the open handle it uploads from and runs the
+        // `reviewed_unchanged` safety check on that comparison — the same
+        // check, on the bytes that are sent, instead of on a second read of
+        // the whole file in the request.
+        expected_source_revision: reviewedSourceRevision,
         approved_final_payload: built.final_payload,
         approved_upload_mode: approvedUploadMode,
         ...(built.thumbnail_filename !== undefined ? { thumbnail_filename: built.thumbnail_filename } : {}),

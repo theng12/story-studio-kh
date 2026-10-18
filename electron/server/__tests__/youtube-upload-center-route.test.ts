@@ -10,6 +10,7 @@ import type { CommentCacheState } from '../services/youtube-project-publishing-s
 import { useTempDataDir } from './_helpers.js'
 import { FakeYouTube } from './fixtures/fake-youtube.js'
 import { tinyVideoWithSoundBytes as tinyVideoBytes } from './fixtures/tiny-video.js'
+import { waitFor } from './_timing.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 
 const boot = await useTempDataDir()
@@ -4778,24 +4779,135 @@ test('episode codes sort by their trailing number, and total counts every episod
 })
 
 
-test('upload preview pins rendered bytes and refuses a changed file with the same size and timestamp', async () => {
+test('upload preview pins rendered bytes: a revision that no longer matches is refused by the job, not by a second read in the POST', async () => {
   const { slug, episodeCode, title } = await uploadReadyProject()
-  const body = await confirmedUploadBody(slug, episodeCode)
-  const jobsBefore = (await jobQueue.getJobs(slug)).length
-  assert.match(body.expected_source_revision, /^sha256:[a-f0-9]{64}$/)
   const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
-  const filename = path.join(paths.video_dir, `${episodeCode}_final_video.mp4`)
-  const before = await fs.stat(filename)
-  await fs.writeFile(filename, 'other-bytes')
-  await fs.utimes(filename, before.atime, before.mtime)
-  assert.equal((await fs.stat(filename)).size, before.size)
+  // A real, probeable render and a thumbnail, so the only thing that can
+  // refuse this upload is the source-revision check itself.
+  await fs.writeFile(path.join(paths.video_dir, `${episodeCode}_final_video.mp4`), tinyVideoBytes())
+  await fs.mkdir(paths.thumb_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.thumb_dir, `${episodeCode}_Thumb01_v1.png`), PNG)
+  const reviewed = await confirmedUploadBody(slug, episodeCode)
+  assert.match(reviewed.expected_source_revision, /^sha256:[a-f0-9]{64}$/)
+  // The render changed after the review (an earlier file was reviewed): the
+  // owner's confirmation names bytes that are no longer on disk.
+  const body = { ...reviewed, expected_source_revision: `sha256:${'0'.repeat(64)}` }
+  const jobsBefore = (await jobQueue.getJobs(slug)).length
   const fake = new FakeYouTube()
   __setYouTubeTransportForTests(fake.transport())
+
+  // The POST admits the job carrying the revision the OWNER reviewed. It does
+  // not read the render: that read was a whole-file SHA-256 on the request
+  // path — 115.6 s on the Mac mini (2026-10-18, PR0011) for a 96-minute final
+  // whose bytes were not in the page cache, past the caller's 120 s timeout.
   const res = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
-  assert.equal(res.status, 409)
-  assert.equal(res.body.code, 'YOUTUBE_PREVIEW_STALE')
-  assert.match(res.body.detail, /rendered video changed/)
-  assert.equal((await jobQueue.getJobs(slug)).length, jobsBefore)
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.ok(res.body.job_id, 'a job was queued')
+  assert.equal((await jobQueue.getJobs(slug)).length, jobsBefore + 1, 'exactly one job')
+  const queued = jobQueue.getJob(res.body.job_id)
+  assert.equal(queued?.params?.expected_source_revision, body.expected_source_revision,
+    'the reviewed revision travels to the job unchanged')
+
+  // The generator asks the same question on the bytes it would send, and
+  // refuses before any operation record or provider call. This is the guard
+  // the request path used to duplicate.
+  const running: any = {
+    job_id: queued!.job_id, project_slug: slug, episode_id: episodeCode,
+    output_lines: [], params: queued!.params,
+  }
+  await assert.rejects(() => generateYoutubeUpload(running), /changed after confirmation/)
+  assert.equal(fake.calls.length, 0, 'nothing was sent to YouTube')
+  assert.deepEqual(await operations.listYouTubeOperations(slug), [],
+    'no durable operation intent was written for bytes the owner never reviewed')
+  await removeQueuedTestJob(slug, res.body.job_id)
+})
+
+test('the upload POST never opens the rendered bytes', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const body = await confirmedUploadBody(slug, episodeCode)
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  const filename = path.join(paths.video_dir, `${episodeCode}_final_video.mp4`)
+  // Unreadable, still a non-empty file: the request path may stat it and must
+  // not read it. Before this fix the route SHA-256'd the whole render here —
+  // on a real episode a 2-4 GB read on the request thread, competing with the
+  // upload's own reads of the same file — and this POST answered 500.
+  await fs.chmod(filename, 0o000)
+  try {
+    const res = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.ok(res.body.job_id, 'a job was queued without reading the render')
+    assert.equal(jobQueue.getJob(res.body.job_id)?.params?.expected_source_revision, body.expected_source_revision)
+    await removeQueuedTestJob(slug, res.body.job_id)
+  } finally {
+    await fs.chmod(filename, 0o600)
+  }
+})
+
+test('the upload POST answers while the upload itself is still in progress', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  // A real, probeable render and a thumbnail: this test runs the job as well
+  // as the route, so the upload must be admissible all the way to the provider.
+  await fs.writeFile(path.join(paths.video_dir, `${episodeCode}_final_video.mp4`), tinyVideoBytes())
+  await fs.mkdir(paths.thumb_dir, { recursive: true })
+  await fs.writeFile(path.join(paths.thumb_dir, `${episodeCode}_Thumb01_v1.png`), PNG)
+  const body = await confirmedUploadBody(slug, episodeCode)
+
+  const SESSION = 'https://upload.youtube.test/resumable/slow-session'
+  const fake = new FakeYouTube()
+  fake.respond({
+    method: 'POST',
+    path: '/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+    body: {},
+    headers: { Location: SESSION },
+  })
+  fake.respond({ method: 'PUT', path: '/resumable/slow-session', body: { id: 'video-slow' } })
+  fake.respondMatching({ method: 'POST', match: /\/thumbnails\/set/, body: {} })
+  // The slow provider: every PUT of video bytes waits on this gate, so the
+  // upload is genuinely still in progress while the assertions below run.
+  let releaseUpload!: () => void
+  const uploadHeld = new Promise<void>(resolve => { releaseUpload = resolve })
+  const inner = fake.transport()
+  __setYouTubeTransportForTests(async (input, init) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    if (url.includes('/resumable/')) await uploadHeld
+    return inner(input, init)
+  })
+
+  const jobsBefore = (await jobQueue.getJobs(slug)).length
+  const res = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  const jobId = res.body.job_id
+  assert.ok(jobId, 'the POST answered with a job while nothing had been uploaded')
+  assert.equal((await jobQueue.getJobs(slug)).length, jobsBefore + 1, 'the POST queued exactly one job')
+
+  // Run the job the route queued — its OWN params, not invented ones (this
+  // lane's executor is registered by the app's boot, not by this harness).
+  const queued = jobQueue.getJob(jobId)
+  assert.ok(queued, 'the queued job is readable')
+  const running: any = {
+    job_id: queued!.job_id, project_slug: slug, episode_id: episodeCode,
+    output_lines: [], params: queued!.params,
+  }
+  let finished = false
+  const upload = generateYoutubeUpload(running).finally(() => { finished = true })
+  // The provider holds the video bytes, so the upload is genuinely still in
+  // progress while the POST's answer is already in hand.
+  await waitFor(
+    () => fake.calls.some(call => call.method === 'POST' && call.path.includes('uploadType=resumable')),
+    { label: 'the upload to reach the provider' },
+  )
+  assert.equal(finished, false, 'the upload is still in progress')
+  assert.equal(res.body.job_id, jobId, 'the POST had already answered, with this job')
+  assert.equal(fake.calls.filter(call => call.method === 'PUT').length, 0,
+    'no video bytes have been sent: the POST did not wait for the transfer')
+
+  releaseUpload()
+  await upload
+  assert.equal(fake.calls.filter(call => call.method === 'PUT').length, 1, 'the bytes were sent once')
+  assert.equal((await jobQueue.getJobs(slug)).length, jobsBefore + 1,
+    'still exactly one job: the in-flight upload never spawned a duplicate')
+  await removeQueuedTestJob(slug, jobId)
 })
 
 test('upload requires the rendered file revision from explicit review', async () => {
