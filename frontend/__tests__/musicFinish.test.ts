@@ -99,7 +99,7 @@ describe('Episode Builder additions', () => {
   })
   test('the pictures preset is the Scene Review preset Pipeline reads', () => {
     assert.match(page, /configKey: 'scene_review_genstudio',\s+presetType: 'scene-review'/)
-    assert.match(page, /auto_approve_generated: true \}\)/)
+    assert.match(page, /auto_approve_generated: true,?\s*\}\)/)
   })
   test('the stills window is a per-episode setting and marks used stills; a repeat is a deliberate choice', () => {
     assert.match(page, /Don't repeat a pool still for/)

@@ -68,7 +68,7 @@ async function loadJobs(): Promise<Component> {
     const jobDisplayLabel = globalThis.__jobDisplayLabel
     const jobsEmptyState = globalThis.__jobsEmptyState
     const retryAdmissionAllowed = globalThis.__retryAdmissionAllowed
-    import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, pageCount, pageSlice } from ${JSON.stringify(new URL('../utils/jobs-list.ts', import.meta.url).href)}
+    import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice } from ${JSON.stringify(new URL('../utils/jobs-list.ts', import.meta.url).href)}
   `
   const content = script.content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm, '')
