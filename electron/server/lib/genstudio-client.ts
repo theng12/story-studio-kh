@@ -119,7 +119,19 @@ const NETWORK_RETRY_ATTEMPTS = 4
  */
 export const GENSTUDIO_JOB_READ_ATTEMPTS = 12
 const CATALOG_RETRY_ATTEMPTS = 3
-const CATALOG_REQUEST_TIMEOUT_MS = 8_000
+/**
+ * One catalogue GET's own ceiling.
+ *
+ * Thirty seconds, the same as a control call (`GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS`).
+ *
+ * It used to be eight. On the overloaded production Mac mini the catalogue reads
+ * (`/v1/tts/models`, `/v1/chat/models`) timed out for more than half an hour while
+ * 30-second control calls to the SAME Gateway answered normally — so the ceiling,
+ * not the Gateway, was what failed. A catalogue read is free and idempotent and the
+ * copy it refreshes is good for `CATALOG_FRESH_MS`, so waiting longer costs nothing;
+ * giving up at eight seconds made the stale-catalogue guard refuse paid jobs.
+ */
+export const CATALOG_REQUEST_TIMEOUT_MS = 30_000
 const CATALOG_FRESH_MS = 5 * 60_000
 const CATALOG_STALE_MS = 30 * 60_000
 /** How long a last-known account overview stays showable, clearly marked stale. */

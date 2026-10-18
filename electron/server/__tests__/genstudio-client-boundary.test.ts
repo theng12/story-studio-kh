@@ -24,6 +24,7 @@ import {
   getGenStudioAccountOverview,
   GenStudioApiError,
   GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS,
+  CATALOG_REQUEST_TIMEOUT_MS,
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   GENSTUDIO_JOB_READ_ATTEMPTS,
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
@@ -859,6 +860,16 @@ test('Gateway long jobs are not constrained by a short client timeout', () => {
   assert.equal(GENSTUDIO_LONG_JOB_TIMEOUT_MS, 7 * 24 * 60 * 60_000)
   assert.equal(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, 30_000)
   assert.equal(GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS, 5 * 60_000)
+})
+
+test('a free catalogue read is allowed as long as a control call', () => {
+  // Was 8 s, and on the overloaded production mini that ceiling — not the Gateway —
+  // was what failed: catalogue reads timed out for >30 min while 30-second control
+  // calls to the same Gateway answered, and the stale-catalogue guard then refused
+  // paid jobs. A catalogue read is free and idempotent and its result is good for
+  // five minutes, so there is nothing to gain by giving up on it early.
+  assert.equal(CATALOG_REQUEST_TIMEOUT_MS, 30_000)
+  assert.ok(CATALOG_REQUEST_TIMEOUT_MS >= GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS)
 })
 
 test('individual Gateway requests time out before the durable job deadline', async () => {
