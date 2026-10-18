@@ -1,6 +1,14 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.321 source prepared — 2026-10-18 (NOT released, NOT gated)
+## 1.4.321 gated and landed — 2026-10-19
+
+Full gate on main: lint, the four checks, typecheck, test:backend 7484 tests / 7482 pass (the one
+failure was the version bump un-escaping package.json's `\u2014`; restored in cf6d7cc1 and
+source-manifest-integrity re-run 4/4), test:frontend 2663/2663, test:release 63/63,
+test:content-packs 366 pass / 0 fail. Publication and the mini update follow via
+`_orchestra/codex-takeover-20261012/tools/ship-story.py 1.4.321`. Source notes below.
+
+### Source notes (prepared 2026-10-18)
 
 Branch `release/1.4.321` in `_worktrees/story-studio-kh/release-321`, from `origin/main` `38644209`
 (1.4.320, released), with `fix/upload-post-latency` (`ee4b8a9f`) merged in. SOURCE ONLY: no DMG, no
