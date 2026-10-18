@@ -216,6 +216,25 @@ export interface ProjectFactsCache {
    * re-listed the whole season folder.
    */
   siblingListings?: Map<string, Promise<import('fs').Dirent[] | null>>
+  /**
+   * Per-episode upload sidecars, read at most once per request.
+   *
+   * A readiness sweep asks the same episode's sidecar from three readers — the
+   * item schedule, the legacy-upload index and `remoteVideoFor` — and each one
+   * re-resolved the episode folder and re-read the file. Keyed
+   * `{platform}:{episode_code}` (plus a `:strict` variant, because the strict
+   * reader throws where the tolerant one answers null). Typed loosely on
+   * purpose: `upload-sidecar.ts` owns the concrete type, and importing it here
+   * would pull the whole upload store into every path resolver.
+   */
+  sidecars?: Map<string, Promise<unknown>>
+  /**
+   * Episode folders present in one `Season NNN/` folder of a channel's Exports
+   * tree, read at most once per request. `null` = the listing FAILED (the
+   * caller then falls back to a direct probe rather than calling the folder
+   * empty). Owned by `external-video-store.ts`; keyed by the season directory.
+   */
+  exportSeasonFolders?: Map<string, Promise<Set<string> | null>>
 }
 
 export function createProjectFactsCache(slug?: string): ProjectFactsCache {
@@ -644,6 +663,49 @@ export async function resolveEpisodePathsByCodeWithSidecar(
 ): Promise<EpisodePaths> {
   const paths = await resolveEpisodePathsByCode(slug, code, cache)
 
+  // The season folder's listing, read at most once per request and season. It
+  // is fetched BEFORE any per-episode probe, because it alone decides whether
+  // the probe can change the answer at all — see the fast path below.
+  const seasonDir = path.dirname(path.resolve(paths.episode_dir))
+  const listSeason = async () => (await import('fs/promises')).readdir(seasonDir, { withFileTypes: true }).catch(() => null)
+  const scoped = usableFor(cache, slug)
+  let listing = scoped?.siblingListings?.get(seasonDir)
+  if (!listing) {
+    listing = listSeason()
+    if (scoped) (scoped.siblingListings ??= new Map()).set(seasonDir, listing)
+  }
+  const entries = await listing
+  if (!entries) return paths
+
+  // The sibling folders that share this episode's code, in listing order (the
+  // order the original scan visited them, so the same one still wins).
+  const wanted = code.toLowerCase()
+  const canonical = path.resolve(paths.episode_dir)
+  const candidates: string[] = []
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const name = entry.name.toLowerCase()
+    if (name !== wanted && !name.startsWith(`${wanted} - `)) continue
+    const candidateDir = path.join(seasonDir, entry.name)
+    if (path.resolve(candidateDir) === canonical) continue
+    candidates.push(candidateDir)
+  }
+
+  // FAST PATH — one folder carries this code, and it is the canonical one.
+  //
+  // The original order was: probe the canonical folder, and only then list the
+  // season and probe the same-code siblings. When there are no siblings the
+  // probe cannot change the answer — true returns the canonical paths, false
+  // falls through the (empty) sibling scan to the same canonical paths — so it
+  // was two `existsSync` and a `readdir` per episode to learn nothing. A
+  // duplicate folder for one code is the exception (a rename left two behind),
+  // and that case still takes the full path below.
+  //
+  // Equivalent to the original for every input, including an unreadable season
+  // folder (`entries === null` above, which the original also ended as the
+  // canonical paths).
+  if (candidates.length === 0) return paths
+
   // v1.0.467 — scene_plan.json moved INTO the "03 Scene Prompts" subfolder.
   // The sidecar may sit at the episode root (legacy episodes) OR inside that
   // subfolder (post-migration / fresh). Check both when deciding which
@@ -660,24 +722,7 @@ export async function resolveEpisodePathsByCodeWithSidecar(
 
   if (await hasSidecar(paths.episode_dir)) return paths
 
-  const seasonDir = path.dirname(path.resolve(paths.episode_dir))
-  const listSeason = async () => (await import('fs/promises')).readdir(seasonDir, { withFileTypes: true }).catch(() => null)
-  const scoped = usableFor(cache, slug)
-  let listing = scoped?.siblingListings?.get(seasonDir)
-  if (!listing) {
-    listing = listSeason()
-    if (scoped) (scoped.siblingListings ??= new Map()).set(seasonDir, listing)
-  }
-  const entries = await listing
-  if (!entries) return paths
-
-  const wanted = code.toLowerCase()
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const name = entry.name.toLowerCase()
-    if (name !== wanted && !name.startsWith(`${wanted} - `)) continue
-    const candidateDir = path.join(seasonDir, entry.name)
-    if (path.resolve(candidateDir) === path.resolve(paths.episode_dir)) continue
+  for (const candidateDir of candidates) {
     if (await hasSidecar(candidateDir)) {
       return rebaseEpisodePaths(paths, candidateDir)
     }

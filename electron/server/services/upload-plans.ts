@@ -26,6 +26,7 @@ import type { UploadPlatform } from './upload-store.js'
 import { operationPublicationFacts, readYouTubeRetentionStores } from './youtube-remote-video.js'
 import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { isYouTubeVideoRemoved } from './youtube-project-publishing-store.js'
+import type { ProjectFactsCache } from './utils.js'
 
 export interface UploadSchedule {
   /** 0-6, Sunday = 0. Empty array + monthly_day set = monthly mode. */
@@ -716,13 +717,17 @@ function daysBetween(a: Date, b: Date, tz: string): number {
 
 export const LEGACY_SCHEDULE_FIELD = 'upload_item_schedule'
 
-export async function readItemPublicationStates(slug: string): Promise<Record<string, {
+export async function readItemPublicationStates(slug: string, cache?: ProjectFactsCache): Promise<Record<string, {
   privacy_status?: string
   scheduled_for?: string | null
 }>> {
   const out: Record<string, { privacy_status?: string; scheduled_for?: string | null }> = {}
-  const ideas = await im.getIdeas(slug, 'accepted')
-  const { records: operations, state } = await readYouTubeRetentionStores(slug)
+  // The caller's request-scoped facts. Without it a per-episode sweep re-read
+  // and re-parsed project.json and ideas.json for EVERY episode — the global
+  // Publishing Overview asks this once per channel, so the whole channel paid
+  // it 250 times over.
+  const ideas = await im.getIdeas(slug, 'accepted', cache)
+  const { records: operations, state } = await readYouTubeRetentionStores(slug, cache)
   const assignedChannel = (await getProjectYouTubeAssignment(slug))?.channel_id
   await Promise.all(ideas.map(async (idea) => {
     if (!idea.episode_code) return
@@ -730,7 +735,7 @@ export async function readItemPublicationStates(slug: string): Promise<Record<st
       && (!assignedChannel || record.channel_id === assignedChannel)
       && !isYouTubeVideoRemoved(state, idea.episode_code!, record.channel_id, record.video_id)).at(-1)
     const facts = canonical ? operationPublicationFacts(canonical) : {}
-    const sc = await readSidecarStrict(slug, idea.episode_code, 'youtube')
+    const sc = await readSidecarStrict(slug, idea.episode_code, 'youtube', cache)
     const removedSidecar = isYouTubeVideoRemoved(state, idea.episode_code, sc?.channel_id, sc?.video_id)
     out[idea.episode_code] = {
       ...(facts.privacy_status !== undefined
@@ -753,9 +758,9 @@ export async function readItemPublicationStates(slug: string): Promise<Record<st
 }
 
 /** Build the canonical schedule map, with planning/legacy sidecars as fallback. */
-export async function readItemSchedule(slug: string): Promise<Record<string, string>> {
+export async function readItemSchedule(slug: string, cache?: ProjectFactsCache): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
-  const states = await readItemPublicationStates(slug)
+  const states = await readItemPublicationStates(slug, cache)
   for (const [code, state] of Object.entries(states)) {
     if (state.scheduled_for) out[code] = state.scheduled_for
   }
