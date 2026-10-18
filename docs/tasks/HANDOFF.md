@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.322 — 2026-10-19 (gate running)
+
+Merged on main: `fix/jobs-read-latency` (one serialization per job on GET /jobs/all, redactSecrets no-match fast path; CATALOG_REQUEST_TIMEOUT_MS 8 s → 30 s plus a 5-min TTS/chat catalogue refresh scheduler), `perf/overview-bulk-evidence` (per-request sidecar memo and listing-first path resolution; overview fs calls 21.6 → 2.4 per episode, same figures), `fix/upload-center-width` (`.uc-table { position: relative }` so sr-only spans cannot widen the document). Open owner decision: Jobs list still returns the whole fleet history per read (~128 MB at production size); paging would change client-side search/select-all.
+
 ## 1.4.321 gated and landed — 2026-10-19
 
 Full gate on main: lint, the four checks, typecheck, test:backend 7484 tests / 7482 pass (the one

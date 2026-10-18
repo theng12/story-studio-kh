@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.322 — 2026-10-19
+
+- The Jobs list loads faster and no longer slows the rest of the app while many jobs run.
+- Publishing Overview's first load is about five times faster on a large library, with the same counts.
+- Voice and language lists from the Gateway now wait up to 30 seconds and refresh in the background every 5 minutes, so a busy period can no longer block narration or scene planning.
+- Upload Center → Analytics no longer makes the whole page scroll sideways; its wide table scrolls inside its own box.
+
 ## v1.4.321 — 2026-10-18
 
 - Pressing Upload now answers straight away. The upload request no longer reads the whole rendered video first — for a 96-minute episode that was a 2–4 GB read competing with the upload itself, which is why an upload could sit for over two minutes before it even appeared in Jobs, and why a second press looked like it did nothing. The check that the video has not changed still happens, on the file the uploader actually sends, and a changed video is still refused with the same message before anything leaves your Mac.
