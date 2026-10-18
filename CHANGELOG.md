@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.321 — 2026-10-18
+
+- Pressing Upload now answers straight away. The upload request no longer reads the whole rendered video first — for a 96-minute episode that was a 2–4 GB read competing with the upload itself, which is why an upload could sit for over two minutes before it even appeared in Jobs, and why a second press looked like it did nothing. The check that the video has not changed still happens, on the file the uploader actually sends, and a changed video is still refused with the same message before anything leaves your Mac.
+- The app stays responsive while uploads and renders are running. Loading your channels, thumbnails and update status no longer queues thousands of small disk lookups behind the uploads' own reads, so pages open instead of hanging.
+- Publishing Overview loads faster. It is no longer rebuilt from scratch every time it is opened — a second look reuses the sweep it just did, and Refresh still shows you the newest state immediately.
+
 ## v1.4.320 — 2026-10-18
 
 - Saving a Finish missing images request now keeps the admission and provider callbacks in one coordinated write, so a failed request cannot reappear on a later save and a late callback cannot undo an accepted request.

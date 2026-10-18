@@ -71,7 +71,7 @@ import { buildYouTubeMetadataPackage, resanitizeStoredSnippet, resolveYouTubeUpl
 import { enqueueOrRun, getJobs, isDuplicate } from '../services/job-queue.js'
 import type { Job } from '../models/types.js'
 import { listUploadThumbnails, resolveUploadMetadata } from '../lib/upload-metadata.js'
-import { createProjectFactsCache, resolveEpisodePaths } from '../services/utils.js'
+import { createProjectFactsCache, resolveEpisodePaths, EPISODE_PROBE_BATCH } from '../services/utils.js'
 import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
 import { safetyMode } from '../services/safety-checks.js'
@@ -83,6 +83,7 @@ import {
 import { readSidecarStrict, setScheduledFor } from '../services/upload-sidecar.js'
 import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES } from '../services/youtube-remote-video.js'
 import { UPLOAD_STORE_UNREADABLE, latestEpisodeUploadJob, localUploadProjection } from '../services/youtube-local-upload.js'
+import { invalidatePublishingOverviewCache } from '../services/publishing-overview.js'
 import { movableLocalClaims } from '../services/episode-autoschedule.js'
 import * as im from '../services/idea-manager.js'
 import { getProjectDir } from '../services/project-manager.js'
@@ -550,8 +551,11 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
       .filter(idea => !!idea.episode_code)
       .sort((a, b) => episodeCodeOrder(b.episode_code!) - episodeCodeOrder(a.episode_code!))
 
-    // ponytail: fixed batch of 32; raise only if a measured sweep says so.
-    const BATCH = 32
+    // ponytail: the shared per-episode probe bound — the SAME number the global
+    // Publishing Overview sweeps with, because this is the same sweep over the
+    // same episodes. At 32 wide it queued thousands of fs calls behind the
+    // running uploads' own reads and the whole app stopped answering.
+    const BATCH = EPISODE_PROBE_BATCH
     const episodes: any[] = []
     for (let i = 0; i < ordered.length; i += BATCH) {
       const batch = await Promise.all(ordered.slice(i, i + BATCH).map(async (idea) => {
@@ -3334,6 +3338,13 @@ router.post('/projects/:slug/youtube/sync', async (req, res) => {
     res.json({ ...result, attempt_recorded })
   } catch (error) {
     fail(res, error, 'Failed to sync with YouTube.')
+  } finally {
+    // The Publishing Overview is a cached sweep of every channel, and this is
+    // the deliberate refresh its page offers: whatever this sync found has to
+    // be visible on the re-read that follows. Also when it FAILED — a partial
+    // sync still moved state, and the owner pressed refresh expecting to see
+    // what is there now, not what was there a minute ago.
+    invalidatePublishingOverviewCache()
   }
 })
 

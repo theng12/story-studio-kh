@@ -1,5 +1,48 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.321 source prepared — 2026-10-18 (NOT released, NOT gated)
+
+Branch `release/1.4.321` in `_worktrees/story-studio-kh/release-321`, from `origin/main` `38644209`
+(1.4.320, released), with `fix/upload-post-latency` (`ee4b8a9f`) merged in. SOURCE ONLY: no DMG, no
+landing, no push. Version `1.4.321` in both `package.json` and `package-lock.json`; newest-first
+changelog entry added; `check:changelog` exit 0.
+
+Three fixes, all for the production mini going unresponsive while ten jobs ran (renders + YouTube
+uploads) — GET /projects 49 s, /thumbnails 22 s, /app-update/status 45 s, preview-media streams
+stalled:
+
+1. **Upload POST no longer re-reads the render** (`ee4b8a9f`, merged from `fix/upload-post-latency`).
+   The route SHA-256'd the whole 2–4 GB final on the request path; the job's own
+   `resolveYouTubeSourceRevisionFromHandle` check is the one that matters. Already fixed on that
+   branch, carried here unchanged.
+2. **The Library path is no longer re-read for unrelated settings.** `services/project-manager.ts`:
+   `invalidateProjectsRootCache` now takes the written KEY and drops the cache only for `library_root`
+   / `projects_root_override` (`appSettingMovesProjectsRoot`). It used to drop on ANY app-settings
+   write — including the hourly `retention_status` (`services/retention.ts`) and the queue pause flag
+   — putting `existsSync` + `readFileSync` + `JSON.parse` back on the per-request path through
+   `getProjectDir` → `routes/middleware.ts`.
+3. **The two readiness sweeps fan out 4-wide, not 32.** One shared
+   `EPISODE_PROBE_BATCH` in `services/utils.ts`, used by `services/publishing-overview.ts` (was
+   `READINESS_BATCH = 32`) and `routes/youtube-upload-center.ts` `GET /youtube/publishable` (was
+   `BATCH = 32`). Plus a 60 s single-flight result cache on `readPublishingOverview`
+   (`PUBLISHING_OVERVIEW_TTL_MS`), invalidated by `POST /projects/:slug/youtube/sync` — the refresh
+   the page's own button runs — so Refresh still shows the newest state.
+
+`UV_THREADPOOL_SIZE` is UNCHANGED at 16 (`electron/boot-env.ts`). No evidence was found that 16 is
+the wrong number: the stall is the fan-out width and the synchronous re-reads, not the pool size.
+Raising it would multiply the outstanding fs queue behind the uploads rather than shorten it.
+
+Verification run (all exit 0): `run-backend-tests.mjs --only publishing-overview --only
+youtube-upload-center --only project-manager --only projects-root-cache --only episode-probe-batch`
+→ 9 files, 247 tests, 247 pass, 0 fail (PARTIAL RUN); `--only request-path-blocking-io` → 14/14;
+`npx tsc -p electron/tsconfig.json --noEmit` 0 errors; `npm --prefix frontend run typecheck` 0
+errors. New focused tests: `publishing-overview-cache.test.ts`, `projects-root-cache.test.ts`,
+`episode-probe-batch.test.ts`. **The full unfiltered backend gate has NOT been run** (the coordinator
+owns it), and nothing is built or published.
+
+Still open from 1.4.320: the mini's normal update, and the follow-up read times under real load
+(this release is the fix to measure).
+
 ## Gated and landed on main — 2026-10-18 (1.4.320)
 
 Main carries the reviewed 1.4.320 integration plus, folded into the same release: queued-job

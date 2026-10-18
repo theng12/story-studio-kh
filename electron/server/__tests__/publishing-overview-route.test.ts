@@ -25,6 +25,7 @@ const store = await import('../services/youtube-project-publishing-store.js')
 const operations = await import('../services/youtube-operation-store.js')
 const sidecars = await import('../services/upload-sidecar.js')
 const jobQueue = await import('../services/job-queue.js')
+const overviewService = await import('../services/publishing-overview.js')
 const { router } = await import('../routes/publishing-overview.js')
 // The Publish page's own list, so a parity test can ask BOTH surfaces the same
 // question instead of trusting the overview's copy of the predicate.
@@ -117,6 +118,10 @@ test('a corrupt idea store reaches the client as unknown, never a confident 0', 
 
   // Unparseable: unknown, with a reason — and still a 200, not a 500.
   await fs.writeFile(`${pm.projectsRoot()}/${created.slug}/ideas.json`, '{ not json')
+  // The overview is cached for a minute. This corruption was written by hand,
+  // so no product write path announced it; a real one would have (see
+  // publishing-overview-cache.test.ts). Drop it the way that write would.
+  overviewService.invalidatePublishingOverviewCache()
   res = await request(app).get('/api/publishing/overview')
   assert.equal(res.status, 200)
   const channel = res.body.channels[0]
@@ -150,6 +155,9 @@ test('a failed YouTube link read is unknown through the route, with no publish r
 
   // The link read now fails: neither the count nor the publish claim can stand.
   await fs.writeFile(`${pm.projectsRoot()}/${created.slug}/youtube/project-state.json`, '{ not json')
+  // Hand-written corruption, so nothing announced a write: drop the cached
+  // sweep the way the deliberate refresh would.
+  overviewService.invalidatePublishingOverviewCache()
   res = await request(app).get('/api/publishing/overview')
   assert.equal(res.status, 200)
   const channel = res.body.channels[0]

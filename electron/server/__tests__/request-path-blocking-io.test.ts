@@ -211,12 +211,15 @@ describe('projectsRoot keeps its freshness contract without the per-call read', 
     const settings = await import('../services/app-settings.js')
 
     // The test override wins outright and is checked before the cache, so this
-    // suite's own isolation is unaffected either way. Prove the invalidation
-    // path directly instead: a write must drop the cache.
+    // suite's own isolation is unaffected either way. The invalidation rule
+    // itself — which writes may drop the cache — is pinned in
+    // projects-root-cache.test.ts, because the cache is unreachable at runtime
+    // from under the override. What is asserted here is the user-visible half: a
+    // write to a setting that cannot move the Library leaves the root alone.
     const first = pm.projectsRoot()
     await settings.setAppSetting('a_setting_that_is_not_the_library', 'x')
     const second = pm.projectsRoot()
-    assert.equal(second, first, 'the resolved path is unchanged — only the cache was dropped')
+    assert.equal(second, first, 'an unrelated setting cannot move where the Library is')
 
     // The stale-path bug class the comment on projectsRoot() describes must stay
     // fixed: a claimed data dir has to move the root, cache or no cache.

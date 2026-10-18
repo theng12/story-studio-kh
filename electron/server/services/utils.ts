@@ -24,6 +24,28 @@ export function projectDirFor(slug: string, cache?: ProjectFactsCache): string {
   return scoped.dir
 }
 
+/**
+ * How many episodes one readiness / publishability sweep probes at once.
+ *
+ * Both surfaces that ask "which episodes are finished and not on YouTube yet" —
+ * the global Publishing Overview and the Upload Center's publishable listing —
+ * resolve EVERY accepted episode, and each one costs a sidecar resolution plus a
+ * rendered-video probe: `resolveEpisodePaths`, `findYouTubeSourceVideoPath`,
+ * `remoteVideoFor`, several `existsSync`/`readdir` apiece.
+ *
+ * Those are async fs calls, so they share ONE libuv threadpool with everything
+ * else the process is doing. At 32 wide, a 19-channel / 854-episode sweep queued
+ * tens of thousands of operations behind the 2–4 GB an in-flight upload was
+ * reading in 10 MiB chunks, and the whole app stopped answering: measured on the
+ * production Mac mini, 2026-10-18 — GET /projects 49 s, /thumbnails 22 s,
+ * /app-update/status 45 s, preview-media streams stalled.
+ *
+ * Four keeps the sweep moving without monopolising the pool. The two surfaces
+ * MUST share this one number: they are the same sweep, and a bound that drifts
+ * apart between them is how the two screens start disagreeing about readiness.
+ */
+export const EPISODE_PROBE_BATCH = 4
+
 // ── Episode path resolver ───────────────────────────────────────────────────
 
 export function episodeNumber(code: string, prefix: string = 'EP'): number {

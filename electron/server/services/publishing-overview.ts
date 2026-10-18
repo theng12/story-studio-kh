@@ -59,7 +59,7 @@ import { remoteVideoFor } from './youtube-remote-video.js'
 import { uploadInFlight, latestEpisodeUploadJob, localUploadProjection } from './youtube-local-upload.js'
 import { readYouTubeConnectionRegistry, getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { resolveYouTubeCredential } from './youtube-credential.js'
-import { createProjectFactsCache, projectDirFor, resolveEpisodePaths, type ProjectFactsCache } from './utils.js'
+import { createProjectFactsCache, projectDirFor, resolveEpisodePaths, EPISODE_PROBE_BATCH, type ProjectFactsCache } from './utils.js'
 import { findYouTubeSourceVideoPath } from './youtube-source-video.js'
 import { episodeStepJobStates, STEP_JOB_TYPES } from '../contracts/episode-step-jobs.js'
 import type {
@@ -75,8 +75,36 @@ import type {
 /** How many expected slots ahead a channel's cadence is walked. */
 export const PLANNED_SLOT_HORIZON = 12
 
-/** Per-channel render sweep batch — the same bound the Publish page uses. */
-const READINESS_BATCH = 32
+/**
+ * How long a built overview is reused before it is computed again.
+ *
+ * The sweep behind this page resolves every accepted episode of every channel
+ * (19 channels / 854 episodes on the owner's machine) through sidecar resolution
+ * and a rendered-video probe, all of it queued on the same libuv threadpool the
+ * running uploads are reading gigabytes through. Paying that a second time for
+ * another look at the same page bought nothing: the page has a deliberate
+ * Refresh, and `invalidatePublishingOverviewCache()` is what it runs.
+ */
+export const PUBLISHING_OVERVIEW_TTL_MS = 60_000
+
+/** The per-process result cache. See `readPublishingOverview`. */
+let cachedOverview: {
+  /** The Library this was built from — a different Library is a different answer. */
+  root: string
+  at: number
+  value: Promise<PublishingOverviewResponse>
+} | null = null
+
+/**
+ * Drop the cached overview, so the next read recomputes it.
+ *
+ * Called by the deliberate refresh the page offers — POST
+ * /projects/:slug/youtube/sync — which is what the owner's Refresh button runs
+ * before re-reading this page.
+ */
+export function invalidatePublishingOverviewCache(): void {
+  cachedOverview = null
+}
 
 type Registry = Awaited<ReturnType<typeof readYouTubeConnectionRegistry>>
 
@@ -319,8 +347,8 @@ async function readReadiness(
       const ready: string[] = []
       const pending: string[] = []
       const unknown: string[] = []
-      for (let i = 0; i < withCode.length; i += READINESS_BATCH) {
-        const batch = withCode.slice(i, i + READINESS_BATCH)
+      for (let i = 0; i < withCode.length; i += EPISODE_PROBE_BATCH) {
+        const batch = withCode.slice(i, i + EPISODE_PROBE_BATCH)
         await Promise.all(batch.map(async (idea) => {
           try {
             let remote: Awaited<ReturnType<typeof remoteVideoFor>> | null = null
@@ -680,9 +708,34 @@ function priorityRank(reason: PublishingOverviewChannel['priority']['reason']): 
   return reason === 'earliest_uncovered_slot' ? 0 : reason === 'close_to_complete' ? 1 : 2
 }
 
-/** Every channel at once, in priority order: earliest confirmed gap first, then closest to finished. */
+/**
+ * Every channel at once, in priority order: earliest confirmed gap first, then closest to finished.
+ *
+ * Served from a short per-process cache, so a page that is opened again — or
+ * asked for by two windows at once — costs one sweep, not one per reader. The
+ * cache is SINGLE-FLIGHT: the entry is installed before any caller can run, so
+ * concurrent callers all await the same computation rather than each starting
+ * their own. A failed sweep is never cached, so one transient read failure is
+ * not inherited by everyone for the next minute.
+ *
+ * An explicit `now` always recomputes: it is a caller pinning the clock the
+ * answer is FOR, and a cached answer was computed for a different instant.
+ */
 export async function readPublishingOverview(options: { now?: number } = {}): Promise<PublishingOverviewResponse> {
-  const now = options.now ?? Date.now()
+  if (options.now !== undefined) return buildOverview(options.now)
+
+  const root = pm.projectsRoot()
+  const cached = cachedOverview
+  if (cached && cached.root === root && Date.now() - cached.at < PUBLISHING_OVERVIEW_TTL_MS) return cached.value
+
+  const at = Date.now()
+  const value = buildOverview(at)
+  cachedOverview = { root, at, value }
+  value.catch(() => { if (cachedOverview?.value === value) cachedOverview = null })
+  return value
+}
+
+async function buildOverview(now: number): Promise<PublishingOverviewResponse> {
   const projects = await pm.listProjects()
   const registry = await readYouTubeConnectionRegistry().catch(() => null)
 

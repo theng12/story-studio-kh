@@ -182,10 +182,24 @@ function readSettingSync(key: string): string {
  *
  * The freshness contract is UNCHANGED and must stay that way. It is now kept by
  * invalidation rather than by re-reading: `onAppSettingWritten` drops this the
- * moment any setting is written, so the very next call re-reads from disk. The
- * stale-path bug class the comment on `projectsRoot()` describes — a value
- * frozen before the caller could point it somewhere else — must never come back;
- * anything that can change where the Library is has to invalidate here.
+ * moment a setting that can MOVE THE LIBRARY is written, so the very next call
+ * re-reads from disk. The stale-path bug class the comment on `projectsRoot()`
+ * describes — a value frozen before the caller could point it somewhere else —
+ * must never come back; anything that can change where the Library is has to
+ * invalidate here.
+ *
+ * ── Why the key matters, and not just the write ──
+ *
+ * It used to drop on ANY app-settings write, and app-settings.json is written
+ * constantly by things that have nothing to do with the Library: the hourly
+ * retention status, the queue pause flag and its owner token, the last-seen
+ * version. Each of those turned the next `projectsRoot()` — which sits on the
+ * per-request path through `getProjectDir` — into an `existsSync` + a
+ * `readFileSync` + a `JSON.parse`, synchronously, on the event loop, while ten
+ * jobs were saturating the same disk. The setting that can move the Library is
+ * `library_root` (and its pre-1.4.3 name `projects_root_override`), so only
+ * those two keys invalidate. `appSettingMovesProjectsRoot` is the one place
+ * that rule lives.
  *
  * `STORY_STUDIO_DATA_DIR` is checked BEFORE this cache is ever consulted, so the
  * test-isolation property is untouched: a test that claims a temp dir gets its
@@ -193,7 +207,23 @@ function readSettingSync(key: string): string {
  */
 let cachedLibraryRoot: string | null = null
 
-function invalidateProjectsRootCache(): void {
+/**
+ * Can a write to this app-settings key change where the Library is?
+ *
+ * `library_root` is the one location setting (services/library.ts); the legacy
+ * `projects_root_override` is still read, so it can still move the root. Every
+ * other key — retention status, queue pause, last-seen version, ffmpeg paths,
+ * every tunable — cannot.
+ */
+export function appSettingMovesProjectsRoot(key: string): boolean {
+  return key === 'library_root' || key === 'projects_root_override'
+}
+
+function invalidateProjectsRootCache(key: string): void {
+  // Anything that cannot move the Library leaves the cached path alone. See the
+  // comment above: re-reading here put a synchronous file read on the request
+  // path every time an unrelated setting was written.
+  if (!appSettingMovesProjectsRoot(key)) return
   cachedLibraryRoot = null
 }
 
