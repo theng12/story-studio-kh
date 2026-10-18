@@ -65,7 +65,8 @@ async function disk(file: string): Promise<{ jobs: Job[]; [key: string]: unknown
 }
 function other(slug: string, id: string): Job {
   return { job_id: id, project_slug: slug, episode_id: id, type: 'broll_assemble', title: id, status: 'done',
-    params: { auto_retry: false }, output_lines: [], created_at: '2026-10-18T00:00:00.000Z' } as Job
+    params: { auto_retry: false }, output_lines: [], created_at: '2026-10-18T00:00:00.000Z',
+    started_at: null, finished_at: null, error: null }
 }
 function provider(id: string) {
   return { id, operation: 'image.generation' as const, state: 'succeeded' as const,

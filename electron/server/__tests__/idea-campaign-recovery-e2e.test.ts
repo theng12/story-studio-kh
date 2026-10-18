@@ -396,7 +396,7 @@ test('a saved key the provider never saw fails closed: no POST, and the record i
       idea_batch: {
         ordinal: 1, prompt: 'captured body', count: 2, model: MODEL,
         request_identity: `${env.project.slug}:${CAMPAIGN}:ideas:1`,
-        outputBudget: { tier: 'long', minimumTokens: 4_096 },
+        outputBudget: { tier: 'long' as const, minimumTokens: 4_096 },
         outputContract: ideaBatchOutputContract(),
         slots: [], keys: ['a', 'b'],
         idempotency_key: 'story-chat-never-submitted',
@@ -498,7 +498,7 @@ test('a partially persisted batch keeps its identity across a reread', async () 
     const record = {
       ordinal: 3, prompt: 'captured body', count: 2, model: MODEL,
       request_identity: `${env.project.slug}:${CAMPAIGN}:ideas:3`,
-      outputBudget: { tier: 'long', minimumTokens: 4_096 },
+      outputBudget: { tier: 'long' as const, minimumTokens: 4_096 },
       outputContract: ideaBatchOutputContract(),
       slots: [], keys: ['a', 'b'],
     }
@@ -538,7 +538,7 @@ test('the batch record survives the job store itself and comes back off disk', a
     const record = {
       ordinal: 2, prompt: 'captured body', count: 2, model: MODEL,
       request_identity: `${env.project.slug}:${CAMPAIGN}:ideas:2`,
-      outputBudget: { tier: 'long', minimumTokens: 4_096 },
+      outputBudget: { tier: 'long' as const, minimumTokens: 4_096 },
       outputContract: ideaBatchOutputContract(),
       slots: [], keys: ['a', 'b'],
       idempotency_key: 'story-chat-already-prepared',
@@ -583,7 +583,7 @@ test('a campaign already complete resolves a KEYLESS capture without posting', a
       idea_batch: {
         ordinal: 1, prompt: 'captured', count: 2, model: MODEL,
         request_identity: `${env.project.slug}:${CAMPAIGN}:ideas:1`,
-        outputBudget: { tier: 'long', minimumTokens: 4_096 },
+        outputBudget: { tier: 'long' as const, minimumTokens: 4_096 },
         outputContract: ideaBatchOutputContract(),
         slots: [], keys: ['a', 'b'],
       },

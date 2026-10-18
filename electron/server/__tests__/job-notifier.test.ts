@@ -431,7 +431,7 @@ describe('summarizeBatchEpisodes()', () => {
 
   test('groups step jobs by episode; states rank failed > cancelled > done', () => {
     const jobs = [
-      step('DM0013', 'done', { job_id: 'a1', type: 'script-only', created_at: '2026-10-18T00:00:00.000Z', finished_at: '2026-10-18T00:30:00.000Z' }),
+      step('DM0013', 'done', { job_id: 'a1', type: 'outline_only', created_at: '2026-10-18T00:00:00.000Z', finished_at: '2026-10-18T00:30:00.000Z' }),
       step('DM0013', 'done', { job_id: 'a2', type: 'expand_chapters', created_at: '2026-10-18T00:30:00.000Z', finished_at: '2026-10-18T00:40:00.000Z' }),
       step('DM0014', 'error', { job_id: 'b1', type: 'expand_chapters', error: 'provider timed out' }),
       step('DM0015', 'cancelled', { job_id: 'c1', type: 'expand_chapters' }),
@@ -497,9 +497,9 @@ describe('formatBatchMessage() — per-episode detail', () => {
 
   test('mixed done / failed / cancelled: counts, honest state lines, failure detail', () => {
     const jobs = [
-      mkJob({ status: 'done', job_id: 'a1', episode_id: 'DM0013', type: 'script-only' }),
+      mkJob({ status: 'done', job_id: 'a1', episode_id: 'DM0013', type: 'outline_only' }),
       mkJob({ status: 'error', job_id: 'b1', episode_id: 'DM0014', type: 'expand_chapters', error: 'provider timed out' }),
-      mkJob({ status: 'cancelled', job_id: 'c1', episode_id: 'DM0015', type: 'script-only' }),
+      mkJob({ status: 'cancelled', job_id: 'c1', episode_id: 'DM0015', type: 'outline_only' }),
     ]
     const episodes = summarizeBatchEpisodes(jobs, new Map([['DM0013', 'The Lost Temple'], ['DM0014', 'River of Night']]))
     const { title, body } = formatBatchMessage({ ...STATS, total: 3, success: 1, fail: 1, cancelled: 1, elapsed_ms: 7_500_000 }, 'Story Sprout', episodes)

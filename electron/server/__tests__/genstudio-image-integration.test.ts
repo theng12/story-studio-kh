@@ -451,7 +451,7 @@ test('an omitted ratio submits live 16:9 even when the Gateway flags 1:1', async
     await provider.generateImage({
       prompt: 'A calm river at dusk.',
       apiKey: 'story-default-ratio-key',
-      aspectRatio: undefined,
+      aspectRatio: '',
       modelId: 'genstudio-image-fast-v1',
       providerParams: { provider: 'genstudio-image' },
       idempotencyIdentity: 'story-default-ratio',
@@ -472,6 +472,7 @@ test('an omitted ratio and resolution land on one published row', async () => {
     await provider.generateImage({
       prompt: 'A calm river at dusk.',
       apiKey: 'story-default-row-key',
+      aspectRatio: '',
       modelId: 'genstudio-image-fast-v1',
       providerParams: { provider: 'genstudio-image' },
       idempotencyIdentity: 'story-default-row',

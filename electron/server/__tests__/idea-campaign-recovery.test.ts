@@ -53,8 +53,8 @@ describe('the durable batch record', () => {
   const record = {
     ordinal: 2, count: 7, model: 'mock-chat-v1', prompt: 'exact body', keys: ['EP0001', 'EP0002'],
     request_identity: 'slug:campaign:ideas:2',
-    outputBudget: { tier: 'long', minimumTokens: 7_168 },
-    outputContract: { mode: 'json_object', schema: { type: 'object' } },
+    outputBudget: { tier: 'long' as const, minimumTokens: 7_168 },
+    outputContract: { mode: 'json_object' as const, schema: { type: 'object' } },
     idempotency_key: 'story-chat-abc',
   }
 
