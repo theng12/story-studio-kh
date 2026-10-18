@@ -1,6 +1,8 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.323 — 2026-10-19 (gate running)
+## 1.4.323 — 2026-10-19 (gated and landed)
+
+Full gate on main 3974bbdb: lint, four checks, typecheck, test:backend 7500 / 7499 pass / 0 fail (unfiltered), test:frontend 2663/2663, test:release 63/63, test:content-packs 366 pass / 0 fail — all exit 0.
 
 Merged `fix/updater-resume` (b6e15a48): app-update keeps the staging `.part` for the same release (sha256), resumes with `Range: bytes=N-` + `If-Range: <sha256>` (206 append / 200 replace / 416 restart), no absolute 15-min deadline (30 s inactivity only), status reports downloaded_bytes/total_bytes. Why: the mini reaches the Gateway only via Tailscale DERP (~115 KB/s, mini advertises no endpoints); 1.4.320's updater aborted every attempt at ~41% and restarted from zero, so 1.4.321/322 never installed remotely. A 320 mini still needs one manual install or a direct path to get this fix.
 
