@@ -1,6 +1,8 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.322 — 2026-10-19 (gate running)
+## 1.4.322 — 2026-10-19 (gated and landed)
+
+Full gate on main c9616daa: lint, four checks, typecheck, test:backend 7496 / 7495 pass / 0 fail (unfiltered), test:frontend 2663/2663, test:release 63/63, test:content-packs 366 pass / 0 fail — all exit 0. First attempt stopped at check:model-drift on the crash label 'genstudio-catalog-refresh' (renamed 'catalogue-refresh').
 
 Merged on main: `fix/jobs-read-latency` (one serialization per job on GET /jobs/all, redactSecrets no-match fast path; CATALOG_REQUEST_TIMEOUT_MS 8 s → 30 s plus a 5-min TTS/chat catalogue refresh scheduler), `perf/overview-bulk-evidence` (per-request sidecar memo and listing-first path resolution; overview fs calls 21.6 → 2.4 per episode, same figures), `fix/upload-center-width` (`.uc-table { position: relative }` so sr-only spans cannot widen the document). Open owner decision: Jobs list still returns the whole fleet history per read (~128 MB at production size); paging would change client-side search/select-all.
 
