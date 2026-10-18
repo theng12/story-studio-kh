@@ -24,6 +24,13 @@
  *   single-instance lock, so a running
  *   copy of the app does not make the smoke test silently exit 0.
  *
+ * Stop contract (TERM-only):
+ *   This script sends the packaged app exactly one signal, a bounded SIGTERM,
+ *   and never escalates to SIGKILL. An app that will not exit is a failed
+ *   launch: it is reported loudly (`ok: false`), left running, and its
+ *   sandbox is left in place so the process and its files can be inspected —
+ *   a sandbox that is still in use is never moved or deleted.
+ *
  * Usage:
  *   node scripts/release/smoke-launch-artifact.mjs [--app <path.app>] [--timeout <ms>]
  */
@@ -38,6 +45,12 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(scriptDir, '..', '..')
 const contract = JSON.parse(fs.readFileSync(path.join(root, 'release', 'desktop-release-contract.json'), 'utf8'))
 
+// The only stop this script may send is a bounded SIGTERM; there is no SIGKILL
+// anywhere in it. Both bounds are constants so the settle is finite and legible:
+// 5 s / 100 ms is 50 polls of grace.
+export const TERM_GRACE_MS = 5_000
+export const TERM_POLL_MS = 100
+
 function argValue(name) {
   const exact = process.argv.indexOf(name)
   if (exact >= 0) return process.argv[exact + 1]
@@ -46,6 +59,57 @@ function argValue(name) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Bounded TERM-only stop. Returns `true` only when the caller's own `exited`
+ * evidence says the process is gone.
+ *
+ * `child.killed` is deliberately NOT used: Node sets it the moment a signal is
+ * *sent*, so it is evidence that we asked, not that the process died. The
+ * caller passes `exited` (its own 'exit' event) instead.
+ *
+ * @param {{ kill: (signal: string) => unknown }} child
+ * @param {{ exited: () => boolean, graceMs?: number, pollMs?: number, sleep?: (ms: number) => Promise<void> }} options
+ * @returns {Promise<boolean>}
+ */
+export async function stopChild(child, { exited, graceMs = TERM_GRACE_MS, pollMs = TERM_POLL_MS, sleep: wait = sleep } = {}) {
+  if (exited()) return true
+  child.kill('SIGTERM')
+  // Counted bound, not a wall-clock deadline: at most graceMs/pollMs polls — 50 at the
+  // production 5 s / 100 ms — so an injected sleep cannot spin the loop. Each poll still
+  // awaits its own timer, so a delayed event loop can make those 50 polls take longer than
+  // graceMs in wall time; the settle is bounded by the poll count, not by the clock.
+  for (let waited = 0; waited < graceMs && !exited(); waited += pollMs) await wait(pollMs)
+  return exited()
+}
+
+/**
+ * Retain the isolated sandbox under the project's disposable `_trash/`, but only
+ * once the app has actually exited. An unsettled sandbox is left exactly where
+ * it is and named in the warning — nothing is moved or deleted while a process
+ * may still be using it.
+ *
+ * @param {string} sandbox
+ * @param {{ settled: boolean, projectRoot?: string, warn?: (message: string) => void }} options
+ * @returns {{ moved: boolean, path?: string, retained?: string }}
+ */
+export function finalizeLaunchSandbox(sandbox, { settled, projectRoot = root, warn = console.warn } = {}) {
+  if (!settled) {
+    warn(`Launch smoke sandbox retained at ${sandbox}: the packaged app did not exit after SIGTERM within ${TERM_GRACE_MS}ms (no SIGKILL was sent)`)
+    return { moved: false, retained: sandbox }
+  }
+  try {
+    const trashRoot = path.join(projectRoot, '_trash')
+    fs.mkdirSync(trashRoot, { recursive: true })
+    const trashDir = fs.mkdtempSync(path.join(trashRoot, 'release-'))
+    const destination = path.join(trashDir, path.basename(sandbox))
+    fs.renameSync(sandbox, destination)
+    return { moved: true, path: destination }
+  } catch (error) {
+    warn(`Launch smoke sandbox retained at ${sandbox}: could not move it into project _trash (${error.message})`)
+    return { moved: false, retained: sandbox }
+  }
+}
 
 /**
  * @returns {Promise<{ ok: boolean, errors: string[], port?: number, health?: object, uploadCenter?: object, ms?: number }>}
@@ -92,14 +156,6 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
   child.stderr.on('data', collect)
   child.on('exit', (code, signal) => { exited = { code, signal } })
 
-  const shutdown = async () => {
-    if (exited || child.killed) return
-    child.kill('SIGTERM')
-    for (let i = 0; i < 50 && !exited; i += 1) await sleep(100)
-    if (!exited) child.kill('SIGKILL')
-    for (let i = 0; i < 20 && !exited; i += 1) await sleep(100)
-  }
-
   // A build whose imports never resolve can hang alive without printing
   // anything at all — that is exactly how v1.4.68 behaved — so say so rather
   // than reporting an empty tail and leaving the reader guessing.
@@ -111,7 +167,11 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
       : '(the app produced no output and was still running — it never got far enough to serve)'
   }
 
-  try {
+  // The whole launch proof lives in this closure so the settle below runs
+  // exactly once, on every path. A `return` written directly in a `try` would
+  // leave the `finally` unable to correct the outcome, which is how a force
+  // killed app could still be reported as a clean launch.
+  const launchAndProve = async () => {
     // 1. Wait for the backend to announce the port it bound (packaged builds
     //    use port 0, so the printed line is the only place it appears).
     let port = null
@@ -205,17 +265,25 @@ export async function smokeLaunch(appPath, { timeoutMs = 120_000, log = () => {}
     }
 
     return { ok: true, errors, port, health, uploadCenter, ms: Date.now() - started }
+  }
+
+  let outcome
+  try {
+    outcome = await launchAndProve()
   } finally {
-    await shutdown()
-    try {
-      const trashRoot = path.join(root, '_trash')
-      fs.mkdirSync(trashRoot, { recursive: true })
-      const trashDir = fs.mkdtempSync(path.join(trashRoot, 'release-'))
-      fs.renameSync(sandbox, path.join(trashDir, path.basename(sandbox)))
-    } catch (error) {
-      console.warn(`Launch smoke sandbox retained at ${sandbox}: could not move it into project _trash (${error.message})`)
+    const settled = await stopChild(child, { exited: () => exited !== null })
+    finalizeLaunchSandbox(sandbox, { settled })
+    if (!settled) {
+      outcome = {
+        ok: false,
+        errors: [
+          ...(outcome?.errors ?? []),
+          `the packaged app did not exit after SIGTERM within ${TERM_GRACE_MS}ms; it was left running and no SIGKILL was sent (sandbox retained at ${sandbox})`,
+        ],
+      }
     }
   }
+  return outcome
 }
 
 async function run() {
