@@ -497,6 +497,8 @@ const cancellationReconcileTimers = new Map<string, NodeJS.Timeout>()
 const cancelled = new Set<string>()
 // Terminal history can be removed while its worker is still unwinding.
 const activeRunJobIds = new Set<string>()
+// The same workers by identity: a row can turn terminal or be deleted before its slot is released.
+const activeRunJobRecords = new Map<string, Job>()
 // Parents whose executor already finished and that are only queueing their next Pipeline link.
 // They are not writing, so chapter-writer admission must not count them against that link.
 const chainHandoffJobIds = new Set<string>()
@@ -3605,7 +3607,31 @@ function nextImageGroupJob(type: JobType): Job | null {
   const index = recoveryIndex >= 0
     ? recoveryIndex
     : pending.findIndex(job => !job.started_at)
-  return index >= 0 ? pending.splice(index, 1)[0] : null
+  if (index < 0) return null
+  // A Jobs "Finish missing images" row is a bulk Scene Review over the episode
+  // and must not start beside ANY other live Scene Review worker for it. The
+  // previous executor is still a real worker after it writes a terminal status
+  // (or after history removal drops its row); only runJob's finally releases
+  // the record. This is a dispatch fence, not an admission refusal: the durable
+  // row stays queued at its FIFO position, the shared pump may serve the other
+  // image lane, and releaseSlot repumps here once the worker has settled.
+  // Scope the wait to the Finish marker so ordinary single-scene scheduling is
+  // not serialized. A parent's own Pipeline handoff already returned.
+  if (finishMissingWaitsForLiveWorker(pending[index])) return null
+  return pending.splice(index, 1)[0]
+}
+
+function finishMissingWaitsForLiveWorker(candidate: Job): boolean {
+  const marker = candidate.params?.jobs_finish_missing_images
+  if (!marker || typeof marker !== 'object') return false
+  for (const [workerId, worker] of activeRunJobRecords) {
+    if (workerId === candidate.job_id || chainHandoffJobIds.has(workerId)) continue
+    if (worker.project_slug !== candidate.project_slug
+      || worker.episode_id !== candidate.episode_id
+      || worker.type !== candidate.type) continue
+    return true
+  }
+  return false
 }
 
 /** Admit image jobs from one shared round-robin pump. Capacity is consumed
@@ -4019,6 +4045,7 @@ async function joinDuplicateChainLink(job: Job, nextStep: any, rest: unknown[]):
 async function runJob(type: JobType, job: Job): Promise<void> {
   const q = queues[type]
   activeRunJobIds.add(job.job_id)
+  activeRunJobRecords.set(job.job_id, job)
   try {
     if (cancelled.has(job.job_id)) {
       job.status = 'cancelled'
@@ -4315,6 +4342,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     else if (needsHistoryEvidenceRefresh(job)) scheduleHistoryEvidenceRefresh(job.job_id)
   } finally {
     activeRunJobIds.delete(job.job_id)
+    activeRunJobRecords.delete(job.job_id)
     if (!jobs.has(job.job_id)) {
       cancelled.delete(job.job_id)
       clearPaidImageWaitTimer(job.job_id)
@@ -5396,8 +5424,8 @@ export function isCancelled(jobId: string): boolean {
 export class DuplicateJobError extends Error {
   status = 409
   expose = true
-  constructor(type: JobType, episodeId: string) {
-    super(`${type} generation already queued/running for ${episodeId}`)
+  constructor(type: JobType, episodeId: string, message?: string) {
+    super(message ?? `${type} generation already queued/running for ${episodeId}`)
     this.name = 'DuplicateJobError'
   }
 }
@@ -5589,6 +5617,34 @@ function assertChapterWriterAdmission(
   }
 }
 
+/** Truthful wording for a row whose worker is still unwinding after writing a
+ *  terminal status (or losing its history row). The default DuplicateJobError
+ *  text says queued/running, which is exactly what the row no longer says. */
+function settlingWorkerError(type: JobType, episodeId: string): DuplicateJobError {
+  return new DuplicateJobError(
+    type,
+    episodeId,
+    `The previous ${type} job for ${episodeId} is still finishing locally. Wait until it finishes, then try again.`,
+  )
+}
+
+/**
+ * A worker writes its terminal status (or loses its row to history removal)
+ * before runJob's finally releases the slot. isDuplicate reads statuses, so a
+ * Retry or fresh enqueue would otherwise start a second executor beside it.
+ * Workers are read by identity for that deleted-row case. A parent queueing its
+ * own Pipeline handoff is excluded: its executor already returned, and a chain
+ * may repeat a type.
+ */
+function assertNoSettlingWorker(opts: EnqueueOptions): void {
+  for (const [jobId, worker] of activeRunJobRecords) {
+    if (worker.project_slug !== opts.project_slug || worker.episode_id !== opts.episode_id
+      || worker.type !== opts.type || !TERMINAL_JOB_STATUSES.has(worker.status)
+      || chainHandoffJobIds.has(jobId)) continue
+    throw settlingWorkerError(opts.type, opts.episode_id)
+  }
+}
+
 function assertEnqueueAdmission(
   opts: EnqueuePreparedOptions,
   admissionOwner?: symbol,
@@ -5617,6 +5673,9 @@ function assertEnqueueAdmission(
   if (isDuplicate(opts.project_slug, opts.episode_id, opts.type, opts.dedupeParams)) {
     throw new DuplicateJobError(opts.type, opts.episode_id)
   }
+  // Unlike isDuplicate this ignores dedupeParams: a fresh action identity does
+  // not make a second executor safe while the previous one is still settling.
+  assertNoSettlingWorker(opts)
 }
 
 function enqueuePrepared(
@@ -5844,6 +5903,22 @@ export async function resumeEpisodeRecoveryJob(jobId: string, explicit = false):
     const states = Object.values(job.params?.subtitle_recovery?.sections || {}) as Array<{ state?: string }>
     if (!explicit && (job.type !== 'subtitles_transcribe'
       || !states.some(state => state.state === 'waiting_settlement' || state.state === 'free_recovery'))) return
+    // Same-row execution is still active; leave it unchanged until a later
+    // eligible retry. Automatic observation is a no-op (no non-subtitle path
+    // guarantees another pass), but an explicit Retry must see the same typed
+    // settling refusal as every other admission path.
+    if (activeRunJobIds.has(jobId)) {
+      if (!explicit) return
+      throw settlingWorkerError(job.type, job.episode_id)
+    }
+    // The own `error` row is not counted. This refuses another queued, running,
+    // reserved or settling row for the same scope before this one becomes queued.
+    assertEnqueueAdmission({
+      project_slug: job.project_slug,
+      type: job.type,
+      episode_id: job.episode_id,
+      params: job.params,
+    })
     const previous = { status: job.status, error: job.error, finished_at: job.finished_at }
     job.status = 'queued'
     job.error = null
@@ -5960,6 +6035,15 @@ export async function finishMissingImagesInPlace(
           status: 409, expose: true,
         })
       }
+      // The check above covers only this row. Another Scene Review row for the
+      // same episode may already be terminal while its worker still unwinds;
+      // requeueing this one now would run two continuity executors on the same
+      // episode. Same refusal as queue admission, from the same helper.
+      assertNoSettlingWorker({
+        project_slug: projectSlug,
+        type: 'continuity_render',
+        episode_id: authoritative.episode_id,
+      })
       if (cancellationPending) {
         throw Object.assign(
           new Error('This job is still being reconciled after cancellation. Wait for reconciliation before finishing missing images.'),
@@ -5982,6 +6066,13 @@ export async function finishMissingImagesInPlace(
         }
         if (current.status !== 'error' && current.status !== 'cancelled') return null
         if (Object.values(current.remote_cancellations || {}).some(record => PENDING_REMOTE_CANCELLATION_STATUSES.has(record.status))) return null
+        // A different row for this episode can reach terminal status while the
+        // hydration/lock above is awaited; the outer check ran before that window.
+        assertNoSettlingWorker({
+          project_slug: current.project_slug,
+          type: 'continuity_render',
+          episode_id: current.episode_id,
+        })
         const active = findActiveBulkSceneRenderInternal(projectSlug, current.episode_id)
         if (active && active.job_id !== current.job_id) return null
         const key = finishMissingReservationKey(projectSlug, current.episode_id)
