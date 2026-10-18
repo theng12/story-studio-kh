@@ -372,6 +372,13 @@ describe('an unattended batch on a channel that opens with an Introduction', () 
   /** A channel with a script model, an accepted episode, and openings on. */
   async function seedRunnableChannel(name: string, openingsOn: boolean): Promise<{ slug: string; episodeId: string }> {
     const project = await pm.createProject({ name })
+    // 1.4.320 — automatic openings are future-only: the project's own switch
+    // ("Automatically add introductions to newly created episodes", off by
+    // default) has to be on when the episode is CREATED, or the episode
+    // carries no `intro_eligible` fact and is never given one. It is set here,
+    // before the idea is accepted, so the channel's recipe is the only
+    // variable between these tests.
+    await pm.updateProject(project.slug, { auto_introduction_enabled: true })
     await pm.updateConfig(project.slug, {
       script_presets: [{ id: 'sp1', name: 'default', type: 'script', data: { form: { model: 'the-owners-chosen-model' } } }],
       script_last_preset_script: 'sp1',

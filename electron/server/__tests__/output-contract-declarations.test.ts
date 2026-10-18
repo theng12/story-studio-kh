@@ -145,17 +145,40 @@ describe('the JSON call sites declare their contract', () => {
     })
   }
 
-  for (const [file, contract] of [
-    ['services/freeform-idea-generation.ts', 'ideaBatchOutputContract'],
-    ['generators/idea-campaign.ts', 'ideaCampaignOutputContract'],
-  ]) {
-    test(`${file}: the writing call carries the JSON contract`, () => {
-      const text = source(file!)
+  // 1.4.320 — an idea campaign sizes its batches adaptively (one call or more,
+  // capped at 100) and freezes each batch's request — prompt, model, budget and
+  // CONTRACT — before dispatch, so a restart replays the exact body it was bound
+  // to. The contract is still declared at the site that owns the request, but the
+  // call reads it back rather than naming it inline: either in the context itself
+  // (freeform, where the caller's captured contract wins on a replay) or from the
+  // batch record this file builds. What must not change is that the request
+  // declares the shape it parses instead of leaving the client to default to
+  // prose.
+  const ideaSites: Array<{ file: string; carried: RegExp; declared?: RegExp }> = [
+    {
+      file: 'services/freeform-idea-generation.ts',
+      carried: /outputContract: input\.outputContract \?\? ideaBatchOutputContract\(/,
+    },
+    {
+      file: 'generators/idea-campaign.ts',
+      carried: /outputContract: batchRecord\.outputContract/,
+      declared: /outputContract: ideaCampaignOutputContract\(/,
+    },
+  ]
+
+  for (const site of ideaSites) {
+    test(`${site.file}: the writing call carries the JSON contract`, () => {
+      const text = source(site.file)
       const start = text.indexOf('const context: CallAiContext = {')
       const end = text.indexOf('const raw =', start)
       assert.ok(start >= 0 && end > start, 'shared request context must precede dispatch')
-      assert.ok(text.slice(start, end).includes(`outputContract: ${contract}(`))
-      assert.match(callRegion(file!, 'await callAiWithRetry('), /, context\)$/,
+      assert.match(text.slice(start, end), site.carried,
+        `${site.file}: the request no longer carries a JSON contract`)
+      if (site.declared) {
+        assert.match(text, site.declared,
+          `${site.file}: the contract the call carries is no longer declared here`)
+      }
+      assert.match(callRegion(site.file, 'await callAiWithRetry('), /, context\)$/,
         'callAiWithRetry must receive the context declaring the JSON contract')
     })
   }

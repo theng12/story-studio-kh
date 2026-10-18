@@ -113,13 +113,23 @@ test('old episode is not enqueued or marked missing; a later episode inherits th
     'an old episode is never reported as missing an introduction',
   )
 
-  // 5. Run-batch: only the eligible episode gets an Introduction job.
+  // 5. Run-batch: only the eligible episode's frozen chain carries the
+  // Introduction. A batch chains its stages — the opening's own job is created
+  // once the chapters it introduces exist — so the per-episode decision is
+  // observable in the chain the run froze, which is what the runner acts on.
   const run = await request(app)
     .post(`/api/projects/${project.slug}/pipeline/run-batch`)
     .send(body)
   assert.equal(run.status, 201, JSON.stringify(run.body))
-  const introJobs = (await jq.getJobs(project.slug)).filter(job => job.type === 'introduction-only')
-  assert.deepEqual(introJobs.map(job => job.episode_id), [newEpisode.code])
+  const chainOf = async (code: string) => {
+    const job = (await jq.getJobs(project.slug)).find(candidate => candidate.episode_id === code)
+    assert.ok(job, `no job was planned for ${code}`)
+    return ((job.params as any)?.pipeline_chain ?? []).map((link: any) => link.type)
+  }
+  assert.deepEqual(await chainOf(newEpisode.code), ['expand_chapters', 'introduction-only'],
+    'the episode created after activation inherits the automatic opening')
+  assert.deepEqual(await chainOf(oldEpisode.code), ['expand_chapters'],
+    'an episode created before activation is never enqueued an opening')
 
   // 6. The Scripts page's automatic tail uses the same authoritative fact:
   // an explicit `automatic` request for the old episode is declined before any
