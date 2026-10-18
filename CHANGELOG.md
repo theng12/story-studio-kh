@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.323 — 2026-10-19
+
+- App updates now resume where a broken download stopped instead of starting over, and a slow but moving download is never cancelled, so a Mac on a slow connection still finishes its update. The update status shows how much has downloaded.
+
 ## v1.4.322 — 2026-10-19
 
 - The Jobs list loads faster and no longer slows the rest of the app while many jobs run.
