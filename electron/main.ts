@@ -836,9 +836,9 @@ void electronApp.whenReady().then(async () => {
     // the old 8-second ceiling and the stale-catalogue guard then refused work.
     try {
       const { startGenStudioCatalogRefreshScheduler } = await import('./server/services/genstudio-catalog-refresh.js')
-      startGenStudioCatalogRefreshScheduler(e => logCrash('genstudio-catalog-refresh', e))
+      startGenStudioCatalogRefreshScheduler(e => logCrash('catalogue-refresh', e))
     } catch (e) {
-      logCrash('genstudio-catalog-refresh', e)
+      logCrash('catalogue-refresh', e)
     }
 
     // Remote updates from the Gateway (services/app-update.ts). Packaged builds only: a dev run
