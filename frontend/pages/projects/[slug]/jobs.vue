@@ -1101,7 +1101,7 @@ import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery, type EpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
 import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, holdsUnknownProviderOutcome, isFreeFleetWork } from '@shared/provider-task-state'
-import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, pageCount, pageSlice } from '~/utils/jobs-list'
+import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice } from '~/utils/jobs-list'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -2268,11 +2268,16 @@ const filterTabs = computed(() => {
     { type: 'youtube_upload',       label: 'YouTube' },
   ]
   const knownTypes = new Set(types.map(tab => tab.type))
+  // Discovered kinds join in a fixed alphabetical order, not in whichever
+  // order a live update happened to first mention them.
+  const extra: Array<{ type: string, label: string }> = []
   for (const type of projectScopedJobs.value.map(job => job.type)) {
     if (knownTypes.has(type)) continue
     knownTypes.add(type)
-    types.push({ type, label: jobTypeLabel(type) })
+    extra.push({ type, label: jobTypeLabel(type) })
   }
+  extra.sort((a, b) => (a.type < b.type ? -1 : a.type > b.type ? 1 : 0))
+  types.push(...extra)
   return types.map(t => ({
     ...t,
     count: t.type === 'all'
@@ -2298,19 +2303,25 @@ const emptyMessage = computed(() => emptyState.value.message)
 
 // ── Sorting ─────────────────────────────────────────────────────────────
 
-const sortKey = ref('created_at')
-const sortDir = ref<'asc' | 'desc'>('desc')
+const sortKey = ref('queue')
+const sortDir = ref<'asc' | 'desc'>('asc')
 
 const sortColumns = [
+  { key: 'queue', label: 'Queue' },
   { key: 'project_slug', label: 'Channel' },
   { key: 'status', label: 'Status' },
   { key: 'type', label: 'Type' },
   { key: 'episode_id', label: 'Episode' },
   { key: 'created_at', label: 'Created' },
-  { key: 'duration', label: 'Duration' },
 ]
 
 function toggleSort(key: string) {
+  // The queue order is the page's stable default and has no reverse.
+  if (key === 'queue') {
+    sortKey.value = 'queue'
+    sortDir.value = 'asc'
+    return
+  }
   if (sortKey.value === key) {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
   } else {
@@ -2332,19 +2343,24 @@ const filteredJobs = computed(() => {
 
 const sortedJobs = computed(() => {
   const list = [...filteredJobs.value]
+  // One deterministic default: running, queued in true dispatch order per
+  // kind, paused, then finished newest-first. A live update replaces a row;
+  // it can never reorder the rows around it.
+  if (sortKey.value === 'queue') {
+    return orderJobsForDisplay(list, filterTabs.value.map(tab => tab.type))
+  }
   const dir = sortDir.value === 'asc' ? 1 : -1
 
   list.sort((a, b) => {
-    if (sortKey.value === 'duration') {
-      return (getJobDurationMs(a) - getJobDurationMs(b)) * dir
-    }
     if (sortKey.value === 'status') {
       const order: Record<string, number> = { running: 0, paused: 1, queued: 2, error: 3, done: 4, recovered: 5, cancelled: 6 }
       return ((order[jobDisplayStatus(a)] ?? 6) - (order[jobDisplayStatus(b)] ?? 6)) * dir
+        || (a.job_id < b.job_id ? -1 : a.job_id > b.job_id ? 1 : 0)
     }
     const aVal = (a as any)[sortKey.value] || ''
     const bVal = (b as any)[sortKey.value] || ''
-    return aVal < bVal ? -dir : aVal > bVal ? dir : 0
+    return (aVal < bVal ? -dir : aVal > bVal ? dir : 0)
+      || (a.job_id < b.job_id ? -1 : a.job_id > b.job_id ? 1 : 0)
   })
 
   return list
@@ -2354,12 +2370,12 @@ const currentPage = ref(1)
 
 const activeJobs = computed(() => {
   const list = sortedJobs.value.filter(j => j.status === 'running' || j.status === 'queued' || j.status === 'paused')
-  // Pin running ahead of queued regardless of the user's sort-column pick.
+  // Pin running → queued → paused regardless of the user's sort-column pick.
   // The chosen sort still governs order WITHIN each group (stable sort
-  // preserves sortedJobs's relative order for ties). This keeps the Active
-  // section reading top-to-bottom as "what's executing now" → "what's next".
+  // preserves sortedJobs's relative order for ties), so the Active section
+  // reads top-to-bottom as "executing now" → "what runs next" → "held".
   return list.slice().sort((a, b) => {
-    const rank = (s: string) => s === 'running' ? 0 : s === 'paused' ? 1 : 2
+    const rank = (s: string) => s === 'running' ? 0 : s === 'queued' ? 1 : 2
     return rank(a.status) - rank(b.status)
   })
 })
