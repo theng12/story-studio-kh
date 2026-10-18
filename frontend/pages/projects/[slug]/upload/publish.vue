@@ -1136,7 +1136,13 @@ const scheduleVisibilityUnknown = computed(() => reviewIntent.value === 'schedul
   && !selectedEpisode.value.publication?.visibility)
 function publicationDate(ep: PublishableEpisode): string {
   if (ep.publication?.published_at) return `Published ${formatZonedWhen(ep.publication.published_at)}`
-  if (ep.publication?.scheduled_at) return formatZonedWhen(ep.publication.scheduled_at, ep.plan?.timezone)
+  if (ep.publication?.scheduled_at) {
+    const when = formatZonedWhen(ep.publication.scheduled_at, ep.plan?.timezone)
+    // A publishAt YouTube itself accepted IS a schedule, even while the video is
+    // still being processed — the two facts are shown together, never one
+    // instead of the other.
+    return publicationState(ep) === 'processing' ? `Scheduled ${when} · YouTube still processing` : when
+  }
   return ''
 }
 function plannedDate(ep: PublishableEpisode): string {

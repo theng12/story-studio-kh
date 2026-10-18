@@ -40,6 +40,8 @@ let tmp: { dir: string; cleanup: () => Promise<void> } | undefined
 afterEach(async () => { await tmp?.cleanup(); tmp = undefined })
 
 const CHANNEL = 'UC-pub-route'
+/** A publishAt YouTube itself reported for a video it is still processing. */
+const PUBLISH_AT = '2026-10-20T15:00:00Z'
 
 /** A channel that is ASSIGNED and CONNECTED, so the confirmed half is reachable. */
 async function connectedProject(name: string, prefix: string) {
@@ -304,4 +306,55 @@ test('an episode whose upload is under way counts as in_progress, never ready â€
     // root goes away, or the late write lands outside it.
     await jobQueue._waitForJobPersistenceForTesting()
   }
+})
+
+test('a publishAt YouTube accepted counts as scheduled while the video is still processing â€” both surfaces', async () => {
+  tmp = await useTempDataDir()
+  const created = await connectedProject('Still Processing', 'SP')
+  await acceptedEpisode(created.slug, 'SP0001', 'Still Processing')
+
+  // A fresh upload YouTube has accepted but not finished processing: the
+  // operation is in `processing`, and its remote snapshot carries the private
+  // publishAt YouTube itself reported (Origin Field EP0001, 2026-10-18).
+  const operation = await operations.createYouTubeOperation({
+    project_slug: created.slug, episode_code: 'SP0001', channel_id: CHANNEL,
+    source_revision: 'src-SP0001', metadata_revision: 'meta-SP0001',
+    origin: 'manual', final_action: 'manual_upload',
+  })
+  const accepted = await operations.acceptYouTubeOperation({
+    project_slug: created.slug, operation_id: operation.operation_id,
+    expected_revision: operation.revision, channel_id: CHANNEL,
+    video_id: 'vid-still-processing', accepted_at: '2026-10-18T14:45:29.003Z',
+    final_payload: { snippet_json: '{}', status_json: '{}', source_sha256: 'b'.repeat(64) },
+  })
+  await operations.updateYouTubeOperation({
+    project_slug: created.slug, operation_id: operation.operation_id,
+    expected_revision: accepted.revision,
+    mutate(record) {
+      record.lifecycle = 'processing'
+      record.processing = { checked_at: '2026-10-18T14:45:29.248Z', provider_status: 'uploaded' }
+      record.remote_snapshot = {
+        fetched_at: '2026-10-18T14:45:29.248Z', title: 'Still Processing', description: '', tags: [],
+        privacy_status: 'private', scheduled_for: PUBLISH_AT,
+      }
+    },
+  })
+
+  // The Upload Center keeps the processing state AND the date YouTube accepted.
+  const publishable = await request(app).get(`/api/projects/${created.slug}/youtube/publishable`)
+  assert.equal(publishable.status, 200)
+  const row = publishable.body.episodes.find((entry: any) => entry.episode_code === 'SP0001')
+  assert.equal(row.publication.state, 'processing')
+  assert.equal(row.publication.visibility, 'private')
+  assert.equal(row.publication.scheduled_at, PUBLISH_AT)
+  // The date is YouTube's own answer, not a local plan: same field either way.
+  assert.equal(row.plan.scheduled_at, PUBLISH_AT)
+
+  // The Overview counts the same video as confirmed-scheduled for that date.
+  const overview = await request(app).get('/api/publishing/overview')
+  assert.equal(overview.status, 200)
+  const channel = overview.body.channels[0]
+  assert.equal(channel.confirmed.count, 1)
+  assert.equal(channel.confirmed.schedules[0].video_id, 'vid-still-processing')
+  assert.equal(channel.confirmed.schedules[0].scheduled_for, PUBLISH_AT)
 })

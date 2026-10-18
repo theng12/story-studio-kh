@@ -334,7 +334,18 @@ function publicationProjection(
           ? `YouTube reported a status Story Studio does not recognise (${word}).`
           : NOT_FOUND_AT_LAST_CHECK }
     }
-    if (operation.lifecycle === 'processing') return { state: 'processing', ...common }
+    if (operation.lifecycle === 'processing') {
+      // A publishAt YouTube itself accepted IS a schedule, even while the video
+      // is still being processed: the two facts are not alternatives. The
+      // Overview already counts this video as confirmed-scheduled — it reads the
+      // same observation index — so dropping the date here made the two screens
+      // describe one video differently (Origin Field EP0001, 2026-10-18).
+      // Only YouTube's own answer counts; a local plan date is not this field.
+      return {
+        state: 'processing', ...common,
+        ...(observed?.scheduled_for ? { scheduled_at: observed.scheduled_for } : {}),
+      }
+    }
     if (operation.lifecycle === 'preparing' || operation.lifecycle === 'uploading') return { state: 'unpublished' }
     return fromObservation(common)
   }
