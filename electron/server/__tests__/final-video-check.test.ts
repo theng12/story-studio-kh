@@ -17,6 +17,8 @@ import path from 'node:path'
 
 import {
   closingMusicWanted,
+  finalCheckIdentity,
+  finalCheckIdentityMatches,
   finalCheckIssues,
   finalCheckPath,
   finalCheckSummary,
@@ -342,6 +344,30 @@ describe('a verdict goes stale when the video does', () => {
     assert.equal(stale?.stale, true)
     assert.match(finalCheckVerdict(stale)!, /changed since its final check/)
     assert.match(finalCheckSummary(stale), /out of date/)
+  })
+
+  test('the identity an upload answers about is the verdict and the bytes, not just the path', async () => {
+    const copy = path.join(dir, 'identity-check.mp4')
+    await fs.copyFile(goodFile, copy)
+    const result = await runFinalCheck(copy, expect())
+    await storeFinalCheck(copy, result)
+
+    const fresh = await readStoredFinalCheck(copy)
+    assert.deepEqual(finalCheckIdentity(fresh), {
+      checked_at: result.checked_at,
+      file_size: result.file.size,
+      file_mtime_ms: result.file.mtime_ms,
+    })
+    assert.equal(finalCheckIdentityMatches(fresh, result.checked_at), true)
+    assert.equal(finalCheckIdentityMatches(fresh, 'a different check'), false, 'a replaced verdict is not this one')
+    assert.equal(finalCheckIdentityMatches(null, result.checked_at), false, 'no verdict, nothing to match')
+
+    await fs.appendFile(copy, Buffer.alloc(16))
+    assert.equal(
+      finalCheckIdentityMatches(await readStoredFinalCheck(copy), result.checked_at),
+      false,
+      'the bytes moved after the check, so the verdict no longer describes them',
+    )
   })
 
   test('a final with no verdict is not refused — the row says so and the owner can run it', () => {

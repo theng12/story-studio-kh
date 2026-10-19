@@ -5502,6 +5502,82 @@ test('a finished video that failed its final check cannot be uploaded until the 
   assert.match(stale.body.detail, /changed since its final check/)
 })
 
+/** A project with a real finished video and a failed verdict stored beside it. */
+async function uploadReadyProjectWithFailedCheck(): Promise<{
+  slug: string, episodeCode: string, videoPath: string, body: Record<string, unknown>, checkedAt: string
+}> {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const videoPath = path.join(
+    (await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir,
+    `${episodeCode}_final_video.mp4`,
+  )
+  await fs.writeFile(videoPath, tinyVideoBytes())
+  const body = await confirmedUploadBody(slug, episodeCode)
+  const failed = await runFinalCheck(videoPath, {
+    planned_sec: 60, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null,
+  })
+  assert.equal(failed.passed, false, 'a one-second file cannot be a sixty-second plan')
+  await storeFinalCheck(videoPath, failed)
+  return { slug, episodeCode, videoPath, body, checkedAt: failed.checked_at }
+}
+
+test('the row says which check it is showing, and an answer about that check uploads', async () => {
+  const { slug, episodeCode, videoPath, body, checkedAt } = await uploadReadyProjectWithFailedCheck()
+
+  const refused = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(refused.status, 409)
+  const identity = refused.body.final_check.identity
+  assert.equal(identity.checked_at, checkedAt)
+  assert.equal(identity.file_size, (await fs.stat(videoPath)).size)
+  assert.equal(identity.file_mtime_ms, (await fs.stat(videoPath)).mtimeMs)
+
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.deepEqual(row.final_check.identity, identity, 'the row shows the check the answer is about')
+
+  const answered = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ ...body, acknowledge_final_check: true, final_check_checked_at: identity.checked_at })
+  assert.equal(answered.status, 200, JSON.stringify(answered.body))
+  await removeQueuedTestJob(slug, answered.body.job_id)
+})
+
+test('an answer about a check the file has outlived is refused; one naming no check is admitted as before', async () => {
+  const { slug, videoPath, body, checkedAt } = await uploadReadyProjectWithFailedCheck()
+  // The re-render replaces the file after the owner looked at the verdict.
+  await fs.appendFile(videoPath, Buffer.alloc(8))
+
+  const answered = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ ...body, acknowledge_final_check: true, final_check_checked_at: checkedAt })
+  assert.equal(answered.status, 409)
+  assert.equal(answered.body.code, 'YOUTUBE_FINAL_CHECK_CHANGED')
+  assert.equal(answered.body.confirmable, false, 're-answering the same stale check would fail again')
+  assert.equal(answered.body.job_id, undefined, 'nothing is queued on a refusal')
+  assert.match(answered.body.detail, /checked again, or the file was rewritten/)
+
+  // No identity named: exactly the answer this route has always taken.
+  const unnamed = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ ...body, acknowledge_final_check: true })
+  assert.equal(unnamed.status, 200, JSON.stringify(unnamed.body))
+  await removeQueuedTestJob(slug, unnamed.body.job_id)
+})
+
+test('an answer about a verdict that a newer check replaced is refused too', async () => {
+  const { slug, videoPath, body, checkedAt } = await uploadReadyProjectWithFailedCheck()
+  // The check runs again over the same bytes: the file has not moved, the verdict has.
+  const again = await runFinalCheck(videoPath, {
+    planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null,
+  })
+  await storeFinalCheck(videoPath, again)
+  assert.notEqual(again.checked_at, checkedAt, 'a second check is a different check')
+
+  const answered = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ ...body, acknowledge_final_check: true, final_check_checked_at: checkedAt })
+  assert.equal(answered.status, 409)
+  assert.equal(answered.body.code, 'YOUTUBE_FINAL_CHECK_CHANGED')
+})
+
 test('a finished video with no verdict is not refused: the row says so and the check can be run on demand', async () => {
   const { slug, episodeCode } = await uploadReadyProject()
   const body = await confirmedUploadBody(slug, episodeCode)
@@ -5514,6 +5590,7 @@ test('a finished video with no verdict is not refused: the row says so and the c
   const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
   assert.equal(row.final_check.summary, 'Final check: not run yet')
   assert.equal(row.final_check.checked, false)
+  assert.equal(row.final_check.identity, null, 'no verdict, nothing to answer about')
 })
 
 test('final check Off uploads without asking; Block refuses even when the owner confirms', async () => {

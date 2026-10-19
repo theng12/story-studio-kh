@@ -403,6 +403,43 @@ export interface StoredFinalCheck {
 }
 
 /**
+ * Which verdict an upload is being decided against, and which file it was measured on.
+ *
+ * `checked_at` is the whole key: it names the stored verdict, and that verdict carries the file's
+ * size and mtime as they were when it ran — so echoing `checked_at` back binds an answer to one
+ * exact check of one exact file, without hashing 2–4 GB of video.
+ */
+export interface FinalCheckIdentity {
+  /** When the check ran — the stored verdict's own `checked_at`. */
+  checked_at: string
+  /** The finished file's size when it was checked. */
+  file_size: number
+  /** The finished file's mtime (ms) when it was checked. */
+  file_mtime_ms: number
+}
+
+/** That identity, or null when this file carries no verdict at all. */
+export function finalCheckIdentity(stored: StoredFinalCheck | null): FinalCheckIdentity | null {
+  if (!stored) return null
+  return {
+    checked_at: stored.result.checked_at,
+    file_size: stored.result.file.size,
+    file_mtime_ms: stored.result.file.mtime_ms,
+  }
+}
+
+/**
+ * True when `checkedAt` names the verdict that still describes this file — the check the owner
+ * reviewed is the one on disk, and the file has not moved since it ran.
+ *
+ * A rewritten file fails (the stored verdict no longer describes those bytes), and so does a verdict
+ * that has been replaced by a newer one: an answer about one check is not an answer about the next.
+ */
+export function finalCheckIdentityMatches(stored: StoredFinalCheck | null, checkedAt: string): boolean {
+  return !!stored && !stored.stale && stored.result.checked_at === checkedAt
+}
+
+/**
  * The verdict stored beside this file, or null when there is none. A sidecar that cannot be read is
  * null, not a guess — "not checked" and "checked and fine" are different answers.
  */
