@@ -81,7 +81,7 @@ import {
   readItemSchedule, UploadScheduleBatchWriteError,
 } from '../services/upload-plans.js'
 import { readSidecarStrict, setScheduledFor } from '../services/upload-sidecar.js'
-import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES } from '../services/youtube-remote-video.js'
+import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES, SUPERSEDED_LIFECYCLES } from '../services/youtube-remote-video.js'
 import { UPLOAD_STORE_UNREADABLE, latestEpisodeUploadJob, localUploadProjection } from '../services/youtube-local-upload.js'
 import { invalidatePublishingOverviewCache } from '../services/publishing-overview.js'
 import { movableLocalClaims } from '../services/episode-autoschedule.js'
@@ -305,8 +305,21 @@ function publicationProjection(
   const publishedAt = (publishingState?.reconcile?.channel_id === channelId
     ? publishingState?.reconcile?.remote_videos.find(video => video.video_id === videoId)?.published_at
     : undefined) ?? observed?.published_at
+  // What YouTube last CONFIRMED about this video's publication, kept on the
+  // operation as `remote_snapshot`. An answer that did not contain the video
+  // carries no privacy and no schedule, and taking those fields from it alone
+  // dropped the confirmed private + publishAt to null — so "we cannot see it any
+  // more" rendered exactly like "nothing is scheduled" (AGENTS.md §6). The
+  // confirmed values are kept and stamped with the moment the answer went
+  // missing, and a fresh observation still wins over them.
+  const confirmed = operation?.remote_snapshot
+  const unverified: Pick<YouTubePublicationProjection, 'visibility' | 'scheduled_at' | 'unverified_since'> = {
+    ...(confirmed?.privacy_status ? { visibility: confirmed.privacy_status } : {}),
+    ...(confirmed?.scheduled_for ? { scheduled_at: confirmed.scheduled_for } : {}),
+    ...(observed?.checked_at ? { unverified_since: observed.checked_at } : {}),
+  }
   const fromObservation = (common: { visibility?: string; last_checked_at?: string }): YouTubePublicationProjection => {
-    if (observed?.upload_status === YOUTUBE_VIDEO_NOT_FOUND) return { state: 'unknown', ...common, reason: NOT_FOUND_AT_LAST_CHECK }
+    if (observed?.upload_status === YOUTUBE_VIDEO_NOT_FOUND) return { state: 'unknown', ...unverified, ...common, reason: NOT_FOUND_AT_LAST_CHECK }
     if (visibility === 'public') return { state: 'published', ...common, ...(publishedAt ? { published_at: publishedAt } : {}) }
     if (observed?.scheduled_for) return { state: 'scheduled', ...common, scheduled_at: observed.scheduled_for }
     return { state: 'uploaded', ...common }
@@ -325,15 +338,20 @@ function publicationProjection(
       return { state: 'rejected', ...common, ...(operation.processing?.rejection_reason ? { reason: operation.processing.rejection_reason } : {}) }
     }
     if (operation.lifecycle === 'status_unavailable') {
-      // "YouTube said it is gone" and "YouTube said something we do not know"
-      // are different facts; neither is "we could not reach YouTube" (that
-      // writes nothing). Records from before the distinction carry no word.
+      // "YouTube said it is gone", "YouTube answered without it" and "YouTube
+      // said something we do not know" are three different facts; none is "we
+      // could not reach YouTube" (that writes nothing). Records from before the
+      // distinction carry no word.
       const word = operation.processing?.provider_status
-      return { state: 'unknown', ...common, reason: isConfirmedGoneFromYouTube(operation)
-        ? 'Not found on YouTube: it was deleted or removed. “I Deleted This Video on YouTube” allows a new upload once YouTube confirms it.'
-        : word
+      if (isConfirmedGoneFromYouTube(operation)) {
+        return { state: 'unknown', ...common, reason: 'Not found on YouTube: it was deleted or removed. “I Deleted This Video on YouTube” allows a new upload once YouTube confirms it.' }
+      }
+      return {
+        state: 'unknown', ...unverified, ...common,
+        reason: word && word !== YOUTUBE_VIDEO_NOT_FOUND
           ? `YouTube reported a status Story Studio does not recognise (${word}).`
-          : NOT_FOUND_AT_LAST_CHECK }
+          : NOT_FOUND_AT_LAST_CHECK,
+      }
     }
     if (operation.lifecycle === 'processing') {
       // A publishAt YouTube itself accepted IS a schedule, even while the video
@@ -576,7 +594,12 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
         const episodeOperations = records.filter(record => record.episode_code === code
           && onCurrentChannel(channelId, record.channel_id)
           && !isYouTubeVideoRemoved(publishingState ?? {}, code, record.channel_id, record.video_id))
-        let operation = episodeOperations[0]
+        // A record YouTube has already failed is history: a live one describes
+        // the upload that is actually on YouTube, and the failed one is only
+        // fallen back to when it is all this episode has (so the row can say
+        // WHY it failed).
+        let operation = episodeOperations.find(record => !SUPERSEDED_LIFECYCLES.has(record.lifecycle))
+          ?? episodeOperations[0]
         const job = latestEpisodeUploadJob(jobs, code, channelId)
         let sidecar: Awaited<ReturnType<typeof readSidecarStrict>> = null
         let sidecarUnreadable = ''

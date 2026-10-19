@@ -54,6 +54,18 @@ export const YOUTUBE_VIDEO_LIFECYCLES = [
 
 export type YouTubeVideoLifecycle = typeof YOUTUBE_VIDEO_LIFECYCLES[number]
 
+/**
+ * YouTube's own verdict that an accepted upload never became a video. Not
+ * "we could not ask" and not "we did not see it": YouTube looked at this exact
+ * video and said it failed or rejected it.
+ *
+ * The video id stays as history — never offered as the episode's video again,
+ * and never allowed to block the ONE replacement upload the owner is entitled
+ * to (Domnak DM0001–DM0003, 2026-10-19: a channel not yet verified for long
+ * videos; YouTube abandoned every one of them).
+ */
+export const SUPERSEDED_LIFECYCLES: ReadonlySet<string> = new Set(['failed', 'rejected'])
+
 export type YouTubeLocalRenderProjection = {
   state: 'ready' | 'missing' | 'unknown'
   video_url?: string
@@ -88,6 +100,13 @@ export type YouTubePublicationProjection = {
   published_at?: string
   scheduled_at?: string
   last_checked_at?: string
+  /**
+   * The moment YouTube stopped returning this video, so the `visibility` and
+   * `scheduled_at` above are the last CONFIRMED publication rather than a fresh
+   * answer. Absent means both fields are current. Without it, "we do not know
+   * any more" and "nothing is scheduled" read identically (AGENTS.md §6).
+   */
+  unverified_since?: string
   reason?: string
 }
 

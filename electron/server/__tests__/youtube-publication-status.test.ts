@@ -55,6 +55,32 @@ describe('mapping YouTube publication state', () => {
     assert.equal(rejected.processing.rejection_reason, 'copyright')
   })
 
+  test('an upload YouTube abandoned is FAILED, though its upload word still reads uploaded', () => {
+    // Domnak DM0001-DM0003, 2026-10-19: the channel was not verified for long
+    // videos, so YouTube Studio showed "Processing abandoned - Video is too
+    // long" while videos.list still answered uploadStatus: uploaded. Mapping
+    // that to `processing` left a dead video counted as one that would publish.
+    const tooLong = mapYouTubePublicationState({
+      uploadStatus: 'uploaded', privacyStatus: 'private', publishAt: '2026-10-20T11:00:00.000Z',
+      processingStatus: 'failed', processingFailureReason: 'tooLong',
+    }, CHECKED)
+    assert.equal(tooLong.lifecycle, 'failed')
+    assert.equal(tooLong.processing.provider_status, 'failed')
+    assert.match(String(tooLong.processing.failure_reason), /video too long for this channel/)
+
+    // `terminated` is the same verdict, and a reason this build does not know
+    // is still a failure - never "still processing".
+    const terminated = mapYouTubePublicationState(
+      { uploadStatus: 'uploaded', processingStatus: 'terminated', processingFailureReason: 'transcodeFailed' }, CHECKED)
+    assert.equal(terminated.lifecycle, 'failed')
+    assert.match(String(terminated.processing.failure_reason), /could not transcode/)
+    assert.equal(mapYouTubePublicationState({ uploadStatus: 'uploaded', processingStatus: 'failed' }, CHECKED).lifecycle, 'failed')
+
+    // A healthy video is untouched: still processing is still processing.
+    assert.equal(mapYouTubePublicationState({ uploadStatus: 'uploaded', processingStatus: 'succeeded' }, CHECKED).lifecycle, 'processing')
+    assert.equal(mapYouTubePublicationState({ uploadStatus: 'processed' }, CHECKED).lifecycle, 'ready')
+  })
+
   test('a video that did not come back is unavailable, not any known state', () => {
     const absent = mapYouTubePublicationState(null, CHECKED)
     assert.equal(absent.lifecycle, 'status_unavailable')

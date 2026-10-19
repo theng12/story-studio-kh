@@ -42,7 +42,7 @@ import { readSidecarStrict } from './upload-sidecar.js'
 import type { ProjectFactsCache } from './utils.js'
 import { projectFactsFor } from './utils.js'
 import { isYouTubeVideoRemoved, readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
-import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
+import { SUPERSEDED_LIFECYCLES, YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import { isContentSha256Revision, resolveYouTubeSourceRevision, resolveYouTubeSourceRevisionCached } from './youtube-source-video.js'
 import { stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -302,6 +302,35 @@ export const OPEN_LIFECYCLES: ReadonlyArray<string> = [
 ]
 
 /**
+ * YouTube's own verdict that an accepted upload never became a video. Not
+ * "we could not ask" and not "we did not see it": YouTube looked at this exact
+ * video and said it failed or rejected it.
+ */
+export { SUPERSEDED_LIFECYCLES }
+
+/**
+ * The video ids of this episode on this channel that YouTube itself declared
+ * dead — kept as history, never offered as the episode's video again, and never
+ * allowed to block the ONE replacement upload the owner is entitled to.
+ *
+ * Domnak DM0001–DM0003, 2026-10-19: the channel was not yet verified for long
+ * videos, YouTube abandoned processing every one of them, and the accepted
+ * records (plus their sidecars) otherwise refused the re-upload forever.
+ */
+export function supersededVideoIds(
+  records: Array<{ episode_code: string, video_id?: string, channel_id?: string, lifecycle: string }>,
+  episodeCode: string,
+  channelId: string | null,
+): Set<string> {
+  return new Set(records
+    .filter(entry => entry.episode_code === episodeCode
+      && entry.channel_id === channelId
+      && SUPERSEDED_LIFECYCLES.has(entry.lifecycle)
+      && !!entry.video_id?.trim())
+    .map(entry => entry.video_id!.trim()))
+}
+
+/**
  * The video this episode already has on YouTube, or null.
  *
  * `channelId` scopes all three reads, the way every sibling read is scoped — an
@@ -325,8 +354,13 @@ export async function remoteVideoFor(
 
   // 1. The durable operation record. Ours, channel-scoped, richest.
   const all = records ?? await listYouTubeOperations(slug, cache)
+  // A record YouTube has already failed is history, not this episode's video:
+  // the replacement upload must get through it (and through the sidecar it wrote
+  // beside it), while a live record still refuses as loudly as ever.
+  const superseded = supersededVideoIds(all, episodeCode, channelId)
   const record = all.find(entry => entry.episode_code === episodeCode
     && entry.channel_id === channelId
+    && !SUPERSEDED_LIFECYCLES.has(entry.lifecycle)
     && (!!entry.video_id?.trim() || OPEN_LIFECYCLES.includes(entry.lifecycle))
     && !isYouTubeVideoRemoved(links, episodeCode, entry.channel_id, entry.video_id))
   if (record) {
@@ -348,6 +382,7 @@ export async function remoteVideoFor(
   //    it: a second public video of the same episode.
   const link = links.episode_video_links[episodeCode]
   if (link?.video_id?.trim() && link.channel_id === channelId
+    && !superseded.has(link.video_id.trim())
     && !isYouTubeVideoRemoved(links, episodeCode, link.channel_id, link.video_id)) {
     return { video_id: link.video_id.trim(), source: 'reconcile_link', channel_id: link.channel_id }
   }
@@ -397,6 +432,10 @@ export async function remoteVideoFor(
   // message, a wrongly-allowed one is a second video nobody can un-publish.
   if (sidecar?.video_id?.trim()) {
     if (isYouTubeVideoRemoved(links, episodeCode, sidecar.channel_id || channelId, sidecar.video_id)) return null
+    // The upload job writes this sidecar the moment YouTube accepts the upload,
+    // so it still names a video YouTube has since abandoned. That id is
+    // superseded, exactly as the record is: history, not a block.
+    if (superseded.has(sidecar.video_id.trim())) return null
     // Do not widen old `takedown`/unknown markers into re-upload authority:
     // they were not a verified current-channel deletion. A sidecar with no
     // channel also cannot establish where its video was manually removed.

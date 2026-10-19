@@ -308,6 +308,36 @@ export function classifyYouTubeSyncFailure(error: unknown): RemoteSyncState['err
   return 'offline'
 }
 
+/** YouTube's own failure words, in the owner's words. */
+const PROCESSING_ABANDON_REASONS: Record<string, string> = {
+  uploadFailed: 'YouTube could not keep the uploaded file.',
+  transcodeFailed: 'YouTube could not transcode the video.',
+  streamingFailed: 'YouTube could not stream the uploaded file.',
+  tooLong: 'YouTube abandoned processing: video too long for this channel. Verify the channel for long videos, then re-upload.',
+  length: 'YouTube abandoned processing: video too long for this channel. Verify the channel for long videos, then re-upload.',
+}
+
+/**
+ * YouTube accepted the upload and then gave up on it, in the owner's words; or
+ * `undefined` when it did not.
+ *
+ * The verdict lives on `processingDetails` (`processingStatus: failed |
+ * terminated`, with a `processingFailureReason` such as `tooLong`) while
+ * `status.uploadStatus` can still read `uploaded`. Without reading it, a channel
+ * that is not verified for long videos answers exactly like a video that is
+ * merely still processing — the Domnak DM0001–DM0003 uploads, 2026-10-19, which
+ * YouTube Studio showed as "Processing abandoned — Video is too long".
+ */
+export function youtubeProcessingAbandonReason(details: VideoPublicationDetails): string | undefined {
+  const abandoned = details.processingStatus === 'failed' || details.processingStatus === 'terminated'
+  // `uploadStatus: failed | rejected` is already a failure of its own, with its
+  // own word; this only catches the case that reads as `uploaded`.
+  if (!abandoned || details.uploadStatus === 'failed' || details.uploadStatus === 'rejected') return undefined
+  const word = details.processingFailureReason || details.failureReason || ''
+  return PROCESSING_ABANDON_REASONS[word]
+    ?? `YouTube abandoned processing this upload${word ? ` (${word})` : ''}. Check the channel, then upload again.`
+}
+
 /** One videos.list answer about one video. `details === null`: answered, and the video was not in it. */
 export function observationFromDetails(
   videoId: string,
@@ -318,9 +348,13 @@ export function observationFromDetails(
 ): ObservedPublication {
   const base = { video_id: videoId, source, ...(episodeCode ? { episode_code: episodeCode } : {}), checked_at: checkedAt }
   if (!details) return { ...base, upload_status: YOUTUBE_VIDEO_NOT_FOUND }
+  // An abandoned upload is a FAILURE word, never `uploaded`. Every cache reader
+  // treats a private + publishAt observation as a confirmed schedule, so the raw
+  // word would keep a dead video counted as one that will publish.
+  const abandoned = youtubeProcessingAbandonReason(details) !== undefined
   return {
     ...base,
-    ...(details.uploadStatus ? { upload_status: details.uploadStatus } : {}),
+    ...(abandoned ? { upload_status: 'failed' } : details.uploadStatus ? { upload_status: details.uploadStatus } : {}),
     // "Nothing scheduled" is claimed only when YouTube returned the status block.
     ...(details.privacyStatus ? { privacy_status: details.privacyStatus, scheduled_for: details.publishAt ?? null } : {}),
     ...(details.title ? { title: details.title } : {}),
@@ -485,7 +519,8 @@ export function publicationCacheView(
     },
     videos,
     schedules: videos
-      .filter(entry => entry.privacy_status === 'private' && !!entry.scheduled_for)
+      .filter(entry => entry.privacy_status === 'private' && !!entry.scheduled_for
+        && entry.upload_status !== 'failed' && entry.upload_status !== 'rejected')
       .sort((a, b) => a.scheduled_for!.localeCompare(b.scheduled_for!)),
   }
 }

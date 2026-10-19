@@ -2064,14 +2064,19 @@ async function refresh(op: Operation): Promise<void> {
       `/projects/${action.slug}/youtube/operations/${op.operation_id}/refresh`, {},
     )
     if (!actionIsCurrent(action)) return
-    // A status we could not get is not a verdict, and the copy says so.
-    rowResults[op.episode_code] = res.state.processing?.provider_status === 'not_found'
-      ? { kind: 'warn', message: `${op.episode_code}: YouTube answered and does not have this video (deleted or removed).${res.persisted ? '' : ' Its earlier final answer is kept.'}` }
-      : res.state.lifecycle === 'status_unavailable'
-        ? { kind: 'warn', message: res.state.processing?.provider_status
-          ? `${op.episode_code}: YouTube reported a status Story Studio does not recognise (${res.state.processing.provider_status}).`
-          : `${op.episode_code}: YouTube did not return this video. Its last known state is kept.` }
-        : { kind: 'ok', message: `${op.episode_code}: ${lifecycleLabel(res.state.lifecycle)}.` }
+    // A status we could not get is not a verdict, and the copy says so. An empty
+    // answer is not proof of a removal either: a sign-in that cannot see this
+    // video answers the same way, so only a word YouTube says about the video
+    // (deleted) is reported as one.
+    rowResults[op.episode_code] = res.state.processing?.provider_status === 'deleted'
+      ? { kind: 'warn', message: `${op.episode_code}: YouTube says this video was deleted or removed.${res.persisted ? '' : ' Its earlier final answer is kept.'}` }
+      : res.state.processing?.provider_status === 'not_found'
+        ? { kind: 'warn', message: `${op.episode_code}: YouTube answered without this video. That is not proof it is gone; its last confirmed publication is kept. Check again, or look in YouTube Studio.` }
+        : res.state.lifecycle === 'status_unavailable'
+          ? { kind: 'warn', message: res.state.processing?.provider_status
+            ? `${op.episode_code}: YouTube reported a status Story Studio does not recognise (${res.state.processing.provider_status}).`
+            : `${op.episode_code}: YouTube did not return this video. Its last known state is kept.` }
+          : { kind: 'ok', message: `${op.episode_code}: ${lifecycleLabel(res.state.lifecycle)}.` }
     await load()
   } catch (error: any) {
     if (!actionIsCurrent(action)) return

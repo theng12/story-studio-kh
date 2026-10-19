@@ -1294,6 +1294,8 @@ export interface VideoPublicationDetails {
   privacyStatus?: string
   publishAt?: string | null
   processingStatus?: string
+  /** YouTube's own word for WHY processing stopped (`tooLong`, `transcodeFailed`, …). */
+  processingFailureReason?: string
   title?: string
   description?: string
   tags?: string[]
@@ -1378,6 +1380,7 @@ export async function listVideoPublicationDetails(
         privacyStatus: status.privacyStatus,
         publishAt: status.publishAt ?? null,
         processingStatus: item.processingDetails?.processingStatus,
+        processingFailureReason: item.processingDetails?.processingFailureReason,
         title: snippet.title,
         description: snippet.description,
         tags: Array.isArray(snippet.tags) ? snippet.tags : [],

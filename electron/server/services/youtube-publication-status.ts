@@ -26,6 +26,7 @@ import {
   classifyYouTubeSyncFailure,
   observationFromDetails,
   recordYouTubePublicationObservations,
+  youtubeProcessingAbandonReason,
 } from './youtube-publication-cache.js'
 
 /** Lifecycles that are YouTube's final word. Never overwritten by an absence. */
@@ -54,14 +55,19 @@ export interface YouTubePublicationState {
 export { YOUTUBE_VIDEO_NOT_FOUND }
 
 /**
- * YouTube itself confirmed the video is gone: it answered the channel owner's
- * own request without the video (`not_found`), or reported it `deleted`.
- * "We could not reach YouTube" never gets here — a failed request writes
- * nothing — and only this answer may offer a new upload.
+ * YouTube itself confirmed the video is gone: it answered about this video and
+ * called it `deleted`.
+ *
+ * A bare `not_found` is NOT this. An empty `items` array is also exactly what a
+ * token that cannot see the video returns — a sign-in for another Google
+ * account, a brand channel it does not administer, or a momentary miss — so it
+ * is recorded as `unverified`, and only a word YouTube says ABOUT the video
+ * (deleted, or a rejected upload) may be reported as a removal. "We could not
+ * reach YouTube" never gets here either: a failed request writes nothing.
  */
 export function isConfirmedGoneFromYouTube(record: { lifecycle: string; processing?: { provider_status?: string } }): boolean {
   return record.lifecycle === 'status_unavailable'
-    && (record.processing?.provider_status === YOUTUBE_VIDEO_NOT_FOUND || record.processing?.provider_status === 'deleted')
+    && record.processing?.provider_status === 'deleted'
 }
 
 /**
@@ -101,6 +107,18 @@ export function mapYouTubePublicationState(
         ...(details.thumbnailEtag ? { thumbnail_etag: details.thumbnailEtag } : {}),
       }
     : undefined
+
+  // YouTube took the upload and then abandoned processing it. The upload word
+  // can still read `uploaded`, so this MUST be checked before the switch, or an
+  // abandoned upload is filed as one that is merely still processing.
+  const abandoned = youtubeProcessingAbandonReason(details)
+  if (abandoned) {
+    return {
+      lifecycle: 'failed',
+      processing: { ...base, provider_status: 'failed', failure_reason: abandoned },
+      ...(snapshot ? { snapshot } : {}),
+    }
+  }
 
   switch (provider_status) {
     case 'processed':
