@@ -1,6 +1,8 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.325 — 2026-10-19 (gate running)
+## 1.4.325 — 2026-10-19 (gated and landed)
+
+Gate: lint, four checks; test:backend 7537 / 7535 pass / 1 fail — the no-new-wallclock-sleeps guard flagged a hand-rolled 5 ms poll in genstudio-catalog-cache.test.ts, replaced with waitFor (d6f2234d, re-run 32/32); typecheck, test:frontend, test:release, test:content-packs green (see gate-325-lanes-d6f2234d.log).
 
 Merged: fix/tts-chargeable-passthrough (6af1082e, `parseGenStudioChargeable` on all seven catalogue parsers), fix/gateway-connection-cap (c86fc538, undici Agent connections 8 as global dispatcher; undici now a declared dependency; bodies cancelled; onBoot clears stale install_requested), fix/rejected-answer-fresh-key (dc79f25b, inner-quote JSON repair; rejected_idempotency_keys → fresh key; auditor repair detail), feat/jobs-history-paging (777878c2, ?view=active snapshots + /jobs/all/history; /jobs/all unchanged for callers).
 
