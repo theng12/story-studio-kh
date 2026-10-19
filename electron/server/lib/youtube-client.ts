@@ -256,7 +256,7 @@ export function registryCredentialFor(channelId: string): string {
   return `${REGISTRY_CREDENTIAL_PREFIX}${channelId}`
 }
 
-function registryChannelOf(accountId: string): string | null {
+export function registryChannelOf(accountId: string): string | null {
   if (!accountId.startsWith(REGISTRY_CREDENTIAL_PREFIX)) return null
   return accountId.slice(REGISTRY_CREDENTIAL_PREFIX.length) || null
 }
@@ -1059,9 +1059,22 @@ export async function setThumbnail(opts: {
     }
     const quotaMsg = friendlyQuotaErrorMessage(resp.status, text)
     // Thumbnail set can fail if the account isn't verified (custom thumbs
-    // require a verified channel). Don't hard-fail the whole upload — the
-    // caller treats this as a warning.
-    throw new Error(quotaMsg || `Thumbnail upload failed (${resp.status}): ${text.slice(0, 300)}. Custom thumbnails require channel verification on YouTube.`)
+    // require a verified channel). That is a fact about the CHANNEL, not a
+    // failure of the upload, and it is the only place YouTube ever says so —
+    // so it is recorded, and it is reported in plain words rather than as a
+    // raw provider 403. The caller decides what to do with the video.
+    const { isChannelThumbnailForbidden, noteYouTubeChannelThumbnailForbidden } =
+      await import('../services/youtube-channel-eligibility.js')
+    const channelForbidden = isChannelThumbnailForbidden(resp.status, text)
+    if (channelForbidden) {
+      await noteYouTubeChannelThumbnailForbidden({ project_slug: opts.slug, account_id: opts.accountId }).catch(() => {})
+    }
+    const message = channelForbidden
+      ? 'This channel isn\'t verified for custom thumbnails, so the thumbnail was skipped.'
+      : quotaMsg || `Thumbnail upload failed (${resp.status}): ${text.slice(0, 300)}. Custom thumbnails require channel verification on YouTube.`
+    const error: Error & { code?: string } = new Error(message)
+    if (channelForbidden) error.code = 'YOUTUBE_CHANNEL_THUMBNAILS_FORBIDDEN'
+    throw error
   }
 }
 

@@ -67,6 +67,11 @@ import { analyzeYouTubeReconcile } from '../services/youtube-reconcile.js'
 import { fetchCommentInbox } from '../services/youtube-comment-inbox.js'
 import { postCommentReply } from '../lib/youtube-comments.js'
 import { readYouTubeQuota } from '../services/youtube-quota-ledger.js'
+import {
+  preflightYouTubeChannel,
+  readCachedChannelEligibility,
+  readYouTubeChannelEligibility,
+} from '../services/youtube-channel-eligibility.js'
 import { buildYouTubeMetadataPackage, resanitizeStoredSnippet, resolveYouTubeUploadSettings } from '../services/youtube-metadata-package.js'
 import { enqueueOrRun, getJobs, isDuplicate } from '../services/job-queue.js'
 import type { Job } from '../models/types.js'
@@ -430,6 +435,12 @@ router.get('/projects/:slug/youtube/overview', async (req, res) => {
 
     res.json({
       assigned_channel: channel,
+      // What YouTube last said this channel may do: long videos, custom
+      // thumbnails. Cache-first, so this page load costs no quota — the
+      // deliberate provider read is Check All Uploads.
+      channel_eligibility: assignment
+        ? await readCachedChannelEligibility(slug, assignment.channel_id)
+        : null,
       unavailable_reason: unavailableReason(
         !!registry.application,
         Object.keys(registry.channels).length > 0,
@@ -2536,6 +2547,26 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // Keep ordinary no-date uploads on the configured private/apply-plan mode.
     const approvedUploadMode = built.status.publishAt ? 'apply-plan' : await getUploadMode(slug, 'youtube')
 
+    // Pre-upload channel eligibility (owner-approved, 2026-10-19).
+    //
+    // Domnak DM0001–DM0003: YouTube ACCEPTED three uploads from a channel that
+    // was not verified for long videos and then abandoned every one of them as
+    // "too long". The refusal belongs HERE — before anything is queued, in words
+    // that name the fix — not twenty minutes later as a provider verdict. A
+    // channel we cannot ask about is never refused.
+    const preflight = await preflightYouTubeChannel({
+      project_slug: slug, account_id: accountId, channel_id: channelId, file_path: sourceVideoPath,
+    })
+    if (preflight.refusal && req.body?.acknowledge_unverified_channel !== true) {
+      res.status(409).json({
+        code: 'YOUTUBE_CHANNEL_NOT_VERIFIED_FOR_LONG_VIDEOS',
+        detail: preflight.refusal,
+        channel_eligibility: preflight.eligibility,
+        confirmable: true,
+      })
+      return
+    }
+
     // Before the job, not inside it. A job queued against an exhausted
     // allowance fails later, somewhere the owner is not looking.
     await assertYouTubeUploadQuota(slug)
@@ -3347,7 +3378,14 @@ router.post('/projects/:slug/youtube/sync', async (req, res) => {
   try {
     // Same guard: a sync reads publication state under this account's token,
     // so the account must be the one that signs in to the assigned channel.
-    const { accountId } = await accountForCurrentChannel(slug)
+    const { accountId, channelId } = await accountForCurrentChannel(slug)
+    // This IS the deliberate provider read, so the channel's own status is
+    // re-asked here too: whether long videos and custom thumbnails are allowed.
+    // Never fatal — Check All Uploads is about uploads, and a channel status we
+    // could not refresh is not a failed check.
+    await readYouTubeChannelEligibility({
+      project_slug: slug, account_id: accountId, channel_id: channelId, refresh: true,
+    }).catch(() => null)
     // "Check All Uploads": every recorded upload, including the ones published
     // before upload receipts existed (their legacy sidecars).
     const result = await checkAllYouTubeUploads({ project_slug: slug, account_id: accountId })

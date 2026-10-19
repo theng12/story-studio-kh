@@ -574,12 +574,18 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
   // Thumbnail — REQUIRED. Tried twice (setThumbnail itself also retries the
   // transient "still processing" race); a failure fails the job further down,
   // after the durable record and the playlist, with the video id kept.
-  let thumb_error = ''
+  //
+  // A channel that may not have custom thumbnails at all is the one exception:
+  // YouTube answers every attempt with the same 403, no choice in Story Studio
+  // can satisfy the check, and the owner asked for the video to go up with the
+  // thumbnail skipped rather than as a raw provider error.
+  let thumb: ThumbnailOutcome = { error: '', channel_forbidden: false }
   if (hasThumbnail) {
     job.output_lines.push('Setting the thumbnail…')
-    thumb_error = await setThumbnailWithRetry(job, { slug, accountId, videoId, filePath: meta.thumbnailPath })
-    if (!thumb_error) thumbnail_set = true
+    thumb = await setThumbnailWithRetry(job, { slug, accountId, videoId, filePath: meta.thumbnailPath })
+    if (!thumb.error) thumbnail_set = true
   }
+  const thumb_error = thumb.error
   const thumbnailVerifiedThisRun = thumbnail_set
   job.progress = 95
 
@@ -655,7 +661,14 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     }
   }
 
-  await requireThumbnailSet(slug, job, videoId, thumb_error)
+  await requireThumbnailSet(slug, job, videoId, thumb)
+}
+
+/** The thumbnail's outcome. `error` is '' when it was set. */
+interface ThumbnailOutcome {
+  error: string
+  /** YouTube refused because the CHANNEL may not have custom thumbnails (403). */
+  channel_forbidden: boolean
 }
 
 /**
@@ -677,44 +690,61 @@ function missingThumbnailReason(episodeId: string, resolvedPath: string, filenam
     : `A thumbnail is required to upload ${episodeId}, and this episode has none. Make or pin one on the Thumbnails page, then try again.`
 }
 
-/** setThumbnail, tried a second time on failure. Returns '' when set, else the error. */
+/** setThumbnail, tried a second time on failure. A channel-level 403 is not retried — it cannot change. */
 async function setThumbnailWithRetry(
   job: Job,
   opts: { slug: string; accountId: string; videoId: string; filePath: string },
-): Promise<string> {
+): Promise<ThumbnailOutcome> {
   let error = ''
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       await setThumbnail(opts)
       job.output_lines.push('Thumbnail set ✓')
-      return ''
+      return { error: '', channel_forbidden: false }
     } catch (e: any) {
       error = String(e?.message || 'thumbnail failed')
+      if (e?.code === 'YOUTUBE_CHANNEL_THUMBNAILS_FORBIDDEN') {
+        return { error, channel_forbidden: true }
+      }
       job.output_lines.push(`⚠ Thumbnail attempt ${attempt} of 2 failed: ${error}`)
     }
   }
-  return error
+  return { error, channel_forbidden: false }
 }
 
 /**
  * Fail the job when the thumbnail is not set, keeping the video id so Retry sets only the thumbnail.
  * With "thumbnail present" Off/Warn the upload is done and keeps YouTube's frame grab.
+ *
+ * A channel that may not have custom thumbnails is reported, never failed: the
+ * video is already on YouTube, no Story Studio choice can change the channel's
+ * answer, and the recorded error is what makes Retry set only the thumbnail
+ * once the owner has verified the channel.
  */
-async function requireThumbnailSet(slug: string, job: Job, videoId: string, error: string): Promise<void> {
-  if (error && await safetyMode(slug, 'thumbnail_present') !== 'block') {
+async function requireThumbnailSet(slug: string, job: Job, videoId: string, thumb: ThumbnailOutcome): Promise<void> {
+  if (!thumb.error) return
+  if (thumb.channel_forbidden) {
+    const message = `${thumb.error} Uploaded as https://youtu.be/${videoId}; the video is kept. `
+      + 'Verify the channel in YouTube Studio, then press Retry to set only the thumbnail.'
+    job.output_lines.push(`⚠ ${message}`)
+    job.result = {
+      ...(job.result || {}),
+      warnings: [...((job.result?.warnings as string[] | undefined) || []), message],
+    }
+    return
+  }
+  if (await safetyMode(slug, 'thumbnail_present') !== 'block') {
     await safetyGate(slug, 'thumbnail_present', job, `Uploaded as https://youtu.be/${videoId}, but the thumbnail `
-      + `could not be set: ${error} The video keeps YouTube's frame grab; Retry sets only the thumbnail.`)
+      + `could not be set: ${thumb.error} The video keeps YouTube's frame grab; Retry sets only the thumbnail.`)
     return
   }
   requireJobCompletion(job, {
     label: 'YouTube thumbnail',
     expected: 1,
-    completed: error ? 0 : 1,
-    missing: error ? ['thumbnail'] : [],
-    message: error
-      ? `Uploaded as https://youtu.be/${videoId}, but the thumbnail could not be set: ${error} `
-        + 'The video is kept. Press Retry to set only the thumbnail — nothing is uploaded again.'
-      : undefined,
+    completed: 0,
+    missing: ['thumbnail'],
+    message: `Uploaded as https://youtu.be/${videoId}, but the thumbnail could not be set: ${thumb.error} `
+      + 'The video is kept. Press Retry to set only the thumbnail — nothing is uploaded again.',
   })
 }
 
@@ -761,15 +791,15 @@ async function setRequiredThumbnail(job: Job, input: {
     job.progress = 100
     return
   }
-  const error = await setThumbnailWithRetry(job, {
+  const thumb = await setThumbnailWithRetry(job, {
     slug: input.slug, accountId: input.accountId, videoId: input.videoId, filePath: meta.thumbnailPath,
   })
   await checkpointThumbnailStateAtPath(
     input.sidecarPath,
     { video_id: input.videoId, account_id: input.accountId },
-    { set: !error, error: error || undefined, remotely_verified: !error },
+    { set: !thumb.error, error: thumb.error || undefined, remotely_verified: !thumb.error },
   )
   job.output_dir = path.dirname(input.sidecarPath)
-  await requireThumbnailSet(input.slug, job, input.videoId, error)
+  await requireThumbnailSet(input.slug, job, input.videoId, thumb)
   job.progress = 100
 }

@@ -37,8 +37,9 @@ import {
   type ObservedPublication,
 } from './youtube-publication-cache.js'
 import {
-  PENDING_YOUTUBE_LIFECYCLES,
   YOUTUBE_VIDEO_NOT_FOUND,
+  isYouTubeUploadCheckDue,
+  setYouTubePublicationFailureNotifier,
   syncProjectYouTubePublicationStates,
   type ProjectSyncResult,
 } from './youtube-publication-status.js'
@@ -132,6 +133,9 @@ let dispatchNotice: ((notice: Notice) => Promise<void> | void) | null = null
 /** Electron wires desktop/Telegram notifications here; headless runs only log. */
 export function setYouTubeNoticeDispatcher(dispatcher: ((notice: Notice) => Promise<void> | void) | null): void {
   dispatchNotice = dispatcher
+  // An upload YouTube gave up on is announced on the same channels a failed job
+  // is: the upload job finished long before the verdict arrives.
+  setYouTubePublicationFailureNotifier(dispatcher)
 }
 
 /** One pass: follow pending uploads of every project whose channel is signed in. */
@@ -146,10 +150,13 @@ export async function runYouTubeStatusSyncPass(now = Date.now()): Promise<void> 
       const channel = assignment ? registry.channels[assignment.channel_id] : undefined
       if (!assignment || channel?.status !== 'connected') continue
       const accountId = registryCredentialFor(assignment.channel_id)
-      const pending = (await listYouTubeOperations(slug)).some(record => record.channel_id === assignment.channel_id
-        && !!record.video_id && PENDING_YOUTUBE_LIFECYCLES.has(record.lifecycle))
+      // The watch covers `not_found` too, for 24 h after acceptance: a video
+      // YouTube has not indexed yet answers exactly like one that is gone, and
+      // dropping it there is how an accepted upload is never followed again.
+      const pending = (await listYouTubeOperations(slug))
+        .some(record => record.channel_id === assignment.channel_id && isYouTubeUploadCheckDue(record, now))
       if (pending) {
-        const result = await syncProjectYouTubePublicationStates({ project_slug: slug, account_id: accountId, only_pending: true })
+        const result = await syncProjectYouTubePublicationStates({ project_slug: slug, account_id: accountId, only_pending: true, now })
         if (result.outcome === 'failed') {
           throw Object.assign(new Error(`sync ${result.error_code || 'failed'}`), { quota: result.error_code === 'quota_exhausted' })
         }
@@ -208,4 +215,5 @@ export function _resetYouTubeStatusSyncForTests(): void {
   backoff.clear()
   warned.clear()
   dispatchNotice = null
+  setYouTubePublicationFailureNotifier(null)
 }
