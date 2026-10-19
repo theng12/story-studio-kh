@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.331 — 2026-10-19 (gate running)
+## 1.4.331 — 2026-10-19 (gated and landed)
 
 Merged fix/output-limit-audit (docs tip 5f156c57), fix/hunt-verified-success (803b0833: audio-reconciler reads .task-manifest.json; cleanup run results capped with item_count), fix/hunt-recovery-truth (ca3ac802: planEndSec one authority, comparePlanStamp everywhere, hold-aware stragglers, catalogue last-good restore + image warm-up), fix/final-check-unknown-speech-end (80ab9a66: speech_end_sec, scene plan source_merged_audio). Bug-hunt phase 2 (Kinds A, C, D, F, H). Next: ack identity binding, cleanup skip-cleaned, dynamic chat deadline.
 
