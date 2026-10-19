@@ -124,6 +124,37 @@ export type YouTubeEpisodePublishableProjection = {
   plan: YouTubePlanProjection
 }
 
+/**
+ * Which final-check verdict a row is showing, and which file it was measured on.
+ *
+ * `checked_at` is the value an upload echoes back to bind its acknowledgement to this exact check
+ * (`acknowledge_final_check` + `final_check_checked_at` on the upload POST). The file's size and
+ * mtime are read-only context: the verdict is bound to those bytes, and a rewritten file makes it
+ * stale rather than silently describing the new ones.
+ */
+export type YouTubeFinalCheckIdentity = {
+  /** When the check ran — the stored verdict's own `checked_at`. */
+  checked_at: string
+  /** The finished file's size when it was checked. */
+  file_size: number
+  /** The finished file's mtime (ms) when it was checked. */
+  file_mtime_ms: number
+}
+
+/** The final-check verdict stored beside an episode's finished video, as the rows report it. */
+export type YouTubeFinalCheckProjection = {
+  /** The row's one line: "Final check: passed", or the first thing that is wrong with it. */
+  summary: string
+  passed: boolean
+  /** False when no verdict has been stored for this file yet. */
+  checked: boolean
+  /** True when the file has been rewritten since the check ran. */
+  stale: boolean
+  issues: Array<{ check: string; verdict: string }>
+  /** Null when no verdict has been stored — "not checked" and "checked" are different answers. */
+  identity: YouTubeFinalCheckIdentity | null
+}
+
 export const YOUTUBE_FOUNDATION_ERROR_CODES = [
   'YOUTUBE_APPLICATION_NOT_CONFIGURED',
   'YOUTUBE_APPLICATION_CHANGED',

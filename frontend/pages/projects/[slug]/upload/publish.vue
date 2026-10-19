@@ -826,6 +826,8 @@ interface PublishableEpisode {
     checked: boolean
     stale: boolean
     issues: Array<{ check: string; verdict: string }>
+    /** Which check this row is showing; `checked_at` is what an acknowledgement answers about. */
+    identity?: { checked_at: string; file_size: number; file_mtime_ms: number } | null
   }
   /** Already on YouTube — from the operation record OR a legacy sidecar. */
   has_remote_video?: boolean
@@ -2466,7 +2468,7 @@ async function postUploadWithAcknowledgements(
   uploadBody: Record<string, unknown>,
   episodeCode: string,
 ): Promise<{ job_id: string; channel_id: string }> {
-  let acknowledged: Record<string, true> = {}
+  let acknowledged: Record<string, true | string> = {}
   for (let round = 0; ; round++) {
     try {
       return await post<{ job_id: string; channel_id: string }>(
@@ -2484,7 +2486,7 @@ async function postUploadWithAcknowledgements(
 async function confirmableUploadAcknowledgement(
   error: any,
   episodeCode: string,
-): Promise<Record<string, true> | null> {
+): Promise<Record<string, true | string> | null> {
   if (error?.data?.code === 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE') {
     const confirmed = await ask({
       title: `${episodeCode} is already on this channel`,
@@ -2501,8 +2503,20 @@ async function confirmableUploadAcknowledgement(
     })
     return confirmed ? { acknowledge_unverified_channel: true } : null
   }
-  if (await confirmFinalCheck(error, episodeCode)) return { acknowledge_final_check: true }
+  if (await confirmFinalCheck(error, episodeCode)) {
+    return { acknowledge_final_check: true, ...reviewedFinalCheckIdentity(error) }
+  }
   return null
+}
+
+/**
+ * The exact check the owner just answered about, so the acknowledgement binds to that verdict about
+ * those bytes rather than to whatever verdict is stored when the upload is admitted. The route
+ * refuses the answer if it no longer matches — see `YOUTUBE_FINAL_CHECK_CHANGED`.
+ */
+function reviewedFinalCheckIdentity(error: any): Record<string, string> {
+  const checkedAt = error?.data?.final_check?.identity?.checked_at
+  return typeof checkedAt === 'string' && checkedAt ? { final_check_checked_at: checkedAt } : {}
 }
 
 /**

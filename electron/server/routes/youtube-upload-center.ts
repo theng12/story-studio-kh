@@ -29,6 +29,7 @@ import { sameInstant } from '../lib/publish-instant.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import type {
   YouTubeEpisodePublishableProjection,
+  YouTubeFinalCheckProjection,
   YouTubePublicationProjection,
 } from '../contracts/youtube-upload-center.js'
 import {
@@ -81,8 +82,8 @@ import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '
 import { getUploadMode } from '../services/upload-store.js'
 import { safetyMode } from '../services/safety-checks.js'
 import {
-  finalCheckVerdict, readStoredFinalCheck, runFinalCheck, speechEndSecFromScenePlan, storeFinalCheck,
-  finalCheckSummary, type FinalCheckExpectation,
+  finalCheckVerdict, finalCheckIdentity, finalCheckIdentityMatches, readStoredFinalCheck, runFinalCheck,
+  speechEndSecFromScenePlan, storeFinalCheck, finalCheckSummary, type FinalCheckExpectation,
 } from '../lib/final-video-check.js'
 import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
@@ -794,7 +795,11 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
                   checked: !!finalCheck,
                   stale: !!finalCheck?.stale,
                   issues: finalCheck?.result.issues ?? [],
-                },
+                  // Which check this row is showing. An acknowledgement echoes `checked_at` back so
+                  // the answer binds to this verdict about these bytes, not to whatever verdict is
+                  // stored by the time the upload is admitted.
+                  identity: finalCheckIdentity(finalCheck),
+                } satisfies YouTubeFinalCheckProjection,
               }
             : {}),
           publication,
@@ -2647,6 +2652,34 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // with `acknowledge_final_check`, the click-through `episode_number_claim` already uses. Off
     // skips the question; Block refuses without one. Nothing here blocks an upload permanently.
     const storedCheck = await readStoredFinalCheck(sourceVideoPath)
+    // An acknowledgement may name the verdict it is answering (`final_check_checked_at`, the row's
+    // own `final_check.identity.checked_at`). When it does, the answer only counts for THAT check of
+    // THAT file: a re-render, or a check run again since the owner looked, means they answered about
+    // something that is no longer there. A body that names no verdict is admitted exactly as before,
+    // so nothing older than this field changes behaviour.
+    const reviewedCheckAt = typeof req.body?.final_check_checked_at === 'string'
+      ? req.body.final_check_checked_at.trim()
+      : ''
+    if (reviewedCheckAt && !finalCheckIdentityMatches(storedCheck, reviewedCheckAt)) {
+      res.status(409).json({
+        code: 'YOUTUBE_FINAL_CHECK_CHANGED',
+        detail: `${episodeCode}'s finished video is not the one that check was taken on — it was `
+          + 'checked again, or the file was rewritten, after you looked. Look at the check that is '
+          + 'stored now and decide on that.',
+        // Not confirmable: re-answering the same stale identity would fail again, and the only way
+        // forward is to look at the verdict that is there now.
+        confirmable: false,
+        final_check: storedCheck
+          ? {
+              passed: storedCheck.result.passed,
+              stale: storedCheck.stale,
+              issues: storedCheck.result.issues,
+              identity: finalCheckIdentity(storedCheck),
+            }
+          : { passed: false, stale: false, issues: [], identity: null },
+      })
+      return
+    }
     const checkReason = finalCheckVerdict(storedCheck)
     if (checkReason) {
       const checkMode = await safetyMode(slug, 'final_check')
@@ -2657,8 +2690,14 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
           // Block is a deliberate refusal: no click-through is offered, and none would work.
           confirmable: checkMode !== 'block',
           final_check: storedCheck
-            ? { passed: storedCheck.result.passed, stale: storedCheck.stale, issues: storedCheck.result.issues }
-            : { passed: false, stale: false, issues: [] },
+            ? {
+                passed: storedCheck.result.passed,
+                stale: storedCheck.stale,
+                issues: storedCheck.result.issues,
+                // What a click-through answers about: the caller echoes `identity.checked_at` back.
+                identity: finalCheckIdentity(storedCheck),
+              }
+            : { passed: false, stale: false, issues: [], identity: null },
         })
         return
       }
