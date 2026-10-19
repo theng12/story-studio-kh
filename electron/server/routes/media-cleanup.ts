@@ -28,7 +28,7 @@ export const router = Router()
 
 router.post('/library/media-cleanup/preview', async (req, res) => {
   try {
-    res.status(202).json(await startLibraryMediaCleanupPreview(req.body?.action))
+    res.status(202).json(await startLibraryMediaCleanupPreview(req.body?.action, { check_again: req.body?.check_again }))
   } catch (error) {
     respondWithError(res, error, 'Could not start the all-channel check')
   }
@@ -68,6 +68,7 @@ router.post('/projects/:slug/media-cleanup/preview', async (req, res) => {
       episode_codes: req.body?.episode_codes,
       categories: req.body?.categories,
       preset: req.body?.preset,
+      check_again: req.body?.check_again,
     })
     res.status(202).json(started)
   } catch (error) {

@@ -51,14 +51,14 @@ const shrinkFile = { path: '/Library/chan-a/EP0001/s001.png', relative_path: 's0
 const shrinkPreview = {
   preview_id: 'lib-1', action: 'shrink_images', created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 600_000).toISOString(),
   channels: [{ slug: 'chan-a', name: 'Channel A', files: [shrinkFile], file_count: 1, total_bytes: 2048, blocked_reasons: [] }],
-  file_count: 1, total_bytes: 2048, blocked_reasons: [], trash_roots: ['/Library/_trash'],
+  file_count: 1, total_bytes: 2048, blocked_reasons: [], trash_roots: ['/Library/_trash'], already_cleaned_episodes: 0,
   estimate: { compress_files: 1, compress_bytes_before: 2048, compress_bytes_after: 240, already_jpeg_files: 0, trash_files: 0, trash_bytes: 0 },
 }
 const finalFile = { path: '/Library/chan-a/EP0001/final.mp4', relative_path: 'final.mp4', bytes: 3 * 1024 ** 3, category: 'final_video', project_slug: 'chan-a', channel_name: 'Channel A', episode_code: 'EP0001', production_ms: Date.now() - 10 * 24 * 3600 * 1000 }
 const cleanupPreview = {
   preview_id: 'lib-2', action: 'cleanup_all', created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 600_000).toISOString(),
   channels: [{ slug: 'chan-a', name: 'Channel A', files: [finalFile], file_count: 1, total_bytes: 3 * 1024 ** 3, blocked_reasons: [] }],
-  file_count: 1, total_bytes: 3 * 1024 ** 3, blocked_reasons: [], trash_roots: ['/Library/_trash'],
+  file_count: 1, total_bytes: 3 * 1024 ** 3, blocked_reasons: [], trash_roots: ['/Library/_trash'], already_cleaned_episodes: 0,
   estimate: { compress_files: 0, compress_bytes_before: 0, compress_bytes_after: 0, already_jpeg_files: 0, trash_files: 1, trash_bytes: 3 * 1024 ** 3 },
   leftovers: { count: 2, total_bytes: 50 * 1024 ** 2, items: [
     { project_slug: 'chan-a', channel_name: 'Channel A', kind: 'render_scratch', episode_code: 'EP0001', path: '/tmp/x', bytes: 30 * 1024 ** 2 },
@@ -91,7 +91,7 @@ test('Shrink images: previews every channel, confirms once, then runs the review
   try {
     button(ui.host, 'Shrink Images (All Channels)').click()
     for (let i = 0; i < 5; i++) await flush()
-    assert.deepEqual(calls[0], { url: '/library/media-cleanup/preview', body: { action: 'shrink_images' } })
+    assert.deepEqual(calls[0], { url: '/library/media-cleanup/preview', body: { action: 'shrink_images', check_again: false } })
     const text = ui.host.textContent || ''
     assert.match(text, /Shrink 1 file across 1 channel/)
     assert.match(text, /Channel A/)
@@ -112,7 +112,7 @@ test('Clean up all channels: reports uploaded videos and leftovers separately, t
   try {
     button(ui.host, 'Clean Up All Channels').click()
     for (let i = 0; i < 5; i++) await flush()
-    assert.deepEqual(calls[0], { url: '/library/media-cleanup/preview', body: { action: 'cleanup_all' } })
+    assert.deepEqual(calls[0], { url: '/library/media-cleanup/preview', body: { action: 'cleanup_all', check_again: false } })
     const text = ui.host.textContent || ''
     assert.match(text, /Clean up all channels · 1 uploaded video \(3\.00 GB\) \+ 2 leftover folders \(50\.0 MB\)/)
     assert.match(text, /Leftover files · 2 · 50\.0 MB/)
@@ -123,6 +123,30 @@ test('Clean up all channels: reports uploaded videos and leftovers separately, t
     assert.match(asked.at(-1).message, /1 uploaded final video/)
     assert.match(asked.at(-1).message, /2 unused leftover folders/)
     assert.deepEqual(calls[1], { url: '/library/media-cleanup/run', body: { preview_id: 'lib-2' } })
+  } finally { ui.close() }
+})
+
+test('the review says how many episodes were already cleaned, and "Check every episode again" is opt-in and sent with the check', async () => {
+  const calls: any[] = []
+  const skipped = { ...cleanupPreview, already_cleaned_episodes: 12 }
+  const ui = await mount({
+    get: async (url: string) => url.endsWith('/space') ? space : url.includes('/library/media-cleanup/operations/') ? libraryOperation('cleanup_all', skipped) : {},
+    post: async (url: string, body: any) => { calls.push({ url, body }); return { operation_id: url.includes('/library/media-cleanup/preview') ? 'lib-op' : 'run-op' } },
+  })
+  try {
+    const box = ui.host.querySelector<HTMLInputElement>('.cleanup-recheck input')
+    assert.ok(box, 'the "check every episode again" option is offered')
+    assert.match(ui.host.textContent || '', /Check every episode again/)
+    assert.equal(box.checked, false, 'a full check is opt-in')
+
+    box.checked = true
+    box.dispatchEvent(new Event('change'))
+    await flush()
+    button(ui.host, 'Clean Up All Channels').click()
+    for (let i = 0; i < 5; i++) await flush()
+
+    assert.deepEqual(calls[0], { url: '/library/media-cleanup/preview', body: { action: 'cleanup_all', check_again: true } })
+    assert.match(ui.host.textContent || '', /12 episodes already cleaned, skipped/)
   } finally { ui.close() }
 })
 
