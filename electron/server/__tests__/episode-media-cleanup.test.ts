@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
-import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, test, type TestContext } from 'node:test'
 import express from 'express'
 import sharp from 'sharp'
 import request from 'supertest'
@@ -171,10 +171,12 @@ async function waitForOperation(operationId: string) {
 async function preview(
   episodeCodes: string[],
   categories: MediaCleanupCategory[],
+  options?: { check_again?: boolean },
 ) {
   const started = await cleanup.startMediaCleanupPreview(SLUG, {
     episode_codes: episodeCodes,
     categories,
+    ...(options ?? {}),
   })
   const operation = await waitForOperation(started.operation_id)
   assert.equal(operation.status, 'completed', operation.error)
@@ -836,7 +838,10 @@ describe('compress scene images (Archive episode)', () => {
     const compressed = await fs.readFile(scene)
     const trashListing = await fs.readdir(path.join(trashDir(), 'images', 'scene_images'))
 
-    const again = await preview(['EP0001'], ['images'])
+    // "Check every episode again" is what reaches this second pass now: a
+    // finished episode the first run cleaned is skipped by default, so the
+    // JPEG-skip path below is only reached when the owner asks for a full check.
+    const again = await preview(['EP0001'], ['images'], { check_again: true })
     assert.equal(reviewedFiles(again)[0]?.already_jpeg, true)
     assert.equal(again.estimate.compress_files, 0)
     const operation = await run(again.preview_id, 'compress')
@@ -1401,8 +1406,11 @@ async function waitForLibraryOperation(operationId: string) {
   }, { timeoutMs: 5_000, label: `library cleanup operation ${operationId}` })
 }
 
-async function libraryPreview(action: 'shrink_images' | 'clear_uploaded_finals' | 'cleanup_all') {
-  const started = await cleanup.startLibraryMediaCleanupPreview(action)
+async function libraryPreview(
+  action: 'shrink_images' | 'clear_uploaded_finals' | 'cleanup_all',
+  options?: { check_again?: boolean },
+) {
+  const started = await cleanup.startLibraryMediaCleanupPreview(action, options)
   const operation = await waitForLibraryOperation(started.operation_id)
   assert.equal(operation.status, 'completed', operation.error)
   assert.ok(operation.library_preview)
@@ -1945,5 +1953,237 @@ describe('all-channel (Library) maintenance', () => {
     const preCapSweepBytes = Buffer.byteLength(JSON.stringify(sweep.final_cleanup!.items[0])) * sweepCodes.length
     assert.ok(preCapSweepBytes > 40_000, `one entry per episode would have sent ~${preCapSweepBytes} bytes`)
     assert.ok(sweepBytes < 40_000, `the sweep operation GET answers ${sweepBytes} bytes, down from ~${preCapSweepBytes}`)
+  })
+})
+
+// ── Free up space: an episode a cleanup already handled is not checked again ──
+//
+// Owner request 2026-10-19: "for older episodes, once cleaned, it's already
+// cleaned. It no longer needs a recheck every time we run. The first time needs
+// the check; after that it's no longer a requirement. Only projects that aren't
+// finished yet might still get new assets."
+//
+// A cleanup run that fully handled an episode records, per episode and per
+// action, a fingerprint of the folders that action covered: file count, total
+// bytes and newest mtime, from one directory walk that opens and hashes nothing.
+// A later check that finds the same fingerprint skips the episode without
+// listing a single file, and reports it as already cleaned. Anything that
+// changes in those folders makes the check run again; an episode with no
+// confirmed upload is always checked; and "Check every episode again" ignores
+// every record.
+
+describe('Free up space: an episode a cleanup already handled is not checked again', () => {
+  /**
+   * Every file a check actually listed, restricted to one folder.
+   *
+   * `discoverRoot` resolves each file it accepts (`fs.realpath`) and nothing
+   * else in a preview resolves one, so a folder with no entries here was never
+   * walked — which is the claim under test.
+   */
+  function listedIn(t: TestContext, folder: string): string[] {
+    const listed: string[] = []
+    const original = fs.realpath
+    t.mock.method(fs, 'realpath', async (file: string, ...rest: any[]) => {
+      if (String(file).startsWith(folder)) listed.push(String(file))
+      return original.call(fs, file, ...rest)
+    })
+    return listed
+  }
+
+  /**
+   * Real PNG bytes in an episode's scene folder. A flat 8x8 scene is a genuine
+   * candidate that compression legitimately declines (under 20% saved), so it
+   * exercises the "already handled" path without a slow re-encode.
+   */
+  async function addScenes(episode: { paths: { bg_dir: string } }, count: number, from = 1): Promise<string[]> {
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#203040' } }).png().toBuffer()
+    const files: string[] = []
+    for (let index = from; index < from + count; index += 1) {
+      const file = path.join(episode.paths.bg_dir, `s${String(index).padStart(3, '0')}.png`)
+      await fs.writeFile(file, png)
+      files.push(file)
+    }
+    return files
+  }
+
+  /** One channel holding one uploaded (finished) episode with `scenes` scene images. */
+  async function seedUploadedChannel(slug: string, channelId: string, code: string, scenes: number) {
+    await seedChannel(slug, 'Channel A')
+    const episode = await seedEpisodeIn(slug, code, `Episode ${code}`)
+    const files = await addScenes(episode, scenes)
+    await connectChannel(slug, channelId, 'Channel A')
+    await markUploadedIn(slug, episode, channelId)
+    return { episode, files }
+  }
+
+  /** Counts the YouTube answers a check asked for, so "it did not read the final" is countable. */
+  function countYouTube(episodes: Array<{ code: string; title: string }>, channelId: string) {
+    let calls = 0
+    __setYouTubeTransportForTests((async () => {
+      calls += 1
+      return new Response(JSON.stringify({
+        items: episodes.map(episode => ({
+          id: `video-${episode.code}`,
+          status: { uploadStatus: 'processed', privacyStatus: 'private' },
+          snippet: { channelId, title: episode.title, description: '', tags: [] },
+        })),
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch)
+    return () => calls
+  }
+
+  test('a finished episode is checked once, then skipped without listing a single file again', async (t) => {
+    await seedChannel('chan-a', 'Channel A')
+    await connectChannel('chan-a', 'chan-a-chan', 'Channel A')
+    const files: string[] = []
+    for (const code of ['EP0001', 'EP0002', 'EP0003']) {
+      const episode = await seedEpisodeIn('chan-a', code, `Episode ${code}`)
+      files.push(...await addScenes(episode, 4))
+      await markUploadedIn('chan-a', episode, 'chan-a-chan')
+    }
+    const listed = listedIn(t, pm.getProjectDir('chan-a')!)
+
+    const first = await libraryPreview('shrink_images')
+    assert.equal(first.preview.already_cleaned_episodes, 0, 'nothing is skipped before the first cleanup')
+    assert.equal(first.preview.file_count, 12)
+    assert.deepEqual(listed.slice().sort(), files.slice().sort(), 'the first check listed all 12 scene images')
+
+    const run = await libraryRun(first.preview.preview_id)
+    assert.equal(run.status, 'completed', run.error)
+    assert.equal(run.result?.item_count, 12, 'the run handled every reviewed file')
+
+    // The measured speed-up: 3 episodes and 12 files were re-reviewed on the
+    // first check and none of them on the second — not one file was resolved,
+    // opened or decoded.
+    listed.length = 0
+    const second = await libraryPreview('shrink_images')
+    assert.equal(second.preview.already_cleaned_episodes, 3, '3 episodes skipped')
+    assert.equal(second.preview.file_count, 0, 'and 0 of their 12 files re-reviewed')
+    assert.deepEqual(listed, [], 'the second check did not list a single file')
+  })
+
+  test('a changed episode is checked again', async (t) => {
+    const { episode } = await seedUploadedChannel('chan-a', 'chan-a-chan', 'EP0001', 3)
+    const listed = listedIn(t, episode.paths.bg_dir)
+    const first = await libraryPreview('shrink_images')
+    await libraryRun(first.preview.preview_id)
+
+    const added = (await addScenes(episode, 1, 4))[0]!
+    listed.length = 0
+    const second = await libraryPreview('shrink_images')
+    assert.equal(second.preview.already_cleaned_episodes, 0, 'a changed episode is not skipped')
+    assert.equal(second.preview.file_count, 4)
+    assert.ok(listed.includes(added), 'the new scene image is listed')
+  })
+
+  test('an episode that is not finished yet is always checked', async (t) => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'Not uploaded yet')
+    const files = await addScenes(episode, 2)
+    const listed = listedIn(t, episode.paths.bg_dir)
+
+    const first = await libraryPreview('shrink_images')
+    assert.equal(first.preview.file_count, 2, 'an un-uploaded episode is still offered to shrink')
+    await libraryRun(first.preview.preview_id)
+
+    listed.length = 0
+    const second = await libraryPreview('shrink_images')
+    assert.equal(second.preview.already_cleaned_episodes, 0, 'no confirmed upload means no "already cleaned" record')
+    assert.deepEqual(listed.slice().sort(), files.slice().sort(), 'so it is listed again')
+  })
+
+  test('a cleanup that failed is not recorded, so the episode is checked again', async (t) => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'Episode EP0001')
+    // A real scene, so the re-encode really reaches the destructive step.
+    const scene = path.join(episode.paths.bg_dir, 's001.png')
+    await scenePng(scene)
+    await connectChannel('chan-a', 'chan-a-chan', 'Channel A')
+    await markUploadedIn('chan-a', episode, 'chan-a-chan')
+    const listed = listedIn(t, episode.paths.bg_dir)
+    const first = await libraryPreview('shrink_images')
+    assert.deepEqual(listed, [scene])
+    const restore = cleanup._setMediaCleanupHooksForTests({
+      beforeDestructiveMutation: async () => { throw new Error('the disk went away') },
+    })
+    try {
+      const run = await libraryRun(first.preview.preview_id)
+      assert.equal(run.status, 'completed', run.error)
+      assert.ok((run.result?.failed_count || 0) > 0, 'the run reported the failures')
+    } finally { restore() }
+
+    listed.length = 0
+    const second = await libraryPreview('shrink_images')
+    assert.equal(second.preview.already_cleaned_episodes, 0, 'a failed episode is not "already cleaned"')
+    assert.deepEqual(listed, [scene], 'so its file is reviewed again')
+  })
+
+  test('"Check every episode again" ignores the record and checks everything', async (t) => {
+    const { episode, files } = await seedUploadedChannel('chan-a', 'chan-a-chan', 'EP0001', 2)
+    const listed = listedIn(t, episode.paths.bg_dir)
+    const first = await libraryPreview('shrink_images')
+    await libraryRun(first.preview.preview_id)
+
+    const skipped = await libraryPreview('shrink_images')
+    assert.equal(skipped.preview.already_cleaned_episodes, 1, 'it is skipped by default')
+
+    listed.length = 0
+    const forced = await libraryPreview('shrink_images', { check_again: true })
+    assert.equal(forced.preview.already_cleaned_episodes, 0, 'nothing is skipped when the owner asks for a full check')
+    assert.equal(forced.preview.file_count, 2)
+    assert.deepEqual(listed.slice().sort(), files.slice().sort(), 'every file is listed again')
+  })
+
+  test('the single-channel check skips a finished episode too, and its own "check again" overrides it', async (t) => {
+    const episode = await seedEpisode('EP0001')
+    const scenes = ['s001.png', 's002.png'].map(name => path.join(episode.paths.bg_dir, name))
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#203040' } }).png().toBuffer()
+    for (const file of scenes) await fs.writeFile(file, png)
+    await Promise.all(scenes.map(makeOlder))
+    await markUploaded(episode)
+    const listed = listedIn(t, episode.paths.bg_dir)
+
+    const first = await preview(['EP0001'], ['images'])
+    assert.equal(first.already_cleaned_episodes, 0)
+    assert.equal(first.file_count, 2)
+    await run(first.preview_id, 'compress')
+
+    listed.length = 0
+    const second = await preview(['EP0001'], ['images'])
+    assert.equal(second.already_cleaned_episodes, 1, 'the finished episode is skipped')
+    assert.equal(second.file_count, 0)
+    assert.deepEqual(listed, [], 'and not listed again')
+
+    const forced = await preview(['EP0001'], ['images'], { check_again: true })
+    assert.equal(forced.already_cleaned_episodes, 0, 'the owner can always ask for a full check')
+    assert.equal(forced.file_count, 2)
+  })
+
+  test('clearing an old final records the episode, and the next check neither lists it nor asks YouTube again', async (t) => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'Old uploaded')
+    await ageFile(episode.final, 9 * DAY_MS)
+    await writeProductionStamp(episode.final, 'EP0001')
+    await connectChannel('chan-a', 'chan-a-chan', 'Channel A')
+    await markUploadedIn('chan-a', episode, 'chan-a-chan')
+    const youtube = countYouTube([{ code: 'EP0001', title: 'Old uploaded' }], 'chan-a-chan')
+    const listed = listedIn(t, episode.paths.video_dir)
+
+    const first = await libraryPreview('clear_uploaded_finals')
+    assert.deepEqual(libraryFiles(first.preview).map(file => file.path), [episode.final])
+    assert.deepEqual(listed, [episode.final], 'the final was listed and read for its upload proof')
+
+    const run = await libraryRun(first.preview.preview_id)
+    assert.equal(run.status, 'completed', run.error)
+    assert.equal(run.result?.removed_count, 1)
+
+    const asked = youtube()
+    assert.ok(asked > 0, 'matching the final asked YouTube about it')
+    listed.length = 0
+    const second = await libraryPreview('clear_uploaded_finals')
+    assert.equal(second.preview.already_cleaned_episodes, 1)
+    assert.equal(second.preview.file_count, 0)
+    assert.deepEqual(listed, [], 'the final was not read again')
+    assert.equal(youtube(), asked, 'and YouTube was not asked about it again')
   })
 })
