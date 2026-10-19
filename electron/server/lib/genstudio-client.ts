@@ -43,7 +43,10 @@ import {
   type TtsControlValues,
 } from './tts-controls.js'
 import {
+  chatAllowanceSeconds,
   describeOutputBudget,
+  effectiveChatTimeoutMs,
+  expectedOutputTokensFor,
   resolveOutputTokenBudget,
   type OutputBudget,
 } from '../services/output-token-budget.js'
@@ -186,6 +189,25 @@ export const GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS = 5 * 60_000
  */
 export async function languageSubmitTimeoutMs(): Promise<number> {
   return getLanguageTimeoutMs()
+}
+
+/**
+ * The socket timeout one chat request actually gets: **the owner's dial or this request's own
+ * computed allowance, whichever is longer, capped at the Hub's 4-hour ceiling.**
+ *
+ * The dial alone is not enough since 2026-10-19. Studio Hub computes each Chat job's deadline from
+ * the job — the expected answer it was told, that Mac's measured decode rate — and a 100-prompt
+ * scene pack is ~68 minutes on the fleet's slowest Mac. A socket bounded only by the 30-minute
+ * default would abort generation that the Gateway and the Hub had both allowed, and that
+ * GenStudio had already run and charged for. The allowance is derived from the same
+ * `expected_output_tokens` this client sends, at the fleet's slowest measured rate, so the two
+ * sides cannot disagree about how long the answer takes.
+ *
+ * `max` and never a replacement: an operator who set 60 minutes keeps 60 even when the allowance
+ * is two. `services/output-token-budget.ts` owns every constant in that arithmetic.
+ */
+export async function effectiveChatSubmitTimeoutMs(allowanceSeconds: number): Promise<number> {
+  return effectiveChatTimeoutMs(await getLanguageTimeoutMs(), allowanceSeconds)
 }
 export const GENSTUDIO_MAX_TRANSCRIPTION_BYTES = 100 * 1024 * 1024
 
@@ -2582,6 +2604,16 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
    * publishes no ceiling is submitted without this field.
    */
   outputBudget?: OutputBudget
+  /**
+   * How long this request's answer is expected to be, in output tokens.
+   *
+   * **A hint, and the only number here that is not an allowance.** Studio Hub sizes each chat
+   * job's deadline from what the job actually is — its prompt, its expected answer, that Mac's
+   * measured decode rate — and it cannot tell a 100-prompt scene pack from a one-line question
+   * by reading the body. Sizing every job from `max_tokens` instead would make every job three
+   * hours long, so this travels as `expected_output_tokens` and is omitted when unstated.
+   */
+  expectedOutputTokens?: number
   requestIdentity?: string
   idempotencyKey?: string
   /**
@@ -4474,13 +4506,16 @@ async function submitLanguageJson(
   request: GenStudioOperationContext,
   deadline: number,
   evidence: GenStudioSubmissionEvidence,
+  // This request's own expected generation time, or 0 when nothing was stated. Applied as a
+  // floor under the owner's dial, never as a replacement for it.
+  chatAllowanceSeconds = 0,
 ): Promise<any> {
   const poller = createGenStudioJobPoller()
   // Read per SUBMISSION, not per module load. The owner changing the dial
   // while a long episode is running must apply to the next request, and a
   // value captured at import time would need a restart to take effect —
   // exactly the silent no-op the concurrency route already refuses to ship.
-  const timeoutMs = await languageSubmitTimeoutMs()
+  const timeoutMs = await effectiveChatSubmitTimeoutMs(chatAllowanceSeconds)
   for (;;) {
     try {
       return await submitJsonWithAdmission(
@@ -7303,6 +7338,21 @@ interface PreparedChatSubmission {
    * refused.
    */
   maxOutputTokens: number | null
+  /**
+   * The answer length this request expects, or `null` when the caller stated none.
+   *
+   * Omitted from the wire body when `null`, exactly like `maxOutputTokens` above: absent is the
+   * honest spelling of "nobody said", and the Hub's own fallback (the p90 of the fleet's
+   * measured answers) is the answer to that question, not a number invented here.
+   */
+  expectedOutputTokens: number | null
+  /**
+   * How long that expectation takes to generate on the fleet's slowest measured Mac, in seconds.
+   * `0` when no expectation was stated. The socket timeout takes `max` of this and the owner's
+   * dial (`effectiveChatSubmitTimeoutMs`), so a long pack is not cut by a default meant for a
+   * paragraph. See services/output-token-budget.ts.
+   */
+  chatAllowanceSeconds: number
   outputContract: TextOutputContract
   /**
    * The `response_format` this request carries, or `null` when it carries none.
@@ -7418,6 +7468,18 @@ async function prepareChatSubmission(
       )
     }
   }
+  // **What this answer is expected to cost, which is a different question from what it may
+  // cost.** An explicit hint wins; otherwise the workload tier's own `minimumTokens` already IS
+  // the expectation, because that number is computed from the work being asked for
+  // (`ideaOutputTokenBudget(count)`, `batchOutputTokenEstimate(words)`). Every other tier is a
+  // fraction of the product's ceiling and says nothing about the answer's length, so it yields
+  // `null` and the Hub uses the p90 of the fleet's own measured answers.
+  const expectedOutputTokens = request.expectedOutputTokens
+    ?? expectedOutputTokensFor(request.outputBudget)
+  // The same expectation, turned into the time it takes — this side's own socket bound. The
+  // prompt size is what this submission will actually carry, so a long pack is not measured
+  // against a short one's input.
+  const promptCharacters = request.system.length + request.userMessage.length
   const outputContract = request.outputContract
     ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT)
   const { responseFormat, wrapperInstruction } = productResponseFormat(
@@ -7433,6 +7495,8 @@ async function prepareChatSubmission(
     modelId,
     product,
     maxOutputTokens,
+    expectedOutputTokens,
+    chatAllowanceSeconds: chatAllowanceSeconds(expectedOutputTokens, promptCharacters),
     outputContract,
     responseFormat,
     messages: [
@@ -8160,6 +8224,9 @@ async function callChatViaResponsesOnce(
     // Omitted entirely when the product publishes no ceiling, so the retained
     // preview describes the request that was actually sent (owner decision #6).
     ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_output_tokens: prepared.maxOutputTokens } }),
+    ...(prepared.expectedOutputTokens === null
+      ? {}
+      : { expectedOutputTokens: prepared.expectedOutputTokens }),
     idempotencyKey: prepared.idempotencyKey,
     messages: prepared.messages,
     fields: chatPreviewFields(request, prepared),
@@ -8198,6 +8265,12 @@ async function callChatViaResponsesOnce(
           // Omitted when the product publishes no ceiling — no number is
           // attributed to it and the provider decides (owner decision #6).
           ...(prepared.maxOutputTokens === null ? {} : { max_output_tokens: prepared.maxOutputTokens }),
+          // The expectation, beside the ceiling and never instead of it. Absent when nobody
+          // stated one, so the Gateway's Hub lane falls back to the fleet's own measured answer
+          // size.
+          ...(prepared.expectedOutputTokens === null
+            ? {}
+            : { expected_output_tokens: prepared.expectedOutputTokens }),
           ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}),
           // Present only for a deliberate web-search request. `web_search` is
           // available on this route too, so web research is durable as well.
@@ -8207,6 +8280,7 @@ async function callChatViaResponsesOnce(
       request,
       deadline,
       { operation: 'chat.response', preview: requestPreview },
+      prepared.chatAllowanceSeconds,
     ) as GenStudioChatJob
   } catch (error) {
     if (request.isCancelled?.() || request.signal?.aborted) throw error
@@ -8283,6 +8357,9 @@ async function callChatViaCompletions(
     modelId: prepared.modelId,
     responseFormat: prepared.responseFormat,
     ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_completion_tokens: prepared.maxOutputTokens } }),
+    ...(prepared.expectedOutputTokens === null
+      ? {}
+      : { expectedOutputTokens: prepared.expectedOutputTokens }),
     idempotencyKey: prepared.idempotencyKey,
     messages: prepared.messages,
     fields: [['stream', false], ...chatPreviewFields(request, prepared)],
@@ -8309,12 +8386,18 @@ async function callChatViaCompletions(
         ...prepared.samplingFields,
         // Omitted when the product publishes no ceiling (owner decision #6).
         ...(prepared.maxOutputTokens === null ? {} : { max_completion_tokens: prepared.maxOutputTokens }),
+        // The expectation, beside the ceiling and never instead of it (same rule as the
+        // durable route above).
+        ...(prepared.expectedOutputTokens === null
+          ? {}
+          : { expected_output_tokens: prepared.expectedOutputTokens }),
         ...(request.webSearch ? { web_search: request.webSearch } : {}),
       }),
     },
     request,
     deadline,
     { operation: 'chat.response', preview: requestPreview },
+    prepared.chatAllowanceSeconds,
   ) as GenStudioChatCompletion
   // The exchange is over the moment the response lands: whatever the envelope
   // turns out to say, this account's in-flight slot is free. Release it before
@@ -8478,6 +8561,9 @@ async function callChatWithGenStudioAdmitted(
       // Omitted entirely when the product publishes no ceiling, so the retained
     // preview describes the request that was actually sent (owner decision #6).
     ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_output_tokens: prepared.maxOutputTokens } }),
+    ...(prepared.expectedOutputTokens === null
+      ? {}
+      : { expectedOutputTokens: prepared.expectedOutputTokens }),
       idempotencyKey: prepared.idempotencyKey,
       messages: prepared.messages,
       fields: chatPreviewFields(request, prepared),
