@@ -304,6 +304,20 @@ not have one baked in by us; the owner picks one in Scene Plan and saves the pre
 as with a hand-saved preset. `electron/server/__tests__/new-channel-default-pacing.test.ts` pins
 that too.
 
+**Because it carries no model, Pipeline preflight had to learn the same fact.** Enqueuing a step
+whose preset names no writing model only moved the failure into the generator — `scene-plan.ts`'s
+`model is required` — minutes later, naming neither the step nor what to do. `admitStep`
+(`electron/server/routes/pipeline.ts`) now counts such a preset as "no usable preset", through the
+SAME `step_preset` safety switch and with the plain message *"Scene Plan has no writing model
+chosen. Open Scene Plan and pick one."*, so the step is left out at preflight. The rule is a table,
+`PRESET_MODEL_READERS`, not a Scene Plan special case: a step joins it and inherits the
+classification, the message and the switch. `metadata` and `introduction-only` stay out of it — each
+already has its own branch in the enqueue loop with an escape hatch the table cannot see (a carried
+`pipeline_model_policy`, the channel's own opening model, the script-side model) and a plain message
+of its own, and a step must not be reported twice. `script-only` is in it, reading the same two
+shapes `resolveScriptSideChatModel` reads, so a preset the rest of the app can read is never called
+model-less.
+
 **Why this is not the 2026-08-03 rejection coming back.** That rejection was about a project setting
 *choosing* the rhythm for an episode — *"it needs to be a deliberate choice on each episode by the
 user."* This is what an episode **starts** on and it stays fully editable per episode in Scene Plan;
@@ -330,7 +344,9 @@ creation path.
 previously asserted that a channel with no Formula keeps 1–3 s — the decision this one supersedes —
 and now asserts the tiers. `electron/server/__tests__/pipeline-visual-source.test.ts` covers "a
 missing Scene Plan preset blocks only the row whose branch needs it", so it clears the seed
-explicitly; its subject is the partial-success behaviour, not the absence of a preset.
+explicitly; its subject is the partial-success behaviour, not the absence of a preset. The same file
+covers the model-less case end to end: the seeded channel's Scene Plan step is left out of the run
+with the plain message and is **not** enqueued, while its sibling step still runs.
 
 
 ### `auto_approve` is preset data on Contextual Cues — decided 2026-08-17

@@ -160,7 +160,11 @@ It is a **starting value only**, and the 2026-08-03 rule still holds: an episode
 saves a rhythm of its own in Scene Plan's **Visual timing & motion** panel, every episode may still
 change it, and **an existing channel is never rewritten**. A channel whose Formula names its own
 starting scene length still wins, because the Formula is the more specific choice. Do not "fix" this
-by deleting the seed, and do not extend it into anything an episode cannot change.
+by deleting the seed, and do not extend it into anything an episode cannot change. The seeded preset
+names **no writing model** — a model is a live GenStudio choice (§1) — so Pipeline preflight counts a
+preset with no writing model as **no usable preset** and leaves the step out with a plain message
+(`PRESET_MODEL_READERS` in `routes/pipeline.ts`), rather than enqueuing it to fail inside its
+generator.
 
 ## 6. A zero that means two things is a defect
 
