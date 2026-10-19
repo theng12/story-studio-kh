@@ -33,6 +33,7 @@ import { PARTS_DIRNAME } from './chapter-parts.js'
 import * as im from './idea-manager.js'
 import { createProjectFactsCache, resolveEpisodePaths } from './utils.js'
 import {
+  newestNotSupersededOrOldest,
   youtubeRetentionEvidenceFor,
   youtubeRetentionProofForFile,
   readYouTubeRetentionStores,
@@ -421,7 +422,7 @@ export async function auditProjectStorage(slug: string): Promise<StorageAuditRes
     const evidence = await youtubeRetentionEvidenceFor(
       slug, code, idea.title || '', operations, publishingState, facts,
     )
-    const remote = evidence.accepted_operations[0]
+    const remote = newestNotSupersededOrOldest(evidence.accepted_operations)
       ?? evidence.reconcile_link
       ?? evidence.legacy_sidecar
     if (remote?.video_id) {

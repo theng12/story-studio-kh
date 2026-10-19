@@ -404,6 +404,8 @@ function comparableTitle(title: string | undefined): string {
  * the channel may carry one of the episode's titles. "Could not ask" refuses
  * too — only a confirmed answer opens the door. (TN0162/TN0163 each have two
  * video ids: an earlier "not returned" answer was enough to upload again.)
+ * A listing that ran out of pages is a "could not ask", not a "none there":
+ * the twin title can lie past the pages we read.
  */
 export async function assertSafeToUploadAgain(input: {
   project_slug: string
@@ -428,6 +430,13 @@ export async function assertSafeToUploadAgain(input: {
       `YouTube still has video ${still} (${details[still]!.uploadStatus || 'status not given'}). Delete it in YouTube Studio first, or keep it; nothing was changed here.`)
   }
   const wanted = new Set(input.titles.map(comparableTitle).filter(Boolean))
+  // A listing cut off at the page budget is NOT proof that no twin exists: the
+  // title we are looking for can simply lie past the pages we read. Only a
+  // COMPLETE listing may conclude "no twin", so a truncated one refuses.
+  if (uploads.truncated) {
+    throw new YouTubeFoundationError(409, 'YOUTUBE_STATUS_UNCHECKED',
+      'This channel has more uploads than Story Studio read in one pass, so it cannot prove this episode is not already on it. Nothing changed; check the channel in Upload Center → Reconcile, then try again.')
+  }
   const twin = uploads.videos.find(video => !!video.videoId && !ids.includes(video.videoId) && wanted.has(comparableTitle(video.title)))
   if (twin) {
     throw new YouTubeFoundationError(409, 'YOUTUBE_ALREADY_PUBLISHED',

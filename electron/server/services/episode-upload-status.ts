@@ -1,4 +1,4 @@
-import { youtubeRetentionEvidenceFor, type readYouTubeRetentionStores } from './youtube-remote-video.js'
+import { newestNotSupersededOrOldest, newestReady, youtubeRetentionEvidenceFor, type readYouTubeRetentionStores } from './youtube-remote-video.js'
 import {
   YOUTUBE_VIDEO_NOT_FOUND,
   cachedObservation,
@@ -39,7 +39,7 @@ export async function readEpisodeUploadStatus(
   // ponytail: O(episodes × records) on the shared project snapshot; index by episode if histories make reads slow.
   const evidence = await youtubeRetentionEvidenceFor(slug, code, title, stores.records, stores.state, cache)
   const identity = (videoId: string) => ({ video_id: videoId, url: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` })
-  const ready = evidence.ready_operations[0]
+  const ready = newestReady(evidence.ready_operations)
   if (ready) {
     const record = stores.records.find(item => item.operation_id === ready.operation_id)!
     const observed = newestObservation(snapshotObservation(record), cachedObservation(cached, record.channel_id, ready.video_id))
@@ -48,7 +48,7 @@ export async function readEpisodeUploadStatus(
       ...(observed ? observedFields(observed) : {}),
     }
   }
-  const accepted = evidence.accepted_operations[0]
+  const accepted = newestNotSupersededOrOldest(evidence.accepted_operations)
   if (accepted) {
     return {
       state: accepted.lifecycle === 'failed' || accepted.lifecycle === 'rejected' ? 'failed'
