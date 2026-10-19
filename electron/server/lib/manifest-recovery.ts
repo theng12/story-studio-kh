@@ -83,7 +83,21 @@ export async function tryRecoverImageFromManifestEntry(
   apiKey: string,
   modelConfig: ImageModelConfig,
   isCancelled?: () => boolean,
-  options: { observeCurrentState?: boolean; allowPreparedReplayOnAbsent?: boolean } = {},
+  options: {
+    observeCurrentState?: boolean
+    allowPreparedReplayOnAbsent?: boolean
+    /**
+     * Keep an unconfirmable outcome `uncertain` instead of letting the free-fleet
+     * rule below call it "not made".
+     *
+     * For a REBUILT identity — a legacy `prepared` row that recorded the request
+     * scope but not the key, so the key had to be reconstructed from that scope —
+     * a timeout or a 5xx is not evidence that the key names the request that was
+     * originally reserved. Only the Gateway's own answer (the job, or an
+     * authoritative 404) may move such a row, so this caller holds instead.
+     */
+    unconfirmedStaysUncertain?: boolean
+  } = {},
 ): Promise<ImageRecoveryOutcome> {
   if (!entry) return { kind: 'no-saved-job' }
   if (!entry.task_id && !entry.idempotency_key) return { kind: 'no-saved-job' }
@@ -144,7 +158,8 @@ export async function tryRecoverImageFromManifestEntry(
     // confirmed — e.g. "No such job" for the saved key — counts as not made. Report it
     // as settled so every caller promotes to a fresh request identity (derived from this
     // id) instead of failing on every Retry. Paid models stay `uncertain` below.
-    if (isFreeFleetModelId(modelConfig.api_model) && (!entry.model_id || isFreeFleetModelId(entry.model_id))) {
+    if (!options.unconfirmedStaysUncertain
+      && isFreeFleetModelId(modelConfig.api_model) && (!entry.model_id || isFreeFleetModelId(entry.model_id))) {
       return {
         kind: 'terminal-failed',
         taskId: entry.task_id || entry.idempotency_key!,
