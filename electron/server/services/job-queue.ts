@@ -28,7 +28,7 @@ import { jobStreamSignature } from './job-stream-signature.js'
 import { isChatTextJob, isLocalTextModel, isNonRetryableError, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
 import { getAllAppSettings, getPaidImageReplacementSetting, onAppSettingWritten, setAppSettings } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
-import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
+import { getJobCancellationAuditor, hasJobCancellationAuditor, readCancellationAudit } from './job-cancellation-auditors.js'
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
 import { musicResultsAwaitingImport } from './music-library.js'
 import {
@@ -1217,8 +1217,8 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         emitUpdate(job)
         return
       }
-      let audit: 'complete' | 'repair-required'
-      try { audit = await auditor(serializeJob(job)) }
+      let audit: ReturnType<typeof readCancellationAudit>
+      try { audit = readCancellationAudit(await auditor(serializeJob(job))) }
       catch (error) {
         job.status = 'error'
         job.error = 'Completion audit failed; repair missing output before Retry.'
@@ -1228,10 +1228,19 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         emitUpdate(job)
         return
       }
-      if (audit !== 'complete') {
+      if (audit.verdict !== 'complete') {
         job.status = 'error'
-        job.error = 'Provider output needs repair before this job can be marked complete. Retry repairs only missing output.'
-        job.result = { ...(job.result || {}), provider_settled: 'succeeded', repair_required: true }
+        // An auditor that worked out WHICH items are wrong names them; one that only has a verdict
+        // keeps the generic sentence. AGENTS.md §8 — the owner should not have to re-derive by hand
+        // what the audit already knew.
+        job.error = audit.detail
+          ?? 'Provider output needs repair before this job can be marked complete. Retry repairs only missing output.'
+        job.result = {
+          ...(job.result || {}),
+          provider_settled: 'succeeded',
+          repair_required: true,
+          ...(audit.detail ? { repair_detail: audit.detail } : {}),
+        }
         job.output_lines.push(job.error)
       } else {
         // Mark that THIS path has already re-read the output (it audited just

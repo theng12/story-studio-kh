@@ -41,8 +41,8 @@ import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { generateCompositionTemplateJob } from '../generators/composition-template.js'
 import { generateIdeaCampaign } from '../generators/idea-campaign.js'
-import { requireJobCompletion } from '../services/job-completion.js'
-import { registerJobCancellationAuditor } from '../services/job-cancellation-auditors.js'
+import { requireJobCompletion, completionErrorMessage } from '../services/job-completion.js'
+import { registerJobCancellationAuditor, type JobCancellationAudit } from '../services/job-cancellation-auditors.js'
 import { getAudioStatus } from '../services/audio-reconciler.js'
 import { getImageStatus, getVideoStatus } from '../services/asset-status.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
@@ -103,7 +103,7 @@ export async function auditSceneClips(job: any): Promise<'complete' | 'repair-re
   return audit.completed === audit.expected ? 'complete' : 'repair-required'
 }
 
-export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repair-required'> {
+export async function auditScenePlanOutput(job: any): Promise<JobCancellationAudit> {
   const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
   const planPath = await resolveScenePlanPath(job.project_slug, job.episode_id, paths.episode_dir)
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
@@ -151,7 +151,22 @@ export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repa
     : withoutDeliberateStillScenes(plan, ids)
   if (!auditIds.length) return 'complete'
   const audit = await auditScenePromptCompletion(planPath, auditIds, stage)
-  return audit.missing_ids.length === 0 ? 'complete' : 'repair-required'
+  if (audit.missing_ids.length === 0) return 'complete'
+  // Name the scenes at fault. The same formatter the generator's own completion proof uses, so the
+  // post-restart reconciliation says what the run itself would have said instead of the generic
+  // "needs repair" sentence (Nature EP0014, 2026-10-19: 383 scenes, every visual prompt blank).
+  return {
+    verdict: 'repair-required',
+    detail: completionErrorMessage({
+      label: stage === 'motion' ? 'Scene plan motion prompts' : 'Scene plan visual prompts',
+      expected: audit.completed_ids.length + audit.missing_ids.length,
+      completed: audit.completed_ids.length,
+      missing: audit.missing_ids,
+      item_name: stage === 'motion' ? 'motion prompt' : 'visual prompt',
+      issues: audit.issues,
+      retry_hint: 'Retry rewrites only those scenes; every prompt already saved is kept.',
+    }),
+  }
 }
 
 /** Re-use the producer's concrete final/narration proof during recovery. */

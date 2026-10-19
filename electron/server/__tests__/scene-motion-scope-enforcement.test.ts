@@ -305,9 +305,11 @@ test('restart audits retain saved motion targets, including an explicit off-scop
     await fs.writeFile(path.join(clipsDir, 'scene-a.mp4'), tinyVideoBytes())
 
     const base = { project_slug: project.slug, episode_id: episodeId }
+    const { readCancellationAudit } = await import('../services/job-cancellation-auditors.js')
     assert.equal(await auditScenePlanOutput({ ...base, params: { stage: 'motion', motion_scene_ids: ['scene-a'] } }), 'complete')
     assert.equal(await auditScenePlanOutput({ ...base, params: { stage: 'motion', motion_scene_ids: [] } }), 'complete')
-    assert.equal(await auditScenePlanOutput({ ...base, params: { stage: 'motion' } }), 'repair-required')
+    // A repair-required verdict now travels with the scenes at fault; read it the way the queue does.
+    assert.equal(readCancellationAudit(await auditScenePlanOutput({ ...base, params: { stage: 'motion' } })).verdict, 'repair-required')
 
     assert.equal(await auditSceneClips({ ...base, params: { motion_scene_ids: ['scene-a'] } }), 'complete')
     assert.equal(await auditSceneClips({ ...base, params: { motion_scene_ids: [] } }), 'complete')

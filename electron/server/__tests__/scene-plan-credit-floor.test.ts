@@ -147,7 +147,9 @@ test('Scene Plan restart auditing is stage-aware and requires every requested pr
       episode_id: accepted.episode_code,
       params: { episode_id: accepted.episode_code, stage: 'visual' },
     }
-    assert.equal(await auditScenePlanOutput(base), 'repair-required')
+    // The verdict now travels with the scenes at fault, so read it the way the queue does.
+    const { readCancellationAudit } = await import('../services/job-cancellation-auditors.js')
+    assert.equal(readCancellationAudit(await auditScenePlanOutput(base)).verdict, 'repair-required')
     scenes[1]!.visual_prompt = 'A distinct archival second scene.'
     await fs.writeFile(planPath, JSON.stringify({
       schema_version: 1, generated_at: new Date().toISOString(), total_duration_sec: 2,
