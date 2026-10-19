@@ -1,4 +1,4 @@
-import { SUPERSEDED_LIFECYCLES, youtubeRetentionEvidenceFor, type readYouTubeRetentionStores } from './youtube-remote-video.js'
+import { newestNotSupersededOrOldest, newestReady, youtubeRetentionEvidenceFor, type readYouTubeRetentionStores } from './youtube-remote-video.js'
 import {
   YOUTUBE_VIDEO_NOT_FOUND,
   cachedObservation,
@@ -22,23 +22,6 @@ function observedFields(observed: ObservedPublication): Pick<YouTubeEpisodeUploa
 }
 
 /**
- * The record that describes the episode NOW. The evidence arrays are
- * OLDEST-FIRST (`youtubeRetentionEvidenceFor` filters the operation store's
- * index order in place), so `[0]` is the oldest — and a record YouTube already
- * failed would then decide the row and point at a dead video. Prefer the newest
- * record YouTube has not failed; fall back to `[0]` only when a superseded
- * record is all this episode has, so the row can still say WHY it failed. This
- * is the same rule the Upload Center `/publishable` row uses
- * (`routes/youtube-upload-center.ts`: `find(r => !SUPERSEDED_LIFECYCLES.has(...)) ?? [0]`).
- */
-function newestNotSuperseded<T extends { lifecycle: string }>(operations: T[]): T | undefined {
-  for (let index = operations.length - 1; index >= 0; index--) {
-    if (!SUPERSEDED_LIFECYCLES.has(operations[index]!.lifecycle)) return operations[index]
-  }
-  return operations[0]
-}
-
-/**
  * Saved upload history, independent of media presence and generation completion. No remote calls.
  * `publications` is the project's publication cache and assigned channel; the channel is used only
  * for a legacy receipt that names none.
@@ -56,10 +39,7 @@ export async function readEpisodeUploadStatus(
   // ponytail: O(episodes × records) on the shared project snapshot; index by episode if histories make reads slow.
   const evidence = await youtubeRetentionEvidenceFor(slug, code, title, stores.records, stores.state, cache)
   const identity = (videoId: string) => ({ video_id: videoId, url: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` })
-  // Same rule as `newestNotSuperseded`, and the same OLDEST-FIRST arrays: the
-  // builder keeps only `ready` records here and `ready` is never superseded, so
-  // the newest one is the last.
-  const ready = evidence.ready_operations.at(-1)
+  const ready = newestReady(evidence.ready_operations)
   if (ready) {
     const record = stores.records.find(item => item.operation_id === ready.operation_id)!
     const observed = newestObservation(snapshotObservation(record), cachedObservation(cached, record.channel_id, ready.video_id))
@@ -68,7 +48,7 @@ export async function readEpisodeUploadStatus(
       ...(observed ? observedFields(observed) : {}),
     }
   }
-  const accepted = newestNotSuperseded(evidence.accepted_operations)
+  const accepted = newestNotSupersededOrOldest(evidence.accepted_operations)
   if (accepted) {
     return {
       state: accepted.lifecycle === 'failed' || accepted.lifecycle === 'rejected' ? 'failed'
