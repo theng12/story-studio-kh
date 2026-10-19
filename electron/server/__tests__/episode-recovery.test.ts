@@ -1475,3 +1475,51 @@ test('an unchanged re-audit does not rewrite episode-recovery-plans.json, and th
     assert.notEqual(await episodeInputStamp(project.slug, 'EP0001'), stamp, 'a new subtitle file moves the stamp')
   } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })
+
+test('a Retry whose saved plan cannot restore its original Pipeline setting answers 409 in plain words and leaves no plan behind', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Unrestorable recovery setting' })
+    // The production row (HMH0001 / a0d4f382): a Scene Review that failed before
+    // it submitted anything, so there is no provider evidence to reconcile.
+    const failed: Job = {
+      ...source('continuity_render', {
+        episode_id: 'HMH0001', title: 'The Real Origins of German Unification',
+        model: 'studio-hub::mflux-community/qwen-image-2-1-turbo-mflux-q4', aspect_ratio: '16:9',
+        auto_approve_generated: true, visual_source: 'scene_plan', pacing: { min_sec: 1, max_sec: 3 },
+        motion_scope: { mode: 'off' }, motion_level: 2, pipeline_step: 'scene_review',
+        pipeline_requires: ['scene_plan'], pipeline_chain: [],
+        pipeline_batch_id: 'b8f7e5ef-1da1-465e-bd19-67c0bdc4a62d',
+      }),
+      project_slug: project.slug, episode_id: 'HMH0001', job_id: 'a0d4f382',
+      title: 'Pipeline: Scene Review — HMH0001',
+    }
+    await jq.writeAuthoritativeJob(failed)
+    await jq.getJobs(project.slug)
+    // An earlier recovery saved this plan while the Pipeline jobs still held
+    // the shared `pacing` / `motion_scope` objects. Those jobs are now gone from
+    // history, so the redacted markers cannot be restored and Retry must not
+    // guess the channel's current preset in their place.
+    const { createEpisodeRecoveryPlan } = await subject()
+    const plan = createEpisodeRecoveryPlan([failed])
+    plan.steps.scene_plan_run = {
+      job_id: 'cleared-scene-plan', type: 'scene_plan_run', title: 'Scene Plan',
+      params: { pacing: CIRCULAR_MARKER, motion_scope: CIRCULAR_MARKER, pipeline_batch_id: 'cleared-batch' },
+    }
+    const file = path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json')
+    const before = JSON.stringify({ version: 1, plans: { HMH0001: plan } })
+    await fs.writeFile(file, before)
+
+    const { router } = await import('../routes/jobs.js')
+    const app = express().use(express.json()).use(router)
+    const response = await request(app).post(`/projects/${project.slug}/jobs/a0d4f382/retry`).send({})
+    assert.equal(response.status, 409, JSON.stringify(response.body))
+    assert.match(response.body.detail, /Saved recovery setting pacing could not be restored from its original Pipeline run/)
+    assert.notEqual(response.body.detail, 'Internal server error', 'a deliberate refusal is not reported as a server fault')
+    assert.equal(await fs.readFile(file, 'utf8'), before, 'a refused recovery leaves no partial plan behind')
+    assert.equal(jq.getJob('a0d4f382')?.status, 'error', 'no recovery job was queued against an unverifiable setting')
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'continuity_render').length, 1)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})

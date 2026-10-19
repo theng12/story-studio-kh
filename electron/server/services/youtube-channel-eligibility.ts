@@ -207,8 +207,10 @@ export async function readYouTubeChannelEligibility(input: {
       }), 'channels_list')
     if (!resp.ok) throw new Error(`channels.list failed (${resp.status})`)
     const data = await resp.json() as any
-    const item = (data?.items || []).find((entry: any) => entry?.id === input.channel_id) ?? data?.items?.[0]
-    if (!item) throw new Error('channels.list returned no channel for this sign-in.')
+    // Only the requested channel's own answer counts: a sign-in that answers for
+    // another channel says nothing about this one, so it stays unknown.
+    const item = (data?.items || []).find((entry: any) => entry?.id === input.channel_id)
+    if (!item) throw new Error('channels.list did not answer for this channel.')
     longUploads = longUploadsStatusOf(item?.status?.longUploadsStatus)
   } catch (error) {
     // A channel we cannot ask about is `unknown`, never a refusal — and the

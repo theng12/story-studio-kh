@@ -179,6 +179,17 @@ describe('reading the channel status', () => {
     assert.equal(await readCachedChannelEligibility(s.slug, CHANNEL), null, 'and nothing was cached')
   })
 
+  test('an answer for a different channel is unknown and is not cached', async () => {
+    const s = await setup()
+    const fake = new FakeYouTube()
+    fake.respondMatching({ method: 'GET', match: CHANNELS, body: { items: [{ id: 'UC-someone-else', status: { longUploadsStatus: 'allowed' } }] } })
+    __setYouTubeTransportForTests(fake.transport())
+
+    const answer = await readYouTubeChannelEligibility({ project_slug: s.slug, account_id: s.accountId, channel_id: CHANNEL })
+    assert.equal(answer.long_uploads, 'unknown', 'another channel being verified says nothing about this one')
+    assert.equal(await readCachedChannelEligibility(s.slug, CHANNEL), null)
+  })
+
   test('a channel that has never been asked reads as nothing, not as a verdict', async () => {
     const s = await setup()
     assert.equal(await readCachedChannelEligibility(s.slug, CHANNEL), null)
