@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.331 — 2026-10-19 (gate running)
+
+Merged fix/output-limit-audit (docs tip 5f156c57), fix/hunt-verified-success (803b0833: audio-reconciler reads .task-manifest.json; cleanup run results capped with item_count), fix/hunt-recovery-truth (ca3ac802: planEndSec one authority, comparePlanStamp everywhere, hold-aware stragglers, catalogue last-good restore + image warm-up), fix/final-check-unknown-speech-end (80ab9a66: speech_end_sec, scene plan source_merged_audio). Bug-hunt phase 2 (Kinds A, C, D, F, H). Next: ack identity binding, cleanup skip-cleaned, dynamic chat deadline.
+
 ## 1.4.330 — 2026-10-19 (gated and landed)
 
 Merged fix/chat-evidence-readback (a2ab79e5: held chat rows re-read read-only by recheck), fix/recovery-dispatched-edge (8330594c: dispatched node with no job resolves or re-enqueues once; drift accepts raw or corrected transcript), fix/continuity-keyless-prepared (9d183243: keyless prepared rows rebuild the reserved key and ask the Gateway first), fix/cleanup-realpath-native (1e5d3270: assertReviewedIdentitySync uses realpathSync.native; 1.4.329 production failed 488/488), and the first output-limit-audit commit 31e63fef. The 128,000-token fallback (rest of fix/output-limit-audit) is deferred to the next release by the owner.

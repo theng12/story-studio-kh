@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.331 — 2026-10-19
+
+- The final video check no longer calls a silence at the end of an older video "inside the speech". It reads where the narration ends from the episode's Scene Plan, and new renders record it; a silence it cannot place is reported as such, never as missing speech.
+- An episode whose narration parts are on disk now shows as narrated even when its model record is gone, read from the saved part records.
+- A large Free Up Space run or uploaded-video sweep reports totals and a 50-file sample instead of every file, so its progress loads quickly; the panel still shows exact totals.
+- A Scene Plan repair saves the same end time the coverage check uses, so a complete plan is no longer called incomplete by a few milliseconds and sent for a rebuild.
+- An image, media or subtitle request that the Gateway is still holding is waited for instead of treated as failed, so no second paid request is made.
+- A failed check of the image model list no longer throws away the last good list, and the image list is loaded at start-up, so work is not refused while the Gateway is answering.
+
 ## v1.4.330 — 2026-10-19
 
 - Free Up Space no longer refuses every file with "The reviewed file changed immediately before removal". Its last check before moving a file now reads the path the same way the review did, so a folder name with different capital letters no longer counts as a change.
