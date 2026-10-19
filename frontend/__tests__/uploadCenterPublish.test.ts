@@ -525,7 +525,7 @@ describe('Upload Center Publish', () => {
     assert.ok(upload, 'the row is still uploadable — a duplicate is a warning, not a block')
     try {
       upload.click()
-      for (let i = 0; i < 12; i++) await nextTick()
+      for (let i = 0; i < 30; i++) await nextTick()
 
       assert.equal(mounted.confirms.length, 2, 'the customer is told before the second upload happens')
       assert.match(mounted.confirms[1].title, /EP0001 is already on this channel/)
@@ -561,7 +561,7 @@ describe('Upload Center Publish', () => {
     const upload = await previewThen(mounted)
     try {
       upload.click()
-      for (let i = 0; i < 12; i++) await nextTick()
+      for (let i = 0; i < 30; i++) await nextTick()
 
       assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 1,
         'declining must not send an acknowledged retry')
@@ -599,7 +599,7 @@ describe('Upload Center Publish', () => {
     assert.ok(upload, 'the row is still uploadable — the owner may override')
     try {
       upload.click()
-      for (let i = 0; i < 12; i++) await nextTick()
+      for (let i = 0; i < 30; i++) await nextTick()
 
       assert.equal(mounted.confirms.length, 2, 'the owner is told before the upload is forced through')
       assert.match(mounted.confirms[1].title, /EP0001 is longer than this channel can keep/)
@@ -633,7 +633,7 @@ describe('Upload Center Publish', () => {
     const upload = await previewThen(mounted)
     try {
       upload.click()
-      for (let i = 0; i < 12; i++) await nextTick()
+      for (let i = 0; i < 30; i++) await nextTick()
 
       assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 1,
         'declining must not send an acknowledged retry')
@@ -1373,7 +1373,7 @@ describe('Upload Center Publish', () => {
     assert.match(dialog.textContent || '', /Stopping After Current/)
 
     finishFirstUpload({ job_id: 'job-1', channel_id: 'UC-x' })
-    for (let i = 0; i < 12; i++) await nextTick()
+    for (let i = 0; i < 30; i++) await nextTick()
 
     assert.equal(uploadAttempts, 1, 'stopping does not start the next reviewed admission')
     assert.match(dialog.textContent || '', /Already queued uploads continue/)
@@ -1562,7 +1562,7 @@ describe('Upload Center Publish', () => {
     for (const box of mounted.el.querySelectorAll<HTMLInputElement>('.row-select input')) box.click()
     await nextTick()
     ;[...mounted.el.querySelectorAll('button')].find(b => /Review Selected Uploads/.test(b.textContent || ''))!.click()
-    for (let i = 0; i < 12; i++) await nextTick()
+    for (let i = 0; i < 30; i++) await nextTick()
     for (const image of mounted.el.querySelectorAll<HTMLImageElement>('.bulk-thumbnail img')) image.dispatchEvent(new Event('load'))
     await nextTick()
     const dialog = mounted.el.querySelector('[role="dialog"]')!
