@@ -1174,6 +1174,16 @@ export interface GenStudioPriceTruth {
   price_url?: string
   /** `provider_page` only: a unit the page prices several ways. Never picked between, never in `price_usd`. */
   price_variants?: GenStudioPriceVariant[]
+  /**
+   * Whether using this row can cost money. Published on EVERY catalogue row and
+   * on voice rows; `false` is the Gateway stating the work is free.
+   *
+   * Produced by `parseGenStudioChargeable` — a separate parse because the flag
+   * is published independently of `price_source`, so a row that states one
+   * without the other must keep the one it stated. The frontend's own
+   * `PriceTruth` carries it the same way.
+   */
+  chargeable?: boolean
 }
 
 function httpUrl(value: unknown): string | undefined {
@@ -1218,6 +1228,26 @@ export function parseGenStudioPriceTruth(value: unknown): GenStudioPriceTruth {
     ...(url ? { price_url: url } : {}),
     ...(variants.length ? { price_variants: variants } : {}),
   }
+}
+
+/**
+ * The Gateway's published `chargeable` flag, carried through the transport.
+ *
+ * Every catalogue row states whether using it can cost money — `_story_row`
+ * sets it on every modality — and a voice row states it too. This is the ONE
+ * place that decides how it crosses the boundary, spread beside
+ * `parseGenStudioPriceTruth` by every catalogue parser, so the flag cannot be
+ * kept by one modality and silently dropped by another. It was dropped by TTS,
+ * video, transcription and voices while chat, image and music kept it, which
+ * left a free `studio-hub` model looking unverifiable in production.
+ *
+ * ABSENT STAYS ABSENT: a row that published nothing carries no key at all —
+ * never `false`, which is a "this is free" claim the Gateway never made.
+ */
+export function parseGenStudioChargeable(value: unknown): { chargeable?: boolean } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const flag = publishedFlag((value as Record<string, unknown>).chargeable)
+  return flag === undefined ? {} : { chargeable: flag }
 }
 
 /**
@@ -1651,6 +1681,11 @@ export interface GenStudioVoice {
   public_voice_id?: string | null
   /** The voice's own rate. Differs from the model's rate on some voices. */
   credits_per_1000_characters?: number
+  /**
+   * Whether using this voice can cost money, exactly as `story_row` publishes
+   * it. Absent means the Gateway said nothing — never read as `false`.
+   */
+  chargeable?: boolean
   output_format?: string
   catalog_status?: string
   quote_enabled?: boolean
@@ -4865,6 +4900,9 @@ export async function listVoicesSnapshot(
     custom_voice_id: nullableText(value?.custom_voice_id),
     public_voice_id: nullableText(value?.public_voice_id),
     credits_per_1000_characters: optionalCount(value?.credits_per_1000_characters),
+    // `story_row` publishes this on every voice, so a voice on the owner's own
+    // Macs says `false` rather than leaving the customer to guess.
+    ...parseGenStudioChargeable(value),
     output_format: optionalText(value?.output_format),
     catalog_status: optionalText(value?.catalog_status),
     quote_enabled: typeof value?.quote_enabled === 'boolean' ? value.quote_enabled : undefined,
@@ -4936,6 +4974,7 @@ export async function listTtsModelsSnapshot(
           : [],
         ...parseGenStudioCatalogLock(value),
         ...parseGenStudioPriceTruth(value),
+        ...parseGenStudioChargeable(value),
         ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
         // This is a model-local hint, not something Story Studio may derive
         // from the provider name or id. Absent, null, and malformed values
@@ -5009,7 +5048,7 @@ export async function listMusicModelsSnapshot(
         credits_per_request: value.credits_per_request,
         minimum_credits: value.minimum_credits,
         price_version: value.price_version.trim(),
-        ...(publishedFlag(value?.chargeable) === undefined ? {} : { chargeable: publishedFlag(value?.chargeable) }),
+        ...parseGenStudioChargeable(value),
         ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
         standard_credits: publishedOrNull(value.standard_credits),
         sale_credits: publishedOrNull(value.sale_credits),
@@ -5403,7 +5442,7 @@ export async function listChatModelsSnapshot(
     price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
     ...(parseGenStudioLlmCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioLlmCostTier(value?.cost_tier) } : {}),
     // Gateway 0.2.100+: true when the request may cost money (a pool is chargeable if any member is).
-    ...(publishedFlag(value?.chargeable) === undefined ? {} : { chargeable: publishedFlag(value?.chargeable) }),
+    ...parseGenStudioChargeable(value),
     // Read, never authored. An older GenStudio that publishes neither field
     // simply carries no notice — which is the truth, not a default.
     discount: value?.discount === true,
@@ -5537,6 +5576,7 @@ async function loadVideoModelsSnapshot(
     available: value?.available === true,
     ...parseGenStudioCatalogLock(value),
     ...parseGenStudioPriceTruth(value),
+    ...parseGenStudioChargeable(value),
     ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
     // Every published mode survives the transport. Story Studio submits only
     // image-to-video, but that is enforced where a request is built, not by
@@ -8329,6 +8369,7 @@ export async function listTranscriptionModelsSnapshot(
       qualification_only: value?.qualification_only !== false,
       ...parseGenStudioCatalogLock(value),
       ...parseGenStudioPriceTruth(value),
+      ...parseGenStudioChargeable(value),
       // GenStudio publishes a per-SECOND rate. Reading `credits_per_minute`
       // here (a field it does not publish) made every model parse as 0.
       credits_per_second: Number.isFinite(value?.credits_per_second)
@@ -8402,7 +8443,7 @@ async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Pr
       ? value.promotion_discount_percent
       : undefined,
     availability_note: publishedText(value?.availability_note),
-    ...(publishedFlag(value?.chargeable) === undefined ? {} : { chargeable: publishedFlag(value?.chargeable) }),
+    ...parseGenStudioChargeable(value),
     ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
     aspect_ratios: Array.isArray(value?.aspect_ratios)
       ? value.aspect_ratios.filter((ratio: unknown): ratio is string => typeof ratio === 'string' && !!ratio.trim())
