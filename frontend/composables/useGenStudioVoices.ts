@@ -279,6 +279,15 @@ export function useGenStudioVoices() {
 
   const libraries = ref<GenStudioVoiceLibrary[]>([])
   let modelLoadRevision = 0
+  /**
+   * Same guard as `modelLoadRevision`, for the voice list. Selecting model B
+   * while model A's read is still in flight must leave B's voices on screen:
+   * without a revision, A's late reply (or its late failure) writes over B —
+   * `voicesModelId` included, which `setSaved` reads to scope a save. Bumped
+   * by every `loadVoices` and by `clearVoices`, so a list that was deliberately
+   * emptied or blanked cannot be refilled by a read it abandoned.
+   */
+  let voiceLoadRevision = 0
 
   async function loadModels(): Promise<void> {
     const revision = ++modelLoadRevision
@@ -313,6 +322,9 @@ export function useGenStudioVoices() {
   }
 
   function clearVoices(): void {
+    // The newest intent is "no voices": any read still in flight is abandoned.
+    voiceLoadRevision++
+    voicesLoading.value = false
     voices.value = []
     voicesModelId.value = null
     voicesError.value = ''
@@ -335,7 +347,12 @@ export function useGenStudioVoices() {
    * name, the same way it never infers any other published fact.
    */
   async function loadVoices(modelId: string, search = '', collection = ''): Promise<void> {
+    const revision = ++voiceLoadRevision
     if (!modelId.trim()) {
+      // This IS the newest load, and it is already finished: a read left in
+      // flight for the previous model must not resurrect its list, and it must
+      // not leave this state looking like it is still loading.
+      voicesLoading.value = false
       voices.value = []
       voicesModelId.value = null
       voicesError.value = 'Choose a voice model first. The Gateway lists voices per model, '
@@ -354,14 +371,16 @@ export function useGenStudioVoices() {
         `/app-settings/genstudio/voices${suffix}`,
         { cache: 'no-store' },
       )
+      if (revision !== voiceLoadRevision) return
       voices.value = Array.isArray(data.voices) ? data.voices : []
       voicesModelId.value = modelId || null
     } catch (error: any) {
+      if (revision !== voiceLoadRevision) return
       voices.value = []
       voicesModelId.value = null
       voicesError.value = error?.data?.detail || error?.message || 'Could not load voices from the Gateway.'
     } finally {
-      voicesLoading.value = false
+      if (revision === voiceLoadRevision) voicesLoading.value = false
     }
   }
 
