@@ -1,5 +1,77 @@
 # HANDOFF — Story Studio KH
 
+## Jobs history: paged, searched and counted on the server (source only, not released)
+
+Branch `feat/jobs-history-paging` from `origin/main` (1.4.323, d54f34b2). **SOURCE ONLY**: no version
+bump, no changelog entry, no DMG, no push. The Jobs page still held every job of every channel and
+filtered it in memory — ~14k rows, ~128 MB per read at production size, of which `output_lines` (which
+no collapsed card renders) was the bulk — and the dashboard layout opened the same read on EVERY page.
+
+**Compatibility decision: `/jobs/all` is unchanged.** Automation callers of `GET /api/jobs/all`
+(`view=full` / `view=stream`) get byte-for-byte the same shape they get today. The live surfaces moved
+to a NEW view instead — `?view=active` — and the finished half to NEW endpoints. Nothing was silently
+re-pointed.
+
+### What is on the wire now
+
+- `GET /api/jobs/all?view=active` and `GET /api/projects/:slug/jobs?view=active` — queued/running/
+  paused rows only. `stats` still describes the whole scope, counted from the raw queue without
+  cloning a job. Both SSE snapshots (`/jobs/all/stream`, `/projects/:slug/jobs/stream`) now send this
+  view. Measured on a 470-row, 4-channel fixture: **12,226 B against 1,789,685 B** for the
+  history-carrying view (146×), warm read 2 ms.
+- `GET /api/jobs/all/history` and `GET /api/projects/:slug/jobs/history` — the finished history:
+  `status=` (display-status buckets, comma-separated; default every terminal bucket), `type=`,
+  `batch=`, `q=` / `episode=` (episode code or title), `controls=` (row must offer one of these control
+  actions), `since=` (finished at or after), `project=`, `cursor=`, `limit=` (≤500), `ids=1` (matching
+  ids only — the cheap selector a bulk action takes), `all=1` (the whole matching set), `facets=1`
+  (status/type/active/clearable counts). Newest finished first, keyset-paged; `total` is the matching
+  count, not the page. **Only the returned page is serialized** — the filter and the sort read the raw
+  queue.
+- History rows are a new `row` view: `stream` minus `output_lines`, plus `summary_line`,
+  `progress_counter`, `output_line_count` and a resolved `output_dir`. Measured: **1,362 B/row against
+  3,814 B/row** in the stream view.
+- The matching, display-status and row-reading rules live once, in
+  `electron/server/contracts/jobs-history.ts`, imported by the endpoint and by the page
+  (`utils/jobs-list.ts` and `utils/episode-recovery.ts` re-export from it).
+
+### What the page does now
+
+`useAllJobs` streams the live half (a finished job leaves the list but still moves the badge). The
+universal Jobs list is `streamed live rows ++ /jobs/all/history?all=1` (`useJobHistory`), so the
+page's own search, paging and "Select All Matching" still cover the whole scope; a chosen channel is
+sent to the server, which is the difference between a fleet and a channel. Project mode is unchanged —
+its per-project stream is bounded by the 750-row retention cap and several other surfaces
+(`useNotifications`, `useEpisodeStatus`) read it. `useJobDetails` now also fetches a row's log, since a
+history row no longer carries one.
+
+### What is NOT done — the next increment
+
+The page still fetches the whole matching history as slim rows (~19 MB projected at 14k rows, against
+~128 MB) and pages it client-side. Rendering one page at a time needs the page's global computeds to
+stop reading the full list first, or behaviour is lost:
+- `stats`, `statusFilters`, `filterTabs`, `finishedCount`/`failedCount`, the empty state → already
+  served by the endpoint's `facets`; wire them.
+- the bulk-action scopes (`interruptedJobs`, `repairableFailedJobs`, `failedJobsForRetryAll`,
+  `failedWaitingForCheck`, `providerCheckJobs`, `recoverableEpisodes`, `settleCompletedFailures`) →
+  two narrow reads: `status=error,cancelled&all=1` and
+  `status=done,error,cancelled&controls=recheck-provider-status,return-later&all=1` (the client's own
+  predicates still re-apply over them).
+- `hiddenJobsInScope` / `hiddenSettlingCount` and "Select All Matching"'s selected rows → need a
+  by-ids read (a small `POST /api/jobs/rows { ids }` returning row-view jobs).
+- counts are computed without the page's local hidden-job exclusion; a hidden finished job still counts
+  in its status chip until that by-ids read exists.
+
+### Verification (this branch)
+
+`npx tsc -p electron/tsconfig.json --noEmit` 0 errors; `npm --prefix frontend run typecheck` 0 errors.
+Backend: `run-backend-tests.mjs --only job` → 47 files, 467 tests, 467 pass, 0 fail (PARTIAL RUN);
+`--only jobs` → 9 files, 55 tests, 55 pass; `--only episode-recovery --only queue --only stream
+--only redact` → 30 files, 294 tests, 294 pass. Frontend: 49 affected files re-run, all pass —
+`allJobsTransport` 13/13, `useJobDetails` 7/7, `jobsHistoryServerPath` 7/7 (new),
+`jobsRetryAllManualFinish` 11/11, `jobsControls` 43/43, `jobCardProgressTracker` 52/52,
+`uploadCenterPublish` 86/86, and the rest of the jobs/job-queue surface. **The full unfiltered suites
+were NOT run** (not the release gate).
+
 ## 1.4.324 — 2026-10-19 (gated and landed)
 
 Gate: lint, four checks pass; test:backend 7501 / 7499 pass / 1 fail — the failure was a race in circular-params-repair.test.ts (Retry before the failed worker settled, refused by the 1.4.319 guard), fixed test-only and re-run 9/9 three times; typecheck, test:frontend 2663/2663, test:release 63/63, test:content-packs 366 pass / 0 fail.

@@ -9,12 +9,12 @@ const tick = () => new Promise(resolve => setImmediate(resolve))
 function streamed(overrides: Record<string, unknown> = {}): any {
   return {
     job_id: 'job-1', project_slug: 'show', status: 'done', params: { model: 'm' },
-    genstudio_jobs_count: 300, genstudio_jobs_updated_at: '2026-10-06T00:00:00.000Z', ...overrides,
+    output_lines: ['Done.'], genstudio_jobs_count: 300, genstudio_jobs_updated_at: '2026-10-06T00:00:00.000Z', ...overrides,
   }
 }
 const full = (overrides: Record<string, unknown> = {}): any => ({
   job_id: 'job-1', project_slug: 'show', status: 'done', params: { model: 'old', genstudio_recovery: { assets: {} }, scenes: [1] },
-  genstudio_jobs: [{ id: 'g1', operation: 'image.generation', state: 'succeeded' }], ...overrides,
+  output_lines: ['Done.', 'All images saved to: /tmp/x'], genstudio_jobs: [{ id: 'g1', operation: 'image.generation', state: 'succeeded' }], ...overrides,
 })
 
 describe('useJobDetails — full records for the cards a page shows', () => {
@@ -25,12 +25,27 @@ describe('useJobDetails — full records for the cards a page shows', () => {
     assert.notEqual(jobDetailKey(streamed()), jobDetailKey(streamed({ genstudio_jobs_updated_at: '2026-10-06T00:00:01.000Z' })))
   })
 
-  test('the merged card keeps the streamed fields and the fetched evidence', () => {
+  test('a history row with no log needs its detail too, evidence or not', () => {
+    // History rows carry `summary_line`/`progress_counter`/`output_dir` instead of
+    // `output_lines`, so the expanded card's log comes from the per-job GET.
+    const row = streamed({ genstudio_jobs_count: 0, output_lines: undefined })
+    assert.equal(needsJobDetail(row), true)
+    assert.equal(needsJobDetail({ ...row, output_lines: [] }), false, 'a row that carries a log is complete')
+    assert.notEqual(jobDetailKey(row), jobDetailKey({ ...row, output_lines: [] }))
+  })
+
+  test('the merged card keeps the streamed fields, the fetched evidence and the fetched log', () => {
     const merged = mergeJobDetail(streamed({ status: 'error' }), full())
     assert.equal(merged.status, 'error')
     assert.equal(merged.params.model, 'm', 'the stream is fresher than the fetched copy')
     assert.deepEqual(merged.params.genstudio_recovery, { assets: {} })
     assert.equal(merged.genstudio_jobs?.length, 1)
+
+    const historyRow = mergeJobDetail(streamed({ output_lines: undefined }), full())
+    assert.deepEqual(historyRow.output_lines, ['Done.', 'All images saved to: /tmp/x'],
+      'a row that ships no log gets the fetched one')
+    const liveRow = mergeJobDetail(streamed({ output_lines: ['live'] }), full())
+    assert.deepEqual(liveRow.output_lines, ['live'], 'a fresher streamed log is not overwritten')
   })
 
   test('fetches once per version through the per-job GET, and forgets jobs no longer shown', async () => {
@@ -73,8 +88,16 @@ describe('useJobDetails — full records for the cards a page shows', () => {
 
   test('the Jobs page renders the merged view and asks for the cards it shows', () => {
     const page = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)), 'utf8')
-    assert.match(page, /const jobs = computed\(\(\) => streamedJobs\.value\.map\(job => jobDetails\.withDetail\(job\)\)/)
+    assert.match(page, /const jobs = computed\(\(\) => scopedJobs\.value\.map\(job => jobDetails\.withDetail\(job\)\)/)
     // Only the Active rows on screen (capped at 25 until Show All) ask for detail.
     assert.match(page, /\.\.\.visibleActiveJobs\.value, \.\.\.paginatedHistory\.value/)
+  })
+
+  test('the universal Jobs list reads its finished half from the server, not the live stream', () => {
+    const page = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)), 'utf8')
+    assert.match(page, /history\.load\('\/jobs\/all\/history'/)
+    assert.match(page, /\[\.\.\.streamedJobs\.value, \.\.\.history\.rows\.value\]/)
+    assert.match(page, /projectFilter\.value === 'all' \? \{\} : \{ project: projectFilter\.value \}/,
+      'narrowing to one channel is sent to the server, which is the difference between a fleet and a channel')
   })
 })

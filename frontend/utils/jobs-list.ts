@@ -2,17 +2,25 @@
  * Jobs page list and bulk-action wording (owner-approved UX sweep, 2026-10-07).
  * Pure so search, paging, the Active cap and the confirmations are tested
  * without mounting the 4,000-line page.
+ *
+ * The rules that decide WHICH rows match a search, how a history row reads and
+ * how finished rows are ordered now live in `electron/server/contracts/jobs-history.ts`,
+ * because the server's paged history endpoint applies the same rules. They are
+ * re-exported here so the page keeps importing one module.
  */
 import { isFreeFleetWork } from '@shared/provider-task-state'
 
+export { matchesEpisodeSearch } from '../../electron/server/contracts/jobs-history'
+export {
+  deriveOutputDir,
+  formatJobDuration,
+  rowOutputLineCount,
+  rowProgressCounter,
+  rowSummaryLine,
+} from '../../electron/server/contracts/jobs-history'
+
 export const HISTORY_PAGE_SIZE = 50
 export const ACTIVE_LIST_CAP = 25
-
-/** Episode code or episode title contains the query, ignoring case. An empty query matches everything. */
-export function matchesEpisodeSearch(job: { episode_id?: string | null; title?: string | null }, query: string): boolean {
-  const q = query.trim().toLowerCase()
-  return !q || [job.episode_id, job.title].some(value => typeof value === 'string' && value.toLowerCase().includes(q))
-}
 
 /** `?episode_id=` may arrive as a string or an array; anything else is no search. */
 export function episodeQueryValue(value: unknown): string {

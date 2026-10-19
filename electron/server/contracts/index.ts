@@ -910,6 +910,15 @@ export interface JobEnqueuedResponse {
   bytes_total?: number
   speed_bps?: number
   eta_seconds?: number
+  /**
+   * History rows (`GET /jobs/all/history`, `GET /projects/:slug/jobs/history`)
+   * carry these instead of `output_lines`, which no collapsed card shows and
+   * which dominated the payload of a whole-fleet read. See
+   * `contracts/jobs-history.ts` for the one implementation of each.
+   */
+  summary_line?: string | null
+  progress_counter?: string | null
+  output_line_count?: number
 }
 
 /** Response from `GET /projects/:slug/jobs`. */
@@ -923,6 +932,44 @@ export interface JobListResponse {
     error: number
     total: number
   }
+}
+
+/**
+ * The counts the Jobs page needs about the rows it is NOT currently showing.
+ * Every one of them used to be a `.filter()` over the whole fleet in memory;
+ * they are cheap server-side because none of them serializes a job.
+ */
+export interface JobHistoryFacets {
+  /** The scope's own statuses, with no filter applied — the page's header metrics. */
+  stats: {
+    running: number
+    queued: number
+    paused: number
+    done: number
+    error: number
+    recovered: number
+    cancelled: number
+    total: number
+  }
+  /** Active rows per job type — the type tabs' "(N active)". */
+  active_by_type: Record<string, number>
+  /** Display-status counts under the current type/search/batch filter — the status chips. */
+  status: Record<string, number>
+  /** Terminal rows whose own controls offer "Remove From List". */
+  clearable: { finished: number; failed: number }
+}
+
+/** Response from the paged history endpoints. */
+export interface JobHistoryResponse {
+  /** The page, newest finished first. Empty when `ids` was requested instead. */
+  jobs: JobEnqueuedResponse[]
+  /** Matching ids only, in the same order — the cheap selector bulk actions take. */
+  ids?: string[]
+  /** How many rows match the filter, not how many are on this page. */
+  total: number
+  /** Pass back as `cursor` for the next page. Null on the last page. */
+  next_cursor: string | null
+  facets?: JobHistoryFacets
 }
 
 // ── Job stream (SSE) ────────────────────────────────────────────────────────

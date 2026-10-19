@@ -42,6 +42,80 @@ function parseHistoryClearQuery(query: unknown): { value: HistoryClearQuery } | 
   return { error: 'status must be "finished" or "failed".' }
 }
 
+// ── Finished history (paged, searched, counted) ─────────────────────────────
+//
+// `GET /jobs/all/history` and `GET /projects/:slug/jobs/history` serve the
+// finished rows the Jobs page used to hold entirely in memory. The matching
+// rules are `contracts/jobs-history.ts`, the same module the page imports, so a
+// server page and the client's own view of a row cannot disagree.
+
+const HISTORY_STATUS_KEYS = new Set(['running', 'queued', 'paused', 'error', 'done', 'recovered', 'cancelled'])
+const HISTORY_MAX_LIMIT = 500
+
+/** One query value, first wins when it arrived repeated; blank counts as absent. */
+function singleQueryValue(value: unknown): string | undefined {
+  const first = Array.isArray(value) ? value[0] : value
+  return typeof first === 'string' && first.trim() ? first.trim() : undefined
+}
+
+function queryFlag(value: unknown): boolean {
+  const text = singleQueryValue(value)
+  return text === '1' || text === 'true'
+}
+
+function parseHistoryQuery(
+  query: unknown,
+  scopeFromPath?: string,
+): { value: { filter: jq.JobHistoryFilter; options: jq.JobHistoryOptions } } | { error: string } {
+  if (!query || typeof query !== 'object' || Array.isArray(query)) return { error: 'Invalid query.' }
+  const record = query as Record<string, unknown>
+  const statuses = singleQueryValue(record.status)?.split(',').map(part => part.trim()).filter(Boolean)
+  if (statuses?.some(status => !HISTORY_STATUS_KEYS.has(status))) {
+    return { error: 'status must be one or more of running, queued, paused, error, done, recovered, cancelled.' }
+  }
+  const limitText = singleQueryValue(record.limit)
+  let limit: number | undefined
+  if (limitText !== undefined) {
+    limit = Number(limitText)
+    if (!Number.isInteger(limit) || limit < 1 || limit > HISTORY_MAX_LIMIT) {
+      return { error: `limit must be a whole number between 1 and ${HISTORY_MAX_LIMIT}.` }
+    }
+  }
+  const scope = scopeFromPath ?? singleQueryValue(record.project)
+  const controls = singleQueryValue(record.controls)?.split(',').map(part => part.trim()).filter(Boolean)
+  const cursor = singleQueryValue(record.cursor)
+  // `episode` is the query string's name for the page's one search box; `q` is
+  // the same search under the name the newer callers use.
+  const q = singleQueryValue(record.q) ?? singleQueryValue(record.episode)
+  return {
+    value: {
+      filter: {
+        ...(scope ? { scope } : {}),
+        ...(statuses?.length ? { statuses } : {}),
+        ...(singleQueryValue(record.type) ? { type: singleQueryValue(record.type) } : {}),
+        ...(singleQueryValue(record.batch) ? { batch: singleQueryValue(record.batch) } : {}),
+        ...(q ? { q } : {}),
+        ...(controls?.length ? { controls } : {}),
+        ...(singleQueryValue(record.since) ? { since: singleQueryValue(record.since) } : {}),
+      },
+      options: {
+        ...(limit !== undefined ? { limit } : {}),
+        ...(cursor ? { cursor } : {}),
+        idsOnly: queryFlag(record.ids),
+        all: queryFlag(record.all),
+        facets: queryFlag(record.facets),
+      },
+    },
+  }
+}
+
+/** The scopes a history read covers: one named project, or the whole fleet. */
+async function historyScopes(named: string | undefined): Promise<string[] | null> {
+  const scopes = await allJobScopes()
+  if (!named) return scopes
+  return scopes.includes(named) ? [named] : null
+}
+
 function parseResumePausedBody(
   body: unknown,
   allowedKeys: readonly (keyof ResumePausedBody)[],
@@ -135,11 +209,34 @@ async function allJobScopes(): Promise<string[]> {
   ])]
 }
 
-async function allJobsSnapshot(view: 'full' | 'stream' = 'full') {
+/**
+ * What one read of the universal list costs.
+ *
+ * `active` is the view every live surface uses: the streams' snapshot and the
+ * REST fallback. Only queued/running/paused rows are on the wire, so a page
+ * that merely wants the queue and the badge no longer downloads a channel's
+ * whole finished history — which was ~128 MB at production size and was paid
+ * on EVERY page, because the dashboard layout opens this stream. The stats
+ * still describe the whole scope, counted from the raw queue without cloning a
+ * single job. The paged history is a separate read (`/jobs/all/history`).
+ */
+async function allJobsSnapshot(view: 'full' | 'stream' | 'active' = 'full') {
   const scopes = await allJobScopes()
-  const lists = await Promise.all(scopes.map(scope => jq.getJobs(scope, { view })))
+  const lists = await Promise.all(scopes.map(scope => view === 'active'
+    ? jq.getActiveJobs(scope)
+    : jq.getJobs(scope, { view })))
   const jobsList = lists.flat()
-  return { jobs: jobsList, stats: summarizeJobs(jobsList) }
+  if (view !== 'active') return { jobs: jobsList, stats: summarizeJobs(jobsList) }
+  const counted = await Promise.all(scopes.map(scope => jq.countJobs(scope)))
+  const stats = counted.reduce((total, scope) => ({
+    running: total.running + scope.running,
+    queued: total.queued + scope.queued,
+    paused: total.paused + scope.paused,
+    done: total.done + scope.done,
+    error: total.error + scope.error,
+    total: total.total + scope.total,
+  }), { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 })
+  return { jobs: jobsList, stats }
 }
 
 async function findUniversalJob(jobId: string): Promise<Job | undefined> {
@@ -406,7 +503,9 @@ router.get('/projects/:slug/jobs/stream', async (req, res) => {
   })
   try {
     stream.sendSnapshot({
-      jobs: await jq.getJobs(slug, { view: 'stream' }),
+      // Active rows only: the snapshot is what every page pays for on connect,
+      // and the finished half is a paged read (`/projects/:slug/jobs/history`).
+      jobs: await jq.getActiveJobs(slug),
       stats: jq.getQueueStats(slug),
     })
   } catch (error) {
@@ -417,12 +516,32 @@ router.get('/projects/:slug/jobs/stream', async (req, res) => {
 
 // `?view=stream` is the streams' slim view (no Gateway evidence / scene lists); the REST
 // fallbacks poll with it, so a closed stream does not pull the full history every 15 s.
-const listView = (query: unknown): 'full' | 'stream' => (query as any)?.view === 'stream' ? 'stream' : 'full'
+// `?view=active` is the live half only — what the streams' snapshot and every
+// badge actually need. `full` (the default) is unchanged for automation callers.
+type JobsListView = 'full' | 'stream' | 'active'
+const listView = (query: unknown): JobsListView => {
+  const view = (query as { view?: unknown })?.view
+  return view === 'stream' || view === 'active' ? view : 'full'
+}
 
 router.get('/projects/:slug/jobs', async (req, res) => {
-  const jobsList = await jq.getJobs(req.params.slug, { view: listView(req.query) })
+  const view = listView(req.query)
+  const jobsList = view === 'active'
+    ? await jq.getActiveJobs(req.params.slug)
+    : await jq.getJobs(req.params.slug, { view })
   const stats = jq.getQueueStats(req.params.slug)
   res.json({ jobs: jobsList, stats })
+})
+
+// Must be registered BEFORE `/projects/:slug/jobs/:jobId`, or Express serves
+// this path to the job lookup and every history read answers 404 for a job
+// called "history" (the same trap `/jobs/app/stream` documents below).
+router.get('/projects/:slug/jobs/history', async (req, res) => {
+  const parsed = parseHistoryQuery(req.query, req.params.slug)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  const scopes = await historyScopes(req.params.slug)
+  if (!scopes) return res.status(404).json({ detail: 'Project not found' })
+  res.json(await jq.queryJobHistory(scopes, parsed.value.filter, parsed.value.options))
 })
 
 // ── Universal jobs ────────────────────────────────────────────────────────
@@ -459,7 +578,7 @@ router.get('/jobs/all/stream', async (req, res) => {
     jq.jobEvents.off('cleared', onCleared)
   })
   try {
-    stream.sendSnapshot(await allJobsSnapshot('stream'))
+    stream.sendSnapshot(await allJobsSnapshot('active'))
   } catch (error) {
     console.error('[jobs/all/stream] snapshot error:', error)
     stream.sendSnapshotError()
@@ -468,6 +587,17 @@ router.get('/jobs/all/stream', async (req, res) => {
 
 router.get('/jobs/all', async (req, res) => {
   res.json(await allJobsSnapshot(listView(req.query)))
+})
+
+// The finished half, paged and searched. Registered before `/jobs/all/:jobId`
+// would be — this route family is all POST/DELETE today, and the reserved word
+// must stay reserved if a GET is ever added.
+router.get('/jobs/all/history', async (req, res) => {
+  const parsed = parseHistoryQuery(req.query)
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  const scopes = await historyScopes(parsed.value.filter.scope)
+  if (!scopes) return res.status(404).json({ detail: 'Project not found' })
+  res.json(await jq.queryJobHistory(scopes, parsed.value.filter, parsed.value.options))
 })
 
 router.post('/jobs/all/resume-paused', async (req, res) => {

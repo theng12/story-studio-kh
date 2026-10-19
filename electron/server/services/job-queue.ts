@@ -39,6 +39,17 @@ import {
   shouldRecheckStoredTranscriptionAbsence,
 } from '../lib/provider-task-state.js'
 import { isFreeFleetWork, reconciledGenStudioQueueState } from '../contracts/provider-task-state.js'
+import type { JobHistoryFacets } from '../contracts/index.js'
+import {
+  HISTORY_PAGE_SIZE,
+  compareHistoryRows,
+  isAfterHistoryCursor,
+  jobDisplayStatus,
+  isRecoveredFailure as isRecoveredFailureShared,
+  matchesEpisodeSearch,
+  summariseHistoryRow,
+  type HistoryRowJob,
+} from '../contracts/jobs-history.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
 import { assertManualGenerationRedoAction } from '../lib/fresh-generation-action.js'
 import { evidenceHoldsUnknownOutcome, holdsUnknownOutcome, isSubmissionUncertainCode } from '../lib/genstudio-client.js'
@@ -1999,6 +2010,10 @@ type RendererPaidImageReplacementAttempt = Pick<PaidImageReplacementAttempt,
 }
 type RendererJob = Omit<Job, 'paid_image_replacement_attempts' | 'generation_replacement_attempts' | 'manual_failed_item_replacement'> & {
   paid_image_replacement_attempt?: RendererPaidImageReplacementAttempt
+  /** Row-view fields; see `trimToHistoryRow`. */
+  summary_line?: string | null
+  progress_counter?: string | null
+  output_line_count?: number
 }
 
 export const PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE =
@@ -2063,9 +2078,29 @@ function streamSource(job: Job): Job {
   return slim
 }
 
-function serializeJob(job: Job, view: 'full' | 'stream' = 'full'): RendererJob {
+/** `row` is the history list's view: `stream` minus the log, plus its summary fields. */
+export type JobView = 'full' | 'stream' | 'row'
+
+/**
+ * A history row carries what a collapsed card shows and nothing it would have
+ * to be expanded to read. `output_lines` was the single largest field on the
+ * wire — tens of MB across a fleet's history — and no closed row renders it:
+ * the card shows one summary line, a progress counter and the output folder,
+ * all three computed here from the same log, once, instead of per render. The
+ * expanded card reads the log from the per-job GET (`useJobDetails`).
+ */
+function trimToHistoryRow(job: RendererJob): void {
+  const summary = summariseHistoryRow(job as unknown as HistoryRowJob)
+  job.summary_line = summary.summary_line
+  job.progress_counter = summary.progress_counter
+  job.output_line_count = summary.output_line_count
+  if (summary.output_dir) job.output_dir = summary.output_dir
+  delete (job as { output_lines?: unknown }).output_lines
+}
+
+function serializeJob(job: Job, view: JobView = 'full'): RendererJob {
   jobPersistenceCounters.public_serializations++
-  const copy = safeJob(view === 'stream' ? streamSource(job) : job)
+  const copy = safeJob(view === 'full' ? job : streamSource(job))
   if (copy.params?.manual_image_finish) {
     delete copy.params.manual_image_finish.uncertain_identity_hashes
     delete copy.params.manual_image_finish.expected_uncertain_identity_hashes
@@ -2111,6 +2146,7 @@ function serializeJob(job: Job, view: 'full' | 'stream' = 'full'): RendererJob {
     const lane = queues[job.type]
     rendererJob.queue_position = lane ? lane.pending.findIndex(candidate => candidate.job_id === job.job_id) + 1 : 0
   }
+  if (view === 'row') trimToHistoryRow(rendererJob)
   return rendererJob
 }
 
@@ -6249,10 +6285,38 @@ export async function resumeEpisodeRecoveryJob(jobId: string, explicit = false):
  */
 export async function getJobs(
   projectSlug: string,
-  { type, view = 'full' }: { type?: JobType | readonly string[], view?: 'full' | 'stream' } = {},
+  { type, view = 'full' }: { type?: JobType | readonly string[], view?: JobView } = {},
 ): Promise<Job[]> {
   const wanted = (job: Readonly<Job>) => !type || (typeof type === 'string' ? job.type === type : type.includes(job.type))
   return findJobs(projectSlug, wanted, view)
+}
+
+/** The statuses that are still in the queue's hands. Everything else is history. */
+export const ACTIVE_JOB_STATUSES: readonly string[] = ['running', 'queued', 'paused']
+
+/** The live half of a scope: what the streams carry in full, and what a badge counts. */
+export async function getActiveJobs(projectSlug: string, view: JobView = 'stream'): Promise<Job[]> {
+  return findJobs(projectSlug, job => ACTIVE_JOB_STATUSES.includes(job.status), view)
+}
+
+/**
+ * One scope's status counts, read from the raw queue. Counting a fleet's
+ * history must never clone it — this is what lets the active-only snapshot
+ * still report how much finished work exists.
+ */
+export async function countJobs(projectSlug: string): Promise<JobStats> {
+  await loadPersistedJobs(projectSlug)
+  const stats: JobStats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 }
+  for (const job of jobs.values()) {
+    if (job.project_slug !== projectSlug) continue
+    stats.total += 1
+    if (job.status === 'running') stats.running += 1
+    else if (job.status === 'queued') stats.queued += 1
+    else if (job.status === 'paused') stats.paused += 1
+    else if (job.status === 'done') stats.done += 1
+    else if (job.status === 'error' && !isRecoveredFailure(job)) stats.error += 1
+  }
+  return stats
 }
 
 /**
@@ -6265,7 +6329,7 @@ export async function getJobs(
 export async function findJobs(
   projectSlug: string,
   predicate: (job: Readonly<Job>) => boolean,
-  view: 'full' | 'stream' = 'full',
+  view: JobView = 'full',
 ): Promise<Job[]> {
   await loadPersistedJobs(projectSlug)
   const projectJobs: Job[] = []
@@ -6283,6 +6347,149 @@ export async function findJobs(
 /** Every queued, running or paused job of one type on this server, across all projects. */
 export function activeJobsOfType(type: Job['type']): Array<Pick<Job, 'project_slug' | 'episode_id' | 'type' | 'status'>> {
   return [...jobs.values()].filter(j => j.type === type && ['queued', 'running', 'paused'].includes(j.status))
+}
+
+// ── Finished history: paged, searched and counted on the server ──────────────
+//
+// The page used to hold every job of every channel and filter it in memory.
+// The rules that decide which rows match, how they are ordered and how a row
+// reads live in `contracts/jobs-history.ts`, so the page and this endpoint
+// cannot drift apart.
+
+export interface JobHistoryFilter {
+  /** One project slug (or `_app_`); omit for the whole fleet. */
+  scope?: string
+  /** Display-status buckets. Omitted means every terminal bucket. */
+  statuses?: readonly string[]
+  type?: string
+  /** `params.pipeline_batch_id` of a pipeline batch. */
+  batch?: string
+  /** Episode code or title contains this, ignoring case. */
+  q?: string
+  /** The row must offer at least one of these control actions. */
+  controls?: readonly string[]
+  /** Only rows that finished at or after this ISO timestamp. */
+  since?: string
+}
+
+export interface JobHistoryOptions {
+  limit?: number
+  cursor?: string
+  /** Return matching ids only — the cheap selector a bulk action takes. */
+  idsOnly?: boolean
+  /** The whole matching set, unpaged. */
+  all?: boolean
+  facets?: boolean
+}
+
+export interface JobHistoryPage {
+  jobs: RendererJob[]
+  ids?: string[]
+  total: number
+  next_cursor: string | null
+  facets?: JobHistoryFacets
+}
+
+const HISTORY_STATUS_BUCKETS: readonly string[] = ['done', 'error', 'cancelled', 'recovered']
+
+function jobControlsOf(job: Job): JobControl[] {
+  return classifyJobControls(job, { remoteCancellationAudited: hasJobCancellationAuditor(job.type) })
+}
+
+/** Every filter except `statuses` — the base a status facet is counted over. */
+function matchesHistoryBase(job: Job, filter: JobHistoryFilter): boolean {
+  if (filter.scope && job.project_slug !== filter.scope) return false
+  if (filter.type && job.type !== filter.type) return false
+  if (filter.batch && job.params?.pipeline_batch_id !== filter.batch) return false
+  if (filter.q && !matchesEpisodeSearch(job, filter.q)) return false
+  return true
+}
+
+function matchesHistoryFilter(job: Job, filter: JobHistoryFilter): boolean {
+  if (!matchesHistoryBase(job, filter)) return false
+  if (filter.since && (Date.parse(job.finished_at || '') || 0) < Date.parse(filter.since)) return false
+  const wanted = filter.statuses?.length ? filter.statuses : HISTORY_STATUS_BUCKETS
+  if (!wanted.includes(jobDisplayStatus(job))) return false
+  if (filter.controls?.length && !jobControlsOf(job).some(control => filter.controls!.includes(control.action))) return false
+  return true
+}
+
+function historyFacets(scopeJobs: readonly Job[], filter: JobHistoryFilter): JobHistoryFacets {
+  const stats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, recovered: 0, cancelled: 0, total: 0 }
+  const active_by_type: Record<string, number> = {}
+  const status: Record<string, number> = {}
+  const clearable = { finished: 0, failed: 0 }
+  for (const job of scopeJobs) {
+    const display = jobDisplayStatus(job)
+    stats.total += 1
+    if (display === 'recovered') stats.recovered += 1
+    else if (display in stats) (stats as unknown as Record<string, number>)[display] += 1
+    if (ACTIVE_JOB_STATUSES.includes(job.status)) active_by_type[job.type] = (active_by_type[job.type] || 0) + 1
+    // The status chips count within the type/search/batch filter but not within
+    // the status filter itself — otherwise every chip would read 0 or its own count.
+    if (matchesHistoryBase(job, filter)) status[display] = (status[display] || 0) + 1
+    if (isFinishedStatus(job.status)
+      && jobControlsOf(job).some(control => control.enabled && control.action === 'clear-history')) {
+      if (display === 'error') clearable.failed += 1
+      else clearable.finished += 1
+    }
+  }
+  return { stats, active_by_type, status, clearable }
+}
+
+export function encodeHistoryCursor(job: Job | RendererJob): string {
+  return Buffer.from(JSON.stringify([
+    job.finished_at || '', job.created_at || '', job.job_id,
+  ]), 'utf8').toString('base64url')
+}
+
+function decodeHistoryCursor(cursor: string): [string, string, string] | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+    return Array.isArray(parsed) && parsed.length === 3 && parsed.every(part => typeof part === 'string')
+      ? parsed as [string, string, string]
+      : null
+  } catch { return null }
+}
+
+/**
+ * One page of a scope's finished history, newest finished first.
+ *
+ * Only the page's own rows are serialized: the filter and the sort read the raw
+ * in-memory jobs, so a 14,000-row history costs one page of cloning, not
+ * fourteen thousand.
+ */
+export async function queryJobHistory(
+  scopes: readonly string[],
+  filter: JobHistoryFilter,
+  { limit = HISTORY_PAGE_SIZE, cursor, idsOnly = false, all = false, facets = false }: JobHistoryOptions = {},
+): Promise<JobHistoryPage> {
+  for (const scope of scopes) await loadPersistedJobs(scope)
+  const scopeSet = new Set(scopes)
+  const scopeJobs: Job[] = []
+  for (const job of jobs.values()) if (scopeSet.has(job.project_slug)) scopeJobs.push(job)
+
+  const matches = scopeJobs.filter(job => matchesHistoryFilter(job, filter)).sort(compareHistoryRows)
+  const total = matches.length
+
+  let from = 0
+  if (cursor) {
+    const decoded = decodeHistoryCursor(cursor)
+    if (!decoded) return { jobs: [], total, next_cursor: null, ...(facets ? { facets: historyFacets(scopeJobs, filter) } : {}) }
+    const index = matches.findIndex(job => isAfterHistoryCursor(job, decoded))
+    from = index < 0 ? total : index
+  }
+  const page = all ? matches.slice(from) : matches.slice(from, Math.max(0, from + Math.max(1, limit)))
+  const last = page[page.length - 1]
+  const next_cursor = !all && last && from + page.length < total ? encodeHistoryCursor(last) : null
+
+  return {
+    jobs: idsOnly ? [] : page.map(job => serializeJob(job, 'row')),
+    ...(idsOnly ? { ids: page.map(job => job.job_id) } : {}),
+    total,
+    next_cursor,
+    ...(facets ? { facets: historyFacets(scopeJobs, filter) } : {}),
+  }
 }
 
 export function getJob(jobId: string): Job | null {
@@ -7476,9 +7683,14 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
  */
 export type JobHistoryClearStatus = 'finished' | 'failed'
 
-/** A failed row whose work was finished later: history, not something that needs attention. */
+/**
+ * A failed row whose work was finished later: history, not something that needs
+ * attention. The rule lives in `contracts/jobs-history.ts` so the history
+ * endpoint and the page that renders it cannot disagree about which rows read
+ * "recovered".
+ */
 export function isRecoveredFailure(job: Job): boolean {
-  return job.status === 'error' && (!!job.resolved || isVerifiedRecoveredSubtitleJob(job))
+  return isRecoveredFailureShared(job)
 }
 
 /**
@@ -7498,24 +7710,6 @@ export async function noteOnFinishedJob(
   await persistJob(job)
   emitPublicUpdate(job)
   return serializeJob(job)
-}
-
-/** Match the Jobs page's display-only Recovered state for a failed subtitle attempt. */
-function isVerifiedRecoveredSubtitleJob(job: Job): boolean {
-  if (job.type !== 'subtitles_transcribe' || job.status !== 'error'
-    || job.params?.force === true || job.params?.generation_action?.kind === 'fresh') return false
-  const recovery = job.params?.episode_recovery
-  const recoveryId = recovery?.id
-  if (typeof recoveryId !== 'string' || !recoveryId.trim()
-    || typeof job.params?.episode_recovery_id !== 'string'
-    || recoveryId !== job.params.episode_recovery_id) return false
-  return Array.isArray(recovery?.completed)
-    && recovery.completed.includes('subtitle_sections')
-    && recovery.completed.includes('subtitle_stitch')
-    && (recovery.first_unresolved === null
-      || recovery.first_unresolved === 'scene_plan_run'
-      || recovery.first_unresolved === 'contextual_cues'
-      || recovery.first_unresolved === 'continuity_render')
 }
 
 function matchesHistoryClearStatus(job: Job, status: JobHistoryClearStatus | undefined): boolean {
