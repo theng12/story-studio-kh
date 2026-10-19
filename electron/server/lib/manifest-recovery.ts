@@ -10,6 +10,7 @@ import {
   GenStudioImageTerminalFailureError,
   getGenStudioCancellationStatus,
   getGenStudioJobByIdempotencyKey,
+  holdsUnknownOutcome,
   isGenStudioTaskAbsent,
   recoverImageWithGenStudio,
 } from './genstudio-client.js'
@@ -129,6 +130,18 @@ export async function tryRecoverImageFromManifestEntry(
         }
       }
       if (control.state === 'failed' || control.cancelled === true) {
+        // A gateway HOLD (`recovery_required` / `unknown_outcome`) is not a settled failure:
+        // the answer may still be adopted, so calling it terminal here mints a fresh request
+        // identity for work that can still be collected — and pays for it a second time.
+        // Every other hold reader in the app says the same (`holdsUnknownOutcome`,
+        // `isGenStudioSubmissionUncertain`, `settledFailure`); this one read `state` alone.
+        if (!control.cancelled && holdsUnknownOutcome(control)) {
+          return {
+            kind: 'uncertain', taskId: control.id,
+            reason: 'The Gateway is still holding this task as an unknown outcome, so its result may yet arrive',
+            error: new Error('The Gateway is still holding this task as an unknown outcome.'),
+          }
+        }
         return {
           kind: 'terminal-failed', taskId: control.id, failureCode: control.failure_code || null,
           reason: `The Gateway reports this task as failed`,

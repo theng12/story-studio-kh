@@ -28,6 +28,10 @@ const PAYLOADS: Record<string, unknown> = {
     minimum_credits: 1, maximum_input_characters: 5_000,
   }],
   '/v1/chat/models': [{ id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false }],
+  '/v1/image/models': [{
+    id: 'image-v1', display_name: 'Image V1', available: true, qualification_only: false,
+    chargeable: false, credits_per_image: 1,
+  }],
 }
 
 function stubFetch(handler: (url: string) => Response | Promise<Response>): () => void {
@@ -38,7 +42,7 @@ function stubFetch(handler: (url: string) => Response | Promise<Response>): () =
 
 after(async () => { await temp.cleanup() })
 
-test('one pass reads both job-time catalogues', async () => {
+test('one pass reads every job-time catalogue, the image one included', async () => {
   await setApiKey('genstudio', 'catalog-refresh-test-key')
   clearGenStudioCatalogCache()
   const seen: string[] = []
@@ -51,10 +55,14 @@ test('one pass reads both job-time catalogues', async () => {
     await refreshGenStudioCatalogues()
     assert.ok(seen.includes('/v1/tts/models'), `the voice catalogue was not refreshed: ${seen.join(', ')}`)
     assert.ok(seen.includes('/v1/chat/models'), `the chat catalogue was not refreshed: ${seen.join(', ')}`)
+    // 2026-10-19: after the mini's 1.4.328 restart the image catalogue had no copy to
+    // fall back on, so the first failed image read refused 9 jobs while the Gateway
+    // recorded no failures. It is a job-time catalogue and belongs in this pass.
+    assert.ok(seen.includes('/v1/image/models'), `the image catalogue was not refreshed: ${seen.join(', ')}`)
   } finally { restore() }
 })
 
-test('one catalogue failing does not stop the other, and never escapes the pass', async () => {
+test('one catalogue failing does not stop the others, and never escapes the pass', async () => {
   await setApiKey('genstudio', 'catalog-refresh-test-key')
   clearGenStudioCatalogCache()
   const seen: string[] = []

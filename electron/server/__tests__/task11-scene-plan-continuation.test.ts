@@ -310,6 +310,48 @@ for (const kind of ['one more caption', 'unstamped'] as const) {
   })
 }
 
+// Domnak DM0012/13/14 — the correction pass DROPS hallucinated cues, so the raw
+// stitch and the corrected transcript are different cue SETS of one narration
+// (612 raw cues against a stamp of 609, 1013/1008, 1005/999). A plan built while
+// the correction was absent records the RAW stitch as its timeline; read against
+// the corrected file alone it looked moved, and every scene's timing was
+// re-anchored on a timeline that had not shifted. Both readers must apply the
+// same rule — the recovery plan already did.
+test('ordinary continuation keeps a plan whose timeline matches the raw stitch the correction replaced', async () => {
+  service.reset()
+  genstudio.clearGenStudioCatalogCache()
+  const fixture = await seedFixture()
+  const { correctedSrtPath, CORRECTED_SCHEMA_VERSION } = await import('../services/subtitle-correction.js')
+  const rawPath = path.join(fixture.paths.subtitles_dir, `${fixture.episodeId}_stitched.srt`)
+  // The corrected file drops the last (hallucinated) cue: a different cue set, one
+  // narration, an unchanged timeline for the plan that was built from the raw one.
+  const correctedPath = correctedSrtPath(fixture.paths.subtitles_dir, fixture.episodeId)
+  const rawStat = await fs.stat(rawPath)
+  await fs.writeFile(correctedPath, cueRows().replace(
+    '\n4\n00:00:03,000 --> 00:00:04,000\nDust turns in the light.\n', '\n'))
+  await fs.writeFile(`${correctedPath}.json`, JSON.stringify({
+    schema_version: CORRECTED_SCHEMA_VERSION,
+    source_mtime_ms: rawStat.mtimeMs,
+    source_size: rawStat.size,
+    cues_in: 4, cues_out: 3, cues_dropped: 1, cues_rewritten: 0,
+    chapters_total: 1, chapters_corrected: 1, chapters_refused: 0,
+    warnings: [], chapters: [], samples: [],
+  }))
+  queuePromptResult([fixture.missingId])
+  const job = pipelineJob(fixture)
+
+  await runScenePlanJob(job)
+
+  assert.ok(
+    !job.output_lines.some((line: string) => /Re-aligned/.test(line)),
+    `a plan that matches the raw stitch was re-anchored anyway:\n${job.output_lines.join('\n')}`,
+  )
+  const saved = JSON.parse(await fs.readFile(fixture.planPath, 'utf8'))
+  assert.deepEqual(saved.scenes.map((scene: any) => [scene.start_sec, scene.end_sec]), [[0, 2], [2, 4]])
+  assert.equal(saved.scenes[1].visual_prompt, `A new cinematic prompt written only for ${fixture.missingId}.`)
+  assert.equal(chatSubmissions().length, 1)
+})
+
 for (const entry of [{
     label: 'pacing',
     overrides: { pacing: { min_sec: 8, max_sec: 12 } },
