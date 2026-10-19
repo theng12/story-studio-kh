@@ -28,6 +28,9 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { callChatWithGenStudio } from '../lib/genstudio-client.js'
 import {
+  CHAT_ALLOWANCE_CEILING_SECONDS,
+  chatAllowanceSeconds,
+  effectiveChatTimeoutMs,
   expectedOutputTokensFor,
   resolveOutputTokenBudget,
 } from '../services/output-token-budget.js'
@@ -222,4 +225,69 @@ test('the pack tuning the expectation is built from is the one Story sizes packs
   // Both the pack size and the expectation read the same tuning object, so a project that
   // changes `scene_prompt_tokens_per_scene` moves both together.
   assert.match(batching, /maxSafeScenePromptPackSize/)
+})
+
+// ── The socket bound, which must not cut a job its Gateway and Hub allow ──
+
+test('a 30,000-token pack is given at least 68 minutes', () => {
+  // The same job Studio Hub sizes: 100 scene prompts x 300 tokens, with a ~12,000-token prompt.
+  // On the fleet's slowest measured Mac (12.0 tok/s decode, 60.0 tok/s prefill, 15 s load) the
+  // Hub computes 4,072 s — 68 minutes — and the owner's 30-minute dial would cut it at 44%.
+  const allowance = chatAllowanceSeconds(30_000, 12_000 * 4)
+  assert.ok(allowance >= 68 * 60, `the pack must get >= 68 minutes, got ${allowance / 60}`)
+  // The Hub computes 4,072 s for the same job; this side rounds up to a whole minute, which can
+  // only leave the socket open longer.
+  assert.equal(allowance, 68 * 60)
+})
+
+test("a median answer keeps the owner's 30 minutes", () => {
+  // The fleet's median answer is 3,415 tokens, which needs ~285 s of decode on an M1. The dial
+  // is a FLOOR, not a preference: it is never lowered because the model is expected to be quick.
+  const owner = 30 * 60_000
+  const allowance = chatAllowanceSeconds(3_400, 4_000)
+  assert.ok(allowance < owner / 1000, 'the allowance is under the dial, so the dial stands')
+  assert.equal(effectiveChatTimeoutMs(owner, allowance), owner)
+})
+
+test('the allowance raises the socket above the dial, and the dial still raises it further', () => {
+  const owner = 30 * 60_000
+  assert.equal(effectiveChatTimeoutMs(owner, 4_072), 4_072 * 1000)
+  // An operator who set an hour keeps the hour when the allowance is two minutes.
+  assert.equal(effectiveChatTimeoutMs(60 * 60_000, 120), 60 * 60_000)
+  // And the longer of the two always wins, never the shorter.
+  assert.equal(effectiveChatTimeoutMs(10 * 60_000, 5_000), 5_000 * 1000)
+})
+
+test('the Hub ceiling caps both, so this side never outlasts the Hub', () => {
+  assert.equal(CHAT_ALLOWANCE_CEILING_SECONDS, 4 * 3600)
+  assert.equal(effectiveChatTimeoutMs(240 * 60_000, 10 * 3600),
+               CHAT_ALLOWANCE_CEILING_SECONDS * 1000)
+  assert.equal(effectiveChatTimeoutMs(10 * 3600_000, 60), CHAT_ALLOWANCE_CEILING_SECONDS * 1000)
+  // The owner's own maximum is exactly the ceiling, so no legal setting is ever cut.
+  assert.equal(effectiveChatTimeoutMs(240 * 60_000, 0), CHAT_ALLOWANCE_CEILING_SECONDS * 1000)
+})
+
+test('no stated expectation adds nothing to the dial', () => {
+  // Inventing an allowance from `max_output_tokens` here would be the "every job is three hours"
+  // defect the expectation exists to prevent.
+  for (const none of [null, 0, -1] as const) {
+    assert.equal(chatAllowanceSeconds(none, 100_000), 0, String(none))
+    assert.equal(effectiveChatTimeoutMs(30 * 60_000, chatAllowanceSeconds(none, 100_000)),
+                 30 * 60_000)
+  }
+})
+
+test('a bigger prompt is given longer, because prefill is not free', () => {
+  assert.ok(chatAllowanceSeconds(3_400, 400_000) > chatAllowanceSeconds(3_400, 4_000))
+})
+
+test('the socket timeout is the owner dial or this request\'s allowance', () => {
+  // The one wiring point: `submitLanguageJson` is the only place the socket is bounded, and it
+  // must apply the allowance there rather than at a call site that could forget it.
+  const client = source('../lib/genstudio-client.ts')
+  const submit = client.split('async function submitLanguageJson')[1]!.split('\nasync function')[0]!
+  assert.match(submit, /effectiveChatSubmitTimeoutMs\(chatAllowanceSeconds\)/)
+  assert.ok(!/await languageSubmitTimeoutMs\(\)/.test(submit),
+    'the raw dial must not bound the socket on its own any more')
+  assert.match(client, /effectiveChatTimeoutMs\(await getLanguageTimeoutMs\(\), allowanceSeconds\)/)
 })

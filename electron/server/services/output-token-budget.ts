@@ -214,3 +214,83 @@ export function describeOutputBudget(budget: OutputBudget | undefined): string |
     ? `${budget.tier}:${Math.floor(budget.minimumTokens)}`
     : budget.tier
 }
+
+// ── How long the expected answer takes, for this side's own socket ──────────
+//
+// **The same arithmetic Studio Hub uses, mirrored here on purpose.** The Gateway forwards the
+// expected length to the Hub, which sizes its own deadline from it; Story's socket has to outlast
+// that deadline or it cuts a job its own Gateway and Hub would have allowed (a 100-prompt scene
+// pack needs ~68 minutes on the fleet's slowest Mac, and the owner's dial defaults to 30). The
+// Hub's constants live in `components/hub/backend/chat_deadline.py` — its rate is the *worker's
+// measured* one where it has it — and this side cannot read Python, so the numbers are restated
+// here ONCE, at their most conservative, with the source named beside each.
+//
+// Deliberately conservative in every direction: the slowest measured rate, the same `x1.5`, and
+// the Hub's own stated load/prefill estimates. A longer Story socket cannot lose work; a shorter
+// one loses generation that was paid for.
+
+/** The longest a chat job may take — the Hub's own ceiling (`chat_deadline.CEILING_S`), 4 hours. */
+export const CHAT_ALLOWANCE_CEILING_SECONDS = 4 * 3600
+
+/** Decode tokens a second: the fleet's **slowest measured** Mac (`qwen3-5-9b-4bit` 16 GB M1,
+ *  12.40–12.48 tok/s in `qualification/model-readings.json`). */
+export const CHAT_ALLOWANCE_DECODE_TOKENS_PER_SECOND = 12
+
+/** The Hub's own safety margin (`chat_deadline.SAFETY_MARGIN`). */
+export const CHAT_ALLOWANCE_SAFETY_MARGIN = 1.5
+
+/** The Hub's stated cold-load estimate (`chat_deadline.STATED_LOAD_S`). */
+export const CHAT_ALLOWANCE_LOAD_SECONDS = 15
+
+/** Prefill runs faster than decode; the Hub states 5x (`STATED_PREFILL_FASTER_THAN_DECODE`),
+ *  which makes prefill look slower than it is and so makes this allowance longer. */
+export const CHAT_ALLOWANCE_PREFILL_FASTER_THAN_DECODE = 5
+
+/** The Hub's prompt approximation (`chat_deadline.CHARS_PER_TOKEN`). */
+export const CHAT_ALLOWANCE_CHARS_PER_TOKEN = 4
+
+/**
+ * How long this answer is expected to take, in seconds, on the fleet's slowest measured Mac.
+ *
+ * `0` when no expectation was stated — there is then nothing to add to the owner's setting, and
+ * inventing an allowance from `max_output_tokens` is the "every job is three hours" defect the
+ * expectation exists to avoid.
+ *
+ * This is an allowance, not a cap: the caller takes `max` of it and the owner's dial, and the
+ * ceiling bounds both.
+ */
+export function chatAllowanceSeconds(
+  expectedOutputTokens: number | null,
+  promptCharacters: number,
+): number {
+  if (expectedOutputTokens === null || !(expectedOutputTokens > 0)) return 0
+  const promptTokens = Math.max(0, Math.ceil(Math.max(0, promptCharacters) / CHAT_ALLOWANCE_CHARS_PER_TOKEN))
+  const prefillTokensPerSecond = CHAT_ALLOWANCE_DECODE_TOKENS_PER_SECOND
+    * CHAT_ALLOWANCE_PREFILL_FASTER_THAN_DECODE
+  const wanted = CHAT_ALLOWANCE_SAFETY_MARGIN * (
+    CHAT_ALLOWANCE_LOAD_SECONDS
+    + promptTokens / prefillTokensPerSecond
+    + expectedOutputTokens / CHAT_ALLOWANCE_DECODE_TOKENS_PER_SECOND
+  )
+  // **Rounded up to a whole minute.** A socket bound is a wait, and a fraction of a minute is a
+  // Truncated assertion away from cutting a job that was about to answer; rounding up can only
+  // leave it open a little longer, and the ceiling still bounds it.
+  const wholeMinutes = Math.ceil(wanted / 60) * 60
+  return Math.min(CHAT_ALLOWANCE_CEILING_SECONDS, wholeMinutes)
+}
+
+/**
+ * The socket timeout for one chat request: **the owner's setting or the allowance, whichever is
+ * longer, never below the setting and never above the ceiling.**
+ *
+ * The owner's dial is a floor here, not a preference — lowering it because the model is expected
+ * to be quick would take away a bound the operator deliberately set. The ceiling is the Hub's, so
+ * this side can never hold a socket open on a job the Hub has already stopped.
+ */
+export function effectiveChatTimeoutMs(ownerTimeoutMs: number, allowanceSeconds: number): number {
+  const owner = Number.isFinite(ownerTimeoutMs) && ownerTimeoutMs > 0 ? ownerTimeoutMs : 0
+  const allowanceMs = Number.isFinite(allowanceSeconds) && allowanceSeconds > 0
+    ? allowanceSeconds * 1000
+    : 0
+  return Math.min(CHAT_ALLOWANCE_CEILING_SECONDS * 1000, Math.max(owner, allowanceMs))
+}
