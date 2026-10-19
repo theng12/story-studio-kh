@@ -14,6 +14,7 @@ import {
   isSettledProviderEntry,
   isUnprovenFailedRead,
   shouldRecheckStoredTranscriptionAbsence,
+  shouldRecheckStoredUnknownOutcome,
 } from '../lib/provider-task-state.js'
 import { idempotencyKeyFromPendingEntryId } from '../lib/genstudio-request-preview.js'
 import type { Job, JobRemoteCancellation } from '../models/types.js'
@@ -154,8 +155,11 @@ function settledEvidenceAsProviderTask(
 ): (GenStudioJob & GenStudioCancellationFields) | null {
   if (!entry.id || entry.id.startsWith('pending:')) return null
   if (isNeverCreatedProviderTask(entry)) return null
-  // A held unknown outcome is `failed` on the wire but may still be adopted: re-read it.
-  if (!isSettledGenStudioJob(entry) || !isSettledProviderEntry(entry)) return null
+  // A held unknown outcome is `failed` on the wire but is not the Gateway's last
+  // word — it can close the hold — so it is re-read, not re-used. Held music rows
+  // were already re-read by `isSettledProviderEntry`; this is what extends the
+  // same readback to every other held row (Science EP13, 2026-10-19).
+  if (!isSettledGenStudioJob(entry) || !isSettledProviderEntry(entry) || shouldRecheckStoredUnknownOutcome(entry)) return null
   // Structurally this already IS a provider response: every field below was
   // copied from one by `mergeGenStudioReconciliationEvidence`. The cast only
   // narrows `state`, stored as the wider `string`, back to the published

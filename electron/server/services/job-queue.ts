@@ -37,6 +37,7 @@ import {
   isUnprovenFailedRead,
   isUnsettledProviderEntry as isUnsettledProviderEntryShared,
   shouldRecheckStoredTranscriptionAbsence,
+  shouldRecheckStoredUnknownOutcome,
 } from '../lib/provider-task-state.js'
 import { isFreeFleetWork, reconciledGenStudioQueueState } from '../contracts/provider-task-state.js'
 import type { JobHistoryFacets } from '../contracts/index.js'
@@ -975,6 +976,12 @@ function needsHistoryEvidenceRefresh(job: Job): boolean {
   return (job.genstudio_jobs || []).some(entry => (
     entry.state !== 'cancelled' && isUnsettledProviderEntry(entry)
   )) || (job.genstudio_jobs || []).some(shouldRecheckStoredTranscriptionAbsence)
+    // A held row reads as settled (EP0113), so nothing here would ever ask about
+    // it again — and the Gateway is the only thing that can close a hold. Without
+    // this clause a saved `unknown_outcome` is final evidence forever, and the
+    // refresh below says "every recorded provider task has finished" about a row
+    // it never re-read (Science EP13, 2026-10-19).
+    || (job.genstudio_jobs || []).some(shouldRecheckStoredUnknownOutcome)
     || hasPendingRemoteCancellation(job)
 }
 

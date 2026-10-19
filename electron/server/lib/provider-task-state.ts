@@ -61,6 +61,23 @@ export function shouldRecheckStoredTranscriptionAbsence(entry: {
 }
 
 /**
+ * A stored `failed` row the Gateway still holds as an unknown outcome is not its
+ * last word: the hold can be closed later — an operator closing it publishes
+ * `failed` / `HOLD_CLOSED` with `recovery_required: false` — and only the
+ * Gateway can say when that happened. So a finished job's evidence refresh
+ * re-reads such a row instead of treating the saved snapshot as final.
+ *
+ * This is NOT a second definition of settled. A held row still settles for Retry
+ * and history removal (`isSettledProviderEntry`, EP0113 — a held writing job
+ * must stay retryable), and nothing here submits or replays anything: the
+ * readback is one read-only GET, and the row keeps whatever the Gateway answers,
+ * including the same hold it already had.
+ */
+export function shouldRecheckStoredUnknownOutcome(entry: ProviderEntryState): boolean {
+  return holdsUnknownProviderOutcome(entry)
+}
+
+/**
  * Every provider state from which no further outcome can arrive.
  *
  * v1.4.81 — THERE WERE TWO OF THESE, and they disagreed by one word.
