@@ -611,7 +611,11 @@ export async function report(): Promise<Record<string, unknown>> {
     channels: await o.channels().catch(() => null),
     queue: { ...o.queue.summary(), held: o.queue.isPaused() },
     update: { phase: state.phase, version: state.release?.version ?? null, error: state.error ?? null,
-      request_id: state.gateway_update_request_id ?? null },
+      request_id: state.gateway_update_request_id ?? null,
+      // The Gateway's fleet watchdog reads this to tell a download that is moving from one that has
+      // stopped, and reports the difference to the owner. Absent while nothing is downloading, so
+      // "no figure" stays distinguishable from "zero bytes".
+      ...(progress ? { downloaded_bytes: progress.downloaded, total_bytes: progress.total } : {}) },
     server_mode: isServerMode(),
   }
 }
