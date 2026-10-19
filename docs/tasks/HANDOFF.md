@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.333 — 2026-10-19 (gate running)
+## 1.4.333 — 2026-10-19 (gated and landed)
 
 Merged fix/final-check-long-video (a51b7fb0: POST /youtube/final-check answers 202, startFinalCheck one per file, row final_check.running; 022be139: app-update drain waits for runningFinalChecks, status final_checks_running). Production: Myth EP0008 check was cut by the 1.4.331 install drain at 15:50:27Z, not a timeout.
 
