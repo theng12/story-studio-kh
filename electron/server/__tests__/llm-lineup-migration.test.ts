@@ -54,7 +54,9 @@ test('a lineup matching a Gateway pool keeps that pool for every step without a 
   const record = await migration.migrateRetiredLlmLineup(slug, async () => POOLS)
   assert.equal(record?.model, 'pool::gemini-free-all')
   assert.equal(record?.pool, true)
-  assert.deepEqual(record?.steps, ['Research', 'YouTube Finalizer'])
+  // A new channel is seeded with the model-less "Owner standard pacing" Scene Plan preset
+  // (1.4.327), so Scene Plan is a step without a model of its own too.
+  assert.deepEqual(record?.steps, ['Research', 'YouTube Finalizer', 'Scene Plan'])
   const config = await rawConfig(slug)
   assert.equal(config.research_presets[0].data.form.source_model, 'pool::gemini-free-all')
   assert.equal(config.metadata_presets[0].data.model, 'pool::gemini-free-all')
