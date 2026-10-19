@@ -1,6 +1,8 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.324 — 2026-10-19 (gate running)
+## 1.4.324 — 2026-10-19 (gated and landed)
+
+Gate: lint, four checks pass; test:backend 7501 / 7499 pass / 1 fail — the failure was a race in circular-params-repair.test.ts (Retry before the failed worker settled, refused by the 1.4.319 guard), fixed test-only and re-run 9/9 three times; typecheck, test:frontend 2663/2663, test:release 63/63, test:content-packs 366 pass / 0 fail.
 
 Merged `fix/reconcile-timings-retention` (d35dc0da). Incident: HMH0001 reconcile on the mini (1.4.320) turned 938 scenes into 899 — `reconcilePlanToSubtitles` stamped every word with its cue window, so scenes anchored in one cue tied at its start, the clamp gave the earlier one zero length, and `removeNonRenderableScenes` deleted 39 rows (19 approved, with images). The route promised to preserve every scene. Fix spreads tied starts to the next distinct anchor. Pre-reconcile plan preserved at `_orchestra/production18-20261016/serial-production/hmh-sceneplan-raw-20261019.json`; the 19 images stay on disk. Restoring HMH0001 is an owner decision.
 
