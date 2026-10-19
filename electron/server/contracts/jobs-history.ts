@@ -17,7 +17,7 @@
 export const HISTORY_PAGE_SIZE = 50
 
 export type HistoryStatusBucket =
-  | 'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled'
+  | 'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled' | 'skipped'
 
 /** The fields the history rules read. Structural so both Job shapes satisfy it. */
 export interface HistoryRowJob {
@@ -31,6 +31,8 @@ export interface HistoryRowJob {
   started_at?: string | null
   finished_at?: string | null
   resolved?: unknown
+  /** Set by the backend when this step did not run because the channel's own settings switch it off. */
+  skipped?: unknown
   params?: Record<string, unknown> | null
   output_lines?: readonly string[] | null
   output_dir?: string | null
@@ -73,8 +75,23 @@ export function isRecoveredFailure(job: HistoryRowJob): boolean {
   return job.status === 'error' && (!!job.resolved || isVerifiedRecoveredSubtitleJob(job))
 }
 
+/**
+ * A step that did not run because the channel's own settings switch it off
+ * (AGENTS.md §8). Nothing failed and nothing is missing, so it is not a failure
+ * and not a job to retry — it reads `skipped`.
+ *
+ * Two rows carry the marker: the job the queue settled as skipped
+ * (`job.skipped`, status `done`), and an older row that already failed for a
+ * step the channel has since switched off — the server classifies that one at
+ * read time in `serializeJob`, so no history is rewritten.
+ */
+export function isSkippedJob(job: HistoryRowJob): boolean {
+  return !!job.skipped
+}
+
 /** The status the page shows. A recovered failure is history that reads `recovered`, not `error`. */
 export function jobDisplayStatus(job: HistoryRowJob): string {
+  if (isSkippedJob(job)) return 'skipped'
   return isRecoveredFailure(job) ? 'recovered' : String(job.status || '')
 }
 

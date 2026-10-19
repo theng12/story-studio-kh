@@ -782,6 +782,10 @@ test('verified subtitle recovery continues through Scene Plan and cues to Scene 
   try {
     const pm = await import('../services/project-manager.js')
     const project = await pm.createProject({ name: 'Ordered recovery continuation' })
+    // This scenario walks the Contextual Cues edge, so the channel must have the
+    // feature switched ON: an optional step a channel's own settings switch off is
+    // SKIPPED and never dispatched (`lib/optional-steps.ts`, AGENTS.md §8).
+    await pm.updateConfig(project.slug, { contextual_cues: { enabled: true } } as any)
     await jq.setQueuePaused(true)
     const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
     let plan = createEpisodeRecoveryPlan([...rows(), source('contextual_cues')].map(job => ({ ...job, project_slug: project.slug })))

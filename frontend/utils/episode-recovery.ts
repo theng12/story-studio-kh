@@ -1,6 +1,7 @@
 import { isScopedChapterTranscription } from '../../electron/server/contracts/subtitle-gaps'
 import {
   isRecoveredFailure as isRecoveredFailureShared,
+  isSkippedJob as isSkippedJobShared,
   isVerifiedRecoveredSubtitleJob as isVerifiedRecoveredSubtitleJobShared,
   jobDisplayStatus as jobDisplayStatusShared,
 } from '../../electron/server/contracts/jobs-history'
@@ -12,6 +13,8 @@ interface RecoveryDisplayJob {
   status?: string
   /** Set by the backend when every file this failed job was meant to make exists now. */
   resolved?: { reason?: string } | null
+  /** Set by the backend when this step did not run because the channel's own settings switch it off. */
+  skipped?: { reason?: string } | null
   params?: {
     force?: unknown
     generation_action?: { kind?: unknown }
@@ -40,6 +43,15 @@ export function isVerifiedRecoveredSubtitleJob(job: RecoveryDisplayJob): boolean
 /** A failed row whose work was finished later: kept as history, no longer needs attention. */
 export function isRecoveredFailure(job: RecoveryDisplayJob): boolean {
   return isRecoveredFailureShared(job as Parameters<typeof isRecoveredFailureShared>[0])
+}
+
+/**
+ * A step that did not run because the channel's own settings switch it off
+ * (AGENTS.md §8). Nothing failed and nothing is missing, so it is not a failure
+ * and not a job to retry — bulk Retry must leave it alone.
+ */
+export function isSkippedJob(job: RecoveryDisplayJob): boolean {
+  return isSkippedJobShared(job as Parameters<typeof isSkippedJobShared>[0])
 }
 
 export function jobDisplayStatus(job: RecoveryDisplayJob): string {
