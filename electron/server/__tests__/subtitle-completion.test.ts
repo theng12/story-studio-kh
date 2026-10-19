@@ -82,7 +82,12 @@ describe('subtitle completion', () => {
     }))
     const result = await inspectSubtitleCompletion(dirs.episodeDir, dirs.subtitlesDir, CODE)
     assert.equal(result.complete, true)
-    assert.equal(result.full_track_filename, stitched)
+    // A `_stitched` file is DERIVED from the per-section transcripts, so it is
+    // never reported as a standalone whole-episode track: it can only ever be as
+    // fresh as the sections it was cut from. `pipelineSubtitleRepairComplete`
+    // (routes/pipeline.ts) refuses one as a full-track for the same reason.
+    assert.equal(result.mode, 'per-section')
+    assert.equal(result.full_track_filename, undefined)
   })
 
   test('accepts intentional whole-episode imported and Whisper tracks', async () => {

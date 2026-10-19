@@ -19,15 +19,17 @@
  *
  * A merge with background music can also carry a CLOSING tail — music that plays
  * after the narration ends (`closing_tail_sec` on the completion record). That
- * tail is not a lead-in, so the callers that measure one subtract it first
- * (`describeMergedAudioOpening`); the arithmetic here is unchanged, applied to a
- * duration with the tail already removed.
+ * tail is not a lead-in, so it is removed before the measurement is taken:
+ * `describeMergedAudioOpening` and `measureIntroLeadIn` both subtract the tail
+ * the merge recorded. `introLeadInFrom` itself stays pure arithmetic, applied to
+ * a duration with the tail already removed.
  *
  * Read-only against the merged file + the audio_chapters.json sidecar — it
  * does NOT touch the Audio Assembly / merge code.
  */
 
 import { getAudioDuration } from './ffmpeg-utils.js'
+import { mergedClosingTailSec } from './closing-tail.js'
 import path from 'path'
 import {
   MERGED_AUDIO_FILENAME,
@@ -128,7 +130,17 @@ export function introLeadInFrom(
   }
 }
 
-/** `introLeadInFrom` with the ffprobe in front of it. */
+/** `introLeadInFrom` with the ffprobe in front of it — and the merge's recorded
+ *  closing tail removed first.
+ *
+ * `introLeadInFrom` measures `duration − narrationExtent` over the WHOLE file, so
+ * a merge that baked music after the narration (`closing_tail_sec`) reads its own
+ * tail as extra lead-in. `describeMergedAudioOpening` — the number the subtitle
+ * stitcher and the Video Assembly row use — subtracts it first; measuring without
+ * that subtraction is how the story-start clock came out exactly one tail too
+ * large. The record read here is the same one that function reads, with the same
+ * "does it name THIS file?" guard, so the two cannot drift apart.
+ */
 export async function measureIntroLeadIn(
   mergedAudioPath: string | null | undefined,
   sections: Array<{ duration_s?: number }>,
@@ -138,7 +150,16 @@ export async function measureIntroLeadIn(
     return { status: 'unmeasurable', seconds: 0, reason: 'there is no merged audio file.' }
   }
   const dur = await getAudioDuration(mergedAudioPath).catch(() => undefined)
-  return introLeadInFrom(dur, sections, gapSec)
+  if (!Number.isFinite(Number(dur))) return introLeadInFrom(dur, sections, gapSec)
+  const tail = await mergedClosingTailSec(mergedAudioPath, mergedCodeFromFilename(mergedAudioPath))
+  return introLeadInFrom(Number(dur) - tail, sections, gapSec)
+}
+
+/** `EP0047` from `EP0047_merged_audio_v2.mp3` — enough to find the completion
+ *  record beside the track. `mergedClosingTailSec` still verifies the record
+ *  names THIS file, so a wrong guess yields 0, never another file's tail. */
+function mergedCodeFromFilename(mergedAudioPath: string): string {
+  return path.basename(mergedAudioPath).split('_merged_audio')[0]
 }
 
 /**
