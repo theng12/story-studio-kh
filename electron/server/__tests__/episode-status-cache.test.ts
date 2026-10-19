@@ -238,6 +238,18 @@ describe('episode-status-cache', () => {
     await fs.writeFile(path.join(epDir, 'audio_chapters.json'), JSON.stringify({
       sections: [{ slug: 'Introduction' }, { slug: 'Chapter_01' }],
     }))
+    // The narration the chapter transcripts describe, dated before them: since 1.4.332 a
+    // stitched timeline no longer skips the per-section freshness check, and absent audio is
+    // stale (production bundle SUBTITLE-FULLTRACK-STALENESS; same fixture gap as
+    // asset-status-loose-detection). The assertion below is unchanged.
+    const audioDir = path.join(epDir, `${CODE} - 07 Audio Assets`)
+    await fs.mkdir(audioDir, { recursive: true })
+    for (const slug of ['Introduction', 'Chapter_01']) {
+      const audio = path.join(audioDir, `${CODE}_${slug}.mp3`)
+      await fs.writeFile(audio, 'audio bytes')
+      const older = new Date('2020-01-01T00:00:00Z')
+      await fs.utimes(audio, older, older)
+    }
     await fs.writeFile(
       path.join(subtitlesDir, `${CODE}_Introduction.srt`),
       '1\n00:00:00,000 --> 00:00:02,000\nintro\n',
