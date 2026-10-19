@@ -676,10 +676,21 @@ async function finishFinalVideo(ctx: {
  *
  * `tailFromEndSec` is what sits AFTER the closing tail — the outro and any `after_outro` clip — so
  * the check measures the tail where it actually landed rather than always at the file's end.
+ *
+ * `speechEndSec` is where the narration stops in the file, when this path knows it. Left out, the
+ * check reads the speech end as "not recorded" and reports a silence it cannot place as unknown
+ * rather than as speech — so a path that cannot say must not send 0 as if it had measured.
  */
 function finalCheckExpectation(
   req: GenerateVideoRequest,
-  opts: { plannedSec: number; tailSec: number; tailFromEndSec: number; width: number; height: number },
+  opts: {
+    plannedSec: number
+    tailSec: number
+    tailFromEndSec: number
+    width: number
+    height: number
+    speechEndSec?: number
+  },
 ): FinalCheckExpectation {
   return {
     planned_sec: opts.plannedSec,
@@ -688,6 +699,7 @@ function finalCheckExpectation(
     width: opts.width,
     height: opts.height,
     subtitles_path: req.subtitles?.enabled ? ((req.subtitles.srt_path || '').trim() || null) : null,
+    ...(Number(opts.speechEndSec) > 0 ? { speech_end_sec: Number(opts.speechEndSec) } : {}),
   }
 }
 
@@ -2869,6 +2881,9 @@ export async function generateVideo(job: Job): Promise<void> {
           visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
           // A resumed final render knows its own length and canvas but not what followed the tail;
           // the tail is still measured where it is, and nothing sits after it that this run knows of.
+          // No `speechEndSec` either: the narration's lead-in was settled by the run that started
+          // this render, so this one cannot place the speech end — and a number that is nearly right
+          // would make the check claim a silence it cannot place.
           expected: finalCheckExpectation(req, {
             plannedSec: carriedFinalStage.total_render_sec, tailSec: postRoll, tailFromEndSec: 0,
             width: w, height: h,
@@ -3111,9 +3126,10 @@ export async function generateVideo(job: Job): Promise<void> {
 
       compResolvedPath = await selfHealFinalPromotion(compResolvedPath, compProjectTreeFinalPath, compFinalName, job)
       // Compilation mode draws no closing tail and has no outro segment (v1), so the plan is the
-      // narration and nothing sits after it.
+      // narration and nothing sits after it — the speech runs to the file's own end.
       await finalCheckFinalVideo(job, compResolvedPath, finalCheckExpectation(req, {
         plannedSec: totalRenderDuration, tailSec: 0, tailFromEndSec: 0, width: resW, height: resH,
+        speechEndSec: totalRenderDuration,
       }))
       await verifyFinalVideo(job, compResolvedPath, compFinalName, totalRenderDuration, loudness)
       await writeVideoAssemblySourceStamp(
@@ -4038,6 +4054,9 @@ export async function generateVideo(job: Job): Promise<void> {
       expected: finalCheckExpectation(req, {
         plannedSec: totalRenderDuration, tailSec: postRoll, tailFromEndSec: outroDuration + afterOutroDur,
         width: resW, height: resH,
+        // `narrationDuration` is the speech end (see the merged-closing-tail note above), and the
+        // narration plays from `narrationLeadInSec` in the file, so this is where the words stop.
+        speechEndSec: narrationLeadInSec + narrationDuration,
       }),
     })
 

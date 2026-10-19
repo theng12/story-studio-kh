@@ -5569,6 +5569,29 @@ test('the final check runs on demand and stores its verdict beside the finished 
   assert.deepEqual(row.final_check.issues, [])
 })
 
+test('the final check reads the speech end from the episode Scene Plan when the file carries no plan', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
+  const videoPath = path.join(paths.video_dir, `${episodeCode}_final_video.mp4`)
+  await fs.writeFile(videoPath, tinyVideoBytes())
+  // A final rendered before the final-check sidecar existed has no plan of its own, and the
+  // episode's Scene Plan is the only thing that knows where its narration stopped (EP0006's own
+  // numbers: merged narration 9143.984 s, last stitched cue 9143.941 s).
+  await fs.writeFile(path.join(paths.episode_dir, 'scene_plan.json'), JSON.stringify({
+    source_merged_audio: { duration_sec: 9143.984 },
+    source_timeline: { last_cue_end_sec: 9143.941 },
+    total_duration_sec: 9143.983605,
+  }))
+
+  const res = await request(app).post(`/api/projects/${slug}/youtube/final-check`)
+    .send({ episode_code: episodeCode })
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.equal(res.body.expected.speech_end_sec, 9143.984)
+
+  const stored = JSON.parse(await fs.readFile(`${videoPath}.finalcheck.json`, 'utf-8'))
+  assert.equal(stored.expected.speech_end_sec, 9143.984, 'the verdict measures against it on every re-check')
+})
+
 test('the final check refuses an episode with no rendered video instead of inventing a verdict', async () => {
   const slug = await registryOnlyProject()
   const { episodeCode } = await acceptedEpisode(slug)

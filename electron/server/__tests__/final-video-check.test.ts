@@ -25,6 +25,7 @@ import {
   parseSilencedetect,
   readStoredFinalCheck,
   runFinalCheck,
+  speechEndSecFromScenePlan,
   storeFinalCheck,
   tailWindow,
   type FinalCheckExpectation,
@@ -210,6 +211,71 @@ describe('the verdicts that need no ffmpeg', () => {
     assert.deepEqual(
       finalCheckIssues({ ...actual, silence: [run] }, plan(), { silence_min_sec: 2 }).map(issue => issue.check),
       ['silence'],
+    )
+  })
+
+  /**
+   * Night Atlas Science EP0006, 2026-10-19: a 2:32:29 final rendered before the plan sidecar
+   * existed, so every expected value is 0 and nothing anywhere records where the speech stops. The
+   * check called its last 5.1 s "inside the speech" — a claim the file cannot support.
+   */
+  const legacy = {
+    duration_sec: 9149, video_sec: 9149, audio_sec: 9148.98, width: 1920, height: 1080,
+    tail_lufs: null, black: [], silence: [{ start_sec: 9143.93, end_sec: 9148.99 }],
+  }
+  /** The on-demand check of a file with no plan record: nothing to measure against. */
+  const noPlan = () => expect({ planned_sec: 0, width: 0, height: 0 })
+
+  test('a tail silence on a file with no recorded speech end is not a fault', () => {
+    assert.deepEqual(finalCheckIssues(legacy, noPlan()), [])
+    // Same for a longer one that runs to the file's own end: that is how an ending looks.
+    assert.deepEqual(
+      finalCheckIssues({ ...legacy, silence: [{ start_sec: 9140, end_sec: 9149 }] }, noPlan()),
+      [],
+    )
+  })
+
+  test('a silence the check cannot place is reported as unknown, never as speech', () => {
+    const issues = finalCheckIssues({ ...legacy, silence: [{ start_sec: 4000, end_sec: 4010 }] }, noPlan())
+    assert.deepEqual(issues.map(issue => issue.check), ['silence'])
+    assert.match(issues[0]!.verdict, /speech end is not recorded/)
+    assert.doesNotMatch(issues[0]!.verdict, /inside the speech/)
+  })
+
+  test('a recorded speech end keeps the old verdicts', () => {
+    const inside = finalCheckIssues(
+      { ...legacy, silence: [{ start_sec: 9000, end_sec: 9010 }] },
+      { ...noPlan(), speech_end_sec: 9140 },
+    )
+    assert.deepEqual(inside.map(issue => issue.check), ['silence'])
+    assert.match(inside[0]!.verdict, /inside the speech/)
+    // A silence that starts after the recorded speech end is not inside it either.
+    assert.deepEqual(finalCheckIssues(legacy, { ...noPlan(), speech_end_sec: 9100 }), [])
+  })
+
+  test('the Scene Plan supplies the speech end for a file that has none of its own', () => {
+    // EP0006's own numbers: merged narration 9143.984 s, last stitched cue 9143.941 s.
+    assert.equal(
+      speechEndSecFromScenePlan({
+        source_merged_audio: { duration_sec: 9143.984 },
+        source_timeline: { last_cue_end_sec: 9143.941 },
+      }),
+      9143.984,
+      'the merged narration the plan was timed against is the better answer',
+    )
+    assert.equal(speechEndSecFromScenePlan({ source_timeline: { last_cue_end_sec: 9143.941 } }), 9143.941)
+    assert.equal(speechEndSecFromScenePlan({}), 0, 'no plan, no claim')
+    assert.equal(speechEndSecFromScenePlan(null), 0)
+
+    // And the file is then judged against it: the whole 5.0 s is after the narration, so the check
+    // has nothing to report.
+    assert.deepEqual(finalCheckIssues(legacy, { ...noPlan(), speech_end_sec: 9143.984 }), [])
+  })
+
+  test('a known closing tail is still fine, and the silence inside it is not reported', () => {
+    assert.deepEqual(
+      finalCheckIssues(legacy, expect({ planned_sec: 9149, width: 0, height: 0, tail: { sec: 20, from_end_sec: 0 } })),
+      [],
     )
   })
 

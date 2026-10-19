@@ -76,12 +76,13 @@ import { buildYouTubeMetadataPackage, resanitizeStoredSnippet, resolveYouTubeUpl
 import { enqueueOrRun, getJobs, isDuplicate } from '../services/job-queue.js'
 import type { Job } from '../models/types.js'
 import { listUploadThumbnails, resolveUploadMetadata } from '../lib/upload-metadata.js'
-import { createProjectFactsCache, resolveEpisodePaths, EPISODE_PROBE_BATCH } from '../services/utils.js'
+import { createProjectFactsCache, resolveEpisodePaths, resolveScenePlanPath, EPISODE_PROBE_BATCH } from '../services/utils.js'
 import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
 import { safetyMode } from '../services/safety-checks.js'
 import {
-  finalCheckVerdict, readStoredFinalCheck, runFinalCheck, storeFinalCheck, finalCheckSummary,
+  finalCheckVerdict, readStoredFinalCheck, runFinalCheck, speechEndSecFromScenePlan, storeFinalCheck,
+  finalCheckSummary, type FinalCheckExpectation,
 } from '../lib/final-video-check.js'
 import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
@@ -2405,13 +2406,30 @@ router.post('/projects/:slug/youtube/preview', async (req, res) => {
 })
 
 /**
+ * Where the episode's spoken content stops in its final video, from the episode's own Scene Plan:
+ * the merged narration the plan was timed against, or failing that the last cue it stitched.
+ *
+ * 0 when the episode has no plan to read — "not recorded", never a measured 0 s. The final check
+ * reports a silence it cannot place as unknown rather than as speech.
+ */
+async function speechEndSecForEpisode(slug: string, episodeCode: string, episodeDir: string): Promise<number> {
+  try {
+    const planPath = await resolveScenePlanPath(slug, episodeCode, episodeDir)
+    return speechEndSecFromScenePlan(JSON.parse(await fsp.readFile(planPath, 'utf-8')))
+  } catch {
+    return 0
+  }
+}
+
+/**
  * Run the final check on an episode's finished video, now, and store the verdict beside it.
  *
  * Video Assembly runs this by itself at the end of every render; this is for the file that was made
  * before that, or for a re-check after the owner changed something. It measures against the plan the
  * sidecar recorded (the plan the file was MADE for, not today's settings). A file with no sidecar —
  * one rendered before this feature existed — still gets the checks that need no plan: black
- * stretches, silence inside the speech, and the picture/sound clocks.
+ * stretches, silence, and the picture/sound clocks, with the speech end read from the episode's
+ * Scene Plan so a silence can be placed instead of guessed at.
  */
 router.post('/projects/:slug/youtube/final-check', async (req, res) => {
   const slug = req.params.slug
@@ -2432,13 +2450,23 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
       return
     }
     const stored = await readStoredFinalCheck(sourceVideoPath)
-    const expected = stored?.result.expected ?? {
+    const recorded = stored?.result.expected
+    const expected: FinalCheckExpectation = {
       planned_sec: 0,
       tail: { sec: 0, from_end_sec: 0 },
       closing_music: false,
       width: 0,
       height: 0,
       subtitles_path: null,
+      ...(recorded ?? {}),
+      // Where the speech stops, so the check can tell a silence inside it from the file simply
+      // ending. A render records its own narration end; a file from before that existed has no plan
+      // of its own, so the episode's Scene Plan supplies the merged narration it was timed against
+      // (Night Atlas Science EP0006, 2026-10-19). 0 = neither could say, and the check then reports
+      // a silence it cannot place as unknown instead of calling it speech.
+      speech_end_sec: Number(recorded?.speech_end_sec) > 0
+        ? Number(recorded!.speech_end_sec)
+        : await speechEndSecForEpisode(slug, episodeCode, sourcePaths.episode_dir),
     }
     const result = await runFinalCheck(sourceVideoPath, expected)
     await storeFinalCheck(sourceVideoPath, result)
