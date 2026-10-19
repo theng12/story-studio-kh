@@ -194,24 +194,77 @@ export function jsonValueMatchesSchema(value: unknown, schema: JsonSchema): bool
   return explainJsonSchemaMismatch(value, schema) === null
 }
 
+/**
+ * Escape the double quotes a model forgot to escape INSIDE a string value.
+ *
+ * A `"` encountered inside a string can only be the string's terminator when the next
+ * non-whitespace character is one of `, } ] :` — those are the only tokens JSON allows after a
+ * string. A `"` followed by anything else cannot be a terminator in any valid document, so it is
+ * an unescaped inner quote. Only this shape is touched: a quote that already ends a string is
+ * left exactly where it was, so a document with no inner quotes comes back byte-identical.
+ *
+ * ponytail: the repair can still mis-split an inner quote that happens to sit right before a
+ * comma (a string containing `he said "stop", then`). That is left alone deliberately — the
+ * mis-split produces a document that will not parse, so the answer is rejected and re-requested
+ * instead of being silently rewritten.
+ */
+function escapeInnerQuotes(text: string): string {
+  let out = ''
+  let inString = false
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]!
+    if (!inString) {
+      out += char
+      if (char === '"') inString = true
+      continue
+    }
+    if (char === '\\') {
+      out += char + (text[index + 1] ?? '')
+      index++
+      continue
+    }
+    if (char !== '"') {
+      out += char
+      continue
+    }
+    let next = index + 1
+    while (next < text.length && /\s/.test(text[next]!)) next++
+    if (next < text.length && ',}]:'.includes(text[next]!)) {
+      out += char
+      inString = false
+    } else {
+      out += '\\"'
+    }
+  }
+  return out
+}
+
 export function parseJsonOutput(raw: string): unknown {
   const text = raw.trim()
   if (!text) throw new Error('The Gateway returned an empty structured response.')
   try {
     return JSON.parse(text)
   } catch {
-    // A trailing comma (`[1, 2,]`, `{"a": 1,}`) is the one presentation slip models make in
-    // otherwise complete JSON, and `parseStructuredJson` already forgives it further down —
-    // but this gate runs first, so that forgiveness never applied to a Gateway answer. DM0008:
-    // a whole 18-chapter outline was rejected, then every retry replayed the same Gateway job
-    // by its key and was rejected the same way. Only commas OUTSIDE strings are dropped, and
-    // only after a failed strict parse, so valid JSON is never touched; anything else that is
-    // wrong (truncation, a missing comma) still fails, and the schema check still follows.
-    const repaired = text.replace(/"(?:[^"\\]|\\.)*"|,(\s*[}\]])/g, (kept, closer) => closer ?? kept)
+    // Two presentation slips models make in otherwise complete JSON. Both are repaired only
+    // AFTER a failed strict parse, so valid JSON is never touched; anything else that is wrong
+    // (truncation, a missing comma) still fails, and the schema check still follows.
+    //
+    // 1. A trailing comma (`[1, 2,]`, `{"a": 1,}`) — `parseStructuredJson` already forgives it
+    //    further down, but this gate runs first, so that forgiveness never applied to a Gateway
+    //    answer. DM0008: a whole 18-chapter outline was rejected, then every retry replayed the
+    //    same Gateway job by its key and was rejected the same way. Only commas OUTSIDE strings
+    //    are dropped.
+    // 2. An unescaped quote inside a string value (`render the headline "OLD ROOFLINE" printed
+    //    once`). Nature EP0013's image_prompts answer, 2026-10-19: three thumbnail prompts each
+    //    carried the headline in bare quotes, so the whole paid answer was rejected and every
+    //    retry replayed it. Escaping first also makes the trailing-comma pass below correct,
+    //    because it skips over string literals.
+    const escaped = escapeInnerQuotes(text)
+    const repaired = escaped.replace(/"(?:[^"\\]|\\.)*"|,(\s*[}\]])/g, (kept, closer) => closer ?? kept)
     if (repaired !== text) {
       try {
         return JSON.parse(repaired)
-      } catch { /* not just a trailing comma */ }
+      } catch { /* not just a presentation slip */ }
     }
     throw new Error('The Gateway returned invalid JSON. The result was rejected locally.')
   }
