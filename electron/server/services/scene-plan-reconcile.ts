@@ -100,9 +100,15 @@ export async function reconcileScenePlanTimings(
     // 1.4.298 — two scenes anchored inside one caption start at the same moment, which left a
     // zero-length scene that Video Assembly refused (Brain Wise EP0047). Its words go to a neighbour,
     // as the Scene Plan's own timeline cleanup does.
+    // 1.4.324 — re-anchoring no longer creates such a tie itself (reconcilePlanToSubtitles spreads a
+    // shared caption start), so this now only clears rows an older build already saved. Say what else
+    // the row took with it: the whole row leaves the plan, not only its words.
     const cleanup = removeNonRenderableScenes(result.scenes)
     if (cleanup.removed_ids.length) {
-      result.changes.push(`Removed ${cleanup.removed_ids.length} scene(s) that ended up with no length; their words moved to the scene beside them.`)
+      result.changes.push(`Removed ${cleanup.removed_ids.length} scene(s) that ended up with no length; their words moved to the scene beside them.`
+        + (cleanup.removed_prompt_ids.length
+          ? ` ⚠ ${cleanup.removed_prompt_ids.length} of them carried a saved prompt or image — those rows are gone from the plan (their image files stay on disk).`
+          : ''))
     }
     fresh.scenes = cleanup.scenes
     fresh.total_duration_sec = narrationSec

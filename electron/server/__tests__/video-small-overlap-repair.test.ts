@@ -128,7 +128,7 @@ test('a stale picture is used as it is and named, instead of blocking (1.4.296)'
 
 test('re-aligning never leaves a scene with no length (1.4.298, Brain Wise EP0047)', async () => {
   // Scenes 1 and 2 are both inside the first caption, so both anchor to its start.
-  const { planPath } = await episode('EP0005', [0.5])
+  const { planPath, scenes } = await episode('EP0005', [0.5])
   const subtitles = path.join(path.dirname(planPath), 'EP0005 - 09 Subtitles Output', 'EP0005_stitched.srt')
   const srt = await fs.readFile(subtitles, 'utf-8')
   await fs.writeFile(subtitles, srt.replace('00:00:05,000\nalpha one two three', '00:00:10,000\nalpha one two three bravo one two three')
@@ -137,5 +137,11 @@ test('re-aligning never leaves a scene with no length (1.4.298, Brain Wise EP004
   const r = await reconcileScenePlanTimings(SLUG, 'EP0005', { auto: true })
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8'))
   assert.ok(plan.scenes.every((s: any) => s.end_sec > s.start_sec), JSON.stringify(plan.scenes.slice(0, 3)))
-  assert.ok(r.changes.some((c: string) => /no length/.test(c)), r.changes.join('\n'))
+  // 1.4.324 — the shared caption start is spread, not deleted: this fixture's six tied
+  // scenes used to be dropped from the plan (with their approved images) to satisfy the
+  // line above. Every scene now keeps a real window AND its image and approval.
+  assert.deepEqual(plan.scenes.map((s: any) => s.id), scenes.map(s => s.id))
+  assert.ok(plan.scenes.every((s: any) => s.approved === true), 'no approval is dropped with the tie')
+  assert.ok(r.changes.some((c: string) => /shared a caption start/.test(c)), r.changes.join('\n'))
+  assert.ok(!r.changes.some((c: string) => /no length/.test(c)), r.changes.join('\n'))
 })

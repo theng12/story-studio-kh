@@ -825,6 +825,26 @@ export function reconcilePlanToSubtitles(
   for (let i = 1; i < out.length; i++) {
     if (newStart[i]! < newStart[i - 1]!) newStart[i] = newStart[i - 1]!
   }
+  // Every word in a cue carries that CUE's window (see the word stream above), so two
+  // scenes whose anchors land in the same cue both anchor to its start. Left tied they
+  // collapsed onto one instant, the derived end below made the earlier one zero-length,
+  // and `removeNonRenderableScenes` — which the reconcile route runs straight after —
+  // DELETED it, taking its saved prompt, its approved image and its approval with it
+  // (HMH0001, 2026-10-19: 39 rows removed, 19 of them approved with an image, on a route
+  // documented to preserve every scene id, image and prompt). Spread each tie evenly up
+  // to the next distinct anchor instead — the same interpolation an unmatched scene gets.
+  let spreadCount = 0
+  for (let i = 0; i < out.length;) {
+    let last = i
+    while (last + 1 < out.length && newStart[last + 1] === newStart[i]) last++
+    const from = newStart[i]!
+    const to = last + 1 < out.length ? newStart[last + 1]! : timelineEnd
+    if (last > i && to > from) {
+      for (let k = i + 1; k <= last; k++) newStart[k] = from + ((to - from) * (k - i)) / (last - i + 1)
+      spreadCount += last - i
+    }
+    i = last + 1
+  }
   for (let i = 0; i < out.length; i++) {
     out[i]!.start_sec = Math.max(0, newStart[i]!)
     out[i]!.end_sec = i < out.length - 1 ? Math.max(newStart[i]!, newStart[i + 1]!) : timelineEnd
@@ -840,6 +860,9 @@ export function reconcilePlanToSubtitles(
   )
   if (unmatchedIds.length) {
     changes.push(`⚠ ${unmatchedIds.length} scene(s) had no matching subtitle text and were interpolated — spot-check them in Scene Review.`)
+  }
+  if (spreadCount) {
+    changes.push(`⚠ ${spreadCount} scene(s) shared a caption start with the scene before them and were spread across that caption — their images and prompts are kept; spot-check their timing in Scene Review.`)
   }
   return { scenes: out, matchedCount, unmatchedIds, medianShiftSec, changes }
 }
