@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.333 — 2026-10-19 (gate running)
+
+Merged fix/final-check-long-video (a51b7fb0: POST /youtube/final-check answers 202, startFinalCheck one per file, row final_check.running; 022be139: app-update drain waits for runningFinalChecks, status final_checks_running). Production: Myth EP0008 check was cut by the 1.4.331 install drain at 15:50:27Z, not a timeout.
+
 ## 1.4.332 — 2026-10-19 (gated and landed)
 
 Production bug-hunt bundles 1,2,4-9 (voice race 3455b199; metadata rejected retry edf6fa63; superseded upload + truncated listing + shared selectors 836a25b2/4f7d8c3d/5f8290ee; closing tail bb9c78a9; subtitle full-track staleness 6e29a845; merged audio non-mp3 a32fa3d3/4357a3e4; malformed final-check sidecar 9b9c7405) and the Story half of the dynamic chat deadline (a6a4dffc/b42758fe: expected_output_tokens, socket = max(setting, allowance) capped 4 h). Bundle 3 is Gateway 0.2.190.

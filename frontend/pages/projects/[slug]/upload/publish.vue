@@ -247,10 +247,10 @@
               </button>
               <button
                 v-if="renderState(ep) === 'ready'" class="btn btn-ghost btn-sm" type="button"
-                :disabled="busy !== ''" @click="runFinalCheck(ep)"
-                title="Measure the finished video now: its length against the plan, its closing tail, black stretches, silence, picture and sound, captions and size"
+                :disabled="busy !== '' || !!ep.final_check?.running" @click="runFinalCheck(ep)"
+                title="Measure the finished video now: its length against the plan, its closing tail, black stretches, silence, picture and sound, captions and size. It runs in the background and takes a few minutes."
               >
-                {{ busy === `final-check-${ep.episode_code}` ? 'Checking…' : 'Run Final Check' }}
+                {{ ep.final_check?.running ? 'Checking…' : 'Run Final Check' }}
               </button>
               <NuxtLink
                 v-if="renderState(ep) === 'ready' && !assignedChannel"
@@ -785,7 +785,7 @@
 <script setup lang="ts">
 import { applyRowSelection, spreadPublishTimes } from '~/utils/upload-bulk'
 import { secureOperationId } from '~/composables/useFreshGenerationAction'
-import { PUBLISH_PAGE, readPublishView, writePublishView, type PublishSort, type PublishStatus } from '~/utils/publish-view'
+import { PUBLISH_PAGE, finalChecksRunning, readPublishView, writePublishView, type PublishSort, type PublishStatus } from '~/utils/publish-view'
 import { sameQuery } from '~/utils/route-query-state'
 
 interface Channel { channel_id: string; title: string; status: string }
@@ -825,6 +825,8 @@ interface PublishableEpisode {
     passed: boolean
     checked: boolean
     stale: boolean
+    /** True while a check is measuring this file in the background. */
+    running: boolean
     issues: Array<{ check: string; verdict: string }>
     /** Which check this row is showing; `checked_at` is what an acknowledgement answers about. */
     identity?: { checked_at: string; file_size: number; file_mtime_ms: number } | null
@@ -1123,9 +1125,26 @@ const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'your
 const planClock = ref(Date.now())
 let planClockTimer: ReturnType<typeof setInterval> | undefined
 const refreshPlanClock = () => { planClock.value = Date.now() }
+
+// A Final Check is measured in the background — the POST that starts it answers at once — so the
+// row's verdict arrives on a later read. Reload the list while any row is still checking, and stop
+// the moment none is: the check's verdict is what the row is waiting for, and nothing else is.
+const finalChecksStillRunning = computed(() => finalChecksRunning(episodes.value))
+let finalCheckTimer: ReturnType<typeof setInterval> | undefined
+function syncFinalCheckPoll(): void {
+  if (finalChecksStillRunning.value && !finalCheckTimer) {
+    finalCheckTimer = setInterval(() => { void load() }, 5_000)
+  } else if (!finalChecksStillRunning.value && finalCheckTimer) {
+    clearInterval(finalCheckTimer)
+    finalCheckTimer = undefined
+  }
+}
+watch(finalChecksStillRunning, syncFinalCheckPoll)
+
 onMounted(() => {
   planClockTimer = setInterval(refreshPlanClock, 60_000)
   window.addEventListener('focus', refreshPlanClock)
+  syncFinalCheckPoll()
 })
 onUnmounted(() => {
   // Leaving the page ends any in-flight action, including the bulk queue loop
@@ -1133,6 +1152,7 @@ onUnmounted(() => {
   actionRevision += 1
   bulkQueueStopRequested.value = true
   clearInterval(planClockTimer)
+  clearInterval(finalCheckTimer)
   window.removeEventListener('focus', refreshPlanClock)
 })
 
@@ -2532,21 +2552,32 @@ async function confirmFinalCheck(error: any, episodeCode: string): Promise<boole
   })
 }
 
-/** Measure this episode's finished video now, without rendering it again. */
+/**
+ * Start measuring this episode's finished video now, without rendering it again.
+ *
+ * The route answers 202 before any ffmpeg work starts — measuring a 2–2.5 h final takes minutes —
+ * so nothing here waits for a verdict. The row says "checking…" and picks the result up on a later
+ * load (see `syncFinalCheckPoll`).
+ */
 async function runFinalCheck(ep: PublishableEpisode): Promise<void> {
   const code = ep.episode_code
   const requestedSlug = slug.value
   busy.value = `final-check-${code}`
   delete rowResults[code]
   try {
-    const result = await post<{ summary: string; passed: boolean }>(
+    const result = await post<{ started: boolean; running: boolean }>(
       `/projects/${requestedSlug}/youtube/final-check`, { episode_code: code },
     )
     if (slug.value !== requestedSlug) return
-    rowResults[code] = { kind: result.passed ? 'ok' : 'warn', message: result.summary }
+    rowResults[code] = {
+      kind: 'info',
+      message: result.started
+        ? `Measuring ${code}'s finished video. It takes a few minutes, and the row says so while it runs.`
+        : `${code} is already being measured. Its verdict appears on the row when the check finishes.`,
+    }
   } catch (error: any) {
     if (slug.value !== requestedSlug) return
-    rowResults[code] = uploadFailure(error, code, 'Failed to run the final check.')
+    rowResults[code] = uploadFailure(error, code, 'Failed to start the final check.')
   } finally {
     if (slug.value === requestedSlug) busy.value = ''
     void load()

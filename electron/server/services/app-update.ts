@@ -25,14 +25,16 @@
  *    only for (a) Gateway submissions already sent to be answered, so each has the task id it is
  *    recovered by (`inFlightSubmits`, at most SUBMIT_SETTLE_MS), (b) running jobs a restart
  *    would NOT continue (`wouldNotResume`, the boot scan's own rule), which are never interrupted,
- *    and (c) the one non-queue maintenance operation holding the Mac (Free up space, Clear Uploaded
- *    Videos), which a restart also kills mid-file and cannot resume. Then it installs. While the
+ *    (c) final checks still measuring a finished video (`runningFinalChecks`) — local ffmpeg work a
+ *    restart kills mid-decode, so the verdict would never be written — and (d) the one non-queue
+ *    maintenance operation holding the Mac (Free up space, Clear Uploaded Videos), which a restart
+ *    also kills mid-file and cannot resume. Then it installs. While the
  *    drain is claimed no NEW maintenance operation may start, so the check above cannot be overtaken
  *    by work begun a moment before the quit. A queue the owner paused himself is his: the update
  *    waits for him to resume
  *    it or press Install Now. If he presses Resume during the wait, his choice wins: the update
  *    waits for Install Now. **Install Now** takes the same path but goes ahead after 30 minutes
- *    even if a job that cannot resume is still running — never for (c): that ceiling is for work the
+ *    even if a job that cannot resume is still running — never for (d): that ceiling is for work the
  *    boot scan picks up, and only **Install now (don't wait)** below may cut a cleanup short.
  *    **Install now (don't wait)** (`immediate`) pauses intake and installs at once, interrupting
  *    running jobs: the boot scan resumes what it can, retries free work, and leaves paid work that
@@ -426,6 +428,12 @@ export interface QueueControl {
    * so an install waits for it exactly as it waits for a job that would not resume.
    */
   maintenance?(): { id: string; kind: string; status: string } | null
+  /**
+   * Final checks being measured right now (lib/final-video-check.ts's registry). Also not a queue
+   * job — the on-demand check runs in the background — and a restart kills the ffmpeg decode mid-file
+   * and loses the verdict it was about to write, so an install waits for it too.
+   */
+  runningFinalChecks?(): number
 }
 
 export interface UpdaterOptions {
@@ -883,18 +891,21 @@ export function jobsLeft(queue: QueueControl): number {
 
 /**
  * What a prompt install is still waiting for: submissions in flight, running jobs that would not
- * resume, and the one non-queue maintenance operation a restart would kill mid-file. The maintenance
- * entry is passed through as it is — the words for it belong with the other words, in the UI.
+ * resume, final checks still measuring a finished video, and the one non-queue maintenance operation
+ * a restart would kill mid-file. The maintenance entry is passed through as it is — the words for it
+ * belong with the other words, in the UI.
  */
 async function waitingFor(queue: QueueControl): Promise<{
   submits: number
   jobs: string[]
+  finalChecks: number
   maintenance: { id: string; kind: string; status: string } | null
 }> {
   return {
     submits: queue.inFlightSubmits?.() ?? 0,
     // A queue without the boot rule (tests, older wiring) waits for every running job, as Install Now did.
     jobs: queue.wouldNotResume ? await queue.wouldNotResume() : Array<string>(queue.running()).fill('job'),
+    finalChecks: queue.runningFinalChecks?.() ?? 0,
     maintenance: queue.maintenance?.() ?? null,
   }
 }
@@ -986,12 +997,17 @@ function watchDrain(): void {
     const left = await waitingFor(o.queue)
     const submitsSettled = left.submits === 0 || waited > SUBMIT_SETTLE_MS
     const ownerOverride = !!state.install_requested && waited > DRAIN_TIMEOUT_MS
+    // Work a restart would throw away: jobs that cannot pick up where they stopped, and final checks
+    // still decoding a finished video (their verdict is written at the end). Both are bounded by the
+    // ffmpeg watchdogs, so this is not a forever-wait, and both take the same 30-minute override
+    // below on an explicit Install Now.
+    const workSettled = left.jobs.length === 0 && left.finalChecks === 0
     // The maintenance term is deliberately OUTSIDE the override's OR: the 30-minute ceiling exists
     // for work the boot scan picks up again, and a cleanup is killed mid-file by a restart. So a
     // normal install — including the Gateway's remote "Update now" and the owner's own Install Now —
     // never interrupts one, however long it runs. Only "Install now (don't wait)", which bypasses
     // this drain entirely, may cut it short.
-    if (!left.maintenance && ((submitsSettled && left.jobs.length === 0) || ownerOverride)) {
+    if (!left.maintenance && ((submitsSettled && workSettled) || ownerOverride)) {
       // Re-read after the awaits above: an "Install now (don't wait)" press (or another tick) may
       // have moved this release to `installing` or `failed` while this tick was asking the queue,
       // and a hand-off from here would be a second helper and a `draining` write over it.
@@ -1101,6 +1117,10 @@ export async function status(): Promise<Record<string, unknown>> {
     ...state,
     settings: rest,
     jobs_left: opts ? jobsLeft(opts.queue) : 0,
+    // Not a queue job (the on-demand final check runs in the background), so it is never folded into
+    // `jobs_left`: one number must not mean two things. It still holds an install, and this says how
+    // many are doing it.
+    final_checks_running: opts ? (opts.queue.runningFinalChecks?.() ?? 0) : 0,
     queue_paused: queuePaused,
     // The queue is still paused and this update is not holding it (a legacy `we_paused`, or a token
     // an owner Resume invalidated): computed live, so it never lingers once the owner Resumes.

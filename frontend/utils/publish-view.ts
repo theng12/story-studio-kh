@@ -35,3 +35,14 @@ export function writePublishView(query: UrlQuery, view: PublishView): PublishQue
   const { episode_id: _seed, ...rest } = query
   return writeQueryState<typeof DEFAULTS>(rest, view, DEFAULTS)
 }
+
+/**
+ * True while a row's Final Check is still being measured.
+ *
+ * Measuring a finished 2–2.5 h video is one full decode and takes minutes, so the check runs in the
+ * background and the POST that starts it answers straight away. The page keeps reloading the list
+ * while this is true, and stops as soon as every row has its verdict.
+ */
+export function finalChecksRunning(episodes: Array<{ final_check?: { running?: boolean } }>): boolean {
+  return episodes.some(episode => episode.final_check?.running === true)
+}

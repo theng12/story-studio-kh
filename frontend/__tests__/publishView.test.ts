@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { PUBLISH_PAGE, readPublishView, writePublishView } from '../utils/publish-view.ts'
+import { PUBLISH_PAGE, finalChecksRunning, readPublishView, writePublishView } from '../utils/publish-view.ts'
 
 test('an empty URL is the default view: everything, newest first, one page', () => {
   assert.deepEqual(readPublishView({}), { q: '', status: 'all', sort: 'episode_newest', shown: PUBLISH_PAGE })
@@ -44,4 +44,16 @@ test('writing leaves defaults out, keeps unrelated keys, and replaces episode_id
   )
   const view = { q: 'moon', status: 'missed', sort: 'episode_oldest', shown: 200 } as const
   assert.deepEqual(readPublishView(writePublishView({}, view)), view, 'round trip')
+})
+
+test('the page reloads while a Final Check is measuring, and stops when it is done', () => {
+  const row = (final_check?: unknown) => ({ episode_code: 'EP0001', final_check })
+  assert.equal(finalChecksRunning([row({ running: true, checked: false })]), true)
+  assert.equal(finalChecksRunning([row({ running: false, checked: true })]), false)
+  assert.equal(
+    finalChecksRunning([row({ running: false }), row({ running: true })]), true,
+    'one row still checking is enough to keep reloading',
+  )
+  assert.equal(finalChecksRunning([row(), row(undefined)]), false, 'a row with no verdict is not a running check')
+  assert.equal(finalChecksRunning([]), false)
 })

@@ -15,6 +15,7 @@ import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
 import { sleep, waitFor } from './_timing.js'
 import * as updater from '../services/app-update.js'
+import { __setFinalCheckRunnerForTests, runningFinalChecks, startFinalCheck } from '../lib/final-video-check.js'
 
 /** `<Library>/_trash/_story-studio` in the test's own data folder. */
 async function libraryAppTrash(): Promise<string> {
@@ -80,17 +81,19 @@ function fakeQueue(running = 0, paused = false, queued = 0) {
   return q
 }
 
-/** The real wiring's three extra answers (routes/app-update.ts): submissions in flight, jobs that
- * would not resume, and the one non-queue maintenance operation holding the Mac. */
+/** The real wiring's four extra answers (routes/app-update.ts): submissions in flight, jobs that
+ * would not resume, final checks still measuring, and the one non-queue maintenance operation
+ * holding the Mac. */
 function promptQueue(running = 0) {
   const q = Object.assign(fakeQueue(running), {
-    submits: 0, notResuming: [] as string[], looks: 0,
+    submits: 0, notResuming: [] as string[], looks: 0, finalChecks: 0,
     maintenanceOp: null as { id: string; kind: string; status: string } | null,
   })
   return Object.assign(q, {
     inFlightSubmits: () => q.submits,
     wouldNotResume: async () => { q.looks++; return q.notResuming },
     maintenance: () => q.maintenanceOp,
+    runningFinalChecks: () => q.finalChecks,
   })
 }
 
@@ -116,6 +119,8 @@ beforeEach(async () => {
 })
 afterEach(async () => {
   updater._resetForTesting()
+  // A parked final check would hold the next test's drain for a check that never finishes.
+  __setFinalCheckRunnerForTests(null)
   await tmp.cleanup()
 })
 
@@ -384,7 +389,7 @@ describe('install promptly (owner, 2026-10-09)', () => {
     assert.deepEqual(queue.calls, [true], 'new intake is paused (a queue-origin pause)')
     await lookedAgain(queue)
     assert.equal(updater.readState().phase, 'draining', 'a submission already sent is answered first')
-    assert.deepEqual((await updater.status()).waiting_for, { submits: 1, jobs: [], maintenance: null })
+    assert.deepEqual((await updater.status()).waiting_for, { submits: 1, jobs: [], finalChecks: 0, maintenance: null })
     queue.submits = 0
     await installed()
     assert.equal(plistVersion(target), '1.4.258')
@@ -414,8 +419,55 @@ describe('install promptly (owner, 2026-10-09)', () => {
     clock.t += 10 * 60 * 60_000
     await lookedAgain(queue)
     assert.equal(updater.readState().phase, 'draining', 'never interrupted automatically')
-    assert.deepEqual((await updater.status()).waiting_for, { submits: 0, jobs: ['music_video'], maintenance: null })
+    assert.deepEqual((await updater.status()).waiting_for, { submits: 0, jobs: ['music_video'], finalChecks: 0, maintenance: null })
     queue.notResuming = []
+    await installed()
+  })
+
+  test('a final check still measuring a finished video is waited for: a restart would lose the verdict', async () => {
+    ready()
+    // A real parked check, read through the same registry `routes/app-update.ts` wires in. The
+    // on-demand check runs in the background and writes its verdict at the end, so a restart in the
+    // middle throws the whole measurement away (Night Atlas Mythology EP0008, 2026-10-19).
+    const videoPath = path.join(tmp.dir, 'EP0001_final_video.mp4')
+    let release!: () => void
+    const parked = new Promise<void>(resolve => { release = resolve })
+    __setFinalCheckRunnerForTests(async (file, expected) => {
+      await parked
+      return {
+        checked_at: new Date().toISOString(),
+        file: { size: 0, mtime_ms: 0 },
+        expected,
+        actual: {
+          duration_sec: 0, video_sec: null, audio_sec: null, width: 0, height: 0,
+          tail_lufs: null, black: [], silence: [],
+        },
+        passed: true,
+        issues: [],
+      }
+    })
+    startFinalCheck(videoPath, {
+      planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+      width: 0, height: 0, subtitles_path: null,
+    })
+    assert.equal(runningFinalChecks(), 1, 'the check is measuring')
+
+    const queue = promptQueue()
+    queue.runningFinalChecks = runningFinalChecks
+    wired(queue)
+    await updater.maybeInstall()
+    assert.equal(updater.readState().phase, 'draining')
+    clock.t += 10 * 60 * 60_000
+    await lookedAgain(queue)
+    assert.equal(updater.readState().phase, 'draining', 'never interrupted automatically')
+    const status = await updater.status()
+    assert.deepEqual(status.waiting_for, { submits: 0, jobs: [], finalChecks: 1, maintenance: null })
+    assert.equal(status.final_checks_running, 1, 'the status says what is holding the install')
+    assert.equal(status.jobs_left, 0, 'a check is not a queue job: one number must not mean two things')
+
+    // The check finishes and writes its verdict; only then does the install go ahead.
+    release()
+    await waitFor(() => runningFinalChecks() === 0, { label: 'the parked final check to finish' })
     await installed()
   })
 
@@ -429,7 +481,7 @@ describe('install promptly (owner, 2026-10-09)', () => {
     await lookedAgain(queue)
     assert.equal(updater.readState().phase, 'draining', 'never interrupted automatically, with no time limit')
     assert.deepEqual((await updater.status()).waiting_for, {
-      submits: 0, jobs: [], maintenance: { id: 'op-1', kind: 'run', status: 'running' },
+      submits: 0, jobs: [], finalChecks: 0, maintenance: { id: 'op-1', kind: 'run', status: 'running' },
     })
     // It finishes, fails or is stopped: the registry reports nothing active and the install goes ahead.
     queue.maintenanceOp = null

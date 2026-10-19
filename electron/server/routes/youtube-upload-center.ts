@@ -82,8 +82,9 @@ import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '
 import { getUploadMode } from '../services/upload-store.js'
 import { safetyMode } from '../services/safety-checks.js'
 import {
-  finalCheckVerdict, finalCheckIdentity, finalCheckIdentityMatches, readStoredFinalCheck, runFinalCheck,
-  speechEndSecFromScenePlan, storeFinalCheck, finalCheckSummary, type FinalCheckExpectation,
+  finalCheckVerdict, finalCheckIdentity, finalCheckIdentityMatches, readStoredFinalCheck,
+  speechEndSecFromScenePlan, finalCheckSummary, finalCheckProgress, startFinalCheck,
+  type FinalCheckExpectation,
 } from '../lib/final-video-check.js'
 import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
@@ -680,6 +681,10 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
         // The final check's stored verdict, read from beside the rendered file it describes. One
         // small JSON read per row, and only for a row that has a rendered file at all.
         const finalCheck = sourceVideoPath ? await readStoredFinalCheck(sourceVideoPath) : null
+        // Read once, so the row's line and its `running` flag describe the same moment.
+        const finalCheckRun = sourceVideoPath
+          ? finalCheckProgress(sourceVideoPath)
+          : { running: false, error: null }
         const episodeOperations = records.filter(record => record.episode_code === code
           && onCurrentChannel(channelId, record.channel_id)
           && !isYouTubeVideoRemoved(publishingState ?? {}, code, record.channel_id, record.video_id))
@@ -790,10 +795,13 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
           ...(sourceVideoPath
             ? {
                 final_check: {
-                  summary: finalCheckSummary(finalCheck),
+                  summary: finalCheckSummary(finalCheck, finalCheckRun),
                   passed: !!finalCheck && !finalCheck.stale && finalCheck.result.passed,
                   checked: !!finalCheck,
                   stale: !!finalCheck?.stale,
+                  // A check is measured in the background, so the row is where its progress and its
+                  // result are read — the page reloads this row while this is true.
+                  running: finalCheckRun.running,
                   issues: finalCheck?.result.issues ?? [],
                   // Which check this row is showing. An acknowledgement echoes `checked_at` back so
                   // the answer binds to this verdict about these bytes, not to whatever verdict is
@@ -2427,7 +2435,8 @@ async function speechEndSecForEpisode(slug: string, episodeCode: string, episode
 }
 
 /**
- * Run the final check on an episode's finished video, now, and store the verdict beside it.
+ * Start the final check on an episode's finished video. The verdict is stored beside it when the
+ * check finishes; this answers as soon as the check is running.
  *
  * Video Assembly runs this by itself at the end of every render; this is for the file that was made
  * before that, or for a re-check after the owner changed something. It measures against the plan the
@@ -2435,6 +2444,11 @@ async function speechEndSecForEpisode(slug: string, episodeCode: string, episode
  * one rendered before this feature existed — still gets the checks that need no plan: black
  * stretches, silence, and the picture/sound clocks, with the speech end read from the episode's
  * Scene Plan so a silence can be placed instead of guessed at.
+ *
+ * 202, not 200: measuring a 2–2.5 h final is one full decode and takes minutes, and the check used
+ * to run inside this request, so it died with the socket. It now runs on its own and the row the
+ * page already loads carries the result — `final_check.running` while it measures, then the verdict
+ * the sidecar holds. A second request for a file already being measured joins that run.
  */
 router.post('/projects/:slug/youtube/final-check', async (req, res) => {
   const slug = req.params.slug
@@ -2473,15 +2487,16 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
         ? Number(recorded!.speech_end_sec)
         : await speechEndSecForEpisode(slug, episodeCode, sourcePaths.episode_dir),
     }
-    const result = await runFinalCheck(sourceVideoPath, expected)
-    await storeFinalCheck(sourceVideoPath, result)
-    res.json({
+    const { started } = startFinalCheck(sourceVideoPath, expected)
+    res.status(202).json({
       episode_code: episodeCode,
-      summary: finalCheckSummary({ result, stale: false }),
-      ...result,
+      // False when a check on this file was already running and this request joined it.
+      started,
+      running: true,
+      summary: finalCheckSummary(stored, finalCheckProgress(sourceVideoPath)),
     })
   } catch (error) {
-    fail(res, error, 'Failed to run the final check on that video.')
+    fail(res, error, 'Failed to start the final check on that video.')
   }
 })
 

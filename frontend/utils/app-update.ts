@@ -14,7 +14,13 @@ export function readyText(version: string, queuePaused: boolean): string {
 /** While a prompt install waits: what for (requests already sent, jobs that could not resume, a storage operation). */
 export function waitingText(
   version: string,
-  waitingFor?: { submits: number; jobs: string[]; maintenance?: { kind: string; status: string } | null } | null,
+  waitingFor?: {
+    submits: number
+    jobs: string[]
+    /** Final checks still measuring a finished video: local ffmpeg work a restart would kill. */
+    finalChecks?: number
+    maintenance?: { kind: string; status: string } | null
+  } | null,
 ): string {
   const parts: string[] = []
   const submits = waitingFor?.submits ?? 0
@@ -23,6 +29,12 @@ export function waitingText(
   if (left.length) {
     const kinds = [...new Set(left.map(type => type.replace(/_/g, ' ')))].join(', ')
     parts.push(`${jobs(left.length)} that cannot pick up where ${left.length === 1 ? 'it' : 'they'} stopped (${kinds})`)
+  }
+  const checks = waitingFor?.finalChecks ?? 0
+  if (checks) {
+    // Also not a queue job: the on-demand check runs in the background and takes minutes, and a
+    // restart would lose the whole measurement rather than resume it.
+    parts.push(`${checks} final check${checks === 1 ? '' : 's'} still measuring a finished video`)
   }
   const maintenance = waitingFor?.maintenance
   if (maintenance) {
