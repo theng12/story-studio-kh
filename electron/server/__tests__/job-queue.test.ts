@@ -481,6 +481,8 @@ describe('retryTerminalJob()', () => {
       label: 'manual image Finish job to fail before generic retry',
     })
     assert.equal(jq.getJob(original.job_id)?.status, 'error')
+    // The row reports `error` before its worker settles; Retry is refused until then (1.4.319).
+    await waitFor(() => !jq._isJobWorkerActiveForTesting(original.job_id), { label: 'failed worker settles' })
 
     let received: Record<string, any> | undefined
     jq.registerExecutor('research_run', async job => { received = job.params })
@@ -511,6 +513,8 @@ describe('retryTerminalJob()', () => {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     assert.equal(jq.getJob(original.job_id)?.status, 'error')
+    // The row reports `error` before its worker settles; Retry is refused until then (1.4.319).
+    await waitFor(() => !jq._isJobWorkerActiveForTesting(original.job_id), { label: 'failed worker settles' })
 
     let received: Record<string, unknown> | undefined
     jq.registerExecutor('scene_clips_batch', async job => { received = job.params })
