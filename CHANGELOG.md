@@ -7,6 +7,7 @@ What's new in each release. Newest first.
 ## v1.4.331 — 2026-10-19
 
 - The final video check no longer calls a silence at the end of an older video "inside the speech". It reads where the narration ends from the episode's Scene Plan, and new renders record it; a silence it cannot place is reported as such, never as missing speech.
+- Upload Anyway after a final-check warning is tied to the exact check you saw: if the video file changed or was checked again since, the upload is refused with a plain message instead of going ahead.
 - An episode whose narration parts are on disk now shows as narrated even when its model record is gone, read from the saved part records.
 - A large Free Up Space run or uploaded-video sweep reports totals and a 50-file sample instead of every file, so its progress loads quickly; the panel still shows exact totals.
 - A Scene Plan repair saves the same end time the coverage check uses, so a complete plan is no longer called incomplete by a few milliseconds and sent for a rebuild.
