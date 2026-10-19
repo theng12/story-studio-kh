@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.324 — 2026-10-19
+
+- Scene Plan → Reconcile timings no longer deletes scenes. When several scenes matched the same subtitle line, it used to give one of them no length and then remove it — along with its prompt and approval. Now those scenes share the time evenly and every scene keeps its image, prompt and approval. If an older plan still holds a zero-length scene, the message says exactly what was removed and that its image file is still on disk.
+
 ## v1.4.323 — 2026-10-19
 
 - App updates now resume where a broken download stopped instead of starting over, and a slow but moving download is never cancelled, so a Mac on a slow connection still finishes its update. The update status shows how much has downloaded.
