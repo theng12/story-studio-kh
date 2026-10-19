@@ -10,12 +10,18 @@
  * video by exactly the lead-in. That's the "I added an intro and the subtitles
  * are now mismatched" report.
  *
- * The merge has no outro / trailing pad (music after narration is trimmed), so
- * the lead-in is simply:  mergedDuration − narrationExtent, where
- * narrationExtent = Σ section durations + (n−1) inter-section gaps. Section
- * durations already fold in inter-part chunk silences (audio_chapters.json,
- * v1.0.317). This is agnostic to HOW the lead-in was produced (intro file or
- * music lead-in) — it measures the real offset the narration starts at.
+ * The merge has no trailing pad of its own BEFORE the narration, so the lead-in
+ * is simply:  mergedDuration − narrationExtent, where narrationExtent = Σ section
+ * durations + (n−1) inter-section gaps. Section durations already fold in
+ * inter-part chunk silences (audio_chapters.json, v1.0.317). This is agnostic to
+ * HOW the lead-in was produced (intro file or music lead-in) — it measures the
+ * real offset the narration starts at.
+ *
+ * A merge with background music can also carry a CLOSING tail — music that plays
+ * after the narration ends (`closing_tail_sec` on the completion record). That
+ * tail is not a lead-in, so the callers that measure one subtract it first
+ * (`describeMergedAudioOpening`); the arithmetic here is unchanged, applied to a
+ * duration with the tail already removed.
  *
  * Read-only against the merged file + the audio_chapters.json sidecar — it
  * does NOT touch the Audio Assembly / merge code.

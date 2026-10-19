@@ -1037,7 +1037,40 @@
         <div v-if="postAudio.behavior === 'black-screen' || postAudio.behavior === 'hold-last-scene'" class="mt-2">
           <div class="form-group field-narrow">
             <label>{{ postAudio.behavior === 'black-screen' ? 'Black screen' : 'Hold' }} length ({{ postAudio.tail_seconds }}s)</label>
-            <SliderWithNumber v-model="postAudio.tail_seconds" :min="1" :max="15" :step="1" suffix="s" />
+            <SliderWithNumber v-model="postAudio.tail_seconds" :min="1" :max="45" :step="1" suffix="s" />
+            <p class="text-muted text-sm hint-line">
+              The channel's closing is 20–30 s of music here. Audio Assembly bakes that music into the merged audio at
+              this length, so change it, then re-merge the audio — the render follows the audio that exists.
+            </p>
+          </div>
+        </div>
+
+        <!-- Closing music (2026-10-19). Shown for every behavior that appends a
+             tail, because the music runs under all of them. -->
+        <div v-if="postRollSec > 0" class="mt-2 closing-music-block">
+          <h5 class="closing-music-title">Closing music</h5>
+          <p class="text-muted text-sm hint-line">
+            Plays over the tail when the channel has background music in Audio Assembly. The bed rises back out of the
+            duck as the last word lands, holds, then fades out — it never stops with a cut, and a track shorter than
+            the tail loops rather than going silent.
+          </p>
+          <div class="form-group field-narrow">
+            <label>Closing music volume ({{ postAudio.closing_music.volume }}% of the normal BGM level)</label>
+            <SliderWithNumber
+              v-model="postAudio.closing_music.volume"
+              :min="CLOSING_MUSIC_LIMITS.volume.min" :max="CLOSING_MUSIC_LIMITS.volume.max" :step="5" suffix="%" />
+          </div>
+          <div class="form-group field-narrow">
+            <label>Rise out of the duck ({{ postAudio.closing_music.duck_release_sec }}s)</label>
+            <SliderWithNumber
+              v-model="postAudio.closing_music.duck_release_sec"
+              :min="CLOSING_MUSIC_LIMITS.duck_release_sec.min" :max="CLOSING_MUSIC_LIMITS.duck_release_sec.max" :step="0.5" suffix="s" />
+          </div>
+          <div class="form-group field-narrow">
+            <label>Fade-out at the end ({{ postAudio.closing_music.fade_out_sec }}s)</label>
+            <SliderWithNumber
+              v-model="postAudio.closing_music.fade_out_sec"
+              :min="CLOSING_MUSIC_LIMITS.fade_out_sec.min" :max="CLOSING_MUSIC_LIMITS.fade_out_sec.max" :step="0.5" suffix="s" />
           </div>
         </div>
 
@@ -2917,7 +2950,14 @@
 import type { CSSProperties } from 'vue'
 import { describeEffectStack, duplicatePresetHints, normalizeEffectsLook } from '@shared/effects-look'
 import { findBuiltInOverlay } from '@shared/scene-effect-presets'
-import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
+import {
+  applyClosingMusicPreset,
+  applyTitleImagePreset,
+  CLOSING_MUSIC_DEFAULTS,
+  CLOSING_MUSIC_LIMITS,
+  snapshotClosingMusic,
+  snapshotTitleImagePreset,
+} from '~/utils/video-assembly-presets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { describeOpeningSync } from '~/utils/opening-sync'
 import { estimateRender, formatEstimateGb, formatEstimateTime } from '~/utils/render-estimate'
@@ -3498,6 +3538,10 @@ const postAudio = reactive({
   // v1.0.354 — length of the appended tail for 'black-screen' / 'hold-last-scene'.
   // (fade-to-black uses fade_duration; hard-cut has no tail.)
   tail_seconds: 4,
+  // 2026-10-19 — how the background music behaves over that tail. Audio Assembly
+  // bakes the bed into the merged mix and reads these from this very preset, so
+  // what the page shows is what the mix does. Length stays `tail_seconds` above.
+  closing_music: { ...CLOSING_MUSIC_DEFAULTS },
 })
 
 const transition = reactive({
@@ -4786,7 +4830,7 @@ const timelinePresets = usePresets({
   snapshot: () => ({
     title_image: snapshotTitleImagePreset(titleImage),
     scene_recycling: { ...sceneRecycling },
-    post_audio: { ...postAudio },
+    post_audio: snapshotPostAudioPreset(),
     transition: { ...transition, pool: [...transition.pool] },
     scene_animation: { ...sceneAnimation, pool: [...sceneAnimation.pool] },
     // The reveal look rides in the timeline slot, which is where the batch flattener reads it from.
@@ -4798,7 +4842,7 @@ const timelinePresets = usePresets({
     if (!data) return
     applyTitleImagePreset(titleImage, data.title_image)
     if (data.scene_recycling) Object.assign(sceneRecycling, data.scene_recycling)
-    if (data.post_audio) Object.assign(postAudio, data.post_audio)
+    if (data.post_audio) applyPostAudioPreset(data.post_audio)
     // v1.0.354 — retired option; old presets fall back to the equivalent hard cut.
     if (postAudio.behavior === 'continue-cycling') postAudio.behavior = 'hard-cut'
     if (data.transition) {
@@ -4919,11 +4963,38 @@ function applyIntroData(data: any) {
     : []
 }
 
+/**
+ * The post-audio block as a preset stores it: the behavior, the tail's length,
+ * and the closing music controls. `closing_music` is COPIED rather than shared —
+ * a shallow spread would leave the saved preset pointing at the live object, so
+ * moving a slider after saving would silently rewrite the preset.
+ */
+function snapshotPostAudioPreset() {
+  return {
+    behavior: postAudio.behavior,
+    fade_duration: postAudio.fade_duration,
+    tail_seconds: postAudio.tail_seconds,
+    closing_music: snapshotClosingMusic(postAudio.closing_music),
+  }
+}
+
+/**
+ * Apply a saved post-audio block. The closing music is replaced whole — a preset
+ * saved before those controls existed restores the tuned defaults, never the
+ * previous episode's settings left standing.
+ */
+function applyPostAudioPreset(data: any) {
+  if (!data) return
+  const { closing_music: closingMusic, ...rest } = data
+  Object.assign(postAudio, rest)
+  applyClosingMusicPreset(postAudio.closing_music, closingMusic)
+}
+
 function snapshotTimelineData() {
   return {
     title_image: snapshotTitleImagePreset(titleImage),
     scene_recycling: { ...sceneRecycling },
-    post_audio: { ...postAudio },
+    post_audio: snapshotPostAudioPreset(),
     transition: { ...transition, pool: [...transition.pool] },
     scene_animation: { ...sceneAnimation, pool: [...sceneAnimation.pool] },
     scene_reveal: revealBundleSnapshot(),
@@ -4934,7 +5005,7 @@ function applyTimelineData(data: any) {
   if (!data) return
   applyTitleImagePreset(titleImage, data.title_image)
   if (data.scene_recycling) Object.assign(sceneRecycling, data.scene_recycling)
-  if (data.post_audio) Object.assign(postAudio, data.post_audio)
+  if (data.post_audio) applyPostAudioPreset(data.post_audio)
   // v1.0.354 — retired option; old presets fall back to the equivalent hard cut.
   if (postAudio.behavior === 'continue-cycling') postAudio.behavior = 'hard-cut'
   if (data.transition) {
@@ -5698,10 +5769,20 @@ const postAudioSummary = computed(() => {
   const narrDur = totalAudioDuration.value
   const tail = postRollSec.value
   const b = postAudio.behavior
-  if (b === 'fade-to-black') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then fade to black over ${postAudio.fade_duration}s`
-  if (b === 'black-screen') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then ${formatDurationLong(tail)} of black`
-  if (b === 'hold-last-scene') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then hold the last scene for ${formatDurationLong(tail)}`
+  // 2026-10-19 — the tail is not silent any more: say what the music does over
+  // it, in the same sentence as the picture it plays under.
+  const music = closingMusicSummary.value
+  if (b === 'fade-to-black') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then fade to black over ${postAudio.fade_duration}s${music}`
+  if (b === 'black-screen') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then ${formatDurationLong(tail)} of black${music}`
+  if (b === 'hold-last-scene') return `Scenes play during narration (~${formatDurationLong(narrDur)}), then hold the last scene for ${formatDurationLong(tail)}${music}`
   return `Scenes play during narration (~${formatDurationLong(narrDur)}), then end on a hard cut`
+})
+
+/** The closing music in one clause, appended to the tail's summary. Empty when there is no tail. */
+const closingMusicSummary = computed(() => {
+  if (postRollSec.value <= 0) return ''
+  const m = postAudio.closing_music
+  return ` — music at ${m.volume}% of its normal level, rising over ${m.duck_release_sec}s and fading out over ${m.fade_out_sec}s`
 })
 
 // Effect preview computeds
@@ -6836,6 +6917,10 @@ onUnmounted(() => {
 /* Settings section */
 .settings-section { padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-md); border: 1px solid var(--border); }
 .settings-section h4 { font-size: 14px; color: var(--text-primary); }
+/* The closing music sub-heading sits inside the post-audio section, one level
+   down from its h4 — same size as the section titles so it reads as a heading,
+   not as body text. */
+.closing-music-title { font-size: 13px; color: var(--text-primary); margin-bottom: 4px; }
 
 /* Logo Position Grid */
 .position-grid { display: grid; grid-template-columns: repeat(3, 40px); gap: 4px; }

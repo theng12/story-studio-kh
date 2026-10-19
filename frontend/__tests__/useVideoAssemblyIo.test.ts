@@ -67,7 +67,10 @@ function makeState() {
     sceneRecycling: reactive({ seconds_per_scene: 10, shuffle: false, excluded_scenes: [] as number[] }),
     transition:    reactive({ type: 'fade', duration: 0.5, pool: [], randomize_mode: 'off' }),
     sceneAnimation: reactive({ type: 'ken-burns', zoom_start: 100, zoom_end: 108, pool: [], randomize_mode: 'off' }),
-    postAudio:     reactive({ behavior: 'fade-to-black', fade_duration: 5 }),
+    // 2026-10-19 — the closing music controls ride in the same block as the
+    // tail's length, so Audio Assembly reads the tail and its sound from ONE
+    // place. The render request carries them too, unchanged.
+    postAudio:     reactive({ behavior: 'hold-last-scene', tail_seconds: 25, fade_duration: 5, closing_music: { volume: 70, duck_release_sec: 2.5, fade_out_sec: 8 } }),
     colorGrading:  reactive({ enabled: false, preset: 'none', brightness: 0, contrast: 1, saturation: 1, warmth: 0, tint: 0 }),
     vignette:      reactive({ enabled: false, strength: 0.4 }),
     filmGrain:     reactive({ enabled: false, strength: 15 }),
@@ -128,8 +131,12 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     // narration, with post-audio as the only intentional tail extension.
     assert.equal(capturedBody.duration, undefined)
     assert.deepEqual(capturedBody.post_audio, {
-      behavior: 'fade-to-black',
+      behavior: 'hold-last-scene',
+      tail_seconds: 25,
       fade_duration: 5,
+      // The closing music reaches the backend unchanged: the tail's length and
+      // the way it sounds travel together, and Audio Assembly bakes both.
+      closing_music: { volume: 70, duck_release_sec: 2.5, fade_out_sec: 8 },
     })
 
     // Transition "none" maps to 0s duration

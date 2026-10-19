@@ -112,8 +112,31 @@ test('readMergedAudioRecord ignores a record that names a different merged file'
   const recordPath = path.join(dir, 'PR0002_merged_audio.completion.json')
   await fs.writeFile(recordPath, JSON.stringify({ output_filename: 'PR0002_merged_audio_v2.mp3', duration_sec: 956, opening: { lead_in_sec: 0 } }))
   assert.equal(await readMergedAudioRecord(recordPath, 'PR0002_merged_audio.mp3'), null)
-  assert.deepEqual(await readMergedAudioRecord(recordPath, 'PR0002_merged_audio_v2.mp3'), { duration_sec: 956, lead_in_sec: 0 })
+  assert.deepEqual(await readMergedAudioRecord(recordPath, 'PR0002_merged_audio_v2.mp3'), { duration_sec: 956, lead_in_sec: 0, closing_tail_sec: 0 })
   assert.equal((await readMergedAudioRecord(recordPath))?.duration_sec, 956)
+})
+
+test('readMergedAudioRecord reports the NARRATION, not the closing music tail after it', async () => {
+  // 2026-10-19 — a merge with background music appends a closing tail and writes
+  // down how long it is. Every reader of this record asks how long the NARRATION
+  // is, so the tail is subtracted; the raw file length stays in the record.
+  const { readMergedAudioRecord } = await import('../lib/scene-plan-timeline.js')
+  const dir = await fs.mkdtemp(path.join(process.env.TMPDIR || '/tmp', 'merged-tail-'))
+  const recordPath = path.join(dir, 'PR0007_merged_audio.completion.json')
+  await fs.writeFile(recordPath, JSON.stringify({
+    output_filename: 'PR0007_merged_audio.mp3', duration_sec: 1236, closing_tail_sec: 25,
+    opening: { lead_in_sec: 8, intro: null, music_lead_in_sec: 8 },
+  }))
+  assert.deepEqual(await readMergedAudioRecord(recordPath, 'PR0007_merged_audio.mp3'), {
+    duration_sec: 1211, lead_in_sec: 8, closing_tail_sec: 25,
+  })
+  // A record written before the field existed still reads as it always did.
+  await fs.writeFile(recordPath, JSON.stringify({
+    output_filename: 'PR0007_merged_audio.mp3', duration_sec: 1211, opening: { lead_in_sec: 8 },
+  }))
+  assert.deepEqual(await readMergedAudioRecord(recordPath, 'PR0007_merged_audio.mp3'), {
+    duration_sec: 1211, lead_in_sec: 8, closing_tail_sec: 0,
+  })
 })
 
 test('status.scene_plan stays true when a _v2 record sits beside the selected base merge', async () => {

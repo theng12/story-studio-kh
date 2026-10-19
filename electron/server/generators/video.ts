@@ -133,6 +133,7 @@ import {
   type MergedAudioOpening,
 } from '../services/merged-audio-opening.js'
 import { scenePlanLeadInShiftSec, shiftScenesForLeadIn } from '../lib/intro-lead-in.js'
+import { narrationSecFromMaster, postRollSeconds } from '../lib/closing-tail.js'
 import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { compareMergedAudio } from '../lib/scene-plan-timeline.js'
 import {
@@ -1169,6 +1170,12 @@ export interface ScannedAssets {
     path: string
     duration?: number
     opening?: MergedAudioOpening
+    /**
+     * Seconds of music this track carries AFTER the narration (the closing tail
+     * Audio Assembly baked into it; 0 for a merge that baked none). `duration`
+     * is the whole file; `duration − closing_tail_sec` is the narration.
+     */
+    closing_tail_sec?: number
   }>
   /**
    * Which merged track this episode's narration is, and why (v1.4.314).
@@ -1519,6 +1526,10 @@ export async function scanEpisodeAssets(
       mergedDurationSec: entry.duration,
       episodeDir,
     })
+    // Carried onto the entry so every reader of this scan has the narration's
+    // real length without re-reading the record: the plan's clock, the coverage
+    // check and the Image Pool budget all mean `duration − closing_tail_sec`.
+    entry.closing_tail_sec = entry.opening.closing_tail_sec
   }
 
   const { isMusicEpisodeDir, readEpisodeDoc } = await import('../services/music-episode-store.js')
@@ -1537,7 +1548,11 @@ export async function scanEpisodeAssets(
   }
 
   if (visualSource === 'image_pool') {
-    const narrationDuration = Number(result.merged_audio[0]?.duration || result.narration_full?.duration || 0)
+    // Pictures cover the narration, not the closing music tail after it.
+    const narrationDuration = narrationSecFromMaster(
+      Number(result.merged_audio[0]?.duration || result.narration_full?.duration || 0),
+      result.merged_audio[0]?.closing_tail_sec || 0,
+    )
     const imagePool = await resolveImagePoolSelection(slug, code, narrationDuration > 0 ? narrationDuration : undefined)
     result.image_pool = {
       pool_id: imagePool.pool_id,
@@ -1560,6 +1575,16 @@ export async function scanEpisodeAssets(
     result.scene_sources!.image_pool = result.scenes.length
   }
 
+  // The NARRATION's length — the merged master minus any closing music tail
+  // baked into it. The plan's clock, its coverage and its drift are all timed
+  // against the speech, never against the music that follows it.
+  const mergedNarrationSec = scannedPlan
+    ? narrationSecFromMaster(
+      Number(result.merged_audio[0]?.duration || result.narration_full?.duration || scannedPlan.total_duration_sec || 0),
+      result.merged_audio[0]?.closing_tail_sec || 0,
+    )
+    : 0
+
   // 1.4.272 — the ONE place the plan meets the merged audio. A plan timed from
   // narration at 0 s, rendered over audio with a music lead-in, moves onto the
   // audio's clock here: scene 1 holds through the intro, every other scene (and
@@ -1569,7 +1594,7 @@ export async function scanEpisodeAssets(
   let leadInShiftSec = 0
   if (scannedPlan) {
     leadInShiftSec = scenePlanLeadInShiftSec(
-      scannedPlan.scenes, result.merged_audio[0]?.opening?.lead_in_sec, result.merged_audio[0]?.duration,
+      scannedPlan.scenes, result.merged_audio[0]?.opening?.lead_in_sec, mergedNarrationSec,
     )
     if (leadInShiftSec > 0) {
       scannedPlan = {
@@ -1589,7 +1614,7 @@ export async function scanEpisodeAssets(
   }
 
   if (scannedPlan) {
-    const audioDuration = Number(result.merged_audio[0]?.duration || result.narration_full?.duration || scannedPlan.total_duration_sec || 0)
+    const audioDuration = mergedNarrationSec
     const openingReserved = scannedPlan.opening_mode === 'branded-opening'
       ? Math.max(0, Number(scannedPlan.opening_reserved_sec) || 0) : 0
     const integrity = inspectScenePlanCoverage({
@@ -1603,7 +1628,7 @@ export async function scanEpisodeAssets(
       const overlap = Number(scannedPlan.scenes[index - 1]!.end_sec) - Number(scannedPlan.scenes[index]!.start_sec)
       if (overlap > 0.05) { overlapSec += overlap; overlapCount++ }
     }
-    const audioDrift = compareMergedAudio(scannedPlan.source_merged_audio, result.merged_audio[0]?.duration, leadInShiftSec)
+    const audioDrift = compareMergedAudio(scannedPlan.source_merged_audio, mergedNarrationSec, leadInShiftSec)
     const planRows = result.scenes.filter(scene => scene.source === 'scene_plan')
     const byId = new Map(planRows.map(scene => [scene.plan_scene_id, scene]))
     result.scene_plan_timing = {
@@ -2117,7 +2142,10 @@ export async function prepareUnifiedVideoAssemblyInputs(
       req.narration_path = chapters[0]!
     }
     const narrationDuration = merged?.path && existsSync(merged.path)
-      ? Number(merged.duration || await getAudioDuration(merged.path) || 0)
+      ? narrationSecFromMaster(
+        Number(merged.duration || await getAudioDuration(merged.path) || 0),
+        merged.closing_tail_sec || 0,
+      )
       : (await Promise.all((req.narration_chapters || []).map(file => getAudioDuration(file))))
         .reduce<number>((sum, sec) => sum + Number(sec || 0), 0)
     const imagePool = await resolveImagePoolSelection(slug, episodeId, narrationDuration)
@@ -2610,17 +2638,38 @@ export async function generateVideo(job: Job): Promise<void> {
   // silent video or risked cutting the audio, so they're gone — the post-audio
   // tail now carries its own explicit length instead of being sized by a
   // target/narration gap.
-  let postRoll = 0
-  {
-    const pa = req.post_audio
-    const b = pa?.behavior || 'fade-to-black'
-    if (pa) {
-      if (b === 'fade-to-black') postRoll = Math.max(0, pa.fade_duration || 5)
-      else if (b === 'black-screen' || b === 'hold-last-scene') postRoll = Math.max(0, pa.tail_seconds ?? 4)
-      // 'hard-cut' and legacy 'continue-cycling' → 0 (end with the narration)
+  //
+  // The closing music tail is baked into the merged master at Audio Assembly,
+  // which wrote down how long it is. When it did, the master ALREADY runs to the
+  // end of that tail: it is the video's real length, so the tail is not added a
+  // second time (a second silent pad) and the narration is not cut short by
+  // treating the master as speech. `narrationDuration` becomes the SPEECH end —
+  // where the scenes stop and where every "how long is the narration" reader
+  // (coverage, captions, Image Pool, the plan's clock) must look — while
+  // `targetDuration` stays the master's own length.
+  const mergedClosingTailSec = useMergedAudio ? (authoritativeAssets.merged_audio[0]?.closing_tail_sec || 0) : 0
+  const lengths = resolveVideoLengths({
+    sourceDurationSec: narrationDuration,
+    bakedClosingTailSec: mergedClosingTailSec,
+    postAudio: req.post_audio,
+  })
+  narrationDuration = lengths.narrationDurationSec
+  const postRoll = lengths.postRollSec
+  if (mergedClosingTailSec > 0) {
+    job.output_lines.push(
+      `Closing tail: ${mergedClosingTailSec.toFixed(1)}s of music after the narration are already in `
+      + `${path.basename(req.merged_audio_path!)}, so the video ends with the audio at `
+      + `${lengths.targetDurationSec.toFixed(1)}s (speech ends at ${narrationDuration.toFixed(1)}s) — no second tail is added.`,
+    )
+    if (postRollSeconds(req.post_audio) !== mergedClosingTailSec) {
+      job.output_lines.push(
+        `  Video Assembly's post-audio tail now says ${postRollSeconds(req.post_audio).toFixed(1)}s. `
+        + 'The merged audio that exists is the truth; re-merge the audio to change the tail.',
+      )
     }
   }
-  const targetDuration = narrationDuration + postRoll
+
+  const targetDuration = lengths.targetDurationSec
   job.output_lines.push(
     postRoll > 0
       ? `Video length: narration ${narrationDuration.toFixed(1)}s + ${postRoll.toFixed(1)}s tail = ${targetDuration.toFixed(1)}s`
@@ -3779,11 +3828,18 @@ export async function generateVideo(job: Job): Promise<void> {
 
     // 9. Resolve post-audio behavior
     const postAudio = req.post_audio ?? { behavior: 'fade-to-black' as const, fade_duration: 5 }
+    // The tail that exists is the one in the merged audio. When it baked one and
+    // the preset since changed to a behavior that draws no tail at all
+    // ('hard-cut' / legacy 'continue-cycling'), the picture would stop while the
+    // tail's music kept playing — so the last scene is held across it instead.
+    const tailAudio = mergedClosingTailSec > 0 && postRollSeconds(postAudio) === 0
+      ? { ...postAudio, behavior: 'hold-last-scene' as const, tail_seconds: mergedClosingTailSec }
+      : postAudio
 
     // 10. Build concat list — scenes match narration duration, post-audio fills the rest
     const { listPath: concatListPath, sceneEndTime } = await buildConcatList(
       tempDir, introClipPath, titleClipPath, sceneClips,
-      sceneTrackTargetDuration, narrationDuration, postAudio,
+      sceneTrackTargetDuration, narrationDuration, tailAudio,
       req.scene_recycling, resW, resH, quality, job,
       sceneClipDurations,
       req.transition && req.transition !== 'none' ? {
@@ -7315,6 +7371,36 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       dropped: succeededTier.dropsBurnedInFeatures ? requestedBurnIns : [],
     })
   }
+}
+
+/**
+ * The video's two clocks, from the merged master's real length and the closing
+ * tail Audio Assembly baked into it.
+ *
+ * `narrationDurationSec` is where the SPEECH ends — the scenes stop there, and
+ * every reader that asks "how long is the narration" (the coverage gate, the
+ * burned captions, the Image Pool budget, the plan's clock) means this.
+ * `targetDurationSec` is the video's real length: when the master already
+ * carries the tail, it IS the master, so the tail is never added a second time
+ * as a silent pad and the narration is never cut short by it.
+ *
+ * Pure and exported so that rule is testable without a render.
+ */
+export function resolveVideoLengths(opts: {
+  /** The duration the source actually has: the merged master, the chapters, or the narration file. */
+  sourceDurationSec: number
+  /** Seconds of closing music already inside that source. 0 when there is none. */
+  bakedClosingTailSec: number
+  postAudio: VideoPostAudio | undefined
+}): { narrationDurationSec: number; postRollSec: number; targetDurationSec: number } {
+  const source = Number(opts.sourceDurationSec) || 0
+  const baked = Math.max(0, Number(opts.bakedClosingTailSec) || 0)
+  if (baked > 0) {
+    const narrationDurationSec = narrationSecFromMaster(source, baked)
+    return { narrationDurationSec, postRollSec: baked, targetDurationSec: narrationDurationSec + baked }
+  }
+  const postRollSec = postRollSeconds(opts.postAudio)
+  return { narrationDurationSec: source, postRollSec, targetDurationSec: source + postRollSec }
 }
 
 /**

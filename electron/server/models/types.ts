@@ -3764,6 +3764,46 @@ export interface VideoPostAudio {
    *  'hold-last-scene' (frozen final frame). Replaces the old Target-Duration
    *  padding that used to size this section. Default 4. Ignored otherwise. */
   tail_seconds?: number
+  /**
+   * How the background music behaves over the tail. The tail's LENGTH is
+   * `tail_seconds` / `fade_duration` above — there is no second length here.
+   *
+   * These are a reusable look, so they ride in the Video Assembly preset beside
+   * the behavior they belong to (AGENTS.md §5). Audio Assembly reads this block
+   * from the same preset the renderer reads it from, so there is one mix and one
+   * place the owner sets the close.
+   */
+  closing_music?: VideoClosingMusic
+}
+
+/**
+ * The closing tail's music controls — what the bed does AFTER the narration
+ * ends. Every one is optional, and absent means the tuned default, so a preset
+ * saved before this existed closes exactly as it should with nothing touched.
+ *
+ * The levels reuse Audio Assembly's own vocabulary rather than a parallel set:
+ * `VideoMusicConfig.volume` is the bed under the voice (the ducked level) and
+ * `post_narration_volume` is the level it returns to once the voice stops — the
+ * "normal BGM level" the duck release rises back to.
+ */
+export interface VideoClosingMusic {
+  /**
+   * Level for the tail, as a PERCENTAGE of the bed's normal post-narration
+   * level: 100 = exactly the level Audio Assembly already set for after the
+   * narration, 50 = half of it, 0 = silent. Default 100.
+   */
+  volume?: number
+  /**
+   * Seconds the bed takes to rise from its under-narration level back up to
+   * that level once the last word lands. 0 = the historical instant step.
+   * Default 1.5.
+   */
+  duck_release_sec?: number
+  /**
+   * Seconds of fade-out over the END OF THE TAIL, on a smooth curve (never a
+   * cut). Falls back to the Audio Assembly music's own `fade_out`, then 5.
+   */
+  fade_out_sec?: number
 }
 
 

@@ -185,7 +185,12 @@ export function compareMergedAudio(
 }
 
 /**
- * The merge's own completion record: its length and where the narration starts. Null when absent.
+ * The merge's own completion record: the NARRATION's length and where it starts.
+ * Null when absent.
+ *
+ * `duration_sec` is the narration, not the file: a merge that baked a closing
+ * music tail records it separately (`closing_tail_sec`, returned here too) and
+ * the tail is subtracted. Every reader of this function means the speech.
  *
  * `expectedFilename` is the merged track the caller treats as this episode's
  * narration (see `selectMergedAudioFilename`). `write_mode: 'new'` leaves
@@ -200,14 +205,24 @@ export function compareMergedAudio(
 export async function readMergedAudioRecord(
   completionPath: string,
   expectedFilename?: string | null,
-): Promise<{ duration_sec: number; lead_in_sec: number } | null> {
+): Promise<{ duration_sec: number; lead_in_sec: number; closing_tail_sec: number } | null> {
   try {
     const fs = await import('fs/promises')
     const record = JSON.parse(await fs.readFile(completionPath, 'utf-8'))
     if (expectedFilename && typeof record?.output_filename === 'string'
       && record.output_filename !== expectedFilename) return null
     const duration = Number(record?.duration_sec)
-    return duration > 0 ? { duration_sec: duration, lead_in_sec: Number(record?.opening?.lead_in_sec) || 0 } : null
+    if (!(duration > 0)) return null
+    // The record's `duration_sec` is the whole file, closing music tail and all.
+    // Every reader here asks how long the NARRATION is — the plan's clock, the
+    // coverage check, the drift comparison — so the tail the merge baked is
+    // subtracted, and a plan built before a tail was added stays current.
+    const closingTailSec = Math.max(0, Number(record?.closing_tail_sec) || 0)
+    return {
+      duration_sec: Math.max(0, duration - closingTailSec),
+      lead_in_sec: Number(record?.opening?.lead_in_sec) || 0,
+      closing_tail_sec: closingTailSec,
+    }
   } catch {
     return null
   }
