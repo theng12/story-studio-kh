@@ -816,16 +816,115 @@ test('verified subtitle recovery continues through Scene Plan and cues to Scene 
     await advance()
     await advance()
     assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'continuity_render').length, 1)
-    // A pruned completed edge must not become fresh generation on the next Retry All.
+    // Clear Finished prunes the completed edge's row. The plan re-queues that same edge ONCE under
+    // its own identity, then holds: it never rebuilds on every Retry All, and it never loops.
     await jq.mutateAuthoritativeJob(project.slug, plan.steps.continuity_render!.job_id, job => ({ ...job, status: 'done' }))
     await dispatchEpisodeRecoveryStep(plan, facts, [])
+    assert.match(plan.message, /re-queued once/i)
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'continuity_render').length, 1)
+    await dispatchEpisodeRecoveryStep(plan, facts, [])
     assert.match(plan.message, /already dispatched/i)
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'continuity_render').length, 1,
+      'the second loss holds the plan instead of re-running the edge again')
     plan.continuation = [{ type: 'metadata', params: { model: 'saved-metadata-model' } }]
     await dispatchEpisodeRecoveryStep(plan, { verified: ready, message: 'complete' }, [])
     await dispatchEpisodeRecoveryStep(JSON.parse(JSON.stringify(plan)), { verified: ready, message: 'complete' }, [])
     assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'metadata').length, 1)
     assert.equal(plan.continuation_dispatched, true)
   } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('a dispatched edge whose job was pruned is re-queued once under its own identity, keeping accepted images', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Lost dispatched edge' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const plan = createEpisodeRecoveryPlan([{ ...source('scene_plan_run'), project_slug: project.slug }])
+    plan.target = 'continuity_render'
+    plan.completed = ['audio_merge', 'subtitle_sections', 'subtitle_stitch', 'scene_plan_run']
+    plan.first_unresolved = 'continuity_render'
+    // The accepted image identities this Scene Review edge already owns (Domnak DM0012/14 held one
+    // per generated image; DM0013's row is the shape reproduced here).
+    const assets = { 'EP0001-scene-0001.png': { operation: 'image', idempotency_key: 'story-image-accepted',
+      job_id: 'provider-job-1', state: 'accepted' } }
+    plan.steps.continuity_render = { job_id: 'recovery-lost-continuity_render', type: 'continuity_render',
+      title: 'Pipeline: Scene Review — EP0001', dispatched: true,
+      params: { episode_id: 'EP0001', model: 'saved-image-model', genstudio_recovery: { version: 1, route: 'genstudio', assets } } }
+    const facts = { verified: { ...ready, continuity_render: false }, message: 'Prerequisites ready' }
+
+    await dispatchEpisodeRecoveryStep(plan, facts, [])
+    const queued = (await jq.getJobs(project.slug)).filter(job => job.type === 'continuity_render')
+    assert.equal(queued.length, 1, 'the edge whose job no longer exists is re-queued')
+    assert.equal(queued[0]!.job_id, 'recovery-lost-continuity_render', 'under its own durable identity')
+    assert.deepEqual(queued[0]!.params.genstudio_recovery.assets, assets, 'accepted image identities are not lost')
+    assert.equal(queued[0]!.params.model, 'saved-image-model', 'the saved settings are the ones re-queued')
+    assert.equal(queued[0]!.params.episode_recovery_id, plan.id)
+    assert.match(plan.message, /re-queued once/i)
+    assert.equal(plan.steps.continuity_render!.redispatched, true)
+
+    // That row is pruned too: the plan holds for a person instead of rebuilding in a loop.
+    await jq.mutateAuthoritativeJob(project.slug, queued[0]!.job_id, job => ({ ...job, status: 'done' }))
+    assert.equal(jq.removeTerminalJob(project.slug, queued[0]!.job_id), true)
+    await dispatchEpisodeRecoveryStep(plan, facts, await jq.getJobs(project.slug))
+    assert.match(plan.message, /already dispatched/i)
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'continuity_render').length, 0)
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('a dispatched edge whose output already verifies is resolved, not run again', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.createProject({ name: 'Resolved dispatched edge' })
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+    const plan = createEpisodeRecoveryPlan([{ ...source('scene_plan_run'), project_slug: project.slug }])
+    plan.target = 'continuity_render'
+    plan.steps.continuity_render = { job_id: 'recovery-resolved-continuity_render', type: 'continuity_render',
+      title: 'Pipeline: Scene Review — EP0001', dispatched: true, params: { episode_id: 'EP0001' } }
+
+    await dispatchEpisodeRecoveryStep(plan, { verified: ready, message: 'Prerequisites ready' }, [])
+
+    assert.equal(plan.first_unresolved, null, 'the verified edge completes the plan')
+    assert.equal(plan.steps.continuity_render!.dispatched, false,
+      'a node whose job no longer exists stops claiming an accepted edge')
+    assert.deepEqual(await jq.getJobs(project.slug), [], 'nothing was generated again')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('a plan that never owned the blocked prerequisite names it instead of parking silently', async () => {
+  const { createEpisodeRecoveryPlan, dispatchEpisodeRecoveryStep } = await subject()
+  // DM0013's plan was minted from its one surviving failed row — a Scene Review failure carrying no
+  // pipeline chain — so it owns no Scene Plan settings, and a Scene Plan it cannot verify is a
+  // prerequisite no automatic pass can supply.
+  const plan = createEpisodeRecoveryPlan([source('continuity_render')])
+  const facts = { verified: { ...ready, scene_plan_run: false, continuity_render: false },
+    message: '20/20 sections ready. Scene Plan is stale: the captions moved later by 3.20s.' }
+
+  await dispatchEpisodeRecoveryStep(plan, facts, [])
+
+  assert.equal(plan.first_unresolved, 'scene_plan_run')
+  assert.equal(plan.steps.scene_plan_run, undefined, 'the plan owns no Scene Plan settings to re-run')
+  assert.match(plan.message, /20\/20 sections ready/)
+  assert.match(plan.message, /Scene Plan is stale: the captions moved later by 3\.20s/)
+  assert.match(plan.message, /Open Scene Plan to complete or configure this prerequisite/)
+})
+
+test('an unverified Scene Plan says which timeline moved and what rebuilding it does', async () => {
+  const { scenePlanBlockerMessage } = await subject()
+  const namedTrack = { ok: true, filename: 'EP0001_merged_audio.mp3' }
+  assert.match(scenePlanBlockerMessage(true, namedTrack,
+    { stale: true, drift_sec: 3.2, reason: 'the captions moved later by 3.20s after the transcript was re-stitched.' }),
+    /captions moved later by 3\.20s.*Rebuilding Scene Plan is what re-times every scene against the current narration/)
+  assert.match(scenePlanBlockerMessage(true, { ok: false, pinned: 'EP0001_merged_audio_v2.mp3' },
+    { stale: true, drift_sec: null, reason: '' }),
+    /EP0001_merged_audio_v2\.mp3, which is not in this episode's merged-audio folder/)
+  assert.match(scenePlanBlockerMessage(false, { ok: true, filename: null }, { stale: false, drift_sec: null, reason: '' }),
+    /Scene Plan has not been run for this episode/)
 })
 
 test('settlement polling resumes the same subtitle job only when due; paid blocks never auto-resume', async () => {
