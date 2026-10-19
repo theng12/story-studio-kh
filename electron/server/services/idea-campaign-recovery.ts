@@ -52,6 +52,19 @@ export interface IdeaBatchRecord {
   idea_ids?: string[]
   /** The batch was answered and must never be replayed — set even when nothing usable came back. */
   resolved?: boolean
+  /**
+   * The key this batch was sent under, collected, and found PROVEN dead (settled `failed`, no hold).
+   * Collecting that key again answers the same failure forever, so the identity is released — the
+   * live `idempotency_key`/`provider_job_id` are cleared and `request_identity` moves to a fresh one
+   * — and this keeps what failed, so the release is auditable and the same key is never released
+   * twice. Only a proven failure qualifies: a held or uncertain outcome keeps its key.
+   */
+  settled_failed?: {
+    idempotency_key: string
+    provider_job_id?: string
+    failure_code?: string | null
+    failure_detail?: string | null
+  }
 }
 
 /**
@@ -106,6 +119,28 @@ export function writeIdeaBatch(job: Job, record: IdeaBatchRecord): void {
 /** The ordinal this campaign has reached; a fresh campaign starts at 1. */
 export function nextIdeaBatchOrdinal(params: unknown): number {
   return (readIdeaBatch(params)?.ordinal ?? 0) + 1
+}
+
+/**
+ * Release a batch identity the Gateway PROVED dead, and move it to a fresh one.
+ *
+ * Collecting a settled-failed key answers the same failure for as long as that job exists — the
+ * provider derives the key from the request body, so a byte-identical replay is the ONLY thing that
+ * finds it. The way forward is a different identity, and the next one is derived from the dead job
+ * so an in-process retry and a crash-replay of the same release derive ONE identity, never two.
+ *
+ * The captured body is deliberately untouched: the caller still sends this batch's own prompt,
+ * slots or assignments, exactly as a replay would — only the identity moves. The failure itself is
+ * kept on the record, so what died is still readable afterwards.
+ */
+export function releaseSettledFailedIdeaBatch(
+  record: IdeaBatchRecord,
+  failure: NonNullable<IdeaBatchRecord['settled_failed']>,
+): void {
+  record.settled_failed = failure
+  delete record.idempotency_key
+  delete record.provider_job_id
+  record.request_identity = `${record.request_identity.replace(/:fresh:[^:]*$/, '')}:fresh:${failure.provider_job_id || failure.idempotency_key}`
 }
 
 /** The durable identity one batch's appended ideas are filed under. Namespaced, so campaigns cannot collide. */

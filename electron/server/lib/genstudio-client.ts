@@ -3833,6 +3833,26 @@ export function isGenStudioSubmissionUncertain(error: unknown): boolean {
 }
 
 /**
+ * True when a COLLECTED writing failure is PROVEN dead: the Gateway settled the job `failed`, it
+ * holds no unknown outcome, and the code is not one that says a provider may already have taken the
+ * request. Collecting that key again can only answer the same failure, so a caller that saved the
+ * key may release the identity and send one fresh request.
+ *
+ * Every other shape must keep replaying its key. A hold (`recovery_required` / `unknown_outcome`)
+ * and an uncertain submission may yet produce an answer, and a cancellation is the user's own last
+ * word — none of them is permission to buy a second request.
+ *
+ * `isClosedHoldCode` needs no separate case: an operator closing the hold (`HOLD_CLOSED`) settles
+ * the job with no hold left, which is exactly what this answers true for.
+ */
+export function isProvenChatFailure(error: unknown): error is GenStudioChatTerminalFailureError {
+  return error instanceof GenStudioChatTerminalFailureError
+    && !error.cancelled
+    && !error.unknownOutcome
+    && !isSubmissionUncertainCode(error.failureCode)
+}
+
+/**
  * The settled-job failure code that means NO upstream route ever accepted this
  * request.
  *
