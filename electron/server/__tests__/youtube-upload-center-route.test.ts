@@ -10,8 +10,8 @@ import type { CommentCacheState } from '../services/youtube-project-publishing-s
 import { useTempDataDir } from './_helpers.js'
 import { FakeYouTube } from './fixtures/fake-youtube.js'
 import { tinyVideoWithSoundBytes as tinyVideoBytes } from './fixtures/tiny-video.js'
-import { waitFor } from './_timing.js'
-import { runFinalCheck, storeFinalCheck } from '../lib/final-video-check.js'
+import { waitFor, waitForValue } from './_timing.js'
+import { runFinalCheck, storeFinalCheck, finalCheckProgress, __setFinalCheckRunnerForTests } from '../lib/final-video-check.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 
 const boot = await useTempDataDir()
@@ -45,6 +45,8 @@ let cleanup: (() => Promise<void>) | undefined
 
 afterEach(async () => {
   __resetYouTubeTransportForTests()
+  // A parked final-check runner would keep its file's row saying "checking…" for the next test.
+  __setFinalCheckRunnerForTests(null)
   // The Upload tests enqueue a real job, and the queue persists it in the
   // background. Tearing the data root down first made that late write land
   // outside the temp dir and print an isolation violation - noise that would
@@ -5630,12 +5632,13 @@ test('the final check runs on demand and stores its verdict beside the finished 
 
   const res = await request(app).post(`/api/projects/${slug}/youtube/final-check`)
     .send({ episode_code: episodeCode })
-  assert.equal(res.status, 200, JSON.stringify(res.body))
-  assert.equal(res.body.passed, true, JSON.stringify(res.body.issues))
-  assert.equal(res.body.summary, 'Final check: passed')
+  assert.equal(res.status, 202, JSON.stringify(res.body))
+  assert.equal(res.body.started, true)
+  assert.equal(res.body.running, true)
+  assert.equal(res.body.summary, 'Final check: checking…')
 
-  // The verdict is on disk beside the file it describes, and the row reads it back.
-  const stored = JSON.parse(await fs.readFile(`${videoPath}.finalcheck.json`, 'utf-8'))
+  // The verdict lands in the sidecar when the check finishes, and the row reads it back.
+  const stored = await waitForValue(() => storedVerdict(videoPath), { label: 'the final-check sidecar' })
   assert.equal(stored.passed, true)
   assert.equal(stored.file.size, (await fs.stat(videoPath)).size)
 
@@ -5643,6 +5646,7 @@ test('the final check runs on demand and stores its verdict beside the finished 
   const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
   assert.equal(row.final_check.summary, 'Final check: passed')
   assert.equal(row.final_check.passed, true)
+  assert.equal(row.final_check.running, false)
   assert.deepEqual(row.final_check.issues, [])
 })
 
@@ -5662,11 +5666,148 @@ test('the final check reads the speech end from the episode Scene Plan when the 
 
   const res = await request(app).post(`/api/projects/${slug}/youtube/final-check`)
     .send({ episode_code: episodeCode })
-  assert.equal(res.status, 200, JSON.stringify(res.body))
-  assert.equal(res.body.expected.speech_end_sec, 9143.984)
+  assert.equal(res.status, 202, JSON.stringify(res.body))
 
-  const stored = JSON.parse(await fs.readFile(`${videoPath}.finalcheck.json`, 'utf-8'))
+  const stored = await waitForValue(() => storedVerdict(videoPath), { label: 'the final-check sidecar' })
   assert.equal(stored.expected.speech_end_sec, 9143.984, 'the verdict measures against it on every re-check')
+})
+
+/** The verdict beside a file, or null when the check has not written one yet. */
+async function storedVerdict(videoPath: string): Promise<any> {
+  try {
+    return JSON.parse(await fs.readFile(`${videoPath}.finalcheck.json`, 'utf-8'))
+  } catch {
+    return null
+  }
+}
+
+/** A verdict shaped like the real one, so a test can finish a check without decoding a video. */
+async function fakeVerdict(videoPath: string, expected: any, passed = true): Promise<any> {
+  const stat = await fs.stat(videoPath)
+  return {
+    checked_at: new Date().toISOString(),
+    file: { size: stat.size, mtime_ms: stat.mtimeMs },
+    expected,
+    actual: {
+      duration_sec: 8, video_sec: 8, audio_sec: 8, width: 320, height: 180,
+      tail_lufs: null, black: [], silence: [],
+    },
+    passed,
+    issues: passed ? [] : [{ check: 'silence', verdict: 'there is a 5.0s silence at 1:00, inside the speech' }],
+  }
+}
+
+/** A real finished video and the path the route will resolve for it. */
+async function readyVideo(): Promise<{ slug: string, episodeCode: string, videoPath: string }> {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const videoPath = path.join(
+    (await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir,
+    `${episodeCode}_final_video.mp4`,
+  )
+  await fs.writeFile(videoPath, tinyVideoBytes())
+  return { slug, episodeCode, videoPath }
+}
+
+/**
+ * A POST that must answer without waiting for the check it starts.
+ *
+ * `waitFor` rather than `await request(...)`: run inline — which is how this route shipped — the
+ * request does not fail, it simply never answers until the decode is done, so the assertion has to
+ * be "the answer arrived while the check is still parked" and the failure has to be a named
+ * timeout rather than a suite that hangs.
+ */
+async function postFinalCheck(slug: string, episodeCode: string): Promise<any> {
+  let answered: any = null
+  void request(app).post(`/api/projects/${slug}/youtube/final-check`)
+    .send({ episode_code: episodeCode })
+    .then(response => { answered = response })
+  await waitFor(() => answered !== null, {
+    label: 'the final-check POST to answer without waiting for the check it starts',
+  })
+  return answered
+}
+
+test('a final check that outlives the request still finishes and stores its verdict', async () => {
+  const { slug, episodeCode, videoPath } = await readyVideo()
+
+  // The measurement is parked, so the request cannot be waiting for it. Run inline — which is how
+  // this route shipped — the POST stayed open for the whole decode (5–8 minutes on a 2–2.5 h final)
+  // and any restart, app update or dropped socket in between threw the measurement away
+  // (Night Atlas Mythology EP0008, 2026-10-19: the 1.4.331 install quit the app 8m23s in, and the
+  // row still reads `checked: false, identity: null`).
+  let release!: () => void
+  const parked = new Promise<void>(resolve => { release = resolve })
+  let measured = 0
+  __setFinalCheckRunnerForTests(async (file: string, expected: any) => {
+    measured += 1
+    await parked
+    return fakeVerdict(file, expected)
+  })
+
+  const res = await postFinalCheck(slug, episodeCode)
+  assert.equal(res.status, 202, JSON.stringify(res.body))
+  assert.equal(res.body.started, true)
+  assert.equal(res.body.running, true)
+  assert.equal(res.body.passed, undefined, 'the answer carries no verdict — there is not one yet')
+  assert.equal(measured, 1, 'the check is running')
+
+  // The row the page already loads is where the progress and the result are read.
+  const during = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const duringRow = during.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.equal(duringRow.final_check.running, true)
+  assert.equal(duringRow.final_check.checked, false)
+  assert.equal(duringRow.final_check.summary, 'Final check: checking…')
+
+  release()
+  await waitFor(async () => (await storedVerdict(videoPath)) !== null, { label: 'the parked check to store its verdict' })
+
+  const after = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const afterRow = after.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.equal(afterRow.final_check.running, false)
+  assert.equal(afterRow.final_check.checked, true)
+  assert.equal(afterRow.final_check.summary, 'Final check: passed')
+  assert.ok(afterRow.final_check.identity?.checked_at, 'the verdict is bound to the file it measured')
+})
+
+test('a second request for a file already being measured joins it instead of decoding it twice', async () => {
+  const { slug, episodeCode, videoPath } = await readyVideo()
+
+  let release!: () => void
+  const parked = new Promise<void>(resolve => { release = resolve })
+  let measured = 0
+  __setFinalCheckRunnerForTests(async (file: string, expected: any) => {
+    measured += 1
+    await parked
+    return fakeVerdict(file, expected)
+  })
+
+  const first = await postFinalCheck(slug, episodeCode)
+  assert.equal(first.body.started, true)
+
+  const second = await postFinalCheck(slug, episodeCode)
+  assert.equal(second.status, 202)
+  assert.equal(second.body.started, false, 'the second request joined the run in progress')
+  assert.equal(second.body.running, true)
+  assert.equal(measured, 1, 'one decode of the same bytes, not two')
+
+  release()
+  await waitFor(async () => (await storedVerdict(videoPath)) !== null, { label: 'the joined check to store its verdict' })
+})
+
+test('a check that could not run says so on the row instead of reading "not run yet"', async () => {
+  const { slug, episodeCode, videoPath } = await readyVideo()
+  __setFinalCheckRunnerForTests(async () => { throw new Error('FFmpeg exited with code 1') })
+
+  const res = await request(app).post(`/api/projects/${slug}/youtube/final-check`)
+    .send({ episode_code: episodeCode })
+  assert.equal(res.status, 202, JSON.stringify(res.body))
+
+  await waitFor(() => finalCheckProgress(videoPath).error !== null, { label: 'the failed check to record why' })
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.equal(row.final_check.running, false)
+  assert.equal(row.final_check.checked, false)
+  assert.match(row.final_check.summary, /could not run — FFmpeg exited with code 1/)
 })
 
 test('the final check refuses an episode with no rendered video instead of inventing a verdict', async () => {

@@ -22,6 +22,7 @@ import { getMediaInfo } from './ffmpeg-validation.js'
 import { finalDurationIssue } from './video-enabled-inputs.js'
 import { EBUR128_FILTER, parseEbur128Summary } from '../generators/music-episode-build.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
+import { logLine } from '../services/logger.js'
 
 /** Where the verdict lives: beside the final, so it travels with the file it describes. */
 export function finalCheckPath(videoPath: string): string {
@@ -396,6 +397,70 @@ export async function storeFinalCheck(videoPath: string, result: FinalCheckResul
   await fs.writeFile(finalCheckPath(videoPath), `${JSON.stringify(result, null, 2)}\n`)
 }
 
+/**
+ * The check as something that outlives the request that asked for it.
+ *
+ * Measuring a finished 2–2.5 h final is one full decode (5–8 minutes here) plus, when the episode
+ * asks for music over its closing tail, a short audio-only pass — far longer than a request may
+ * reasonably stay open, and the request was the only thing keeping it alive: the on-demand POST ran
+ * it inline, so any restart, app update or dropped socket in between threw the whole measurement
+ * away. Night Atlas Mythology EP0008, 2026-10-19: the app quit to install 1.4.331 eight minutes and
+ * twenty-three seconds into the check and no verdict was stored, while the check had been running
+ * the whole time.
+ *
+ * So the caller starts the check and answers; the check finishes on its own and writes the same
+ * sidecar it always wrote. One per file at a time — a second request for a file already being
+ * measured joins the run in progress rather than starting a second decode of the same bytes.
+ *
+ * The entry outlives the run so a run that produced no verdict can say so, instead of the row
+ * reading "not run yet", which would mean both "nobody asked" and "it was asked and failed"
+ * (AGENTS.md §6). One small entry per file measured in this process.
+ */
+export interface FinalCheckProgress {
+  /** True while a check is measuring this file right now. */
+  running: boolean
+  /** Why the last run on this file stored no verdict, or null. */
+  error: string | null
+}
+
+const finalCheckRuns = new Map<string, FinalCheckProgress>()
+
+/** What this process is doing (or last did) about this file. Nothing known reads as "not running". */
+export function finalCheckProgress(videoPath: string): FinalCheckProgress {
+  return finalCheckRuns.get(videoPath) ?? { running: false, error: null }
+}
+
+/** The measurement itself. Indirected only so a test can run a check without spawning ffmpeg. */
+let measure: typeof runFinalCheck = runFinalCheck
+
+/** Test seam: swap the measurement, or `null` to restore the real one. */
+export function __setFinalCheckRunnerForTests(runner: typeof runFinalCheck | null): void {
+  measure = runner ?? runFinalCheck
+}
+
+/**
+ * Start measuring this file, or join the run already measuring it. Returns at once — the caller
+ * must NOT await the check; its verdict lands in the sidecar when it finishes.
+ */
+export function startFinalCheck(
+  videoPath: string,
+  expected: FinalCheckExpectation,
+  overrides: FinalCheckOptions = {},
+): { started: boolean } {
+  if (finalCheckRuns.get(videoPath)?.running) return { started: false }
+  const entry: FinalCheckProgress = { running: true, error: null }
+  finalCheckRuns.set(videoPath, entry)
+  void measure(videoPath, expected, overrides)
+    .then(result => storeFinalCheck(videoPath, result))
+    .catch((error: unknown) => {
+      entry.error = (error as Error)?.message || String(error)
+      // Loud on purpose: nothing is waiting on this run, so this line is the only place it surfaces.
+      logLine('error', `Final check could not run on ${videoPath}: ${entry.error}`)
+    })
+    .finally(() => { entry.running = false })
+  return { started: true }
+}
+
 export interface StoredFinalCheck {
   result: FinalCheckResult
   /** True when the file has been rewritten since the check ran (size or mtime moved). */
@@ -485,9 +550,23 @@ export function finalCheckVerdict(stored: StoredFinalCheck | null): string | nul
     : `${first!.verdict} (and ${rest.length} more problem${rest.length === 1 ? '' : 's'})`
 }
 
-/** The row's one line: "Final check: passed", or the first thing that is wrong with it. */
-export function finalCheckSummary(stored: StoredFinalCheck | null): string {
-  if (!stored) return 'Final check: not run yet'
+/**
+ * The row's one line: "Final check: passed", or the first thing that is wrong with it.
+ *
+ * A check running in the background says so, and a run that ended without a verdict says that too —
+ * otherwise the row would read "not run yet", which is the answer for a file nobody has asked about.
+ * A stored verdict outranks a failed re-run: it still describes these bytes.
+ */
+export function finalCheckSummary(
+  stored: StoredFinalCheck | null,
+  progress: FinalCheckProgress = { running: false, error: null },
+): string {
+  if (progress.running) return 'Final check: checking…'
+  if (!stored) {
+    return progress.error
+      ? `Final check: could not run — ${progress.error}`
+      : 'Final check: not run yet'
+  }
   if (stored.stale) return 'Final check: out of date — the video changed since it was checked'
   if (stored.result.passed) return 'Final check: passed'
   return `Final check: ${stored.result.issues.length} problem${stored.result.issues.length === 1 ? '' : 's'} — ${stored.result.issues[0]!.verdict}`
