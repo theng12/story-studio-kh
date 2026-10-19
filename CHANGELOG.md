@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.328 — 2026-10-19
+
+- Retry on a step whose saved recovery settings can no longer be restored now says why in plain words instead of "Internal server error", and a refused recovery leaves nothing half-saved behind.
+- The YouTube long-video check now only trusts an answer about the exact channel it asked for; an answer about a different channel counts as unknown.
+
 ## v1.4.327 — 2026-10-19
 
 - Closing music: after the narration ends, the background music now plays through the closing (set its length under Video Assembly → After Narration Ends, up to 45 seconds). The music rises back up after the last word, fades out softly at the end, has its own volume, and loops instead of going silent. Subtitles, chapters and scene timing still follow where the speech ends. Change the closing length, then mix the episode's audio again.

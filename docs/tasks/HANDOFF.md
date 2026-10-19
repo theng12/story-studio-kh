@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.328 — 2026-10-19 (gate running)
+
+Merged fix/eligibility-exact-channel (43823dad: channels.list counts only the requested channel id; mismatch is unknown, uncached) and fix-hmh-retry-500 (32cedef8: /projects/:slug/jobs/:id/retry wraps recoverEpisode and answers 409 with the refusal; recoverEpisode writes a new plan once, after extension, before queue insertion). Production bug: HMH a0d4f382 Retry 500 from episode-recovery.ts repairRecoveryNodeParams on a stale [CIRCULAR] plan marker.
+
 ## 1.4.327 — 2026-10-19 (gate running)
 
 Merged feat/new-channel-default-pacing (db046a1f, 688a9c75), feat/music-closing-tail (3593e2f4: lib/closing-tail.ts single source; tail baked once in the audio merge; narration vs master length separated), feat/youtube-eligibility-watch (c2cabea1: channels.list longUploadsStatus, 409 confirmable; thumbnail 403 skip; 24 h processing watch), feat/final-video-check (771a45d4: lib/final-video-check.ts, .finalcheck.json sidecar, final_check safety check, Warn default). publish.vue: postUploadWithAcknowledgements resends with every confirmable answer. Owner decision pending: thumbnail skipped on channels YouTube forbids thumbnails (bends the 2026-10-07 thumbnail-required rule).
