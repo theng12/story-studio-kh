@@ -24,6 +24,7 @@ import { resolveEpisodePaths } from './utils.js'
 import * as im from './idea-manager.js'
 import { episodeStatusCache } from './episode-status-cache.js'
 import { withFinalVideoImportSelectionLock, withFinalVideoPathLock } from './final-video-lock.js'
+import { isEpisodeMergedAudioFilename } from '../lib/merged-audio-selection.js'
 
 const FINAL_VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.mkv', '.webm', '.m4v'])
 
@@ -239,9 +240,15 @@ function computeDestination(
       return path.join(paths.video_dir, `${code}_final_video${ext}`)
     }
     case 'merged': {
-      // merged_audio standardizes to .mp3 — getAudioMergeStatus matches
-      // exactly that filename, so anything else won't satisfy the check.
-      return path.join(paths.merged_audio_dir, `${code}_merged_audio.mp3`)
+      // Keep a recognised source extension: Audio Assembly writes `.mp3`, the
+      // music builder `.m4a`, and imports may carry `.wav`. Renaming an m4a's
+      // bytes to `.mp3` only ever existed to satisfy the retired .mp3-only
+      // check; anything the canonical rule does not accept still lands as .mp3.
+      const candidate = `${code}_merged_audio${sourceExt || '.mp3'}`
+      return path.join(
+        paths.merged_audio_dir,
+        isEpisodeMergedAudioFilename(candidate, code) ? candidate : `${code}_merged_audio.mp3`,
+      )
     }
     case 'other': {
       // Subpaths legitimately contain slashes (the user can target a

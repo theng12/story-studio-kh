@@ -34,6 +34,7 @@ import {
 } from '../lib/reveal-assembly.js'
 import { mapWithConcurrency } from '../lib/map-with-concurrency.js'
 import { mulberry32 } from '../lib/seeded-random.js'
+import { MERGED_AUDIO_FILENAME } from '../lib/merged-audio-selection.js'
 import { assertDecodableImage, isDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
@@ -1455,8 +1456,9 @@ export async function scanEpisodeAssets(
   // Scan audio files. Legacy projects store both chapter clips and the
   // merged output in the same "07 Audio Assets" folder — filter anything
   // matching *_merged_audio* off to the merged_audio array instead of the
-  // chapters list so the video pipeline picks the merged track.
-  const isMergedFilename = (name: string) => /_merged_audio(?:_v\d+)?\.(mp3|wav|m4a)$/i.test(name)
+  // chapters list so the video pipeline picks the merged track. ONE rule:
+  // the canonical pattern from lib/merged-audio-selection.ts.
+  const isMergedFilename = (name: string) => MERGED_AUDIO_FILENAME.test(name)
 
   if (audioDir) {
     const files = await safeReaddir(audioDir)
