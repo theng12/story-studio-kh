@@ -52,6 +52,16 @@ export interface FinalCheckExpectation {
   height: number
   /** The subtitle file the episode expects burned in, or null when it asks for none. */
   subtitles_path: string | null
+  /**
+   * Where the spoken content stops in this file: the render's own narration end, or the merged
+   * narration the episode's Scene Plan was timed against (`speechEndSecFromScenePlan`).
+   *
+   * Absent or 0 = nothing recorded it, which is a real answer and not "the speech ends at 0 s". A
+   * render from before the final-check sidecar existed has no plan at all (Night Atlas Science
+   * EP0006, 2026-10-19), and the check must not call a silence "inside the speech" when it cannot
+   * say where the speech is.
+   */
+  speech_end_sec?: number
 }
 
 export interface FinalCheckIssue {
@@ -112,6 +122,35 @@ export const FINAL_CHECK_DEFAULTS: Required<FinalCheckOptions> = {
 
 function opts(o: FinalCheckOptions): Required<FinalCheckOptions> {
   return { ...FINAL_CHECK_DEFAULTS, ...o }
+}
+
+/**
+ * How close to the file's own end a silence has to finish to read as the ending rather than as a gap.
+ *
+ * Not exact on purpose: a container's duration outlasts its last audio sample (EP0006: 9149 s of
+ * picture, 9148.98 s of sound), and a picture that stops a frame or two late is not a fault.
+ */
+const SPEECH_END_MARGIN_SEC = 1
+
+/**
+ * Where the spoken content stops in an episode's final video, from the episode's own Scene Plan.
+ *
+ * The plan records the merged narration it was timed against (`source_merged_audio.duration_sec`,
+ * 1.4.276) and the last cue it stitched (`source_timeline.last_cue_end_sec`) — the narration end is
+ * the better answer, the last cue is the fallback. This is what lets the check measure a file that
+ * carries no plan of its own, instead of reporting a silence it cannot place.
+ *
+ * 0 when the plan cannot say. Never a guess.
+ */
+export function speechEndSecFromScenePlan(plan: unknown): number {
+  const p = plan as {
+    source_merged_audio?: { duration_sec?: unknown }
+    source_timeline?: { last_cue_end_sec?: unknown }
+  } | null | undefined
+  const merged = Number(p?.source_merged_audio?.duration_sec)
+  if (merged > 0) return merged
+  const cueEnd = Number(p?.source_timeline?.last_cue_end_sec)
+  return cueEnd > 0 ? cueEnd : 0
 }
 
 /** The window the closing tail occupies, or null when this render drew no tail. */
@@ -224,10 +263,31 @@ export function finalCheckIssues(
     })
   }
 
+  // Where the speech stops in this file, or null when nothing recorded it. A closing tail starts
+  // exactly where the speech stops, so a tail that is known IS a known speech end.
+  const speechEndSec = window
+    ? window.start_sec
+    : (Number(expected.speech_end_sec) > 0 ? Number(expected.speech_end_sec) : null)
+
   for (const run of actual.silence) {
     const length = run.end_sec - run.start_sec
     if (length < o.silence_min_sec) continue
-    if (run.start_sec >= bodyEnd - 0.5) continue
+    if (speechEndSec === null) {
+      // Nothing recorded where this file's speech stops — a render from before the plan sidecar
+      // existed (Night Atlas Science EP0006, 2026-10-19), whose every expected value is 0. "Inside
+      // the speech" is a claim the check cannot support here, so it does not make it. A silence that
+      // runs to the file's own end is how an ordinary ending looks and is never a fault; anything
+      // else is reported as the plain fact it is, for a person to look at.
+      if (run.end_sec >= actual.duration_sec - SPEECH_END_MARGIN_SEC) continue
+      issues.push({
+        check: 'silence',
+        verdict: `there is a ${length.toFixed(1)}s silence at ${clock(run.start_sec)}, and this video's `
+          + 'speech end is not recorded, so the check cannot say whether it is a gap in the speech '
+          + 'or the video ending',
+      })
+      continue
+    }
+    if (run.start_sec >= speechEndSec - 0.5) continue
     issues.push({
       check: 'silence',
       verdict: `there is a ${length.toFixed(1)}s silence at ${clock(run.start_sec)}, inside the speech`,
@@ -340,6 +400,43 @@ export interface StoredFinalCheck {
   result: FinalCheckResult
   /** True when the file has been rewritten since the check ran (size or mtime moved). */
   stale: boolean
+}
+
+/**
+ * Which verdict an upload is being decided against, and which file it was measured on.
+ *
+ * `checked_at` is the whole key: it names the stored verdict, and that verdict carries the file's
+ * size and mtime as they were when it ran — so echoing `checked_at` back binds an answer to one
+ * exact check of one exact file, without hashing 2–4 GB of video.
+ */
+export interface FinalCheckIdentity {
+  /** When the check ran — the stored verdict's own `checked_at`. */
+  checked_at: string
+  /** The finished file's size when it was checked. */
+  file_size: number
+  /** The finished file's mtime (ms) when it was checked. */
+  file_mtime_ms: number
+}
+
+/** That identity, or null when this file carries no verdict at all. */
+export function finalCheckIdentity(stored: StoredFinalCheck | null): FinalCheckIdentity | null {
+  if (!stored) return null
+  return {
+    checked_at: stored.result.checked_at,
+    file_size: stored.result.file.size,
+    file_mtime_ms: stored.result.file.mtime_ms,
+  }
+}
+
+/**
+ * True when `checkedAt` names the verdict that still describes this file — the check the owner
+ * reviewed is the one on disk, and the file has not moved since it ran.
+ *
+ * A rewritten file fails (the stored verdict no longer describes those bytes), and so does a verdict
+ * that has been replaced by a newer one: an answer about one check is not an answer about the next.
+ */
+export function finalCheckIdentityMatches(stored: StoredFinalCheck | null, checkedAt: string): boolean {
+  return !!stored && !stored.stale && stored.result.checked_at === checkedAt
 }
 
 /**

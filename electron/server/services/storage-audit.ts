@@ -48,6 +48,10 @@ import {
 import { verifyTimeoutMs, withTimeout } from '../lib/with-timeout.js'
 import { withFinalVideoPathLock } from './final-video-lock.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
+// The one bound for "how much of a cleanup list travels". Defined beside the
+// preview it was measured on; read only inside functions, so the
+// storage-audit ↔ episode-media-cleanup module cycle is never touched at init.
+import { PREVIEW_SAMPLE_FILES } from './episode-media-cleanup.js'
 import {
   exportsAnchorFor,
   getExternalFinalVideoRoot,
@@ -513,6 +517,13 @@ export interface CleanupItem {
 
 export interface CleanupResult {
   items: CleanupItem[]
+  /**
+   * Every outcome this sweep produced; `items` holds only the first
+   * `PREVIEW_SAMPLE_FILES`. One entry per final video is the same unbounded
+   * payload the media-cleanup preview stopped sending, and this result travels
+   * on the operation GET and on the bulk route.
+   */
+  item_count: number
   bytes_freed: number
   deleted_count: number
   skipped_count: number
@@ -671,7 +682,7 @@ export async function cleanupFinalVideoForEpisode(
   const { candidates, trashTargets } = await finalCleanupCandidates(slug, code, idea.title || '')
 
   if (candidates.length === 0) {
-    return { items, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
+    return { items, item_count: 0, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
   }
 
   // Every deletion re-hashes THESE local bytes and refreshes that exact remote
@@ -760,6 +771,7 @@ export async function cleanupFinalVideoForEpisode(
 
   return {
     items,
+    item_count: items.length,
     bytes_freed: bytesFreed,
     deleted_count: deleted,
     skipped_count: skipped,
@@ -862,8 +874,13 @@ export async function bulkCleanupFinalVideos(
     }
   }
 
+  // Counts are the record; only a capped sample of the per-file outcomes travels.
+  // Nothing reads the whole list afterwards, so it is dropped here rather than
+  // kept — this is the route response AND the operation's `final_cleanup`, so one
+  // bound covers both.
   return {
-    items: allItems,
+    items: allItems.slice(0, PREVIEW_SAMPLE_FILES),
+    item_count: allItems.length,
     bytes_freed: bytesFreed,
     deleted_count: deleted,
     skipped_count: skipped,

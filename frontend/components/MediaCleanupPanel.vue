@@ -15,6 +15,10 @@
     </p>
     <p v-if="checkResult" class="cleanup-hint" role="status">{{ checkResult }}</p>
     <p v-if="error" class="cleanup-error" role="alert">{{ error }} <button v-if="operation" class="btn btn-sm" :disabled="polling" @click="pollOperation">Check Progress Again</button></p>
+    <label class="cleanup-recheck">
+      <input v-model="checkAgain" type="checkbox" :disabled="busy" />
+      <span><strong>Check every episode again</strong> — re-reads the episodes a previous cleanup already finished, instead of skipping them. Use it when you want the whole Library looked at from scratch.</span>
+    </label>
     <div class="cleanup-library-actions">
       <div class="cleanup-library-action">
         <button class="btn btn-secondary" :disabled="busy" @click="startLibraryPreview('shrink_images')">Shrink Images (All Channels)</button>
@@ -43,12 +47,13 @@
       <p v-if="operation.error" class="cleanup-error">{{ operation.error }}</p>
       <template v-if="operation.result">
         <p>{{ resultSummary }}</p>
-        <details v-if="operation.result.items?.length" class="disclosure"><summary>View file outcomes</summary><ul class="cleanup-files"><li v-for="(item, index) in operation.result.items" :key="index"><span class="cleanup-path">{{ item.path || item.source_path || item.file }}</span> — {{ item.outcome || item.status }}<span v-if="item.reason">: {{ item.reason }}</span></li></ul></details>
+        <details v-if="operation.result.items?.length" class="disclosure"><summary>View file outcomes</summary><ul class="cleanup-files"><li v-for="(item, index) in operation.result.items" :key="index"><span class="cleanup-path">{{ item.path || item.source_path || item.file }}</span> — {{ item.outcome || item.status }}<span v-if="item.reason">: {{ item.reason }}</span></li></ul><p v-if="moreOutcomes" class="cleanup-hint">and {{ moreOutcomes }} more {{ moreOutcomes === 1 ? 'file' : 'files' }} — all of them are counted above.</p></details>
       </template>
     </div>
     <div v-if="preview" class="cleanup-review">
       <h4>{{ libraryPreviewTitle }}</h4>
-      <p v-if="!hasLibraryWork" class="cleanup-hint">Nothing to clean up right now: no eligible uploaded videos and no unused leftover files in any channel. Nothing will move.</p>
+      <p v-if="!hasLibraryWork && !preview.already_cleaned_episodes" class="cleanup-hint">Nothing to clean up right now: no eligible uploaded videos and no unused leftover files in any channel. Nothing will move.</p>
+      <p v-if="preview.already_cleaned_episodes" class="cleanup-hint">{{ alreadyCleanedText }}</p>
       <p>Every channel is listed here with its real totals; each channel shows the first of its files. Every file is checked again before it is touched. Files whose channel, upload proof or production date cannot be confirmed are left where they are, with the reason shown.</p>
       <ul v-if="preview.blocked_reasons.length" class="cleanup-warnings"><li v-for="warning in preview.blocked_reasons" :key="warning">{{ warning }}</li></ul>
       <details v-for="channel in preview.channels" :key="channel.slug" class="cleanup-file-group disclosure">
@@ -93,8 +98,8 @@ interface LibraryLeftover { project_slug: string; channel_name: string; kind: 'a
  * list stays on the server — a channel can hold tens of thousands of files, and
  * sending them all made the review read minutes long.
  */
-interface LibraryPreview { preview_id: string; action: LibraryAction; created_at: string; expires_at: string; channels: LibraryChannel[]; file_count: number; total_bytes: number; blocked_reasons: string[]; trash_roots: string[]; estimate: Estimate; leftovers?: { count: number; total_bytes: number; items: LibraryLeftover[] } }
-interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; bytes_done?: number; bytes_total?: number; current: string; detail?: string; error?: string; library?: boolean; library_action?: LibraryAction; library_preview?: LibraryPreview; channels_done?: number; channels_total?: number; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number; leftovers_moved?: number; leftovers_bytes_moved?: number; leftovers_left?: number } }
+interface LibraryPreview { preview_id: string; action: LibraryAction; created_at: string; expires_at: string; channels: LibraryChannel[]; file_count: number; total_bytes: number; blocked_reasons: string[]; trash_roots: string[]; estimate: Estimate; already_cleaned_episodes: number; leftovers?: { count: number; total_bytes: number; items: LibraryLeftover[] } }
+interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; bytes_done?: number; bytes_total?: number; current: string; detail?: string; error?: string; library?: boolean; library_action?: LibraryAction; library_preview?: LibraryPreview; channels_done?: number; channels_total?: number; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; item_count?: number; removed_count?: number; archived_count?: number; compressed_count?: number; deleted_count?: number; skipped_count?: number; failed_count?: number; pending_count?: number; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number; leftovers_moved?: number; leftovers_bytes_moved?: number; leftovers_left?: number } }
 interface Space { free_bytes: number | null; project_trash_bytes: number | null; library_trash_bytes: number | null; app_trash_bytes: number | null }
 /** The one automatic-retention setting (Story → Trash shows the same switch); `last_auto_cleanup` is what this panel reports back. */
 interface RetentionRun { at: string; status: 'completed' | 'failed' | 'skipped'; detail: string; moved?: number; bytes?: number }
@@ -112,6 +117,8 @@ const stopping = ref(false)
 const polling = ref(false)
 const checkingYouTube = ref(false)
 const checkResult = ref('')
+/** "Check every episode again": the owner's override, sent with the next check. */
+const checkAgain = ref(false)
 const space = ref<Space | null>(null)
 const autoCleanup = ref(true)
 const retention = ref<Retention | null>(null)
@@ -141,6 +148,18 @@ const autoCleanupStatus = computed(() => {
   return `Last run ${new Date(last.at).toLocaleString()} — ${last.status}: ${last.detail} ${nextRunText.value}`
 })
 const hasLibraryWork = computed(() => !!preview.value && (preview.value.file_count > 0 || (preview.value.leftovers?.count || 0) > 0))
+/**
+ * What the review says about the episodes it did not re-read. A finished episode
+ * a cleanup already handled is skipped until something about its files changes,
+ * so the owner is told how many that was and what brings one back.
+ */
+const alreadyCleanedText = computed(() => {
+  const count = preview.value?.already_cleaned_episodes || 0
+  const episodes = `${count} ${count === 1 ? 'episode' : 'episodes'} already cleaned, skipped`
+  return hasLibraryWork.value
+    ? `${episodes}. Nothing was re-read for them; change an episode's files and it is checked again.`
+    : `${episodes}, and nothing is left to clean up. Nothing will move.`
+})
 const libraryPreviewTitle = computed(() => {
   const value = preview.value
   if (!value) return ''
@@ -170,14 +189,26 @@ const operationLabel = computed(() => {
   if (op.status === 'stopping') return 'Stopping after the current file…'
   return op.stage === 'compressing' ? 'Shrinking images and moving media to the Trash…' : op.stage === 'archiving' ? 'Archiving verified files…' : op.stage === 'removing' ? 'Moving reviewed files to the Trash…' : op.stage === 'verifying' ? 'Matching final videos with their YouTube uploads…' : 'Listing files and upload evidence…'
 })
+/** Outcomes the run produced beyond the capped sample the operation carries. */
+const moreOutcomes = computed(() => Math.max(0, (operation.value?.result?.item_count ?? 0) - (operation.value?.result?.items?.length ?? 0)))
 const resultSummary = computed(() => {
   const result = operation.value?.result
   const items = result?.items || []
-  const pending = items.filter(item => (item.outcome || item.status) === 'pending').length
-  const changed = items.filter(item => ['removed', 'archived', 'compressed'].includes(item.outcome || item.status || '')).length
+  // `items` is a capped sample and `item_count` is the real number, so a run
+  // over thousands of files must be counted from the outcome counters the
+  // backend sends, never from the sample. A result without `item_count` is a
+  // shape written before the cap: count its (whole) list as before.
+  const total = result?.item_count ?? items.length
+  const counted = result?.item_count !== undefined
+  const pending = counted
+    ? (result?.pending_count || 0)
+    : items.filter(item => (item.outcome || item.status) === 'pending').length
+  const changed = counted
+    ? (result?.removed_count || 0) + (result?.archived_count || 0) + (result?.compressed_count || 0) + (result?.deleted_count || 0)
+    : items.filter(item => ['removed', 'archived', 'compressed', 'deleted'].includes(item.outcome || item.status || '')).length
   const leftoversMoved = result?.leftovers_moved || 0
   const leftoversLeft = result?.leftovers_left || 0
-  const skipped = items.length - changed - pending
+  const skipped = total - changed - pending
   const changedText = `${changed} ${changed === 1 ? 'file' : 'files'} changed`
   const leftoverText = leftoversMoved ? `${leftoversMoved} leftover ${leftoversMoved === 1 ? 'folder' : 'folders'} moved` : ''
   // A run that moved only leftover folders must not read as "0 files changed".
@@ -311,7 +342,7 @@ async function startLibraryPreview(action: LibraryAction) {
   const version = generation
   submitting.value = true; error.value = ''; preview.value = null
   try {
-    const result = await post<{ operation_id: string }>('/library/media-cleanup/preview', { action })
+    const result = await post<{ operation_id: string }>('/library/media-cleanup/preview', { action, check_again: checkAgain.value })
     if (!current(version)) return
     remember(result.operation_id)
     operation.value = { id: result.operation_id, project_slug: '*', kind: 'preview', status: 'queued', stage: 'checking', done: 0, total: 0, current: '' }
@@ -396,6 +427,10 @@ p { color: var(--text-secondary); line-height: 1.5; margin: 8px 0 12px; }
 .cleanup-space { font-size: var(--font-sm); }
 .cleanup-space small { display: block; color: var(--text-muted); }
 .cleanup-library-actions { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
+/* Sits above the two action cards it applies to, so it reads as an option on both. */
+.cleanup-recheck { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0 0; font-size: var(--font-sm); line-height: 1.5; color: var(--text-secondary); cursor: pointer; }
+.cleanup-recheck input { margin: 3px 0 0; flex: none; }
+.cleanup-recheck strong { color: var(--text-primary); }
 .cleanup-library-action { flex: 1 1 260px; min-width: 240px; display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; }
 .cleanup-library-action small { color: var(--text-muted); line-height: 1.5; font-size: var(--font-sm); }
 /* The switch sits with the button it automates. Two classes deep on purpose: `.cleanup-library-action small`

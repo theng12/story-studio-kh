@@ -345,6 +345,29 @@ test('balanced transient zero-settlement is free while Off; a paid replacement f
   assert.equal(Object.values(state.plans).flatMap((p: any) => p.attempts).length, 0)
 })
 
+test('a HELD original transcription buys no paid replacement: its answer may still arrive', async t => {
+  const f = await fixture(t)
+  await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })
+  // The Gateway is still holding the original failure as an unknown outcome, so it is not a
+  // settled failure and the attempt may yet be adopted (`origin-field/38cf1226`,
+  // `terranash-sleep-stories/516bd788`). A replacement here pays for the same words twice.
+  // Only the AUTHORITATIVE by-key read reports the hold — the one `rebindOriginalAuthority`
+  // judges the original by. The job GET stays a settled failure so this test does not have to
+  // wait out the client's 5-minute unknown-outcome grace window (which is the correct
+  // behaviour for a hold, and is pinned by the chat-recovery suites).
+  const baseFetch = globalThis.fetch
+  globalThis.fetch = async (input, init) => {
+    const response = await baseFetch(input, init)
+    if (!String(input).includes('/by-idempotency-key/')) return response
+    const job = await response.clone().json().catch(() => null)
+    if (!job || typeof job !== 'object' || (job as any).state !== 'failed') return response
+    return Response.json({ ...(job as object), recovery_required: true, recovery_state: 'unknown_outcome' })
+  }
+  await assert.rejects(f.run(), /not eligible|authority|identity/i)
+  assert.equal(f.confirmations.length, 0)
+  assert.equal(f.calls.some(call => call.includes('/quotes')), false, 'no replacement was even priced')
+})
+
 test('toggle Off while a quote is pending prevents confirmation', async t => {
   const f = await fixture(t)
   await setAppSetting('paid_subtitle_replacement', { enabled: true, additional_credit_ceiling: 5 })

@@ -29,6 +29,7 @@ import { sameInstant } from '../lib/publish-instant.js'
 import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import type {
   YouTubeEpisodePublishableProjection,
+  YouTubeFinalCheckProjection,
   YouTubePublicationProjection,
 } from '../contracts/youtube-upload-center.js'
 import {
@@ -76,12 +77,13 @@ import { buildYouTubeMetadataPackage, resanitizeStoredSnippet, resolveYouTubeUpl
 import { enqueueOrRun, getJobs, isDuplicate } from '../services/job-queue.js'
 import type { Job } from '../models/types.js'
 import { listUploadThumbnails, resolveUploadMetadata } from '../lib/upload-metadata.js'
-import { createProjectFactsCache, resolveEpisodePaths, EPISODE_PROBE_BATCH } from '../services/utils.js'
+import { createProjectFactsCache, resolveEpisodePaths, resolveScenePlanPath, EPISODE_PROBE_BATCH } from '../services/utils.js'
 import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
 import { safetyMode } from '../services/safety-checks.js'
 import {
-  finalCheckVerdict, readStoredFinalCheck, runFinalCheck, storeFinalCheck, finalCheckSummary,
+  finalCheckVerdict, finalCheckIdentity, finalCheckIdentityMatches, readStoredFinalCheck, runFinalCheck,
+  speechEndSecFromScenePlan, storeFinalCheck, finalCheckSummary, type FinalCheckExpectation,
 } from '../lib/final-video-check.js'
 import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
@@ -793,7 +795,11 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
                   checked: !!finalCheck,
                   stale: !!finalCheck?.stale,
                   issues: finalCheck?.result.issues ?? [],
-                },
+                  // Which check this row is showing. An acknowledgement echoes `checked_at` back so
+                  // the answer binds to this verdict about these bytes, not to whatever verdict is
+                  // stored by the time the upload is admitted.
+                  identity: finalCheckIdentity(finalCheck),
+                } satisfies YouTubeFinalCheckProjection,
               }
             : {}),
           publication,
@@ -2405,13 +2411,30 @@ router.post('/projects/:slug/youtube/preview', async (req, res) => {
 })
 
 /**
+ * Where the episode's spoken content stops in its final video, from the episode's own Scene Plan:
+ * the merged narration the plan was timed against, or failing that the last cue it stitched.
+ *
+ * 0 when the episode has no plan to read — "not recorded", never a measured 0 s. The final check
+ * reports a silence it cannot place as unknown rather than as speech.
+ */
+async function speechEndSecForEpisode(slug: string, episodeCode: string, episodeDir: string): Promise<number> {
+  try {
+    const planPath = await resolveScenePlanPath(slug, episodeCode, episodeDir)
+    return speechEndSecFromScenePlan(JSON.parse(await fsp.readFile(planPath, 'utf-8')))
+  } catch {
+    return 0
+  }
+}
+
+/**
  * Run the final check on an episode's finished video, now, and store the verdict beside it.
  *
  * Video Assembly runs this by itself at the end of every render; this is for the file that was made
  * before that, or for a re-check after the owner changed something. It measures against the plan the
  * sidecar recorded (the plan the file was MADE for, not today's settings). A file with no sidecar —
  * one rendered before this feature existed — still gets the checks that need no plan: black
- * stretches, silence inside the speech, and the picture/sound clocks.
+ * stretches, silence, and the picture/sound clocks, with the speech end read from the episode's
+ * Scene Plan so a silence can be placed instead of guessed at.
  */
 router.post('/projects/:slug/youtube/final-check', async (req, res) => {
   const slug = req.params.slug
@@ -2432,13 +2455,23 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
       return
     }
     const stored = await readStoredFinalCheck(sourceVideoPath)
-    const expected = stored?.result.expected ?? {
+    const recorded = stored?.result.expected
+    const expected: FinalCheckExpectation = {
       planned_sec: 0,
       tail: { sec: 0, from_end_sec: 0 },
       closing_music: false,
       width: 0,
       height: 0,
       subtitles_path: null,
+      ...(recorded ?? {}),
+      // Where the speech stops, so the check can tell a silence inside it from the file simply
+      // ending. A render records its own narration end; a file from before that existed has no plan
+      // of its own, so the episode's Scene Plan supplies the merged narration it was timed against
+      // (Night Atlas Science EP0006, 2026-10-19). 0 = neither could say, and the check then reports
+      // a silence it cannot place as unknown instead of calling it speech.
+      speech_end_sec: Number(recorded?.speech_end_sec) > 0
+        ? Number(recorded!.speech_end_sec)
+        : await speechEndSecForEpisode(slug, episodeCode, sourcePaths.episode_dir),
     }
     const result = await runFinalCheck(sourceVideoPath, expected)
     await storeFinalCheck(sourceVideoPath, result)
@@ -2619,6 +2652,34 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // with `acknowledge_final_check`, the click-through `episode_number_claim` already uses. Off
     // skips the question; Block refuses without one. Nothing here blocks an upload permanently.
     const storedCheck = await readStoredFinalCheck(sourceVideoPath)
+    // An acknowledgement may name the verdict it is answering (`final_check_checked_at`, the row's
+    // own `final_check.identity.checked_at`). When it does, the answer only counts for THAT check of
+    // THAT file: a re-render, or a check run again since the owner looked, means they answered about
+    // something that is no longer there. A body that names no verdict is admitted exactly as before,
+    // so nothing older than this field changes behaviour.
+    const reviewedCheckAt = typeof req.body?.final_check_checked_at === 'string'
+      ? req.body.final_check_checked_at.trim()
+      : ''
+    if (reviewedCheckAt && !finalCheckIdentityMatches(storedCheck, reviewedCheckAt)) {
+      res.status(409).json({
+        code: 'YOUTUBE_FINAL_CHECK_CHANGED',
+        detail: `${episodeCode}'s finished video is not the one that check was taken on — it was `
+          + 'checked again, or the file was rewritten, after you looked. Look at the check that is '
+          + 'stored now and decide on that.',
+        // Not confirmable: re-answering the same stale identity would fail again, and the only way
+        // forward is to look at the verdict that is there now.
+        confirmable: false,
+        final_check: storedCheck
+          ? {
+              passed: storedCheck.result.passed,
+              stale: storedCheck.stale,
+              issues: storedCheck.result.issues,
+              identity: finalCheckIdentity(storedCheck),
+            }
+          : { passed: false, stale: false, issues: [], identity: null },
+      })
+      return
+    }
     const checkReason = finalCheckVerdict(storedCheck)
     if (checkReason) {
       const checkMode = await safetyMode(slug, 'final_check')
@@ -2629,8 +2690,14 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
           // Block is a deliberate refusal: no click-through is offered, and none would work.
           confirmable: checkMode !== 'block',
           final_check: storedCheck
-            ? { passed: storedCheck.result.passed, stale: storedCheck.stale, issues: storedCheck.result.issues }
-            : { passed: false, stale: false, issues: [] },
+            ? {
+                passed: storedCheck.result.passed,
+                stale: storedCheck.stale,
+                issues: storedCheck.result.issues,
+                // What a click-through answers about: the caller echoes `identity.checked_at` back.
+                identity: finalCheckIdentity(storedCheck),
+              }
+            : { passed: false, stale: false, issues: [], identity: null },
         })
         return
       }

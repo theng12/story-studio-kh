@@ -4951,20 +4951,32 @@ async function forceLiveCatalogSnapshot<T>(
 ): Promise<GenStudioCatalogSnapshot<T>> {
   const generation = (catalogGenerations.get(key) ?? 0) + 1
   catalogGenerations.set(key, generation)
+  // Supersede the warm copy for THIS read — but keep it. Deleting it outright destroyed the
+  // only copy an ordinary reader had, so a failed paid-decision read reported "no cached
+  // copy" and left the key empty for every later read, turning one failure into a wave of
+  // refusals (mini 1.4.328, 2026-10-19: 9 image jobs refused, zero Gateway failures).
+  // This read still never RETURNS the old copy — see the `freshness !== 'live'` guard below.
+  const superseded = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
   catalogCache.delete(key)
   // Abort the read this one supersedes rather than orphaning it. A superseded
   // request used to stay in flight — one socket held for its full 30 s timeout,
   // repeated by its two retries — while this read opened a second one beside it.
   catalogRefreshes.get(key)?.abort.abort()
   catalogRefreshes.delete(key)
-  const snapshot = await cachedCatalogSnapshot(kind, key, load, options)
-  if ((catalogGenerations.get(key) ?? 0) !== generation) {
-    throw new Error(`The Gateway ${CATALOG_LABEL[kind]} catalogue force-live read was superseded by a newer refresh.`)
+  try {
+    const snapshot = await cachedCatalogSnapshot(kind, key, load, options)
+    if ((catalogGenerations.get(key) ?? 0) !== generation) {
+      throw new Error(`The Gateway ${CATALOG_LABEL[kind]} catalogue force-live read was superseded by a newer refresh.`)
+    }
+    if (snapshot.freshness !== 'live') {
+      throw new GenStudioCatalogUnavailableError(kind, snapshot.ageMs, new Error('force-live image catalog read was not live'))
+    }
+    return snapshot
+  } catch (error) {
+    // Hand the copy back for ordinary readers, unless a newer read already wrote one.
+    if (superseded && !catalogCache.has(key)) catalogCache.set(key, superseded)
+    throw error
   }
-  if (snapshot.freshness !== 'live') {
-    throw new GenStudioCatalogUnavailableError(kind, snapshot.ageMs, new Error('force-live image catalog read was not live'))
-  }
-  return snapshot
 }
 
 async function cachedCatalog<T>(
@@ -7762,7 +7774,12 @@ async function replaceConfirmedGeneration<T>(
 ): Promise<T> {
   if (!(error instanceof GenStudioTerminalFailureError)
     || error.failureClass !== 'provider_transient' || error.cancelled
-    || isUncertainGenerationCode(error.failureCode)
+    // The SHARED hold-aware test, not the code alone: a gateway hold
+    // (`recovery_required` / `unknown_outcome`) says the answer may still arrive whatever
+    // code the job carries, so it is not permission to buy a second request. Keyed on the
+    // code alone this read a held job as "proven uncharged" and replaced it (see
+    // `isGenStudioSubmissionUncertain`).
+    || isGenStudioSubmissionUncertain(error)
     || !originalKey || request.replacementChargeLimit !== undefined) throw error
   const queue = await import('../services/job-queue.js')
   const storyJob = queue.getJob(queue.currentJobId() || '')
@@ -7793,6 +7810,11 @@ async function replaceConfirmedGeneration<T>(
   if (original.id !== error.jobId || original.state !== 'failed' || original.cancelled
     || original.failure_class !== 'provider_transient'
     || isUncertainGenerationCode(original.failure_code)
+    // The LIVE read is the authority, and a hold on it is an unknown outcome — the answer
+    // may still be adopted. `settledFailure` (services/failed-item-replacement.ts) and
+    // `replayedSettledChatFailure` already read the hold; this guard read the code alone,
+    // so a hold taken between the failure and this read bought a replacement anyway.
+    || holdsUnknownOutcome(original)
     || balancedReplacementSettlement(original) === null) {
     return refuse('The previous request is not a confirmed eligible failure with settled credits.')
   }

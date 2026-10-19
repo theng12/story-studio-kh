@@ -27,7 +27,7 @@ let tmp: { dir: string; cleanup: () => Promise<void> }
 
 const SLUG = 'update-wait-cleanup'
 /** What `bulkCleanupFinalVideos` returns; this file never inspects it. */
-const CLEAN = { items: [], bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
+const CLEAN = { items: [], item_count: 0, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
 /** The phases at which an install owns the Mac and will restart it. */
 const HOLDING: UpdatePhase[] = ['draining', 'installing']
 /** Every other phase: the hold is lifted, including the ones an install settles into. */

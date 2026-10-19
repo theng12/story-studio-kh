@@ -15,7 +15,7 @@ import { mergedClosingTailSec, narrationSecFromMaster } from '../lib/closing-tai
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from './utils.js'
 import { resolveTranscriptSrtPath, stitchedSrtPath } from './subtitle-correction.js'
 import { computePlanCoverage, reconcilePlanToSubtitles, removeNonRenderableScenes } from './scene-planner.js'
-import { stampFromCues } from '../lib/scene-plan-timeline.js'
+import { planEndSec, stampFromCues } from '../lib/scene-plan-timeline.js'
 import type { ScenePlan } from '../models/types.js'
 
 function refusal(statusCode: number, message: string): Error {
@@ -59,7 +59,6 @@ export async function reconcileScenePlanTimings(
   })
   const cues = parseSrt(await fs.readFile(transcriptPath, 'utf-8'))
   if (!cues.length) throw refusal(400, 'The stitched SRT has no cues.')
-  const subtitleEndSec = cues[cues.length - 1]!.end_sec
 
   // Keep the measured audio duration as its own fact. The authoritative plan
   // end below uses whichever reaches later: playable audio or verified captions.
@@ -98,12 +97,14 @@ export async function reconcileScenePlanTimings(
     // job or another request may have written the file since.
     const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
     // The final scene already follows the later of audio and subtitles. Persist
-    // that same authority as the plan total so a millisecond container/SRT
-    // difference cannot make the continuation reader reject its own repair.
-    const narrationSec = Math.max(audioDur, subtitleEndSec)
-    const planEndSec = Math.max(...fresh.scenes.map(scene => Number(scene.end_sec) || 0))
-    if (options.auto && Math.min(planEndSec, narrationSec) / Math.max(planEndSec, narrationSec, 0.001) < AUTO_REALIGN_MIN_COVERAGE) {
-      throw refusal(409, `the Scene Plan was built for ${planEndSec.toFixed(1)}s of narration and today's narration is `
+    // that same authority as the plan total — the one function that answers it,
+    // measured the same way the continuation reader measures it — so a
+    // millisecond container/SRT difference cannot make that reader reject the
+    // repair it just wrote (DL0011).
+    const narrationSec = planEndSec(audioDur, cues)
+    const savedPlanEndSec = Math.max(...fresh.scenes.map(scene => Number(scene.end_sec) || 0))
+    if (options.auto && Math.min(savedPlanEndSec, narrationSec) / Math.max(savedPlanEndSec, narrationSec, 0.001) < AUTO_REALIGN_MIN_COVERAGE) {
+      throw refusal(409, `the Scene Plan was built for ${savedPlanEndSec.toFixed(1)}s of narration and today's narration is `
         + `${narrationSec.toFixed(1)}s — too different to re-align, so rebuild the timeline`)
     }
     const coverageBefore = computePlanCoverage(fresh.scenes, narrationSec)

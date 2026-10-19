@@ -225,6 +225,13 @@ rather than `"en"`.
 
 ## URGENT-ish: fields that became nullable, and the fallbacks that read them
 
+> **RESOLVED — and this section is now history, kept because it is the incident behind the rule.**
+> `SCENE_PROMPT_FALLBACK_OUTPUT_TOKENS` no longer exists anywhere in the code (grep the tree), and
+> `normalizeMaxOutputTokens` returns `null` or throws — it never invents a ceiling. The sibling
+> policy won: `output-token-budget.ts` is the one resolver, and a product that publishes no ceiling
+> is sent **no allowance at all** rather than a number of ours (owner decision #6, 2026-09-20).
+> Read the section below for the reasoning, not for the current behaviour.
+
 Story Studio found a real one, and my change is what triggered it. `scene-prompt-batching.ts:103`
 has `SCENE_PROMPT_FALLBACK_OUTPUT_TOKENS = 8192`, and `normalizeMaxOutputTokens` returns it
 whenever the catalogue published no usable allowance — then `describeScenePromptPackSize` prints

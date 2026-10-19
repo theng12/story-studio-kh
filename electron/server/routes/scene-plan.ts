@@ -22,6 +22,7 @@ import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { findIncompleteSubtitleSections } from '../services/subtitle-stitcher.js'
 import { resolveTranscriptSrt, resolveTranscriptSrtPath, stitchedSrtPath } from '../services/subtitle-correction.js'
+import { planEndSec } from '../lib/scene-plan-timeline.js'
 import { inspectSubtitleText } from '../lib/subtitle-quality.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { parseSavedScenePlanPacing, parseScenePacing } from '../contracts/pacing.js'
@@ -712,6 +713,13 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
     })
     const cues = parseSrt(await fs.readFile(transcriptPath, 'utf-8'))
     if (!cues.length) return res.status(400).json({ detail: 'The stitched subtitle timeline has no cues.' })
+    // The plan's end is the later of the measured audio and the verified captions —
+    // the SAME number the continuation reader compares against
+    // (`plan.total_duration_sec < current.last_cue_end_sec - 0.001`). Repaired to the
+    // audio alone, a plan whose captions end a few ms later is written shorter than
+    // its own timeline, so Scene Plan then rejects the repair it just made and
+    // demands a rebuild (DL0011: 6083.290 < 6083.292).
+    const repairedEndSec = planEndSec(audioDur, cues)
 
     // Defer parsing the current draft until the locked plan read proves this is
     // a legacy plan without its own pacing snapshot. A malformed unrelated
@@ -733,7 +741,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
       const result = repairPlanCoverageWithSubtitleCues({
         scenes: fresh.scenes,
         cues,
-        audioDurationSec: audioDur,
+        audioDurationSec: repairedEndSec,
         threshold_sec: 20,
         min_sec: repairPacing.min_sec,
         max_sec: repairPacing.max_sec,
@@ -744,7 +752,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
         hold_head_scene: (req.body as any)?.hold_head_scene === true,
       })
       fresh.scenes = result.scenes
-      fresh.total_duration_sec = audioDur
+      fresh.total_duration_sec = repairedEndSec
       await writeJsonAtomic(sidecarPath, fresh)
       return result
     })

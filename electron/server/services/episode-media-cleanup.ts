@@ -1,7 +1,7 @@
 import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import { randomUUID } from 'node:crypto'
 import { episodeDirNameMatchesCode } from './asset-status.js'
-import { closeSync, constants as fsConstants, existsSync, lstatSync, openSync, readSync, realpathSync, renameSync, unlinkSync, utimesSync } from 'node:fs'
+import { closeSync, constants as fsConstants, existsSync, lstatSync, openSync, readSync, realpathSync, renameSync, unlinkSync, utimesSync, type Dirent } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
@@ -134,6 +134,12 @@ export interface MediaCleanupPreview {
   files: MediaCleanupFile[]
   total_bytes: number
   blocked_reasons: string[]
+  /**
+   * Episodes this check did not re-review because a previous cleanup action
+   * already handled them and nothing in their media folders has changed since.
+   * See `episodeAlreadyCleaned`.
+   */
+  already_cleaned_episodes: number
   preset?: 'archive_episode' | typeof CONVERT_PNG_PRESET
   /** The `_trash` folder(s) removed files land in, shown in the confirm text so the owner never has to choose a destination. */
   trash_roots: string[]
@@ -157,6 +163,11 @@ export interface MediaCleanupPreview {
  * `channels[].files` — which measured 276 MB and ~8 minutes over the network on
  * the production mini. The full list stays in the server-side preview map; the
  * run reads it from there by `preview_id`.
+ *
+ * The same bound applies to a RUN's own outcome list (`MediaCleanupRunResult.items`
+ * and `CleanupResult.items`): one entry per file is the same payload through a
+ * different field, and a whole-Library run touches every file the preview listed.
+ * A run carries `item_count` beside the capped sample.
  */
 export const PREVIEW_SAMPLE_FILES = 50
 
@@ -193,7 +204,17 @@ export interface MediaCleanupRunResult {
     bytes_after?: number
     destination_path?: string
     reason?: string
+    /**
+     * A skip that will never resolve on its own: already a JPEG, nothing left to
+     * gain, a file this action does not handle. An unset flag on a skip means
+     * "try again later" — a refusal that another run may get past (the episode
+     * went busy, the file changed, YouTube did not answer) — so the episode is
+     * NOT recorded as cleaned while one is present.
+     */
+    settled?: boolean
   }>
+  /** Every outcome this run produced; `items` holds only the first `PREVIEW_SAMPLE_FILES`. */
+  item_count: number
   archived_count: number
   removed_count: number
   compressed_count: number
@@ -276,6 +297,8 @@ export interface LibraryCleanupPreview {
   files: LibraryCleanupFile[]
   total_bytes: number
   blocked_reasons: string[]
+  /** Episodes this check did not re-review because a previous cleanup already handled them, unchanged since. */
+  already_cleaned_episodes: number
   /** The `_trash` folder(s) removed files land in (clear) or the JPEG originals go to (shrink). */
   trash_roots: string[]
   estimate: MediaCleanupPreview['estimate']
@@ -391,6 +414,30 @@ interface MediaCleanupSidecar {
   updated_at: string
   archived_at?: string
   entries: MediaCleanupSidecarEntry[]
+  /** One record per cleanup action this episode has been fully cleaned by. See `episodeAlreadyCleaned`. */
+  cleaned?: MediaCleanupCleanedEntry[]
+}
+
+/**
+ * "This action already handled this episode, and here is how its media folders
+ * looked when it finished."
+ *
+ * Written by a run that left nothing failed or pending behind, and read by the
+ * next check, which skips the episode when the folders still measure the same.
+ * The measurement is deliberately cheap — a count, a total and the newest
+ * modification time from one directory walk — so the check it replaces is the
+ * expensive one (listing every file, reading the finals, asking YouTube), not
+ * the other way round. Anything it cannot measure means "check again".
+ */
+interface MediaCleanupCleanedEntry {
+  /** The action's identity: the categories it covered, sorted and joined. */
+  key: string
+  /** The exact upload this record was made under; a re-upload makes it stale. */
+  upload_operation_id: string
+  files: number
+  bytes: number
+  newest_mtime_ms: number
+  cleaned_at: string
 }
 
 interface CleanupHooks {
@@ -974,8 +1021,11 @@ async function narrationPartsFiles(slug: string, code: string, proof: MediaClean
 async function trashReviewedNarrationParts(
   slug: string, code: string, file: MediaCleanupFile, mode: MediaCleanupMode,
 ): Promise<MediaCleanupRunResult['items'][number]> {
-  const skipped = (reason: string) => ({ path: file.path, category: file.category, outcome: 'skipped' as const, bytes_reclaimed: 0, bytes_moved: 0, reason })
-  if (mode === 'archive') return skipped('Narration parts only move to _trash; nothing was copied or removed.')
+  const skipped = (reason: string, settled = false) => ({
+    path: file.path, category: file.category, outcome: 'skipped' as const, bytes_reclaimed: 0, bytes_moved: 0, reason,
+    ...(settled ? { settled: true } : {}),
+  })
+  if (mode === 'archive') return skipped('Narration parts only move to _trash; nothing was copied or removed.', true)
   const paths = await resolveEpisodePathsByCode(slug, code)
   const { moved, left } = await trashEpisodeParts(pm.getProjectDir(slug)!, paths.audio_dir, [file.path], await mediaAnchorFor(slug, paths))
   if (!moved.length) return skipped(left[0]?.reason || 'Left where it is.')
@@ -984,12 +1034,14 @@ async function trashReviewedNarrationParts(
 
 async function buildPreview(
   slug: string,
-  input: { episode_codes: unknown; categories: unknown; preset?: unknown },
+  input: { episode_codes: unknown; categories: unknown; preset?: unknown; check_again?: unknown },
   operation: MediaCleanupOperation,
 ): Promise<MediaCleanupPreview> {
   const categories = resolveCategories(input)
   const codes = validateEpisodeCodes(input.episode_codes)
   const convert = input.preset === CONVERT_PNG_PRESET
+  /** "Check every episode again": the owner's override, which ignores every "already cleaned" record. */
+  const checkAgain = input.check_again === true
   if (!await pm.getProject(slug)) throw fail('Project not found', 404)
   const accepted = await im.getIdeas(slug, 'accepted')
   const inventory = await loadUploadInventory(slug, codes)
@@ -1000,6 +1052,7 @@ async function buildPreview(
   // Pass 1, listing: names and sizes only (no file is read), so it is quick.
   operation.total = codes.length
   const episodeResults: MediaCleanupEpisodePreview[] = []
+  let alreadyCleaned = 0
   for (const code of codes) {
     if (operation.stop_requested) break
     operation.current = code
@@ -1016,6 +1069,13 @@ async function buildPreview(
       episode.blocked_reasons.push(busyReason(code, active))
     } else if (!proof && !partsOnly && !convert) {
       episode.blocked_reasons.push(inventory.why.get(code) || 'This episode has no ready canonical upload on the current YouTube channel.')
+    } else if (!checkAgain && proof
+      && await episodeAlreadyCleaned(slug, code, categories, proof)) {
+      // A finished episode this action already handled, with nothing changed
+      // since. Nothing is listed for it, so nothing is read or decoded either.
+      alreadyCleaned += 1
+      operation.done += 1
+      continue
     } else {
       const idea = acceptedByCode.get(code)!
       if (categories.includes('narration_parts')) episode.files.push(...await narrationPartsFiles(slug, code, proof))
@@ -1072,6 +1132,7 @@ async function buildPreview(
     files,
     total_bytes: files.reduce((sum, file) => sum + file.bytes, 0),
     blocked_reasons: [...new Set(episodeResults.flatMap(episode => episode.blocked_reasons))],
+    already_cleaned_episodes: alreadyCleaned,
     ...(input.preset === 'archive_episode' ? { preset: 'archive_episode' as const } : {}),
     ...(convert ? { preset: CONVERT_PNG_PRESET } : {}),
     trash_roots: [...new Set(files.map((file) => {
@@ -1132,7 +1193,7 @@ function finishOperation(operation: MediaCleanupOperation, status: 'completed' |
 
 export async function startMediaCleanupPreview(
   slug: string,
-  input: { episode_codes: unknown; categories: unknown; preset?: unknown },
+  input: { episode_codes: unknown; categories: unknown; preset?: unknown; check_again?: unknown },
 ): Promise<{ operation_id: string }> {
   resolveCategories(input)
   validateEpisodeCodes(input.episode_codes)
@@ -1158,6 +1219,17 @@ export async function startMediaCleanupPreview(
 function sidecarPath(slug: string, code: string, cache?: ProjectFactsCache): Promise<string> {
   return resolveEpisodePathsByCodeWithSidecar(slug, code, MEDIA_CLEANUP_SIDECAR, cache)
     .then(paths => path.join(paths.episode_dir, MEDIA_CLEANUP_SIDECAR))
+}
+
+function validCleanedEntry(value: unknown): value is MediaCleanupCleanedEntry {
+  const entry = value as MediaCleanupCleanedEntry | null
+  return !!entry && typeof entry === 'object'
+    && typeof entry.key === 'string' && /^[a-z_,]+$/.test(entry.key)
+    && typeof entry.upload_operation_id === 'string' && entry.upload_operation_id.length > 0
+    && Number.isSafeInteger(entry.files) && entry.files >= 0
+    && Number.isSafeInteger(entry.bytes) && entry.bytes >= 0
+    && Number.isFinite(entry.newest_mtime_ms) && entry.newest_mtime_ms >= 0
+    && typeof entry.cleaned_at === 'string' && Number.isFinite(Date.parse(entry.cleaned_at))
 }
 
 async function readSidecar(
@@ -1194,7 +1266,8 @@ async function readSidecar(
         || typeof entry.upload_proof.operation_id !== 'string' || !entry.upload_proof.operation_id
         || typeof entry.upload_proof.channel_id !== 'string' || !entry.upload_proof.channel_id
         || typeof entry.upload_proof.uploaded_at !== 'string' || !Number.isFinite(Date.parse(entry.upload_proof.uploaded_at))
-        || entry.destination_path !== undefined && (typeof entry.destination_path !== 'string' || !path.isAbsolute(entry.destination_path)))) {
+        || entry.destination_path !== undefined && (typeof entry.destination_path !== 'string' || !path.isAbsolute(entry.destination_path)))
+        || value.cleaned !== undefined && (!Array.isArray(value.cleaned) || value.cleaned.some(cleaned => !validCleanedEntry(cleaned)))) {
       throw new Error('invalid media cleanup record')
     }
     return value
@@ -1224,6 +1297,9 @@ async function putSidecarEntry(
     else entries.push(entry)
     const next: MediaCleanupSidecar = {
       ...(current?.archived_at ? { archived_at: current.archived_at } : {}),
+      // A file's own outcome record never touches the action-level "already
+      // cleaned" records: dropping them here would silently undo the skip.
+      ...(current?.cleaned ? { cleaned: current.cleaned } : {}),
       version: 1, project_slug: slug, episode_code: code,
       updated_at: entry.updated_at, entries,
     }
@@ -1354,6 +1430,186 @@ export async function readLocalMediaCleanupStatus(
     : archived > 0 && removed === 0 && pending === 0 ? 'archived'
       : 'partially_removed'
   return { state, updated_at: sidecar.updated_at, has_retired_media: hasRetired, preset_archived_at: sidecar.archived_at ?? null, categories }
+}
+
+// ── "Already cleaned" records ─────────────────────────────────────────────
+//
+// Owner request 2026-10-19: "for older episodes, once cleaned, it's already
+// cleaned. It no longer needs a recheck every time we run. The first time needs
+// the check; after that it's no longer a requirement. Only projects that aren't
+// finished yet might still get new assets."
+//
+// A run that fully handled an episode records, per action, how that action's
+// media folders measured when it finished. A later check that measures the same
+// skips the episode without listing a file. The measurement is one directory
+// walk of counts and sizes — nothing is opened, decoded or hashed — so it is
+// the expensive work (listing every file, reading each final, asking YouTube)
+// that the skip removes, not the reverse. Safety is unchanged: every file that
+// IS offered is still re-checked for its identity and upload proof immediately
+// before it moves.
+
+/** The action's identity: the categories it covers, sorted. */
+function cleanedKey(categories: MediaCleanupCategory[]): string {
+  return [...categories].sort().join(',')
+}
+
+/** What a folder tree measures: how many files, how many bytes, and the newest modification time. */
+interface MediaFolderMeasure {
+  files: number
+  bytes: number
+  newest_mtime_ms: number
+}
+
+const EMPTY_FOLDER: MediaFolderMeasure = { files: 0, bytes: 0, newest_mtime_ms: 0 }
+
+/**
+ * Measure one folder tree, or null when it cannot be measured honestly (a
+ * folder that cannot be read, a symbolic link anywhere inside it). Null always
+ * means "check the episode normally", never "nothing here".
+ */
+async function measureFolder(root: string): Promise<MediaFolderMeasure | null> {
+  let rootStat: Awaited<ReturnType<typeof fs.lstat>>
+  try { rootStat = await fs.lstat(root) } catch (error: any) {
+    // A folder that is not there counts as empty. One that cannot be read at all
+    // measures nothing, so the episode is checked normally.
+    return error?.code === 'ENOENT' ? EMPTY_FOLDER : null
+  }
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) return null
+  let entries: Dirent[]
+  try { entries = await fs.readdir(root, { withFileTypes: true }) } catch { return null }
+  let files = 0, bytes = 0, newest = 0
+  for (const entry of entries) {
+    const full = path.join(root, entry.name)
+    // A link is never a cleanup candidate (`discoverRoot`), so it is no part of
+    // the change signal either. Anything else unexpected stops the measurement.
+    if (entry.isSymbolicLink()) continue
+    if (entry.isDirectory()) {
+      const nested = await measureFolder(full)
+      if (!nested) return null
+      files += nested.files
+      bytes += nested.bytes
+      newest = Math.max(newest, nested.newest_mtime_ms)
+      continue
+    }
+    if (!entry.isFile()) continue
+    const stat = await fs.lstat(full).catch(() => null)
+    if (!stat || !stat.isFile() || stat.isSymbolicLink()) return null
+    files += 1
+    bytes += stat.size
+    newest = Math.max(newest, stat.mtimeMs)
+  }
+  return { files, bytes, newest_mtime_ms: newest }
+}
+
+/** The folders one action covers: exactly the roots its own listing walks. */
+async function cleanedRoots(slug: string, code: string, categories: MediaCleanupCategory[]): Promise<string[]> {
+  const title = await resolveEpisodeTitleByCode(slug, code)
+  const roots = (await rootsFor(slug, code, title, categories.filter(category => category !== 'narration_parts')))
+    .map(root => root.root)
+  // Narration parts have no root of their own; they live inside the audio folder.
+  if (categories.includes('narration_parts')) {
+    const paths = await resolveEpisodePathsByCode(slug, code)
+    roots.push(path.join(paths.audio_dir, PARTS_DIRNAME))
+  }
+  return [...new Set(roots.map(root => path.resolve(root)))]
+}
+
+/** How this action's folders for this episode measure right now, or null when they cannot be measured. */
+async function measureCleanedFolders(
+  slug: string, code: string, categories: MediaCleanupCategory[],
+): Promise<MediaFolderMeasure | null> {
+  let roots: string[]
+  try { roots = await cleanedRoots(slug, code, categories) } catch { return null }
+  let files = 0, bytes = 0, newest = 0
+  for (const root of roots) {
+    const measured = await measureFolder(root)
+    if (!measured) return null
+    files += measured.files
+    bytes += measured.bytes
+    newest = Math.max(newest, measured.newest_mtime_ms)
+  }
+  return { files, bytes, newest_mtime_ms: newest }
+}
+
+/** This action's record for this episode, or null. An unreadable record is "no record". */
+async function readCleanedEntry(
+  slug: string, code: string, categories: MediaCleanupCategory[],
+): Promise<MediaCleanupCleanedEntry | null> {
+  const sidecar = await readSidecar(await sidecarPath(slug, code), false, { slug, code }).catch(() => null)
+  const key = cleanedKey(categories)
+  return sidecar?.cleaned?.find(entry => entry.key === key) ?? null
+}
+
+/**
+ * True when this action already fully handled this episode and its media
+ * folders measure exactly as they did when it finished. A changed file count,
+ * byte total or modification time — a new asset, a re-render, anything moved —
+ * a different upload than the recorded one, or a folder that cannot be measured
+ * all answer false, and the episode is then checked as usual.
+ */
+async function episodeAlreadyCleaned(
+  slug: string, code: string, categories: MediaCleanupCategory[], proof: MediaCleanupUploadProof,
+): Promise<boolean> {
+  const record = await readCleanedEntry(slug, code, categories)
+  if (!record || record.upload_operation_id !== proof.operation_id) return false
+  const measured = await measureCleanedFolders(slug, code, categories)
+  return !!measured
+    && measured.files === record.files
+    && measured.bytes === record.bytes
+    && measured.newest_mtime_ms === record.newest_mtime_ms
+}
+
+/** Record that this action has fully handled this episode, as its folders measure now. */
+async function recordEpisodeCleaned(
+  slug: string, code: string, categories: MediaCleanupCategory[], proof: MediaCleanupUploadProof,
+): Promise<void> {
+  const measured = await measureCleanedFolders(slug, code, categories)
+  if (!measured) return
+  const record: MediaCleanupCleanedEntry = {
+    key: cleanedKey(categories),
+    upload_operation_id: proof.operation_id,
+    files: measured.files,
+    bytes: measured.bytes,
+    newest_mtime_ms: measured.newest_mtime_ms,
+    cleaned_at: isoNow(),
+  }
+  const file = await sidecarPath(slug, code)
+  const episodeStat = await fs.lstat(path.dirname(file)).catch(() => null)
+  if (!episodeStat?.isDirectory() || episodeStat.isSymbolicLink()) return
+  await withLock(file, async () => {
+    const current = await readSidecar(file, true, { slug, code })
+    const cleaned = [...(current?.cleaned ?? []).filter(entry => entry.key !== record.key), record]
+    await writeJsonAtomic(file, {
+      version: 1, project_slug: slug, episode_code: code,
+      ...(current?.archived_at ? { archived_at: current.archived_at } : {}),
+      entries: current?.entries ?? [],
+      cleaned,
+      updated_at: record.cleaned_at,
+    } satisfies MediaCleanupSidecar)
+  })
+}
+
+/** A run's outcomes by path: "was this episode fully handled" is then one lookup per file, not a scan per file. */
+function outcomesByPath(outcomes: MediaCleanupRunResult['items']): Map<string, MediaCleanupRunResult['items'][number]> {
+  return new Map(outcomes.map(item => [item.path, item]))
+}
+
+/**
+ * Whether a run fully handled an episode: it produced an outcome for every file
+ * it reviewed, and none of them failed, stayed pending, or was refused for a
+ * reason another run may get past (the episode went busy, the file changed,
+ * YouTube did not answer). An episode with nothing to do was not "handled", so
+ * it is never recorded as cleaned.
+ */
+function episodeWasFullyHandled(
+  reviewed: Array<{ path: string }>,
+  outcomes: Map<string, MediaCleanupRunResult['items'][number]>,
+): boolean {
+  return reviewed.length > 0 && reviewed.every(file => {
+    const item = outcomes.get(file.path)
+    return !!item && (item.outcome === 'removed' || item.outcome === 'archived' || item.outcome === 'compressed'
+      || item.outcome === 'skipped' && item.settled === true)
+  })
 }
 
 export function archiveDestinationFor(destination: string, projectSlug: string, episodeCode: string, file: MediaCleanupFile): string {
@@ -1507,7 +1763,7 @@ async function mutateReviewedFile(
   }
 
   if (mode === 'compress' && file.category === 'images') return compressReviewedImage(slug, code, file, entryBase, formatOnly)
-  if (!file.upload_proof) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: 'Only converting scene images works without an upload.' }
+  if (!file.upload_proof) return { path: file.path, category: file.category, outcome: 'skipped', bytes_reclaimed: 0, bytes_moved: 0, reason: 'Only converting scene images works without an upload.', settled: true }
   const recorded = { ...entryBase, upload_proof: file.upload_proof }
 
   if (mode === 'archive') {
@@ -1569,6 +1825,8 @@ async function mutateReviewedFile(
       return {
         path: file.path, category: file.category, outcome: collision ? 'skipped' : 'failed',
         bytes_reclaimed: 0, bytes_moved: 0, destination_path: target,
+        // A file already sitting at the destination will still be there next time.
+        ...(collision ? { settled: true } : {}),
         reason: collision ? 'A file already exists at the archive destination.' : error?.message || String(error),
       }
     }
@@ -1627,7 +1885,7 @@ async function compressReviewedImage(
 ): Promise<MediaCleanupRunResult['items'][number]> {
   const item = (over: Partial<MediaCleanupRunResult['items'][number]> & { outcome: MediaCleanupRunResult['items'][number]['outcome'] }) =>
     ({ path: file.path, category: file.category, bytes_reclaimed: 0, bytes_moved: 0, ...over })
-  if (isJpegFile(file.path)) return item({ outcome: 'skipped', reason: ALREADY_JPEG })
+  if (isJpegFile(file.path)) return item({ outcome: 'skipped', reason: ALREADY_JPEG, settled: true })
   const partial = `${file.path}.partial-${process.pid}`
   let pending: MediaCleanupSidecarEntry | null = null
   try {
@@ -1635,7 +1893,7 @@ async function compressReviewedImage(
     const meta = await sharp(file.path).metadata()
     // JPEG has no alpha: a genuinely transparent image would flatten to black.
     if (meta.hasAlpha && !(await sharp(file.path).stats()).isOpaque) {
-      return item({ outcome: 'skipped', reason: 'The image has transparency, which JPEG cannot keep.' })
+      return item({ outcome: 'skipped', reason: 'The image has transparency, which JPEG cannot keep.', settled: true })
     }
     await sharp(file.path).jpeg({ quality: 90, mozjpeg: true }).toFile(partial)
     const after = await assertDecodableImage(partial, 'Compressed image')
@@ -1643,7 +1901,7 @@ async function compressReviewedImage(
     const bytesAfter = (await fs.stat(partial)).size
     if (bytesAfter >= file.bytes * MIN_COMPRESSION_GAIN) {
       await fs.rm(partial, { force: true })
-      return item({ outcome: 'skipped', reason: 'Compression would save less than 20%.' })
+      return item({ outcome: 'skipped', reason: 'Compression would save less than 20%.', settled: true })
     }
     // Upload-backed shrinking is recorded in the episode's cleanup record; a
     // plain format conversion keeps the image, so there is nothing to record.
@@ -1689,11 +1947,16 @@ async function runPreview(
   destination?: string,
 ): Promise<MediaCleanupRunResult> {
   const result: MediaCleanupRunResult = {
-    mode, ...(destination ? { destination } : {}), items: [],
+    mode, ...(destination ? { destination } : {}), items: [], item_count: 0,
     archived_count: 0, removed_count: 0, compressed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0,
     bytes_reclaimed: 0, bytes_moved: 0, bytes_trashed: 0, bytes_after: 0,
   }
   operation.result = result
+  // Every outcome, server-side only. The operation carries counts plus the first
+  // `PREVIEW_SAMPLE_FILES` (`result.items`), because a whole-Library run touches
+  // every reviewed file and one entry per file is the 276 MB payload the preview
+  // already stopped sending. This list is what the Archive-episode preset re-reads.
+  const allItems: MediaCleanupRunResult['items'] = []
   operation.total = preview.files.length
   operation.bytes_total = preview.files.reduce((n, file) => n + file.bytes, 0)
   // Mac mini (16 GB): one image at a time, no libvips cache; put the app-wide settings back afterwards.
@@ -1708,7 +1971,9 @@ async function runPreview(
       const apply = () => jq.withEpisodeMediaCleanupLock(slug, code,
         () => mutateReviewedFile(slug, preview, operation, file, mode, destination))
       const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
-      result.items.push(item)
+      allItems.push(item)
+      result.item_count = allItems.length
+      if (result.items.length < PREVIEW_SAMPLE_FILES) result.items.push(item)
       if (item.outcome === 'archived') result.archived_count += 1
       else if (item.outcome === 'removed') result.removed_count += 1
       else if (item.outcome === 'compressed') result.compressed_count += 1
@@ -1729,10 +1994,20 @@ async function runPreview(
   }
   if (preview.preset === 'archive_episode' && !operation.stop_requested) {
     for (const episode of preview.episodes) {
-      const mine = result.items.filter(item => episode.files.some(file => file.path === item.path))
+      const mine = allItems.filter(item => episode.files.some(file => file.path === item.path))
       const clean = episode.files.length === mine.length && mine.every(item =>
         item.outcome === 'removed' || item.outcome === 'compressed' || item.reason === ALREADY_JPEG)
       if (clean && episode.upload_proof) await markEpisodeArchived(slug, episode.episode_code).catch(() => {})
+    }
+  }
+  // Record the episodes this run fully handled, so the next check skips them
+  // instead of listing and reading them again. A stopped run records nothing:
+  // the episodes after the stop point were never reached.
+  if (!operation.stop_requested) {
+    const outcomes = outcomesByPath(allItems)
+    for (const episode of preview.episodes) {
+      if (!episode.upload_proof || !episodeWasFullyHandled(episode.files, outcomes)) continue
+      await recordEpisodeCleaned(slug, episode.episode_code, preview.categories, episode.upload_proof).catch(() => {})
     }
   }
   return result
@@ -1862,6 +2137,7 @@ function libraryCategories(action: LibraryCleanupAction): MediaCleanupCategory[]
 async function buildLibraryPreview(
   action: LibraryCleanupAction,
   operation: MediaCleanupOperation,
+  checkAgain = false,
 ): Promise<LibraryCleanupPreview> {
   const shrink = action === 'shrink_images'
   const projects = await pm.listProjects()
@@ -1870,6 +2146,7 @@ async function buildLibraryPreview(
   const channels: LibraryCleanupChannel[] = []
   const allFiles: LibraryCleanupFile[] = []
   const blocked: string[] = []
+  let alreadyCleaned = 0
   // `cleanup_all` gathers the unused leftovers of every channel here; the other
   // actions never touch this list.
   const libraryLeftovers: LibraryLeftover[] = []
@@ -1895,6 +2172,7 @@ async function buildLibraryPreview(
     const inventory = await loadUploadInventory(slug, codes)
     const channelFiles: LibraryCleanupFile[] = []
     const channelBlocked: string[] = []
+    const actionCategories = libraryCategories(action)
     for (const code of codes) {
       if (operation.stop_requested) break
       operation.current = `${name}/${code}`
@@ -1906,9 +2184,16 @@ async function buildLibraryPreview(
         channelBlocked.push(`${code}: ${inventory.why.get(code) || 'no ready canonical upload on the current channel'}`)
         continue
       }
-      const active = await relevantActiveJobs(slug, code, libraryCategories(action))
+      const active = await relevantActiveJobs(slug, code, actionCategories)
       if (active.length) { channelBlocked.push(busyReason(code, active)); continue }
-      for (const root of await rootsFor(slug, code, idea?.title || '', libraryCategories(action))) {
+      // A finished episode this action already handled, with nothing changed
+      // since: it contributes no files, so none are listed or read for it.
+      if (!checkAgain && proof
+        && await episodeAlreadyCleaned(slug, code, actionCategories, proof)) {
+        alreadyCleaned += 1
+        continue
+      }
+      for (const root of await rootsFor(slug, code, idea?.title || '', actionCategories)) {
         if (operation.stop_requested) break
         const discovered = await discoverRoot(root, shrink ? null : proof, () => operation.stop_requested === true, code, shrink)
         for (const file of discovered.files) {
@@ -1958,6 +2243,7 @@ async function buildLibraryPreview(
     files: allFiles,
     total_bytes: sum(allFiles),
     blocked_reasons: blocked,
+    already_cleaned_episodes: alreadyCleaned,
     ...(action === 'cleanup_all' ? { leftovers: { count: uniqueLeftovers.length, total_bytes: uniqueLeftovers.reduce((n, item) => n + item.bytes, 0), items: uniqueLeftovers } } : {}),
     trash_roots: [...new Set(allFiles.map(file => {
       const at = file.trash_path.indexOf(`${path.sep}_trash${path.sep}`)
@@ -1995,6 +2281,9 @@ function channelPreviewFor(preview: LibraryCleanupPreview, slug: string): MediaC
     files,
     total_bytes: channel?.total_bytes || 0,
     blocked_reasons: channel?.blocked_reasons || [],
+    // A single channel's view of an all-channel run: the run's own records are
+    // keyed on the whole preview, not on this per-file view.
+    already_cleaned_episodes: 0,
     ...(preview.action === 'shrink_images' ? { preset: CONVERT_PNG_PRESET } : {}),
     trash_roots: preview.trash_roots,
     estimate: preview.estimate,
@@ -2007,11 +2296,15 @@ async function runLibraryPreview(
   mode: MediaCleanupMode,
 ): Promise<MediaCleanupRunResult> {
   const result: MediaCleanupRunResult = {
-    mode, items: [],
+    mode, items: [], item_count: 0,
     archived_count: 0, removed_count: 0, compressed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0,
     bytes_reclaimed: 0, bytes_moved: 0, bytes_trashed: 0, bytes_after: 0,
   }
   operation.result = result
+  // Every outcome, server-side only: what the "already cleaned" records are
+  // judged on, and dropped when the run ends (the operation carries counts plus
+  // the capped `result.items` sample).
+  const allItems: MediaCleanupRunResult['items'] = []
   const leftovers = preview.action === 'cleanup_all' ? preview.leftovers?.items || [] : []
   // Leftover folders count toward the run's progress too, so a sweep that is
   // still moving leftovers never reads as 100% done.
@@ -2031,7 +2324,9 @@ async function runLibraryPreview(
       const apply = () => jq.withEpisodeMediaCleanupLock(file.project_slug, file.episode_code,
         () => mutateReviewedFile(file.project_slug, channelPreviewFor(preview, file.project_slug), operation, file, mode, undefined, gate))
       const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
-      result.items.push(item)
+      result.item_count += 1
+      allItems.push(item)
+      if (result.items.length < PREVIEW_SAMPLE_FILES) result.items.push(item)
       if (item.outcome === 'archived') result.archived_count += 1
       else if (item.outcome === 'removed') result.removed_count += 1
       else if (item.outcome === 'compressed') result.compressed_count += 1
@@ -2051,6 +2346,36 @@ async function runLibraryPreview(
   }
   if (preview.action === 'cleanup_all' && preview.leftovers?.items.length) {
     await sweepLibraryLeftovers(preview.leftovers.items, operation, result)
+  }
+  // Record every episode this run fully handled, so the next all-channel check
+  // skips it instead of listing and reading it again. A stopped run records
+  // nothing: the episodes after the stop point were never reached.
+  if (!operation.stop_requested) {
+    const categories = libraryCategories(preview.action)
+    const byEpisode = new Map<string, { slug: string; code: string; files: LibraryCleanupFile[]; proof: MediaCleanupUploadProof | null }>()
+    const codesBySlug = new Map<string, Set<string>>()
+    for (const file of preview.files) {
+      const key = `${file.project_slug}\u0000${file.episode_code}`
+      const entry = byEpisode.get(key) ?? { slug: file.project_slug, code: file.episode_code, files: [], proof: file.upload_proof }
+      entry.files.push(file)
+      byEpisode.set(key, entry)
+      // The shrink action needs no upload, so its files carry no proof at all.
+      if (!entry.proof) codesBySlug.set(file.project_slug, (codesBySlug.get(file.project_slug) ?? new Set()).add(file.episode_code))
+    }
+    // Read each channel's upload inventory once, the same way a check reads it,
+    // so a record names the exact upload a later check will compare against.
+    const inventoryBySlug = new Map<string, UploadInventory>()
+    for (const [slug, codes] of codesBySlug) {
+      try { inventoryBySlug.set(slug, await loadUploadInventory(slug, [...codes])) } catch { /* no inventory, no record */ }
+    }
+    const outcomes = outcomesByPath(allItems)
+    for (const episode of byEpisode.values()) {
+      if (!episodeWasFullyHandled(episode.files, outcomes)) continue
+      const inventory = inventoryBySlug.get(episode.slug)
+      const proof = episode.proof ?? (inventory ? currentUploadProof(episode.code, inventory) : null)
+      if (!proof) continue
+      await recordEpisodeCleaned(episode.slug, episode.code, categories, proof).catch(() => {})
+    }
   }
   return result
 }
@@ -2100,8 +2425,13 @@ async function sweepLibraryLeftovers(
   result.leftovers_left = left
 }
 
-export async function startLibraryMediaCleanupPreview(action: unknown): Promise<{ operation_id: string }> {
+export async function startLibraryMediaCleanupPreview(
+  action: unknown,
+  options?: { check_again?: unknown },
+): Promise<{ operation_id: string }> {
   const validated = validateLibraryAction(action)
+  /** "Check every episode again": the owner's override, which ignores every "already cleaned" record. */
+  const checkAgain = options?.check_again === true
   pruneState()
   if (hasActiveOperation()) throw fail('A media cleanup check or operation is already running on this Mac. Wait for it to finish.', 409)
   const operation = beginOperation(LIBRARY_SCOPE, 'preview', 'checking')
@@ -2111,7 +2441,7 @@ export async function startLibraryMediaCleanupPreview(action: unknown): Promise<
     operation.status = 'running'
     operation.updated_at = isoNow()
     try {
-      const preview = await buildLibraryPreview(validated, operation)
+      const preview = await buildLibraryPreview(validated, operation, checkAgain)
       if (operation.stop_requested) { finishOperation(operation, 'stopped'); return }
       libraryPreviews.set(preview.preview_id, preview)
       operation.library_preview = summarizeLibraryPreview(preview)

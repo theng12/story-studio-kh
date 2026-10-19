@@ -312,3 +312,96 @@ test('S-04 control: a single project-wide model is still borrowed for a legacy e
     await tmp.cleanup()
   }
 })
+
+/**
+ * PR0001, 2026-10-15 — the retained take the record and the history could not name.
+ *
+ * The episode had no `audio_tts_model.json`, no audio job left in the terminal
+ * history, and 11 `_partN.mp3` files on disk from a run whose Gateway tasks all
+ * succeeded. The model-omitted `/audio-status` answered `0/5`: with no model the
+ * planner expected one whole file per section, so none of the 11 retained parts
+ * matched, and the Audio integrity card said "Not narrated yet" over a complete
+ * narration. The one retained record of that model is the task manifest, keyed by
+ * the exact part filenames — the same evidence `chaptersAwaitingJoin` already
+ * trusts. This is that read.
+ */
+async function seedRetainedTake(
+  paths: { audio_dir: string },
+  names: string[],
+  modelOf: (index: number, name: string) => string | undefined,
+  stateOf: (index: number, name: string) => string = () => 'succeeded',
+): Promise<void> {
+  const { recordTask } = await import('../services/task-manifest.js')
+  for (const [index, name] of names.entries()) {
+    await fs.writeFile(path.join(paths.audio_dir, name), Buffer.alloc(2048, 1))
+    const model = modelOf(index, name)
+    await recordTask(paths.audio_dir, name, {
+      provider: 'genstudio',
+      task_id: `retained-${index}`,
+      submitted_at: new Date().toISOString(),
+      operation: 'tts',
+      ...(model ? { model_id: model } : {}),
+      last_state: stateOf(index, name),
+    })
+  }
+}
+
+test('a retained take names its own model from the task manifest when the record and history are gone', async () => {
+  const { tmp, project, code, paths } = await episodeFixture('TTS retained take')
+  try {
+    await fs.writeFile(paths.narration_docx, `# Narration\n\n## Chapter 01: Retained take\n\n${SPLIT_CHAPTER}\n`)
+    await withFakeTtsCatalogue(async () => {
+      const { getAudioStatus } = await import('../services/audio-reconciler.js')
+      // What generation wrote: the selected-model read is the same planner the
+      // Audio form asks, so its names are the names the run produced.
+      const planned = await getAudioStatus(project.slug, code, 'project-model-small')
+      const names = planned.expected.map(chunk => chunk.filename)
+      assert.ok(names.length > 1, `the fixture needs a real split; got ${JSON.stringify(names)}`)
+      await seedRetainedTake(paths, names, () => 'project-model-small')
+
+      const status = await getAudioStatus(project.slug, code)
+      assert.equal(status.provider, 'genstudio', 'the retained manifest entry names the model')
+      assert.deepEqual(status.expected.map(chunk => chunk.filename), names,
+        'the model-omitted read plans the parts that are actually on disk')
+      assert.deepEqual(status.missing, [], 'every retained part is reported present, not missing')
+      assert.equal(status.present.length, names.length)
+    })
+  } finally {
+    await tmp.cleanup()
+  }
+})
+
+test('retained-take inference refuses mixed, unsucceeded, or single-file evidence', async () => {
+  const { tmp, project, code, paths } = await episodeFixture('TTS retained ambiguity')
+  try {
+    await fs.writeFile(paths.narration_docx, `# Narration\n\n## Chapter 01: Ambiguous\n\n${SPLIT_CHAPTER}\n`)
+    await withFakeTtsCatalogue(async () => {
+      const { getAudioStatus } = await import('../services/audio-reconciler.js')
+      const names = (await getAudioStatus(project.slug, code, 'project-model-small')).expected.map(chunk => chunk.filename)
+      assert.ok(names.length > 1)
+
+      // Two models across the parts: no honest single answer, so the section is
+      // expected whole (the unknown-model behaviour) — never a borrowed split.
+      await seedRetainedTake(paths, names, index => index === 0 ? 'project-model-large' : 'project-model-small')
+      const mixed = await getAudioStatus(project.slug, code)
+      assert.deepEqual(mixed.expected.map(chunk => chunk.filename), [`${code}_Chapter_01.mp3`])
+      assert.equal(mixed.provider, '')
+
+      // A part whose task never succeeded proves nothing either.
+      await fs.rm(path.join(paths.audio_dir, '.task-manifest.json'))
+      await seedRetainedTake(paths, names, () => 'project-model-small', index => index === 0 ? 'accepted' : 'succeeded')
+      const unsettled = await getAudioStatus(project.slug, code)
+      assert.deepEqual(unsettled.expected.map(chunk => chunk.filename), [`${code}_Chapter_01.mp3`])
+
+      // A single-file take proves no boundary at all.
+      await fs.rm(path.join(paths.audio_dir, '.task-manifest.json'))
+      for (const name of names) await fs.rm(path.join(paths.audio_dir, name))
+      await seedRetainedTake(paths, [`${code}_Chapter_01.mp3`], () => 'project-model-small')
+      const single = await getAudioStatus(project.slug, code)
+      assert.deepEqual(single.expected.map(chunk => chunk.filename), [`${code}_Chapter_01.mp3`])
+      assert.equal(single.provider, '')
+    })
+  } finally {
+    await tmp.cleanup()
+  }
+})
