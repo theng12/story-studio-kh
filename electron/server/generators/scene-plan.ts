@@ -1620,13 +1620,22 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         scene_ids: group.map(({ scene }) => scene.id),
         // Chat Studio defaults to only 1,024 output tokens, which cannot hold
         // ten 110–150 word visual prompts. Set an explicit pack-sized budget.
+        //
+        // One budget for both visual paths: the owner's choice clamped to what the
+        // selected model publishes (`visualMaxTokens`). The explicit paid-repair path
+        // used to clamp that to a hardcoded `2,048` — the same stage-specific cap of
+        // ours the owner removed from the motion stage on 2026-09-26 ("we follow the
+        // published per-model figure and invent no ceiling"), and the one shape this
+        // module forbids: `describeScenePromptPackSize` reports every reduction, so a
+        // number that changes quietly is the defect. Each request on that path carries
+        // ONE scene (`packScenePromptItems(missing, 1)`), so the cap never protected
+        // against a truncated pack; requests are issued one at a time, so removing it
+        // does not raise the peak credit reservation either.
         params: {
           temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),
           ...(isMotion
             ? (activePromptOutputBudget === null ? {} : { max_tokens: activePromptOutputBudget })
-            : explicitPaidRepair && visualMaxTokens !== null
-              ? { max_tokens: Math.min(visualMaxTokens, 2_048) }
-              : visualMaxTokens === null ? {} : { max_tokens: visualMaxTokens }),
+            : visualMaxTokens === null ? {} : { max_tokens: visualMaxTokens }),
         },
       })
     }
