@@ -1191,6 +1191,12 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
           headers,
           signal: AbortSignal.timeout(8_000),
         })
+        // Read whatever this probe needs off the response BEFORE cancelling it —
+        // then cancel. Nothing below reads the body, and an unread one holds its
+        // socket open with nothing draining it, once per probe per key test.
+        const contentStoreRefusal = probe.path === '/v1/content/account'
+          && await isContentStoreNotConnected(response)
+        await response.body?.cancel().catch(() => {})
         if (response.status === 401 || response.status === 403) {
           return res.json({
             valid: false,
@@ -1198,7 +1204,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
             message: `The Gateway did not accept this key for its ${probe.label} (missing permission ${probe.scope}). Copy the key again from GatewayKH → Settings — an all-access key covers everything.`,
           })
         }
-        if (probe.path === '/v1/content/account' && await isContentStoreNotConnected(response)) {
+        if (contentStoreRefusal) {
           contentStoreConnected = false
           continue
         }
@@ -1215,6 +1221,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         signal: AbortSignal.timeout(8_000),
       })
       const usageAvailable = usageProbe.status === 200
+      await usageProbe.body?.cancel().catch(() => {})
       return res.json({
         valid: true,
         reachable: true,

@@ -858,6 +858,72 @@ describe('boot settle', () => {
     assert.deepEqual(queue.calls, [false])
   })
 
+  // A hand install (the owner installing the DMG himself) never moves the phase
+  // through `installing`, so the old boot settle left `install_requested` and the
+  // last download error standing for good. `install_requested` makes EVERY later
+  // offer count as "asked" and so bypasses the skip_signature/failed_signature
+  // guards permanently; the stale error was shown as if it described the build
+  // that is actually running.
+  test('a hand install clears a stale request and its error, whatever the phase', async () => {
+    const release = signed()
+    updater.writeState({
+      phase: 'ready', release, install_requested: true, immediate: true,
+      error: `${release.version} is not fully available yet (the Gateway answered 404 to the download); trying again at the next check.`,
+    })
+    const state = await updater.onBoot(options(fakeQueue(), { currentVersion: '1.4.258' }))
+    assert.equal(state.install_requested, false, 'the install already happened, by hand')
+    assert.equal(state.immediate, false)
+    assert.equal(state.error, null, 'the old download error described a build that is no longer running')
+  })
+
+  test('a version NEWER than the recorded release clears them too', async () => {
+    updater.writeState({ phase: 'ready', release: signed(), install_requested: true, error: 'download failed' })
+    const state = await updater.onBoot(options(fakeQueue(), { currentVersion: '1.4.259' }))
+    assert.equal(state.install_requested, false)
+    assert.equal(state.error, null)
+  })
+
+  test('an install that has not happened yet keeps its request and its error', async () => {
+    updater.writeState({ phase: 'ready', release: signed(), install_requested: true, error: 'download failed' })
+    const state = await updater.onBoot(options(fakeQueue(), { currentVersion: '1.4.257' }))
+    assert.equal(state.install_requested, true, 'nothing has installed this release yet')
+    assert.equal(state.error, 'download failed')
+  })
+
+  test('a cleared request no longer defeats the skipped-signature guard', async () => {
+    // The sequence that produced the stale flag: 1.4.258 installed by hand, this
+    // Mac having skipped 1.4.259's signature earlier. Before the boot settle
+    // cleared the flag, `asked` stayed true and 1.4.259 was downloaded again.
+    const handInstalled = signed()
+    const skipped = signed({ version: '1.4.259', build: '1.4.259', filename: 'Story Studio KH 1.4.259.zip' })
+    updater.writeState({
+      phase: 'ready', release: handInstalled, install_requested: true,
+      skip_signature: skipped.signature,
+    })
+    await updater.onBoot(options(fakeQueue(), { currentVersion: '1.4.258' }))
+
+    let downloads = 0
+    const fetch = (async () => { downloads++; return new Response('missing', { status: 404 }) }) as any
+    settings.trusted_publisher_key = PUB
+    updater._configureForTesting(options(fakeQueue(), { currentVersion: '1.4.258', fetch }))
+    await updater.handleOffer({ release: skipped, publisher: { public_key_base64: PUB } })
+    assert.equal(downloads, 0, 'a signature this Mac already skipped is not tried again because a request was left behind')
+  })
+
+  test('a download that fails releases the error body instead of stranding its socket', async () => {
+    const release = signed()
+    settings.trusted_publisher_key = PUB
+    let released = false
+    const fetch = (async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{"detail":"the artifact is still uploading"}')) },
+      cancel() { released = true },
+    }), { status: 404 })) as any
+    updater._configureForTesting(options(fakeQueue(), { fetch }))
+    await updater.handleOffer({ release, publisher: { public_key_base64: PUB } })
+    assert.equal(released, true, 'the 404 body was never released')
+    assert.match(String(updater.readState().error), /not fully available yet/)
+  })
+
   test('a rolled-back release is never retried automatically, but its re-publish is', async () => {
     const release = signed()
     updater.writeState({ phase: 'rolled_back', release, skip_signature: release.signature })

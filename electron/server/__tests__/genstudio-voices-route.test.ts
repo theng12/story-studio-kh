@@ -658,3 +658,35 @@ test('a disconnected Content Store is reported as not connected, never as a bad 
   assert.equal(response.body.content_store.read_scope, 'not_connected')
   assert.doesNotMatch(String(response.body.message), /Check the API URL and key/i)
 })
+
+test('every Gateway API Key probe releases its response body instead of stranding its socket', async () => {
+  // The key test fires a dozen probes and reads only their status. Every body it
+  // left unread kept its connection open with nothing draining it, so one press
+  // of "Test" against a slow Gateway left a dozen sockets behind it.
+  const visited: string[] = []
+  const released: string[] = []
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    visited.push(url)
+    // Exactly one of these bodies is read: the voice-model lookup the route uses
+    // to scope its voice probe. Everything else is status-only.
+    const readByRoute = url.endsWith('/v1/tts/models')
+    return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(readByRoute ? '[{"id":"tts-probe"}]' : '[]'))
+        if (readByRoute) controller.close()
+      },
+      cancel() { released.push(url) },
+    }), { status: url.includes('story-studio-key-probe') ? 404 : 200 })
+  }
+
+  const response = await request(app)
+    .post('/api/app-settings/api-keys/genstudio/test')
+    .send({ apiKey: 'gsk_release_every_probe' })
+    .expect(200)
+
+  assert.equal(response.body.valid, true)
+  const statusOnly = visited.filter(url => !url.endsWith('/v1/tts/models'))
+  assert.ok(statusOnly.length >= 12, `only ${statusOnly.length} status-only probe(s) ran`)
+  assert.deepEqual(released.sort(), statusOnly.sort(), 'a probe body was left holding its connection open')
+})
