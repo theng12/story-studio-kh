@@ -164,7 +164,7 @@ describe('Clear Uploaded Videos runs in the background with progress', () => {
       cleanup.readingProgress(operation, { path: '/x/EP0001_final_video.mp4', bytes: 10 * MB }, 'Matching')(4 * MB)
       operation.bytes_done = 4 * MB
       await gate
-      return { items: [], bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
+      return { items: [], item_count: 0, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
     })
     const read = () => cleanup.getMediaCleanupOperation(slug, operation_id)!
     await waitFor(() => read().bytes_done > 0)
@@ -173,7 +173,7 @@ describe('Clear Uploaded Videos runs in the background with progress', () => {
     assert.equal(running.stage, 'verifying')
     assert.equal(running.detail, 'Matching EP0001_final_video.mp4 — 4 MB of 10 MB read')
     assert.deepEqual([running.bytes_done, running.bytes_total], [4 * MB, 10 * MB])
-    await assert.rejects(cleanup.startTrackedCleanup(slug, 'verifying', async () => ({ items: [], bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 })), /already running on this Mac/)
+    await assert.rejects(cleanup.startTrackedCleanup(slug, 'verifying', async () => ({ items: [], item_count: 0, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 })), /already running on this Mac/)
     release()
     await waitFor(() => read().status !== 'running')
     assert.equal(read().status, 'completed')

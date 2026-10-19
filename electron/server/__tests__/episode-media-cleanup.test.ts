@@ -1875,4 +1875,75 @@ describe('all-channel (Library) maintenance', () => {
       restore()
     }
   })
+
+  /**
+   * The run-result half of the same bound. The preview stopped carrying the whole
+   * list in 1.4.329; the RUN result kept one entry per file (`result.items`,
+   * `final_cleanup.items`), which is the same 276 MB through a different field —
+   * a whole-Library run touches every file the preview listed.
+   *
+   * This is the guard for the whole family: it drives the two routes that hand an
+   * operation back (`/library/media-cleanup/operations/:id` for a run's `result`
+   * and `/projects/:slug/media-cleanup/operations/:id` for Clear Uploaded Videos'
+   * `final_cleanup`) over large synthetic input and fails if either response
+   * grows with the number of files again.
+   */
+  test('a large run and a large final sweep both answer a bounded operation GET', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'A long run')
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#203040' } }).png().toBuffer()
+    const runFiles = 400
+    for (let index = 0; index < runFiles; index += 1) {
+      await fs.writeFile(path.join(episode.paths.bg_dir, `s${String(index).padStart(4, '0')}.png`), png)
+    }
+
+    const { preview } = await libraryPreview('shrink_images')
+    // The run really walks every file (sharp, per-episode locks), so it needs a
+    // budget of its own rather than `libraryRun`'s 5s preview-sized one.
+    const startedRun = await cleanup.startLibraryMediaCleanupRun({ preview_id: preview.preview_id })
+    const run = await waitForValue(() => {
+      const current = cleanup.getLibraryMediaCleanupOperation(startedRun.operation_id)
+      return current && ['completed', 'failed', 'stopped'].includes(current.status) ? current : null
+    }, { timeoutMs: 60_000, label: 'library shrink run' })
+    assert.equal(run.status, 'completed', run.error)
+    assert.equal(run.result?.item_count, runFiles, 'the run counted every reviewed file')
+    assert.equal(run.result?.items.length, cleanup.PREVIEW_SAMPLE_FILES, 'the outcomes the operation carries are capped')
+
+    const { router } = await import('../routes/media-cleanup.js')
+    const app = express()
+    app.use(express.json())
+    app.use('/api', router)
+    const read = await request(app).get(`/api/library/media-cleanup/operations/${run.id}`).expect(200)
+    const runBytes = Buffer.byteLength(JSON.stringify(read.body))
+    const perItem = Buffer.byteLength(JSON.stringify(run.result!.items[0]))
+    const preCapRunBytes = perItem * runFiles
+    assert.ok(preCapRunBytes > 40_000, `one entry per file would have sent ~${preCapRunBytes} bytes`)
+    assert.ok(runBytes < 40_000, `the run operation GET answers ${runBytes} bytes, down from ~${preCapRunBytes}`)
+
+    // The same bound on the other operation that carries a result list: Clear
+    // Uploaded Videos, whose `final_cleanup.items` is one entry per final video.
+    // Unverified finals (no upload evidence) are skipped, which is the whole
+    // point — the list still has one entry per episode.
+    const { bulkCleanupFinalVideos } = await import('../services/storage-audit.js')
+    const sweepCodes: string[] = []
+    for (let index = 2; index <= 300; index += 1) {
+      const code = `EP${String(index).padStart(4, '0')}`
+      await seedEpisodeIn('chan-a', code, `Sweep ${code}`)
+      sweepCodes.push(code)
+    }
+    const started = await cleanup.startTrackedCleanup('chan-a', 'verifying', () => bulkCleanupFinalVideos('chan-a', { episode_codes: sweepCodes }))
+    const sweep = await waitForValue(() => {
+      const current = cleanup.getMediaCleanupOperation('chan-a', started.operation_id)
+      return current && ['completed', 'failed', 'stopped'].includes(current.status) ? current : null
+    }, { timeoutMs: 30_000, label: 'final sweep operation' })
+    assert.equal(sweep.status, 'completed', sweep.error)
+    assert.equal(sweep.final_cleanup?.item_count, sweepCodes.length, 'the sweep counted every episode it looked at')
+    assert.equal(sweep.final_cleanup?.items.length, cleanup.PREVIEW_SAMPLE_FILES, 'the sweep outcomes are capped')
+
+    const sweepRead = await request(app).get(`/api/projects/chan-a/media-cleanup/operations/${started.operation_id}`).expect(200)
+    const sweepBytes = Buffer.byteLength(JSON.stringify(sweepRead.body))
+    const preCapSweepBytes = Buffer.byteLength(JSON.stringify(sweep.final_cleanup!.items[0])) * sweepCodes.length
+    assert.ok(preCapSweepBytes > 40_000, `one entry per episode would have sent ~${preCapSweepBytes} bytes`)
+    assert.ok(sweepBytes < 40_000, `the sweep operation GET answers ${sweepBytes} bytes, down from ~${preCapSweepBytes}`)
+  })
 })

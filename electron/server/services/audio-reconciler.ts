@@ -24,6 +24,7 @@ import type { ProjectFactsCache } from './utils.js'
 import { readManifest, recordTask } from './task-manifest.js'
 import { readAudioTtsModelRecord } from './audio-tts-model-record.js'
 import { readAudioQualityProvenance } from './audio-quality-store.js'
+import { listChapterTakes } from './audio-versions.js'
 import { hashSubtitleAudioSources } from './subtitle-completion.js'
 import {
   recoverTtsToFile as recoverGenStudioTtsToFile,
@@ -214,6 +215,59 @@ async function activeAudioSources(
 }
 
 /**
+ * The model this episode's RETAINED take was made with, read from the task
+ * manifest instead of predicted.
+ *
+ * `audio_tts_model.json` is the episode's own record, but an episode generated
+ * before it existed — or one whose record was lost — still has its successful
+ * TTS tasks in `.task-manifest.json`, keyed by the exact part files on disk.
+ * That is a fact about THIS episode's bytes, and it is the only retained answer
+ * when the record and the job history are both gone. Without it the planner has
+ * no boundary, expects one whole file per section, and the retained `_partN`
+ * files never match: PR0001 (2026-10-15) read "0/5 present" while all 11 parts
+ * sat on disk, and every caller of `getAudioStatus` — the Audio integrity card,
+ * Pipeline, subtitles, asset status, readiness — inherited that false zero.
+ *
+ * Unambiguous evidence only: every section's active take is multipart, every one
+ * of its parts is present and carries a succeeded GenStudio `tts` task, they all
+ * name the SAME model, and that model's live published boundary plans exactly
+ * the files on disk. Anything else keeps the honest unknown-model answer rather
+ * than a confident wrong one.
+ */
+async function retainedModelForActiveTakes(
+  episodeDir: string,
+  audioDir: string,
+  code: string,
+  sections: NarrationSections,
+): Promise<{ model: string; requestBudget: number } | undefined> {
+  const tasks = (await readManifest(audioDir)).tasks
+  const takes: string[][] = []
+  let model = ''
+  for (const section of sections) {
+    const take = (await listChapterTakes(episodeDir, audioDir, code, section.slug)).find(candidate => candidate.active)
+    // Only a multipart take proves a boundary: one whole file per section is what
+    // every published model does with a chapter-length section.
+    if (!take || take.files.length < 2) return undefined
+    for (const file of take.files) {
+      const task = tasks[file]
+      if (!task || task.provider !== 'genstudio' || task.operation !== 'tts' || task.last_state !== 'succeeded') return undefined
+      const id = String(task.model_id || '').trim()
+      if (!id || (model && model !== id)) return undefined
+      model = id
+    }
+    takes.push(take.files)
+  }
+  const requestBudget = await publishedRequestBudgetFor(model)
+  if (!requestBudget) return undefined
+  // The live boundary must reproduce the split the retained bytes were made at;
+  // a catalogue that has since moved the number must not re-interpret them.
+  for (const [index, section] of sections.entries()) {
+    if (splitGenStudioApiRequests(normalizeForTts(section.text).text, requestBudget).length !== takes[index]!.length) return undefined
+  }
+  return { model, requestBudget }
+}
+
+/**
  * Compute the full list of audio chunks that SHOULD exist for an episode,
  * plus what's currently on disk.
  *
@@ -301,6 +355,21 @@ export async function getAudioStatus(
       requestBudget = record.request_budget > 0
         ? record.request_budget
         : await publishedRequestBudgetFor(record.model_id)
+    }
+  }
+  // RETAINED TAKE — the record above is the episode's own, but an episode
+  // generated before it existed (or one whose record was lost) still has its
+  // successful TTS tasks in `.task-manifest.json`, keyed by the exact part files
+  // on disk. That is a fact about THIS episode's bytes, so it outranks the
+  // job-history borrow below for the same reason the record does.
+  if (!model) {
+    const retained = await retainedModelForActiveTakes(
+      episodeDirForNarration(narrationPath), audioDir, code, sections,
+    )
+    if (retained) {
+      model = retained.model
+      provider = 'genstudio'
+      requestBudget = retained.requestBudget
     }
   }
   // LEGACY FALLBACK — episodes generated before that record existed. Terminal

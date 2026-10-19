@@ -130,7 +130,7 @@ describe('automatic cleanup', () => {
       id, project_slug: '*', kind: 'run', status: 'completed', stage: 'removing', done: 1, total: 1,
       bytes_done: 10, bytes_total: 10, current: '', detail: '', created_at: '', updated_at: '',
       library: true, library_action: 'cleanup_all',
-      result: { mode: 'remove', items: [], archived_count: 0, removed_count: 1, compressed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0, bytes_reclaimed: 10, bytes_moved: 10, bytes_trashed: 10, bytes_after: 0, leftovers_moved: 1, leftovers_bytes_moved: 5, leftovers_left: 0 },
+      result: { mode: 'remove', items: [], item_count: 0, archived_count: 0, removed_count: 1, compressed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0, bytes_reclaimed: 10, bytes_moved: 10, bytes_trashed: 10, bytes_after: 0, leftovers_moved: 1, leftovers_bytes_moved: 5, leftovers_left: 0 },
     }
   }
 
