@@ -1,6 +1,8 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.326 — 2026-10-19 (gate running)
+## 1.4.326 — 2026-10-19 (gated and landed)
+
+Full gate green on c1c7fbb8: lint, four checks, typecheck, test:backend, test:frontend, test:release, test:content-packs (gate-326-c1c7fbb8.log).
 
 Merged feat/retention-20gb-autocleanup-switch (79e7fcd8: trash_handoff_gb 20 oldest-first in the daily handoff; log cap; Free up space panel switch on auto_cleanup_enabled) and fix/publication-unknown-keeps-last-confirmed (ded6acd1 + 05d8d96e: processingDetails failure → lifecycle failed; superseded failed/rejected video ids let one replacement through; linkYouTubeEpisodeVideo accepts superseded ids; empty videos.list stays unverified with unverified_since). Domnak DM0001–3 were abandoned by YouTube as too long (channel unverified at the time).
 
