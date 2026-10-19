@@ -263,3 +263,44 @@ describe('a slow download resumes across checks', () => {
     assert.ok(armed.every(ms => ms <= 30_000), `nothing longer than the 30 s inactivity window: ${armed.join(', ')}`)
   })
 })
+
+describe('the check-in reports how far a download has got', () => {
+  /**
+   * The Gateway's fleet watchdog reads `update.downloaded_bytes` to tell a transfer that is moving
+   * from one that has stopped, and says so to the owner — the fault that ran all night on the mini
+   * was a check-in that said "downloading" and nothing else. It must be the live figure while bytes
+   * are arriving, and ABSENT the rest of the time, so "no figure" never reads as "zero bytes".
+   */
+  test('the byte count is live during a transfer and gone once it ends', async () => {
+    const bytes = releaseBytes(fs.mkdtempSync(path.join(tmp.dir, 'src-')))
+    const release = signed({ bytes: bytes.length, sha256: sha256(bytes) })
+    settings.trusted_publisher_key = PUB
+    updater._configureForTesting(options('http://gateway.test'))
+    assert.equal('downloaded_bytes' in ((await updater.report() as any).update), false,
+      'nothing is downloading: no figure at all, not a zero')
+
+    const seen: Array<{ downloaded_bytes?: number; total_bytes?: number }> = []
+    const chunk = Math.max(1, Math.ceil(bytes.length / 4))
+    let at = 0
+    const body = new ReadableStream({
+      async pull(controller) {
+        if (at >= bytes.length) { controller.close(); return }
+        await new Promise(r => setTimeout(r, 5))
+        controller.enqueue(new Uint8Array(bytes.subarray(at, at + chunk)))
+        at += chunk
+        seen.push((await updater.report() as any).update)
+      },
+    })
+    updater._configureForTesting(options('http://gateway.test', { fetch: (async () => new Response(body)) as any }))
+    await updater.handleOffer({ release, publisher: { public_key_base64: PUB } })
+
+    assert.equal(updater.readState().phase, 'ready')
+    assert.ok(seen.length > 0, 'the check-in was taken while the transfer was running')
+    assert.equal(seen[0]!.total_bytes, bytes.length, 'the signed size, not a guess')
+    assert.ok(seen[0]!.downloaded_bytes! > 0, 'the live count, not a placeholder zero')
+    assert.ok(seen[seen.length - 1]!.downloaded_bytes! > seen[0]!.downloaded_bytes!,
+      'it grows as the file arrives')
+    assert.equal('downloaded_bytes' in ((await updater.report() as any).update), false,
+      'the transfer is over, so the figure is gone again')
+  })
+})
