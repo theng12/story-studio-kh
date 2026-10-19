@@ -48,6 +48,10 @@ import { getAnimation } from '../models/animations.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { finalDurationIssue, missingEnabledVideoInputs, missingInputsMessage, switchedOnCueGate } from '../lib/video-enabled-inputs.js'
+import {
+  closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary,
+  type FinalCheckExpectation,
+} from '../lib/final-video-check.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
@@ -576,8 +580,10 @@ async function finishFinalVideo(ctx: {
   visualSource: Parameters<typeof writeVideoAssemblySourceStamp>[2]
   imagePool: Parameters<typeof writeVideoAssemblySourceStamp>[3]
   loudness: LoudnessTarget
+  /** What this render was asked to produce; the final check measures the file against it. */
+  expected: FinalCheckExpectation
 }): Promise<void> {
-  const { job, project_slug, code, titleHint, videoDir, format, tempDir, outputFile, totalRenderDuration, visualSource, imagePool } = ctx
+  const { job, project_slug, code, titleHint, videoDir, format, tempDir, outputFile, totalRenderDuration, visualSource, imagePool, expected } = ctx
   const finalName = `${code}_final_video.${format}`
   const projectTreeFinalPath = path.join(videoDir, finalName)
   let finalPath = projectTreeFinalPath
@@ -634,6 +640,9 @@ async function finishFinalVideo(ctx: {
   }
 
   resolvedOutputPath = await selfHealFinalPromotion(resolvedOutputPath, projectTreeFinalPath, finalName, job)
+  // The final check runs FIRST, so the file carries a verdict even when the check below stops the
+  // job — a stopped render is exactly the one somebody wants to look at and override (AGENTS.md §8).
+  await finalCheckFinalVideo(job, resolvedOutputPath, expected)
   await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration, ctx.loudness)
   await deleteFinalSegments(tempDir, job)
   await writeVideoAssemblySourceStamp(
@@ -659,6 +668,44 @@ async function finishFinalVideo(ctx: {
 
   await autoScheduleFinishedEpisode(job, project_slug, code)
   await recordMusicEpisodePlays(job, project_slug, code)
+}
+
+/**
+ * What this render was asked to produce, from the request that made it (lib/final-video-check.ts).
+ *
+ * `tailFromEndSec` is what sits AFTER the closing tail — the outro and any `after_outro` clip — so
+ * the check measures the tail where it actually landed rather than always at the file's end.
+ */
+function finalCheckExpectation(
+  req: GenerateVideoRequest,
+  opts: { plannedSec: number; tailSec: number; tailFromEndSec: number; width: number; height: number },
+): FinalCheckExpectation {
+  return {
+    planned_sec: opts.plannedSec,
+    tail: { sec: opts.tailSec, from_end_sec: opts.tailFromEndSec },
+    closing_music: closingMusicWanted(req.post_audio),
+    width: opts.width,
+    height: opts.height,
+    subtitles_path: req.subtitles?.enabled ? ((req.subtitles.srt_path || '').trim() || null) : null,
+  }
+}
+
+/**
+ * Measure the finished final and store the verdict beside it. Never throws and never fails the job:
+ * the render is done, and what to do about a bad verdict is decided at the upload (the `final_check`
+ * safety check) — a check that could not run is logged as loudly as one that failed.
+ */
+async function finalCheckFinalVideo(job: Job, outputPath: string, expected: FinalCheckExpectation): Promise<void> {
+  try {
+    const result = await runFinalCheck(outputPath, expected)
+    await storeFinalCheck(outputPath, result)
+    job.output_lines.push(`Final check: ${finalCheckSummary({ result, stale: false })}`)
+    for (const issue of result.issues) job.output_lines.push(`Final check: ${issue.verdict}`)
+    job.result = { ...(job.result || {}), final_check: { passed: result.passed, issues: result.issues } }
+  } catch (error: any) {
+    job.output_lines.push(`⚠ Final check could not run (${error?.message || error}). The video is kept, `
+      + 'and Upload Center can run the check on it later.')
+  }
 }
 
 async function verifyFinalVideo(job: Job, outputPath: string, finalName: string, plannedSec: number, loudness: LoudnessTarget): Promise<void> {
@@ -2771,6 +2818,12 @@ export async function generateVideo(job: Job): Promise<void> {
           job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir,
           outputFile, totalRenderDuration: carriedFinalStage.total_render_sec,
           visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
+          // A resumed final render knows its own length and canvas but not what followed the tail;
+          // the tail is still measured where it is, and nothing sits after it that this run knows of.
+          expected: finalCheckExpectation(req, {
+            plannedSec: carriedFinalStage.total_render_sec, tailSec: postRoll, tailFromEndSec: 0,
+            width: w, height: h,
+          }),
         })
         succeeded = true
         return
@@ -3008,6 +3061,11 @@ export async function generateVideo(job: Job): Promise<void> {
       }
 
       compResolvedPath = await selfHealFinalPromotion(compResolvedPath, compProjectTreeFinalPath, compFinalName, job)
+      // Compilation mode draws no closing tail and has no outro segment (v1), so the plan is the
+      // narration and nothing sits after it.
+      await finalCheckFinalVideo(job, compResolvedPath, finalCheckExpectation(req, {
+        plannedSec: totalRenderDuration, tailSec: 0, tailFromEndSec: 0, width: resW, height: resH,
+      }))
       await verifyFinalVideo(job, compResolvedPath, compFinalName, totalRenderDuration, loudness)
       await writeVideoAssemblySourceStamp(
         compResolvedPath,
@@ -3921,6 +3979,10 @@ export async function generateVideo(job: Job): Promise<void> {
     await finishFinalVideo({
       job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir, outputFile, totalRenderDuration,
       visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
+      expected: finalCheckExpectation(req, {
+        plannedSec: totalRenderDuration, tailSec: postRoll, tailFromEndSec: outroDuration + afterOutroDur,
+        width: resW, height: resH,
+      }),
     })
 
     succeeded = true

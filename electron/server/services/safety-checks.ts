@@ -115,6 +115,10 @@ export const SAFETY_CHECKS: readonly SafetyCheckDef[] = [
   c('Upload', 'reviewed_unchanged', 'Reviewed video and details unchanged', 'Uploading a file or title that changed after you reviewed it.', 'block'),
   c('Upload', 'thumbnail_present', 'Thumbnail present', 'A video going up with YouTube\'s own frame grab.', 'block'),
   c('Upload', 'valid_video', 'File is a valid YouTube video', 'Uploading a file with no picture, no sound, no length, or over 11 hours.', 'block'),
+  // 2026-10-19 — the final check (lib/final-video-check.ts). Warn is the default because the check is
+  // on for every episode: the upload asks once, the owner answers, and the job records it. Off
+  // skips the question entirely; Block refuses without one.
+  c('Upload', 'final_check', 'Final check passed', 'Uploading a video whose final check failed, or one that changed since it was checked.', 'warn'),
   c('Upload', 'upload_quota', 'Daily upload allowance left', 'Running out of YouTube\'s daily allowance mid-upload.', 'block'),
   c('Queue', 'same_step_queued', 'Same step not already queued', 'Two copies of the same step for one episode (the second waits instead).', 'off'),
   c('Music and ideas', 'lyrics_listen_back', 'Sung lyrics listen-back', 'A sung take that does not sing the lyrics.', 'warn'),
