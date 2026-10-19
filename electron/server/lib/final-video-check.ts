@@ -451,6 +451,14 @@ export async function readStoredFinalCheck(videoPath: string): Promise<StoredFin
     return null
   }
   if (!result || typeof result !== 'object' || !Array.isArray(result.issues)) return null
+  // The shape must also agree with itself before it is trusted: `passed` is a boolean that matches
+  // `issues`, and every issue carries a verdict. A sidecar that disagrees with itself is corrupt or
+  // foreign — `storeFinalCheck` writes `runFinalCheck`'s own result, and that sets
+  // `passed: issues.length === 0` — so it is answered as "not checked" and the check reruns. Never a
+  // pass (the callers short-circuit on `passed`), and never a throw: one bad file must not take the
+  // whole publishable listing down with it.
+  if (typeof result.passed !== 'boolean' || result.passed !== (result.issues.length === 0)) return null
+  if (!result.issues.every((issue) => !!issue && typeof issue.verdict === 'string')) return null
   // Async: this runs once per episode on the publishable listing, and a synchronous stat per row is
   // the shape services/utils.ts warns about.
   const stat = await fs.stat(videoPath).catch(() => null)
