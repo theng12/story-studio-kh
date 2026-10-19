@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.327 — 2026-10-19 (gate running)
+
+Merged feat/new-channel-default-pacing (db046a1f, 688a9c75), feat/music-closing-tail (3593e2f4: lib/closing-tail.ts single source; tail baked once in the audio merge; narration vs master length separated), feat/youtube-eligibility-watch (c2cabea1: channels.list longUploadsStatus, 409 confirmable; thumbnail 403 skip; 24 h processing watch), feat/final-video-check (771a45d4: lib/final-video-check.ts, .finalcheck.json sidecar, final_check safety check, Warn default). publish.vue: postUploadWithAcknowledgements resends with every confirmable answer. Owner decision pending: thumbnail skipped on channels YouTube forbids thumbnails (bends the 2026-10-07 thumbnail-required rule).
+
 ## 1.4.326 — 2026-10-19 (gated and landed)
 
 Full gate green on c1c7fbb8: lint, four checks, typecheck, test:backend, test:frontend, test:release, test:content-packs (gate-326-c1c7fbb8.log).

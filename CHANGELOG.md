@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.327 — 2026-10-19
+
+- Closing music: after the narration ends, the background music now plays through the closing (set its length under Video Assembly → After Narration Ends, up to 45 seconds). The music rises back up after the last word, fades out softly at the end, has its own volume, and loops instead of going silent. Subtitles, chapters and scene timing still follow where the speech ends. Change the closing length, then mix the episode's audio again.
+- New channels start with the standard scene pacing: a new scene every 5–10 seconds for the first 3 minutes, 10–20 seconds until 6 minutes, then 20–30 seconds. It is saved as the "Owner standard pacing" Scene Plan preset, and every episode can still change it. Existing channels are not touched. A Pipeline run now leaves out a Scene Plan or Script step whose preset has no writing model, with a plain message, instead of failing later.
+- Final check: every finished video is checked before upload for its length, a silent closing, long black stretches, long silences in the speech, picture/sound mismatch, missing subtitles and size. The Upload Center shows the result and a Run Final Check button; a video that failed asks before uploading.
+- Before uploading a video over 15 minutes, Story checks that the YouTube channel is verified for long videos and asks before uploading if it isn't. A channel that can't use custom thumbnails still gets its video, with a note that the thumbnail was skipped. After an upload, Story keeps checking for 24 hours until YouTube says it is processed or failed, and tells you if it fails.
+
 ## v1.4.326 — 2026-10-19
 
 - Trash moves to the Mac's Trash after 7 days or once it passes 20 GB (oldest first). Expired logs follow the same 7 days or 20 GB.
