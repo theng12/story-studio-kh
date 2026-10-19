@@ -16,7 +16,7 @@ import { inspectSubtitleSourceFreshness } from './subtitle-completion.js'
 import { ensureStitchedSubtitle, type EnsureStitchedOptions } from '../lib/subtitle-autostitch.js'
 import { verifyWrittenSubtitleTimeline } from './scene-timeline-integrity.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
-import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
+import { inspectPlanTimelineDrift, type TimelineDrift } from '../lib/scene-plan-timeline.js'
 import { resolveEpisodeMergedAudioChoice, expectedMergedAudioFilename } from '../lib/merged-audio-selection.js'
 import { hashSubtitleAudioSources, inspectChapterSubtitleCompletion } from './subtitle-completion.js'
 import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
@@ -25,7 +25,7 @@ import { disabledOptionalStepReason } from '../lib/optional-steps.js'
 
 export const EPISODE_RECOVERY_ORDER = ['audio_merge', 'subtitle_sections', 'subtitle_stitch', 'scene_plan_run', 'contextual_cues', 'continuity_render'] as const
 export type EpisodeRecoveryStep = typeof EPISODE_RECOVERY_ORDER[number]
-type RecoveryJob = { job_id: string; type: JobType; title: string; params: Job['params']; source_job_id?: string; dispatched?: boolean; manual_image_finish_withheld?: true; stale_redispatched?: true }
+type RecoveryJob = { job_id: string; type: JobType; title: string; params: Job['params']; source_job_id?: string; dispatched?: boolean; manual_image_finish_withheld?: true; stale_redispatched?: true; redispatched?: true }
 type RecoveryContinuation = { type: JobType; title?: string; params?: Job['params']; manual_image_finish_withheld?: true }
 type NarrationRefreshAcknowledgement = { source_job_id: string; section: string; job_id: string; created_at: string; source_saved_at: string }
 export interface EpisodeRecoveryPlan {
@@ -556,12 +556,33 @@ async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
     ? await inspectPlanTimelineDrift(scenePlanPath, path.join(paths.subtitles_dir, `${plan.episode_id.toUpperCase()}_stitched.srt`),
         path.join(paths.merged_audio_dir, `${plan.episode_id.toUpperCase()}_merged_audio.completion.json`),
         expectedMerged.filename)
-    : { stale: true }
+    : { stale: true, drift_sec: null, reason: '' }
   verified.scene_plan_run = status.scene_plan && !drift.stale
+  // A Scene Plan that cannot be verified must say WHICH timeline moved, or which saved merged track
+  // is missing: "Waiting for Scene Plan" alone sent Domnak DM0012/13/14 to a person who had nothing
+  // to act on. Appended, so the subtitle coverage the audit proved is not lost. Exported for its own
+  // test, like `subtitleStatesMessage`.
+  if (!verified.scene_plan_run) facts.message += `. ${scenePlanBlockerMessage(status.scene_plan === true, expectedMerged, drift)}`
   verified.contextual_cues = status.contextual_cues === true
     && (!plan.steps.contextual_cues || status.contextual_cues_generated === true)
   verified.continuity_render = status.scene_review
   return facts
+}
+
+/**
+ * Why Scene Plan is unverified, in the plan's own words: what is missing and what re-running it
+ * rebuilds. Every branch names something a person (or the plan's own next dispatch) can act on.
+ */
+export function scenePlanBlockerMessage(
+  scenePlanDone: boolean,
+  merged: { ok: boolean; pinned?: string | null; filename?: string | null },
+  drift: TimelineDrift,
+): string {
+  if (!merged.ok) return `The saved merged-audio choice names ${merged.pinned}, which is not in this episode's merged-audio folder. `
+    + 'Pick the track this episode uses (or clear the choice); Scene Plan is checked against that track.'
+  if (drift.stale) return `Scene Plan is stale: ${drift.reason} Rebuilding Scene Plan is what re-times every scene against the current narration.`
+  if (!scenePlanDone) return 'Scene Plan has not been run for this episode.'
+  return 'Scene Plan could not be verified from its saved plan.'
 }
 
 interface RecoveryStore { version: 1; plans: Record<string, EpisodeRecoveryPlan>; retired_plans?: Record<string, EpisodeRecoveryPlan> }
@@ -586,6 +607,15 @@ export async function dispatchEpisodeRecoveryStep(
   for (const job of jobs) {
     const step = episodeRecoveryStep(job.type)
     if (step && ['queued', 'running', 'paused'].includes(job.status)) verified[step] = false
+  }
+  // A `dispatched` node can outlive the job it names: Clear Finished and a per-job Delete remove
+  // terminal rows, and nothing else clears the flag. When the step's own artifacts already prove
+  // the edge complete, the node is not an accepted edge — it is a record of a job that no longer
+  // exists, so it stops holding the plan open (and stops refusing the step's next dispatch).
+  for (const step of EPISODE_RECOVERY_ORDER) {
+    const node = plan.steps[step]
+    if (!node?.dispatched || !verified[step]) continue
+    if (!jobs.some(job => job.job_id === node.job_id)) node.dispatched = false
   }
   // A step the channel's own settings switch off is SKIPPED, not waited for
   // (AGENTS.md §8). `inspectRecovery` can never verify it — there is no cue
@@ -710,7 +740,17 @@ export async function dispatchEpisodeRecoveryStep(
     return
   }
   if (!node) { plan.message += ` Open ${labels[step]} to complete or configure this prerequisite.`; return }
-  if (node.dispatched) { plan.message += ' This edge was already dispatched; review its saved result before starting new work.'; return }
+  // The job this edge was dispatched as is gone from the queue history (Clear Finished / Delete
+  // prune terminal rows), and the artifacts above say its output is not complete. Its outcome is
+  // unknown, not still running, so re-enqueue that same edge ONCE, under its own identity and saved
+  // params — the accepted image identities in `genstudio_recovery` ride along, so nothing already
+  // generated is paid for twice. A second loss parks the plan with the handoff below rather than
+  // rebuilding in a loop.
+  if (node.dispatched) {
+    if (node.redispatched) { plan.message += ' This edge was already dispatched; review its saved result before starting new work.'; return }
+    node.redispatched = true
+    node.dispatched = false
+  }
   // Free Up Space removed this episode's media on purpose (it was already uploaded). That is not
   // missing work: only an owner request made after the cleanup may rebuild it, never a restart sweep.
   const cleanup = await readLocalMediaCleanupStatus(plan.project_slug, plan.episode_id)
@@ -729,7 +769,9 @@ export async function dispatchEpisodeRecoveryStep(
   await jq.enqueueEpisodeRecoveryOnce(node.job_id, { project_slug: plan.project_slug, episode_id: plan.episode_id,
     type: node.type, title: node.title, params })
   node.dispatched = true
-  plan.message = step === 'subtitle_sections' ? `${facts.message}. Recovering existing subtitle task (free).` : `${labels[step]} queued after verified prerequisites.`
+  plan.message = step === 'subtitle_sections' ? `${facts.message}. Recovering existing subtitle task (free).`
+    : node.redispatched ? `${labels[step]} re-queued once: the job this edge was dispatched as is no longer in the queue history.`
+    : `${labels[step]} queued after verified prerequisites.`
 }
 
 async function readPlans(file: string): Promise<RecoveryStore> {
