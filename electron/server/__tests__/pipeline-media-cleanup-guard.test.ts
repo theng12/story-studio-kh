@@ -160,7 +160,7 @@ async function retireImage(episode: SeededEpisode, channel: string): Promise<voi
   })
   const preview = await waitForOperation(episode.slug, previewStarted.operation_id)
   assert.equal(preview.status, 'completed', preview.error)
-  assert.equal(preview.preview?.files.length, 1)
+  assert.equal(preview.preview?.file_count, 1)
 
   const runStarted = await mediaCleanup.startMediaCleanupRun(episode.slug, {
     preview_id: preview.preview!.preview_id, mode: 'remove',

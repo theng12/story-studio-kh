@@ -50,15 +50,15 @@ const retentionOn = { auto_cleanup_enabled: true, last_auto_cleanup: { at: '2026
 const shrinkFile = { path: '/Library/chan-a/EP0001/s001.png', relative_path: 's001.png', bytes: 2048, category: 'images', project_slug: 'chan-a', channel_name: 'Channel A', episode_code: 'EP0001', production_ms: null }
 const shrinkPreview = {
   preview_id: 'lib-1', action: 'shrink_images', created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 600_000).toISOString(),
-  channels: [{ slug: 'chan-a', name: 'Channel A', files: [shrinkFile], total_bytes: 2048, blocked_reasons: [] }],
-  files: [shrinkFile], total_bytes: 2048, blocked_reasons: [], trash_roots: ['/Library/_trash'],
+  channels: [{ slug: 'chan-a', name: 'Channel A', files: [shrinkFile], file_count: 1, total_bytes: 2048, blocked_reasons: [] }],
+  file_count: 1, total_bytes: 2048, blocked_reasons: [], trash_roots: ['/Library/_trash'],
   estimate: { compress_files: 1, compress_bytes_before: 2048, compress_bytes_after: 240, already_jpeg_files: 0, trash_files: 0, trash_bytes: 0 },
 }
 const finalFile = { path: '/Library/chan-a/EP0001/final.mp4', relative_path: 'final.mp4', bytes: 3 * 1024 ** 3, category: 'final_video', project_slug: 'chan-a', channel_name: 'Channel A', episode_code: 'EP0001', production_ms: Date.now() - 10 * 24 * 3600 * 1000 }
 const cleanupPreview = {
   preview_id: 'lib-2', action: 'cleanup_all', created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 600_000).toISOString(),
-  channels: [{ slug: 'chan-a', name: 'Channel A', files: [finalFile], total_bytes: 3 * 1024 ** 3, blocked_reasons: [] }],
-  files: [finalFile], total_bytes: 3 * 1024 ** 3, blocked_reasons: [], trash_roots: ['/Library/_trash'],
+  channels: [{ slug: 'chan-a', name: 'Channel A', files: [finalFile], file_count: 1, total_bytes: 3 * 1024 ** 3, blocked_reasons: [] }],
+  file_count: 1, total_bytes: 3 * 1024 ** 3, blocked_reasons: [], trash_roots: ['/Library/_trash'],
   estimate: { compress_files: 0, compress_bytes_before: 0, compress_bytes_after: 0, already_jpeg_files: 0, trash_files: 1, trash_bytes: 3 * 1024 ** 3 },
   leftovers: { count: 2, total_bytes: 50 * 1024 ** 2, items: [
     { project_slug: 'chan-a', channel_name: 'Channel A', kind: 'render_scratch', episode_code: 'EP0001', path: '/tmp/x', bytes: 30 * 1024 ** 2 },
@@ -123,6 +123,31 @@ test('Clean up all channels: reports uploaded videos and leftovers separately, t
     assert.match(asked.at(-1).message, /1 uploaded final video/)
     assert.match(asked.at(-1).message, /2 unused leftover folders/)
     assert.deepEqual(calls[1], { url: '/library/media-cleanup/run', body: { preview_id: 'lib-2' } })
+  } finally { ui.close() }
+})
+
+test('a channel whose files are too many to send shows its real count and a sample, not the whole list', async () => {
+  const asked: any[] = []
+  const manyFiles = {
+    ...cleanupPreview,
+    file_count: 24_118,
+    channels: [{ slug: 'chan-a', name: 'Channel A', files: [finalFile], file_count: 24_118, total_bytes: 3 * 1024 ** 3, blocked_reasons: [] }],
+  }
+  const ui = await mount({
+    get: async (url: string) => url.endsWith('/space') ? space : url.includes('/library/media-cleanup/operations/') ? libraryOperation('cleanup_all', manyFiles) : {},
+    post: async (url: string) => ({ operation_id: url.includes('/library/media-cleanup/preview') ? 'lib-op' : 'run-op' }),
+  }, async (options: any) => { asked.push(options); return true })
+  try {
+    button(ui.host, 'Clean Up All Channels').click()
+    for (let i = 0; i < 5; i++) await flush()
+    const text = ui.host.textContent || ''
+    assert.match(text, /24118 uploaded videos/, 'the header carries the real count')
+    assert.match(text, /Channel A · 24118 files/)
+    assert.match(text, /and 24117 more files in this channel/)
+    // The confirm text must keep the real count, not the size of the sample.
+    confirmButton(ui.host).click()
+    for (let i = 0; i < 5; i++) await flush()
+    assert.match(asked.at(-1).message, /24118 uploaded final videos/)
   } finally { ui.close() }
 })
 
@@ -360,7 +385,7 @@ test('a refused run request (an expired review) shows the reason and leaves the 
 })
 
 test('a review with nothing to clean up explains why and disables the confirm', async () => {
-  const empty = { ...cleanupPreview, files: [], total_bytes: 0, channels: [], leftovers: { count: 0, total_bytes: 0, items: [] } }
+  const empty = { ...cleanupPreview, file_count: 0, total_bytes: 0, channels: [], leftovers: { count: 0, total_bytes: 0, items: [] } }
   const ui = await mount({
     get: async (url: string) => url.endsWith('/space') ? space : libraryOperation('cleanup_all', empty),
     post: async () => ({ operation_id: 'lib-op' }),

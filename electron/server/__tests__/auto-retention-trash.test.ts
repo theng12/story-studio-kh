@@ -119,7 +119,7 @@ describe('automatic cleanup', () => {
       library: true, library_action: 'cleanup_all',
       library_preview: {
         preview_id: `preview-${id}`, action: 'cleanup_all', created_at: '', expires_at: '',
-        channels: [], files: Array.from({ length: files }, () => ({})), total_bytes: 0, blocked_reasons: [], trash_roots: [],
+        channels: [], file_count: files, total_bytes: 0, blocked_reasons: [], trash_roots: [],
         estimate: { compress_files: 0, compress_bytes_before: 0, compress_bytes_after: 0, already_jpeg_files: 0, trash_files: 0, trash_bytes: 0 },
         leftovers: { count: 0, total_bytes: 0, items: [] },
       },
