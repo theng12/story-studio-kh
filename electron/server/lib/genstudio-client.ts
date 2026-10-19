@@ -44,6 +44,7 @@ import {
 } from './tts-controls.js'
 import {
   describeOutputBudget,
+  expectedOutputTokensFor,
   resolveOutputTokenBudget,
   type OutputBudget,
 } from '../services/output-token-budget.js'
@@ -2582,6 +2583,16 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
    * publishes no ceiling is submitted without this field.
    */
   outputBudget?: OutputBudget
+  /**
+   * How long this request's answer is expected to be, in output tokens.
+   *
+   * **A hint, and the only number here that is not an allowance.** Studio Hub sizes each chat
+   * job's deadline from what the job actually is — its prompt, its expected answer, that Mac's
+   * measured decode rate — and it cannot tell a 100-prompt scene pack from a one-line question
+   * by reading the body. Sizing every job from `max_tokens` instead would make every job three
+   * hours long, so this travels as `expected_output_tokens` and is omitted when unstated.
+   */
+  expectedOutputTokens?: number
   requestIdentity?: string
   idempotencyKey?: string
   /**
@@ -7291,6 +7302,14 @@ interface PreparedChatSubmission {
    * refused.
    */
   maxOutputTokens: number | null
+  /**
+   * The answer length this request expects, or `null` when the caller stated none.
+   *
+   * Omitted from the wire body when `null`, exactly like `maxOutputTokens` above: absent is the
+   * honest spelling of "nobody said", and the Hub's own fallback (the p90 of the fleet's
+   * measured answers) is the answer to that question, not a number invented here.
+   */
+  expectedOutputTokens: number | null
   outputContract: TextOutputContract
   /**
    * The `response_format` this request carries, or `null` when it carries none.
@@ -7406,6 +7425,14 @@ async function prepareChatSubmission(
       )
     }
   }
+  // **What this answer is expected to cost, which is a different question from what it may
+  // cost.** An explicit hint wins; otherwise the workload tier's own `minimumTokens` already IS
+  // the expectation, because that number is computed from the work being asked for
+  // (`ideaOutputTokenBudget(count)`, `batchOutputTokenEstimate(words)`). Every other tier is a
+  // fraction of the product's ceiling and says nothing about the answer's length, so it yields
+  // `null` and the Hub uses the p90 of the fleet's own measured answers.
+  const expectedOutputTokens = request.expectedOutputTokens
+    ?? expectedOutputTokensFor(request.outputBudget)
   const outputContract = request.outputContract
     ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT)
   const { responseFormat, wrapperInstruction } = productResponseFormat(
@@ -7421,6 +7448,7 @@ async function prepareChatSubmission(
     modelId,
     product,
     maxOutputTokens,
+    expectedOutputTokens,
     outputContract,
     responseFormat,
     messages: [
@@ -8138,6 +8166,9 @@ async function callChatViaResponsesOnce(
     // Omitted entirely when the product publishes no ceiling, so the retained
     // preview describes the request that was actually sent (owner decision #6).
     ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_output_tokens: prepared.maxOutputTokens } }),
+    ...(prepared.expectedOutputTokens === null
+      ? {}
+      : { expectedOutputTokens: prepared.expectedOutputTokens }),
     idempotencyKey: prepared.idempotencyKey,
     messages: prepared.messages,
     fields: chatPreviewFields(request, prepared),
@@ -8176,6 +8207,12 @@ async function callChatViaResponsesOnce(
           // Omitted when the product publishes no ceiling — no number is
           // attributed to it and the provider decides (owner decision #6).
           ...(prepared.maxOutputTokens === null ? {} : { max_output_tokens: prepared.maxOutputTokens }),
+          // The expectation, beside the ceiling and never instead of it. Absent when nobody
+          // stated one, so the Gateway's Hub lane falls back to the fleet's own measured answer
+          // size.
+          ...(prepared.expectedOutputTokens === null
+            ? {}
+            : { expected_output_tokens: prepared.expectedOutputTokens }),
           ...(request.replacementChargeLimit !== undefined ? { max_charge_credits: request.replacementChargeLimit } : {}),
           // Present only for a deliberate web-search request. `web_search` is
           // available on this route too, so web research is durable as well.
@@ -8261,6 +8298,9 @@ async function callChatViaCompletions(
     modelId: prepared.modelId,
     responseFormat: prepared.responseFormat,
     ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_completion_tokens: prepared.maxOutputTokens } }),
+    ...(prepared.expectedOutputTokens === null
+      ? {}
+      : { expectedOutputTokens: prepared.expectedOutputTokens }),
     idempotencyKey: prepared.idempotencyKey,
     messages: prepared.messages,
     fields: [['stream', false], ...chatPreviewFields(request, prepared)],
@@ -8287,6 +8327,11 @@ async function callChatViaCompletions(
         ...prepared.samplingFields,
         // Omitted when the product publishes no ceiling (owner decision #6).
         ...(prepared.maxOutputTokens === null ? {} : { max_completion_tokens: prepared.maxOutputTokens }),
+        // The expectation, beside the ceiling and never instead of it (same rule as the
+        // durable route above).
+        ...(prepared.expectedOutputTokens === null
+          ? {}
+          : { expected_output_tokens: prepared.expectedOutputTokens }),
         ...(request.webSearch ? { web_search: request.webSearch } : {}),
       }),
     },
@@ -8456,6 +8501,9 @@ async function callChatWithGenStudioAdmitted(
       // Omitted entirely when the product publishes no ceiling, so the retained
     // preview describes the request that was actually sent (owner decision #6).
     ...(prepared.maxOutputTokens === null ? {} : { tokenLimits: { max_output_tokens: prepared.maxOutputTokens } }),
+    ...(prepared.expectedOutputTokens === null
+      ? {}
+      : { expectedOutputTokens: prepared.expectedOutputTokens }),
       idempotencyKey: prepared.idempotencyKey,
       messages: prepared.messages,
       fields: chatPreviewFields(request, prepared),

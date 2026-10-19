@@ -183,6 +183,30 @@ export function resolveOutputTokenBudget(
 }
 
 /** Stable digest fragment so two tiers never share an idempotency key. */
+/**
+ * The answer length the caller **expects**, which is what the Gateway's Hub lane sizes a
+ * job's deadline from.
+ *
+ * **Not `resolveOutputTokenBudget`, deliberately.** That resolves a *ceiling* — what may be
+ * sent — and a ceiling is not an expectation: sizing a deadline from one turns every job into a
+ * three-hour one, which is the failure the owner's decision names. What is an expectation is the
+ * `workload` tier's own `minimumTokens`, because that number is already computed from the work
+ * being asked for: `ideaOutputTokenBudget(count)` and `batchOutputTokenEstimate(words)` both feed
+ * it. Every other tier is a fraction of the product's ceiling, so it says nothing about how long
+ * the answer will be and this returns `null` for it.
+ *
+ * `null` means "not stated", and the Hub then uses the p90 of the fleet's own measured answers.
+ * It is never a stand-in number.
+ */
+export function expectedOutputTokensFor(budget: OutputBudget | undefined): number | null {
+  if (!budget || typeof budget !== 'object') return null
+  if (budget.tier !== 'workload') return null
+  const minimum = budget.minimumTokens
+  return typeof minimum === 'number' && Number.isSafeInteger(minimum) && minimum >= 1
+    ? minimum
+    : null
+}
+
 export function describeOutputBudget(budget: OutputBudget | undefined): string | null {
   if (!budget) return null
   if (typeof budget === 'string') return budget

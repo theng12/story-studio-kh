@@ -1707,6 +1707,17 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       throwIfPauseRequested(job.job_id)
       try {
         const messages = buildPackMessages(payloads, input.recoveryIssues, input.recoveryNote)
+        // **How long this pack's answer is expected to be**, which is what the Gateway forwards
+        // to Studio Hub to size the chat job's deadline from. The Hub cannot tell a 100-prompt
+        // pack from a one-line question by reading the body, and sizing every job from
+        // `max_tokens` would make every job hours long. `sceneIds x tokensPerScene` is the same
+        // arithmetic Story already uses to size the pack itself (`maxSafeScenePromptPackSize`),
+        // so the expectation and the allowance cannot disagree about what a scene costs. It
+        // follows the ids actually being asked for, so a repair of three scenes expects three.
+        const expectedOutputTokens = Math.max(
+          1,
+          Math.round(input.sceneIds.length * promptPackTuning.tokensPerScene),
+        )
         const requestIdentity = explicitPaidRepair
           ? `${job.project_slug}:${episode_id}:scene-plan:${stage}:paid-auto-repair:${job.job_id}:${input.requestLabel}`
           : freshGenerationRequestIdentity(job, `scene-plan-${stage}-${input.requestLabel}`)
@@ -1738,6 +1749,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             onModelSelected: selected => { job.output_lines.push(`[pipeline] scene plan using Gateway product "${selected}".`) },
             onRequestPrepared: (idempotencyKey: string) => { preparedIdempotencyKey = idempotencyKey },
             maxTokens: input.maxTokens,
+            expectedOutputTokens,
             outputContract: scenePromptPackOutputContract(input.sceneIds, isMotion ? 'motion' : 'visual'),
             disableReasoning: true,
             temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),
@@ -1760,6 +1772,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             } : {}),
             onRequestPrepared: (idempotencyKey: string) => { preparedIdempotencyKey = idempotencyKey },
             maxTokens: input.maxTokens,
+            expectedOutputTokens,
             outputContract: scenePromptPackOutputContract(input.sceneIds, isMotion ? 'motion' : 'visual'),
             disableReasoning: true,
             temperature: isMotion ? 0.35 : Math.min(0.68, 0.5 + ((creativeDirection?.intensity || 2) * 0.035)),

@@ -122,6 +122,12 @@ export interface CallAiContext {
    * documents what a bigger budget does to credit reservations.
    */
   outputBudget?: OutputBudget
+  /**
+   * How long this request's answer is expected to be, in output tokens — the hint Studio Hub
+   * sizes the job's chat deadline from. **Not a ceiling**: `maxTokens`/`outputBudget` say what
+   * may be sent, this says what is coming. See services/output-token-budget.ts.
+   */
+  expectedOutputTokens?: number
   /** Ask supporting providers to guarantee a valid JSON object response. */
   jsonMode?: boolean
   /** Exact prose, JSON Object, or strict JSON-schema workflow contract. */
@@ -205,6 +211,7 @@ export async function callAi(
     signal: ctx.signal,
     maxTokens: ctx.maxTokens,
     outputBudget: ctx.outputBudget,
+    expectedOutputTokens: ctx.expectedOutputTokens,
     jsonMode: ctx.jsonMode,
     outputContract: ctx.outputContract,
     disableReasoning: ctx.disableReasoning,
