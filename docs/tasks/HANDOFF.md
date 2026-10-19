@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.328 — 2026-10-19 (gate running)
+## 1.4.328 — 2026-10-19 (gated and landed)
 
 Merged fix/eligibility-exact-channel (43823dad: channels.list counts only the requested channel id; mismatch is unknown, uncached) and fix-hmh-retry-500 (32cedef8: /projects/:slug/jobs/:id/retry wraps recoverEpisode and answers 409 with the refusal; recoverEpisode writes a new plan once, after extension, before queue insertion). Production bug: HMH a0d4f382 Retry 500 from episode-recovery.ts repairRecoveryNodeParams on a stale [CIRCULAR] plan marker.
 
