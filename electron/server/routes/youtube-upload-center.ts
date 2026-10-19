@@ -118,7 +118,11 @@ import {
   type ObservedPublication,
   type PublicationCache,
 } from '../services/youtube-publication-cache.js'
-import { registryCredentialFor } from '../lib/youtube-client.js'
+import {
+  listVideoPublicationDetails,
+  registryCredentialFor,
+  type VideoPublicationDetails,
+} from '../lib/youtube-client.js'
 import { ANALYTICS_METRICS, VIDEO_FACTS, fetchProjectAnalytics } from '../services/youtube-analytics-cache.js'
 import { cursorKey } from '../services/youtube-page-cursor.js'
 import { metricNotFetched } from '../services/youtube-analytics-value.js'
@@ -502,6 +506,72 @@ router.get('/projects/:slug/youtube/operations', async (req, res) => {
     res.json({ operations: records.map(publicOperation) })
   } catch (error) {
     fail(res, error, 'Failed to read the YouTube operations.')
+  }
+})
+
+/**
+ * What YouTube says about videos this project has no operation record for.
+ *
+ * Every other route that reads a video's state starts from an operation row,
+ * and a row is only created BY an upload - so a video that went up before the
+ * operation store existed (legacy uploads on Boundful EP62-72, Story Sprout
+ * SS57-60, TerraNash TN160-161) has no route that can reach it, and the only
+ * way to see its state was to open YouTube Studio by hand.
+ *
+ * Bounded and strictly read-only. It asks about at most 50 ids in one
+ * `videos.list`, and it writes nothing anywhere: no upload, no operation, no
+ * cache, no episode publication state. A video that belongs to a DIFFERENT
+ * channel comes back with `matches_assigned_channel: false` rather than being
+ * dropped, so a caller can never mistake a stranger's video for this project's.
+ * An id YouTube does not return is reported `found: false`, which is "we could
+ * not see it" - not a status.
+ */
+router.post('/projects/:slug/youtube/video-status', async (req, res) => {
+  try {
+    const raw = req.body?.video_ids
+    if (!Array.isArray(raw) || raw.length < 1 || raw.length > 50
+      || raw.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]{11}$/.test(id))) {
+      res.status(400).json({
+        code: 'YOUTUBE_VIDEO_IDS_INVALID',
+        detail: 'Send between 1 and 50 YouTube video ids as `video_ids`.',
+      })
+      return
+    }
+    // The account that speaks for the ASSIGNED channel, exactly as every other
+    // provider-touching route resolves it - and it refuses an unassigned
+    // project with the 409 this route promises, in plain words.
+    const { accountId, channelId } = await accountForCurrentChannel(req.params.slug)
+    const ids = [...new Set(raw)]
+    let details: Record<string, VideoPublicationDetails>
+    try {
+      details = await listVideoPublicationDetails(req.params.slug, accountId, ids)
+    } catch (error) {
+      // "We could not ask" is not an answer YouTube gave. Say so, rather than
+      // reporting a video as absent or in some state it may not be in.
+      throw new YouTubeFoundationError(
+        502,
+        'YOUTUBE_STATUS_UNCHECKED',
+        `Story Studio could not read these videos from YouTube (${error instanceof Error ? error.message : String(error)}). Nothing was changed; try again.`,
+      )
+    }
+    res.json({
+      videos: ids.map((videoId) => {
+        const found = details[videoId]
+        return {
+          video_id: videoId,
+          found: !!found,
+          channel_id: found?.channelId ?? null,
+          matches_assigned_channel: found?.channelId === channelId,
+          upload_status: found?.uploadStatus ?? null,
+          processing_status: found?.processingStatus ?? null,
+          privacy_status: found?.privacyStatus ?? null,
+          publish_at: found?.publishAt ?? null,
+        }
+      }),
+      checked_at: new Date().toISOString(),
+    })
+  } catch (error) {
+    fail(res, error, 'Failed to read these videos from YouTube.')
   }
 })
 
