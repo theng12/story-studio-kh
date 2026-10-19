@@ -158,9 +158,10 @@ function naturalSort(a: string, b: string): number {
  *   - audio:        → {audio_dir}/{code}_Chapter_NN.mp3 (numbered by sort
  *                    order; intro detection stays out of scope here — the
  *                    Pipeline kebab importer handles that case interactively)
- *   - merged_audio: → {merged_audio_dir}/{code}_merged_audio.mp3 (single
- *                    file; if multiple, only first is auto-mapped, rest go
- *                    to other-files leftover bucket)
+ *   - merged_audio: → {merged_audio_dir}/{code}_merged_audio.{mp3,wav,m4a} (the
+ *                    source extension is kept; single file, so if multiple,
+ *                    only first is auto-mapped, rest go to other-files leftover
+ *                    bucket)
  *   - images:       → {bg_dir}/{code}_SceneNN_v1.{ext}
  *   - thumbnails:   → {thumb_dir}/{code}_ThumbNN_v1.{ext}
  *   - video:        → {video_dir}/{code}_VideoNN_v1.{ext}
@@ -199,13 +200,14 @@ function planDestinations(
     case 'merged_audio': {
       // Canonical name is fixed; only the first audio file in this bucket
       // gets it. Extra files (rare) get suffixed _v2/_v3 so nothing's lost.
+      // The source extension is kept — a music episode's merged track is `.m4a`
+      // — and it is already one the canonical rule accepts, because the bucket
+      // filter admits only mp3/wav/m4a (ASSET_EXT).
       files.forEach((f, i) => {
-        const name = i === 0
-          ? `${code}_merged_audio.mp3`
-          : `${code}_merged_audio_v${i + 1}.mp3`
+        const base = i === 0 ? `${code}_merged_audio` : `${code}_merged_audio_v${i + 1}`
         out.push({
           source_relative: f.source_relative,
-          dest_relative: path.join(subfolderName, name),
+          dest_relative: path.join(subfolderName, `${base}${f.ext || '.mp3'}`),
           bucket,
         })
       })

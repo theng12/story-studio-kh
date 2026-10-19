@@ -47,6 +47,7 @@ import * as im from './idea-manager.js'
 import { readManifestStrict, type Manifest as TaskManifest } from './task-manifest.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { episodeDirNameMatchesCode, stripDecorativePrefix } from './asset-status.js'
+import { isEpisodeMergedAudioFilename, mergedAudioExpectedName } from '../lib/merged-audio-selection.js'
 
 export type AuditStage =
   | 'audio'
@@ -341,10 +342,12 @@ async function auditMergedAudio(slug: string, code: string): Promise<StageAudit>
   if (!mergedDir) return notStarted(stage)
 
   const files = await listDir(mergedDir)
-  const re = new RegExp(`^${CODE}_merged_audio(?:_v(\\d+))?\\.mp3$`)
+  // Membership is the canonical rule (lib/merged-audio-selection.ts), so a
+  // recognised `.m4a` (a music episode) or `.wav` is not reported missing. The
+  // first non-empty track in listing order is unchanged.
   let latestMerged: string | null = null
   for (const f of files) {
-    if (!re.test(f)) continue
+    if (!isEpisodeMergedAudioFilename(f, CODE)) continue
     if (await fileNonEmpty(path.join(mergedDir, f))) {
       latestMerged = f; break
     }
@@ -360,7 +363,7 @@ async function auditMergedAudio(slug: string, code: string): Promise<StageAudit>
     return {
       stage, outcome: 'measured', started: true, dir: mergedDir,
       expected: 1, present: 0,
-      missing: [`${CODE}_merged_audio.mp3`],
+      missing: [mergedAudioExpectedName(CODE)],
       extra: [],
     }
   }
