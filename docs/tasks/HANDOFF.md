@@ -2,7 +2,7 @@
 
 ## 1.4.329 — 2026-10-19 (gate running)
 
-Merged feat/video-status-read (88b13608: POST /projects/:slug/youtube/video-status, ≤50 ids, assigned-channel match, read-only, 502 YOUTUBE_STATUS_UNCHECKED) and fix/idea-batch-proven-failure-fresh (b784ad3c: isProvenChatFailure in genstudio-client; releaseSettledFailedIdeaBatch keeps settled_failed evidence and derives request_identity …:fresh:<dead job id>; one fresh send per run). Production: Boundful 5864f738, Brain a257d9f4, Capi b21f6250, Domnak 14c50bed each need one Retry after install.
+Merged feat/video-status-read (88b13608: POST /projects/:slug/youtube/video-status, ≤50 ids, assigned-channel match, read-only, 502 YOUTUBE_STATUS_UNCHECKED) and fix/idea-batch-proven-failure-fresh (b784ad3c: isProvenChatFailure in genstudio-client; releaseSettledFailedIdeaBatch keeps settled_failed evidence and derives request_identity …:fresh:<dead job id>; one fresh send per run). Also fix/cleanup-preview-slim (a4e81aff: operations carry a bounded preview summary, file_count + 50-file sample; full preview stays server-side by preview_id; one 19-channel preview GET was 276 MB). Production: Boundful 5864f738, Brain a257d9f4, Capi b21f6250, Domnak 14c50bed each need one Retry after install.
 
 ## 1.4.328 — 2026-10-19 (gate running)
 
