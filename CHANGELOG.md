@@ -10,6 +10,7 @@ What's new in each release. Newest first.
 - Upload Anyway after a final-check warning is tied to the exact check you saw: if the video file changed or was checked again since, the upload is refused with a plain message instead of going ahead.
 - An episode whose narration parts are on disk now shows as narrated even when its model record is gone, read from the saved part records.
 - A large Free Up Space run or uploaded-video sweep reports totals and a 50-file sample instead of every file, so its progress loads quickly; the panel still shows exact totals.
+- Free Up Space skips uploaded episodes it already cleaned and whose files have not changed since, so repeat runs are much faster. Unfinished episodes and anything changed are always checked; "Check every episode again" forces a full check.
 - A Scene Plan repair saves the same end time the coverage check uses, so a complete plan is no longer called incomplete by a few milliseconds and sent for a rebuild.
 - An image, media or subtitle request that the Gateway is still holding is waited for instead of treated as failed, so no second paid request is made.
 - A failed check of the image model list no longer throws away the last good list, and the image list is loaded at start-up, so work is not refused while the Gateway is answering.
