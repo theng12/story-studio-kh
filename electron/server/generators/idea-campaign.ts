@@ -4,7 +4,7 @@ import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import { callAiWithRetry, resolveLivePipelineModel, type CallAiContext } from '../lib/ai-client.js'
-import { isProvenChatFailure, listChatModels } from '../lib/genstudio-client.js'
+import { isProvenChatFailure, isProvenUncreatedChatRequest, isProvenUnusableChatAnswer, listChatModels } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { composeNicheWithTopicPacks, loadNiche } from '../services/niche-loader.js'
@@ -37,7 +37,7 @@ import {
   ideaBatchAppendKey,
   ideaBatchRecordState,
   nextIdeaBatchOrdinal,
-  releaseSettledFailedIdeaBatch,
+  releaseDeadIdeaBatch,
   writeIdeaBatch,
   type IdeaBatchRecord,
 } from '../services/idea-campaign-recovery.js'
@@ -308,6 +308,47 @@ function normalizeFreeformIdea(
     topic_pack_ids: [],
     campaign_id: request.campaign_id,
   }
+}
+
+/**
+ * Why a COLLECTED batch's key can never produce a usable answer, or null when that is not proven.
+ *
+ * Three shapes qualify, and each is proof the key is spent: the Gateway settled the job `failed`
+ * with no hold left; it settled it `succeeded` and Story refused the answer; or it proved it never
+ * saw the key at all. Collecting any of them again answers the same way for as long as that job
+ * exists, so the batch is released and asked once more under a new identity.
+ *
+ * Everything else keeps its key. A hold or an uncertain submission may still yield an answer, a
+ * cancellation is the user's own last word, an unreachable Gateway proves nothing, and a truncated
+ * answer is reproduced by the same request — a second request would be paid for and fail the same
+ * way.
+ */
+function deadBatchEvidence(
+  error: unknown,
+  record: IdeaBatchRecord,
+): NonNullable<IdeaBatchRecord['settled_dead']> | null {
+  const base = {
+    idempotency_key: record.idempotency_key!,
+    ...(record.provider_job_id ? { provider_job_id: record.provider_job_id } : {}),
+  }
+  if (isProvenChatFailure(error)) {
+    return { ...base, kind: 'failed', failure_code: error.failureCode, reason: error.failureReason }
+  }
+  if (isProvenUnusableChatAnswer(error)) {
+    // The retained job is the authority on which request the refused answer belongs to.
+    return { ...base, provider_job_id: error.jobId, kind: 'unusable', reason: error.message }
+  }
+  if (isProvenUncreatedChatRequest(error)) {
+    return { ...base, kind: 'uncreated', reason: 'The Gateway has no record of this request key.' }
+  }
+  return null
+}
+
+/** What the owner is told when a saved batch is released, in the words of the kind of death. */
+const DEAD_BATCH_REASON: Record<NonNullable<IdeaBatchRecord['settled_dead']>['kind'], string> = {
+  failed: 'the Gateway settled it as a failure that cannot change',
+  unusable: 'the Gateway\'s answer could not be read',
+  uncreated: 'the Gateway never received it',
 }
 
 export async function generateIdeaCampaign(job: Job): Promise<void> {
@@ -652,25 +693,22 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         }
       }
     } catch (error) {
-      // The batch saved for this campaign was COLLECTED and the Gateway answered a PROVEN terminal
-      // failure: the job settled `failed` with no hold left on it, so collecting that key again can
-      // only answer the same failure — every Retry would re-collect it and fail again, forever.
-      // Release the identity and let THIS run ask once more under a new one. The captured prompt,
-      // slots and assignments are still exactly what is sent; only the identity moves. A held or
-      // uncertain outcome, a cancellation and an unresolved lookup all keep their key and are never
-      // re-dispatched, because their answer may still be on its way.
+      // The batch saved for this campaign was COLLECTED and the answer proves its key is spent: the
+      // Gateway settled it as a failure with no hold left, settled it as an answer Story cannot
+      // read, or proved it never received the key at all. Collecting that key again answers the
+      // same way — every Retry would re-collect it and fail again, forever. Release the identity
+      // and let THIS run ask once more under a new one. The captured prompt, slots and assignments
+      // are still exactly what is sent; only the identity moves. A hold, an uncertain submission, a
+      // cancellation, an unreachable Gateway and a truncated answer all keep their key, because
+      // their answer may still be on its way or would simply come back the same.
       const dead = replayBatch
-      if (releasedSettledBatch || !dead?.idempotency_key || !isProvenChatFailure(error)) throw error
+      if (releasedSettledBatch || !dead) throw error
+      const death = dead.idempotency_key ? deadBatchEvidence(error, dead) : null
+      if (!death) throw error
       releasedSettledBatch = true
-      const failedKey = dead.idempotency_key
-      releaseSettledFailedIdeaBatch(dead, {
-        idempotency_key: failedKey,
-        ...(dead.provider_job_id ? { provider_job_id: dead.provider_job_id } : {}),
-        failure_code: error.failureCode,
-        failure_detail: error.failureReason,
-      })
+      releaseDeadIdeaBatch(dead, death)
       if (needed > 0) {
-        job.output_lines.push(`  ↻ The batch saved for this campaign came back a settled failure (${error.failureCode || 'no code published'}); asking once more as a fresh request.`)
+        job.output_lines.push(`  ↻ The batch saved for this campaign can never be answered (${DEAD_BATCH_REASON[death.kind]}); asking once more as a fresh request.`)
       } else {
         // The campaign filled from elsewhere while this batch was saved, so there is nothing to
         // replace: the dead capture is closed out rather than answered by a request whose ideas
