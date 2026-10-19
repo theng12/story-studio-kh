@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.326 — 2026-10-19 (gate running)
+
+Merged feat/retention-20gb-autocleanup-switch (79e7fcd8: trash_handoff_gb 20 oldest-first in the daily handoff; log cap; Free up space panel switch on auto_cleanup_enabled) and fix/publication-unknown-keeps-last-confirmed (ded6acd1 + 05d8d96e: processingDetails failure → lifecycle failed; superseded failed/rejected video ids let one replacement through; linkYouTubeEpisodeVideo accepts superseded ids; empty videos.list stays unverified with unverified_since). Domnak DM0001–3 were abandoned by YouTube as too long (channel unverified at the time).
+
 ## 1.4.325 — 2026-10-19 (gated and landed)
 
 Gate: lint, four checks; test:backend 7537 / 7535 pass / 1 fail — the no-new-wallclock-sleeps guard flagged a hand-rolled 5 ms poll in genstudio-catalog-cache.test.ts, replaced with waitFor (d6f2234d, re-run 32/32); typecheck, test:frontend, test:release, test:content-packs green (see gate-325-lanes-d6f2234d.log).

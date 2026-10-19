@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.326 — 2026-10-19
+
+- Trash moves to the Mac's Trash after 7 days or once it passes 20 GB (oldest first). Expired logs follow the same 7 days or 20 GB.
+- Free up space has its own "Run automatically (daily)" switch, showing the last and next run. It is the same setting as on the Trash page.
+- A YouTube upload that YouTube abandoned or rejected (for example "video too long" on an unverified channel) now shows as failed with the reason. It no longer counts as scheduled or published, and the episode can be uploaded again once; a second upload is still refused.
+- When YouTube briefly can't show a video's status, the Upload Center keeps the last confirmed privacy and schedule and marks it unconfirmed instead of blanking it.
+
 ## v1.4.325 — 2026-10-19
 
 - The Jobs page loads much faster: running, queued and paused jobs load at once, and finished jobs load from a searchable history with the log opened only when you open a job. Search, filters and Select All Matching still cover the whole history.
