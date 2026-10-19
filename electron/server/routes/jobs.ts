@@ -900,7 +900,15 @@ router.post('/projects/:slug/jobs/:jobId/retry', async (req, res) => {
   }
   if (existing?.project_slug === req.params.slug && episodeRecoveryStep(existing.type)
     && !(existing.type === 'subtitles_transcribe' && isScopedChapterTranscription(existing.params))) {
-    return res.status(202).json({ ok: true, plan: await recoverEpisode(req.params.slug, existing.episode_id, true, [existing.job_id], [], true) })
+    // Recovery refuses, in plain words, saved states it must not guess (for
+    // example a plan whose original Pipeline run is gone). That refusal is a
+    // deliberate answer for the page, not an unhandled server fault — the same
+    // contract `/jobs/recover-episode` already keeps.
+    try {
+      return res.status(202).json({ ok: true, plan: await recoverEpisode(req.params.slug, existing.episode_id, true, [existing.job_id], [], true) })
+    } catch (error) {
+      return res.status(409).json({ detail: error instanceof Error ? error.message : 'Episode recovery is unavailable.' })
+    }
   }
   const retryParams = existing?.project_slug === req.params.slug ? retryReplacementParams(existing) : undefined
   const job = jq.retryTerminalJob(req.params.slug, req.params.jobId, retryParams)
