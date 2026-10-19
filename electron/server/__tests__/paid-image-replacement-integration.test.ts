@@ -1592,7 +1592,10 @@ test('manual Finish never replaces a malformed prepared record or an accepted ta
     }
     await writeAuthoritativeFixture(malformedJob)
     await assert.rejects(runContinuityRenderJob(malformedJob), /incomplete/i)
-    assert.ok(malformedJob.output_lines.some((line: string) => /no idempotency key/i.test(line)))
+    // The row records no key, and its recorded hash does not describe this
+    // scene, so the request it reserved cannot be identified — held in plain
+    // words rather than answered with a fresh paid request.
+    assert.ok(malformedJob.output_lines.some((line: string) => /no longer matches the prepared image request/i.test(line)))
     assert.equal(service.providerSubmissionCount('image'), 0, 'a prepared record without an identity cannot become a fresh paid request')
 
     // A legacy forced re-render is deliberate fresh work, not a recovery. Its

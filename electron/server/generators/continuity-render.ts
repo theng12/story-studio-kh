@@ -46,6 +46,7 @@ import {
   resolveImageRetryScope,
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
+  type ImageRecoveryOutcome,
 } from '../lib/manifest-recovery.js'
 import { buildGenStudioImageIdempotencyKey, GenStudioImageTerminalFailureError, hasFullyReleasedZeroSettlement, isGenStudioInsufficientCredits, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
@@ -835,6 +836,10 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
             let attemptPaidOwningRoot = ''
             let attemptOwner: TaskManifestEntry | null = savedEntry
             let releasedZeroSettlementRetry = false
+            /** This attempt is answering a legacy `prepared` row that recorded no key. */
+            let legacyPreparedShape = false
+            /** The Gateway's one answer about that row's rebuilt key. */
+            let prefetchedRecovery: ImageRecoveryOutcome | null = null
             try {
               // The base scope names the deliberate user action. A force re-render
               // owns a fresh one; an ordinary resume/repair deliberately reuses
@@ -844,7 +849,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 : force
                 ? (params.generation_action?.id || params.render_attempt_id || job.job_id)
                 : 'missing'
-              const manifestEntry = savedEntry
+              let manifestEntry = savedEntry
               const paidReferenceRoot = paidProjectRoot
               const paidOutputRoot = outDir
               attemptPaidOwningRoot = paidReferenceRoot
@@ -892,8 +897,12 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 && manifestEntry.last_state === 'prepared',
               )
               if (!freshGenerationAction && !force && !sceneManualFinish?.replace_uncertain
-                && manifestEntry?.last_state === 'prepared' && !manifestEntry.task_id && !manifestEntry.idempotency_key) {
-                throw new Error('The saved prepared image request has no idempotency key. No provider work was submitted.')
+                && manifestEntry?.last_state === 'prepared' && !manifestEntry.task_id && !manifestEntry.idempotency_key
+                && !submittedRecoveryEntry) {
+                // A legacy `prepared` row: the identity it reserved is recorded
+                // but the key is not. It is answered against the Gateway below,
+                // once the key can be rebuilt from that identity.
+                legacyPreparedShape = true
               }
               const useFrozenOriginal = preparedReplay || (!sceneManualFinish
                 && (!!durablePermission || !!submittedRecoveryEntry || !!(manifestEntry?.original_output_selector
@@ -943,6 +952,105 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                     }
                   })()
                 : null
+              if (legacyPreparedShape && manifestEntry) {
+                // Rows written before the idempotency key became durable record
+                // the identity they reserved (`request_scope` + `input_hash`) but
+                // not the key itself. The row is written BEFORE the POST, so its
+                // presence never proves that POST was never sent, and nothing
+                // else on disk does either: no Gateway job id, no request key,
+                // and no Gateway checkpoint entry naming a job for this asset.
+                //
+                // The one question that CAN be answered is what the Gateway holds
+                // for the exact identity the row reserved. So the key is rebuilt
+                // from the row's own recorded scope plus this job's own settings
+                // — the same inputs the original submission built it from — and
+                // the Gateway is asked BEFORE anything is written or submitted:
+                //
+                //   the job exists     → its saved artifact is reclaimed, no new work
+                //   the key is absent  → that request was never created, so the scene
+                //                        is rendered under that same key (a lost
+                //                        response then replays it instead of paying twice)
+                //   no answer at all   → held, named in the job log; Scene Review
+                //                        still offers Replace anyway
+                const reservedScope = manifestEntry.request_scope || ''
+                const recordedHash = manifestEntry.input_hash || ''
+                // The row's recorded identity has to still describe this scene,
+                // or the request it reserved cannot be named. A row carrying the
+                // frozen paid facts proves that the way every other paid path
+                // does; an older row proves it with the plain scope + prompt
+                // hash, under either the form used before the reference-image
+                // tag existed or today's.
+                const identityStillMatches = manifestEntry.original_output_selector
+                  ? (() => {
+                      try {
+                        readPaidImageOriginalRequest(
+                          manifestEntry,
+                          paidReferenceRoot,
+                          { prompt: finalPrompt, baseScope: logicalPaidScope(manifestEntry, baseScope) },
+                          paidOutputRoot,
+                        )
+                        return true
+                      } catch {
+                        return false
+                      }
+                    })()
+                  : Boolean(reservedScope && recordedHash)
+                    && (recordedHash === hashRequest(reservedScope)
+                      || recordedHash === hashInput(`${reservedScope}\n${finalPrompt}`))
+                const dispatchedJobId = job.params?.genstudio_recovery?.assets?.[filename]?.job_id || ''
+                if (!identityStillMatches || dispatchedJobId || replacementScope) {
+                  throw new Error(
+                    dispatchedJobId
+                      ? `This scene's saved prepared row cannot be checked: the job's own record shows Gateway request ${dispatchedJobId.slice(0, 12)}… for it, so the row is not proof that nothing was sent. No new image was requested; Retry reconnects to that request.`
+                      : replacementScope
+                        ? 'This scene is waiting on an explicit paid image replacement, so its older prepared row cannot be checked against the Gateway. No new image was requested; use the replacement flow.'
+                        : 'This scene no longer matches the prepared image request it saved, so the Gateway request that row reserved cannot be identified. No new image was requested; Scene Review can offer Replace anyway.',
+                  )
+                }
+                const rebuiltPreparedKey = buildGenStudioImageIdempotencyKey({
+                  prompt: finalPrompt,
+                  modelId: modelConfig.api_model || model,
+                  aspectRatio: originalSelector?.aspect_ratio || aspectRatio,
+                  ...(originalSelector
+                    ? { resolution: originalSelector.resolution }
+                    : { width: renderWidth, height: renderHeight }),
+                  seed: params.seed,
+                  requestIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${reservedScope}`,
+                  ...(sceneOutputFormat ? { outputFormat: sceneOutputFormat } : {}),
+                })
+                prefetchedRecovery = await tryRecoverImageFromManifestEntry(
+                  { ...manifestEntry, idempotency_key: rebuiltPreparedKey },
+                  apiKey,
+                  modelConfig,
+                  () => jq.isCancelled(job.job_id),
+                  {
+                    observeCurrentState: Boolean(sceneManualFinish),
+                    allowPreparedReplayOnAbsent: true,
+                    unconfirmedStaysUncertain: true,
+                  },
+                )
+                if (prefetchedRecovery.kind === 'uncertain') {
+                  throw new Error(
+                    `The saved image request for this scene predates the recorded Gateway key, and the Gateway could not confirm the request that row reserved (${prefetchedRecovery.reason}). ` +
+                    'No duplicate image was submitted; Scene Review can offer Replace anyway.',
+                  )
+                }
+                // The Gateway answered, so the rebuilt identity now provably
+                // names an existing job or provably names none. Persist it before
+                // the ordinary path acts on it, so every compare-and-record below
+                // is replacing the row it just wrote.
+                const rebuiltOwner: TaskManifestEntry = { ...manifestEntry, idempotency_key: rebuiltPreparedKey }
+                await compareAndRecordImageTaskStrict(outDir, filename, manifestEntry, rebuiltOwner)
+                manifestEntry = rebuiltOwner
+                savedEntry = rebuiltOwner
+                attemptOwner = rebuiltOwner
+                preparedReplay = true
+                if (prefetchedRecovery.kind === 'no-saved-job') {
+                  job.output_lines.push(
+                    `Scene ${scene.scene_index}: the saved image request predates the recorded Gateway key, and the Gateway has no request for the identity it reserved — rendering it now.`,
+                  )
+                }
+              }
               // Free fleet skips the paid decision: a control read that throws or is
               // not "failed" made it answer "recover-original" forever (TN0355 scene 65).
               // The ordinary path below derives a new retry identity from the dead task.
@@ -1025,7 +1133,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   ? manifestEntry
                   : null
               )
-              let recovery = await tryRecoverImageFromManifestEntry(
+              let recovery = prefetchedRecovery ?? await tryRecoverImageFromManifestEntry(
                 recoverable,
                 apiKey,
                 modelConfig,
