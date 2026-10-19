@@ -361,7 +361,9 @@ export async function inspectPipelineSubtitleRepairReadiness(
 /**
  * A subtitle step is complete only when every audio section has a usable
  * transcript, or when an intentional whole-episode track exists. A partial
- * stitched file never hides missing chapter transcripts.
+ * stitched file never hides missing chapter transcripts, and a `_stitched` file
+ * is never itself the intentional whole-episode track — it is derived from the
+ * per-section transcripts, so it counts for their coverage and nothing more.
  */
 export async function inspectSubtitleCompletion(
   episodeDir: string,
@@ -399,15 +401,21 @@ export async function inspectSubtitleCompletion(
     fullTrack = pinned
   }
 
+  // A `_stitched` file is DERIVED from the per-section transcripts, so it can
+  // only ever be as fresh as the sections it was cut from — it is not the
+  // "intentional whole-episode track" the `full-track` mode means.
+  // `pipelineSubtitleRepairComplete` (routes/pipeline.ts) already refuses one as
+  // a standalone full-track; promoting it here made Pipeline and the Production
+  // Board disagree about the same episode and skipped the per-section freshness
+  // check that notices "the narration was regenerated after this stitch". Its
+  // coverage still counts toward the sections below.
   const stitchedCovered = new Set<string>()
+  let stitchedComplete = false
   if (!fullTrack) {
     for (const filename of files.filter(name => /_stitched\.(srt|ass|vtt)$/i.test(name))) {
       const coverage = await stitchedCoverage(subtitlesDir, filename, expected)
       for (const section of coverage?.covered || []) stitchedCovered.add(section)
-      if (coverage?.complete) {
-        fullTrack = filename
-        break
-      }
+      if (coverage?.complete) stitchedComplete = true
     }
   }
 
@@ -429,7 +437,11 @@ export async function inspectSubtitleCompletion(
   const completedSet = new Set(completed.map(normalize))
   const missing = expected.filter(section => !completedSet.has(normalize(section)))
   return {
-    complete: expected.length > 0 && missing.length === 0,
+    // With no `audio_chapters.json` there is no section list to compare a
+    // verified stitch against, so the stitch's own record still decides — the
+    // answer every caller got while a `_stitched` file was treated as a
+    // whole-episode track.
+    complete: expected.length ? missing.length === 0 : stitchedComplete,
     mode: completed.length ? 'per-section' : 'none',
     expected_sections: expected,
     completed_sections: completed,

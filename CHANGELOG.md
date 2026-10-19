@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.332 — 2026-10-19
+
+- Long writing jobs get a time limit sized to the job: Story tells the Gateway how long an answer it expects, and waits at least that long (up to 4 hours) instead of a fixed 30 minutes. Your timeout setting is still the minimum.
+- Switching voice models quickly no longer lets a late answer about the old model replace or refill the new model's voice list.
+- Retry of a title/description job whose answer Story rejected now asks for a fresh answer, even when the job was started from the page or a Pipeline run.
+- After a re-upload, an episode shows its newest successful upload instead of the older failed one, everywhere Story looks up an episode's video.
+- Uploading an episode again is refused when YouTube's channel listing came back incomplete, so a duplicate cannot slip through.
+- The story start is no longer pushed later by the closing music after the narration.
+- Subtitles are checked for freshness even when a combined subtitle file exists, so out-of-date subtitles are no longer reported complete.
+- Music channels' finished .m4a and .wav narration tracks are recognised everywhere, including the Missing Assets audit and imports.
+- A damaged final-check result file is treated as not checked yet, never as a pass, and no longer breaks the upload list.
+
 ## v1.4.331 — 2026-10-19
 
 - The final video check no longer calls a silence at the end of an older video "inside the speech". It reads where the narration ends from the episode's Scene Plan, and new renders record it; a silence it cannot place is reported as such, never as missing speech.

@@ -35,6 +35,9 @@ const genstudioProvider: TextProvider = {
       temperature: request.temperature,
       maxOutputTokens: request.maxTokens,
       outputBudget: request.outputBudget,
+      // The caller's own expectation, forwarded so the Gateway can hand it to the Hub lane that
+      // sizes this job's chat deadline. A hint only: it changes no allowance.
+      expectedOutputTokens: request.expectedOutputTokens,
       requestIdentity: request.requestIdentity,
       recoverByIdempotencyKey: request.recoverByIdempotencyKey === true,
       allowUncreatedRecovery: request.allowUncreatedRecovery === true,

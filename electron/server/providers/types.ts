@@ -201,6 +201,16 @@ export interface TextGenerationRequest {
   /** The SHAPE of this workflow's output, sized from the selected product's
    *  published output limit. See services/output-token-budget.ts. */
   outputBudget?: OutputBudget
+  /**
+   * How long this workflow's answer is expected to be, in output tokens.
+   *
+   * **Not a ceiling** — that is `maxTokens`/`outputBudget`. This is the hint the Gateway
+   * forwards to Studio Hub, which sizes the job's chat deadline from it (a 100-prompt scene
+   * pack and a one-line question are indistinguishable from the request body alone, and the
+   * Hub will not size every job from `max_tokens`). Absent means the Hub falls back to the p90
+   * of the fleet's own measured answers. See services/output-token-budget.ts.
+   */
+  expectedOutputTokens?: number
   /** Prefer provider-native JSON mode for strict machine-readable workflows. */
   jsonMode?: boolean
   /**

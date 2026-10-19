@@ -62,7 +62,7 @@ import { inspectMetadataCompletion, legacyMetadataPresent } from './metadata-com
 import { COVERAGE_FAIL_SEC, inspectScenePlanCoverage } from './scene-planner.js'
 import { planMergedAudioDrift, planNarrationShortfallSec, readNarrationRecord } from '../lib/scene-plan-timeline.js'
 import { selectMergedAudioFilename } from '../lib/intro-lead-in.js'
-import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
+import { isEpisodeMergedAudioFilename, resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
 import { DEFAULT_SOUND_DESIGN_SETTINGS, normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
@@ -715,11 +715,14 @@ export async function inspectAudioMergeAtPaths(
     }
     best = { version: 0, file }
   } else {
-    const re = new RegExp(`^${code}_merged_audio(?:_v(\\d+))?\\.mp3$`)
+    // Membership is the canonical rule (lib/merged-audio-selection.ts), so a
+    // recognised `.m4a`/`.wav` — a music episode's merged track — is not dropped
+    // before the completion and freshness checks run. Only the ORDER stays this
+    // site's own: the highest `_vN`, so an episode nobody pinned is unchanged.
     for (const file of files) {
-      const match = file.match(re)
-      if (!match || !await fileHasContent(path.join(paths.merged_audio_dir, file))) continue
-      const version = match[1] ? parseInt(match[1], 10) : 1
+      if (!isEpisodeMergedAudioFilename(file, code)) continue
+      if (!await fileHasContent(path.join(paths.merged_audio_dir, file))) continue
+      const version = Number(file.match(/_v(\d+)\./i)?.[1] ?? 1)
       if (!best || version > best.version) best = { version, file }
     }
   }
@@ -752,7 +755,7 @@ export async function inspectAudioMergeAtPaths(
 }
 
 /**
- * Is there a `{code}_merged_audio(_v{N})?.mp3` file with content?
+ * Is there a `{code}_merged_audio(_v{N})?.{mp3,wav,m4a}` file with content?
  * We consider "any version" as present — users generate v2+ when doing
  * revisions, and the latest one is the one that matters.
  */

@@ -52,16 +52,37 @@ import path from 'path'
 export const SELECTED_MERGED_AUDIO_SIDECAR = '.selected_merged_audio'
 
 /**
+ * The extensions a merged track may carry, in the order Audio Assembly,
+ * an external/legacy import and the music builder produce them. ONE list: the
+ * filename pattern below and every "expected name" a reader reports are built
+ * from it, so no site can drift to `.mp3`-only again.
+ */
+export const MERGED_AUDIO_EXTENSIONS = ['mp3', 'wav', 'm4a'] as const
+
+/**
  * A merged-audio track: `{CODE}_merged_audio.{ext}` or its `_v2`/`_v3`… revisions.
  *
- * Deliberately identical to `isMergedFilename` in `generators/video.ts` (the
- * asset scanner) and to the private pattern this module used to hold, because
+ * The asset scanner (`generators/video.ts`) tests against THIS pattern, because
  * the choice computed here must describe the very file the renderer lays under
  * the pictures. It ENDS at a real audio extension, so the
  * `{CODE}_merged_audio.completion.json` record written beside the track (v1.3.4)
  * is never mistaken for one.
  */
-export const MERGED_AUDIO_FILENAME = /_merged_audio(?:_v\d+)?\.(?:mp3|wav|m4a)$/i
+export const MERGED_AUDIO_FILENAME = new RegExp(
+  `_merged_audio(?:_v\\d+)?\\.(?:${MERGED_AUDIO_EXTENSIONS.join('|')})$`, 'i',
+)
+
+/**
+ * What an episode's merged track is expected to be called, for a reader that
+ * has to name the missing artifact: `{code}_merged_audio.{mp3,wav,m4a}`.
+ *
+ * A pattern rather than one filename because any of the canonical extensions
+ * satisfies the rule — naming a `.mp3` there is what hid a music episode's
+ * `.m4a` from the asset audit.
+ */
+export function mergedAudioExpectedName(episodeCode: string): string {
+  return `${String(episodeCode || '').toUpperCase()}_merged_audio.{${MERGED_AUDIO_EXTENSIONS.join(',')}}`
+}
 
 /**
  * Is `name` a merged track that belongs to `episodeCode`'s own folder?

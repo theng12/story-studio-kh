@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.332 — 2026-10-19 (gate running)
+
+Production bug-hunt bundles 1,2,4-9 (voice race 3455b199; metadata rejected retry edf6fa63; superseded upload + truncated listing + shared selectors 836a25b2/4f7d8c3d/5f8290ee; closing tail bb9c78a9; subtitle full-track staleness 6e29a845; merged audio non-mp3 a32fa3d3/4357a3e4; malformed final-check sidecar 9b9c7405) and the Story half of the dynamic chat deadline (a6a4dffc/b42758fe: expected_output_tokens, socket = max(setting, allowance) capped 4 h). Bundle 3 is Gateway 0.2.190.
+
 ## 1.4.331 — 2026-10-19 (gated and landed)
 
 Merged fix/output-limit-audit (docs tip 5f156c57), fix/hunt-verified-success (803b0833: audio-reconciler reads .task-manifest.json; cleanup run results capped with item_count), fix/hunt-recovery-truth (ca3ac802: planEndSec one authority, comparePlanStamp everywhere, hold-aware stragglers, catalogue last-good restore + image warm-up), fix/final-check-unknown-speech-end (80ab9a66: speech_end_sec, scene plan source_merged_audio). Bug-hunt phase 2 (Kinds A, C, D, F, H). Next: ack identity binding, cleanup skip-cleaned, dynamic chat deadline.

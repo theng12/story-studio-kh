@@ -100,6 +100,45 @@ export interface YouTubeRetentionEvidence {
   protected_reason?: string
 }
 
+/**
+ * The newest record YouTube has NOT failed, or `undefined` when every record
+ * this episode has is superseded.
+ *
+ * The evidence arrays are OLDEST-FIRST — `youtubeRetentionEvidenceFor` filters
+ * the operation store's index order in place — so `[0]` is the OLDEST record,
+ * and taking it names a video YouTube already abandoned. A LOOKUP (which must
+ * never offer a dead video) wants exactly this, and no fallback: falling back
+ * to a superseded record would hand back the video YouTube just killed.
+ */
+export function newestNotSuperseded<T extends { lifecycle: string }>(operations: T[]): T | undefined {
+  for (let index = operations.length - 1; index >= 0; index--) {
+    if (!SUPERSEDED_LIFECYCLES.has(operations[index]!.lifecycle)) return operations[index]
+  }
+  return undefined
+}
+
+/**
+ * `newestNotSuperseded`, or the OLDEST record when every one is superseded —
+ * the rule the Upload Center `/publishable` row uses (`find(...) ?? [0]`).
+ *
+ * A ROW that reports on an episode may name a dead video deliberately, so it
+ * can still say WHY the episode failed. Use `newestNotSuperseded` where naming
+ * a superseded video would be a lie rather than an explanation.
+ */
+export function newestNotSupersededOrOldest<T extends { lifecycle: string }>(operations: T[]): T | undefined {
+  return newestNotSuperseded(operations) ?? operations[0]
+}
+
+/**
+ * The newest `ready` operation. `ready_operations` carries only `ready`
+ * records — a lifecycle `SUPERSEDED_LIFECYCLES` never contains — so the newest
+ * usable one is simply the last; the OLDEST-FIRST order is the only reason
+ * `[0]` is wrong.
+ */
+export function newestReady<T>(operations: T[]): T | undefined {
+  return operations.at(-1)
+}
+
 function hasNonReadyCanonicalIdentity(evidence: YouTubeRetentionEvidence, videoId: string): boolean {
   return evidence.accepted_operations.some(operation =>
     operation.video_id === videoId && operation.lifecycle !== 'ready')
@@ -109,7 +148,7 @@ function hasNonReadyCanonicalIdentity(evidence: YouTubeRetentionEvidence, videoI
 export function usableYouTubeRemoteEvidence(
   evidence: YouTubeRetentionEvidence,
 ): { usable: boolean; video_id?: string } {
-  const ready = evidence.ready_operations[0]
+  const ready = newestReady(evidence.ready_operations)
   if (ready) return { usable: true, video_id: ready.video_id }
   if (evidence.reconcile_link && !hasNonReadyCanonicalIdentity(evidence, evidence.reconcile_link.video_id)) {
     return { usable: true, video_id: evidence.reconcile_link.video_id }
@@ -223,8 +262,8 @@ export async function youtubeRetentionProofForFile(
 ): Promise<{ usable: boolean; source_revision?: string; operation_id?: string; video_id?: string; channel_id?: string; reason?: string }> {
   // Cached by size, mtime and inode: every caller only moves the file to Story's Trash.
   const revision = await resolveYouTubeSourceRevisionCached(filePath, onBytes)
-  const matching = evidence.ready_operations.find(record =>
-    isContentSha256Revision(record.source_revision) && record.source_revision === revision)
+  const matching = newestReady(evidence.ready_operations.filter(record =>
+    isContentSha256Revision(record.source_revision) && record.source_revision === revision))
   if (matching) {
     return {
       usable: true,
@@ -262,8 +301,8 @@ export async function youtubeArchiveProofForFile(
   // re-check, final check inside the lock).
   if (evidence.ready_operations.some(record => isContentSha256Revision(record.source_revision))) {
     const revision = await resolveYouTubeSourceRevision(filePath)
-    const matching = evidence.ready_operations.find(record =>
-      isContentSha256Revision(record.source_revision) && record.source_revision === revision)
+    const matching = newestReady(evidence.ready_operations.filter(record =>
+      isContentSha256Revision(record.source_revision) && record.source_revision === revision))
     if (matching) return { usable: true, video_id: matching.video_id }
   }
 
@@ -358,11 +397,15 @@ export async function remoteVideoFor(
   // the replacement upload must get through it (and through the sidecar it wrote
   // beside it), while a live record still refuses as loudly as ever.
   const superseded = supersededVideoIds(all, episodeCode, channelId)
-  const record = all.find(entry => entry.episode_code === episodeCode
+  // `all` arrives OLDEST-FIRST, so a plain `.find` here answered with the
+  // episode's FIRST live upload — the one a replacement superseded — rather than
+  // the video it has now. Ask for the newest record YouTube has not failed, and
+  // take no fallback: offering a dead video is worse than falling through to the
+  // reconcile link and the sidecar below.
+  const record = newestNotSuperseded(all.filter(entry => entry.episode_code === episodeCode
     && entry.channel_id === channelId
-    && !SUPERSEDED_LIFECYCLES.has(entry.lifecycle)
     && (!!entry.video_id?.trim() || OPEN_LIFECYCLES.includes(entry.lifecycle))
-    && !isYouTubeVideoRemoved(links, episodeCode, entry.channel_id, entry.video_id))
+    && !isYouTubeVideoRemoved(links, episodeCode, entry.channel_id, entry.video_id)))
   if (record) {
     return {
       video_id: record.video_id?.trim() || '',

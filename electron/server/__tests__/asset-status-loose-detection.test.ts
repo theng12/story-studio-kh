@@ -254,6 +254,17 @@ describe('asset-status verified completion', () => {
         { slug: 'Chapter_02', duration_s: 2 },
       ],
     }))
+    // The narration the chapter transcripts describe, dated before them: the
+    // freshness check compares each chapter SRT against its own audio, and a
+    // stitched timeline is only ever as fresh as the sections it was cut from.
+    const audioDir = path.join(episodeDir, `${CODE} - 07 Audio Assets`)
+    await fs.mkdir(audioDir, { recursive: true })
+    for (const slug of ['Introduction', 'Chapter_01', 'Chapter_02']) {
+      const audio = path.join(audioDir, `${CODE}_${slug}.mp3`)
+      await fs.writeFile(audio, 'audio bytes')
+      const older = new Date('2020-01-01T00:00:00Z')
+      await fs.utimes(audio, older, older)
+    }
 
     let status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
     assert.equal(status.subtitles, false, 'no SRT yet → subtitles pending')

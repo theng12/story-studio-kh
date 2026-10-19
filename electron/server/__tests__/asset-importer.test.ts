@@ -172,13 +172,27 @@ describe('asset-importer', () => {
     }
   })
 
-  test('merged: maps to {merged_audio_dir}/{code}_merged_audio.mp3', async () => {
-    const src = await makeSource('mix.wav', 'wav-bytes')
-    const r = await importer.importAssets(SLUG, CODE,
-      [{ type: 'merged', source_path: src }],
+  test('merged: keeps a recognised source extension, else maps to .mp3', async () => {
+    // The canonical merged-track rule accepts .mp3/.wav/.m4a, so a `.wav` import
+    // keeps its name instead of having its bytes relabelled `.mp3`.
+    const wav = await makeSource('mix.wav', 'wav-bytes')
+    const kept = await importer.importAssets(SLUG, CODE,
+      [{ type: 'merged', source_path: wav }],
       { mode: 'copy' })
-    const dest = path.join(epDirOf().mergedDir, `${CODE}_merged_audio.mp3`)
-    assert.equal(r.items[0].destination, dest)
+    assert.equal(
+      kept.items[0].destination,
+      path.join(epDirOf().mergedDir, `${CODE}_merged_audio.wav`),
+    )
+
+    // An extension no reader accepts still lands under the canonical .mp3 name.
+    const aac = await makeSource('mix.aac', 'aac-bytes')
+    const normalised = await importer.importAssets(SLUG, CODE,
+      [{ type: 'merged', source_path: aac }],
+      { mode: 'copy' })
+    assert.equal(
+      normalised.items[0].destination,
+      path.join(epDirOf().mergedDir, `${CODE}_merged_audio.mp3`),
+    )
   })
 
   test('other: maps to {episode_dir}/{dest_subpath}', async () => {
