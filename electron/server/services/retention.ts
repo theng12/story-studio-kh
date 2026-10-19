@@ -190,7 +190,7 @@ export async function runAutomaticCleanup(now = Date.now()): Promise<RetentionRu
     const preview = previewOperation.library_preview
     if (previewOperation.status !== 'completed' || !preview) {
       run = { at: new Date(now).toISOString(), status: 'failed', detail: previewOperation.error || `The file review ended ${previewOperation.status}.` }
-    } else if (!preview.files.length && !(preview.leftovers?.count || 0)) {
+    } else if (!preview.file_count && !(preview.leftovers?.count || 0)) {
       // The button would offer nothing to do; do not start an empty run.
       run = { at: new Date(now).toISOString(), status: 'completed', detail: 'Nothing to clean up: no eligible uploaded finals and no unused leftovers.' }
     } else {

@@ -2909,6 +2909,43 @@ function durableIncompleteChatError(job: GenStudioChatJob): GenStudioChatIncompl
 }
 
 /**
+ * A settled, SUCCEEDED writing answer THIS APP refused: unreadable JSON, a missing body, or a
+ * contract violation.
+ *
+ * The Gateway keeps that text and replays it for the same key, so the key can never produce a
+ * usable result — the identity has to move, exactly as it must after a settled failure. Carried as
+ * a type rather than left as the bare parse error so a caller holding a saved key can tell it apart
+ * from a transport failure or a timeout, which must keep their key.
+ *
+ * Truncation is deliberately NOT this error. `GenStudioChatIncompleteError` stays itself: the same
+ * request against the same ceiling truncates again at the same place (its own message says so), so
+ * a fresh send is not the remedy there, and chunked narration still branches on that class.
+ */
+export class GenStudioChatAnswerRejectedError extends Error {
+  readonly jobId: string
+  readonly idempotencyKey: string
+
+  constructor(jobId: string, idempotencyKey: string, cause: unknown) {
+    // The refused answer's own words stay the message: they are what every surface shows, and what
+    // the tests and the run's log line already quote.
+    super(cause instanceof Error ? cause.message : String(cause), { cause })
+    this.name = 'GenStudioChatAnswerRejectedError'
+    this.jobId = jobId
+    this.idempotencyKey = idempotencyKey
+  }
+}
+
+/**
+ * The error to throw after a settled answer was refused. One place, so both routes answer the same
+ * way and truncation keeps its own class — see `GenStudioChatAnswerRejectedError`.
+ */
+function rejectedAnswerError(error: unknown, jobId: string, idempotencyKey: string): unknown {
+  return error instanceof GenStudioChatIncompleteError
+    ? error
+    : new GenStudioChatAnswerRejectedError(jobId, idempotencyKey, error)
+}
+
+/**
  * The requested chat product does not resolve against GenStudio's live
  * catalogue: absent, unpublished, or qualification-only. Thrown strictly
  * before any network submission (see `prepareChatSubmission`'s doc comment),
@@ -3830,6 +3867,54 @@ export function isGenStudioSubmissionUncertain(error: unknown): boolean {
   }
   if (!(error instanceof GenStudioApiError)) return false
   return isSubmissionUncertainCode(error.languageFailureCode) || isSubmissionUncertainCode(error.code)
+}
+
+/**
+ * True when a COLLECTED writing failure is PROVEN dead: the Gateway settled the job `failed`, it
+ * holds no unknown outcome, and the code is not one that says a provider may already have taken the
+ * request. Collecting that key again can only answer the same failure, so a caller that saved the
+ * key may release the identity and send one fresh request.
+ *
+ * Every other shape must keep replaying its key. A hold (`recovery_required` / `unknown_outcome`)
+ * and an uncertain submission may yet produce an answer, and a cancellation is the user's own last
+ * word — none of them is permission to buy a second request.
+ *
+ * `isClosedHoldCode` needs no separate case: an operator closing the hold (`HOLD_CLOSED`) settles
+ * the job with no hold left, which is exactly what this answers true for.
+ */
+export function isProvenChatFailure(error: unknown): error is GenStudioChatTerminalFailureError {
+  return error instanceof GenStudioChatTerminalFailureError
+    && !error.cancelled
+    && !error.unknownOutcome
+    && !isSubmissionUncertainCode(error.failureCode)
+}
+
+/**
+ * True when the Gateway SETTLED a writing answer and this app refused it — unreadable JSON, a
+ * missing body, or a contract violation (`GenStudioChatAnswerRejectedError`). The job succeeded and
+ * its text is retained, so replaying that key returns the same refused text on every attempt; a
+ * caller holding the key may release the identity and ask once more.
+ *
+ * Truncation is not this: a truncated answer is `GenStudioChatIncompleteError`, which the same
+ * request against the same ceiling reproduces at the same place.
+ */
+export function isProvenUnusableChatAnswer(error: unknown): error is GenStudioChatAnswerRejectedError {
+  return error instanceof GenStudioChatAnswerRejectedError
+}
+
+/**
+ * True when the Gateway PROVED it never saw this key: the read-only by-idempotency-key lookup
+ * answered 404, so no job exists for it in this account.
+ *
+ * Only a 404 proves that. Every other unresolved lookup — a 502/504, a refused connection, a
+ * timeout, a key outside `allowedRecoveryKeys`, a settings switch mid-read — proves nothing, and
+ * the key must be KEPT: fresh work submitted on that evidence could pay a second time for a request
+ * that did reach the Gateway.
+ */
+export function isProvenUncreatedChatRequest(error: unknown): boolean {
+  return error instanceof GenStudioChatRecoveryUnresolvedError
+    && error.cause instanceof GenStudioApiError
+    && error.cause.status === 404
 }
 
 /**
@@ -7848,7 +7933,7 @@ async function finishChatJob(
       queue.recordRejectedChatAnswerKey(prepared.idempotencyKey)
       queue.noteCurrentJob('The writing model\'s answer could not be read; asking again with a fresh request.')
     }
-    throw error
+    throw rejectedAnswerError(error, completed.id, prepared.idempotencyKey)
   }
   const result: GenStudioChatResult = {
     ...parsed,
@@ -8228,7 +8313,7 @@ async function callChatViaCompletions(
       queue.recordRejectedChatAnswerKey(prepared.idempotencyKey)
       queue.noteCurrentJob('The writing model\'s answer could not be read; asking again with a fresh request.')
     }
-    throw error
+    throw rejectedAnswerError(error, completion.id, prepared.idempotencyKey)
   }
   const result: GenStudioChatResult = {
     ...parsed,
@@ -8393,8 +8478,8 @@ async function callChatWithGenStudioAdmitted(
     } catch (error) {
       const lost = lostChatRequest(error, request, prepared.idempotencyKey)
       if (lost) return resendLostChat(apiKey, request, prepared, lost, uncreatedRecoveryBaseUrl)
-      const cause = error instanceof GenStudioChatRecoveryUnresolvedError ? error.cause : undefined
-      if (!(cause instanceof GenStudioApiError) || cause.status !== 404) throw error
+      // Only a 404 is the absence proof; see `isProvenUncreatedChatRequest`.
+      if (!isProvenUncreatedChatRequest(error)) throw error
     }
   }
   await request.onRequestPrepared?.(prepared.idempotencyKey)

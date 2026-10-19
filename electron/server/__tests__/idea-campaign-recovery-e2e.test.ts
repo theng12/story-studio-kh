@@ -387,11 +387,15 @@ test('a lost transport response is re-sent under the same key, never a second pr
   } finally { await env.close() }
 })
 
-test('a saved key the provider never saw fails closed: no POST, and the record is preserved', async () => {
+test('a saved key the provider never saw is released and asked once more under a new identity', async () => {
   const env = await setup()
   try {
-    // The durable checkpoint was reached but the POST never got there. The lookup misses, and a miss
-    // is never permission to submit fresh work.
+    // The durable checkpoint was reached but the POST never got there, so the read-only lookup
+    // answers 404 — the Gateway PROVING it holds no job for this key. Nothing was created and
+    // nothing was charged, so the identity is released and this run asks once more: HMH 1b39c51b,
+    // Minee 7849f488 and History dad150e6 looped on exactly this key forever. A lookup that is NOT
+    // a 404 (a 502, a refused connection, a timeout) proves nothing and still fails closed, with
+    // the key kept — see `idea-campaign-proven-failure.test.ts`.
     const run = campaignJob(env.project.slug, {
       idea_batch: {
         ordinal: 1, prompt: 'captured body', count: 2, model: MODEL,
@@ -402,15 +406,19 @@ test('a saved key the provider never saw fails closed: no POST, and the record i
         idempotency_key: 'story-chat-never-submitted',
       },
     })
-    await assert.rejects(
-      () => env.generateIdeaCampaign(run),
-      /could not find the earlier language submission for idempotency key/,
-    )
-    assert.equal(env.posts(), 0, 'an unresolved lookup is never permission to submit fresh work')
+    env.service.queueScenario('chat', { outputText: answer([...DISTINCT_ANSWERS]) })
+
+    await env.generateIdeaCampaign(run)
+
     assert.ok(env.byKeyGets() >= 1, 'it asked the provider, read-only, by the saved key')
-    assert.equal((await env.im.getIdeas(env.project.slug)).length, 0)
-    assert.equal(env.recovery.readIdeaBatch(run.params)?.idempotency_key, 'story-chat-never-submitted',
-      'the record and its key are preserved for a later Retry')
+    assert.equal(env.posts(), 1, 'then asked exactly once more, under a new identity')
+    const posted = env.service.requests.filter(row => row.method === 'POST' && row.path === CHAT_SUBMIT_PATH)
+    assert.notEqual(posted[0]?.idempotencyKey, 'story-chat-never-submitted',
+      'the key the Gateway proved it never saw is never used again')
+    assert.equal(env.recovery.readIdeaBatch(run.params)?.settled_dead?.kind, 'uncreated',
+      'and what was proved about it is kept on the record')
+    assert.deepEqual((await env.im.getIdeas(env.project.slug)).map(row => row.title).sort(),
+      [...DISTINCT_ANSWERS].sort(), 'the fresh answer lands under the campaign')
   } finally { await env.close() }
 })
 

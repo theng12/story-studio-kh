@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.329 — 2026-10-19
+
+- An idea batch whose earlier request is known to have failed now gets one fresh request on Retry, instead of collecting the same failure forever. The same happens when the earlier answer arrived but could not be read, or when the Gateway confirms it never received the earlier request. A request whose outcome is still unknown, or a Gateway that cannot be reached, is still only collected, never sent twice.
+- Free Up Space on all channels with many files no longer stalls: its review now shows the totals, per-channel counts and a short sample of files instead of sending every file twice (one review was 276 MB). The cleanup itself still covers every file.
+- New read-only check of up to 50 YouTube videos at once against the channel assigned to the project (upload, processing, privacy and schedule), for older uploads Story has no upload record for. It changes nothing on YouTube.
+
 ## v1.4.328 — 2026-10-19
 
 - Retry on a step whose saved recovery settings can no longer be restored now says why in plain words instead of "Internal server error", and a refused recovery leaves nothing half-saved behind.
