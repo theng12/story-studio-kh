@@ -238,6 +238,8 @@ test('Retry repairs a job that is still damaged in memory', async () => {
   })
   await waitFor(() => jq.getJob(broken.job_id)?.status === 'error', { label: 'damaged plan fails' })
   assert.match(jq.getJob(broken.job_id)!.error || '', /pacing must be an object/)
+  // The row reports `error` before its worker settles; Retry is refused until then (1.4.319).
+  await waitFor(() => !jq._isJobWorkerActiveForTesting(broken.job_id), { label: 'damaged plan worker settles' })
 
   const retried = jq.retryTerminalJob(slug, broken.job_id)
   await waitFor(() => jq.getJob(retried.job_id)?.status === 'done', { label: 'retry plans' })
