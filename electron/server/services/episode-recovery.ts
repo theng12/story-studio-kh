@@ -786,6 +786,7 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       if (selected.some(job => !job || !episodeRecoveryStep(job.type) || job.force_abandoned
         || (!['error', 'cancelled'].includes(job.status)
           && !Object.values(plan?.steps || {}).some(node => node.job_id === job.job_id)))) throw new Error('Recovery source must be an owned failed or cancelled episode job.')
+      let planDirty = false
       // Explicit cancellation and a new server-stamped narration refresh own new identities.
       const newCancellationIntent = selected.some(job => job!.status === 'cancelled' && !plan?.retry_source_job_ids?.includes(job!.job_id))
       // The repair Assembly reuses the owner's last ordinary mix: a finished merge, never a
@@ -843,18 +844,22 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
           plan.narration_refresh_job_ids = refreshIds
         }
         plan.retry_source_job_ids = [...new Set([...priorSourceIds, ...sourceJobIds])]
-        await writeJsonAtomic(file, store) // identity first, before any queue insertion
+        planDirty = true
       } else if (newRefreshIds.length && !ownsAcceptedMerge) {
         plan.narration_refresh_job_ids = [...new Set([...(plan.narration_refresh_job_ids || []), ...newRefreshIds])]
         if (mergeNode && (mergeJob?.status === 'done' || (!mergeJob && plan.completed.includes('audio_merge')))) {
           plan.steps.audio_merge = { ...mergeNode, job_id: `recovery-${plan.id}-audio_merge-${randomUUID()}`, dispatched: false }
         }
         plan.first_unresolved = 'audio_merge'
-        await writeJsonAtomic(file, store)
+        planDirty = true
       }
       if (plan.project_slug !== projectSlug) throw new Error('Episode recovery belongs to another project.')
       if (selected.every((job): job is Job => !!job)
-        && extendPlanFromSelectedFailures(plan, selected, jobs)) await writeJsonAtomic(file, store)
+        && extendPlanFromSelectedFailures(plan, selected, jobs)) planDirty = true
+      // One write for the identity and every extension, still before any queue
+      // insertion. A refusal while extending the plan must not leave a
+      // half-built record that the next Retry then treats as authoritative.
+      if (planDirty) await writeJsonAtomic(file, store)
       return plan
     })
     if (!plan) return null
