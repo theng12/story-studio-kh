@@ -6,7 +6,7 @@ import { createApp, h, nextTick, readonly, ref, type Component } from 'vue'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 import { describeEpisodeAssetRecovery, recoverEpisodeAssets } from '../utils/job-asset-recovery'
-import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '../utils/episode-recovery'
+import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isSkippedJob, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '../utils/episode-recovery'
 import { customerSafeJobText, filterJobsForView, jobDisplayLabel, jobsEmptyState, jobTypeLabel, retryAdmissionAllowed } from '../utils/job-presentation'
 
 const pagePath = fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url))
@@ -66,6 +66,7 @@ async function loadJobs(): Promise<Component> {
     const groupEpisodeRecoveryRetries = globalThis.__groupEpisodeRecoveryRetries
     const isVerifiedRecoveredSubtitleJob = globalThis.__isVerifiedRecoveredSubtitleJob
     const isRecoveredFailure = globalThis.__isRecoveredFailure
+    const isSkippedJob = globalThis.__isSkippedJob
     const jobDisplayStatus = globalThis.__jobDisplayStatus
     const jobTypeLabel = globalThis.__jobTypeLabel
     const jobDisplayLabel = globalThis.__jobDisplayLabel
@@ -161,6 +162,7 @@ async function mount(
   ;(globalThis as any).__groupEpisodeRecoveryRetries = groupEpisodeRecoveryRetries
   ;(globalThis as any).__isVerifiedRecoveredSubtitleJob = isVerifiedRecoveredSubtitleJob
   ;(globalThis as any).__isRecoveredFailure = isRecoveredFailure
+  ;(globalThis as any).__isSkippedJob = isSkippedJob
   ;(globalThis as any).__jobDisplayStatus = jobDisplayStatus
   ;(globalThis as any).__filterJobsForView = filterJobsForView
   ;(globalThis as any).__customerSafeJobText = customerSafeJobText
