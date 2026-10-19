@@ -15,9 +15,10 @@
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import {
   buildGenStudioChatIdempotencyKey,
@@ -232,6 +233,34 @@ test('no caller passes topP and no chat body carries top_p', () => {
   const vision = readFileSync(new URL('../routes/vision.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(client, /request\.topP/)
   assert.doesNotMatch(vision, /topP\s*:/)
+})
+
+test('no call site invents an output allowance of its own', () => {
+  // The class guard for the same rule, applied to the answer length. `maxOutputTokens` and
+  // the wire's `max_tokens` both name an EXACT number, and a number of ours cannot follow what
+  // the selected product publishes: it goes stale when the product changes, and
+  // `prepareChatSubmission` REFUSES one above the published limit — before any request is
+  // made, so the workflow fails with nothing to show for it. A tier (`outputBudget`) derives
+  // the figure from the published ceiling instead and cannot overshoot; see
+  // `services/output-token-budget.ts`.
+  //
+  // `routes/vision.ts` carried the last one — the thumbnail-reference analysis named 1,200
+  // tokens. A vision product publishing less could not run that analysis AT ALL, and one
+  // publishing more had its composition JSON cut short with `finish_reason: length`, which
+  // GenStudio refuses to settle.
+  //
+  // WHAT THIS CANNOT CATCH: a literal hidden behind an expression — `{ max_tokens:
+  // Math.min(derived, 2_048) }` is the shape that used to sit in the paid scene-prompt repair,
+  // and a scan for a bare number never sees it. That site is guarded behaviourally instead, by
+  // `scene-prompt-auto-repair-generator.test.ts` asserting the budget that reaches the wire.
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const offenders: string[] = []
+  for (const relative of readdirSync(root, { recursive: true, encoding: 'utf8' })) {
+    if (!relative.endsWith('.ts') || relative.startsWith('__tests__')) continue
+    const source = readFileSync(path.join(root, relative), 'utf8')
+    if (/maxOutputTokens:\s*\d|max_tokens:\s*\d/.test(source)) offenders.push(relative)
+  }
+  assert.deepEqual(offenders, [], 'declare a tier (outputBudget) instead of a number of our own')
 })
 
 // ── 2. generates_audio survives the transport ────────────────────────────
