@@ -15,6 +15,7 @@ import {
   DEFAULT_IMAGE_MODELS, DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS, DEFAULT_VIDEO_MODELS,
 } from '../models/defaults.js'
 import { sanitizeVideoCatalog } from '../models/video-catalog.js'
+import { OWNER_STANDARD_SCENE_PACING } from '../contracts/pacing.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import type {
@@ -855,6 +856,34 @@ export async function mutateProjectMetaConsistently(
   return updated
 }
 
+/**
+ * The Scene Plan preset a NEW channel starts with (owner decision, 2026-10-19):
+ * the owner's standard tiered rhythm under a name the owner recognises, so the
+ * channel's first episode opens on it and the preset can be re-applied to any
+ * later episode.
+ *
+ * It deliberately carries NO writing model. A model is a live GenStudio choice
+ * (AGENTS.md §1) and a channel must not have one baked in by us; the owner
+ * picks one in Scene Plan and saves the preset there, exactly as with a preset
+ * saved by hand. `motion_scope`/`motion_level` are the same defaults
+ * `defaultContinuityConfig` starts an episode with, and are part of the panel's
+ * own snapshot shape.
+ */
+const OWNER_STANDARD_PACING_PRESET_ID = 'preset-owner-standard-pacing'
+
+function ownerStandardPacingPreset(): Record<string, unknown> {
+  return {
+    id: OWNER_STANDARD_PACING_PRESET_ID,
+    name: 'Owner standard pacing',
+    type: 'scene-plan',
+    data: {
+      pacing: structuredClone(OWNER_STANDARD_SCENE_PACING),
+      motion_scope: { mode: 'off' },
+      motion_level: 2,
+    },
+  }
+}
+
 export async function createProject(
   req: CreateProjectRequest,
   initialContentPins: Pick<ProjectMeta, 'content_pack_versions' | 'content_pack_items'> = {},
@@ -932,9 +961,16 @@ export async function createProject(
   // Ensure config.json exists. API keys live in a sibling secrets.json file
   // (see secrets-store.ts) rather than here — keeps secrets out of config
   // diffs/exports and lets us lock the file down to 0600.
+  //
+  // In practice this is a MERGE, not a first write: the blank template already
+  // ships a config.json (`electron/templates/blank/config.json`), so the copy
+  // above has already placed one. Reading it first keeps whatever the template
+  // declares, and is what lets the seed below run on the real creation path
+  // rather than in a block that never executes.
   const configPath = path.join(projectDir, 'config.json')
-  if (!existsSync(configPath)) {
-    await writeJson(configPath, {
+  const templateConfig = existsSync(configPath) ? await readJson(configPath) as Record<string, unknown> : null
+  await writeJson(configPath, {
+    ...(templateConfig ?? {
       image_models: { ...DEFAULT_IMAGE_MODELS },
       voice_presets: [...DEFAULT_VOICE_PRESETS],
       audio_models: { ...DEFAULT_AUDIO_MODELS },
@@ -953,8 +989,23 @@ export async function createProject(
           || { privacy_status: 'private', made_for_kids: false },
       } } : {}),
       ...(req.auto_schedule_on_render === true ? { auto_schedule_on_render: true } : {}),
-    })
-  }
+    }),
+    // Owner decision, 2026-10-19 — a NEW channel starts with the owner's
+    // standard tiered rhythm (see OWNER_STANDARD_SCENE_PACING): the channel's
+    // own starting pacing, which every episode reads until it saves its own,
+    // plus the Scene Plan preset of the same rhythm marked last-used. Both are
+    // ordinary editable settings from then on, an episode still changes its
+    // rhythm in Scene Plan's Visual timing & motion panel, and this runs only
+    // at creation, so no existing channel is ever rewritten.
+    //
+    // A channel whose Series Formula names its own starting scene length
+    // overwrites `default_scene_pacing` afterwards
+    // (services/formula-starting-defaults.ts) — the Formula is the more
+    // specific choice, and the preset stays available by name either way.
+    default_scene_pacing: structuredClone(OWNER_STANDARD_SCENE_PACING),
+    scene_plan_presets: [ownerStandardPacingPreset()],
+    'scene_plan_last_preset_scene-plan': OWNER_STANDARD_PACING_PRESET_ID,
+  })
   // No per-project secrets.json is seeded — API keys live in the
   // app-level store (see app-secrets-store.ts). YouTube OAuth state is
   // the only thing that still goes into a per-project secrets.json,

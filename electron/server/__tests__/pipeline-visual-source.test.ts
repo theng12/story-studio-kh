@@ -421,6 +421,11 @@ describe('Pipeline episode visual source', () => {
     await pm.updateConfig(project.slug, {
       metadata_presets: [{ id: 'metadata', name: 'Metadata', data: { model: 'saved-chat-model' } }],
       metadata_last_preset: 'metadata',
+      // A NEW channel is seeded with the owner's standard Scene Plan preset
+      // (owner decision, 2026-10-19 — project-manager.ts `createProject`).
+      // This test is about a MISSING preset, so clear the seed.
+      scene_plan_presets: [],
+      'scene_plan_last_preset_scene-plan': '',
       // 1.4.300 — the missing-preset stop is the step_preset safety check on Block.
       safety_checks: { step_preset: 'block' },
     } as any)

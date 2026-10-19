@@ -54,7 +54,7 @@ describe('formula starting defaults', () => {
     assert.deepEqual(sleep.default_scene_pacing, { min_sec: 20, max_sec: 30 })
   })
 
-  test('a new channel gets its Formula\'s pacing; an existing one keeps 1–3 s', async () => {
+  test('a new channel gets its Formula\'s pacing, or the owner standard tiers without one', async () => {
     const { resolveScenePlanPacing } = await import('../services/scene-plan-pacing.js')
     const { defaultContinuityConfig } = await import('../routes/continuity.js')
 
@@ -65,16 +65,39 @@ describe('formula starting defaults', () => {
     const startingPacing = await defaults.readProjectStartingPacing(fresh.slug)
     assert.deepEqual(startingPacing, { min_sec: 20, max_sec: 30 })
     assert.equal((await pm.getConfig(fresh.slug) as any).default_style_bible.startsWith('soft, dreamlike'), true)
-    assert.equal(await defaults.readProjectStartingPacing(old.slug), undefined)
+    // A channel with NO Formula is not left on the app-wide default any more:
+    // since 2026-10-19 a new channel starts on the owner's standard tiers
+    // (project-manager.ts `createProject`). The Formula is the more specific
+    // choice and still wins above.
+    assert.deepEqual(await defaults.readProjectStartingPacing(old.slug), {
+      mode: 'variable',
+      min_sec: 5,
+      max_sec: 10,
+      periods: [
+        { start_sec: 0, end_sec: 180, min_sec: 5, max_sec: 10 },
+        { start_sec: 180, end_sec: 360, min_sec: 10, max_sec: 20 },
+        { start_sec: 360, end_sec: null, min_sec: 20, max_sec: 30 },
+      ],
+    })
     assert.equal((await pm.getConfig(old.slug) as any).default_style_bible, undefined)
 
     // What the Scene Plan page shows ("Next build") and what the planner uses.
     assert.deepEqual(defaultContinuityConfig('independent-stills', startingPacing).pacing, { min_sec: 20, max_sec: 30 })
+    // An episode with nothing at all still gets the one app-wide default.
     assert.deepEqual(defaultContinuityConfig('independent-stills').pacing, { min_sec: 1, max_sec: 3 })
     const ep = path.join(tmp.dir, 'ep')
     await fs.mkdir(ep, { recursive: true })
     assert.deepEqual((await resolveScenePlanPacing(fresh.slug, ep, flatFormat)).pacing, { min_sec: 20, max_sec: 30, mode: 'live' })
-    assert.deepEqual((await resolveScenePlanPacing(old.slug, ep, flatFormat)).pacing, { min_sec: 1, max_sec: 3, mode: 'live' })
+    assert.deepEqual((await resolveScenePlanPacing(old.slug, ep, flatFormat)).pacing, {
+      min_sec: 5,
+      max_sec: 10,
+      mode: 'variable',
+      periods: [
+        { start_sec: 0, end_sec: 180, min_sec: 5, max_sec: 10 },
+        { start_sec: 180, end_sec: 360, min_sec: 10, max_sec: 20 },
+        { start_sec: 360, end_sec: null, min_sec: 20, max_sec: 30 },
+      ],
+    })
 
     // An episode's own saved pacing still wins.
     await fs.writeFile(path.join(ep, 'continuity.json'), JSON.stringify({ pacing: { min_sec: 5, max_sec: 9 } }))
@@ -90,8 +113,18 @@ describe('formula starting defaults', () => {
     const config = await pm.getConfig(made.slug) as any
     assert.match(config.default_style_bible, /soft, dreamlike/)
     assert.deepEqual(config.default_scene_pacing, { min_sec: 20, max_sec: 30 })
+    // No Formula at all: the owner's standard tiers (2026-10-19), not 1–3 s.
     const plain = (await request(app).post('/api/projects').send({ name: 'No Formula Route' }).expect(201)).body
-    assert.equal((await pm.getConfig(plain.slug) as any).default_scene_pacing, undefined)
+    assert.deepEqual((await pm.getConfig(plain.slug) as any).default_scene_pacing, {
+      mode: 'variable',
+      min_sec: 5,
+      max_sec: 10,
+      periods: [
+        { start_sec: 0, end_sec: 180, min_sec: 5, max_sec: 10 },
+        { start_sec: 180, end_sec: 360, min_sec: 10, max_sec: 20 },
+        { start_sec: 360, end_sec: null, min_sec: 20, max_sec: 30 },
+      ],
+    })
   })
 
   test('the content-pack schema accepts the range and rejects a backwards one', async () => {
