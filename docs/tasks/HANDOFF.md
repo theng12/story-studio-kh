@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.325 — 2026-10-19 (gate running)
+
+Merged: fix/tts-chargeable-passthrough (6af1082e, `parseGenStudioChargeable` on all seven catalogue parsers), fix/gateway-connection-cap (c86fc538, undici Agent connections 8 as global dispatcher; undici now a declared dependency; bodies cancelled; onBoot clears stale install_requested), fix/rejected-answer-fresh-key (dc79f25b, inner-quote JSON repair; rejected_idempotency_keys → fresh key; auditor repair detail), feat/jobs-history-paging (777878c2, ?view=active snapshots + /jobs/all/history; /jobs/all unchanged for callers).
+
 ## Jobs history: paged, searched and counted on the server (source only, not released)
 
 Branch `feat/jobs-history-paging` from `origin/main` (1.4.323, d54f34b2). **SOURCE ONLY**: no version

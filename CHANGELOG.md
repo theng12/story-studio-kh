@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.325 — 2026-10-19
+
+- The Jobs page loads much faster: running, queued and paused jobs load at once, and finished jobs load from a searchable history with the log opened only when you open a job. Search, filters and Select All Matching still cover the whole history.
+- Voice, video, subtitle and voice-library lists now show the free/paid flag the Gateway publishes, so a free local model no longer looks unpriced.
+- When the writing model's answer can't be read (for example unescaped quotes inside the JSON), Story reads the common slip correctly and otherwise asks again with a fresh request instead of replaying the same unreadable answer.
+- A job that needs repair after a restart now names the exact scenes that are missing or duplicated.
+- Story keeps at most 8 connections open to the Gateway and closes ones it no longer needs, so a busy Mac can't overload the Gateway; a leftover "update failed" note after a manual install now clears itself.
+
 ## v1.4.324 — 2026-10-19
 
 - Scene Plan → Reconcile timings no longer deletes scenes. When several scenes matched the same subtitle line, it used to give one of them no length and then remove it — along with its prompt and approval. Now those scenes share the time evenly and every scene keeps its image, prompt and approval. If an older plan still holds a zero-length scene, the message says exactly what was removed and that its image file is still on disk.
