@@ -4,7 +4,7 @@ import * as pm from '../services/project-manager.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
 import { callAiWithRetry, resolveLivePipelineModel, type CallAiContext } from '../lib/ai-client.js'
-import { listChatModels } from '../lib/genstudio-client.js'
+import { isProvenChatFailure, listChatModels } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { composeNicheWithTopicPacks, loadNiche } from '../services/niche-loader.js'
@@ -37,6 +37,7 @@ import {
   ideaBatchAppendKey,
   ideaBatchRecordState,
   nextIdeaBatchOrdinal,
+  releaseSettledFailedIdeaBatch,
   writeIdeaBatch,
   type IdeaBatchRecord,
 } from '../services/idea-campaign-recovery.js'
@@ -499,6 +500,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     job.output_lines.push(`Collecting batch ${replayBatch.ordinal} prepared by an earlier run (${replayBatch.count} idea(s)); it is not sent again.`)
   }
   job.progress = Math.round((alreadyCompleted.length / wanted) * 100)
+  // One released-and-resent batch per run at most, so a saved key the Gateway proves dead costs
+  // exactly one fresh request and never a chain of them (the audio generator's
+  // `askedAfreshForDeadResult`, same shape).
+  let releasedSettledBatch = false
   job.output_lines.push(isFormulaFreeform
     ? 'Idea Campaign ' + request.campaign_id + ': Formula-only freeform generation; ' + wanted + ' required, ' + alreadyCompleted.length + ' already complete.'
     : 'Idea Campaign ' + request.campaign_id + ': ' + wanted + ' required, ' + alreadyCompleted.length + ' already complete, ' + assignmentPool.length + ' unused coverage assignments available.')
@@ -646,6 +651,36 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
           ))
         }
       }
+    } catch (error) {
+      // The batch saved for this campaign was COLLECTED and the Gateway answered a PROVEN terminal
+      // failure: the job settled `failed` with no hold left on it, so collecting that key again can
+      // only answer the same failure — every Retry would re-collect it and fail again, forever.
+      // Release the identity and let THIS run ask once more under a new one. The captured prompt,
+      // slots and assignments are still exactly what is sent; only the identity moves. A held or
+      // uncertain outcome, a cancellation and an unresolved lookup all keep their key and are never
+      // re-dispatched, because their answer may still be on its way.
+      const dead = replayBatch
+      if (releasedSettledBatch || !dead?.idempotency_key || !isProvenChatFailure(error)) throw error
+      releasedSettledBatch = true
+      const failedKey = dead.idempotency_key
+      releaseSettledFailedIdeaBatch(dead, {
+        idempotency_key: failedKey,
+        ...(dead.provider_job_id ? { provider_job_id: dead.provider_job_id } : {}),
+        failure_code: error.failureCode,
+        failure_detail: error.failureReason,
+      })
+      if (needed > 0) {
+        job.output_lines.push(`  ↻ The batch saved for this campaign came back a settled failure (${error.failureCode || 'no code published'}); asking once more as a fresh request.`)
+      } else {
+        // The campaign filled from elsewhere while this batch was saved, so there is nothing to
+        // replace: the dead capture is closed out rather than answered by a request whose ideas
+        // would be discarded.
+        dead.resolved = true
+        replayBatch = null
+      }
+      writeIdeaBatch(job, dead)
+      await jq.checkpointJobState(job)
+      continue
     } finally {
       clearInterval(watcher)
     }
