@@ -999,14 +999,25 @@ export async function linkYouTubeEpisodeVideo(input: {
   video_id: string
   source: 'upload' | 'reconcile'
   decided_at: string
+  /**
+   * Video ids YouTube itself declared dead on this episode and channel. Moving
+   * the episode's single link onto a NEW upload is the one thing those
+   * authorize; every other replacement still needs an explicit owner decision.
+   * Without it a failed upload's link refused its replacement for good, after
+   * YouTube had already accepted the new video (Domnak DM0001, 2026-10-19).
+   */
+  superseded_video_ids?: string[]
 }): Promise<YouTubeProjectPublishingStateV1> {
-  assertInputKeys(input, ['project_slug', 'episode_code', 'channel_id', 'video_id', 'source', 'decided_at'])
+  assertInputKeys(input, input.superseded_video_ids
+    ? ['project_slug', 'episode_code', 'channel_id', 'video_id', 'source', 'decided_at', 'superseded_video_ids']
+    : ['project_slug', 'episode_code', 'channel_id', 'video_id', 'source', 'decided_at'])
   const projectSlug = normalizeProjectSlug(input.project_slug)
   const episodeCode = normalizeIdentifier(input.episode_code, 'episode_code')
   const channelId = normalizeIdentifier(input.channel_id, 'channel_id')
   const videoId = normalizeIdentifier(input.video_id, 'video_id')
   if (!VIDEO_LINK_SOURCES.includes(input.source)) throw new Error('YouTube episode video source is invalid')
   const decidedAt = normalizeTimestamp(input.decided_at, 'decided_at')
+  const superseded = new Set(input.superseded_video_ids ?? [])
   const project = await resolveValidatedProject(projectSlug)
 
   return withLock(project.state_path, async () => {
@@ -1015,7 +1026,8 @@ export async function linkYouTubeEpisodeVideo(input: {
     if (existing && existing.channel_id === channelId && existing.video_id === videoId && existing.source === input.source) {
       return cloneState(current)
     }
-    if (existing && !isYouTubeVideoRemoved(current, episodeCode, existing.channel_id, existing.video_id)) {
+    if (existing && !superseded.has(existing.video_id)
+      && !isYouTubeVideoRemoved(current, episodeCode, existing.channel_id, existing.video_id)) {
       const explicitDecision = input.source === 'reconcile' && current.reconciliation_history.some(decision => (
         decision.episode_code === episodeCode
         && decision.previous_video_id === existing.video_id

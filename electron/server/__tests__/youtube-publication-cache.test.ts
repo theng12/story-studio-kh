@@ -250,6 +250,36 @@ describe('a schedule changed on YouTube is reflected', () => {
   })
 })
 
+describe('an abandoned upload is a failure, never a schedule', () => {
+  test('a private video YouTube abandoned processing is not counted as confirmed-scheduled', () => {
+    // Domnak DM0001-DM0003, 2026-10-19: the channel was not verified for long
+    // videos. videos.list answered `uploadStatus: uploaded` with a private
+    // publishAt, and every cache reader took that as a schedule - so three dead
+    // videos held three four-week coverage slots.
+    const abandoned = cacheService.observationFromDetails('vid-abandoned', {
+      uploadStatus: 'uploaded', privacyStatus: 'private', publishAt: '2026-10-20T11:00:00Z',
+      processingStatus: 'failed', processingFailureReason: 'tooLong',
+    }, '2026-10-19T01:22:08.842Z', 'operation', 'DM0001')
+    assert.equal(abandoned.upload_status, 'failed', 'the raw word would keep it counted as live')
+    const view = cacheService.publicationCacheView(
+      { episode_video_links: {} }, { [CHANNEL]: { videos: { 'vid-abandoned': abandoned } } }, [], CHANNEL,
+    )
+    assert.deepEqual(view.schedules, [], 'a dead video is not a confirmed schedule')
+    assert.equal(view.videos.find((entry: any) => entry.video_id === 'vid-abandoned')?.upload_status, 'failed')
+
+    // A healthy scheduled video is untouched.
+    const healthy = cacheService.observationFromDetails('vid-healthy', {
+      uploadStatus: 'uploaded', privacyStatus: 'private', publishAt: '2026-10-22T11:00:00Z',
+      processingStatus: 'succeeded',
+    }, '2026-10-19T02:03:18.410Z', 'operation', 'DM0002')
+    const healthyView = cacheService.publicationCacheView(
+      { episode_video_links: {} }, { [CHANNEL]: { videos: { 'vid-healthy': healthy } } }, [], CHANNEL,
+    )
+    assert.deepEqual(healthyView.schedules.map((entry: any) => entry.video_id), ['vid-healthy'])
+    assert.equal(healthy.upload_status, 'uploaded')
+  })
+})
+
 describe('channel listing coverage', () => {
   function listing(fake: FakeYouTube, ids: string[], nextPageToken?: string) {
     fake.respondMatching({ method: 'GET', match: CHANNELS, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-cache' } } }] } })

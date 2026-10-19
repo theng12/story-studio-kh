@@ -81,7 +81,7 @@ import {
   readItemSchedule, UploadScheduleBatchWriteError,
 } from '../services/upload-plans.js'
 import { readSidecarStrict, setScheduledFor } from '../services/upload-sidecar.js'
-import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES } from '../services/youtube-remote-video.js'
+import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES, SUPERSEDED_LIFECYCLES } from '../services/youtube-remote-video.js'
 import { UPLOAD_STORE_UNREADABLE, latestEpisodeUploadJob, localUploadProjection } from '../services/youtube-local-upload.js'
 import { invalidatePublishingOverviewCache } from '../services/publishing-overview.js'
 import { movableLocalClaims } from '../services/episode-autoschedule.js'
@@ -594,7 +594,12 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
         const episodeOperations = records.filter(record => record.episode_code === code
           && onCurrentChannel(channelId, record.channel_id)
           && !isYouTubeVideoRemoved(publishingState ?? {}, code, record.channel_id, record.video_id))
-        let operation = episodeOperations[0]
+        // A record YouTube has already failed is history: a live one describes
+        // the upload that is actually on YouTube, and the failed one is only
+        // fallen back to when it is all this episode has (so the row can say
+        // WHY it failed).
+        let operation = episodeOperations.find(record => !SUPERSEDED_LIFECYCLES.has(record.lifecycle))
+          ?? episodeOperations[0]
         const job = latestEpisodeUploadJob(jobs, code, channelId)
         let sidecar: Awaited<ReturnType<typeof readSidecarStrict>> = null
         let sidecarUnreadable = ''

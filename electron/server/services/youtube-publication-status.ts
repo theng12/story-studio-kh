@@ -26,6 +26,7 @@ import {
   classifyYouTubeSyncFailure,
   observationFromDetails,
   recordYouTubePublicationObservations,
+  youtubeProcessingAbandonReason,
 } from './youtube-publication-cache.js'
 
 /** Lifecycles that are YouTube's final word. Never overwritten by an absence. */
@@ -106,6 +107,18 @@ export function mapYouTubePublicationState(
         ...(details.thumbnailEtag ? { thumbnail_etag: details.thumbnailEtag } : {}),
       }
     : undefined
+
+  // YouTube took the upload and then abandoned processing it. The upload word
+  // can still read `uploaded`, so this MUST be checked before the switch, or an
+  // abandoned upload is filed as one that is merely still processing.
+  const abandoned = youtubeProcessingAbandonReason(details)
+  if (abandoned) {
+    return {
+      lifecycle: 'failed',
+      processing: { ...base, provider_status: 'failed', failure_reason: abandoned },
+      ...(snapshot ? { snapshot } : {}),
+    }
+  }
 
   switch (provider_status) {
     case 'processed':

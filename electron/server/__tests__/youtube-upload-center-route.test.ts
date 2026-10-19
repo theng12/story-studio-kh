@@ -4460,6 +4460,71 @@ test('uploading an episode the old page already published is refused, naming the
   assert.equal(res.body.job_id, undefined, 'and nothing was queued')
 })
 
+test('a YouTube-failed upload is superseded: one replacement is accepted, the next is refused', async () => {
+  // Domnak DM0001-DM0003, 2026-10-19. YouTube accepted each upload and then
+  // abandoned processing it (the channel was not verified for long videos).
+  // The accepted record AND the sidecar the job wrote beside it otherwise
+  // refused every re-upload for good - "already on YouTube" for a video that
+  // never became one. A healthy video must keep refusing exactly as before.
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await legacyPublishedEpisode(slug)
+  const dead = 'legacy-video-77'
+  const made = await operations.createYouTubeOperation({
+    project_slug: slug, episode_code: episodeCode, channel_id: CHANNEL,
+    source_revision: 'src-dead', metadata_revision: 'meta-dead',
+    origin: 'manual', final_action: 'manual_upload',
+  })
+  const accepted = await operations.acceptYouTubeOperation({
+    project_slug: slug, operation_id: made.operation_id, expected_revision: made.revision,
+    channel_id: CHANNEL, video_id: dead, accepted_at: '2026-10-19T01:14:45.449Z',
+    final_payload: { snippet_json: '{}', status_json: '{}', source_sha256: 'd'.repeat(64) },
+  })
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: made.operation_id, expected_revision: accepted.revision,
+    mutate(record) {
+      record.lifecycle = 'failed'
+      record.processing = {
+        checked_at: '2026-10-19T01:22:08.842Z', provider_status: 'failed',
+        failure_reason: 'YouTube abandoned processing: video too long for this channel. Verify the channel for long videos, then re-upload.',
+      }
+    },
+  })
+
+  // The row says WHY, and neither the video nor the upload counts as live.
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.equal(row.publication.state, 'failed')
+  assert.match(row.publication.reason, /video too long for this channel/)
+  assert.equal(row.local.upload.state, 'failed', 'the remote verdict outranks the job error')
+  assert.equal(row.has_remote_video, false, 'a failed upload is not a video this episode has')
+
+  const body = await confirmedUploadBody(slug, episodeCode)
+  const started = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  try {
+    assert.equal(started.status, 200, 'the dead upload does not block the one replacement')
+    assert.ok(started.body.job_id)
+
+    // Once the replacement has its OWN video id, the guard refuses the next one.
+    const replacement = await operations.createYouTubeOperation({
+      project_slug: slug, episode_code: episodeCode, channel_id: CHANNEL,
+      source_revision: 'src-new', metadata_revision: 'meta-new',
+      origin: 'manual', final_action: 'manual_upload',
+    })
+    await operations.acceptYouTubeOperation({
+      project_slug: slug, operation_id: replacement.operation_id, expected_revision: replacement.revision,
+      channel_id: CHANNEL, video_id: 'video-replacement', accepted_at: new Date().toISOString(),
+      final_payload: { snippet_json: '{}', status_json: '{}', source_sha256: 'e'.repeat(64) },
+    })
+    const again = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+    assert.equal(again.status, 409)
+    assert.equal(again.body.code, 'YOUTUBE_ALREADY_PUBLISHED')
+    assert.equal(again.body.video_id, 'video-replacement', 'the LIVE video is the one that answers')
+  } finally {
+    await jobQueue.requestJobCancellation(slug, started.body.job_id).catch(() => {})
+    jobQueue.removeTerminalJob(slug, started.body.job_id)
+  }
+})
+
 test('when both stores know the episode, the operation record is the one that answers', async () => {
   const slug = await registryOnlyProject()
   const { episodeCode, title } = await legacyPublishedEpisode(slug)

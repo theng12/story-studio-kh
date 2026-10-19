@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
-import { YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
+import { SUPERSEDED_LIFECYCLES, YouTubeFoundationError } from '../contracts/youtube-upload-center.js'
 import type { YouTubeFoundationErrorCode } from '../contracts/youtube-upload-center.js'
 import { getProjectDir, getUserDataDir } from './project-manager.js'
 import { projectFactsFor, type ProjectFactsCache } from './utils.js'
@@ -693,10 +693,36 @@ export async function acceptYouTubeOperation(input: {
       video_id: decoded.video_id!,
       source: 'upload',
       decided_at: decoded.accepted_at!,
+      // The episode's link may still name a video YouTube itself failed (a
+      // channel not verified for long videos, say). This upload IS its
+      // replacement, and without this the link refused it after YouTube had
+      // already accepted the new video — the retry could never land.
+      superseded_video_ids: supersededVideoIdsFor(
+        loaded.records, decoded.episode_code, decoded.channel_id, decoded.operation_id),
     })
     return cloneRecord(decoded)
     }))
   })
+}
+
+/**
+ * The video ids YouTube itself declared dead for this episode on this channel,
+ * other than the operation being accepted right now. These are what authorize
+ * moving the episode's single video link onto the replacement upload.
+ */
+function supersededVideoIdsFor(
+  records: YouTubeOperationRecordV1[],
+  episodeCode: string,
+  channelId: string,
+  exceptOperationId: string,
+): string[] {
+  return records
+    .filter(record => record.operation_id !== exceptOperationId
+      && record.episode_code === episodeCode
+      && record.channel_id === channelId
+      && SUPERSEDED_LIFECYCLES.has(record.lifecycle)
+      && !!record.video_id?.trim())
+    .map(record => record.video_id!.trim())
 }
 
 export async function readYouTubeOperation(project_slug: string, operation_id: string): Promise<YouTubeOperationRecordV1 | null> {
