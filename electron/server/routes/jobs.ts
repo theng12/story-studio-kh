@@ -284,7 +284,10 @@ function retryReplacementParams(job: Job): Record<string, any> | undefined {
     return { ...job.params, fill_gaps: true }
   }
   const existingAction = job.params?.generation_action
-  if (job.type === 'metadata' && (!existingAction || existingAction.origin === 'retry')) {
+  // A proven-rejected answer outranks the action's origin: the saved key would hand back the very
+  // answer Story already refused, so a page/Pipeline-stamped action must be replaced too.
+  const answerRejected = job.result?.chat_answer_rejected === true
+  if (job.type === 'metadata' && (answerRejected || !existingAction || existingAction.origin === 'retry')) {
     // Evidence that the Gateway already holds this job's answer keeps the saved params, so the same
     // request identity gives the same key and the Gateway replays the first answer — no second charge
     // ("a retry first collects any earlier answer by its saved key"). Only a confirmed failure or a
@@ -299,7 +302,8 @@ function retryReplacementParams(job: Job): Record<string, any> | undefined {
     // does with `freshMetadataAction`, so mint one. An action this retry path
     // minted is marked `origin: 'retry'` and replaced on the next retry, or the
     // second retry would replay the first one's answer. An action the customer's
-    // page stamped is kept untouched (pinned by job-retry-route-contract).
+    // page stamped is kept untouched unless its answer was proven rejected above
+    // (pinned by job-retry-route-contract).
     const minted = stampFreshGenerationAction(job.params ?? {}, randomUUID())
     return { ...job.params, ...minted, generation_action: { ...minted.generation_action, origin: 'retry' } }
   }
