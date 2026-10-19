@@ -430,6 +430,19 @@ export function finalCheckProgress(videoPath: string): FinalCheckProgress {
   return finalCheckRuns.get(videoPath) ?? { running: false, error: null }
 }
 
+/**
+ * How many files are being measured right now.
+ *
+ * A check is local ffmpeg work that a restart kills mid-decode and that cannot pick up where it
+ * stopped, so an install waits for it exactly as it waits for a running job that would not resume
+ * (`services/app-update.ts`'s drain, wired in `routes/app-update.ts`).
+ */
+export function runningFinalChecks(): number {
+  let running = 0
+  for (const entry of finalCheckRuns.values()) if (entry.running) running += 1
+  return running
+}
+
 /** The measurement itself. Indirected only so a test can run a check without spawning ffmpeg. */
 let measure: typeof runFinalCheck = runFinalCheck
 

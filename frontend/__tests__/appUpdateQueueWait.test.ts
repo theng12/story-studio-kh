@@ -20,6 +20,21 @@ test('while it waits, it names what for: requests already sent, and jobs that ca
   )
 })
 
+test('a final check still measuring a finished video is named too, so the wait is never unexplained', () => {
+  // The check runs in the background: it is not a queue job either, and a restart loses the whole
+  // measurement rather than resuming it.
+  assert.equal(
+    waitingText('1.4.265', { submits: 0, jobs: [], finalChecks: 1 }),
+    'Installing Story Studio 1.4.265: new work is paused; waiting for 1 final check still measuring'
+      + ' a finished video. Everything else resumes after the restart.',
+  )
+  assert.equal(
+    waitingText('1.4.265', { submits: 0, jobs: [], finalChecks: 2 }),
+    'Installing Story Studio 1.4.265: new work is paused; waiting for 2 final checks still measuring'
+      + ' a finished video. Everything else resumes after the restart.',
+  )
+})
+
 test('a storage operation that cannot resume is named too, as a review or a cleanup', () => {
   // Free up space / Clear Uploaded Videos are not queue jobs, so `jobs` is empty and it is named on
   // its own: without this the line would say the update is waiting for nothing.
