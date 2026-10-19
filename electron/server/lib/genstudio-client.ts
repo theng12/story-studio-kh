@@ -7391,6 +7391,14 @@ function chatJobEvidence(job: GenStudioChatJob): GenStudioJob {
   return {
     id: job.id,
     state: job.state,
+    // The gateway's hold on a `failed` job crosses the boundary exactly as published, like every
+    // other modality. Hand-listing the fields dropped these two, so a held writing job reached
+    // `recordGenStudioEvidence` looking like a plain known failure: the stored row lost the
+    // unknown-outcome evidence that `evidenceHoldsUnknownOutcome`, the Retry reader
+    // (`holdsEarlierChatAnswer`) and the replacement checks read, and a Retry could redispatch
+    // work whose outcome is unknown. Absent stays absent — never invented as `false`/`null`.
+    ...(job.recovery_required !== undefined ? { recovery_required: job.recovery_required } : {}),
+    ...(job.recovery_state !== undefined ? { recovery_state: job.recovery_state } : {}),
     model_id: job.model_id,
     ...(job.failure_code ? { failure_code: job.failure_code } : {}),
     ...(job.failure_detail ? { failure_detail: job.failure_detail } : {}),
