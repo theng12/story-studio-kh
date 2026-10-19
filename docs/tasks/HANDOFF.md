@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.330 — 2026-10-19 (gate running)
+
+Merged fix/chat-evidence-readback (a2ab79e5: held chat rows re-read read-only by recheck), fix/recovery-dispatched-edge (8330594c: dispatched node with no job resolves or re-enqueues once; drift accepts raw or corrected transcript), fix/continuity-keyless-prepared (9d183243: keyless prepared rows rebuild the reserved key and ask the Gateway first), fix/cleanup-realpath-native (1e5d3270: assertReviewedIdentitySync uses realpathSync.native; 1.4.329 production failed 488/488), and the first output-limit-audit commit 31e63fef. The 128,000-token fallback (rest of fix/output-limit-audit) is deferred to the next release by the owner.
+
 ## 1.4.329 — 2026-10-19 (gated and landed)
 
 Merged feat/video-status-read (88b13608: POST /projects/:slug/youtube/video-status, ≤50 ids, assigned-channel match, read-only, 502 YOUTUBE_STATUS_UNCHECKED) and fix/idea-batch-proven-failure-fresh (b784ad3c: isProvenChatFailure in genstudio-client; releaseSettledFailedIdeaBatch keeps settled_failed evidence and derives request_identity …:fresh:<dead job id>; one fresh send per run). Also fix/cleanup-preview-slim (a4e81aff: operations carry a bounded preview summary, file_count + 50-file sample; full preview stays server-side by preview_id; one 19-channel preview GET was 276 MB). Production: Boundful 5864f738, Brain a257d9f4, Capi b21f6250, Domnak 14c50bed each need one Retry after install.
