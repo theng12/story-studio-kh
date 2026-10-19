@@ -3931,6 +3931,54 @@ test('publishable maps cached remote lifecycle and visibility without promoting 
   assert.equal(fake.calls.length, 0, 'cached publication projection makes no provider request')
 })
 
+test('a video YouTube stops returning keeps its last confirmed publication, marked unverified', async () => {
+  // Break caught: DM0001 (2026-10-19). The check after the thumbnail 403 wrote
+  // `not_found`, whose observation carries no privacy and no schedule, and the
+  // projection read the newest observation only — so a video YouTube had
+  // CONFIRMED as private and scheduled for a date rendered as visibility null
+  // and scheduled_at null, exactly like "nothing is scheduled" (AGENTS.md §6).
+  const slug = await registryOnlyProject()
+  const confirmedAt = '2026-10-19T01:14:45.449Z'
+  const goneAt = '2026-10-19T01:22:08.842Z'
+  const publishAt = '2026-10-20T11:00:00.000Z'
+  const episode = await acceptedEpisode(slug)
+  const made = await operations.createYouTubeOperation({
+    project_slug: slug, episode_code: episode.episodeCode, channel_id: CHANNEL,
+    source_revision: 'src-gone', metadata_revision: 'meta-gone',
+    origin: 'manual', final_action: 'manual_upload',
+  })
+  const accepted = await operations.acceptYouTubeOperation({
+    project_slug: slug, operation_id: made.operation_id, expected_revision: made.revision,
+    channel_id: CHANNEL, video_id: 'video-gone', accepted_at: confirmedAt,
+    final_payload: { snippet_json: '{}', status_json: '{}', source_sha256: 'c'.repeat(64) },
+  })
+  await operations.updateYouTubeOperation({
+    project_slug: slug, operation_id: made.operation_id, expected_revision: accepted.revision,
+    mutate(record) {
+      record.lifecycle = 'status_unavailable'
+      record.processing = { checked_at: goneAt, provider_status: 'not_found' }
+      record.remote_snapshot = {
+        fetched_at: confirmedAt, title: episode.title, description: '', tags: [],
+        privacy_status: 'private', scheduled_for: publishAt,
+      }
+    },
+  })
+  // The channel's cache now holds that empty answer: no privacy, no schedule.
+  const cache = await import('../services/youtube-publication-cache.js')
+  await cache.recordYouTubePublicationObservations({
+    project_slug: slug, channel_id: CHANNEL,
+    checks: [cache.observationFromDetails('video-gone', null, goneAt, 'operation', episode.episodeCode)],
+  })
+
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = listed.body.episodes.find((entry: any) => entry.episode_code === episode.episodeCode)
+  assert.equal(row.publication.state, 'unknown', 'an answer without the video is not a publication state')
+  assert.equal(row.publication.visibility, 'private', 'the confirmed privacy is kept, not blanked')
+  assert.equal(row.publication.scheduled_at, publishAt, 'the confirmed schedule is kept, not blanked')
+  assert.equal(row.publication.unverified_since, goneAt, 'the marker says when the answer went missing')
+  assert.equal(row.publication.last_checked_at, goneAt)
+})
+
 test('publishable pairs publication with the newest successful attempt, not an older failure', async () => {
   // Break caught: operation indexes preserve insertion order, so `.find()`
   // paired the first failed attempt with the later accepted remote video.

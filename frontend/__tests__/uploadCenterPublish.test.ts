@@ -269,7 +269,8 @@ describe('Upload Center Publish', () => {
     for (let i = 0; i < 6; i++) await nextTick()
     const text = mounted.text()
     mounted.destroy()
-    assert.match(text, /does not have this video \(deleted or removed\)/)
+    assert.match(text, /YouTube answered without this video/)
+    assert.match(text, /not proof it is gone/)
     assert.doesNotMatch(text, /could not be checked/i)
   })
 

@@ -88,6 +88,13 @@ export type YouTubePublicationProjection = {
   published_at?: string
   scheduled_at?: string
   last_checked_at?: string
+  /**
+   * The moment YouTube stopped returning this video, so the `visibility` and
+   * `scheduled_at` above are the last CONFIRMED publication rather than a fresh
+   * answer. Absent means both fields are current. Without it, "we do not know
+   * any more" and "nothing is scheduled" read identically (AGENTS.md §6).
+   */
+  unverified_since?: string
   reason?: string
 }
 

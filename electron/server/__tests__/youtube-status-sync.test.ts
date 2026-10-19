@@ -86,8 +86,12 @@ describe('not found is not "could not check"', () => {
     const absent = mapYouTubePublicationState(null, '2026-10-07T00:00:00.000Z')
     assert.equal(absent.lifecycle, 'status_unavailable')
     assert.equal(absent.processing.provider_status, 'not_found')
-    assert.equal(isConfirmedGoneFromYouTube(absent), true)
+    // An empty answer is not a removal: a token for another Google account (or
+    // a brand channel it does not administer) answers exactly the same way. Only
+    // a word YouTube says ABOUT the video may be reported as one.
+    assert.equal(isConfirmedGoneFromYouTube(absent), false)
     assert.equal(isConfirmedGoneFromYouTube(mapYouTubePublicationState({ uploadStatus: 'someFutureStatus' })), false)
+    assert.equal(isConfirmedGoneFromYouTube(mapYouTubePublicationState({ uploadStatus: 'deleted' })), true)
 
     const s = await setup()
     const code = await s.episode('Gone Video')
