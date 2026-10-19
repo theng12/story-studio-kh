@@ -2193,10 +2193,11 @@ async function upload(episodeCode: string): Promise<void> {
         `/projects/${requestedSlug}/youtube/upload`, uploadBody,
       )
     } catch (error: any) {
-      if (!(await confirmForeignEpisodeCode(error, episodeCode))) throw error
+      const acknowledgement = await confirmableUploadAcknowledgement(error, episodeCode)
+      if (!acknowledgement) throw error
       // Clicked through: resend the SAME reviewed body with the acknowledgement.
       res = await post<{ job_id: string; channel_id: string }>(
-        `/projects/${requestedSlug}/youtube/upload`, { ...uploadBody, acknowledge_foreign_episode: true },
+        `/projects/${requestedSlug}/youtube/upload`, { ...uploadBody, ...acknowledgement },
       )
     }
     if (!actionIsCurrent(action)) return
@@ -2398,11 +2399,12 @@ async function queueReviewedUploads(): Promise<void> {
           `/projects/${requestedSlug}/youtube/upload`, uploadBody,
         )
       } catch (error: any) {
-        if (!(await confirmForeignEpisodeCode(error, item.episode_code))) throw error
+        const acknowledgement = await confirmableUploadAcknowledgement(error, item.episode_code)
+        if (!acknowledgement) throw error
         // Clicked through: resend the SAME reviewed body with the
         // acknowledgement. Nothing else about the request changes.
         result = await post<{ job_id: string; channel_id: string }>(
-          `/projects/${requestedSlug}/youtube/upload`, { ...uploadBody, acknowledge_foreign_episode: true },
+          `/projects/${requestedSlug}/youtube/upload`, { ...uploadBody, ...acknowledgement },
         )
       }
       if (!actionIsCurrent(action)) return
@@ -2444,21 +2446,44 @@ async function queueReviewedUploads(): Promise<void> {
 }
 
 /**
- * Owner decision #7 (2026-09-20) — another project has already uploaded this
- * episode code to this channel.
+ * The two upload refusals the owner may click through, and the field each is
+ * acknowledged by. Anything else returns null and is re-thrown, so a plain
+ * failure still reaches the row with its own reason.
  *
- * The server answers that with a confirmable warning rather than a refusal,
- * because two series may legitimately share one channel and both have an
- * "Episode 1". Returns true only when the customer chooses to upload anyway; any
- * other failure is re-thrown so the real reason still reaches the row.
+ * ONE function rather than a chain of checks, deliberately: the caller's
+ * `await` stays exactly one deep, which is what the page's own settle timing
+ * was written against.
+ *
+ *  - Owner decision #7 (2026-09-20): another project has already uploaded this
+ *    episode code to this channel. A confirmable warning rather than a refusal,
+ *    because two series may legitimately share one channel and both have an
+ *    "Episode 1".
+ *  - Owner-approved 2026-10-19: this channel is not verified for videos over 15
+ *    minutes. YouTube would ACCEPT the upload and then abandon it as "too long"
+ *    — Domnak DM0001–DM0003 — so the refusal is a real one; the owner may still
+ *    know better (a verification in progress, a video about to be shortened).
  */
-async function confirmForeignEpisodeCode(error: any, episodeCode: string): Promise<boolean> {
-  if (error?.data?.code !== 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE') return false
-  return ask({
-    title: `${episodeCode} is already on this channel`,
-    message: String(error.data.detail || 'Another Story Studio channel has already uploaded this episode code to this YouTube channel.'),
-    confirmLabel: 'Upload Anyway',
-  })
+async function confirmableUploadAcknowledgement(
+  error: any,
+  episodeCode: string,
+): Promise<Record<string, true> | null> {
+  if (error?.data?.code === 'YOUTUBE_EPISODE_CODE_CLAIMED_ELSEWHERE') {
+    const confirmed = await ask({
+      title: `${episodeCode} is already on this channel`,
+      message: String(error.data.detail || 'Another Story Studio channel has already uploaded this episode code to this YouTube channel.'),
+      confirmLabel: 'Upload Anyway',
+    })
+    return confirmed ? { acknowledge_foreign_episode: true } : null
+  }
+  if (error?.data?.code === 'YOUTUBE_CHANNEL_NOT_VERIFIED_FOR_LONG_VIDEOS') {
+    const confirmed = await ask({
+      title: `${episodeCode} is longer than this channel can keep`,
+      message: String(error.data.detail || 'This channel is not verified for videos over 15 minutes.'),
+      confirmLabel: 'Upload Anyway',
+    })
+    return confirmed ? { acknowledge_unverified_channel: true } : null
+  }
+  return null
 }
 
 async function scheduleExisting(): Promise<void> {

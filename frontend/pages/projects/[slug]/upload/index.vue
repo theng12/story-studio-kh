@@ -33,6 +33,14 @@
         </div>
         <div class="channel-state">
           <span :class="['badge', overview.assigned_channel?.status]">{{ healthLabel }}</span>
+          <!-- What YouTube says this channel may do. "Not checked" is its own
+               answer: a status we could not read is not a refusal. -->
+          <span v-if="overview.channel_eligibility" :class="['hint', longVideoRefused ? 'stale' : '']">
+            Verified for long videos: {{ longVideoLabel }}
+          </span>
+          <span v-if="overview.channel_eligibility?.thumbnails === 'no'" class="hint stale">
+            Custom thumbnails: not allowed on this channel
+          </span>
           <span :class="['hint', freshness.stale || uncheckedVideos ? 'stale' : '']">{{ syncCopy }}</span>
           <button class="btn btn-sm" type="button" :disabled="syncing || !canSync" @click="syncNow">
             {{ syncing ? 'Checking with YouTube…' : 'Check All Uploads' }}
@@ -130,6 +138,16 @@ interface Overview {
   /** How much of the channel the sync time covers. Absent from older backends. */
   publication_coverage?: { unchecked_videos: number } | null
   last_sync_attempt: { attempted_at: string; outcome: 'ok' | 'partial' | 'failed'; checked: number; error_code?: string } | null
+  /**
+   * What YouTube last said this channel may do. Absent from older backends and
+   * null until the channel has ever been asked. `unknown` is "we could not ask",
+   * which is not the same as "no" (AGENTS.md §6).
+   */
+  channel_eligibility?: {
+    long_uploads: 'allowed' | 'eligible' | 'disallowed' | 'unspecified' | 'unknown'
+    thumbnails: 'yes' | 'no'
+    checked_at: string | null
+  } | null
 }
 
 const route = useRoute()
@@ -185,6 +203,14 @@ const HEALTH: Record<string, string> = {
   scope_upgrade_required: 'Permission upgrade required',
 }
 const healthLabel = computed(() => HEALTH[overview.value?.assigned_channel?.status ?? ''] ?? 'Unknown')
+// Only YouTube's own `allowed` means videos over 15 minutes will be kept.
+// `unknown` says so instead of printing "no" for a status nobody read.
+const longVideoLabel = computed(() => {
+  const status = overview.value?.channel_eligibility?.long_uploads
+  if (status === 'allowed') return 'yes'
+  return status === 'unknown' ? 'not checked' : 'no'
+})
+const longVideoRefused = computed(() => longVideoLabel.value === 'no')
 const canSync = computed(() => overview.value?.assigned_channel?.status === 'connected')
 const connectionAction = computed(() => overview.value?.assigned_channel?.status === 'scope_upgrade_required'
   ? 'Update this channel’s permission in Settings → YouTube.'

@@ -20,6 +20,7 @@ import {
   readYouTubeOperation,
   updatePinnedYouTubeOperation,
 } from './youtube-operation-store.js'
+import type { YouTubeOperationRecordV1 } from './youtube-operation-record-reader.js'
 import type { RemoteSyncState } from './youtube-project-publishing-store.js'
 import {
   YOUTUBE_VIDEO_NOT_FOUND,
@@ -225,11 +226,97 @@ export interface ProjectSyncResult {
 /** Accepted by YouTube but not yet a final answer: what the background check follows. */
 export const PENDING_YOUTUBE_LIFECYCLES: ReadonlySet<YouTubeVideoLifecycle> = new Set(['accepted', 'processing'])
 
+/**
+ * The post-upload watch: 1, 3, 10, 30 minutes, then hourly, for 24 hours.
+ *
+ * `accepted` and `processing` were already followed. A `not_found` answer was
+ * NOT: YouTube very often has not indexed a just-accepted video, that answer
+ * was recorded as "we could not see it", the record left the pending set, and
+ * nothing ever asked about it again. Domnak's abandoned uploads read exactly
+ * that way — accepted, then invisible, then gone.
+ */
+const WATCH_GAPS_MINUTES = [1, 3, 10, 30]
+export const YOUTUBE_UPLOAD_WATCH_MS = 24 * 60 * 60 * 1000
+
+/** The wait before the check that follows `checksDone` checks. 1, 3, 10, 30 min, then hourly. */
+export function youtubeUploadWatchGapMs(checksDone: number): number {
+  return (WATCH_GAPS_MINUTES[checksDone] ?? 60) * 60_000
+}
+
+/** How far along the ladder a check this long after acceptance already is. */
+function watchStepsWithin(elapsedMs: number): number {
+  let cumulative = 0
+  let steps = 0
+  while (steps < WATCH_GAPS_MINUTES.length) {
+    cumulative += WATCH_GAPS_MINUTES[steps]! * 60_000
+    if (elapsedMs < cumulative) break
+    steps++
+  }
+  return steps
+}
+
+/**
+ * Is this upload still being followed, and is its next check due?
+ *
+ * The clock is the caller's, so the whole schedule is directly testable. The
+ * gate is a floor, not a promise: the background pass ticks every 30 minutes,
+ * so the real cadence is 30, 60 minutes, then hourly.
+ */
+export function isYouTubeUploadCheckDue(
+  record: Pick<YouTubeOperationRecordV1, 'lifecycle' | 'accepted_at' | 'video_id' | 'processing'>,
+  now = Date.now(),
+): boolean {
+  if (!record.video_id) return false
+  const pending = PENDING_YOUTUBE_LIFECYCLES.has(record.lifecycle)
+  const notFound = record.lifecycle === 'status_unavailable'
+    && record.processing?.provider_status === YOUTUBE_VIDEO_NOT_FOUND
+  if (!pending && !notFound) return false
+  const accepted = record.accepted_at ? Date.parse(record.accepted_at) : NaN
+  // No acceptance moment to schedule from: ask, rather than silently skip.
+  if (!Number.isFinite(accepted)) return true
+  const elapsed = Math.max(0, now - accepted)
+  // A `not_found` answer stops being worth asking about once the window closes.
+  if (!pending && elapsed > YOUTUBE_UPLOAD_WATCH_MS) return false
+  const checked = record.processing?.checked_at ? Date.parse(record.processing.checked_at) : NaN
+  if (!Number.isFinite(checked)) return true
+  return now - checked >= youtubeUploadWatchGapMs(watchStepsWithin(Math.max(0, checked - accepted)))
+}
+
+type FailureNotice = { title: string; body: string }
+let notifyFailure: ((notice: FailureNotice) => Promise<void> | void) | null = null
+
+/** Electron wires desktop/Telegram notifications here; headless runs only log. */
+export function setYouTubePublicationFailureNotifier(
+  dispatcher: ((notice: FailureNotice) => Promise<void> | void) | null,
+): void {
+  notifyFailure = dispatcher
+}
+
+/**
+ * YouTube's verdict that an accepted upload never became a video, said once, on
+ * the same channels job failures use.
+ *
+ * Fired on the TRANSITION only, so a failure a later check rediscovers is not
+ * announced twice. Never throws: a notification is never worth failing a check.
+ */
+async function announceFailure(record: YouTubeOperationRecordV1, state: YouTubePublicationState): Promise<void> {
+  const reason = state.processing.failure_reason || state.processing.rejection_reason
+    || (state.lifecycle === 'rejected' ? 'YouTube rejected this upload.' : 'YouTube could not finish this upload.')
+  const notice = {
+    title: `${record.episode_code} was not published`,
+    body: `${reason} Nothing was uploaded again; the Upload Center shows what happened and what to do next.`,
+  }
+  logLine('warn', `[youtube-status] ${notice.title}: ${reason}`, { project_slug: record.project_slug })
+  try { await notifyFailure?.(notice) } catch { /* a notification is never worth failing a check */ }
+}
+
 /** One whole-project refresh, batched by the client in groups of 50. `only_pending` limits it to unfinished uploads. */
 export async function syncProjectYouTubePublicationStates(input: {
   project_slug: string
   account_id: string
   only_pending?: boolean
+  /** The clock the watch schedule is read against. The background pass supplies its own. */
+  now?: number
 }): Promise<ProjectSyncResult> {
   const assignment = await getProjectYouTubeAssignment(input.project_slug)
   if (!assignment) throw new Error('Assign a YouTube channel before syncing publication state.')
@@ -239,7 +326,7 @@ export async function syncProjectYouTubePublicationStates(input: {
   }
   const records = (await listYouTubeOperations(input.project_slug))
     .filter(record => record.channel_id === channelId && !!record.video_id
-      && (!input.only_pending || PENDING_YOUTUBE_LIFECYCLES.has(record.lifecycle)))
+      && (!input.only_pending || isYouTubeUploadCheckDue(record, input.now ?? Date.now())))
 
   if (!records.length) return { channel_id: channelId, checked: 0, updated: 0, outcome: 'ok' }
 
@@ -270,6 +357,9 @@ export async function syncProjectYouTubePublicationStates(input: {
   for (const record of records) {
     const state = mapYouTubePublicationState(details[record.video_id!] ?? null)
     if (state.lifecycle === 'status_unavailable' && TERMINAL.has(record.lifecycle)) continue
+    // A failure YouTube has just pronounced, on an upload that was not already
+    // failed: announced once, after the write, never as part of it.
+    let announce = false
     try {
       await updatePinnedYouTubeOperation({
         project_slug: input.project_slug,
@@ -286,12 +376,14 @@ export async function syncProjectYouTubePublicationStates(input: {
         },
       })
       updated++
+      announce = !TERMINAL.has(record.lifecycle) && (state.lifecycle === 'failed' || state.lifecycle === 'rejected')
     } catch {
       // A record that moved under us, or refused the transition. The rest of
       // the batch is still worth keeping — this is reported as partial, never
       // rolled back, and never retried automatically.
       failedWrites++
     }
+    if (announce) await announceFailure(record, state)
   }
 
   return {

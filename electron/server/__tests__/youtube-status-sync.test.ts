@@ -236,6 +236,117 @@ describe('background check', () => {
   })
 })
 
+describe('the post-upload processing watch', () => {
+  test('the schedule is 1, 3, 10, 30 minutes, then hourly, and a not_found keeps being retried for 24 hours', async () => {
+    const {
+      YOUTUBE_UPLOAD_WATCH_MS, isYouTubeUploadCheckDue, youtubeUploadWatchGapMs,
+    } = await import('../services/youtube-publication-status.js')
+    assert.deepEqual(
+      [0, 1, 2, 3, 4, 5, 9].map(youtubeUploadWatchGapMs),
+      [60_000, 3 * 60_000, 10 * 60_000, 30 * 60_000, 60 * 60_000, 60 * 60_000, 60 * 60_000],
+    )
+
+    const MIN = 60_000
+    const acceptedAt = '2026-10-19T00:00:00.000Z'
+    const base = Date.parse(acceptedAt)
+    const at = (minutes: number) => new Date(base + minutes * MIN).toISOString()
+    const seenAt = (minutes: number) => ({
+      lifecycle: 'status_unavailable' as const,
+      accepted_at: acceptedAt,
+      video_id: 'vid-late',
+      processing: { checked_at: at(minutes), provider_status: 'not_found' },
+    })
+
+    assert.equal(isYouTubeUploadCheckDue(seenAt(0), base + 30_000), false, 'the first gap is a minute')
+    assert.equal(isYouTubeUploadCheckDue(seenAt(0), base + 1 * MIN), true)
+    assert.equal(isYouTubeUploadCheckDue(seenAt(30), base + 31 * MIN), false, 'a check at 30 minutes waits 30 more')
+    assert.equal(isYouTubeUploadCheckDue(seenAt(30), base + 60 * MIN), true)
+    assert.equal(isYouTubeUploadCheckDue(seenAt(60), base + 61 * MIN), false, 'and from then on it is hourly')
+    assert.equal(isYouTubeUploadCheckDue(seenAt(60), base + 120 * MIN), true)
+    assert.equal(isYouTubeUploadCheckDue(seenAt(22.5 * 60), base + 23.5 * 60 * MIN), true, 'still inside the window')
+    assert.equal(
+      isYouTubeUploadCheckDue(seenAt(22.5 * 60), base + YOUTUBE_UPLOAD_WATCH_MS + 1),
+      false,
+      'past 24 hours a not_found answer is left alone',
+    )
+
+    // A real answer from YouTube ends the watch, however fresh it is.
+    assert.equal(isYouTubeUploadCheckDue({ lifecycle: 'ready', accepted_at: acceptedAt, video_id: 'v', processing: { checked_at: at(0) } }, base), false)
+    assert.equal(isYouTubeUploadCheckDue({ lifecycle: 'failed', accepted_at: acceptedAt, video_id: 'v', processing: { checked_at: at(0) } }, base), false)
+    // `processing` is an ANSWER, not an absence, so the 24-hour window does not apply to it.
+    assert.equal(isYouTubeUploadCheckDue(
+      { lifecycle: 'processing', accepted_at: acceptedAt, video_id: 'v', processing: { checked_at: at(23 * 60) } },
+      base + YOUTUBE_UPLOAD_WATCH_MS + 60 * MIN,
+    ), true)
+    // No accepted video to ask about.
+    assert.equal(isYouTubeUploadCheckDue({ lifecycle: 'accepted', accepted_at: acceptedAt }, base), false)
+    // An accepted upload with no acceptance moment to schedule from is asked,
+    // not silently skipped.
+    assert.equal(isYouTubeUploadCheckDue({ lifecycle: 'accepted', video_id: 'v' }, base), true)
+  })
+
+  test('an upload YouTube has not indexed is followed to processed', async () => {
+    const s = await setup()
+    const operationId = await s.accepted(await s.episode('Late Index'), 'vid-late')
+    const acceptedAt = Date.parse((await s.operations.readYouTubeOperation(s.slug, operationId))!.accepted_at!)
+
+    // The first answer is an absence — exactly how the Domnak uploads read.
+    const absent = new FakeYouTube()
+    absent.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [] } })
+    __setYouTubeTransportForTests(absent.transport())
+    const { runYouTubeStatusSyncPass } = await import('../services/youtube-status-sync.js')
+    await runYouTubeStatusSyncPass(acceptedAt + 60_000)
+    assert.equal(
+      (await s.operations.readYouTubeOperation(s.slug, operationId))?.processing?.provider_status,
+      'not_found',
+    )
+
+    // Half an hour later YouTube has it and processing succeeded. Before this
+    // change the record had already left the pending set and nothing asked again.
+    const processed = new FakeYouTube()
+    processed.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [video('vid-late', 'processed')] } })
+    __setYouTubeTransportForTests(processed.transport())
+    await runYouTubeStatusSyncPass(acceptedAt + 30 * 60_000)
+    assert.equal((await s.operations.readYouTubeOperation(s.slug, operationId))?.lifecycle, 'ready')
+  })
+
+  test('an upload YouTube abandons is followed to failed, and announced once', async () => {
+    const s = await setup()
+    const operationId = await s.accepted(await s.episode('Too Long'), 'vid-toolong')
+    const acceptedAt = Date.parse((await s.operations.readYouTubeOperation(s.slug, operationId))!.accepted_at!)
+
+    const absent = new FakeYouTube()
+    absent.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [] } })
+    __setYouTubeTransportForTests(absent.transport())
+    const { runYouTubeStatusSyncPass, setYouTubeNoticeDispatcher } = await import('../services/youtube-status-sync.js')
+    const notices: Array<{ title: string; body: string }> = []
+    setYouTubeNoticeDispatcher(notice => { notices.push(notice) })
+    await runYouTubeStatusSyncPass(acceptedAt + 60_000)
+    assert.equal(notices.length, 0, 'nothing is said about an upload YouTube has not answered on yet')
+
+    const abandoned = new FakeYouTube()
+    abandoned.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [{
+      id: 'vid-toolong',
+      status: { uploadStatus: 'uploaded', privacyStatus: 'private' },
+      snippet: { title: 'Too Long', channelId: CHANNEL },
+      processingDetails: { processingStatus: 'failed', processingFailureReason: 'tooLong' },
+    }] } })
+    __setYouTubeTransportForTests(abandoned.transport())
+    await runYouTubeStatusSyncPass(acceptedAt + 30 * 60_000)
+
+    const stored = await s.operations.readYouTubeOperation(s.slug, operationId)
+    assert.equal(stored?.lifecycle, 'failed', 'an abandoned upload is a failure, not "still processing"')
+    assert.match(stored?.processing?.failure_reason || '', /too long/i)
+    assert.equal(notices.length, 1, 'the failure is announced on the channels job failures use')
+    assert.match(notices[0]!.title, /Too Long|EP0001/)
+
+    // A later pass rediscovers the same failure and says nothing more.
+    __setYouTubeTransportForTests(new FakeYouTube().transport())
+    await runYouTubeStatusSyncPass(acceptedAt + 40 * 60_000)
+    assert.equal(notices.length, 1)
+  })
+})
+
 describe('duplicate guard before uploading again', () => {
   function channelUploads(fake: FakeYouTube, items: Array<{ videoId: string; title: string }>) {
     fake.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/channels\?/, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-list' } } }] } })

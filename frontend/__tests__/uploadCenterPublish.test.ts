@@ -571,6 +571,78 @@ describe('Upload Center Publish', () => {
     }
   })
 
+  // ── owner-approved 2026-10-19: a channel not verified for long videos ──
+  //
+  // YouTube accepts these uploads and then abandons them as "too long"
+  // (Domnak DM0001–DM0003), so the refusal is real — but the owner may know
+  // better, so it is confirmable and the page must resend the SAME reviewed
+  // request with the acknowledgement rather than leaving him stuck.
+  const UNVERIFIED_CHANNEL = Object.assign(new Error('409 Conflict'), {
+    data: {
+      code: 'YOUTUBE_CHANNEL_NOT_VERIFIED_FOR_LONG_VIDEOS',
+      detail: "This channel isn't verified for videos over 15 minutes. Verify it in YouTube Studio, then upload.",
+      confirmable: true,
+    },
+  })
+
+  test('a long video on an unverified channel is offered as a click-through, and accepting resends with the acknowledgement', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+      postOverride: async (path, body) => {
+        if (!path.endsWith('/youtube/upload')) return undefined
+        if (body?.acknowledge_unverified_channel === true) return { job_id: 'job-88', channel_id: 'UC-x' }
+        throw UNVERIFIED_CHANNEL
+      },
+    })
+    const upload = await previewThen(mounted)
+    assert.ok(upload, 'the row is still uploadable — the owner may override')
+    try {
+      upload.click()
+      for (let i = 0; i < 12; i++) await nextTick()
+
+      assert.equal(mounted.confirms.length, 2, 'the owner is told before the upload is forced through')
+      assert.match(mounted.confirms[1].title, /EP0001 is longer than this channel can keep/)
+      assert.match(mounted.confirms[1].message, /verified for videos over 15 minutes/)
+      assert.match(mounted.confirms[1].confirmLabel, /Upload Anyway/)
+
+      const uploads = mounted.calls.filter(call => call.path.endsWith('/youtube/upload'))
+      assert.equal(uploads.length, 2, 'the warning is answered by resending, not by giving up')
+      assert.deepEqual(uploads[0]!.body.acknowledge_unverified_channel, undefined,
+        'the first attempt must NOT pre-acknowledge — that would skip the warning entirely')
+      assert.equal(uploads[1]!.body.acknowledge_unverified_channel, true)
+      assert.equal(uploads[1]!.body.expected_source_revision, uploads[0]!.body.expected_source_revision,
+        'the resent request is the SAME reviewed upload, only acknowledged')
+      assert.match(mounted.text(), /Uploading EP0001 to UC-x/)
+    } finally {
+      mounted.destroy()
+    }
+  })
+
+  test('declining the unverified-channel warning does not upload and shows the reason', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+      confirmOverride: async (options: any) => !/longer than this channel can keep/.test(options.title || ''),
+      postOverride: async (path, body) => {
+        if (!path.endsWith('/youtube/upload')) return undefined
+        if (body?.acknowledge_unverified_channel === true) return { job_id: 'job-88', channel_id: 'UC-x' }
+        throw UNVERIFIED_CHANNEL
+      },
+    })
+    const upload = await previewThen(mounted)
+    try {
+      upload.click()
+      for (let i = 0; i < 12; i++) await nextTick()
+
+      assert.equal(mounted.calls.filter(call => call.path.endsWith('/youtube/upload')).length, 1,
+        'declining must not send an acknowledged retry')
+      assert.match(mounted.text(), /verified for videos over 15 minutes/)
+    } finally {
+      mounted.destroy()
+    }
+  })
+
   test('a future planned date is the default and stays inside exact preview and upload confirmation', async () => {
     const publishAt = '2099-09-10T09:00:00.000Z'
     const mounted = await mount({
