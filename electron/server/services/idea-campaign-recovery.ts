@@ -53,17 +53,28 @@ export interface IdeaBatchRecord {
   /** The batch was answered and must never be replayed — set even when nothing usable came back. */
   resolved?: boolean
   /**
-   * The key this batch was sent under, collected, and found PROVEN dead (settled `failed`, no hold).
-   * Collecting that key again answers the same failure forever, so the identity is released — the
-   * live `idempotency_key`/`provider_job_id` are cleared and `request_identity` moves to a fresh one
-   * — and this keeps what failed, so the release is auditable and the same key is never released
-   * twice. Only a proven failure qualifies: a held or uncertain outcome keeps its key.
+   * Why this batch's identity was released: the key it was sent under can never produce a usable
+   * answer, so collecting it again answers the same way for as long as that job exists. The live
+   * `idempotency_key`/`provider_job_id` are cleared and `request_identity` moves to a fresh one, and
+   * this keeps what happened, so the release is auditable.
+   *
+   *   - `failed`   — the Gateway settled it `failed` with no hold left (including an operator
+   *                  closing the hold: `HOLD_CLOSED`).
+   *   - `unusable` — it settled `succeeded` and Story refused the answer (unreadable JSON, a
+   *                  contract violation). The text is retained, so the same key returns it forever.
+   *   - `uncreated`— the Gateway proved it never saw the key at all (a 404 on the read-only lookup).
+   *
+   * A held or uncertain outcome, a cancellation and an unreachable Gateway are none of these, and
+   * keep their key.
    */
-  settled_failed?: {
+  settled_dead?: {
+    kind: 'failed' | 'unusable' | 'uncreated'
     idempotency_key: string
     provider_job_id?: string
+    /** The Gateway's own failure code, when it published one (a settled failure only). */
     failure_code?: string | null
-    failure_detail?: string | null
+    /** What happened, in words: the provider's reason, or Story's own rejection message. */
+    reason?: string | null
   }
 }
 
@@ -122,25 +133,25 @@ export function nextIdeaBatchOrdinal(params: unknown): number {
 }
 
 /**
- * Release a batch identity the Gateway PROVED dead, and move it to a fresh one.
+ * Release a batch identity that can never produce a usable answer, and move it to a fresh one.
  *
- * Collecting a settled-failed key answers the same failure for as long as that job exists — the
- * provider derives the key from the request body, so a byte-identical replay is the ONLY thing that
- * finds it. The way forward is a different identity, and the next one is derived from the dead job
- * so an in-process retry and a crash-replay of the same release derive ONE identity, never two.
+ * Collecting such a key answers the same way for as long as that job exists — the provider derives
+ * the key from the request body, so a byte-identical replay is the ONLY thing that finds it. The
+ * way forward is a different identity, and the next one is derived from the dead job so an
+ * in-process retry and a crash-replay of the same release derive ONE identity, never two.
  *
  * The captured body is deliberately untouched: the caller still sends this batch's own prompt,
- * slots or assignments, exactly as a replay would — only the identity moves. The failure itself is
- * kept on the record, so what died is still readable afterwards.
+ * slots or assignments, exactly as a replay would — only the identity moves. The reason itself is
+ * kept on the record, so what happened is still readable afterwards.
  */
-export function releaseSettledFailedIdeaBatch(
+export function releaseDeadIdeaBatch(
   record: IdeaBatchRecord,
-  failure: NonNullable<IdeaBatchRecord['settled_failed']>,
+  evidence: NonNullable<IdeaBatchRecord['settled_dead']>,
 ): void {
-  record.settled_failed = failure
+  record.settled_dead = evidence
   delete record.idempotency_key
   delete record.provider_job_id
-  record.request_identity = `${record.request_identity.replace(/:fresh:[^:]*$/, '')}:fresh:${failure.provider_job_id || failure.idempotency_key}`
+  record.request_identity = `${record.request_identity.replace(/:fresh:[^:]*$/, '')}:fresh:${evidence.provider_job_id || evidence.idempotency_key}`
 }
 
 /** The durable identity one batch's appended ideas are filed under. Namespaced, so campaigns cannot collide. */
