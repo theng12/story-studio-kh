@@ -23,8 +23,11 @@ async function component() {
 }
 async function flush() { await nextTick(); await new Promise(resolve => setTimeout(resolve, 0)); await nextTick() }
 function deferred<T>() { let resolve!: (v: T) => void; const promise = new Promise<T>(r => { resolve = r }); return { promise, resolve } }
-async function mount(api: any, ask: any = async () => true, slugRef: any = ref('first')) {
-  ;(globalThis as any).__cleanupApi = api
+async function mount(api: any, ask: any = async () => true, slugRef: any = ref('first'), retentionState: any = retentionOn) {
+  // The panel reads the automatic-retention setting on mount; a test that does not care
+  // about it gets the saved state here rather than having to answer the URL itself.
+  const base = api.get
+  ;(globalThis as any).__cleanupApi = { ...api, get: (url: string) => url.endsWith('/trash/retention') ? retentionState : base(url) }
   ;(globalThis as any).__cleanupAsk = ask
   const Comp = await component()
   const host = document.body.appendChild(document.createElement('div'))
@@ -42,6 +45,8 @@ function confirmButton(host: HTMLElement) {
   assert.ok(node, 'review confirm button exists'); return node
 }
 const space = { free_bytes: 5 * 1024 ** 3, project_trash_bytes: 2 * 1024 ** 3, library_trash_bytes: 3 * 1024 ** 3, app_trash_bytes: 1024 ** 3 }
+/** The one automatic-retention setting, as Story → Trash writes it and this panel reads it. */
+const retentionOn = { auto_cleanup_enabled: true, last_auto_cleanup: { at: '2026-10-18T09:00:00.000Z', status: 'completed', detail: 'Moved 3 items to Story\'s Trash.' } }
 const shrinkFile = { path: '/Library/chan-a/EP0001/s001.png', relative_path: 's001.png', bytes: 2048, category: 'images', project_slug: 'chan-a', channel_name: 'Channel A', episode_code: 'EP0001', production_ms: null }
 const shrinkPreview = {
   preview_id: 'lib-1', action: 'shrink_images', created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 600_000).toISOString(),
@@ -387,6 +392,53 @@ test('changing channel while a confirm is open does not run the reviewed cleanup
     approve(true)
     for (let i = 0; i < 5; i++) await flush()
     assert.equal(calls.filter(c => c.url.endsWith('/run')).length, 0, 'a stale confirm must not run cleanup')
+  } finally { ui.close() }
+})
+
+test('the Free Up Space panel carries the automatic switch and reads the same saved setting', async () => {
+  const ui = await mount({ get: async (url: string) => url.endsWith('/space') ? space : {}, post: async () => ({}) })
+  try {
+    const box = ui.host.querySelector<HTMLInputElement>('.cleanup-auto input')
+    assert.ok(box, 'the switch is on the Free Up Space panel, beside the manual button')
+    assert.equal(box.checked, true, 'it shows the saved state, not a default of its own')
+    const text = ui.host.textContent || ''
+    assert.match(text, /Run automatically \(daily\): clears uploaded finals older than 7 days and unused leftovers/)
+    assert.match(text, /Last run .* — completed: Moved 3 items to Story's Trash\./)
+    assert.match(text, /Next run about /, 'the next run is shown too')
+  } finally { ui.close() }
+})
+
+test('flipping the panel switch writes the one setting Story → Trash also writes', async () => {
+  const writes: any[] = []
+  const ui = await mount({
+    get: async (url: string) => url.endsWith('/space') ? space : {},
+    post: async () => ({}),
+    put: async (url: string, body: any) => { writes.push({ url, body }); return { ...retentionOn, auto_cleanup_enabled: body.auto_cleanup_enabled } },
+  })
+  try {
+    const box = ui.host.querySelector<HTMLInputElement>('.cleanup-auto input')!
+    box.checked = false
+    box.dispatchEvent(new Event('change'))
+    await flush(); await flush()
+    assert.deepEqual(writes, [{ url: '/trash/retention', body: { auto_cleanup_enabled: false } }], 'one write, the shared setting')
+    assert.equal(box.checked, false, 'the switch holds the saved state')
+    assert.match(ui.host.textContent || '', /Off\. The two buttons above still work/, 'off says what still works by hand')
+  } finally { ui.close() }
+})
+
+test('a refused switch write is said out loud and the switch goes back', async () => {
+  const ui = await mount({
+    get: async (url: string) => url.endsWith('/space') ? space : {},
+    post: async () => ({}),
+    put: async () => { throw Object.assign(new Error('refused'), { data: { detail: 'Only the owner can change retention.' } }) },
+  })
+  try {
+    const box = ui.host.querySelector<HTMLInputElement>('.cleanup-auto input')!
+    box.checked = false
+    box.dispatchEvent(new Event('change'))
+    await flush(); await flush()
+    assert.equal(box.checked, true, 'the switch must not claim a state the app did not take')
+    assert.match(ui.host.textContent || '', /Only the owner can change retention\./)
   } finally { ui.close() }
 })
 

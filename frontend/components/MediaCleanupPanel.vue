@@ -23,6 +23,12 @@
       <div class="cleanup-library-action">
         <button class="btn btn-secondary" :disabled="busy" @click="startLibraryPreview('cleanup_all')">Clean Up All Channels</button>
         <small>Uploaded videos older than 7 days of production that YouTube confirmed on their own channel, plus unused leftover files (finished narration quality copies and scratch folders a failed render kept). Nothing is deleted; the space comes back when you empty the Trash.</small>
+        <label class="cleanup-auto">
+          <input v-model="autoCleanup" type="checkbox" :disabled="retentionSaving" @change="saveAutoCleanup" />
+          Run automatically (daily): clears uploaded finals older than 7 days and unused leftovers
+        </label>
+        <small class="cleanup-auto-status" role="status">{{ autoCleanupStatus }}</small>
+        <small v-if="retentionError" class="cleanup-error" role="alert">{{ retentionError }}</small>
       </div>
     </div>
     <div v-if="operation" class="cleanup-progress" role="status" aria-live="polite">
@@ -83,8 +89,11 @@ interface LibraryLeftover { project_slug: string; channel_name: string; kind: 'a
 interface LibraryPreview { preview_id: string; action: LibraryAction; created_at: string; expires_at: string; channels: LibraryChannel[]; files: LibraryFile[]; total_bytes: number; blocked_reasons: string[]; trash_roots: string[]; estimate: Estimate; leftovers?: { count: number; total_bytes: number; items: LibraryLeftover[] } }
 interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; bytes_done?: number; bytes_total?: number; current: string; detail?: string; error?: string; library?: boolean; library_action?: LibraryAction; library_preview?: LibraryPreview; channels_done?: number; channels_total?: number; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number; leftovers_moved?: number; leftovers_bytes_moved?: number; leftovers_left?: number } }
 interface Space { free_bytes: number | null; project_trash_bytes: number | null; library_trash_bytes: number | null; app_trash_bytes: number | null }
+/** The one automatic-retention setting (Story → Trash shows the same switch); `last_auto_cleanup` is what this panel reports back. */
+interface RetentionRun { at: string; status: 'completed' | 'failed' | 'skipped'; detail: string; moved?: number; bytes?: number }
+interface Retention { auto_cleanup_enabled: boolean; last_auto_cleanup: RetentionRun | null }
 const props = defineProps<{ slug: string }>()
-const { get, post } = useApi()
+const { get, post, put } = useApi()
 const { ask } = useConfirm()
 const preview = ref<LibraryPreview | null>(null)
 const operation = ref<Operation | null>(null)
@@ -97,6 +106,10 @@ const polling = ref(false)
 const checkingYouTube = ref(false)
 const checkResult = ref('')
 const space = ref<Space | null>(null)
+const autoCleanup = ref(true)
+const retention = ref<Retention | null>(null)
+const retentionSaving = ref(false)
+const retentionError = ref('')
 let generation = 0
 let disposed = false
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -107,6 +120,19 @@ const LIBRARY_OPERATION_KEY = 'media-cleanup:library'
 /** True between restore() and its first poll answer, so a restored already-finished operation never reopens the review. */
 let resuming = false
 const busy = computed(() => submitting.value || !!operation.value && ['queued', 'running', 'stopping'].includes(operation.value.status))
+const DAY_MS = 24 * 60 * 60 * 1000
+/** The daily check's own schedule: at most one run a day, so the next one is a day after the last. */
+const nextRunText = computed(() => {
+  const last = retention.value?.last_auto_cleanup
+  const at = last ? Date.parse(last.at) : NaN
+  return Number.isFinite(at) ? `Next run about ${new Date(at + DAY_MS).toLocaleString()}.` : 'Next run at the next hourly check.'
+})
+const autoCleanupStatus = computed(() => {
+  if (!autoCleanup.value) return `Off. The two buttons above still work; turn this on to let Story run Clean Up All Channels by itself each day.`
+  const last = retention.value?.last_auto_cleanup
+  if (!last) return `On. It has not run yet. ${nextRunText.value}`
+  return `Last run ${new Date(last.at).toLocaleString()} — ${last.status}: ${last.detail} ${nextRunText.value}`
+})
 const hasLibraryWork = computed(() => !!preview.value && (preview.value.files.length > 0 || (preview.value.leftovers?.count || 0) > 0))
 const libraryPreviewTitle = computed(() => {
   const value = preview.value
@@ -183,6 +209,30 @@ async function loadSpace() {
     const result = await get<Space>(`/projects/${slug}/media-cleanup/space`)
     if (current(version) && isSpace(result)) space.value = result
   } catch { /* the figures are a convenience, not a gate */ }
+}
+/** The switch is the same setting Story → Trash's "Automatic cleanup" shows, so there is one state. */
+async function loadRetention() {
+  try {
+    const saved = await get<Retention>('/trash/retention')
+    retention.value = saved
+    autoCleanup.value = saved.auto_cleanup_enabled
+    retentionError.value = ''
+  } catch (e) { retentionError.value = message(e) }
+}
+/** Writes on the switch itself: the owner asked for an automatic switch, not a second Save button. */
+async function saveAutoCleanup() {
+  if (retentionSaving.value) return
+  const wanted = autoCleanup.value
+  retentionSaving.value = true; retentionError.value = ''
+  try {
+    const saved = await put<Retention>('/trash/retention', { auto_cleanup_enabled: wanted })
+    retention.value = { ...retention.value, ...saved }
+    autoCleanup.value = saved.auto_cleanup_enabled
+  } catch (e) {
+    // A refused save must not leave the switch claiming a state the app did not take.
+    autoCleanup.value = !wanted
+    retentionError.value = message(e)
+  } finally { retentionSaving.value = false }
 }
 async function checkAllUploads() {
   if (checkingYouTube.value) return
@@ -322,9 +372,10 @@ watch(() => props.slug, () => {
   stopRequestedId = null
   resuming = false
   void loadSpace()
+  void loadRetention()
   restore()
 })
-onMounted(() => { void loadSpace(); restore() })
+onMounted(() => { void loadSpace(); void loadRetention(); restore() })
 onBeforeUnmount(() => { disposed = true; generation++; if (timer) clearTimeout(timer) })
 </script>
 
@@ -340,6 +391,12 @@ p { color: var(--text-secondary); line-height: 1.5; margin: 8px 0 12px; }
 .cleanup-library-actions { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
 .cleanup-library-action { flex: 1 1 260px; min-width: 240px; display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; }
 .cleanup-library-action small { color: var(--text-muted); line-height: 1.5; font-size: var(--font-sm); }
+/* The switch sits with the button it automates. Two classes deep on purpose: `.cleanup-library-action small`
+   above is more specific than `.cleanup-error`, so a plain class would render the failure in muted grey. */
+.cleanup-auto { display: flex; align-items: flex-start; gap: 8px; font-size: var(--font-sm); line-height: 1.5; cursor: pointer; }
+.cleanup-auto input { margin: 3px 0 0; flex: none; }
+.cleanup-library-action small.cleanup-auto-status { color: var(--text-secondary); }
+.cleanup-library-action small.cleanup-error { color: var(--error, #ff9696); }
 .cleanup-action-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
 .cleanup-files { max-height: 320px; overflow: auto; }
 .cleanup-hint { font-size: var(--font-sm); }
