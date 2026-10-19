@@ -157,6 +157,11 @@ export interface MediaCleanupPreview {
  * `channels[].files` — which measured 276 MB and ~8 minutes over the network on
  * the production mini. The full list stays in the server-side preview map; the
  * run reads it from there by `preview_id`.
+ *
+ * The same bound applies to a RUN's own outcome list (`MediaCleanupRunResult.items`
+ * and `CleanupResult.items`): one entry per file is the same payload through a
+ * different field, and a whole-Library run touches every file the preview listed.
+ * A run carries `item_count` beside the capped sample.
  */
 export const PREVIEW_SAMPLE_FILES = 50
 
@@ -194,6 +199,8 @@ export interface MediaCleanupRunResult {
     destination_path?: string
     reason?: string
   }>
+  /** Every outcome this run produced; `items` holds only the first `PREVIEW_SAMPLE_FILES`. */
+  item_count: number
   archived_count: number
   removed_count: number
   compressed_count: number
@@ -1686,11 +1693,16 @@ async function runPreview(
   destination?: string,
 ): Promise<MediaCleanupRunResult> {
   const result: MediaCleanupRunResult = {
-    mode, ...(destination ? { destination } : {}), items: [],
+    mode, ...(destination ? { destination } : {}), items: [], item_count: 0,
     archived_count: 0, removed_count: 0, compressed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0,
     bytes_reclaimed: 0, bytes_moved: 0, bytes_trashed: 0, bytes_after: 0,
   }
   operation.result = result
+  // Every outcome, server-side only. The operation carries counts plus the first
+  // `PREVIEW_SAMPLE_FILES` (`result.items`), because a whole-Library run touches
+  // every reviewed file and one entry per file is the 276 MB payload the preview
+  // already stopped sending. This list is what the Archive-episode preset re-reads.
+  const allItems: MediaCleanupRunResult['items'] = []
   operation.total = preview.files.length
   operation.bytes_total = preview.files.reduce((n, file) => n + file.bytes, 0)
   // Mac mini (16 GB): one image at a time, no libvips cache; put the app-wide settings back afterwards.
@@ -1705,7 +1717,9 @@ async function runPreview(
       const apply = () => jq.withEpisodeMediaCleanupLock(slug, code,
         () => mutateReviewedFile(slug, preview, operation, file, mode, destination))
       const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
-      result.items.push(item)
+      allItems.push(item)
+      result.item_count = allItems.length
+      if (result.items.length < PREVIEW_SAMPLE_FILES) result.items.push(item)
       if (item.outcome === 'archived') result.archived_count += 1
       else if (item.outcome === 'removed') result.removed_count += 1
       else if (item.outcome === 'compressed') result.compressed_count += 1
@@ -1726,7 +1740,7 @@ async function runPreview(
   }
   if (preview.preset === 'archive_episode' && !operation.stop_requested) {
     for (const episode of preview.episodes) {
-      const mine = result.items.filter(item => episode.files.some(file => file.path === item.path))
+      const mine = allItems.filter(item => episode.files.some(file => file.path === item.path))
       const clean = episode.files.length === mine.length && mine.every(item =>
         item.outcome === 'removed' || item.outcome === 'compressed' || item.reason === ALREADY_JPEG)
       if (clean && episode.upload_proof) await markEpisodeArchived(slug, episode.episode_code).catch(() => {})
@@ -2004,7 +2018,7 @@ async function runLibraryPreview(
   mode: MediaCleanupMode,
 ): Promise<MediaCleanupRunResult> {
   const result: MediaCleanupRunResult = {
-    mode, items: [],
+    mode, items: [], item_count: 0,
     archived_count: 0, removed_count: 0, compressed_count: 0, skipped_count: 0, failed_count: 0, pending_count: 0,
     bytes_reclaimed: 0, bytes_moved: 0, bytes_trashed: 0, bytes_after: 0,
   }
@@ -2028,7 +2042,8 @@ async function runLibraryPreview(
       const apply = () => jq.withEpisodeMediaCleanupLock(file.project_slug, file.episode_code,
         () => mutateReviewedFile(file.project_slug, channelPreviewFor(preview, file.project_slug), operation, file, mode, undefined, gate))
       const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
-      result.items.push(item)
+      result.item_count += 1
+      if (result.items.length < PREVIEW_SAMPLE_FILES) result.items.push(item)
       if (item.outcome === 'archived') result.archived_count += 1
       else if (item.outcome === 'removed') result.removed_count += 1
       else if (item.outcome === 'compressed') result.compressed_count += 1

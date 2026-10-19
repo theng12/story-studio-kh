@@ -467,6 +467,37 @@ test('a refused switch write is said out loud and the switch goes back', async (
   } finally { ui.close() }
 })
 
+test('a run over thousands of files counts them all from the counters, not the capped sample', async () => {
+  // The operation carries `item_count` (the real number) plus a capped sample of
+  // outcomes, so the panel must never read the totals off the sample — that is
+  // what would report "3 files changed" for a 4,000-file sweep.
+  const sample = [0, 1, 2].map(index => ({ path: `/Library/chan-a/EP000${index}/final.mp4`, outcome: 'removed' }))
+  let reads = 0
+  const ui = await mount({
+    get: async (url: string) => {
+      if (url.endsWith('/space')) return space
+      reads += 1
+      if (reads === 1) return libraryOperation('cleanup_all', cleanupPreview)
+      return {
+        id: 'lib-op', project_slug: '*', kind: 'run', status: 'completed', stage: null, done: 4000, total: 4000, current: '',
+        library: true, library_action: 'cleanup_all',
+        result: { items: sample, item_count: 4000, removed_count: 3990, skipped_count: 10, bytes_reclaimed: 4000 * 1024 ** 2 },
+      }
+    },
+    post: async () => ({ operation_id: 'lib-op' }),
+  })
+  try {
+    button(ui.host, 'Clean Up All Channels').click()
+    for (let i = 0; i < 5; i++) await flush()
+    confirmButton(ui.host).click()
+    for (let i = 0; i < 5; i++) await flush()
+    const text = ui.host.textContent || ''
+    assert.match(text, /3990 files changed/, 'the real total comes from the counters, not the 3-item sample')
+    assert.match(text, /10 skipped or could not finish/)
+    assert.match(text, /and 3997 more files — all of them are counted above/, 'the capped sample says what it left out')
+  } finally { ui.close() }
+})
+
 test('a finished run says what moved AND what was left behind, never just "all moved"', async () => {
   let reads = 0
   const ui = await mount({
