@@ -46,6 +46,7 @@ import {
   isAfterHistoryCursor,
   jobDisplayStatus,
   isRecoveredFailure as isRecoveredFailureShared,
+  isSkippedJob as isSkippedJobShared,
   matchesEpisodeSearch,
   summariseHistoryRow,
   type HistoryRowJob,
@@ -69,6 +70,7 @@ import { assertQueuedVisualSource } from './video-visual-source.js'
 import { getValidVideoAssemblyCheckpoint } from '../lib/video-assembly-checkpoint.js'
 import { clearQuotaStops, isUnchargedQuotaStop, noteQuotaStop } from '../lib/ai-client.js'
 import { pipelineStepLabels, splitChainAfterFailure } from '../lib/pipeline-continuation.js'
+import { SKIPPED_STEP_LINE_PREFIX, disabledOptionalStepReason, disabledStepReasonForJob } from '../lib/optional-steps.js'
 import { safetyGate, safetyMode } from './safety-checks.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
@@ -2113,6 +2115,15 @@ function serializeJob(job: Job, view: JobView = 'full'): RendererJob {
   delete copy.generation_replacement_attempts
   delete copy.manual_failed_item_replacement
   const rendererJob: RendererJob = copy
+  // Read-time classification (AGENTS.md §8): a finished row whose Pipeline step
+  // the channel has since switched off reads `skipped`, not failed. Nothing on
+  // disk is rewritten — the historical error stays exactly as it was recorded —
+  // and the rule is recomputed on every read, so switching the step back on puts
+  // the row back to reading as its own error.
+  if (job.status === 'error' && !job.skipped) {
+    const skipReason = disabledStepReasonForJob(job)
+    if (skipReason) rendererJob.skipped = { at: job.finished_at || job.created_at, reason: skipReason }
+  }
   if (privateReasons.length) {
     if (rendererJob.error && privateReasons.some(reason => rendererJob.error!.includes(reason))) {
       rendererJob.error = PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
@@ -4302,6 +4313,25 @@ async function refreshChainedFinalVideoParams(job: Job, nextParams: Record<strin
 async function dispatchChainLink(job: Job, nextStep: any, rest: unknown[]): Promise<void> {
   chainHandoffJobIds.add(job.job_id)
   try {
+    // A captured link whose step the channel has since switched off is SKIPPED,
+    // never enqueued (AGENTS.md §8). Its generator would refuse it anyway, the
+    // job would auto-retry three times and then hold back every step that needed
+    // it — the Night Atlas History EP0011–EP0014 stall, where Scene Review,
+    // Motion Clips and Final Video sat behind a Contextual Cues step the owner
+    // had switched off. Handing the dependency straight to the next link is what
+    // lets those steps proceed: no cancel, no replay, and no provider call.
+    while (nextStep && typeof nextStep.type === 'string') {
+      const skipReason = disabledOptionalStepReason(
+        job.project_slug,
+        nextStep.params?.pipeline_step ?? nextStep.type,
+      )
+      if (!skipReason) break
+      job.output_lines.push(`${SKIPPED_STEP_LINE_PREFIX} ${skipReason}`)
+      const [following, ...after] = rest as any[]
+      nextStep = following
+      rest = after
+    }
+    if (!nextStep || typeof nextStep.type !== 'string') return
     const batchId = job.params.pipeline_batch_id
     let nextParams: Record<string, any> = {
       ...structuredClone(nextStep.params || {}),
@@ -4387,6 +4417,32 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       job.status = 'cancelled'
       job.finished_at = new Date().toISOString()
       jobs.set(job.job_id, job)
+      await persistJob(job)
+      if (!jobs.has(job.job_id)) return
+      emitUpdate(job)
+      return
+    }
+
+    // A step the channel's own settings switch off is SKIPPED — never run, never
+    // failed, never auto-retried (AGENTS.md §8: "Optional steps are skipped only
+    // through explicit project configuration. A skipped optional step is not
+    // missing."). Settling it `done` with the `skipped` marker lets
+    // `completeSuccessfulJob` hand this job's captured chain on to the steps that
+    // were waiting behind it, which is what unblocks an already-admitted batch
+    // without cancelling anything or replaying unrelated running work. A REQUIRED
+    // step is never in the table, so it can never take this path.
+    const skipReason = disabledStepReasonForJob(job)
+    if (skipReason) {
+      delete job.resolved
+      delete job.auto_retry
+      job.status = 'running'
+      job.error = null
+      job.local_execution_complete = true
+      job.started_at ||= new Date().toISOString()
+      job.skipped = { at: new Date().toISOString(), reason: skipReason }
+      job.output_lines.push(`${SKIPPED_STEP_LINE_PREFIX} ${skipReason}`)
+      jobs.set(job.job_id, job)
+      await completeSuccessfulJob(job)
       await persistJob(job)
       if (!jobs.has(job.job_id)) return
       emitUpdate(job)
@@ -6314,7 +6370,7 @@ export async function countJobs(projectSlug: string): Promise<JobStats> {
     else if (job.status === 'queued') stats.queued += 1
     else if (job.status === 'paused') stats.paused += 1
     else if (job.status === 'done') stats.done += 1
-    else if (job.status === 'error' && !isRecoveredFailure(job)) stats.error += 1
+    else if (rawDisplayStatus(job) === 'error') stats.error += 1
   }
   return stats
 }
@@ -6390,10 +6446,25 @@ export interface JobHistoryPage {
   facets?: JobHistoryFacets
 }
 
-const HISTORY_STATUS_BUCKETS: readonly string[] = ['done', 'error', 'cancelled', 'recovered']
+const HISTORY_STATUS_BUCKETS: readonly string[] = ['done', 'error', 'cancelled', 'recovered', 'skipped']
 
 function jobControlsOf(job: Job): JobControl[] {
   return classifyJobControls(job, { remoteCancellationAudited: hasJobCancellationAuditor(job.type) })
+}
+
+/**
+ * The display status of a RAW job: `jobDisplayStatus` plus the read-time
+ * classification `serializeJob` stamps onto the row it sends.
+ *
+ * The history filter and the facet counts read raw jobs while the page renders
+ * the serialized rows, so without this the server would page a row into the
+ * "Needs attention" chip and then send a card that reads `skipped` — the exact
+ * drift `contracts/jobs-history.ts` exists to prevent.
+ */
+function rawDisplayStatus(job: Job): string {
+  if (isSkippedJob(job)) return 'skipped'
+  if (job.status === 'error' && disabledStepReasonForJob(job)) return 'skipped'
+  return jobDisplayStatus(job)
 }
 
 /** Every filter except `statuses` — the base a status facet is counted over. */
@@ -6409,18 +6480,18 @@ function matchesHistoryFilter(job: Job, filter: JobHistoryFilter): boolean {
   if (!matchesHistoryBase(job, filter)) return false
   if (filter.since && (Date.parse(job.finished_at || '') || 0) < Date.parse(filter.since)) return false
   const wanted = filter.statuses?.length ? filter.statuses : HISTORY_STATUS_BUCKETS
-  if (!wanted.includes(jobDisplayStatus(job))) return false
+  if (!wanted.includes(rawDisplayStatus(job))) return false
   if (filter.controls?.length && !jobControlsOf(job).some(control => filter.controls!.includes(control.action))) return false
   return true
 }
 
 function historyFacets(scopeJobs: readonly Job[], filter: JobHistoryFilter): JobHistoryFacets {
-  const stats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, recovered: 0, cancelled: 0, total: 0 }
+  const stats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, recovered: 0, cancelled: 0, skipped: 0, total: 0 }
   const active_by_type: Record<string, number> = {}
   const status: Record<string, number> = {}
   const clearable = { finished: 0, failed: 0 }
   for (const job of scopeJobs) {
-    const display = jobDisplayStatus(job)
+    const display = rawDisplayStatus(job)
     stats.total += 1
     if (display === 'recovered') stats.recovered += 1
     else if (display in stats) (stats as unknown as Record<string, number>)[display] += 1
@@ -7694,6 +7765,15 @@ export function isRecoveredFailure(job: Job): boolean {
 }
 
 /**
+ * A step that did not run because the channel's own settings switch it off
+ * (AGENTS.md §8). Not a failure, not something to retry, not missing output.
+ * Same shared rule as the Jobs list's own display.
+ */
+export function isSkippedJob(job: Job): boolean {
+  return isSkippedJobShared(job)
+}
+
+/**
  * Add lines to a finished job's own log and, when `resolveReason` is given,
  * mark a failed row as resolved. Never changes status or starts anything —
  * this is how a repair or a later run settles the row it was about.
@@ -7757,7 +7837,7 @@ export function getQueueStats(projectSlug?: string): JobStats {
     queued: jobList.filter(j => j.status === 'queued').length,
     paused: jobList.filter(j => j.status === 'paused').length,
     done: jobList.filter(j => j.status === 'done').length,
-    error: jobList.filter(j => j.status === 'error' && !isRecoveredFailure(j)).length,
+    error: jobList.filter(j => rawDisplayStatus(j) === 'error').length,
     total: jobList.length,
   }
 }

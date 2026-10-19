@@ -2900,6 +2900,16 @@ export interface Job {
    */
   resolved?: { at: string; reason: string }
   /**
+   * This step did not run because the channel's own settings switch it off
+   * (`lib/optional-steps.ts`). AGENTS.md §8: "Optional steps are skipped only
+   * through explicit project configuration. A skipped optional step is not
+   * missing." A skipped job is `done` — nothing failed, nothing was thrown away —
+   * and the marker is what makes it read `skipped` instead of `done` in the Jobs
+   * list. Required work is never marked this way, and a step that is merely
+   * missing output is never skipped.
+   */
+  skipped?: { at: string; reason: string }
+  /**
    * Directory containing the job's primary output. Set by each generator
    * once it knows where its files landed (audio dir, image dir, video
    * dir, …). Used by the Jobs page's "Open in Finder" button to reveal

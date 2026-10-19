@@ -1004,6 +1004,7 @@
 
           <div v-if="job.status === 'error'" class="job-error-section" :class="{ 'is-original-attempt': isRecoveredFailure(job) }">
             <p v-if="job.resolved" class="error-summary"><span class="error-label">Settled:</span> {{ job.resolved.reason }}</p>
+            <p v-if="job.skipped" class="error-summary"><span class="error-label">Skipped:</span> {{ job.skipped.reason }}</p>
             <div v-if="job.error" class="error-summary">
               <span class="error-label">{{ isRecoveredFailure(job) ? 'Original attempt:' : 'What happened:' }}</span>
               <span class="error-summary-text">{{ jobAttentionSummary(job) || firstErrorLine(customerJobText(job.error, job)) }}</span>
@@ -1100,7 +1101,7 @@ import {
 } from '~/utils/job-presentation'
 import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery, type EpisodeAssetRecovery } from '~/utils/job-asset-recovery'
-import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
+import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isSkippedJob, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
 import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, holdsUnknownProviderOutcome, isFreeFleetWork } from '@shared/provider-task-state'
 import { bulkConfirmOptions, capList, controlLabel, deriveOutputDir, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice, rowOutputLineCount, rowProgressCounter, rowSummaryLine } from '~/utils/jobs-list'
 type RJob = DeepReadonly<Job>
@@ -1849,6 +1850,10 @@ const failedJobsForRetryAll = computed(() =>
   projectScopedJobs.value.filter((j: RJob) =>
     (j.status === 'error' || j.status === 'cancelled')
     && !isRecoveredFailure(j)
+    // A step the channel's own settings switch off is skipped, not failed
+    // (AGENTS.md §8): retrying it would only skip it again, so Retry Failed
+    // Jobs must not count it.
+    && !isSkippedJob(j)
     && j.params?.auto_repair_missing_prompts !== true
     // Q-06 — bulk Retry must apply the same admission filter as the per-row
     // button and the backend, or it counts jobs it can only 409 on.
@@ -2167,7 +2172,7 @@ function saveHiddenJobIds(next: Set<string>) {
 }
 
 function isJobHidden(job: RJob): boolean { return hiddenJobIds.value.has(job.job_id) }
-function canHideJob(job: RJob): boolean { return ['done', 'recovered'].includes(jobDisplayStatus(job)) }
+function canHideJob(job: RJob): boolean { return ['done', 'recovered', 'skipped'].includes(jobDisplayStatus(job)) }
 function restoreJob(job: RJob) {
   const next = new Set(hiddenJobIds.value)
   next.delete(job.job_id)
@@ -2209,22 +2214,26 @@ const presentationScopedJobs = computed(() => showHidden.value
 const stats = computed(() => {
   const scoped = projectScopedJobs.value
   const recovered = scoped.filter(job => jobDisplayStatus(job) === 'recovered').length
+  // A skipped optional step is not a failure and needs nothing from the owner
+  // (AGENTS.md §8), so it is counted apart from "Needs attention".
+  const skipped = scoped.filter(job => jobDisplayStatus(job) === 'skipped').length
   return {
     ...queueStats.value,
     running: scoped.filter(job => job.status === 'running').length,
     queued: scoped.filter(job => job.status === 'queued').length,
     paused: scoped.filter(job => job.status === 'paused').length,
     done: scoped.filter(job => job.status === 'done').length,
-    error: Math.max(0, scoped.filter(job => job.status === 'error').length - recovered),
+    error: scoped.filter(job => jobDisplayStatus(job) === 'error').length,
     total: scoped.length,
     recovered,
+    skipped,
   }
 })
 const typeScopedJobs = computed(() => activeFilter.value === 'all'
   ? presentationScopedJobs.value
   : presentationScopedJobs.value.filter(job => job.type === activeFilter.value))
 // v1.0.x — status filter (independent of the type tabs).
-const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled'>('all')
+const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'recovered' | 'cancelled' | 'skipped'>('all')
 function toggleHiddenJobs() {
   showHidden.value = !showHidden.value
   if (showHidden.value) {
@@ -2244,6 +2253,7 @@ const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> =
   { key: 'error', label: 'Needs attention' },
   { key: 'done', label: 'Done' },
   { key: 'recovered', label: 'Recovered' },
+  { key: 'skipped', label: 'Skipped' },
   { key: 'cancelled', label: 'Cancelled' },
 ]
 // `?status=error` (the dashboard's "Repair N failed jobs" link) opens the list already filtered.

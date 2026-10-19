@@ -857,6 +857,8 @@ export interface JobEnqueuedResponse {
   music_results_awaiting_import?: string[]
   /** A failed job whose files were all made later — kept as history, no longer needs attention. */
   resolved?: { at: string; reason: string }
+  /** This step did not run because the channel's own settings switch it off (AGENTS.md §8). Reads `skipped`. */
+  skipped?: { at: string; reason: string }
   /** v1.2.8 — the owner stopped tracking this job without provider confirmation. */
   force_abandoned?: {
     at: string
@@ -949,6 +951,8 @@ export interface JobHistoryFacets {
     error: number
     recovered: number
     cancelled: number
+    /** Steps that did not run because the channel's own settings switch them off (AGENTS.md §8). */
+    skipped: number
     total: number
   }
   /** Active rows per job type — the type tabs' "(N active)". */

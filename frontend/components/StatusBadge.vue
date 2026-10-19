@@ -19,6 +19,7 @@ const label = computed(() => {
     paused: 'Paused',
     done: 'Done',
     recovered: 'Recovered',
+    skipped: 'Skipped',
     error: 'Needs attention',
     cancelled: 'Cancelled',
   }
@@ -40,6 +41,13 @@ const label = computed(() => {
 .badge-recovered {
   background: rgba(74, 222, 128, 0.15);
   color: var(--success);
+}
+
+/* Skipped: the channel's own settings switched this step off. Nothing failed and
+   nothing is missing (AGENTS.md §8), so it reads calm rather than alarming. */
+.badge-skipped {
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--text-muted, #94a3b8);
 }
 
 @keyframes pulse {

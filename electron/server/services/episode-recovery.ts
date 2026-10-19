@@ -21,6 +21,7 @@ import { resolveEpisodeMergedAudioChoice, expectedMergedAudioFilename } from '..
 import { hashSubtitleAudioSources, inspectChapterSubtitleCompletion } from './subtitle-completion.js'
 import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
 import { readLocalMediaCleanupStatus } from './episode-media-cleanup.js'
+import { disabledOptionalStepReason } from '../lib/optional-steps.js'
 
 export const EPISODE_RECOVERY_ORDER = ['audio_merge', 'subtitle_sections', 'subtitle_stitch', 'scene_plan_run', 'contextual_cues', 'continuity_render'] as const
 export type EpisodeRecoveryStep = typeof EPISODE_RECOVERY_ORDER[number]
@@ -585,6 +586,20 @@ export async function dispatchEpisodeRecoveryStep(
   for (const job of jobs) {
     const step = episodeRecoveryStep(job.type)
     if (step && ['queued', 'running', 'paused'].includes(job.status)) verified[step] = false
+  }
+  // A step the channel's own settings switch off is SKIPPED, not waited for
+  // (AGENTS.md §8). `inspectRecovery` can never verify it — there is no cue
+  // timeline, and there will not be one while the feature is off — so without
+  // this the plan sits on "Waiting for Contextual Cues" forever, or enqueues the
+  // step only to watch its generator refuse. Dropping it is what lets Scene
+  // Review and everything after it proceed. Re-enabling the step puts it back in
+  // the plan the next time one is built.
+  for (const optionalStep of EPISODE_RECOVERY_ORDER) {
+    if (!plan.steps[optionalStep]) continue
+    if (!disabledOptionalStepReason(plan.project_slug, optionalStep)) continue
+    delete plan.steps[optionalStep]
+    if (plan.continuation) plan.continuation = plan.continuation.filter(node => node.type !== optionalStep)
+    verified[optionalStep] = true
   }
   if (!verified.audio_merge && await waitForNarrationRefreshChecks(plan, jobs, sourceJobIds)) {
     plan.completed = []

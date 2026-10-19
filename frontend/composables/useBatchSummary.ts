@@ -143,7 +143,9 @@ function summarize(batch_id: string, jobs: Job[]): BatchSummary {
       cancelled++
     } else if (statuses.some(s => s === 'recovered')) {
       recovered++
-    } else if (statuses.every(s => s === 'done')) {
+    } else if (statuses.every(s => s === 'done' || s === 'skipped')) {
+      // A step the channel's own settings switched off is skipped, not failed
+      // (AGENTS.md §8) — it does not hold the episode out of the success count.
       success++
     }
   }
