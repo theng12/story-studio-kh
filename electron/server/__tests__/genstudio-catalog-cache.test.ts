@@ -17,6 +17,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import type {
   GenStudioCatalogKind,
   GenStudioCatalogSnapshot,
@@ -221,9 +222,7 @@ test('a force-live read ABORTS the read it supersedes instead of orphaning it', 
 
   try {
     const ordinary = listImageModelsSnapshot('force-live-key')
-    for (let waited = 0; requests < 1 && waited < 2_000; waited++) {
-      await new Promise(resolve => setTimeout(resolve, 5))
-    }
+    await waitFor(() => requests >= 1, { label: 'the ordinary read reaches the Gateway' })
     assert.equal(requests, 1, 'the ordinary read never reached the Gateway')
 
     const forced = await listImageModelsForceLive('force-live-key')
