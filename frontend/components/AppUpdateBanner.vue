@@ -22,8 +22,10 @@ interface UpdateBannerStatus {
   release?: { version: string } | null
   settings?: { auto_install: boolean }
   jobs_left?: number
+  /** Final checks still measuring a finished video; they hold an install until they finish. */
+  final_checks_running?: number
   queue_paused?: boolean
-  waiting_for?: { submits: number; jobs: string[]; maintenance?: { kind: string; status: string } | null } | null
+  waiting_for?: { submits: number; jobs: string[]; finalChecks?: number; maintenance?: { kind: string; status: string } | null } | null
 }
 
 const { get, post } = useApi()

@@ -19,6 +19,7 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import { acquireQueuePauseOwned, areBootJobsLoaded, getQueuePauseOwner, getQueueStats, initializeQueuePauseState, isQueuePaused, releaseQueuePauseOwned, runningJobsThatWouldNotResume } from '../services/job-queue.js'
 import { activeMaintenanceOperation } from '../services/episode-media-cleanup.js'
 import { inFlightSubmits } from '../lib/inflight-submits.js'
+import { runningFinalChecks } from '../lib/final-video-check.js'
 import { projectsRoot } from '../services/project-manager.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
@@ -71,6 +72,9 @@ export async function startStoryUpdater(input: {
       // for them, yet a restart kills them mid-file. `main.ts` wires this the same way it wires the
       // queue, and `episode-media-cleanup` refuses new operations while the drain is claimed.
       maintenance: activeMaintenanceOperation,
+      // A final check is background ffmpeg work on a finished video; a restart kills the decode and
+      // the verdict is never written, so the drain waits for it like a job that would not resume.
+      runningFinalChecks,
     },
     getSettings,
     saveSettings,

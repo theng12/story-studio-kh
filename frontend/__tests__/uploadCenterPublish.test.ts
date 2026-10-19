@@ -2525,6 +2525,57 @@ describe('Upload Center Publish keeps its place and renders 50 rows at a time', 
       assert.equal(mounted.query().status, 'missing')
     } finally { mounted.destroy() }
   })
+
+  test('a Final Check runs in the background: the row says checking, then shows the verdict', async () => {
+    // Measuring a finished 2–2.5 h video is one full decode and takes minutes, so the POST that
+    // starts it answers at once and the verdict arrives on a later read of the same row.
+    const withCheck = (final_check: Record<string, unknown>) => ({
+      episode_code: 'EP0001', title: 'Story 1', has_video: true,
+      local: { render: { state: 'ready' }, upload: { state: 'running', job_id: 'job-1' } },
+      publication: { state: 'unpublished' },
+      final_check: { passed: false, checked: false, stale: false, running: false, issues: [], identity: null, ...final_check },
+    })
+    const rows = [
+      withCheck({ summary: 'Final check: not run yet' }),
+      withCheck({ summary: 'Final check: checking…', running: true }),
+      withCheck({
+        summary: 'Final check: passed', passed: true, checked: true,
+        identity: { checked_at: '2026-10-19T15:50:00.000Z', file_size: 12, file_mtime_ms: 1 },
+      }),
+    ]
+    let reads = 0
+    const mounted = await mount({
+      jobs: [],
+      getOverride: (path: string) => {
+        if (!path.endsWith('/publishable')) return undefined
+        return { episodes: [rows[Math.min(reads++, rows.length - 1)]], total: 1 }
+      },
+      postOverride: (path: string) => path.endsWith('/youtube/final-check')
+        ? { episode_code: 'EP0001', started: true, running: true, summary: 'Final check: checking…' }
+        : undefined,
+    })
+    const finalCheckButton = () => [...mounted.el.querySelectorAll<HTMLButtonElement>('button')]
+      .find(b => ['Run Final Check', 'Checking…'].includes((b.textContent || '').trim()))!
+    try {
+      assert.match(mounted.text(), /Final check: not run yet/)
+      assert.equal(finalCheckButton().disabled, false)
+
+      finalCheckButton().click()
+      await flush()
+
+      assert.match(mounted.text(), /Final check: checking…/)
+      assert.equal(finalCheckButton().textContent?.trim(), 'Checking…')
+      assert.equal(finalCheckButton().disabled, true, 'a check already measuring is not started again from the row')
+      assert.equal(reads, 2, 'the page reloaded the row it already loads')
+
+      // The check finishes on its own; the next reload carries the verdict and the button returns.
+      await mounted.setJobs([{ job_id: 'job-1', type: 'youtube_upload', status: 'done' }])
+      await flush()
+      assert.match(mounted.text(), /Final check: passed/)
+      assert.equal(finalCheckButton().textContent?.trim(), 'Run Final Check')
+      assert.equal(finalCheckButton().disabled, false)
+    } finally { mounted.destroy() }
+  })
 })
 
 test('Publish source: rows come from the shown slice and the view is mirrored with router.replace', () => {

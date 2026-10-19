@@ -150,6 +150,15 @@ export type YouTubeFinalCheckProjection = {
   checked: boolean
   /** True when the file has been rewritten since the check ran. */
   stale: boolean
+  /**
+   * True while a check is measuring this file right now.
+   *
+   * The check runs in the background — the on-demand POST answers 202 before any ffmpeg work starts,
+   * because measuring a 2–2.5 h final is one full decode and takes minutes, which no request should
+   * have to stay open for. `summary` says "checking…" meanwhile, and the verdict appears on a later
+   * read of this row once the check writes its sidecar.
+   */
+  running: boolean
   issues: Array<{ check: string; verdict: string }>
   /** Null when no verdict has been stored — "not checked" and "checked" are different answers. */
   identity: YouTubeFinalCheckIdentity | null
