@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.330 — 2026-10-19
+
+- Free Up Space no longer refuses every file with "The reviewed file changed immediately before removal". Its last check before moving a file now reads the path the same way the review did, so a folder name with different capital letters no longer counts as a change.
+- A writing request marked "outcome unknown" is checked again with the Gateway when you open a channel's jobs or press Check the Gateway again. Once the Gateway has settled it, the job shows the real result and Retry can move on. Nothing is sent again.
+- Episode recovery no longer gets stuck when a step's job was cleared from the job history, and it no longer treats a Scene Plan as out of date just because it was timed against the corrected subtitles. When a Scene Plan really is out of date, it now says which timing moved.
+- Scene Review can recover older image requests that were saved before their request ID was recorded: Story asks the Gateway first, collects an image that already exists, renders one it never received, and holds anything it cannot confirm.
+- Thumbnail reference analysis and paid scene-prompt repair use the model's own answer-length limit instead of a fixed number.
+
 ## v1.4.329 — 2026-10-19
 
 - An idea batch whose earlier request is known to have failed now gets one fresh request on Retry, instead of collecting the same failure forever. The same happens when the earlier answer arrived but could not be read, or when the Gateway confirms it never received the earlier request. A request whose outcome is still unknown, or a Gateway that cannot be reached, is still only collected, never sent twice.

@@ -13,7 +13,8 @@ import path from 'path'
 import type { Job } from '../models/types.js'
 import { useTempDataDir } from './_helpers.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
-import { compareMergedAudio, inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
+import { compareMergedAudio, compareTimeline, inspectPlanTimelineDrift, stampFromCues } from '../lib/scene-plan-timeline.js'
+import { parseSrt } from '../lib/subtitle-builder.js'
 
 const SLUG = 'merged-audio-stale'
 let tmp: { dir: string; cleanup: () => Promise<void> }
@@ -125,4 +126,78 @@ test('a narration-refresh recovery leaves a running Pipeline step its later step
     assert.deepEqual(live.params.pipeline_chain.map((link: { type: string }) => link.type), ['thumb_images', 'metadata'])
     assert.equal(jobs.find(job => job.job_id === plan.job_id)!.params.episode_recovery_id, recovery.id, 'finished rows are adopted as before')
   } finally { await jq._waitForJobPersistenceForTesting() }
+})
+
+/**
+ * Domnak DM0012/13/14 (2026-10-19) — the caption identity is judged against the transcript PLANNING
+ * reads, and the correction pass DROPS hallucinated cues, so the corrected transcript and the raw
+ * stitch are two different cue sets of one narration. Scene Plan is built from the corrected file
+ * (`source_stitched_srt`), so comparing its stamp against the raw stitch reported drift on a stitch
+ * that had not moved since the plan was built — 612 cues against a stamp of 609, 1013/1008 and
+ * 1005/999, each plan `generated_at` newer than the stitched file's own. The recovery plan parked
+ * on "Waiting for Scene Plan" forever, and a rebuild would have re-timed every scene.
+ */
+describe('the caption timeline is judged against the transcript planning reads', () => {
+  const RAW = '1\n00:00:00,000 --> 00:00:02,000\nNeorion harbour\n\n'
+    + '2\n00:00:02,000 --> 00:00:04,000\nHello there\n\n3\n00:00:04,000 --> 00:00:06,000\nThank you\n\n'
+  // The same cues, minus the one no script word aligned to: the corrector keeps timings and drops
+  // hallucinated cues, so the corrected file has one cue fewer.
+  const CORRECTED = '1\n00:00:02,000 --> 00:00:04,000\nHello there\n\n2\n00:00:04,000 --> 00:00:06,000\nThank you\n\n'
+
+  /** A raw stitch with its current corrected sibling, and a plan timed against one of them. */
+  async function captions(source: 'raw' | 'corrected', rawText = RAW, correctedText = CORRECTED) {
+    const dir = await fs.mkdtemp(path.join(tmp.dir, 'caption-drift-'))
+    const subtitles = path.join(dir, 'EP0001 - 09 Subtitles Output')
+    await fs.mkdir(subtitles, { recursive: true })
+    const rawPath = path.join(subtitles, 'EP0001_stitched.srt')
+    const correctedPath = path.join(subtitles, 'EP0001_stitched.corrected.srt')
+    await fs.writeFile(rawPath, rawText)
+    await fs.writeFile(correctedPath, correctedText)
+    const rawStat = await fs.stat(rawPath)
+    await fs.writeFile(`${correctedPath}.json`, JSON.stringify({ srt: path.basename(correctedPath),
+      schema_version: 1, source_mtime_ms: rawStat.mtimeMs, source_size: rawStat.size }))
+    const planPath = path.join(dir, 'scene_plan.json')
+    await fs.writeFile(planPath, JSON.stringify({ schema_version: 1,
+      source_stitched_srt: source === 'corrected' ? 'EP0001_stitched.corrected.srt' : 'EP0001_stitched.srt',
+      source_timeline: stampFromCues(parseSrt(source === 'corrected' ? CORRECTED : RAW)) }))
+    return { rawPath, correctedPath, planPath }
+  }
+
+  test('a plan timed against the corrected transcript is not stale against the raw stitch', async () => {
+    const f = await captions('corrected')
+    const stored = JSON.parse(await fs.readFile(f.planPath, 'utf8')).source_timeline
+    assert.equal(compareTimeline(stored, stampFromCues(parseSrt(RAW))).stale, true,
+      'the trap: the raw stitch alone calls this current plan stale')
+    const drift = await inspectPlanTimelineDrift(f.planPath, f.rawPath)
+    assert.equal(drift.checked, true)
+    assert.equal(drift.stale, false, 'nothing on disk moved since the plan was built')
+    assert.equal(drift.reason, '')
+  })
+
+  test('a plan timed against the raw stitch stays current when a correction appears later', async () => {
+    const f = await captions('raw')
+    assert.equal((await inspectPlanTimelineDrift(f.planPath, f.rawPath)).stale, false)
+  })
+
+  test('a re-stitch that moves the captions is still stale', async () => {
+    // Both files moved: the stitch was re-made and the correction rebuilt from it.
+    const movedRaw = '1\n00:00:00,000 --> 00:00:02,000\nNeorion harbour\n\n'
+      + '2\n00:00:03,000 --> 00:00:05,000\nHello there\n\n3\n00:00:05,000 --> 00:00:07,000\nThank you\n\n'
+    const movedCorrected = '1\n00:00:03,000 --> 00:00:05,000\nHello there\n\n2\n00:00:05,000 --> 00:00:07,000\nThank you\n\n'
+    const f = await captions('corrected', movedRaw, movedCorrected)
+    const drift = await inspectPlanTimelineDrift(f.planPath, f.rawPath)
+    assert.equal(drift.stale, true)
+    assert.match(drift.reason, /moved later by 1\.00s after the transcript was re-stitched/)
+  })
+
+  test('a re-narrated merged track is still stale while the captions have not moved', async () => {
+    const f = await captions('corrected')
+    const completion = path.join(path.dirname(f.rawPath), 'EP0001_merged_audio.completion.json')
+    await fs.writeFile(completion, JSON.stringify({ output_filename: 'EP0001_merged_audio.mp3', duration_sec: 20, opening: { lead_in_sec: 0 } }))
+    await fs.writeFile(f.planPath, JSON.stringify({ ...JSON.parse(await fs.readFile(f.planPath, 'utf8')),
+      source_merged_audio: { duration_sec: 6 } }))
+    const drift = await inspectPlanTimelineDrift(f.planPath, f.rawPath, completion, 'EP0001_merged_audio.mp3')
+    assert.equal(drift.stale, true)
+    assert.match(drift.reason, /merged narration was 6\.0s .* now 20\.0s/)
+  })
 })

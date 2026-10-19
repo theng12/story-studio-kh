@@ -37,6 +37,7 @@
  */
 
 import { createHash } from 'crypto'
+import path from 'path'
 import type { SrtCue } from './subtitle-builder.js'
 import { scenePlanLeadInShiftSec } from './intro-lead-in.js'
 
@@ -282,17 +283,50 @@ export async function planMergedAudioDrift(
 }
 
 /**
- * Read a stored plan and the stitched transcript, and report whether the plan's
- * scene times still describe that transcript.
+ * The caption file planning reads TODAY for this episode: the corrected
+ * transcript while its own sidecar still describes the current stitch, else the
+ * raw stitch. The read-only counterpart of the resolver the Scene Plan generator
+ * writes through (`resolveTranscriptSrt`) — this one never rebuilds anything.
+ *
+ * Falls back to the file it was handed when the episode code cannot be read back
+ * off it, so a caller that passes something else keeps the old behaviour.
+ */
+async function planningTranscriptPath(stitchedSrtPath: string): Promise<string> {
+  const dir = path.dirname(stitchedSrtPath)
+  const code = /^(.+)_stitched\.srt$/i.exec(path.basename(stitchedSrtPath))?.[1]
+  if (!code) return stitchedSrtPath
+  const sc = await import('../services/subtitle-correction.js')
+  return sc.stitchedSrtPath(dir, code) === stitchedSrtPath
+    ? (await sc.inspectExistingTranscriptSource(dir, code)).path
+    : stitchedSrtPath
+}
+
+/**
+ * Read a stored plan and this episode's captions, and report whether the plan's
+ * scene times still describe the current narration.
  *
  * Never throws: a missing plan, a missing transcript or an unreadable file all
  * mean "nothing to say", because this drives an advisory notice and an
  * exception here would take down a status endpoint.
  *
- * The RAW stitched file is compared rather than the corrected one on purpose:
- * the corrected pass rewrites words at unchanged timings, so both carry the same
- * timeline, and reading the raw file keeps this independent of whether a
- * correction happens to exist.
+ * The comparison is against the cue boundaries the narration has NOW, in either
+ * of the two representations the app keeps of them: the transcript planning
+ * reads today (the corrected file while its sidecar still describes the current
+ * stitch, else the raw stitch — the read-only counterpart of `resolveTranscriptSrt`)
+ * and the raw stitch itself. Matching EITHER means the plan's scene times still
+ * describe the narration; only when neither matches did the stitch move.
+ *
+ * ── Why not simply the raw stitch ──
+ *
+ * The corrected pass does not only rewrite words: it DROPS hallucinated cues
+ * (`services/subtitle-correction.ts`), so the two files are different cue SETS of
+ * one narration — and Scene Plan is built from the corrected one
+ * (`source_stitched_srt`, `generators/scene-plan.ts`). Comparing a plan against
+ * the raw file therefore reported drift on a stitch that had not moved since the
+ * plan was built: Domnak DM0012/13/14 (612 cues against a stamp of 609, 1013/1008,
+ * 1005/999), each with `generated_at` newer than the stitched file's own. The
+ * recovery plan parked on "Waiting for Scene Plan" forever, on a timeline that
+ * was current.
  */
 export async function inspectPlanTimelineDrift(
   planPath: string,
@@ -311,7 +345,15 @@ export async function inspectPlanTimelineDrift(
     if (stored?.sha256) {
       try {
         const { parseSrt } = await import('./subtitle-builder.js')
-        captions = { checked: true, ...compareTimeline(stored, stampFromCues(parseSrt(await fs.readFile(stitchedSrtPath, 'utf-8')))) }
+        const stampOf = async (file: string) => stampFromCues(parseSrt(await fs.readFile(file, 'utf-8')))
+        const current = await stampOf(await planningTranscriptPath(stitchedSrtPath)).catch(() => null)
+        const raw = await stampOf(stitchedSrtPath).catch(() => null)
+        const judged = current ?? raw
+        if (judged) {
+          captions = judged.sha256 === stored.sha256 || raw?.sha256 === stored.sha256
+            ? { checked: true, stale: false, drift_sec: null, reason: '' }
+            : { checked: true, ...compareTimeline(stored, judged) }
+        }
       } catch { /* no stitched transcript: nothing to say about captions */ }
     }
     if (captions.stale || !mergedAudioCompletionPath || !plan?.source_merged_audio) return captions

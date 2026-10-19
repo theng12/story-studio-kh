@@ -182,7 +182,10 @@ test('the batch waits under the owner\'s control and resubmits under a DERIVED i
   // of buying a second render.
   assert.match(source, /await compareAndRecordImageTaskStrict\(outDir, filename, attemptOwner, failedEntry\)/)
   assert.match(source, /savedEntry = failedEntry/)
-  assert.match(source, /const manifestEntry = savedEntry/)
+  // `let`, not `const`: a legacy `prepared` row that recorded no key has its
+  // rebuilt identity adopted into the entry before the ordinary path uses it.
+  // The next attempt still reasons from the entry written to disk.
+  assert.match(source, /let manifestEntry = savedEntry/)
   assert.match(source, /const retryScope = resolveImageRetryScope\(retryEntry, baseScope\)/)
   assert.doesNotMatch(source, /randomUUID/)
   assert.doesNotMatch(source, /Math\.random/)

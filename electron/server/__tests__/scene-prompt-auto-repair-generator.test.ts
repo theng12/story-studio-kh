@@ -491,6 +491,31 @@ test('explicit repair fans a large missing tail into single-scene requests and p
   assert.ok(saved.scenes.slice(1).every((scene: any) => scene.visual_prompt.trim()))
 })
 
+test('the explicit paid repair asks with the caller’s allowance, not a hardcoded 2,048', async () => {
+  // `prompt_max_tokens` is the owner's choice, already clamped to what the selected product
+  // publishes (`resolveScenePromptTokenBudget`). This path used to clamp that again, to a
+  // stage-specific `2_048` of our own — the same shape the owner removed from the motion stage
+  // on 2026-09-26 ("we follow the published per-model figure and invent no ceiling"), and the
+  // one shape this module forbids: every reduction is reported by `describeScenePromptPackSize`,
+  // so a number that changes quietly is the defect. Each request here carries ONE scene
+  // (`packScenePromptItems(missing, 1)`), so the cap never protected a pack from truncation.
+  //
+  // 3,072 is above the old cap and below the mock product's published 4,096, so it is a value
+  // only the caller's own allowance can produce.
+  service.reset()
+  const f = await fixture(2)
+  const job = directJob(f, 'paid-repair-budget')
+  job.params = { ...f.params, prompt_max_tokens: 3_072 }
+  service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0002') })
+  service.queueScenario('chat', { states: ['succeeded'], outputText: promptResult('scene-0003') })
+
+  await runScenePlanJob(job)
+
+  const budgets = [...new Set(chatSubmissions().map(entry => (entry.parsedBody as any).max_output_tokens))]
+  assert.deepEqual(budgets, [3_072],
+    `every paid-repair request carries the caller's allowance: ${JSON.stringify(budgets)}`)
+})
+
 test('explicit repair makes one diagnosed repair pass, then stops after a full pass with zero durable progress', async () => {
   service.reset()
   const f = await fixture(1)

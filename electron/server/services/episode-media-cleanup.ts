@@ -1421,7 +1421,10 @@ function assertReviewedIdentitySync(file: MediaCleanupFile): void {
   const stat = lstatSync(file.path)
   if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1
     || stat.size !== file.bytes || stat.mtimeMs !== file.mtime_ms
-    || realpathSync(file.path) !== file.real_path) {
+    // `.native`: the same resolver as the preview's `fs.realpath`. The JS `realpathSync`
+    // keeps the caller's letter case, so on a case-insensitive disk it disagreed with the
+    // reviewed path and refused every file (1.4.329 production: 488 of 488).
+    || realpathSync.native(file.path) !== file.real_path) {
     throw fail('The reviewed file changed immediately before removal.', 409)
   }
 }
@@ -2184,6 +2187,10 @@ export function _setMediaCleanupHooksForTests(next: CleanupHooks): () => void {
   const previous = hooks
   hooks = { ...hooks, ...next }
   return () => { hooks = previous }
+}
+
+export function _assertReviewedIdentityForTests(file: MediaCleanupFile): void {
+  assertReviewedIdentitySync(file)
 }
 
 export function _resetMediaCleanupStateForTests(): void {

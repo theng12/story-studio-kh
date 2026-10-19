@@ -189,7 +189,16 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
       // `outputContract` is the one mechanism. The deprecated `jsonObject`
       // flag this call used still maps to the same contract internally, which
       // is exactly why it was easy to leave behind.
-      temperature: 0.2, maxOutputTokens: 1200, outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
+      //
+      // The output allowance is a TIER, not a number of ours. This call used to
+      // name a literal allowance of 1,200 tokens, which `prepareChatSubmission`
+      // refuses outright (before any request or charge) on a model that publishes
+      // less than that — and which, being a fixed ceiling below the model's own,
+      // silently truncates the JSON on a model that publishes more. `short` is the
+      // shared short-form budget, derived from the selected product's published
+      // ceiling, so it can neither overshoot nor go stale. See
+      // `services/output-token-budget.ts` for the tiers.
+      temperature: 0.2, outputBudget: 'short', outputContract: JSON_OBJECT_OUTPUT_CONTRACT,
       // The detail level this model states, or Story's own when it states none
       // — `detail_source` in the menu says which, so the choice is never
       // presented as the model's own.
