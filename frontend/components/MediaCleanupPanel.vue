@@ -49,12 +49,13 @@
     <div v-if="preview" class="cleanup-review">
       <h4>{{ libraryPreviewTitle }}</h4>
       <p v-if="!hasLibraryWork" class="cleanup-hint">Nothing to clean up right now: no eligible uploaded videos and no unused leftover files in any channel. Nothing will move.</p>
-      <p>Every channel is listed here and each file is checked again before it is touched. Files whose channel, upload proof or production date cannot be confirmed are left where they are, with the reason shown.</p>
+      <p>Every channel is listed here with its real totals; each channel shows the first of its files. Every file is checked again before it is touched. Files whose channel, upload proof or production date cannot be confirmed are left where they are, with the reason shown.</p>
       <ul v-if="preview.blocked_reasons.length" class="cleanup-warnings"><li v-for="warning in preview.blocked_reasons" :key="warning">{{ warning }}</li></ul>
       <details v-for="channel in preview.channels" :key="channel.slug" class="cleanup-file-group disclosure">
-        <summary>{{ channel.name }} · {{ channel.files.length }} files · {{ formatBytes(channel.total_bytes) }}</summary>
+        <summary>{{ channel.name }} · {{ channel.file_count }} files · {{ formatBytes(channel.total_bytes) }}</summary>
         <ul v-if="channel.blocked_reasons.length" class="cleanup-warnings"><li v-for="reason in channel.blocked_reasons" :key="reason">{{ reason }}</li></ul>
         <ul class="cleanup-files"><li v-for="file in channel.files" :key="file.path"><span class="cleanup-path">{{ file.episode_code }} · {{ file.relative_path }}</span><span>{{ formatBytes(file.bytes) }}</span><span v-if="file.production_ms">{{ productionLabel(file.production_ms) }}</span></li></ul>
+        <p v-if="channel.file_count > channel.files.length" class="cleanup-hint">and {{ channel.file_count - channel.files.length }} more {{ channel.file_count - channel.files.length === 1 ? 'file' : 'files' }} in this channel — all of them are counted above and checked again before they are touched.</p>
       </details>
       <details v-if="preview.leftovers?.count" class="cleanup-file-group disclosure">
         <summary>Leftover files · {{ preview.leftovers.count }} · {{ formatBytes(preview.leftovers.total_bytes) }}</summary>
@@ -84,9 +85,15 @@ interface Estimate { compress_files: number; compress_bytes_before: number; comp
  */
 type LibraryAction = 'shrink_images' | 'cleanup_all'
 interface LibraryFile extends ReviewedFile { project_slug: string; channel_name: string; episode_code: string; production_ms: number | null }
-interface LibraryChannel { slug: string; name: string; files: LibraryFile[]; total_bytes: number; blocked_reasons: string[] }
+interface LibraryChannel { slug: string; name: string; files: LibraryFile[]; file_count: number; total_bytes: number; blocked_reasons: string[] }
 interface LibraryLeftover { project_slug: string; channel_name: string; kind: 'audio_quality_copy' | 'render_scratch'; episode_code: string; path: string; bytes: number }
-interface LibraryPreview { preview_id: string; action: LibraryAction; created_at: string; expires_at: string; channels: LibraryChannel[]; files: LibraryFile[]; total_bytes: number; blocked_reasons: string[]; trash_roots: string[]; estimate: Estimate; leftovers?: { count: number; total_bytes: number; items: LibraryLeftover[] } }
+/**
+ * What the backend sends for an all-channel review: real totals and, per
+ * channel, the first 50 files only (`file_count` is the real number). The whole
+ * list stays on the server — a channel can hold tens of thousands of files, and
+ * sending them all made the review read minutes long.
+ */
+interface LibraryPreview { preview_id: string; action: LibraryAction; created_at: string; expires_at: string; channels: LibraryChannel[]; file_count: number; total_bytes: number; blocked_reasons: string[]; trash_roots: string[]; estimate: Estimate; leftovers?: { count: number; total_bytes: number; items: LibraryLeftover[] } }
 interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; bytes_done?: number; bytes_total?: number; current: string; detail?: string; error?: string; library?: boolean; library_action?: LibraryAction; library_preview?: LibraryPreview; channels_done?: number; channels_total?: number; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number; leftovers_moved?: number; leftovers_bytes_moved?: number; leftovers_left?: number } }
 interface Space { free_bytes: number | null; project_trash_bytes: number | null; library_trash_bytes: number | null; app_trash_bytes: number | null }
 /** The one automatic-retention setting (Story → Trash shows the same switch); `last_auto_cleanup` is what this panel reports back. */
@@ -133,15 +140,15 @@ const autoCleanupStatus = computed(() => {
   if (!last) return `On. It has not run yet. ${nextRunText.value}`
   return `Last run ${new Date(last.at).toLocaleString()} — ${last.status}: ${last.detail} ${nextRunText.value}`
 })
-const hasLibraryWork = computed(() => !!preview.value && (preview.value.files.length > 0 || (preview.value.leftovers?.count || 0) > 0))
+const hasLibraryWork = computed(() => !!preview.value && (preview.value.file_count > 0 || (preview.value.leftovers?.count || 0) > 0))
 const libraryPreviewTitle = computed(() => {
   const value = preview.value
   if (!value) return ''
   const channels = value.channels.length
   if (value.action === 'shrink_images') {
-    return `Shrink ${value.files.length} ${value.files.length === 1 ? 'file' : 'files'} across ${channels} ${channels === 1 ? 'channel' : 'channels'} · ${formatBytes(value.total_bytes)}`
+    return `Shrink ${value.file_count} ${value.file_count === 1 ? 'file' : 'files'} across ${channels} ${channels === 1 ? 'channel' : 'channels'} · ${formatBytes(value.total_bytes)}`
   }
-  const finals = `${value.files.length} uploaded ${value.files.length === 1 ? 'video' : 'videos'} (${formatBytes(value.total_bytes)})`
+  const finals = `${value.file_count} uploaded ${value.file_count === 1 ? 'video' : 'videos'} (${formatBytes(value.total_bytes)})`
   const leftoverCount = value.leftovers?.count || 0
   const leftovers = `${leftoverCount} leftover ${leftoverCount === 1 ? 'folder' : 'folders'} (${formatBytes(value.leftovers?.total_bytes || 0)})`
   return `Clean up all channels · ${finals} + ${leftovers}`
@@ -323,8 +330,8 @@ async function runLibraryCleanup() {
     const channels = reviewed.channels.length
     const leftoverCount = reviewed.leftovers?.count || 0
     approved = await ask(shrink
-      ? { title: `Shrink scene images on ${channels} ${channels === 1 ? 'channel' : 'channels'}?`, message: `${reviewed.files.length} PNG scene ${reviewed.files.length === 1 ? 'image' : 'images'} (${formatBytes(reviewed.total_bytes)}) across ${channels} ${channels === 1 ? 'channel' : 'channels'} are re-saved as JPEG under the same names, saving about ${formatBytes(libraryFreedBytes.value)}. The PNG originals move to ${libraryTrashText.value}; scene plans, approvals and Video Assembly keep working. Nothing is regenerated.`, confirmLabel: 'Shrink Images', danger: false }
-      : { title: 'Clean up all channels?', message: `${reviewed.files.length} uploaded final ${reviewed.files.length === 1 ? 'video' : 'videos'} (${formatBytes(reviewed.total_bytes)}) older than 7 days of production, each checked against its own channel’s YouTube upload, and ${leftoverCount} unused leftover ${leftoverCount === 1 ? 'folder' : 'folders'} (${formatBytes(reviewed.leftovers?.total_bytes || 0)}) move to ${libraryTrashText.value}. Nothing is deleted; the space is freed when you empty the Trash. Anything that cannot be confirmed stays where it is.`, confirmLabel: 'Clean Up', danger: false })
+      ? { title: `Shrink scene images on ${channels} ${channels === 1 ? 'channel' : 'channels'}?`, message: `${reviewed.file_count} PNG scene ${reviewed.file_count === 1 ? 'image' : 'images'} (${formatBytes(reviewed.total_bytes)}) across ${channels} ${channels === 1 ? 'channel' : 'channels'} are re-saved as JPEG under the same names, saving about ${formatBytes(libraryFreedBytes.value)}. The PNG originals move to ${libraryTrashText.value}; scene plans, approvals and Video Assembly keep working. Nothing is regenerated.`, confirmLabel: 'Shrink Images', danger: false }
+      : { title: 'Clean up all channels?', message: `${reviewed.file_count} uploaded final ${reviewed.file_count === 1 ? 'video' : 'videos'} (${formatBytes(reviewed.total_bytes)}) older than 7 days of production, each checked against its own channel’s YouTube upload, and ${leftoverCount} unused leftover ${leftoverCount === 1 ? 'folder' : 'folders'} (${formatBytes(reviewed.leftovers?.total_bytes || 0)}) move to ${libraryTrashText.value}. Nothing is deleted; the space is freed when you empty the Trash. Anything that cannot be confirmed stays where it is.`, confirmLabel: 'Clean Up', danger: false })
   } finally { confirming.value = false }
   // Nothing is claimed as started until the user accepts: the review stays exactly as it was
   // while the confirmation is on screen, so approving it — not the click that opened it — is the
@@ -337,7 +344,7 @@ async function runLibraryCleanup() {
     if (!current(version)) return
     remember(result.operation_id)
     preview.value = null
-    operation.value = { id: result.operation_id, project_slug: '*', kind: 'run', status: 'queued', stage: 'checking', done: 0, total: reviewed.files.length + (reviewed.leftovers?.count || 0), current: '' }
+    operation.value = { id: result.operation_id, project_slug: '*', kind: 'run', status: 'queued', stage: 'checking', done: 0, total: reviewed.file_count + (reviewed.leftovers?.count || 0), current: '' }
     void pollOperation()
   } catch (e) { if (current(version)) error.value = message(e) }
   finally { if (current(version)) submitting.value = false }

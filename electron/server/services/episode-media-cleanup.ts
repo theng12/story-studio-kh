@@ -148,6 +148,39 @@ export interface MediaCleanupPreview {
   }
 }
 
+/**
+ * How many of a group's files a summary carries.
+ *
+ * The review shows what will move; the operation GET is not where the whole list
+ * travels. A whole-Library preview is ~160k files, and the operation used to
+ * carry every one of them TWICE — `files` flat and again inside
+ * `channels[].files` — which measured 276 MB and ~8 minutes over the network on
+ * the production mini. The full list stays in the server-side preview map; the
+ * run reads it from there by `preview_id`.
+ */
+export const PREVIEW_SAMPLE_FILES = 50
+
+/** One episode of a per-channel preview as the operation carries it: the count, plus a sample. */
+export interface MediaCleanupEpisodeSummary {
+  episode_code: string
+  upload_proof: MediaCleanupUploadProof | null
+  blocked_reasons: string[]
+  /** Every file this episode contributes; `files` holds only the first `PREVIEW_SAMPLE_FILES`. */
+  file_count: number
+  files: MediaCleanupFile[]
+  /** Files left out during discovery. Their reasons are already in `blocked_reasons`. */
+  excluded_count: number
+}
+
+/**
+ * The per-channel preview as the operation GET (and every other read of the
+ * operation) carries it: `MediaCleanupPreview` without the whole file list.
+ */
+export type MediaCleanupPreviewSummary = Omit<MediaCleanupPreview, 'files' | 'episodes'> & {
+  episodes: MediaCleanupEpisodeSummary[]
+  file_count: number
+}
+
 export interface MediaCleanupRunResult {
   mode: MediaCleanupMode
   destination?: string
@@ -254,6 +287,27 @@ export interface LibraryCleanupPreview {
   leftovers?: { count: number; total_bytes: number; items: LibraryLeftover[] }
 }
 
+/** One channel of an all-channel preview as the operation carries it: the count, plus a sample. */
+export interface LibraryCleanupChannelSummary {
+  slug: string
+  name: string
+  total_bytes: number
+  /** Why some of this channel's episodes were left out, in words. */
+  blocked_reasons: string[]
+  /** Every file this channel contributes; `files` holds only the first `PREVIEW_SAMPLE_FILES`. */
+  file_count: number
+  files: LibraryCleanupFile[]
+}
+
+/**
+ * The all-channel preview as the operation GET (and every other read of the
+ * operation) carries it: `LibraryCleanupPreview` without the whole file list.
+ */
+export type LibraryCleanupPreviewSummary = Omit<LibraryCleanupPreview, 'files' | 'channels'> & {
+  channels: LibraryCleanupChannelSummary[]
+  file_count: number
+}
+
 export interface MediaCleanupOperation {
   id: string
   project_slug: string
@@ -273,7 +327,7 @@ export interface MediaCleanupOperation {
   created_at: string
   updated_at: string
   error?: string
-  preview?: MediaCleanupPreview
+  preview?: MediaCleanupPreviewSummary
   result?: MediaCleanupRunResult
   /** Clear Uploaded Videos' outcome (`startTrackedCleanup`). */
   final_cleanup?: import('./storage-audit.js').CleanupResult
@@ -281,8 +335,8 @@ export interface MediaCleanupOperation {
   /** Set on an all-channel (Library) maintenance operation; `project_slug` is then `LIBRARY_SCOPE`. */
   library?: boolean
   library_action?: LibraryCleanupAction
-  /** The all-channel preview, when `library` is set (`preview` stays for the per-channel path). */
-  library_preview?: LibraryCleanupPreview
+  /** The all-channel preview, when `library` is set (`preview` stays for the per-channel path). Bounded: the run reads the full list by `preview_id`. */
+  library_preview?: LibraryCleanupPreviewSummary
   /** Channels walked so far of the total, so the all-channel progress line can name its place. */
   channels_done?: number
   channels_total?: number
@@ -392,6 +446,42 @@ function isoNow(): string { return new Date().toISOString() }
 
 function cloneOperation(operation: MediaCleanupOperation): MediaCleanupOperation {
   return structuredClone(operation)
+}
+
+/**
+ * What an operation carries in place of a whole preview. The preview itself
+ * stays in `previews` / `libraryPreviews` (the run reads it by `preview_id`), so
+ * everything that hands an operation to a caller — the operation GETs, the stop
+ * routes, and retention's own read — hands out counts and a capped sample
+ * instead of every file. See `PREVIEW_SAMPLE_FILES` for the measurement.
+ */
+function summarizeMediaCleanupPreview(preview: MediaCleanupPreview): MediaCleanupPreviewSummary {
+  const { files, episodes, ...rest } = preview
+  return {
+    ...rest,
+    file_count: files.length,
+    episodes: episodes.map(episode => ({
+      episode_code: episode.episode_code,
+      upload_proof: episode.upload_proof,
+      blocked_reasons: episode.blocked_reasons,
+      file_count: episode.files.length,
+      files: episode.files.slice(0, PREVIEW_SAMPLE_FILES),
+      excluded_count: episode.excluded.length,
+    })),
+  }
+}
+
+function summarizeLibraryPreview(preview: LibraryCleanupPreview): LibraryCleanupPreviewSummary {
+  const { files, ...rest } = preview
+  return {
+    ...rest,
+    file_count: files.length,
+    channels: preview.channels.map(channel => ({
+      ...channel,
+      file_count: channel.files.length,
+      files: channel.files.slice(0, PREVIEW_SAMPLE_FILES),
+    })),
+  }
 }
 
 function pruneState(): void {
@@ -1056,7 +1146,7 @@ export async function startMediaCleanupPreview(
       const preview = await buildPreview(slug, input, operation)
       if (operation.stop_requested) { finishOperation(operation, 'stopped'); return }
       previews.set(preview.preview_id, preview)
-      operation.preview = preview
+      operation.preview = summarizeMediaCleanupPreview(preview)
       finishOperation(operation, 'completed')
     } catch (error) {
       finishOperation(operation, 'failed', error)
@@ -2021,7 +2111,7 @@ export async function startLibraryMediaCleanupPreview(action: unknown): Promise<
       const preview = await buildLibraryPreview(validated, operation)
       if (operation.stop_requested) { finishOperation(operation, 'stopped'); return }
       libraryPreviews.set(preview.preview_id, preview)
-      operation.library_preview = preview
+      operation.library_preview = summarizeLibraryPreview(preview)
       finishOperation(operation, 'completed')
     } catch (error) {
       finishOperation(operation, 'failed', error)

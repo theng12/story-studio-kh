@@ -12,7 +12,13 @@ import { useTempDataDir } from './_helpers.js'
 import { waitFor, waitForValue } from './_timing.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
-import type { MediaCleanupCategory } from '../services/episode-media-cleanup.js'
+import type {
+  LibraryCleanupFile,
+  LibraryCleanupPreviewSummary,
+  MediaCleanupCategory,
+  MediaCleanupFile,
+  MediaCleanupPreviewSummary,
+} from '../services/episode-media-cleanup.js'
 import {
   __resetYouTubeTransportForTests,
   __setYouTubeTransportForTests,
@@ -30,6 +36,18 @@ let tmp: { dir: string; cleanup: () => Promise<void> }
 
 const SLUG = 'cleanup-test'
 const CHANNEL = 'cleanup-channel'
+
+/**
+ * Every file a preview reviewed, flat.
+ *
+ * An operation carries counts plus a capped sample (`PREVIEW_SAMPLE_FILES` per
+ * episode/channel) instead of the whole list, so a whole-Library read stays
+ * small. These fixtures are far below the cap, so the sample is the whole list.
+ */
+const reviewedFiles = (preview: MediaCleanupPreviewSummary): MediaCleanupFile[] =>
+  preview.episodes.flatMap(episode => episode.files)
+const libraryFiles = (preview: LibraryCleanupPreviewSummary): LibraryCleanupFile[] =>
+  preview.channels.flatMap(channel => channel.files)
 
 before(async () => {
   tmp = await useTempDataDir()
@@ -209,7 +227,7 @@ describe('episode media cleanup preview', () => {
     await markUploaded(episode)
 
     const bill = await preview(['EP0001'], ['images', 'merged_audio'])
-    assert.deepEqual(bill.files.map(file => file.path).sort(), [merged, scene].sort())
+    assert.deepEqual(reviewedFiles(bill).map(file => file.path).sort(), [merged, scene].sort())
     assert.equal(bill.total_bytes, 23)
 
     const operation = await run(bill.preview_id, 'remove')
@@ -238,12 +256,12 @@ describe('episode media cleanup preview', () => {
     await markUploaded(uploaded)
 
     const bill = await preview(['EP0001', 'EP0002'], ['master_audio'])
-    assert.deepEqual(bill.files.map(file => file.path), [master], 'only the uploaded episode’s master is offered')
+    assert.deepEqual(reviewedFiles(bill).map(file => file.path), [master], 'only the uploaded episode’s master is offered')
     assert.equal(bill.total_bytes, 'lossless-master'.length, 'the size is shown before anything moves')
     assert.match(bill.episodes.find(row => row.episode_code === 'EP0002')!.blocked_reasons.join(' '), /ready canonical upload/i)
 
     const both = await preview(['EP0001'], ['merged_audio', 'master_audio'])
-    assert.deepEqual(both.files.map(file => `${file.category}:${path.basename(file.path)}`).sort(),
+    assert.deepEqual(reviewedFiles(both).map(file => `${file.category}:${path.basename(file.path)}`).sort(),
       ['master_audio:EP0001_merged_audio.master.flac', 'merged_audio:EP0001_merged_audio.mp3'], 'no file is listed twice')
 
     const operation = await run(bill.preview_id, 'remove')
@@ -268,7 +286,7 @@ describe('episode media cleanup preview', () => {
 
     const bill = await preview(['EP0001', 'EP0002'], ['images'])
 
-    assert.equal(bill.files.length, 0)
+    assert.equal(bill.file_count, 0)
     assert.match(bill.episodes.find(row => row.episode_code === 'EP0001')!.blocked_reasons.join(' '), /newer than/i)
     assert.match(bill.episodes.find(row => row.episode_code === 'EP0002')!.blocked_reasons.join(' '), /ready canonical upload/i)
   })
@@ -287,7 +305,7 @@ describe('episode media cleanup preview', () => {
     await markUploaded(episode)
 
     const bill = await preview(['EP0001'], ['images'])
-    assert.equal(bill.files.length, 0)
+    assert.equal(bill.file_count, 0)
     assert.match(bill.episodes[0]!.blocked_reasons.join(' '), /hard link|symbolic link/i)
 
     const restore = cleanup._setMediaCleanupHooksForTests({
@@ -323,13 +341,13 @@ describe('episode media cleanup preview', () => {
     }) as typeof fetch)
 
     const exact = await preview(['EP0001'], ['final_video'])
-    assert.deepEqual(exact.files.map(file => file.path), [episode.final])
+    assert.deepEqual(reviewedFiles(exact).map(file => file.path), [episode.final])
     assert.equal(remoteChecks, 1)
 
     await fs.writeFile(episode.final, `other-${episode.code}`)
     await makeOlder(episode.final)
     const replaced = await preview(['EP0001'], ['final_video'])
-    assert.equal(replaced.files.length, 0)
+    assert.equal(replaced.file_count, 0)
     assert.match(replaced.episodes[0]!.blocked_reasons.join(' '), /matching content SHA-256|exact render/i)
     assert.equal(remoteChecks, 1, 'hash mismatch is refused before a remote readiness lookup')
   })
@@ -347,7 +365,7 @@ describe('episode media cleanup preview', () => {
       assert.equal(checked.stage, 'verifying')
       const size = (await fs.stat(episode.final)).size
       assert.deepEqual([checked.done, checked.total, checked.bytes_done, checked.bytes_total], [1, 1, size, size])
-      assert.equal(checked.preview?.files.length, 0, 'the unverified final stays where it is')
+      assert.equal(checked.preview?.file_count, 0, 'the unverified final stays where it is')
       assert.match(checked.preview?.blocked_reasons.join(' ') || '', /YouTube did not answer within 0 seconds, so this file stays where it is\. Check the internet connection/)
     } finally {
       if (saved === undefined) delete process.env.STORY_VERIFY_TIMEOUT_MS
@@ -372,7 +390,7 @@ describe('episode media cleanup preview', () => {
 
     const bill = await preview(['EP0001'], ['images'])
 
-    assert.equal(bill.files.length, 0)
+    assert.equal(bill.file_count, 0)
     assert.match(bill.episodes[0]!.blocked_reasons.join(' '), /symbolic-link ancestor/i)
   })
 })
@@ -427,7 +445,7 @@ describe('episode media cleanup execution', () => {
     await fs.writeFile(restored, 'regenerated scene')
     await makeOlder(restored)
     const repeated = await preview(['EP0001'], ['images'])
-    assert.equal(repeated.files.length, 1)
+    assert.equal(repeated.file_count, 1)
     assert.equal((await run(repeated.preview_id, 'remove')).result?.removed_count, 1)
     const cleanedAgain = await cleanup.readLocalMediaCleanupStatus(SLUG, episode.code)
     assert.equal(cleanedAgain.categories[0]?.removed_files, 1, 'renamed history counts the current logical file only once')
@@ -517,7 +535,7 @@ describe('episode media cleanup execution', () => {
     await markUploaded(episode)
     const bill = await preview(['EP0001'], ['chapter_audio'])
     const destination = path.join(tmp.dir, 'archive')
-    const target = cleanup.archiveDestinationFor(destination, SLUG, episode.code, bill.files[0]!)
+    const target = cleanup.archiveDestinationFor(destination, SLUG, episode.code, reviewedFiles(bill)[0]!)
     await fs.mkdir(path.dirname(target), { recursive: true })
     await fs.writeFile(target, 'already here')
 
@@ -557,7 +575,7 @@ describe('episode media cleanup execution', () => {
     await markUploaded(episode)
     const bill = await preview(['EP0001'], ['chapter_audio'])
     const destination = path.join(tmp.dir, 'archive')
-    const target = cleanup.archiveDestinationFor(destination, SLUG, episode.code, bill.files[0]!)
+    const target = cleanup.archiveDestinationFor(destination, SLUG, episode.code, reviewedFiles(bill)[0]!)
     assert.match(target, new RegExp(`${SLUG}[\\\\/]${episode.code}[\\\\/]`))
 
     const operation = await run(bill.preview_id, 'archive', destination)
@@ -670,7 +688,7 @@ test('media cleanup routes acknowledge long work and expose project-scoped opera
     .get(`/api/projects/${SLUG}/media-cleanup/operations/${started.body.operation_id}`)
     .expect(200)
   assert.equal(status.body.status, operation.status)
-  assert.equal(status.body.preview.files.length, 1)
+  assert.equal(status.body.preview.file_count, 1)
   await request(app)
     .get(`/api/projects/another-project/media-cleanup/operations/${started.body.operation_id}`)
     .expect(404)
@@ -783,8 +801,8 @@ describe('compress scene images (Archive episode)', () => {
     await markUploaded(episode)
 
     const bill = await preview(['EP0001'], ['images'])
-    assert.deepEqual(bill.files.map(file => file.path).sort(), scenes.sort(), 'thumb_dir is never a candidate')
-    assert.equal(bill.files.every(file => file.already_jpeg === false), true)
+    assert.deepEqual(reviewedFiles(bill).map(file => file.path).sort(), scenes.sort(), 'thumb_dir is never a candidate')
+    assert.equal(reviewedFiles(bill).every(file => file.already_jpeg === false), true)
     const operation = await run(bill.preview_id, 'compress')
 
     assert.equal(operation.status, 'completed', operation.error)
@@ -819,7 +837,7 @@ describe('compress scene images (Archive episode)', () => {
     const trashListing = await fs.readdir(path.join(trashDir(), 'images', 'scene_images'))
 
     const again = await preview(['EP0001'], ['images'])
-    assert.equal(again.files[0]?.already_jpeg, true)
+    assert.equal(reviewedFiles(again)[0]?.already_jpeg, true)
     assert.equal(again.estimate.compress_files, 0)
     const operation = await run(again.preview_id, 'compress')
 
@@ -841,7 +859,7 @@ describe('compress scene images (Archive episode)', () => {
     await markUploaded(episode)
 
     const bill = await preview(['EP0001'], ['images'])
-    assert.equal(bill.files[0]?.already_jpeg, true)
+    assert.equal(reviewedFiles(bill)[0]?.already_jpeg, true)
     assert.equal(bill.estimate.compress_files, 0)
     const operation = await run(bill.preview_id, 'compress')
     assert.equal(operation.result?.compressed_count, 0)
@@ -902,7 +920,7 @@ describe('compress scene images (Archive episode)', () => {
     const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: [], preset: 'archive_episode' })
     const bill = (await waitForOperation(started.operation_id)).preview!
     assert.deepEqual([...bill.categories].sort(), ['chapter_audio', 'final_video', 'images', 'motion_clips', 'narration_parts'])
-    assert.deepEqual(bill.files.map(file => file.path).sort(), [chapter, clip, episode.final, scene].sort())
+    assert.deepEqual(reviewedFiles(bill).map(file => file.path).sort(), [chapter, clip, episode.final, scene].sort())
     assert.equal(bill.estimate.compress_files, 1)
     assert.equal(bill.estimate.trash_files, 3)
     // No folder to choose: the confirm text names the project's own _trash.
@@ -923,7 +941,7 @@ describe('compress scene images (Archive episode)', () => {
     assert.ok(status.preset_archived_at, 'the episode is marked archived')
     assert.equal((await cleanup.listMediaCleanupEpisodes(SLUG)).episodes[0]!.local_media_status.preset_archived_at, status.preset_archived_at)
     // Trashed originals are not "already archived files that came back": a later manual review lists nothing to redo.
-    assert.equal((await preview(['EP0001'], ['chapter_audio'])).files.length, 0)
+    assert.equal((await preview(['EP0001'], ['chapter_audio'])).file_count, 0)
   })
 
   test('is refused for an episode with no verified upload, and not while a video render runs elsewhere on this Mac', async () => {
@@ -932,7 +950,7 @@ describe('compress scene images (Archive episode)', () => {
     await scenePng(scene)
     await makeOlder(scene)
     const noUpload = await preview(['EP0001'], ['images'])
-    assert.equal(noUpload.files.length, 0)
+    assert.equal(noUpload.file_count, 0)
     assert.match(noUpload.blocked_reasons.join(' '), /ready canonical upload/i)
 
     await markUploaded(episode)
@@ -947,7 +965,7 @@ describe('compress scene images (Archive episode)', () => {
       const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: ['images'] })
       const checked = await waitForOperation(started.operation_id)
       assert.equal(checked.status, 'completed', checked.error)
-      assert.equal(checked.preview?.files.length, 1, 'a render of another episode no longer refuses the check')
+      assert.equal(checked.preview?.file_count, 1, 'a render of another episode no longer refuses the check')
     } finally {
       release()
       await waitForTerminalJob(other.job_id)
@@ -1023,7 +1041,7 @@ describe('Video Assembly gate', () => {
       const started = await cleanup.startMediaCleanupPreview(SLUG, { episode_codes: ['EP0001'], categories: ['images'] })
       const checked = await waitForOperation(started.operation_id)
       assert.equal(checked.status, 'completed', checked.error)
-      assert.equal(checked.preview?.files.length, 0)
+      assert.equal(checked.preview?.file_count, 0)
       assert.match(checked.preview?.blocked_reasons.join(' ') || '', /EP0001 has video assembly queued or running for this episode\. Let it finish \(or cancel it in Jobs\)/)
     } finally {
       release()
@@ -1107,7 +1125,7 @@ describe('Narration parts (Free up space, owner decision 2026-10-06)', () => {
     const mixed = await preview(['EP0001'], ['narration_parts', 'images'])
     assert.match(mixed.episodes[0]!.blocked_reasons.join(' '), /only its narration parts/)
     const bill = await preview(['EP0001'], ['narration_parts'])
-    assert.deepEqual(bill.files.map(file => file.relative_path), [path.basename(seeded.loose), path.join('.parts', 'EP0001_Chapter_01')])
+    assert.deepEqual(reviewedFiles(bill).map(file => file.relative_path), [path.basename(seeded.loose), path.join('.parts', 'EP0001_Chapter_01')])
     assert.equal(bill.total_bytes, 'part-one'.length + seeded.folderBytes)
     assert.deepEqual(bill.trash_roots, [path.join(pm.projectsRoot(), '_trash')])
 
@@ -1131,10 +1149,10 @@ describe('Narration parts (Free up space, owner decision 2026-10-06)', () => {
     await markUploaded(episode)
 
     const audioOnly = await preview(['EP0001'], ['chapter_audio'])
-    assert.ok(audioOnly.files.every(file => !file.relative_path.startsWith('.parts')), 'chapter audio leaves .parts alone')
+    assert.ok(reviewedFiles(audioOnly).every(file => !file.relative_path.startsWith('.parts')), 'chapter audio leaves .parts alone')
 
     const bill = await preview(['EP0001'], ['chapter_audio', 'narration_parts'])
-    const rows = bill.files.map(file => [file.category, file.relative_path])
+    const rows = reviewedFiles(bill).map(file => [file.category, file.relative_path])
     assert.deepEqual(rows.filter(([category]) => category === 'narration_parts').map(([, rel]) => rel),
       [path.basename(seeded.loose), path.join('.parts', 'EP0001_Chapter_01')])
     assert.equal(rows.filter(([, rel]) => rel === path.basename(seeded.loose)).length, 1, 'a joined loose part is listed once')
@@ -1176,7 +1194,7 @@ describe('Convert PNG Scenes to JPEG (owner 2026-10-07)', () => {
     assert.equal(checked.status, 'completed', checked.error)
     const bill = checked.preview!
     assert.equal(bill.preset, 'convert_png')
-    assert.deepEqual(bill.files.map(file => file.path).sort(), [...scenes].sort(), 'real PNGs only; JPEG bytes under .png are not listed')
+    assert.deepEqual(reviewedFiles(bill).map(file => file.path).sort(), [...scenes].sort(), 'real PNGs only; JPEG bytes under .png are not listed')
     const before = originals.reduce((n, b) => n + b.length, 0)
     assert.equal(bill.estimate.compress_bytes_before, before, 'the saving is shown before anything runs')
     assert.ok(bill.estimate.compress_bytes_after < before)
@@ -1252,7 +1270,7 @@ describe('Free up space says why an uploaded episode is not offered', () => {
         { status: 200, headers: { 'content-type': 'application/json' } })
     }) as typeof fetch)
     const bill = await preview(['EP0001'], ['final_video'])
-    assert.deepEqual(bill.files.map(file => file.path), [episode.final])
+    assert.deepEqual(reviewedFiles(bill).map(file => file.path), [episode.final])
     const operation = await run(bill.preview_id, 'remove')
     assert.equal(operation.status, 'completed', operation.error)
     assert.equal(operation.result?.removed_count, 1, JSON.stringify(operation.result?.items))
@@ -1263,7 +1281,7 @@ describe('Free up space says why an uploaded episode is not offered', () => {
     // A final changed after the upload is never offered.
     await fs.writeFile(episode.final, 'new render')
     const later = await preview(['EP0001'], ['final_video'])
-    assert.equal(later.files.length, 0)
+    assert.equal(later.file_count, 0)
   })
 
   test('a legacy upload YouTube no longer has is not offered, and says so', async () => {
@@ -1413,11 +1431,11 @@ describe('all-channel (Library) maintenance', () => {
     assert.equal(operation.library_action, 'shrink_images')
     assert.equal(operation.channels_total, 3, 'every channel in the Library is counted, empty ones included')
     assert.deepEqual(preview.channels.map(channel => channel.slug).sort(), ['chan-a', 'chan-b'])
-    assert.deepEqual(preview.files.map(file => file.path).sort(), [sceneA, sceneB].sort())
-    assert.deepEqual([...new Set(preview.files.map(file => file.project_slug))].sort(), ['chan-a', 'chan-b'])
-    assert.equal(preview.files.find(file => file.path === sceneA)!.channel_name, 'Channel A')
-    assert.equal(preview.files.every(file => file.production_ms === null), true, 'shrinking needs no production date and no upload')
-    assert.equal(preview.files.every(file => file.upload_proof === null), true)
+    assert.deepEqual(libraryFiles(preview).map(file => file.path).sort(), [sceneA, sceneB].sort())
+    assert.deepEqual([...new Set(libraryFiles(preview).map(file => file.project_slug))].sort(), ['chan-a', 'chan-b'])
+    assert.equal(libraryFiles(preview).find(file => file.path === sceneA)!.channel_name, 'Channel A')
+    assert.equal(libraryFiles(preview).every(file => file.production_ms === null), true, 'shrinking needs no production date and no upload')
+    assert.equal(libraryFiles(preview).every(file => file.upload_proof === null), true)
   })
 
   test('clear uploaded finals needs both a verified upload and production older than 7 days, across channels', async () => {
@@ -1440,13 +1458,13 @@ describe('all-channel (Library) maintenance', () => {
 
     const { preview } = await libraryPreview('clear_uploaded_finals')
 
-    assert.deepEqual(preview.files.map(file => file.path), [oldUploaded.final], 'only the uploaded, old-enough final')
-    assert.equal(preview.files[0]!.production_ms, Math.round((await fs.stat(oldUploaded.final)).mtimeMs))
+    assert.deepEqual(libraryFiles(preview).map(file => file.path), [oldUploaded.final], 'only the uploaded, old-enough final')
+    assert.equal(libraryFiles(preview)[0]!.production_ms, Math.round((await fs.stat(oldUploaded.final)).mtimeMs))
     const chanA = preview.channels.find(channel => channel.slug === 'chan-a')!
     assert.match(chanA.blocked_reasons.join(' '), /produced less than 7 days ago/)
     const chanB = preview.channels.find(channel => channel.slug === 'chan-b')!
     assert.match(chanB.blocked_reasons.join(' '), /no ready canonical upload/)
-    assert.equal(preview.files.some(file => file.path === oldUnuploaded.final), false)
+    assert.equal(libraryFiles(preview).some(file => file.path === oldUnuploaded.final), false)
   })
 
   test('clear uploaded finals skips the 7-day boundary, a future production date and an unknown one, each with its reason', async () => {
@@ -1474,7 +1492,7 @@ describe('all-channel (Library) maintenance', () => {
 
     const { preview } = await libraryPreview('clear_uploaded_finals')
 
-    assert.deepEqual(preview.files.map(file => file.path), [justOver.final], 'just under seven days old is not yet old enough')
+    assert.deepEqual(libraryFiles(preview).map(file => file.path), [justOver.final], 'just under seven days old is not yet old enough')
     const reasons = preview.channels.find(channel => channel.slug === 'chan-a')!.blocked_reasons.join(' ')
     assert.match(reasons, /produced less than 7 days ago/)
     assert.match(reasons, /production date is in the future/)
@@ -1492,7 +1510,7 @@ describe('all-channel (Library) maintenance', () => {
 
     const { preview } = await libraryPreview('clear_uploaded_finals')
 
-    assert.equal(preview.files.length, 0)
+    assert.equal(preview.file_count, 0)
     assert.match(preview.channels.find(channel => channel.slug === 'chan-a')!.blocked_reasons.join(' '), /did not confirm the video on the current channel/)
   })
 
@@ -1512,13 +1530,13 @@ describe('all-channel (Library) maintenance', () => {
     const { preview } = await libraryPreview('cleanup_all')
 
     assert.equal(preview.action, 'cleanup_all')
-    assert.deepEqual(preview.files.map(file => file.path), [uploaded.final], 'the verified, old-enough final')
+    assert.deepEqual(libraryFiles(preview).map(file => file.path), [uploaded.final], 'the verified, old-enough final')
     assert.equal(preview.leftovers?.count, 1, 'the unused leftover is reported separately, not as an uploaded video')
     assert.equal(preview.leftovers?.items[0]?.kind, 'audio_quality_copy')
     assert.equal(preview.leftovers?.items[0]?.project_slug, 'chan-a')
     assert.equal(preview.leftovers?.items[0]?.channel_name, 'Channel A')
     assert.ok((preview.leftovers?.total_bytes || 0) > 0)
-    assert.equal(preview.files.some(file => file.path === leftover), false, 'a leftover folder is never listed among the finals')
+    assert.equal(libraryFiles(preview).some(file => file.path === leftover), false, 'a leftover folder is never listed among the finals')
   })
 
   test('clean up all channels moves both the verified finals and the leftovers to _trash, and never deletes', async () => {
@@ -1534,7 +1552,7 @@ describe('all-channel (Library) maintenance', () => {
     await fs.writeFile(candidate, Buffer.alloc(100, 1))
 
     const { preview } = await libraryPreview('cleanup_all')
-    assert.equal(preview.files.length, 1)
+    assert.equal(preview.file_count, 1)
     assert.equal(preview.leftovers?.count, 1)
 
     const operation = await libraryRun(preview.preview_id)
@@ -1578,7 +1596,7 @@ describe('all-channel (Library) maintenance', () => {
     })
     try {
       const { preview } = await libraryPreview('shrink_images')
-      assert.equal(preview.files.length, 0)
+      assert.equal(preview.file_count, 0)
       assert.match(preview.channels.find(channel => channel.slug === 'chan-a')!.blocked_reasons.join(' '), /queued or running for this episode/)
     } finally {
       restore()
@@ -1591,7 +1609,7 @@ describe('all-channel (Library) maintenance', () => {
     const scene = path.join(episode.paths.bg_dir, 's001.png')
     await scenePng(scene)
     const { preview } = await libraryPreview('shrink_images')
-    assert.deepEqual(preview.files.map(file => file.path), [scene])
+    assert.deepEqual(libraryFiles(preview).map(file => file.path), [scene])
 
     await fs.writeFile(scene, 'a different scene written after the review')
 
@@ -1611,7 +1629,7 @@ describe('all-channel (Library) maintenance', () => {
     await markUploadedIn('chan-a', episode, 'chan-a-chan')
     mockYouTube('chan-a-chan', [episode])
     const { preview } = await libraryPreview('clear_uploaded_finals')
-    assert.deepEqual(preview.files.map(file => file.path), [episode.final])
+    assert.deepEqual(libraryFiles(preview).map(file => file.path), [episode.final])
 
     // Between preview and run the production record no longer matches the file: the age is no longer provable.
     await overwriteProductionStamp(episode.final, 'EP0001', {
@@ -1652,7 +1670,7 @@ describe('all-channel (Library) maintenance', () => {
     await scenePng(one)
     await scenePng(two)
     const { preview } = await libraryPreview('shrink_images')
-    assert.equal(preview.files.length, 2)
+    assert.equal(preview.file_count, 2)
 
     const started = await cleanup.startLibraryMediaCleanupRun({ preview_id: preview.preview_id })
     let requested = false
@@ -1711,7 +1729,7 @@ describe('all-channel (Library) maintenance', () => {
     await fs.writeFile(leftover, Buffer.alloc(64, 1))
 
     const { preview } = await libraryPreview('cleanup_all')
-    assert.equal(preview.files.length, 0, 'no uploaded final is eligible')
+    assert.equal(preview.file_count, 0, 'no uploaded final is eligible')
     assert.equal(preview.leftovers?.count, 1)
 
     const operation = await libraryRun(preview.preview_id)
@@ -1797,6 +1815,64 @@ describe('all-channel (Library) maintenance', () => {
       assert.equal(operation.done, 3, 'skipped channels count as accounted for, not under-counted')
     } finally {
       leftoversModule._leftoverHooks.getJobs = prior
+    }
+  })
+
+  test('a 5,000-file review is still a small read, and the run walks every file from the server-side preview', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'Thousands of scenes')
+    // Real PNG bytes (a real scene, at 8x8): the preview reads each file, and the
+    // run that follows compresses it. Written one at a time, not 5,000 at once,
+    // so the temp project never opens more files than the machine allows.
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#203040' } }).png().toBuffer()
+    const count = 5_000
+    for (let index = 0; index < count; index += 1) {
+      await fs.writeFile(path.join(episode.paths.bg_dir, `s${String(index).padStart(4, '0')}.png`), png)
+    }
+
+    const { operation, preview } = await libraryPreview('shrink_images')
+
+    assert.equal(preview.file_count, count, 'every reviewed file is counted')
+    const channel = preview.channels.find(item => item.slug === 'chan-a')!
+    assert.equal(channel.file_count, count)
+    assert.equal(channel.files.length, cleanup.PREVIEW_SAMPLE_FILES, 'the sample the operation carries is capped')
+    assert.equal(libraryFiles(preview).length, cleanup.PREVIEW_SAMPLE_FILES, 'no whole list travels beside the sample')
+
+    // What the operation GET actually answers, through the route the app mounts.
+    const { router } = await import('../routes/media-cleanup.js')
+    const app = express()
+    app.use(express.json())
+    app.use('/api', router)
+    const read = await request(app)
+      .get(`/api/library/media-cleanup/operations/${operation.id}`)
+      .expect(200)
+    const after = Buffer.byteLength(JSON.stringify(read.body))
+    // What the old shape sent: every record twice — flat, and again inside the channel.
+    const before = Buffer.byteLength(JSON.stringify(channel.files[0])) * count * 2
+    assert.ok(before > 2_000_000, `the old shape would have sent ~${before} bytes`)
+    assert.ok(after < 100_000, `the operation GET answers ${after} bytes, down from ~${before}`)
+
+    // The full list is still server-side: the run reads it by `preview_id` and
+    // counts all 5,000, even though it is stopped after the first file.
+    let runId = ''
+    let stopped = false
+    const restore = cleanup._setMediaCleanupHooksForTests({
+      afterFile: async () => { if (!stopped) { stopped = true; cleanup.stopLibraryMediaCleanupOperation(runId) } },
+    })
+    try {
+      const started = await cleanup.startLibraryMediaCleanupRun({ preview_id: preview.preview_id })
+      runId = started.operation_id
+      const runOperation = await waitForLibraryOperation(runId)
+      assert.equal(runOperation.status, 'stopped')
+      assert.equal(runOperation.total, count, 'the run counted every reviewed file, not the sample')
+      assert.equal(runOperation.done, 1, 'stopped after the first file')
+      // The first file went all the way through the per-file path (a flat 8x8
+      // scene is refused for saving less than 20%, which is a decision made only
+      // after the file was read and measured).
+      assert.equal(runOperation.result?.items.length, 1, 'the first reviewed file was acted on')
+      assert.match(runOperation.result?.items[0]?.reason || '', /less than 20%/)
+    } finally {
+      restore()
     }
   })
 })
