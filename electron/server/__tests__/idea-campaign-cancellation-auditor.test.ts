@@ -26,7 +26,7 @@ const MODEL = 'mock-chat-v1'
 let cleanup: () => Promise<void>
 let projectSlug: string
 let im: typeof import('../services/idea-manager.js')
-let auditor: (job: any) => Promise<'complete' | 'repair-required'>
+let auditor: (job: any) => Promise<import('../services/job-cancellation-auditors.js').JobCancellationAudit>
 
 function job(params: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): any {
   return {

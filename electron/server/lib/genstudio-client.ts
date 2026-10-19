@@ -7489,7 +7489,7 @@ async function recoverChatByIdempotencyKey(
   const completed = initial.state === 'succeeded'
     ? initial
     : await waitForChatJob(baseUrl, apiKey, initial, request, deadline)
-  return finishChatJob(apiKey, request, prepared, completed)
+  return finishChatJob(apiKey, request, { ...prepared, idempotencyKey }, completed)
 }
 
 /**
@@ -7812,7 +7812,7 @@ function chatReplacementItemKey(prepared: PreparedChatSubmission, request: GenSt
 async function finishChatJob(
   apiKey: string,
   request: GenStudioChatRequest,
-  prepared: Pick<PreparedChatSubmission, 'outputContract' | 'maxOutputTokens'>,
+  prepared: Pick<PreparedChatSubmission, 'outputContract' | 'maxOutputTokens' | 'idempotencyKey'>,
   completed: GenStudioChatJob,
 ): Promise<GenStudioChatResult> {
   let parsed: ReturnType<typeof parseLanguageOutput>
@@ -7831,6 +7831,15 @@ async function finishChatJob(
     // a contract violation) silently starves the admission pool.
     await request.onQueueState?.('failed', completed.id)
     await genStudioAdmission.notifyTerminal(apiKey)
+    // A content-derived key that produced an answer this app cannot read must never be used
+    // again: it is what makes the next attempt replay the same unusable text. See
+    // `chatKeyAfterRejectedAnswer`. A caller-supplied key (exact replay, paid replacement,
+    // saved-key recovery) names one specific request and is left exactly as it was.
+    if (!request.idempotencyKey?.trim()) {
+      const queue = await import('../services/job-queue.js')
+      queue.recordRejectedChatAnswerKey(prepared.idempotencyKey)
+      queue.noteCurrentJob('The writing model\'s answer could not be read; asking again with a fresh request.')
+    }
     throw error
   }
   const result: GenStudioChatResult = {
@@ -7979,6 +7988,33 @@ export function replayedHeldFreeChatFailure(job: {
 
 export function chatKeyAfterFailedReplay(key: string, failedJobId: string): string {
   return `story-chat-${createHash('sha256').update(`${key}:after-failed:${failedJobId}`).digest('hex').slice(0, 47)}`
+}
+
+/**
+ * The next attempt's key after the Gateway answered this key and THIS APP rejected the answer.
+ *
+ * A settled, succeeded provider answer that fails `parseLanguageOutput` (unreadable JSON, or a
+ * contract violation) is the one outcome the existing key derivation cannot escape: the key is
+ * derived from request content, so a retry rebuilds the same key, the Gateway replays the same
+ * text, and the step is rejected identically forever. DM0008 and Nature EP0013's image_prompts job
+ * both ended there. The key that produced the rejected answer is recorded on the job, and this
+ * derives the one to use instead — from that key alone, so a restart or a Retry recomputes the
+ * same successor rather than walking into the rejected answer again.
+ *
+ * Deliberately NOT applied to a transport failure or an unknown outcome: those have no answer to
+ * judge, and replaying the same key there is what stops a duplicate paid call.
+ */
+export function chatKeyAfterRejectedAnswer(key: string): string {
+  return `story-chat-${createHash('sha256').update(`${key}:rejected-answer`).digest('hex').slice(0, 47)}`
+}
+
+/** The key to actually submit: the recorded one unless this app already rejected its answer. */
+export function chatKeySkippingRejectedAnswers(key: string, rejected: readonly string[] | undefined): string {
+  let next = key
+  // Bounded by the recorded list: each step names a key that is already on it, and the successor of
+  // a key never equals a key on the list (it is a fresh digest of it).
+  while (rejected?.includes(next)) next = chatKeyAfterRejectedAnswer(next)
+  return next
 }
 
 async function callChatViaResponsesOnce(
@@ -8177,6 +8213,13 @@ async function callChatViaCompletions(
     await request.onState?.('failed', completion.id)
     await request.onQueueState?.('failed', completion.id)
     await genStudioAdmission.notifyTerminal(apiKey)
+    // Same local rejection, same loop to break as `finishChatJob`. The completions route is the
+    // rollback route, but a rejected answer blocks it identically.
+    if (!request.idempotencyKey?.trim()) {
+      const queue = await import('../services/job-queue.js')
+      queue.recordRejectedChatAnswerKey(prepared.idempotencyKey)
+      queue.noteCurrentJob('The writing model\'s answer could not be read; asking again with a fresh request.')
+    }
     throw error
   }
   const result: GenStudioChatResult = {
@@ -8249,6 +8292,16 @@ async function callChatWithGenStudioAdmitted(
   apiKey: string,
   request: GenStudioChatRequest,
 ): Promise<GenStudioChatResult> {
+  const queue = await import('../services/job-queue.js')
+  const storyJob = queue.getJob(queue.currentJobId() || '')
+  // A saved key whose answer this app already rejected cannot be reclaimed usefully: the recovery
+  // would return the very text that was refused, on this attempt and every one after it. The
+  // saved identity is dropped so the run asks for a new generation instead.
+  const savedKey = request.idempotencyKey?.trim() || ''
+  const recoveringRejectedAnswer = !!savedKey && !!storyJob?.rejected_idempotency_keys?.includes(savedKey)
+  if (recoveringRejectedAnswer) {
+    request = { ...request, recoverByIdempotencyKey: false, allowUncreatedRecovery: false, allowedRecoveryKeys: undefined }
+  }
   // A saved key means a prior process reached the durable pre-POST checkpoint.
   // Recovery is a read-only lookup, so it must not recompute the old request's
   // budget against today's catalogue before that lookup. A lower live ceiling
@@ -8284,11 +8337,21 @@ async function callChatWithGenStudioAdmitted(
     ? await getGenStudioUrl()
     : undefined
   let prepared = await prepareChatSubmission(apiKey, request)
-  const queue = await import('../services/job-queue.js')
-  const storyJob = queue.getJob(queue.currentJobId() || '')
   prepared = {
     ...prepared,
     idempotencyKey: manualFailedItemChatRequestKey(storyJob, prepared.idempotencyKey),
+  }
+  // A key whose settled answer this app already rejected must not be submitted again — the Gateway
+  // would replay that same unusable text and the step would fail identically. Only a
+  // content-derived key is moved: a caller-supplied key (exact replay, the one deliberate paid
+  // replacement) names one specific request, and `manualFailedItemChatRequestKey` owns its scope.
+  // A saved key whose answer was rejected has already dropped its recovery identity above, so it
+  // is moved here too. See `chatKeyAfterRejectedAnswer`.
+  if ((!request.idempotencyKey?.trim() || recoveringRejectedAnswer) && !storyJob?.manual_failed_item_replacement) {
+    prepared = {
+      ...prepared,
+      idempotencyKey: chatKeySkippingRejectedAnswers(prepared.idempotencyKey, storyJob?.rejected_idempotency_keys),
+    }
   }
   if (request.allowUncreatedRecovery) {
     const preview = request.recoveryRequestPreview

@@ -28,7 +28,7 @@ import { jobStreamSignature } from './job-stream-signature.js'
 import { isChatTextJob, isLocalTextModel, isNonRetryableError, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
 import { getAllAppSettings, getPaidImageReplacementSetting, onAppSettingWritten, setAppSettings } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
-import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
+import { getJobCancellationAuditor, hasJobCancellationAuditor, readCancellationAudit } from './job-cancellation-auditors.js'
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
 import { musicResultsAwaitingImport } from './music-library.js'
 import {
@@ -123,6 +123,35 @@ export function noteCurrentJobSafetyWarning(check: string, message: string): voi
   if (!job) return
   const warnings = Array.isArray(job.result?.safety_warnings) ? job.result!.safety_warnings : []
   job.result = { ...(job.result || {}), safety_warnings: [...warnings, { check, message }] }
+  emitUpdate(job)
+}
+
+/**
+ * Record that a SETTLED Gateway language answer under this key was rejected by Story Studio's own
+ * parse/contract gate, so the next attempt derives a fresh key instead of replaying it.
+ *
+ * The chat idempotency key is derived from request CONTENT. That is exactly what makes a lost
+ * response free to retry — and it is also what made a locally-rejected answer replay forever: the
+ * same step rebuilt the same request, reached the same key, and got the same unusable text back on
+ * every attempt until the retry budget ran out. Nature EP0013's image_prompts job (2026-10-19)
+ * exhausted 3/3 that way. The DM0008 outline incident (2026-10-16) was the same loop.
+ *
+ * Recorded on the JOB and not on the provider evidence: nothing about what the Gateway did changes,
+ * only Story Studio's own bookkeeping about an answer it already refused to use. A normal failed
+ * attempt is persisted immediately after this, so the record reaches disk before the retry waits;
+ * an explicit Retry carries the list onto its new job (`rejected_idempotency_keys`), so a fresh
+ * Retry cannot walk back into the answers this app has already rejected.
+ *
+ * ponytail: the list grows by at most one entry per attempt and is never pruned. A job that keeps
+ * being rejected is a defect worth seeing, not one worth tidying away.
+ */
+export function recordRejectedChatAnswerKey(key: string): void {
+  const trimmed = key.trim()
+  const job = jobs.get(currentJobId() || '')
+  if (!trimmed || !job) return
+  const recorded = job.rejected_idempotency_keys || []
+  if (recorded.includes(trimmed)) return
+  job.rejected_idempotency_keys = [...recorded, trimmed]
   emitUpdate(job)
 }
 
@@ -1188,8 +1217,8 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         emitUpdate(job)
         return
       }
-      let audit: 'complete' | 'repair-required'
-      try { audit = await auditor(serializeJob(job)) }
+      let audit: ReturnType<typeof readCancellationAudit>
+      try { audit = readCancellationAudit(await auditor(serializeJob(job))) }
       catch (error) {
         job.status = 'error'
         job.error = 'Completion audit failed; repair missing output before Retry.'
@@ -1199,10 +1228,19 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         emitUpdate(job)
         return
       }
-      if (audit !== 'complete') {
+      if (audit.verdict !== 'complete') {
         job.status = 'error'
-        job.error = 'Provider output needs repair before this job can be marked complete. Retry repairs only missing output.'
-        job.result = { ...(job.result || {}), provider_settled: 'succeeded', repair_required: true }
+        // An auditor that worked out WHICH items are wrong names them; one that only has a verdict
+        // keeps the generic sentence. AGENTS.md §8 — the owner should not have to re-derive by hand
+        // what the audit already knew.
+        job.error = audit.detail
+          ?? 'Provider output needs repair before this job can be marked complete. Retry repairs only missing output.'
+        job.result = {
+          ...(job.result || {}),
+          provider_settled: 'succeeded',
+          repair_required: true,
+          ...(audit.detail ? { repair_detail: audit.detail } : {}),
+        }
         job.output_lines.push(job.error)
       } else {
         // Mark that THIS path has already re-read the output (it audited just
@@ -5806,6 +5844,8 @@ interface EnqueuePreparedOptions extends EnqueueOptions {
   genstudio_jobs?: Job['genstudio_jobs']
   generation_replacement_attempts?: Job['generation_replacement_attempts']
   manual_failed_item_replacement?: Job['manual_failed_item_replacement']
+  /** Chat keys whose settled answer this app already rejected locally. Server-only: no request body may name one. */
+  rejected_idempotency_keys?: Job['rejected_idempotency_keys']
 }
 
 function withoutPaidImageReplacementParam(params: EnqueueOptions['params']): EnqueueOptions['params'] {
@@ -5981,6 +6021,8 @@ function enqueuePrepared(
       ? { generation_replacement_attempts: structuredClone(opts.generation_replacement_attempts) } : {}),
     ...(opts.manual_failed_item_replacement
       ? { manual_failed_item_replacement: structuredClone(opts.manual_failed_item_replacement) } : {}),
+    ...(opts.rejected_idempotency_keys?.length
+      ? { rejected_idempotency_keys: [...opts.rejected_idempotency_keys] } : {}),
     ...(opts.genstudio_chat_retry_scope ? { genstudio_chat_retry_scope: opts.genstudio_chat_retry_scope } : {}),
     ...(opts.genstudio_chat_recovery ? { genstudio_chat_recovery: true as const } : {}),
     ...(opts.genstudio_chat_recovery_key ? { genstudio_chat_recovery_key: opts.genstudio_chat_recovery_key } : {}),
@@ -6937,6 +6979,10 @@ export function retryTerminalJob(
       ? { generation_replacement_attempts: original.generation_replacement_attempts } : {}),
     ...(manualFailedItemReplacement
       ? { manual_failed_item_replacement: manualFailedItemReplacement } : {}),
+    // Answers this app already refused to use must not be replayed by the new job either, or a
+    // Retry after an exhausted run walks back into the same rejected text on its first attempt.
+    ...(original.rejected_idempotency_keys?.length
+      ? { rejected_idempotency_keys: original.rejected_idempotency_keys } : {}),
     ...(genstudio_chat_retry_scope ? { genstudio_chat_retry_scope } : {}),
     ...(chapterRetryMode === 'exact-replay'
       && !(recovery?.notCreated && recovery.purpose === 'narrative-batch')

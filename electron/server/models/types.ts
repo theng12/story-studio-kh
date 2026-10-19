@@ -2728,6 +2728,18 @@ export interface Job {
    * generator POST cannot mint it.
    */
   genstudio_chat_retry_scope?: string
+  /**
+   * Chat idempotency keys whose SETTLED Gateway answer this app rejected locally (a parse or
+   * output-contract failure). The key is derived from request content, so without this the next
+   * attempt recomputes the same key, the Gateway replays the same unusable text, and the step
+   * fails identically on every attempt until the retry budget runs out — the DM0008 loop, and
+   * Nature EP0013's image_prompts job (2026-10-19). A key listed here is never used again: the
+   * next attempt derives a fresh one and asks for a new generation. Kept outside request params
+   * so no request body can name a key, and carried onto an explicit Retry's new job so a fresh
+   * Retry cannot walk back into an answer already refused. Optional and additive — jobs persisted
+   * before it shipped simply omit it.
+   */
+  rejected_idempotency_keys?: string[]
   /** Private exact-key map for the explicit Jobs failed-item replacement. */
   manual_failed_item_replacement?: {
     source_job_id: string
