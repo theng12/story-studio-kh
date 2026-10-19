@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.333 — 2026-10-19
+
+- The final video check runs in the background: pressing Run Final Check answers at once, the Upload Center shows "Checking…", and the result appears when it is done. Pressing it again joins the check already running instead of starting another, and a check that could not finish says so.
+- An app update waits for a final check that is still measuring a video, and the update panel says so, so an install can no longer cut a check off halfway.
+
 ## v1.4.332 — 2026-10-19
 
 - Long writing jobs get a time limit sized to the job: Story tells the Gateway how long an answer it expects, and waits at least that long (up to 4 hours) instead of a fixed 30 minutes. Your timeout setting is still the minimum.
