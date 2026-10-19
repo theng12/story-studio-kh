@@ -32,6 +32,7 @@ const {
   GenStudioCatalogUnavailableError,
   invalidateGenStudioCatalogFreshness,
   listChatModelsSnapshot,
+  listImageModelsForceLive,
   listImageModelsSnapshot,
   listMusicModelsSnapshot,
   listModelCapabilitiesSnapshot,
@@ -187,5 +188,57 @@ void test('every Gateway catalogue follows one caching and staleness policy', as
     globalThis.fetch = originalFetch
     clearGenStudioCatalogCache()
     await temp.cleanup()
+  }
+})
+
+test('a force-live read ABORTS the read it supersedes instead of orphaning it', async () => {
+  // The paid-decision path re-reads the image catalogue live, superseding any
+  // ordinary read already in flight. That read used to be abandoned rather than
+  // cancelled: it stayed in flight — one socket held for its full 30 s timeout,
+  // three times over with retries — while a second request started beside it,
+  // and a run of paid decisions piled those up.
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+
+  const signals: AbortSignal[] = []
+  let requests = 0
+  globalThis.fetch = ((_input: any, init?: RequestInit) => {
+    requests++
+    const signal = init!.signal as AbortSignal
+    signals.push(signal)
+    if (requests === 1) {
+      // Only the abort ends this one; it never answers on its own.
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+        }, { once: true })
+      })
+    }
+    return Promise.resolve(Response.json([
+      { id: 'image-v1', display_name: 'Image V1', available: true, qualification_only: false },
+    ]))
+  }) as typeof globalThis.fetch
+
+  try {
+    const ordinary = listImageModelsSnapshot('force-live-key')
+    for (let waited = 0; requests < 1 && waited < 2_000; waited++) {
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
+    assert.equal(requests, 1, 'the ordinary read never reached the Gateway')
+
+    const forced = await listImageModelsForceLive('force-live-key')
+    assert.equal(forced.freshness, 'live')
+    assert.deepEqual(forced.value.map(model => model.id), ['image-v1'])
+    assert.equal(signals[0]!.aborted, true, 'the superseded read was left in flight instead of aborted')
+    assert.equal(requests, 2, 'an aborted read must not be retried')
+
+    // The ordinary caller had joined the superseded read, so it must follow the
+    // read that replaced it rather than be failed by the abort.
+    const settled = await ordinary
+    assert.equal(settled.stale, false)
+    assert.deepEqual(settled.value.map(model => model.id), ['image-v1'])
+  } finally {
+    globalThis.fetch = originalFetch
+    clearGenStudioCatalogCache()
   }
 })

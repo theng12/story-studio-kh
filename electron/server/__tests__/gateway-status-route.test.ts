@@ -59,4 +59,19 @@ describe('GET /gateway/status', () => {
       assert.equal(res.body.reachable, false)
     }
   })
+
+  test('the liveness body is released, not left holding its socket open', async () => {
+    // Only "did it answer" is read here, and the shell asks every 20 s per
+    // client. An unread body keeps its connection with nothing draining it, so
+    // the route must cancel it — one stranded socket per poll per client is how
+    // 264 connections accumulated against the Gateway.
+    let released = false
+    globalThis.fetch = (async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{"status":"ok"}')) },
+      cancel() { released = true },
+    }), { status: 200 })) as typeof fetch
+    const res = await request(app()).get('/gateway/status')
+    assert.equal(res.body.reachable, true)
+    assert.equal(released, true, 'the unread liveness body was never released')
+  })
 })

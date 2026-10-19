@@ -22,6 +22,7 @@ import { logLine, startLogPruning } from './services/logger.js'
 import { applyServerTimeouts, requestDeadline } from './lib/server-timeouts.js'
 import { migrateLegacyProjects } from './services/project-manager.js'
 import { applySecurityHeaders, requireAllowedHost } from './lib/security.js'
+import { installOutboundConnectionCap, OUTBOUND_CONNECTIONS_PER_ORIGIN } from './lib/outbound-connections.js'
 import { isServerMode, getServerModeConfig } from './lib/server-mode.js'
 import { DEV_BACKEND_PORT } from './lib/dev-backend.js'
 import { buildRequireSession, automationKeyHint } from './lib/auth-session.js'
@@ -187,6 +188,9 @@ mountRoutes(app)
 runBootMigrations()
 registerAllExecutors()
 
+// Cap outbound sockets before anything can fetch. See lib/outbound-connections.ts.
+installOutboundConnectionCap()
+
 // ── Runtime configuration, stated out loud at boot ─────────────────────────
 //
 // GenStudio once diagnosed a chapter-generation failure as Story Studio
@@ -206,6 +210,9 @@ registerAllExecutors()
     env_value: transport.envValue,
     env_recognised: transport.envRecognised,
   })
+  // How many sockets this process may hold open to any one origin. The number
+  // that matters when a Gateway is being buried in connections.
+  logLine('info', 'outbound.connections', { per_origin: OUTBOUND_CONNECTIONS_PER_ORIGIN })
 }
 
 // Warm the account-wide GenStudio admission snapshot at startup. This is

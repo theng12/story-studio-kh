@@ -527,7 +527,17 @@ export const APP_UPDATE_SETTINGS_KEY = SETTINGS_KEY
 /** Called once after the server listens: settle an install the previous run started. */
 export async function onBoot(options: UpdaterOptions): Promise<UpdateState> {
   opts = options
-  const state = readState()
+  let state = readState()
+  // A hand install — or a later release landing first — leaves this state
+  // describing an install that no longer has anything to do. Clear the request
+  // flags and the stale error whatever the phase is, not only while `installing`:
+  // `install_requested` makes EVERY later offer count as "asked" and so bypasses
+  // the skip_signature/failed_signature guards for good, and the old error is
+  // otherwise shown as if it described the running build.
+  if (state.release && compareVersions(options.currentVersion, state.release.version) >= 0
+    && (state.install_requested || state.immediate || state.error)) {
+    state = patchState({ install_requested: false, immediate: false, error: null })
+  }
   if (state.phase === 'downloading') return patchState({ phase: 'idle' })
   if (state.phase === 'draining') return patchState({ phase: 'ready', drain_started_at: null })
   if (state.phase !== 'installing' || !state.release) {
@@ -729,12 +739,19 @@ async function download(release: ReleaseDescriptor, file: string): Promise<boole
       signal: controller.signal,
     })
     if (response.status === 416) {
+      // No body is read on this path: cancel it so its socket is released now
+      // rather than held open with nothing draining it.
+      await response.body?.cancel().catch(() => {})
       // The part is at or past the end of what the Gateway holds, so it cannot be a prefix of this
       // artifact: it goes to Story's Trash and the next check starts the file over from zero.
       await toTrash(part, 'app-update')
       throw new Error('the Gateway holds no bytes past the part already downloaded')
     }
-    if (!response.ok || !response.body) throw new Error(`the Gateway answered ${response.status} to the download`)
+    if (!response.ok || !response.body) {
+      // Same: an error body is never read, and it must not keep a socket open.
+      await response.body?.cancel().catch(() => {})
+      throw new Error(`the Gateway answered ${response.status} to the download`)
+    }
     const resuming = response.status === 206 && resumeAt > 0
     const hash = createHash('sha256')
     let size = 0

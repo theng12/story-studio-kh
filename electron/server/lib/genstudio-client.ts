@@ -4498,7 +4498,21 @@ export class GenStudioCatalogUnavailableError extends Error {
 }
 
 const catalogCache = new Map<string, CatalogCacheEntry<unknown>>()
-const catalogRefreshes = new Map<string, Promise<unknown>>()
+
+/**
+ * One in-flight catalogue refresh, and the controller that cancels it.
+ *
+ * The controller is kept so a force-live read can ABORT the read it supersedes.
+ * Without it the superseded request stayed in flight — holding a socket for its
+ * own 30 s timeout, three times over with retries — while a second request to
+ * the same endpoint started beside it.
+ */
+interface CatalogRefresh<T> {
+  promise: Promise<T>
+  abort: AbortController
+}
+
+const catalogRefreshes = new Map<string, CatalogRefresh<unknown>>()
 const LAST_GOOD_CATALOG_SETTING = 'genstudio_catalog_last_good_v1'
 const LAST_GOOD_CATALOG_SCHEMA_VERSION = 1
 let lastGoodCatalogWrite = Promise.resolve()
@@ -4602,16 +4616,21 @@ async function fetchRetryingJson(
   url: string,
   apiKey: string,
   unreachable = 'Gateway model catalog could not be reached after automatic reconnect attempts.',
+  signal?: AbortSignal,
 ): Promise<unknown> {
   let lastError: unknown
   for (let attempt = 1; attempt <= CATALOG_RETRY_ATTEMPTS; attempt++) {
     try {
+      const timeout = AbortSignal.timeout(CATALOG_REQUEST_TIMEOUT_MS)
       return await readJson(await fetch(url, {
         headers: authorization(apiKey),
-        signal: AbortSignal.timeout(CATALOG_REQUEST_TIMEOUT_MS),
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       }))
     } catch (error) {
       lastError = error
+      // A superseded read was aborted on purpose and is not worth retrying: the
+      // read that replaces it has already started.
+      if (signal?.aborted) throw error
       if (error instanceof GenStudioApiError && !retryableStatus(error.status)) throw error
     }
     if (attempt < CATALOG_RETRY_ATTEMPTS) {
@@ -4683,7 +4702,7 @@ function catalogSnapshot<T>(
 async function cachedCatalogSnapshot<T>(
   kind: GenStudioCatalogKind,
   key: string,
-  load: () => Promise<T>,
+  load: (signal: AbortSignal) => Promise<T>,
   options: { displayFallback?: boolean; baseUrl?: string; apiKey?: string } = {},
 ): Promise<GenStudioCatalogSnapshot<T>> {
   try {
@@ -4733,7 +4752,7 @@ async function cachedCatalogSnapshot<T>(
  */
 async function cachedRemoteSnapshot<T>(
   key: string,
-  load: () => Promise<T>,
+  load: (signal: AbortSignal) => Promise<T>,
   freshMs: number,
   staleMs: number,
   unavailable: (ageMs: number | null, cause: unknown) => Error,
@@ -4742,10 +4761,11 @@ async function cachedRemoteSnapshot<T>(
   const cached = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
   if (cached && cached.freshUntil > now) return { entry: cached, freshness: 'fresh', now }
 
-  let refresh = catalogRefreshes.get(key) as Promise<T> | undefined
+  let refresh = catalogRefreshes.get(key) as CatalogRefresh<T> | undefined
   if (!refresh) {
     const generation = catalogGenerations.get(key) ?? 0
-    refresh = load().then(value => {
+    const abort = new AbortController()
+    const promise = load(abort.signal).then(value => {
       const loadedAt = Date.now()
       if ((catalogGenerations.get(key) ?? 0) === generation) {
         catalogCache.set(key, {
@@ -4759,11 +4779,15 @@ async function cachedRemoteSnapshot<T>(
     }).finally(() => {
       if (catalogRefreshes.get(key) === refresh) catalogRefreshes.delete(key)
     })
+    // A refresh superseded by a force-live read has no awaiter left, so its
+    // abort must not surface as an unhandled rejection.
+    promise.catch(() => {})
+    refresh = { promise, abort }
     catalogRefreshes.set(key, refresh)
   }
 
   try {
-    const value = await refresh
+    const value = await refresh.promise
     const entry = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
     if (entry) return { entry, freshness: 'live', now: Date.now() }
     // A newer force-live request superseded this response. It may satisfy its
@@ -4777,6 +4801,15 @@ async function cachedRemoteSnapshot<T>(
   } catch (error) {
     // Never serve account data the key is not (or no longer) entitled to.
     if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) throw error
+    // A force-live read aborted this one on purpose. The refresh that replaced
+    // it is the answer this caller was already waiting for, so join that rather
+    // than reporting an abort as a catalogue failure.
+    // ponytail: one level per supersession; a caller only ever re-enters onto
+    // the refresh that is current, and force-live reads are user-initiated.
+    const replacement = catalogRefreshes.get(key) as CatalogRefresh<T> | undefined
+    if (replacement && replacement !== refresh && (error as any)?.name === 'AbortError') {
+      return cachedRemoteSnapshot(key, load, freshMs, staleMs, unavailable)
+    }
     const settledAt = Date.now()
     const fallback = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
     if (fallback && fallback.staleUntil > settledAt) {
@@ -4793,12 +4826,16 @@ async function cachedRemoteSnapshot<T>(
 async function forceLiveCatalogSnapshot<T>(
   kind: GenStudioCatalogKind,
   key: string,
-  load: () => Promise<T>,
+  load: (signal: AbortSignal) => Promise<T>,
   options: { baseUrl?: string; apiKey?: string } = {},
 ): Promise<GenStudioCatalogSnapshot<T>> {
   const generation = (catalogGenerations.get(key) ?? 0) + 1
   catalogGenerations.set(key, generation)
   catalogCache.delete(key)
+  // Abort the read this one supersedes rather than orphaning it. A superseded
+  // request used to stay in flight — one socket held for its full 30 s timeout,
+  // repeated by its two retries — while this read opened a second one beside it.
+  catalogRefreshes.get(key)?.abort.abort()
   catalogRefreshes.delete(key)
   const snapshot = await cachedCatalogSnapshot(kind, key, load, options)
   if ((catalogGenerations.get(key) ?? 0) !== generation) {
@@ -8372,8 +8409,8 @@ function publishedCredits(value: unknown): number | undefined {
 }
 
 /** Parse one direct image-catalogue response for both ordinary and force-live reads. */
-async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string): Promise<GenStudioImageModel[]> {
-    const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/image/models`, apiKey)
+async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string, signal?: AbortSignal): Promise<GenStudioImageModel[]> {
+    const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/image/models`, apiKey, undefined, signal)
     const rows = readCatalogRows(payload)
     if (!rows) throw new Error('The Gateway returned an invalid image model catalog')
     return rows.map((value: any) => ({
@@ -8467,7 +8504,7 @@ export async function listImageModelsSnapshot(
 ): Promise<GenStudioCatalogSnapshot<GenStudioImageModel[]>> {
   const baseUrl = await getGenStudioUrl()
   const key = catalogCacheKey('image', baseUrl, apiKey)
-  return cachedCatalogSnapshot('image', key, () => loadImageModelsFromGenStudio(baseUrl, apiKey), { ...options, baseUrl, apiKey })
+  return cachedCatalogSnapshot('image', key, signal => loadImageModelsFromGenStudio(baseUrl, apiKey, signal), { ...options, baseUrl, apiKey })
 }
 
 /**
@@ -8479,7 +8516,7 @@ export async function listImageModelsForceLive(
 ): Promise<GenStudioCatalogSnapshot<GenStudioImageModel[]>> {
   const baseUrl = await getGenStudioUrl()
   const key = catalogCacheKey('image', baseUrl, apiKey)
-  return forceLiveCatalogSnapshot('image', key, () => loadImageModelsFromGenStudio(baseUrl, apiKey), { baseUrl, apiKey })
+  return forceLiveCatalogSnapshot('image', key, signal => loadImageModelsFromGenStudio(baseUrl, apiKey, signal), { baseUrl, apiKey })
 }
 
 export async function listImageModels(apiKey: string): Promise<GenStudioImageModel[]> {

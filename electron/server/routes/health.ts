@@ -208,7 +208,10 @@ router.get('/models', async (_req, res) => {
 router.get('/gateway/status', async (_req, res) => {
   const url = await getGenStudioUrl()
   try {
-    await fetch(`${url.trim().replace(/\/+$/, '')}/health`, { signal: AbortSignal.timeout(4_000) })
+    const response = await fetch(`${url.trim().replace(/\/+$/, '')}/health`, { signal: AbortSignal.timeout(4_000) })
+    // Only "did it answer" matters, and this runs every 20 s per client: a body
+    // left unread holds its socket open with nothing draining it.
+    await response.body?.cancel().catch(() => {})
     res.json({ reachable: true, url })
   } catch {
     res.json({ reachable: false, url })
