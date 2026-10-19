@@ -22,6 +22,7 @@ import { createServer } from 'node:http'
 import path from 'node:path'
 
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import * as updater from '../services/app-update.js'
 
 const { publicKey, privateKey } = generateKeyPairSync('ed25519')
@@ -285,7 +286,8 @@ describe('the check-in reports how far a download has got', () => {
     const body = new ReadableStream({
       async pull(controller) {
         if (at >= bytes.length) { controller.close(); return }
-        await new Promise(r => setTimeout(r, 5))
+        // A stream pulls once on construction, before the updater has started reading it.
+        await waitFor(async () => 'total_bytes' in ((await updater.report() as any).update), { label: 'transfer started' })
         controller.enqueue(new Uint8Array(bytes.subarray(at, at + chunk)))
         at += chunk
         seen.push((await updater.report() as any).update)
