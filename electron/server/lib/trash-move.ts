@@ -19,6 +19,17 @@ export const TRASH_INDEX = '.trash-index.jsonl'
 export const APP_TRASH = '_story-studio'
 export const CHARACTER_TRASH = '_character-library'
 
+/**
+ * How long Story's Trash waits before the Mac's Trash takes it, and the size that
+ * overrides the wait (owner, 2026-10-19: "7 days OR 20 GB"). One pair of numbers for
+ * every housekeeping sweep that ends in the Trash — the handoff (`services/retention.ts`)
+ * and the log folder (`services/logger.ts`) read the same setting.
+ */
+export const TRASH_HANDOFF_DAYS_KEY = 'trash_handoff_days'
+export const TRASH_HANDOFF_GB_KEY = 'trash_handoff_gb'
+export const DEFAULT_TRASH_HANDOFF_DAYS = 7
+export const DEFAULT_TRASH_HANDOFF_GB = 20
+
 /** One line of `.trash-index.jsonl`. */
 export interface TrashIndexEntry { id: string; from: string; to: string; kind: string; at: string }
 

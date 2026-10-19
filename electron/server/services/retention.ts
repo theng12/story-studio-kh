@@ -2,12 +2,15 @@
  * Automatic retention (owner, 2026-10-18): every generated file ages out by itself.
  *
  *   generated file → Story's unified `_trash` (its own duration) → macOS Trash
- *   after `trash_handoff_days` → the owner's macOS 30-day empty.
+ *   after `trash_handoff_days` OR once the whole Trash passes `trash_handoff_gb`
+ *   → the owner's macOS 30-day empty.
  *
  * Two daily jobs, one schedule:
  *   • `handoffOldTrash` (services/trash.ts) hands Story's Trash items older than
- *     `trash_handoff_days` to the Mac's Trash. Skipped with a clear status when
- *     the Mac's Trash is unreachable (a bare node server, a test).
+ *     `trash_handoff_days` to the Mac's Trash, and — when the whole Trash (every
+ *     root Story manages, counted honestly) is over `trash_handoff_gb` — also its
+ *     OLDEST movable items until it is back under the cap. Skipped with a clear
+ *     status when the Mac's Trash is unreachable (a bare node server, a test).
  *   • the EXISTING all-channel cleanup (`cleanup_all` — verified uploaded finals
  *     older than 7 days of production plus unused leftovers) runs through the
  *     exact functions Story → Free up space's button uses, so the selection is
@@ -22,15 +25,15 @@ import {
   startLibraryMediaCleanupRun, type MediaCleanupOperation,
 } from './episode-media-cleanup.js'
 import { electronTrashItem, handoffOldTrash } from './trash.js'
+import { DEFAULT_TRASH_HANDOFF_DAYS, DEFAULT_TRASH_HANDOFF_GB, TRASH_HANDOFF_DAYS_KEY, TRASH_HANDOFF_GB_KEY } from '../lib/trash-move.js'
 
-export const TRASH_HANDOFF_DAYS_KEY = 'trash_handoff_days'
 export const AUTO_CLEANUP_KEY = 'auto_cleanup_enabled'
 export const RETENTION_STATUS_KEY = 'retention_status'
-export const DEFAULT_TRASH_HANDOFF_DAYS = 7
 /** The button's own action: its verified-finals rule and leftovers, unchanged. */
 export const AUTO_CLEANUP_ACTION = 'cleanup_all'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const GB = 1024 ** 3
 /** How often the scheduler looks; each job runs at most once per day. */
 const TICK_MS = 60 * 60 * 1000
 
@@ -49,6 +52,7 @@ export interface RetentionStatus {
 
 export interface RetentionSettings {
   trash_handoff_days: number
+  trash_handoff_gb: number
   auto_cleanup_enabled: boolean
   last_handoff: RetentionRunStatus | null
   last_auto_cleanup: RetentionRunStatus | null
@@ -60,6 +64,13 @@ function readDays(raw: unknown): number {
   return Math.min(365, n)
 }
 
+/** The size half of the same rule; the day rule still applies below the cap. */
+function readGb(raw: unknown): number {
+  const n = Math.floor(Number(raw))
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_TRASH_HANDOFF_GB
+  return Math.min(10_000, n)
+}
+
 function readRunStatus(raw: unknown): RetentionRunStatus | null {
   if (!raw || typeof raw !== 'object') return null
   const record = raw as Record<string, unknown>
@@ -69,14 +80,16 @@ function readRunStatus(raw: unknown): RetentionRunStatus | null {
 }
 
 export async function getRetentionSettings(): Promise<RetentionSettings> {
-  const [days, enabled, status] = await Promise.all([
+  const [days, gb, enabled, status] = await Promise.all([
     getAppSetting(TRASH_HANDOFF_DAYS_KEY),
+    getAppSetting(TRASH_HANDOFF_GB_KEY),
     getAppSetting(AUTO_CLEANUP_KEY),
     getAppSetting(RETENTION_STATUS_KEY),
   ])
   const runs = status && typeof status === 'object' ? status as Record<string, unknown> : {}
   return {
     trash_handoff_days: readDays(days),
+    trash_handoff_gb: readGb(gb),
     // On by default: the owner's goal is that nothing needs a click.
     auto_cleanup_enabled: enabled !== false,
     last_handoff: readRunStatus(runs.last_handoff),
@@ -92,6 +105,13 @@ export async function setRetentionSettings(body: Record<string, unknown>): Promi
       throw Object.assign(new Error('Move Trash items to the Mac\'s Trash after a whole number of days between 1 and 365.'), { statusCode: 400, expose: true })
     }
     patch[TRASH_HANDOFF_DAYS_KEY] = n
+  }
+  if (body.trash_handoff_gb !== undefined) {
+    const n = Math.floor(Number(body.trash_handoff_gb))
+    if (!Number.isFinite(n) || n < 1 || n > 10_000) {
+      throw Object.assign(new Error('Hand the Trash over once it passes a whole number of GB between 1 and 10000.'), { statusCode: 400, expose: true })
+    }
+    patch[TRASH_HANDOFF_GB_KEY] = n
   }
   if (body.auto_cleanup_enabled !== undefined) {
     if (typeof body.auto_cleanup_enabled !== 'boolean') {
@@ -225,12 +245,15 @@ export async function retentionTick(now = Date.now()): Promise<{ handoff: string
         run = { at: new Date(now).toISOString(), status: 'skipped', detail: 'The Mac\'s Trash is only reachable while Story Studio runs as the app on the Mac; nothing was moved.' }
       } else {
         try {
-          const result = await handoffOldTrash({ olderThanDays: settings.trash_handoff_days, now }, trashItem)
+          const result = await handoffOldTrash({ olderThanDays: settings.trash_handoff_days, maxBytes: settings.trash_handoff_gb * GB, now }, trashItem)
+          const overCap = result.for_size
+            ? ` (${result.for_size} of them because the Trash was over ${settings.trash_handoff_gb} GB)`
+            : ''
           run = {
             at: new Date(now).toISOString(), status: 'completed', moved: result.moved, bytes: result.bytes,
             detail: result.moved
-              ? `Moved ${result.moved} item${result.moved === 1 ? '' : 's'} to the Mac's Trash${result.errors.length ? `; ${result.errors.length} stayed here` : ''}.`
-              : `Nothing waited ${settings.trash_handoff_days} days; nothing was moved.`,
+              ? `Moved ${result.moved} item${result.moved === 1 ? '' : 's'} to the Mac's Trash${overCap}${result.errors.length ? `; ${result.errors.length} stayed here` : ''}.`
+              : `Nothing waited ${settings.trash_handoff_days} days and the Trash is under ${settings.trash_handoff_gb} GB; nothing was moved.`,
           }
         } catch (error: any) {
           run = { at: new Date(now).toISOString(), status: 'failed', detail: `The Trash handoff did not run: ${error?.message || error}` }

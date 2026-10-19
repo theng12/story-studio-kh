@@ -1,17 +1,21 @@
 /**
- * Automatic retention (owner, 2026-10-18): generated files age out by
- * themselves. Three facts pinned here:
+ * Automatic retention (owner, 2026-10-18; the size half 2026-10-19): generated
+ * files age out by themselves. Facts pinned here:
  *
  *   1. Story's Trash hands ONLY items that have waited the full number of days
  *      to the Mac's Trash (an injected clock decides the age; injected
  *      `trashItem` records the move), including unrecorded legacy items whose
  *      on-disk mtime is the only evidence.
- *   2. The automatic cleanup reuses the button's own path — `cleanup_all`
+ *   2. Once the WHOLE Trash passes `trash_handoff_gb`, its oldest movable items
+ *      go too, oldest-first, until it is back under the cap — and an item is
+ *      never handed over twice for matching both rules.
+ *   3. The automatic cleanup reuses the button's own path — `cleanup_all`
  *      through `startLibraryMediaCleanupPreview` and then its reviewed
  *      `preview_id` through `startLibraryMediaCleanupRun` — and starts nothing
  *      while a cleanup is already running.
- *   3. Expired logs move into Story's Trash (`_trash/_logs`) instead of being
- *      unlinked.
+ *   4. Expired logs move into Story's Trash (`_trash/_logs`) instead of being
+ *      unlinked, and the folder is bounded by size as well as by age.
+ *   5. The settings round-trip, with 7 days and 20 GB as the defaults.
  *
  * Everything runs inside `useTempDataDir()`, so no real Library, `_trash`, or
  * macOS Trash is touched.
@@ -22,7 +26,9 @@ import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
 
 import { pruneOldLogs } from '../services/logger.js'
-import { _forTesting, _setAutoCleanupDepsForTests, runAutomaticCleanup } from '../services/retention.js'
+import {
+  _forTesting, _setAutoCleanupDepsForTests, getRetentionSettings, runAutomaticCleanup, setRetentionSettings,
+} from '../services/retention.js'
 import { handoffOldTrash } from '../services/trash.js'
 import { useTempDataDir } from './_helpers.js'
 
@@ -164,6 +170,130 @@ describe('automatic cleanup', () => {
   })
 })
 
+describe('Story Trash size cap', () => {
+  /** A `<Library>/_trash/channel` holding the named files, each with an index line dating it. */
+  async function seededTrash(dir: string, files: Array<{ name: string; bytes: number; at: number }>): Promise<string> {
+    const trash = path.join(dir, 'projects', '_trash')
+    const channel = path.join(trash, 'channel')
+    await fs.mkdir(channel, { recursive: true })
+    let index = ''
+    for (const file of files) {
+      const full = path.join(channel, file.name)
+      await fs.writeFile(full, '')
+      await fs.truncate(full, file.bytes)
+      index += indexLine(`/library/channel/${file.name}`, full, new Date(file.at).toISOString())
+    }
+    await fs.writeFile(path.join(trash, '.trash-index.jsonl'), index)
+    return channel
+  }
+  function recorder(dir: string, handedOver: string[]) {
+    const macTrash = path.join(dir, 'mac-trash')
+    return async (p: string) => {
+      handedOver.push(path.basename(p))
+      await fs.mkdir(macTrash, { recursive: true })
+      await fs.rename(p, path.join(macTrash, path.basename(p)))
+    }
+  }
+
+  test('over the cap, the OLDEST movable items go first until it is back under — none of them old enough by age', async () => {
+    const dir = await tempDir()
+    const now = Date.UTC(2026, 9, 19, 12)
+    // Three 60-byte items, all younger than the 7-day rule: only the size cap can move them.
+    const channel = await seededTrash(dir, [
+      { name: 'a.mp4', bytes: 60, at: now - 3 * 60 * 60 * 1000 },
+      { name: 'b.mp4', bytes: 60, at: now - 2 * 60 * 60 * 1000 },
+      { name: 'c.mp4', bytes: 60, at: now - 1 * 60 * 60 * 1000 },
+    ])
+    const handedOver: string[] = []
+    const result = await handoffOldTrash({ olderThanDays: 7, maxBytes: 100, now }, recorder(dir, handedOver))
+
+    // 180 bytes over a 100-byte cap: the two oldest go, the newest stays.
+    assert.deepEqual(handedOver, ['a.mp4', 'b.mp4'], 'oldest first, and only until the cap is met')
+    assert.equal(result.for_size, 2, 'both were picked for size, not for age')
+    assert.equal(result.moved, 2)
+    assert.equal(result.bytes, 120)
+    assert.equal(await fs.readFile(path.join(channel, 'c.mp4')).then(s => s.length), 60, 'the newest item stays in Story Trash')
+  })
+
+  test('no cap given, nothing over-age moves — the size rule is the only thing that would', async () => {
+    const dir = await tempDir()
+    const now = Date.UTC(2026, 9, 19, 12)
+    await seededTrash(dir, [
+      { name: 'a.mp4', bytes: 60, at: now - 3 * 60 * 60 * 1000 },
+      { name: 'b.mp4', bytes: 60, at: now - 2 * 60 * 60 * 1000 },
+      { name: 'c.mp4', bytes: 60, at: now - 1 * 60 * 60 * 1000 },
+    ])
+    const handedOver: string[] = []
+    const result = await handoffOldTrash({ olderThanDays: 7, now }, recorder(dir, handedOver))
+    assert.deepEqual(handedOver, [], 'nothing has waited 7 days')
+    assert.equal(result.moved, 0)
+    assert.equal(result.for_size, 0)
+  })
+
+  test('an item both old enough AND over the cap is handed over exactly once', async () => {
+    const dir = await tempDir()
+    const now = Date.UTC(2026, 9, 19, 12)
+    const day = 24 * 60 * 60 * 1000
+    const channel = await seededTrash(dir, [
+      { name: 'aged.mp4', bytes: 60, at: now - 10 * day },
+      { name: 'a.mp4', bytes: 60, at: now - 3 * 60 * 60 * 1000 },
+      { name: 'b.mp4', bytes: 60, at: now - 2 * 60 * 60 * 1000 },
+      { name: 'c.mp4', bytes: 60, at: now - 1 * 60 * 60 * 1000 },
+    ])
+    const handedOver: string[] = []
+    // 240 bytes over a 100-byte cap: `aged` by age, then the two oldest for size.
+    const result = await handoffOldTrash({ olderThanDays: 7, maxBytes: 100, now }, recorder(dir, handedOver))
+
+    assert.deepEqual(handedOver, ['aged.mp4', 'a.mp4', 'b.mp4'], 'no item is handed over twice')
+    assert.equal(result.moved, 3)
+    assert.equal(result.for_size, 2, 'only the two the cap needed are counted as size-driven')
+    assert.equal((await fs.stat(path.join(channel, 'c.mp4'))).size, 60, 'c.mp4 is the newest and stays')
+  })
+
+  test('an un-dateable item is never guessed into the oldest', async () => {
+    const dir = await tempDir()
+    const now = Date.UTC(2026, 9, 19, 12)
+    const channel = path.join(dir, 'projects', '_trash', 'channel')
+    const legacy = path.join(channel, 'legacy')
+    await fs.mkdir(legacy, { recursive: true })
+    // Unrecorded, so the on-disk mtime is its only evidence — and that is recent.
+    const undated = path.join(legacy, 'undated.mp4')
+    await fs.writeFile(undated, 'x'.repeat(60))
+    const recent = new Date(now - 60_000)
+    await fs.utimes(undated, recent, recent)
+    await fs.writeFile(path.join(channel, 'dated.mp4'), '')
+    await fs.truncate(path.join(channel, 'dated.mp4'), 60)
+    const trash = path.join(dir, 'projects', '_trash')
+    await fs.writeFile(path.join(trash, '.trash-index.jsonl'), indexLine('/library/channel/dated.mp4', path.join(channel, 'dated.mp4'), new Date(now - 5 * 60 * 60 * 1000).toISOString()))
+
+    const handedOver: string[] = []
+    const result = await handoffOldTrash({ olderThanDays: 7, maxBytes: 60, now }, recorder(dir, handedOver))
+    assert.deepEqual(handedOver, ['dated.mp4'], 'the dated item goes; the undated one is not assumed old')
+    assert.equal(result.for_size, 1)
+  })
+})
+
+describe('retention settings', () => {
+  test('defaults to 7 days and 20 GB, round-trips, and refuses an out-of-range size', async () => {
+    await tempDir()
+    const defaults = await getRetentionSettings()
+    assert.equal(defaults.trash_handoff_days, 7)
+    assert.equal(defaults.trash_handoff_gb, 20, 'the owner\'s 20 GB default')
+    assert.equal(defaults.auto_cleanup_enabled, true)
+
+    const saved = await setRetentionSettings({ trash_handoff_days: 3, trash_handoff_gb: 5 })
+    assert.equal(saved.trash_handoff_days, 3)
+    assert.equal(saved.trash_handoff_gb, 5)
+    const reread = await getRetentionSettings()
+    assert.equal(reread.trash_handoff_days, 3, 'the size write did not lose the days')
+    assert.equal(reread.trash_handoff_gb, 5, 'and the days write did not lose the size')
+
+    await assert.rejects(setRetentionSettings({ trash_handoff_gb: 0 }), /between 1 and 10000/)
+    await assert.rejects(setRetentionSettings({ trash_handoff_gb: 10_001 }), /between 1 and 10000/)
+    assert.equal((await getRetentionSettings()).trash_handoff_gb, 5, 'a refused write changes nothing')
+  })
+})
+
 describe('log retention', () => {
   test('moves expired server and main logs into _trash/_logs instead of unlinking', async () => {
     const dir = await tempDir()
@@ -185,5 +315,32 @@ describe('log retention', () => {
     }
     assert.equal(await fs.readFile(path.join(logs, recent), 'utf8'), 'recent log')
     assert.equal(await fs.readFile(path.join(logs, 'notes.txt'), 'utf8'), 'not a log')
+  })
+
+  test('a log folder over the cap sheds its OLDEST logs even though none of them has aged out', async () => {
+    const dir = await tempDir()
+    await setRetentionSettings({ trash_handoff_gb: 1 })
+    const logs = path.join(dir, 'logs')
+    await fs.mkdir(logs, { recursive: true })
+    const names = ['server-2026-10-16.log', 'server-2026-10-17.log', 'server-2026-10-18.log']
+    for (const name of names) {
+      const full = path.join(logs, name)
+      await fs.writeFile(full, '')
+      await fs.truncate(full, 400 * 1024 ** 2) // sparse: 1.2 GB of logical size, no disk
+    }
+    const now = Date.now()
+    for (const [i, name] of names.entries()) {
+      const at = new Date(now - (3 - i) * 60 * 60 * 1000)
+      await fs.utimes(path.join(logs, name), at, at)
+    }
+
+    await pruneOldLogs()
+
+    // 1.2 GB over a 1 GB cap: only the oldest 400 MB log goes.
+    await assert.rejects(fs.stat(path.join(logs, names[0]!)), { code: 'ENOENT' })
+    assert.equal((await fs.stat(path.join(dir, 'projects', '_trash', '_logs', names[0]!))).size, 400 * 1024 ** 2)
+    for (const name of names.slice(1)) {
+      assert.equal((await fs.stat(path.join(logs, name))).size, 400 * 1024 ** 2, `${name} is under the cap and stays`)
+    }
   })
 })

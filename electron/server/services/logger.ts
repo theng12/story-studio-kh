@@ -8,7 +8,7 @@ import path from 'path'
 import { createRequire } from 'module'
 import { redactSecrets, redactSensitiveValue } from '../lib/redact-secrets.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
-import { moveToTrashSync, libraryTrashDir } from '../lib/trash-move.js'
+import { moveToTrashSync, libraryTrashDir, DEFAULT_TRASH_HANDOFF_GB, TRASH_HANDOFF_GB_KEY } from '../lib/trash-move.js'
 import { trashDir } from './app-update.js'
 
 const require = createRequire(import.meta.url)
@@ -65,10 +65,21 @@ function moveLogToTrash(file: string, name: string, libraryTrash: string): void 
   }
 }
 
-/** Move log files older than 7 days into Story's Trash (`<Library>/_trash/_logs`,
- *  the app's own `_trash/_logs` when the Library is on another drive) instead of
- *  unlinking them (owner rule: every removal goes to `_trash`; the retention sweep
- *  hands them to the Mac's Trash later). Covers both request logs
+/** The owner's size cap (services/retention.ts `trash_handoff_gb`): the same number that bounds
+ *  Story's Trash bounds this folder, so a log storm cannot fill the disk inside the 7 days.
+ *  Read lazily: importing this module must not touch app-settings.json. */
+async function logCapBytes(): Promise<number> {
+  try {
+    const { getAppSetting } = await import('./app-settings.js')
+    const gb = Math.floor(Number(await getAppSetting(TRASH_HANDOFF_GB_KEY)))
+    return (Number.isFinite(gb) && gb >= 1 ? gb : DEFAULT_TRASH_HANDOFF_GB) * 1024 ** 3
+  } catch { return DEFAULT_TRASH_HANDOFF_GB * 1024 ** 3 }
+}
+
+/** Move log files older than 7 days — or, once the folder passes the cap, the OLDEST ones on top
+ *  of that — into Story's Trash (`<Library>/_trash/_logs`, the app's own `_trash/_logs` when the
+ *  Library is on another drive) instead of unlinking them (owner rule: every removal goes to
+ *  `_trash`; the retention sweep hands them to the Mac's Trash later). Covers both request logs
  *  (`server-YYYY-MM-DD.log`) and main-process crash logs
  *  (`main-YYYY-MM-DD.log`, introduced alongside the uncaughtException
  *  handler in `main.ts`). Any other `.log` file in this dir is left alone.
@@ -97,14 +108,25 @@ export async function pruneOldLogs(): Promise<void> {
     const target = path.join(libraryTrashDir(projectsRoot()), '_logs')
     // Same guard as the log dir itself: a test may only sweep inside its claimed temp dir.
     assertWriteIsolatedInTests(target, 'logger')
+    const cap = await logCapBytes()
+    const kept: Array<{ full: string; name: string; mtime: number; size: number }> = []
     for (const name of await fs.promises.readdir(dir)) {
       if (!name.endsWith('.log')) continue
       if (!name.startsWith('server-') && !name.startsWith('main-')) continue
       const full = path.join(dir, name)
       try {
         const stat = await fs.promises.stat(full)
-        if (stat.mtimeMs < cutoff) moveLogToTrash(full, name, target)
+        if (stat.mtimeMs < cutoff) { moveLogToTrash(full, name, target); continue }
+        kept.push({ full, name, mtime: stat.mtimeMs, size: stat.size })
       } catch { /* a file that vanished under us needs no pruning */ }
+    }
+    // The age sweep above kept a file younger than 7 days; the size cap still takes the oldest.
+    kept.sort((a, b) => a.mtime - b.mtime)
+    let total = kept.reduce((n, file) => n + file.size, 0)
+    for (const file of kept) {
+      if (total <= cap) break
+      total -= file.size
+      moveLogToTrash(file.full, file.name, target)
     }
   } catch {}
 }

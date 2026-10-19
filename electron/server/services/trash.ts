@@ -10,8 +10,9 @@
  * `<data>/_trash` only); both act only after a confirmation that matches what is
  * measured. Delete is the only permanent delete, since the old "Empty Trash" is
  * retired. The owner's manual actions are his alone (routes/trash.ts); the
- * automatic age handoff (`handoffOldTrash`, services/retention.ts) is app-initiated
- * and only ever moves items to the Mac's Trash, never deletes. Restore, move,
+ * automatic handoff (`handoffOldTrash`, services/retention.ts) is app-initiated
+ * and only ever moves items to the Mac's Trash, never deletes: by age, and — since
+ * 2026-10-19 — oldest-first when the whole Trash passes its size cap. Restore, move,
  * handoff and delete run one at a time (`serial`).
  */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, appendFileSync } from 'node:fs'
@@ -373,24 +374,60 @@ async function arrivedBy(s: Scanned, cutoff: number): Promise<boolean> {
 }
 
 /**
- * The owner's automatic age handoff (2026-10-18): every item that can go to the
- * Mac's Trash and has waited `olderThanDays` in Story's Trash is handed over.
- * App-initiated, never a delete; the manual buttons stay. Serialised with every
- * other Trash action, so a handoff can never race an owner's click.
+ * The same evidence as `arrivedBy`, as a sort key for the size cap. No evidence
+ * sorts LAST: an item nobody can date is never guessed into the oldest.
+ */
+function arrivalMs(s: Scanned): number {
+  if (s.item.at) {
+    const at = Date.parse(s.item.at)
+    if (Number.isFinite(at)) return at
+  }
+  try { return lstatSync(s.item.path).mtimeMs } catch { return Number.MAX_SAFE_INTEGER }
+}
+
+/**
+ * The owner's automatic handoff (2026-10-18; the size half added 2026-10-19): every
+ * item that can go to the Mac's Trash and has waited `olderThanDays` in Story's Trash
+ * is handed over, and — when the whole Trash (every root Story manages, counted the
+ * same way the Trash page counts it) is over `maxBytes` — its OLDEST movable items
+ * too, until it is back under the cap. App-initiated, never a delete, and never an
+ * empty of the Mac's Trash: the manual buttons stay. Serialised with every other
+ * Trash action, so a handoff can never race an owner's click.
  */
 export function handoffOldTrash(
-  input: { olderThanDays: number; now?: number }, trashItem: (p: string) => Promise<void>,
-): Promise<{ eligible: number; moved: number; bytes: number; errors: string[] }> {
+  input: { olderThanDays: number; maxBytes?: number; now?: number }, trashItem: (p: string) => Promise<void>,
+): Promise<{ eligible: number; moved: number; bytes: number; errors: string[]; for_size: number }> {
   return serial(async () => {
-    const { scanned } = await scanTrash()
+    const { scanned, channels } = await scanTrash()
     const now = input.now ?? Date.now()
     const cutoff = now - Math.max(1, Math.floor(input.olderThanDays)) * DAY_MS
     const aged: Scanned[] = []
     for (const s of scanned) {
       if (s.item.movable && await arrivedBy(s, cutoff)) aged.push(s)
     }
-    const result = { eligible: aged.length, moved: 0, bytes: 0, errors: [] as string[] }
-    await handOver(aged, trashItem, result)
+    const picked = new Set(aged)
+    const result = { eligible: 0, moved: 0, bytes: 0, errors: [] as string[], for_size: 0 }
+    const cap = input.maxBytes
+    if (cap && Number.isFinite(cap) && cap > 0) {
+      // The honest total: what the Trash page shows as "Whole Trash", not just the
+      // itemized part, so an unrecorded folder counts against the cap like anything else.
+      // What the age rule already takes is subtracted first — the cap is about where the
+      // Trash lands AFTER this handoff, not before it.
+      let over = [...channels.values()].reduce((n, row) => n + row.bytes, 0) - aged.reduce((n, s) => n + s.item.bytes, 0)
+      if (over > cap) {
+        const oldestFirst = scanned.filter(s => s.item.movable && !picked.has(s) && s.item.bytes > 0)
+          .sort((a, b) => arrivalMs(a) - arrivalMs(b))
+        for (const s of oldestFirst) {
+          if (over <= cap) break
+          picked.add(s)
+          over -= s.item.bytes
+          result.for_size += 1
+        }
+      }
+    }
+    const all = [...picked]
+    result.eligible = all.length
+    await handOver(all, trashItem, result)
     return result
   })
 }

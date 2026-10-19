@@ -39,10 +39,13 @@
 
       <section class="card retention" aria-labelledby="retention-title">
         <h2 id="retention-title">Automatic retention</h2>
-        <p class="muted">Generated files age out by themselves: anything in this Trash waits the number of days below, then moves to the Mac's own Trash (recoverable there; macOS empties it after its own 30 days). The same daily check runs the Free up space → Clean Up All Channels rule — verified uploads older than 7 days of production, plus unused leftovers — with no change to that rule. The buttons above still work; this only adds what happens when nobody clicks.</p>
+        <p class="muted">Generated files age out by themselves: anything in this Trash waits the number of days below, then moves to the Mac's own Trash (recoverable there; macOS empties it after its own 30 days). If the whole Trash passes the size below, the oldest items are handed over early until it is back under it. The same daily check runs the Free up space → Clean Up All Channels rule — verified uploads older than 7 days of production, plus unused leftovers — with no change to that rule. The buttons above still work; this only adds what happens when nobody clicks.</p>
         <div class="retention-controls">
-          <label>Move Trash items to the Mac's Trash after
+          <label>Send Trash to the Mac's Trash after
             <input v-model.number="retentionDays" type="number" min="1" max="365" :disabled="retentionSaving" /> days
+          </label>
+          <label>or
+            <input v-model.number="retentionGb" type="number" min="1" max="10000" :disabled="retentionSaving" /> GB
           </label>
           <label class="retention-toggle"><input v-model="autoCleanup" type="checkbox" :disabled="retentionSaving" /> Automatic cleanup</label>
           <button class="btn btn-secondary btn-sm" :disabled="retentionSaving || !retentionDirty" @click="saveRetention">{{ retentionSaving ? 'Saving…' : 'Save' }}</button>
@@ -126,7 +129,7 @@ interface Listing {
 }
 interface RetentionRun { at: string; status: 'completed' | 'failed' | 'skipped'; detail: string; moved?: number; bytes?: number }
 interface Retention {
-  trash_handoff_days: number; auto_cleanup_enabled: boolean; mac_trash_available: boolean
+  trash_handoff_days: number; trash_handoff_gb: number; auto_cleanup_enabled: boolean; mac_trash_available: boolean
   last_handoff: RetentionRun | null; last_auto_cleanup: RetentionRun | null
 }
 type Action = 'macos' | 'delete'
@@ -144,6 +147,7 @@ const { get, post, put } = useApi()
 const listing = ref<Listing | null>(null)
 const retention = ref<Retention | null>(null)
 const retentionDays = ref(7)
+const retentionGb = ref(20)
 const autoCleanup = ref(true)
 const retentionSaving = ref(false)
 const loading = ref(false)
@@ -160,7 +164,7 @@ const shown = computed(() => (listing.value?.items || []).filter(item => (!chann
 const retentionDirty = computed(() => {
   const saved = retention.value
   if (!saved) return false
-  return retentionDays.value !== saved.trash_handoff_days || autoCleanup.value !== saved.auto_cleanup_enabled
+  return retentionDays.value !== saved.trash_handoff_days || retentionGb.value !== saved.trash_handoff_gb || autoCleanup.value !== saved.auto_cleanup_enabled
 })
 
 function message(e: any, fallback: string) { return e?.data?.detail || e?.message || fallback }
@@ -188,6 +192,7 @@ async function loadRetention() {
     const saved = await get<Retention>('/trash/retention')
     retention.value = saved
     retentionDays.value = saved.trash_handoff_days
+    retentionGb.value = saved.trash_handoff_gb
     autoCleanup.value = saved.auto_cleanup_enabled
   } catch (e) { error.value = message(e, 'Could not read the retention settings.') }
 }
@@ -195,9 +200,10 @@ async function saveRetention() {
   if (retentionSaving.value) return
   retentionSaving.value = true; error.value = ''; notice.value = ''
   try {
-    const saved = await put<Retention>('/trash/retention', { trash_handoff_days: retentionDays.value, auto_cleanup_enabled: autoCleanup.value })
+    const saved = await put<Retention>('/trash/retention', { trash_handoff_days: retentionDays.value, trash_handoff_gb: retentionGb.value, auto_cleanup_enabled: autoCleanup.value })
     retention.value = saved
     retentionDays.value = saved.trash_handoff_days
+    retentionGb.value = saved.trash_handoff_gb
     autoCleanup.value = saved.auto_cleanup_enabled
     notice.value = 'Retention saved.'
   } catch (e) { error.value = message(e, 'Could not save the retention settings.') }
