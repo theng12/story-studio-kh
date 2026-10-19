@@ -1058,6 +1058,7 @@
 import type { DeepReadonly } from 'vue'
 import type { Job } from '~/composables/useJobs'
 import { useJobDetails } from '~/composables/useJobDetails'
+import { useJobHistory } from '~/composables/useJobHistory'
 import { createVisibleInterval } from '~/composables/useVisibleInterval'
 import { publicProviderLabel } from '~/composables/useModelGroups'
 import { buildLatestBatchSummary, formatElapsed } from '~/composables/useBatchSummary'
@@ -1101,7 +1102,7 @@ import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery, type EpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
 import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, holdsUnknownProviderOutcome, isFreeFleetWork } from '@shared/provider-task-state'
-import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice } from '~/utils/jobs-list'
+import { bulkConfirmOptions, capList, controlLabel, deriveOutputDir, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice, rowOutputLineCount, rowProgressCounter, rowSummaryLine } from '~/utils/jobs-list'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -1117,8 +1118,17 @@ const isUniversal = computed(() => route.query.scope === 'all')
 // The live streams carry slim jobs; the cards this page shows get their full Gateway evidence from
 // the per-job GET (see useJobDetails). `streamedJobs` is what the stream sent, `jobs` the merged view.
 const streamedJobs = computed(() => isUniversal.value ? universalQueue.jobs.value : projectQueue.jobs.value)
+// Universal mode's stream carries the LIVE half only. A fleet's finished history is a
+// server read (`/jobs/all/history`), not something every page pays for on connect; the
+// read returns rows without their logs and with the three summary fields a card shows.
+// Project mode keeps its own per-project stream whole — it is bounded by the retention
+// cap and several other surfaces read the same stream.
+const history = useJobHistory()
+const scopedJobs = computed(() => isUniversal.value
+  ? [...streamedJobs.value, ...history.rows.value]
+  : streamedJobs.value)
 const jobDetails = useJobDetails()
-const jobs = computed(() => streamedJobs.value.map(job => jobDetails.withDetail(job)) as typeof streamedJobs.value)
+const jobs = computed(() => scopedJobs.value.map(job => jobDetails.withDetail(job)) as typeof streamedJobs.value)
 const queueStats = computed(() => isUniversal.value ? universalQueue.stats.value : projectQueue.stats.value)
 const jobsStale = computed(() => isUniversal.value ? universalQueue.jobsStale.value : projectQueue.jobsStale.value)
 const jobsRefreshError = computed(() => isUniversal.value ? universalQueue.lastRefreshError.value : projectQueue.lastRefreshError.value)
@@ -1208,6 +1218,29 @@ watch(isUniversal, enabled => {
   }
 }, { immediate: true })
 
+// ── The finished half of the universal list ──────────────────────────────
+// One read per scope, not per filter: the page's own type/status/batch/search
+// filters still run over these rows, so changing one needs no round trip.
+// Narrowing to one channel DOES send the scope, because that is the difference
+// between a fleet's history and one channel's.
+let historyReload: ReturnType<typeof setTimeout> | null = null
+async function loadJobHistory() {
+  if (!isUniversal.value) { history.reset(); return }
+  await history.load('/jobs/all/history', projectFilter.value === 'all' ? {} : { project: projectFilter.value })
+}
+function scheduleHistoryRefresh(delay: number) {
+  if (historyReload) clearTimeout(historyReload)
+  historyReload = setTimeout(() => { historyReload = null; void loadJobHistory() }, delay)
+}
+watch([isUniversal, projectFilter, slug], () => { void loadJobHistory() }, { immediate: true })
+// A job that finishes leaves the live stream and joins the history read: pick it up,
+// debounced so a burst of completions is one read.
+watch(() => {
+  const s = universalQueue.stats.value
+  return `${s.done}|${s.error}|${s.total}`
+}, () => scheduleHistoryRefresh(500))
+onUnmounted(() => { if (historyReload) clearTimeout(historyReload) })
+
 // Account attribution helpers. Populated by the resolver whenever it runs
 // under a jobId (see electron/server/providers/registry.ts). Present only
 // on jobs that actually called a provider through the resolver.
@@ -1248,7 +1281,8 @@ function genStudioRequestCount(job: RJob): number {
 /** The Technical-details badge: how much is folded away behind the toggle. */
 function expandSummary(job: RJob): string {
   const parts: string[] = []
-  const lines = job.output_lines?.length || 0
+  // A history row counts its steps server-side; a live row still has its log.
+  const lines = rowOutputLineCount(job as any)
   if (lines) parts.push(`${lines} line${lines === 1 ? '' : 's'}`)
   const requests = genStudioRequestCount(job)
   if (requests) parts.push(`${requests} request${requests === 1 ? '' : 's'}`)
@@ -2508,18 +2542,11 @@ function itemAttemptText(item: JobItemAttempt): string {
 
 /**
  * Pull the most recent "N / Total" or "Chapter 3/13" style marker from a
- * running job's output lines. Looks at the last lines first so the latest
- * step wins. Returns e.g. "3 / 13" or null if no pattern matches.
+ * running job's output lines. A history row carries the server's answer in
+ * `progress_counter` instead of its log; a live row still computes it here.
  */
 function progressCounter(job: RJob): string | null {
-  const lines = job.output_lines || []
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]
-    if (!line) continue
-    const m = line.match(/(\d+)\s*\/\s*(\d+)/)
-    if (m && parseInt(m[2]!, 10) > 1) return `${m[1]} / ${m[2]}`
-  }
-  return null
+  return rowProgressCounter(job as any)
 }
 
 function hasMoreErrorLines(err: string): boolean {
@@ -2529,7 +2556,6 @@ function hasMoreErrorLines(err: string): boolean {
 // ── Summary line ────────────────────────────────────────────────────────
 
 function getSummaryLine(job: RJob): string {
-  const lines = job.output_lines || []
   // A run that finished but discarded requested output outranks any success
   // line. Without this a degraded render collapsed to a plain "Completed in
   // 12m" card, so a video missing its cues and subtitles looked identical to
@@ -2538,17 +2564,11 @@ function getSummaryLine(job: RJob): string {
   if (degraded?.dropped?.length) {
     return `⚠ Completed WITHOUT: ${degraded.dropped.join(', ')} — recovered via ${degraded.tier}`
   }
-  // Look for the last meaningful summary line
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]
-    if (!line) continue
-    if (line.includes('generated successfully') || line.includes('All images') ||
-        line.includes('All audio') || line.includes('saved to') ||
-        line.includes('Completed') || line.includes('tagged')) {
-      return customerJobText(line, job)
-    }
-  }
-  return `Completed in ${formatJobDuration(job)} (${lines.length} steps)`
+  // A history row carries the server's own answer — the same rule over the same
+  // log, computed where the log still is — so the page never needs the lines.
+  const line = rowSummaryLine(job as any)
+  if (line) return customerJobText(line, job)
+  return `Completed in ${formatJobDuration(job)} (${rowOutputLineCount(job as any)} steps)`
 }
 
 // ── Open in Finder ──────────────────────────────────────────────────────
@@ -2560,53 +2580,9 @@ function getSummaryLine(job: RJob): string {
 // The fallback returns the parent dir for file paths so the user lands
 // in a folder they can browse, not a single-file selection.
 function getOutputDir(job: RJob): string | null {
-  const fromField = (job as any).output_dir
-  if (typeof fromField === 'string' && fromField) return fromField
-
-  // Fallback for legacy jobs persisted before Apr 2026 when output_dir
-  // was added. Walks the output_lines log from newest to oldest, picks
-  // the first line containing an absolute filesystem path. Recognises
-  // these patterns the various generators historically wrote:
-  //   - "All audio saved to: /path/to/dir"          (audio.ts)
-  //   - "Output: /path/to/file.mp3"                 (audio-merge.ts)
-  //   - "Full path: /path/to/file.mp4"              (video.ts)
-  //   - "All clips saved to: /path/to/dir"          (ai-video.ts)
-  //   - "All files saved to: /path/to/dir"          (episode.ts)
-  //   - "Wrote N cues → /path/to/file.srt"          (subtitles.ts)
-  //   - "Saved → file1.json + file2.txt"            (metadata.ts — basenames only, no path)
-  // The matcher is intentionally permissive: any line containing an
-  // absolute path counts. File paths get folded to their parent dir
-  // so the user always lands on a browseable folder.
-  const lines = job.output_lines || []
-  // Filesystem paths often contain spaces (e.g. ".../Story Studio/...") so
-  // we can't terminate the path match on the first space. Two-step extract:
-  //   1. Anchor on a known summary prefix or just on the first `/`.
-  //   2. Take everything to end-of-line, then strip trailing punctuation
-  //      that's clearly sentence terminator, not part of the path.
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i] || ''
-    const colonIdx = line.lastIndexOf(': /')
-    const arrowIdx = line.indexOf('→ /')
-    const atIdx = line.indexOf(' at /')
-    let start = -1
-    if (colonIdx >= 0) start = colonIdx + 2
-    else if (arrowIdx >= 0) start = arrowIdx + 2
-    else if (atIdx >= 0) start = atIdx + 4
-    else if (line.startsWith('/')) start = 0
-    if (start < 0) continue
-    let raw = line.slice(start).trim()
-    // Terminate at a sentence boundary (".  " etc.) — handles log lines
-    // like "No task manifest at /path/to/dir. Run a fresh generation..."
-    // where the path is followed by trailing prose on the same line.
-    const sentenceEnd = raw.search(/\.\s+\S/)
-    if (sentenceEnd > 0) raw = raw.slice(0, sentenceEnd)
-    raw = raw.replace(/[.,;)]+$/, '')
-    if (!raw.startsWith('/')) continue
-    return /\.[a-z0-9]{1,5}$/i.test(raw)
-      ? raw.replace(/\/[^/]+$/, '')
-      : raw
-  }
-  return null
+  // A history row's folder is resolved server-side from the same log (and the
+  // same legacy-path fallback), so the row does not have to carry the lines.
+  return deriveOutputDir(job as any)
 }
 
 async function openOutputFolder(job: RJob) {

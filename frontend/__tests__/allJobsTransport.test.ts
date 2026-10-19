@@ -202,12 +202,27 @@ test('a job that fails in a project that is not open raises a failure toast with
   } finally { queue.stop() }
 })
 
-test('hidden window closes the all-jobs stream; back on screen it catches up and still toasts failures', async () => {
+test('hidden window closes the all-jobs stream; back on screen it asks the history read for the window it missed', async () => {
   ;(globalThis as any).EventSource = Stream
+  const originalFetch = (globalThis as any).$fetch
   const { useToast } = await import('../composables/useToast.js')
   const setVisibility = (state: 'hidden' | 'visible') => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
     document.dispatchEvent(new Event('visibilitychange'))
+  }
+  // A live-only snapshot cannot carry a job that finished while the stream was
+  // closed, so the catch-up is a history read for exactly the window we missed.
+  const asked: string[] = []
+  ;(globalThis as any).$fetch = async (url: string) => {
+    asked.push(url)
+    return {
+      jobs: [
+        { job_id: 'was-running', project_slug: 'gamma', status: 'error', episode_id: 'EP0101', type: 'audio', finished_at: new Date().toISOString() },
+        { job_id: 'new-unseen', project_slug: 'gamma', status: 'error', episode_id: 'EP0102', type: 'audio', finished_at: new Date().toISOString() },
+        { job_id: 'old-failure', project_slug: 'gamma', status: 'error', episode_id: 'EP0103', type: 'audio', finished_at: '2020-01-01T00:00:00Z' },
+      ],
+      total: 3,
+    }
   }
   const queue = useAllJobs()
   queue.start()
@@ -219,38 +234,54 @@ test('hidden window closes the all-jobs stream; back on screen it catches up and
     setVisibility('visible')
     const second = Stream.last
     assert.notEqual(second, first, 'a fresh stream on return')
-    second.fire('snapshot', {
-      jobs: [
-        { job_id: 'was-running', project_slug: 'gamma', status: 'error', episode_id: 'EP0101', type: 'audio', finished_at: new Date().toISOString() },
-        { job_id: 'new-unseen', project_slug: 'gamma', status: 'error', episode_id: 'EP0102', type: 'audio', finished_at: new Date().toISOString() },
-        { job_id: 'old-failure', project_slug: 'gamma', status: 'error', episode_id: 'EP0103', type: 'audio', finished_at: '2020-01-01T00:00:00Z' },
-      ],
-      stats: { running: 0, queued: 0, paused: 0, done: 0, error: 3, total: 3 },
-    })
+    second.fire('snapshot', { jobs: [], stats: { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 1 } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    assert.ok(asked.some(url => url.includes('/jobs/all/history?') && url.includes('status=error') && url.includes('since=')),
+      `the catch-up must ask the history read for the missed window: ${asked.join(', ')}`)
     const messages = useToast().toasts.value.map(t => t.message).join('\n')
     assert.match(messages, /EP0101/, 'a job that failed while away is announced')
     assert.match(messages, /EP0102/, 'a job that started and failed while away is announced')
     assert.doesNotMatch(messages, /EP0103/, 'an old failure is not re-announced')
   } finally {
     queue.stop()
+    ;(globalThis as any).$fetch = originalFetch
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
   }
 })
 
-test('the All Jobs REST fallback polls the slim stream view, not the full 11 MB history (S5)', async () => {
+test('the All Jobs REST fallback polls the live view, not the fleet\'s whole finished history (S5)', async () => {
   const originalEventSource = (globalThis as any).EventSource
   const originalFetch = (globalThis as any).$fetch
   const urls: string[] = []
   ;(globalThis as any).EventSource = undefined
-  ;(globalThis as any).$fetch = async (url: string) => { urls.push(url); return snapshot('slim') }
+  ;(globalThis as any).$fetch = async (url: string) => { urls.push(url); return snapshot('live') }
   const queue = useAllJobs()
   try {
     queue.start()
     await queue.refresh()
-    assert.ok(urls.length > 0 && urls.every(url => url.endsWith('/jobs/all?view=stream')), urls.join(', '))
+    assert.ok(urls.length > 0 && urls.every(url => url.endsWith('/jobs/all?view=active')), urls.join(', '))
   } finally {
     queue.stop()
     ;(globalThis as any).EventSource = originalEventSource
     ;(globalThis as any).$fetch = originalFetch
   }
+})
+
+test('a finished job leaves the live list but still moves the badge', () => {
+  ;(globalThis as any).EventSource = Stream
+  const queue = useAllJobs()
+  queue.start()
+  try {
+    Stream.last.fire('snapshot', snapshot('finishing'))
+    assert.equal(queue.stats.value.queued, 1)
+    assert.equal(queue.stats.value.done, 0)
+
+    Stream.last.fire('update', { ...snapshot('finishing').jobs[0], status: 'done' })
+    assert.deepEqual(queue.jobs.value.map(job => job.job_id), [],
+      'a finished row is history, and history is not what the live stream carries')
+    assert.equal(queue.stats.value.queued, 0)
+    assert.equal(queue.stats.value.done, 1, 'the badge still counts the job that just finished')
+    assert.equal(queue.stats.value.total, 1)
+  } finally { queue.stop() }
 })

@@ -28,6 +28,9 @@ async function loadJobs(): Promise<Component> {
     const useAllJobs = () => globalThis.__jobsUniversalQueue
     // Fixture jobs carry their full evidence, so the per-job detail merge is the identity here.
     const useJobDetails = () => ({ ensure() {}, withDetail: job => job, stop() {} })
+    // The finished half of the universal list is a server read; these fixtures are
+    // project-scoped, where the stream itself still carries the whole list.
+    const useJobHistory = () => ({ rows: ref([]), total: ref(0), loading: ref(false), error: ref(''), load: async () => undefined, reset() {} })
     const useGenStudioModelDisplay = () => ({ displayName: () => '', refresh: async () => undefined })
     const useToast = () => globalThis.__jobsToast
     const useNetworkStatus = () => ({ online: ref(true) })
@@ -68,7 +71,7 @@ async function loadJobs(): Promise<Component> {
     const jobDisplayLabel = globalThis.__jobDisplayLabel
     const jobsEmptyState = globalThis.__jobsEmptyState
     const retryAdmissionAllowed = globalThis.__retryAdmissionAllowed
-    import { bulkConfirmOptions, capList, controlLabel, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice } from ${JSON.stringify(new URL('../utils/jobs-list.ts', import.meta.url).href)}
+    import { bulkConfirmOptions, capList, controlLabel, deriveOutputDir, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice, rowOutputLineCount, rowProgressCounter, rowSummaryLine } from ${JSON.stringify(new URL('../utils/jobs-list.ts', import.meta.url).href)}
   `
   const content = script.content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm, '')

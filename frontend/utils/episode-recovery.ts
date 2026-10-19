@@ -1,7 +1,11 @@
 import { isScopedChapterTranscription } from '../../electron/server/contracts/subtitle-gaps'
+import {
+  isRecoveredFailure as isRecoveredFailureShared,
+  isVerifiedRecoveredSubtitleJob as isVerifiedRecoveredSubtitleJobShared,
+  jobDisplayStatus as jobDisplayStatusShared,
+} from '../../electron/server/contracts/jobs-history'
 
 const dependentTypes = new Set(['audio_merge', 'subtitles_transcribe', 'scene_plan_run', 'contextual_cues', 'continuity_render', 'scene_images_batch'])
-const AFTER_SUBTITLES = new Set<unknown>([null, 'scene_plan_run', 'contextual_cues', 'continuity_render'])
 
 interface RecoveryDisplayJob {
   type?: string
@@ -24,28 +28,22 @@ export function isEpisodeRecoveryType(type: string, params?: Record<string, unkn
   return dependentTypes.has(type) && !(type === 'subtitles_transcribe' && isScopedChapterTranscription(params || {}))
 }
 
-/** The old attempt stays failed; this only describes its now-verified subtitle output. */
+/**
+ * The display-only Recovered rule lives in `contracts/jobs-history.ts`, because
+ * the server's history endpoint filters by the same status the page renders —
+ * two copies is how the list and its own status chips drift apart.
+ */
 export function isVerifiedRecoveredSubtitleJob(job: RecoveryDisplayJob): boolean {
-  if (job.type !== 'subtitles_transcribe' || job.status !== 'error' || job.params?.force === true
-    || job.params?.generation_action?.kind === 'fresh') return false
-  const recovery = job.params?.episode_recovery
-  const recoveryId = recovery?.id
-  if (typeof recoveryId !== 'string' || !recoveryId.trim()
-    || typeof job.params?.episode_recovery_id !== 'string'
-    || recoveryId !== job.params.episode_recovery_id) return false
-  return Array.isArray(recovery?.completed)
-    && recovery.completed.includes('subtitle_sections')
-    && recovery.completed.includes('subtitle_stitch')
-    && AFTER_SUBTITLES.has(recovery.first_unresolved)
+  return isVerifiedRecoveredSubtitleJobShared(job as Parameters<typeof isVerifiedRecoveredSubtitleJobShared>[0])
 }
 
 /** A failed row whose work was finished later: kept as history, no longer needs attention. */
 export function isRecoveredFailure(job: RecoveryDisplayJob): boolean {
-  return job.status === 'error' && (!!job.resolved || isVerifiedRecoveredSubtitleJob(job))
+  return isRecoveredFailureShared(job as Parameters<typeof isRecoveredFailureShared>[0])
 }
 
 export function jobDisplayStatus(job: RecoveryDisplayJob): string {
-  return isRecoveredFailure(job) ? 'recovered' : String(job.status || '')
+  return jobDisplayStatusShared(job as Parameters<typeof jobDisplayStatusShared>[0])
 }
 
 /** Send one episode intent; section identities and retry params remain server-owned. */

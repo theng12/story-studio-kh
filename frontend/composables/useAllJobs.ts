@@ -2,9 +2,26 @@ import { computed, readonly, ref } from 'vue'
 import { useApi } from './useApi.js'
 import { announceJobFailure, isWatchingProject } from './useJobs.js'
 import type { Job, JobStats } from './useJobs.js'
-import type { JobListResponse } from '@shared/contracts'
+import type { JobHistoryResponse, JobListResponse } from '@shared/contracts'
 import { isRecoveredFailure } from '../utils/episode-recovery.js'
 
+/**
+ * The fleet's LIVE jobs — queued, running and paused — plus the whole fleet's
+ * counts.
+ *
+ * WHY THIS IS NOT THE WHOLE FLEET. This stream is opened by the dashboard
+ * layout on EVERY page, and it used to carry every job of every channel: ~14k
+ * rows and ~128 MB at production size, of which a channel's entire finished
+ * history was the bulk. A page that only wants the queue and the badge now
+ * reads `?view=active`; the finished half is a paged read
+ * (`/jobs/all/history`), which the Jobs page makes. The stats still describe
+ * the whole fleet, counted server-side without cloning a job, so the badge
+ * keeps its meaning.
+ *
+ * A terminal transition therefore leaves this list rather than staying in it.
+ * The counters are adjusted as it leaves, so a job that finishes still moves
+ * the badge the moment the SSE frame arrives.
+ */
 const EMPTY_STATS: JobStats = { running: 0, queued: 0, paused: 0, done: 0, error: 0, total: 0 }
 const jobs = ref<Job[]>([])
 const stats = ref<JobStats>({ ...EMPTY_STATS })
@@ -27,6 +44,21 @@ let awaySince: number | null = null
 const pendingUpdates = new Map<string, Job>()
 const pendingRemovals = new Set<string>()
 
+/** The status counter a job contributes to, or null for statuses the badge does not show. */
+function statsKey(job: Job): 'running' | 'queued' | 'paused' | 'done' | 'error' | null {
+  if (job.status === 'error') return isRecoveredFailure(job) ? null : 'error'
+  return job.status === 'running' || job.status === 'queued' || job.status === 'paused' || job.status === 'done'
+    ? job.status
+    : null
+}
+
+/** Move the badge by one job. The snapshot's counts are the base; this keeps them live between snapshots. */
+function adjustStats(job: Job, delta: number) {
+  const key = statsKey(job)
+  if (!key) return
+  stats.value = { ...stats.value, [key]: Math.max(0, stats.value[key] + delta) }
+}
+
 function refreshed() {
   refreshFailures.value = 0
   lastRefreshError.value = ''
@@ -36,19 +68,6 @@ function failed(error: unknown) {
   refreshFailures.value++
   lastRefreshError.value = error instanceof Error ? error.message : 'Could not refresh Jobs.'
   isLoading.value = false
-}
-
-function recomputeStats() {
-  const next = { ...EMPTY_STATS }
-  for (const job of jobs.value) {
-    if (job.status === 'running') next.running++
-    else if (job.status === 'queued') next.queued++
-    else if (job.status === 'paused') next.paused++
-    else if (job.status === 'done') next.done++
-    else if (job.status === 'error' && !isRecoveredFailure(job)) next.error++
-    next.total++
-  }
-  stats.value = next
 }
 
 function applySnapshot(snapshot: JobListResponse) {
@@ -64,8 +83,11 @@ function applySnapshot(snapshot: JobListResponse) {
  * but must leave the incomplete-list warning visible until this succeeds.
  */
 function completeSnapshot(snapshot: JobListResponse) {
-  if (awaySince !== null) announceFailuresWhileAway(snapshot.jobs, awaySince)
-  awaySince = null
+  if (awaySince !== null) {
+    const since = awaySince
+    awaySince = null
+    void announceFailuresWhileAway(since)
+  }
   applySnapshot(hasInitialSnapshot ? snapshot : reconcileInitialSnapshot(snapshot))
   if (!hasInitialSnapshot) {
     hasInitialSnapshot = true
@@ -75,10 +97,21 @@ function completeSnapshot(snapshot: JobListResponse) {
   refreshed()
 }
 
-function announceFailuresWhileAway(next: Job[], since: number) {
+/**
+ * Failures that happened while the window was hidden have no other way to
+ * reach the owner: the stream was closed, and a live-only snapshot cannot
+ * carry them. Ask the history read for exactly the window we were away.
+ */
+async function announceFailuresWhileAway(since: number) {
   const before = new Map(jobs.value.map(job => [job.job_id, job.status]))
-  for (const job of next) {
-    if (job.status !== 'error' || isWatchingProject(job.project_slug)) continue
+  let recent: Job[]
+  try {
+    const { get } = useApi()
+    const query = `status=error&limit=200&since=${encodeURIComponent(new Date(since).toISOString())}`
+    recent = (await get<JobHistoryResponse>(`/jobs/all/history?${query}`)).jobs as Job[]
+  } catch { return /* best effort: the row is still on the Jobs page */ }
+  for (const job of recent) {
+    if (isWatchingProject(job.project_slug)) continue
     const prev = before.get(job.job_id)
     const failedNow = prev === 'running' || prev === 'queued'
     const failedUnseen = !prev && Date.parse(job.finished_at || '') >= since
@@ -109,28 +142,56 @@ function reconcileInitialSnapshot(snapshot: JobListResponse): JobListResponse {
   }
   const nextStats = { ...EMPTY_STATS }
   for (const job of next) {
-    if (job.status === 'running') nextStats.running++
-    else if (job.status === 'queued') nextStats.queued++
-    else if (job.status === 'paused') nextStats.paused++
-    else if (job.status === 'done') nextStats.done++
-    else if (job.status === 'error' && !isRecoveredFailure(job)) nextStats.error++
+    const key = statsKey(job)
+    if (key) nextStats[key]++
     nextStats.total++
   }
   return { jobs: next, stats: nextStats }
 }
 
+/** A live job: the statuses this stream carries and the page's Active list shows. */
+function isLiveStatus(status: string): boolean {
+  return status === 'running' || status === 'queued' || status === 'paused'
+}
+
 function applyUpdate(job: Job) {
   stateRevision++
   if (!hasInitialSnapshot) pendingUpdates.set(job.job_id, job)
-  const next = [...jobs.value]
-  const index = next.findIndex(item => item.job_id === job.job_id)
+  const previous = jobs.value.find(item => item.job_id === job.job_id)
+  const next = jobs.value.filter(item => item.job_id !== job.job_id)
+  const live = isLiveStatus(job.status)
   // A failure in a project that is not on screen has no other way to reach the owner.
-  const before = index >= 0 ? next[index]!.status : ''
-  if ((before === 'running' || before === 'queued') && job.status === 'error' && !isWatchingProject(job.project_slug)) announceJobFailure(job)
-  if (index >= 0) next[index] = job
-  else next.unshift(job)
+  if ((previous?.status === 'running' || previous?.status === 'queued')
+    && job.status === 'error' && !isWatchingProject(job.project_slug)) {
+    announceJobFailure(job)
+  }
+  if (previous) {
+    // The badge counts the transition even though the row itself leaves the list:
+    // a job that just finished is history, and history is not what this stream carries.
+    adjustStats(previous, -1)
+    adjustStats(job, 1)
+  } else if (live) {
+    // A job we have never seen, still running: it is new to the fleet.
+    stats.value = { ...stats.value, total: stats.value.total + 1 }
+    adjustStats(job, 1)
+  }
+  // An update for an unseen FINISHED row is evidence being refreshed on old
+  // history that the snapshot already counted; counting it again would inflate
+  // the badge, so it is left alone.
+  if (live) next.unshift(job)
   jobs.value = next
-  recomputeStats()
+  if (previous && !live) scheduleStatsResync()
+}
+
+/**
+ * The counters are the server's. A local transition keeps the badge instant,
+ * but the finished half is not on this stream at all, so re-read the counts
+ * rather than trusting local arithmetic over a long session.
+ */
+let statsTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleStatsResync() {
+  if (statsTimer) return
+  statsTimer = setTimeout(() => { statsTimer = null; void refresh() }, 1_000)
 }
 
 function removeJobs(jobIds: Iterable<string>) {
@@ -138,8 +199,12 @@ function removeJobs(jobIds: Iterable<string>) {
   if (!removed.size) return
   stateRevision++
   if (!hasInitialSnapshot) for (const id of removed) pendingRemovals.add(id)
+  const dropped = jobs.value.filter(job => removed.has(job.job_id))
   jobs.value = jobs.value.filter(job => !removed.has(job.job_id))
-  recomputeStats()
+  for (const job of dropped) { adjustStats(job, -1); stats.value = { ...stats.value, total: Math.max(0, stats.value.total - 1) } }
+  // A removed row may never have been on this stream (it is history), so the
+  // fleet's counts come back from the server.
+  scheduleStatsResync()
 }
 
 /** Apply a confirmed replacement without leaving its retired terminal row visible. */
@@ -149,12 +214,20 @@ function replaceJob(replacedJobId: string, job: Job) {
     if (replacedJobId !== job.job_id) pendingRemovals.add(replacedJobId)
     pendingUpdates.set(job.job_id, job)
   }
+  const previous = jobs.value.find(existing => existing.job_id === replacedJobId)
   const next = jobs.value.filter(existing => existing.job_id !== replacedJobId)
   const index = next.findIndex(item => item.job_id === job.job_id)
   if (index >= 0) next[index] = job
-  else next.unshift(job)
+  else if (isLiveStatus(job.status)) next.unshift(job)
   jobs.value = next
-  recomputeStats()
+  if (previous) {
+    adjustStats(previous, -1)
+    adjustStats(job, 1)
+  } else if (isLiveStatus(job.status)) {
+    adjustStats(job, 1)
+    stats.value = { ...stats.value, total: stats.value.total + 1 }
+  }
+  scheduleStatsResync()
 }
 
 async function refresh() {
@@ -162,7 +235,7 @@ async function refresh() {
   const epoch = transportEpoch
   const revision = stateRevision
   try {
-    const snapshot = await get<JobListResponse>('/jobs/all?view=stream')
+    const snapshot = await get<JobListResponse>('/jobs/all?view=active')
     // Before the first snapshot, concurrent confirmed changes are recorded
     // for reconciliation. They must not make the only authoritative fallback
     // snapshot look stale.
@@ -179,6 +252,8 @@ function stopTransport() {
   source = null
   if (pollTimer) clearInterval(pollTimer)
   pollTimer = null
+  if (statsTimer) clearTimeout(statsTimer)
+  statsTimer = null
 }
 
 function startFallback() {
@@ -223,6 +298,8 @@ function startTransport() {
       const payload = JSON.parse((event as MessageEvent).data || '{}') as { job_ids?: string[] }
       removeJobs(payload.job_ids || [])
     } catch { void refresh() }
+    // Rows the stream never carried still left the fleet: re-read the counts.
+    void refresh()
   })
   source.onerror = () => {
     if (source !== stream) return

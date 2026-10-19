@@ -15,6 +15,7 @@ type DetailJob = {
   readonly job_id: string
   readonly project_slug: string
   readonly status: string
+  readonly output_lines?: readonly string[] | null
   readonly params?: Readonly<Record<string, any>> | null
   readonly genstudio_jobs?: readonly unknown[] | null
   readonly genstudio_jobs_count?: number
@@ -23,20 +24,40 @@ type DetailJob = {
 
 export const RUNNING_DETAIL_REFRESH_MS = 10_000
 
-/** A streamed job whose full record holds Gateway evidence the stream left out. */
+/**
+ * A streamed job whose full record holds something the stream left out.
+ *
+ * The live streams send a slim job with no `genstudio_jobs`. History rows
+ * (`/jobs/all/history`) go further and drop `output_lines` too — the log is
+ * tens of MB across a fleet and no closed card renders it — so a history row
+ * needs its detail as well, whether or not it ever called the Gateway.
+ */
 export function needsJobDetail(job: DetailJob): boolean {
-  return !job.genstudio_jobs && (job.genstudio_jobs_count || 0) > 0
+  if (job.genstudio_jobs) return false
+  return (job.genstudio_jobs_count || 0) > 0 || job.output_lines === undefined
 }
 
 /** Changes whenever the full record's evidence can have changed. */
 export function jobDetailKey(job: DetailJob): string {
-  return `${job.status}|${job.genstudio_jobs_count || 0}|${job.genstudio_jobs_updated_at || ''}`
+  return `${job.status}|${job.genstudio_jobs_count || 0}|${job.genstudio_jobs_updated_at || ''}|${job.output_lines === undefined ? 'log' : ''}`
 }
 
-/** The streamed job (fresher) over the fetched one, keeping the fields only the fetch carries. */
+/**
+ * The streamed job (fresher) over the fetched one, keeping the fields only the
+ * fetch carries. A history row has no `output_lines` of its own, so the log —
+ * and the params the row did not need — come from the full record; a row that
+ * does carry a log keeps the fresher streamed copy.
+ */
 export function mergeJobDetail<T extends DetailJob>(streamed: T, full: DetailJob | undefined): T {
   if (!full || streamed.genstudio_jobs) return streamed
-  return { ...streamed, genstudio_jobs: full.genstudio_jobs, params: { ...full.params, ...streamed.params } }
+  return {
+    ...streamed,
+    genstudio_jobs: full.genstudio_jobs,
+    ...(streamed.output_lines === undefined && full.output_lines !== undefined
+      ? { output_lines: full.output_lines }
+      : {}),
+    params: { ...full.params, ...streamed.params },
+  } as T
 }
 
 function jobPath(job: DetailJob): string {

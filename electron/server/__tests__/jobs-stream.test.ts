@@ -395,13 +395,22 @@ describe('SSE /jobs/all/stream', () => {
 
     const allJobs = await request(app).get('/api/jobs/all').expect(200)
     assert.ok(allJobs.body.jobs.some((job: any) => job.job_id === 'durable-only-job'),
-      'the all-jobs snapshot must include every readable per-project jobs scope')
+      'the all-jobs read must include every readable per-project jobs scope')
+
+    // The live snapshot carries the live half; a finished row is served by the
+    // history read — which must reach the same durable scope.
+    const history = await request(app).get(`/api/jobs/all/history?project=${slug}`).expect(200)
+    assert.ok(history.body.jobs.some((job: any) => job.job_id === 'durable-only-job'),
+      'the history read must include every readable per-project jobs scope')
 
     const frames = await collectFrames('/api/jobs/all/stream', 50, f => hasEvent(f, 'snapshot'))
     const snapshot = frames.find(frame => frame.event === 'snapshot')
     assert.ok(snapshot, 'universal stream should send a snapshot')
-    assert.ok(JSON.parse(snapshot.data).jobs.some((job: any) => job.job_id === 'durable-only-job'),
-      'the universal stream snapshot must include every readable per-project jobs scope')
+    const payload = JSON.parse(snapshot.data)
+    assert.ok(payload.stats.total > payload.jobs.length,
+      'the live snapshot\'s stats still describe the whole fleet, finished rows included')
+    assert.ok(payload.jobs.every((job: any) => ['running', 'queued', 'paused'].includes(job.status)),
+      'the live snapshot carries queued/running/paused rows only')
   })
 
   test('initial snapshot combines jobs from every project', async () => {
@@ -415,9 +424,17 @@ describe('SSE /jobs/all/stream', () => {
     const snapshot = frames.find(frame => frame.event === 'snapshot')
     assert.ok(snapshot, 'universal stream should send a snapshot')
     const payload = JSON.parse(snapshot.data)
-    assert.ok(payload.jobs.some((job: any) => job.project_slug === a.slug && job.episode_id === 'ALL_A1'))
-    assert.ok(payload.jobs.some((job: any) => job.project_slug === b.slug && job.episode_id === 'ALL_B1'))
-    assert.equal(payload.stats.total, payload.jobs.length)
+    assert.ok(payload.jobs.every((job: any) => ['running', 'queued', 'paused'].includes(job.status)),
+      'the live snapshot carries the live half only')
+    assert.ok(payload.stats.total >= payload.jobs.length)
+    // Each project's job is still reachable from the one place that owns it:
+    // the live stream while it runs, the history read once it has finished.
+    for (const [project, episode] of [[a, 'ALL_A1'], [b, 'ALL_B1']] as const) {
+      const live = payload.jobs.some((job: any) => job.project_slug === project.slug && job.episode_id === episode)
+      const finished = (await request(app).get(`/api/jobs/all/history?project=${project.slug}`).expect(200))
+        .body.jobs.some((job: any) => job.episode_id === episode)
+      assert.ok(live || finished, `${episode} is reachable from the live stream or the history read`)
+    }
   })
 
   test('receives updates from another project without resubscribing', async () => {
