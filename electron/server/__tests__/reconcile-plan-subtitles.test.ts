@@ -16,7 +16,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { reconcilePlanToSubtitles, computePlanCoverage } from '../services/scene-planner.js'
+import { reconcilePlanToSubtitles, removeNonRenderableScenes, computePlanCoverage } from '../services/scene-planner.js'
 
 function scene(id: string, start: number, end: number, transcript: string) {
   return { id, start_sec: start, end_sec: end, scene_index: 0, transcript_segment: transcript, visual_prompt: '', approved: true } as any
@@ -100,5 +100,34 @@ describe('reconcilePlanToSubtitles', () => {
     ], opening, 30)
     assert.equal(r.scenes[0]!.start_sec, 0)
     assert.equal(r.scenes[1]!.start_sec, 6)
+  })
+
+  // Every word in a cue carries that CUE's window, so two scenes whose anchors land
+  // in the same cue both anchor to its start. Left tied they collapsed onto one
+  // instant; the derived end then made the earlier one zero-length, and the
+  // `removeNonRenderableScenes` cleanup that the reconcile route runs next DELETED
+  // it — with its saved prompt, its approved image and its approval. Measured on
+  // HMH0001 (2026-10-19): 39 rows removed, 19 of them approved with an image, on a
+  // route whose contract is "preserves every scene id, image, and prompt".
+  test('two scenes anchored inside the SAME cue keep a real window each (HMH0001)', () => {
+    const oneCue = [
+      cue(0, 10, 'The sun dips below the ridge and the temperature drops fast.'),
+      cue(10, 20, 'You feel it in your bones as your breath starts to mist.'),
+    ]
+    const plan = [
+      scene('s1', 0, 4, 'The sun dips below the ridge'),
+      scene('s2', 4, 8, 'and the temperature drops fast'),
+      scene('s3', 8, 12, 'You feel it in your bones'),
+    ]
+    // Both s1 and s2 anchor to cue 1's start (0): their words share one cue window.
+    const r = reconcilePlanToSubtitles(plan, oneCue, 20)
+    assert.deepEqual(r.scenes.map(s => s.start_sec), [0, 5, 10], 'the tie is spread, not collapsed')
+
+    const cleanup = removeNonRenderableScenes(r.scenes)
+    assert.deepEqual(cleanup.removed_ids, [], 'no scene is deleted for its approved image')
+    assert.deepEqual(cleanup.scenes.map(s => s.id), ['s1', 's2', 's3'])
+    assert.ok(cleanup.scenes.every(s => s.end_sec > s.start_sec), 'every scene keeps a positive window')
+    assert.deepEqual(cleanup.scenes.map(s => s.approved), [true, true, true], 'approvals survive')
+    assert.equal(computePlanCoverage(cleanup.scenes, 20).uncoveredTotalSec, 0, 'still gap-free')
   })
 })
