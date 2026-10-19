@@ -48,7 +48,11 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
     })
     if (url.pathname.includes('/by-idempotency-key/')) {
       const value = byKey.get(decodeURIComponent(url.pathname.split('/').at(-1)!))
-      return value ? Response.json(value) : Response.json({ detail: 'not found' }, { status: 404 })
+      if (!value) return Response.json({ detail: 'not found' }, { status: 404 })
+      // The Gateway takes a hold between the failed POST and the eligibility read:
+      // the outcome is unknown, so the answer may still be adopted and a paid
+      // replacement could pay for the same work twice.
+      return Response.json(scenario === 'held-after-post' ? { ...value, recovery_required: true, recovery_state: 'unknown_outcome' } : value)
     }
     if (init?.method === 'POST' && url.pathname.endsWith('/chat/responses')) {
       const key = new Headers(init.headers).get('Idempotency-Key')!
@@ -77,7 +81,7 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
   }
   try {
     await settings.setGenStudioUrl('http://127.0.0.1:19979')
-    for (const name of ['off', 'old-api', 'success', 'fails-again', 'uncertain', 'disable-before-post']) {
+    for (const name of ['off', 'old-api', 'success', 'fails-again', 'uncertain', 'disable-before-post', 'held-after-post']) {
       await t.test(name, async () => {
         scenario = name
         posts.length = 0
@@ -109,6 +113,11 @@ test('writing replacement enforces opt-in, fresh server support, durable budget,
           assert.equal(persisted?.generation_replacement_attempts?.[0]?.settled_credits, name === 'success' ? 4 : 0)
         }
         if (name === 'success') assert.equal(queue.getJob(job.job_id)?.status, 'done', queue.getJob(job.job_id)?.error || '')
+        // A hold is an unknown outcome, not a confirmed failure: no replacement is bought.
+        if (name === 'held-after-post') {
+          assert.equal(posts[0]!.body.max_charge_credits, undefined)
+          assert.match(queue.getJob(job.job_id)?.error || '', /not a confirmed eligible failure/)
+        }
       })
     }
   } finally {

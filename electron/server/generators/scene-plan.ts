@@ -12,7 +12,7 @@ import path from 'path'
 import { isDeepStrictEqual } from 'node:util'
 import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
-import { compareMergedAudio, compareTimeline, planNarrationShortfallSec, readNarrationRecord, stampFromCues } from '../lib/scene-plan-timeline.js'
+import { compareMergedAudio, comparePlanStamp, planNarrationShortfallSec, readNarrationRecord, stampFromCues } from '../lib/scene-plan-timeline.js'
 import { checkpointJobState, hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
 import { subtitleChapterLabel } from '../contracts/subtitle-gaps.js'
@@ -67,7 +67,7 @@ import {
 import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity, restitchIfBroken, safetyCarriesOn, type SubtitleCueGap } from '../services/scene-timeline-integrity.js'
 import { allowedSubtitleCueGapSec, resolveScenePlanPacing, type ScenePlanPacing } from '../services/scene-plan-pacing.js'
-import { resolveTranscriptSrt, describeTranscriptCorrection } from '../services/subtitle-correction.js'
+import { resolveTranscriptSrt, describeTranscriptCorrection, stitchedSrtPath } from '../services/subtitle-correction.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import { auditScenePromptCompletion, checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
@@ -1247,7 +1247,20 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             throw realignable('the saved plan has no verifiable subtitle timeline stamp')
           }
           const current = stampFromCues(cues)
-          const drift = compareTimeline(stored, current)
+          // ONE predicate for "does this plan still describe the narration" — the
+          // same either-representation rule the recovery plan and the render
+          // advisory use (`comparePlanStamp`). Scene Plan is built from the
+          // corrected transcript, but a plan built while the correction was absent
+          // or refused records the RAW stitch as its timeline; read against the
+          // corrected file alone it looks moved, and every scene's timing was
+          // re-anchored on a timeline that had not shifted (Domnak DM0012/13/14).
+          const rawStitchedPath = stitchedSrtPath(paths.subtitles_dir, episode_id)
+          const raw = rawStitchedPath === stitchedSrt
+            ? current
+            : await fs.readFile(rawStitchedPath, 'utf-8')
+              .then(text => stampFromCues(parseSrt(text)))
+              .catch(() => null)
+          const drift = comparePlanStamp(stored, current, raw)
           if (drift.stale) throw realignable(drift.reason)
           if (plan.source_merged_audio) {
             const merged = (await scanEpisodeAssets(job.project_slug, episode_id)).merged_audio?.[0]

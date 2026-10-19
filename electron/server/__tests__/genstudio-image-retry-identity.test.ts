@@ -208,6 +208,49 @@ void test('Gateway image retry identity is fresh after failure and stable on a l
       assert.equal(service.providerSubmissionCount('image'), 1)
     })
 
+    await suite.test('a HELD failed job is not terminal: the Gateway may still adopt its answer', async () => {
+      service.reset()
+      const requestIdentity = 'scene:held-unknown-outcome'
+      const prompt = 'A calm moonlit temple above a river.'
+      service.queueScenario('image', { states: ['failed'], failureCode: 'provider_error' })
+      await assert.rejects(
+        submit(requestIdentity, prompt),
+        (error: unknown) => error instanceof client.GenStudioImageTerminalFailureError,
+      )
+      const heldJobId = service.submissions[0]!.jobId
+      const key = client.buildGenStudioImageIdempotencyKey({
+        prompt, modelId: 'mock-image-v1', aspectRatio: '16:9', requestIdentity,
+      })
+
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async (input, init) => {
+        if (String(input).includes('/v1/images/by-idempotency-key/')) {
+          // The Gateway is still holding this failed job as an unknown outcome
+          // (`origin-field/38cf1226`, `terranash-sleep-stories/516bd788`): the answer may
+          // yet be adopted, so `state: failed` here is not a settled failure.
+          return Response.json({
+            id: heldJobId, state: 'failed', cancelled: false, failure_code: 'provider_error',
+            recovery_required: true, recovery_state: 'unknown_outcome',
+          })
+        }
+        return originalFetch(input, init)
+      }
+      let outcome
+      try {
+        outcome = await tryRecoverImageFromManifestEntry(
+          manifestEntry({ task_id: '', idempotency_key: key, last_state: 'prepared' }),
+          MOCK_GENSTUDIO_FULL_KEY,
+          MODEL_CONFIG,
+        )
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+
+      assert.equal(outcome.kind, 'uncertain',
+        'a held failure is not settled, so recovery must not mint a fresh request identity for it')
+      assert.equal(service.providerSubmissionCount('image'), 1)
+    })
+
     await suite.test('a prepared key with no authoritative job is safe to replay under its same key', async () => {
       service.reset()
       const outcome = await tryRecoverImageFromManifestEntry(

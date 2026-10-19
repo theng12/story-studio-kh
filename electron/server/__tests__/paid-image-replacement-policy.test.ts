@@ -349,6 +349,13 @@ void test('force-live image catalogue reads supersede an older refresh and never
       /could not be refreshed|unavailable/i,
       'a failed forced read must not use the warm catalogue as a stale pricing fallback',
     )
+    // ...and it must not DESTROY that copy either. Deleting it left the key empty, so the next
+    // ordinary read reported "no cached copy" and refused — one failed paid-decision read became
+    // a wave of generation refusals (mini 1.4.328, 2026-10-19: 9 image jobs refused while the
+    // Gateway itself recorded no failures at all).
+    const stillUsable = await client.listImageModelsSnapshot(apiKey)
+    assert.equal(stillUsable.value[0]!.credits_per_image, 13,
+      'the last good copy must survive a failed force-live read')
 
     const forcePending: Array<{ resolve: (value: Response) => void }> = []
     client.clearGenStudioCatalogCache()

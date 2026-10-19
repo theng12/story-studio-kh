@@ -74,7 +74,13 @@ type ManualAction = false | 'buy_missing_subtitles' | 'rerun_subtitle_section'
 
 function subtitleFailure(error: GenStudioTerminalFailureError): SubtitleReplacementInput['failure'] {
   return {
-    transient: error.failureClass === 'provider_transient' || isFleetBusyFailure(error, 'transcription'),
+    // A gateway HOLD (`recovery_required` / `unknown_outcome`) is not a settled failure: its
+    // answer may still be adopted, so it is not an eligible transient failure and buying a
+    // replacement would pay for the same words twice. Every other hold reader in the app says
+    // the same (`holdsUnknownOutcome`, `isGenStudioSubmissionUncertain`, `settledFailure`);
+    // this one read `failureClass` alone.
+    transient: !error.unknownOutcome
+      && (error.failureClass === 'provider_transient' || isFleetBusyFailure(error, 'transcription')),
     cancelled: error.cancelled, reservedCredits: error.reservedCredits,
     settledCredits: error.settledCredits, releasedCredits: error.releasedCredits,
   }

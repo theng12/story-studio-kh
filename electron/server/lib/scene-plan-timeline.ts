@@ -84,6 +84,27 @@ export function stampFromCues(cues: SrtCue[]): TimelineStamp {
   }
 }
 
+/**
+ * The end of an episode's timeline: the later of the measured narration audio and
+ * the verified captions.
+ *
+ * ONE authority, because two writers used to answer it separately and the reader
+ * then rejected the plan they had just written. DL0011 (Dreamlands): the repair
+ * persisted the audio's 6083.290 s while the captions ended at 6083.292 s, so
+ * `generators/scene-plan.ts` — `plan.total_duration_sec < current.last_cue_end_sec - 0.001`
+ * — read the plan as not covering its own timeline, and the job became
+ * non-retryable and demanded a rebuild of a plan that was already complete.
+ *
+ * The caption side is `stampFromCues().last_cue_end_sec` — millisecond-rounded, and
+ * the MAXIMUM over every cue — because that is exactly the number the reader
+ * compares against. The last cue in FILE ORDER is not the same fact: an
+ * out-of-order or appended cue makes it smaller, and persisting it reproduces the
+ * rejection above.
+ */
+export function planEndSec(audioDurationSec: number | null | undefined, cues: SrtCue[]): number {
+  return Math.max(Number(audioDurationSec) || 0, stampFromCues(cues).last_cue_end_sec)
+}
+
 export interface TimelineDrift {
   /** True only when the two timelines demonstrably differ. */
   stale: boolean
@@ -283,6 +304,45 @@ export async function planMergedAudioDrift(
 }
 
 /**
+ * Does a plan's recorded caption stamp still describe this episode's narration?
+ *
+ * The ONE predicate for that question, because a plan can be checked from two
+ * directions and they must never disagree. The answer is "current" when EITHER
+ * representation of the timeline matches the stamp: the transcript planning reads
+ * today (the corrected file while its own sidecar still describes the current
+ * stitch, else the raw stitch — see `planningTranscriptPath`) and the raw stitch
+ * itself.
+ *
+ * ── Why not the planning transcript alone ──
+ *
+ * The corrected pass does not only rewrite words: it DROPS hallucinated cues, so
+ * the two files are different cue SETS of one narration. A plan built while the
+ * correction was absent or refused records the RAW stitch as its timeline; read
+ * later against the corrected file alone it looks moved, and the caller re-anchors
+ * every scene's timing on a timeline that has not shifted. Domnak DM0012/13/14
+ * (612 raw cues against a stamp of 609, 1013/1008, 1005/999) parked on exactly
+ * that, on both the recovery reader and the Scene Plan continuation.
+ *
+ * `current` and `raw` may be the same stamp (when planning reads the raw stitch
+ * itself); either may be null when that file is unreadable. With neither
+ * readable there is nothing to say, so the result is not `checked`.
+ */
+export function comparePlanStamp(
+  stored: TimelineStamp | null | undefined,
+  current: TimelineStamp | null | undefined,
+  raw: TimelineStamp | null | undefined,
+): TimelineDrift & { checked: boolean } {
+  const judged = current ?? raw
+  if (!stored?.sha256 || !judged) {
+    return { checked: false, stale: false, drift_sec: null, reason: '' }
+  }
+  if (judged.sha256 === stored.sha256 || raw?.sha256 === stored.sha256) {
+    return { checked: true, stale: false, drift_sec: null, reason: '' }
+  }
+  return { checked: true, ...compareTimeline(stored, judged) }
+}
+
+/**
  * The caption file planning reads TODAY for this episode: the corrected
  * transcript while its own sidecar still describes the current stitch, else the
  * raw stitch. The read-only counterpart of the resolver the Scene Plan generator
@@ -348,12 +408,7 @@ export async function inspectPlanTimelineDrift(
         const stampOf = async (file: string) => stampFromCues(parseSrt(await fs.readFile(file, 'utf-8')))
         const current = await stampOf(await planningTranscriptPath(stitchedSrtPath)).catch(() => null)
         const raw = await stampOf(stitchedSrtPath).catch(() => null)
-        const judged = current ?? raw
-        if (judged) {
-          captions = judged.sha256 === stored.sha256 || raw?.sha256 === stored.sha256
-            ? { checked: true, stale: false, drift_sec: null, reason: '' }
-            : { checked: true, ...compareTimeline(stored, judged) }
-        }
+        captions = comparePlanStamp(stored, current, raw)
       } catch { /* no stitched transcript: nothing to say about captions */ }
     }
     if (captions.stale || !mergedAudioCompletionPath || !plan?.source_merged_audio) return captions
