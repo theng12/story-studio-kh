@@ -421,6 +421,11 @@ describe('Pipeline episode visual source', () => {
     await pm.updateConfig(project.slug, {
       metadata_presets: [{ id: 'metadata', name: 'Metadata', data: { model: 'saved-chat-model' } }],
       metadata_last_preset: 'metadata',
+      // A NEW channel is seeded with the owner's standard Scene Plan preset
+      // (owner decision, 2026-10-19 — project-manager.ts `createProject`).
+      // This test is about a MISSING preset, so clear the seed.
+      scene_plan_presets: [],
+      'scene_plan_last_preset_scene-plan': '',
       // 1.4.300 — the missing-preset stop is the step_preset safety check on Block.
       safety_checks: { step_preset: 'block' },
     } as any)
@@ -441,5 +446,62 @@ describe('Pipeline episode visual source', () => {
     assert.equal(response.body.jobs[0].type, 'metadata')
     assert.equal(response.body.blocked[0].episode_id, scene.code)
     assert.match(response.body.blocked[0].reason, /No active preset for Scene Plan/i)
+  })
+
+  test('a Scene Plan preset with no writing model is left out at preflight, not enqueued to fail', async () => {
+    const { presetHasNoWritingModel } = await import('../routes/pipeline.js')
+    // The generic classification, for the steps whose preset must name a model
+    // (routes/pipeline.ts PRESET_MODEL_READERS). A step outside the table is
+    // not this check's business — `metadata`/`introduction-only` have their own
+    // branches with their own escape hatches.
+    assert.equal(presetHasNoWritingModel('scene_plan', { id: 'p', name: 'P', type: 'scene-plan', data: { pacing: {} } }), true)
+    assert.equal(presetHasNoWritingModel('scene_plan', { id: 'p', name: 'P', type: 'scene-plan', data: { model: 'chat' } }), false)
+    assert.equal(presetHasNoWritingModel('scene_plan', { id: 'p', name: 'P', type: 'scene-plan', data: { model: '   ' } }), true)
+    assert.equal(presetHasNoWritingModel('script-only', { id: 's', name: 'S', type: 'script', data: { form: {} } }), true)
+    assert.equal(presetHasNoWritingModel('script-only', { id: 's', name: 'S', type: 'script', data: { model: 'legacy-flat' } }), false)
+    assert.equal(presetHasNoWritingModel('metadata', { id: 'm', name: 'M', data: {} }), false)
+
+    // A brand-new channel: `createProject` seeds the owner's standard Scene Plan
+    // preset, which carries the tiered rhythm and no writing model of its own
+    // (a model is a live GenStudio choice, AGENTS.md §1).
+    const project = await pm.createProject({ name: 'Seeded Pacing Preset Preflight' })
+    await pm.updateConfig(project.slug, {
+      metadata_presets: [{ id: 'metadata', name: 'Metadata', data: { model: 'saved-chat-model' } }],
+      metadata_last_preset: 'metadata',
+    } as any)
+    const episode = await addEpisode(project.slug, 'Seeded preset row')
+    await setReadyForLateStages(project.slug, episode.code)
+    const body = { episode_ids: [episode.code], steps: ['metadata', 'scene_plan'] }
+
+    // Default safety check ("Pipeline start" = Warn): Scene Plan is left out of
+    // the run and SAID, rather than enqueued to die minutes later inside its
+    // generator with `model is required`.
+    const response = await request(app)
+      .post(`/api/projects/${project.slug}/pipeline/run-batch`)
+      .send(body)
+
+    assert.equal(response.status, 201, JSON.stringify(response.body))
+    rememberJobs(project.slug, response.body.jobs)
+    assert.match(response.body.warnings.join('\n'),
+      /Scene Plan is left out of this run: Scene Plan has no writing model chosen\. Open Scene Plan and pick one\./)
+    assert.equal(response.body.jobs.some((job: any) => job.type === 'scene_plan_run'), false,
+      'the step must not be enqueued to fail inside its generator')
+    // Only Scene Plan is affected: the sibling step still runs.
+    assert.equal(response.body.enqueued, 1)
+    assert.equal(response.body.jobs[0].type, 'metadata')
+
+    // The same `step_preset` switch governs it as a missing preset, so a
+    // channel that blocks on that check refuses the batch instead.
+    await pm.updateConfig(project.slug, { safety_checks: { step_preset: 'block' } } as any)
+    const blocked = await request(app)
+      .post(`/api/projects/${project.slug}/pipeline/run-batch`)
+      .send(body)
+
+    assert.equal(blocked.status, 400, JSON.stringify(blocked.body))
+    assert.deepEqual(blocked.body.issues[0], {
+      code: 'missing_preset',
+      step: 'scene_plan',
+      message: 'Scene Plan has no writing model chosen. Open Scene Plan and pick one.',
+    })
   })
 })

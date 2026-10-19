@@ -38,6 +38,39 @@ export interface VariableScenePacing extends ScenePacingBand {
 
 export type ScenePacing = UniformScenePacing | VariableScenePacing
 
+/**
+ * The owner's standard scene rhythm for a NEW channel (owner decision,
+ * 2026-10-19). Tiered by episode time, so a short episode cuts faster than a
+ * long one: 0–180 s a new scene every 5–10 s, 180–360 s every 10–20 s, and
+ * after 360 s every 20–30 s.
+ *
+ * The shape is the existing `variable` one — ordered periods over the
+ * narration timeline — which is what Scene Plan's **Visual timing & motion**
+ * panel edits and writes into `continuity.json`. Nothing new is invented here.
+ *
+ * It is a STARTING value, never a rule. `createProject` copies it into a new
+ * channel's own settings once: `config.json` `default_scene_pacing` (the
+ * pacing an episode starts with until it saves its own — the same key
+ * `readProjectStartingPacing` reads for Scene Plan and the timing panel), plus
+ * a Scene Plan preset named "Owner standard pacing" marked last-used. An
+ * episode still changes its own rhythm in Scene Plan, and an existing channel
+ * is never rewritten.
+ *
+ * It lives in this module because this is the one place allowed to declare a
+ * `min_sec`/`max_sec` pair — frontend/__tests__/characterSheetWorkspace.test.ts
+ * sweeps the tree and fails on a second hardcoded copy.
+ */
+export const OWNER_STANDARD_SCENE_PACING: VariableScenePacing = {
+  mode: 'variable',
+  min_sec: 5,
+  max_sec: 10,
+  periods: [
+    { start_sec: 0, end_sec: 180, min_sec: 5, max_sec: 10 },
+    { start_sec: 180, end_sec: 360, min_sec: 10, max_sec: 20 },
+    { start_sec: 360, end_sec: null, min_sec: 20, max_sec: 30 },
+  ],
+}
+
 export class ScenePacingValidationError extends Error {
   /** Bad input: running the job again stops here again, so no automatic retry (services/job-retry-policy.ts isNonRetryableError). */
   readonly retryable = false

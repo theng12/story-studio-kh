@@ -796,6 +796,17 @@ async function preflightBatch(
       else if (ticked) leaveOut(step, 'step_preset', message)
       return message
     }
+    // A preset that names no writing model is not a usable preset either — see
+    // PRESET_MODEL_READERS. Said here rather than letting the step enqueue and
+    // die inside its generator, and handled through the SAME `step_preset`
+    // switch as a missing preset, because to the operator it is the same fact.
+    if (presetHasNoWritingModel(step, result.preset)) {
+      const label = pipelineStepLabel(step)
+      const message = `${label} has no writing model chosen. Open ${label} and pick one.`
+      if (ticked && mode('step_preset') === 'block') addMissingPresetIssue(issues, visualSettingsByEpisode, step, message)
+      else if (ticked) leaveOut(step, 'step_preset', message)
+      return message
+    }
     if (step === 'motion_review') {
       const data = result.preset.data ?? result.preset
       const hasOperation = typeof data?.operation === 'string' && Boolean(data.operation.trim())
@@ -1121,6 +1132,52 @@ export function findActivePreset(
     preset: StoredPreset | null
     missingReason: string | null
   }
+}
+
+/**
+ * Where a step's writing model is read from inside its preset body, for the
+ * steps whose preset MUST name one.
+ *
+ * Story Studio never picks a writing model (coordinator decision 2026-10-03),
+ * so a preset that names none is not a USABLE preset: enqueuing it only moves
+ * the failure into the generator — `scene-plan.ts`'s `model is required` —
+ * minutes later, naming neither the step nor what to do about it. Preflight
+ * counts it exactly as it counts a missing preset, so the operator gets a plain
+ * message naming the step and where to choose.
+ *
+ * GENERIC by construction: a step joins this table and inherits the same
+ * classification, the same message and the same `step_preset` safety switch.
+ * Two steps are deliberately absent — `metadata` and `introduction-only` each
+ * already have their own branch in the enqueue loop, with an escape hatch this
+ * table cannot see (a carried `pipeline_model_policy`, the channel's own
+ * opening model, the script-side model) and a plain message of their own. A
+ * step must not be reported twice.
+ *
+ * The `script-only` reader accepts both shapes `resolveScriptSideChatModel`
+ * accepts — a typed preset nests the form, a legacy untyped one is flat — so a
+ * preset the rest of the app can read is never called model-less here.
+ */
+const PRESET_MODEL_READERS: Partial<Record<BatchStep, (body: Record<string, any>) => unknown>> = {
+  'script-only': body => body.form?.model ?? body.model,
+  scene_plan: body => body.model,
+}
+
+/**
+ * True when this step's preset carries no writing model of its own.
+ *
+ * `false` for every step that is not in `PRESET_MODEL_READERS`: this check has
+ * no opinion about steps whose model comes from somewhere else.
+ */
+export function presetHasNoWritingModel(step: BatchStep, preset: StoredPreset | undefined): boolean {
+  const reader = PRESET_MODEL_READERS[step]
+  if (!reader) return false
+  // Presets are stored as `{ id, name, type, data }`; older ones carry the body
+  // at the root. Same fallback `scenePlanPresetReceipt` and
+  // `resolveScriptSideChatModel` use.
+  const body = (preset?.data ?? preset) as Record<string, any> | undefined
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return true
+  const model = reader(body)
+  return !(typeof model === 'string' && model.trim())
 }
 
 /**

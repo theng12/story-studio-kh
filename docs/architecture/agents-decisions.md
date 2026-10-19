@@ -262,6 +262,93 @@ stored band out of a preset body is still live and still needed. The exclusion i
 Character Sheet, not to `pacing`.
 
 
+### A NEW channel's STARTING rhythm — owner decision, 2026-10-19
+
+**The 2026-08-03 rejection was of a project-level default that DECIDES an episode's rhythm. This
+adds a STARTING value, and the rule itself is untouched.**
+
+> *"yes is my personally preference for each of the channels i run. i let production save those as
+> preset. but you can also make this into a default for any new channels in the future. it's
+> already built and read."*
+
+The standard, tiered by episode time so a short episode cuts faster than a long one:
+
+| episode time | a new scene every |
+| --- | --- |
+| 0–180 s | 5–10 s |
+| 180–360 s | 10–20 s |
+| after 360 s | 20–30 s |
+
+**Nothing new was built for it.** The shape is the existing `variable` pacing — ordered periods over
+the narration timeline (`ScenePacingPeriod[]` in `electron/server/contracts/pacing.ts`) — which is
+exactly what Scene Plan's **Visual timing & motion** panel edits and what the planner already reads
+through `resolveScenePlanPacing` and `pacingBandAt`. The owner's "it's already built and read" is
+that structure; no second tier mechanism was introduced.
+
+**Where it is seeded, and why there.** `createProject`
+(`electron/server/services/project-manager.ts`) writes two things into a new channel's own
+`config.json`, once, at creation:
+
+- `default_scene_pacing` — the key `readProjectStartingPacing` already reads. Scene Plan plans on it
+  and the timing panel shows it for any episode that has not saved a rhythm of its own
+  (`defaultContinuityConfig(mode, startingPacing)`), so the channel's first episode opens on the
+  tiers without a project setting ever *deciding* anything.
+- a Scene Plan preset named **"Owner standard pacing"** (`type: 'scene-plan'`, `data.pacing` the
+  same tiers, `motion_scope`/`motion_level` the same defaults `defaultContinuityConfig` uses),
+  marked last-used via `scene_plan_last_preset_scene-plan`. The owner already keeps this preset by
+  hand in production, so seeding it means a new channel opens Scene Plan on the preset he
+  recognises instead of on "— none —".
+
+The seed carries **no writing model**. A model is a live GenStudio choice (§1), and a channel must
+not have one baked in by us; the owner picks one in Scene Plan and saves the preset there, exactly
+as with a hand-saved preset. `electron/server/__tests__/new-channel-default-pacing.test.ts` pins
+that too.
+
+**Because it carries no model, Pipeline preflight had to learn the same fact.** Enqueuing a step
+whose preset names no writing model only moved the failure into the generator — `scene-plan.ts`'s
+`model is required` — minutes later, naming neither the step nor what to do. `admitStep`
+(`electron/server/routes/pipeline.ts`) now counts such a preset as "no usable preset", through the
+SAME `step_preset` safety switch and with the plain message *"Scene Plan has no writing model
+chosen. Open Scene Plan and pick one."*, so the step is left out at preflight. The rule is a table,
+`PRESET_MODEL_READERS`, not a Scene Plan special case: a step joins it and inherits the
+classification, the message and the switch. `metadata` and `introduction-only` stay out of it — each
+already has its own branch in the enqueue loop with an escape hatch the table cannot see (a carried
+`pipeline_model_policy`, the channel's own opening model, the script-side model) and a plain message
+of its own, and a step must not be reported twice. `script-only` is in it, reading the same two
+shapes `resolveScriptSideChatModel` reads, so a preset the rest of the app can read is never called
+model-less.
+
+**Why this is not the 2026-08-03 rejection coming back.** That rejection was about a project setting
+*choosing* the rhythm for an episode — *"it needs to be a deliberate choice on each episode by the
+user."* This is what an episode **starts** on and it stays fully editable per episode in Scene Plan;
+`electron/server/__tests__/new-channel-default-pacing.test.ts` proves the override path through the
+same `claim_pacing` save boundary every other rhythm change uses. It also proves an existing channel
+is untouched: creating a channel leaves another channel's `config.json` **byte-identical**, and a
+channel that predates the seed and sets no rhythm still gets the one app-wide 1–3 s default.
+
+**Precedence, decided rather than incidental.** `createProject` seeds the tiers, and a channel whose
+Series Formula names its own starting scene length overwrites `default_scene_pacing` afterwards
+(`seedFormulaStartingDefaults`, called by `POST /projects` after creation). The Formula is the more
+specific, owner-chosen answer — it is the 2026-10-02 Dreamlands fix, where a Sleep channel had
+opened on 1–3 s and needed 20–30 s — so it wins. Today only `electron/server/niches/sleep.json` sets
+one. The preset is seeded either way, and is available by name on every channel.
+
+**The trap this seeds around.** The `if (!existsSync(configPath))` block in `createProject` never
+ran: the blank template already ships `electron/templates/blank/config.json`, so the copy placed one
+first (the same trap `electron/server/__tests__/publishing-overview.test.ts` documents for
+`publish_cadence`). Seeding inside that block would have looked correct and done nothing. The block
+is now a merge that reads the template's config first, which is what makes the seed run on the real
+creation path.
+
+**Tests updated, not weakened.** `electron/server/__tests__/formula-starting-defaults.test.ts`
+previously asserted that a channel with no Formula keeps 1–3 s — the decision this one supersedes —
+and now asserts the tiers. `electron/server/__tests__/pipeline-visual-source.test.ts` covers "a
+missing Scene Plan preset blocks only the row whose branch needs it", so it clears the seed
+explicitly; its subject is the partial-success behaviour, not the absence of a preset. The same file
+covers the model-less case end to end: the seeded channel's Scene Plan step is left out of the run
+with the plain message and is **not** enqueued, while its sibling step still runs.
+
+
 ### `auto_approve` is preset data on Contextual Cues — decided 2026-08-17
 
 The fourth instance of the shape, and the second the owner ruled on rather than had excluded.

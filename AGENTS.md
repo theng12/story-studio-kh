@@ -144,15 +144,27 @@ dominant half.
   moves, leave what is on disk alone. Presets still carrying a key that has since been excluded are
   stripped **at the boundary** — on read, before `apply` sees them — and their files are untouched.
 
-**Scene rhythm stays per-episode. Do not add a project-level pacing default.** Proposed and
-rejected by the owner, 2026-08-03: *"it needs to be a deliberate choice on each episode by the
-user. not all stories or videos need the same pacing."* **This rule has never been reversed** —
-not by the 2026-08-18 reinstatement of `pacing` in Character Sheet presets, and not by its
-2026-10-17 removal. Every episode chooses its rhythm in Scene Plan's **Visual timing & motion**
-panel; no project setting, Content Series Formula, or visual style may choose it on the customer's
-behalf. The Character Sheet neither shows nor owns it. The exclusion is scoped to the Character
-Sheet's presets, not to `pacing`: Scene Plan's own preset may carry a rhythm, because that panel is
-the thing that owns it — and at the save boundary the same panel is the only writer that claims it.
+**Scene rhythm stays per-episode — nothing may decide an episode's rhythm on the customer's
+behalf.** Proposed and rejected by the owner, 2026-08-03: *"it needs to be a deliberate choice on
+each episode by the user. not all stories or videos need the same pacing."* No project setting,
+Content Series Formula, or visual style may choose the rhythm for an episode, and the Character
+Sheet neither shows nor owns it. The exclusion is scoped to the Character Sheet's presets, not to
+`pacing`: Scene Plan's own preset may carry a rhythm, because that panel is the thing that owns it —
+and at the save boundary the same panel is the only writer that claims it.
+
+**The one owner-approved addition, 2026-10-19 — a NEW channel's STARTING rhythm.** The owner's
+standard tiered rhythm: 0–180 s a new scene every 5–10 s, 180–360 s every 10–20 s, after 360 s every
+20–30 s. A newly created channel is seeded with it — `createProject` writes `config.json`
+`default_scene_pacing` and a Scene Plan preset named **"Owner standard pacing"**, marked last-used.
+It is a **starting value only**, and the 2026-08-03 rule still holds: an episode reads it until it
+saves a rhythm of its own in Scene Plan's **Visual timing & motion** panel, every episode may still
+change it, and **an existing channel is never rewritten**. A channel whose Formula names its own
+starting scene length still wins, because the Formula is the more specific choice. Do not "fix" this
+by deleting the seed, and do not extend it into anything an episode cannot change. The seeded preset
+names **no writing model** — a model is a live GenStudio choice (§1) — so Pipeline preflight counts a
+preset with no writing model as **no usable preset** and leaves the step out with a plain message
+(`PRESET_MODEL_READERS` in `routes/pipeline.ts`), rather than enqueuing it to fail inside its
+generator.
 
 ## 6. A zero that means two things is a defect
 
