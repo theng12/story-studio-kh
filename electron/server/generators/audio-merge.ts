@@ -25,11 +25,12 @@ import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { MIX_LIMITER, type LoudnessTarget } from '../lib/final-loudness.js'
 import { channelLoudnessTarget, levelAndCheck, mergedAudioMasterPath } from '../lib/level-audio.js'
+import { resolveProjectClosingTail, type ClosingTailRequest } from '../lib/closing-tail.js'
 import { buildMusicBed, MUSIC_REFERENCE_LUFS } from '../lib/music-bed.js'
 import { measureLoudness } from './music-episode-build.js'
 import type {
   AudioMergeRequest, Job,
-  VideoMusicConfig, VideoBackgroundNoise, AmbientTrack,
+  VideoMusicConfig, VideoBackgroundNoise, AmbientTrack, VideoClosingMusic,
 } from '../models/types.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
@@ -1047,6 +1048,26 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     const musicEnabled = req.music?.enabled && (req.music.files?.length ?? 0) > 0
     const noiseEnabled = req.background_noise?.enabled
 
+    // The closing tail — the music that plays AFTER the spoken content ends.
+    // Its length and its music controls both come from the Video Assembly
+    // preset's own `post_audio` block (see lib/closing-tail.ts): ONE source of
+    // truth, so the mix and the picture the renderer draws under it cannot
+    // disagree. Only background music can carry it, so a merge with no music
+    // bakes none and says so rather than leaving a silence unexplained.
+    const requestedClosingTail = await resolveProjectClosingTail(project_slug)
+    const closingTail: ClosingTailRequest = musicEnabled ? requestedClosingTail : { seconds: 0 }
+    if (closingTail.seconds > 0) {
+      job.output_lines.push(
+        `Closing tail: the background music continues for ${closingTail.seconds}s after the narration, `
+        + 'then fades out (Video Assembly\'s post-audio tail).',
+      )
+    } else if (requestedClosingTail.seconds > 0) {
+      job.output_lines.push(
+        `Closing tail: this channel asks for ${requestedClosingTail.seconds}s after the narration, but no background `
+        + 'music is selected, so that tail stays silent — the picture is still held/black for it.',
+      )
+    }
+
     const writeMode = req.write_mode === 'new' ? 'new' : 'overwrite'
     const outputFilename = await resolveMergedOutputName(mergedDir, code, writeMode)
     const outputPath = path.join(mergedDir, outputFilename)
@@ -1071,6 +1092,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
         await mixAudioLayers({
           narrationPath: narrationOnlyPath,
           narrationDuration,
+          closingTail,
           narrationVolume: req.narration_volume ?? 1.0,
           music: musicEnabled ? req.music! : undefined,
           noise: noiseEnabled ? req.background_noise! : undefined,
@@ -1140,6 +1162,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       gapSec: req.gap_duration,
       intro: introRecord,
       musicLeadInSec,
+      closingTailSec: closingTail.seconds,
     })
     const leadInSec = opening.lead_in_sec
     job.output_lines.push(
@@ -1166,6 +1189,15 @@ export async function generateAudioMerge(job: Job): Promise<void> {
         generated_at: new Date().toISOString(),
         // 1.4.281 — the levelled lossless master Video Assembly mixes from (mergedAudioMaster).
         master_filename: path.basename(masterPath),
+        /**
+         * Seconds of music the mix carries AFTER the narration (0 for a merge
+         * with no bed, and for every record written before this field existed).
+         * The renderer draws the matching hold/black picture for exactly this
+         * long and adds no second pad, and every reader asking "how long is the
+         * narration" subtracts it — `duration_sec` is the whole file, tail and
+         * all, and stays the physical fact `asset-status` verifies.
+         */
+        closing_tail_sec: closingTail.seconds,
         opening,
       }, null, 2),
       'utf-8',
@@ -1247,6 +1279,12 @@ export async function levelMergedAudio(opts: {
 interface MixOptions {
   narrationPath: string
   narrationDuration: number
+  /**
+   * The closing tail: how long the music continues after the narration, and the
+   * controls the owner set for it. Absent / 0 = the historical mix, which stops
+   * where the narration does.
+   */
+  closingTail?: ClosingTailRequest
   narrationVolume: number
   music?: VideoMusicConfig
   noise?: VideoBackgroundNoise
@@ -1259,29 +1297,119 @@ interface MixOptions {
 }
 
 /**
- * Build the per-frame `volume` expression for the music intro lead-in
- * (v1.0.397). Phases, by output time t:
- *   [0, leadIn)              → 1.0     full-volume intro
+ * The tail's own mix numbers, from the preset's `closing_music` block and the
+ * Audio Assembly music settings it reuses. Pure and exported so the defaults can
+ * be pinned without running FFmpeg.
+ *
+ * The levels are the SAME two the mix already speaks: `musicVolume` is the bed
+ * under the voice (the ducked level) and `postNarrationVolume` is the level it
+ * returns to once the voice stops — the normal BGM level. `volume` is a
+ * percentage of that normal level, so 100 (and an absent block) means "exactly
+ * what Audio Assembly already set", which is what makes the defaults sound right
+ * with nothing touched.
+ */
+export function resolveClosingTailParams(opts: {
+  tailSec: number
+  /** The bed's level once the voice stops — the normal BGM level. */
+  postNarrationVolume: number
+  /** The Audio Assembly music's own fade-out, the fallback for the tail's. */
+  musicFadeOut: number
+  closing?: VideoClosingMusic
+}): {
+  /** How long the tail runs. */
+  tailSec: number
+  /** The level the bed holds over the tail, after the duck release. */
+  level: number
+  /** Seconds to rise from `musicVolume` to `level`. 0 = the historical step. */
+  duckReleaseSec: number
+  /** Seconds of fade-out over the end of the tail. */
+  fadeOutSec: number
+} {
+  const tailSec = Math.max(0, Number(opts.tailSec) || 0)
+  const percent = Number(opts.closing?.volume)
+  const scale = Number.isFinite(percent) ? Math.max(0, percent) / 100 : 1
+  const release = Number(opts.closing?.duck_release_sec)
+  const fade = Number(opts.closing?.fade_out_sec)
+  return {
+    tailSec,
+    level: Math.max(0, Math.min(1, opts.postNarrationVolume * scale)),
+    // Never longer than the tail itself, or the rise would still be climbing
+    // when the fade-out starts.
+    duckReleaseSec: Math.min(
+      tailSec,
+      Number.isFinite(release) ? Math.max(0, release) : DEFAULT_DUCK_RELEASE_SEC,
+    ),
+    fadeOutSec: Math.min(
+      tailSec,
+      Number.isFinite(fade) && fade > 0
+        ? Math.max(0, fade)
+        : (opts.musicFadeOut > 0 ? opts.musicFadeOut : DEFAULT_TAIL_FADE_OUT_SEC),
+    ),
+  }
+}
+
+/** The duck release when nothing is set: long enough to hear as a rise, short
+ *  enough that the tail is at its level almost immediately. */
+export const DEFAULT_DUCK_RELEASE_SEC = 1.5
+/** The tail's fade-out when neither the tail block nor the music sets one. */
+export const DEFAULT_TAIL_FADE_OUT_SEC = 5
+
+/**
+ * Build the per-frame `volume` expression for the music bed. Phases, by output
+ * time t (`narrEnd = leadIn + narrDur`):
+ *   [0, leadIn)              → 1.0     full-volume intro (music lead-in only)
  *   [leadIn, leadIn+fade)    → linear ramp 1.0 → duckVol (smooth duck as the
  *                              narration begins)
- *   [leadIn+fade, leadIn+narrDur) → duckVol (music under narration)
- *   ≥ leadIn+narrDur         → postVol (after narration; usually trimmed off)
+ *   [leadIn+fade, narrEnd)   → duckVol (music under narration)
+ *   [narrEnd, +release)      → linear ramp duckVol → postVol (the duck release,
+ *                              so the bed rises back as the voice stops rather
+ *                              than jumping)
+ *   ≥ narrEnd+release        → postVol (the closing tail's level)
  * Pure + exported for unit coverage — the math is fiddly and FFmpeg can't run
  * in tests. `duckFade` is clamped by the caller (>0). Values are absolute
  * gains, fed to `volume='…':eval=frame`.
+ *
+ * `leadIn = 0` emits no intro phase (there is no music intro to duck from), and
+ * `release = 0` emits no ramp, which is byte-identical to the pre-2026-10-19
+ * expression every existing merge used.
  */
 export function buildMusicLeadInVolumeExpr(
   leadIn: number, duckFade: number, narrDur: number, duckVol: number, postVol: number,
+  releaseSec = 0,
 ): string {
-  const L = leadIn.toFixed(3)
-  const Lf = (leadIn + duckFade).toFixed(3)
-  const narrEnd = (leadIn + narrDur).toFixed(3)
+  const narrEnd = leadIn + narrDur
   const mv = duckVol.toFixed(3)
   const pv = postVol.toFixed(3)
+  const release = Math.max(0, releaseSec)
+  const afterVoice = release > 0
+    ? `if(lt(t,${(narrEnd + release).toFixed(3)}),`
+      + `${mv}+(${pv}-${mv})*(t-${narrEnd.toFixed(3)})/${release.toFixed(3)},${pv})`
+    : pv
+  const underVoice = `if(lt(t,${narrEnd.toFixed(3)}),${mv},${afterVoice})`
+  if (!(leadIn > 0)) return underVoice
+  const L = leadIn.toFixed(3)
+  const Lf = (leadIn + duckFade).toFixed(3)
   const df = duckFade.toFixed(3)
   return `if(lt(t,${L}),1.0,`
     + `if(lt(t,${Lf}),1.0+(${mv}-1.0)*(t-${L})/${df},`
-    + `if(lt(t,${narrEnd}),${mv},${pv})))`
+    + `${underVoice}))`
+}
+
+/**
+ * The one definition of how long the merged mix runs: the narration, the music
+ * lead-in that precedes it, and the closing tail that follows it.
+ *
+ * Everything in the filter graph is trimmed to this number — the bed, the noise,
+ * the ambient layers — so the mix ends exactly where the video's picture does.
+ * The narration itself is shorter (it is delayed by the lead-in), which is why
+ * `amix=duration=longest` produces this length rather than the narration's.
+ */
+export function mergedMixDurationSec(
+  narrationSec: number, leadInSec: number, closingTailSec: number,
+): number {
+  return (Number(narrationSec) || 0)
+    + Math.max(0, Number(leadInSec) || 0)
+    + Math.max(0, Number(closingTailSec) || 0)
 }
 
 async function mixAudioLayers(opts: MixOptions): Promise<void> {
@@ -1296,7 +1424,10 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
   const leadIn = (music?.lead_in_enabled && (music.lead_in_seconds ?? 0) > 0)
     ? Math.max(0, music.lead_in_seconds as number)
     : 0
-  const totalDur = narrationDuration + leadIn
+  // The closing tail is music-only: with no bed there is nothing to carry past
+  // the narration, and the mix stops where it always did.
+  const closingTail: ClosingTailRequest = music ? (opts.closingTail ?? { seconds: 0 }) : { seconds: 0 }
+  const totalDur = mergedMixDurationSec(narrationDuration, leadIn, closingTail.seconds)
   const inputs: string[] = []
   const filterParts: string[] = []
   const mixInputLabels: string[] = []
@@ -1330,26 +1461,31 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
     job.output_lines.push(`  Music bed: ${Math.round(music.volume * 100)}% = ${(20 * Math.log10(Math.max(music.volume, 0.001))).toFixed(1)} dB `
       + `relative to the narration${narrationLufs !== null ? ` (narration ${narrationLufs.toFixed(1)} LUFS)` : ''}.`)
 
-    // Loop music to fill duration
+    // Loop music to fill duration. `buildMusicBed` already joins the tracks with
+    // equal-power crossfades and makes the joined bed loopable (its end
+    // crossfades into its start), so the bed never runs out and never hard-cuts:
+    // a tail longer than the track keeps playing the same bed, not silence.
     inputs.push('-stream_loop', '-1', '-i', musicInputPath)
 
-    const musicVol = music.volume.toFixed(2)
     const postNarrVol = music.post_narration_volume
-    const boostRatio = musicVol !== '0.00'
-      ? (postNarrVol / music.volume).toFixed(2)
-      : '1.00'
+    // The tail's own numbers: its level, the rise back out of the duck, and the
+    // fade-out at the end. `closing_tail_sec` is the length the renderer draws.
+    const tail = resolveClosingTailParams({
+      tailSec: closingTail.seconds,
+      postNarrationVolume: postNarrVol,
+      musicFadeOut: music.fade_out || 0,
+      closing: closingTail.music,
+    })
 
     if (leadIn > 0) {
       // Lead-in "intro" (v1.0.397): one piecewise volume envelope plays the
       // track at full volume for `leadIn` seconds, then ducks (over a short
       // fade) to the during-narration volume exactly as the delayed narration
-      // starts. Replaces the base-volume + post-boost chain used below. `:eval=
-      // frame` makes the volume expression time-varying. Quoting protects the
-      // commas in the expression from the filtergraph parser (same as the
-      // existing `enable='gt(t,…)'` boost).
+      // starts. `:eval=frame` makes the volume expression time-varying. Quoting
+      // protects the commas in the expression from the filtergraph parser.
       const duckFade = Math.max(0.05, Math.min(0.6, leadIn / 2))
       const env = buildMusicLeadInVolumeExpr(
-        leadIn, duckFade, narrationDuration, music.volume, music.post_narration_volume,
+        leadIn, duckFade, narrationDuration, music.volume, tail.level, tail.duckReleaseSec,
       )
       filterParts.push(
         `[${inputIdx}:a]atrim=0:${totalDur.toFixed(2)},asetpts=PTS-STARTPTS,` +
@@ -1360,23 +1496,39 @@ async function mixAudioLayers(opts: MixOptions): Promise<void> {
         `  Music intro: first ${leadIn}s at full volume, then ducks to ${Math.round(music.volume * 100)}% as narration starts`,
       )
     } else {
+      // No music intro: the same envelope with no intro phase. It carries the
+      // duck release too, so the bed rises back as the last word lands instead
+      // of jumping the instant the voice stops.
+      const env = buildMusicLeadInVolumeExpr(
+        0, 0, narrationDuration, music.volume, tail.level, tail.duckReleaseSec,
+      )
       filterParts.push(
         `[${inputIdx}:a]atrim=0:${totalDur.toFixed(2)},asetpts=PTS-STARTPTS,` +
         `aresample=44100,aformat=channel_layouts=stereo:sample_fmts=fltp,volume=${bedOffsetDb.toFixed(2)}dB,` +
-        `volume=${musicVol}[bgm]`,
-      )
-
-      // Boost music volume after narration ends
-      filterParts.push(
-        `[bgm]volume=enable='gt(t,${narrationDuration.toFixed(2)})':volume=${boostRatio}[bgm2]`,
+        `volume='${env}':eval=frame[bgm2]`,
       )
     }
 
-    // Fade the bed in and out (at least 2 s / 3 s: the music never starts or stops with a cut).
+    // Fade the bed in and out — the music never starts or stops with a cut.
+    // Over a TAIL the out-fade is the closing fade the owner set, on a smooth
+    // (quarter-sine) curve; without one it keeps the historical 2 s / 3 s
+    // linear pair, so an existing episode re-merges byte-for-byte as before.
     const fadeIn = Math.max(2, music.fade_in || 0)
-    const fadeOut = Math.max(3, music.fade_out || 0)
-    filterParts.push(`[bgm2]afade=t=in:st=0:d=${fadeIn},afade=t=out:st=${Math.max(0, totalDur - fadeOut).toFixed(2)}:d=${fadeOut}[bgm3]`)
+    const fadeOut = tail.tailSec > 0 ? tail.fadeOutSec : Math.max(3, music.fade_out || 0)
+    const fadeCurve = tail.tailSec > 0 ? ':curve=qsin' : ''
+    filterParts.push(
+      `[bgm2]afade=t=in:st=0:d=${fadeIn},`
+      + `afade=t=out:st=${Math.max(0, totalDur - fadeOut).toFixed(2)}:d=${fadeOut}${fadeCurve}[bgm3]`,
+    )
     const musicLabel = 'bgm3'
+
+    if (tail.tailSec > 0) {
+      job.output_lines.push(
+        `  Closing tail: music continues ${tail.tailSec}s past the narration at `
+        + `${Math.round(tail.level * 100)}% of the normal BGM level, rising out of the duck over `
+        + `${tail.duckReleaseSec}s and fading out over the last ${tail.fadeOutSec}s.`,
+      )
+    }
 
     mixInputLabels.push(`[${musicLabel}]`)
     inputIdx++

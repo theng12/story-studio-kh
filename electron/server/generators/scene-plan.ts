@@ -23,6 +23,7 @@ import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { getConfig } from '../services/project-manager.js'
 import { computeStoryStartSec, scenePlanLeadInShiftSec } from '../lib/intro-lead-in.js'
+import { narrationSecFromMaster } from '../lib/closing-tail.js'
 import { resolveEpisodeMergedAudioChoice, expectedMergedAudioFilename } from '../lib/merged-audio-selection.js'
 import { resolveProjectOpening } from '../services/opening-assets.js'
 import { describeOpeningHead, measureOpeningSec } from '../lib/opening-duration.js'
@@ -1124,9 +1125,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       let mergedAudioSec = 0
       try {
         const assets = await scanEpisodeAssets(job.project_slug, episode_id)
-        const merged = assets?.merged_audio?.[0]?.path
+        const mergedEntry = assets?.merged_audio?.[0]
+        const merged = mergedEntry?.path
         if (merged && existsSync(merged)) {
-          mergedAudioSec = (await getAudioDuration(merged)) || 0
+          // The plan times the NARRATION. A merged master that carries a closing
+          // music tail is longer than the speech, and planning scenes across the
+          // music would leave the renderer no picture to hold when the words end.
+          mergedAudioSec = narrationSecFromMaster(
+            (await getAudioDuration(merged)) || 0,
+            mergedEntry?.closing_tail_sec || 0,
+          )
           if (mergedAudioSec > totalDuration) totalDuration = mergedAudioSec
         }
       } catch { /* stitched SRT duration remains the safe fallback */ }
@@ -1243,8 +1251,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           if (drift.stale) throw realignable(drift.reason)
           if (plan.source_merged_audio) {
             const merged = (await scanEpisodeAssets(job.project_slug, episode_id)).merged_audio?.[0]
-            const audioDrift = compareMergedAudio(plan.source_merged_audio, merged?.duration,
-              scenePlanLeadInShiftSec(plan.scenes || [], merged?.opening?.lead_in_sec, merged?.duration))
+            // Narration length, not file length: the closing music tail a merge
+            // baked in is not part of what the plan's scene times describe.
+            const mergedNarrationSec = narrationSecFromMaster(merged?.duration || 0, merged?.closing_tail_sec || 0)
+            const audioDrift = compareMergedAudio(plan.source_merged_audio, mergedNarrationSec,
+              scenePlanLeadInShiftSec(plan.scenes || [], merged?.opening?.lead_in_sec, mergedNarrationSec))
             if (audioDrift.stale) throw realignable(audioDrift.reason)
           }
           // 1.4.300 "Saved Scene Plan can safely continue" (Off/Warn): a plan with no pacing snapshot

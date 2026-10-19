@@ -308,6 +308,9 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
               : {}),
           }
         : { enabled: false },
+      // Carries `closing_music` with it (2026-10-19): the closing tail's controls
+      // ride in the same post-audio block as its length, so there is one place
+      // the owner sets the close. The mix that uses them runs at Audio Assembly.
       post_audio: { ...s.postAudio },
       scene_recycling: {
         seconds_per_scene: s.sceneRecycling.seconds_per_scene,

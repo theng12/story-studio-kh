@@ -56,6 +56,18 @@ function resolveSlot(config: any, slot: 'intro' | 'timeline' | 'effects'): any |
   return bundle?.fallback?.[slot] ?? null
 }
 
+/**
+ * The active TIMELINE slot's saved data, in the page's own resolution order.
+ *
+ * Exported (2026-10-19) because the closing music tail lives there — `post_audio`
+ * with its `closing_music` block — and Audio Assembly has to read the SAME block
+ * the renderer does. A second copy of this order would be a second answer to
+ * "which timeline is this channel using".
+ */
+export function resolveTimelineSlot(config: any): any | null {
+  return resolveSlot(config, 'timeline')
+}
+
 export interface ResolvedOpening {
   head: OpeningHead
   /**

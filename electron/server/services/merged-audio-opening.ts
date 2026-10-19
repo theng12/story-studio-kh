@@ -70,6 +70,13 @@ export interface MergedAudioOpening {
   intro: MergedAudioIntroRecord | null
   /** Only meaningful when `recorded`. */
   music_lead_in_sec: number | null
+  /**
+   * Seconds of music the merge carried AFTER the narration (the closing tail),
+   * as the record states it. 0 for a merge that baked none and for every file
+   * merged before the field existed — both really have no tail. `lead_in_sec`
+   * already excludes it: the tail is not an opening.
+   */
+  closing_tail_sec: number
   /** Only set when `unmeasurable` — why, in the user's words. */
   reason: string | null
 }
@@ -99,9 +106,17 @@ export function buildMergedAudioOpeningRecord(opts: {
   gapSec: number
   intro: MergedAudioIntroRecord | null
   musicLeadInSec: number
+  /**
+   * Seconds of music the mix appended AFTER the narration. The measurement
+   * below is `mergedDuration − narrationExtent`, which would read the tail as
+   * an opening; subtracting it here keeps `lead_in_sec` meaning what its name
+   * says, and keeps the captions on the clock they were stitched to.
+   */
+  closingTailSec?: number
 }): MergedAudioOpeningRecord {
   const { finalDurationSec, sections, gapSec, intro, musicLeadInSec } = opts
-  const measurement = introLeadInFrom(finalDurationSec, sections, gapSec)
+  const closingTailSec = Math.max(0, Number(opts.closingTailSec) || 0)
+  const measurement = introLeadInFrom(finalDurationSec - closingTailSec, sections, gapSec)
   const leadInSec = measurement.status === 'measured'
     ? measurement.seconds
     : roundMs((intro?.duration_sec || 0) + (intro?.gap_after_sec || 0) + musicLeadInSec)
@@ -154,6 +169,12 @@ export async function describeMergedAudioOpening(opts: {
     recordDescribesThisFile && completion?.opening && typeof completion.opening === 'object'
       ? completion.opening
       : undefined
+  // The closing tail is a top-level property of the file, like `duration_sec`,
+  // and it is only known when the record describes THIS file — a record naming a
+  // `_v2` says nothing about the base track beside it.
+  const closingTailSec = recordDescribesThisFile
+    ? Math.max(0, Number(completion?.closing_tail_sec) || 0)
+    : 0
 
   if (recorded && typeof recorded.lead_in_sec === 'number' && Number.isFinite(recorded.lead_in_sec)) {
     return {
@@ -161,15 +182,17 @@ export async function describeMergedAudioOpening(opts: {
       lead_in_sec: roundMs(Math.max(0, recorded.lead_in_sec)),
       intro: recorded.intro ?? null,
       music_lead_in_sec: Number(recorded.music_lead_in_sec) || 0,
+      closing_tail_sec: closingTailSec,
       reason: null,
     }
   }
 
   // No usable record — fall back to measuring the file, using the same
-  // function the subtitle stitcher trusts.
+  // function the subtitle stitcher trusts. The recorded tail (when there is
+  // one) is subtracted first: it is music after the narration, not an opening.
   const sidecar = await readJson(path.join(episodeDir, 'audio_chapters.json'))
   const measurement = introLeadInFrom(
-    mergedDurationSec,
+    Number(mergedDurationSec) - closingTailSec,
     Array.isArray(sidecar?.sections) ? sidecar.sections : [],
     typeof sidecar?.gap_duration_s === 'number' ? sidecar.gap_duration_s : 0,
   )
@@ -180,6 +203,7 @@ export async function describeMergedAudioOpening(opts: {
       lead_in_sec: null,
       intro: null,
       music_lead_in_sec: null,
+      closing_tail_sec: closingTailSec,
       reason: measurement.reason || 'The opening of this file could not be measured.',
     }
   }
@@ -189,6 +213,7 @@ export async function describeMergedAudioOpening(opts: {
     lead_in_sec: measurement.seconds,
     intro: null,
     music_lead_in_sec: null,
+    closing_tail_sec: closingTailSec,
     reason: null,
   }
 }

@@ -11,6 +11,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
+import { mergedClosingTailSec, narrationSecFromMaster } from '../lib/closing-tail.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from './utils.js'
 import { resolveTranscriptSrtPath, stitchedSrtPath } from './subtitle-correction.js'
 import { computePlanCoverage, reconcilePlanToSubtitles, removeNonRenderableScenes } from './scene-planner.js'
@@ -23,6 +24,16 @@ function refusal(statusCode: number, message: string): Error {
 
 /** Below this share of today's narration a plan is not "a little" out of step; it needs a rebuild. */
 export const AUTO_REALIGN_MIN_COVERAGE = 0.9
+
+/**
+ * How long a merged track's NARRATION is, in seconds: the file minus any closing
+ * music tail Audio Assembly baked into it. Re-anchoring follows the captions and
+ * the speech; the music after the last word is not part of either.
+ */
+async function mergedNarrationSecFor(mergedPath: string, code: string): Promise<number> {
+  const master = (await getAudioDuration(mergedPath)) || 0
+  return narrationSecFromMaster(master, await mergedClosingTailSec(mergedPath, code))
+}
 
 export async function reconcileScenePlanTimings(
   slug: string,
@@ -68,13 +79,13 @@ export async function reconcileScenePlanTimings(
   if (existsSync(paths.merged_audio_dir)) {
     const choice = await resolveEpisodeMergedAudioChoice(paths.merged_audio_dir, episodeId)
     if (choice.source === 'selected' && choice.filename) {
-      audioDur = (await getAudioDuration(path.join(paths.merged_audio_dir, choice.filename))) || 0
+      audioDur = await mergedNarrationSecFor(path.join(paths.merged_audio_dir, choice.filename), episodeId)
     } else if (choice.source === 'unset') {
       let best = 0
       for (const f of await fs.readdir(paths.merged_audio_dir).catch(() => [] as string[])) {
         if (!/\.(mp3|wav|m4a)$/i.test(f) || f.startsWith('.tmp_')) continue
         const st = await fs.stat(path.join(paths.merged_audio_dir, f)).catch(() => null)
-        if (st && st.size > best) { best = st.size; audioDur = (await getAudioDuration(path.join(paths.merged_audio_dir, f))) || 0 }
+        if (st && st.size > best) { best = st.size; audioDur = await mergedNarrationSecFor(path.join(paths.merged_audio_dir, f), episodeId) }
       }
     }
   }
