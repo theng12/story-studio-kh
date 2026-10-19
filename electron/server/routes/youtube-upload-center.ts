@@ -81,6 +81,9 @@ import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '
 import { getUploadMode } from '../services/upload-store.js'
 import { safetyMode } from '../services/safety-checks.js'
 import {
+  finalCheckVerdict, readStoredFinalCheck, runFinalCheck, storeFinalCheck, finalCheckSummary,
+} from '../lib/final-video-check.js'
+import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
   latestFutureProjectClaimMs, listPlans, localDayKeyInTz, orderEpisodeCodes,
   readItemSchedule, UploadScheduleBatchWriteError,
@@ -602,6 +605,9 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
           renderUnknown = true
         }
         const hasVideo = !!sourceVideoPath
+        // The final check's stored verdict, read from beside the rendered file it describes. One
+        // small JSON read per row, and only for a row that has a rendered file at all.
+        const finalCheck = sourceVideoPath ? await readStoredFinalCheck(sourceVideoPath) : null
         const episodeOperations = records.filter(record => record.episode_code === code
           && onCurrentChannel(channelId, record.channel_id)
           && !isYouTubeVideoRemoved(publishingState ?? {}, code, record.channel_id, record.video_id))
@@ -709,6 +715,17 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
           ...(remote ? { remote_source: remote.source } : {}),
           ...(operation ? { operation: publicOperation(operation) } : {}),
           local,
+          ...(sourceVideoPath
+            ? {
+                final_check: {
+                  summary: finalCheckSummary(finalCheck),
+                  passed: !!finalCheck && !finalCheck.stale && finalCheck.result.passed,
+                  checked: !!finalCheck,
+                  stale: !!finalCheck?.stale,
+                  issues: finalCheck?.result.issues ?? [],
+                },
+              }
+            : {}),
           publication,
           can_schedule_existing: !schedule_blocked_reason,
           ...(schedule_blocked_reason ? { schedule_blocked_reason } : {}),
@@ -2318,6 +2335,54 @@ router.post('/projects/:slug/youtube/preview', async (req, res) => {
 })
 
 /**
+ * Run the final check on an episode's finished video, now, and store the verdict beside it.
+ *
+ * Video Assembly runs this by itself at the end of every render; this is for the file that was made
+ * before that, or for a re-check after the owner changed something. It measures against the plan the
+ * sidecar recorded (the plan the file was MADE for, not today's settings). A file with no sidecar —
+ * one rendered before this feature existed — still gets the checks that need no plan: black
+ * stretches, silence inside the speech, and the picture/sound clocks.
+ */
+router.post('/projects/:slug/youtube/final-check', async (req, res) => {
+  const slug = req.params.slug
+  try {
+    const episodeCode = typeof req.body?.episode_code === 'string' ? req.body.episode_code.trim() : ''
+    if (!episodeCode) {
+      res.status(400).json({ detail: 'Choose an episode to check.' })
+      return
+    }
+    const episodeTitle = await acceptedTitleFor(slug, episodeCode)
+    const sourcePaths = await resolveEpisodePaths(slug, episodeCode, episodeTitle)
+    const sourceVideoPath = await findYouTubeSourceVideoPath(sourcePaths, slug, episodeCode, episodeTitle)
+    if (!sourceVideoPath) {
+      res.status(409).json({
+        code: 'YOUTUBE_NO_RENDERED_VIDEO',
+        detail: `${episodeCode} has no rendered video yet.`,
+      })
+      return
+    }
+    const stored = await readStoredFinalCheck(sourceVideoPath)
+    const expected = stored?.result.expected ?? {
+      planned_sec: 0,
+      tail: { sec: 0, from_end_sec: 0 },
+      closing_music: false,
+      width: 0,
+      height: 0,
+      subtitles_path: null,
+    }
+    const result = await runFinalCheck(sourceVideoPath, expected)
+    await storeFinalCheck(sourceVideoPath, result)
+    res.json({
+      episode_code: episodeCode,
+      summary: finalCheckSummary({ result, stale: false }),
+      ...result,
+    })
+  } catch (error) {
+    fail(res, error, 'Failed to run the final check on that video.')
+  }
+})
+
+/**
  * Publish -> Upload. The one route that puts a video on YouTube.
  *
  * MANUAL only. It never touches `executeScheduledYouTubeUpload`; the automatic
@@ -2471,6 +2536,37 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
         detail: `${episodeCode} has no rendered video yet.`,
       })
       return
+    }
+
+    // ── The final check gate — THIS ROUTE'S ONLY ADDITION (lib/final-video-check.ts) ──────────
+    //
+    // Every other guard was green and the finished file was still wrong: a planned 25 s music
+    // closing rendered silent, and uploads were abandoned because the file was longer than the
+    // plan. The verdict is measured at the end of Video Assembly and stored beside the rendered
+    // file, bound to its size and mtime, so a re-render makes it stale rather than misleading.
+    //
+    // Warn (the default) asks once and the owner answers: "Upload anyway" resends this same body
+    // with `acknowledge_final_check`, the click-through `episode_number_claim` already uses. Off
+    // skips the question; Block refuses without one. Nothing here blocks an upload permanently.
+    const storedCheck = await readStoredFinalCheck(sourceVideoPath)
+    const checkReason = finalCheckVerdict(storedCheck)
+    if (checkReason) {
+      const checkMode = await safetyMode(slug, 'final_check')
+      if (checkMode !== 'off' && (checkMode === 'block' || req.body?.acknowledge_final_check !== true)) {
+        res.status(409).json({
+          code: 'YOUTUBE_FINAL_CHECK_FAILED',
+          detail: `${episodeCode}'s finished video ${checkReason}. Upload it anyway to publish it as it is.`,
+          // Block is a deliberate refusal: no click-through is offered, and none would work.
+          confirmable: checkMode !== 'block',
+          final_check: storedCheck
+            ? { passed: storedCheck.result.passed, stale: storedCheck.stale, issues: storedCheck.result.issues }
+            : { passed: false, stale: false, issues: [] },
+        })
+        return
+      }
+      if (checkMode !== 'off') {
+        passedChecks.push({ check: 'final_check', message: `The finished video ${checkReason}; you chose to upload it anyway.` })
+      }
     }
     // The reviewed revision travels to the job. This route does NOT re-derive
     // it, and that is the whole point of this block.

@@ -11,6 +11,7 @@ import { useTempDataDir } from './_helpers.js'
 import { FakeYouTube } from './fixtures/fake-youtube.js'
 import { tinyVideoWithSoundBytes as tinyVideoBytes } from './fixtures/tiny-video.js'
 import { waitFor } from './_timing.js'
+import { runFinalCheck, storeFinalCheck } from '../lib/final-video-check.js'
 import { saveYouTubeChannelGrantForTest } from './_youtube-connection-test-helper.js'
 
 const boot = await useTempDataDir()
@@ -5438,4 +5439,141 @@ test('reviewed and unchanged Off: details changed after preview upload as they a
   assert.equal(JSON.parse(queued?.params?.approved_final_payload?.snippet_json).title, 'Changed after preview')
   assert.equal(queued?.params?.privacy_status, 'private', 'the privacy is still the one chosen')
   await removeQueuedTestJob(slug, res.body.job_id)
+})
+
+// ── The final check gate (2026-10-19, lib/final-video-check.ts) ──────────────────────────────────
+//
+// The finished file is measured at the end of Video Assembly and the verdict is stored beside it.
+// These two tests are the upload side: the refusal, the owner's click-through, staleness, and the
+// channel's own Off / Block setting.
+
+test('a finished video that failed its final check cannot be uploaded until the owner says so', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const videoPath = path.join(
+    (await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir,
+    `${episodeCode}_final_video.mp4`,
+  )
+  // `uploadReadyProject` writes a placeholder; the check really probes the file, so put a real one
+  // there before the preview hashes it.
+  await fs.writeFile(videoPath, tinyVideoBytes())
+  const body = await confirmedUploadBody(slug, episodeCode)
+
+  // A verdict from Video Assembly that the plan was missed by a minute. The check itself is fine —
+  // this is the same measurement the render runs, on the file the upload would send.
+  const failed = await runFinalCheck(videoPath, {
+    planned_sec: 60, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null,
+  })
+  assert.equal(failed.passed, false, 'a one-second file cannot be a sixty-second plan')
+  await storeFinalCheck(videoPath, failed)
+
+  const refused = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(refused.status, 409)
+  assert.equal(refused.body.code, 'YOUTUBE_FINAL_CHECK_FAILED')
+  assert.equal(refused.body.confirmable, true)
+  assert.match(refused.body.detail, /add up to 60\.0s/)
+  assert.equal(refused.body.job_id, undefined, 'nothing is queued before the question is answered')
+  assert.equal(refused.body.final_check.passed, false)
+
+  // "Upload anyway" resends the SAME body with the acknowledgement, and the job records the answer.
+  const clickedThrough = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ ...body, acknowledge_final_check: true })
+  assert.equal(clickedThrough.status, 200, JSON.stringify(clickedThrough.body))
+  const queued = jobQueue.getJob(clickedThrough.body.job_id)
+  assert.equal(queued?.params?.safety_warnings?.[0]?.check, 'final_check')
+  await removeQueuedTestJob(slug, clickedThrough.body.job_id)
+
+  // A passing verdict, bound to these bytes, needs no acknowledgement at all.
+  const passed = await runFinalCheck(videoPath, {
+    planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null,
+  })
+  assert.equal(passed.passed, true, JSON.stringify(passed.issues))
+  await storeFinalCheck(videoPath, passed)
+  const allowed = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(allowed.status, 200, JSON.stringify(allowed.body))
+  await removeQueuedTestJob(slug, allowed.body.job_id)
+
+  // A re-render replaces the file, so that verdict no longer describes it and the question returns.
+  await fs.appendFile(videoPath, Buffer.alloc(8))
+  const stale = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(stale.status, 409)
+  assert.equal(stale.body.code, 'YOUTUBE_FINAL_CHECK_FAILED')
+  assert.match(stale.body.detail, /changed since its final check/)
+})
+
+test('a finished video with no verdict is not refused: the row says so and the check can be run on demand', async () => {
+  const { slug, episodeCode } = await uploadReadyProject()
+  const body = await confirmedUploadBody(slug, episodeCode)
+
+  const res = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(res.status, 200, 'an unchecked file is not a fault; refusing here would block real work')
+  await removeQueuedTestJob(slug, res.body.job_id)
+
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.equal(row.final_check.summary, 'Final check: not run yet')
+  assert.equal(row.final_check.checked, false)
+})
+
+test('final check Off uploads without asking; Block refuses even when the owner confirms', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const videoPath = path.join(
+    (await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir,
+    `${episodeCode}_final_video.mp4`,
+  )
+  await fs.writeFile(videoPath, tinyVideoBytes())
+  const body = await confirmedUploadBody(slug, episodeCode)
+  const failed = await runFinalCheck(videoPath, {
+    planned_sec: 60, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null,
+  })
+  await storeFinalCheck(videoPath, failed)
+
+  await setSafety(slug, 'final_check', 'off')
+  const off = await request(app).post(`/api/projects/${slug}/youtube/upload`).send(body)
+  assert.equal(off.status, 200, 'Off: no question, straight on to the upload')
+  await removeQueuedTestJob(slug, off.body.job_id)
+
+  await setSafety(slug, 'final_check', 'block')
+  const blocked = await request(app).post(`/api/projects/${slug}/youtube/upload`)
+    .send({ ...body, acknowledge_final_check: true })
+  assert.equal(blocked.status, 409)
+  assert.equal(blocked.body.code, 'YOUTUBE_FINAL_CHECK_FAILED')
+  assert.equal(blocked.body.confirmable, false, 'Block offers no click-through')
+})
+
+test('the final check runs on demand and stores its verdict beside the finished video', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const videoPath = path.join(
+    (await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir,
+    `${episodeCode}_final_video.mp4`,
+  )
+  await fs.writeFile(videoPath, tinyVideoBytes())
+
+  const res = await request(app).post(`/api/projects/${slug}/youtube/final-check`)
+    .send({ episode_code: episodeCode })
+  assert.equal(res.status, 200, JSON.stringify(res.body))
+  assert.equal(res.body.passed, true, JSON.stringify(res.body.issues))
+  assert.equal(res.body.summary, 'Final check: passed')
+
+  // The verdict is on disk beside the file it describes, and the row reads it back.
+  const stored = JSON.parse(await fs.readFile(`${videoPath}.finalcheck.json`, 'utf-8'))
+  assert.equal(stored.passed, true)
+  assert.equal(stored.file.size, (await fs.stat(videoPath)).size)
+
+  const listed = await request(app).get(`/api/projects/${slug}/youtube/publishable`)
+  const row = listed.body.episodes.find((entry: any) => entry.episode_code === episodeCode)
+  assert.equal(row.final_check.summary, 'Final check: passed')
+  assert.equal(row.final_check.passed, true)
+  assert.deepEqual(row.final_check.issues, [])
+})
+
+test('the final check refuses an episode with no rendered video instead of inventing a verdict', async () => {
+  const slug = await registryOnlyProject()
+  const { episodeCode } = await acceptedEpisode(slug)
+  const res = await request(app).post(`/api/projects/${slug}/youtube/final-check`)
+    .send({ episode_code: episodeCode })
+  assert.equal(res.status, 409)
+  assert.equal(res.body.code, 'YOUTUBE_NO_RENDERED_VIDEO')
 })

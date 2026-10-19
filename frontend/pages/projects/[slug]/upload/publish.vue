@@ -245,6 +245,13 @@
               >
                 {{ busy === `preview-${ep.episode_code}` ? 'Preparing…' : 'Review Upload Details' }}
               </button>
+              <button
+                v-if="renderState(ep) === 'ready'" class="btn btn-ghost btn-sm" type="button"
+                :disabled="busy !== ''" @click="runFinalCheck(ep)"
+                title="Measure the finished video now: its length against the plan, its closing tail, black stretches, silence, picture and sound, captions and size"
+              >
+                {{ busy === `final-check-${ep.episode_code}` ? 'Checking…' : 'Run Final Check' }}
+              </button>
               <NuxtLink
                 v-if="renderState(ep) === 'ready' && !assignedChannel"
                 :to="`/projects/${slug}/settings#youtube`" class="btn btn-ghost btn-sm"
@@ -258,6 +265,7 @@
                 :disabled="busy !== ''" @click="forgetUpload(ep)"
               >I Deleted This Video on YouTube</button>
             </div>
+            <p v-if="ep.final_check" :class="['row-result', ep.final_check.passed ? 'ok' : 'warn']">{{ ep.final_check.summary }}</p>
             <p v-if="ep.blocked_reason" class="row-result warn">{{ ep.blocked_reason }}</p>
             <p v-if="rowResults[ep.episode_code]" :class="['row-result', rowResults[ep.episode_code].kind]" role="status">
               {{ rowResults[ep.episode_code].message }}
@@ -811,6 +819,14 @@ interface PublishableEpisode {
   has_video?: boolean
   /** Why this episode cannot be uploaded, decided by the route. Absent = it can. */
   blocked_reason?: string
+  /** The final check's stored verdict, read from beside the rendered file it describes. */
+  final_check?: {
+    summary: string
+    passed: boolean
+    checked: boolean
+    stale: boolean
+    issues: Array<{ check: string; verdict: string }>
+  }
   /** Already on YouTube — from the operation record OR a legacy sidecar. */
   has_remote_video?: boolean
   remote_video_id?: string
@@ -2187,19 +2203,7 @@ async function upload(episodeCode: string): Promise<void> {
     ...(expectedPublishAt ? { publish_at: expectedPublishAt } : {}),
   }
   try {
-    let res: { job_id: string; channel_id: string }
-    try {
-      res = await post<{ job_id: string; channel_id: string }>(
-        `/projects/${requestedSlug}/youtube/upload`, uploadBody,
-      )
-    } catch (error: any) {
-      const acknowledgement = await confirmableUploadAcknowledgement(error, episodeCode)
-      if (!acknowledgement) throw error
-      // Clicked through: resend the SAME reviewed body with the acknowledgement.
-      res = await post<{ job_id: string; channel_id: string }>(
-        `/projects/${requestedSlug}/youtube/upload`, { ...uploadBody, ...acknowledgement },
-      )
-    }
+    const res = await postUploadWithAcknowledgements(requestedSlug, uploadBody, episodeCode)
     if (!actionIsCurrent(action)) return
     rowResults[episodeCode] = {
       kind: 'ok',
@@ -2393,20 +2397,7 @@ async function queueReviewedUploads(): Promise<void> {
         privacy_status: preview.status.privacyStatus,
         ...(preview.status.publishAt ? { publish_at: preview.status.publishAt } : {}),
       }
-      let result: { job_id: string; channel_id: string }
-      try {
-        result = await post<{ job_id: string; channel_id: string }>(
-          `/projects/${requestedSlug}/youtube/upload`, uploadBody,
-        )
-      } catch (error: any) {
-        const acknowledgement = await confirmableUploadAcknowledgement(error, item.episode_code)
-        if (!acknowledgement) throw error
-        // Clicked through: resend the SAME reviewed body with the
-        // acknowledgement. Nothing else about the request changes.
-        result = await post<{ job_id: string; channel_id: string }>(
-          `/projects/${requestedSlug}/youtube/upload`, { ...uploadBody, ...acknowledgement },
-        )
-      }
+      const result = await postUploadWithAcknowledgements(requestedSlug, uploadBody, item.episode_code)
       if (!actionIsCurrent(action)) return
       item.state = 'queued'
       item.job_id = result.job_id
@@ -2463,6 +2454,33 @@ async function queueReviewedUploads(): Promise<void> {
  *    — Domnak DM0001–DM0003 — so the refusal is a real one; the owner may still
  *    know better (a verification in progress, a video about to be shortened).
  */
+/**
+ * Post an upload, and when the route asks a confirmable question (episode code claimed elsewhere,
+ * channel not verified for long videos, final check failed), ask the owner and resend the SAME
+ * reviewed body with every answer given so far. More than one question can apply to one upload,
+ * so this keeps asking until the route accepts or the owner declines. Nothing else in the request
+ * changes.
+ */
+async function postUploadWithAcknowledgements(
+  projectSlug: string,
+  uploadBody: Record<string, unknown>,
+  episodeCode: string,
+): Promise<{ job_id: string; channel_id: string }> {
+  let acknowledged: Record<string, true> = {}
+  for (let round = 0; ; round++) {
+    try {
+      return await post<{ job_id: string; channel_id: string }>(
+        `/projects/${projectSlug}/youtube/upload`, { ...uploadBody, ...acknowledged },
+      )
+    } catch (error: any) {
+      if (round >= 3) throw error
+      const acknowledgement = await confirmableUploadAcknowledgement(error, episodeCode)
+      if (!acknowledgement) throw error
+      acknowledged = { ...acknowledged, ...acknowledgement }
+    }
+  }
+}
+
 async function confirmableUploadAcknowledgement(
   error: any,
   episodeCode: string,
@@ -2483,7 +2501,42 @@ async function confirmableUploadAcknowledgement(
     })
     return confirmed ? { acknowledge_unverified_channel: true } : null
   }
+  if (await confirmFinalCheck(error, episodeCode)) return { acknowledge_final_check: true }
   return null
+}
+
+/**
+ * The final check refused this upload. Same click-through as the episode-number claim above: the
+ * answer is the owner's, the route records it on the job, and nothing here blocks an upload for good.
+ */
+async function confirmFinalCheck(error: any, episodeCode: string): Promise<boolean> {
+  if (error?.data?.code !== 'YOUTUBE_FINAL_CHECK_FAILED') return false
+  return ask({
+    title: `${episodeCode} did not pass its final check`,
+    message: String(error.data.detail || 'The finished video did not pass its final check.'),
+    confirmLabel: 'Upload Anyway',
+  })
+}
+
+/** Measure this episode's finished video now, without rendering it again. */
+async function runFinalCheck(ep: PublishableEpisode): Promise<void> {
+  const code = ep.episode_code
+  const requestedSlug = slug.value
+  busy.value = `final-check-${code}`
+  delete rowResults[code]
+  try {
+    const result = await post<{ summary: string; passed: boolean }>(
+      `/projects/${requestedSlug}/youtube/final-check`, { episode_code: code },
+    )
+    if (slug.value !== requestedSlug) return
+    rowResults[code] = { kind: result.passed ? 'ok' : 'warn', message: result.summary }
+  } catch (error: any) {
+    if (slug.value !== requestedSlug) return
+    rowResults[code] = uploadFailure(error, code, 'Failed to run the final check.')
+  } finally {
+    if (slug.value === requestedSlug) busy.value = ''
+    void load()
+  }
 }
 
 async function scheduleExisting(): Promise<void> {
