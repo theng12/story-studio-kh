@@ -9,6 +9,10 @@ What's new in each release. Newest first.
 - A Pipeline step saved into an older run that can no longer run (for example Motion with no model on a channel that has Motion switched off) is skipped when its turn comes, and the final video goes ahead, instead of failing with "model required".
 - A writing job interrupted by an app update now carries on once its Gateway answers come back, instead of ending as failed.
 - An episode whose audio was mixed before closing music existed gets its audio re-mixed with the closing music before the video is made, instead of ending in silence. The original audio is kept, and if the re-mix cannot be done safely the video is refused with the reason.
+- A retry, a recovery or a job resumed after an update first collects every answer the Gateway already finished, by its original request, and only asks again for scenes nothing covers. Saved prompts, timing and IDs are kept.
+- The closing-music re-mix survives a stop partway, a Retry uses the re-mixed audio, the episode's own music track and recorded pauses are kept, and it never overlaps a manual Audio Assembly of the same episode.
+- Jobs missing required input (no writing model, no episode, no title) fail once with the reason instead of retrying three times.
+- The final check no longer reports a planned chapter pause as missing speech; Free Up Space names the real reason a file could not be checked; the Pipeline page lists steps left out and why.
 
 ## v1.4.336 — 2026-10-20
 
