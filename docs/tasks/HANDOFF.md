@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.338 — 2026-10-20 (gate running)
+
+Merged fix/remix-pin-window (e59c4d48: planClosingTailRemix returns recover while an intent note exists; guardClosingTail recovers before use) and fix/collect-first-fresh-rows (de06d612: enqueue carries same-plan sibling scene_plan_run children; collect pass reads every saved key before the single deferred resend).
+
 ## 1.4.337 — 2026-10-20 (gate running)
 
 Merged fix/continuation-leftout-and-restart (0f1cda0f: unusableLinkSkipReason at chain dispatch and job start; restart reconcile requeues interrupted writing jobs with incomplete audits) and fix/closing-tail-older-merges (48582cdf: planClosingTailRemix in video.ts guardClosingTail + pipeline preflight; re-mix to _vN via Audio Assembly, pinned only after narration/lead-in checks). Rebuilt after the first gate failed on H-17 (test encoded the pre-requeue rule; f6ed92c6): also merged fix/collect-first-saved-chat-children (97fae588, plus restart-requeue regression 5d6ab4c3) and fix/small-leftovers (lstat reason, Pipeline left-out display, planned chapter gap, re-mix durability/retry/preservation/admission lock, input refusals non-retryable). Production: History EP12-14, Myth EP13/14, Domnak DM13 need one assembly each; Myth EP14 continuation one Retry.
