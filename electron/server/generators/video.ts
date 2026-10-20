@@ -50,8 +50,8 @@ import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { finalDurationIssue, missingEnabledVideoInputs, missingInputsMessage, switchedOnCueGate } from '../lib/video-enabled-inputs.js'
 import {
-  closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary,
-  type FinalCheckExpectation,
+  closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary, readPlannedSectionGaps,
+  type FinalCheckExpectation, type PlannedSectionGaps,
 } from '../lib/final-video-check.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
@@ -691,6 +691,8 @@ function finalCheckExpectation(
     width: number
     height: number
     speechEndSec?: number
+    /** The pauses the episode's merge planned between sections (`readPlannedSectionGaps`). */
+    sectionGaps?: PlannedSectionGaps | null
   },
 ): FinalCheckExpectation {
   return {
@@ -701,6 +703,7 @@ function finalCheckExpectation(
     height: opts.height,
     subtitles_path: req.subtitles?.enabled ? ((req.subtitles.srt_path || '').trim() || null) : null,
     ...(Number(opts.speechEndSec) > 0 ? { speech_end_sec: Number(opts.speechEndSec) } : {}),
+    ...(opts.sectionGaps ? { section_gaps: opts.sectionGaps } : {}),
   }
 }
 
@@ -4087,6 +4090,7 @@ export async function generateVideo(job: Job): Promise<void> {
         // `narrationDuration` is the speech end (see the merged-closing-tail note above), and the
         // narration plays from `narrationLeadInSec` in the file, so this is where the words stop.
         speechEndSec: narrationLeadInSec + narrationDuration,
+        sectionGaps: await readPlannedSectionGaps(episodeDir),
       }),
     })
 

@@ -17,6 +17,7 @@
  */
 
 import fs from 'fs/promises'
+import path from 'path'
 import { existsSync, rmSync, statSync, writeFileSync } from 'fs'
 import { getMediaInfo } from './ffmpeg-validation.js'
 import { finalDurationIssue } from './video-enabled-inputs.js'
@@ -73,6 +74,17 @@ export interface FinalCheckExpectation {
    * say where the speech is.
    */
   speech_end_sec?: number
+  /**
+   * The pauses the episode's merge put between sections (`audio_chapters.json`), so a silence that
+   * IS one of them is not reported as a gap in the speech. Absent = the plan is not known.
+   */
+  section_gaps?: PlannedSectionGaps
+}
+
+/** Each section's length in playback order, and the pause between neighbouring sections. */
+export interface PlannedSectionGaps {
+  gap_sec: number
+  durations_sec: number[]
 }
 
 export interface FinalCheckIssue {
@@ -163,6 +175,46 @@ export function speechEndSecFromScenePlan(plan: unknown): number {
   const cueEnd = Number(p?.source_timeline?.last_cue_end_sec)
   return cueEnd > 0 ? cueEnd : 0
 }
+
+/** The planned pauses of an episode from its `audio_chapters.json`, or null when it plans none. */
+export function plannedSectionGapsFromSidecar(sidecar: unknown): PlannedSectionGaps | null {
+  const s = sidecar as { sections?: Array<{ duration_s?: unknown }>; gap_duration_s?: unknown } | null | undefined
+  const gap_sec = Number(s?.gap_duration_s)
+  const durations_sec = (Array.isArray(s?.sections) ? s!.sections : []).map(section => Number(section?.duration_s))
+  if (!(gap_sec > 0) || durations_sec.length < 2 || !durations_sec.every(d => d > 0)) return null
+  return { gap_sec, durations_sec }
+}
+
+/** Read `audio_chapters.json` from an episode folder; null when it is missing, unreadable, or plans no pause. */
+export async function readPlannedSectionGaps(episodeDir: string): Promise<PlannedSectionGaps | null> {
+  try {
+    return plannedSectionGapsFromSidecar(JSON.parse(await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf-8')))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Where each planned pause sits in the file, counted BACK from where the speech stops. The lead-in
+ * and any opening before the first word then cancel out, and the only number trusted is the speech
+ * end the check already uses (Night Atlas History EP0014: pause after Chapter 10 at 5305.2 s).
+ */
+export function sectionGapWindows(
+  gaps: PlannedSectionGaps,
+  speechEndSec: number,
+): Array<{ start_sec: number; end_sec: number }> {
+  const windows: Array<{ start_sec: number; end_sec: number }> = []
+  let end = speechEndSec
+  for (let i = gaps.durations_sec.length - 1; i > 0; i--) {
+    end -= gaps.durations_sec[i]!
+    windows.push({ start_sec: end - gaps.gap_sec, end_sec: end })
+    end -= gaps.gap_sec
+  }
+  return windows
+}
+
+/** How far a measured silence may stray from a planned pause and still be that pause (per-section rounding adds up). */
+const SECTION_GAP_TOLERANCE_SEC = 1
 
 /** The window the closing tail occupies, or null when this render drew no tail. */
 export function tailWindow(
@@ -280,6 +332,10 @@ export function finalCheckIssues(
     ? window.start_sec
     : (Number(expected.speech_end_sec) > 0 ? Number(expected.speech_end_sec) : null)
 
+  const plannedGaps = speechEndSec !== null && expected.section_gaps
+    ? sectionGapWindows(expected.section_gaps, speechEndSec)
+    : []
+
   for (const run of actual.silence) {
     const length = run.end_sec - run.start_sec
     if (length < o.silence_min_sec) continue
@@ -299,6 +355,9 @@ export function finalCheckIssues(
       continue
     }
     if (run.start_sec >= speechEndSec - 0.5) continue
+    // A pause the merge put between sections on purpose: the silence lies within it, give or take.
+    if (plannedGaps.some(w => run.start_sec >= w.start_sec - SECTION_GAP_TOLERANCE_SEC
+      && run.end_sec <= w.end_sec + SECTION_GAP_TOLERANCE_SEC)) continue
     issues.push({
       check: 'silence',
       verdict: `there is a ${length.toFixed(1)}s silence at ${clock(run.start_sec)}, inside the speech`,
