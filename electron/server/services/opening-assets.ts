@@ -238,6 +238,14 @@ export interface EpisodeRenderShape {
 export async function resolveEpisodeRenderShape(
   slug: string,
   probe: (filePath: string) => Promise<number | undefined>,
+  opts: {
+    /**
+     * The opening the episode's own Scene Plan reserved, when it can be read. The renderer trims or
+     * pads the intro clip to exactly this when the plan reserved an opening it did not measure from
+     * the clips, so the clip in the file is that long rather than the asset's own length.
+     */
+    opening_reserved_sec?: number
+  } = {},
 ): Promise<EpisodeRenderShape> {
   const empty: EpisodeRenderShape = { after_narration_sec: 0, intro: null }
   let config: any = null
@@ -287,9 +295,16 @@ export async function resolveEpisodeRenderShape(
     }
     const introSec = await probe(head.intro.path).catch(() => undefined)
     if (introSec && introSec > 0) {
+      // How long the clip is IN THE FILE is one of two numbers: the asset's own length, or the
+      // opening the episode's Scene Plan reserved, when the renderer trimmed or padded the clip to it
+      // (`generators/video.ts`'s `req.intro.duration`). Which one applied is not recorded on a
+      // plan-less final, so the window covers both — and it can only ever exempt black that the
+      // intro ASSET itself is black over, so a longer window is not a looser rule.
+      const reservedSec = Math.max(0, Number(opts.opening_reserved_sec) || 0)
+      const inFileSec = Math.max(introSec, reservedSec)
       introShape = {
         asset: head.intro.path,
-        window: { start_sec: beforeIntroSec, end_sec: beforeIntroSec + introSec },
+        window: { start_sec: beforeIntroSec, end_sec: beforeIntroSec + inFileSec },
       }
     }
   }

@@ -147,6 +147,24 @@ export function runBootMigrations(): void {
     }
   })().catch(error => console.error('[content-packs] boot verification failed:', error?.message || error)))
 
+  // 1.4.343 — freeze every plan-less final's expectation onto the file, ONCE, while the channel's
+  // Video Assembly settings can still be shown to be the ones that produced it.
+  //
+  // The owner's decision (2026-10-20) keeps every already-made Sprout final on its long silent still
+  // tail and its branded intro while FUTURE episodes drop that 6000 s `after_scenes` clip. A final
+  // from before the 1.4.327 plan sidecar records no plan of its own, so once that preset changes,
+  // nothing on disk says what the file was made to be — and a re-check would measure its 9354 s
+  // against a ~15 s tail and STOP a file the owner said to keep. Freezing it now, beside the file,
+  // is what makes the answer survive the change. Idempotent: a final already frozen for its own
+  // bytes is left exactly as it is.
+  tasks.push((async () => {
+    const { freezeExistingPlanlessFinals } = await import('../services/final-check-expectation.js')
+    const summary = await freezeExistingPlanlessFinals()
+    if (summary.unknown > 0) {
+      console.warn(`[boot] ${summary.unknown} plan-less final(s) have no frozen expectation and their settings moved since they were rendered — they will be reported as unknown, not measured against today's settings.`)
+    }
+  })().catch(error => console.error('[boot] final-check expectation freeze failed:', error?.message || error)))
+
   const timeoutMs = 20_000
   const settle = new Promise<void>(resolve => {
     const timer = setTimeout(() => {
