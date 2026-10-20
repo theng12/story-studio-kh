@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.341 — 2026-10-20
+
+- Switching episodes on the Images page while the old episode is still loading no longer shows the old episode's prompts or images under the new episode's name.
+- Clicking Generate on a row left over from the previous episode is refused, so it can never overwrite an image in the episode now on screen.
+
 ## v1.4.340 — 2026-10-20
 
 - Retrying a failed Scene Plan job now resumes that exact job, even when the episode's recovery plan still pointed at an older empty attempt, so prompts the Gateway already finished are collected instead of bought again.

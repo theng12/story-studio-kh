@@ -139,35 +139,60 @@ const { success, error: showError } = useToast()
 const kindLabel = 'Thumbnail'
 const kindLabelLower = 'thumbnail'
 
+// ── Request ownership ─────────────────────────────────────────────────────
+//
+// images.vue keeps this panel alive with `v-show`, so its props change under a
+// LIVE instance: a read issued for the episode the user just left can still be
+// in flight. One revision, bumped by every load cycle and by an episode change,
+// so only the newest cycle may write anything — the same guard
+// useGenStudioVoices uses for its voice list.
+
+let boardRevision = 0
+/** The episode the rows on screen were loaded for. A row click is valid only
+ *  for this one: the board outlives a selection change, so a stale grid must
+ *  never submit against the new episode's live settings. */
+const boardEpisodeId = ref('')
+
 // ── Prompt list (text from /episodes/:id/image-prompts) ────────────────────
 
 const prompts = ref<PromptRow[]>([])
 const loading = ref(false)
 const loadError = ref<string | null>(null)
 
-async function loadPrompts(): Promise<void> {
-  if (!props.episodeId || !props.projectSlug) return
+async function loadPrompts(revision: number): Promise<void> {
+  // Captured, not read after the await: the reply belongs to the episode this
+  // request was issued for, whatever the selection is by the time it lands.
+  const project = props.projectSlug
+  const episode = props.episodeId
+  const title = props.title
+  if (!episode || !project) return
   loading.value = true
   loadError.value = null
   try {
-    const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
+    const titleParam = title ? `?title=${encodeURIComponent(title)}` : ''
     const data = await get<{ thumbnails?: PromptRow[] }>(
-      `/projects/${props.projectSlug}/episodes/${props.episodeId}/image-prompts${titleParam}`,
+      `/projects/${project}/episodes/${episode}/image-prompts${titleParam}`,
     )
+    if (revision !== boardRevision) return
     const list = data?.thumbnails
     prompts.value = Array.isArray(list)
       ? list.slice().sort((a, b) => Number(a.number) - Number(b.number))
       : []
+    boardEpisodeId.value = episode
   } catch (e: any) {
+    if (revision !== boardRevision) return
     if (e?.status === 404 || e?.statusCode === 404) {
       // 404 → no prompts yet for this episode. Not an error condition.
       prompts.value = []
       loadError.value = null
+      boardEpisodeId.value = episode
     } else {
       loadError.value = e?.data?.detail || e?.message || 'Could not load prompts'
     }
   } finally {
-    loading.value = false
+    // The abandoned read's `finally` no longer owns this state — the newer
+    // cycle (or the episode change that cleared it) does.
+    if (revision === boardRevision) loading.value = false
   }
 }
 
@@ -176,14 +201,18 @@ async function loadPrompts(): Promise<void> {
 const renderedImages = ref<ScannedImage[]>([])
 const cacheKey = ref(0)
 
-async function loadScan(): Promise<void> {
-  if (!props.episodeId || !props.projectSlug) return
+async function loadScan(revision: number): Promise<void> {
+  const project = props.projectSlug
+  const episode = props.episodeId
+  if (!episode || !project) return
   try {
     const r = await get<{ thumbnails?: ScannedImage[] }>(
-      `/projects/${props.projectSlug}/video-editor/scan/${props.episodeId}`,
+      `/projects/${project}/video-editor/scan/${episode}`,
     )
+    if (revision !== boardRevision) return
     renderedImages.value = r?.thumbnails || []
   } catch {
+    if (revision !== boardRevision) return
     // Best-effort — empty scan just means no images on disk. We don't want
     // a failed scan to block the prompt list rendering.
     renderedImages.value = []
@@ -297,7 +326,12 @@ async function submit(body: Record<string, any>, target: string): Promise<any> {
 
 async function runOne(number: number): Promise<void> {
   if (busy.value.has(number)) return
-  const episode = props.episodeId
+  // The row belongs to the episode the board was loaded for. images.vue keeps
+  // this panel alive across a selection change, so a click that arrives after
+  // the user moved on must not render A's row number with B's live parameters
+  // and force:true — that overwrites B's real image.
+  const episode = boardEpisodeId.value
+  if (!episode || episode !== props.episodeId) return
   const params = await props.prepare(true, false)
   if (!params || episode !== props.episodeId) return
   busy.value = new Set([...busy.value, number])
@@ -315,7 +349,7 @@ async function runOne(number: number): Promise<void> {
     }
     // Job done — refresh the scan + bump cache key so the row's <img>
     // re-fetches the new bytes.
-    await loadScan()
+    await loadScan(boardRevision)
     cacheKey.value++
     emit('refresh')
     success(`${kindLabel} ${number} rendered`)
@@ -333,24 +367,33 @@ async function runOne(number: number): Promise<void> {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-// Row state belongs to one episode; a running render for the old one keeps
-// going in Jobs but must not paint its spinner or error onto this board.
+// Every field on this board belongs to one episode, so an episode change
+// REPLACES it — not only the row spinners. `flush: 'sync'` blanks them in the
+// same tick as the prop change, and the bumped revision stops any read still in
+// flight for the old episode from repainting the board afterwards.
 watch(() => props.episodeId, () => {
+  boardRevision++
+  boardEpisodeId.value = ''
+  prompts.value = []
+  renderedImages.value = []
+  loading.value = false
+  loadError.value = null
   busy.value = new Set()
   errors.value = {}
-})
+}, { flush: 'sync' })
 
+// v1.2.9: `refreshKey` moves when the PARENT knows the files on disk may have
+// been rewritten — a repair, an import, a render from the sibling panel.
+// Re-scanning alone only refreshes the file list; without the bump the rows
+// kept the pre-change pixels, since regeneration reuses the same paths and an
+// unchanged src issues no request at all.
 watch(
   () => [props.episodeId, props.title, props.refreshKey],
   () => {
     if (props.episodeId) {
-      void loadPrompts()
-      void loadScan()
-      // v1.2.9: `refreshKey` moves when the PARENT knows the files on disk may
-      // have been rewritten — a repair, an import, a render from the sibling
-      // panel. Re-scanning alone only refreshes the file list; without the
-      // bump the rows kept the pre-change pixels, since regeneration reuses
-      // the same paths and an unchanged src issues no request at all.
+      const revision = ++boardRevision
+      void loadPrompts(revision)
+      void loadScan(revision)
       cacheKey.value++
     }
   },
