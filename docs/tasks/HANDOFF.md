@@ -83,6 +83,38 @@ and their reasons were nowhere the owner could look. Three changes:
     the check listed as an orphan. The move itself is `restoreTrashItem` (`POST /trash/restore`),
     which refuses when something already sits at the working path. Nothing is automatic.
 
+### Follow-up: the check could still answer "clean" without looking (branch `fix/orphan-scan-complete`)
+
+Production's source review found three ways, all fixed on `fix/orphan-scan-complete`:
+
+- **A read that failed was swallowed.** `readdir` errors became `[]`, so an unreadable scene-image
+  subtree (or a drive root) was silently skipped and the scan still said `scan_complete: true` with
+  zero orphans. Now every directory and index read is logged: ENOENT ("nothing there") is fine and
+  silent, anything else increments the new `read_failures` count, is named in `scan_note`, and makes
+  the scan incomplete. `projects_scanned` counts the channels whose Trash really was readable.
+- **The record lookup went through a page.** `listTrash` caps its listing at `MAX_ITEMS` (2000); a
+  Trash with 162k shrink originals has a far longer index, so a record past that page looked like no
+  record at all — an orphan that could not be restored. The scan now reads the index itself
+  (`streamTrashIndex`, one line at a time) and matches the files it found, so nothing is out of reach
+  and nothing is held in memory. Bounded output is still 50 per class.
+- **An original that left Story's Trash disappeared from the check.** The retention handoff (7 days,
+  or 20 GB oldest-first, on a timer independent of `auto_cleanup_enabled`) moves items to the MACOS
+  Trash and used to record only `removed: 'macos-trash'` — no size, no destination — and the scan
+  ignored `removed` entries entirely, so those originals produced a clean answer while sitting in a
+  Trash nobody had looked at. Now: `handOver` records what it can (size, mtime, read before the move,
+  and the Mac's Trash path when that exact name was free — `shell.trashItem` returns nothing and
+  renames a collision, so a taken name claims no location), the scan reads `removed` entries too, and
+  a scene image whose working path is empty is reported as moved with its location when a single
+  macOS Trash file matches its exact name and size, and "location unknown" otherwise. **A file the
+  macOS Trash holds is never offered for restore** (Story does not reach into the Mac's Trash, and a
+  move back across drives could only be a copy-then-delete, which this codebase never does with the
+  owner's media) — the location is named so the owner can drag it back in Finder. Every such item
+  makes the scan incomplete.
+
+**Records written before this branch say nothing about where a handoff went, and no new record can
+cover those past moves**: they are reported as "moved to the macOS Trash", location unknown. Nothing
+here can recover the per-file reasons of a finished run either.
+
 ## Jobs history: paged, searched and counted on the server (source only, not released)
 
 Branch `feat/jobs-history-paging` from `origin/main` (1.4.323, d54f34b2). **SOURCE ONLY**: no version
