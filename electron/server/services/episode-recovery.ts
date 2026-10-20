@@ -22,6 +22,7 @@ import { hashSubtitleAudioSources, inspectChapterSubtitleCompletion } from './su
 import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
 import { readLocalMediaCleanupStatus } from './episode-media-cleanup.js'
 import { disabledOptionalStepReason } from '../lib/optional-steps.js'
+import { withSavedPromptCollection } from '../lib/scene-prompt-collection.js'
 
 export const EPISODE_RECOVERY_ORDER = ['audio_merge', 'subtitle_sections', 'subtitle_stitch', 'scene_plan_run', 'contextual_cues', 'continuity_render'] as const
 export type EpisodeRecoveryStep = typeof EPISODE_RECOVERY_ORDER[number]
@@ -766,8 +767,14 @@ export async function dispatchEpisodeRecoveryStep(
     if (!params.sections.length) throw new Error('Missing subtitle sections are outside the saved recovery scope. Select those sections explicitly in Subtitles.')
     params.subtitle_recovery_plan_id ||= plan.id
   }
+  // A new Scene Plan row inherits what the failed one holds: its accepted answers (collected first)
+  // and the keys it already refused, which a fresh row would otherwise replay.
+  const previous = step === 'scene_plan_run'
+    ? jobs.find(job => job.job_id === node.source_job_id) ?? jq.getJob(node.source_job_id || '')
+    : undefined
   await jq.enqueueEpisodeRecoveryOnce(node.job_id, { project_slug: plan.project_slug, episode_id: plan.episode_id,
-    type: node.type, title: node.title, params })
+    type: node.type, title: node.title, params: previous ? withSavedPromptCollection(params, previous) : params,
+    ...(previous?.rejected_idempotency_keys?.length ? { rejected_idempotency_keys: previous.rejected_idempotency_keys } : {}) })
   node.dispatched = true
   plan.message = step === 'subtitle_sections' ? `${facts.message}. Recovering existing subtitle task (free).`
     : node.redispatched ? `${labels[step]} re-queued once: the job this edge was dispatched as is no longer in the queue history.`
