@@ -1702,6 +1702,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       recoveryNote?: string
       checkpointSceneIds?: readonly string[]
       recoverByIdempotencyKey?: string
+      /** Collect pass: a lost saved request is handed back (`lostResend`) so every other saved key is read before any resend. */
+      deferLostResend?: boolean
     }) => {
       const payloads = input.sceneIds.map(sceneId => payloadBySceneId.get(sceneId)).filter((payload): payload is ScenePromptPayload => !!payload)
       if (payloads.length !== input.sceneIds.length) {
@@ -1790,6 +1792,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
               recoverByIdempotencyKey: true,
               idempotencyKey: input.recoverByIdempotencyKey,
               allowedRecoveryKeys: [input.recoverByIdempotencyKey],
+              ...(input.deferLostResend ? { deferLostResend: true } : {}),
             } : {}),
             onRequestPrepared: (idempotencyKey: string) => { preparedIdempotencyKey = idempotencyKey },
             maxTokens: input.maxTokens,
@@ -1832,6 +1835,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         }
       } catch (error: any) {
         if (isGenStudioInsufficientCredits(error)) throw error
+        if (input.deferLostResend && isGenStudioSubmissionUncertain(error)) {
+          return { results, checkpointErrors, diagnostics, requestError: '', requestUnresolved: false, responseReceived: false, lostResend: true }
+        }
         requestError = error?.message || String(error)
         requestUnresolved = scenePromptRequestIsUnresolved(job, error, preparedIdempotencyKey || input.recoverByIdempotencyKey || '')
         if (error instanceof GenStudioChatIncompleteError && error.partialText.trim()) {
@@ -1862,7 +1868,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         }
         if (explicitPaidRepair && error instanceof GenStudioApiError && !requestUnresolved) throw error
       }
-      return { results, checkpointErrors, diagnostics, requestError, requestUnresolved, responseReceived }
+      return { results, checkpointErrors, diagnostics, requestError, requestUnresolved, responseReceived, lostResend: false }
     }
     const requestPromptGroups = async (input: {
       groups: string[][]
@@ -1925,11 +1931,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // able to orphan an accepted answer that covers a later one.
     let recoveryUnresolved = false
     const recoveryErrors: string[] = []
-    for (const [index, recovery] of savedPromptRecoveries.entries()) {
+    // Two passes. First every saved key is read once, and a key the Gateway lost track of is only
+    // noted; then each lost key gets its one resend, for the scenes no other saved answer covered.
+    // Resending inside the first pass could buy new work for scenes a LATER saved key already holds.
+    const collectSaved = async (index: number, recovery: typeof savedPromptRecoveries[number], deferLostResend: boolean) => {
       const notDurable = targets.map(({ scene }) => scene.id).filter(id => !durableTargetIds.has(id))
       const scope = recovery.scene_ids ?? notDurable
       const checkpointIds = scope.filter(id => notDurable.includes(id))
-      if (!checkpointIds.length) continue
+      if (!checkpointIds.length) return false
       job.output_lines.push(`↻ Checking the earlier prompt request at the Gateway before starting new work (${checkpointIds.length} missing scene(s)).`)
       const recovered = await requestPromptPack({
         sceneIds: scope,
@@ -1938,15 +1947,26 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         requestLabel: `${stage}:recover-${index + 1}`,
         maxTokens: packs[0]?.params.max_tokens ?? visualMaxTokens ?? undefined,
         recoverByIdempotencyKey: recovery.idempotency_key,
+        deferLostResend,
       })
       if (recovered.checkpointErrors.length) {
         throw new Error(`Story Studio recovered the earlier Gateway output but could not save it, so no new paid request was started: ${recovered.checkpointErrors.join('; ')}`)
       }
+      if (recovered.lostResend) return true
       if (recovered.requestError) recoveryErrors.push(recovered.requestError)
       recoveryUnresolved ||= recovered.requestUnresolved
       const recoveredReceipt = await auditScenePromptCompletion(outPath, targets.map(({ scene }) => scene.id), isMotion ? 'motion' : 'visual')
       syncMemoryPlan(recoveredReceipt.plan)
       for (const sceneId of recoveredReceipt.completed_ids) durableTargetIds.add(sceneId)
+      return false
+    }
+    const lostRecoveries: Array<[number, typeof savedPromptRecoveries[number]]> = []
+    for (const [index, recovery] of savedPromptRecoveries.entries()) {
+      if (await collectSaved(index, recovery, true)) lostRecoveries.push([index, recovery])
+      if (recoveryUnresolved) break
+    }
+    for (const [index, recovery] of recoveryUnresolved ? [] : lostRecoveries) {
+      await collectSaved(index, recovery, false)
       if (recoveryUnresolved) break
     }
     for (const pack of packs) {

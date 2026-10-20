@@ -47,8 +47,8 @@ const NOW = '2026-10-20T04:00:00.000Z'
 const idsOf = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => `scene-${String(from + i).padStart(4, '0')}`)
 const answer = (ids: string[]) => JSON.stringify({ results: ids.map(id => ({ scene_id: id, visual_prompt: `Saved Gateway answer for ${id}, one distinct composition.` })) })
 
-async function seedAnswer(key: string, outputText: string, responseFormat: unknown): Promise<string> {
-  service.queueScenario('chat', { states: ['succeeded'], outputText })
+async function seedAnswer(key: string, outputText: string, responseFormat: unknown, scenario: Record<string, unknown> = {}): Promise<string> {
+  service.queueScenario('chat', { states: ['succeeded'], outputText, ...scenario })
   const response = await fetch(`${service.baseUrl}/v1/chat/responses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': key },
@@ -273,4 +273,105 @@ test('restart requeue: a settled accepted child is collected by its key, with ze
   assert.equal(posts() - before, 0, 'the requeued run asked the Gateway for nothing new')
   const saved = await savedPrompts(f)
   for (const id of covered) assert.match(saved[id]!, /Saved Gateway answer/)
+})
+
+function terminalSibling(f: Fixture, id: string, extra: Record<string, unknown>): any {
+  return {
+    ...directJob(f, id), status: 'error', finished_at: NOW, error: 'Scene plan visual prompts incomplete: 1/5 required item(s) verified.',
+    output_lines: [], ...extra,
+  }
+}
+
+test('fresh row: a new Scene Plan row carries the accepted answer a terminal sibling of the same plan holds', async () => {
+  service.reset()
+  registerAllExecutors({ loadSettings: false })
+  const f = await fixture(4) // scene-0002..0005 missing
+  const covered = idsOf(2, 5)
+  const key = 'story-chat-fresh00000000000000000000000000000000000000000'
+  await seedAnswer(key, answer(covered), jsonSchema(covered))
+  await fs.writeFile(path.join(temp.dir, 'projects', f.project.slug, 'jobs.json'), JSON.stringify({ jobs: [
+    terminalSibling(f, 'earlier-terminal', { genstudio_jobs: [child(key, jsonSchema(covered), covered)] }),
+  ] }))
+  await jq.getJobs(f.project.slug)
+  const before = posts()
+
+  // Plain Generate / Repair empty prompts / Pipeline all create the row through enqueue().
+  const fresh = await jq.enqueue({ project_slug: f.project.slug, type: 'scene_plan_run', episode_id: f.episodeId, title: 'Repair scene prompts', params: structuredClone(f.params) })
+
+  assert.deepEqual((fresh.params.scene_prompt_recoveries as any[]).map(entry => entry.idempotency_key), [key])
+  await waitFor(() => jq.getJob(fresh.job_id)?.status === 'done', { label: 'the fresh row to collect and finish', timeoutMs: 12_000 }).catch(() => {})
+  await jq._waitForJobPersistenceForTesting()
+  assert.equal(jq.getJob(fresh.job_id)?.status, 'done', jq.getJob(fresh.job_id)?.output_lines.join(' | '))
+  assert.equal(posts() - before, 0, 'no new paid request: the sibling\'s accepted answer covers the missing scenes')
+  const saved = await savedPrompts(f)
+  for (const id of covered) assert.match(saved[id]!, /Saved Gateway answer/)
+})
+
+test('fresh row: an answer from a rebuilt timeline, a foreign scope or an unknown scope is not carried', async () => {
+  service.reset()
+  registerAllExecutors({ loadSettings: false })
+  const f = await fixture(4)
+  const keys = ['story-chat-oldtl0000000000000000000000000000000000000000', 'story-chat-foreign00000000000000000000000000000000000000', 'story-chat-noscope0000000000000000000000000000000000000']
+  await fs.writeFile(path.join(temp.dir, 'projects', f.project.slug, 'jobs.json'), JSON.stringify({ jobs: [
+    // Started before the plan's timeline was last built (2026-09-06): its scene ids may mean other scenes now.
+    terminalSibling(f, 'before-rebuild', { created_at: '2026-09-01T00:00:00.000Z', genstudio_jobs: [child(keys[0]!, JSON_OBJECT, idsOf(2, 3))] }),
+    // Names a scene this plan does not have.
+    terminalSibling(f, 'foreign-scope', { genstudio_jobs: [child(keys[1]!, JSON_OBJECT, idsOf(2, 40))] }),
+    // Preview pruned: nothing proves which plan it was for.
+    terminalSibling(f, 'unknown-scope', { genstudio_jobs: [child(keys[2]!, undefined)] }),
+  ] }))
+  await jq.getJobs(f.project.slug)
+
+  const fresh = await jq.enqueue({ project_slug: f.project.slug, type: 'scene_plan_run', episode_id: f.episodeId, title: 'Generate', params: structuredClone(f.params) })
+  await jq.forceAbandonJob(f.project.slug, fresh.job_id)
+
+  assert.equal(fresh.params.scene_prompt_recoveries, undefined)
+})
+
+test('collect before resend: every saved key is read before a lost request is resent, and the resend is skipped when others covered it', async () => {
+  service.reset()
+  const f = await fixture(4) // scene-0002..0005 missing
+  const lost = 'story-chat-lost0000000000000000000000000000000000000000000'
+  const good = 'story-chat-good0000000000000000000000000000000000000000000'
+  const lostScope = idsOf(2, 3)
+  await seedAnswer(lost, '', JSON_OBJECT, { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
+  await seedAnswer(good, answer(idsOf(2, 5)), JSON_OBJECT)
+  // What a resend of the lost key would buy; it must never be taken.
+  service.queueScenario('chat', { states: ['succeeded'], outputText: answer(lostScope) })
+  service.queueScenario('chat', { states: ['succeeded'], outputText: answer(lostScope) })
+  const job = directJob(f, 'lost-before-covered', {
+    genstudio_jobs: [child(lost, JSON_OBJECT, lostScope, 'accepted'), child(good, JSON_OBJECT, idsOf(2, 5), 'accepted')],
+  })
+  const before = posts()
+
+  await runScenePlanJob(job)
+
+  assert.equal(posts() - before, 0, 'the lost key is not resent: the later saved key already covered its scenes')
+  assert.equal(gets(good), 1)
+  const saved = await savedPrompts(f)
+  for (const id of idsOf(2, 5)) assert.match(saved[id]!, /Saved Gateway answer/)
+})
+
+test('collect before resend: a lost key is still resent once for scenes no other saved key covered', async () => {
+  service.reset()
+  const f = await fixture(4)
+  const lost = 'story-chat-lost2000000000000000000000000000000000000000000'
+  const good = 'story-chat-good2000000000000000000000000000000000000000000'
+  await seedAnswer(lost, '', JSON_OBJECT, { states: ['failed'], failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN' })
+  await seedAnswer(good, answer(idsOf(4, 5)), JSON_OBJECT)
+  service.queueScenario('chat', { states: ['succeeded'], outputText: answer(idsOf(2, 3)) })
+  const job = directJob(f, 'lost-still-needed', {
+    genstudio_jobs: [child(lost, JSON_OBJECT, idsOf(2, 3), 'accepted'), child(good, JSON_OBJECT, idsOf(4, 5), 'accepted')],
+  })
+  const before = posts()
+
+  await runScenePlanJob(job)
+
+  assert.equal(posts() - before, 1, 'one resend, for the scenes nothing else covered')
+  const reads = service.requests.map((entry: any, i: number) => ({ ...entry, i }))
+  const readOf = (key: string) => reads.find((entry: any) => entry.method === 'GET' && entry.path.endsWith(`/by-idempotency-key/${key}`))!.i
+  const resend = reads.filter((entry: any) => entry.method === 'POST').at(-1)!.i
+  assert.ok(readOf(lost) < resend && readOf(good) < resend, 'both saved keys were read before the resend went out')
+  const saved = await savedPrompts(f)
+  for (const id of idsOf(2, 5)) assert.match(saved[id]!, /Saved Gateway answer/)
 })

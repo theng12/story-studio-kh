@@ -226,6 +226,8 @@ export interface TextGenerationRequest {
   requestIdentity?: string
   /** Reconcile a saved durable request instead of creating a replacement. */
   recoverByIdempotencyKey?: boolean
+  /** Saved-key recovery: hand a lost request back to the caller instead of resending it. */
+  deferLostResend?: boolean
   /** Narrow explicit Retry path: permit same-key POST only after authoritative 404. */
   allowUncreatedRecovery?: boolean
   recoveryRequestPreview?: GenStudioRequestPreview
