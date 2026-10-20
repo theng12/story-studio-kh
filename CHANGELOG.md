@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.337 — 2026-10-20
+
+- A Pipeline step saved into an older run that can no longer run (for example Motion with no model on a channel that has Motion switched off) is skipped when its turn comes, and the final video goes ahead, instead of failing with "model required".
+- A writing job interrupted by an app update now carries on once its Gateway answers come back, instead of ending as failed.
+- An episode whose audio was mixed before closing music existed gets its audio re-mixed with the closing music before the video is made, instead of ending in silence. The original audio is kept, and if the re-mix cannot be done safely the video is refused with the reason.
+
 ## v1.4.336 — 2026-10-20
 
 - Older writing requests saved as "outcome unknown" before 1.4.327 are now checked with the Gateway too, so their jobs show the real result and can be retried. Nothing is sent again.
