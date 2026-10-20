@@ -11,6 +11,7 @@ import { composeNicheWithTopicPacks, loadNiche } from '../services/niche-loader.
 import {
   assignmentSummary,
   planIdeaAssignments,
+  subjectUseByPack,
   type IdeaAssignment,
 } from '../services/idea-campaign-planner.js'
 import {
@@ -481,6 +482,9 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   // fit are still made and saved; the job then fails loudly naming the rest,
   // instead of refusing the whole batch up front.
   let coverageShortfall = 0
+  // Every Topic Pack subject already has an idea. The planner still reserves new structural tuples of
+  // those subjects, so the pool can look large while every idea collapses onto a used subject.
+  let subjectsUsedUp = false
   // A replay keeps the assignments it reserved; re-planning would change the batch.
   if (!isFormulaFreeform && !replayBatch) {
     const usedFingerprints = history
@@ -491,6 +495,8 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       ...(upgrades.variety_seeds ? { spreadPacks: true } : {}),
     })
     coverageShortfall = Math.max(0, remaining - assignmentPool.length)
+    const subjectUse = subjectUseByPack(plannerNiche, usedFingerprints)
+    subjectsUsedUp = subjectUse.some(pack => pack.total) && subjectUse.every(pack => !pack.unused)
     if (coverageShortfall) {
       job.output_lines.push(`Your Topic Packs have unused subjects for only ${assignmentPool.length} of the ${remaining} ideas still needed; making those now.`)
     }
@@ -872,7 +878,9 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     // The owner reads this in Jobs. Slot ids and fingerprints mean nothing to
     // him; the count, what was kept, and the one next step do. A Retry uses
     // the project's current Topic Packs (owner decision 2026-10-03).
-    message: coverageShortfall
+    message: subjectsUsedUp
+      ? `${completed} of ${wanted} ideas were saved. The subjects in your Topic Packs are all used up, so the other ${missingCount} would only repeat earlier ideas. Add another Topic Pack with "Choose Formula & Topics", then press Retry to make them.`
+      : coverageShortfall
       ? `${completed} of ${wanted} ideas were saved. Your Topic Packs have no unused subjects left for the other ${missingCount}. Add another Topic Pack with "Choose Formula & Topics", then press Retry to make the rest.`
       : `${completed} of ${wanted} ideas were saved. Press Retry to make the ${missingCount} missing one${missingCount === 1 ? '' : 's'}.`,
   })
