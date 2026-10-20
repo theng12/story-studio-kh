@@ -1622,3 +1622,45 @@ test('a Retry whose saved plan cannot restore its original Pipeline setting answ
     assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'continuity_render').length, 1)
   } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
 })
+
+test('Retry of another failed row rebinds a dispatched Scene Plan node only when its own row is a childless failure', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const pm = await import('../services/project-manager.js')
+    await jq.setQueuePaused(true)
+    const { createEpisodeRecoveryPlan, recoverEpisode } = await subject()
+    const child = { id: 'provider-1', operation: 'chat.response' as const, state: 'succeeded', updated_at: '2026-10-20T00:00:00Z' }
+    for (const [label, bound, rebinds] of [
+      ['childless failed row', { status: 'error' as const }, true],
+      ['failed row with its own children', { status: 'error' as const, genstudio_jobs: [child] }, false],
+      ['row that finished', { status: 'done' as const }, false],
+    ] as const) {
+      const project = await pm.createProject({ name: `Stale node rebind guard ${label}` })
+      const file = path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json')
+      const plan = createEpisodeRecoveryPlan([{ ...source('audio_merge'), project_slug: project.slug, status: 'done' as const }])
+      const oldId = `recovery-${plan.id}-scene_plan_run`
+      plan.target = 'scene_plan_run'
+      plan.first_unresolved = 'scene_plan_run'
+      plan.steps.scene_plan_run = { job_id: oldId, type: 'scene_plan_run', title: 'Scene Plan', params: {}, dispatched: true }
+      await fs.writeFile(file, JSON.stringify({ version: 1, plans: { EP0001: plan } }))
+      const selected = { ...source('scene_plan_run', { episode_recovery_id: plan.id }), project_slug: project.slug, job_id: `selected-${rebinds}-${bound.status}`,
+        genstudio_jobs: [child] }
+      const old = { ...source('scene_plan_run', { episode_recovery_id: plan.id }), project_slug: project.slug, job_id: oldId, ...bound }
+      for (const job of [selected, old]) await jq.writeAuthoritativeJob(job as Job)
+      const recovered = (await recoverEpisode(project.slug, 'EP0001', true, [selected.job_id], [], true))!
+      assert.equal(recovered.steps.scene_plan_run?.job_id, rebinds ? selected.job_id : oldId, label)
+      assert.equal(recovered.steps.scene_plan_run?.dispatched, true, label)
+    }
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('History15 shape: the new plan names the explicitly selected failed row as the Scene Plan source before anything is queued', async () => {
+  const { createEpisodeRecoveryPlan } = await subject()
+  const failed = { ...source('scene_plan_run', { episode_recovery_id: undefined }), job_id: '7c6df964', created_at: '2026-10-20T05:00:00Z' }
+  const newerUnrelated = { ...source('scene_plan_run'), job_id: 'newer-unrelated', created_at: '2026-10-20T06:00:00Z' }
+  const plan = createEpisodeRecoveryPlan([failed, newerUnrelated, { ...source('audio_merge'), status: 'done' as const }], ['7c6df964'])
+  assert.equal(plan.steps.scene_plan_run?.source_job_id, '7c6df964')
+  assert.equal(plan.steps.scene_plan_run?.job_id, `recovery-${plan.id}-scene_plan_run`)
+  assert.equal(plan.steps.scene_plan_run?.dispatched, undefined)
+})
