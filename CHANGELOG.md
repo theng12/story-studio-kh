@@ -6,8 +6,10 @@ What's new in each release. Newest first.
 
 ## v1.4.343 — 2026-10-20
 
-- The final check now always checks a video's length. For older videos with no saved planned length, it compares against the episode's chapters instead of skipping the check.
-- A short silent ending still never holds an upload, but a silent stretch at the end longer than a minute is reported as a length problem.
+- The final check now checks a video's length even when the render saved no planned length. For older videos it adds up the episode's chapters plus everything that episode's own Video Assembly settings put after the narration — the outro, the after-scenes and after-outro clips, and the post-roll — so a video that is what its own settings asked for passes, including one whose own still clip leaves a long silent stretch at the end.
+- The black inside your own branded intro video is no longer reported as a problem. Black anywhere else still is.
+- A channel that puts a still clip after its scenes no longer gets a "silence inside the speech" report, and its planned chapter pauses are counted from where the words actually stop.
+- A video ending in a short silence still never holds an upload.
 
 ## v1.4.342 — 2026-10-20
 
