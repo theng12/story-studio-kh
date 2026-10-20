@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.339 — 2026-10-20
+
+- An Idea Campaign counts only the ideas it newly saved, so a top-up no longer counts earlier ideas twice and stops early or retries for nothing.
+- When a channel's Topic Pack subjects are all used, the campaign says so and points to adding a Topic Pack, instead of asking for a Retry that cannot help.
+- A Retry skips subjects whose ideas were rejected last time, instead of planning the same ones again.
+
 ## v1.4.338 — 2026-10-20
 
 - A closing-music re-mix that was interrupted at any point is finished or undone before the episode's audio is used again, so the video and the rest of Story always agree on which track is current.
