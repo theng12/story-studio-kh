@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.334 — 2026-10-20 (gate running)
+
+Merged fix/drain-waits-before-pausing (e725a7f3: maybeInstall looks for a maintenance operation before claiming the drain; status maintenance_running) and fix/cleanup-sample-keeps-failures (7572ffa0 failures-first sample + failed-rollback record without upload proof; 710a032f GET /library/media-cleanup/orphans + POST .../orphans/restore). Never roll the mini back below 1.4.334: older builds misread proof-less cleanup record entries.
+
 ## 1.4.333 — 2026-10-19 (gated and landed)
 
 Merged fix/final-check-long-video (a51b7fb0: POST /youtube/final-check answers 202, startFinalCheck one per file, row final_check.running; 022be139: app-update drain waits for runningFinalChecks, status final_checks_running). Production: Myth EP0008 check was cut by the 1.4.331 install drain at 15:50:27Z, not a timeout.

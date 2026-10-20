@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.334 — 2026-10-20
+
+- An app update no longer pauses the job queue while a Free Up Space run is still going. It waits, says so, and keeps the queue running; it pauses and installs only once the cleanup is done.
+- Free Up Space always lists failed or held files first, with the reason, in its progress and result, and the panel shows them. A shrink whose swap failed says where the original is.
+- New check for scene images left in Story's Trash by a failed shrink, with an explicit one-at-a-time restore that only puts an image back where nothing else sits.
+
 ## v1.4.333 — 2026-10-19
 
 - The final video check runs in the background: pressing Run Final Check answers at once, the Upload Center shows "Checking…", and the result appears when it is done. Pressing it again joins the check already running instead of starting another, and a check that could not finish says so.
