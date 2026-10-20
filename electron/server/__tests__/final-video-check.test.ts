@@ -173,6 +173,32 @@ describe("the owner's incidents", () => {
   })
 })
 
+/**
+ * The branded intro's own black (owner, 2026-10-20: *"yes. it's my own settings."*).
+ *
+ * The exemption is never "black in an opening is fine": it is this episode's own intro ASSET being
+ * black over that stretch, measured on the file itself. So the same finished video passes with the
+ * channel's black intro behind it and stops with an intro that is not black there.
+ */
+describe('the black the branded intro asset itself carries', () => {
+  const window = { start_sec: 0, end_sec: 8 }
+
+  test('the intro asset is measured, and only its own black is exempt', async () => {
+    // `blackFile` stands in as the channel's own intro: 8 s with black from 2 s to 5 s, the very
+    // stretch the finished file carries — so it is the owner's own opening, not a fault.
+    const own = await runFinalCheck(blackFile, expect({ intro: { asset: blackFile, window } }))
+    assert.deepEqual(own.issues, [], JSON.stringify(own.actual))
+    assert.ok((own.expected.intro?.black?.length ?? 0) > 0, 'the asset was measured, and stored with the verdict')
+
+    // The same file, the same window, an intro asset that is NOT black there (`goodFile`): the
+    // stretch is the render's own, and it stops exactly as it did before this rule existed.
+    const other = await runFinalCheck(blackFile, expect({ intro: { asset: goodFile, window } }))
+    assert.deepEqual(other.issues.map(issue => issue.check), ['black'])
+    assert.match(other.issues[0]!.verdict, /black stretch at 0:02/)
+    assert.deepEqual(other.expected.intro?.black, [], 'the other asset really does carry no black')
+  })
+})
+
 describe('the verdicts that need no ffmpeg', () => {
   const actual = {
     duration_sec: 20, video_sec: 20, audio_sec: 20, width: 320, height: 180,
@@ -268,6 +294,13 @@ describe('the verdicts that need no ffmpeg', () => {
    * 9354.2 s against 3329.6 s of chapters and ends in 6015.3 s of silence — and it passed both the
    * length and the tail silently, because `planned_sec` was 0 and a silence that runs to the file's
    * own end was exempt however long it was.
+   *
+   * The owner's decision the same day, verbatim: *"yes. it's my own settings. in fact, i want all
+   * already made videos to retain this. but for newer ones from now on to no longer use the silence
+   * thing but instead follows the rest of the sleep channels... so what's done is done."* The 100
+   * minutes ARE the channel's own Video Assembly preset: `preset-1781671791580`, whose intro slot
+   * carries `clip-1776875775168-cl5s` — a static still anchored `after_scenes` for 6000 s — plus a
+   * 15 s `fade-to-black` post-roll. A final that is what its own settings asked for is not a fault.
    */
   const ss0063 = {
     duration_sec: 9354.208333, video_sec: 9354.208333, audio_sec: 9354.202993, width: 1920, height: 1080,
@@ -275,14 +308,165 @@ describe('the verdicts that need no ffmpeg', () => {
     black: [{ start_sec: 4.75, end_sec: 9.208333 }],
     silence: [{ start_sec: 3338.882789, end_sec: 9354.20517 }],
   }
+  /** SS0063's own settings: the 6000 s still plus the 15 s fade post-roll, and nothing else. */
+  const SS0063_TAIL_SEC = 6015
+  /** The same file, without the intro's own black — so a length test measures only the length. */
+  const ss0063Length = { ...ss0063, black: [] as Array<{ start_sec: number; end_sec: number }> }
 
-  test('a plan-less final far longer than its own chapters is a length fault, not a pass', () => {
+  test('a plan-less final far longer than its own chapters and its own clips is a length fault', () => {
     const issues = finalCheckIssues(ss0063, expect({ planned_sec: 0, width: 0, height: 0, section_gaps: chapters }))
     assert.deepEqual(issues.map(issue => issue.check), ['duration', 'black'],
-      'the chapters supply the length, and the black stretch is still the black stretch')
+      'the chapters supply the narration, and the black stretch is still the black stretch')
     assert.match(issues[0]!.verdict, /9354\.2s long/)
     assert.match(issues[0]!.verdict, /3329\.6s/)
-    assert.match(issues[0]!.verdict, /6015\.3s/)
+    assert.match(issues[0]!.verdict, /\+6024\.6s/)
+  })
+
+  test('a plan-less final that is what its own settings asked for passes', () => {
+    // The owner's own 6000 s after-scenes still and his 15 s fade post-roll, which is exactly what
+    // this file is: chapters + clips + opening, with the whole clip span silent by design.
+    const issues = finalCheckIssues(ss0063Length, expect({
+      planned_sec: 0, width: 0, height: 0, section_gaps: chapters, after_narration_sec: SS0063_TAIL_SEC,
+    }))
+    assert.deepEqual(issues, [], JSON.stringify(issues))
+  })
+
+  /** The channel's own intro asset, measured: blackdetect 4.67–9.13 s of a 9.6 s clip. */
+  const SS0063_INTRO = {
+    asset: '/assets/story-sprout-assets/Story Sprout - Intro Video.mp4',
+    window: { start_sec: 0, end_sec: 9.633 },
+    black: [{ start_sec: 4.67, end_sec: 9.13 }],
+  }
+
+  test('the whole SS0063 shape — its own clips, its own intro — passes', () => {
+    // Everything the file carries, against everything the episode's own settings say: 9354.2 s of
+    // chapters + a 6000 s still + a 15 s post-roll, a 100-minute silent span that IS that still, and
+    // the black that is the intro asset's own. Nothing here is a fault.
+    const issues = finalCheckIssues(ss0063, expect({
+      planned_sec: 0, width: 0, height: 0, section_gaps: chapters,
+      after_narration_sec: SS0063_TAIL_SEC, intro: SS0063_INTRO,
+    }))
+    assert.deepEqual(issues, [], JSON.stringify(issues))
+  })
+
+  test('a plan-less final past even its own clips is still a length fault', () => {
+    // The same settings, a file half an hour longer than they ask for: the tail is no longer an
+    // ending, it is length the video should not have.
+    const duration = 9354.208333 + 1800
+    const issues = finalCheckIssues(
+      { ...ss0063Length, duration_sec: duration, video_sec: duration, audio_sec: duration,
+        silence: [{ start_sec: 3338.882789, end_sec: duration }] },
+      expect({ planned_sec: 0, width: 0, height: 0, section_gaps: chapters, after_narration_sec: SS0063_TAIL_SEC }),
+    )
+    assert.deepEqual(issues.map(issue => issue.check), ['duration'])
+    assert.match(issues[0]!.verdict, /9344\.6s/)
+  })
+
+  test('the black inside the branded intro is the owner\'s own content, not a fault', () => {
+    // The channel's own intro asset, measured: blackdetect 4.67–9.13 s of a 9.6 s clip, which becomes
+    // 4.75–9.208 s in the file after `prepareIntroClip`'s 24 fps encode — the very stretch the check
+    // stopped SS0063 for. Owner, 2026-10-20: *"yes. it's my own settings."*
+    assert.deepEqual(
+      finalCheckIssues(ss0063, expect({
+        planned_sec: 0, width: 0, height: 0, section_gaps: chapters,
+        after_narration_sec: SS0063_TAIL_SEC, intro: SS0063_INTRO,
+      })),
+      [],
+    )
+  })
+
+  test('a DIFFERENT intro with no black over the same window still stops', () => {
+    // The exemption is about THIS episode's intro asset containing THIS black — never about the
+    // stretch sitting in an opening. The same file, the same window, an intro that is not black
+    // there: the black is the render's own and it stops, exactly as it did before this rule.
+    const issues = finalCheckIssues(ss0063, expect({
+      planned_sec: 0, width: 0, height: 0, section_gaps: chapters, after_narration_sec: SS0063_TAIL_SEC,
+      intro: { asset: '/assets/another-intro.mp4', window: { start_sec: 0, end_sec: 9.633 }, black: [] },
+    }))
+    assert.deepEqual(issues.map(issue => issue.check), ['black'])
+    assert.match(issues[0]!.verdict, /black stretch at 0:05/)
+    // An intro asset nobody has measured says nothing either: no measurement, no exemption.
+    assert.deepEqual(
+      finalCheckIssues(ss0063, expect({
+        planned_sec: 0, width: 0, height: 0, section_gaps: chapters, after_narration_sec: SS0063_TAIL_SEC,
+        intro: { asset: '/assets/another-intro.mp4', window: { start_sec: 0, end_sec: 9.633 } },
+      })).map(issue => issue.check),
+      ['black'],
+    )
+  })
+
+  test('black in the scenes is still a fault, intro or no intro', () => {
+    const intro = {
+      asset: '/assets/intro.mp4',
+      window: { start_sec: 0, end_sec: 9.633 },
+      black: [{ start_sec: 4.67, end_sec: 9.13 }],
+    }
+    // A black stretch of the same length, 20 minutes into the scenes: the intro's window has nothing
+    // to do with it, and the intro's own black does not cover it.
+    const issues = finalCheckIssues(
+      { ...ss0063, black: [{ start_sec: 1200, end_sec: 1204.5 }] },
+      expect({ planned_sec: 0, width: 0, height: 0, section_gaps: chapters, after_narration_sec: SS0063_TAIL_SEC, intro }),
+    )
+    assert.deepEqual(issues.map(issue => issue.check), ['black'])
+    assert.match(issues[0]!.verdict, /black stretch at 20:00/)
+    // And a stretch inside the intro's window that the asset is NOT black over is reported too.
+    assert.deepEqual(
+      finalCheckIssues(
+        { ...ss0063, black: [{ start_sec: 0.2, end_sec: 4.4 }] },
+        expect({ planned_sec: 0, width: 0, height: 0, section_gaps: chapters, after_narration_sec: SS0063_TAIL_SEC, intro }),
+      ).map(issue => issue.check),
+      ['black'],
+    )
+  })
+
+  test('a short silent ending still never holds', () => {
+    // The owner's standing rule, unchanged: a video that ends in a short silence is fine.
+    const duration = 9354.208333
+    const issues = finalCheckIssues(
+      { ...ss0063Length, duration_sec: duration, video_sec: duration, audio_sec: duration,
+        silence: [{ start_sec: duration - 12, end_sec: duration }] },
+      expect({ planned_sec: 0, width: 0, height: 0, section_gaps: chapters, after_narration_sec: SS0063_TAIL_SEC }),
+    )
+    assert.deepEqual(issues, [])
+    // And with no plan at all to measure against, a short ending is not a fault either.
+    assert.deepEqual(
+      finalCheckIssues({ ...legacy, silence: [{ start_sec: 9149 - 12, end_sec: 9149 }] }, noPlan()),
+      [],
+    )
+  })
+
+  /**
+   * A render this sidecar DOES know about, made with the same channel preset: the 6000 s still sits
+   * between the narration and the closing tail, so the tail's window starts ~100 minutes after the
+   * words stop. Reading that window as the speech end put every silent second of the still "inside
+   * the speech" — the same false hold the owner's decision is about, on a final that recorded its
+   * own plan.
+   */
+  test('a still clip between the narration and the tail is not a silence inside the speech', () => {
+    const plan = expect({
+      planned_sec: 640, width: 320, height: 180,
+      tail: { sec: 15, from_end_sec: 0 },
+      speech_end_sec: 525,
+    })
+    const file = {
+      duration_sec: 640, video_sec: 640, audio_sec: 640, width: 320, height: 180, tail_lufs: null,
+      black: [], silence: [{ start_sec: 525, end_sec: 640 }],
+    }
+    assert.deepEqual(finalCheckIssues(file, plan), [], 'the 100 s still and the 15 s tail, both silent by design')
+    // A silence that really is inside the speech is still reported.
+    assert.deepEqual(
+      finalCheckIssues({ ...file, silence: [{ start_sec: 300, end_sec: 320 }] }, plan).map(issue => issue.check),
+      ['silence'],
+    )
+    // And the planned pauses are still counted back from where the words actually stop: the pause
+    // before the last section sits at 220–225 s, not 100 s later where the tail's window begins.
+    assert.deepEqual(
+      finalCheckIssues(
+        { ...file, silence: [{ start_sec: 220.2, end_sec: 225.25 }] },
+        { ...plan, section_gaps: { gap_sec: 5, durations_sec: [100, 200, 300] } },
+      ),
+      [],
+    )
   })
 
   test('a silent ending far longer than any closing tail is a length fault on its own', () => {

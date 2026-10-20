@@ -79,6 +79,42 @@ export interface FinalCheckExpectation {
    * IS one of them is not reported as a gap in the speech. Absent = the plan is not known.
    */
   section_gaps?: PlannedSectionGaps
+  /**
+   * What this episode's own Video Assembly settings put AFTER the narration, beyond the closing
+   * tail's own account: the outro video, the timeline clips anchored `after_scenes` / `after_outro`,
+   * and the post-roll the `post_audio` block asks for. 0 or absent = none.
+   *
+   * Only consulted when `planned_sec` is 0 — a final whose render recorded no length at all (a file
+   * from before the plan sidecar existed). The episode's chapters add up to its narration; this is
+   * everything its own settings put after it, and the two together are the length such a file should
+   * be. `generators/video.ts` computes the same total as `totalRenderDuration` when it renders
+   * (Story Sprout SS0063, 2026-10-20: a 6000 s `after_scenes` still plus a 15 s fade post-roll).
+   */
+  after_narration_sec?: number
+  /**
+   * The branded intro clip this render drew, and where it plays. Its own black is the owner's
+   * content, not a fault — see `isIntroAssetBlack`.
+   */
+  intro?: FinalCheckIntro
+}
+
+/**
+ * The branded intro clip a render put at the head of the file, and the asset behind it.
+ *
+ * The owner's own intro asset carries black (Story Sprout's, measured 2026-10-20: blackdetect
+ * 4.67–9.13 s), and that black is inside a file the owner made with his own settings. The window is
+ * what lets the check tell THAT black from a stretch the render invented somewhere else.
+ */
+export interface FinalCheckIntro {
+  /** The asset the intro clip was prepared from. */
+  asset: string
+  /** Where the clip plays in the finished file. */
+  window: { start_sec: number; end_sec: number }
+  /**
+   * The black the ASSET itself carries, in the asset's own clock (asset 0 = `window.start_sec`).
+   * `runFinalCheck` measures it and stores it with the verdict; absent = not measured yet.
+   */
+  black?: Array<{ start_sec: number; end_sec: number }>
 }
 
 /** Each section's length in playback order, and the pause between neighbouring sections. */
@@ -167,14 +203,13 @@ const SPEECH_END_MARGIN_SEC = 1
 const MAX_CLOSING_TAIL_SEC = 60
 
 /**
- * How much of a plan-less final may sit outside its own chapter plan before its length is a fault: the
- * opening before the first word and the closing tail after the last one, neither of which the chapter
- * plan names, plus the merged audio's own lead-in.
+ * How much of a plan-less final may sit outside the length its own episode adds up to before that
+ * length is a fault: the opening before the first word, which neither the chapters nor the tail
+ * settings name.
  *
  * Not a tolerance for a slightly-wrong length — the render's own plan measures that. It is the line
- * between "an opening and an ending" and "this is not the video that was planned": three minutes is
- * several times a branded opening and the form's longest tail put together, and Story Sprout SS0063
- * (2026-10-20) was 6024.6 s past its chapters.
+ * between "an opening" and "this is not the video the episode asked for": three minutes is several
+ * times a branded opening put together.
  */
 const UNPLANNED_LENGTH_ALLOWANCE_SEC = 180
 
@@ -185,31 +220,37 @@ function endingSilenceSec(actual: FinalCheckResult['actual']): number {
 }
 
 /**
- * The finished file's length against the narration its own chapter plan adds up to, for a final whose
- * render recorded no plan of its own — or null when it is the length such a file should be.
+ * The finished file's length against the length its own episode adds up to, for a final whose render
+ * recorded no plan of its own — or null when it is the length such a file should be.
  *
- * `narrationSec` is null when nothing recorded a chapter plan either; only the ending is checkable
- * then, and a silent ending far longer than any closing tail is still length the file should not have.
+ * `expectedSec` is the episode's chapters plus everything its own Video Assembly settings put after
+ * them (`after_narration_sec`), and it is null only when nothing could say: no chapter plan, so no
+ * narration to measure from. Only the ending is checkable then, and a silent ending far longer than
+ * any closing tail is still length the file should not have.
+ *
+ * A silent tail is fine when the total matches — that is the whole point. Owner decision,
+ * 2026-10-20, on Story Sprout SS0063's 6015 s of silence: *"yes. it's my own settings. in fact, i
+ * want all already made videos to retain this."* The 100 minutes are the channel's own 6000 s
+ * `after_scenes` still clip plus the 15 s fade post-roll, and a file that is what its own settings
+ * asked for is not a fault. A file past them is: only ever the length it should not have.
  */
 function unplannedDurationIssue(
   actualSec: number,
-  narrationSec: number | null,
+  expectedSec: number | null,
   endingSilence: number,
 ): string | null {
   const actual = Number(actualSec)
-  const chapters = narrationSec === null
-    ? ''
-    : `, and this episode's chapters add up to ${narrationSec.toFixed(1)}s of narration`
-  if (endingSilence > MAX_CLOSING_TAIL_SEC) {
-    return `it is ${actual.toFixed(1)}s long and its last ${endingSilence.toFixed(1)}s are silent — `
-      + `far longer than any closing tail${chapters}`
+  if (expectedSec === null) {
+    return endingSilence > MAX_CLOSING_TAIL_SEC
+      ? `it is ${actual.toFixed(1)}s long and its last ${endingSilence.toFixed(1)}s are silent — `
+        + 'far longer than any closing tail'
+      : null
   }
-  if (narrationSec === null) return null
-  const over = actual - narrationSec
+  const over = actual - expectedSec
   return over <= UNPLANNED_LENGTH_ALLOWANCE_SEC
     ? null
-    : `it is ${actual.toFixed(1)}s long but this episode's chapters add up to ${narrationSec.toFixed(1)}s `
-      + `of narration (${over > 0 ? '+' : ''}${over.toFixed(1)}s)`
+    : `it is ${actual.toFixed(1)}s long but this episode's chapters and its own settings add up to `
+      + `${expectedSec.toFixed(1)}s (${over > 0 ? '+' : ''}${over.toFixed(1)}s)`
 }
 
 /**
@@ -303,6 +344,39 @@ export function tailWindow(
   return start_sec >= 0 && end_sec > start_sec ? { start_sec, end_sec } : null
 }
 
+/** How far a measured black stretch may sit from the intro asset's own black and still be it (the clip is re-encoded into the file). */
+const INTRO_BLACK_TOLERANCE_SEC = 1
+
+/**
+ * True when this black stretch is the branded intro's OWN black, playing where the render put the
+ * intro clip.
+ *
+ * Owner decision, 2026-10-20, on Story Sprout SS0063's 4.5 s black at 0:05: *"yes. it's my own
+ * settings."* That black is inside the channel's own intro asset (blackdetect 4.67–9.13 s, which
+ * becomes 4.75–9.208 s in the file after `prepareIntroClip`'s 24 fps encode), so it is content the
+ * owner chose, not a stretch the render invented — and holding a final for it is holding it for the
+ * owner's own opening.
+ *
+ * Both halves are required. The stretch must lie inside the intro clip's window in the FILE, and the
+ * ASSET must carry black over that same stretch. Black anywhere else — a scene, a gap, an intro whose
+ * asset is not black there, an asset this machine could not measure — is reported exactly as before.
+ */
+function isIntroAssetBlack(
+  run: { start_sec: number; end_sec: number },
+  intro: FinalCheckIntro | undefined,
+): boolean {
+  const window = intro?.window
+  const assetBlack = intro?.black
+  if (!window || !Array.isArray(assetBlack) || !assetBlack.length) return false
+  if (!(window.end_sec > window.start_sec)) return false
+  const t = INTRO_BLACK_TOLERANCE_SEC
+  if (run.start_sec < window.start_sec - t || run.end_sec > window.end_sec + t) return false
+  // The clip plays from the window's own start, so the asset's clock starts there.
+  return assetBlack.some(black =>
+    run.start_sec >= black.start_sec + window.start_sec - t
+    && run.end_sec <= black.end_sec + window.start_sec + t)
+}
+
 /** `12.3` → `0:12`, `3700` → `1:01:40`. Plain clock for a plain sentence. */
 function clock(sec: number): string {
   const total = Math.max(0, Math.round(sec))
@@ -380,13 +454,18 @@ export function finalCheckIssues(
 
   // The length is always checked. The render's own plan is the authority when it recorded one. A
   // final from before the plan sidecar existed has none — every expected value is 0 — so the
-  // episode's own chapter plan supplies the number instead, and the file is measured against the
-  // episode it belongs to rather than against nothing (Story Sprout SS0063, 2026-10-20).
+  // episode's own chapter plan supplies the narration and its own Video Assembly settings supply
+  // everything that follows it, and the file is measured against the episode it belongs to rather
+  // than against nothing (Story Sprout SS0063, 2026-10-20).
   const plannedSec = Number(expected.planned_sec) > 0 ? Number(expected.planned_sec) : null
-  const derivedSec = plannedSec === null ? plannedSecFromSectionGaps(expected.section_gaps) : null
+  const chaptersSec = plannedSec === null ? plannedSecFromSectionGaps(expected.section_gaps) : null
+  // Without the chapters there is no narration to measure from, so there is no total to measure
+  // against — a tail alone would say the file should be as long as its tail.
+  const afterNarrationSec = Math.max(0, Number(expected.after_narration_sec) || 0)
+  const episodeSec = chaptersSec === null ? null : chaptersSec + afterNarrationSec
   const duration = plannedSec !== null
     ? finalDurationIssue(actual.duration_sec, plannedSec)
-    : unplannedDurationIssue(actual.duration_sec, derivedSec, endingSilenceSec(actual))
+    : unplannedDurationIssue(actual.duration_sec, episodeSec, endingSilenceSec(actual))
   if (duration) issues.push({ check: 'duration', verdict: `the finished video ${duration}` })
 
   if (window && expected.closing_music) {
@@ -404,17 +483,26 @@ export function finalCheckIssues(
     if (length < o.black_min_sec) continue
     // A black stretch inside the closing tail is the closing tail — that is what it was drawn for.
     if (run.start_sec >= bodyEnd - 0.5) continue
+    // ...and a stretch inside the branded intro, which the intro's own asset is black over, is the
+    // owner's opening. Only that: black anywhere else is still a fault.
+    if (isIntroAssetBlack(run, expected.intro)) continue
     issues.push({
       check: 'black',
       verdict: `there is a ${length.toFixed(1)}s black stretch at ${clock(run.start_sec)}, outside the closing tail`,
     })
   }
 
-  // Where the speech stops in this file, or null when nothing recorded it. A closing tail starts
-  // exactly where the speech stops, so a tail that is known IS a known speech end.
-  const speechEndSec = window
-    ? window.start_sec
-    : (Number(expected.speech_end_sec) > 0 ? Number(expected.speech_end_sec) : null)
+  // Where the speech stops in this file, or null when nothing recorded it.
+  //
+  // The render's own recorded narration end wins when it has one: it is exact, and it sits BEFORE any
+  // `after_scenes` / `after_outro` clip — which the closing tail's window starts after, because those
+  // clips play between the narration and the tail. Reading the window as the speech end there put the
+  // speech ~100 minutes late, and every silence after the words (a still clip is silent picture) then
+  // read as a gap in them. The window is the fallback for a path that could not record the speech end
+  // (a resumed final render) but does know where its tail landed — and with nothing between the two it
+  // starts exactly where the speech stops.
+  const recordedSpeechEnd = Number(expected.speech_end_sec) > 0 ? Number(expected.speech_end_sec) : null
+  const speechEndSec = recordedSpeechEnd ?? (window ? window.start_sec : null)
 
   const plannedGaps = speechEndSec !== null && expected.section_gaps
     ? sectionGapWindows(expected.section_gaps, speechEndSec)
@@ -487,6 +575,51 @@ export function finalCheckIssues(
 }
 
 /**
+ * The black an intro asset itself carries, measured once per asset per process.
+ *
+ * A branded intro is one small file behind every episode on the channel, so it is measured at most
+ * once and re-used: the cache is keyed by the file's own path, size and mtime, so a re-made intro is
+ * measured again and the answer is never about bytes that are gone (AGENTS.md §6).
+ *
+ * An asset this machine cannot read carries no measured black, so nothing is exempted on its word:
+ * the check reports the stretch, as it did before this rule existed.
+ */
+const introBlackCache = new Map<string, {
+  size: number
+  mtime_ms: number
+  runs: Array<{ start_sec: number; end_sec: number }>
+}>()
+
+async function measureIntroAssetBlack(
+  assetPath: string,
+  o: Required<FinalCheckOptions>,
+): Promise<Array<{ start_sec: number; end_sec: number }>> {
+  let size = 0
+  let mtime_ms = 0
+  try {
+    const stat = statSync(assetPath)
+    size = stat.size
+    mtime_ms = stat.mtimeMs
+  } catch {
+    return []
+  }
+  const cached = introBlackCache.get(assetPath)
+  if (cached && cached.size === size && cached.mtime_ms === mtime_ms) return cached.runs
+  try {
+    const stderr = await runFfmpeg([
+      '-hide_banner', '-nostdin', '-i', assetPath,
+      '-vf', `blackdetect=d=${o.black_min_sec}:pix_th=${o.black_pixel_threshold}`,
+      '-f', 'null', '-',
+    ], { timeoutMs: o.timeout_ms })
+    const runs = parseBlackdetect(stderr)
+    introBlackCache.set(assetPath, { size, mtime_ms, runs })
+    return runs
+  } catch {
+    return []
+  }
+}
+
+/**
  * Measure the finished file and decide. Two ffmpeg passes at most: one that decodes picture and
  * sound together for the black and silence runs, and — only when the episode asks for closing
  * music — a short audio-only pass over the tail.
@@ -529,11 +662,17 @@ export async function runFinalCheck(
     black: parseBlackdetect(analysis),
     silence: parseSilencedetect(analysis, info.durationSec),
   }
-  const issues = finalCheckIssues(actual, expected, overrides)
+  // The intro's own black is the owner's content, and measuring it is a third ffmpeg pass over a
+  // small asset — skipped entirely when the caller already carries a measurement, so re-reading a
+  // stored verdict costs nothing.
+  const resolved: FinalCheckExpectation = expected.intro && !Array.isArray(expected.intro.black)
+    ? { ...expected, intro: { ...expected.intro, black: await measureIntroAssetBlack(expected.intro.asset, o) } }
+    : expected
+  const issues = finalCheckIssues(actual, resolved, overrides)
   return {
     checked_at: new Date().toISOString(),
     file: identityOf(videoPath),
-    expected,
+    expected: resolved,
     actual,
     passed: issues.length === 0,
     issues,

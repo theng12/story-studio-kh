@@ -86,6 +86,8 @@ import {
   speechEndSecFromScenePlan, finalCheckSummary, finalCheckProgress, startFinalCheck, readPlannedSectionGaps,
   type FinalCheckExpectation,
 } from '../lib/final-video-check.js'
+import { getAudioDuration } from '../lib/ffmpeg-utils.js'
+import { resolveEpisodeRenderShape } from '../services/opening-assets.js'
 import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
   latestFutureProjectClaimMs, listPlans, localDayKeyInTz, orderEpisodeCodes,
@@ -2493,6 +2495,25 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
     // own; an older file takes the episode's current `audio_chapters.json`.
     const sectionGaps = expected.section_gaps ?? await readPlannedSectionGaps(sourcePaths.episode_dir)
     if (sectionGaps) expected.section_gaps = sectionGaps
+    // What the episode's own Video Assembly settings put around the narration — the tail clips and
+    // the post-roll after it, and where its branded intro sits. Only for a file that carries no plan
+    // of its own: a render's recorded plan is the plan the file was MADE for and is the authority
+    // whenever there is one (this route's own contract above).
+    //
+    // The evidence is this project's own saved settings, read per call — never a default, and never
+    // a blanket waiver. A final whose own settings do not account for it still holds, and the intro's
+    // black is exempt only where THIS episode's intro asset is measured to be black over it.
+    // Owner decision, 2026-10-20, on Story Sprout SS0063: the 100 minutes of silence are his own
+    // 6000 s `after_scenes` still clip and the black is inside his own intro asset, so a final that
+    // matches what its own settings asked for is not a fault.
+    //
+    // A plan-less file's job params are not a source: a file with no plan sidecar predates the sidecar
+    // (1.4.327) and its job row is long gone, so the settings that are saved are what is left.
+    if (!(Number(expected.planned_sec) > 0)) {
+      const shape = await resolveEpisodeRenderShape(slug, getAudioDuration)
+      if (shape.after_narration_sec > 0) expected.after_narration_sec = shape.after_narration_sec
+      if (shape.intro) expected.intro = shape.intro
+    }
     const { started } = startFinalCheck(sourceVideoPath, expected)
     res.status(202).json({
       episode_code: episodeCode,
