@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.343 — 2026-10-20 (gate running)
+## 1.4.343 — 2026-10-20 (gated and landed)
 
 Merged fix/final-length-gap three times: a9701e99 (first version), 3517fa36 (owner decision), then 11bf6e45 (production's hole in 3517fa36), merged here as 625046a0 → 7df584ac → e46f6caa. Owner decision (2026-10-20, verbatim: *"yes. it's my own settings. in fact, i want all already made videos to retain this. but for newer ones from now on to no longer use the silence thing but instead follows the rest of the sleep channels... so what's done is done."*): existing Sprout finals keep their long silent still tail and their branded intro; future episodes drop the 6000 s `after_scenes` clip. A final that matches what its own settings asked for PASSES.
 
