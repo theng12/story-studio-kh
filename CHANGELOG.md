@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.340 — 2026-10-20
+
+- Retrying a failed Scene Plan job now resumes that exact job, even when the episode's recovery plan still pointed at an older empty attempt, so prompts the Gateway already finished are collected instead of bought again.
+- An episode's saved recovery plan can be read back (which job each step points at) without changing anything.
+
 ## v1.4.339 — 2026-10-20
 
 - An Idea Campaign counts only the ideas it newly saved, so a top-up no longer counts earlier ideas twice and stops early or retries for nothing.
