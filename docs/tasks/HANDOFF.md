@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.334 — 2026-10-20 (gate running)
+## 1.4.334 — 2026-10-20 (gated and landed)
 
 Merged fix/drain-waits-before-pausing (e725a7f3: maybeInstall looks for a maintenance operation before claiming the drain; status maintenance_running) and fix/cleanup-sample-keeps-failures (7572ffa0 failures-first sample + failed-rollback record without upload proof; 710a032f GET /library/media-cleanup/orphans + POST .../orphans/restore). Never roll the mini back below 1.4.334: older builds misread proof-less cleanup record entries.
 
