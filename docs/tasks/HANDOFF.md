@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.341 — 2026-10-20 (gate running)
+## 1.4.341 — 2026-10-20 (gated and landed)
 
 Merged fix/images-panel-race (039469f4: ImageGeneratorPanel boardRevision guards loadPrompts/loadScan success, catch and finally; sync episode watcher replaces the whole board; runOne refuses rows whose boardEpisodeId differs from the live episode).
 
