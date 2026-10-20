@@ -736,6 +736,26 @@
           <li v-for="line in preflightVideoEffects.not_drawn" :key="line">{{ line }}</li>
         </ul>
       </WorkspaceNotice>
+      <WorkspaceNotice
+        v-if="preflightLeftOut.length && !preflighting"
+        tone="warning"
+        title="Left out of this run"
+        data-testid="batch-left-out"
+      >
+        <ul class="text-sm">
+          <li v-for="left in preflightLeftOut" :key="left.label"><strong>{{ left.label }}</strong> — {{ left.reason }}</li>
+        </ul>
+      </WorkspaceNotice>
+      <WorkspaceNotice
+        v-if="preflightWarnings.length && !preflighting"
+        tone="warning"
+        title="Preflight warnings"
+        data-testid="batch-warnings"
+      >
+        <ul class="text-sm">
+          <li v-for="line in preflightWarnings" :key="line">{{ line }}</li>
+        </ul>
+      </WorkspaceNotice>
       <div class="chain-preview">
         <span v-for="(step, i) in checkedStepsOrdered" :key="step.id" class="chain-step">
           <span class="chain-icon" aria-hidden="true">{{ step.icon }}</span>
@@ -2248,6 +2268,9 @@ interface BlockedEpisode {
   issues?: Array<{ message?: string }>
 }
 const preflightBlocked = ref<BlockedEpisode[]>([])
+/** Steps preflight dropped from the run (a lenient safety check), each with its plain reason. */
+const preflightLeftOut = ref<Array<{ label: string; reason: string }>>([])
+const preflightWarnings = ref<string[]>([])
 /** 1.4.286 — what a Video Assembly in this batch draws, and what is on but will not be drawn. */
 const preflightVideoEffects = ref<{ effects: string[]; not_drawn?: string[] } | null>(null)
 const preflightEligibleCount = ref(0)
@@ -2353,6 +2376,13 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 ** index)).toFixed(index > 1 ? 1 : 0)} ${units[index]}`
 }
 
+function leftOutSteps(result: any): Array<{ label: string; reason: string }> {
+  return (Array.isArray(result?.steps_left_out) ? result.steps_left_out : []).map((left: any) => ({
+    label: stepsMeta.find(s => s.id === left?.step)?.label ?? String(left?.step),
+    reason: String(left?.reason || 'No reason was recorded.'),
+  }))
+}
+
 function closeConfirm(force = false): void {
   if (submitting.value && !force) return
   preflightRequestId += 1
@@ -2407,6 +2437,8 @@ async function openConfirm(repair: boolean) {
   preflighting.value = true
   preflightSummary.value = ''
   preflightBlocked.value = []
+  preflightLeftOut.value = []
+  preflightWarnings.value = []
   preflightVideoEffects.value = null
   preflightEligibleCount.value = 0
   preflightEligibleEpisodeIds.value = null
@@ -2434,7 +2466,12 @@ async function openConfirm(repair: boolean) {
     preflightEligibleEpisodeIds.value = Array.isArray(result?.eligible_episode_ids)
       ? result.eligible_episode_ids.filter((episodeId: unknown): episodeId is string => typeof episodeId === 'string')
       : null
-    preflightSummary.value = `${preflightEligibleCount.value} episode(s) and ${result.steps} step(s) are ready.${storage}`
+    preflightLeftOut.value = leftOutSteps(result)
+    preflightWarnings.value = Array.isArray(result?.warnings) ? result.warnings.filter((w: unknown): w is string => typeof w === 'string') : []
+    // `result.steps` counts the requested steps; the left-out ones will not run.
+    const readySteps = Math.max(0, Number(result.steps) - preflightLeftOut.value.length)
+    const leftOutNote = preflightLeftOut.value.length ? ` ${preflightLeftOut.value.length} step(s) left out.` : ''
+    preflightSummary.value = `${preflightEligibleCount.value} episode(s) and ${readySteps} step(s) are ready.${leftOutNote}${storage}`
   } catch (e: any) {
     if (requestId !== preflightRequestId || slug.value !== targetSlug) return
     closeConfirm()

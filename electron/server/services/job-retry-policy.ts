@@ -207,6 +207,20 @@ export function nonRetryable<E extends Error>(error: E): E {
   return Object.assign(error, { retryable: false })
 }
 
+/**
+ * Input and configuration refusals ("episode_id is required", "No writing model is chosen", "no title
+ * yet"): the job's params lack something no rerun can supply, so they fail once with the reason
+ * instead of three tries at 60 s. Matched on the message because they are thrown from many generators.
+ */
+const INPUT_REFUSAL = [
+  /^[a-z_]+ is required$/i,
+  /^At least one \w+ is required$/i,
+  /\bNo (?:writing )?model (?:is chosen|was picked|selected)\b/i,
+  /\bhas no title yet\b/i,
+]
+
 export function isNonRetryableError(error: unknown): boolean {
-  return (error as { retryable?: unknown } | null)?.retryable === false
+  if ((error as { retryable?: unknown } | null)?.retryable === false) return true
+  const message = error instanceof Error ? error.message.trim() : ''
+  return INPUT_REFUSAL.some(pattern => pattern.test(message))
 }

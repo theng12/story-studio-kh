@@ -50,9 +50,10 @@ import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { finalDurationIssue, missingEnabledVideoInputs, missingInputsMessage, switchedOnCueGate } from '../lib/video-enabled-inputs.js'
 import {
-  closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary,
-  type FinalCheckExpectation,
+  closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary, readPlannedSectionGaps,
+  type FinalCheckExpectation, type PlannedSectionGaps,
 } from '../lib/final-video-check.js'
+import { withLock } from '../lib/atomic-store.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
@@ -691,6 +692,8 @@ function finalCheckExpectation(
     width: number
     height: number
     speechEndSec?: number
+    /** The pauses the episode's merge planned between sections (`readPlannedSectionGaps`). */
+    sectionGaps?: PlannedSectionGaps | null
   },
 ): FinalCheckExpectation {
   return {
@@ -701,6 +704,7 @@ function finalCheckExpectation(
     height: opts.height,
     subtitles_path: req.subtitles?.enabled ? ((req.subtitles.srt_path || '').trim() || null) : null,
     ...(Number(opts.speechEndSec) > 0 ? { speech_end_sec: Number(opts.speechEndSec) } : {}),
+    ...(opts.sectionGaps ? { section_gaps: opts.sectionGaps } : {}),
   }
 }
 
@@ -2117,13 +2121,29 @@ export async function guardClosingTail(
   const merged = assets.merged_audio[0]
   if (!merged) return assets
   const { planClosingTailRemix, remixForClosingTail } = await import('../services/closing-tail-remix.js')
+  const { claimClosingTailRemix } = await import('../services/closing-tail-remix-admission.js')
   const code = episodeId.toUpperCase()
-  const verdict = await planClosingTailRemix({ slug, code, postAudio: req.post_audio, preferredFilename: merged.filename })
-  if (verdict.action === 'refuse') throw nonRetryable(new Error(verdict.reason))
-  if (verdict.action === 'none' || !job) return assets
-  const filename = await remixForClosingTail(job, slug, code, verdict).catch(error => { throw nonRetryable(error) })
-  req.merged_audio_path = path.join(path.dirname(merged.path), filename)
-  return scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: filename })
+  // One re-mix of an episode at a time: a second render asking for the same tail waits, then finds the
+  // first one's pinned track and uses it. Admission (no job) only reads and never waits for a re-mix.
+  const decide = async (): Promise<ScannedAssets> => {
+    // `req.merged_audio_path` can still name the track this job was accepted with, from before its own
+    // (or another render's) re-mix; the plan resolves it to the re-mixed track instead of refusing.
+    const verdict = await planClosingTailRemix({ slug, code, postAudio: req.post_audio, preferredFilename: merged.filename })
+    if (verdict.action === 'refuse') throw nonRetryable(new Error(verdict.reason))
+    if (verdict.action === 'none' || (verdict.action === 'remix' && !job)) return assets
+    let filename: string
+    if (verdict.action === 'use') filename = verdict.filename
+    else {
+      const claim = await claimClosingTailRemix(slug, code)
+      if ('busy' in claim) throw new Error(claim.busy)
+      try { filename = await remixForClosingTail(job!, slug, code, verdict) }
+      catch (error) { throw nonRetryable(error as Error) }
+      finally { claim.release() }
+    }
+    req.merged_audio_path = path.join(path.dirname(merged.path), filename)
+    return scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: filename })
+  }
+  return job ? withLock(`closing-tail-remix:${slug}:${code}`, decide) : decide()
 }
 
 export async function prepareUnifiedVideoAssemblyInputs(
@@ -4087,6 +4107,7 @@ export async function generateVideo(job: Job): Promise<void> {
         // `narrationDuration` is the speech end (see the merged-closing-tail note above), and the
         // narration plays from `narrationLeadInSec` in the file, so this is where the words stop.
         speechEndSec: narrationLeadInSec + narrationDuration,
+        sectionGaps: await readPlannedSectionGaps(episodeDir),
       }),
     })
 

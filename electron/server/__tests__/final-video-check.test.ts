@@ -25,8 +25,11 @@ import {
   finalCheckVerdict,
   parseBlackdetect,
   parseSilencedetect,
+  plannedSectionGapsFromSidecar,
+  readPlannedSectionGaps,
   readStoredFinalCheck,
   runFinalCheck,
+  sectionGapWindows,
   speechEndSecFromScenePlan,
   storeFinalCheck,
   tailWindow,
@@ -389,5 +392,64 @@ describe('a verdict goes stale when the video does', () => {
     }
     assert.equal(finalCheckVerdict(stored), 'there is a black stretch (and 1 more problem)')
     assert.equal(finalCheckSummary(stored), 'Final check: 2 problems — there is a black stretch')
+  })
+})
+
+/**
+ * Night Atlas History EP0014, 2026-10-20: the check called a 5.0 s silence at 1:28:25 "inside the
+ * speech". It was the planned 5 s pause between Chapter 10 and Chapter 11 (`gap_duration_s: 5`),
+ * detected as 5.007 s only because silencedetect's threshold is the same 5 s.
+ */
+describe('planned pauses between sections', () => {
+  // Three sections of 100, 200 and 300 s with 5 s pauses and an 8 s lead-in: speech ends at 618 s,
+  // the pauses sit at 108-113 s and 313-318 s.
+  const gaps = { gap_sec: 5, durations_sec: [100, 200, 300] }
+  const actual = {
+    duration_sec: 640, video_sec: 640, audio_sec: 640, width: 320, height: 180,
+    tail_lufs: null, black: [], silence: [] as Array<{ start_sec: number; end_sec: number }>,
+  }
+  const plan = (over: Partial<FinalCheckExpectation> = {}) => expect({
+    planned_sec: 640, width: 320, height: 180, tail: { sec: 22, from_end_sec: 0 }, speech_end_sec: 618, ...over,
+  })
+
+  test('windows are counted back from the speech end', () => {
+    assert.deepEqual(sectionGapWindows(gaps, 618), [{ start_sec: 313, end_sec: 318 }, { start_sec: 108, end_sec: 113 }])
+  })
+
+  test('a silence that is a planned pause is not a fault; the same silence elsewhere is', () => {
+    const pause = { start_sec: 313.2, end_sec: 318.25 }
+    assert.deepEqual(finalCheckIssues({ ...actual, silence: [pause] }, plan({ section_gaps: gaps })), [])
+    const unplanned = finalCheckIssues({ ...actual, silence: [pause] }, plan())
+    assert.deepEqual(unplanned.map(issue => issue.check), ['silence'])
+    const elsewhere = { start_sec: 200, end_sec: 205.1 }
+    assert.deepEqual(
+      finalCheckIssues({ ...actual, silence: [elsewhere] }, plan({ section_gaps: gaps })).map(issue => issue.check),
+      ['silence'],
+    )
+  })
+
+  test('a pause that runs into more silence than was planned is still reported', () => {
+    const long = { start_sec: 313, end_sec: 326 }
+    assert.deepEqual(
+      finalCheckIssues({ ...actual, silence: [long] }, plan({ section_gaps: gaps })).map(issue => issue.check),
+      ['silence'],
+    )
+  })
+
+  test('the sidecar yields no pause for a single section, a zero gap, or a bad length', () => {
+    assert.deepEqual(plannedSectionGapsFromSidecar({ sections: [{ duration_s: 10 }, { duration_s: 20 }], gap_duration_s: 5 }),
+      { gap_sec: 5, durations_sec: [10, 20] })
+    assert.equal(plannedSectionGapsFromSidecar({ sections: [{ duration_s: 10 }], gap_duration_s: 5 }), null)
+    assert.equal(plannedSectionGapsFromSidecar({ sections: [{ duration_s: 10 }, { duration_s: 20 }], gap_duration_s: 0 }), null)
+    assert.equal(plannedSectionGapsFromSidecar({ sections: [{ duration_s: 10 }, {}], gap_duration_s: 5 }), null)
+    assert.equal(plannedSectionGapsFromSidecar(null), null)
+  })
+
+  test('the pauses are read from an episode folder, and a folder without the sidecar plans none', async () => {
+    const folder = await fs.mkdtemp(path.join(dir, 'chapters-'))
+    assert.equal(await readPlannedSectionGaps(folder), null)
+    await fs.writeFile(path.join(folder, 'audio_chapters.json'),
+      JSON.stringify({ sections: [{ duration_s: 100 }, { duration_s: 200 }], gap_duration_s: 5 }))
+    assert.deepEqual(await readPlannedSectionGaps(folder), { gap_sec: 5, durations_sec: [100, 200] })
   })
 })

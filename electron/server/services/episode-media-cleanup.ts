@@ -1769,7 +1769,10 @@ async function safeArchiveDestination(raw: string, preview: MediaCleanupPreview)
 
 async function exactFileStillReviewed(file: MediaCleanupFile): Promise<string | null> {
   let stat: Awaited<ReturnType<typeof fs.lstat>>
-  try { stat = await fs.lstat(file.path) } catch { return 'The reviewed file is missing.' }
+  try { stat = await fs.lstat(file.path) } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === 'ENOENT' ? 'The reviewed file is missing.' : `The reviewed file could not be checked (${code || 'unknown error'}).`
+  }
   if (!stat.isFile() || stat.isSymbolicLink()) return 'The reviewed path is no longer a regular file.'
   if (await fs.realpath(file.path) !== file.real_path) return 'The reviewed file location changed after preview.'
   if (stat.nlink !== 1) return 'The reviewed file now has another hard link.'
@@ -2652,6 +2655,8 @@ export function _setMediaCleanupHooksForTests(next: CleanupHooks): () => void {
 export function _assertReviewedIdentityForTests(file: MediaCleanupFile): void {
   assertReviewedIdentitySync(file)
 }
+
+export const _exactFileStillReviewedForTests = exactFileStillReviewed
 
 export function _resetMediaCleanupStateForTests(): void {
   operations.clear()

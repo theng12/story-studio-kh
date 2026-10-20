@@ -83,7 +83,7 @@ import { getUploadMode } from '../services/upload-store.js'
 import { safetyMode } from '../services/safety-checks.js'
 import {
   finalCheckVerdict, finalCheckIdentity, finalCheckIdentityMatches, readStoredFinalCheck,
-  speechEndSecFromScenePlan, finalCheckSummary, finalCheckProgress, startFinalCheck,
+  speechEndSecFromScenePlan, finalCheckSummary, finalCheckProgress, startFinalCheck, readPlannedSectionGaps,
   type FinalCheckExpectation,
 } from '../lib/final-video-check.js'
 import {
@@ -2488,6 +2488,11 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
         ? Number(recorded!.speech_end_sec)
         : await speechEndSecForEpisode(slug, episodeCode, sourcePaths.episode_dir),
     }
+    // The planned pauses between sections, so one that shows up as silence is not read as a gap in
+    // the speech (Night Atlas History EP0014: a 5 s chapter pause at 1:28:25). A render records its
+    // own; an older file takes the episode's current `audio_chapters.json`.
+    const sectionGaps = expected.section_gaps ?? await readPlannedSectionGaps(sourcePaths.episode_dir)
+    if (sectionGaps) expected.section_gaps = sectionGaps
     const { started } = startFinalCheck(sourceVideoPath, expected)
     res.status(202).json({
       episode_code: episodeCode,

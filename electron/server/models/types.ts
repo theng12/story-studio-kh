@@ -4038,6 +4038,8 @@ export interface AudioMergeRequest {
   ambient_tracks?: AmbientTrack[]
   narration_volume?: number    // 0-1, default 1.0
   write_mode?: 'overwrite' | 'new'  // how to handle an existing merged output; default 'overwrite'
+  /** Server-only: bake at most this long a closing tail, whatever the saved Video Assembly preset asks for (a re-mix for one render). */
+  closing_tail_sec_cap?: number
   /** The Music Pool track this merge uses (the page's pick, or the merge's own for a Pipeline run); recorded after a good merge. */
   music_pool_track?: string
   /**

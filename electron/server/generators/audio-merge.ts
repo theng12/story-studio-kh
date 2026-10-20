@@ -35,6 +35,7 @@ import type {
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
+import { closingTailRemixInProgress, CLOSING_TAIL_REMIX_IN_PROGRESS } from '../services/closing-tail-remix-admission.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { chapterKeyOf, inspectChapterAudioReadiness } from '../services/audio-workflow-readiness.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
@@ -550,6 +551,11 @@ export async function generateAudioMerge(job: Job): Promise<void> {
   const req = params as AudioMergeRequest
   const code = episode_id.toUpperCase()
 
+  // A closing-tail re-mix of this episode writes the same files (it carries `closing_tail_sec_cap`).
+  if (!(Number(req.closing_tail_sec_cap) > 0) && closingTailRemixInProgress(project_slug, code)) {
+    throw new Error(CLOSING_TAIL_REMIX_IN_PROGRESS)
+  }
+
   // One file per chapter: an episode still holding split `_partN` narration
   // gets each complete chapter joined first (a quality refresh keeps the exact
   // files its repair selected).
@@ -1054,7 +1060,11 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     // truth, so the mix and the picture the renderer draws under it cannot
     // disagree. Only background music can carry it, so a merge with no music
     // bakes none and says so rather than leaving a silence unexplained.
-    const requestedClosingTail = await resolveProjectClosingTail(project_slug)
+    const savedClosingTail = await resolveProjectClosingTail(project_slug)
+    const tailCap = Number(req.closing_tail_sec_cap)
+    const requestedClosingTail = tailCap > 0 && savedClosingTail.seconds > tailCap
+      ? { ...savedClosingTail, seconds: tailCap }
+      : savedClosingTail
     const closingTail: ClosingTailRequest = musicEnabled ? requestedClosingTail : { seconds: 0 }
     if (closingTail.seconds > 0) {
       job.output_lines.push(

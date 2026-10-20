@@ -10,10 +10,17 @@
  * is the ordinary Audio Assembly merge written as a NEW track beside the original, accepted only if the
  * narration and its lead-in came out where they were; the tail sits after the speech, so the Scene
  * Plan and subtitles do not move. The new track becomes the episode's pinned one only after that check.
+ *
+ * The work is durable. Before the merge starts, a note beside the tracks (`remix-intent.json`) records
+ * what to put back; it is removed only once the new track is pinned or the folder is restored. A stop in
+ * between (an update, a crash) is picked up by the next re-mix: a complete, valid new track is adopted,
+ * anything else is rolled back. The pinned track also records which one it replaced
+ * (`closing_tail_remix_of`), so a render accepted with the old track resolves to it on Retry.
  */
 
 import fs from 'fs/promises'
 import path from 'path'
+import { writeJsonAtomic } from '../lib/atomic-store.js'
 import type { Job, VideoPostAudio } from '../models/types.js'
 import { mergedAudioCompletionPath, mergedClosingTailSec, postRollSeconds, resolveProjectClosingTail } from '../lib/closing-tail.js'
 import { closingMusicWanted } from '../lib/final-video-check.js'
@@ -28,10 +35,13 @@ const MERGE_SIDECARS = ['audio_chapters.json', 'audio_sentences.json']
 export type ClosingTailVerdict =
   | { action: 'none' }
   | { action: 'refuse'; reason: string }
-  | { action: 'remix'; wantedSec: number; params: Record<string, any>; track: MergedTrack }
+  /** This render was accepted with a track that has since been re-mixed: use the re-mixed one. */
+  | { action: 'use'; filename: string }
+  | { action: 'remix'; wantedSec: number; params: Record<string, any>; track: MergedTrack; settings: string[] }
 
 interface MergedTrack {
   dir: string
+  code: string
   filename: string
   episodeDir: string
   /** The completion record exactly as it was, to put back if the re-mix is undone. */
@@ -40,13 +50,89 @@ interface MergedTrack {
   leadInSec: number | null
 }
 
+/** What a started re-mix writes down first, so a stop at any point can be finished or undone. */
+interface RemixIntent {
+  base_filename: string
+  /** The base track's completion record, which the re-mix overwrites. */
+  base_record_text: string
+  episode_dir: string
+  /** Files in the folder before the merge started. */
+  before: string[]
+  /** `audio_chapters.json` / `audio_sentences.json` as they were (null = absent). */
+  sidecars: Record<string, string | null>
+}
+
+const intentPath = (dir: string, code: string) => path.join(dir, `${code}_merged_audio.remix-intent.json`)
+
+async function readIntent(dir: string, code: string): Promise<RemixIntent | null> {
+  try {
+    const intent = JSON.parse(await fs.readFile(intentPath(dir, code), 'utf-8'))
+    return typeof intent?.base_filename === 'string' && typeof intent.base_record_text === 'string' ? intent : null
+  } catch { return null }
+}
+
+const readText = (file: string) => fs.readFile(file, 'utf-8').catch(() => null)
+
+/** The recorded gap, intro and lead-in become the re-mix's own settings; the log says which is which. */
+function applyRecordedSettings(
+  params: Record<string, any>,
+  record: any,
+  chapters: any,
+  settings: string[],
+): string | null {
+  const gap = Number(chapters?.gap_duration_s)
+  if (chapters?.gap_duration_s != null && Number.isFinite(gap) && gap >= 0) {
+    params.gap_duration = gap
+    settings.push(`gap between chapters: ${gap} s — recorded with the original merge`)
+    const chunk = Number(chapters?.chunk_silence_sec)
+    if (Number.isFinite(chunk) && chunk >= 0) params.chunk_silence_sec = chunk
+  } else {
+    settings.push(`gap between chapters: ${params.gap_duration ?? 0} s — not recorded, the current Audio Assembly preset's`)
+  }
+  const opening = record?.opening
+  if (!opening || typeof opening !== 'object') {
+    settings.push('intro and music lead-in: not recorded, the current Audio Assembly preset\'s')
+    return null
+  }
+  const intro = opening.intro
+  if (!intro) {
+    params.intro = { ...(params.intro || {}), enabled: false }
+    settings.push('intro: none — recorded with the original merge')
+  } else {
+    const current = String(params.intro?.file || '')
+    if (!params.intro?.enabled || path.basename(current) !== intro.filename) {
+      return `the original merge opened with the intro ${intro.filename}, which the saved Audio Assembly preset no longer names`
+    }
+    params.intro = { ...params.intro, gap_after: Number(intro.gap_after_sec) || 0 }
+    settings.push(`intro: ${intro.filename}, ${Number(intro.gap_after_sec) || 0} s gap — recorded with the original merge`)
+  }
+  const lead = Number(opening.music_lead_in_sec)
+  if (Number.isFinite(lead) && params.music) {
+    params.music = { ...params.music, lead_in_enabled: lead > 0, lead_in_seconds: lead }
+    settings.push(`lead-in: ${lead} s of music before the narration — recorded with the original merge`)
+  }
+  return null
+}
+
+/** The re-mix of `base` that is the track now, or null. Read from the completion record the re-mix pinned. */
+async function remixSuccessor(dir: string, code: string, base: string, wantedSec: number): Promise<string | null> {
+  try {
+    const record = JSON.parse(await fs.readFile(mergedAudioCompletionPath(path.join(dir, base), code), 'utf-8'))
+    if (record?.closing_tail_remix_of !== base || record.output_filename === base) return null
+    if (!(Number(record.closing_tail_sec) >= wantedSec - 0.5)) return null
+    return (await fs.stat(path.join(dir, record.output_filename)).catch(() => null)) ? record.output_filename : null
+  } catch { return null }
+}
+
 /**
  * Does rendering this episode with `postAudio` need its audio re-mixed with a closing tail?
  *
  * `none` for every request that does not ask for closing music over a tail, for a track that already
  * carries a tail (the merged audio is the truth, 1.4.327), and for a channel whose saved Audio Assembly
  * preset mixes no background music (its tail is silent by design). `preferredFilename` is the track the
- * render is about to lay down; without it the episode's own selection is read.
+ * render is about to lay down; without it the episode's own selection is read. `use` when that track
+ * was already re-mixed and the re-mix pinned. An interrupted re-mix reads as `remix` (which recovers
+ * first), never as a refusal.
  */
 export async function planClosingTailRemix(opts: {
   slug: string
@@ -62,10 +148,13 @@ export async function planClosingTailRemix(opts: {
   const paths = await resolveEpisodePathsByCodeWithSidecar(opts.slug, code, 'audio_chapters.json').catch(() => null)
   if (!paths?.merged_audio_dir) return { action: 'none' }
   const dir = paths.merged_audio_dir
-  const filename = opts.preferredFilename || await resolveEpisodeMergedAudioFilename(dir, code)
+  const intent = await readIntent(dir, code)
+  const filename = intent?.base_filename || opts.preferredFilename || await resolveEpisodeMergedAudioFilename(dir, code)
   if (!filename) return { action: 'none' }
   const mergedPath = path.join(dir, filename)
   if (await mergedClosingTailSec(mergedPath, code) > 0) return { action: 'none' }
+  const successor = await remixSuccessor(dir, code, filename, wanted)
+  if (successor) return { action: 'use', filename: successor }
 
   const pm = await import('./project-manager.js')
   const { findActivePreset, resolveStepParams } = await import('../routes/pipeline.js')
@@ -82,34 +171,133 @@ export async function planClosingTailRemix(opts: {
       + `${seconds} s closing, then render again. Story cannot do it by itself here: ${why}`,
   })
 
-  if (!params.music.files?.length) {
-    const { pickPoolMusic } = await import('./music-pool.js')
+  // The music: the episode's own recorded track when the preset draws from the Music Pool, so the
+  // re-mix never takes a new pick from it.
+  const settings: string[] = []
+  const poolSource = (params.music.source ?? (params.music.files?.length ? 'manual' : 'pool')) === 'pool'
+  const { episodeOwnTrack, musicWithTrack, pickPoolMusic } = await import('./music-pool.js')
+  const own = poolSource ? await episodeOwnTrack(opts.slug, code) : null
+  if (own) {
+    params.music = { ...musicWithTrack(params.music, own), source: 'manual' }
+    settings.push(`music: ${own.filename} — recorded as this episode's track`)
+  } else if (!params.music.files?.length) {
     if (!await pickPoolMusic(opts.slug, code, params.music)) {
       return refuse('the Audio Assembly preset has background music on, but its Music Pool has no track to give.')
     }
+    settings.push('music: the Music Pool\'s next pick — no track is recorded for this episode, the current Audio Assembly preset\'s')
+  } else {
+    settings.push(`music: ${path.basename(params.music.files[0])} — not recorded, the current Audio Assembly preset\'s`)
   }
   if ((await resolveProjectClosingTail(opts.slug)).seconds + 0.5 < wanted) {
     return refuse(`the saved Video Assembly preset does not ask for ${seconds} s, and Audio Assembly bakes what it saves. Save the Video Assembly preset with that closing first.`)
   }
-  let recordText = ''
+  let recordText = intent?.base_record_text ?? ''
   let record: any = null
   try {
-    recordText = await fs.readFile(mergedAudioCompletionPath(mergedPath, code), 'utf-8')
+    if (!intent) recordText = await fs.readFile(mergedAudioCompletionPath(mergedPath, code), 'utf-8')
     record = JSON.parse(recordText)
   } catch { /* no record */ }
   if (record?.output_filename !== filename || !(Number(record?.duration_sec) > 0)) {
     return refuse(`${filename} has no Audio Assembly record, so there is no proof that re-mixing the chapters gives the same narration.`)
   }
+  const chapters = JSON.parse(intent?.sidecars['audio_chapters.json'] ?? await readText(path.join(paths.episode_dir, 'audio_chapters.json')) ?? 'null')
+  const conflict = applyRecordedSettings(params, record, chapters, settings)
+  if (conflict) return refuse(conflict)
+  settings.push('voice level, music balance and fades, loudness target: not recorded, so the current Audio Assembly and Video Assembly presets apply')
   const lead = Number(record.opening?.lead_in_sec)
   return {
     action: 'remix',
     wantedSec: wanted,
-    params: { ...params, episode_id: code, write_mode: 'new' },
+    settings,
+    params: { ...params, episode_id: code, write_mode: 'new', closing_tail_sec_cap: wanted },
     track: {
-      dir, filename, episodeDir: paths.episode_dir, recordText,
+      dir, code, filename, episodeDir: paths.episode_dir, recordText,
       durationSec: Number(record.duration_sec), leadInSec: Number.isFinite(lead) ? lead : null,
     },
   }
+}
+
+/** What is wrong with a re-mixed track's record, in words; empty when it is the same narration with the tail. */
+function remixProblems(record: any, track: MergedTrack, wantedSec: number): string[] {
+  const seconds = Number(wantedSec.toFixed(1))
+  const tail = Number(record.closing_tail_sec) || 0
+  const speech = Number(record.duration_sec) - tail
+  const lead = Number(record.opening?.lead_in_sec)
+  const problems: string[] = []
+  if (tail < wantedSec - 0.5) problems.push(`the re-mix carries a ${tail.toFixed(1)} s closing, not ${seconds} s`)
+  if (Math.abs(speech - track.durationSec) > MERGED_AUDIO_TOLERANCE_SEC) {
+    problems.push(`its narration came out ${speech.toFixed(1)} s instead of ${track.durationSec.toFixed(1)} s`)
+  }
+  if (track.leadInSec !== null && Math.abs(lead - track.leadInSec) > LEAD_IN_TOLERANCE_SEC) {
+    problems.push(`its lead-in came out ${lead.toFixed(2)} s instead of ${track.leadInSec.toFixed(2)} s`)
+  }
+  return problems
+}
+
+/** Write the note that lets a stopped re-mix be finished or undone. Call it before the merge starts. */
+export async function beginClosingTailRemix(verdict: Extract<ClosingTailVerdict, { action: 'remix' }>): Promise<RemixIntent> {
+  const { track } = verdict
+  const { code } = track
+  const sidecars: RemixIntent['sidecars'] = {}
+  for (const name of MERGE_SIDECARS) sidecars[name] = await readText(path.join(track.episodeDir, name))
+  const intent: RemixIntent = {
+    base_filename: track.filename, base_record_text: track.recordText, episode_dir: track.episodeDir,
+    before: await fs.readdir(track.dir), sidecars,
+  }
+  await writeJsonAtomic(intentPath(track.dir, code), intent, { compact: true })
+  return intent
+}
+
+/** Put the folder back as the note says it was, then drop the note. */
+async function rollbackRemix(dir: string, code: string, intent: RemixIntent): Promise<void> {
+  const keep = new Set([...intent.before, path.basename(intentPath(dir, code))])
+  for (const file of await fs.readdir(dir)) if (!keep.has(file)) await fs.rm(path.join(dir, file), { force: true })
+  await fs.writeFile(mergedAudioCompletionPath(path.join(dir, intent.base_filename), code), intent.base_record_text, 'utf-8')
+  for (const [name, text] of Object.entries(intent.sidecars)) {
+    if (text !== null) await fs.writeFile(path.join(intent.episode_dir, name), text, 'utf-8')
+  }
+  await fs.rm(intentPath(dir, code), { force: true })
+}
+
+/** The new track is good: record what it replaced, pin it, and drop the note. In that order. */
+async function pinRemix(dir: string, code: string, recordPath: string, record: any, base: string): Promise<string> {
+  await fs.writeFile(recordPath, JSON.stringify({ ...record, closing_tail_remix_of: base }, null, 2), 'utf-8')
+  await writeSelectedMergedAudio(dir, record.output_filename)
+  await fs.rm(intentPath(dir, code), { force: true })
+  return record.output_filename
+}
+
+/**
+ * Finish or undo a re-mix that was stopped part-way. A new track whose record is complete and passes
+ * the same checks as a live re-mix is adopted and pinned; anything else is rolled back.
+ */
+async function recoverInterruptedRemix(
+  track: MergedTrack,
+  code: string,
+  wantedSec: number,
+  job: Job,
+): Promise<string | null> {
+  const intent = await readIntent(track.dir, code)
+  if (!intent) return null
+  const recordPath = mergedAudioCompletionPath(path.join(track.dir, track.filename), code)
+  let record: any = null
+  try { record = JSON.parse(await fs.readFile(recordPath, 'utf-8')) } catch { /* torn or absent */ }
+  const name = record?.output_filename
+  let adoptable = typeof name === 'string' && name !== intent.base_filename && !!record.master_filename
+  if (adoptable) {
+    const mp3 = await fs.stat(path.join(track.dir, name)).catch(() => null)
+    const master = await fs.stat(path.join(track.dir, record.master_filename)).catch(() => null)
+    adoptable = !!mp3 && mp3.size === Number(record.bytes) && !!master && master.size > 0
+      && remixProblems(record, track, wantedSec).length === 0
+  }
+  if (adoptable) {
+    await pinRemix(track.dir, code, recordPath, record, intent.base_filename)
+    job.output_lines.push(`Closing tail: an earlier re-mix of ${intent.base_filename} was interrupted after ${name} was complete; it is checked and now this episode's selected audio.`)
+    return name
+  }
+  await rollbackRemix(track.dir, code, intent)
+  job.output_lines.push(`Closing tail: an earlier re-mix of ${intent.base_filename} was interrupted before it was complete; its unfinished files were removed and the audio is re-mixed from the start.`)
+  return null
 }
 
 /**
@@ -125,40 +313,29 @@ export async function remixForClosingTail(
 ): Promise<string> {
   const { track, wantedSec } = verdict
   const seconds = Number(wantedSec.toFixed(1))
+  const recovered = await recoverInterruptedRemix(track, code, wantedSec, job)
+  if (recovered) return recovered
   const recordPath = mergedAudioCompletionPath(path.join(track.dir, track.filename), code)
-  const read = (file: string) => fs.readFile(file, 'utf-8').catch(() => null)
-  const sidecars = await Promise.all(MERGE_SIDECARS.map(async name => [name, await read(path.join(track.episodeDir, name))] as const))
-  const before = new Set(await fs.readdir(track.dir))
+  const intent = await beginClosingTailRemix(verdict)
   job.output_lines.push(
     `Closing tail: ${track.filename} was mixed without the ${seconds} s closing music this render asks for — `
     + 're-mixing the audio with it first (a new track beside the original; the narration is not touched).',
+    `Closing tail re-mix settings — ${verdict.settings.join('; ')}.`,
   )
   const { generateAudioMerge } = await import('../generators/audio-merge.js')
   try {
     await generateAudioMerge({ ...job, type: 'audio_merge', params: verdict.params, progress: 0, result: undefined } as Job)
     const record = JSON.parse(await fs.readFile(recordPath, 'utf-8'))
-    const tail = Number(record.closing_tail_sec) || 0
-    const speech = Number(record.duration_sec) - tail
-    const lead = Number(record.opening?.lead_in_sec)
-    const problems: string[] = []
-    if (tail < wantedSec - 0.5) problems.push(`the re-mix carries a ${tail.toFixed(1)} s closing, not ${seconds} s`)
-    if (Math.abs(speech - track.durationSec) > MERGED_AUDIO_TOLERANCE_SEC) {
-      problems.push(`its narration came out ${speech.toFixed(1)} s instead of ${track.durationSec.toFixed(1)} s`)
-    }
-    if (track.leadInSec !== null && Math.abs(lead - track.leadInSec) > LEAD_IN_TOLERANCE_SEC) {
-      problems.push(`its lead-in came out ${lead.toFixed(2)} s instead of ${track.leadInSec.toFixed(2)} s`)
-    }
+    const problems = remixProblems(record, track, wantedSec)
     if (problems.length) {
       throw new Error(`${code}: the re-mix with the ${seconds} s closing was undone and the original audio kept, because ${problems.join(' and ')}. `
         + 'The narration would no longer match the Scene Plan and subtitles; check the Audio Assembly preset and chapters, then re-mix the audio yourself.')
     }
-    await writeSelectedMergedAudio(track.dir, record.output_filename)
-    job.output_lines.push(`Closing tail: ${record.output_filename} now carries the ${seconds} s closing and is this episode's selected audio.`)
-    return record.output_filename
+    const filename = await pinRemix(track.dir, code, recordPath, record, track.filename)
+    job.output_lines.push(`Closing tail: ${filename} now carries the ${seconds} s closing and is this episode's selected audio.`)
+    return filename
   } catch (error) {
-    for (const file of await fs.readdir(track.dir)) if (!before.has(file)) await fs.rm(path.join(track.dir, file), { force: true })
-    await fs.writeFile(recordPath, track.recordText, 'utf-8')
-    for (const [name, text] of sidecars) if (text !== null) await fs.writeFile(path.join(track.episodeDir, name), text, 'utf-8')
+    await rollbackRemix(track.dir, code, intent)
     throw error
   }
 }
