@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.335 — 2026-10-20 (gate running)
+## 1.4.335 — 2026-10-20 (gated and landed)
 
 Merged fix/pipeline-leftout-steps (dd14feaa: preflight returns live runSteps; run-batch filters preflight.stepsLeftOut at admission; Myth EP0012 fa69e918 should be discarded, not retried) and fix/orphan-scan-complete (cbb3e152: readDirectory records non-ENOENT failures, streamTrashIndex reads every record, handoff records size/mtime/macos_trash_path; earlier handoffs report location unknown).
 
