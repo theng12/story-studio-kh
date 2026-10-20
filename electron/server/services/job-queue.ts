@@ -71,7 +71,7 @@ import { assertQueuedVisualSource } from './video-visual-source.js'
 import { getValidVideoAssemblyCheckpoint } from '../lib/video-assembly-checkpoint.js'
 import { clearQuotaStops, isUnchargedQuotaStop, noteQuotaStop } from '../lib/ai-client.js'
 import { pipelineStepLabels, splitChainAfterFailure } from '../lib/pipeline-continuation.js'
-import { SKIPPED_STEP_LINE_PREFIX, disabledOptionalStepReason, disabledStepReasonForJob } from '../lib/optional-steps.js'
+import { SKIPPED_STEP_LINE_PREFIX, disabledOptionalStepReason, disabledStepReasonForJob, unusableLinkSkipReason } from '../lib/optional-steps.js'
 import { safetyGate, safetyMode } from './safety-checks.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
@@ -1249,6 +1249,24 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
         return
       }
       if (audit.verdict !== 'complete') {
+        // A writing job a restart interrupted (nothing cancelled) whose in-flight requests have now all
+        // settled is the case `bootRecoveryKind` resumes at once ('chat'): reconciling first only kept it
+        // from sending that request twice. Leaving it `error` held its chain until someone pressed Retry
+        // (Sprout SS0121/SS0119, History EP0015, 2026-10-20), so pick it up again — saved answers kept,
+        // earlier requests collected by their saved key, only the missing work asked for.
+        const type = job.type as JobType
+        if (isChatTextJob(type) && !hasCancellationContext(job) && queues[type]?.executor && !pendingContains(type, job.job_id)) {
+          job.status = 'queued'
+          job.finished_at = null
+          job.error = null
+          job.local_execution_complete = false
+          job.output_lines.push('↻ Everything sent to the Gateway has finished — picking this step up where it stopped. Saved answers are kept and an earlier request is collected by its saved key where it has one.')
+          queues[type].pending.push(job)
+          await persistJob(job)
+          emitUpdate(job)
+          pump(type)
+          return
+        }
         job.status = 'error'
         // An auditor that worked out WHICH items are wrong names them; one that only has a verdict
         // keeps the generic sentence. AGENTS.md §8 — the owner should not have to re-derive by hand
@@ -4331,7 +4349,7 @@ async function dispatchChainLink(job: Job, nextStep: any, rest: unknown[]): Prom
       const skipReason = disabledOptionalStepReason(
         job.project_slug,
         nextStep.params?.pipeline_step ?? nextStep.type,
-      )
+      ) ?? unusableLinkSkipReason(nextStep)
       if (!skipReason) break
       job.output_lines.push(`${SKIPPED_STEP_LINE_PREFIX} ${skipReason}`)
       const [following, ...after] = rest as any[]
@@ -4438,7 +4456,7 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     // were waiting behind it, which is what unblocks an already-admitted batch
     // without cancelling anything or replaying unrelated running work. A REQUIRED
     // step is never in the table, so it can never take this path.
-    const skipReason = disabledStepReasonForJob(job)
+    const skipReason = disabledStepReasonForJob(job) ?? unusableLinkSkipReason(job)
     if (skipReason) {
       delete job.resolved
       delete job.auto_retry
