@@ -40,6 +40,95 @@ export function finalCheckRunMarkerPath(videoPath: string): string {
   return `${finalCheckPath(videoPath)}.running`
 }
 
+/**
+ * Where a plan-less final's FROZEN expectation lives: beside the final, like its verdict, so it
+ * travels with the file it describes and a person can read it without the app.
+ *
+ * Separate from `finalCheckPath` because a final that has never been checked still needs one: the
+ * whole point is to write it down BEFORE the channel's settings change under it (owner decision,
+ * 2026-10-20 — see `FrozenFinalCheckShape`).
+ *
+ * The suffix does not end in `.finalcheck.json`, so nothing that claims every final-check sidecar by
+ * its ending claims this (AGENTS.md §6).
+ */
+export function frozenExpectationPath(videoPath: string): string {
+  return `${videoPath}.finalcheck.expectation.json`
+}
+
+/**
+ * What a plan-less final was made to be, written down once and never re-derived.
+ *
+ * A final from before the 1.4.327 sidecar records no plan of its own, so its expected length and its
+ * intro have to come from somewhere else — and "the channel's Video Assembly settings" is a moving
+ * target. Owner decision, 2026-10-20: existing Sprout finals keep their long silent still tail and
+ * their branded intro, while FUTURE episodes drop that 6000 s `after_scenes` clip. Once the clip is
+ * dropped, reading today's settings would measure SS0063's 9354 s final against a ~15 s tail and
+ * STOP a file the owner said to keep.
+ *
+ * So the shape is frozen onto the file: taken once from the settings as they were, then read back
+ * from this record for every later check. `file` is the bytes it describes — a rewritten final is not
+ * this one, and a freeze that no longer describes these bytes says nothing (AGENTS.md §6).
+ */
+export interface FrozenFinalCheckShape {
+  schema_version: 1
+  /** When it was taken. */
+  frozen_at: string
+  /** The episode the final belongs to, for a person reading the file. */
+  episode_code: string
+  /** The bytes this freeze is about. */
+  file: FinalCheckFileIdentity
+  /** Where the shape came from: the channel's own saved settings, or the render's recorded plan. */
+  source: 'settings' | 'plan'
+  /** See `FinalCheckExpectation.after_narration_sec`. */
+  after_narration_sec: number
+  /** See `FinalCheckExpectation.intro`; `null` is an answer (this final drew no intro). */
+  intro: FinalCheckIntro | null
+}
+
+/** A frozen shape, and whether the final has been rewritten since it was taken. */
+export interface StoredFrozenShape {
+  shape: FrozenFinalCheckShape
+  stale: boolean
+}
+
+/**
+ * The frozen expectation beside this final, or null when there is none. A record that cannot be read
+ * is null, never a guess — "not frozen" and "frozen and fine" are different answers.
+ */
+export async function readFrozenShape(videoPath: string): Promise<StoredFrozenShape | null> {
+  let shape: FrozenFinalCheckShape
+  try {
+    shape = JSON.parse(await fs.readFile(frozenExpectationPath(videoPath), 'utf-8'))
+  } catch {
+    return null
+  }
+  if (!shape || typeof shape !== 'object' || shape.schema_version !== 1) return null
+  if (typeof shape.frozen_at !== 'string' || !shape.frozen_at) return null
+  if (!Number.isFinite(Number(shape.after_narration_sec))) return null
+  const stat = await fs.stat(videoPath).catch(() => null)
+  const now = stat ? { size: stat.size, mtime_ms: stat.mtimeMs } : { size: 0, mtime_ms: 0 }
+  return { shape, stale: !shape.file || shape.file.size !== now.size || shape.file.mtime_ms !== now.mtime_ms }
+}
+
+/**
+ * Write this final's frozen expectation, or leave the one already there alone. Idempotent: a second
+ * freeze of the same bytes writes nothing, so re-running it can never move an answer that a check
+ * has already been decided against.
+ *
+ * A freeze that no longer describes these bytes is replaced — it was about a file that is gone, and
+ * keeping it would be keeping an answer for the wrong video. That is the one case this writes over
+ * an existing record, and it says so in the result.
+ */
+export async function freezeShape(
+  videoPath: string,
+  shape: FrozenFinalCheckShape,
+): Promise<'written' | 'kept' | 'replaced'> {
+  const existing = await readFrozenShape(videoPath)
+  if (existing && !existing.stale) return 'kept'
+  await fs.writeFile(frozenExpectationPath(videoPath), `${JSON.stringify(shape, null, 2)}\n`)
+  return existing ? 'replaced' : 'written'
+}
+
 /** The identity a verdict is bound to. Same path + size + mtime test `getAudioDuration` uses. */
 export interface FinalCheckFileIdentity {
   size: number
@@ -96,6 +185,21 @@ export interface FinalCheckExpectation {
    * content, not a fault — see `isIntroAssetBlack`.
    */
   intro?: FinalCheckIntro
+  /**
+   * When this final's own expectation was frozen for the bytes it describes (`FrozenFinalCheckShape`),
+   * or absent when it was not.
+   *
+   * Its PRESENCE — not any value beside it — is what says the expected length and the intro are
+   * established for this file: a frozen 0 s tail and no intro are answers, not absences (AGENTS.md §6).
+   */
+  frozen_at?: string
+  /**
+   * Why this final's expected length and its own intro cannot be established, or absent when they
+   * can. A plan-less final whose channel settings changed after it was rendered, with no freeze
+   * taken in time, is exactly this: the check reports it rather than measuring the file against
+   * settings that no longer describe it.
+   */
+  expectation_unknown?: string
 }
 
 /**
@@ -125,7 +229,7 @@ export interface PlannedSectionGaps {
 
 export interface FinalCheckIssue {
   /** The check's id, so a caller can name one problem without parsing the sentence. */
-  check: 'duration' | 'closing_tail' | 'black' | 'silence' | 'av' | 'subtitles' | 'resolution' | 'unreadable'
+  check: 'duration' | 'closing_tail' | 'black' | 'silence' | 'av' | 'subtitles' | 'resolution' | 'unreadable' | 'expectation'
   /** One plain sentence, the same words the row shows. */
   verdict: string
 }
@@ -452,6 +556,19 @@ export function finalCheckIssues(
   // Everything before the tail is the body: speech, pictures, and any opening.
   const bodyEnd = window ? window.start_sec : actual.duration_sec
 
+  // A final whose own expectation cannot be established. The length and the intro are precisely what
+  // is unknown, so neither is judged — measuring the file against settings that no longer describe it
+  // would be inventing the very answer the check exists to give. Everything that does NOT depend on
+  // the shape is still reported, and the verdict does not pass: "unknown" is not "fine" (AGENTS.md §6).
+  const unknown = (expected.expectation_unknown || '').trim()
+  if (unknown) {
+    issues.push({
+      check: 'expectation',
+      verdict: `this video cannot be checked against what it was made for — ${unknown}. `
+        + 'Its length and its own intro are not judged; everything else here is.',
+    })
+  }
+
   // The length is always checked. The render's own plan is the authority when it recorded one. A
   // final from before the plan sidecar existed has none — every expected value is 0 — so the
   // episode's own chapter plan supplies the narration and its own Video Assembly settings supply
@@ -463,9 +580,11 @@ export function finalCheckIssues(
   // against — a tail alone would say the file should be as long as its tail.
   const afterNarrationSec = Math.max(0, Number(expected.after_narration_sec) || 0)
   const episodeSec = chaptersSec === null ? null : chaptersSec + afterNarrationSec
-  const duration = plannedSec !== null
-    ? finalDurationIssue(actual.duration_sec, plannedSec)
-    : unplannedDurationIssue(actual.duration_sec, episodeSec, endingSilenceSec(actual))
+  const duration = unknown
+    ? null
+    : plannedSec !== null
+      ? finalDurationIssue(actual.duration_sec, plannedSec)
+      : unplannedDurationIssue(actual.duration_sec, episodeSec, endingSilenceSec(actual))
   if (duration) issues.push({ check: 'duration', verdict: `the finished video ${duration}` })
 
   if (window && expected.closing_music) {
@@ -583,6 +702,9 @@ export function finalCheckIssues(
  *
  * An asset this machine cannot read carries no measured black, so nothing is exempted on its word:
  * the check reports the stretch, as it did before this rule existed.
+ *
+ * Exported (2026-10-20) because the freeze takes the same measurement once, for the file it is about,
+ * rather than letting a later check re-measure an asset that may have been replaced since.
  */
 const introBlackCache = new Map<string, {
   size: number
@@ -590,10 +712,11 @@ const introBlackCache = new Map<string, {
   runs: Array<{ start_sec: number; end_sec: number }>
 }>()
 
-async function measureIntroAssetBlack(
+export async function measureIntroAssetBlack(
   assetPath: string,
-  o: Required<FinalCheckOptions>,
+  overrides: FinalCheckOptions = {},
 ): Promise<Array<{ start_sec: number; end_sec: number }>> {
+  const o = opts(overrides)
   let size = 0
   let mtime_ms = 0
   try {

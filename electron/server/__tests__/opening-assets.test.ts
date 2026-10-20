@@ -294,6 +294,31 @@ describe('what the episode\'s own settings put around the narration', () => {
     assert.deepEqual(await resolveEpisodeRenderShape(bare, probe), { after_narration_sec: 0, intro: null })
   })
 
+  test("the reserved opening the plan asked for is inside the intro's window", async () => {
+    // The renderer trims or pads the intro clip to the opening Scene Plan reserved when the plan did
+    // not measure it from the clips, so the clip IN THE FILE is that long — a window built from the
+    // asset's own 10 s would be too short to cover the clip's own black (release343 review, 2026-10-20).
+    const slug = await projectWith({
+      intro_presets: [{ id: 'i1', name: 'Intro', data: { enabled: true, video_path: asset('intro.mp4') } }],
+      intro_last_preset: 'i1',
+    })
+    assert.deepEqual(
+      (await resolveEpisodeRenderShape(slug, probe)).intro?.window,
+      { start_sec: 0, end_sec: 10 },
+      'the asset\'s own length when the plan reserved nothing',
+    )
+    assert.deepEqual(
+      (await resolveEpisodeRenderShape(slug, probe, { opening_reserved_sec: 25 })).intro?.window,
+      { start_sec: 0, end_sec: 25 },
+      'the reserved opening when it is longer',
+    )
+    assert.deepEqual(
+      (await resolveEpisodeRenderShape(slug, probe, { opening_reserved_sec: 4 })).intro?.window,
+      { start_sec: 0, end_sec: 10 },
+      'a shorter reserve does not shorten the clip below its own length',
+    )
+  })
+
   test('a setting this machine cannot measure contributes nothing, never a guess', async () => {
     const slug = await projectWith({
       intro_presets: [{
