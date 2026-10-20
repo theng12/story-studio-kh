@@ -28,7 +28,9 @@
 import { getConfig, getProjectOutputRoot } from './project-manager.js'
 import { isPortablePath, resolveAssetPath } from './path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
-import { emptyOpeningHead, type OpeningHead, type OpeningHeadClip } from '../lib/opening-duration.js'
+import { emptyOpeningHead, measureClipSec, type OpeningHead, type OpeningHeadClip } from '../lib/opening-duration.js'
+import { postRollSeconds } from '../lib/closing-tail.js'
+import type { FinalCheckIntro } from '../lib/final-video-check.js'
 
 /** Default seconds a title image holds for, mirroring the Video Assembly form. */
 const DEFAULT_TITLE_HOLD_SEC = 5
@@ -68,6 +70,18 @@ export function resolveTimelineSlot(config: any): any | null {
   return resolveSlot(config, 'timeline')
 }
 
+/**
+ * The active INTRO slot's saved data, in the page's own resolution order.
+ *
+ * Exported (2026-10-20) because the user's timeline clips live there — `after_scenes` /
+ * `after_outro` are the episode's own tail content, and the final check has to know what the
+ * episode's settings put after the narration. A second copy of this order would be a second answer
+ * to "which intro is this channel using".
+ */
+export function resolveIntroSlot(config: any): any | null {
+  return resolveSlot(config, 'intro')
+}
+
 export interface ResolvedOpening {
   head: OpeningHead
   /**
@@ -81,44 +95,38 @@ export interface ResolvedOpening {
 }
 
 /**
- * Build the `OpeningHead` for a project from its saved Video Assembly settings.
+ * Expand a portable `${NAME}` token and confirm the asset can actually play.
  *
- * Never throws for missing assets: a path that does not exist, or a portable
- * `${NAME}` token this machine cannot expand, contributes nothing and is
- * reported in `unresolved` so the caller can say so out loud rather than
- * silently reserving a shorter opening.
+ * The renderer runs the same `checkAssetAvailability` gate and skips anything that fails it, so
+ * applying it here is what keeps plan and render agreeing. Nothing usable → `undefined`, with the
+ * reason pushed onto `unresolved` for the caller to say out loud.
  */
-export async function resolveProjectOpening(slug: string): Promise<ResolvedOpening> {
-  const head = emptyOpeningHead()
-  const unresolved: string[] = []
-  let config: any = null
-  try {
-    config = await getConfig(slug)
-  } catch { /* no config → no opening */ }
-  if (!config) return { head, unresolved }
-
-  const outputRoot = await getProjectOutputRoot(slug).catch(() => '')
-  // Resolve a portable token AND confirm the asset can actually play. The
-  // renderer runs the same `checkAssetAvailability` gate and skips anything
-  // that fails it, so applying it here is what keeps plan and render agreeing.
-  const expand = (raw: unknown, label: string): string | undefined => {
-    if (typeof raw !== 'string' || !raw.trim()) return undefined
-    let resolved = raw
-    if (isPortablePath(raw)) {
-      try {
-        resolved = resolveAssetPath(raw, outputRoot || undefined)
-      } catch {
-        unresolved.push(`${label} (named root not defined on this Mac)`)
-        return undefined
-      }
-    }
-    const availability = checkAssetAvailability(resolved, label)
-    if (availability.status !== 'available') {
-      unresolved.push(`${label} (file not found)`)
+function expandAvailable(raw: unknown, label: string, outputRoot: string, unresolved: string[]): string | undefined {
+  if (typeof raw !== 'string' || !raw.trim()) return undefined
+  let resolved = raw
+  if (isPortablePath(raw)) {
+    try {
+      resolved = resolveAssetPath(raw, outputRoot || undefined)
+    } catch {
+      unresolved.push(`${label} (named root not defined on this Mac)`)
       return undefined
     }
-    return resolved
   }
+  const availability = checkAssetAvailability(resolved, label)
+  if (availability.status !== 'available') {
+    unresolved.push(`${label} (file not found)`)
+    return undefined
+  }
+  return resolved
+}
+
+/**
+ * The head of the video a project's saved Video Assembly settings ask for, measured the way the
+ * renderer measures it. `unresolved` collects what the settings name but this machine cannot play.
+ */
+async function buildOpeningHead(config: any, outputRoot: string, unresolved: string[]): Promise<OpeningHead> {
+  const head = emptyOpeningHead()
+  const expand = (raw: unknown, label: string): string | undefined => expandAvailable(raw, label, outputRoot, unresolved)
 
   const intro = resolveSlot(config, 'intro')
   const timeline = resolveSlot(config, 'timeline')
@@ -177,5 +185,114 @@ export async function resolveProjectOpening(slug: string): Promise<ResolvedOpeni
     bucket.push({ path: videoPath, label: `${clip.anchor} clip` })
   }
 
-  return { head, unresolved }
+  return head
+}
+
+/**
+ * Build the `OpeningHead` for a project from its saved Video Assembly settings.
+ *
+ * Never throws for missing assets: a path that does not exist, or a portable
+ * `${NAME}` token this machine cannot expand, contributes nothing and is
+ * reported in `unresolved` so the caller can say so out loud rather than
+ * silently reserving a shorter opening.
+ */
+export async function resolveProjectOpening(slug: string): Promise<ResolvedOpening> {
+  const unresolved: string[] = []
+  let config: any = null
+  try {
+    config = await getConfig(slug)
+  } catch { /* no config → no opening */ }
+  if (!config) return { head: emptyOpeningHead(), unresolved }
+
+  // `getProjectOutputRoot` answers null when the project has none: no named root, so a portable
+  // `${NAME}` token cannot be expanded and every asset it names is reported unresolved.
+  const outputRoot = (await getProjectOutputRoot(slug).catch(() => '')) || ''
+  return { head: await buildOpeningHead(config, outputRoot, unresolved), unresolved }
+}
+
+/** What an episode's own Video Assembly settings put around its narration. */
+export interface EpisodeRenderShape {
+  /** See `FinalCheckExpectation.after_narration_sec`. 0 when the settings ask for no tail. */
+  after_narration_sec: number
+  /** Where the episode's branded intro clip plays, or null when it draws none. */
+  intro: FinalCheckIntro | null
+}
+
+/**
+ * What an episode's own Video Assembly settings put around its narration: the tail that follows it
+ * and where its branded intro clip sits at the head of the file.
+ *
+ * The final check needs both for a final that carries no plan of its own — a file rendered before
+ * the plan sidecar existed (Story Sprout SS0063, 2026-10-20). Owner decision that day: a final that
+ * matches what its own settings asked for is not a fault, and the black inside the channel's own
+ * intro asset is the owner's own content. `generators/video.ts` computes the same tail while
+ * rendering as `totalRenderDuration` — `sceneTrackTargetDuration + outroDuration +
+ * tailClipsDuration`, with the post-roll inside the first term. This is that same sum, read from the
+ * settings saved NOW, for a file that recorded none of its own.
+ *
+ * `probe` is the caller's duration reader (`getAudioDuration` — ffprobe reads video containers too).
+ * A clip or an outro this machine cannot measure contributes nothing: a guessed length would become
+ * the length the file is then measured against, and a wrong one holds a good file or passes a bad
+ * one. Nothing here throws for a missing asset — an unreadable setting is no tail, never a guess.
+ */
+export async function resolveEpisodeRenderShape(
+  slug: string,
+  probe: (filePath: string) => Promise<number | undefined>,
+): Promise<EpisodeRenderShape> {
+  const empty: EpisodeRenderShape = { after_narration_sec: 0, intro: null }
+  let config: any = null
+  try {
+    config = await getConfig(slug)
+  } catch { /* no config → no shape */ }
+  if (!config) return empty
+
+  // `getProjectOutputRoot` answers null when the project has none: no named root, so a portable
+  // `${NAME}` token cannot be expanded and every asset it names is reported unresolved.
+  const outputRoot = (await getProjectOutputRoot(slug).catch(() => '')) || ''
+  const intro = resolveIntroSlot(config)
+  const timeline = resolveTimelineSlot(config)
+  const measurable = async (raw: unknown, label: string): Promise<number> => {
+    const filePath = expandAvailable(raw, label, outputRoot, [])
+    if (!filePath) return 0
+    const sec = await probe(filePath).catch(() => undefined)
+    return sec && sec > 0 ? sec : 0
+  }
+
+  // The timeline clips the episode's settings anchor after the scenes, and the outro after those.
+  let afterNarrationSec = 0
+  const clips = Array.isArray(intro?.timeline_clips) ? intro.timeline_clips : []
+  for (const clip of clips) {
+    if (!clip || clip.enabled === false) continue
+    if (clip.anchor !== 'after_scenes' && clip.anchor !== 'after_outro') continue
+    if (clip.kind === 'static') {
+      const sec = Number(clip.duration_sec)
+      if (sec > 0) afterNarrationSec += sec
+      continue
+    }
+    afterNarrationSec += await measurable(clip.video_path, `timeline clip (${clip.anchor})`)
+  }
+  if (intro?.outro?.enabled && intro.outro.video_path) {
+    afterNarrationSec += await measurable(intro.outro.video_path, 'outro video')
+  }
+  // ...and the post-roll the post-audio block asks for sits between them.
+  afterNarrationSec += postRollSeconds(timeline?.post_audio)
+
+  // The intro clip plays after any `before_intro` clip, so the head's own clips put it where it is.
+  let introShape: FinalCheckIntro | null = null
+  const head = await buildOpeningHead(config, outputRoot, [])
+  if (head.intro?.path) {
+    let beforeIntroSec = 0
+    for (const clip of head.before_intro) {
+      beforeIntroSec += await measureClipSec(clip, probe).catch(() => 0)
+    }
+    const introSec = await probe(head.intro.path).catch(() => undefined)
+    if (introSec && introSec > 0) {
+      introShape = {
+        asset: head.intro.path,
+        window: { start_sec: beforeIntroSec, end_sec: beforeIntroSec + introSec },
+      }
+    }
+  }
+
+  return { after_narration_sec: Math.round(afterNarrationSec * 1000) / 1000, intro: introShape }
 }

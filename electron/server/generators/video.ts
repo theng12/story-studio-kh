@@ -51,7 +51,7 @@ import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { finalDurationIssue, missingEnabledVideoInputs, missingInputsMessage, switchedOnCueGate } from '../lib/video-enabled-inputs.js'
 import {
   closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary, readPlannedSectionGaps,
-  type FinalCheckExpectation, type PlannedSectionGaps,
+  type FinalCheckExpectation, type FinalCheckIntro, type PlannedSectionGaps,
 } from '../lib/final-video-check.js'
 import { withLock } from '../lib/atomic-store.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
@@ -696,6 +696,8 @@ function finalCheckExpectation(
     speechEndSec?: number
     /** The pauses the episode's merge planned between sections (`readPlannedSectionGaps`). */
     sectionGaps?: PlannedSectionGaps | null
+    /** The branded intro this render drew, so the check can tell its own black from a fault. */
+    intro?: FinalCheckIntro
   },
 ): FinalCheckExpectation {
   return {
@@ -707,7 +709,30 @@ function finalCheckExpectation(
     subtitles_path: req.subtitles?.enabled ? ((req.subtitles.srt_path || '').trim() || null) : null,
     ...(Number(opts.speechEndSec) > 0 ? { speech_end_sec: Number(opts.speechEndSec) } : {}),
     ...(opts.sectionGaps ? { section_gaps: opts.sectionGaps } : {}),
+    ...(opts.intro ? { intro: opts.intro } : {}),
   }
+}
+
+/**
+ * Where this render's branded intro clip sits in the finished file, and the asset behind it.
+ *
+ * The owner's own intro assets carry black (Story Sprout's, measured 2026-10-20: 4.67–9.13 s of a
+ * 9.6 s intro), and that black is inside a video he made with his own settings. Handing the check the
+ * clip's window and the asset is what lets it tell that black from a stretch the render invented
+ * (`lib/final-video-check.ts`'s `isIntroAssetBlack`). Undefined when this render drew no intro.
+ */
+async function introForFinalCheck(
+  req: GenerateVideoRequest,
+  timelineClipsByAnchor: { before_intro: Array<{ duration: number }> },
+  introClipPath: string | undefined,
+): Promise<FinalCheckIntro | undefined> {
+  const asset = req.intro?.video_path
+  if (!introClipPath || !asset) return undefined
+  const introSec = (await getAudioDuration(introClipPath)) || 0
+  if (!(introSec > 0)) return undefined
+  // The concat list plays `before_intro` clips first, then the intro.
+  const beforeIntroSec = timelineClipsByAnchor.before_intro.reduce((sum, clip) => sum + clip.duration, 0)
+  return { asset, window: { start_sec: beforeIntroSec, end_sec: beforeIntroSec + introSec } }
 }
 
 /**
@@ -4120,6 +4145,7 @@ export async function generateVideo(job: Job): Promise<void> {
     //   opted in. Falls back to the project-tree path if the external
     //   write fails (cross-device error, perms, etc.) — never blocks
     //   the user from getting a final video.
+    const introClipForCheck = await introForFinalCheck(req, timelineClipsByAnchor, introClipPath)
     await finishFinalVideo({
       job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir, outputFile, totalRenderDuration,
       visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
@@ -4130,6 +4156,7 @@ export async function generateVideo(job: Job): Promise<void> {
         // narration plays from `narrationLeadInSec` in the file, so this is where the words stop.
         speechEndSec: narrationLeadInSec + narrationDuration,
         sectionGaps: await readPlannedSectionGaps(episodeDir),
+        ...(introClipForCheck ? { intro: introClipForCheck } : {}),
       }),
     })
 
