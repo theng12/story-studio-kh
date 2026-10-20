@@ -53,9 +53,10 @@ export async function setupPackCampaign(options: { maxSiblingsPerSubject?: numbe
 
   const niche = await niches.composeNicheWithTopicPacks((await niches.loadNiche(FORMULA))!, [PACK_ID])
   /** Exactly what the generator plans for a campaign, from the project's stored fingerprints. */
-  const plan = async (campaignId: string, count: number) => planner.planIdeaAssignments({
+  const plan = async (campaignId: string, count: number, excludeFingerprints: string[] = []) => planner.planIdeaAssignments({
     niche, count, seed: campaignId,
     usedFingerprints: (await im.getIdeas(project.slug)).map(row => row.idea_fingerprint).filter((value): value is string => !!value),
+    ...(excludeFingerprints.length ? { excludeFingerprints } : {}),
   })
   // One earlier idea per subject: every subject is used, and the duplicate answer repeats the first.
   const earlier = (await plan('earlier', SUBJECTS.length)).slice(0, SUBJECTS.length)
@@ -69,10 +70,15 @@ export async function setupPackCampaign(options: { maxSiblingsPerSubject?: numbe
    * output contract only accepts the reserved keys). `perCall` is the batch size, `calls` the
    * requests the run may make.
    */
-  const duplicateAnswers = (assignments: Array<{ idea_key: string }>, perCall: number, calls = 4) => {
+  const duplicateAnswers = (
+    assignments: Array<{ idea_key: string }>,
+    perCall: number,
+    calls = 4,
+    item: (assignment: { idea_key: string }) => Record<string, unknown> = assignment => ({ ...storyIdea(DUPLICATE.title, DUPLICATE.logline), idea_key: assignment.idea_key }),
+  ) => {
     for (let call = 0; call < calls; call++) {
       const chunk = assignments.slice(call * perCall, (call + 1) * perCall)
-      service.queueScenario('chat', { outputText: JSON.stringify({ ideas: chunk.map(item => ({ ...storyIdea(DUPLICATE.title, DUPLICATE.logline), idea_key: item.idea_key })) }) })
+      service.queueScenario('chat', { outputText: JSON.stringify({ ideas: chunk.map(item) }) })
     }
   }
   const job = (id: string, count: number, params: Record<string, unknown> = {}): any => ({

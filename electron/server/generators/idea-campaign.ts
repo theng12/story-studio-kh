@@ -478,6 +478,15 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     job.output_lines.push(`Real subjects: ${reference.note}.`)
   }
   let assignmentPool: IdeaAssignment[] = []
+  // Assignments this campaign asked for and had rejected on CONTENT (drift, no title or logline, a
+  // duplicate). Kept in the job's params, which Retry copies forward, so a later attempt does not
+  // reserve them again: rejected ideas are never saved, so the seeded plan would otherwise repeat.
+  // A provider or parse failure throws before this is touched and records nothing. Freeform ideas
+  // carry no fingerprint and so record nothing either.
+  const rejectedAssignments = new Set<string>(
+    Array.isArray(job.params.rejected_assignments) ? job.params.rejected_assignments.filter((value: unknown) => typeof value === 'string') : [],
+  )
+  const reject = (fingerprint: string | undefined) => { if (fingerprint) rejectedAssignments.add(fingerprint) }
   // How many requested ideas the Topic Packs cannot cover at all. Those that
   // fit are still made and saved; the job then fails loudly naming the rest,
   // instead of refusing the whole batch up front.
@@ -492,6 +501,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       .filter((value): value is string => !!value)
     assignmentPool = planIdeaAssignments({
       niche: plannerNiche, count: remaining, usedFingerprints, seed: request.campaign_id,
+      excludeFingerprints: rejectedAssignments,
       ...(upgrades.variety_seeds ? { spreadPacks: true } : {}),
     })
     coverageShortfall = Math.max(0, remaining - assignmentPool.length)
@@ -682,10 +692,12 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
           const item = byKey.get(assignment.idea_key) || responseItems[index]
           if (!item || !String(item.title || '').trim() || !String(item.logline || '').trim()) {
             job.output_lines.push('  ↻ ' + assignment.idea_key + ': provider omitted usable title/logline; replacing slot.')
+            reject(assignment.fingerprint)
             continue
           }
           if (!mentionsSubject(item, assignment)) {
             job.output_lines.push('  ↻ ' + assignment.idea_key + ': output drifted from assigned subject; replacing slot.')
+            reject(assignment.fingerprint)
             continue
           }
           candidates.push(normalizeIdea(
@@ -733,6 +745,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       ? { kept: candidates, rejected: [] }
       : filterGenerated(candidates, similarityPool)
     for (const rejection of filtered.rejected) {
+      reject(rejection.candidate.idea_fingerprint)
       job.output_lines.push(`  ↻ Rejected near-duplicate: "${rejection.candidate.title}"`)
     }
     let rejectedByMeaning = new Set<unknown>()
@@ -768,6 +781,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       watchStats.would_reject += watched.hits.length
       if (enforcing && watched.method === 'meaning') {
         rejectedByMeaning = new Set(watched.hits.map(hit => hit.candidate))
+        for (const hit of watched.hits) reject(hit.candidate.idea_fingerprint)
         repeats.push(...watched.hits.map(hit => hit.candidate))
         for (const hit of watched.hits) {
           job.output_lines.push(`  ↻ Rejected near-duplicate (meaning ${hit.score.toFixed(2)} ~ "${hit.matched.title}"): "${hit.candidate.title}"`)
@@ -813,6 +827,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     }
     // The batch is answered. Mark it resolved even when nothing usable survived the filters, so a
     // filtered-out answer cannot be collected in a loop, and never replay it again.
+    if (rejectedAssignments.size) job.params.rejected_assignments = [...rejectedAssignments]
     if (batchRecord) {
       batchRecord.resolved = true
       // The whole set under the identity, not just this call's remainder: a batch partly appended by
