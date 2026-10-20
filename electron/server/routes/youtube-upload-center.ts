@@ -82,10 +82,13 @@ import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '
 import { getUploadMode } from '../services/upload-store.js'
 import { safetyMode } from '../services/safety-checks.js'
 import {
-  finalCheckVerdict, finalCheckIdentity, finalCheckIdentityMatches, readStoredFinalCheck,
+  finalCheckVerdict, finalCheckIdentity, finalCheckIdentityMatches, readStoredFinalCheck, readFrozenShape,
   speechEndSecFromScenePlan, finalCheckSummary, finalCheckProgress, startFinalCheck, readPlannedSectionGaps,
   type FinalCheckExpectation,
 } from '../lib/final-video-check.js'
+import {
+  expectationFromFrozenShape, planlessExpectationFor,
+} from '../services/final-check-expectation.js'
 import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
   latestFutureProjectClaimMs, listPlans, localDayKeyInTz, orderEpisodeCodes,
@@ -2493,6 +2496,24 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
     // own; an older file takes the episode's current `audio_chapters.json`.
     const sectionGaps = expected.section_gaps ?? await readPlannedSectionGaps(sourcePaths.episode_dir)
     if (sectionGaps) expected.section_gaps = sectionGaps
+    // What this final's own settings put around the narration — the tail clips and the post-roll
+    // after it, and where its branded intro sits — for a file that carries no plan of its own.
+    //
+    // Read from the FROZEN record beside the final, never from the live preset: the owner's decision
+    // (2026-10-20) keeps the already-made Sprout finals on their long silent still tail while future
+    // episodes drop that clip, so today's settings no longer describe this file
+    // (`services/final-check-expectation.ts`). A freeze taken now, while the settings can still be
+    // shown to be unchanged, is written down for every later check; a final with no freeze whose
+    // settings have moved is reported as unknown rather than measured against a preset it never saw.
+    if (!(Number(expected.planned_sec) > 0) && !expected.frozen_at && !expected.expectation_unknown) {
+      const stat = await fsp.stat(sourceVideoPath).catch(() => null)
+      const settled = await planlessExpectationFor({
+        slug, episode_code: episodeCode, episode_dir: sourcePaths.episode_dir,
+        video_path: sourceVideoPath, mtime_ms: stat?.mtimeMs ?? 0,
+      })
+      if (settled.kind === 'frozen') Object.assign(expected, expectationFromFrozenShape(settled.shape))
+      else expected.expectation_unknown = settled.reason
+    }
     const { started } = startFinalCheck(sourceVideoPath, expected)
     res.status(202).json({
       episode_code: episodeCode,
@@ -2552,6 +2573,10 @@ router.get('/projects/:slug/youtube/final-check', async (req, res) => {
       running: finalCheckProgress(sourceVideoPath).running,
       stale: stored.stale,
       identity: finalCheckIdentity(stored),
+      // What this final's own expectation was frozen to, when one was taken, so a plan-less final's
+      // expected length and intro can be read back and verified without the app
+      // (`frozenExpectationPath` holds the same record beside the file).
+      frozen_expectation: await readFrozenShape(sourceVideoPath).then(frozen => frozen?.shape ?? null),
       result: stored.result,
     })
   } catch (error) {
