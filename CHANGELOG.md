@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.344 — 2026-10-20
+
+- If a finished video's file is replaced, for example by a re-render that failed its check, the final check no longer judges the new file using the old file's results. It checks the new file on its own, or says it cannot be checked.
+
 ## v1.4.343 — 2026-10-20
 
 - A video made before Story saved a render plan now has the length and opening it was made with written down beside it, once, at startup. The final check keeps measuring it against what it was actually made with — even after you change the channel's Video Assembly preset.

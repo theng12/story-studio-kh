@@ -5716,6 +5716,77 @@ test('the final check reads the speech end from the episode Scene Plan when the 
   assert.equal(stored.expected.speech_end_sec, 9143.984, 'the verdict measures against it on every re-check')
 })
 
+/**
+ * A stored verdict is evidence about the bytes it measured and about no others.
+ *
+ * File A's verdict carries A's own tail length and A's own intro. Once B has replaced A at the same
+ * path, `readStoredFinalCheck` still returns it and reports it `stale` — it is the only thing that
+ * knows the file it measured is gone. Spreading it into this check's expectation measured B against
+ * A's plan, and its echoed `frozen_at` skipped the fresh resolution that would have answered for B
+ * (2026-10-20).
+ */
+const A_VERDICT_INTRO = '/assets/story-sprout-intro.mp4'
+const A_VERDICT_FROZEN_AT = '2026-01-01T00:00:00.000Z'
+
+/** File A's own plan-less verdict: a check that measured A's 6015 s tail and A's branded intro. */
+async function storeShapeBearingVerdict(videoPath: string): Promise<void> {
+  await fs.writeFile(`${videoPath}.finalcheck.json`, JSON.stringify(await fakeVerdict(videoPath, {
+    planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null,
+    after_narration_sec: 6015,
+    intro: { asset: A_VERDICT_INTRO, window: { start_sec: 0, end_sec: 9.6 }, black: [] },
+    frozen_at: A_VERDICT_FROZEN_AT,
+  })))
+}
+
+/** Start the on-demand check and hand back the expectation it was asked to measure against. */
+async function measuredExpectation(slug: string, episodeCode: string): Promise<any> {
+  let measured: any = null
+  __setFinalCheckRunnerForTests(async (file, expected) => { measured = expected; return fakeVerdict(file, expected) })
+  const res = await request(app).post(`/api/projects/${slug}/youtube/final-check`)
+    .send({ episode_code: episodeCode })
+  assert.equal(res.status, 202, JSON.stringify(res.body))
+  await waitFor(() => measured !== null, { label: 'the final check to start measuring' })
+  return measured
+}
+
+test("the on-demand check never measures a rewritten final against the verdict it has outlived", async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const videoPath = path.join(
+    (await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir,
+    `${episodeCode}_final_video.mp4`,
+  )
+  await fs.writeFile(videoPath, tinyVideoBytes())
+  await storeShapeBearingVerdict(videoPath)
+
+  // File B replaces A at the same path, and no fresh verdict replaces A's — the render whose own
+  // check could not run, or an import over the canonical final.
+  await fs.appendFile(videoPath, Buffer.alloc(8))
+
+  const measured = await measuredExpectation(slug, episodeCode)
+
+  assert.notEqual(measured.after_narration_sec, 6015, "file A's tail is not certified for B")
+  assert.notEqual(measured.intro?.asset, A_VERDICT_INTRO, "file A's intro is not certified for B")
+  assert.notEqual(measured.frozen_at, A_VERDICT_FROZEN_AT, "nor is A's freeze stamp")
+})
+
+test('a verdict that still describes the file is still the plan the on-demand check measures against', async () => {
+  // The other half of the rule: the stale test must not become a blanket waiver for old finals.
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const videoPath = path.join(
+    (await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir,
+    `${episodeCode}_final_video.mp4`,
+  )
+  await fs.writeFile(videoPath, tinyVideoBytes())
+  await storeShapeBearingVerdict(videoPath)
+
+  const measured = await measuredExpectation(slug, episodeCode)
+
+  assert.equal(measured.after_narration_sec, 6015, "the verdict's own recorded tail")
+  assert.equal(measured.intro?.asset, A_VERDICT_INTRO)
+  assert.equal(measured.frozen_at, A_VERDICT_FROZEN_AT)
+})
+
 /** The verdict beside a file, or null when the check has not written one yet. */
 async function storedVerdict(videoPath: string): Promise<any> {
   try {
