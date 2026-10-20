@@ -2101,6 +2101,31 @@ export async function resolveSoundDesignCuesForRender(
   return approvedSoundDesignMixCues(req.sound_design.cues as SoundDesignCue[])
 }
 
+/**
+ * A merged track mixed without the closing music this render asks for would draw a silent, padded tail
+ * (Night Atlas History EP0012–14). With a job, re-mix the audio with the tail first and render the new
+ * track; without one (admission, caption preflight) only refuse what could not be re-mixed.
+ * See services/closing-tail-remix.ts.
+ */
+export async function guardClosingTail(
+  slug: string,
+  episodeId: string,
+  req: GenerateVideoRequest,
+  assets: ScannedAssets,
+  job?: Job,
+): Promise<ScannedAssets> {
+  const merged = assets.merged_audio[0]
+  if (!merged) return assets
+  const { planClosingTailRemix, remixForClosingTail } = await import('../services/closing-tail-remix.js')
+  const code = episodeId.toUpperCase()
+  const verdict = await planClosingTailRemix({ slug, code, postAudio: req.post_audio, preferredFilename: merged.filename })
+  if (verdict.action === 'refuse') throw nonRetryable(new Error(verdict.reason))
+  if (verdict.action === 'none' || !job) return assets
+  const filename = await remixForClosingTail(job, slug, code, verdict).catch(error => { throw nonRetryable(error) })
+  req.merged_audio_path = path.join(path.dirname(merged.path), filename)
+  return scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: filename })
+}
+
 export async function prepareUnifiedVideoAssemblyInputs(
   slug: string,
   episodeId: string,
@@ -2117,7 +2142,7 @@ export async function prepareUnifiedVideoAssemblyInputs(
   // BEFORE the scan overwrites it: a queued render must keep rendering the
   // narration it was accepted with, never silently switch to a newer choice.
   const acceptedMergedPath = (req.merged_audio_path || '').trim() || null
-  const acceptedMergedName = acceptedMergedPath ? path.basename(acceptedMergedPath) : null
+  let acceptedMergedName = acceptedMergedPath ? path.basename(acceptedMergedPath) : null
   let assets = await scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: acceptedMergedName })
 
   // The owner pinned a track and it is no longer in this episode's folder. Do NOT
@@ -2147,6 +2172,9 @@ export async function prepareUnifiedVideoAssemblyInputs(
     await safetyGate(slug, 'merged_audio_selection', job, message)
     throw new Error(message)
   }
+
+  assets = await guardClosingTail(slug, episodeId, req, assets, job)
+  acceptedMergedName = assets.merged_audio[0]?.filename ?? acceptedMergedName
 
   // Timing overlaps of any size, and a plan timed against a slightly different narration, are
   // repaired with the Scene Plan's own "Reconcile timings", which keeps every scene and image, and
