@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.343 — 2026-10-20 (gate running)
+
+Merged fix/final-length-gap (a9701e99: final-video-check plannedSecFromSectionGaps when planned_sec is 0; EOF silence past MAX_CLOSING_TAIL_SEC 60 s is a length fault; UNPLANNED_LENGTH_ALLOWANCE_SEC 180. Sprout SS0063: 6000 s after_scenes static clip in the channel preset and the intro asset's own black at 4.75-9.21 s, both from the preset, not a render bug).
+
 ## 1.4.342 — 2026-10-20 (gate running)
 
 Merged fix/nested-stage-deps (abfff8f8: workFolderDependencies derives final-stage inputs from argv incl. nested paths; moveCheckpointFinalStage verifies shas + every argv dependency before moving the whole set, else null → fresh final render; video.ts audio exclusion by work-folder name. Myth EP0012 job 637ffc7d restart).

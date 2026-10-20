@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.343 — 2026-10-20
+
+- The final check now always checks a video's length. For older videos with no saved planned length, it compares against the episode's chapters instead of skipping the check.
+- A short silent ending still never holds an upload, but a silent stretch at the end longer than a minute is reported as a length problem.
+
 ## v1.4.342 — 2026-10-20
 
 - A final video that was partway through when Story restarted now resumes with all the files it needs, including its mixed audio, instead of failing and rebuilding every clip.
