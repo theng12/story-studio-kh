@@ -28,7 +28,13 @@
  *    (c) final checks still measuring a finished video (`runningFinalChecks`) — local ffmpeg work a
  *    restart kills mid-decode, so the verdict would never be written — and (d) the one non-queue
  *    maintenance operation holding the Mac (Free up space, Clear Uploaded Videos), which a restart
- *    also kills mid-file and cannot resume. Then it installs. While the
+ *    also kills mid-file and cannot resume. Then it installs.
+ *    (d) is waited for WITHOUT the drain, though: it can run for hours (an all-channel Free up space
+ *    of 162,058 images took ~9 h on 2026-10-19/20), and pausing the queue for its whole length stops
+ *    every job on the Mac for an install that can do nothing but wait. So while one is running the
+ *    release stays staged (`ready`), the queue keeps running, and `status()` reports the wait in
+ *    plain words (`maintenance_running`); the drain — the pause, and the refusal of new operations —
+ *    is claimed only once no operation is running. While the
  *    drain is claimed no NEW maintenance operation may start, so the check above cannot be overtaken
  *    by work begun a moment before the quit. A queue the owner paused himself is his: the update
  *    waits for him to resume
@@ -927,6 +933,14 @@ export async function maybeInstall(): Promise<void> {
       if (!settings.auto_install || before.held) return
       if (o.queue.loaded?.() === false) return watchIdle()
     }
+    // A maintenance operation holding this Mac (Free up space, Clear Uploaded Videos) is waited for
+    // WITHOUT the drain: pausing the queue on its behalf stops every job on the Mac for the whole
+    // run — ~9 hours on 2026-10-19/20, for an install that could do nothing but wait. So the release
+    // stays staged (`ready`) and the queue keeps running; the drain below is claimed — the pause
+    // taken, new operations refused — only once nothing is holding the Mac. `status()` reports the
+    // wait meanwhile, so it is never unexplained. "Install now (don't wait)" skips this: it
+    // interrupts the operation deliberately.
+    if (!before.immediate && o.queue.maintenance?.()) return watchIdle()
     // Take or confirm the updater's own hold on the queue, under the queue's own lock. Ownership
     // is proven by a durable token, never by a bare boolean: the token is minted and persisted
     // before the await so a concurrent caller shares it, and a foreign hold — the owner's own
@@ -956,6 +970,16 @@ export async function maybeInstall(): Promise<void> {
       return
     }
     if (now.held) return
+    // The look above and this write are not one step: `acquirePause` suspends, and an operation
+    // begun in that window would be waited for by a drain that has already paused the queue — the
+    // very thing the look prevents. `beginOperation` (episode-media-cleanup) refuses on the phase,
+    // so an operation is either visible to the look below or refused after the write; the two run
+    // in one turn with no await between them, which is what makes that true.
+    if (!before.immediate && o.queue.maintenance?.()) {
+      await releaseOurPause()
+      patchState({ phase: 'ready', drain_started_at: null })
+      return watchIdle()
+    }
     patchState({ phase: 'draining', drain_started_at: o.now?.() ?? Date.now(), we_paused: wePaused })
     claimed = true
   }
@@ -1121,6 +1145,11 @@ export async function status(): Promise<Record<string, unknown>> {
     // `jobs_left`: one number must not mean two things. It still holds an install, and this says how
     // many are doing it.
     final_checks_running: opts ? (opts.queue.runningFinalChecks?.() ?? 0) : 0,
+    // The one non-queue operation holding this Mac (Free up space, Clear Uploaded Videos). While it
+    // runs the release stays STAGED and the queue keeps running — the drain is claimed only once it
+    // is gone (see `maybeInstall`) — so the wait is reported here and not only inside `waiting_for`,
+    // which is the drain's own list.
+    maintenance_running: opts ? (opts.queue.maintenance?.() ?? null) : null,
     queue_paused: queuePaused,
     // The queue is still paused and this update is not holding it (a legacy `we_paused`, or a token
     // an owner Resume invalidated): computed live, so it never lingers once the owner Resumes.

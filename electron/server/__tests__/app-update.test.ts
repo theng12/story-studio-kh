@@ -377,6 +377,8 @@ describe('install promptly (owner, 2026-10-09)', () => {
   }
   /** A stand-in app that stays alive for the whole test, so only a second hand-off can move things. */
   const keepAppAlive = { helperEnv: { SU_PID: String(spawn('/bin/sleep', ['300']).pid), SU_HEALTH_SECONDS: '5', SU_QUIT_WAIT: '300' } }
+  /** What a real tracked cleanup's work returns; this file never inspects it. */
+  const CLEAN = { items: [], item_count: 0, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
 
   test('running work that resumes is not waited for: intake pauses, in-flight submits settle, it installs', async () => {
     const target = ready()
@@ -471,37 +473,118 @@ describe('install promptly (owner, 2026-10-09)', () => {
     await installed()
   })
 
-  test('the one non-queue maintenance operation is waited for too: a restart would kill it mid-file', async () => {
-    ready()
-    const queue = promptQueue()
+  test('a running maintenance operation does not pause the queue: the release stays staged, and the status names the wait', async () => {
+    const target = ready()
+    const queue = promptQueue(3)
     queue.maintenanceOp = { id: 'op-1', kind: 'run', status: 'running' }
     wired(queue)
+
+    // The production shape of 2026-10-19/20: a staged release and an all-channel Free Up Space run
+    // of ~9 hours. Pausing the queue for it stopped every job on the Mac for the whole run, for an
+    // install that could do nothing but wait. So the release stays staged and the queue runs.
     await updater.maybeInstall()
-    clock.t += 10 * 60 * 60_000
-    await lookedAgain(queue)
-    assert.equal(updater.readState().phase, 'draining', 'never interrupted automatically, with no time limit')
-    assert.deepEqual((await updater.status()).waiting_for, {
-      submits: 0, jobs: [], finalChecks: 0, maintenance: { id: 'op-1', kind: 'run', status: 'running' },
-    })
-    // It finishes, fails or is stopped: the registry reports nothing active and the install goes ahead.
+    assert.equal(updater.readState().phase, 'ready', 'the drain is not claimed while the operation runs')
+    assert.deepEqual(queue.calls, [], 'the queue is not paused on the operation\'s behalf')
+    const staged = await updater.status()
+    assert.equal(staged.queue_paused, false, 'the queue is running normally')
+    assert.equal(staged.jobs_left, 3, 'and its jobs are still there, not parked behind the install')
+    assert.deepEqual(staged.maintenance_running, { id: 'op-1', kind: 'run', status: 'running' },
+      'the status says plainly what the install is waiting for')
+
+    // It finishes, fails or is stopped: only now is the drain claimed, and the install goes ahead.
     queue.maintenanceOp = null
+    await updater.maybeInstall()
+    assert.equal(updater.readState().phase, 'draining', 'claimed once nothing is holding the Mac')
+    assert.deepEqual(queue.calls, [true], 'and now new intake pauses')
     await installed()
+    assert.equal(plistVersion(target), '1.4.258')
   })
 
-  test('the 30-minute override never interrupts a maintenance operation, not even on Install Now', async () => {
+  test('the real gate refuses a new operation from the moment the drain is claimed, and not before', async () => {
+    // Both halves of the production coupling: `routes/app-update.ts` wires the drain's maintenance
+    // term to `episode-media-cleanup`'s registry, and that registry refuses a new operation on
+    // `isUpdateHoldingForRestart()` — the phase the drain writes. So the claim is what arms the
+    // gate, and it is armed only once the running operation is gone. A claim taken any earlier
+    // would hold the Mac for the operation's whole run (2026-10-19/20: ~9 hours).
+    const cleanup = await import('../services/episode-media-cleanup.js')
+    const { projectsRoot } = await import('../services/project-manager.js')
+    cleanup._resetMediaCleanupStateForTests()
+    const projectDir = path.join(projectsRoot(), 'drain-gate')
+    fs.mkdirSync(projectDir, { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'project.json'), JSON.stringify({ slug: 'drain-gate', name: 'Drain Gate' }))
+    const work = async () => CLEAN
+
+    let finish!: () => void
+    const parked = new Promise<void>(resolve => { finish = resolve })
+    const { operation_id } = await cleanup.startTrackedCleanup('drain-gate', 'verifying', async () => {
+      await parked
+      return CLEAN
+    })
+    await waitFor(() => cleanup.activeMaintenanceOperation()?.status === 'running', { label: 'the operation to start running' })
+
+    ready()
+    const queue = promptQueue()
+    queue.maintenance = cleanup.activeMaintenanceOperation
+    wired(queue)
+    await updater.maybeInstall()
+    assert.equal(updater.readState().phase, 'ready', 'staged while the operation runs')
+    assert.equal(queue.paused, false, 'so the queue runs through it')
+    assert.deepEqual((await updater.status()).maintenance_running, { id: operation_id, kind: 'run', status: 'running' },
+      'and the status names what it waits for')
+
+    finish()
+    await waitFor(() => cleanup.activeMaintenanceOperation() === null, { label: 'the operation to end' })
+    await updater.maybeInstall()
+    assert.equal(updater.readState().phase, 'draining', 'the claim is taken now')
+    await assert.rejects(cleanup.startTrackedCleanup('drain-gate', 'verifying', work),
+      /installing an update and will restart in a moment/, 'and from now a new operation is refused')
+    await installed()
+    cleanup._resetMediaCleanupStateForTests()
+  })
+
+  test('an operation that begins while the pause is being taken does not get a paused queue: the claim is let go', async () => {
+    const target = ready()
+    const queue = promptQueue()
+    wired(queue)
+    const acquire = queue.acquirePause
+    let once = true
+    queue.acquirePause = async (token: string) => {
+      const owned = await acquire(token)
+      // It begins in the one window the staged look cannot see: after the look, before the write
+      // that claims the drain. Claiming now would pause the queue for its whole run, so the claim
+      // is let go and the release goes back to waiting staged.
+      if (once) { once = false; queue.maintenanceOp = { id: 'op-race', kind: 'run', status: 'running' } }
+      return owned
+    }
+
+    await updater.maybeInstall()
+    assert.equal(updater.readState().phase, 'ready', 'no drain is claimed for an operation that began in the window')
+    assert.equal(queue.paused, false, 'and the pause taken a moment before it is let go')
+    assert.equal(updater.readState().we_paused, false)
+    assert.equal(updater.readState().pause_owner_token, null, 'with nothing left that could authorize a release')
+
+    queue.maintenanceOp = null
+    await updater.maybeInstall()
+    await installed()
+    assert.equal(plistVersion(target), '1.4.258')
+  })
+
+  test('the 30-minute override never reaches a maintenance operation, and never pauses the queue for one', async () => {
     ready()
     const queue = promptQueue()
     queue.maintenanceOp = { id: 'op-1', kind: 'run', status: 'running' }
     wired(queue)
     await updater.installNow()
-    await lookedAgain(queue)
-    assert.equal(updater.readState().phase, 'draining')
+    assert.equal(updater.readState().phase, 'ready', 'Install Now waits staged too, with the queue running')
+    assert.deepEqual(queue.calls, [])
     // The ceiling covers jobs the boot scan picks up again; a restart kills a cleanup mid-file, so
     // only "Install now (don't wait)" may cut it short. Time alone must never do it.
     clock.t += updater.DRAIN_TIMEOUT_MS + 60_000
-    await lookedAgain(queue)
-    assert.equal(updater.readState().phase, 'draining', 'the override must not reach a cleanup')
+    await updater.maybeInstall()
+    assert.equal(updater.readState().phase, 'ready', 'the override must not reach a cleanup')
+    assert.deepEqual(queue.calls, [], 'and it must not pause the queue for one either')
     queue.maintenanceOp = null
+    await updater.maybeInstall()
     await installed()
   })
 
