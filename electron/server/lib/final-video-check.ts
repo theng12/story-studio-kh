@@ -17,7 +17,7 @@
  */
 
 import fs from 'fs/promises'
-import { statSync } from 'fs'
+import { existsSync, rmSync, statSync, writeFileSync } from 'fs'
 import { getMediaInfo } from './ffmpeg-validation.js'
 import { finalDurationIssue } from './video-enabled-inputs.js'
 import { EBUR128_FILTER, parseEbur128Summary } from '../generators/music-episode-build.js'
@@ -27,6 +27,16 @@ import { logLine } from '../services/logger.js'
 /** Where the verdict lives: beside the final, so it travels with the file it describes. */
 export function finalCheckPath(videoPath: string): string {
   return `${videoPath}.finalcheck.json`
+}
+
+/**
+ * The durable "a check was asked for" record, written before the decode starts and removed when a
+ * verdict lands (or the run fails). It exists for the one case no in-process registry can cover: the
+ * app quits, crashes, or is force-updated mid-decode, and a later process has to tell "the check was
+ * asked for and never finished" from "nobody has ever asked about this file" (AGENTS.md §6).
+ */
+export function finalCheckRunMarkerPath(videoPath: string): string {
+  return `${finalCheckPath(videoPath)}.running`
 }
 
 /** The identity a verdict is bound to. Same path + size + mtime test `getAudioDuration` uses. */
@@ -414,20 +424,34 @@ export async function storeFinalCheck(videoPath: string, result: FinalCheckResul
  *
  * The entry outlives the run so a run that produced no verdict can say so, instead of the row
  * reading "not run yet", which would mean both "nobody asked" and "it was asked and failed"
- * (AGENTS.md §6). One small entry per file measured in this process.
+ * (AGENTS.md §6). One small entry per file measured in this process, and — for the run a process
+ * boundary cut short — the durable marker `startFinalCheck` leaves behind.
  */
 export interface FinalCheckProgress {
   /** True while a check is measuring this file right now. */
   running: boolean
   /** Why the last run on this file stored no verdict, or null. */
   error: string | null
+  /**
+   * A check on this file was started and never wrote a verdict: this process died in the middle of
+   * one (or is still measuring it, which `running` already says). False for a file nobody asked
+   * about, and false once a verdict exists.
+   */
+  interrupted: boolean
 }
 
 const finalCheckRuns = new Map<string, FinalCheckProgress>()
 
-/** What this process is doing (or last did) about this file. Nothing known reads as "not running". */
+/**
+ * What is known about this file: what this process is doing (or last did) about it, and — when it
+ * knows nothing — whether a previous process left a check unfinished. The marker is only consulted
+ * for a file this process has no record of, so the steady state costs one `statSync` per file per
+ * listing row and the ordinary answers never change.
+ */
 export function finalCheckProgress(videoPath: string): FinalCheckProgress {
-  return finalCheckRuns.get(videoPath) ?? { running: false, error: null }
+  const known = finalCheckRuns.get(videoPath)
+  if (known) return known
+  return { running: false, error: null, interrupted: existsSync(finalCheckRunMarkerPath(videoPath)) }
 }
 
 /**
@@ -454,6 +478,10 @@ export function __setFinalCheckRunnerForTests(runner: typeof runFinalCheck | nul
 /**
  * Start measuring this file, or join the run already measuring it. Returns at once — the caller
  * must NOT await the check; its verdict lands in the sidecar when it finishes.
+ *
+ * The marker is written SYNCHRONOUSLY before the decode begins: it is the only record that survives
+ * a process that never comes back, and it must exist before any work does. One write, once, in front
+ * of a measurement that takes minutes.
  */
 export function startFinalCheck(
   videoPath: string,
@@ -461,8 +489,9 @@ export function startFinalCheck(
   overrides: FinalCheckOptions = {},
 ): { started: boolean } {
   if (finalCheckRuns.get(videoPath)?.running) return { started: false }
-  const entry: FinalCheckProgress = { running: true, error: null }
+  const entry: FinalCheckProgress = { running: true, error: null, interrupted: false }
   finalCheckRuns.set(videoPath, entry)
+  try { writeFileSync(finalCheckRunMarkerPath(videoPath), `${new Date().toISOString()}\n`) } catch { /* the run still matters more than its record */ }
   void measure(videoPath, expected, overrides)
     .then(result => storeFinalCheck(videoPath, result))
     .catch((error: unknown) => {
@@ -470,7 +499,11 @@ export function startFinalCheck(
       // Loud on purpose: nothing is waiting on this run, so this line is the only place it surfaces.
       logLine('error', `Final check could not run on ${videoPath}: ${entry.error}`)
     })
-    .finally(() => { entry.running = false })
+    .finally(() => {
+      entry.running = false
+      // A verdict, or the reason there is none, is on disk now: the marker has said its piece.
+      try { rmSync(finalCheckRunMarkerPath(videoPath), { force: true }) } catch { /* best effort */ }
+    })
   return { started: true }
 }
 
@@ -566,19 +599,23 @@ export function finalCheckVerdict(stored: StoredFinalCheck | null): string | nul
 /**
  * The row's one line: "Final check: passed", or the first thing that is wrong with it.
  *
- * A check running in the background says so, and a run that ended without a verdict says that too —
- * otherwise the row would read "not run yet", which is the answer for a file nobody has asked about.
- * A stored verdict outranks a failed re-run: it still describes these bytes.
+ * A check running in the background says so, a run that ended without a verdict says that too, and
+ * so does a run a process boundary cut short — otherwise the row would read "not run yet", which is
+ * the answer for a file nobody has asked about. A stored verdict outranks a failed re-run: it still
+ * describes these bytes.
  */
 export function finalCheckSummary(
   stored: StoredFinalCheck | null,
-  progress: FinalCheckProgress = { running: false, error: null },
+  progress: FinalCheckProgress = { running: false, error: null, interrupted: false },
 ): string {
   if (progress.running) return 'Final check: checking…'
   if (!stored) {
-    return progress.error
-      ? `Final check: could not run — ${progress.error}`
-      : 'Final check: not run yet'
+    if (progress.error) return `Final check: could not run — ${progress.error}`
+    // A check that was started and never came back is not a file nobody asked about: the app quit
+    // or crashed mid-decode, so this file is unchecked because the run was cut short, not because
+    // nobody wanted it checked. Saying so is what lets the owner press the button again on purpose.
+    if (progress.interrupted) return 'Final check: did not finish — the app restarted before it wrote a verdict. Run it again.'
+    return 'Final check: not run yet'
   }
   if (stored.stale) return 'Final check: out of date — the video changed since it was checked'
   if (stored.result.passed) return 'Final check: passed'

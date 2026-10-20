@@ -681,10 +681,11 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
         // The final check's stored verdict, read from beside the rendered file it describes. One
         // small JSON read per row, and only for a row that has a rendered file at all.
         const finalCheck = sourceVideoPath ? await readStoredFinalCheck(sourceVideoPath) : null
-        // Read once, so the row's line and its `running` flag describe the same moment.
+        // Read once, so the row's line and its `running` flag describe the same moment. With no
+        // rendered file there is nothing a check could have been asked about.
         const finalCheckRun = sourceVideoPath
           ? finalCheckProgress(sourceVideoPath)
-          : { running: false, error: null }
+          : { running: false, error: null, interrupted: false }
         const episodeOperations = records.filter(record => record.episode_code === code
           && onCurrentChannel(channelId, record.channel_id)
           && !isYouTubeVideoRemoved(publishingState ?? {}, code, record.channel_id, record.video_id))
