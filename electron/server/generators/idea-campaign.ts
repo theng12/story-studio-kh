@@ -784,27 +784,16 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     // Everything stored under this batch's identity, which is what the record's provenance names.
     let storedUnderBatch: im.StoredIdea[] = []
     if (kept.length) {
-      // Rows already stored before this call. `addIdeas` returns the COMPLETE set under the batch
-      // identity (an already-stored row plus whatever this call added), so a crash-retry of a
-      // partly-appended batch would otherwise count the stored rows a second time — they are already
-      // in `alreadyCompleted` — and push `completed` past `wanted`, where `requireJobCompletion`
-      // compares strictly. Only the rows this call actually added are new. The snapshot is taken
-      // before the call and is sound for THIS identity because the queue admits one idea_campaign
-      // per (project, episode) at a time and identities are campaign-namespaced, so no other run can
-      // append under `campaign:batch:ordinal` in between.
-      const knownIds = new Set([...projectIdeas, ...created].map(idea => idea.id))
       // Keyed by this batch's durable identity, so a crash between the append and the record below
-      // cannot append the same batch twice.
-      const stored = await im.addIdeas(
-        job.project_slug,
-        kept,
-        // The model this batch was actually generated on: on a replay that is the captured one, so
-        // `model_used` describes the answer's own provenance rather than today's preset.
-        batchRecord!.model,
-        ideaBatchAppendKey(request.campaign_id, ordinal),
+      // cannot append the same batch twice. The model is the one this batch was actually generated
+      // on: on a replay that is the captured one, so `model_used` describes the answer's own
+      // provenance rather than today's preset.
+      const result = await appendNewIdeas(
+        job.project_slug, kept, batchRecord!.model, ideaBatchAppendKey(request.campaign_id, ordinal),
+        [...projectIdeas, ...created],
       )
-      storedUnderBatch = stored
-      appended = stored.filter(idea => !knownIds.has(idea.id))
+      storedUnderBatch = result.stored
+      appended = result.added
       created.push(...appended)
       const savedCandidates = appended.map(idea => ({
         title: idea.title,
@@ -838,7 +827,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     const fill = repeats.slice(0, shortBy)
     await safetyGate(job.project_slug, 'idea_repeat', job, `${fill.length} idea slot(s) could only be filled with ideas `
       + `that repeat earlier ones by meaning; they are saved anyway: ${fill.map(idea => `"${idea.title}"`).join(', ')}.`)
-    created.push(...await im.addIdeas(job.project_slug, fill, request.model, request.campaign_id))
+    created.push(...(await appendNewIdeas(job.project_slug, fill, request.model, request.campaign_id, [...projectIdeas, ...created])).added)
   }
 
   const completed = alreadyCompleted.length + created.length
@@ -891,6 +880,29 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   job.output_lines.push(isFormulaFreeform
     ? '✓ Idea Campaign complete — ' + completed + '/' + wanted + ' ideas saved; ' + (request.avoid_repeated_ideas === false ? 'duplicate checks disabled by request.' : 'duplicate checks passed.')
     : `✓ Idea Campaign complete — ${completed}/${wanted} unique ideas verified.`)
+}
+
+/**
+ * Append ideas under a batch identity and return which rows are NEW to this campaign count.
+ *
+ * `addIdeas` returns the COMPLETE set under the identity (an already-stored row plus whatever this
+ * call added), so a crash-retry of a partly-appended batch, or a second attempt's warn-fill under
+ * the same campaign-wide identity, would otherwise count stored rows a second time. They are already
+ * in `known` (disk at job start plus this run's own rows) and `completed` would pass the disk, where
+ * `requireJobCompletion` compares strictly. Sound because the queue admits one idea_campaign per
+ * (project, episode) at a time and identities are campaign-namespaced, so no other run can append
+ * under this identity between the snapshot and the call.
+ */
+async function appendNewIdeas(
+  slug: string,
+  ideas: Parameters<typeof im.addIdeas>[1],
+  model: string,
+  batchId: string,
+  known: im.StoredIdea[],
+): Promise<{ stored: im.StoredIdea[]; added: im.StoredIdea[] }> {
+  const knownIds = new Set(known.map(idea => idea.id))
+  const stored = await im.addIdeas(slug, ideas, model, batchId)
+  return { stored, added: stored.filter(idea => !knownIds.has(idea.id)) }
 }
 
 function isFormulaFreeformFor(activePackIds: string[], topicPackIds: string[] | undefined): boolean {
