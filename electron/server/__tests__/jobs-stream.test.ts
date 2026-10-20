@@ -346,7 +346,11 @@ describe('SSE /jobs/all/stream', () => {
     await assert.rejects(durableJobScopes(notDirectory, new Set()), { code: 'ENOTDIR' })
   })
 
-  test('retains application-scoped jobs in the universal snapshot and stream', async () => {
+  test('retains application-scoped jobs in the universal snapshot and stream', async (t) => {
+    // Keep the job queued: the snapshot carries active jobs only (finished history is paged
+    // separately since 777878c2), so a job that finishes before the stream opens would vanish.
+    await jq.setQueuePaused(true)
+    t.after(() => jq.setQueuePaused(false))
     const appJob = jq.enqueuePreparedForTest({
       project_slug: '_app_', type: 'chapter-only', episode_id: 'APP_SCOPE', title: 'app scope', params: {},
     })
