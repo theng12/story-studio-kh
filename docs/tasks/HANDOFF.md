@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.342 — 2026-10-20 (gate running)
+## 1.4.342 — 2026-10-20 (gated and landed)
 
 Merged fix/nested-stage-deps (abfff8f8: workFolderDependencies derives final-stage inputs from argv incl. nested paths; moveCheckpointFinalStage verifies shas + every argv dependency before moving the whole set, else null → fresh final render; video.ts audio exclusion by work-folder name. Myth EP0012 job 637ffc7d restart).
 
