@@ -212,6 +212,13 @@ export interface MediaCleanupRunResult {
      * NOT recorded as cleaned while one is present.
      */
     settled?: boolean
+    /**
+     * On a `failed` outcome: where the reviewed file is NOW. Its own `path` when
+     * it never left its place, or the `_trash` path when the swap had to be
+     * undone and putting the original back failed too (see `compressReviewedImage`).
+     * A failure the owner cannot locate is not a reported failure.
+     */
+    original_path?: string
   }>
   /** Every outcome this run produced; `items` holds only the first `PREVIEW_SAMPLE_FILES`. */
   item_count: number
@@ -233,6 +240,64 @@ export interface MediaCleanupRunResult {
   leftovers_moved?: number
   leftovers_bytes_moved?: number
   leftovers_left?: number
+}
+
+/** One outcome of a run, as the operation carries it (the sweep's `CleanupItem` says `status`). */
+type AnyOutcome = { outcome?: string; status?: string; settled?: boolean }
+
+/**
+ * What the sample owes each outcome, lowest first.
+ *
+ * `0` — a failure: what the sample exists to show, and the one thing the cap must
+ * never hide. A run reporting `failed_count: 2` beside a sample that cannot name
+ * those two files is the production defect of 2026-10-20.
+ * `1` — still pending, or a skip with no `settled` flag: a refusal another run may
+ * get past (the episode went busy, the file changed, YouTube did not answer).
+ * `2` — settled: a file that changed, or a skip that will still be a skip next
+ * time. These fill whatever room is left.
+ *
+ * Failures outrank refusals on purpose. A final-video sweep over episodes YouTube
+ * has not verified yet produces one refusal per episode, and a single tier would
+ * let 50 of them crowd out the two that actually failed — the same defect with a
+ * different mask.
+ */
+function outcomeRank(item: AnyOutcome): 0 | 1 | 2 {
+  const outcome = item.outcome || item.status
+  if (outcome === 'failed') return 0
+  if (outcome === 'pending' || (outcome === 'skipped' && item.settled !== true)) return 1
+  return 2
+}
+
+/**
+ * Add one outcome to a run's capped sample, in the order it happened.
+ *
+ * The sample is what the operation GET and the Free up space panel read, and it
+ * is capped (`PREVIEW_SAMPLE_FILES`) so a whole-Library run does not send one
+ * entry per file. The cap must never be what hides a failure: production
+ * (2026-10-20) reported `failed_count: 2` beside a sample of the first 50
+ * outcomes, all `compressed`, so the two files that failed and their reasons
+ * were nowhere the owner could look.
+ *
+ * So the sample keeps its outcomes in `outcomeRank` order, each rank in arrival
+ * order — which is why this is called per outcome and not applied to the finished
+ * list. Past the cap it holds the first `cap` of the highest ranks it has seen:
+ * the first 50 failures, when a run fails more than the cap. Counters beside the
+ * sample stay exact; only the sample is trimmed, and the caller's "and N more"
+ * line is `item_count` minus what the sample carries.
+ *
+ * One call walks the sample (at most the cap), never the run.
+ */
+export function addToOutcomeSample<T extends AnyOutcome>(sample: T[], item: T, cap = PREVIEW_SAMPLE_FILES): void {
+  const rank = outcomeRank(item)
+  // Ranks stay in order, so the insertion point is the first entry that owes less
+  // than this one does.
+  const at = sample.findIndex(existing => outcomeRank(existing) > rank)
+  if (at < 0) {
+    if (sample.length < cap) sample.push(item)
+    return
+  }
+  sample.splice(at, 0, item)
+  if (sample.length > cap) sample.length = cap
 }
 
 /** One reviewed file of an all-channel preview; the channel travels with the file. */
@@ -404,7 +469,13 @@ interface MediaCleanupSidecarEntry {
   updated_at: string
   destination_path?: string
   reason?: string
-  upload_proof: MediaCleanupUploadProof
+  /**
+   * The upload this file's action was authorized against, or null when the action
+   * needed none — "Convert PNG scenes to JPEG" runs on any episode. A null here is
+   * a real record, not a broken one: a swap that failed and could not be rolled
+   * back must be written down even for an episode with no upload proof.
+   */
+  upload_proof: MediaCleanupUploadProof | null
 }
 
 interface MediaCleanupSidecar {
@@ -445,6 +516,13 @@ interface CleanupHooks {
   afterArchiveCopy?: (source: string, target: string) => Promise<void>
   beforeDestructiveMutation?: () => Promise<void>
   afterFile?: () => Promise<void>
+  /**
+   * Called SYNCHRONOUSLY with the original already in `_trash` and the compressed
+   * image not yet in place — never awaited, because the swap must stay inside one
+   * event-loop turn (see `compressReviewedImage`). A test seam: it is how a test
+   * makes the swap, and the rollback that follows it, fail for real.
+   */
+  beforeCompressedSwap?: (file: MediaCleanupFile) => void
 }
 
 interface RootSpec {
@@ -1261,11 +1339,12 @@ async function readSidecar(
         || !/^[a-f0-9]{64}$/.test(entry.sha256)
         || !['pending_archive', 'pending_remove', 'archived', 'removed', 'compressed', 'skipped', 'failed'].includes(entry.outcome)
         || typeof entry.updated_at !== 'string' || !Number.isFinite(Date.parse(entry.updated_at))
-        || !entry.upload_proof || entry.upload_proof.platform !== 'youtube'
-        || typeof entry.upload_proof.video_id !== 'string' || !entry.upload_proof.video_id
-        || typeof entry.upload_proof.operation_id !== 'string' || !entry.upload_proof.operation_id
-        || typeof entry.upload_proof.channel_id !== 'string' || !entry.upload_proof.channel_id
-        || typeof entry.upload_proof.uploaded_at !== 'string' || !Number.isFinite(Date.parse(entry.upload_proof.uploaded_at))
+        || entry.upload_proof !== null && entry.upload_proof !== undefined
+          && (entry.upload_proof.platform !== 'youtube'
+            || typeof entry.upload_proof.video_id !== 'string' || !entry.upload_proof.video_id
+            || typeof entry.upload_proof.operation_id !== 'string' || !entry.upload_proof.operation_id
+            || typeof entry.upload_proof.channel_id !== 'string' || !entry.upload_proof.channel_id
+            || typeof entry.upload_proof.uploaded_at !== 'string' || !Number.isFinite(Date.parse(entry.upload_proof.uploaded_at)))
         || entry.destination_path !== undefined && (typeof entry.destination_path !== 'string' || !path.isAbsolute(entry.destination_path)))
         || value.cleaned !== undefined && (!Array.isArray(value.cleaned) || value.cleaned.some(cleaned => !validCleanedEntry(cleaned)))) {
       throw new Error('invalid media cleanup record')
@@ -1382,6 +1461,35 @@ async function statusForEntry(
   if (entry.outcome === 'archived') return 'archived'
   if (entry.outcome === 'pending_remove' || entry.outcome === 'pending_archive') return 'pending'
   return null
+}
+
+/** One recorded file outcome of an episode's cleanup record, for callers outside a run. */
+export interface EpisodeCleanupRecordEntry {
+  mode: MediaCleanupMode
+  outcome: SidecarOutcome
+  /** The working path the file was moved out of. */
+  source_path: string
+  /** Where it went: the `_trash` path, for a move, a swap or a failed swap. */
+  destination_path?: string
+  reason?: string
+}
+
+/**
+ * The episode's own cleanup record, read-only: one entry per file the episode's
+ * cleanups acted on, oldest first. What the Trash check reads to tell a scene
+ * image that was deliberately removed from one that was moved aside to be
+ * replaced and never replaced (`services/media-cleanup-orphans.ts`).
+ *
+ * An unreadable or absent record answers an empty list rather than throwing: the
+ * caller is deciding what to offer, and "no record" is one of its own answers.
+ */
+export async function readEpisodeCleanupRecord(slug: string, code: string): Promise<EpisodeCleanupRecordEntry[]> {
+  const sidecar = await readSidecar(await sidecarPath(slug, code), false, { slug, code }).catch(() => null)
+  return (sidecar?.entries ?? []).map(entry => ({
+    mode: entry.mode, outcome: entry.outcome, source_path: entry.source_path,
+    ...(entry.destination_path ? { destination_path: entry.destination_path } : {}),
+    ...(entry.reason ? { reason: entry.reason } : {}),
+  }))
 }
 
 export async function readLocalMediaCleanupStatus(
@@ -1917,12 +2025,30 @@ async function compressReviewedImage(
     await hooks.beforeDestructiveMutation?.()
     // No await from here to the swap: identity check, trash move, replace, mtime.
     const trashed = trashReviewedFile(file)
+    hooks.beforeCompressedSwap?.(file)
     try {
       renameSync(partial, file.path)
       utimesSync(file.path, file.mtime_ms / 1000, file.mtime_ms / 1000)
       clearImageValidationCache(file.path)
-    } catch (error) {
-      try { renameSync(trashed, file.path) } catch { /* the original is still in _trash */ }
+    } catch (error: any) {
+      try {
+        renameSync(trashed, file.path)
+      } catch (rollback: any) {
+        // The swap failed AND the original could not be put back, so it exists
+        // only in `_trash` — which empties after seven days — and nothing is at
+        // the reviewed path. This is its own outcome, said plainly, and it is
+        // recorded on the episode even when the run has no upload proof to
+        // record against (a shrink needs none). Reported as the *swap* error
+        // alone, the owner would be told a file failed and never where it went.
+        await fs.rm(partial, { force: true }).catch(() => {})
+        const reason = `The compressed image could not replace ${path.basename(file.path)} (${error?.message || error})`
+          + ` and putting the original back failed (${rollback?.message || rollback}).`
+          + ` The original is now in the Trash at ${trashed}.`
+        await putSidecarEntry(slug, code, {
+          ...entryBase, outcome: 'failed', reason, destination_path: trashed, updated_at: isoNow(),
+        }).catch(() => {})
+        return item({ outcome: 'failed', reason, original_path: trashed, destination_path: trashed, bytes_moved: file.bytes })
+      }
       throw error
     }
     try {
@@ -1971,9 +2097,12 @@ async function runPreview(
       const apply = () => jq.withEpisodeMediaCleanupLock(slug, code,
         () => mutateReviewedFile(slug, preview, operation, file, mode, destination))
       const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
+      // A failure says where the original is; the swap path sets its own `_trash`
+      // location when the original could not be put back.
+      if (item.outcome === 'failed' && !item.original_path) item.original_path = item.path
       allItems.push(item)
       result.item_count = allItems.length
-      if (result.items.length < PREVIEW_SAMPLE_FILES) result.items.push(item)
+      addToOutcomeSample(result.items, item)
       if (item.outcome === 'archived') result.archived_count += 1
       else if (item.outcome === 'removed') result.removed_count += 1
       else if (item.outcome === 'compressed') result.compressed_count += 1
@@ -2324,9 +2453,10 @@ async function runLibraryPreview(
       const apply = () => jq.withEpisodeMediaCleanupLock(file.project_slug, file.episode_code,
         () => mutateReviewedFile(file.project_slug, channelPreviewFor(preview, file.project_slug), operation, file, mode, undefined, gate))
       const item = file.category === 'final_video' ? await withFinalVideoPathLock(file.path, apply) : await apply()
+      if (item.outcome === 'failed' && !item.original_path) item.original_path = item.path
       result.item_count += 1
       allItems.push(item)
-      if (result.items.length < PREVIEW_SAMPLE_FILES) result.items.push(item)
+      addToOutcomeSample(result.items, item)
       if (item.outcome === 'archived') result.archived_count += 1
       else if (item.outcome === 'removed') result.removed_count += 1
       else if (item.outcome === 'compressed') result.compressed_count += 1

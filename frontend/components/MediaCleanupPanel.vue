@@ -47,6 +47,15 @@
       <p v-if="operation.error" class="cleanup-error">{{ operation.error }}</p>
       <template v-if="operation.result">
         <p>{{ resultSummary }}</p>
+        <!-- What went wrong is said here, not left inside the collapsed list: the
+             operation's sample always carries its failures first (see
+             `addToOutcomeSample`), so this is every failure it could carry, with
+             the reason, and the counters say how many more there were. -->
+        <div v-if="unresolvedOutcomes.length" class="cleanup-unresolved">
+          <p>{{ unresolvedHeading }}</p>
+          <ul class="cleanup-warnings"><li v-for="(item, index) in unresolvedOutcomes" :key="index"><span class="cleanup-path">{{ outcomeFile(item) }}</span> — {{ outcomeLabel(item) }}<span v-if="item.reason">: {{ item.reason }}</span><span v-if="item.original_path && item.original_path !== item.path"> — the original is now in the Trash at {{ item.original_path }}</span></li></ul>
+          <p v-if="unresolvedMore" class="cleanup-hint">and {{ unresolvedMore }} more {{ unresolvedMore === 1 ? 'file' : 'files' }} could not be finished — they are counted above.</p>
+        </div>
         <details v-if="operation.result.items?.length" class="disclosure"><summary>View file outcomes</summary><ul class="cleanup-files"><li v-for="(item, index) in operation.result.items" :key="index"><span class="cleanup-path">{{ item.path || item.source_path || item.file }}</span> — {{ item.outcome || item.status }}<span v-if="item.reason">: {{ item.reason }}</span></li></ul><p v-if="moreOutcomes" class="cleanup-hint">and {{ moreOutcomes }} more {{ moreOutcomes === 1 ? 'file' : 'files' }} — all of them are counted above.</p></details>
       </template>
     </div>
@@ -99,7 +108,7 @@ interface LibraryLeftover { project_slug: string; channel_name: string; kind: 'a
  * sending them all made the review read minutes long.
  */
 interface LibraryPreview { preview_id: string; action: LibraryAction; created_at: string; expires_at: string; channels: LibraryChannel[]; file_count: number; total_bytes: number; blocked_reasons: string[]; trash_roots: string[]; estimate: Estimate; already_cleaned_episodes: number; leftovers?: { count: number; total_bytes: number; items: LibraryLeftover[] } }
-interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; bytes_done?: number; bytes_total?: number; current: string; detail?: string; error?: string; library?: boolean; library_action?: LibraryAction; library_preview?: LibraryPreview; channels_done?: number; channels_total?: number; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string }>; item_count?: number; removed_count?: number; archived_count?: number; compressed_count?: number; deleted_count?: number; skipped_count?: number; failed_count?: number; pending_count?: number; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number; leftovers_moved?: number; leftovers_bytes_moved?: number; leftovers_left?: number } }
+interface Operation { id: string; project_slug: string; kind: 'preview' | 'run'; status: string; stage: string | null; done: number; total: number; bytes_done?: number; bytes_total?: number; current: string; detail?: string; error?: string; library?: boolean; library_action?: LibraryAction; library_preview?: LibraryPreview; channels_done?: number; channels_total?: number; result?: { items?: Array<{ path?: string; source_path?: string; file?: string; status?: string; outcome?: string; reason?: string; episode_code?: string; original_path?: string }>; item_count?: number; removed_count?: number; archived_count?: number; compressed_count?: number; deleted_count?: number; skipped_count?: number; failed_count?: number; pending_count?: number; bytes_reclaimed?: number; bytes_freed?: number; bytes_moved?: number; bytes_trashed?: number; bytes_after?: number; leftovers_moved?: number; leftovers_bytes_moved?: number; leftovers_left?: number } }
 interface Space { free_bytes: number | null; project_trash_bytes: number | null; library_trash_bytes: number | null; app_trash_bytes: number | null }
 /** The one automatic-retention setting (Story → Trash shows the same switch); `last_auto_cleanup` is what this panel reports back. */
 interface RetentionRun { at: string; status: 'completed' | 'failed' | 'skipped'; detail: string; moved?: number; bytes?: number }
@@ -191,6 +200,33 @@ const operationLabel = computed(() => {
 })
 /** Outcomes the run produced beyond the capped sample the operation carries. */
 const moreOutcomes = computed(() => Math.max(0, (operation.value?.result?.item_count ?? 0) - (operation.value?.result?.items?.length ?? 0)))
+type OutcomeItem = NonNullable<NonNullable<Operation['result']>['items']>[number]
+const outcomeOf = (item: OutcomeItem) => item.outcome || item.status || ''
+/**
+ * The outcomes said out loud: a file that could not be finished, or one still
+ * unresolved. The backend keeps every one of these in the sample whatever the cap
+ * (`addToOutcomeSample`), so this list is never the reason a failure goes unseen.
+ */
+const unresolvedOutcomes = computed(() => (operation.value?.result?.items || [])
+  .filter(item => ['failed', 'pending'].includes(outcomeOf(item))))
+/** How many failed outcomes the capped sample could not carry: the counters are exact, the sample is not. */
+const unresolvedMore = computed(() => {
+  const result = operation.value?.result
+  if (!result || result.item_count === undefined) return 0
+  return Math.max(0, (result.failed_count || 0) - unresolvedOutcomes.value.filter(item => outcomeOf(item) === 'failed').length)
+})
+const unresolvedHeading = computed(() => {
+  const failed = unresolvedOutcomes.value.filter(item => outcomeOf(item) === 'failed').length
+  const pending = unresolvedOutcomes.value.length - failed
+  const said = [
+    failed ? `${failed} ${failed === 1 ? 'file' : 'files'} could not be finished` : '',
+    pending ? `${pending} ${pending === 1 ? 'file needs' : 'files need'} review after an interruption` : '',
+  ].filter(Boolean)
+  return `${said.join(', and ')}:`
+})
+/** The file (or episode) a failed outcome belongs to, however the result names it. */
+function outcomeFile(item: OutcomeItem) { return item.path || item.source_path || item.file || item.episode_code || 'this episode' }
+function outcomeLabel(item: OutcomeItem) { return outcomeOf(item) === 'pending' ? 'stopped partway' : 'could not be finished' }
 const resultSummary = computed(() => {
   const result = operation.value?.result
   const items = result?.items || []
@@ -443,6 +479,8 @@ p { color: var(--text-secondary); line-height: 1.5; margin: 8px 0 12px; }
 .cleanup-files { max-height: 320px; overflow: auto; }
 .cleanup-hint { font-size: var(--font-sm); }
 .cleanup-error, .cleanup-warnings { color: var(--error, #ff9696); line-height: 1.5; overflow-wrap: anywhere; }
+.cleanup-unresolved { margin: 12px 0; }
+.cleanup-unresolved > p:first-child { font-size: var(--font-sm); font-weight: 600; }
 .cleanup-progress, .cleanup-review { border-top: 1px solid var(--border); margin-top: 22px; padding-top: 18px; }
 .cleanup-progress > span { margin-left: 12px; }
 progress { display: block; width: 100%; margin: 12px 0; accent-color: var(--accent); }

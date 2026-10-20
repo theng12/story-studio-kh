@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
+import { chmodSync, existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
@@ -18,6 +18,7 @@ import type {
   MediaCleanupCategory,
   MediaCleanupFile,
   MediaCleanupPreviewSummary,
+  MediaCleanupRunResult,
 } from '../services/episode-media-cleanup.js'
 import {
   __resetYouTubeTransportForTests,
@@ -1953,6 +1954,209 @@ describe('all-channel (Library) maintenance', () => {
     const preCapSweepBytes = Buffer.byteLength(JSON.stringify(sweep.final_cleanup!.items[0])) * sweepCodes.length
     assert.ok(preCapSweepBytes > 40_000, `one entry per episode would have sent ~${preCapSweepBytes} bytes`)
     assert.ok(sweepBytes < 40_000, `the sweep operation GET answers ${sweepBytes} bytes, down from ~${preCapSweepBytes}`)
+  })
+
+  /**
+   * What the cap must never hide (production, 2026-10-20): a running all-channel
+   * `shrink_images` run reported `failed_count: 2` while `result.items` was the
+   * FIRST 50 outcomes — all of them `compressed` — so the two files that failed
+   * and their reasons were nowhere the owner could look. The sample is capped;
+   * what went wrong is not.
+   *
+   * The rule these pin: every not-settled outcome — `failed`, `pending`, or a
+   * skip with no `settled` flag (a refusal another run may get past) — is in the
+   * sample first, in the order it happened, and settled outcomes fill what is
+   * left. Counts beside the sample stay exact.
+   */
+  test('the capped sample holds every not-settled outcome first, whatever its position', () => {
+    type Outcome = MediaCleanupRunResult['items'][number]
+    const outcome = (index: number, over: Partial<Outcome>): Outcome => ({
+      path: `/Library/chan-a/EP0001/s${String(index).padStart(3, '0')}.png`,
+      category: 'images', outcome: 'compressed', bytes_reclaimed: 0, bytes_moved: 0, ...over,
+    })
+    const outcomes: Outcome[] = Array.from({ length: 200 }, (_, index) => outcome(index, {}))
+    // The two failures of the live run, at positions 120 and 180 — both past the
+    // 50-item cap, which is why nobody could see them.
+    outcomes[119] = outcome(119, { outcome: 'failed', reason: 'EACCES: the compressed image could not replace the original.' })
+    outcomes[179] = outcome(179, { outcome: 'failed', reason: 'EIO: the original could not be put back; it is in the Trash.' })
+    // A refusal (no `settled` flag: another run may get past it) and a settled
+    // skip, which is a decision and never jumps the queue.
+    outcomes[150] = outcome(150, { outcome: 'skipped', reason: 'Active generate work started before compression.' })
+    outcomes[151] = outcome(151, { outcome: 'skipped', reason: 'Already a JPEG.', settled: true })
+
+    const sample: Outcome[] = []
+    for (const item of outcomes) cleanup.addToOutcomeSample(sample, item)
+
+    assert.equal(sample.length, cleanup.PREVIEW_SAMPLE_FILES, 'the sample stays at the cap, not above it')
+    assert.deepEqual(
+      sample.filter(item => item.outcome !== 'compressed').map(item => item.path),
+      [outcomes[119]!.path, outcomes[179]!.path, outcomes[150]!.path],
+      'both failures lead the sample — in the order they happened — and the refusal follows them',
+    )
+    assert.match(sample[0]!.reason!, /could not replace/)
+    assert.match(sample[1]!.reason!, /could not be put back/)
+    assert.equal(sample.filter(item => item.outcome === 'compressed').length, 47, 'settled outcomes fill what is left')
+    assert.equal(sample.some(item => item.path === outcomes[151]!.path), false, 'a settled skip does not take a priority slot')
+  })
+
+  test('more failures than the cap: the sample holds the first 50 of them, and the count still says how many', () => {
+    type Outcome = MediaCleanupRunResult['items'][number]
+    const outcomes: Outcome[] = Array.from({ length: 80 }, (_, index) => ({
+      path: `/Library/chan-a/EP0001/s${String(index).padStart(3, '0')}.png`,
+      category: 'images', outcome: 'failed', reason: `The file could not be re-read (#${index}).`,
+      bytes_reclaimed: 0, bytes_moved: 0,
+    }))
+    const sample: Outcome[] = []
+    for (const item of outcomes) cleanup.addToOutcomeSample(sample, item)
+
+    assert.equal(sample.length, cleanup.PREVIEW_SAMPLE_FILES)
+    assert.equal(sample.every(item => item.outcome === 'failed'), true)
+    assert.equal(sample[0]!.path, outcomes[0]!.path)
+    assert.equal(sample[49]!.path, outcomes[49]!.path)
+    assert.equal(outcomes.length - sample.length, 30, 'the "and N more" line is the real number left out')
+  })
+
+  test('the final-video sweep follows the same rule for its own item shape', () => {
+    // `CleanupItem` says `status`, not `outcome`; the rule reads whichever the
+    // item carries, so the sweep cannot keep a failure out of its sample either.
+    // Every sweep refusal is a `skipped` with no settled flag, so a single tier
+    // would let 50 of them crowd out the one that actually failed.
+    type SweepItem = { episode_code: string; file: string; status: 'deleted' | 'skipped' | 'failed'; bytes_freed: number; reason?: string }
+    const items: SweepItem[] = Array.from({ length: 60 }, (_, index) => ({
+      episode_code: `EP${String(index).padStart(4, '0')}`, file: '', status: 'skipped' as const,
+      bytes_freed: 0, reason: 'The exact final was not freshly verified on YouTube.',
+    }))
+    items[55] = { ...items[55]!, status: 'failed', reason: 'move to _trash failed' }
+    const sample: SweepItem[] = []
+    for (const item of items) cleanup.addToOutcomeSample(sample, item)
+
+    assert.equal(sample.length, cleanup.PREVIEW_SAMPLE_FILES)
+    assert.equal(sample[0]!.episode_code, 'EP0055', 'the failed episode leads the sample, past the cap')
+    assert.equal(sample[0]!.reason, 'move to _trash failed')
+    assert.equal(sample.filter(item => item.status === 'failed').length, 1)
+    assert.equal(sample.filter(item => item.status === 'skipped').length, 49, 'refusals fill the rest of the cap')
+  })
+
+  test('a 200-file shrink run whose two failures are at positions 120 and 180 reports both, with reasons, in the LIVE sample', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'Two hundred scenes')
+    // One real, compressible scene (16 KB PNG -> 1.8 KB JPEG) written 200 times:
+    // every file reaches the swap, so the 120th and 180th in processing order are
+    // exactly the 120th and 180th files of the run.
+    const png = await sharp({ create: { width: 96, height: 96, channels: 3, background: '#203040', noise: { type: 'gaussian', mean: 128, sigma: 24 } } }).blur(1.5).png().toBuffer()
+    const count = 200
+    for (let index = 0; index < count; index += 1) {
+      await fs.writeFile(path.join(episode.paths.bg_dir, `s${String(index).padStart(3, '0')}.png`), png)
+    }
+    const { preview } = await libraryPreview('shrink_images')
+    assert.equal(preview.file_count, count)
+
+    // The swap is where the live run failed twice. The seam throws there for the
+    // 120th and 180th file, so both failures land past the 50-item cap.
+    const order: string[] = []
+    let runId = ''
+    let sampleWhenFirstFailureLanded: string[] | null = null
+    const restore = cleanup._setMediaCleanupHooksForTests({
+      // Synchronous, like the seam: it is called inside the swap's own turn, and a
+      // promise here would throw outside it.
+      beforeCompressedSwap: file => {
+        order.push(file.path)
+        if (order.length === 120) throw new Error('EACCES: the compressed image could not replace the original.')
+        if (order.length === 180) throw new Error('EIO: the original could not be put back.')
+      },
+      afterFile: async () => {
+        if (sampleWhenFirstFailureLanded || !runId) return
+        const running = cleanup.getLibraryMediaCleanupOperation(runId)
+        if (running?.done !== 120) return
+        sampleWhenFirstFailureLanded = (running.result?.items ?? []).map(item => item.path)
+      },
+    })
+    try {
+      const started = await cleanup.startLibraryMediaCleanupRun({ preview_id: preview.preview_id })
+      runId = started.operation_id
+      const run = await waitForValue(() => {
+        const current = cleanup.getLibraryMediaCleanupOperation(runId)
+        return current && ['completed', 'failed', 'stopped'].includes(current.status) ? current : null
+      }, { timeoutMs: 120_000, label: 'library shrink run with two failures' })
+
+      assert.equal(run.status, 'completed', `run ${run.status}: ${run.error}`)
+      assert.equal(order.length, count, 'every reviewed file reached the swap, so the positions are the files of the run')
+      assert.equal(run.result?.item_count, count, 'every outcome is counted')
+      assert.equal(run.result?.compressed_count, count - 2)
+      assert.equal(run.result?.failed_count, 2, 'the count that started this')
+      assert.equal(run.result?.items.length, cleanup.PREVIEW_SAMPLE_FILES, 'the sample is still capped')
+
+      const failed = (run.result?.items ?? []).filter(item => item.outcome === 'failed')
+      assert.deepEqual(failed.map(item => item.path), [order[119]!, order[179]!], 'both failures are in the sample, in order')
+      assert.match(failed[0]!.reason!, /could not replace/)
+      assert.match(failed[1]!.reason!, /could not be put back/)
+      assert.equal(run.result!.item_count! - run.result!.items.length, count - cleanup.PREVIEW_SAMPLE_FILES,
+        'the "and N more" line still says how many the sample left out')
+      assert.equal(sampleWhenFirstFailureLanded?.[0], order[119]!,
+        'a RUNNING operation already leads its sample with the failure, not only the finished one')
+    } finally {
+      restore()
+    }
+  })
+
+  /**
+   * The other half of the same failure (production review, 2026-10-20). When the
+   * compressed image cannot replace the original, the swap is undone. If THAT
+   * fails too, the original exists only in `_trash` — which empties after seven
+   * days — and the run used to report only the rename error, leaving the file's
+   * whereabouts unsaid and, for a shrink with no upload proof, unrecorded.
+   *
+   * Pinned here: the failed item says where the original is now, the episode's
+   * own record keeps it even with no upload proof, and the record does not make
+   * the sidecar unreadable for the runs that follow.
+   */
+  test('a swap that fails and cannot be rolled back names where the original is, and records it without an upload proof', async () => {
+    await seedChannel('chan-a', 'Channel A')
+    const episode = await seedEpisodeIn('chan-a', 'EP0001', 'One scene')
+    const scene = path.join(episode.paths.bg_dir, 's001.png')
+    await scenePng(scene, 96, 96)
+    const original = await fs.readFile(scene)
+
+    const { preview } = await libraryPreview('shrink_images')
+    assert.equal(preview.file_count, 1)
+
+    // A read-only scene folder refuses BOTH renames: the compressed image cannot
+    // take the original's place, and the original cannot be put back. This is the
+    // real filesystem refusal, not a stub — the run's own reporting is what the
+    // test reads. The hook is synchronous on purpose: the swap must stay inside
+    // one event-loop turn.
+    const restore = cleanup._setMediaCleanupHooksForTests({
+      beforeCompressedSwap: () => { chmodSync(episode.paths.bg_dir, 0o555) },
+    })
+    let run: Awaited<ReturnType<typeof waitForLibraryOperation>>
+    try {
+      run = await libraryRun(preview.preview_id)
+    } finally {
+      await fs.chmod(episode.paths.bg_dir, 0o755)
+      restore()
+    }
+
+    assert.equal(run.status, 'completed', run.error)
+    assert.equal(run.result?.failed_count, 1)
+    const item = run.result!.items[0]!
+    const trashed = path.join(pm.projectsRoot(), '_trash', 'chan-a', 'EP0001', 'images', 'scene_images', 's001.png')
+    assert.equal(item.outcome, 'failed')
+    assert.match(item.reason!, /putting the original back failed/, 'the failed rollback is named, not swallowed')
+    assert.match(item.reason!, /in the Trash at/, 'and the reason says where the original is')
+    assert.equal(item.original_path, trashed, 'the item carries the original\'s real location')
+    assert.equal(item.destination_path, trashed)
+    assert.equal(existsSync(scene), false, 'the working path is empty: the original never came back')
+    assert.deepEqual(await fs.readFile(trashed), original, 'the original bytes are in the Trash')
+
+    // Durable, per episode, with no upload proof anywhere in this run.
+    const record = JSON.parse(await fs.readFile(path.join(episode.paths.episode_dir, 'local_media_cleanup.json'), 'utf8'))
+    const entry = record.entries.find((candidate: any) => candidate.destination_path === trashed)
+    assert.ok(entry, `the episode record keeps the failed swap: ${JSON.stringify(record.entries)}`)
+    assert.equal(entry.outcome, 'failed')
+    assert.equal(entry.upload_proof, null, 'a shrink needs no upload, so there is no proof to record against')
+    assert.match(entry.reason, /putting the original back failed/)
+    assert.equal(await cleanup.readLocalMediaCleanupStatus('chan-a', 'EP0001').then(status => status.blocked_reason), undefined,
+      'a record written without an upload proof is still a readable record')
   })
 })
 

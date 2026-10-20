@@ -522,6 +522,51 @@ test('a run over thousands of files counts them all from the counters, not the c
   } finally { ui.close() }
 })
 
+test('a run that failed two files past the cap names them and their reasons, outside the collapsed list', async () => {
+  // The sample is capped at 50, and the two failures of the live 2026-10-20 run
+  // sat at positions 120 and 180 — so the backend keeps them first in the sample
+  // and the panel says them out loud rather than leaving them in the disclosure.
+  const sample = Array.from({ length: 50 }, (_, index) => ({
+    path: `/Library/chan-a/EP0001/s${String(index).padStart(3, '0')}.png`, outcome: 'compressed',
+  }))
+  sample[0] = {
+    path: '/Library/chan-a/EP0001/s119.png', outcome: 'failed',
+    reason: 'EACCES: permission denied, rename ... The original is now in the Trash at /Library/_trash/chan-a/EP0001/images/scene_images/s119.png.',
+    original_path: '/Library/_trash/chan-a/EP0001/images/scene_images/s119.png',
+  }
+  sample[1] = { path: '/Library/chan-a/EP0001/s179.png', outcome: 'failed', reason: 'EIO: the original could not be put back.' }
+  let reads = 0
+  const ui = await mount({
+    get: async (url: string) => {
+      if (url.endsWith('/space')) return space
+      reads += 1
+      if (reads === 1) return libraryOperation('shrink_images', shrinkPreview)
+      return {
+        id: 'lib-op', project_slug: '*', kind: 'run', status: 'completed', stage: null, done: 200, total: 200, current: '',
+        library: true, library_action: 'shrink_images',
+        result: { items: sample, item_count: 200, compressed_count: 198, failed_count: 2, bytes_reclaimed: 0 },
+      }
+    },
+    post: async () => ({ operation_id: 'lib-op' }),
+  })
+  try {
+    button(ui.host, 'Shrink Images (All Channels)').click()
+    for (let i = 0; i < 5; i++) await flush()
+    confirmButton(ui.host).click()
+    for (let i = 0; i < 5; i++) await flush()
+
+    const block = ui.host.querySelector('.cleanup-unresolved')
+    assert.ok(block, 'the failures are shown in their own block, not only inside "View file outcomes"')
+    const said = block!.textContent || ''
+    assert.match(said, /2 files could not be finished/, 'the heading counts what is shown')
+    assert.match(said, /s119\.png/, 'the file that failed is named')
+    assert.match(said, /s179\.png/, 'both failures are named')
+    assert.match(said, /permission denied/, 'the reason is shown plainly')
+    assert.match(said, /the original is now in the Trash at \/Library\/_trash/, 'where the original went is said')
+    assert.match(ui.host.textContent || '', /198 files changed/, 'the counters are still the real totals')
+  } finally { ui.close() }
+})
+
 test('a finished run says what moved AND what was left behind, never just "all moved"', async () => {
   let reads = 0
   const ui = await mount({
