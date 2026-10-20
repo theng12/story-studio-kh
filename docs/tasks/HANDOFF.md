@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.338 — 2026-10-20 (gate running)
+## 1.4.338 — 2026-10-20 (gated and landed)
 
 Merged fix/remix-pin-window (e59c4d48: planClosingTailRemix returns recover while an intent note exists; guardClosingTail recovers before use) and fix/collect-first-fresh-rows (de06d612: enqueue carries same-plan sibling scene_plan_run children; collect pass reads every saved key before the single deferred resend).
 
