@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.336 — 2026-10-20 (gate running)
+
+Merged fix/legacy-unknown-recheck-and-check-read (3a9dd772: shouldRecheckStoredUnknownOutcome also covers failed + UNKNOWN_OUTCOME/submission-uncertain rows with absent hold fields; GET /projects/:slug/youtube/final-check full stored result). Production: Boundful 5864f738, Brain Wise a257d9f4, Capi b21f6250, Domnak 14c50bed settle on boot readback, then one Retry each.
+
 ## 1.4.335 — 2026-10-20 (gate running)
 
 Merged fix/pipeline-leftout-steps (dd14feaa: preflight returns live runSteps; run-batch filters preflight.stepsLeftOut at admission; Myth EP0012 fa69e918 should be discarded, not retried) and fix/orphan-scan-complete (cbb3e152: readDirectory records non-ENOENT failures, streamTrashIndex reads every record, handoff records size/mtime/macos_trash_path; earlier handoffs report location unknown).
