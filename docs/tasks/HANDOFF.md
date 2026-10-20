@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.341 — 2026-10-20 (gate running)
+
+Merged fix/images-panel-race (039469f4: ImageGeneratorPanel boardRevision guards loadPrompts/loadScan success, catch and finally; sync episode watcher replaces the whole board; runOne refuses rows whose boardEpisodeId differs from the live episode).
+
 ## 1.4.340 — 2026-10-20 (gate running)
 
 Merged fix/recovery-plan-read-and-binding (5c50c438: GET /projects/:slug/episodes/:code/recovery-plan read-only; extendPlanFromSelectedFailures rebinds a dispatched scene_plan_run node from a childless failed row to the explicitly selected row of the same plan).
