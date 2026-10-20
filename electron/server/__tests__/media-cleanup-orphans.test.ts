@@ -23,6 +23,7 @@ import request from 'supertest'
 
 import { useTempDataDir } from './_helpers.js'
 import { waitForValue } from './_timing.js'
+import { TRASH_INDEX } from '../lib/trash-move.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 
 let cleanup: typeof import('../services/episode-media-cleanup.js')
@@ -30,6 +31,7 @@ let orphans: typeof import('../services/media-cleanup-orphans.js')
 let pm: typeof import('../services/project-manager.js')
 let im: typeof import('../services/idea-manager.js')
 let pathsService: typeof import('../services/utils.js')
+let trashModule: typeof import('../services/trash.js')
 let router: typeof import('../routes/media-cleanup.js').router
 let tmp: { dir: string; cleanup: () => Promise<void> }
 
@@ -42,6 +44,7 @@ before(async () => {
   pm = await import('../services/project-manager.js')
   im = await import('../services/idea-manager.js')
   pathsService = await import('../services/utils.js')
+  trashModule = await import('../services/trash.js')
   router = (await import('../routes/media-cleanup.js')).router
 })
 
@@ -244,5 +247,227 @@ describe('stranded scene images', () => {
     await assert.rejects(() => orphans.restoreStrandedSceneImage('not-a-listed-id'), /not one this check offers to put back/)
     const empty = await request(api()).post('/api/library/media-cleanup/orphans/restore').send({}).expect(400)
     assert.match(empty.body.detail, /Choose one of the scene images/)
+  })
+})
+
+/**
+ * What the check must never do is answer "nothing stranded" because it could not
+ * look. Three ways production found that happening: a read that failed and was
+ * swallowed, a record sitting past the Trash listing's own cap, and an original
+ * that Story's Trash retention has already handed to the macOS Trash.
+ *
+ * The handoff runs on the owner's schedule (7 days, or 20 GB, oldest first),
+ * NOT on `auto_cleanup_enabled`, so originals leave Story's Trash without anyone
+ * asking. About 175 GB of shrink originals were in `_trash` when this was written.
+ */
+describe('a scan that could not look says so', () => {
+  const trashIndexFile = () => path.join(pm.projectsRoot(), '_trash', TRASH_INDEX)
+  const macTrashFor = (dir: string) => path.join(dir, '.Trash')
+
+  /** Index lines as an older build wrote a handoff: the mark alone, no size, no location. */
+  async function markHandedOffInTheOldShape(id: string, from: string, to: string): Promise<void> {
+    await fs.appendFile(trashIndexFile(), `${JSON.stringify({
+      id, from, to, kind: 'images', removed: 'macos-trash', at: new Date().toISOString(),
+    })}\n`)
+  }
+
+  /**
+   * Records this check never looks at — a different kind, so the walk passes them
+   * by — written newer than the real one, so the real record sits past
+   * `listTrash`'s 2,000-item page. `real` of them are real files (the listing only
+   * counts what exists); the rest only bloat the index.
+   */
+  async function appendFillerRecords(real: number, phantom: number, at: Date): Promise<void> {
+    const dir = path.join(pm.projectsRoot(), '_trash', SLUG, 'EP0009', 'final_video')
+    await fs.mkdir(dir, { recursive: true })
+    const lines: string[] = []
+    for (let index = 0; index < real + phantom; index += 1) {
+      const name = `filler${String(index).padStart(5, '0')}.mp4`
+      const to = path.join(dir, name)
+      if (index < real) await fs.writeFile(to, name)
+      lines.push(JSON.stringify({ id: `filler-${index}`, from: `/nowhere/${name}`, to, kind: 'final_video', at: at.toISOString() }))
+    }
+    await fs.appendFile(trashIndexFile(), `${lines.join('\n')}\n`)
+  }
+
+  async function strandedOrphan(slug = 'EP0001') {
+    const episode = await seedEpisode(slug)
+    const scene = path.join(episode.paths.bg_dir, 's001.png')
+    await scenePng(scene)
+    await runStrandingShrink(episode.paths.bg_dir)
+    const scan = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+    const item = scan.body.orphan.items[0]
+    assert.ok(item, 'the stranded original is an orphan before the handoff')
+    return { episode, scene, item }
+  }
+
+  test('an unreadable scene-image subtree is a failed read, not a clean scan', async () => {
+    // A scene image in a subfolder of the scene folder: its Trash copy lands under
+    // the same relative path, so one unreadable subtree hides it completely.
+    const episode = await seedEpisode('EP0001')
+    const nested = path.join(episode.paths.bg_dir, 'nested')
+    await fs.mkdir(nested, { recursive: true })
+    await scenePng(path.join(nested, 's002.png'))
+    await runStrandingShrink(nested)
+    const subtree = path.join(path.dirname(trashFile('EP0001', 'x.png')), 'nested')
+    assert.equal(existsSync(subtree), true, 'the stranded copy is in its own subtree')
+
+    await fs.chmod(subtree, 0o000)
+    try {
+      const scan = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+      assert.equal(scan.body.orphan.count, 0, 'nothing under it could be checked')
+      assert.equal(scan.body.scan_complete, false, 'a read that saw nothing must never read as clean')
+      assert.ok(scan.body.read_failures >= 1, 'the failed read is counted')
+      assert.match(scan.body.scan_note, /could not be read/)
+    } finally {
+      await fs.chmod(subtree, 0o755)
+    }
+
+    const back = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+    assert.equal(back.body.read_failures, 0)
+    assert.equal(back.body.scan_complete, true, 'the same check is complete once the subtree is readable')
+    assert.equal(back.body.orphan.count, 1, 'and it finds the original it could not see a moment ago')
+  })
+
+  test('an orphan whose record sits past the Trash listing cap is still found, and is restorable', async () => {
+    const { scene, item } = await strandedOrphan()
+    // 2,100 newer records: `listTrash` pages the newest 2,000, so this orphan's own
+    // record is past that page. The index itself is the lookup, not the page.
+    await appendFillerRecords(2_100, 0, new Date(Date.now() + 3_600_000))
+
+    const scan = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+    assert.equal(scan.body.orphan.count, 1, 'a record past the listing cap is not a missing record')
+    assert.equal(scan.body.unknown.count, 0, 'and it is not mistaken for one nobody recorded')
+    assert.equal(scan.body.orphan.items[0].working_path, scene)
+    assert.ok(scan.body.orphan.items[0].trash_item_id, 'it can still be put back')
+    assert.equal(scan.body.scan_complete, true)
+
+    const restored = await request(api()).post('/api/library/media-cleanup/orphans/restore')
+      .send({ id: scan.body.orphan.items[0].trash_item_id }).expect(200)
+    assert.equal(restored.body.restored_to, scene)
+    assert.equal(restored.body.episode_code, 'EP0001')
+    assert.equal(item.bytes, (await fs.stat(scene)).size, 'the original is the file that came back')
+  })
+
+  test('a twenty-thousand-record Trash index is scanned completely', async () => {
+    const { scene } = await strandedOrphan()
+    await appendFillerRecords(2_001, 18_000, new Date(Date.now() + 3_600_000))
+
+    const scan = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+    assert.equal(scan.body.orphan.count, 1, 'the whole index is read, not the newest page of it')
+    assert.equal(scan.body.orphan.items[0].working_path, scene)
+    assert.equal(scan.body.scan_complete, true, 'and a big index is not itself an incomplete scan')
+  })
+
+  test('an absent Trash folder is not a failed read', async () => {
+    await seedEpisode('EP0001')
+    const scan = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+    assert.equal(scan.body.read_failures, 0)
+    assert.equal(scan.body.scan_complete, true)
+    assert.equal(scan.body.projects_scanned, scan.body.projects_total)
+    assert.equal(scan.body.orphan.count, 0)
+  })
+
+  test('an original handed over in the old shape is reported as moved, location unknown', async () => {
+    const { scene, item } = await strandedOrphan()
+    // What the handoff used to leave behind: the mark, and nothing about where the
+    // file went. The original is out of Story's Trash and out of reach here.
+    const macTrash = macTrashFor(tmp.dir)
+    await fs.mkdir(macTrash, { recursive: true })
+    await fs.rename(item.trash_path, path.join(macTrash, path.basename(item.trash_path)))
+    await markHandedOffInTheOldShape(item.trash_item_id, item.working_path, item.trash_path)
+
+    const scan = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+    assert.equal(scan.body.orphan.count, 0, 'it is not in Story\'s Trash any more, so it cannot be put back from there')
+    assert.equal(scan.body.unknown.count, 1)
+    const moved = scan.body.unknown.items[0]
+    assert.equal(moved.working_path, scene, 'its working path is still known')
+    assert.equal(moved.trash_path, item.trash_path)
+    assert.match(moved.note, /macOS Trash/)
+    assert.match(moved.note, /location is unknown/)
+    assert.equal(moved.trash_item_id, undefined, 'nothing to restore from Story\'s Trash')
+    assert.equal(scan.body.scan_complete, false, 'never a silent clean')
+    assert.match(scan.body.scan_note, /macOS Trash/)
+  })
+
+  test('a handoff records where the original went, and the check reports that location', async () => {
+    const { scene, item } = await strandedOrphan()
+    const macTrash = macTrashFor(tmp.dir)
+    await fs.mkdir(macTrash, { recursive: true })
+    const releaseSeam = trashModule._setMacTrashDirForTests(() => macTrash)
+    try {
+      // The real handoff, with the Mac's own Trash standing in for the real one.
+      const moved = await trashModule.moveToMacTrash([item.trash_item_id], { count: 1, bytes: item.bytes },
+        async file => { await fs.rename(file, path.join(macTrash, path.basename(file))) })
+      assert.equal(moved.moved, 1, JSON.stringify(moved.errors))
+      const landed = path.join(macTrash, path.basename(item.trash_path))
+      assert.equal(existsSync(landed), true)
+
+      const scan = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+      assert.equal(scan.body.unknown.count, 1)
+      const said = scan.body.unknown.items[0]
+      assert.equal(said.working_path, scene)
+      assert.equal(said.macos_trash_path, landed, 'the handoff recorded where it went — checked by exact name and size')
+      assert.equal(said.bytes, item.bytes, 'and what the file was: the size it had when it was handed over')
+      assert.ok(said.mtime_ms > 0, 'and when it was last written')
+      assert.match(said.note, /macOS Trash/)
+      assert.equal(scan.body.scan_complete, false, 'a file Story handed to the Mac\'s Trash is never claimed complete')
+
+      // Where it went is not the same as being able to put it back: the record is a
+      // receipt for the owner, and the id is not offered.
+      assert.equal(said.trash_item_id, undefined)
+    } finally { releaseSeam() }
+  })
+
+  test('a handoff that cannot tell where the file landed claims no location, and the check says so', async () => {
+    const { item } = await strandedOrphan()
+    const macTrash = macTrashFor(tmp.dir)
+    await fs.mkdir(macTrash, { recursive: true })
+    // Something already holds that exact name in the Mac's Trash, so the hand-over
+    // renames the file and where it landed cannot be told.
+    await fs.writeFile(path.join(macTrash, path.basename(item.trash_path)), 'another file entirely')
+    const releaseSeam = trashModule._setMacTrashDirForTests(() => macTrash)
+    try {
+      const moved = await trashModule.moveToMacTrash([item.trash_item_id], { count: 1, bytes: item.bytes },
+        async file => { await fs.rename(file, path.join(macTrash, `${path.basename(file)} 2`)) })
+      assert.equal(moved.moved, 1, JSON.stringify(moved.errors))
+
+      const scan = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+      assert.equal(scan.body.unknown.count, 1)
+      assert.equal(scan.body.unknown.items[0].macos_trash_path, undefined, 'nothing is claimed when the name was taken')
+      assert.match(scan.body.unknown.items[0].note, /location is unknown/)
+      assert.equal(scan.body.scan_complete, false)
+    } finally { releaseSeam() }
+  })
+
+  test('a scene image whose record names a different working path is ambiguous, and is not offered back', async () => {
+    const { item } = await strandedOrphan()
+    // A record that disagrees with the episode's own scene folder: putting the file
+    // back at a guessed path is worse than leaving it where it is.
+    await fs.appendFile(trashIndexFile(), `${JSON.stringify({
+      id: item.trash_item_id, from: '/somewhere/else/s001.png', to: item.trash_path, kind: 'images', at: new Date().toISOString(),
+    })}\n`)
+
+    const scan = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+    assert.equal(scan.body.ambiguous.count, 1)
+    assert.equal(scan.body.orphan.count, 0)
+    assert.equal(scan.body.ambiguous.items[0].trash_item_id, undefined)
+    assert.match(scan.body.ambiguous.items[0].note, /somewhere/)
+    const refusal = await request(api()).post('/api/library/media-cleanup/orphans/restore')
+      .send({ id: item.trash_item_id }).expect(409)
+    assert.match(refusal.body.detail, /not stranded/)
+  })
+
+  test('an original deleted for good from Story\'s Trash is reported, never a silent clean', async () => {
+    const { scene, item } = await strandedOrphan()
+    const deleted = await trashModule.deletePermanently([item.trash_item_id], { count: 1, bytes: item.bytes })
+    assert.equal(deleted.deleted, 1, JSON.stringify(deleted.errors))
+
+    const scan = await request(api()).get('/api/library/media-cleanup/orphans').expect(200)
+    assert.equal(scan.body.orphan.count, 0)
+    assert.equal(scan.body.unknown.count, 1)
+    assert.equal(scan.body.unknown.items[0].working_path, scene)
+    assert.match(scan.body.unknown.items[0].note, /[Dd]eleted for good/)
+    assert.equal(scan.body.scan_complete, false, 'the scene is gone and the answer must not read as clean')
   })
 })

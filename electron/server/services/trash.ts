@@ -15,9 +15,11 @@
  * 2026-10-19 — oldest-first when the whole Trash passes its size cap. Restore, move,
  * handoff and delete run one at a time (`serial`).
  */
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, appendFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, appendFileSync, createReadStream } from 'node:fs'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
+import { createInterface } from 'node:readline'
 
 import * as pm from './project-manager.js'
 import { dataDir, trashDir } from './app-update.js'
@@ -105,8 +107,33 @@ export async function trashRoots(): Promise<TrashRoot[]> {
 /**
  * An index line; `removed` marks an item that left the Trash (Mac Trash, deleted): no Restore.
  * `partial` marks what a delete that stopped partway left: still listed, deletable, never restored.
+ * The `removed_*` fields are what the handoff could say about where the item went: the size and
+ * mtime it had, and the Mac's own Trash path when exactly one entry there matched both.
  */
-type IndexLine = TrashIndexEntry & { removed?: 'macos-trash' | 'deleted'; partial?: true }
+type IndexLine = TrashIndexEntry & {
+  removed?: 'macos-trash' | 'deleted'
+  partial?: true
+  removed_size?: number
+  removed_mtime_ms?: number
+  macos_trash_path?: string
+}
+
+/** What one line of an index says; the shape `streamTrashIndex` hands to a caller. */
+export interface TrashIndexLine {
+  id: string
+  /** Where the item came from — the path it was moved out of. */
+  from: string
+  /** Where it went: a path inside Story's Trash. */
+  to: string
+  kind: string
+  /** A delete that stopped partway through it. */
+  partial: boolean
+  /** Set once the item left Story's Trash. */
+  removed?: 'macos-trash' | 'deleted'
+  removed_size?: number
+  removed_mtime_ms?: number
+  macos_trash_path?: string
+}
 
 function readIndex(dir: string): IndexLine[] {
   let text: string
@@ -121,10 +148,101 @@ function readIndex(dir: string): IndexLine[] {
   return [...byTarget.values()].filter(entry => !entry.removed)
 }
 
+/**
+ * Every line of every Story Trash index, one line at a time.
+ *
+ * `listTrash` reads each index whole AND caps its listing at `MAX_ITEMS` (2000): right
+ * for a page, wrong for a lookup. After a whole-Library shrink the index runs to
+ * hundreds of thousands of lines, and a line past that page would look like it was
+ * never recorded — a file that cannot be restored, or a scan that says "nothing
+ * stranded" while its answer was a failed read. This streams the file instead, so no
+ * record is out of reach and the caller, not the page, decides what to keep.
+ *
+ * Read failures are returned, never swallowed: a caller that could not read an index
+ * cannot then say "nothing there".
+ */
+export async function streamTrashIndex(visit: (line: TrashIndexLine) => void | Promise<void>): Promise<{ notes: string[] }> {
+  const notes: string[] = []
+  for (const root of await trashRoots()) {
+    const file = path.join(root.dir, TRASH_INDEX)
+    if (!existsSync(file)) continue
+    const lines = createInterface({ input: createReadStream(file, { encoding: 'utf8' }), crlfDelay: Infinity })
+    try {
+      for await (const text of lines) {
+        let entry: IndexLine
+        try { entry = JSON.parse(text) as IndexLine } catch { continue } // a torn line
+        if (!entry?.id || !entry.to || !entry.from) continue
+        await visit({
+          id: entry.id, from: entry.from, to: entry.to, kind: entry.kind || '', partial: entry.partial === true,
+          ...(entry.removed ? { removed: entry.removed } : {}),
+          ...(Number.isFinite(entry.removed_size) ? { removed_size: entry.removed_size as number } : {}),
+          ...(Number.isFinite(entry.removed_mtime_ms) ? { removed_mtime_ms: entry.removed_mtime_ms as number } : {}),
+          ...(entry.macos_trash_path ? { macos_trash_path: entry.macos_trash_path } : {}),
+        })
+      }
+    } catch (error: any) {
+      notes.push(`The Trash record in ${root.dir} could not be read in full (${error?.code || error?.message || error}); items recorded there were not checked.`)
+    } finally {
+      lines.close()
+    }
+  }
+  return { notes }
+}
+
 /** Append-only, like every move: a later line for the same path overrides an earlier one. */
-function appendLine(dir: string, entry: TrashIndexEntry, mark: Pick<IndexLine, 'removed' | 'partial'>): void {
-  const line: IndexLine = { ...entry, removed: undefined, partial: undefined, ...mark, at: new Date().toISOString() }
+function appendLine(
+  dir: string,
+  entry: TrashIndexEntry,
+  mark: Pick<IndexLine, 'removed' | 'partial' | 'removed_size' | 'removed_mtime_ms' | 'macos_trash_path'>,
+): void {
+  const line: IndexLine = {
+    ...entry,
+    removed: undefined, partial: undefined,
+    removed_size: undefined, removed_mtime_ms: undefined, macos_trash_path: undefined,
+    ...mark, at: new Date().toISOString(),
+  }
   appendFileSync(path.join(dir, TRASH_INDEX), `${JSON.stringify(line)}\n`)
+}
+
+/**
+ * Where the Mac's own Trash is. A seam so a test can hand a file over without
+ * touching the real one (`shell.trashItem` is injected the same way).
+ */
+let macTrashDir = () => path.join(os.homedir(), '.Trash')
+export function _setMacTrashDirForTests(dir: (() => string) | null): () => void {
+  const previous = macTrashDir
+  macTrashDir = dir ?? (() => path.join(os.homedir(), '.Trash'))
+  return () => { macTrashDir = previous }
+}
+
+/**
+ * What the Mac's Trash holds right now: one read, so a handover of thousands of
+ * items does not read the folder thousands of times. `readable: false` means the
+ * folder could not be listed at all — never that it is empty.
+ */
+export function macTrashNames(): { readable: boolean; dir: string; names: Set<string> } {
+  const dir = macTrashDir()
+  try { return { readable: true, dir, names: new Set(readdirSync(dir)) } } catch { return { readable: false, dir, names: new Set() } }
+}
+
+/**
+ * What the Mac's Trash holds under one exact name and size.
+ *
+ * `shell.trashItem` returns nothing, and it RENAMES a collision ("name 2.png"), so a
+ * file is only ever claimed when exactly one entry matches BOTH the name and the size.
+ * A Trash that cannot be listed answers "unreadable" rather than being treated as
+ * empty — otherwise "not there" and "could not look" would be the same answer.
+ */
+export function macTrashMatches(name: string, size: number): { readable: boolean; paths: string[] } {
+  const { readable, dir, names } = macTrashNames()
+  if (!readable) return { readable: false, paths: [] }
+  const paths: string[] = []
+  for (const candidate of names) {
+    if (candidate !== name) continue
+    const full = path.join(dir, candidate)
+    try { const stat = lstatSync(full); if (stat.isFile() && stat.size === size) paths.push(full) } catch { /* an entry nobody can stat */ }
+  }
+  return { readable: true, paths }
 }
 
 // ponytail: one chain for every Restore, Mac-Trash move and delete; they are rare owner clicks.
@@ -335,15 +453,49 @@ export async function electronTrashItem(): Promise<((p: string) => Promise<void>
   } catch { return null }
 }
 
-/** Move each picked item to the Mac's Trash, recording every success in its root's index. */
+/**
+ * Move each picked item to the Mac's Trash, recording every success in its root's
+ * index — including what can be said about where it went.
+ *
+ * `shell.trashItem` returns nothing, so the receipt is the only record the owner will
+ * ever have of a handed-over file: what it was (size, mtime, read while it is still
+ * here) and the Mac's Trash path when exactly one entry there matches its name and
+ * size. When that cannot be told, nothing is claimed and the line says only that it
+ * was moved — an earlier build recorded nothing at all, and no new record can cover
+ * those past moves (the orphan check reads them as "location unknown").
+ */
+/** What a file was, read while it is still here; null when it cannot be measured. */
+function measureForHandoff(file: string): { size: number; mtime_ms: number } | null {
+  try { const stat = lstatSync(file); return { size: stat.size, mtime_ms: stat.mtimeMs } } catch { return null }
+}
+
 async function handOver(
   picked: Scanned[], trashItem: (p: string) => Promise<void>, result: { moved: number; bytes: number; errors: string[] },
 ): Promise<void> {
+  // One read of the Mac's Trash for the whole handover: a run moving thousands of
+  // items must not list the folder thousands of times.
+  const trash = macTrashNames()
   for (const s of picked) {
     if (!safelyInside(s.root.dir, s.item.path, s.root.slug ? 1 : 2)) { result.errors.push(`${s.item.path}: not inside Story's Trash; left alone.`); continue }
+    // Read while the file is still here: after the hand-over there is nothing to measure.
+    const was = measureForHandoff(s.item.path)
     try { await withTimeout(trashItem(s.item.path), TRASH_ITEM_TIMEOUT_MS) } catch (error: any) { result.errors.push(`${s.item.path}: ${error?.message || error}`); continue }
     result.moved += 1; result.bytes += s.item.bytes
-    if (s.entry) { try { appendLine(s.root.dir, s.entry, { removed: 'macos-trash' }) } catch { /* it is gone from here either way */ } }
+    if (s.entry) {
+      const name = path.basename(s.item.path)
+      // `shell.trashItem` returns nothing. The file landed under its own name exactly
+      // when that name was free a moment ago; otherwise the Mac renamed it and there
+      // is nothing to name, so nothing is claimed.
+      const landed = was && trash.readable && !trash.names.has(name) ? path.join(trash.dir, name) : undefined
+      trash.names.add(name)
+      try {
+        appendLine(s.root.dir, s.entry, {
+          removed: 'macos-trash',
+          ...(was ? { removed_size: was.size, removed_mtime_ms: was.mtime_ms } : {}),
+          ...(landed ? { macos_trash_path: landed } : {}),
+        })
+      } catch { /* it is gone from here either way */ }
+    }
   }
 }
 
