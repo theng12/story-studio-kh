@@ -77,12 +77,53 @@ export interface FrozenFinalCheckShape {
   episode_code: string
   /** The bytes this freeze is about. */
   file: FinalCheckFileIdentity
-  /** Where the shape came from: the channel's own saved settings, or the render's recorded plan. */
-  source: 'settings' | 'plan'
+  /**
+   * Where the shape came from: the render's own recorded plan, its own saved request, the channel's
+   * settings, or the owner's own recorded decision that a finished video's expectation be taken from
+   * today's settings.
+   */
+  source: 'plan' | 'job' | 'settings' | 'owner'
   /** See `FinalCheckExpectation.after_narration_sec`. */
   after_narration_sec: number
   /** See `FinalCheckExpectation.intro`; `null` is an answer (this final drew no intro). */
   intro: FinalCheckIntro | null
+  /**
+   * A content fingerprint of ONLY the fields that shape the expectation — the intro slot (its clip,
+   * its outro, its timeline clips) and the timeline slot's post-audio block — and of nothing else.
+   *
+   * The whole settings file's mtime cannot say whether the fields that shaped a final moved: any
+   * save anywhere in the channel rewrites it, so it is newer than every final ever rendered and
+   * proves nothing (2026-10-20). This is the narrow answer to the same question, taken over the
+   * fields that actually produce a shape: two settings objects with the same fingerprint ask for the
+   * same tail and the same intro, whatever else moved in the file. `source` and `evidence` say where
+   * the shape was taken from; this says exactly which settings it was taken from, so a reader can
+   * compare it with the fields in force now.
+   */
+  shaping_fingerprint?: string
+  /** The evidence the freeze was taken from, in words, for a person reading the record. */
+  evidence?: string
+  /** Present only on a `source: 'owner'` freeze: the decision it was taken on, in the owner's words. */
+  owner?: OwnerFreezeDecision
+}
+
+/**
+ * The owner's decision a `source: 'owner'` freeze was taken on, recorded with the freeze itself.
+ *
+ * A freeze taken from today's settings is taken on someone's authority, and the record has to say
+ * whose and on what words — otherwise it is indistinguishable from an inference the app made. The
+ * quotes are verbatim, and `turn_id` names the turn they came from.
+ */
+export interface OwnerFreezeDecision {
+  /** When the owner gave the decision. Nothing rendered at or after this is in its scope. */
+  decision_at: string
+  /** The turn the two quotes came from. */
+  turn_id: string
+  /** What the owner approved, in the words they approved. */
+  described_as: string
+  /** The owner's approval, verbatim. */
+  approve_quote: string
+  /** The earlier decision this one builds on, verbatim. */
+  retain_quote: string
 }
 
 /** A frozen shape, and whether the final has been rewritten since it was taken. */
@@ -338,7 +379,7 @@ function endingSilenceSec(actual: FinalCheckResult['actual']): number {
  * `after_scenes` still clip plus the 15 s fade post-roll, and a file that is what its own settings
  * asked for is not a fault. A file past them is: only ever the length it should not have.
  */
-function unplannedDurationIssue(
+export function unplannedDurationIssue(
   actualSec: number,
   expectedSec: number | null,
   endingSilence: number,
@@ -465,7 +506,7 @@ const INTRO_BLACK_TOLERANCE_SEC = 1
  * ASSET must carry black over that same stretch. Black anywhere else — a scene, a gap, an intro whose
  * asset is not black there, an asset this machine could not measure — is reported exactly as before.
  */
-function isIntroAssetBlack(
+export function isIntroAssetBlack(
   run: { start_sec: number; end_sec: number },
   intro: FinalCheckIntro | undefined,
 ): boolean {
@@ -737,6 +778,36 @@ export async function measureIntroAssetBlack(
     const runs = parseBlackdetect(stderr)
     introBlackCache.set(assetPath, { size, mtime_ms, runs })
     return runs
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The black in a final's OPENING, measured over the first `endSec` seconds only.
+ *
+ * The owner-approved freeze below is confirmed against the file itself, and one half of that
+ * confirmation is "the black the opening shows is the black the intro asset carries". Measuring the
+ * whole 2.5 h file for it would cost a full decode at boot; the opening is the only place it can be,
+ * so `-t` before `-i` stops the read there.
+ *
+ * Never throws: an unreadable file measures as no black, and the caller decides what that means.
+ */
+export async function measureOpeningBlack(
+  videoPath: string,
+  endSec: number,
+  overrides: FinalCheckOptions = {},
+): Promise<Array<{ start_sec: number; end_sec: number }>> {
+  const limit = Number(endSec)
+  if (!(limit > 0)) return []
+  const o = opts(overrides)
+  try {
+    const stderr = await runFfmpeg([
+      '-hide_banner', '-nostdin', '-t', limit.toFixed(3), '-i', videoPath,
+      '-vf', `blackdetect=d=${o.black_min_sec}:pix_th=${o.black_pixel_threshold}`,
+      '-f', 'null', '-',
+    ], { timeoutMs: o.timeout_ms })
+    return parseBlackdetect(stderr)
   } catch {
     return []
   }

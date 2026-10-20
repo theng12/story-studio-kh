@@ -14,8 +14,6 @@
  * slice, local-date Week/Month/Year calendar ranges with Previous/Next/Today,
  * bounded 25-EVENT pagination (65 entries on one day), the next-12 expected-slot
  * marker horizon, and preserved recommendation reasons/actions.
- *
- * NOTE: written but UNRUN — adda owns the execution lease.
  */
 
 import assert from 'node:assert/strict'
