@@ -140,6 +140,8 @@ export interface CallAiContext {
   requestIdentity?: string
   /** Reconcile a saved GenStudio chat idempotency key without a new submission. */
   recoverByIdempotencyKey?: boolean
+  /** Saved-key recovery: hand a lost request back to the caller instead of resending it. */
+  deferLostResend?: boolean
   /** Explicit Retry-only path for a server-proven not-created request. */
   allowUncreatedRecovery?: boolean
   recoveryRequestPreview?: GenStudioRequestPreview
@@ -221,6 +223,7 @@ export async function callAi(
     // the transient local queue id.
     requestIdentity: ctx.requestIdentity || ctx.slug || undefined,
     recoverByIdempotencyKey: ctx.recoverByIdempotencyKey === true,
+    deferLostResend: ctx.deferLostResend === true,
     allowUncreatedRecovery: ctx.allowUncreatedRecovery === true,
     recoveryRequestPreview: ctx.recoveryRequestPreview,
     idempotencyKey: ctx.idempotencyKey,

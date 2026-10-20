@@ -40,6 +40,7 @@ const genstudioProvider: TextProvider = {
       expectedOutputTokens: request.expectedOutputTokens,
       requestIdentity: request.requestIdentity,
       recoverByIdempotencyKey: request.recoverByIdempotencyKey === true,
+      deferLostResend: request.deferLostResend === true,
       allowUncreatedRecovery: request.allowUncreatedRecovery === true,
       recoveryRequestPreview: request.recoveryRequestPreview,
       idempotencyKey: request.idempotencyKey,

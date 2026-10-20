@@ -2621,6 +2621,8 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
    * recovery only: a missing or unreachable lookup never falls through to POST.
    */
   recoverByIdempotencyKey?: boolean
+  /** Saved-key recovery only: a lost request is rethrown to the caller instead of resent here, so it can read every other saved key first. */
+  deferLostResend?: boolean
   /** One manual Retry may repost a server-proven never-created request. */
   allowUncreatedRecovery?: boolean
   /** Retained server preview that must match the newly prepared wire request exactly. */
@@ -8522,7 +8524,7 @@ async function callChatWithGenStudioAdmitted(
       // A saved request the Gateway lost track of gets its one fresh resend here, so a saved
       // identity can no longer block its step forever (Scene Plan HMH0003, 0/185 prompts).
       const lost = lostChatRequest(error, request, idempotencyKey)
-      if (!lost) throw error
+      if (!lost || request.deferLostResend) throw error
       const fresh = { ...request, recoverByIdempotencyKey: false }
       const prepared = await prepareChatSubmission(apiKey, fresh).catch(() => { throw error })
       if (prepared.transport !== 'responses') throw error
