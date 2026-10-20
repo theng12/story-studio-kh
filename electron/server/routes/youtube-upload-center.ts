@@ -2502,6 +2502,59 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
 })
 
 /**
+ * Read the stored verdict of an episode's final check IN FULL.
+ *
+ * The POST above answers 202, and the publishable row carries a reduced projection — `passed`,
+ * `issues`, `identity`, `running` — so what the check actually MEASURED (expected versus actual,
+ * the file it measured, each issue's own words) was only readable on disk. This is that sidecar over
+ * the wire: one file beside the finished video, never a second check, so it stays bounded and safe
+ * to read on a poll.
+ *
+ * 404 when no verdict is stored, with the row's own one-line answer saying which kind of "none" it
+ * is (never asked, could not run, or a run the app restarted out of). A file with no rendered video
+ * answers 409 with the same code the POST uses, so the two routes cannot disagree about why.
+ */
+router.get('/projects/:slug/youtube/final-check', async (req, res) => {
+  const slug = req.params.slug
+  try {
+    const episodeCode = typeof req.query?.episode_code === 'string' ? req.query.episode_code.trim() : ''
+    if (!episodeCode) {
+      res.status(400).json({ detail: 'Choose an episode to check.' })
+      return
+    }
+    const episodeTitle = await acceptedTitleFor(slug, episodeCode)
+    const sourcePaths = await resolveEpisodePaths(slug, episodeCode, episodeTitle)
+    const sourceVideoPath = await findYouTubeSourceVideoPath(sourcePaths, slug, episodeCode, episodeTitle)
+    if (!sourceVideoPath) {
+      res.status(409).json({
+        code: 'YOUTUBE_NO_RENDERED_VIDEO',
+        detail: `${episodeCode} has no rendered video yet.`,
+      })
+      return
+    }
+    const stored = await readStoredFinalCheck(sourceVideoPath)
+    if (!stored) {
+      res.status(404).json({
+        code: 'YOUTUBE_NO_FINAL_CHECK',
+        detail: finalCheckSummary(null, finalCheckProgress(sourceVideoPath)),
+      })
+      return
+    }
+    res.json({
+      episode_code: episodeCode,
+      // True while a check is measuring this file right now; the verdict below is then the previous
+      // one, which `stale` and `identity` already describe.
+      running: finalCheckProgress(sourceVideoPath).running,
+      stale: stored.stale,
+      identity: finalCheckIdentity(stored),
+      result: stored.result,
+    })
+  } catch (error) {
+    fail(res, error, 'Failed to read the final check result.')
+  }
+})
+
+/**
  * Publish -> Upload. The one route that puts a video on YouTube.
  *
  * MANUAL only. It never touches `executeScheduledYouTubeUpload`; the automatic
