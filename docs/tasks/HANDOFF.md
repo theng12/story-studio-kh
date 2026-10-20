@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.340 — 2026-10-20 (gate running)
+## 1.4.340 — 2026-10-20 (gated and landed)
 
 Merged fix/recovery-plan-read-and-binding (5c50c438: GET /projects/:slug/episodes/:code/recovery-plan read-only; extendPlanFromSelectedFailures rebinds a dispatched scene_plan_run node from a childless failed row to the explicitly selected row of the same plan).
 
