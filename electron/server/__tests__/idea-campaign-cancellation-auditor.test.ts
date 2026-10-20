@@ -1,5 +1,5 @@
 /**
- * Idea Campaign cancellation auditor — source-level regression (UNRUN in this pass).
+ * Idea Campaign cancellation auditor — source-level regression.
  *
  * The auditor is the generator's own completion proof, reused by the queue's
  * cancellation reconciler and the success-path re-audit. Three properties matter:

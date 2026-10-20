@@ -4,8 +4,6 @@
  * It must be a read: no body, no provider call, and a shape the page can trust.
  * The plan-less channel case is asserted here too, because the route is where
  * an empty answer has to keep meaning exactly one thing.
- *
- * NOTE: written but UNRUN — adda owns the execution lease.
  */
 
 import assert from 'node:assert/strict'

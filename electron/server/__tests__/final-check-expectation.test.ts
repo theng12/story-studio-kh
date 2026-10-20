@@ -33,6 +33,8 @@ let readStoredFinalCheck: typeof import('../lib/final-video-check.js')['readStor
 let finalCheckIssues: typeof import('../lib/final-video-check.js')['finalCheckIssues']
 let resolveEpisodePathsByCode: typeof import('../services/utils.js')['resolveEpisodePathsByCode']
 let resolveScenePlanPath: typeof import('../services/utils.js')['resolveScenePlanPath']
+let finalFreezeStates: typeof import('../services/final-check-expectation.js')['finalFreezeStates']
+let shapingFingerprint: typeof import('../services/final-check-expectation.js')['shapingFingerprint']
 
 /** A real 3 s intro clip with 2.5 s of black in it — the owner's own asset, in miniature. */
 let introAsset: string
@@ -47,6 +49,7 @@ before(async () => {
   ;({ frozenExpectationPath, finalCheckPath, readFrozenShape, readStoredFinalCheck, finalCheckIssues } =
     await import('../lib/final-video-check.js'))
   ;({ resolveEpisodePathsByCode, resolveScenePlanPath } = await import('../services/utils.js'))
+  ;({ finalFreezeStates, shapingFingerprint } = await import('../services/final-check-expectation.js'))
   introAsset = path.join(dir, 'Story Sprout - Intro Video.mp4')
   execFileSync('ffmpeg', [
     '-y', '-loglevel', 'error',
@@ -126,10 +129,10 @@ async function planlessChannel(opts: { clipSec?: number; finalAgeSec?: number } 
   return { slug, episodeDir: paths.episode_dir, videoPath, configPath: path.join(projectDir, 'config.json') }
 }
 
-async function ref(channel: PlanlessChannel) {
+async function ref(channel: PlanlessChannel, episodeCode = 'EP001') {
   const stat = await fs.stat(channel.videoPath)
   return {
-    slug: channel.slug, episode_code: 'EP001', episode_dir: channel.episodeDir,
+    slug: channel.slug, episode_code: episodeCode, episode_dir: channel.episodeDir,
     video_path: channel.videoPath, mtime_ms: stat.mtimeMs,
   }
 }
@@ -177,6 +180,52 @@ async function replaceFinal(channel: PlanlessChannel, opts: { ageSec?: number } 
     const when = new Date(Date.now() - opts.ageSec * 1000)
     await fs.utimes(channel.videoPath, when, when)
   }
+}
+
+/**
+ * A finished render's own request, saved the way the durable queue leaves one.
+ *
+ * `routes/pipeline.ts` flattens the Video Assembly bundle into the job's params — `intro`,
+ * `timeline_clips`, `post_audio` — so this is the exact instruction the render ran on, and the only
+ * per-final record of the settings that produced a file. Written straight into the channel's
+ * `jobs.json` as a finished job, which is what a completed render leaves and what the queue loads as
+ * history rather than re-running.
+ */
+async function saveRenderRequest(channel: PlanlessChannel, opts: {
+  /** When the request was made. */
+  createdAt: string
+  /** When the render that ran on it ended — the file is written, then checked, then the job ends. */
+  finishedAt: string
+  episodeId?: string
+  clipSec?: number
+  postAudio?: Record<string, unknown>
+  status?: string
+}): Promise<string> {
+  const jobId = `job-${Math.random().toString(16).slice(2, 10)}`
+  const episodeId = opts.episodeId ?? 'EP001'
+  const jobsFile = path.join(pm.getProjectDir(channel.slug)!, 'jobs.json')
+  const existing = await fs.readFile(jobsFile, 'utf-8').then(text => JSON.parse(text)).catch(() => ({ jobs: [] }))
+  await fs.writeFile(jobsFile, JSON.stringify({
+    jobs: [...(existing.jobs || []), {
+      job_id: jobId, project_slug: channel.slug, type: 'video_assembly', episode_id: episodeId,
+      title: `Pipeline: Final Video — ${episodeId}`, status: opts.status ?? 'done',
+      created_at: opts.createdAt, started_at: opts.createdAt, finished_at: opts.finishedAt,
+      error: null, output_lines: [],
+      params: {
+        episode_id: episodeId,
+        intro: { enabled: true, video_path: introAsset },
+        timeline_clips: (opts.clipSec ?? 6000) > 0
+          ? [{
+            id: 'clip-1776875775168-cl5s', kind: 'static', anchor: 'after_scenes', enabled: true,
+            image_path: path.join(dir, 'still.png'), duration_sec: opts.clipSec ?? 6000,
+          }]
+          : [],
+        post_audio: opts.postAudio ?? { behavior: 'fade-to-black', fade_duration: 15, tail_seconds: 4 },
+      },
+    }],
+    stats: {},
+  }))
+  return jobId
 }
 
 /** Story Sprout SS0063's own 16 sections and their 5 s pauses. */
@@ -387,5 +436,398 @@ describe("a verdict the final has outlived", () => {
     assert.equal(frozen?.shape.intro?.asset, A_INTRO_ASSET)
     assert.equal(frozen?.shape.source, 'plan')
     assert.equal(frozen?.shape.frozen_at, A_FROZEN_AT)
+  })
+})
+
+/**
+ * The final's OWN RENDER REQUEST, and the shaping fingerprint (2026-10-20).
+ *
+ * `config.json` is project-wide: any save anywhere in the channel rewrites it, so "the settings file
+ * has not been written since the final" is defeated for every final the channel has ever made. That
+ * is not hypothetical — measured on the mini, thirteen of nineteen channels' files were rewritten
+ * inside seven seconds by one campaign, long after their finals were rendered, and NOT ONE final in
+ * the fleet had a freeze. The request a render was given does not depend on that file's mtime at
+ * all: it is the instruction the render ran on, saved beside the run.
+ */
+describe("a final's own render request", () => {
+  test('it freezes a final whose channel settings moved after it was rendered', async () => {
+    // Rendered two hours ago; the channel's settings were saved after it. Without the request this is
+    // `unknown` (the test above), and the owner's own final does not pass.
+    const channel = await planlessChannel({ finalAgeSec: 7200 })
+    const jobId = await saveRenderRequest(channel, {
+      createdAt: new Date(Date.now() - 10800_000).toISOString(),
+      finishedAt: new Date(Date.now() - 7100_000).toISOString(),
+    })
+
+    const settled = await planlessExpectationFor(await ref(channel))
+
+    assert.equal(settled.kind, 'frozen', 'the render request answers for the file it made')
+    if (settled.kind !== 'frozen') return
+    assert.equal(settled.shape.source, 'job')
+    assert.equal(settled.shape.after_narration_sec, 6015, '6000 s of still + a 15 s fade post-roll')
+    assert.equal(settled.shape.intro?.asset, introAsset)
+    assert.ok((settled.shape.intro?.black?.length ?? 0) > 0, 'the intro asset was measured, and its black frozen with it')
+    assert.match(String(settled.shape.evidence), new RegExp(jobId), 'the record names the job it was taken from')
+    assert.match(String(settled.shape.evidence), /saved request/)
+    assert.ok(settled.shape.shaping_fingerprint, 'and which settings shaped it')
+  })
+
+  test("the shape is the request's, not the channel's settings as they are now", async () => {
+    // The channel's settings still carry the 6000 s clip. The request that made this file did not —
+    // and the request is what the file was made to be.
+    const channel = await planlessChannel({ finalAgeSec: 7200 })
+    await saveRenderRequest(channel, {
+      createdAt: new Date(Date.now() - 10800_000).toISOString(),
+      finishedAt: new Date(Date.now() - 7100_000).toISOString(),
+      clipSec: 0,
+    })
+
+    const settled = await planlessExpectationFor(await ref(channel))
+
+    assert.equal(settled.kind, 'frozen')
+    if (settled.kind !== 'frozen') return
+    assert.equal(settled.shape.after_narration_sec, 15, "the request's own 15 s post-roll, not today's 6000 s clip")
+  })
+
+  test('a request made after the final is not evidence about it', async () => {
+    // The file on disk is from two hours ago; this request is from a minute ago, so it describes a
+    // LATER render. Taking it would certify the file against a render it did not come from.
+    const channel = await planlessChannel({ finalAgeSec: 7200 })
+    await saveRenderRequest(channel, {
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+      finishedAt: new Date(Date.now() - 30_000).toISOString(),
+    })
+
+    const settled = await planlessExpectationFor(await ref(channel))
+
+    assert.equal(settled.kind, 'unknown')
+    assert.equal(await readFrozenShape(channel.videoPath), null)
+  })
+
+  test('a request that has not finished is about to replace the file, not the one that made it', async () => {
+    const channel = await planlessChannel({ finalAgeSec: 7200 })
+    await saveRenderRequest(channel, {
+      createdAt: new Date(Date.now() - 10800_000).toISOString(),
+      finishedAt: new Date(Date.now() - 7100_000).toISOString(),
+      status: 'queued',
+    })
+
+    const settled = await planlessExpectationFor(await ref(channel))
+
+    assert.equal(settled.kind, 'unknown')
+    assert.equal(await readFrozenShape(channel.videoPath), null)
+  })
+
+  test('a request that finished before the final existed is an earlier render of it', async () => {
+    // This render ended two hours ago; the file on disk is an hour old, so it is NOT the one this
+    // request made. Binding the file to it would certify a shape for a render it did not come from.
+    const channel = await planlessChannel({ finalAgeSec: 3600 })
+    await saveRenderRequest(channel, {
+      createdAt: new Date(Date.now() - 10800_000).toISOString(),
+      finishedAt: new Date(Date.now() - 7200_000).toISOString(),
+    })
+
+    const settled = await planlessExpectationFor(await ref(channel))
+
+    assert.equal(settled.kind, 'unknown')
+    assert.equal(await readFrozenShape(channel.videoPath), null)
+  })
+
+  test("another episode's request is not this final's evidence", async () => {
+    const channel = await planlessChannel({ finalAgeSec: 7200 })
+    await saveRenderRequest(channel, {
+      createdAt: new Date(Date.now() - 10800_000).toISOString(),
+      finishedAt: new Date(Date.now() - 7100_000).toISOString(),
+      episodeId: 'EP002',
+    })
+
+    const settled = await planlessExpectationFor(await ref(channel))
+
+    assert.equal(settled.kind, 'unknown')
+  })
+
+  test('the newest request that predates the final is the one it was made by', async () => {
+    const channel = await planlessChannel({ finalAgeSec: 14400 })
+    const older = new Date(Date.now() - 16_000_000).toISOString()
+    const newer = new Date(Date.now() - 15_000_000).toISOString()
+    // Two renders of this episode are saved; only the later one is the file that is on disk.
+    const first = await saveRenderRequest(channel, {
+      createdAt: older, finishedAt: new Date(Date.now() - 14_300_000).toISOString(), clipSec: 6000,
+    })
+    const second = await saveRenderRequest(channel, {
+      createdAt: newer, finishedAt: new Date(Date.now() - 14_350_000).toISOString(), clipSec: 1200,
+    })
+    assert.notEqual(first, second)
+    const settled = await planlessExpectationFor(await ref(channel))
+
+    assert.equal(settled.kind, 'frozen')
+    if (settled.kind !== 'frozen') return
+    assert.equal(settled.shape.after_narration_sec, 1215, 'the newer request, not the older one')
+    assert.match(String(settled.shape.evidence), new RegExp(second))
+  })
+})
+
+/**
+ * The shaping fingerprint: a content fingerprint of ONLY the fields that shape the expectation.
+ *
+ * It is the narrow answer to the question the settings file's mtime answers far too broadly, and it
+ * is recorded with every freeze so the record names which settings it was taken from.
+ */
+describe('the shaping fingerprint', () => {
+  test('it moves when the fields that shape the expectation move, and not when others do', async () => {
+    const withClip = shapingFingerprint(sproutConfig(introAsset, 6000))
+    const withoutClip = shapingFingerprint(sproutConfig(introAsset, 0))
+    assert.notEqual(withClip, withoutClip, 'the clip is one of the fields that shapes the expectation')
+    assert.match(withClip, /^[a-f0-9]{64}$/)
+
+    // The same shaping fields, with a save that changed something else entirely: the fingerprint of
+    // the fields that produce a tail and an intro is unmoved.
+    const unrelatedSave = { ...sproutConfig(introAsset, 6000), voice_presets: [{ name: 'someone else' }] }
+    assert.equal(shapingFingerprint(unrelatedSave), withClip)
+
+    const postRollMoved = sproutConfig(introAsset, 6000) as any
+    postRollMoved.video_bundle_presets[0].data.fallback.timeline.post_audio = {
+      behavior: 'hold-last-scene', fade_duration: 30, tail_seconds: 25,
+    }
+    assert.notEqual(shapingFingerprint(postRollMoved), withClip, 'the post-roll shapes the expectation too')
+  })
+
+  test('every freeze records the fingerprint of the settings it was taken from', async () => {
+    const channel = await planlessChannel()
+    const settled = await planlessExpectationFor(await ref(channel))
+    assert.equal(settled.kind, 'frozen')
+    if (settled.kind !== 'frozen') return
+    assert.equal(settled.shape.shaping_fingerprint, shapingFingerprint(sproutConfig(introAsset, 6000)))
+    assert.match(String(settled.shape.evidence), /settings/)
+  })
+})
+
+/**
+ * Reading a channel's freeze state — for a final that has never been checked (2026-10-20).
+ *
+ * `GET .../youtube/final-check` answers 404 before it looks beside the file, so a final nobody has
+ * checked yet could not say whether its expectation was frozen before the channel's settings moved.
+ * Production needs exactly that answer for every historical final of a channel, which is what this
+ * read is for — and it must never take a freeze itself.
+ */
+describe("reading a channel's freeze state", () => {
+  test('it reports a final whose evidence chain would answer, without freezing it', async () => {
+    const channel = await planlessChannel()
+
+    const states = await finalFreezeStates(channel.slug)
+    const row = states.find(state => state.episode_code === 'EP001')
+
+    assert.ok(row, 'the final on disk is listed')
+    assert.equal(row.frozen, null, 'nothing is frozen yet — looking is not taking')
+    assert.equal(row.unknown_reason, null, 'and the evidence chain has an answer for it')
+    assert.equal(await readFrozenShape(channel.videoPath), null, 'no record was written beside the file')
+  })
+
+  test('it says which evidence is missing for a final that cannot be answered', async () => {
+    const channel = await planlessChannel({ finalAgeSec: 3600 })
+
+    const states = await finalFreezeStates(channel.slug)
+    const row = states.find(state => state.episode_code === 'EP001')
+
+    assert.ok(row)
+    assert.equal(row.frozen, null)
+    assert.match(String(row.unknown_reason), /settings changed after this video was rendered/)
+    assert.equal(await readFrozenShape(channel.videoPath), null)
+  })
+
+  test('a final frozen from its render request reports what it was taken from', async () => {
+    const channel = await planlessChannel({ finalAgeSec: 7200 })
+    const jobId = await saveRenderRequest(channel, {
+      createdAt: new Date(Date.now() - 10800_000).toISOString(),
+      finishedAt: new Date(Date.now() - 7100_000).toISOString(),
+    })
+    assert.equal((await planlessExpectationFor(await ref(channel))).kind, 'frozen')
+
+    const states = await finalFreezeStates(channel.slug)
+    const row = states.find(state => state.episode_code === 'EP001')
+
+    assert.ok(row?.frozen, 'the freeze beside the file is reported')
+    assert.equal(row.frozen.source, 'job')
+    assert.equal(row.frozen.after_narration_sec, 6015)
+    assert.equal(row.frozen.stale, false)
+    assert.match(String(row.frozen.evidence), new RegExp(jobId))
+    assert.ok(row.frozen.shaping_fingerprint)
+  })
+})
+
+/**
+ * The owner's own recorded decision (2026-10-20), and the freeze it allows.
+ *
+ * SS0063's shape cannot be proved from anything on disk: its render request was pruned from the job
+ * store, and the channel's `config.json` was rewritten by a fleet-wide campaign a day after the
+ * final. The owner decided it anyway, twice — first that the already-made finals be retained
+ * (turn `662f2e99`), then, asked how to write their expectation down when nothing proves which
+ * settings made them, that it be taken from today's settings. This is that decision recorded as a
+ * source of its own: scoped to the one channel and to finals made before it, confirmed against the
+ * file's own length and opening before anything is written, and stamped with the words it rests on.
+ */
+describe("the owner's recorded decision", () => {
+  /** Story Sprout itself, with one already-made final — the channel and finals the decision names. */
+  let sprout: PlanlessChannel | null = null
+
+  async function sproutChannel(opts: {
+    /** The finished file's real length. */
+    durationSec: number
+    /** A black stretch in the file's own clock, when the test needs one. */
+    black?: { from_sec: number; to_sec: number }
+    /** When the final was written. Default: before the decision, like every already-made Sprout final. */
+    mtimeIso?: string
+    clipSec?: number
+    chapters?: { gap_sec: number; durations_sec: number[] }
+    /** The opening the episode's own Scene Plan reserved, which widens the intro's window. */
+    openingReservedSec?: number
+  }): Promise<PlanlessChannel> {
+    if (!sprout) {
+      const project = await pm.createProject({ name: 'Story Sprout', episode_prefix: 'SS', episode_digits: 4 })
+      assert.equal(project.slug, 'story-sprout', 'the decision is scoped by this channel\'s own slug')
+      const projectDir = pm.getProjectDir(project.slug)!
+      await fs.writeFile(path.join(projectDir, 'ideas.json'), JSON.stringify({
+        ideas: [{
+          id: 'i-1', title: 'A Day Volunteering at the Daycare', logline: 'l', themes: [],
+          suggested_chapters: 1, suggested_length: '1 min', mood: 'm', status: 'accepted',
+          episode_code: 'SS0063', generated_at: '2026-01-01T00:00:00Z', accepted_at: '2026-01-01T00:00:00Z',
+          batch_id: 'imported', model_used: 'imported',
+        }],
+        next_episode_number: 64, recycled_numbers: [],
+      }))
+      const paths = await resolveEpisodePathsByCode(project.slug, 'SS0063')
+      sprout = {
+        slug: project.slug, episodeDir: paths.episode_dir,
+        videoPath: path.join(paths.video_dir, 'SS0063_final_video.mp4'),
+        configPath: path.join(projectDir, 'config.json'),
+      }
+    }
+    const channel = sprout
+    // Each case starts from a final nobody has frozen yet: this channel's slug is what the decision
+    // is scoped by, so the cases share the one project rather than one project each.
+    await fs.rm(frozenExpectationPath(channel.videoPath), { force: true })
+    await pm.updateConfig(channel.slug, sproutConfig(introAsset, opts.clipSec ?? 0) as any)
+    await fs.mkdir(channel.episodeDir, { recursive: true })
+    await fs.writeFile(path.join(channel.episodeDir, 'audio_chapters.json'), JSON.stringify({
+      gap_duration_s: (opts.chapters ?? { gap_sec: 5 }).gap_sec,
+      sections: (opts.chapters ?? { durations_sec: [2, 2] }).durations_sec.map(d => ({ duration_s: d })),
+    }))
+    await fs.mkdir(path.dirname(channel.videoPath), { recursive: true })
+    const planPath = await resolveScenePlanPath(channel.slug, 'SS0063', channel.episodeDir)
+    await fs.mkdir(path.dirname(planPath), { recursive: true })
+    await fs.writeFile(planPath, JSON.stringify({
+      opening_mode: 'branded-opening', opening_reserved_sec: opts.openingReservedSec ?? 0,
+    }))
+    const filter = `color=c=blue:s=320x180:r=5:d=${opts.durationSec}`
+      + (opts.black ? `,drawbox=c=black:t=fill:enable='between(t,${opts.black.from_sec},${opts.black.to_sec})'` : '')
+    execFileSync('ffmpeg', [
+      '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', filter,
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', channel.videoPath,
+    ], { stdio: ['ignore', 'ignore', 'inherit'] })
+    const when = new Date(opts.mtimeIso ?? '2026-10-18T04:48:37.697Z')
+    await fs.utimes(channel.videoPath, when, when)
+    return channel
+  }
+
+  /** The 24 s the sprout preset asks for: 9 s of chapters (2 + 5 + 2) plus a 15 s fade post-roll. */
+  const matchingFinal = () => sproutChannel({ durationSec: 24, black: { from_sec: 0.5, to_sec: 3 } })
+
+  test("an already-made Sprout final that matches the settings gets an owner freeze", async () => {
+    const channel = await matchingFinal()
+
+    const settled = await planlessExpectationFor(await ref(channel, 'SS0063'), { ownerAttestation: true })
+
+    assert.equal(settled.kind, 'frozen')
+    if (settled.kind !== 'frozen') return
+    assert.equal(settled.shape.source, 'owner')
+    assert.equal(settled.shape.after_narration_sec, 15, "today's settings: the 15 s fade post-roll")
+    assert.equal(settled.shape.intro?.asset, introAsset)
+    // The words it rests on are in the record, so it can never read as the app having proved it.
+    assert.equal(settled.shape.owner?.turn_id, '662f2e99')
+    assert.equal(settled.shape.owner?.decision_at, '2026-10-20T13:17:16.768Z')
+    assert.equal(settled.shape.owner?.retain_quote, 'i want all already made videos to retain this')
+    assert.equal(settled.shape.owner?.approve_quote, 'yes. this is the right approach and i approve of it. ship asap')
+    assert.match(String(settled.shape.owner?.described_as), /taken from today's settings/)
+    assert.match(String(settled.shape.evidence), /the owner's decision/)
+    assert.ok(settled.shape.shaping_fingerprint)
+    assert.deepEqual(settled.shape.intro?.window, { start_sec: 0, end_sec: 3 }, "the intro asset's own length")
+    // The file it was taken for is the length and opening the shape describes.
+    assert.deepEqual(
+      finalCheckIssues(
+        { ...SS0063_ACTUAL, duration_sec: 24, video_sec: 24, audio_sec: 24, silence: [] },
+        planlessExpectation(expectationFromFrozenShape(settled.shape)),
+      ),
+      [],
+    )
+  })
+
+  test("a final whose length is not the one its own settings ask for stays unknown", async () => {
+    // 210 s against the 24 s its chapters and settings add up to: far past the check's own allowance,
+    // so the settings are not what made this file and the owner's decision does not cover it.
+    const channel = await sproutChannel({ durationSec: 210 })
+
+    const settled = await planlessExpectationFor(await ref(channel, 'SS0063'), { ownerAttestation: true })
+
+    assert.equal(settled.kind, 'unknown')
+    if (settled.kind !== 'unknown') return
+    assert.match(settled.reason, /the owner's decision of 2026-10-20/)
+    assert.match(settled.reason, /210\.0s long/)
+    assert.equal(await readFrozenShape(channel.videoPath), null, 'nothing was written')
+  })
+
+  test("black in the opening that the intro asset does not carry stays unknown", async () => {
+    // Length is right, and the black IS inside the opening the episode reserved (12 s) — but the
+    // intro asset is black only over 0.5–3 s of it, so this file is not the one the settings describe.
+    const channel = await sproutChannel({
+      durationSec: 24, black: { from_sec: 8, to_sec: 11 }, openingReservedSec: 12,
+    })
+
+    const settled = await planlessExpectationFor(await ref(channel, 'SS0063'), { ownerAttestation: true })
+
+    assert.equal(settled.kind, 'unknown')
+    if (settled.kind !== 'unknown') return
+    assert.match(settled.reason, /is not black the intro asset carries/)
+    assert.equal(await readFrozenShape(channel.videoPath), null)
+  })
+
+  test('a final made after the decision, and another channel, are both outside it', async () => {
+    // Made after 2026-10-20T13:17:16.768Z: not an "already made video" when the owner decided.
+    const after = await sproutChannel({ durationSec: 24, mtimeIso: '2026-10-20T14:00:00.000Z' })
+    const lateSettled = await planlessExpectationFor(await ref(after, 'SS0063'), { ownerAttestation: true })
+    assert.equal(lateSettled.kind, 'unknown')
+    if (lateSettled.kind === 'unknown') {
+      assert.doesNotMatch(lateSettled.reason, /the owner's decision of 2026-10-20/)
+    }
+    assert.equal(await readFrozenShape(after.videoPath), null)
+
+    // And a channel the decision does not name is never attested for, whatever its file looks like.
+    const other = await planlessChannel({ finalAgeSec: 3600 })
+    const otherSettled = await planlessExpectationFor(await ref(other), { ownerAttestation: true })
+    assert.equal(otherSettled.kind, 'unknown')
+    assert.equal(await readFrozenShape(other.videoPath), null)
+  })
+
+  test('the boot sweep takes it, once, and the freeze survives the preset changing under it', async () => {
+    const channel = await matchingFinal()
+
+    const sweep = await freezeExistingPlanlessFinals()
+    assert.ok(sweep.owner_attested >= 1, 'the sweep is what takes an owner freeze')
+    const frozen = await readFrozenShape(channel.videoPath)
+    assert.equal(frozen?.shape.source, 'owner')
+
+    // Production then drops the 6000 s clip for future episodes; this file's expectation must not move.
+    await pm.updateConfig(channel.slug, sproutConfig(introAsset, 6000) as any)
+    const after = await planlessExpectationFor(await ref(channel, 'SS0063'), { ownerAttestation: true })
+    assert.equal(after.kind, 'frozen')
+    if (after.kind !== 'frozen') return
+    assert.equal(after.shape.source, 'owner', 'the record it already has is the answer')
+    assert.equal(after.shape.after_narration_sec, 15, 'and it is still the shape frozen from the settings then')
+
+    // The channel's own read shows what it was taken on, for a person verifying without the app.
+    const states = await finalFreezeStates(channel.slug)
+    const row = states.find(state => state.episode_code === 'SS0063')
+    assert.equal(row?.frozen?.source, 'owner')
+    assert.equal(row?.frozen?.owner?.turn_id, '662f2e99')
+    assert.match(String(row?.frozen?.evidence), /the owner's decision/)
   })
 })

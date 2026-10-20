@@ -88,7 +88,7 @@ import {
   type FinalCheckExpectation,
 } from '../lib/final-video-check.js'
 import {
-  expectationFromFrozenShape, planlessExpectationFor,
+  expectationFromFrozenShape, finalFreezeStateFor, finalFreezeStates, planlessExpectationFor,
 } from '../services/final-check-expectation.js'
 import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
@@ -2564,10 +2564,17 @@ router.get('/projects/:slug/youtube/final-check', async (req, res) => {
       return
     }
     const stored = await readStoredFinalCheck(sourceVideoPath)
+    // Whether a freeze is beside the file, and what it was taken from. Carried on BOTH answers: the
+    // 404 used to be returned before anything looked beside the file, so a final nobody had checked
+    // yet could not say whether it had been frozen — which is exactly what a channel's own history
+    // needs to be read back for (2026-10-20).
+    const freeze = await finalFreezeStateFor(slug, episodeCode, episodeTitle).catch(() => null)
     if (!stored) {
       res.status(404).json({
         code: 'YOUTUBE_NO_FINAL_CHECK',
         detail: finalCheckSummary(null, finalCheckProgress(sourceVideoPath)),
+        frozen_expectation: await readFrozenShape(sourceVideoPath).then(frozen => frozen?.shape ?? null),
+        freeze_state: freeze,
       })
       return
     }
@@ -2582,10 +2589,42 @@ router.get('/projects/:slug/youtube/final-check', async (req, res) => {
       // expected length and intro can be read back and verified without the app
       // (`frozenExpectationPath` holds the same record beside the file).
       frozen_expectation: await readFrozenShape(sourceVideoPath).then(frozen => frozen?.shape ?? null),
+      freeze_state: freeze,
       result: stored.result,
     })
   } catch (error) {
     fail(res, error, 'Failed to read the final check result.')
+  }
+})
+
+/**
+ * Every final this channel has, with the freeze beside it — verdict or no verdict.
+ *
+ * The check's own read answers 404 before it looks beside the file, so a final that has never been
+ * checked could not say whether its expectation was frozen before the channel's settings moved. That
+ * is the question a channel's history has to answer — every plan-less final must have its shape
+ * written down before the preset changes — so this lists them all: the freeze, what it was taken
+ * from, and, when there is none, which evidence was missing.
+ *
+ * Read-only. It asks the same evidence chain the boot sweep uses, with `freeze: false`, so looking
+ * at a channel can never take a freeze on it.
+ */
+router.get('/projects/:slug/youtube/freeze-states', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!getProjectDir(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const states = await finalFreezeStates(slug)
+    res.json({
+      project_slug: slug,
+      finals: states.length,
+      frozen: states.filter(s => s.frozen && !s.frozen.stale).length,
+      unknown: states.filter(s => !s.frozen && s.unknown_reason).length,
+      // A final whose verdict recorded its own plan needs no freeze: its sidecar IS the record.
+      planned: states.filter(s => s.planned_sec > 0).length,
+      episodes: states,
+    })
+  } catch (error) {
+    fail(res, error, 'Failed to read the frozen expectations for that channel.')
   }
 })
 

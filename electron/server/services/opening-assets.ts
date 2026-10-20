@@ -247,16 +247,44 @@ export async function resolveEpisodeRenderShape(
     opening_reserved_sec?: number
   } = {},
 ): Promise<EpisodeRenderShape> {
-  const empty: EpisodeRenderShape = { after_narration_sec: 0, intro: null }
   let config: any = null
   try {
     config = await getConfig(slug)
   } catch { /* no config → no shape */ }
-  if (!config) return empty
+  if (!config) return emptyRenderShape()
 
   // `getProjectOutputRoot` answers null when the project has none: no named root, so a portable
   // `${NAME}` token cannot be expanded and every asset it names is reported unresolved.
   const outputRoot = (await getProjectOutputRoot(slug).catch(() => '')) || ''
+  return shapeFromVideoAssemblySettings(config, outputRoot, probe, opts)
+}
+
+/** No settings to measure, so no tail and no intro — an answer, not a failure. */
+export function emptyRenderShape(): EpisodeRenderShape {
+  return { after_narration_sec: 0, intro: null }
+}
+
+/**
+ * The shape one Video Assembly settings object asks for, measured the way the renderer measures it.
+ *
+ * Exported (2026-10-20) because a FINAL'S OWN RENDER REQUEST is the same settings object: Pipeline
+ * flattens the bundle into the job's `params` (`routes/pipeline.ts`'s `intro` / `timeline_clips` /
+ * `post_audio`), so a request saved at render time can be handed to this function as a bundle and
+ * measured exactly as the live settings would be. That is what lets a freeze be taken from what the
+ * render was ASKED for rather than from the settings in force today, with no second measurement to
+ * disagree about — see `services/final-check-expectation.ts`.
+ *
+ * `settings` is any config-shaped object; only the bundle's slots are read, which is where a saved
+ * render request's own slots are placed. Nothing here throws for a missing asset — an unreadable
+ * setting is no tail, never a guess.
+ */
+export async function shapeFromVideoAssemblySettings(
+  settings: any,
+  outputRoot: string,
+  probe: (filePath: string) => Promise<number | undefined>,
+  opts: { opening_reserved_sec?: number } = {},
+): Promise<EpisodeRenderShape> {
+  const config = settings
   const intro = resolveIntroSlot(config)
   const timeline = resolveTimelineSlot(config)
   const measurable = async (raw: unknown, label: string): Promise<number> => {
