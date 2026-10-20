@@ -155,6 +155,11 @@ export function planIdeaAssignments(options: {
   niche: Niche
   count: number
   usedFingerprints?: Iterable<string>
+  /**
+   * Fingerprints this campaign already asked for and had rejected on content. Skipped like a used
+   * one, but they are not history: they take no sibling capacity and do not size the pool.
+   */
+  excludeFingerprints?: Iterable<string>
   seed: string
   /**
    * #4 (1.4.293): within each planning round, take subjects round-robin across packs (pack A's
@@ -165,6 +170,7 @@ export function planIdeaAssignments(options: {
 }): IdeaAssignment[] {
   const { niche, seed } = options
   const used = new Set(options.usedFingerprints || [])
+  const excluded = new Set(options.excludeFingerprints || [])
   const packs: TopicPack[] = niche.activeTopicPacks || []
 
   const subjectRows: SubjectRow[] = []
@@ -287,7 +293,7 @@ export function planIdeaAssignments(options: {
         .map(([key, value]) => `${slug(key)}=${slug(value)}`),
     ]
     const fingerprint = parts.join('|')
-    if (used.has(fingerprint) || seen.has(fingerprint)) return null
+    if (used.has(fingerprint) || excluded.has(fingerprint) || seen.has(fingerprint)) return null
     seen.add(fingerprint)
     const digest = createHash('sha1').update(fingerprint).digest('hex').slice(0, 12)
     const candidate = {

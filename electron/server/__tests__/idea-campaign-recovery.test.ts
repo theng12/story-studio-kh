@@ -202,6 +202,6 @@ describe('the generator replays its captured body', () => {
     assert.match(campaign, /outputBudget: batchRecord\.outputBudget/)
     assert.match(campaign, /callAiWithRetry\(batchRecord\.model, '', prompt, apiKeys, false, context\)/)
     // The ideas are filed under the model that actually produced them.
-    assert.match(campaign, /batchRecord!\.model,\s*\n\s*ideaBatchAppendKey\(request\.campaign_id, ordinal\),/)
+    assert.match(campaign, /appendNewIdeas\(\s*job\.project_slug, kept, batchRecord!\.model, ideaBatchAppendKey\(request\.campaign_id, ordinal\),/)
   })
 })

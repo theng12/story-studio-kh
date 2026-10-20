@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.339 — 2026-10-20 (gate running)
+
+Merged fix/campaign-fill-count (2b0e50bc appendNewIdeas new-rows-only count; 1780f241 exhausted Topic Pack guidance; fb76501a params.rejected_assignments excluded by planIdeaAssignments, content rejections only).
+
 ## 1.4.338 — 2026-10-20 (gated and landed)
 
 Merged fix/remix-pin-window (e59c4d48: planClosingTailRemix returns recover while an intent note exists; guardClosingTail recovers before use) and fix/collect-first-fresh-rows (de06d612: enqueue carries same-plan sibling scene_plan_run children; collect pass reads every saved key before the single deferred resend).
