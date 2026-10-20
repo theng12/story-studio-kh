@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.338 — 2026-10-20
+
+- A closing-music re-mix that was interrupted at any point is finished or undone before the episode's audio is used again, so the video and the rest of Story always agree on which track is current.
+- Generate, Repair empty prompts and new Pipeline runs pick up finished Scene Plan answers left by an earlier failed run of the same plan, instead of paying for them again.
+- When several saved answers are being collected, Story reads all of them before re-asking once for any that went missing, and only for scenes nothing else covers.
+
 ## v1.4.337 — 2026-10-20
 
 - A Pipeline step saved into an older run that can no longer run (for example Motion with no model on a channel that has Motion switched off) is skipped when its turn comes, and the final video goes ahead, instead of failing with "model required".

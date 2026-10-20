@@ -72,7 +72,7 @@ import { assertQueuedVisualSource } from './video-visual-source.js'
 import { getValidVideoAssemblyCheckpoint } from '../lib/video-assembly-checkpoint.js'
 import { clearQuotaStops, isUnchargedQuotaStop, noteQuotaStop } from '../lib/ai-client.js'
 import { pipelineStepLabels, splitChainAfterFailure } from '../lib/pipeline-continuation.js'
-import { withSavedPromptCollection } from '../lib/scene-prompt-collection.js'
+import { withSavedPromptCollection, withSiblingPromptCollection } from '../lib/scene-prompt-collection.js'
 import { SKIPPED_STEP_LINE_PREFIX, disabledOptionalStepReason, disabledStepReasonForJob, unusableLinkSkipReason } from '../lib/optional-steps.js'
 import { safetyGate, safetyMode } from './safety-checks.js'
 
@@ -6251,6 +6251,29 @@ export function withEpisodeMediaCleanupLock<T>(
   })
 }
 
+/**
+ * Every new Scene Plan row (Generate, Repair empty prompts, Pipeline, recovery) is created here and
+ * starts without children, so it inherits the collectable answers of this episode's terminal rows.
+ * Unsure means not carried: an unreadable plan carries nothing.
+ */
+async function withEpisodeSiblingPromptCollection(
+  opts: Pick<EnqueueOptions, 'project_slug' | 'episode_id'>,
+  params: Record<string, any>,
+): Promise<Record<string, any>> {
+  try {
+    await loadPersistedJobs(opts.project_slug)
+    const { resolveEpisodePathsByCode, resolveScenePlanPath } = await import('./utils.js')
+    const paths = await resolveEpisodePathsByCode(opts.project_slug, opts.episode_id)
+    const plan = JSON.parse(await fs.readFile(await resolveScenePlanPath(opts.project_slug, opts.episode_id, paths.episode_dir), 'utf8'))
+    const siblings = [...jobs.values()].filter(job => job.project_slug === opts.project_slug && job.type === 'scene_plan_run'
+      && job.episode_id?.toUpperCase() === opts.episode_id.toUpperCase())
+    return withSiblingPromptCollection(params, siblings, {
+      scene_ids: new Set<string>((plan.scenes || []).map((scene: { id: string }) => scene.id)),
+      built_at_ms: Date.parse(plan.timeline_built_at),
+    })
+  } catch { return params }
+}
+
 /** Resolve project pins exactly once, then construct the immutable queued job. */
 export async function enqueue(
   opts: EnqueueOptions,
@@ -6306,7 +6329,7 @@ export async function enqueue(
       await beforeAdmission?.()
       return enqueuePrepared({
         ...enqueueOpts,
-        params: jobParams,
+        params: opts.type === 'scene_plan_run' ? await withEpisodeSiblingPromptCollection(opts, jobParams) : jobParams,
         ...(paid_image_replacement ? { paid_image_replacement } : {}),
       }, provenance, chapterWriterAdmissionOwner || undefined)
     } finally {

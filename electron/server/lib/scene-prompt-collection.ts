@@ -72,3 +72,46 @@ export function withSavedPromptCollection<P extends Record<string, any>>(
   const added = collectableScenePromptChildren(job).filter(entry => !known.has(entry.idempotency_key))
   return added.length ? { ...params, scene_prompt_recoveries: [...saved, ...added] } : params
 }
+
+/** What a saved answer must match to be about the plan on disk now: its scene ids, and the timeline it was built from. */
+export interface ScenePlanIdentity {
+  scene_ids: ReadonlySet<string>
+  /** `timeline_built_at` of scene_plan.json, in ms. Prompt passes do not move it; a rebuilt timeline does. */
+  built_at_ms: number
+}
+
+type SiblingRow = Pick<Job, 'status' | 'created_at' | 'params' | 'genstudio_jobs' | 'rejected_idempotency_keys'>
+
+// A single-scene regenerate or reword must write the NEW answer, so an older one is never collected into it.
+const stageOf = (params: Record<string, any> | undefined) => String(params?.stage || 'visual')
+const isWholePlanVisualRun = (params: Record<string, any> | undefined) => stageOf(params) === 'visual'
+  && !params?.regenerate_prompt_scene_id && !params?.regenerate_prompt_scene_ids?.length && !params?.reword_prompt
+
+/**
+ * A NEW Scene Plan row starts with no children, so an accepted answer a terminal sibling row of the
+ * same episode holds would be orphaned. Carry only what is provably about this plan: a sibling that
+ * ended in error/cancelled, started after the plan's timeline was built, with a child whose request
+ * preview still names its scenes and every one of them is in the plan. Anything less certain is
+ * left out rather than collected into the wrong plan (an unknown scope, a rebuilt timeline).
+ */
+export function withSiblingPromptCollection<P extends Record<string, any>>(
+  params: P,
+  siblings: readonly SiblingRow[],
+  plan: ScenePlanIdentity | null,
+): P {
+  if (!plan || !Number.isFinite(plan.built_at_ms) || !isWholePlanVisualRun(params)) return params
+  const rows = siblings.filter(row => (row.status === 'error' || row.status === 'cancelled')
+    && isWholePlanVisualRun(row.params) && Date.parse(row.created_at) >= plan.built_at_ms)
+  const rejected = new Set(rows.flatMap(row => row.rejected_idempotency_keys || []))
+  const carried = new Map<string, ScenePromptCollectable>()
+  for (const row of rows) {
+    for (const entry of collectableScenePromptChildren(row)) {
+      if (rejected.has(entry.idempotency_key) || carried.has(entry.idempotency_key)) continue
+      if (entry.scene_ids && entry.scene_ids.every(id => plan.scene_ids.has(id))) carried.set(entry.idempotency_key, entry)
+    }
+  }
+  const saved: ScenePromptCollectable[] = Array.isArray(params.scene_prompt_recoveries) ? params.scene_prompt_recoveries : []
+  const known = new Set(saved.map(entry => entry?.idempotency_key))
+  const added = [...carried.values()].filter(entry => !known.has(entry.idempotency_key))
+  return added.length ? { ...params, scene_prompt_recoveries: [...saved, ...added] } : params
+}

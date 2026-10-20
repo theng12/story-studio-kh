@@ -352,8 +352,8 @@ describe('a re-mix that was interrupted is recovered, never refused forever', ()
   test('a complete new track is adopted and pinned, and no second one is made', async () => {
     const ep = await oldMergeEpisode()
     await crashAfterMerge(ep)
-    assert.equal((await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })).action, 'remix',
-      'after the restart the decision is a re-mix (which recovers first), not a refusal')
+    assert.equal((await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })).action, 'recover',
+      'after the restart the decision is to finish the interrupted re-mix, not a refusal')
     const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
     const after = await guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, ep.job)
     assert.equal(after.merged_audio[0]!.filename, 'EP001_merged_audio_v2.mp3')
@@ -362,6 +362,31 @@ describe('a re-mix that was interrupted is recovered, never refused forever', ()
     assert.ok(!files.some(file => file.includes('_v3')), 'the finished track was kept, not re-made')
     assert.ok(!files.some(file => file.includes('remix-intent')), 'the interrupted-work note is gone')
     assert.match(ep.job.output_lines.join('\n'), /interrupted/i)
+  })
+
+  test('a stop right after the record names its predecessor is finished at the render, not skipped', async () => {
+    const ep = await oldMergeEpisode()
+    await crashAfterMerge(ep)
+    // pinRemix wrote `closing_tail_remix_of` and the process died before the pin and before dropping the note.
+    const recordPath = path.join(ep.mergedDir, 'EP001_merged_audio.completion.json')
+    const record = JSON.parse(await fs.readFile(recordPath, 'utf-8'))
+    await fs.writeFile(recordPath, JSON.stringify({ ...record, closing_tail_remix_of: 'EP001_merged_audio.mp3' }, null, 2))
+    const intentFile = path.join(ep.mergedDir, 'EP001_merged_audio.remix-intent.json')
+
+    // Admission (no job) reports it and changes nothing.
+    const verdict = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
+    assert.equal(verdict.action, 'recover', 'an interrupted note is never answered with `use` or `remix` before it is recovered')
+    const admitted = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+    assert.equal(await guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), admitted, undefined), admitted)
+    assert.equal(await readSelectedMergedAudio(ep.mergedDir), null)
+    await fs.access(intentFile)
+
+    // The render finishes it: pinned, note gone, the new track used.
+    const after = await guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), admitted, ep.job)
+    assert.equal(after.merged_audio[0]!.filename, 'EP001_merged_audio_v2.mp3')
+    assert.equal(await readSelectedMergedAudio(ep.mergedDir), 'EP001_merged_audio_v2.mp3')
+    await assert.rejects(fs.access(intentFile), 'the interrupted-work note is gone')
+    assert.ok(!(await fs.readdir(ep.mergedDir)).some(file => file.includes('_v3')))
   })
 
   test('a half-written one is put back and the re-mix is done again', async () => {

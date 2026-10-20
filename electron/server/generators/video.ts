@@ -2120,7 +2120,7 @@ export async function guardClosingTail(
 ): Promise<ScannedAssets> {
   const merged = assets.merged_audio[0]
   if (!merged) return assets
-  const { planClosingTailRemix, remixForClosingTail } = await import('../services/closing-tail-remix.js')
+  const { planClosingTailRemix, remixForClosingTail, recoverPendingRemix } = await import('../services/closing-tail-remix.js')
   const { claimClosingTailRemix } = await import('../services/closing-tail-remix-admission.js')
   const code = episodeId.toUpperCase()
   // One re-mix of an episode at a time: a second render asking for the same tail waits, then finds the
@@ -2128,17 +2128,34 @@ export async function guardClosingTail(
   const decide = async (): Promise<ScannedAssets> => {
     // `req.merged_audio_path` can still name the track this job was accepted with, from before its own
     // (or another render's) re-mix; the plan resolves it to the re-mixed track instead of refusing.
-    const verdict = await planClosingTailRemix({ slug, code, postAudio: req.post_audio, preferredFilename: merged.filename })
+    const plan = () => planClosingTailRemix({ slug, code, postAudio: req.post_audio, preferredFilename: merged.filename })
+    let verdict = await plan()
     if (verdict.action === 'refuse') throw nonRetryable(new Error(verdict.reason))
-    if (verdict.action === 'none' || (verdict.action === 'remix' && !job)) return assets
-    let filename: string
-    if (verdict.action === 'use') filename = verdict.filename
-    else {
+    // Admission mutates nothing: a stopped re-mix is finished by the render, which preflight announces.
+    if (verdict.action === 'none' || ((verdict.action === 'remix' || verdict.action === 'recover') && !job)) return assets
+    let filename: string | null = null
+    if (verdict.action === 'recover') {
       const claim = await claimClosingTailRemix(slug, code)
       if ('busy' in claim) throw new Error(claim.busy)
-      try { filename = await remixForClosingTail(job!, slug, code, verdict) }
+      try { filename = await recoverPendingRemix(job!, code, verdict) }
       catch (error) { throw nonRetryable(error as Error) }
       finally { claim.release() }
+      // Rolled back: the folder is as it was before the stopped re-mix, so decide again from there.
+      if (!filename) {
+        verdict = await plan()
+        if (verdict.action === 'refuse') throw nonRetryable(new Error(verdict.reason))
+        if (verdict.action === 'none') return assets
+      }
+    }
+    if (!filename) {
+      if (verdict.action === 'use') filename = verdict.filename
+      else if (verdict.action === 'remix') {
+        const claim = await claimClosingTailRemix(slug, code)
+        if ('busy' in claim) throw new Error(claim.busy)
+        try { filename = await remixForClosingTail(job!, slug, code, verdict) }
+        catch (error) { throw nonRetryable(error as Error) }
+        finally { claim.release() }
+      } else return assets
     }
     req.merged_audio_path = path.join(path.dirname(merged.path), filename)
     return scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: filename })
