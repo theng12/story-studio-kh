@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.344 — 2026-10-20 (gate running)
+
+Merged fix/stale-verdict-freeze (032629f8: freshStoredExpectation returns a stored verdict's expected only when not stale; the boot freeze sweep and the on-demand youtube final-check route both go through it, so a rewritten final is never certified with the replaced file's shape; production report release343-freeze-stale-verdict-verification-20261020.md).
+
 ## 1.4.343 — 2026-10-20 (gate running)
 
 Merged fix/final-length-gap three times: a9701e99 (first version), 3517fa36 (owner decision), then 11bf6e45 (production's hole in 3517fa36), merged here as 625046a0 → 7df584ac → e46f6caa. Owner decision (2026-10-20, verbatim: *"yes. it's my own settings. in fact, i want all already made videos to retain this. but for newer ones from now on to no longer use the silence thing but instead follows the rest of the sleep channels... so what's done is done."*): existing Sprout finals keep their long silent still tail and their branded intro; future episodes drop the 6000 s `after_scenes` clip. A final that matches what its own settings asked for PASSES.
