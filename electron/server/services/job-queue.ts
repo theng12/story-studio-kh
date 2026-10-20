@@ -71,6 +71,7 @@ import { assertQueuedVisualSource } from './video-visual-source.js'
 import { getValidVideoAssemblyCheckpoint } from '../lib/video-assembly-checkpoint.js'
 import { clearQuotaStops, isUnchargedQuotaStop, noteQuotaStop } from '../lib/ai-client.js'
 import { pipelineStepLabels, splitChainAfterFailure } from '../lib/pipeline-continuation.js'
+import { withSavedPromptCollection } from '../lib/scene-prompt-collection.js'
 import { SKIPPED_STEP_LINE_PREFIX, disabledOptionalStepReason, disabledStepReasonForJob, unusableLinkSkipReason } from '../lib/optional-steps.js'
 import { safetyGate, safetyMode } from './safety-checks.js'
 
@@ -7239,7 +7240,9 @@ export function retryTerminalJob(
     )
   }
 
-  const retryParams = structuredClone(replacementParams || original.params || {})
+  const savedParams = structuredClone(replacementParams || original.params || {})
+  // The new row carries params, not this row's children: hand it the accepted answers to collect first.
+  const retryParams = original.type === 'scene_plan_run' ? withSavedPromptCollection(savedParams, original) : savedParams
   // Settings a pre-1.4.266 save turned into '[CIRCULAR]' come back from the job's own run.
   repairCircularParams([{ ...original, params: retryParams }], [...jobs.values()])
   // v1.4.41 retired the old combined image lane. Its thumbnail shape remains
