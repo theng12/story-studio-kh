@@ -2121,6 +2121,7 @@ export async function guardClosingTail(
   const merged = assets.merged_audio[0]
   if (!merged) return assets
   const { planClosingTailRemix, remixForClosingTail } = await import('../services/closing-tail-remix.js')
+  const { claimClosingTailRemix } = await import('../services/closing-tail-remix-admission.js')
   const code = episodeId.toUpperCase()
   // One re-mix of an episode at a time: a second render asking for the same tail waits, then finds the
   // first one's pinned track and uses it. Admission (no job) only reads and never waits for a re-mix.
@@ -2130,9 +2131,15 @@ export async function guardClosingTail(
     const verdict = await planClosingTailRemix({ slug, code, postAudio: req.post_audio, preferredFilename: merged.filename })
     if (verdict.action === 'refuse') throw nonRetryable(new Error(verdict.reason))
     if (verdict.action === 'none' || (verdict.action === 'remix' && !job)) return assets
-    const filename = verdict.action === 'use'
-      ? verdict.filename
-      : await remixForClosingTail(job!, slug, code, verdict).catch(error => { throw nonRetryable(error) })
+    let filename: string
+    if (verdict.action === 'use') filename = verdict.filename
+    else {
+      const claim = await claimClosingTailRemix(slug, code)
+      if ('busy' in claim) throw new Error(claim.busy)
+      try { filename = await remixForClosingTail(job!, slug, code, verdict) }
+      catch (error) { throw nonRetryable(error as Error) }
+      finally { claim.release() }
+    }
     req.merged_audio_path = path.join(path.dirname(merged.path), filename)
     return scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: filename })
   }

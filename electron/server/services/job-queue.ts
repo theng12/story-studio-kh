@@ -25,6 +25,7 @@ import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType, PaidImageReplacementAttempt, PaidImageReplacementPolicySnapshot } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
+import { closingTailRemixInProgress, CLOSING_TAIL_REMIX_IN_PROGRESS } from './closing-tail-remix-admission.js'
 import { isChatTextJob, isLocalTextModel, isNonRetryableError, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
 import { getAllAppSettings, getPaidImageReplacementSetting, onAppSettingWritten, setAppSettings } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
@@ -6074,6 +6075,9 @@ function assertEnqueueAdmission(
   opts: EnqueuePreparedOptions,
   admissionOwner?: symbol,
 ): void {
+  if (opts.type === 'audio_merge' && closingTailRemixInProgress(opts.project_slug, opts.episode_id)) {
+    throw Object.assign(new Error(CLOSING_TAIL_REMIX_IN_PROGRESS), { statusCode: 409 })
+  }
   if (episodeMediaCleanupInProgress.has(episodeMediaAdmissionKey(opts.project_slug, opts.episode_id))) {
     throw Object.assign(
       new Error('Local media cleanup is in progress for this episode. Try again shortly.'),
@@ -6195,6 +6199,15 @@ const episodeMediaCleanupInProgress = new Set<string>()
 
 function episodeMediaAdmissionKey(projectSlug: string, episodeId: string): string {
   return `${projectSlug}:${episodeId.toUpperCase()}`
+}
+
+/** An Audio Assembly of this episode is queued or running (paused rows write nothing). */
+export function hasLiveAudioMerge(projectSlug: string, episodeId: string): boolean {
+  for (const job of jobs.values()) {
+    if (job.project_slug === projectSlug && job.episode_id?.toUpperCase() === episodeId.toUpperCase()
+        && job.type === 'audio_merge' && (job.status === 'queued' || job.status === 'running')) return true
+  }
+  return false
 }
 
 export function withEpisodeMediaAdmissionLock<T>(

@@ -29,6 +29,8 @@ process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
 const { generateAudioMerge } = await import('../generators/audio-merge.js')
 const { guardClosingTail, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } = await import('../generators/video.js')
 const { planClosingTailRemix, beginClosingTailRemix } = await import('../services/closing-tail-remix.js')
+const { claimClosingTailRemix } = await import('../services/closing-tail-remix-admission.js')
+const jq = await import('../services/job-queue.js')
 const { readSelectedMergedAudio } = await import('../lib/merged-audio-selection.js')
 const pm = await import('../services/project-manager.js')
 const { setApiKey } = await import('../services/app-secrets-store.js')
@@ -487,5 +489,52 @@ describe('a re-mix keeps what the original merge recorded', () => {
     const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
     const after = await guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, ep.job)
     near(after.merged_audio[0]!.closing_tail_sec, TAIL_SEC, 0.3)
+  })
+})
+
+describe('a re-mix and a standalone Audio Assembly of the same episode never run together', () => {
+  const queuedMerge = (ep: Awaited<ReturnType<typeof oldMergeEpisode>>, chapters: string[] = []) => jq.enqueue({
+    project_slug: ep.slug, type: 'audio_merge', episode_id: 'EP001', title: 'Audio Assembly',
+    params: { episode_id: 'EP001', chapters, gap_duration: 0, normalize_volume: false },
+  })
+
+  test('a render does not re-mix while an Audio Assembly is queued or running; it says why and changes nothing', async () => {
+    const ep = await oldMergeEpisode()
+    const listing = (await fs.readdir(ep.mergedDir)).sort()
+    await jq.setQueuePaused(true)
+    const merge = await queuedMerge(ep)
+    try {
+      const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+      await assert.rejects(
+        guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, ep.job),
+        /Audio Assembly of EP001 is queued or running.*closing-tail re-mix/s,
+      )
+      assert.deepEqual((await fs.readdir(ep.mergedDir)).sort(), listing, 'nothing was written')
+      assert.equal(await readSelectedMergedAudio(ep.mergedDir), null)
+    } finally {
+      await jq.requestJobCancellation(ep.slug, merge.job_id)
+      await jq.setQueuePaused(false)
+    }
+    // Once that Audio Assembly is gone the same render goes ahead.
+    const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+    const after = await guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, { ...ep.job, output_lines: [] })
+    assert.equal(after.merged_audio[0]!.filename, 'EP001_merged_audio_v2.mp3')
+  })
+
+  test('an Audio Assembly is refused while a re-mix of that episode is in progress, and not after', async () => {
+    const ep = await oldMergeEpisode()
+    const claim = await claimClosingTailRemix(ep.slug, 'EP001')
+    assert.ok('release' in claim)
+    await jq.setQueuePaused(true)
+    try {
+      await assert.rejects(queuedMerge(ep), (error: any) => error.statusCode === 409 && /closing-tail re-mix.*in progress/i.test(error.message))
+      // Anything that gets as far as the executor (a resumed or retried job) is refused there too.
+      await assert.rejects(generateAudioMerge(mergeJob(ep.slug, { episode_id: 'EP001', chapters: [], gap_duration: 0 })), /closing-tail re-mix.*in progress/i)
+      ;(claim as any).release()
+      const allowed = await queuedMerge(ep)
+      await jq.requestJobCancellation(ep.slug, allowed.job_id)
+    } finally {
+      await jq.setQueuePaused(false)
+    }
   })
 })

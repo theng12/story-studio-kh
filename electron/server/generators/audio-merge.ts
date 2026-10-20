@@ -35,6 +35,7 @@ import type {
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
+import { closingTailRemixInProgress, CLOSING_TAIL_REMIX_IN_PROGRESS } from '../services/closing-tail-remix-admission.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { chapterKeyOf, inspectChapterAudioReadiness } from '../services/audio-workflow-readiness.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
@@ -549,6 +550,11 @@ export async function generateAudioMerge(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as AudioMergeRequest
   const code = episode_id.toUpperCase()
+
+  // A closing-tail re-mix of this episode writes the same files (it carries `closing_tail_sec_cap`).
+  if (!(Number(req.closing_tail_sec_cap) > 0) && closingTailRemixInProgress(project_slug, code)) {
+    throw new Error(CLOSING_TAIL_REMIX_IN_PROGRESS)
+  }
 
   // One file per chapter: an episode still holding split `_partN` narration
   // gets each complete chapter joined first (a quality refresh keeps the exact
