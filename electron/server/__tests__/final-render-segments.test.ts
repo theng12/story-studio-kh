@@ -15,7 +15,7 @@ import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
 import {
   canResumeGraph, concatMuxArgs, frameSecFromFramemd5, planFinalSegments, resumeFilterGraph, segmentCount,
-  segmentFileName, segmentRange, segmentRenderArgs, splitOneShotArgv, STILL_TAIL_LOOP_SEC,
+  segmentFileName, segmentRange, segmentRenderArgs, sha256File, splitOneShotArgv, STILL_TAIL_LOOP_SEC,
 } from '../lib/segmented-render.js'
 import {
   createVideoAssemblyCheckpoint, getValidVideoAssemblyCheckpoint, moveCheckpointFinalSegments, moveCheckpointFinalStage,
@@ -326,6 +326,81 @@ describe('a final render interrupted by an update', () => {
     checkpoint.final_stage = { inputs: 'f'.repeat(64), argv: ['-y', '-i', path.join(oldDir, 'intermediate_video.mp4')],
       files: { 'intermediate_video.mp4': 'a'.repeat(64) }, total_render_sec: 12, still_tail_from: null }
     assert.equal(await moveCheckpointFinalStage(checkpoint, await getWorkTempDir('seg-chg', 'EP4')), null)
+  })
+})
+
+describe('a final-stage input nested in a subfolder (Myth EP0012, 2026-10-20)', () => {
+  // The saved command read its premixed audio from `loudness_first/`, the checkpoint recorded only
+  // the work folder's top level, and the resumed FFmpeg (254) was then handed a command whose audio
+  // the scene-clip migration had just deleted along with the old folder.
+  const nestedPremix = (dir: string) => path.join(dir, 'loudness_first', 'premixed_audio.wav')
+
+  test('the nested premix moves with the render, and the resumed command finds it', async () => {
+    const { _runFinalCompositionForTesting: runFinalComposition, resumeSavedFinalRender } = await import('../generators/video.js')
+    const oldDir = await getWorkTempDir('seg-nest', 'EP6')
+    const p = (name: string) => path.join(oldDir, name)
+    await fs.mkdir(path.dirname(nestedPremix(oldDir)), { recursive: true })
+    ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=24:d=12', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', p('intermediate_video.mp4')])
+    ffmpeg(['-f', 'lavfi', '-i', 'sine=f=440:d=12', '-ar', '48000', nestedPremix(oldDir)])
+    const job = { job_id: 'seg-nest', project_slug: 'seg-nest', episode_id: 'EP6', type: 'video_assembly', status: 'running',
+      title: 'segments', created_at: '', started_at: '', finished_at: null, error: null, output_lines: [], params: {} } as unknown as Job
+    const inputsFingerprint = 'f'.repeat(64)
+    const checkpoint = createVideoAssemblyCheckpoint(job, oldDir, 'd'.repeat(64))
+    const segmentation = (cp: VideoAssemblyCheckpoint) => ({ checkpoint: cp, inputsFingerprint, persist: async () => {}, segmentSec: 4 })
+    const firstOutput = p('EP6_video_1.mp4')
+    await runFinalComposition({
+      videoInputPath: p('intermediate_video.mp4'), premixedAudioPath: nestedPremix(oldDir),
+      targetDuration: 12, w: 320, h: 180, quality: { crf: 23, preset: 'ultrafast', fps: 24 }, format: 'mp4', outputFile: firstOutput,
+      vignette: { enabled: true, strength: 0.5 }, job,
+      segmentation: segmentation(checkpoint),
+    } as any)
+    assert.ok(checkpoint.final_stage?.files['loudness_first/premixed_audio.wav'],
+      'the nested premixed audio is recorded as a dependency of the saved command')
+    const premixBytes = await fs.readFile(nestedPremix(oldDir))
+    // The update quit the app during the last segment.
+    await fs.rm(checkpoint.final_segments!.segments.pop()!.path)
+    const keptBytes = await fs.readFile(checkpoint.final_segments!.segments[1]!.path)
+
+    // The new version starts: a fresh work folder. The whole dependency set moves, the nested one too.
+    const newDir = await getWorkTempDir('seg-nest', 'EP6')
+    assert.notEqual(newDir, oldDir)
+    const stage = await moveCheckpointFinalStage(checkpoint, newDir)
+    assert.ok(stage, 'every saved file is there and unchanged')
+    assert.deepEqual(await fs.readFile(path.join(newDir, 'loudness_first', 'premixed_audio.wav')), premixBytes,
+      'the nested premix is in the fresh folder, where the resumed command reads it')
+    assert.ok(stage!.argv.every(arg => !arg.includes(oldDir)), 'the command now points at the fresh folder')
+
+    const resumed = createVideoAssemblyCheckpoint(job, newDir, 'd'.repeat(64), [], await moveCheckpointFinalSegments(checkpoint, newDir))
+    resumed.final_stage = stage!
+    job.output_lines = []
+    const output = await resumeSavedFinalRender(job, stage!, segmentation(resumed), 'mp4')
+    const lines = job.output_lines.join('\n')
+    assert.match(lines, /resuming at segment 3 of 3; 2 finished segment\(s\)/, 'the finished segments are kept, not rebuilt')
+    assert.deepEqual(await fs.readFile(resumed.final_segments!.segments[1]!.path), keptBytes, 'a kept segment is not rendered again')
+    const seconds = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', output]).toString())
+    assert.ok(Math.abs(seconds - 12) < 0.1, `the resumed render finishes the 12 s video (${seconds})`)
+    // The audio that came across is the one the finished video carries.
+    const streams = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', output]).toString()
+    assert.match(streams, /audio/, 'the resumed render carries the audio it was missing before')
+  })
+
+  test('a nested input that did not survive starts the episode over instead of resuming without it', async () => {
+    const job = { job_id: 'seg-nest-lost', project_slug: 'seg-nest-lost', episode_id: 'EP7', type: 'video_assembly', status: 'running' } as Job
+    const oldDir = await getWorkTempDir('seg-nest-lost', 'EP7')
+    const video = path.join(oldDir, 'intermediate_video.mp4')
+    await fs.writeFile(video, 'video')
+    const checkpoint = createVideoAssemblyCheckpoint(job, oldDir, 'd'.repeat(64))
+    checkpoint.final_stage = {
+      inputs: 'f'.repeat(64),
+      argv: ['-y', '-i', video, '-i', nestedPremix(oldDir), '-t', '12', path.join(oldDir, 'EP7_video_1.mp4')],
+      // As an older checkpoint recorded it: the folder's top level only, so the nested premix is not here.
+      files: { 'intermediate_video.mp4': await sha256File(video) },
+      total_render_sec: 12, still_tail_from: null,
+    }
+    const newDir = await getWorkTempDir('seg-nest-lost', 'EP7-new')
+    assert.equal(await moveCheckpointFinalStage(checkpoint, newDir), null,
+      'a command whose nested input is gone is never resumed against the missing file')
+    assert.equal(await fs.readFile(video, 'utf8'), 'video', 'and the old folder is left whole, not emptied of what it still holds')
   })
 })
 

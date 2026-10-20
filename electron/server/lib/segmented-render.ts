@@ -274,10 +274,71 @@ export function hashJson(value: unknown): string {
 }
 
 /**
+ * A path's own name inside `workDir`, with `/` separators (`loudness_first/premixed_audio.wav`), or
+ * null when it is not a file inside it.
+ */
+export function workFolderName(file: string, workDir: string): string | null {
+  const relative = path.relative(workDir, file)
+  if (!relative || path.isAbsolute(relative)
+    || relative === '..' || relative.startsWith(`..${path.sep}`)) return null
+  return relative.split(path.sep).join('/')
+}
+
+/** Where a filter option value's path ends: `escapeFilterPath` escapes every one of these. */
+const FILTER_PATH_DELIMITERS = /[,;:\[\]']/
+
+/** The path a filter option value names from `at`, unescaped, up to the first unescaped delimiter. */
+function filterPathAt(arg: string, at: number): string {
+  let out = ''
+  for (let i = at; i < arg.length; i++) {
+    const char = arg[i]!
+    if (char === '\\') { out += arg[++i] ?? ''; continue }
+    if (FILTER_PATH_DELIMITERS.test(char)) break
+    out += char
+  }
+  return out
+}
+
+/**
+ * Every work-folder file the command reads, named relative to `workDir` with `/` separators, in a
+ * stable order — nested ones included (`loudness_first/premixed_audio.wav`). The command is the
+ * authority for what a render needs, not a listing of the folder: a flat `readdir` saw only the top
+ * level, so the nested premixed audio was never recorded, never moved with the resume, and the
+ * finished command was then handed to FFmpeg without it (Myth EP0012, 2026-10-20).
+ *
+ * A path is read the way FFmpeg reads it: as an argument of its own (`-i <path>`), which is not
+ * escaped, or inside a filter option value (`ass=filename=<path>`), where `escapeFilterPath` has
+ * escaped the delimiters the path stops at.
+ */
+export function workFolderDependencies(argv: readonly string[], workDir: string, output = ''): string[] {
+  const outputName = output ? workFolderName(output, workDir) : null
+  const escaped = escapeFilterPath(workDir)
+  const names = new Set<string>()
+  const add = (raw: string) => {
+    const name = raw.split('\\').join('/').replace(/^\/+/, '')
+    const parts = name.split('/')
+    if (!name || parts.some(part => !part || part.startsWith('.'))) return
+    if (parts[0]!.startsWith('final_')) return
+    if (name === outputName) return
+    names.add(name)
+  }
+  for (const arg of argv) {
+    // An argument of its own is the whole path, unescaped — a path may hold a delimiter there.
+    const own = workFolderName(arg, workDir)
+    if (own) { add(own); continue }
+    for (let at = arg.indexOf(escaped); at >= 0; at = arg.indexOf(escaped, at + 1)) {
+      add(filterPathAt(arg, at + escaped.length))
+    }
+  }
+  return [...names].sort()
+}
+
+/**
  * What in the job's work folder the render reads, made comparable across a restart: the argv with
  * the work folder and the timestamped output name replaced by placeholders, plus the sha256 of
- * every work-folder file it names (the intermediate video, the burned subtitles, a shaped logo).
- * The audio is left out on purpose: segments are video only and the audio is muxed at the end.
+ * every work-folder file it names (the intermediate video, the premixed audio wherever it sits, the
+ * burned subtitles, a shaped logo). The audio is left out of the segment fingerprint on purpose:
+ * segments are video only and the audio is muxed at the end.
  */
 export async function workFolderIdentity(
   argv: readonly string[],
@@ -287,10 +348,9 @@ export async function workFolderIdentity(
 ): Promise<{ argv: string[]; files: Record<string, string> }> {
   const outputName = path.basename(output)
   const files: Record<string, string> = {}
-  for (const name of (await fs.readdir(workDir).catch(() => [] as string[])).sort()) {
-    if (name === outputName || name.startsWith('final_') || skip.includes(name)) continue
-    if (!argv.some(arg => arg.includes(name))) continue
-    const file = path.join(workDir, name)
+  for (const name of workFolderDependencies(argv, workDir, output)) {
+    if (skip.includes(name)) continue
+    const file = path.join(workDir, ...name.split('/'))
     if ((await fs.stat(file).catch(() => null))?.isFile()) files[name] = await sha256File(file)
   }
   const escaped = escapeFilterPath(workDir)
