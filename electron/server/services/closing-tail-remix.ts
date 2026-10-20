@@ -37,6 +37,8 @@ export type ClosingTailVerdict =
   | { action: 'refuse'; reason: string }
   /** This render was accepted with a track that has since been re-mixed: use the re-mixed one. */
   | { action: 'use'; filename: string }
+  /** A re-mix was stopped part-way: the render finishes or undoes it (`recoverPendingRemix`) before anything else. */
+  | { action: 'recover'; wantedSec: number; track: MergedTrack }
   | { action: 'remix'; wantedSec: number; params: Record<string, any>; track: MergedTrack; settings: string[] }
 
 interface MergedTrack {
@@ -131,8 +133,8 @@ async function remixSuccessor(dir: string, code: string, base: string, wantedSec
  * carries a tail (the merged audio is the truth, 1.4.327), and for a channel whose saved Audio Assembly
  * preset mixes no background music (its tail is silent by design). `preferredFilename` is the track the
  * render is about to lay down; without it the episode's own selection is read. `use` when that track
- * was already re-mixed and the re-mix pinned. An interrupted re-mix reads as `remix` (which recovers
- * first), never as a refusal.
+ * was already re-mixed and the re-mix pinned. An interrupted re-mix reads as `recover` (the render finishes
+ * or undoes it first), never as `use`, `remix` or a refusal.
  */
 export async function planClosingTailRemix(opts: {
   slug: string
@@ -149,7 +151,22 @@ export async function planClosingTailRemix(opts: {
   if (!paths?.merged_audio_dir) return { action: 'none' }
   const dir = paths.merged_audio_dir
   const intent = await readIntent(dir, code)
-  const filename = intent?.base_filename || opts.preferredFilename || await resolveEpisodeMergedAudioFilename(dir, code)
+  // An interrupted-work note comes first: neither `use` nor a new re-mix may be answered while it lingers,
+  // or the render would lay down a track the folder's pin and the note still disagree about.
+  if (intent) {
+    let base: any = null
+    try { base = JSON.parse(intent.base_record_text) } catch { /* torn: recovery rolls it back */ }
+    const lead = Number(base?.opening?.lead_in_sec)
+    return {
+      action: 'recover',
+      wantedSec: wanted,
+      track: {
+        dir, code, filename: intent.base_filename, episodeDir: intent.episode_dir, recordText: intent.base_record_text,
+        durationSec: Number(base?.duration_sec) || 0, leadInSec: Number.isFinite(lead) ? lead : null,
+      },
+    }
+  }
+  const filename = opts.preferredFilename || await resolveEpisodeMergedAudioFilename(dir, code)
   if (!filename) return { action: 'none' }
   const mergedPath = path.join(dir, filename)
   if (await mergedClosingTailSec(mergedPath, code) > 0) return { action: 'none' }
@@ -191,16 +208,16 @@ export async function planClosingTailRemix(opts: {
   if ((await resolveProjectClosingTail(opts.slug)).seconds + 0.5 < wanted) {
     return refuse(`the saved Video Assembly preset does not ask for ${seconds} s, and Audio Assembly bakes what it saves. Save the Video Assembly preset with that closing first.`)
   }
-  let recordText = intent?.base_record_text ?? ''
+  let recordText = ''
   let record: any = null
   try {
-    if (!intent) recordText = await fs.readFile(mergedAudioCompletionPath(mergedPath, code), 'utf-8')
+    recordText = await fs.readFile(mergedAudioCompletionPath(mergedPath, code), 'utf-8')
     record = JSON.parse(recordText)
   } catch { /* no record */ }
   if (record?.output_filename !== filename || !(Number(record?.duration_sec) > 0)) {
     return refuse(`${filename} has no Audio Assembly record, so there is no proof that re-mixing the chapters gives the same narration.`)
   }
-  const chapters = JSON.parse(intent?.sidecars['audio_chapters.json'] ?? await readText(path.join(paths.episode_dir, 'audio_chapters.json')) ?? 'null')
+  const chapters = JSON.parse(await readText(path.join(paths.episode_dir, 'audio_chapters.json')) ?? 'null')
   const conflict = applyRecordedSettings(params, record, chapters, settings)
   if (conflict) return refuse(conflict)
   settings.push('voice level, music balance and fades, loudness target: not recorded, so the current Audio Assembly and Video Assembly presets apply')
@@ -298,6 +315,18 @@ async function recoverInterruptedRemix(
   await rollbackRemix(track.dir, code, intent)
   job.output_lines.push(`Closing tail: an earlier re-mix of ${intent.base_filename} was interrupted before it was complete; its unfinished files were removed and the audio is re-mixed from the start.`)
   return null
+}
+
+/**
+ * Finish or undo the interrupted re-mix a `recover` verdict named. The new track's filename when it was
+ * adopted and pinned; null when it was rolled back (plan again: the folder is as it was before).
+ */
+export function recoverPendingRemix(
+  job: Job,
+  code: string,
+  verdict: Extract<ClosingTailVerdict, { action: 'recover' }>,
+): Promise<string | null> {
+  return recoverInterruptedRemix(verdict.track, code, verdict.wantedSec, job)
 }
 
 /**
