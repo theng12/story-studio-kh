@@ -90,6 +90,7 @@ import { readEpisodeMotionScope } from '../services/episode-motion-scope.js'
 import { motionPromptSceneIds } from '../services/scene-motion-prompt-scope.js'
 import type { Job, SceneCreativeDirection, SceneCreativeStrategy, ScenePlan } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { withSavedPromptCollection } from '../lib/scene-prompt-collection.js'
 
 /** Older explicit motion jobs used motion_mode=still before motion_choice existed. */
 export function motionPromptScenesForRequest<T extends { motion_mode?: string }>(scenes: T[], legacyMotionRequest: boolean): T[] {
@@ -198,7 +199,7 @@ interface ScenePlanRunParams {
   /** Explicit Jobs-page consent for paid, one-scene-at-a-time repair. */
   auto_repair_missing_prompts?: boolean
   /** Server-derived exact chat keys that must be reclaimed before new work. */
-  scene_prompt_recoveries?: Array<{ idempotency_key: string; scene_ids: string[] }>
+  scene_prompt_recoveries?: Array<{ idempotency_key: string; scene_ids?: string[] }>
   /** v1.0.291 — planning strategy. 'single-pass' (default) uses the
    *  historical windowed LLM planner; 'two-pass' splits cues deterministic-
    *  ally then generates prompts per-scene as plain prose. The two-pass
@@ -260,7 +261,7 @@ interface ScenePlanRunParams {
   creative_direction?: Partial<SceneCreativeDirection>
 }
 
-function scenePromptRecoveries(value: unknown): Array<{ idempotency_key: string; scene_ids: string[] }> {
+function scenePromptRecoveries(value: unknown): Array<{ idempotency_key: string; scene_ids?: string[] }> {
   if (value === undefined) return []
   if (!Array.isArray(value)) throw new Error('Saved Scene Plan prompt recovery evidence is invalid. No paid request was submitted.')
   return value.map(entry => {
@@ -268,14 +269,19 @@ function scenePromptRecoveries(value: unknown): Array<{ idempotency_key: string;
       throw new Error('Saved Scene Plan prompt recovery evidence is invalid. No paid request was submitted.')
     }
     const record = entry as Record<string, unknown>
+    // `scene_ids` is absent when a saved child's scope is unknown (its request preview was pruned):
+    // the run then collects whatever the answer covers among the scenes still missing.
     if (Object.keys(record).some(key => key !== 'idempotency_key' && key !== 'scene_ids')
       || typeof record.idempotency_key !== 'string' || !record.idempotency_key.trim()
-      || !Array.isArray(record.scene_ids) || !record.scene_ids.length
-      || record.scene_ids.some(id => typeof id !== 'string' || !id.trim())
-      || new Set(record.scene_ids).size !== record.scene_ids.length) {
+      || (record.scene_ids !== undefined && (!Array.isArray(record.scene_ids) || !record.scene_ids.length
+        || record.scene_ids.some(id => typeof id !== 'string' || !id.trim())
+        || new Set(record.scene_ids).size !== record.scene_ids.length))) {
       throw new Error('Saved Scene Plan prompt recovery evidence is invalid. No paid request was submitted.')
     }
-    return { idempotency_key: record.idempotency_key.trim(), scene_ids: [...record.scene_ids] as string[] }
+    return {
+      idempotency_key: record.idempotency_key.trim(),
+      ...(record.scene_ids ? { scene_ids: [...record.scene_ids] as string[] } : {}),
+    }
   })
 }
 
@@ -1462,7 +1468,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // A saved key is recovery evidence, not consent for a new paid repair.
     // Every retry must reclaim it first, including the ordinary Scene Plan
     // recovery path that preserves the original job's parameters.
-    const savedPromptRecoveries = !isMotion ? scenePromptRecoveries(params.scene_prompt_recoveries) : []
+    const savedPromptRecoveries = !isMotion
+      ? scenePromptRecoveries(withSavedPromptCollection(params, job).scene_prompt_recoveries)
+      : []
     const persistedPackSize = scenePolicy ? params.pipeline_scene_prompt_pack_sizes?.[stage] : undefined
     const stablePackSize = Number.isInteger(persistedPackSize) && persistedPackSize! >= 1
       ? persistedPackSize!
@@ -1912,37 +1920,41 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       : `Processing ${packs.length} adaptive pack(s) through the Gateway (${model}).`)
     const incompletePacks: string[] = []
     let unresolvedProviderRequest = false
+    // Collect first. Every answer this job already holds is read back by its exact saved key before
+    // ANY new request goes out, for the whole run and not pack by pack: a fresh pack must never be
+    // able to orphan an accepted answer that covers a later one.
+    let recoveryUnresolved = false
+    const recoveryErrors: string[] = []
+    for (const [index, recovery] of savedPromptRecoveries.entries()) {
+      const notDurable = targets.map(({ scene }) => scene.id).filter(id => !durableTargetIds.has(id))
+      const scope = recovery.scene_ids ?? notDurable
+      const checkpointIds = scope.filter(id => notDurable.includes(id))
+      if (!checkpointIds.length) continue
+      job.output_lines.push(`↻ Checking the earlier prompt request at the Gateway before starting new work (${checkpointIds.length} missing scene(s)).`)
+      const recovered = await requestPromptPack({
+        sceneIds: scope,
+        checkpointSceneIds: checkpointIds,
+        saved: new Set(scope.filter(id => !checkpointIds.includes(id))),
+        requestLabel: `${stage}:recover-${index + 1}`,
+        maxTokens: packs[0]?.params.max_tokens ?? visualMaxTokens ?? undefined,
+        recoverByIdempotencyKey: recovery.idempotency_key,
+      })
+      if (recovered.checkpointErrors.length) {
+        throw new Error(`Story Studio recovered the earlier Gateway output but could not save it, so no new paid request was started: ${recovered.checkpointErrors.join('; ')}`)
+      }
+      if (recovered.requestError) recoveryErrors.push(recovered.requestError)
+      recoveryUnresolved ||= recovered.requestUnresolved
+      const recoveredReceipt = await auditScenePromptCompletion(outPath, targets.map(({ scene }) => scene.id), isMotion ? 'motion' : 'visual')
+      syncMemoryPlan(recoveredReceipt.plan)
+      for (const sceneId of recoveredReceipt.completed_ids) durableTargetIds.add(sceneId)
+      if (recoveryUnresolved) break
+    }
     for (const pack of packs) {
       if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
       // A resumed run may already have made some rows durable. Never submit
       // or count those rows again.
       const saved = new Set(pack.scene_ids.filter(sceneId => durableTargetIds.has(sceneId)))
-      let missing = pack.scene_ids.filter(id => !saved.has(id))
-      let recoveryUnresolved = false
-      const recoveryErrors: string[] = []
-      for (const [index, recovery] of savedPromptRecoveries.entries()) {
-        const checkpointIds = recovery.scene_ids.filter(id => missing.includes(id))
-        if (!checkpointIds.length) continue
-        job.output_lines.push(`↻ Checking the earlier prompt request at the Gateway before starting new work (${checkpointIds.length} missing scene(s)).`)
-        const recovered = await requestPromptPack({
-          sceneIds: recovery.scene_ids,
-          checkpointSceneIds: checkpointIds,
-          saved: new Set(recovery.scene_ids.filter(id => !checkpointIds.includes(id))),
-          requestLabel: `${pack.pack_id}:recover-${index + 1}`,
-          maxTokens: pack.params.max_tokens ?? visualMaxTokens ?? undefined,
-          recoverByIdempotencyKey: recovery.idempotency_key,
-        })
-        if (recovered.checkpointErrors.length) {
-          throw new Error(`Story Studio recovered the earlier Gateway output but could not save it, so no new paid request was started: ${recovered.checkpointErrors.join('; ')}`)
-        }
-        if (recovered.requestError) recoveryErrors.push(recovered.requestError)
-        recoveryUnresolved ||= recovered.requestUnresolved
-        const recoveredReceipt = await auditScenePromptCompletion(outPath, pack.scene_ids, isMotion ? 'motion' : 'visual')
-        syncMemoryPlan(recoveredReceipt.plan)
-        for (const sceneId of recoveredReceipt.completed_ids) durableTargetIds.add(sceneId)
-        missing = [...recoveredReceipt.missing_ids]
-        if (recoveryUnresolved) break
-      }
+      const missing = pack.scene_ids.filter(id => !saved.has(id))
       // A fully recovered pack has nothing left to ask for: never POST an empty pack.
       const initial = recoveryUnresolved || !missing.length ? {
         results: new Map<string, string>(),

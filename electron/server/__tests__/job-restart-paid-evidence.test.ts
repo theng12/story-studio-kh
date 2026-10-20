@@ -19,6 +19,14 @@
  * must never issue a generation POST, and it must keep the duplicate lock until
  * the provider's answer is authoritative. Only an already-settled, already-paid
  * task is involved; the test spends nothing and submits nothing.
+ *
+ * 1.4.337 CHANGED WHICH STATE IS "HONEST" FOR A WRITING JOB. A restart-interrupted writing job whose
+ * children all settled but whose output is still incomplete is no longer ended as `error` (Sprout
+ * SS0121/SS0119, History EP0015): `finalizeSettledProviderJob` requeues it, collect-first
+ * (`chat-restart-reconcile-resumes.test.ts`). These fixtures carry `params: {}`, so the resumed
+ * executor stops on its own missing input and the job sits in its auto-retry wait. That is honest too
+ * — a live worker with a retry timer, not a row nothing drives — so the invariant pinned here is
+ * "terminal, or visibly driven", never "running with nothing behind it".
  */
 
 import { after, before, test } from 'node:test'
@@ -119,6 +127,20 @@ function isTerminal(status: Job['status'] | undefined): boolean {
   return status === 'done' || status === 'error' || status === 'cancelled'
 }
 
+/** Terminal, or queued, or running with its worker alive in the auto-retry wait (a live timer). */
+function isDriven(jobId: string): boolean {
+  const job = jq.getJob(jobId)
+  if (!job) return false
+  if (isTerminal(job.status) || job.status === 'queued') return true
+  return job.status === 'running' && jq._isJobWorkerActiveForTesting(jobId)
+    && Date.parse(job.auto_retry?.next_retry_at ?? '') > Date.now()
+}
+
+/** A resumed job keeps retrying for minutes; stop it so no worker outlives the temp data dir. */
+async function release(projectSlug: string, jobId: string): Promise<void> {
+  if (!isTerminal(jq.getJob(jobId)?.status)) await jq.forceAbandonJob(projectSlug, jobId).catch(() => {})
+}
+
 /**
  * Every generation flow must prove its output complete before success, and must
  * fail loudly when it cannot. A row that neither settles nor fails is neither.
@@ -139,16 +161,16 @@ for (const type of ['metadata', 'image_prompts', 'research_run'] as const) {
     // Reconciliation is asynchronous. Give it ample room to read the one
     // provider task and classify the outcome.
     await waitFor(
-      () => isTerminal(jq.getJob(jobId)?.status),
-      { label: `${type} reached a terminal state`, timeoutMs: 12_000 },
+      () => isDriven(jobId),
+      { label: `${type} reached a terminal state or a live retry wait`, timeoutMs: 12_000 },
     ).catch(() => {})
     await jq._waitForJobPersistenceForTesting()
 
     const settled = jq.getJob(jobId)!
     assert.ok(
-      isTerminal(settled.status),
+      isDriven(jobId),
       `${type} was left status=${settled.status} after its provider task settled; `
-      + `Retry is refused for a non-terminal row and no reconcile timer remains. `
+      + `Retry is refused for a non-terminal row and nothing is driving it. `
       + `error=${JSON.stringify(settled.error)} lines=${settled.output_lines.join(' | ')}`,
     )
     // The read-only reconciliation must never submit generation work.
@@ -161,10 +183,11 @@ for (const type of ['metadata', 'image_prompts', 'research_run'] as const) {
     // and its settled state stay auditable after the failure.
     assert.equal(settled.genstudio_jobs?.[0]?.id, `chat-${type}-1`)
     assert.equal(settled.genstudio_jobs?.[0]?.state, 'succeeded')
+    await release(project.slug, jobId)
   })
 }
 
-test('H-17 control: scene_plan_run has an auditor and does settle honestly', async () => {
+test('H-17 control: scene_plan_run has an auditor and does not strand the row', async () => {
   const project = await pm.createProject({ name: 'Restart scene_plan_run' })
   const jobId = 'restart-scene-plan'
   await seed(project.slug, interruptedJob('scene_plan_run', jobId, project.slug, [{
@@ -177,14 +200,19 @@ test('H-17 control: scene_plan_run has an auditor and does settle honestly', asy
 
   await jq.getJobs(project.slug)
   await waitFor(
-    () => isTerminal(jq.getJob(jobId)?.status),
-    { label: 'scene_plan_run reached a terminal state', timeoutMs: 12_000 },
+    () => isDriven(jobId),
+    { label: 'scene_plan_run reached a terminal state or a live retry wait', timeoutMs: 12_000 },
   )
 
+  // Its audit finds the output incomplete, so the restart-interrupted job is resumed rather than
+  // failed (1.4.337); with these empty params the resumed run stops on its own input and retries.
   const settled = jq.getJob(jobId)!
-  assert.equal(settled.status, 'error', 'a settled paid task with no verifiable local output must fail loudly')
-  assert.match(String(settled.error), /repair/i)
+  assert.ok(
+    settled.output_lines.some(line => /picking this step up where it stopped/.test(line)),
+    'a settled paid task with incomplete local output is picked up again: ' + settled.output_lines.join(' | '),
+  )
   assert.equal(calls.some(call => call.method !== 'GET'), false)
+  await release(project.slug, jobId)
 })
 
 test('H-17 control: an interrupted job with no durable evidence keeps the plain restart error', async () => {
@@ -224,8 +252,8 @@ test('H-17: a stuck running row cannot be retried, only abandoned', async () => 
   // as the row settles, and the guard below tolerates both a settled row and
   // the pre-fix stuck `running` one this test exists to describe.
   await waitFor(
-    () => isTerminal(jq.getJob(jobId)?.status),
-    { label: 'retry-admission row settled', timeoutMs: 12_000 },
+    () => isDriven(jobId),
+    { label: 'retry-admission row settled or retrying', timeoutMs: 12_000 },
   ).catch(() => {})
 
   const row = jq.getJob(jobId)!
@@ -238,6 +266,7 @@ test('H-17: a stuck running row cannot be retried, only abandoned', async () => 
   } else {
     assert.ok(isTerminal(row.status))
   }
+  await release(project.slug, jobId)
 })
 
 /**
