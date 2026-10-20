@@ -2,6 +2,13 @@
  * 1.4.300 — the Pipeline start checks and the queue's "same step already queued" check obey the
  * channel's Off / Warn / Block switch (Settings → Safety checks). Block keeps the old stop; Off and
  * Warn let the episode run (Warn also says so).
+ *
+ * The second half of that story: a step a lenient check LEFT OUT is left out of the RUN too, not
+ * only out of preflight's report. Night Atlas Mythology EP0012 (job fa69e918, 2026-10-20) had
+ * motion_scope off and no usable Motion preset, so preflight left the step out and said so — and
+ * `run-batch` submitted it anyway, from the snapshot `preflightBatch` captured before any of those
+ * decisions. The job reached `scene_clips_batch` with no model or variant and died on
+ * "episode_id and model are required" before any provider work.
  */
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -164,6 +171,99 @@ test('cues_feature_on: Warn leaves Contextual Cues out when the feature is off; 
       assert.equal(res.status, 200, JSON.stringify(res.body))
       assert.deepEqual(res.body.steps_left_out.map((s: any) => s.step), ['contextual_cues'])
     }
+  }
+})
+
+/** The job types a run-batch planned: each enqueued head plus its frozen chain. */
+const plannedTypes = (body: any): string[] => (body.jobs || []).flatMap((job: any) => {
+  const queued = jq.getJob(job.job_id)!
+  const chain = ((queued.params as any).pipeline_chain || []) as Array<{ type: string }>
+  return [queued.type, ...chain.map(link => link.type)]
+})
+
+const runBatch = (slug: string, episodeId: string, steps: string[]) =>
+  request(app).post(`/api/projects/${slug}/pipeline/run-batch`).send({ episode_ids: [episodeId], steps })
+
+test('a Motion step with no usable preset is left out and never enqueued', async () => {
+  await jq.setQueuePaused(true)
+  try {
+    const { slug, episodeId } = await seed(SCRIPT, { step_preset: 'warn' })
+    const steps = ['script-only', 'motion_review']
+    const dry = await preflight(slug, episodeId, steps)
+    assert.equal(dry.status, 200, JSON.stringify(dry.body))
+    assert.deepEqual(dry.body.steps_left_out.map((s: any) => s.step), ['motion_review'])
+
+    const res = await runBatch(slug, episodeId, steps)
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    assert.deepEqual(plannedTypes(res.body), ['outline_only', 'expand_chapters'])
+  } finally {
+    await jq.setQueuePaused(false)
+  }
+})
+
+test('a Scene Plan preset with no writing model is left out and never enqueued', async () => {
+  await jq.setQueuePaused(true)
+  try {
+    const config = { ...SCRIPT, ...preset('scene_plan_presets', 'scene_plan_last_preset_scene-plan', {}) }
+    const { slug, episodeId } = await seed(config, { step_preset: 'warn' })
+    await im.setEpisodeStatusOverrides(slug, episodeId, { subtitles: true })
+    const steps = ['script-only', 'scene_plan']
+    const dry = await preflight(slug, episodeId, steps)
+    assert.equal(dry.status, 200, JSON.stringify(dry.body))
+    assert.deepEqual(dry.body.steps_left_out.map((s: any) => s.step), ['scene_plan'])
+
+    const res = await runBatch(slug, episodeId, steps)
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    assert.deepEqual(plannedTypes(res.body), ['outline_only', 'expand_chapters'])
+  } finally {
+    await jq.setQueuePaused(false)
+  }
+})
+
+test('a Contextual Cues step left out for the feature switch is never enqueued', async () => {
+  await jq.setQueuePaused(true)
+  try {
+    const { slug, episodeId } = await seed(SCRIPT, { cues_feature_on: 'warn' })
+    const steps = ['script-only', 'contextual_cues']
+    const dry = await preflight(slug, episodeId, steps)
+    assert.equal(dry.status, 200, JSON.stringify(dry.body))
+    assert.deepEqual(dry.body.steps_left_out.map((s: any) => s.step), ['contextual_cues'])
+
+    const res = await runBatch(slug, episodeId, steps)
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    assert.deepEqual(plannedTypes(res.body), ['outline_only', 'expand_chapters'])
+  } finally {
+    await jq.setQueuePaused(false)
+  }
+})
+
+test('a usable step is still enqueued', async () => {
+  await jq.setQueuePaused(true)
+  try {
+    const config = { ...SCRIPT, ...preset('research_presets', 'research_last_preset') }
+    const { slug, episodeId } = await seed(config, { step_preset: 'warn' })
+    const res = await runBatch(slug, episodeId, ['research', 'script-only'])
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    assert.deepEqual(plannedTypes(res.body), ['research_run', 'outline_only', 'expand_chapters'])
+  } finally {
+    await jq.setQueuePaused(false)
+  }
+})
+
+test('a step whose prerequisite preflight left out is blocked, not run without it', async () => {
+  const config = {
+    ...SCRIPT,
+    ...preset('scene_plan_presets', 'scene_plan_last_preset_scene-plan', {}),
+    ...preset('scene_review_genstudio_presets', 'scene_review_genstudio_last_preset_scene-review'),
+  }
+  for (const mode of ['warn', 'block']) {
+    const { slug, episodeId } = await seed(config, { step_preset: 'warn', earlier_step_done: mode })
+    const res = await runBatch(slug, episodeId, ['scene_review'])
+    assert.equal(res.status, 400, JSON.stringify(res.body))
+    assert.ok(
+      res.body.issues.some((i: any) => i.code === 'missing_prerequisite' && i.requires === 'scene_plan'),
+      JSON.stringify(res.body.issues),
+    )
   }
 })
 

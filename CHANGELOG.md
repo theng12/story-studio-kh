@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.335 — 2026-10-20
+
+- A Pipeline run no longer queues a step its own check left out (for example Motion on a channel with no usable Motion preset), so those steps stop failing with "model required".
+- The check for scene images left in the Trash now reads the whole Trash, says "incomplete" whenever a folder could not be read, and reports images already handed to the Mac's Trash, with their location when it is certain. Story now notes the size and, when it can, the location of each item it hands to the Mac's Trash.
+
 ## v1.4.334 — 2026-10-20
 
 - An app update no longer pauses the job queue while a Free Up Space run is still going. It waits, says so, and keeps the queue running; it pauses and installs only once the cleanup is done.
