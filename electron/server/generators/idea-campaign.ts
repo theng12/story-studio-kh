@@ -11,6 +11,7 @@ import { composeNicheWithTopicPacks, loadNiche } from '../services/niche-loader.
 import {
   assignmentSummary,
   planIdeaAssignments,
+  subjectUseByPack,
   type IdeaAssignment,
 } from '../services/idea-campaign-planner.js'
 import {
@@ -477,10 +478,22 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     job.output_lines.push(`Real subjects: ${reference.note}.`)
   }
   let assignmentPool: IdeaAssignment[] = []
+  // Assignments this campaign asked for and had rejected on CONTENT (drift, no title or logline, a
+  // duplicate). Kept in the job's params, which Retry copies forward, so a later attempt does not
+  // reserve them again: rejected ideas are never saved, so the seeded plan would otherwise repeat.
+  // A provider or parse failure throws before this is touched and records nothing. Freeform ideas
+  // carry no fingerprint and so record nothing either.
+  const rejectedAssignments = new Set<string>(
+    Array.isArray(job.params.rejected_assignments) ? job.params.rejected_assignments.filter((value: unknown) => typeof value === 'string') : [],
+  )
+  const reject = (fingerprint: string | undefined) => { if (fingerprint) rejectedAssignments.add(fingerprint) }
   // How many requested ideas the Topic Packs cannot cover at all. Those that
   // fit are still made and saved; the job then fails loudly naming the rest,
   // instead of refusing the whole batch up front.
   let coverageShortfall = 0
+  // Every Topic Pack subject already has an idea. The planner still reserves new structural tuples of
+  // those subjects, so the pool can look large while every idea collapses onto a used subject.
+  let subjectsUsedUp = false
   // A replay keeps the assignments it reserved; re-planning would change the batch.
   if (!isFormulaFreeform && !replayBatch) {
     const usedFingerprints = history
@@ -488,9 +501,12 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       .filter((value): value is string => !!value)
     assignmentPool = planIdeaAssignments({
       niche: plannerNiche, count: remaining, usedFingerprints, seed: request.campaign_id,
+      excludeFingerprints: rejectedAssignments,
       ...(upgrades.variety_seeds ? { spreadPacks: true } : {}),
     })
     coverageShortfall = Math.max(0, remaining - assignmentPool.length)
+    const subjectUse = subjectUseByPack(plannerNiche, usedFingerprints)
+    subjectsUsedUp = subjectUse.some(pack => pack.total) && subjectUse.every(pack => !pack.unused)
     if (coverageShortfall) {
       job.output_lines.push(`Your Topic Packs have unused subjects for only ${assignmentPool.length} of the ${remaining} ideas still needed; making those now.`)
     }
@@ -676,10 +692,12 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
           const item = byKey.get(assignment.idea_key) || responseItems[index]
           if (!item || !String(item.title || '').trim() || !String(item.logline || '').trim()) {
             job.output_lines.push('  ↻ ' + assignment.idea_key + ': provider omitted usable title/logline; replacing slot.')
+            reject(assignment.fingerprint)
             continue
           }
           if (!mentionsSubject(item, assignment)) {
             job.output_lines.push('  ↻ ' + assignment.idea_key + ': output drifted from assigned subject; replacing slot.')
+            reject(assignment.fingerprint)
             continue
           }
           candidates.push(normalizeIdea(
@@ -727,6 +745,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       ? { kept: candidates, rejected: [] }
       : filterGenerated(candidates, similarityPool)
     for (const rejection of filtered.rejected) {
+      reject(rejection.candidate.idea_fingerprint)
       job.output_lines.push(`  ↻ Rejected near-duplicate: "${rejection.candidate.title}"`)
     }
     let rejectedByMeaning = new Set<unknown>()
@@ -762,6 +781,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
       watchStats.would_reject += watched.hits.length
       if (enforcing && watched.method === 'meaning') {
         rejectedByMeaning = new Set(watched.hits.map(hit => hit.candidate))
+        for (const hit of watched.hits) reject(hit.candidate.idea_fingerprint)
         repeats.push(...watched.hits.map(hit => hit.candidate))
         for (const hit of watched.hits) {
           job.output_lines.push(`  ↻ Rejected near-duplicate (meaning ${hit.score.toFixed(2)} ~ "${hit.matched.title}"): "${hit.candidate.title}"`)
@@ -784,27 +804,16 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     // Everything stored under this batch's identity, which is what the record's provenance names.
     let storedUnderBatch: im.StoredIdea[] = []
     if (kept.length) {
-      // Rows already stored before this call. `addIdeas` returns the COMPLETE set under the batch
-      // identity (an already-stored row plus whatever this call added), so a crash-retry of a
-      // partly-appended batch would otherwise count the stored rows a second time — they are already
-      // in `alreadyCompleted` — and push `completed` past `wanted`, where `requireJobCompletion`
-      // compares strictly. Only the rows this call actually added are new. The snapshot is taken
-      // before the call and is sound for THIS identity because the queue admits one idea_campaign
-      // per (project, episode) at a time and identities are campaign-namespaced, so no other run can
-      // append under `campaign:batch:ordinal` in between.
-      const knownIds = new Set([...projectIdeas, ...created].map(idea => idea.id))
       // Keyed by this batch's durable identity, so a crash between the append and the record below
-      // cannot append the same batch twice.
-      const stored = await im.addIdeas(
-        job.project_slug,
-        kept,
-        // The model this batch was actually generated on: on a replay that is the captured one, so
-        // `model_used` describes the answer's own provenance rather than today's preset.
-        batchRecord!.model,
-        ideaBatchAppendKey(request.campaign_id, ordinal),
+      // cannot append the same batch twice. The model is the one this batch was actually generated
+      // on: on a replay that is the captured one, so `model_used` describes the answer's own
+      // provenance rather than today's preset.
+      const result = await appendNewIdeas(
+        job.project_slug, kept, batchRecord!.model, ideaBatchAppendKey(request.campaign_id, ordinal),
+        [...projectIdeas, ...created],
       )
-      storedUnderBatch = stored
-      appended = stored.filter(idea => !knownIds.has(idea.id))
+      storedUnderBatch = result.stored
+      appended = result.added
       created.push(...appended)
       const savedCandidates = appended.map(idea => ({
         title: idea.title,
@@ -818,6 +827,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     }
     // The batch is answered. Mark it resolved even when nothing usable survived the filters, so a
     // filtered-out answer cannot be collected in a loop, and never replay it again.
+    if (rejectedAssignments.size) job.params.rejected_assignments = [...rejectedAssignments]
     if (batchRecord) {
       batchRecord.resolved = true
       // The whole set under the identity, not just this call's remainder: a batch partly appended by
@@ -838,7 +848,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     const fill = repeats.slice(0, shortBy)
     await safetyGate(job.project_slug, 'idea_repeat', job, `${fill.length} idea slot(s) could only be filled with ideas `
       + `that repeat earlier ones by meaning; they are saved anyway: ${fill.map(idea => `"${idea.title}"`).join(', ')}.`)
-    created.push(...await im.addIdeas(job.project_slug, fill, request.model, request.campaign_id))
+    created.push(...(await appendNewIdeas(job.project_slug, fill, request.model, request.campaign_id, [...projectIdeas, ...created])).added)
   }
 
   const completed = alreadyCompleted.length + created.length
@@ -883,7 +893,9 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     // The owner reads this in Jobs. Slot ids and fingerprints mean nothing to
     // him; the count, what was kept, and the one next step do. A Retry uses
     // the project's current Topic Packs (owner decision 2026-10-03).
-    message: coverageShortfall
+    message: subjectsUsedUp
+      ? `${completed} of ${wanted} ideas were saved. The subjects in your Topic Packs are all used up, so the other ${missingCount} would only repeat earlier ideas. Add another Topic Pack with "Choose Formula & Topics", then press Retry to make them.`
+      : coverageShortfall
       ? `${completed} of ${wanted} ideas were saved. Your Topic Packs have no unused subjects left for the other ${missingCount}. Add another Topic Pack with "Choose Formula & Topics", then press Retry to make the rest.`
       : `${completed} of ${wanted} ideas were saved. Press Retry to make the ${missingCount} missing one${missingCount === 1 ? '' : 's'}.`,
   })
@@ -891,6 +903,29 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   job.output_lines.push(isFormulaFreeform
     ? '✓ Idea Campaign complete — ' + completed + '/' + wanted + ' ideas saved; ' + (request.avoid_repeated_ideas === false ? 'duplicate checks disabled by request.' : 'duplicate checks passed.')
     : `✓ Idea Campaign complete — ${completed}/${wanted} unique ideas verified.`)
+}
+
+/**
+ * Append ideas under a batch identity and return which rows are NEW to this campaign count.
+ *
+ * `addIdeas` returns the COMPLETE set under the identity (an already-stored row plus whatever this
+ * call added), so a crash-retry of a partly-appended batch, or a second attempt's warn-fill under
+ * the same campaign-wide identity, would otherwise count stored rows a second time. They are already
+ * in `known` (disk at job start plus this run's own rows) and `completed` would pass the disk, where
+ * `requireJobCompletion` compares strictly. Sound because the queue admits one idea_campaign per
+ * (project, episode) at a time and identities are campaign-namespaced, so no other run can append
+ * under this identity between the snapshot and the call.
+ */
+async function appendNewIdeas(
+  slug: string,
+  ideas: Parameters<typeof im.addIdeas>[1],
+  model: string,
+  batchId: string,
+  known: im.StoredIdea[],
+): Promise<{ stored: im.StoredIdea[]; added: im.StoredIdea[] }> {
+  const knownIds = new Set(known.map(idea => idea.id))
+  const stored = await im.addIdeas(slug, ideas, model, batchId)
+  return { stored, added: stored.filter(idea => !knownIds.has(idea.id)) }
 }
 
 function isFormulaFreeformFor(activePackIds: string[], topicPackIds: string[] | undefined): boolean {
