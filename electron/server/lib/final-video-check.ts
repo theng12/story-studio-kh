@@ -156,6 +156,63 @@ function opts(o: FinalCheckOptions): Required<FinalCheckOptions> {
 const SPEECH_END_MARGIN_SEC = 1
 
 /**
+ * The longest silent ending the check reads as "the video ending" rather than as length the video
+ * should not have.
+ *
+ * The Video Assembly form's own longest closing tail is 45 s (`black-screen` / `hold-last-scene`), so
+ * a minute covers it and the merged audio's own lead-in with room to spare. Past that a silent ending
+ * is not an ending — the file is longer than it was planned to be — and `unplannedDurationIssue` says
+ * so as a length fault. A video that ends in a short silence is fine and never holds (owner rule).
+ */
+const MAX_CLOSING_TAIL_SEC = 60
+
+/**
+ * How much of a plan-less final may sit outside its own chapter plan before its length is a fault: the
+ * opening before the first word and the closing tail after the last one, neither of which the chapter
+ * plan names, plus the merged audio's own lead-in.
+ *
+ * Not a tolerance for a slightly-wrong length — the render's own plan measures that. It is the line
+ * between "an opening and an ending" and "this is not the video that was planned": three minutes is
+ * several times a branded opening and the form's longest tail put together, and Story Sprout SS0063
+ * (2026-10-20) was 6024.6 s past its chapters.
+ */
+const UNPLANNED_LENGTH_ALLOWANCE_SEC = 180
+
+/** The silence the file ends with, in seconds — 0 when it does not end in a measured one. */
+function endingSilenceSec(actual: FinalCheckResult['actual']): number {
+  const run = actual.silence.find(r => r.end_sec >= actual.duration_sec - SPEECH_END_MARGIN_SEC)
+  return run ? Math.max(0, run.end_sec - run.start_sec) : 0
+}
+
+/**
+ * The finished file's length against the narration its own chapter plan adds up to, for a final whose
+ * render recorded no plan of its own — or null when it is the length such a file should be.
+ *
+ * `narrationSec` is null when nothing recorded a chapter plan either; only the ending is checkable
+ * then, and a silent ending far longer than any closing tail is still length the file should not have.
+ */
+function unplannedDurationIssue(
+  actualSec: number,
+  narrationSec: number | null,
+  endingSilence: number,
+): string | null {
+  const actual = Number(actualSec)
+  const chapters = narrationSec === null
+    ? ''
+    : `, and this episode's chapters add up to ${narrationSec.toFixed(1)}s of narration`
+  if (endingSilence > MAX_CLOSING_TAIL_SEC) {
+    return `it is ${actual.toFixed(1)}s long and its last ${endingSilence.toFixed(1)}s are silent — `
+      + `far longer than any closing tail${chapters}`
+  }
+  if (narrationSec === null) return null
+  const over = actual - narrationSec
+  return over <= UNPLANNED_LENGTH_ALLOWANCE_SEC
+    ? null
+    : `it is ${actual.toFixed(1)}s long but this episode's chapters add up to ${narrationSec.toFixed(1)}s `
+      + `of narration (${over > 0 ? '+' : ''}${over.toFixed(1)}s)`
+}
+
+/**
  * Where the spoken content stops in an episode's final video, from the episode's own Scene Plan.
  *
  * The plan records the merged narration it was timed against (`source_merged_audio.duration_sec`,
@@ -192,6 +249,25 @@ export async function readPlannedSectionGaps(episodeDir: string): Promise<Planne
   } catch {
     return null
   }
+}
+
+/**
+ * The narration an episode's own chapter plan adds up to: every section's length plus the pause the
+ * merge puts between neighbouring ones (`(n − 1)` pauses, which is what `sectionGapWindows` counts
+ * back). Null when the plan cannot say.
+ *
+ * This is the one length that survives for a final whose render wrote no plan of its own — a file
+ * from before the final-check sidecar existed. Without it the check has no length to measure against
+ * and says nothing about a file that is minutes or hours longer than the episode it belongs to
+ * (Story Sprout SS0063, 2026-10-20: 9354.2 s of file against 3329.6 s of chapters).
+ */
+export function plannedSecFromSectionGaps(gaps: PlannedSectionGaps | null | undefined): number | null {
+  const gapSec = Number(gaps?.gap_sec)
+  const durations = gaps?.durations_sec
+  if (!(gapSec > 0) || !Array.isArray(durations) || durations.length < 2) return null
+  if (!durations.every(d => Number.isFinite(d) && d > 0)) return null
+  const total = durations.reduce((sum, d) => sum + Number(d), 0) + gapSec * (durations.length - 1)
+  return Number.isFinite(total) && total > 0 ? total : null
 }
 
 /**
@@ -302,7 +378,15 @@ export function finalCheckIssues(
   // Everything before the tail is the body: speech, pictures, and any opening.
   const bodyEnd = window ? window.start_sec : actual.duration_sec
 
-  const duration = finalDurationIssue(actual.duration_sec, expected.planned_sec)
+  // The length is always checked. The render's own plan is the authority when it recorded one. A
+  // final from before the plan sidecar existed has none — every expected value is 0 — so the
+  // episode's own chapter plan supplies the number instead, and the file is measured against the
+  // episode it belongs to rather than against nothing (Story Sprout SS0063, 2026-10-20).
+  const plannedSec = Number(expected.planned_sec) > 0 ? Number(expected.planned_sec) : null
+  const derivedSec = plannedSec === null ? plannedSecFromSectionGaps(expected.section_gaps) : null
+  const duration = plannedSec !== null
+    ? finalDurationIssue(actual.duration_sec, plannedSec)
+    : unplannedDurationIssue(actual.duration_sec, derivedSec, endingSilenceSec(actual))
   if (duration) issues.push({ check: 'duration', verdict: `the finished video ${duration}` })
 
   if (window && expected.closing_music) {
@@ -345,6 +429,11 @@ export function finalCheckIssues(
       // the speech" is a claim the check cannot support here, so it does not make it. A silence that
       // runs to the file's own end is how an ordinary ending looks and is never a fault; anything
       // else is reported as the plain fact it is, for a person to look at.
+      //
+      // "An ordinary ending" is bounded by the length check above: the exemption here is only ever a
+      // closing tail's worth of silence, because `unplannedDurationIssue` reports anything past
+      // `MAX_CLOSING_TAIL_SEC` as the file being the wrong length. A 100-minute silent tail is not a
+      // gap in the speech and is not called one — it is the length the video should not have.
       if (run.end_sec >= actual.duration_sec - SPEECH_END_MARGIN_SEC) continue
       issues.push({
         check: 'silence',

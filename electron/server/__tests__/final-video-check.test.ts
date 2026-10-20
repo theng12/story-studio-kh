@@ -25,6 +25,7 @@ import {
   finalCheckVerdict,
   parseBlackdetect,
   parseSilencedetect,
+  plannedSecFromSectionGaps,
   plannedSectionGapsFromSidecar,
   readPlannedSectionGaps,
   readStoredFinalCheck,
@@ -236,6 +237,85 @@ describe('the verdicts that need no ffmpeg', () => {
     // Same for a longer one that runs to the file's own end: that is how an ending looks.
     assert.deepEqual(
       finalCheckIssues({ ...legacy, silence: [{ start_sec: 9140, end_sec: 9149 }] }, noPlan()),
+      [],
+    )
+  })
+
+  /**
+   * The length the episode's own chapter plan adds up to — the one thing a final from before the plan
+   * sidecar existed still carries. Story Sprout SS0063's own 16 sections and their 5 s pauses.
+   */
+  const chapters = {
+    gap_sec: 5,
+    durations_sec: [
+      192.214785, 199.366531, 227.648435, 203.174603, 144.2, 121.68, 128.000042, 233.081905,
+      286.53424, 237.586576, 185.945397, 201.549206, 198.205533, 232.617506, 229.506032, 233.267664,
+    ],
+  }
+  /** What those chapters add up to: 3254.578455 s of narration + 15 pauses of 5 s. */
+  const CHAPTERS_SEC = 3329.578455
+
+  test('the chapters a plan-less final is measured against are the narration they add up to', () => {
+    assert.equal(plannedSecFromSectionGaps(chapters), CHAPTERS_SEC)
+    assert.equal(plannedSecFromSectionGaps(null), null, 'no plan, no number')
+    assert.equal(plannedSecFromSectionGaps({ gap_sec: 0, durations_sec: [10, 10] }), null)
+    assert.equal(plannedSecFromSectionGaps({ gap_sec: 5, durations_sec: [10] }), null, 'one section has no pause')
+  })
+
+  /**
+   * Story Sprout SS0063, 2026-10-20. A final rendered before the plan sidecar existed (mtime
+   * 2026-10-18), so the on-demand check reconstructed an all-zero expectation from it. The file is
+   * 9354.2 s against 3329.6 s of chapters and ends in 6015.3 s of silence — and it passed both the
+   * length and the tail silently, because `planned_sec` was 0 and a silence that runs to the file's
+   * own end was exempt however long it was.
+   */
+  const ss0063 = {
+    duration_sec: 9354.208333, video_sec: 9354.208333, audio_sec: 9354.202993, width: 1920, height: 1080,
+    tail_lufs: null,
+    black: [{ start_sec: 4.75, end_sec: 9.208333 }],
+    silence: [{ start_sec: 3338.882789, end_sec: 9354.20517 }],
+  }
+
+  test('a plan-less final far longer than its own chapters is a length fault, not a pass', () => {
+    const issues = finalCheckIssues(ss0063, expect({ planned_sec: 0, width: 0, height: 0, section_gaps: chapters }))
+    assert.deepEqual(issues.map(issue => issue.check), ['duration', 'black'],
+      'the chapters supply the length, and the black stretch is still the black stretch')
+    assert.match(issues[0]!.verdict, /9354\.2s long/)
+    assert.match(issues[0]!.verdict, /3329\.6s/)
+    assert.match(issues[0]!.verdict, /6015\.3s/)
+  })
+
+  test('a silent ending far longer than any closing tail is a length fault on its own', () => {
+    // Nothing records a chapter plan either — but a 10-minute silent ending is not how a video ends,
+    // and it is length the file should not have, not a gap in speech the check cannot place.
+    const duration = 9149
+    const issues = finalCheckIssues(
+      { ...legacy, duration_sec: duration, video_sec: duration, audio_sec: duration, silence: [{ start_sec: duration - 600, end_sec: duration }] },
+      noPlan(),
+    )
+    assert.deepEqual(issues.map(issue => issue.check), ['duration'])
+  })
+
+  test('a plan-less final that is its chapters plus an opening and a short silent ending passes', () => {
+    // The ordinary shape, and the owner's rule: chapters, a branded opening in front of them, and a
+    // short silent closing tail after them. Nothing here is a fault.
+    const duration = CHAPTERS_SEC + 35 + 15
+    const issues = finalCheckIssues(
+      { duration_sec: duration, video_sec: duration, audio_sec: duration, width: 1920, height: 1080,
+        tail_lufs: null, black: [], silence: [{ start_sec: duration - 15, end_sec: duration }] },
+      expect({ planned_sec: 0, width: 0, height: 0, section_gaps: chapters }),
+    )
+    assert.deepEqual(issues, [])
+  })
+
+  test('a plan-less final of about its own chapters, with no silence at all, passes too', () => {
+    const duration = CHAPTERS_SEC + 40
+    assert.deepEqual(
+      finalCheckIssues(
+        { duration_sec: duration, video_sec: duration, audio_sec: duration, width: 1920, height: 1080,
+          tail_lufs: null, black: [], silence: [] },
+        expect({ planned_sec: 0, width: 0, height: 0, section_gaps: chapters }),
+      ),
       [],
     )
   })
