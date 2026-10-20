@@ -244,20 +244,38 @@ export async function pickPoolMusic(
   if (source !== 'pool') return null
   const picked = await peekNext(slug, episode_code)
   if (!picked) return null
-  const { track } = picked
+  return { track: picked.track, reason: picked.reason, music: musicWithTrack(music, picked.track) }
+}
+
+/** `music` laid over a pool track: the track's file and its own levels. */
+export function musicWithTrack(music: VideoMusicConfig, track: PoolTrack): VideoMusicConfig {
   const pct = (v: number | undefined, fallback: number) => typeof v === 'number' ? v / 100 : fallback
   return {
-    track,
-    reason: picked.reason,
-    music: {
-      ...music,
-      files: [track.path],
-      volume: pct(track.volume, music.volume),
-      post_narration_volume: pct(track.post_narration_volume, music.post_narration_volume),
-      fade_in: track.fade_in ?? music.fade_in,
-      fade_out: track.fade_out ?? music.fade_out,
-    },
+    ...music,
+    files: [track.path],
+    volume: pct(track.volume, music.volume),
+    post_narration_volume: pct(track.post_narration_volume, music.post_narration_volume),
+    fade_in: track.fade_in ?? music.fade_in,
+    fade_out: track.fade_out ?? music.fade_out,
   }
+}
+
+/**
+ * The track the usage log records for this episode, whether or not it is switched on for cycling now.
+ * Null when none is recorded or its file is gone. Read-only: a re-mix of an episode's audio keeps the
+ * music the episode already has and never takes a new pick (cursor, log) from the pool.
+ */
+export async function episodeOwnTrack(slug: string, episode_code: string): Promise<PoolTrack | null> {
+  const cfg = await pm.getConfig(slug)
+  const tracks = await scanTracks(slug, cfg)
+  const used = (Array.isArray(cfg?.music_pool_usage_log) ? cfg!.music_pool_usage_log : [])
+    .filter(entry => entry.episode_code === episode_code)
+    .sort((a, b) => b.used_at.localeCompare(a.used_at))
+  for (const entry of used) {
+    const track = tracks.find(t => t.filename === entry.filename)
+    if (track) return track
+  }
+  return null
 }
 
 /**

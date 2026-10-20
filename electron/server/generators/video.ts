@@ -53,6 +53,7 @@ import {
   closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary, readPlannedSectionGaps,
   type FinalCheckExpectation, type PlannedSectionGaps,
 } from '../lib/final-video-check.js'
+import { withLock } from '../lib/atomic-store.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
@@ -2121,12 +2122,21 @@ export async function guardClosingTail(
   if (!merged) return assets
   const { planClosingTailRemix, remixForClosingTail } = await import('../services/closing-tail-remix.js')
   const code = episodeId.toUpperCase()
-  const verdict = await planClosingTailRemix({ slug, code, postAudio: req.post_audio, preferredFilename: merged.filename })
-  if (verdict.action === 'refuse') throw nonRetryable(new Error(verdict.reason))
-  if (verdict.action === 'none' || !job) return assets
-  const filename = await remixForClosingTail(job, slug, code, verdict).catch(error => { throw nonRetryable(error) })
-  req.merged_audio_path = path.join(path.dirname(merged.path), filename)
-  return scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: filename })
+  // One re-mix of an episode at a time: a second render asking for the same tail waits, then finds the
+  // first one's pinned track and uses it. Admission (no job) only reads and never waits for a re-mix.
+  const decide = async (): Promise<ScannedAssets> => {
+    // `req.merged_audio_path` can still name the track this job was accepted with, from before its own
+    // (or another render's) re-mix; the plan resolves it to the re-mixed track instead of refusing.
+    const verdict = await planClosingTailRemix({ slug, code, postAudio: req.post_audio, preferredFilename: merged.filename })
+    if (verdict.action === 'refuse') throw nonRetryable(new Error(verdict.reason))
+    if (verdict.action === 'none' || (verdict.action === 'remix' && !job)) return assets
+    const filename = verdict.action === 'use'
+      ? verdict.filename
+      : await remixForClosingTail(job!, slug, code, verdict).catch(error => { throw nonRetryable(error) })
+    req.merged_audio_path = path.join(path.dirname(merged.path), filename)
+    return scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: filename })
+  }
+  return job ? withLock(`closing-tail-remix:${slug}:${code}`, decide) : decide()
 }
 
 export async function prepareUnifiedVideoAssemblyInputs(

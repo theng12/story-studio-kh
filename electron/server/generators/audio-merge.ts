@@ -1054,7 +1054,11 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     // truth, so the mix and the picture the renderer draws under it cannot
     // disagree. Only background music can carry it, so a merge with no music
     // bakes none and says so rather than leaving a silence unexplained.
-    const requestedClosingTail = await resolveProjectClosingTail(project_slug)
+    const savedClosingTail = await resolveProjectClosingTail(project_slug)
+    const tailCap = Number(req.closing_tail_sec_cap)
+    const requestedClosingTail = tailCap > 0 && savedClosingTail.seconds > tailCap
+      ? { ...savedClosingTail, seconds: tailCap }
+      : savedClosingTail
     const closingTail: ClosingTailRequest = musicEnabled ? requestedClosingTail : { seconds: 0 }
     if (closingTail.seconds > 0) {
       job.output_lines.push(

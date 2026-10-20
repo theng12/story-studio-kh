@@ -28,7 +28,7 @@ process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
 
 const { generateAudioMerge } = await import('../generators/audio-merge.js')
 const { guardClosingTail, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } = await import('../generators/video.js')
-const { planClosingTailRemix } = await import('../services/closing-tail-remix.js')
+const { planClosingTailRemix, beginClosingTailRemix } = await import('../services/closing-tail-remix.js')
 const { readSelectedMergedAudio } = await import('../lib/merged-audio-selection.js')
 const pm = await import('../services/project-manager.js')
 const { setApiKey } = await import('../services/app-secrets-store.js')
@@ -327,5 +327,165 @@ describe('the render and its admission both run the guard', () => {
       prepareUnifiedVideoAssemblyInputs(admitted.slug, 'EP001', { post_audio: { ...POST_AUDIO } } as any),
       /re-mix the audio to add the 25 s closing/,
     )
+  })
+})
+
+const mergeJob = (slug: string, params: any): any => ({
+  job_id: `merge-${Math.random().toString(36).slice(2)}`, project_slug: slug, type: 'audio_merge', episode_id: 'EP001',
+  title: 'Audio Assembly', status: 'running', created_at: new Date().toISOString(), started_at: null, finished_at: null,
+  error: null, output_lines: [], params,
+})
+const postAudioReq = (basePath: string): any => ({ merged_audio_path: basePath, post_audio: { ...POST_AUDIO } })
+
+describe('a re-mix that was interrupted is recovered, never refused forever', () => {
+  /** The process dies here: the record already names the new track, nothing is pinned. */
+  async function crashAfterMerge(ep: Awaited<ReturnType<typeof oldMergeEpisode>>) {
+    const verdict = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
+    assert.equal(verdict.action, 'remix')
+    await beginClosingTailRemix(verdict as any)
+    await generateAudioMerge(mergeJob(ep.slug, (verdict as any).params))
+    assert.equal(await readSelectedMergedAudio(ep.mergedDir), null, 'the fixture really died before the pin')
+  }
+
+  test('a complete new track is adopted and pinned, and no second one is made', async () => {
+    const ep = await oldMergeEpisode()
+    await crashAfterMerge(ep)
+    assert.equal((await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })).action, 'remix',
+      'after the restart the decision is a re-mix (which recovers first), not a refusal')
+    const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+    const after = await guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, ep.job)
+    assert.equal(after.merged_audio[0]!.filename, 'EP001_merged_audio_v2.mp3')
+    assert.equal(await readSelectedMergedAudio(ep.mergedDir), 'EP001_merged_audio_v2.mp3')
+    const files = await fs.readdir(ep.mergedDir)
+    assert.ok(!files.some(file => file.includes('_v3')), 'the finished track was kept, not re-made')
+    assert.ok(!files.some(file => file.includes('remix-intent')), 'the interrupted-work note is gone')
+    assert.match(ep.job.output_lines.join('\n'), /interrupted/i)
+  })
+
+  test('a half-written one is put back and the re-mix is done again', async () => {
+    const ep = await oldMergeEpisode()
+    const verdict = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
+    await beginClosingTailRemix(verdict as any)
+    await fs.writeFile(path.join(ep.mergedDir, 'EP001_merged_audio_v2.mp3'), 'half')
+    const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+    const after = await guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, ep.job)
+    assert.equal(after.merged_audio[0]!.filename, 'EP001_merged_audio_v2.mp3')
+    assert.equal(after.merged_audio[0]!.closing_tail_sec, TAIL_SEC, 'a real track now, not the stub')
+    assert.match(ep.job.output_lines.join('\n'), /interrupted/i)
+  })
+
+  test('a new track whose narration moved is rolled back to the original', async () => {
+    const ep = await oldMergeEpisode()
+    const oldRecord = await fs.readFile(path.join(ep.mergedDir, 'EP001_merged_audio.completion.json'), 'utf-8')
+    const listing = (await fs.readdir(ep.mergedDir)).sort()
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=9',
+      '-c:a', 'libmp3lame', ep.chapter])
+    const verdict = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
+    await beginClosingTailRemix(verdict as any)
+    await generateAudioMerge(mergeJob(ep.slug, (verdict as any).params))
+    const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+    await assert.rejects(guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, ep.job), /narration/)
+    assert.equal(await fs.readFile(path.join(ep.mergedDir, 'EP001_merged_audio.completion.json'), 'utf-8'), oldRecord)
+    assert.deepEqual((await fs.readdir(ep.mergedDir)).sort(), listing)
+    assert.equal(await readSelectedMergedAudio(ep.mergedDir), null)
+  })
+})
+
+describe('a render retried after its re-mix was pinned', () => {
+  test('keeps the re-mixed track instead of refusing on the base it was accepted with', async () => {
+    const ep = await oldMergeEpisode()
+    const base = ep.original
+    await assert.rejects(
+      prepareUnifiedVideoAssemblyInputs(ep.slug, 'EP001', { merged_audio_path: base, post_audio: { ...POST_AUDIO } } as any, ep.job),
+      /No Scene Plan timeline was found/,
+    )
+    assert.equal(await readSelectedMergedAudio(ep.mergedDir), 'EP001_merged_audio_v2.mp3')
+    const listing = (await fs.readdir(ep.mergedDir)).sort()
+    // The render failed later; Retry runs the same accepted params, whose captured path is still the base.
+    const retry: any = { ...ep.job, output_lines: [] }
+    await assert.rejects(
+      prepareUnifiedVideoAssemblyInputs(ep.slug, 'EP001', { merged_audio_path: base, post_audio: { ...POST_AUDIO } } as any, retry),
+      /No Scene Plan timeline was found/,
+      'Retry reaches the Scene Plan; it is not refused as an unrecorded merge',
+    )
+    assert.deepEqual((await fs.readdir(ep.mergedDir)).sort(), listing, 'nothing was re-made')
+    const req: any = postAudioReq(base)
+    const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+    const used = await guardClosingTail(ep.slug, 'EP001', req, assets, retry)
+    assert.equal(used.merged_audio[0]!.filename, 'EP001_merged_audio_v2.mp3')
+    assert.equal(req.merged_audio_path, used.merged_audio[0]!.path)
+  })
+})
+
+describe('the re-mix of one episode runs one at a time', () => {
+  test('two renders asking at once make one new track and both use it', async () => {
+    const ep = await oldMergeEpisode()
+    const jobs = [{ ...ep.job, job_id: 'va-a', output_lines: [] }, { ...ep.job, job_id: 'va-b', output_lines: [] }]
+    const results = await Promise.all(jobs.map(async job => {
+      const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+      return guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, job)
+    }))
+    assert.deepEqual(results.map(r => r.merged_audio[0]!.filename), ['EP001_merged_audio_v2.mp3', 'EP001_merged_audio_v2.mp3'])
+    const files = await fs.readdir(ep.mergedDir)
+    assert.ok(!files.some(file => file.includes('_v3')), `a second re-mix was made: ${files.join(', ')}`)
+    assert.equal(jobs.filter(job => /re-mixing the audio/.test(job.output_lines.join('\n'))).length, 1, 'only one of them mixed')
+  })
+})
+
+describe('a re-mix keeps what the original merge recorded', () => {
+  const lines = (job: any) => job.output_lines.join('\n')
+
+  test("the episode's own music track, gap and opening are reused; the pool is not touched", async () => {
+    const ep = await oldMergeEpisode()
+    const projectDir = pm.getProjectDir(ep.slug)!
+    await fs.mkdir(path.join(projectDir, 'music'), { recursive: true })
+    for (const [name, hz] of [['A.mp3', 220], ['B.mp3', 330]] as const) {
+      execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `sine=frequency=${hz}:duration=2`,
+        '-c:a', 'libmp3lame', path.join(projectDir, 'music', name)])
+    }
+    const log = [{ filename: 'A.mp3', episode_code: 'EP001', used_at: '2026-10-01T00:00:00.000Z' }]
+    const cfg0 = await pm.getConfig(ep.slug)
+    // Since the first merge: the preset moved to the pool, A was switched off, and the lead-in changed.
+    await pm.updateConfig(ep.slug, {
+      music_pool_strategy: 'sequential', music_pool_cursor: 1, music_pool_usage_log: log,
+      music_pool_tracks: [{ filename: 'A.mp3', enabled: false }],
+      audio_merge_presets: [{
+        id: 'merge-1', name: 'Mix',
+        data: { music: { enabled: true, source: 'pool', files: [], volume: 50, post_narration_volume: 60, fade_in: 0, fade_out: 0, lead_in_enabled: true, lead_in_seconds: 3 }, gap_duration: 2, normalize_volume: false },
+      }],
+    } as any)
+    void cfg0
+    // The old merge recorded a 7 s gap between chapters.
+    const sidecarPath = path.join(ep.mergedDir, '..', 'audio_chapters.json')
+    const episodeDir = path.dirname(ep.mergedDir)
+    const chapters = JSON.parse(await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf-8'))
+    await fs.writeFile(path.join(episodeDir, 'audio_chapters.json'), JSON.stringify({ ...chapters, gap_duration_s: 7 }))
+    void sidecarPath
+
+    const verdict: any = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
+    assert.equal(verdict.action, 'remix')
+    assert.equal(path.basename(verdict.params.music.files[0]), 'A.mp3', "the episode's own track, not the pool's next pick")
+    assert.equal(verdict.params.music.source, 'manual', 'so the merge does not pick again')
+    assert.equal(verdict.params.gap_duration, 7)
+    assert.equal(verdict.params.music.lead_in_seconds, LEAD_IN_SEC, 'the lead-in the first merge recorded, not the preset as it is now')
+
+    const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+    const after = await guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, ep.job)
+    near(after.merged_audio[0]!.opening?.lead_in_sec, LEAD_IN_SEC, 0.4)
+    const text = lines(ep.job)
+    assert.match(text, /music: A\.mp3.*recorded/i)
+    assert.match(text, /gap between chapters: 7 s.*recorded/i)
+    assert.match(text, /lead-in: 8 s.*recorded/i)
+    assert.match(text, /loudness target: not recorded, so the current Audio Assembly and Video Assembly presets apply/i)
+    const cfg = await pm.getConfig(ep.slug)
+    assert.equal(cfg!.music_pool_cursor, 1)
+    assert.deepEqual(cfg!.music_pool_usage_log, log)
+  })
+
+  test('a saved closing longer than the one asked for is cut to the one asked for', async () => {
+    const ep = await oldMergeEpisode({ savedTail: 40 })
+    const assets = await scanEpisodeAssets(ep.slug, 'EP001', { preferredMergedFilename: 'EP001_merged_audio.mp3' })
+    const after = await guardClosingTail(ep.slug, 'EP001', postAudioReq(ep.original), assets, ep.job)
+    near(after.merged_audio[0]!.closing_tail_sec, TAIL_SEC, 0.3)
   })
 })
