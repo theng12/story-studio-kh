@@ -186,3 +186,24 @@ describe('local auto-retry policy', () => {
     assert.equal(policy('thumb_images', { model: 'studio-hub::org/model' }).eligible, true)
   })
 })
+
+describe('input and configuration refusals fail once with the reason', () => {
+  test('a job missing a required input is not retried', () => {
+    for (const message of [
+      'episode_id is required',
+      'model is required',
+      'No writing model is chosen for this step. Choose one on Scripts, then run it again.',
+      'No model selected — pick a model in the script form before expanding.',
+      'No writing model was picked. Pick one on Episode Builder and press Polish again.',
+      'This episode has no title yet, and an episode code is not thumbnail text. Give EP0001 a title in Ideas or Metadata, then generate its thumbnail prompts.',
+    ]) assert.equal(isNonRetryableError(new Error(message)), true, message)
+  })
+
+  test('a transient failure is still retried, and a marked one stays marked', () => {
+    for (const message of ['Request timed out', 'FFmpeg exited with code 1', 'The provider returned 503', 'Audio is required to be mono by the encoder, retrying']) {
+      assert.equal(isNonRetryableError(new Error(message)), false, message)
+    }
+    assert.equal(isNonRetryableError(Object.assign(new Error('anything'), { retryable: false })), true)
+    assert.equal(isNonRetryableError(null), false)
+  })
+})
