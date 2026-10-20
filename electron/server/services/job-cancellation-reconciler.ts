@@ -398,9 +398,12 @@ export async function reconcilePendingJobCancellation(
       // outcome that will never arrive. 2026-10-16 — an exact task id that was
       // dispatched or held is NOT proven absent by a 404 (a wrong-route read
       // returned exactly that for a task that later succeeded); it stays held.
+      // `shouldRecheckStoredUnknownOutcome` is that same "the Gateway never
+      // confirmed this submission" statement, so it also covers the legacy rows
+      // that kept only the hold's failure code (2026-10-20).
       if (isGenStudioTaskAbsent(error)
         && (pendingEvidence || (evidence.dispatch_state !== 'dispatched'
-          && evidence.recovery_required !== true && evidence.recovery_state !== 'unknown_outcome'))) {
+          && !shouldRecheckStoredUnknownOutcome(evidence)))) {
         providerJobs.push({ operation: evidence.operation, evidence_id: evidenceId, job: absentProviderTask(evidenceId) })
         observed.add(key)
         absent.push({ operation: evidence.operation, evidence_id: evidenceId })

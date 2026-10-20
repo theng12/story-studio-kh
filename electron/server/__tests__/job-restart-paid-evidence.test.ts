@@ -59,8 +59,20 @@ before(async () => {
     // Read-only status for one already-accepted chat task.
     const match = /^\/v1\/chat\/responses\/(.+)$/.exec(url.pathname)
     if (method === 'GET' && match) {
+      const id = decodeURIComponent(match[1]!)
+      // A row the Gateway still holds answers with the HOLD, not with a result: asked about its own
+      // id, a submission-uncertain row is re-read rather than re-used from stored evidence, and this
+      // is what the Gateway publishes for the one `chat-uncertain-1` is (`services/job-cancellation-
+      // reconciler.ts` reads it back; `__tests__/chat-held-outcome-readback.test.ts` is the same
+      // envelope with the pair present on the stored row).
+      if (id === 'chat-uncertain-1') {
+        return Response.json({
+          id, state: 'failed', failure_code: 'PROVIDER_SUBMISSION_UNCERTAIN', dispatch_state: 'dispatched',
+          cancellable: false, cancelled: false, recovery_required: true, recovery_state: 'unknown_outcome',
+        })
+      }
       return Response.json({
-        id: decodeURIComponent(match[1]!), state: 'succeeded', dispatch_state: 'dispatched',
+        id, state: 'succeeded', dispatch_state: 'dispatched',
         cancellable: false, cancelled: false, settled_credits: 3,
       })
     }

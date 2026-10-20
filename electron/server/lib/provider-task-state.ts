@@ -19,6 +19,7 @@ import {
   GENSTUDIO_TASK_NOT_CREATED_STATE,
   holdsUnknownProviderOutcome,
   isNeverCreatedProviderTask,
+  isUnknownOutcomeFailureCode,
 } from '../contracts/provider-task-state.js'
 
 export { GENSTUDIO_TASK_NOT_CREATED_STATE, isNeverCreatedProviderTask } from '../contracts/provider-task-state.js'
@@ -67,6 +68,15 @@ export function shouldRecheckStoredTranscriptionAbsence(entry: {
  * Gateway can say when that happened. So a finished job's evidence refresh
  * re-reads such a row instead of treating the saved snapshot as final.
  *
+ * The hold's own failure code says the same thing the pair does, so a row saved
+ * before 1.4.327 — which copied the code but never the pair — is re-read too.
+ * Four held Idea Campaigns (Boundful 5864f738, Brain Wise a257d9f4, Capi
+ * b21f6250, Domnak 14c50bed, 2026-10-20) were stuck exactly this way, and one of
+ * them carries TWO such children, so no "the second child already says
+ * HOLD_CLOSED" reading covers it. Both hold fields must be ABSENT for the code to
+ * be read this way: a row the Gateway answered WITH the pair — `false` / null, a
+ * closed hold — is settled proof and is left alone.
+ *
  * This is NOT a second definition of settled. A held row still settles for Retry
  * and history removal (`isSettledProviderEntry`, EP0113 — a held writing job
  * must stay retryable), and nothing here submits or replays anything: the
@@ -74,7 +84,12 @@ export function shouldRecheckStoredTranscriptionAbsence(entry: {
  * including the same hold it already had.
  */
 export function shouldRecheckStoredUnknownOutcome(entry: ProviderEntryState): boolean {
-  return holdsUnknownProviderOutcome(entry)
+  if (holdsUnknownProviderOutcome(entry)) return true
+  return entry.state === 'failed'
+    && entry.cancelled !== true
+    && entry.recovery_required == null
+    && entry.recovery_state == null
+    && isUnknownOutcomeFailureCode(entry.failure_code)
 }
 
 /**
@@ -105,6 +120,7 @@ const SETTLED_PROVIDER_STATES: ReadonlySet<string> = new Set([
 
 type ProviderEntryState = {
   operation?: unknown; state?: unknown; cancelled?: boolean | null; recovery_required?: unknown; recovery_state?: unknown
+  failure_code?: unknown
 }
 
 // Only music has a path out of an unknown-outcome hold (recover-existing-task), so only there does a

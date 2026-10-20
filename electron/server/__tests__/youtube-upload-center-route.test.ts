@@ -5650,6 +5650,50 @@ test('the final check runs on demand and stores its verdict beside the finished 
   assert.deepEqual(row.final_check.issues, [])
 })
 
+test('the stored final check is readable in full without starting another check', async () => {
+  const { slug, episodeCode, title } = await uploadReadyProject()
+  const videoPath = path.join(
+    (await utils.resolveEpisodePaths(slug, episodeCode, title)).video_dir,
+    `${episodeCode}_final_video.mp4`,
+  )
+  await fs.writeFile(videoPath, tinyVideoBytes())
+
+  // Nothing measured yet: the read says which kind of "none" this is, and starts nothing. The
+  // progress entry is the proof — `startFinalCheck` writes its marker before any decode does.
+  const none = await request(app).get(`/api/projects/${slug}/youtube/final-check?episode_code=${episodeCode}`)
+  assert.equal(none.status, 404)
+  assert.equal(none.body.code, 'YOUTUBE_NO_FINAL_CHECK')
+  assert.equal(none.body.detail, 'Final check: not run yet')
+  assert.deepEqual(finalCheckProgress(videoPath), { running: false, error: null, interrupted: false },
+    'reading the result must not start a check')
+
+  // A real check, measured and stored the way Video Assembly stores one.
+  const verdict = await runFinalCheck(videoPath, {
+    planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 0, height: 0, subtitles_path: null, speech_end_sec: 0,
+  })
+  await storeFinalCheck(videoPath, verdict)
+
+  const read = await request(app).get(`/api/projects/${slug}/youtube/final-check?episode_code=${episodeCode}`)
+  assert.equal(read.status, 200, JSON.stringify(read.body))
+  assert.equal(read.body.episode_code, episodeCode)
+  assert.equal(read.body.running, false)
+  assert.equal(read.body.stale, false)
+  assert.equal(read.body.identity.checked_at, verdict.checked_at)
+  assert.equal(read.body.identity.file_size, verdict.file.size)
+  // The whole sidecar, not the row's reduced projection: what the render was asked to produce
+  // (expected), what the file actually measured (actual), and the issues in their own words.
+  assert.deepEqual(read.body.result, await storedVerdict(videoPath))
+  assert.deepEqual(read.body.result.expected, verdict.expected)
+  assert.ok(read.body.result.actual, 'the measured values are the point of this route')
+  assert.equal(read.body.result.actual.duration_sec, verdict.actual.duration_sec)
+  // Still nothing measuring it: a read is a read.
+  assert.equal(finalCheckProgress(videoPath).running, false)
+
+  const noEpisode = await request(app).get(`/api/projects/${slug}/youtube/final-check`)
+  assert.equal(noEpisode.status, 400)
+})
+
 test('the final check reads the speech end from the episode Scene Plan when the file carries no plan', async () => {
   const { slug, episodeCode, title } = await uploadReadyProject()
   const paths = await utils.resolveEpisodePaths(slug, episodeCode, title)
