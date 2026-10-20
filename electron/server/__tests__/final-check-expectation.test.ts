@@ -27,7 +27,9 @@ let planlessExpectationFor: typeof import('../services/final-check-expectation.j
 let freezeExistingPlanlessFinals: typeof import('../services/final-check-expectation.js')['freezeExistingPlanlessFinals']
 let expectationFromFrozenShape: typeof import('../services/final-check-expectation.js')['expectationFromFrozenShape']
 let frozenExpectationPath: typeof import('../lib/final-video-check.js')['frozenExpectationPath']
+let finalCheckPath: typeof import('../lib/final-video-check.js')['finalCheckPath']
 let readFrozenShape: typeof import('../lib/final-video-check.js')['readFrozenShape']
+let readStoredFinalCheck: typeof import('../lib/final-video-check.js')['readStoredFinalCheck']
 let finalCheckIssues: typeof import('../lib/final-video-check.js')['finalCheckIssues']
 let resolveEpisodePathsByCode: typeof import('../services/utils.js')['resolveEpisodePathsByCode']
 let resolveScenePlanPath: typeof import('../services/utils.js')['resolveScenePlanPath']
@@ -42,7 +44,8 @@ before(async () => {
   pm = await import('../services/project-manager.js')
   ;({ planlessExpectationFor, freezeExistingPlanlessFinals, expectationFromFrozenShape } =
     await import('../services/final-check-expectation.js'))
-  ;({ frozenExpectationPath, readFrozenShape, finalCheckIssues } = await import('../lib/final-video-check.js'))
+  ;({ frozenExpectationPath, finalCheckPath, readFrozenShape, readStoredFinalCheck, finalCheckIssues } =
+    await import('../lib/final-video-check.js'))
   ;({ resolveEpisodePathsByCode, resolveScenePlanPath } = await import('../services/utils.js'))
   introAsset = path.join(dir, 'Story Sprout - Intro Video.mp4')
   execFileSync('ffmpeg', [
@@ -128,6 +131,51 @@ async function ref(channel: PlanlessChannel) {
   return {
     slug: channel.slug, episode_code: 'EP001', episode_dir: channel.episodeDir,
     video_path: channel.videoPath, mtime_ms: stat.mtimeMs,
+  }
+}
+
+/** File A's own tail, intro and freeze stamp — the shape a verdict recorded for bytes that are gone. */
+const A_TAIL_SEC = 1234.5
+const A_INTRO_ASSET = '/assets/story-sprout-intro.mp4'
+const A_FROZEN_AT = '2026-01-01T00:00:00.000Z'
+
+/** A plan-less verdict that carries a shape, the way the render's or the route's own check writes one. */
+const A_VERDICT: Partial<FinalCheckExpectation> = {
+  after_narration_sec: A_TAIL_SEC,
+  intro: { asset: A_INTRO_ASSET, window: { start_sec: 0, end_sec: 9.6 }, black: [] },
+  frozen_at: A_FROZEN_AT,
+}
+
+/** Store a verdict for whatever is at `videoPath` right now, bound to those bytes the way a check does. */
+async function storeVerdictFor(videoPath: string, expected: Partial<FinalCheckExpectation>): Promise<void> {
+  const stat = await fs.stat(videoPath)
+  await fs.writeFile(finalCheckPath(videoPath), JSON.stringify({
+    checked_at: new Date().toISOString(),
+    file: { size: stat.size, mtime_ms: stat.mtimeMs },
+    expected: {
+      planned_sec: 0, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+      width: 0, height: 0, subtitles_path: null, ...expected,
+    },
+    actual: {
+      duration_sec: 1, video_sec: 1, audio_sec: 1, width: 320, height: 180,
+      tail_lufs: null, black: [], silence: [],
+    },
+    passed: true, issues: [],
+  }, null, 2))
+}
+
+/**
+ * Replace the final with different bytes and leave the verdict where it was.
+ *
+ * This is what a render whose own check could not run leaves behind (`generators/video.ts`'s
+ * `finalCheckFinalVideo` keeps the old sidecar when the check throws), and what importing a render
+ * over an existing final does.
+ */
+async function replaceFinal(channel: PlanlessChannel, opts: { ageSec?: number } = {}): Promise<void> {
+  await fs.appendFile(channel.videoPath, '\na second render of the same episode, and nobody checked it')
+  if (opts.ageSec) {
+    const when = new Date(Date.now() - opts.ageSec * 1000)
+    await fs.utimes(channel.videoPath, when, when)
   }
 }
 
@@ -272,5 +320,72 @@ describe('the boot sweep', () => {
     assert.ok(sweep.unknown >= 1, 'it is reported, not frozen against the new settings')
     assert.ok(sweep.unknown_finals.includes(channel.videoPath))
     assert.equal(await readFrozenShape(channel.videoPath), null)
+  })
+})
+
+/**
+ * A verdict is evidence about the bytes it measured and about no others.
+ *
+ * File A's verdict carries A's own tail length and A's own intro. Once B has replaced A at the same
+ * path, `readStoredFinalCheck` still returns that verdict — and reports it `stale`, because it is the
+ * only thing that knows the file it measured is gone. Reading A's answer off it anyway is how one
+ * final's shape gets certified for another: the sweep stamped A's `after_narration_sec` and `intro`
+ * onto B's size and mtime, which made a freeze that no longer looks stale, and the on-demand check
+ * measured B against A's plan (2026-10-20).
+ */
+describe("a verdict the final has outlived", () => {
+  test("a stale verdict's shape is never frozen onto the file that replaced it", async () => {
+    const channel = await planlessChannel()
+    await storeVerdictFor(channel.videoPath, A_VERDICT)
+    await replaceFinal(channel)
+    assert.equal((await readStoredFinalCheck(channel.videoPath))?.stale, true,
+      'the verdict is now about bytes that are gone')
+
+    const sweep = await freezeExistingPlanlessFinals()
+
+    assert.ok(sweep.records.includes(channel.videoPath), 'the final was still given an expectation')
+    const frozen = await readFrozenShape(channel.videoPath)
+    assert.equal(frozen?.stale, false, 'and it describes the bytes that are there now')
+    assert.notEqual(frozen?.shape.after_narration_sec, A_TAIL_SEC, "file A's tail is not certified for B")
+    assert.notEqual(frozen?.shape.intro?.asset, A_INTRO_ASSET, "file A's intro is not certified for B")
+    assert.notEqual(frozen?.shape.frozen_at, A_FROZEN_AT, 'nor is A\'s freeze stamp')
+    // What it is instead: B's own settings, still provably unchanged since B was written.
+    assert.equal(frozen?.shape.after_narration_sec, 6015, 'the 6000 s still + 15 s fade of the settings')
+    assert.equal(frozen?.shape.source, 'settings')
+  })
+
+  test('with the settings moved, a stale verdict leaves the sweep and the recheck saying unknown', async () => {
+    const channel = await planlessChannel()
+    await storeVerdictFor(channel.videoPath, A_VERDICT)
+    // B is written, then the preset moves after it: nothing on disk can say what B was made to be.
+    await replaceFinal(channel, { ageSec: 3600 })
+    await pm.updateConfig(channel.slug, sproutConfig(introAsset, 0) as any)
+
+    const sweep = await freezeExistingPlanlessFinals()
+    assert.ok(sweep.unknown_finals.includes(channel.videoPath), 'reported, not frozen from A\'s verdict')
+    assert.equal(await readFrozenShape(channel.videoPath), null, 'and nothing was written claiming a shape')
+
+    const recheck = await planlessExpectationFor(await ref(channel))
+    assert.equal(recheck.kind, 'unknown')
+    if (recheck.kind !== 'unknown') return
+    assert.match(recheck.reason, /settings changed after this video was rendered/)
+  })
+
+  test('a verdict that still describes the file is still the shape the sweep freezes onto it', async () => {
+    // The other half of the rule: the stale test must not become a blanket waiver for old finals.
+    const channel = await planlessChannel()
+    await storeVerdictFor(channel.videoPath, A_VERDICT)
+    assert.equal((await readStoredFinalCheck(channel.videoPath))?.stale, false,
+      'this verdict measured exactly these bytes')
+
+    const sweep = await freezeExistingPlanlessFinals()
+
+    assert.ok(sweep.records.includes(channel.videoPath))
+    const frozen = await readFrozenShape(channel.videoPath)
+    assert.equal(frozen?.stale, false)
+    assert.equal(frozen?.shape.after_narration_sec, A_TAIL_SEC, "the verdict's own recorded shape is the answer")
+    assert.equal(frozen?.shape.intro?.asset, A_INTRO_ASSET)
+    assert.equal(frozen?.shape.source, 'plan')
+    assert.equal(frozen?.shape.frozen_at, A_FROZEN_AT)
   })
 })

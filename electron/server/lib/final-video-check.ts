@@ -989,6 +989,23 @@ export async function readStoredFinalCheck(videoPath: string): Promise<StoredFin
 }
 
 /**
+ * The expectation a stored verdict recorded, when that verdict is about the file that is there NOW.
+ *
+ * A verdict the file has outlived describes bytes that are gone (`stale`), so everything it recorded
+ * — its plan, the tail and intro it measured, the freeze it echoed — says nothing about the file on
+ * disk. Reading it anyway is how one final's shape gets certified for another (2026-10-20): the
+ * freeze sweep stamped a stale verdict's `after_narration_sec` and `intro` onto a rewritten file's
+ * size and mtime, which made a record that no longer looks stale, and the on-demand check measured
+ * the new bytes against the old plan and skipped the fresh resolution that could have answered.
+ *
+ * So a caller that means to ACT on a verdict takes it through here; the callers that mean to SHOW
+ * one keep `readStoredFinalCheck`, which reports `stale` beside the verdict it still returns.
+ */
+export function freshStoredExpectation(stored: StoredFinalCheck | null): FinalCheckExpectation | undefined {
+  return stored && !stored.stale ? stored.result.expected : undefined
+}
+
+/**
  * Why this final may not be uploaded, or null when it may.
  *
  * A final that was never checked is NOT refused: Video Assembly writes a verdict for every render it

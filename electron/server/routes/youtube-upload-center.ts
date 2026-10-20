@@ -82,7 +82,8 @@ import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '
 import { getUploadMode } from '../services/upload-store.js'
 import { safetyMode } from '../services/safety-checks.js'
 import {
-  finalCheckVerdict, finalCheckIdentity, finalCheckIdentityMatches, readStoredFinalCheck, readFrozenShape,
+  finalCheckVerdict, finalCheckIdentity, finalCheckIdentityMatches, freshStoredExpectation,
+  readStoredFinalCheck, readFrozenShape,
   speechEndSecFromScenePlan, finalCheckSummary, finalCheckProgress, startFinalCheck, readPlannedSectionGaps,
   type FinalCheckExpectation,
 } from '../lib/final-video-check.js'
@@ -2473,7 +2474,11 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
       return
     }
     const stored = await readStoredFinalCheck(sourceVideoPath)
-    const recorded = stored?.result.expected
+    // Only a verdict that still describes THIS file's bytes is evidence about it. A verdict the file
+    // has outlived would measure these bytes against the previous final's plan, tail and intro — and
+    // its echoed `frozen_at` would skip the fresh resolution below that can answer for the file that
+    // is actually on disk (2026-10-20).
+    const recorded = freshStoredExpectation(stored)
     const expected: FinalCheckExpectation = {
       planned_sec: 0,
       tail: { sec: 0, from_end_sec: 0 },

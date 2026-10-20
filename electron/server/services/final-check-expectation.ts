@@ -23,7 +23,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import {
-  freezeShape, measureIntroAssetBlack, readFrozenShape, readStoredFinalCheck,
+  freezeShape, freshStoredExpectation, measureIntroAssetBlack, readFrozenShape, readStoredFinalCheck,
   type FinalCheckExpectation, type FrozenFinalCheckShape,
 } from '../lib/final-video-check.js'
 import { resolveEpisodeRenderShape } from './opening-assets.js'
@@ -182,9 +182,14 @@ export async function freezeExistingPlanlessFinals(): Promise<FreezeSweepResult>
         const stat = await fs.stat(videoPath).catch(() => null)
         if (!stat || !(stat.size > 0)) continue
         const stored = await readStoredFinalCheck(videoPath)
+        // Only a verdict that still describes THESE bytes is evidence about them. A verdict the file
+        // has outlived would hand the freeze below the previous final's tail and intro, stamped with
+        // this file's size and mtime — a shape certified for the wrong video, and one a later check
+        // would then read back as fresh (2026-10-20).
+        const recorded = freshStoredExpectation(stored)
         // A final whose render recorded a plan of its own is measured against THAT plan; it needs no
         // freeze and must not get one (its sidecar is the plan the file was made for).
-        if (stored && Number(stored.result.expected?.planned_sec) > 0) continue
+        if (recorded && Number(recorded.planned_sec) > 0) continue
         result.planless += 1
         const existing = await readFrozenShape(videoPath)
         if (existing && !existing.stale) {
@@ -192,7 +197,7 @@ export async function freezeExistingPlanlessFinals(): Promise<FreezeSweepResult>
           result.records.push(videoPath)
           continue
         }
-        const fromVerdict = frozenShapeFromStoredVerdict(stored?.result.expected, code, stat)
+        const fromVerdict = frozenShapeFromStoredVerdict(recorded, code, stat)
         if (fromVerdict) {
           const wrote = await freezeShape(videoPath, fromVerdict)
           if (wrote === 'kept') result.kept += 1
