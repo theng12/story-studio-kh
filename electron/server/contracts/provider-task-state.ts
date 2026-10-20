@@ -69,6 +69,28 @@ export function holdsUnknownMusicResult(
   return (remotes || []).some(remote => remote.operation === 'music.generation' && holdsUnknownProviderOutcome(remote))
 }
 
+/**
+ * Failure codes that say the provider may already have taken the request: the Gateway's own hold code
+ * `UNKNOWN_OUTCOME`, and the submission-uncertain dialect (`LANGUAGE_…` / `CLOUD_…` on the cloud, the
+ * Gateway's `PROVIDER_SUBMISSION_UNCERTAIN`).
+ *
+ * `isSubmissionUncertainCode` in `genstudio-client.ts` is the dispatch-side reader of the same family;
+ * this list lives here because the dependency-free contract cannot import that module —
+ * `genstudio-client.ts` imports THIS one, and reading a value across that cycle is the
+ * module-initialisation failure its header warns about.
+ */
+const UNKNOWN_OUTCOME_FAILURE_CODES: ReadonlySet<string> = new Set([
+  'UNKNOWN_OUTCOME',
+  'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+  'CLOUD_SUBMISSION_UNCERTAIN',
+  'PROVIDER_SUBMISSION_UNCERTAIN',
+])
+
+/** True when this failure code alone says the submission outcome is unknown. */
+export function isUnknownOutcomeFailureCode(code: unknown): boolean {
+  return typeof code === 'string' && UNKNOWN_OUTCOME_FAILURE_CODES.has(code.trim().toUpperCase())
+}
+
 /** The ONE line the Jobs control and the job card show for a finished song not in the library yet. */
 export const MUSIC_RESULT_AWAITING_IMPORT_GUIDANCE = 'A song from this job finished at the Gateway but is not in the library yet; nothing was run twice. '
   + 'Open Music Library and use "Recover existing result" to import it without a new generation. This history is kept until then.'

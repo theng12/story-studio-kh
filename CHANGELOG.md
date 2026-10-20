@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.336 — 2026-10-20
+
+- Older writing requests saved as "outcome unknown" before 1.4.327 are now checked with the Gateway too, so their jobs show the real result and can be retried. Nothing is sent again.
+- The full result of a final check (what was expected, what was measured, and any issues) can be read back after it finishes in the background.
+
 ## v1.4.335 — 2026-10-20
 
 - A Pipeline run no longer queues a step its own check left out (for example Motion on a channel with no usable Motion preset), so those steps stop failing with "model required".
