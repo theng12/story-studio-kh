@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.345 — 2026-10-21
+
+- Finished Story Sprout videos made before today now get a saved expectation record taken from their own render request, plus an owner-sourced freeze for episodes that match today's settings. This means their final check stays valid even after the channel template changes. Videos whose length or opening black doesn't match stay marked as cannot-be-checked rather than guessed.
+- Stale "written but UNRUN" notes removed from publishing and idea-campaign test headers; those suites are run in the gate.
+
 ## v1.4.344 — 2026-10-20
 
 - If a finished video's file is replaced, for example by a re-render that failed its check, the final check no longer judges the new file using the old file's results. It checks the new file on its own, or says it cannot be checked.

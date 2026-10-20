@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.345 — 2026-10-21 (gate running)
+
+Merged fix/freeze-evidence (23585c85: a final's own render request is the evidence that it was frozen from; owner-sourced freeze for Story Sprout finals made before 2026-10-20T13:17Z whose measured duration matches today's settings and whose opening black is the intro asset's own; boot sweep runs once, idempotent; GET /projects/:slug/youtube/freeze-states exposes the state). Stale "written but UNRUN" notes removed from publishing-overview*, idea-campaign-* test headers on main (db55c086).
+
 ## 1.4.344 — 2026-10-20 (gated and landed)
 
 Merged fix/stale-verdict-freeze (032629f8: freshStoredExpectation returns a stored verdict's expected only when not stale; the boot freeze sweep and the on-demand youtube final-check route both go through it, so a rewritten final is never certified with the replaced file's shape; production report release343-freeze-stale-verdict-verification-20261020.md).
