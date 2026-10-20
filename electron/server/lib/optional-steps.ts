@@ -27,6 +27,7 @@
 import { existsSync, readFileSync, statSync } from 'fs'
 import path from 'path'
 import { getProjectDir } from '../services/project-manager.js'
+import { pipelineStepLabel } from './pipeline-continuation.js'
 
 interface OptionalStepDefinition {
   /** The plain name the owner knows the step by (`lib/pipeline-continuation.ts`). */
@@ -66,6 +67,29 @@ export function optionalStepSkipReason(step: unknown, config: unknown): string |
   const body = config && typeof config === 'object' ? config as Record<string, any> : {}
   if (definition.enabled(body)) return null
   return `${definition.label} is switched off in this channel's settings, so this step is skipped.`
+}
+
+/**
+ * Steps whose generator refuses to start without the `model` their preset
+ * supplied. Preflight leaves such a step out when the preset is missing or
+ * unusable (routes/pipeline.ts `admitStep`); a chain captured before that rule
+ * still carries the link, so every boundary that meets one asks this too.
+ */
+const MODEL_REQUIRED_STEPS = new Set(['motion_review'])
+
+/**
+ * Why a captured Pipeline link is skipped for want of a usable preset/model, or
+ * null. Only a stamped Pipeline link (`pipeline_step`) can qualify — manual work
+ * has none — and a link that carries its model is a complete request.
+ * Night Atlas Mythology EP0014, 2026-10-20: a Motion link with no model died on
+ * "episode_id and model are required" and held Final Video.
+ */
+export function unusableLinkSkipReason(link: { params?: Record<string, any> | null }): string | null {
+  const step = link.params?.pipeline_step
+  if (!MODEL_REQUIRED_STEPS.has(step)) return null
+  const model = link.params?.model
+  if (typeof model === 'string' && model.trim()) return null
+  return `${pipelineStepLabel(step)} has no usable preset or model in this run, so this step is skipped.`
 }
 
 /** The `output_lines` prefix the Jobs list and the batch summary key on. */
