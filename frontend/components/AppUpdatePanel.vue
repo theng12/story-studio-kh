@@ -73,6 +73,8 @@ interface UpdateStatus {
   /** Final checks still measuring a finished video; they hold an install until they finish. */
   final_checks_running?: number
   queue_paused?: boolean
+  /** The one non-queue storage operation holding this Mac, if any; the queue runs on through it. */
+  maintenance_running?: { id: string; kind: string; status: string } | null
   pause_recovery_note?: string | null
   waiting_for?: { submits: number; jobs: string[]; finalChecks?: number; maintenance?: { kind: string; status: string } | null } | null
   trusted_fingerprint: string | null
@@ -95,7 +97,7 @@ const headline = computed(() => {
     case 'downloading': return `Downloading ${version.value}…`
     case 'ready': return s.held ? `${version.value} is ready; it waits for Install Now because you resumed the queue.`
       : !s.settings.auto_install ? `${version.value} is ready.`
-        : readyText(version.value, !!s.queue_paused)
+        : readyText(version.value, !!s.queue_paused, s.maintenance_running)
     case 'draining': return waitingText(version.value, s.waiting_for)
     case 'installing': return `Installing ${version.value}; Story Studio restarts.`
     case 'installed': return `Up to date: ${s.current_version} was installed remotely.`

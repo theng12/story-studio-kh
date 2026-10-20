@@ -25,6 +25,8 @@ interface UpdateBannerStatus {
   /** Final checks still measuring a finished video; they hold an install until they finish. */
   final_checks_running?: number
   queue_paused?: boolean
+  /** The one non-queue storage operation holding this Mac, if any; the queue runs on through it. */
+  maintenance_running?: { id: string; kind: string; status: string } | null
   waiting_for?: { submits: number; jobs: string[]; finalChecks?: number; maintenance?: { kind: string; status: string } | null } | null
 }
 
@@ -40,7 +42,7 @@ const text = computed(() => {
   if (!s || !v) return ''
   if (s.phase === 'ready') {
     if (s.held || !s.settings?.auto_install) return `Story Studio ${v} is ready.`
-    return readyText(v, !!s.queue_paused)
+    return readyText(v, !!s.queue_paused, s.maintenance_running)
   }
   if (s.phase === 'downloading') return `Downloading Story Studio ${v}…`
   if (s.phase === 'draining') return waitingText(v, s.waiting_for)

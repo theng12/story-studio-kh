@@ -4,11 +4,21 @@ const jobs = (n: number) => `${n} job${n === 1 ? '' : 's'}`
 
 export const PROMPT_INSTALL_TEXT = "Installs as soon as it's ready (work resumes after the restart)"
 
-/** The ready line: about to install, or held by the owner's own queue pause. */
-export function readyText(version: string, queuePaused: boolean): string {
-  return queuePaused
-    ? `Update ${version} ready. You paused the queue, so it waits for you: resume the queue, or press Install Now.`
-    : `Update ${version} ready. ${PROMPT_INSTALL_TEXT}.`
+/** Free up space is a media cleanup; the read-only file review is what it is. */
+const maintenanceName = (kind: string): string => kind === 'preview' ? 'file review' : 'media cleanup'
+
+/**
+ * The ready line: about to install, held by the owner's own queue pause, or waiting for a storage
+ * operation. The last is NOT a queue pause — the queue keeps running through it (2026-10-19/20: a
+ * staged release waited ~9 h on an all-channel Free Up Space run with production stopped).
+ */
+export function readyText(version: string, queuePaused: boolean, maintenance?: { kind: string } | null): string {
+  if (queuePaused) return `Update ${version} ready. You paused the queue, so it waits for you: resume the queue, or press Install Now.`
+  if (maintenance) {
+    return `Update ${version} ready. It waits for the ${maintenanceName(maintenance.kind)} to finish before installing;`
+      + ' the queue keeps running.'
+  }
+  return `Update ${version} ready. ${PROMPT_INSTALL_TEXT}.`
 }
 
 /** While a prompt install waits: what for (requests already sent, jobs that could not resume, a storage operation). */
@@ -39,8 +49,7 @@ export function waitingText(
   const maintenance = waitingFor?.maintenance
   if (maintenance) {
     // Not a queue job: it is Free up space or Clear Uploaded Videos, and a restart kills it mid-file.
-    const what = maintenance.kind === 'preview' ? 'the file review' : 'the media cleanup'
-    parts.push(`${what} to finish (it cannot pick up where it stopped)`)
+    parts.push(`the ${maintenanceName(maintenance.kind)} to finish (it cannot pick up where it stopped)`)
   }
   return `Installing Story Studio ${version}: new work is paused${parts.length ? `; waiting for ${parts.join(' and ')}` : ''}. Everything else resumes after the restart.`
 }

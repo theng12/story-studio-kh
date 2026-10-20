@@ -11,6 +11,22 @@ test('the ready line says it installs promptly, or that the owner\'s own pause h
   assert.match(readyText('1.4.265', true), /You paused the queue, so it waits for you: resume the queue, or press Install Now/)
 })
 
+test('a storage operation holding the Mac is named, and the queue is said to keep running', () => {
+  // 2026-10-19/20: a staged release waited on a ~9-hour all-channel Free Up Space run. The queue
+  // runs through it, and the line must not leave the owner thinking work has stopped.
+  assert.equal(
+    readyText('1.4.333', false, { kind: 'run', status: 'running' }),
+    'Update 1.4.333 ready. It waits for the media cleanup to finish before installing; the queue keeps running.',
+  )
+  assert.equal(
+    readyText('1.4.333', false, { kind: 'preview', status: 'verifying' }),
+    'Update 1.4.333 ready. It waits for the file review to finish before installing; the queue keeps running.',
+  )
+  // The owner's own pause is still his to act on, and it is said first.
+  assert.match(readyText('1.4.333', true, { kind: 'run', status: 'running' }), /You paused the queue/)
+  assert.equal(readyText('1.4.333', false, null), "Update 1.4.333 ready. Installs as soon as it's ready (work resumes after the restart).")
+})
+
 test('while it waits, it names what for: requests already sent, and jobs that cannot resume', () => {
   assert.equal(waitingText('1.4.265', null), 'Installing Story Studio 1.4.265: new work is paused. Everything else resumes after the restart.')
   assert.equal(

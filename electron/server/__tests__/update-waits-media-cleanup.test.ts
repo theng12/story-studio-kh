@@ -1,13 +1,14 @@
 /**
- * An install waits for the one non-queue maintenance operation holding this Mac (Free up space,
- * Clear Uploaded Videos) and refuses new ones while its drain is claimed.
+ * The updater never restarts the Mac while one of these operations runs (Free up space, Clear
+ * Uploaded Videos), and refuses new ones from the moment it claims its drain.
  *
- * Why it has to: the operation registry (services/episode-media-cleanup.ts) is in-memory, so a
- * restart kills a run mid-file and nothing resumes it. The updater's own wait covered queue jobs
- * only (`waitingFor`), so before this a cleanup was interrupted silently.
+ * Why it must not interrupt one: the operation registry (services/episode-media-cleanup.ts) is
+ * in-memory, so a restart kills a run mid-file and nothing resumes it. The updater's own wait
+ * covered queue jobs only (`waitingFor`), so before this a cleanup was interrupted silently.
  *
- * These are the registry/gate halves. The drain-side halves — an active operation holding the
- * install and a terminal one releasing it — live in `app-update.test.ts`, where the drain harness is.
+ * These are the registry/gate halves. The drain-side halves — a running operation keeping the
+ * release staged with the queue NOT paused for it, and a terminal one letting the drain be claimed —
+ * live in `app-update.test.ts`, where the drain harness is.
  */
 
 import assert from 'node:assert/strict'
