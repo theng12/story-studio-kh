@@ -7,7 +7,7 @@ import * as jq from '../services/job-queue.js'
 import * as pm from '../services/project-manager.js'
 import { getSoftDeletedSlugSet } from '../services/soft-delete.js'
 import { JOB_TYPES, type Job, type JobType } from '../models/types.js'
-import { episodeRecoveryStep, recoverEpisode } from '../services/episode-recovery.js'
+import { episodeRecoveryStep, readEpisodeRecoveryPlans, recoverEpisode } from '../services/episode-recovery.js'
 import { isScopedChapterTranscription } from '../services/audio-workflow-readiness.js'
 import { settleCompletedFailures } from '../services/stale-failures.js'
 import { inspectScenePromptIntegrity } from '../services/scene-prompt-integrity.js'
@@ -894,6 +894,16 @@ router.post('/projects/:slug/jobs/recover-episode/:episodeId', async (req, res) 
   try {
     res.status(202).json({ plan: await recoverEpisode(req.params.slug, req.params.episodeId, true, req.body.source_job_ids, [], true) })
   } catch (error) { res.status(409).json({ detail: error instanceof Error ? error.message : 'Episode recovery is unavailable.' }) }
+})
+
+// Read-only: the saved recovery plan(s) for an episode. Unlike `recoverEpisode`, it never creates or changes one.
+router.get('/projects/:slug/episodes/:code/recovery-plan', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const plans = await readEpisodeRecoveryPlans(req.params.slug, req.params.code)
+    if (!plans) return res.status(404).json({ detail: `No recovery plan is saved for ${req.params.code}.` })
+    res.json(plans)
+  } catch (error) { res.status(500).json({ detail: error instanceof Error ? error.message : 'The recovery plan could not be read.' }) }
 })
 
 router.post('/projects/:slug/jobs/:jobId/retry', async (req, res) => {

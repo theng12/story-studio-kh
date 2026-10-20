@@ -38,7 +38,7 @@ const { runScenePlanJob } = await import('../generators/scene-plan.js')
 const jq = await import('../services/job-queue.js')
 const { resolveEpisodePathsByCode } = await import('../services/utils.js')
 const { registerAllExecutors } = await import('../boot/executors.js')
-const { dispatchEpisodeRecoveryStep, EPISODE_RECOVERY_ORDER } = await import('../services/episode-recovery.js')
+const { dispatchEpisodeRecoveryStep, recoverEpisode, EPISODE_RECOVERY_ORDER } = await import('../services/episode-recovery.js')
 const { scenePromptPackOutputContract } = await import('../lib/story-output-contracts.js')
 
 let sequence = 0
@@ -271,6 +271,44 @@ test('restart requeue: a settled accepted child is collected by its key, with ze
   assert.equal(row.status, 'done', row.output_lines.join(' | '))
   assert.ok(row.output_lines.some(line => /picking this step up where it stopped/.test(line)), 'it went through the automatic restart requeue')
   assert.equal(posts() - before, 0, 'the requeued run asked the Gateway for nothing new')
+  const saved = await savedPrompts(f)
+  for (const id of covered) assert.match(saved[id]!, /Saved Gateway answer/)
+})
+
+test('stale node: Retry of the failed row that holds the accepted child resumes that row, not the childless retired-model row the plan was bound to', async () => {
+  // SS0119/SS0121: the plan node was dispatched as `recovery-<plan>-scene_plan_run` (retired model, no children).
+  // 104bf236 / 5b33340e hold the accepted Gateway children. Retry used to leave the node on the old row.
+  registerAllExecutors({ loadSettings: false })
+  service.reset()
+  const f = await fixture(4) // scene-0002..0005 missing
+  const covered = idsOf(2, 5)
+  const key = 'story-chat-stalenode00000000000000000000000000000000000000'
+  const providerId = await seedAnswer(key, answer(covered), JSON_OBJECT)
+  const planId = '2154537f-d4a3-47ab-95a0-864b5bdde0c5'
+  const oldRow = `recovery-${planId}-scene_plan_run`
+  const stamped = { ...f.params, episode_recovery_id: planId }
+  await fs.writeFile(path.join(temp.dir, 'projects', f.project.slug, 'jobs.json'), JSON.stringify({ jobs: [
+    terminalSibling(f, oldRow, { params: structuredClone(stamped), error: 'Saved chat product pool::gemini-free-all is retired' }),
+    terminalSibling(f, '104bf236', { params: structuredClone(stamped), genstudio_jobs: [{ ...child(key, JSON_OBJECT, covered), id: providerId }] }),
+  ] }))
+  await fs.writeFile(path.join(temp.dir, 'projects', f.project.slug, 'episode-recovery-plans.json'), JSON.stringify({ version: 1, plans: { [f.episodeId]: {
+    version: 1, id: planId, project_slug: f.project.slug, episode_id: f.episodeId, target: 'scene_plan_run',
+    steps: { scene_plan_run: { job_id: oldRow, type: 'scene_plan_run', title: 'Scene Plan', params: structuredClone(f.params), dispatched: true } },
+    completed: [], first_unresolved: 'scene_plan_run', message: '',
+  } } }))
+  await jq.getJobs(f.project.slug)
+  const before = posts()
+
+  const plan = (await recoverEpisode(f.project.slug, f.episodeId, true, ['104bf236'], [], true))!
+  assert.equal(plan.steps.scene_plan_run?.job_id, '104bf236', 'the node follows the row the owner selected')
+  const verified = Object.fromEntries(EPISODE_RECOVERY_ORDER.map(step => [step, step !== 'scene_plan_run'])) as any
+  await dispatchEpisodeRecoveryStep(plan, { verified, message: 'Ready.' }, await jq.getJobs(f.project.slug), ['104bf236'])
+  await waitFor(() => jq.getJob('104bf236')?.status === 'done', { label: 'the selected scene plan row to finish', timeoutMs: 12_000 }).catch(() => {})
+  await jq._waitForJobPersistenceForTesting()
+
+  assert.equal(jq.getJob('104bf236')?.status, 'done', jq.getJob('104bf236')?.output_lines.join(' | '))
+  assert.equal(jq.getJob(oldRow)?.status, 'error', 'the childless old row is left alone')
+  assert.equal(posts() - before, 0, 'the accepted child was collected; nothing new was sent')
   const saved = await savedPrompts(f)
   for (const id of covered) assert.match(saved[id]!, /Saved Gateway answer/)
 })

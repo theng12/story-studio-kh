@@ -351,9 +351,19 @@ function extendPlanFromSelectedFailures(plan: EpisodeRecoveryPlan, selected: Job
     const existing = plan.steps[step]
     // An accepted edge owns its durable identity and settings, even if its row is temporarily
     // absent after restart. Explicit Retry must join it rather than create competing work.
-    if (existing?.dispatched) continue
     const source = failed.find(job => episodeRecoveryStep(job.type) === step)
     const ownsSource = source?.params?.episode_recovery_id === plan.id
+    if (existing?.dispatched) {
+      // Except a Scene Plan node bound to a failed row that holds no Gateway children (a retired-model
+      // attempt) while the owner retries another failed row of this plan: that row's accepted answers
+      // would be missed, so the node follows the selection. Anything with children or still live stays.
+      const bound = jobs.find(job => job.job_id === existing.job_id)
+      if (step === 'scene_plan_run' && ownsSource && source.job_id !== existing.job_id
+        && bound?.status === 'error' && !bound.genstudio_jobs?.length) {
+        plan.steps[step] = { ...existing, job_id: source.job_id, source_job_id: source.job_id }
+      }
+      continue
+    }
     plan.steps[step] = {
       ...requested,
       job_id: ownsSource ? source.job_id : existing?.job_id || `recovery-${plan.id}-${step}`,
@@ -809,6 +819,48 @@ export function episodeRecoveryDispatch(plan: EpisodeRecoveryPlan, jobs: Job[]) 
   const complete = plan.first_unresolved === null
     && (!plan.continuation?.length || (plan.continuation_dispatched && job?.status === 'done'))
   return { dispatch_status: complete ? 'complete' as const : 'blocked' as const }
+}
+
+const RETIRED_PLANS_SHOWN = 5
+
+/**
+ * What the saved plan(s) for one episode say, for a person to read. Never creates, repairs, saves or
+ * dispatches anything (`recoverEpisode` can do all four, even with `create` false). Null when no plan
+ * is saved. Bounded: the current plan, at most the last few retired ones, six nodes each.
+ */
+export async function readEpisodeRecoveryPlans(projectSlug: string, episodeId: string) {
+  const projectDir = getProjectDir(projectSlug)
+  if (!projectDir) throw new Error('Project not found.')
+  const store = await readPlans(path.join(projectDir, 'episode-recovery-plans.json'))
+  const code = episodeId.toUpperCase()
+  const current = store.plans[episodeId] ?? store.plans[code]
+  const retired = Object.values(store.retired_plans || {}).filter(plan => plan.episode_id?.toUpperCase() === code).slice(-RETIRED_PLANS_SHOWN)
+  if (!current && !retired.length) return null
+  const jobs = await jq.findJobs(projectSlug, job => job.episode_id?.toUpperCase() === code)
+  const summarize = (plan: EpisodeRecoveryPlan, isCurrent: boolean) => ({
+    id: plan.id,
+    current: isCurrent,
+    target: plan.target,
+    first_unresolved: plan.first_unresolved,
+    completed: plan.completed,
+    message: plan.message.slice(0, 500),
+    ...(isCurrent ? episodeRecoveryDispatch(plan, jobs) : {}),
+    owner_requested_at: plan.owner_requested_at ?? null,
+    pipeline_batch_id: plan.pipeline_batch_id ?? null,
+    retry_source_job_ids: (plan.retry_source_job_ids || []).slice(-20),
+    steps: EPISODE_RECOVERY_ORDER.filter(step => plan.steps[step]).map(step => {
+      const node = plan.steps[step]!
+      return {
+        step,
+        job_id: node.job_id,
+        source_job_id: node.source_job_id ?? null,
+        dispatched: node.dispatched === true,
+        status: jobs.find(job => job.job_id === node.job_id)?.status ?? 'missing',
+      }
+    }),
+  })
+  return { project_slug: projectSlug, episode_id: current?.episode_id ?? retired[0]!.episode_id,
+    plans: [...(current ? [summarize(current, true)] : []), ...retired.reverse().map(plan => summarize(plan, false))] }
 }
 
 /** Serialize an episode's decisions; share the file lock only while saving records. */
