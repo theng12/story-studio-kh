@@ -4,7 +4,7 @@
  * Owner rule (2026-10-18): abolish the fixed calls of ten. One request takes every remaining idea,
  * up to the 100-idea batch cap, whenever the selected product's published output ceiling permits;
  * a smaller ceiling takes exactly what it holds and the campaign comes back for the rest. Nothing
- * here is executed against a provider — every check is a pure-function assertion or a source pin
+ * here is executed against a provider — every check is a pure-function assertion or a source pin.
  */
 
 import assert from 'node:assert/strict'

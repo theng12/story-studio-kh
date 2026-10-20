@@ -10,7 +10,6 @@
  * Real temp filesystem, real readers — no mocked stores. The three time
  * concepts (confirmed / planned / readiness) are seeded and asserted separately
  * so a merge of any two would fail here.
- *
  */
 
 import { test, before, after, beforeEach } from 'node:test'
