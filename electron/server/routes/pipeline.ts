@@ -958,6 +958,9 @@ async function preflightBatch(
       const verdict = await planClosingTailRemix({ slug, code: episodeId, postAudio: vaFlat.post_audio as VideoPostAudio })
       if (verdict.action === 'refuse') {
         episodeIssues.push({ code: 'closing_tail_unsafe', episode_id: episodeId, step: 'video_assembly', message: verdict.reason })
+      } else if (verdict.action === 'recover') {
+        warnings.push(`${episodeId}: an earlier re-mix of its audio with the closing music was interrupted; `
+          + 'Video Assembly finishes or undoes it at render, before anything else.')
       } else if (verdict.action === 'remix') {
         warnings.push(`${episodeId}: its audio was mixed without the ${Number(verdict.wantedSec.toFixed(1))} s closing music this run asks for; `
           + 'Video Assembly re-mixes the audio with it first (a new track beside the original).')
