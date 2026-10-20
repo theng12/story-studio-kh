@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.342 — 2026-10-20
+
+- A final video that was partway through when Story restarted now resumes with all the files it needs, including its mixed audio, instead of failing and rebuilding every clip.
+- If any of those files is missing, Story starts that final step over cleanly rather than running it against a missing file, and keeps the old working folder until everything has been moved.
+
 ## v1.4.341 — 2026-10-20
 
 - Switching episodes on the Images page while the old episode is still loading no longer shows the old episode's prompts or images under the new episode's name.
