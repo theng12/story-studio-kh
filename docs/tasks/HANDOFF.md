@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.339 — 2026-10-20 (gate running)
+## 1.4.339 — 2026-10-20 (gated and landed)
 
 Merged fix/campaign-fill-count (2b0e50bc appendNewIdeas new-rows-only count; 1780f241 exhausted Topic Pack guidance; fb76501a params.rejected_assignments excluded by planIdeaAssignments, content rejections only).
 
