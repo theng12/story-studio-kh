@@ -23,6 +23,7 @@ import { after, before, test } from 'node:test'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
 const temp = await useTempDataDir()
@@ -36,6 +37,7 @@ await import('../providers/text/genstudio.js')
 const { runScenePlanJob } = await import('../generators/scene-plan.js')
 const jq = await import('../services/job-queue.js')
 const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+const { registerAllExecutors } = await import('../boot/executors.js')
 const { dispatchEpisodeRecoveryStep, EPISODE_RECOVERY_ORDER } = await import('../services/episode-recovery.js')
 const { scenePromptPackOutputContract } = await import('../lib/story-output-contracts.js')
 
@@ -45,7 +47,7 @@ const NOW = '2026-10-20T04:00:00.000Z'
 const idsOf = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => `scene-${String(from + i).padStart(4, '0')}`)
 const answer = (ids: string[]) => JSON.stringify({ results: ids.map(id => ({ scene_id: id, visual_prompt: `Saved Gateway answer for ${id}, one distinct composition.` })) })
 
-async function seedAnswer(key: string, outputText: string, responseFormat: unknown): Promise<void> {
+async function seedAnswer(key: string, outputText: string, responseFormat: unknown): Promise<string> {
   service.queueScenario('chat', { states: ['succeeded'], outputText })
   const response = await fetch(`${service.baseUrl}/v1/chat/responses`, {
     method: 'POST',
@@ -53,6 +55,7 @@ async function seedAnswer(key: string, outputText: string, responseFormat: unkno
     body: JSON.stringify({ model_id: 'mock-chat-v1', input: [{ role: 'user', content: 'saved prompt request' }], response_format: responseFormat }),
   })
   assert.equal(response.status, 202)
+  return String((await response.json() as { id: string }).id)
 }
 
 const JSON_OBJECT = { type: 'json_object' }
@@ -242,4 +245,32 @@ test('History15 shape: recovery builds a new row that inherits the accepted chil
   assert.equal(gets(rejected), 0, 'a rejected answer is never replayed')
   const saved = await savedPrompts(f)
   for (const id of idsOf(2, 6)) assert.match(saved[id]!, /Saved Gateway answer/)
+})
+
+test('restart requeue: a settled accepted child is collected by its key, with zero new POSTs', async () => {
+  // 0f1cda0f requeues a restart-interrupted writing job once its children settle and the audit is
+  // still incomplete. That same row must collect the child it already holds before any new pack.
+  registerAllExecutors({ loadSettings: false })
+  service.reset()
+  const f = await fixture(4) // scene-0002..0005 missing
+  const covered = idsOf(2, 5)
+  const key = 'story-chat-requeue000000000000000000000000000000000000000'
+  const providerId = await seedAnswer(key, answer(covered), JSON_OBJECT)
+  const accepted = { ...child(key, JSON_OBJECT, covered, 'accepted'), id: providerId }
+  await fs.writeFile(path.join(temp.dir, 'projects', f.project.slug, 'jobs.json'), JSON.stringify({ jobs: [
+    directJob(f, 'restart-requeue', { genstudio_jobs: [accepted], remote_cancellations: {} }),
+  ] }))
+  const before = posts()
+
+  await jq.getJobs(f.project.slug)
+  await waitFor(() => jq.getJob('restart-requeue')?.status === 'done', { label: 'the requeued scene plan to finish', timeoutMs: 12_000 })
+    .catch(() => {})
+  await jq._waitForJobPersistenceForTesting()
+
+  const row = jq.getJob('restart-requeue')!
+  assert.equal(row.status, 'done', row.output_lines.join(' | '))
+  assert.ok(row.output_lines.some(line => /picking this step up where it stopped/.test(line)), 'it went through the automatic restart requeue')
+  assert.equal(posts() - before, 0, 'the requeued run asked the Gateway for nothing new')
+  const saved = await savedPrompts(f)
+  for (const id of covered) assert.match(saved[id]!, /Saved Gateway answer/)
 })
