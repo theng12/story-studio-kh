@@ -692,7 +692,9 @@ async function preflightBatch(
     : await retiredUploadedMediaByEpisode(slug, episodeIds, projectFacts)
   const visualSettingsByEpisode = new Map<string, PipelineVisualSettingsSnapshot>()
   const requiredSteps = new Set<BatchStep>()
-  const steps = runSteps()
+  // `runSteps()` is read live, never snapshotted: `leftOut` still grows below
+  // (the cue switch, then `admitStep` for every required step), and a copy taken
+  // before those decisions is what let a left-out step reach the queue.
   const visualRows = await mapWithConcurrency(episodeIds, async episodeId => {
     if (!ideaByCode.has(episodeId)) {
       return {
@@ -709,7 +711,7 @@ async function preflightBatch(
     }
     try {
       const source = await readVideoVisualSource(slug, episodeId, projectFacts)
-      let episodeSteps = applicablePipelineStepsForVisualSource(steps, source.source).applicable
+      let episodeSteps = applicablePipelineStepsForVisualSource(runSteps(), source.source).applicable
       // Future-only fact: an automatic opening is added only to an episode
       // whose creation snapshot said intro_eligible. Old/imported episodes
       // have no such fact and are never enqueued, marked missing, or backfilled.
@@ -743,7 +745,7 @@ async function preflightBatch(
         issue: {
           code: 'invalid_preset',
           episode_id: episodeId,
-          step: steps.includes('video_assembly') ? 'video_assembly' : steps.find(step => SCENE_PLAN_ONLY_STEPS.has(step)),
+          step: runSteps().includes('video_assembly') ? 'video_assembly' : runSteps().find(step => SCENE_PLAN_ONLY_STEPS.has(step)),
           message: `${episodeId}: ${error?.message || 'Episode visual settings are not ready.'}`,
         } as PreflightIssue,
       }
@@ -997,8 +999,9 @@ async function preflightBatch(
     visualSettingsByEpisode, projectFacts, startingPacing, musicChannel,
     videoEffects: requiredSteps.has('video_assembly') ? withCaptionGaps(videoEffectsAnswer(config, presetByStep.video_assembly, musicChannel), captionGaps) : null,
     // Drop an opening that no eligible episode will run. Explicit manual
-    // generation uses its own route and is unaffected.
-    steps: steps.filter(step => step !== 'introduction-only' || requiredSteps.has(step)),
+    // generation uses its own route and is unaffected. Read live, so the set the
+    // queue is handed is the set after every left-out decision above.
+    steps: runSteps().filter(step => step !== 'introduction-only' || requiredSteps.has(step)),
     stepsByEpisode, stepsAdded,
     stepsLeftOut: [...leftOut.entries()].map(([step, reason]) => ({ step, reason })),
     retiredMediaBlocks,
@@ -2602,6 +2605,11 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   const cueReviewMode = await safetyMode(slug, 'cue_review')
   const cueReviewHolds = cueReviewMode === 'block'
   const sameStepMode = await safetyMode(slug, 'same_step_queued')
+  // Preflight's decision is the run's decision. `preflight.steps` already
+  // excludes these, but a step can also arrive from a per-episode step list, and
+  // the queue is the one place that must not depend on which list was read: a
+  // step preflight left out is never enqueued. See `preflightBatch`.
+  const leftOutSteps = new Set(preflight.stepsLeftOut.map(left => left.step))
   const runWarnings: string[] = []
   for (const episodeId of eligible_episode_ids) {
     const runSteps = preflight.stepsByEpisode.get(episodeId) ?? preflight.steps
@@ -2636,7 +2644,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     // Idempotency: drop steps whose outputs are already on disk. Keeps
     // batches cheap on partially-generated episodes. The user can opt out
     // with `force: true` to regenerate everything.
-    let effectiveSteps: BatchStep[] = applicability.applicable
+    let effectiveSteps: BatchStep[] = applicability.applicable.filter(step => !leftOutSteps.has(step))
     if (!force) {
       // Strict cache read: re-stat this episode's watched paths at its serial
       // admission point. Reuse the bounded-preflight status only while disk
