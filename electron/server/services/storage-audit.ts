@@ -49,10 +49,11 @@ import {
 import { verifyTimeoutMs, withTimeout } from '../lib/with-timeout.js'
 import { withFinalVideoPathLock } from './final-video-lock.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
-// The one bound for "how much of a cleanup list travels". Defined beside the
-// preview it was measured on; read only inside functions, so the
-// storage-audit ↔ episode-media-cleanup module cycle is never touched at init.
-import { PREVIEW_SAMPLE_FILES } from './episode-media-cleanup.js'
+// The one bound for "how much of a cleanup list travels", and the rule for what
+// that list must never leave out. Both live beside the preview they were measured
+// on; read only inside functions, so the storage-audit ↔ episode-media-cleanup
+// module cycle is never touched at init.
+import { addToOutcomeSample } from './episode-media-cleanup.js'
 import {
   exportsAnchorFor,
   getExternalFinalVideoRoot,
@@ -878,9 +879,13 @@ export async function bulkCleanupFinalVideos(
   // Counts are the record; only a capped sample of the per-file outcomes travels.
   // Nothing reads the whole list afterwards, so it is dropped here rather than
   // kept — this is the route response AND the operation's `final_cleanup`, so one
-  // bound covers both.
+  // bound covers both. The sample keeps every failed episode first: a sweep that
+  // reports `failed_count: 2` beside a sample of the first 50 episodes says
+  // nothing about which two failed, or why.
+  const items: CleanupItem[] = []
+  for (const item of allItems) addToOutcomeSample(items, item)
   return {
-    items: allItems.slice(0, PREVIEW_SAMPLE_FILES),
+    items,
     item_count: allItems.length,
     bytes_freed: bytesFreed,
     deleted_count: deleted,

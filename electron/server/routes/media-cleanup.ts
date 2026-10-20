@@ -13,6 +13,7 @@ import {
   stopMediaCleanupOperation,
 } from '../services/episode-media-cleanup.js'
 import { listStorageLeftovers, trashStorageLeftovers } from '../services/storage-leftovers.js'
+import { restoreStrandedSceneImage, scanStrandedSceneImages } from '../services/media-cleanup-orphans.js'
 import { storageSpaceSummary } from '../services/storage-audit.js'
 
 export const router = Router()
@@ -52,6 +53,29 @@ router.post('/library/media-cleanup/operations/:id/stop', (req, res) => {
   const operation = stopLibraryMediaCleanupOperation(req.params.id)
   if (!operation) return res.status(404).json({ detail: 'All-channel maintenance operation not found' })
   res.json({ operation_id: operation.id, status: operation.status })
+})
+
+// ── Stranded scene images (2026-10-20) ─────────────────────────────────────
+//
+// What a shrink left behind when a swap failed and could not be rolled back: the
+// original is in Story's Trash and its working path is empty. The check is
+// read-only and bounded; putting one back is a separate, explicit owner action.
+// It cannot recover the per-file reasons of a run that already finished — those
+// were never written down before 1.4.334 — only the stranded originals.
+router.get('/library/media-cleanup/orphans', async (_req, res) => {
+  try {
+    res.json(await scanStrandedSceneImages())
+  } catch (error) {
+    respondWithError(res, error, 'Could not check the Trash for stranded scene images')
+  }
+})
+
+router.post('/library/media-cleanup/orphans/restore', async (req, res) => {
+  try {
+    res.json(await restoreStrandedSceneImage(req.body?.id))
+  } catch (error) {
+    respondWithError(res, error, 'Could not put the scene image back')
+  }
 })
 
 router.get('/projects/:slug/media-cleanup/episodes', async (req, res) => {

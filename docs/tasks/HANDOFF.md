@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.334 — 2026-10-20 (gate running)
+
+Merged fix/drain-waits-before-pausing (e725a7f3: maybeInstall looks for a maintenance operation before claiming the drain; status maintenance_running) and fix/cleanup-sample-keeps-failures (7572ffa0 failures-first sample + failed-rollback record without upload proof; 710a032f GET /library/media-cleanup/orphans + POST .../orphans/restore). Never roll the mini back below 1.4.334: older builds misread proof-less cleanup record entries.
+
 ## 1.4.333 — 2026-10-19 (gated and landed)
 
 Merged fix/final-check-long-video (a51b7fb0: POST /youtube/final-check answers 202, startFinalCheck one per file, row final_check.running; 022be139: app-update drain waits for runningFinalChecks, status final_checks_running). Production: Myth EP0008 check was cut by the 1.4.331 install drain at 15:50:27Z, not a timeout.
@@ -39,6 +43,45 @@ Merged feat/retention-20gb-autocleanup-switch (79e7fcd8: trash_handoff_gb 20 old
 Gate: lint, four checks; test:backend 7537 / 7535 pass / 1 fail — the no-new-wallclock-sleeps guard flagged a hand-rolled 5 ms poll in genstudio-catalog-cache.test.ts, replaced with waitFor (d6f2234d, re-run 32/32); typecheck, test:frontend, test:release, test:content-packs green (see gate-325-lanes-d6f2234d.log).
 
 Merged: fix/tts-chargeable-passthrough (6af1082e, `parseGenStudioChargeable` on all seven catalogue parsers), fix/gateway-connection-cap (c86fc538, undici Agent connections 8 as global dispatcher; undici now a declared dependency; bodies cancelled; onBoot clears stale install_requested), fix/rejected-answer-fresh-key (dc79f25b, inner-quote JSON repair; rejected_idempotency_keys → fresh key; auditor repair detail), feat/jobs-history-paging (777878c2, ?view=active snapshots + /jobs/all/history; /jobs/all unchanged for callers).
+
+## Stranded scene images, and a sample that never hides a failure (source only, not released)
+
+Branch `fix/cleanup-sample-keeps-failures` from `main` (1.4.333, 59b9d17a). **SOURCE ONLY**: no version
+bump, no changelog entry, no DMG, no push.
+
+Production 2026-10-20: a running all-channel `shrink_images` run reported `failed_count: 2` while the
+operation's `result.items` was the FIRST 50 outcomes — all `compressed` — so the two files that failed
+and their reasons were nowhere the owner could look. Three changes:
+
+- **The capped sample keeps every failure first**, then anything pending or refused, then settled
+  outcomes (`addToOutcomeSample`; `PREVIEW_SAMPLE_FILES` is still 50, and the counters beside the
+  sample stay exact — the panel's "and N more" line is `item_count` minus what the sample carries).
+  Applied to the per-channel run, the all-channel run and the Clear Uploaded Videos sweep. The panel
+  now says failures out loud with their reasons (`.cleanup-unresolved`), not only inside "View file
+  outcomes".
+- **A swap that fails and cannot be rolled back is named.** The compressed image could not replace the
+  original AND the original could not be put back, so the file exists only in `_trash`, which empties
+  after seven days. The failed item carries `original_path` (the `_trash` path) and a plain reason,
+  and the episode's own cleanup record keeps it — even when the run has no upload proof, so
+  `upload_proof: null` is now a readable record entry. **Do not downgrade past this**: a build older
+  than this change calls such a record unreadable ("Repair it before cleaning more files") for that
+  episode. `beforeCompressedSwap` is a new SYNCHRONOUS test seam (never awaited — the swap must stay
+  inside one event-loop turn).
+- **The reasons of a run that already finished cannot be recovered** — not by this change, and not by
+  anything else: no run before 1.4.334 wrote them down, and a check cannot invent what was never
+  recorded. What CAN be found is a stranded original:
+  - `GET /api/library/media-cleanup/orphans` — read-only, bounded (50 per class). Walks every Trash
+    root's `<root>/<slug>/<code>/images/scene_images/**` and classifies every file: `orphan` (one
+    empty working path, and the Trash can put it back), `resolved` (the working path holds the
+    original or its JPEG, or the episode's record says the file was deliberately removed),
+    `ambiguous` (the Trash record and the scene-folder layout disagree), `unknown` (no single working
+    path — no Trash record, unreadable episode), `unreadable` (cannot be read, or a delete stopped
+    partway). Each class carries `count`, a bounded `items` sample and `more`; `scan_complete`,
+    `scan_note`, `projects_scanned` / `projects_total` and `scanned` say whether the answer covers
+    everything, so a zero-orphan answer from an incomplete scan can never look clean (AGENTS §6).
+  - `POST /api/library/media-cleanup/orphans/restore` `{ id }` — explicit, one item, and only an item
+    the check listed as an orphan. The move itself is `restoreTrashItem` (`POST /trash/restore`),
+    which refuses when something already sits at the working path. Nothing is automatic.
 
 ## Jobs history: paged, searched and counted on the server (source only, not released)
 
