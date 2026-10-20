@@ -15,7 +15,7 @@ import * as pm from '../services/project-manager.js'
 import { episodeIsIntroEligible } from '../lib/episode-creation-facts.js'
 import * as im from '../services/idea-manager.js'
 import * as jq from '../services/job-queue.js'
-import type { ContinuityConfig, Format, JobType, ProjectMeta } from '../models/types.js'
+import type { ContinuityConfig, Format, JobType, ProjectMeta, VideoPostAudio } from '../models/types.js'
 import type { EpisodeStatus } from '../services/asset-status.js'
 import { episodeStatusCache } from '../services/episode-status-cache.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -245,7 +245,7 @@ export const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKey
 interface StoredPreset { id: string; name: string; data?: any; type?: string; [k: string]: any }
 
 interface PreflightIssue {
-  code: 'episode_not_accepted' | 'missing_preset' | 'invalid_preset' | 'missing_voice' | 'missing_prerequisite' | 'missing_local_asset' | 'retired_local_media' | 'insufficient_disk' | 'captions_missing'
+  code: 'episode_not_accepted' | 'missing_preset' | 'invalid_preset' | 'missing_voice' | 'missing_prerequisite' | 'missing_local_asset' | 'retired_local_media' | 'insufficient_disk' | 'captions_missing' | 'closing_tail_unsafe'
   message: string
   episode_id?: string
   step?: BatchStep
@@ -849,7 +849,8 @@ async function preflightBatch(
 
   // Captions switched on in the Video Assembly preset, for the per-episode check below.
   const vaPreset = presetByStep.video_assembly
-  const captionsOn = !musicChannel && !!vaPreset && !!flattenVideoAssemblyBundle(vaPreset.data ?? vaPreset, '', '').subtitles
+  const vaFlat = !musicChannel && vaPreset ? flattenVideoAssemblyBundle(vaPreset.data ?? vaPreset, '', '') : null
+  const captionsOn = !!vaFlat?.subtitles
   // A repair stays inside the stages it was asked to repair: it never gains earlier ones.
   const earlierStepMode = repairMissing ? 'block' : mode('earlier_step_done')
   const captionsMode = mode('captions_missing')
@@ -948,6 +949,20 @@ async function preflightBatch(
       episodeIssues.push({ code: 'captions_missing', episode_id: episodeId, step: 'video_assembly', requires: 'subtitles', message: captionGap })
     }
     if (captionsMode !== 'warn') captionGap = null
+    // An old merge asked for a closing it never had: the render re-mixes the audio first, or this says
+    // why it cannot (the same decision the render makes, services/closing-tail-remix.ts).
+    if (vaFlat?.post_audio && status.merged_audio && ordered.includes('video_assembly')
+      && (force || !isStepAlreadyDone(status, 'video_assembly', effectiveFormat))
+      && !(force && ordered.includes('audio_merge'))) {
+      const { planClosingTailRemix } = await import('../services/closing-tail-remix.js')
+      const verdict = await planClosingTailRemix({ slug, code: episodeId, postAudio: vaFlat.post_audio as VideoPostAudio })
+      if (verdict.action === 'refuse') {
+        episodeIssues.push({ code: 'closing_tail_unsafe', episode_id: episodeId, step: 'video_assembly', message: verdict.reason })
+      } else if (verdict.action === 'remix') {
+        warnings.push(`${episodeId}: its audio was mixed without the ${Number(verdict.wantedSec.toFixed(1))} s closing music this run asks for; `
+          + 'Video Assembly re-mixes the audio with it first (a new track beside the original).')
+      }
+    }
     return { episodeId, status, issues: episodeIssues, captionGap, ordered: (added.length || autoIntroExcluded) ? ordered : null, added }
   })
   const captionGaps: string[] = []

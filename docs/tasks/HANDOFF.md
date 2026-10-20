@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.337 — 2026-10-20 (gate running)
+
+Merged fix/continuation-leftout-and-restart (0f1cda0f: unusableLinkSkipReason at chain dispatch and job start; restart reconcile requeues interrupted writing jobs with incomplete audits) and fix/closing-tail-older-merges (48582cdf: planClosingTailRemix in video.ts guardClosingTail + pipeline preflight; re-mix to _vN via Audio Assembly, pinned only after narration/lead-in checks). Sprout collect-first exact-key recovery still pending (next release). Production: History EP12-14, Myth EP13/14, Domnak DM13 need one assembly each; Myth EP14 continuation one Retry.
+
 ## 1.4.336 — 2026-10-20 (gated and landed)
 
 Merged fix/legacy-unknown-recheck-and-check-read (3a9dd772: shouldRecheckStoredUnknownOutcome also covers failed + UNKNOWN_OUTCOME/submission-uncertain rows with absent hold fields; GET /projects/:slug/youtube/final-check full stored result). Production: Boundful 5864f738, Brain Wise a257d9f4, Capi b21f6250, Domnak 14c50bed settle on boot readback, then one Retry each.
