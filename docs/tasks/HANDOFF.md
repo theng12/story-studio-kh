@@ -1,6 +1,6 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.344 — 2026-10-20 (gate running)
+## 1.4.344 — 2026-10-20 (gated and landed)
 
 Merged fix/stale-verdict-freeze (032629f8: freshStoredExpectation returns a stored verdict's expected only when not stale; the boot freeze sweep and the on-demand youtube final-check route both go through it, so a rewritten final is never certified with the replaced file's shape; production report release343-freeze-stale-verdict-verification-20261020.md).
 
