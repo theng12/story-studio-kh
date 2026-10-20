@@ -35,7 +35,10 @@ export interface VideoAssemblyFinalSegments {
 export interface VideoAssemblyFinalStage {
   inputs: string
   argv: string[]
-  /** Work-folder file name → sha256 (the intermediate video, the audio, the burned subtitles, a shaped logo). */
+  /**
+   * Work-folder-relative file name → sha256, `/`-separated and nested where the command reads a
+   * subfolder (`loudness_first/premixed_audio.wav`) — every work-folder path the argv names.
+   */
   files: Record<string, string>
   total_render_sec: number
   still_tail_from: number | null
@@ -59,6 +62,15 @@ function finalSegmentPath(workDir: string, index: number): string {
   return path.join(workDir, 'final_segments', `final_seg_${String(index).padStart(4, '0')}.mp4`)
 }
 
+/**
+ * A work-folder-relative file name, `/`-separated: nested (`loudness_first/premixed_audio.wav`) but
+ * never hidden, never absolute, and never climbing out of the folder.
+ */
+function validWorkFileName(name: string): boolean {
+  const parts = name.split('/')
+  return parts.length > 0 && parts.every(part => !!part && !part.startsWith('.'))
+}
+
 function validFinalStage(value: unknown): boolean {
   if (value === undefined) return true
   const stage = value as Record<string, unknown> | null
@@ -67,7 +79,7 @@ function validFinalStage(value: unknown): boolean {
     && Array.isArray(stage.argv) && stage.argv.length > 0 && stage.argv.every(arg => typeof arg === 'string')
     && !!stage.files && typeof stage.files === 'object'
     && Object.entries(stage.files as Record<string, unknown>).every(([name, sha]) => (
-      name === path.basename(name) && !name.startsWith('.') && typeof sha === 'string' && SHA256_RE.test(sha)))
+      validWorkFileName(name) && typeof sha === 'string' && SHA256_RE.test(sha)))
     && typeof stage.total_render_sec === 'number' && Number.isFinite(stage.total_render_sec) && stage.total_render_sec > 0
     && (stage.still_tail_from === null || (typeof stage.still_tail_from === 'number' && Number.isFinite(stage.still_tail_from)))
 }
@@ -255,6 +267,12 @@ export function createVideoAssemblyCheckpoint(
 /**
  * Move the final render's work files into the fresh work dir and point its command there. Null when
  * any of them is missing or changed (sha256): the episode then renders from the start as before.
+ *
+ * The set moved is EVERY work-folder path the saved command reads, nested ones included — not just
+ * the ones an older checkpoint happened to record. The whole set is checked for presence, and the
+ * recorded ones for content, BEFORE anything moves: a command that would run against a file the old
+ * folder no longer holds is never resumed, and the folder is never emptied of a file it still needs
+ * (Myth EP0012, 2026-10-20).
  */
 export async function moveCheckpointFinalStage(
   checkpoint: VideoAssemblyCheckpoint,
@@ -262,20 +280,28 @@ export async function moveCheckpointFinalStage(
 ): Promise<VideoAssemblyFinalStage | null> {
   const stage = checkpoint.final_stage
   if (!stage) return null
-  const { sha256File } = await import('./segmented-render.js')
+  const { workFolderDependencies, workFolderIdentity } = await import('./segmented-render.js')
   const { escapeFilterPath } = await import('./ffmpeg-utils.js')
+  const output = stage.argv.at(-1) ?? ''
+  const here = await workFolderIdentity(stage.argv, checkpoint.work_dir, output)
   for (const [name, sha] of Object.entries(stage.files)) {
-    const target = path.join(workDir, name)
+    if (here.files[name] !== sha) return null
+  }
+  const dependencies = workFolderDependencies(stage.argv, checkpoint.work_dir, output)
+  if (dependencies.some(name => here.files[name] === undefined)) return null
+  for (const name of dependencies) {
+    const parts = name.split('/')
+    const target = path.join(workDir, ...parts)
     try {
-      await fs.rename(path.join(checkpoint.work_dir, name), target)
-      if (await sha256File(target) !== sha) return null
+      await fs.mkdir(path.dirname(target), { recursive: true })
+      await fs.rename(path.join(checkpoint.work_dir, ...parts), target)
     } catch {
       return null
     }
   }
   const swap = (arg: string) => arg.split(escapeFilterPath(checkpoint.work_dir)).join(escapeFilterPath(workDir))
     .split(checkpoint.work_dir).join(workDir)
-  return { ...stage, argv: stage.argv.map(swap) }
+  return { ...stage, argv: stage.argv.map(swap), files: here.files }
 }
 
 /**

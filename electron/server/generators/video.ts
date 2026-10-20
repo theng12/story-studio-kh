@@ -77,7 +77,7 @@ import { resolveVideoAssetsDir } from './scene-clip.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
 import {
   FINAL_SEGMENT_SEC, STILL_TAIL_LOOP_SEC, canResumeGraph, concatMuxArgs, frameSecFromFramemd5, hashJson, planFinalSegments, segmentCount,
-  segmentRange, segmentRenderArgs, sha256File, splitOneShotArgv, workFolderIdentity,
+  segmentRange, segmentRenderArgs, sha256File, splitOneShotArgv, workFolderIdentity, workFolderName,
 } from '../lib/segmented-render.js'
 import { logoCornerRadiusPct, logoShapeOf, writeShapedLogo } from '../lib/logo-shape.js'
 import { displayAspectRatio, frameTextUnit, resolveRenderCanvas } from '../lib/render-canvas.js'
@@ -494,7 +494,9 @@ async function runSegmentedFinal(ctx: {
   const count = segmentCount(plan)
   // What this render reads from the work folder, by sha256 (the audio too: the final join needs it).
   const identity = await workFolderIdentity(argv, workDir, outputFile)
-  const videoFiles = Object.fromEntries(Object.entries(identity.files).filter(([name]) => name !== path.basename(split.audio_input)))
+  // The audio may sit in a subfolder (`loudness_first/premixed_audio.wav`), so compare its whole name.
+  const audioName = workFolderName(split.audio_input, workDir) ?? path.basename(split.audio_input)
+  const videoFiles = Object.fromEntries(Object.entries(identity.files).filter(([name]) => name !== audioName))
   // Segments are video only, so the audio is not part of what makes them valid.
   const fingerprint = hashJson({ version: 1, inputs: segmentation.inputsFingerprint, plan, argv: identity.argv, files: videoFiles })
   // The exact command, so a restart (or an update) finishes this render as it began (generateVideo).
@@ -2890,7 +2892,10 @@ export async function generateVideo(job: Job): Promise<void> {
   // still be writing into the old one. Verified checkpoint clips move across.
   const tempDir = await getWorkTempDir(project_slug, code)
   // A final render already under way: its files and finished segments move first (moving the scene
-  // clips drops the old folder).
+  // clips drops the old folder). Order matters — every file the saved command reads, nested ones
+  // included, is out of the old folder before it is disposed of. A stage whose dependencies cannot
+  // all be moved comes back null and the episode renders from the start instead of resuming against
+  // a missing input (Myth EP0012, 2026-10-20).
   const carriedFinalStage = savedCheckpoint?.final_stage && savedCheckpoint.final_stage.inputs === inputsFingerprint
     ? await moveCheckpointFinalStage(savedCheckpoint, tempDir)
     : null

@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.342 — 2026-10-20 (gate running)
+
+Merged fix/nested-stage-deps (abfff8f8: workFolderDependencies derives final-stage inputs from argv incl. nested paths; moveCheckpointFinalStage verifies shas + every argv dependency before moving the whole set, else null → fresh final render; video.ts audio exclusion by work-folder name. Myth EP0012 job 637ffc7d restart).
+
 ## 1.4.341 — 2026-10-20 (gated and landed)
 
 Merged fix/images-panel-race (039469f4: ImageGeneratorPanel boardRevision guards loadPrompts/loadScan success, catch and finally; sync episode watcher replaces the whole board; runOne refuses rows whose boardEpisodeId differs from the live episode).
