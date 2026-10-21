@@ -82,8 +82,8 @@ async function projectWithCadence(name: string, prefix: string, schedule: Upload
  * answers with a channel id and the confirmed (YouTube) half of the overview is
  * reachable at all.
  */
-async function connectedProject(name: string, prefix: string) {
-  const created = await projectWithCadence(name, prefix)
+async function connectedProject(name: string, prefix: string, schedule: UploadSchedule = SCHEDULE) {
+  const created = await projectWithCadence(name, prefix, schedule)
   await connections.configureYouTubeApplication({ client_id: 'po-client', client_secret: 'po-client-secret-value' })
   await saveYouTubeChannelGrantForTest({
     channel: { channel_id: CHANNEL, title: 'Publishing Channel', granted_scopes: ['youtube.upload'] },
@@ -340,6 +340,74 @@ test('freshness is stale for a partial listing or a stale observation, never a c
   await seedConfirmed(created.slug, [{ video_id: 'vid-old', scheduled_for: expected[1]!, checked_at: old }], { outcome: 'complete' })
   overview = await svc.readPublishingOverview({ now })
   assert.equal(overview.channels[0]!.confirmed.freshness, 'stale')
+})
+
+test('the confirmed half names the artifact that is old: the listing state, its date, and the stale checks', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Provenance Channel', 'PV')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  const old = new Date(now - pub.PUBLICATION_CACHE_TTL_MS * 2).toISOString()
+  // A listing that stopped early, and an observation from long ago.
+  await seedConfirmed(created.slug, [{ video_id: 'vid-old', scheduled_for: expected[0]!, checked_at: old }], { outcome: 'partial' })
+
+  let channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.confirmed.listing?.state, 'partial')
+  assert.equal(channel.confirmed.listing?.stale, true, 'a listing that stopped early has no complete listing to date')
+  const partialAt = channel.confirmed.listing?.partial_at
+  assert.ok(partialAt)
+  assert.equal(channel.confirmed.listing?.complete_at, null)
+  assert.equal(channel.confirmed.listing?.last_attempt?.outcome, 'partial')
+  assert.equal(channel.confirmed.stale_videos, 1, 'the video past the TTL is counted, not left implicit')
+
+  // A listing that could not be read: the attempt is recorded with its code,
+  // and the last successful listing survives it.
+  await pub.recordYouTubePublicationObservations({
+    project_slug: created.slug, channel_id: CHANNEL,
+    listing: { attempted_at: new Date().toISOString(), outcome: 'failed', error_code: 'provider_error' },
+  })
+  channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.confirmed.listing?.last_attempt?.outcome, 'failed')
+  assert.equal(channel.confirmed.listing?.last_attempt?.error_code, 'provider_error')
+  assert.equal(channel.confirmed.listing?.partial_at, partialAt, 'the earlier listing is still dated')
+})
+
+test('a confirmed release on a day the plan does not expect is counted, and coverage is not changed', async () => {
+  const now = Date.now()
+  const created = await connectedProject('Off Cadence Channel', 'OC')
+  const expected = plans.computeSlots(SCHEDULE, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  // The plan expects Monday/Wednesday/Friday; this release lands the day after
+  // the first slot — inside the horizon, on a day the plan never expects.
+  const offDay = new Date(Date.parse(expected[0]!) + 24 * 60 * 60 * 1000).toISOString()
+  await seedConfirmed(created.slug, [{ video_id: 'vid-off', scheduled_for: offDay }], { outcome: 'complete' })
+
+  const channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.cadence?.off_cadence_count, 1)
+  assert.deepEqual(channel.cadence?.off_cadence_weekdays, [new Date(offDay).getUTCDay()])
+  // It covers no slot: the gap is still the first expected one, and the plan
+  // is not repaired to fit the release.
+  assert.equal(channel.planned.slots[0]!.confirmed, false)
+  assert.equal(channel.coverage.next_uncovered_slot, expected[0])
+  assert.equal(channel.coverage.at_risk, true)
+  assert.equal(channel.coverage.scheduled_video_count, 1, 'the release is real coverage of its own day')
+})
+
+test('the off-cadence count is against the ACTUAL expected days, not the plan’s weekdays', async () => {
+  const now = Date.now()
+  // A monthly plan: its expected days are the 15ths, and over twelve months
+  // their weekdays run through every day of the week. A release on the 16th
+  // lands on a weekday the plan uses — but on no day the plan expects.
+  const monthly = { weekdays: [], monthly_day: 15, time_local: '18:00', timezone: 'UTC', start_date: '2020-01-15' } as UploadSchedule
+  const created = await connectedProject('Monthly Channel', 'MO', monthly)
+  const expected = plans.computeSlots(monthly, svc.PLANNED_SLOT_HORIZON, { notBefore: new Date(now) })
+  assert.ok(expected.length >= 2, 'fixture needs at least two monthly slots')
+  const offDay = new Date(Date.parse(expected[0]!) + 24 * 60 * 60 * 1000).toISOString()
+  const planWeekdays = new Set(expected.map(slot => new Date(slot).getUTCDay()))
+  assert.ok(planWeekdays.has(new Date(offDay).getUTCDay()), 'the release lands on a weekday the plan uses')
+  await seedConfirmed(created.slug, [{ video_id: 'vid-off', scheduled_for: offDay }], { outcome: 'complete' })
+
+  const channel = (await svc.readPublishingOverview({ now })).channels[0]!
+  assert.equal(channel.cadence?.off_cadence_count, 1, 'counted against the days the plan expects, not its weekdays')
+  assert.equal(channel.coverage.next_uncovered_slot, expected[0], 'coverage is unchanged')
 })
 
 test('a locally planned date never makes a channel look covered', async () => {

@@ -555,7 +555,16 @@ async function fsyncParent(directory: string): Promise<void> {
   }
 }
 
-async function publishStateLock(lockPath: string, owner: StateLockOwner): Promise<boolean> {
+/**
+ * Write a complete lock record to a transient file, once.
+ *
+ * The canonical lock path must never point at a partial record, so publication
+ * is a hard link of a fully written, fsynced inode. The transient file is
+ * prepared ONCE per acquire and re-linked on every retry: a retry that failed
+ * to link must not delete a file, because under contention the retries
+ * multiply the destructive work until the waiters starve each other.
+ */
+async function prepareStateLockRecord(lockPath: string, owner: StateLockOwner): Promise<string> {
   const directory = path.dirname(lockPath)
   const temporary = path.join(directory, `.${path.basename(lockPath)}.${owner.token}.tmp`)
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined
@@ -563,16 +572,34 @@ async function publishStateLock(lockPath: string, owner: StateLockOwner): Promis
     handle = await fs.open(temporary, 'wx', STATE_MODE)
     await handle.writeFile(`${JSON.stringify(owner)}\n`)
     await handle.sync()
-  } finally {
+  } catch (error: unknown) {
     await handle?.close().catch(() => {})
+    // A half-written record was never published; leaving it behind would
+    // strand a file in the runtime root for no reader. Only remove it when
+    // this call is the one that created it.
+    if (handle) await fs.unlink(temporary).catch(() => {})
+    throw error
   }
+  await handle?.close().catch(() => {})
+  return temporary
+}
+
+/** Publish the prepared record at the canonical path. False means it is already held. */
+async function linkStateLockRecord(temporary: string, lockPath: string): Promise<boolean> {
   try {
     await fs.link(temporary, lockPath)
-    await fsyncParent(directory).catch(() => {})
+    await fsyncParent(path.dirname(lockPath)).catch(() => {})
     return true
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
     throw error
+  }
+}
+
+async function publishStateLock(lockPath: string, owner: StateLockOwner): Promise<boolean> {
+  const temporary = await prepareStateLockRecord(lockPath, owner)
+  try {
+    return await linkStateLockRecord(temporary, lockPath)
   } finally {
     await fs.unlink(temporary).catch(() => {})
   }
@@ -673,11 +700,23 @@ async function acquireFilesystemContentPackLock(
   }
   await prepareContentPackRuntimeRoot(paths)
   if (path.resolve(path.dirname(lockPath)) !== path.resolve(paths.root)) throw new Error('Content Pack lock must live directly below its runtime root')
-  while (true) {
-    if (await publishStateLock(lockPath, owner)) break
-    if (await reclaimStateLockIfProvenStale(lockPath, identity, runtime, staleLockMs, deadline, options.hooks)) continue
-    if (runtime.now() >= deadline) throw new Error('timed out waiting for Content Pack state lock')
-    await runtime.sleep(10 + Math.floor(Math.random() * 20))
+  // The record is prepared once and re-linked on every retry. A retry that
+  // loses the race must not delete a file: the transient file is the only
+  // thing a loser creates, and deleting it per attempt multiplies the
+  // destructive work under contention until the waiters starve each other.
+  const temporary = await prepareStateLockRecord(lockPath, owner)
+  try {
+    while (true) {
+      if (await linkStateLockRecord(temporary, lockPath)) break
+      if (await reclaimStateLockIfProvenStale(lockPath, identity, runtime, staleLockMs, deadline, options.hooks)) continue
+      if (runtime.now() >= deadline) throw new Error('timed out waiting for Content Pack state lock')
+      await runtime.sleep(10 + Math.floor(Math.random() * 20))
+    }
+  } finally {
+    // The canonical path now holds the record; drop the transient name so the
+    // published inode has exactly one link. On a failed acquire the transient
+    // file was never published and is removed here instead.
+    await fs.unlink(temporary).catch(() => {})
   }
   return {
     owner,

@@ -85,7 +85,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'backup', anchor: 'backup-versions', label: 'Older copies on the backup drive', keywords: 'versions older copies prune delete backup space' },
   { section: 'backup', anchor: 'backup-restore', label: 'Restore from a backup', keywords: 'restore backup new mac machine move migrate recover' },
 
-  { section: 'identity', anchor: 'project-name', label: 'Project name', keywords: 'name rename channel project title' },
+  { section: 'identity', anchor: 'project-name', label: 'Channel name, handle and logo', keywords: 'name rename channel project title handle logo banner avatar profile picture description' },
   { section: 'identity', anchor: 'formula', label: 'Series Formula and Topic Packs', keywords: 'formula niche series topics topic packs identity' },
   { section: 'identity', anchor: 'custom-formulas', label: 'Custom formulas', keywords: 'custom formula niche create delete' },
   { section: 'identity', anchor: 'idea-quality', label: 'Idea supply and repeat checks', keywords: 'ideas supply running low unused subjects covered topics map duplicate repeat meaning embeddings haiku helper alerts telegram' },

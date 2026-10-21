@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { after, before, describe, test } from 'node:test'
 
+import { useTempDataDir, type RetainedTempDataDir } from './_helpers.js'
 import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 
 installTestSafeStorage()
@@ -35,9 +35,8 @@ async function within<T>(work: Promise<T>, ms: number, message: string): Promise
   return Promise.race([work, limit]).finally(() => clearTimeout(timer))
 }
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
-const savedDataDir = process.env.STORY_STUDIO_DATA_DIR
 const savedTimeout = process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS
+let retained: RetainedTempDataDir | undefined
 let fixtureRoot = ''
 let baselineSnapshot: string[] = []
 let slug = ''
@@ -83,9 +82,13 @@ async function observeBeforeRelease<T>(work: Promise<T>, label: string): Promise
 
 describe('storage space summary timeout boundaries', () => {
   before(async () => {
-    fixtureRoot = path.join(repoRoot, '_trash', 'test-fixtures', `storage-space-summary-${randomUUID()}`)
-    await fs.mkdir(fixtureRoot, { recursive: true })
-    process.env.STORY_STUDIO_DATA_DIR = fixtureRoot
+    // The fixture is a RETAINED one: it must survive the run and must never be
+    // tidied by automation. The retained helper puts it inside the harness
+    // sandbox (which the harness keeps under `_trash/test-fixtures`), so the
+    // atomic project writes it makes — temp file plus rename — stay inside the
+    // sandbox the retained-filesystem preload governs.
+    retained = await useTempDataDir({ retain: true, settle: async () => {} })
+    fixtureRoot = retained.dir
     process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS = '30'
     setTestSafeStorageAvailable(true)
 
@@ -107,12 +110,16 @@ describe('storage space summary timeout boundaries', () => {
     baselineSnapshot = await treeSnapshot(fixtureRoot)
   })
 
-  after(() => {
-    if (savedDataDir === undefined) delete process.env.STORY_STUDIO_DATA_DIR
-    else process.env.STORY_STUDIO_DATA_DIR = savedDataDir
-    if (savedTimeout === undefined) delete process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS
-    else process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS = savedTimeout
-    setTestSafeStorageAvailable(true)
+  after(async () => {
+    try {
+      // Settles the retained fixture: the final manifest revision is written and
+      // the claimed environment is restored. Nothing is deleted.
+      await retained?.cleanup()
+    } finally {
+      if (savedTimeout === undefined) delete process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS
+      else process.env.STORY_STORAGE_SUMMARY_TIMEOUT_MS = savedTimeout
+      setTestSafeStorageAvailable(true)
+    }
     // Owner contract: retained fixtures in `_trash` are never deleted or tidied by automation.
   })
 

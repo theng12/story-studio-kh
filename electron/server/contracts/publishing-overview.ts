@@ -50,6 +50,28 @@ export interface PublishingOverviewConfirmedSchedule {
   stale: boolean
 }
 
+/**
+ * The plan's expected days against the days the channel's releases land on.
+ *
+ * The two are different facts and they can disagree: a confirmed release can
+ * land on a day the plan does not expect. The page then says "nothing placed"
+ * for every expected slot and reads as an empty channel, so the disagreement is
+ * stated here — as a COUNT of the releases that land on unexpected days.
+ *
+ * It repairs nothing. No date moves, no plan changes, and a release still
+ * covers a slot only on its exact day.
+ */
+export interface PublishingOverviewCadence {
+  /**
+   * Confirmed releases inside the expected-slot horizon that land on a day the
+   * plan does not expect. Zero means none were counted — not that the plan
+   * and the releases agree: there may be no expected slot to compare against.
+   */
+  off_cadence_count: number
+  /** The local weekdays those releases land on (0 = Sunday), sorted and unique. */
+  off_cadence_weekdays: number[]
+}
+
 /** A cadence slot the channel's plan expects, and what actually covers it. */
 export interface PublishingOverviewPlannedSlot {
   at: string
@@ -105,6 +127,11 @@ export interface PublishingOverviewChannel {
   plan_name: string | null
   /** The plan's timezone, so the calendar can render slots in the right zone. */
   timezone: string | null
+  /**
+   * The plan's expected days against the days the channel's releases land on.
+   * Absent on a payload from an older build.
+   */
+  cadence?: PublishingOverviewCadence
 
   confirmed: {
     /** The next confirmed publishAt, or null. */
@@ -114,6 +141,36 @@ export interface PublishingOverviewChannel {
     freshness: PublishingFreshness
     /** `no_channel_assigned` (none chosen) or `channel_not_connected` (chosen, not granted), else a read failure. */
     error?: string
+    /**
+     * The channel LISTING behind this verdict — a DIFFERENT artifact from a
+     * video's observation. A listing can be days old beside a check made an
+     * hour ago, so the UI is given both and names the one that is stale
+     * instead of hanging the word "stale" on a fresh timestamp.
+     *
+     * Null when there is no listing to report. Absent on an older payload.
+     */
+    listing?: {
+      /** 'never' = never listed, 'partial' = the last listing stopped early, 'complete' = the whole channel. */
+      state: 'never' | 'partial' | 'complete'
+      /** When the channel was last listed in full. */
+      complete_at: string | null
+      /** When the channel was last listed, but the listing stopped early. */
+      partial_at: string | null
+      /** True when the last COMPLETE listing is past the TTL. */
+      stale: boolean
+      /** The last attempt, whatever it ended as. */
+      last_attempt: { attempted_at: string; outcome: 'complete' | 'partial' | 'failed'; error_code?: string } | null
+    } | null
+    /**
+     * How many known videos are past the observation TTL. Absent on an older
+     * payload.
+     */
+    stale_videos?: number
+    /**
+     * How many known videos have never been observed. Absent on an older
+     * payload.
+     */
+    unchecked_videos?: number
     schedules: PublishingOverviewConfirmedSchedule[]
   }
 

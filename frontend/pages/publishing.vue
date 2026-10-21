@@ -134,9 +134,15 @@
                         <span class="muted">Publishing plan not set</span>
                         <NuxtLink :to="`/projects/${channel.slug}/upload/plans`" class="plan-link">Set a plan</NuxtLink>
                       </template>
-                      <template v-else>
+                      <!-- No expected slot is not the same as every expected slot confirmed. -->
+                      <template v-else-if="channel.planned.slots.length">
                         <span class="muted">All expected slots confirmed</span>
                       </template>
+                      <template v-else>
+                        <span class="muted">No expected slots in the horizon</span>
+                      </template>
+                      <!-- The plan's days and the releases' days disagree: said here, never repaired. -->
+                      <p v-if="offCadenceNote(channel)" class="cadence-note">{{ offCadenceNote(channel) }}</p>
                     </td>
                     <td>
                       <time v-if="channel.coverage.last_confirmed_date" :datetime="channel.coverage.last_confirmed_date">
@@ -225,6 +231,14 @@
             annual horizon. Every confirmed and locally planned entry returned for this range is
             listed; events are paginated in batches of 25, never by day.
           </p>
+
+          <!-- The plan's days and the releases' days disagree: said here too,
+               because the empty expected slots are the visible symptom. -->
+          <ul v-if="cadenceNotes.length" class="cadence-notes">
+            <li v-for="note in cadenceNotes" :key="note.slug" class="cadence-note">
+              {{ note.name }}: {{ note.text }}
+            </li>
+          </ul>
 
           <p v-if="calendarEvents.length === 0" class="empty" role="status">
             Nothing scheduled, planned or expected in this range{{ query.trim() ? ` for “${query.trim()}”` : '' }}.
@@ -570,12 +584,62 @@ function channelStateLabel(channel: PublishingOverviewChannel): string {
   return 'No YouTube channel connected'
 }
 
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/**
+ * The plan's expected days against the days the confirmed releases land on.
+ *
+ * A release on a day the plan does not expect is still a real release, and it
+ * covers no expected slot — so "nothing placed" would read as "nothing is
+ * coming". Counted inside the plan's next 12 slots only, and repairs nothing.
+ */
+function offCadenceNote(channel: PublishingOverviewChannel): string {
+  const cadence = channel.cadence
+  if (!cadence || cadence.off_cadence_count <= 0) return ''
+  const count = cadence.off_cadence_count
+  const one = count === 1
+  const days = cadence.off_cadence_weekdays.map(day => WEEKDAY_NAMES[day] ?? '?').join(', ')
+  return `${count} confirmed release${one ? '' : 's'} ${one ? 'lands' : 'land'} on a day the plan does not expect, between the first and last of the next 12 expected slots${days ? ` (${days})` : ''}`
+}
+
+const cadenceNotes = computed(() => filteredChannels.value
+  .map(channel => ({ slug: channel.slug, name: channel.name, text: offCadenceNote(channel) }))
+  .filter(note => note.text !== ''))
+
+/**
+ * Which artifact is actually old.
+ *
+ * The channel LISTING and the per-video checks have separate ages, so a label
+ * that hangs "stale" on the newest check blames the wrong one.
+ */
 function freshnessLabel(channel: PublishingOverviewChannel): string {
+  // The channel is not connected: nothing else applies.
   if (channel.confirmed.error === 'no_channel_assigned') return 'No channel assigned'
   if (channel.confirmed.error === 'channel_not_connected') return 'Not connected'
+  // A read that FAILED is not a fresh answer.
+  if (channel.confirmed.error) return `Couldn't read YouTube · ${channel.confirmed.error}`
+  const listing = channel.confirmed.listing
+  const attempt = listing?.last_attempt
+  const staleVideos = channel.confirmed.stale_videos ?? 0
+  const stalePart = staleVideos > 0 ? ` · ${staleVideos} stale check${staleVideos === 1 ? '' : 's'}` : ''
+  // The last listing attempt failed: any freshness below is about the LAST
+  // success, so the failed attempt is what the owner has to act on.
+  if (attempt?.outcome === 'failed') {
+    const code = attempt.error_code || 'unknown'
+    const lastComplete = listing?.complete_at ? ` · last full read ${formatInstant(listing.complete_at)}` : ''
+    return `Listing failed ${formatInstant(attempt.attempted_at)} · ${code}${lastComplete}${stalePart}`
+  }
   if (channel.confirmed.freshness === 'unknown') return 'Never checked'
-  if (channel.confirmed.freshness === 'stale') return `Stale · ${formatInstant(channel.confirmed.last_checked_at || '')}`
-  return `Fresh · ${formatInstant(channel.confirmed.last_checked_at || '')}`
+  if (channel.confirmed.freshness === 'fresh') return `Fresh · ${formatInstant(channel.confirmed.last_checked_at || '')}`
+  // The listing is what finds releases Story Studio never made, so an old one
+  // hides them: it is named first, with its own date.
+  if (listing && listing.state !== 'complete') {
+    if (listing.state === 'never') return `Never listed${stalePart}`
+    return `Listing incomplete · ${formatInstant(listing.partial_at || '')}${stalePart}`
+  }
+  if (listing?.stale) return `Stale listing · ${formatInstant(listing.complete_at || '')}${stalePart}`
+  if ((channel.confirmed.unchecked_videos ?? 0) > 0) return 'Checks incomplete'
+  return `Stale checks${stalePart}`
 }
 </script>
 
@@ -644,6 +708,9 @@ function freshnessLabel(channel: PublishingOverviewChannel): string {
 .rec-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .rec-link { font-size: .78rem; }
 .muted { color: var(--text-secondary, #999); }
+.cadence-note { display: block; margin: 4px 0 0; font-size: .78rem; color: var(--warning, #b26a00); }
+.cadence-notes { margin: 0 0 10px; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.cadence-notes .cadence-note { margin: 0; }
 .risk-badge {
   display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 4px; font-size: .72rem;
   background: color-mix(in srgb, var(--warning, #b26a00) 18%, transparent); color: var(--warning, #b26a00);

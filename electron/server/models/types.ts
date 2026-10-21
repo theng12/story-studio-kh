@@ -2066,9 +2066,42 @@ export interface LlmLineupMigration {
   notice_dismissed_at?: string
 }
 
+/**
+ * The channel's own identity, stored on the channel (2026-10-21).
+ *
+ * LOCAL only: the app's own record of the channel's handle, About text and
+ * art, so the owner can see and edit them here. Never written back to a
+ * channel on any platform. The length and character rules are the app's own
+ * input rules, not a statement about what any platform accepts.
+ *
+ * The channel's NAME is not one of these fields — it stays authoritative in
+ * `ProjectMeta.name` (project.json), changed through `pm.updateProject`, so
+ * there is one name for a channel and no second copy to drift.
+ *
+ * `logo`/`banner` hold a PORTABLE token — "${CHANNEL}/assets/profile/<kind>-<digest>.<ext>"
+ * — never an absolute path and never a path from another machine, so the art
+ * travels with the channel folder.
+ */
+export interface ChannelProfileConfig {
+  /** The channel's handle, stored without a leading "@". */
+  handle?: string
+  /** The channel's About text. */
+  description?: string
+  /** Portable token of the logo art. */
+  logo?: string
+  /** Portable token of the banner art. */
+  banner?: string
+}
+
 export interface ProjectConfig {
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check; only changed rows are saved. */
   safety_checks?: Record<string, 'off' | 'warn' | 'block'>
+  /**
+   * The channel's local identity — handle, About text and the logo/banner
+   * art the app shows for this channel. See `ChannelProfileConfig`; the
+   * channel's name stays in `ProjectMeta.name`.
+   */
+  channel_profile?: ChannelProfileConfig
   llm_lineup_migration?: LlmLineupMigration
   /** Historical project files may contain retired fields; Story ignores them. */
   [key: string]: any

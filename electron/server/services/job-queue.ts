@@ -5628,6 +5628,14 @@ function exactPipelineHandoffChild(child: Job, marker: PipelineHandoff): boolean
 }
 
 async function enqueuePipelineHandoffOnce(marker: PipelineHandoff): Promise<Job> {
+  // Parity with `enqueue`: a durable Pipeline handoff reaches the episode admission check
+  // through this path, not through `enqueue`, so the admission seam that observes an
+  // attempt must see it here too — before the admission lock, with the same scope shape.
+  await episodeAdmissionProbeForTesting?.({
+    project_slug: marker.options.project_slug,
+    episode_id: marker.options.episode_id,
+    type: marker.options.type,
+  })
   return withLock(`pipeline-handoff-child:${marker.child_job_id}`, async () => {
     const existing = jobs.get(marker.child_job_id)
     if (existing) {

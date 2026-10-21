@@ -291,7 +291,7 @@ describe('what the episode\'s own settings put around the narration', () => {
 
   test('a project with no Video Assembly settings puts nothing around the narration', async () => {
     const bare = await projectWith({})
-    assert.deepEqual(await resolveEpisodeRenderShape(bare, probe), { after_narration_sec: 0, intro: null })
+    assert.deepEqual(await resolveEpisodeRenderShape(bare, probe), { after_narration_sec: 0, tail: { sec: 0, from_end_sec: 0 }, intro: null })
   })
 
   test("the reserved opening the plan asked for is inside the intro's window", async () => {

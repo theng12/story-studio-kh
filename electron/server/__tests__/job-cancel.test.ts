@@ -519,8 +519,18 @@ describe('remote cancellation checkpoints', () => {
     await Promise.all(['first', 'second'].map(id => jq.recordGenStudioJob(job.job_id, {
       id, operation: 'voice.tts', state: 'succeeded', updated_at: new Date().toISOString(),
     })))
-    const finalDeadline = Date.now() + 2_000
-    while (Date.now() < finalDeadline && jq.getJob(job.job_id)?.status === 'running') await new Promise(resolve => setTimeout(resolve, 20))
+    // The parent's terminal status becomes visible in memory before the durable
+    // pipeline handoff dispatches the child. Waiting for `status !== 'running'`
+    // can therefore race the child's creation; wait for the child itself to
+    // appear and finish, which is what this assertion actually pins.
+    await waitForValue(
+      async () => {
+        const rows = await jq.getJobs(project.slug)
+        const child = rows.find(candidate => candidate.type === 'broll_assemble')
+        return child && child.status === 'done' ? child : undefined
+      },
+      { label: 'the chained broll_assemble child to finish', timeoutMs: 2_000 },
+    )
     assert.equal(jq.getJob(job.job_id)?.status, 'done')
     assert.equal(audits, 1)
     assert.equal((await jq.getJobs(project.slug)).filter(candidate => candidate.type === 'broll_assemble').length, 1)

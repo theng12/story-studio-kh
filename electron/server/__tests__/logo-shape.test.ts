@@ -11,6 +11,20 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { logoCornerRadiusPct, logoShapeMaskSvg, logoShapeOf, writeShapedLogo } from '../lib/logo-shape.js'
+import { buildFinalLogoFilters } from '../lib/final-render-core.js'
+import type { VideoLogoConfig } from '../models/types.js'
+
+const logo: VideoLogoConfig = {
+  enabled: true,
+  image_path: '/tmp/terra-nash-logo.png',
+  position: 'custom',
+  custom_x: 1650,
+  custom_y: 80,
+  opacity: 1,
+  scale: 0.08,
+  margin: 50,
+  hide_during_intro: false,
+}
 
 const dir = await mkdtemp(path.join(os.tmpdir(), 'logo-shape-'))
 const source = path.join(dir, 'logo.png')
@@ -58,6 +72,13 @@ test('the render uses the shaped still only when a shape is chosen, and no geq t
   assert.match(block, /if \(shape !== 'none'\)/)
   assert.match(block, /args\.push\('-i', logoPath\)/)
   assert.match(block, /the logo is shown as it is/, 'a failed cut falls back to the plain logo')
-  assert.match(video, /filterParts\.push\(`\[\$\{logoInputIdx\}:v\]scale=\$\{logoW\}:-1,format=rgba,colorchannelmixer=aa=\$\{opacity\}\[logo\]`\)/, 'the logo filter is unchanged')
+  // The logo filter is unchanged. Since 1.4.347 the final-render graph builds it in
+  // lib/final-render-core.ts, so the rendered filter is what the assertion pins.
+  const part = buildFinalLogoFilters({ input: '[v0]', allocLabel: () => '[v1]' }, logo, 3, 1280, 720, '')
+  assert.deepEqual(part.filters, [
+    '[3:v]scale=102:-1,format=rgba,colorchannelmixer=aa=1[logo]',
+    '[v0][logo]overlay=1100:53[v1]',
+  ], 'the logo filter is unchanged')
+  assert.doesNotMatch(part.filters.join('\n'), /geq/, 'no geq touches the logo')
   assert.doesNotMatch(block, /geq/)
 })

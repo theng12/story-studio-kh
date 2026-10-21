@@ -4,18 +4,70 @@
  * dirs: a fake installed app, a fake staged app, a fake state file. No real bundle is touched.
  */
 
-import { test, describe, beforeEach, afterEach } from 'node:test'
+import { test, describe, beforeEach, afterEach, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
-import { createHash, generateKeyPairSync, sign } from 'node:crypto'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { createHash, generateKeyPairSync, randomUUID, sign } from 'node:crypto'
 import fs from 'node:fs'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
+import { clearTimeout as clearRealTimeout, setTimeout as realSetTimeout } from 'node:timers'
 
 import { useTempDataDir } from './_helpers.js'
 import { sleep, waitFor } from './_timing.js'
 import * as updater from '../services/app-update.js'
 import { __setFinalCheckRunnerForTests, runningFinalChecks, startFinalCheck } from '../lib/final-video-check.js'
+
+/**
+ * The swap helper `install()` spawns is detached and unref'd, so a test has no handle on it: it
+ * waits for the app to quit and keeps writing into the fixture after the test is done. Mocking
+ * `spawn` for that one call hands the test the helper's own ChildProcess, so "the helper has
+ * finished" is its exit. Every other spawn is delegated untouched.
+ */
+type HelperProcess = {
+  child: ChildProcess
+  /** Resolves with the helper's exit code when the helper process is gone. */
+  exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
+  /** A spawn that never started is a failure, not a quiet exit. */
+  error: () => Error | undefined
+}
+
+function captureHelperSpawns(
+  t: TestContext,
+  script: string,
+): { processes: HelperProcess[]; restore: () => void } {
+  const childProcess = createRequire(import.meta.url)('node:child_process') as {
+    spawn: (...args: any[]) => ChildProcess
+  }
+  const original = childProcess.spawn
+  const processes: HelperProcess[] = []
+  const mocked = t.mock.method(childProcess, 'spawn', (...args: any[]) => {
+    const child = Reflect.apply(original, childProcess, args) as ChildProcess
+    const [command, argv] = args as [string, string[]]
+    if (command === '/bin/bash' && Array.isArray(argv) && argv.length === 1 && argv[0] === script) {
+      let failure: Error | undefined
+      const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve => {
+        child.once('exit', (code, signal) => resolve({ code, signal }))
+        child.once('error', (error: Error) => { failure = error; resolve({ code: null, signal: null }) })
+      })
+      processes.push({ child, exited, error: () => failure })
+    }
+    return child
+  })
+  // The updater imports `spawn` as an ESM named export: the facade has to see the mock.
+  syncBuiltinESMExports()
+  let restored = false
+  return {
+    processes,
+    restore: () => {
+      if (restored) return
+      restored = true
+      mocked.mock.restore()
+      syncBuiltinESMExports()
+    },
+  }
+}
 
 /** `<Library>/_trash/_story-studio` in the test's own data folder. */
 async function libraryAppTrash(): Promise<string> {
@@ -325,21 +377,132 @@ describe('install promptly (owner, 2026-10-09)', () => {
     updater.writeState({ phase: 'ready', release: signed(), staged_app: staged })
     return target
   }
+  const clock = { t: 0 }
   /**
    * The real helper, against a temp target, with a stand-in pid and a relaunch that reports
-   * healthy. `clock.t` is what the updater reads; the wait looks every 20 ms.
+   * healthy. `clock.t` is what the updater reads; the wait looks every 20 ms. A caller that holds
+   * the hand-off passes the stand-in it owns, so the helper waits for that pid instead of for a
+   * sleeper nobody keeps track of.
    */
-  const clock = { t: 0 }
-  function wired(queue: any, extra: Partial<updater.UpdaterOptions> = {}) {
-    const quitter = spawn('/bin/sleep', ['1'])
+  function wired(queue: any, extra: Partial<updater.UpdaterOptions> = {}, standIn?: { pid: number }) {
+    const quitter = standIn ? null : spawn('/bin/sleep', ['1'])
+    const pid = standIn ? standIn.pid : quitter!.pid
     const state = path.join(updater.updateDir(), 'state.json')
     clock.t = 1_000_000
     updater._configureForTesting(options(queue, {
       idlePollMs: 3_600_000, drainPollMs: 20, now: () => clock.t,
       relaunchCommand: `printf '{"phase":"installed","release":{"version":"1.4.258"}}' > ${JSON.stringify(state)}`,
-      helperEnv: { SU_PID: String(quitter.pid), SU_HEALTH_SECONDS: '5' },
+      helperEnv: { SU_PID: String(pid), SU_HEALTH_SECONDS: '5' },
       ...extra,
     }))
+  }
+  /**
+   * The relaunch the helper starts in the background. It writes the marker as its last act, named
+   * after the helper that started it, so each helper's own relaunch is accounted for and not just
+   * the first one.
+   *
+   * The name is the helper's PROCESS GROUP id, not `$PPID`. A helper that relaunches and then exits
+   * at once (the two "could not move the app" paths, and the rollback that ends the script) is gone
+   * before the relaunch starts, so the orphan is reparented to PID 1 and `$PPID` reads 1: the
+   * relaunch then writes its marker as `1` and the helper's own marker never appears. The helper is
+   * spawned detached, so it leads its own session and process group: its group id is its own pid,
+   * and that does not change when it exits.
+   */
+  function relaunchCommand(markers: string): string {
+    const state = path.join(updater.updateDir(), 'state.json')
+    const helperPid = 'name=$(ps -o pgid= -p $$ 2>/dev/null | tr -d \'[:space:]\'); [ -n "$name" ] || { echo "no helper identity for the relaunch" >&2; exit 1; }'
+    return `printf '{"phase":"installed","release":{"version":"1.4.258"}}' > ${JSON.stringify(state)}; ${helperPid}; printf relaunched > ${JSON.stringify(markers)}/$name`
+  }
+  /**
+   * A hand-off the test can hold: the helper waits for a stand-in the test owns, so it cannot write
+   * into the fixture while the body asserts. The finally ends that stand-in explicitly and waits for
+   * the helper's own exit and for the relaunch it left running; a settlement error never replaces
+   * the body's own failure.
+   */
+  async function heldHandoff<T>(
+    t: TestContext,
+    queue: any,
+    extra: Partial<updater.UpdaterOptions>,
+    body: () => Promise<T>,
+  ): Promise<T> {
+    const markers = path.join(os.tmpdir(), `story-app-update-relaunch-${process.pid}-${randomUUID()}`)
+    fs.mkdirSync(markers)
+    const capture = captureHelperSpawns(t, path.join(updater.updateDir(), 'swap-app.sh'))
+    const standIn = spawn('/bin/sleep', ['3600'])
+    const standInGone = new Promise<void>(resolve => {
+      standIn.once('exit', () => resolve())
+      standIn.once('error', () => resolve())
+    })
+    if (!standIn.pid) throw new Error('the stand-in the helper waits for has no pid')
+    let failed = false
+    let thrown: unknown
+    try {
+      wired(queue, { relaunchCommand: relaunchCommand(markers), ...extra }, { pid: standIn.pid })
+      return await body()
+    } catch (error) {
+      failed = true
+      thrown = error
+    } finally {
+      capture.restore()
+      if (!standIn.killed) standIn.kill('SIGTERM')
+      // The helper polls the stand-in's pid: it must be gone, not a zombie, before the helper moves on.
+      await standInGone
+      standIn.unref()
+      try {
+        await settleHelpers(capture.processes, markers)
+      } catch (error) {
+        if (!failed) throw error
+      }
+    }
+    throw thrown
+  }
+  /** The helper's own exit, then the relaunch that helper left running. */
+  async function settleHelpers(processes: HelperProcess[], markers: string): Promise<void> {
+    for (const helper of processes) {
+      helper.child.ref()
+      const { code, signal } = await withBound(helper.exited, 60_000, 'the swap helper never finished')
+      const error = helper.error()
+      if (error) throw error
+      if (signal) throw new Error('the swap helper was killed before it finished')
+      if (code === 2) continue // it refused to start, so it never relaunched
+      await waitForMarker(path.join(markers, String(helper.child.pid)))
+    }
+  }
+  /** A wait that ends, so a helper that never finishes fails the test instead of hanging the run. */
+  function withBound<T>(wait: Promise<T>, ms: number, what: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = realSetTimeout(() => reject(new Error(what)), ms)
+      wait.then(
+        value => { clearRealTimeout(timer); resolve(value) },
+        error => { clearRealTimeout(timer); reject(error) },
+      )
+    })
+  }
+  /** Bounded wait for one helper's relaunch marker. The bound is a real timer, not the global one
+   * a test may have mocked, and the watch is always closed via fs.unwatchFile (StatWatcher.close
+   * does not reliably detach the poll on macOS and leaves the event loop held). */
+  async function waitForMarker(file: string): Promise<void> {
+    if (fs.existsSync(file)) return
+    await new Promise<void>((resolve, reject) => {
+      let done = false
+      fs.watchFile(file, { interval: 50 }, () => {
+        if (fs.existsSync(file)) finish()
+      })
+      const timer = realSetTimeout(() => finish(new Error(`the relaunch never wrote ${file}`)), 30_000)
+      function finish(error?: Error) {
+        if (done) return
+        done = true
+        clearRealTimeout(timer)
+        fs.unwatchFile(file)
+        if (error) reject(error)
+        else resolve()
+      }
+    })
+  }
+  /** The helper's own verdict, read once it has exited: it wrote the file before it went. */
+  function helperOutcome(): string {
+    const result = path.join(updater.updateDir(), 'helper-result.json')
+    return JSON.parse(fs.readFileSync(result, 'utf8')).outcome
   }
   /** The updater has looked at the queue twice more since now (each look asks `wouldNotResume`). */
   const lookedAgain = async (queue: { looks: number }) => {
@@ -375,7 +538,11 @@ describe('install promptly (owner, 2026-10-09)', () => {
   function stillMarked(script: string): boolean {
     return fs.existsSync(script) && fs.readFileSync(script, 'utf8').includes(HANDOFF_MARKER)
   }
-  /** Use this live process as the stand-in app; an unowned sleeper keeps the test worker alive. */
+  /**
+   * Use this live process as the stand-in app: an unowned sleeper would keep the test worker alive.
+   * The two tests that use it never hand off, so no helper ever waits on that pid; a hand-off that
+   * has to be waited for owns its stand-in instead (see `heldHandoff`).
+   */
   const keepAppAlive = { helperEnv: { SU_PID: String(process.pid), SU_HEALTH_SECONDS: '5', SU_QUIT_WAIT: '300' } }
   /** What a real tracked cleanup's work returns; this file never inspects it. */
   const CLEAN = { items: [], item_count: 0, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
@@ -644,34 +811,35 @@ describe('install promptly (owner, 2026-10-09)', () => {
     assert.equal(updater.readState().phase, 'installing', 'no drain once staged')
   })
 
-  test('two "Install now (don\'t wait)" presses make ONE hand-off: one helper, no draining write over installing', async () => {
+  test('two "Install now (don\'t wait)" presses make ONE hand-off: one helper, no draining write over installing', async t => {
     ready()
     const queue = promptQueue(1)
     queue.notResuming = ['music_video']
-    wired(queue, keepAppAlive)
-    // Both presses read the same `ready` state: hold each one inside `setPaused`, then release them
-    // one at a time so the second continuation runs after the first has committed `installing`.
-    const acquire = queue.acquirePause
-    const releases: Array<() => void> = []
-    queue.acquirePause = async (token: string) => {
-      await new Promise<void>(resolve => { releases.push(resolve) })
-      return acquire(token)
-    }
-    const presses = Promise.all([updater.installNow(true), updater.installNow(true)])
-    await waitFor(() => releases.length === 2, { label: 'both presses waiting on the queue' })
-    releases[0]!()
-    await waitFor(() => updater.readState().phase === 'installing', { label: 'the first press committing' })
-    const script = path.join(updater.updateDir(), 'swap-app.sh')
-    markedOnce(script)
-    releases[1]!()
-    await presses
-    assert.equal(updater.readState().phase, 'installing', 'the second press did not write draining over installing')
-    assert.equal(stillMarked(script), true, 'no second hand-off: a second install() would have rewritten swap-app.sh')
-    await waitFor(() => handoffs() >= 1, { label: 'the helper to start' })
-    assert.equal(handoffs(), 1, 'the helper itself saw one hand-off')
+    await heldHandoff(t, queue, {}, async () => {
+      // Both presses read the same `ready` state: hold each one inside `setPaused`, then release them
+      // one at a time so the second continuation runs after the first has committed `installing`.
+      const acquire = queue.acquirePause
+      const releases: Array<() => void> = []
+      queue.acquirePause = async (token: string) => {
+        await new Promise<void>(resolve => { releases.push(resolve) })
+        return acquire(token)
+      }
+      const presses = Promise.all([updater.installNow(true), updater.installNow(true)])
+      await waitFor(() => releases.length === 2, { label: 'both presses waiting on the queue' })
+      releases[0]!()
+      await waitFor(() => updater.readState().phase === 'installing', { label: 'the first press committing' })
+      const script = path.join(updater.updateDir(), 'swap-app.sh')
+      markedOnce(script)
+      releases[1]!()
+      await presses
+      assert.equal(updater.readState().phase, 'installing', 'the second press did not write draining over installing')
+      assert.equal(stillMarked(script), true, 'no second hand-off: a second install() would have rewritten swap-app.sh')
+      await waitFor(() => handoffs() >= 1, { label: 'the helper to start' })
+      assert.equal(handoffs(), 1, 'the helper itself saw one hand-off')
+    })
   })
 
-  test('a drain suspended in the queue check cannot start a second helper once "Install now (don\'t wait)" has committed', async () => {
+  test('a drain suspended in the queue check cannot start a second helper once "Install now (don\'t wait)" has committed', async t => {
     ready()
     const queue = promptQueue(1)
     let checks = 0
@@ -681,46 +849,48 @@ describe('install promptly (owner, 2026-10-09)', () => {
     const gate = new Promise<void>(resolve => { releaseGate = resolve })
     let gated = false
     queue.wouldNotResume = async () => { checks += 1; gated = true; enterGate(); await gate; return [] }
-    wired(queue, keepAppAlive)
-    await updater.installNow()
-    await waitFor(() => gated, { label: 'the drain tick asking the queue' })
-    await updater.installNow(true)
-    assert.equal(updater.readState().phase, 'installing', 'the immediate press commits at once')
-    const script = path.join(updater.updateDir(), 'swap-app.sh')
-    markedOnce(script)
-    releaseGate()
-    // One macrotask hop: the resumed tick's continuation is a microtask, so it has run by then.
-    await sleep(0)
-    // The resumed tick sees `installing`: it neither installs again nor writes `draining` back.
-    assert.equal(updater.readState().phase, 'installing', 'the resumed tick did not write draining over installing')
-    assert.equal(stillMarked(script), true, 'the resumed tick did not start a second helper')
-    assert.equal(checks, 1, 'the suspended drain looked at the queue once, before the immediate press committed')
-    await waitFor(() => handoffs() >= 1, { label: 'the helper to start' })
-    assert.equal(handoffs(), 1, 'the helper itself saw one hand-off')
+    await heldHandoff(t, queue, {}, async () => {
+      await updater.installNow()
+      await waitFor(() => gated, { label: 'the drain tick asking the queue' })
+      await updater.installNow(true)
+      assert.equal(updater.readState().phase, 'installing', 'the immediate press commits at once')
+      const script = path.join(updater.updateDir(), 'swap-app.sh')
+      markedOnce(script)
+      releaseGate()
+      // One macrotask hop: the resumed tick's continuation is a microtask, so it has run by then.
+      await sleep(0)
+      // The resumed tick sees `installing`: it neither installs again nor writes `draining` back.
+      assert.equal(updater.readState().phase, 'installing', 'the resumed tick did not write draining over installing')
+      assert.equal(stillMarked(script), true, 'the resumed tick did not start a second helper')
+      assert.equal(checks, 1, 'the suspended drain looked at the queue once, before the immediate press committed')
+      await waitFor(() => handoffs() >= 1, { label: 'the helper to start' })
+      assert.equal(handoffs(), 1, 'the helper itself saw one hand-off')
+    })
   })
 
-  test('a quit that never happens frees the claim, so a later install hands off again', async () => {
+  test('a quit that never happens frees the claim, so a later install hands off again', async t => {
     ready()
     const queue = promptQueue(1)
     queue.notResuming = ['music_video']
     // `quit` never quits: the hand-off is called off by its own deadline (shortened for the test).
-    wired(queue, { ...keepAppAlive, quit: () => {} })
-    updater._setQuitDeadlineForTesting(50)
-    await updater.installNow(true)
-    assert.equal(updater.readState().phase, 'installing')
-    await waitFor(() => updater.readState().phase === 'failed', { label: 'the did-not-quit failure' })
-    // The second hand-off must not be called off while this test watches it.
-    updater._setQuitDeadlineForTesting(60 * 60_000)
-    const script = path.join(updater.updateDir(), 'swap-app.sh')
-    markedOnce(script)
-    updater.writeState({ ...updater.readState(), phase: 'ready', immediate: true, install_requested: true, error: null })
-    await updater.maybeInstall()
-    assert.equal(updater.readState().phase, 'installing', 'the claim was freed with the failure')
-    assert.equal(stillMarked(script), false, 'the later install handed off again and rewrote swap-app.sh')
-    await waitFor(() => handoffs() >= 2, { label: 'a second helper' })
+    await heldHandoff(t, queue, { quit: () => {} }, async () => {
+      updater._setQuitDeadlineForTesting(50)
+      await updater.installNow(true)
+      assert.equal(updater.readState().phase, 'installing')
+      await waitFor(() => updater.readState().phase === 'failed', { label: 'the did-not-quit failure' })
+      // The second hand-off must not be called off while this test watches it.
+      updater._setQuitDeadlineForTesting(60 * 60_000)
+      const script = path.join(updater.updateDir(), 'swap-app.sh')
+      markedOnce(script)
+      updater.writeState({ ...updater.readState(), phase: 'ready', immediate: true, install_requested: true, error: null })
+      await updater.maybeInstall()
+      assert.equal(updater.readState().phase, 'installing', 'the claim was freed with the failure')
+      assert.equal(stillMarked(script), false, 'the later install handed off again and rewrote swap-app.sh')
+      await waitFor(() => handoffs() >= 2, { label: 'a second helper' })
+    })
   })
 
-  test('a caller that paused the queue and then lost the race records the pause it took', async () => {
+  test('a caller that paused the queue and then lost the race records the pause it took', async t => {
     ready()
     const queue = promptQueue(1)
     queue.notResuming = ['music_video']
@@ -730,46 +900,53 @@ describe('install promptly (owner, 2026-10-09)', () => {
     let release!: () => void
     const held = new Promise<void>(resolve => { release = resolve })
     queue.acquirePause = async (token: string) => { const owned = await acquire(token); pauses += 1; await held; return owned }
-    wired(queue, keepAppAlive)
-    const automatic = updater.maybeInstall()
-    await waitFor(() => pauses === 1, { label: 'the automatic caller pausing intake' })
-    // The owner's press finds the queue already paused, so it never pauses it itself.
-    await updater.installNow(true)
-    assert.equal(updater.readState().phase, 'installing', 'the press committed')
-    assert.deepEqual(queue.calls, [true], 'the press did not pause a queue that was already paused')
-    release()
-    await automatic
-    assert.equal(updater.readState().pause_owner_token, queue.owner, 'the winning handoff retains the shared ownership token')
-    assert.equal(updater.readState().we_paused, false, 'a late caller cannot restore the unsafe legacy release flag')
+    await heldHandoff(t, queue, {}, async () => {
+      const automatic = updater.maybeInstall()
+      await waitFor(() => pauses === 1, { label: 'the automatic caller pausing intake' })
+      // The owner's press finds the queue already paused, so it never pauses it itself.
+      await updater.installNow(true)
+      assert.equal(updater.readState().phase, 'installing', 'the press committed')
+      assert.deepEqual(queue.calls, [true], 'the press did not pause a queue that was already paused')
+      release()
+      await automatic
+      assert.equal(updater.readState().pause_owner_token, queue.owner, 'the winning handoff retains the shared ownership token')
+      assert.equal(updater.readState().we_paused, false, 'a late caller cannot restore the unsafe legacy release flag')
+    })
+    // The helper is gone and its own verdict is on disk: the swap happened and the app came up.
+    assert.equal(helperOutcome(), 'installed', 'the helper swapped and the relaunch came up healthy')
   })
 
-  test('an immediate press on a queue the owner paused himself never claims the pause', async () => {
+  test('an immediate press on a queue the owner paused himself never claims the pause', async t => {
     ready()
     const queue = promptQueue(1)
     queue.paused = true
-    wired(queue, keepAppAlive)
-    await updater.installNow(true)
-    assert.equal(updater.readState().phase, 'installing')
-    assert.equal(updater.readState().we_paused, false, 'his pause is not the updater\'s to lift')
-    assert.deepEqual(queue.calls, [], 'his pause was left alone')
+    await heldHandoff(t, queue, {}, async () => {
+      await updater.installNow(true)
+      assert.equal(updater.readState().phase, 'installing')
+      assert.equal(updater.readState().we_paused, false, 'his pause is not the updater\'s to lift')
+      assert.deepEqual(queue.calls, [], 'his pause was left alone')
+    })
+    // The helper is gone and its own verdict is on disk: the swap happened and the app came up.
+    assert.equal(helperOutcome(), 'installed', 'the helper swapped and the relaunch came up healthy')
   })
 
   test('quit failure preserves the owner Resume then Pause that superseded the updater', async t => {
     ready()
     const queue = promptQueue(1)
     queue.notResuming = ['music_video']
-    wired(queue, keepAppAlive)
     t.mock.timers.enable({ apis: ['setTimeout'] })
     updater._setQuitDeadlineForTesting(6 * 60_000)
-    await updater.installNow(true)
-    assert.equal(updater.readState().phase, 'installing')
-    await queue.setPaused(false)
-    await queue.setPaused(true)
-    t.mock.timers.tick(6 * 60_000)
-    await new Promise<void>(resolve => setImmediate(resolve))
-    assert.equal(updater.readState().phase, 'failed')
-    assert.equal(queue.paused, true, 'quit failure cannot release the owner\'s later pause')
-    assert.deepEqual(queue.calls, [true, false, true], 'no updater Resume follows the owner Pause')
+    await heldHandoff(t, queue, {}, async () => {
+      await updater.installNow(true)
+      assert.equal(updater.readState().phase, 'installing')
+      await queue.setPaused(false)
+      await queue.setPaused(true)
+      t.mock.timers.tick(6 * 60_000)
+      await new Promise<void>(resolve => setImmediate(resolve))
+      assert.equal(updater.readState().phase, 'failed')
+      assert.equal(queue.paused, true, 'quit failure cannot release the owner\'s later pause')
+      assert.deepEqual(queue.calls, [true, false, true], 'no updater Resume follows the owner Pause')
+    })
   })
 
   test('owner Resume then Pause during acquisition prevents an immediate handoff', async () => {

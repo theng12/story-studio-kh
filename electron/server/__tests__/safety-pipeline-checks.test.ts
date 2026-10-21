@@ -346,41 +346,84 @@ test('same_step_queued: Off joins a run-batch to the step already queued; Block 
   }
 })
 
+const TERMINAL_JOB_STATES = ['done', 'error', 'cancelled']
+
 test('same_step_queued: a chain handoff joins the job already queued (Off) instead of failing (Block)', async () => {
   let open = false
-  const busyIds: string[] = []
   jq.registerExecutor('broll_assemble', async () => {
     while (!open) await new Promise(r => setTimeout(r, 10))
   })
   jq.registerExecutor('chapter-only', async () => {})
-  for (const mode of ['off', 'block']) {
-    const project = await pm.createProject({ name: `Safety handoff ${mode}` })
-    await pm.updateConfig(project.slug, { safety_checks: { same_step_queued: mode } } as any)
-    const busy = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'broll_assemble', episode_id: 'EP001', title: 'busy', params: {} })
-    busyIds.push(busy.job_id)
-    const rest = [{ type: 'youtube_playlist_update', title: 'later', params: {} }]
-    jq.enqueuePreparedForTest({
-      project_slug: project.slug, type: 'chapter-only', episode_id: 'EP001', title: 'head',
-      params: { pipeline_chain: [{ type: 'broll_assemble', title: 'dup', params: {} }, ...rest] },
-    })
-    const head = await waitForValue(async () => {
-      const job = (await jq.getJobs(project.slug)).find(candidate => candidate.title === 'head')
-      return job?.status === 'done' ? job : undefined
-    }, { label: 'head job to finish', timeoutMs: 3000 })
-    assert.equal(head?.status, 'done')
-    const failed = (await jq.getJobs(project.slug)).find(job => (job.params as any)?.pipeline_handoff_failed === true)
-    if (mode === 'block') {
-      assert.ok(failed, 'Block keeps the handoff failure')
-    } else {
-      assert.equal(failed, undefined)
-      assert.deepEqual(jq.getJob(busy.job_id)!.params.pipeline_chain, rest)
+  // The joined job carries the later step on, so that step must not reach the network here.
+  jq.registerExecutor('youtube_playlist_update', async () => {})
+  const projectSlugs: string[] = []
+  let assertionFailure: unknown
+  try {
+    for (const mode of ['off', 'block']) {
+      const project = await pm.createProject({ name: `Safety handoff ${mode}` })
+      projectSlugs.push(project.slug)
+      await pm.updateConfig(project.slug, { safety_checks: { same_step_queued: mode } } as any)
+      const busy = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'broll_assemble', episode_id: 'EP001', title: 'busy', params: {} })
+      const rest = [{ type: 'youtube_playlist_update', title: 'later', params: {} }]
+      jq.enqueuePreparedForTest({
+        project_slug: project.slug, type: 'chapter-only', episode_id: 'EP001', title: 'head',
+        params: { pipeline_chain: [{ type: 'broll_assemble', title: 'dup', params: {} }, ...rest] },
+      })
+      const head = await waitForValue(async () => {
+        const job = (await jq.getJobs(project.slug)).find(candidate => candidate.title === 'head')
+        return job?.status === 'done' ? job : undefined
+      }, { label: 'head job to finish', timeoutMs: 3000 })
+      assert.equal(head?.status, 'done')
+      // The handoff is dispatched after the parent's terminal checkpoint, so the queue has
+      // not decided yet when the parent reads as done. Wait for that decision BEFORE the
+      // held job is released: "already queued" only holds while that job is still active,
+      // and letting it finish first turns the join into a second copy of the same step.
+      await waitForValue(() => {
+        const state = (jq.getJob(head.job_id) as any)?.pipeline_handoff?.state
+        return state === 'dispatched' || state === 'failed' ? state : undefined
+      }, { label: 'the chain handoff to be dispatched', timeoutMs: 5000 })
+      if (mode === 'block') {
+        // The failure record is written after the handoff is marked failed.
+        await waitForValue(async () => {
+          const recorded = (await jq.getJobs(project.slug)).some(job => (job.params as any)?.pipeline_handoff_failed === true)
+          return recorded ? true : undefined
+        }, { label: 'the handoff failure record', timeoutMs: 5000 })
+      }
+      const failed = (await jq.getJobs(project.slug)).find(job => (job.params as any)?.pipeline_handoff_failed === true)
+      if (mode === 'block') {
+        assert.ok(failed, 'Block keeps the handoff failure')
+      } else {
+        assert.equal(failed, undefined)
+        assert.deepEqual(jq.getJob(busy.job_id)!.params.pipeline_chain, rest)
+      }
+    }
+  } catch (error) {
+    assertionFailure = error
+  } finally {
+    // Release the held executor and let every job this test started settle, including
+    // the chained link that follows the joined job. A job still writing when the
+    // fixture's data dir goes would race the teardown, so this runs even when an
+    // assertion above failed.
+    open = true
+    try {
+      await waitForValue(async () => {
+        for (const slug of projectSlugs) {
+          for (const job of await jq.getJobs(slug)) {
+            // Durable, not in-memory: a job reads terminal before its last write is
+            // requested, and a write still in flight when the data dir goes lands outside it.
+            const durable = await jq.loadAuthoritativeJob(slug, job.job_id)
+            if (!durable || !TERMINAL_JOB_STATES.includes(durable.status)) return undefined
+            // A chain link that is still pending adds its next job after this pass.
+            const marker = (job as any).pipeline_handoff
+            if (marker && marker.state === 'pending') return undefined
+          }
+        }
+        return true
+      }, { label: 'every job this test started to reach a durable terminal state' })
+      await jq._waitForJobPersistenceForTesting()
+    } catch (error) {
+      if (!assertionFailure) throw error
     }
   }
-  // Let the held jobs finish (the joined chain's next link has no executor and simply fails) before the temp dir goes.
-  open = true
-  const deadline = Date.now() + 3000
-  while (Date.now() < deadline && busyIds.some(id => ['queued', 'running'].includes(jq.getJob(id)?.status || ''))) {
-    await new Promise(r => setTimeout(r, 20))
-  }
-  await jq._waitForJobPersistenceForTesting()
+  if (assertionFailure) throw assertionFailure
 })

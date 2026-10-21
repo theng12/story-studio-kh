@@ -269,7 +269,7 @@ describe('explicit legacy Content Pack user forks', () => {
     )), false)
   })
 
-  test('refuses symlinked stores and a fork record whose durable filename does not match its identity', async () => {
+  test('refuses a symlinked user-fork store without touching the outside directory', async () => {
     const { temp, paths } = await isolated()
     const outside = path.join(temp.dir, 'outside-user-forks')
     await fs.mkdir(outside)
@@ -281,9 +281,12 @@ describe('explicit legacy Content Pack user forks', () => {
       id: probeId, name: 'Unsafe save', description: 'Must not follow a parent symlink.',
       builtin: false, schemaVersion: 1, exampleTopics: ['Unsafe'],
     }, { paths }), /safe directory|symlink/i)
+  })
 
-    await fs.unlink(path.join(paths.root, 'user-forks'))
-    await fs.mkdir(path.join(paths.root, 'user-forks'))
+  test('refuses a fork record whose durable filename does not match its identity', async () => {
+    const { paths } = await isolated()
+    await fs.mkdir(path.join(paths.root, 'user-forks'), { recursive: true })
+    const probeId = 'user:11111111-1111-4111-8111-111111111111'
     const wrongId = 'user:22222222-2222-4222-8222-222222222222'
     await fs.writeFile(path.join(paths.root, 'user-forks', '11111111-1111-4111-8111-111111111111.json'), JSON.stringify({
       schema_version: 1,

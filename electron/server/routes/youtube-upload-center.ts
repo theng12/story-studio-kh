@@ -112,14 +112,13 @@ import { checkAllYouTubeUploads } from '../services/youtube-status-sync.js'
 import {
   YOUTUBE_VIDEO_NOT_FOUND,
   cachedObservation,
-  classifyYouTubeSyncFailure,
   isObservationStale,
   legacyUploadsFor,
   newestObservation,
   publicationCacheView,
   readYouTubePublicationCache,
   receiptObservation,
-  recordYouTubePublicationObservations,
+  refreshYouTubeChannelListing,
   refreshYouTubePublications,
   snapshotObservation,
   type ObservedPublication,
@@ -135,7 +134,6 @@ import { cursorKey } from '../services/youtube-page-cursor.js'
 import { metricNotFetched } from '../services/youtube-analytics-value.js'
 import {
   addVideoToPlaylist,
-  listRecentUploads,
   setCommentModerationStatus,
   updateVideoMetadata,
 } from '../lib/youtube-client.js'
@@ -1382,6 +1380,10 @@ router.get('/projects/:slug/youtube/reconcile', async (req, res) => {
 /**
  * The ONE provider read here. Uses the channel uploads playlist, never
  * `search.list` (spec section 7), and only when asked.
+ *
+ * The listing itself is the shared `refreshYouTubeChannelListing`, so this
+ * route and the Publishing Overview's "Check YouTube Now" read and record a
+ * channel listing the same way — one implementation, one provenance.
  */
 router.post('/projects/:slug/youtube/reconcile/remote-refresh', async (req, res) => {
   try {
@@ -1389,52 +1391,28 @@ router.post('/projects/:slug/youtube/reconcile/remote-refresh', async (req, res)
     // The account that signs in to the ASSIGNED channel, not merely the
     // project default — see `accountForCurrentChannel`.
     const { accountId, channelId } = await accountForCurrentChannel(slug)
-    const attemptedAt = new Date().toISOString()
-    let uploads: Awaited<ReturnType<typeof listRecentUploads>>
-    try {
-      uploads = await listRecentUploads(slug, accountId)
-    } catch (error) {
-      // The last successful listing stays; only the attempt is recorded.
-      await recordYouTubePublicationObservations({
-        project_slug: slug, channel_id: channelId,
-        listing: { attempted_at: attemptedAt, outcome: 'failed', error_code: classifyYouTubeSyncFailure(error) },
-      }).catch(() => {})
-      throw error
-    }
+    // A failed listing is recorded (the last success survives) and rethrown.
+    const listing = await refreshYouTubeChannelListing({
+      project_slug: slug, account_id: accountId, channel_id: channelId,
+    })
     await recordYouTubeReconcileCache({
       project_slug: slug,
       channel_id: channelId,
-      remote_videos: uploads.videos.map(video => ({
-        video_id: video.videoId,
-        ...(video.title ? { title: video.title } : {}),
-        ...(video.publishedAt ? { published_at: video.publishedAt } : {}),
-      })),
-      truncated: uploads.truncated,
+      remote_videos: listing.videos,
+      truncated: listing.truncated,
     })
-    const listed = uploads.videos.filter(video => !!video.videoId)
-    await recordYouTubePublicationObservations({
-      project_slug: slug, channel_id: channelId,
-      listing: {
-        attempted_at: attemptedAt, outcome: uploads.truncated ? 'partial' : 'complete',
-        videos: listed.map(video => ({
-          video_id: video.videoId,
-          ...(video.title ? { title: video.title } : {}),
-          ...(video.publishedAt ? { published_at: video.publishedAt } : {}),
-        })),
-      },
-    }).catch(() => {}) // the reconcile cache above is saved; this cache catches up next listing
     // The listing carries no publishAt, so ask videos.list about the listed
     // videos, bounded like the listing itself (200 videos, 4 calls).
     const details = await refreshYouTubePublications({
       project_slug: slug, account_id: accountId, channel_id: channelId, max_calls: 4,
-      videos: new Map(listed.map(video => [video.videoId, { source: 'channel_listing' as const }])),
+      videos: new Map(listing.videos.map(video => [video.video_id, { source: 'channel_listing' as const }])),
     })
     // Reported, because every conclusion drawn from this listing depends on
     // whether it is the whole channel. "In Story Studio only" means "YouTube
     // does not have this" — which is false for anything past the cap.
     res.json({
-      listed: uploads.videos.length,
-      truncated: uploads.truncated,
+      listed: listing.videos.length,
+      truncated: listing.truncated,
       publication_refresh: {
         outcome: details.outcome, requested: details.requested, recorded: details.recorded,
         unrequested: details.unrequested, ...(details.error_code ? { error_code: details.error_code } : {}),

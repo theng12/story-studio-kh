@@ -6,12 +6,8 @@
 
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import fs from 'node:fs/promises'
-import path from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
-import './_helpers.js'
-import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
+import { useTempDataDir } from './_helpers.js'
 import type { ChunkedNarrationParams } from '../lib/chunked-narration.js'
 import type { Job } from '../models/types.js'
 import {
@@ -20,28 +16,26 @@ import {
   type MockGenStudioService,
 } from './fixtures/mock-genstudio-service.js'
 
-const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
-
-async function retainedFixture(label: string) {
-  const previousDataDir = process.env.STORY_STUDIO_DATA_DIR
+async function retainedFixture() {
   const previousDisableListen = process.env.STORY_STUDIO_DISABLE_LISTEN
-  const dir = await fs.mkdtemp(path.join(projectRoot, `.genstudio-chat-recovery-${label}-`))
-  process.env.STORY_STUDIO_DATA_DIR = dir
+  const temp = await useTempDataDir({
+    retain: true,
+    settle: async () => {
+      const jq = await import('../services/job-queue.js')
+      await jq._waitForJobPersistenceForTesting()
+    },
+  })
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
-  setTestSafeStorageAvailable(true)
   return {
-    dir,
+    dir: temp.dir,
+    // The retained helper restores the data dir, TMPDIR and safe storage; this key is
+    // not one of its own, so the fixture restores it explicitly.
     retain: async () => {
       try {
-        const trashFixtures = path.join(projectRoot, '_trash', 'test-fixtures')
-        await fs.mkdir(trashFixtures, { recursive: true })
-        await fs.rename(dir, path.join(trashFixtures, `genstudio-chat-recovery-${label}-${path.basename(dir)}`))
+        await temp.cleanup()
       } finally {
-        if (previousDataDir === undefined) delete process.env.STORY_STUDIO_DATA_DIR
-        else process.env.STORY_STUDIO_DATA_DIR = previousDataDir
         if (previousDisableListen === undefined) delete process.env.STORY_STUDIO_DISABLE_LISTEN
         else process.env.STORY_STUDIO_DISABLE_LISTEN = previousDisableListen
-        setTestSafeStorageAvailable(true)
       }
     },
   }
@@ -108,7 +102,7 @@ async function assertOutlineReceipt(
 }
 
 void test('an exact-replay chapter retry reaches GET by idempotency key with zero replacement submissions', async () => {
-  const temp = await retainedFixture('chapter-retry')
+  const temp = await retainedFixture()
   let service: Awaited<ReturnType<typeof startMockGenStudioService>> | undefined
   let queue: Awaited<ReturnType<typeof pausedFixtureQueue>> | undefined
   try {
@@ -204,7 +198,7 @@ void test('an exact-replay chapter retry reaches GET by idempotency key with zer
 })
 
 void test('a conclusively failed outline retry posts once with a fresh durable key', async () => {
-  const temp = await retainedFixture('outline-retry')
+  const temp = await retainedFixture()
   let service: Awaited<ReturnType<typeof startMockGenStudioService>> | undefined
   let queue: Awaited<ReturnType<typeof pausedFixtureQueue>> | undefined
   try {
@@ -267,7 +261,7 @@ void test('a conclusively failed outline retry posts once with a fresh durable k
 })
 
 void test('multiple listicle recovery keys match by exact membership, not request order, with zero replacement submissions', async () => {
-  const temp = await retainedFixture('listicle-retry')
+  const temp = await retainedFixture()
   let service: Awaited<ReturnType<typeof startMockGenStudioService>> | undefined
   let queue: Awaited<ReturnType<typeof pausedFixtureQueue>> | undefined
   try {
@@ -346,7 +340,7 @@ void test('multiple listicle recovery keys match by exact membership, not reques
 })
 
 void test('a manual narrative repair retry retrieves its recorded result and writes every original slot without POSTing', async () => {
-  const temp = await retainedFixture('repair-retry')
+  const temp = await retainedFixture()
   let service: Awaited<ReturnType<typeof startMockGenStudioService>> | undefined
   try {
     service = await startMockGenStudioService()

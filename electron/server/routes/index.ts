@@ -7,6 +7,7 @@
 
 import type { Express } from 'express'
 import { router as projectsRouter } from './projects.js'
+import { router as channelProfileRouter } from './channel-profile.js'
 import { router as settingsRouter } from './settings.js'
 import { router as jobsRouter } from './jobs.js'
 import { router as scriptsRouter } from './scripts.js'
@@ -30,6 +31,7 @@ import { router as characterLibraryRouter } from './character-library.js'
 import { router as nichesRouter } from './niches.js'
 import { router as thumbnailTemplatesRouter } from './thumbnail-templates.js'
 import { router as contentPacksRouter } from './content-packs.js'
+import { router as contentPackGatewayArchivesRouter } from './content-pack-gateway-archives.js'
 import { router as contentStoreRouter } from './content-store.js'
 import { router as recencyRouter } from './recency.js'
 import { router as musicPoolRouter } from './music-pool.js'
@@ -68,6 +70,7 @@ export function mountRoutes(app: Express): void {
   // hand-copied inline check. See routes/middleware.ts.
   app.use('/api/projects/:slug', requireProject)
   app.use('/api', projectsRouter)
+  app.use('/api', channelProfileRouter)
   app.use('/api', settingsRouter)
   app.use('/api', appSettingsRouter)
   app.use('/api', appUpdateRouter)
@@ -94,6 +97,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', nichesRouter)
   app.use('/api', thumbnailTemplatesRouter)
   app.use('/api', contentPacksRouter)
+  app.use('/api', contentPackGatewayArchivesRouter)
   app.use('/api', contentStoreRouter)
   app.use('/api', recencyRouter)
   app.use('/api', musicPoolRouter)

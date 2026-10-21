@@ -149,6 +149,12 @@ describe('legacy uploads keep what YouTube reported', () => {
     fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items } })
     fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items } })
     __setYouTubeTransportForTests(fake.transport())
+    // The channel listing is already fresh, so "Check All" spends its calls on
+    // the videos: this test is about the batching.
+    await cacheService.recordYouTubePublicationObservations({
+      project_slug: s.slug, channel_id: CHANNEL,
+      listing: { attempted_at: new Date().toISOString(), outcome: 'complete', videos: items.map(item => ({ video_id: item.id })) },
+    })
 
     const sync = await request(app).post(`/api/projects/${s.slug}/youtube/sync`)
     assert.equal(sync.status, 200)

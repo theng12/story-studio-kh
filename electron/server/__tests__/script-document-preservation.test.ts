@@ -8,16 +8,27 @@ import { moveToTrashSync, TRASH_INDEX, trashRootFor } from '../lib/trash-move.js
 
 const revision = (bytes: Buffer | string) => `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const
 
+/**
+ * The canonical harness owns this fixture. A fixture outside
+ * STORY_STUDIO_TEST_HARNESS_ROOT is refused by the retained-filesystem guard, so
+ * the promotion's atomic rename and this retention move would both fail.
+ */
+function harnessRoot(): string {
+  const root = process.env.STORY_STUDIO_TEST_HARNESS_ROOT
+  assert.ok(root, 'run through scripts/testing/run-backend-tests.mjs so the fixture root is isolated')
+  return root
+}
+
 function retainFixture(root: string): void {
   moveToTrashSync(
     root,
-    path.join(process.cwd(), '_trash', 'script-document-preservation-fixtures', path.basename(root)),
+    path.join(harnessRoot(), '_trash', 'script-document-preservation-fixtures', path.basename(root)),
     'test-fixture',
   )
 }
 
 test('manual chapter promotion copies the complete old package before replacing the locked component', async t => {
-  const root = await fs.mkdtemp(path.join(process.cwd(), '.script-preserve-'))
+  const root = await fs.mkdtemp(path.join(harnessRoot(), '.script-preserve-'))
   t.after(() => retainFixture(root))
   const projectDir = path.join(root, 'projects', 'script-project')
   const scriptDir = path.join(projectDir, 'episodes', 'EP7301 - Preserve', 'script')
@@ -52,7 +63,7 @@ test('manual chapter promotion copies the complete old package before replacing 
 })
 
 test('a preservation member failure leaves every active member byte-identical and in place', async t => {
-  const root = await fs.mkdtemp(path.join(process.cwd(), '.script-preserve-fail-'))
+  const root = await fs.mkdtemp(path.join(harnessRoot(), '.script-preserve-fail-'))
   t.after(() => retainFixture(root))
   const projectDir = path.join(root, 'projects', 'script-project')
   const scriptDir = path.join(projectDir, 'episodes', 'EP7302 - Fail', 'script')
@@ -82,7 +93,7 @@ test('a preservation member failure leaves every active member byte-identical an
 })
 
 test('a stale accepted revision promotes nothing', async t => {
-  const root = await fs.mkdtemp(path.join(process.cwd(), '.script-cas-'))
+  const root = await fs.mkdtemp(path.join(harnessRoot(), '.script-cas-'))
   t.after(() => retainFixture(root))
   const projectDir = path.join(root, 'projects', 'script-project')
   const scriptDir = path.join(projectDir, 'episodes', 'EP7303 - CAS', 'script')

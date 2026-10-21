@@ -1,5 +1,13 @@
 # HANDOFF — Story Studio KH
 
+## Publishing calendar — 2026-10-21 (focused/browser verified; release pending)
+
+Independent source review confirmed and corrected three app defects: Refresh now refreshes a missing/stale channel upload listing and checks newly discovered videos in the same pass; freshness names the listing's own date and failed/incomplete attempts separately from video checks; and Coverage/Calendar explain confirmed releases outside actual expected slot dates. Exact-day coverage, at-risk and production schedules remain unchanged; the four-page listing limit stays explicit. Canonical combined focus bkgfiluk2 actualexit1:264tests262pass2fail,8/8files; all outline/calendar service cases passed, while two route mocks were consumed by the earlier eligibility query. Narrowing those mocks to contentDetails preserved assertions; route rerun b653mdh9f accepted actualexit0:194/194tests,1/1files. Frontend bajws3qs4 accepted actualexit0:22/22tests,1/1files. Both retainedcomplete/sourceunchanged/groupabsent/no settlement errors. Real isolated Nuxt browser proof passed listing-date attribution, failed/partial/zero-slot wording, off-plan notes in both views, synthetic refresh transitions and375px geometry without page overflow. Preview stopped and backendPID92063/3127/3128listeners independently absent. Evidence: `_orchestra/app-closeout-20261021/publishing-calendar-preview/BROWSER-VERIFICATION.md`. Full main build and ten-stage gate remain required.
+
+## Channel profile — 2026-10-21 (focused/browser verified; release pending)
+
+Owner requested visible channel logos and banners plus organized per-channel asset storage, channel name, handle and description. The candidate adds a local profile editor in Channel identity and profile images on home cards. The name remains `ProjectMeta.name`; handle, description and portable `${CHANNEL}/assets/profile/…` references live in `config.json.channel_profile`. Uploaded PNG/JPEG/WebP images are validated and stored by content digest; replacing/removing clears references while retaining original bytes. Profile images remain separate from episode Video Assembly controls and the retired shared Brand system. No YouTube identity writes. Coordinator review corrections cover path safety, cache behavior, partial-save errors and unsaved-draft handling. All22 profile backend assertions passed within focused-c (overall exit1:388tests5fail,25/25files; unrelated cleanup/M4A/handoff failures remain). Focused profile frontend accepted exit0:11/11tests,1/1files, unchanged source, complete retained evidence and owned group absent. Real isolated browser verification passed text save, logo/banner upload, logo removal/initials fallback, invalid-file feedback, unsaved draft preservation, persisted home card and375px geometry without horizontal overflow. Preview stopped; backend PIDs/listeners independently absent. Evidence: `_orchestra/app-closeout-20261021/channel-profile-preview/BROWSER-VERIFICATION.md` and focused result directories. Full release gates remain required; this feature is not shipped.
+
 ## Illustrated History for Sleep — personal adoption, 2026-10-21
 
 Owner requested reusable bold illustrated history thumbnails with short subject text and a consistent
@@ -29,12 +37,27 @@ does not unblock any historical final. Do not infer historical intent from curre
 measured black, and do not unblock historical finals automatically. Evidence:
 `~/Developer/_orchestra/app-closeout-20261021/FROZEN-TAIL-OPEN-20261021.md`.
 
-## 1.4.347 — 2026-10-21 (source candidate — NOT gated, NOT built, NOT shipped, NOT live-qualified)
+## 1.4.347 — 2026-10-21 (candidate — full gate failing, NOT shipped, NOT live-qualified)
 
-**Candidate only. No readiness claim.** Base `e1018db76`; worktree
-`_worktrees/story-studio-kh/release-347-20261021`. Version `1.4.347` is set in `package.json` and
-both `package-lock.json` version surfaces, and the newest CHANGELOG entry agrees. The implementation
-below exists only as an uncommitted tree. Coordinator verification has passed typecheck, lint,
+**Candidate only. No readiness claim.** Initial integration commit `08b285a0b92e0d1235a31243444abb24e1d22bcc`
+(tree `648cf9f220db26e8cd1efbb1af88b5a942468097`) is landed on main. Its initial main-built DMG passed
+`dist:smoke` (task `b3vmn8wy5`, actual exit0), but the exact-main final gate `be4ru8rwh` has reported
+backend failures and settled with actual exit1 at the canonical 90-minute backend watchdog. Steps01–06 passed;
+backend step07 produced no final Node summary and completed807/812files (7932test marks +1013suite marks),
+with configured projects root byte-identical. Steps08–10 did not run. No full-gate acceptance, publication or installation exists. Preserve its initial gate directory
+`_orchestra/app-closeout-20261021/story-347-main-gate/` and initial DMG archive unchanged. Corrections
+are isolated in `_worktrees/story-studio-kh/release-347-20261021` while main tracked source is frozen:
+use the harness-owned chapter fixture root, separate Gateway archive routes from offline local pack
+management, and isolate unsafe-path test cases in fresh roots. Corrections remain uncommitted. Focused-d `bmoarnh1f` completed actualexit1:193tests192pass1fail,
+6/6files, complete retained evidence, unchanged source/projects, owned process group absent and no
+settlement errors. Cleanup Trash-root, M4A staging retention and updater relaunch cases pass; only the
+outline real-conflict record fixture had a dead test hook because durable handoff bypasses enqueue(). The reviewed correction adds the existing test-only admission hook before the durable path's locks and keeps the deterministic injection through the recorded outcome. Fresh canonical focus bkgfiluk2 passed all3outline cases, including real concurrent-writer refusal and exactly one durable failure record; its two unrelated route mock failures were corrected and the route rerun passed194/194actualexit0. The retained-filesystem direct contract
+diagnostic `buuqv5z9k` passed46/46actualexit0, including four new owned-hardlink rename regressions;
+this is not canonical release-lane proof. Backend/frontend typecheck, lint (0errors/2209warnings),
+changelog, typography, security, model-drift and source release checks pass. A corrected main build
+and fresh complete ten-stage gate remain mandatory. Version `1.4.347` is set in
+`package.json` and both `package-lock.json` version surfaces, and the newest CHANGELOG entry agrees.
+The implementation below describes the candidate source. Coordinator verification has passed typecheck, lint,
 changelog, typography, security, model-drift and the source desktop-release contract. Focused
 results are retained in `_orchestra/app-closeout-20261021/FLEET-RENDER-EXECUTION-20261021.md`.
 The corrected full frontend run byz3ggg1a passed 2719 tests,320/320files,actualexit0 with complete
@@ -64,7 +87,7 @@ archives installed, catalog readbacks returned200, and an offline durable-state 
 archive SHA with source local-import and no delivery attestation. Backend bk3wpb456 passed5/5 and
 frontend b44tyaqaw passed5/5. Installed final-application delivery and live Gateway preservation
 remain pending.
-No complete release gate, DMG, publication, installation or live qualification is claimed.
+No complete release gate, corrected accepted DMG, publication, installation or live qualification is claimed; the initial DMG above is retained failed-candidate evidence.
 
 - **Private fleet final rendering — focused checks partly passed; full gate and live qualification pending.**
   A machine-local setting (`private_final_render`, default **off**) lets Video Assembly stage a final
@@ -84,8 +107,8 @@ No complete release gate, DMG, publication, installation or live qualification i
   **Provenance honesty:** `electron-builder.json` selects `storyRenderProvenance` mode
   **`descriptor-only`** with **`qualification: null`**. That is not `sealed-candidate`, carries no
   qualification provenance, and must not be described as live-qualified fleet rendering. Release
-  scripts now require the pins and verify the packaged `app.asar` and DMG agree, but no artifact was
-  built or inspected here.
+  scripts now require the pins and verify the packaged `app.asar` and DMG agree. The initial main
+  build passed those packaging checks; its failing full gate still prevents release acceptance.
 - **Offline `.sspack` install — focused checks and isolated browser proof passed; full gate pending.**
   `POST /content-packs/import` accepts raw `application/octet-stream` up to 50 MiB and installs with
   source `local-import`, with no Gateway, account or purchase read. `verifyPossessedContentPackArchive`

@@ -69,12 +69,20 @@ const retriedJob = (projectSlug: string, episode: string) => jq.getJobs(projectS
 describe('automatic retry of jobs a restart interrupted', () => {
   test('an eligible interrupted final video is retried once after the delay, with a log line', async () => {
     const project = await pm.createProject({ name: 'Restart Retry Eligible' })
-    // CONTROL is armed last in the same boot scan with the same delay: once it has been retried,
-    // every retry timer armed before it has fired, so the exactly-once assertion below needs no
-    // fixed wall-clock window. Same idiom as the ineligible-jobs test below.
-    await boot(project.slug, [runningJob(project.slug, 'DK0116'), runningJob(project.slug, 'CONTROL')])
-    assert.equal(jq.getJob('interrupted-DK0116')?.error, 'Interrupted by app restart')
-    assert.equal(ran.length, 0, 'nothing runs synchronously inside the boot scan')
+    // The queue is held while the boot marks the interrupted row: a paused queue
+    // re-arms the retry timer instead of running it, so the interrupted-row
+    // assertion below sees the deterministic `Interrupted by app restart` state
+    // rather than racing the 50ms timer. The same idiom the ineligible-jobs test
+    // uses; CONTROL is armed last so every earlier retry timer has fired by the
+    // time it has been retried.
+    await jq.setQueuePaused(true)
+    try {
+      await boot(project.slug, [runningJob(project.slug, 'DK0116'), runningJob(project.slug, 'CONTROL')])
+      assert.equal(jq.getJob('interrupted-DK0116')?.error, 'Interrupted by app restart')
+      assert.equal(ran.length, 0, 'nothing runs synchronously inside the boot scan')
+    } finally {
+      await jq.setQueuePaused(false)
+    }
 
     await waitFor(async () => (await retriedJob(project.slug, 'DK0116'))?.status === 'done', {
       label: 'the interrupted final video to be retried and finish',

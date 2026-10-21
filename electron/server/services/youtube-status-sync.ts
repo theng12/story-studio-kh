@@ -29,12 +29,16 @@ import { getProjectYouTubeAssignment, grantAgeMs, readYouTubeConnectionRegistry 
 import { listYouTubeOperations } from './youtube-operation-store.js'
 import { readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
 import {
+  classifyYouTubeSyncFailure,
   legacyUploadsFor,
+  listingStale,
   observedPublicationIndex,
   readYouTubePublicationCache,
   refreshStaleYouTubePublications,
+  refreshYouTubeChannelListing,
   refreshYouTubePublications,
   type ObservedPublication,
+  type PublicationCache,
 } from './youtube-publication-cache.js'
 import {
   YOUTUBE_VIDEO_NOT_FOUND,
@@ -76,9 +80,29 @@ export async function checkAllYouTubeUploads(input: { project_slug: string; acco
   const [state, cache, records] = await Promise.all([
     readYouTubeProjectPublishingState(input.project_slug),
     // The cache only adds videos to ask about; an unreadable one must not fail the check itself.
-    readYouTubePublicationCache(input.project_slug).catch(() => ({})),
+    readYouTubePublicationCache(input.project_slug).catch(() => ({} as PublicationCache)),
     listYouTubeOperations(input.project_slug),
   ])
+  // The channel LISTING is how a release Story Studio never made is found: a
+  // video scheduled in YouTube Studio rather than through this app. The
+  // per-video pass below only asks about videos already known, so with a stale
+  // listing "Check All" cannot see a new schedule — and the Publishing
+  // Overview's freshness verdict stays "stale" however often the owner presses
+  // refresh, because the verdict is about the listing.
+  //
+  // It is refreshed only when it is missing or past the TTL, so the steady
+  // state of this deliberate action costs exactly what it cost before.
+  let listed: Awaited<ReturnType<typeof refreshYouTubeChannelListing>> | null = null
+  let listingError: ProjectSyncResult['error_code']
+  if (listingStale(cache[channelId]?.listing, Date.now())) {
+    listed = await refreshYouTubeChannelListing({
+      project_slug: input.project_slug, account_id: input.account_id, channel_id: channelId,
+    }).catch((error) => {
+      listingError = classifyYouTubeSyncFailure(error)
+      logLine('warn', `[youtube-status] channel listing not refreshed: ${listingError}`, { project_slug: input.project_slug })
+      return null
+    })
+  }
   const asked = new Map<string, { source: ObservedPublication['source']; episode_code?: string }>()
   for (const entry of observedPublicationIndex(state, cache, records, channelId).values()) {
     if (entry.source !== 'operation') {
@@ -86,7 +110,23 @@ export async function checkAllYouTubeUploads(input: { project_slug: string; acco
     }
   }
   for (const [videoId, code] of uploads) asked.set(videoId, { source: 'legacy', episode_code: code })
-  if (!asked.size) return result()
+  // The videos the listing just found: this pass asks about them now, so a
+  // release Story Studio never made is covered in the same round.
+  for (const video of listed?.videos ?? []) {
+    if (!asked.has(video.video_id)) asked.set(video.video_id, { source: 'channel_listing' })
+  }
+  if (!asked.size) {
+    // Nothing was known to ask about, and the listing could not be read
+    // either: nothing was learned, and "ok" would claim otherwise.
+    if (!listingError) return result()
+    return result({
+      // The operation records were still asked, so something WAS learned.
+      outcome: operations.checked > 0 ? 'partial' : 'failed',
+      // The first failure is the one that says why: the operation read, then
+      // the listing, then the videos.
+      error_code: operations.error_code ?? listingError,
+    })
+  }
   const refreshed = await refreshYouTubePublications({
     project_slug: input.project_slug, account_id: input.account_id, channel_id: channelId,
     videos: asked, max_calls: CHECK_ALL_MAX_CALLS,
@@ -111,11 +151,17 @@ export async function checkAllYouTubeUploads(input: { project_slug: string; acco
     if (status === 'processed') legacy.processed += 1
     if (status === YOUTUBE_VIDEO_NOT_FOUND) legacy.not_found += 1
   }
-  if (refreshed.outcome === 'ok') return result()
+  if (refreshed.outcome === 'ok' && !listingError) return result()
+  // The listing is one of the two reads this round makes. When it could not
+  // be read, the round is not "ok": a release made in YouTube Studio may be
+  // missing from the answer, and that is reported here instead of swallowed.
+  const learned = operations.checked > 0 || refreshed.answered.length > 0 || refreshed.recorded > 0
   return result({
     // Nothing learned anywhere is a failure, not "partial".
-    outcome: operations.outcome === 'failed' || (refreshed.outcome === 'failed' && operations.checked === 0) ? 'failed' : 'partial',
-    ...(refreshed.error_code ? { error_code: refreshed.error_code } : {}),
+    outcome: operations.outcome === 'failed' || !learned ? 'failed' : 'partial',
+    // The first failure is the one that says why: the operation read, then
+    // the listing, then the videos.
+    error_code: operations.error_code ?? refreshed.error_code ?? listingError,
   })
 }
 

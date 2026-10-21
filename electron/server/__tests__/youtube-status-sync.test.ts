@@ -25,6 +25,8 @@ afterEach(async () => {
 const CHANNEL = 'UC-status-sync'
 const DAY = 24 * 60 * 60 * 1000
 const VIDEOS = /^\/youtube\/v3\/videos\?part=snippet,status,processingDetails&id=/
+const CHANNELS = /^\/youtube\/v3\/channels\?/
+const PLAYLIST = /^\/youtube\/v3\/playlistItems\?/
 
 async function setup() {
   const temp = await useTempDataDir()
@@ -123,6 +125,10 @@ describe('Check All Uploads', () => {
     const fake = new FakeYouTube()
     fake.respondMatching({ method: 'GET', match: /id=vid-record$/, body: { items: [video('vid-record', 'processed')] } })
     fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [video('vid-legacy', 'processed')] } })
+    // The channel LISTING is read too: it is how a release Story Studio never
+    // made is found, so "Check All" that skipped it would miss one.
+    fake.respondMatching({ method: 'GET', match: CHANNELS, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-status' } } }] } })
+    fake.respondMatching({ method: 'GET', match: PLAYLIST, body: { items: [] } })
     __setYouTubeTransportForTests(fake.transport())
 
     const { checkAllYouTubeUploads } = await import('../services/youtube-status-sync.js')
@@ -147,11 +153,66 @@ describe('Check All Uploads', () => {
     }
     const fake = new FakeYouTube()
     fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [] } })
+    fake.respondMatching({ method: 'GET', match: CHANNELS, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-status' } } }] } })
+    fake.respondMatching({ method: 'GET', match: PLAYLIST, body: { items: [] } })
     __setYouTubeTransportForTests(fake.transport())
     const { checkAllYouTubeUploads } = await import('../services/youtube-status-sync.js')
     const result = await checkAllYouTubeUploads({ project_slug: s.slug, account_id: s.accountId })
     assert.equal(result.legacy.checked, 0)
     assert.notEqual(result.outcome, 'ok')
+  })
+
+  test('the channel listing is read, and a release only YouTube knows about is checked in the same round', async () => {
+    const s = await setup()
+    const fake = new FakeYouTube()
+    fake.respondMatching({ method: 'GET', match: CHANNELS, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-status' } } }] } })
+    // A release made in YouTube Studio: Story Studio never made it, so only the
+    // listing can find it.
+    fake.respondMatching({ method: 'GET', match: PLAYLIST, body: {
+      items: [{ snippet: { title: 'Made in Studio', resourceId: { videoId: 'vid-studio' } }, status: { privacyStatus: 'private' } }],
+    } })
+    fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [{
+      id: 'vid-studio', status: { uploadStatus: 'uploaded', privacyStatus: 'private', publishAt: '2026-11-20T15:00:00Z' },
+      snippet: { title: 'Made in Studio', channelId: CHANNEL },
+    }] } })
+    __setYouTubeTransportForTests(fake.transport())
+
+    const { checkAllYouTubeUploads } = await import('../services/youtube-status-sync.js')
+    const result = await checkAllYouTubeUploads({ project_slug: s.slug, account_id: s.accountId })
+    assert.equal(result.outcome, 'ok')
+
+    const { readYouTubePublicationCache } = await import('../services/youtube-publication-cache.js')
+    const cache = await readYouTubePublicationCache(s.slug)
+    assert.equal(cache[CHANNEL]?.listing?.outcome, 'complete', 'the listing is recorded, with its own date')
+    assert.ok(cache[CHANNEL]?.listing?.complete_at)
+    // The video the listing found was asked about, and its publishAt recorded.
+    assert.equal(cache[CHANNEL]?.videos['vid-studio']?.scheduled_for, '2026-11-20T15:00:00Z')
+    assert.equal(cache[CHANNEL]?.videos['vid-studio']?.source, 'channel_listing')
+  })
+
+  test('a listing that cannot be read is reported, and the operation that WAS checked is not lost', async () => {
+    const s = await setup()
+    const code = await s.episode('Known')
+    await s.accepted(code, 'vid-known')
+    const fake = new FakeYouTube()
+    // The channel listing is refused; the operation's own check still answers.
+    fake.respondMatching({ method: 'GET', match: CHANNELS, status: 503, body: {} })
+    fake.respondMatching({ method: 'GET', match: VIDEOS, body: { items: [video('vid-known', 'processed')] } })
+    __setYouTubeTransportForTests(fake.transport())
+
+    const { checkAllYouTubeUploads } = await import('../services/youtube-status-sync.js')
+    const result = await checkAllYouTubeUploads({ project_slug: s.slug, account_id: s.accountId })
+    // Something WAS learned (the operation), so this is partial, and the code
+    // says why the listing is missing.
+    assert.equal(result.outcome, 'partial')
+    assert.equal(result.error_code, 'provider_error')
+    assert.equal(result.checked, 1)
+
+    // The failed attempt is recorded: the freshness verdict can name it.
+    const { readYouTubePublicationCache } = await import('../services/youtube-publication-cache.js')
+    const cache = await readYouTubePublicationCache(s.slug)
+    assert.equal(cache[CHANNEL]?.listing?.outcome, 'failed')
+    assert.equal(cache[CHANNEL]?.listing?.error_code, 'provider_error')
   })
 })
 

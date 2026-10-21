@@ -9,7 +9,6 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { after, before, test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 import request from 'supertest'
 import './_helpers.js'
 import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
@@ -39,12 +38,13 @@ let projectSlug = ''
 let episodes: Array<{ episode_code: string; title: string }> = []
 
 before(async () => {
-  const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
-  const trashFixtures = fileURLToPath(new URL('../../../_trash/test-fixtures/', import.meta.url))
-  assert.equal(path.dirname(path.dirname(trashFixtures)), path.resolve(projectRoot),
-    'recoverable fixtures belong to the project-root _trash folder')
-  await fs.mkdir(trashFixtures, { recursive: true })
-  isolated = { dir: await fs.mkdtemp(path.join(trashFixtures, 'preset-authority-http-')) }
+  // The canonical harness owns this fixture. A data dir outside
+  // STORY_STUDIO_TEST_HARNESS_ROOT is refused by the retained-filesystem guard,
+  // so every atomic write the app makes into it (app-settings, ideas, jobs) would
+  // fail on its rename.
+  const harnessRoot = process.env.STORY_STUDIO_TEST_HARNESS_ROOT
+  assert.ok(harnessRoot, 'run through scripts/testing/run-backend-tests.mjs so the data root is isolated')
+  isolated = { dir: await fs.mkdtemp(path.join(harnessRoot, 'preset-authority-http-')) }
   process.env.STORY_STUDIO_DATA_DIR = isolated.dir
   setTestSafeStorageAvailable(true)
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'

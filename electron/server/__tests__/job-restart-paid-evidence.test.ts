@@ -10,10 +10,12 @@
  * `image_prompts` and `research_run` had none when this packet ran; NEW-02
  * registered all three, and their own both-directions proof now lives in
  * `text-job-completion-auditors.test.ts`. What this file pins is unchanged: the
- * row must reach an honest terminal state either way (see
- * `boot/executors.ts:registerCancellationAuditors`), so their row is left
- * `running` — with the reconcile timer no longer rescheduled, no error, and no
- * Retry, because `retryTerminalJob` only accepts `error`/`cancelled`.
+ * row must reach an honest settled state either way (see
+ * `boot/executors.ts:registerCancellationAuditors`). Before NEW-02 an
+ * unregistered type was left `running` — no error, no Retry, because
+ * `retryTerminalJob` only accepts `error`/`cancelled`. With the auditor
+ * registered the row is settled instead: terminal where the resumed executor
+ * refuses on missing input, a live retry wait where it fails retryably.
  *
  * WHAT IS INTENTIONAL AND MUST SURVIVE. Reconciliation is read-only here: it
  * must never issue a generation POST, and it must keep the duplicate lock until
@@ -24,9 +26,20 @@
  * children all settled but whose output is still incomplete is no longer ended as `error` (Sprout
  * SS0121/SS0119, History EP0015): `finalizeSettledProviderJob` requeues it, collect-first
  * (`chat-restart-reconcile-resumes.test.ts`). These fixtures carry `params: {}`, so the resumed
- * executor stops on its own missing input and the job sits in its auto-retry wait. That is honest too
- * — a live worker with a retry timer, not a row nothing drives — so the invariant pinned here is
- * "terminal, or visibly driven", never "running with nothing behind it".
+ * executor stops on its own missing input — and WHICH honest state that produces depends on the
+ * step: `metadata` has no writing model and `image_prompts` has no episode title, and both of those
+ * refusals are input refusals (`job-retry-policy.ts`: `isNonRetryableError`), so those rows end
+ * TERMINAL (`error`); `research_run` and `scene_plan_run` fail retryably and sit in their auto-retry
+ * wait. Both are honest — a terminal outcome, or a live worker with a retry timer, never a row
+ * nothing drives — so the invariant pinned here is "terminal, or visibly driven", never "running
+ * with nothing behind it".
+ *
+ * "VISIBLY DRIVEN" IS A SETTLED STATE, AND `queued` IS NOT ONE. `queued` is honest but transient:
+ * the queue takes the row the moment it is pumped, and the row is then `running` with the attempt
+ * in flight — a live worker, but no retry timer yet, because `runJob` publishes the retry contract
+ * without `next_retry_at` and only arms it once an attempt fails. A wait that stops on `queued`
+ * therefore asserts on a state the row has already left. The readiness wait below looks for a
+ * SETTLED row; the assertion keeps the wider "terminal, or visibly driven" reading.
  */
 
 import { after, before, test } from 'node:test'
@@ -136,6 +149,23 @@ function isDriven(jobId: string): boolean {
     && Date.parse(job.auto_retry?.next_retry_at ?? '') > Date.now()
 }
 
+/**
+ * The row has SETTLED: terminal, or a live worker sitting in its auto-retry wait.
+ *
+ * `isDriven` also accepts `queued`, which is honest but transient — the queue takes the row the
+ * moment it is pumped, and the row is then `running` with the attempt in flight: a live worker, but
+ * no retry timer yet (`runJob` publishes `auto_retry` without `next_retry_at`; only a failed
+ * attempt arms one). A wait that stops on `queued` therefore asserts on a state the row has already
+ * left, so readiness waits use this predicate and the assertion keeps the wider reading.
+ */
+function hasSettled(jobId: string): boolean {
+  const job = jq.getJob(jobId)
+  if (!job) return false
+  if (isTerminal(job.status)) return true
+  return job.status === 'running' && jq._isJobWorkerActiveForTesting(jobId)
+    && Date.parse(job.auto_retry?.next_retry_at ?? '') > Date.now()
+}
+
 /** A resumed job keeps retrying for minutes; stop it so no worker outlives the temp data dir. */
 async function release(projectSlug: string, jobId: string): Promise<void> {
   if (!isTerminal(jq.getJob(jobId)?.status)) await jq.forceAbandonJob(projectSlug, jobId).catch(() => {})
@@ -159,11 +189,20 @@ for (const type of ['metadata', 'image_prompts', 'research_run'] as const) {
 
     await jq.getJobs(project.slug)
     // Reconciliation is asynchronous. Give it ample room to read the one
-    // provider task and classify the outcome.
-    await waitFor(
-      () => isDriven(jobId),
-      { label: `${type} reached a terminal state or a live retry wait`, timeoutMs: 12_000 },
-    ).catch(() => {})
+    // provider task and classify the outcome. The wait looks for a SETTLED row
+    // and not for `queued`: the queue takes the row the moment it is pumped, so
+    // a wait that stopped there would assert on a state the row has already left.
+    try {
+      await waitFor(
+        () => hasSettled(jobId),
+        { label: `${type} settled into a terminal state or a live retry wait`, timeoutMs: 12_000 },
+      )
+    } catch (error) {
+      // A readiness that never arrives is reported, not swallowed — but the
+      // worker must not outlive the temp data dir this test tears down.
+      await release(project.slug, jobId)
+      throw error
+    }
     await jq._waitForJobPersistenceForTesting()
 
     const settled = jq.getJob(jobId)!
@@ -199,10 +238,17 @@ test('H-17 control: scene_plan_run has an auditor and does not strand the row', 
   calls.length = 0
 
   await jq.getJobs(project.slug)
-  await waitFor(
-    () => isDriven(jobId),
-    { label: 'scene_plan_run reached a terminal state or a live retry wait', timeoutMs: 12_000 },
-  )
+  // Same settled wait as above: `queued` is transient, and the row this test
+  // reads must already be in the state it asserts on.
+  try {
+    await waitFor(
+      () => hasSettled(jobId),
+      { label: 'scene_plan_run settled into a terminal state or a live retry wait', timeoutMs: 12_000 },
+    )
+  } catch (error) {
+    await release(project.slug, jobId)
+    throw error
+  }
 
   // Its audit finds the output incomplete, so the restart-interrupted job is resumed rather than
   // failed (1.4.337); with these empty params the resumed run stops on its own input and retries.
@@ -250,11 +296,18 @@ test('H-17: a stuck running row cannot be retried, only abandoned', async () => 
   await jq.getJobs(project.slug)
   // `waitFor` (not a fixed sleep) is the only bounded wait: it returns as soon
   // as the row settles, and the guard below tolerates both a settled row and
-  // the pre-fix stuck `running` one this test exists to describe.
-  await waitFor(
-    () => isDriven(jobId),
-    { label: 'retry-admission row settled or retrying', timeoutMs: 12_000 },
-  ).catch(() => {})
+  // the pre-fix stuck `running` one this test exists to describe. The wait
+  // looks for a settled row, not the transient `queued` one, so the state the
+  // guard reads is a state the row stays in.
+  try {
+    await waitFor(
+      () => hasSettled(jobId),
+      { label: 'retry-admission row settled into a terminal state or a live retry wait', timeoutMs: 12_000 },
+    )
+  } catch (error) {
+    await release(project.slug, jobId)
+    throw error
+  }
 
   const row = jq.getJob(jobId)!
   if (row.status === 'running') {

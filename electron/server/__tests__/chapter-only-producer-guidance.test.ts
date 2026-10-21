@@ -8,9 +8,8 @@ import { after, before, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
-import { fileURLToPath } from 'url'
 import request from 'supertest'
-import './_helpers.js'
+import { useTempDataDir } from './_helpers.js'
 import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 import type { Job } from '../models/types.js'
 import {
@@ -27,6 +26,7 @@ const SAVED_GUIDANCE = 'Do not reintroduce the rejected banking-timing claim.'
 const previousDataDir = process.env.STORY_STUDIO_DATA_DIR
 const previousDisableListen = process.env.STORY_STUDIO_DISABLE_LISTEN
 let fixtureRoot: string
+let fixtureCleanup: (() => Promise<void>) | undefined
 let app: any
 let slug: string
 let scriptDir: string
@@ -102,9 +102,11 @@ async function generateQueuedChapter(params: Record<string, unknown> = {}): Prom
 }
 
 before(async () => {
-  const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
-  fixtureRoot = await fs.mkdtemp(path.join(projectRoot, '.chapter-only-producer-guidance-'))
-  process.env.STORY_STUDIO_DATA_DIR = fixtureRoot
+  // The harness owns the fixture root and its cleanup; a checkout-local fixture
+  // would fall outside the sandbox and make the queue's store writes fail.
+  const fixture = await useTempDataDir()
+  fixtureRoot = fixture.dir
+  fixtureCleanup = fixture.cleanup
   setTestSafeStorageAvailable(true)
   await fs.mkdir(path.join(fixtureRoot, 'projects'), { recursive: true })
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
@@ -132,11 +134,8 @@ before(async () => {
 after(async () => {
   try {
     await service.close()
-    const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
-    const trashFixtures = path.join(projectRoot, '_trash', 'test-fixtures')
-    await fs.mkdir(trashFixtures, { recursive: true })
-    await fs.rename(fixtureRoot, path.join(trashFixtures, `chapter-only-producer-guidance-${path.basename(fixtureRoot)}`))
   } finally {
+    await fixtureCleanup?.()
     if (previousDataDir === undefined) delete process.env.STORY_STUDIO_DATA_DIR
     else process.env.STORY_STUDIO_DATA_DIR = previousDataDir
     if (previousDisableListen === undefined) delete process.env.STORY_STUDIO_DISABLE_LISTEN

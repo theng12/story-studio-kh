@@ -520,17 +520,51 @@ async function isolatedBuildPrepare(value: PreparedCase, mode: string, qualifica
   let output = ''
   child.stdout.on('data', chunk => { output += String(chunk) })
   child.stderr.on('data', chunk => { output += String(chunk) })
-  const timeout = setTimeout(() => child.kill('SIGKILL'), 30_000)
-  let exit: number | null
-  try {
-    exit = await new Promise<number | null>((resolve, reject) => {
-      child.once('error', reject)
-      child.once('close', resolve)
+  /**
+   * Watchdog for the isolated-build child. This test owns the child's
+   * lifecycle: one SIGTERM when the child overruns its budget, then a bounded
+   * settlement in which the real 'close' event must arrive. A child that does
+   * not settle is reported as a failure with its pid and its retained
+   * evidence. There is no escalation of any kind: the child is terminated
+   * politely, and if it refuses, the run fails loudly instead.
+   */
+  const BUILD_BUDGET_MS = 30_000
+  const BUILD_SETTLEMENT_MS = 5_000
+  let settlementTimer: NodeJS.Timeout | undefined
+  let rejectSettlement: (error: Error) => void = () => {}
+  const closed = new Promise<{ code: number | null, signal: NodeJS.Signals | null }>((resolve, reject) => {
+    rejectSettlement = reject
+    child.once('error', reject)
+    child.once('close', (code, signal) => {
+      if (settlementTimer) clearTimeout(settlementTimer)
+      resolve({ code, signal })
     })
+  })
+  const watchdog = setTimeout(() => { child.kill('SIGTERM') }, BUILD_BUDGET_MS)
+  settlementTimer = setTimeout(() => rejectSettlement(new Error(
+    `the isolated build child pid ${child.pid} did not settle within ${BUILD_SETTLEMENT_MS}ms of its SIGTERM; evidence: ${fixture}`,
+  )), BUILD_BUDGET_MS + BUILD_SETTLEMENT_MS)
+  let exit: number | null = null
+  let settlementError: Error | null = null
+  try {
+    const result = await closed
+    exit = result.code
+  } catch (error: any) {
+    settlementError = error instanceof Error ? error : new Error(String(error))
   } finally {
-    clearTimeout(timeout)
+    clearTimeout(watchdog)
+    if (settlementTimer) clearTimeout(settlementTimer)
   }
   await fs.writeFile(path.join(fixture, 'raw.log'), output, { mode: 0o600 })
+  if (settlementError) {
+    // The child ignored its SIGTERM. It is never escalated; the parent's hold
+    // on its pipes is released so the failure is reported instead of hanging
+    // the run, and the pid stays named for the owner.
+    child.stdout?.destroy()
+    child.stderr?.destroy()
+    child.unref()
+    throw settlementError
+  }
   assert.equal(exit, 0, output)
   const line = output.split('\n').find(row => row.startsWith('BUILD_RESULT '))
   assert.ok(line, output)

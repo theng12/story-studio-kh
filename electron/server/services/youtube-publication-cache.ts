@@ -25,7 +25,7 @@ import path from 'node:path'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { VideoPublicationDetails } from '../lib/youtube-client.js'
-import { listVideoPublicationDetails } from '../lib/youtube-client.js'
+import { listVideoPublicationDetails, listRecentUploads } from '../lib/youtube-client.js'
 import * as im from './idea-manager.js'
 import { logLine } from './logger.js'
 import { getProjectDir } from './project-manager.js'
@@ -47,6 +47,23 @@ export const YOUTUBE_VIDEO_NOT_FOUND = 'not_found'
 export const PUBLICATION_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 /** videos.list accepts at most 50 ids per request. */
 const VIDEOS_PER_CALL = 50
+
+/**
+ * Is this channel's LISTING missing or older than the TTL?
+ *
+ * ONE rule, so the reader (the freshness verdict) and the writer (the refresh
+ * that is meant to clear it) cannot disagree about what "stale" means. The
+ * rule is about the last COMPLETE listing: a listing that stopped early has
+ * no complete listing to date, so it reads as stale here and as "partial" in
+ * the listing's own state.
+ */
+export function listingStale(
+  listing: PublicationCacheChannel['listing'] | undefined,
+  now = Date.now(),
+): boolean {
+  const completeAt = listing?.complete_at ? Date.parse(listing.complete_at) : NaN
+  return !Number.isFinite(completeAt) || now - completeAt > PUBLICATION_CACHE_TTL_MS
+}
 
 /** One video as YouTube reported it. `checked_at` absent = never asked (not "nothing scheduled"). */
 export type ObservedPublication = {
@@ -492,7 +509,6 @@ export function publicationCacheView(
   const channel = cache[channelId]
   const listing = channel?.listing
   const lastListed = [listing?.complete_at, listing?.partial_at].filter((at): at is string => !!at).sort().at(-1)
-  const completeAt = listing?.complete_at ? Date.parse(listing.complete_at) : NaN
   return {
     channel_id: channelId,
     ttl_ms: PUBLICATION_CACHE_TTL_MS,
@@ -510,7 +526,7 @@ export function publicationCacheView(
         state: !lastListed ? 'never' as const : lastListed === listing?.complete_at ? 'complete' as const : 'partial' as const,
         complete_at: listing?.complete_at ?? null,
         partial_at: listing?.partial_at ?? null,
-        stale: !Number.isFinite(completeAt) || now - completeAt > PUBLICATION_CACHE_TTL_MS,
+        stale: listingStale(listing, now),
         last_attempt: listing
           ? { attempted_at: listing.attempted_at, outcome: listing.outcome, ...(listing.error_code ? { error_code: listing.error_code } : {}) }
           : null,
@@ -526,6 +542,65 @@ export function publicationCacheView(
 }
 
 // ── Refreshing ───────────────────────────────────────────────────────────
+
+/**
+ * The channel's uploads LISTING, read and recorded.
+ *
+ * ONE implementation, so the two callers that need a fresh listing — the
+ * Upload Center's Reconcile refresh and the Publishing Overview's "Check YouTube
+ * Now" — cannot drift apart. The listing is what FINDS videos Story Studio has
+ * never seen (a release made in YouTube Studio rather than through this app);
+ * the per-video check only ever asks about videos already known.
+ *
+ * The provenance is kept honest: a failed attempt is recorded and the last
+ * successful listing SURVIVES it; a listing that stopped early is recorded as
+ * PARTIAL, and the last COMPLETE listing keeps its own date, so "we have not
+ * seen the whole channel" is never dressed up as "we have just looked".
+ */
+export async function refreshYouTubeChannelListing(input: {
+  project_slug: string
+  account_id: string
+  channel_id: string
+  max_pages?: number
+}): Promise<{ videos: Array<{ video_id: string; title?: string; published_at?: string }>; truncated: boolean }> {
+  const attemptedAt = new Date().toISOString()
+  let uploads: Awaited<ReturnType<typeof listRecentUploads>>
+  try {
+    // Pinned here, not inherited: both callers read the same 4 pages (200
+    // videos) whichever way the client changes its own default.
+    uploads = await listRecentUploads(input.project_slug, input.account_id, { maxPages: input.max_pages ?? 4 })
+  } catch (error) {
+    // The last successful listing stays; only the attempt is recorded.
+    await recordYouTubePublicationObservations({
+      project_slug: input.project_slug, channel_id: input.channel_id,
+      listing: { attempted_at: attemptedAt, outcome: 'failed', error_code: classifyYouTubeSyncFailure(error) },
+    }).catch(() => {})
+    throw error
+  }
+  const videos = uploads.videos
+    .filter(video => !!video.videoId)
+    .map(video => ({
+      video_id: video.videoId,
+      ...(video.title ? { title: video.title } : {}),
+      ...(video.publishedAt ? { published_at: video.publishedAt } : {}),
+    }))
+  await recordYouTubePublicationObservations({
+    project_slug: input.project_slug, channel_id: input.channel_id,
+    listing: {
+      attempted_at: attemptedAt,
+      // A listing that stopped early is PARTIAL: the channel has more videos
+      // than were read, and the last complete listing keeps its own date.
+      outcome: uploads.truncated ? 'partial' : 'complete',
+      videos,
+    },
+  }).catch(error => {
+    // The listing was read but could not be written down. That is a local
+    // cache failure, not a failed read: the caller's own work still stands,
+    // and the freshness verdict keeps saying "stale", which is true.
+    logLine('warn', `[youtube-publication-cache] channel listing not recorded: ${(error as Error)?.message || 'unknown'}`, { slug: input.project_slug })
+  })
+  return { videos, truncated: uploads.truncated }
+}
 
 export interface PublicationRefreshResult {
   outcome: RemoteSyncOutcome

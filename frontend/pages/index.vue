@@ -99,15 +99,23 @@
         </p>
 
         <div class="project-grid">
-          <template v-for="project in projects" :key="String(project.slug || project.name)">
+          <div v-for="project in projects" :key="String(project.slug || project.name)" class="project-card-wrap">
             <NuxtLink
               v-if="projectHref(project)"
               :to="projectHref(project)"
               class="project-card"
               :aria-label="`Open ${project.name || project.slug}`"
             >
+              <!-- The channel's own banner, when it has one. Decorative: the card
+                   already names the channel, so the image carries no text of its own. -->
+              <span v-if="bannerUrl(project)" class="project-banner">
+                <img :src="bannerUrl(project)" alt="" @error="markArtFailed(project, 'banner', bannerUrl(project))" />
+              </span>
               <span class="project-card-top">
-                <span class="project-mark" aria-hidden="true">{{ projectInitials(project) }}</span>
+                <span class="project-mark" aria-hidden="true">
+                  <img v-if="logoUrl(project)" :src="logoUrl(project)" alt="" @error="markArtFailed(project, 'logo', logoUrl(project))" />
+                  <template v-else>{{ projectInitials(project) }}</template>
+                </span>
                 <!-- v1.4.2 — a project whose episode folder does not resolve used
                      to render exactly like a healthy one while every episode
                      silently vanished inside. The app already knew; it just never
@@ -158,7 +166,15 @@
                 <span>This channel does not have a valid project identifier.</span>
               </span>
             </div>
-          </template>
+
+            <!-- Outside the card link on purpose: a link inside a link is not a
+                 link, it is a trap for the keyboard and for the screen reader. -->
+            <NuxtLink
+              v-if="projectHref(project)"
+              class="project-edit"
+              :to="`/projects/${projectSlug(project.slug)}/settings#identity`"
+            >Edit profile</NuxtLink>
+          </div>
         </div>
 
         <!-- v1.4.2 — the way back from "Hide project".
@@ -375,6 +391,7 @@ async function loadProjects(): Promise<void> {
     const fresh = await get<any[]>('/projects', { cache: 'no-store' })
     projects.value = fresh
     void loadChannelCounts(fresh)
+    void loadChannelProfiles(fresh)
     // Reconciled, not merged. Whatever the server just said is the whole truth
     // about which channels exist — a channel deleted elsewhere must disappear
     // here, so the cache is REPLACED rather than added to.
@@ -452,6 +469,72 @@ function countsView(project: any): { parts: Array<{ text: string; warn?: boolean
   if (c.in_progress > 0) parts.push({ text: `${c.in_progress} being made now` })
   if (c.needs_attention > 0) parts.push({ text: `${c.needs_attention} ${c.needs_attention === 1 ? 'needs' : 'need'} attention`, warn: true })
   return { parts }
+}
+
+/**
+ * The channel profile — its logo and banner — read per channel.
+ *
+ * The channel list itself carries no art, so each card's picture is a second,
+ * small read. A channel that cannot answer one loses its picture and keeps
+ * its initials; it must not take the page down with it.
+ */
+interface ChannelProfile {
+  name: string
+  handle: string
+  description: string
+  logo_url: string | null
+  banner_url: string | null
+}
+const channelProfiles = ref<Record<string, ChannelProfile | null>>({})
+let profileRun = 0
+
+async function loadChannelProfiles(list: any[]): Promise<void> {
+  const run = ++profileRun
+  const slugs = list.map(project => projectSlug(project?.slug)).filter(Boolean) as string[]
+  const entries = await Promise.all(slugs.map(async (slug) => {
+    try {
+      const profile = await get<ChannelProfile>(`/projects/${slug}/channel-profile`)
+      return [slug, profile] as const
+    } catch {
+      return [slug, null] as const
+    }
+  }))
+  // A newer list replaced this one while the reads were in flight: drop the answers.
+  if (run !== profileRun) return
+  channelProfiles.value = Object.fromEntries(entries)
+}
+
+function profileOf(project: any): ChannelProfile | null {
+  const slug = projectSlug(project?.slug)
+  if (!slug) return null
+  return channelProfiles.value[slug] || null
+}
+
+/**
+ * Art whose file is gone must not paint a broken-image icon on the card. The
+ * failure is keyed by slug, kind and URL, so new art (a new digest) and a
+ * different channel each start clean.
+ */
+const failedArt = reactive<Record<string, boolean>>({})
+function artKey(slug: string, kind: 'logo' | 'banner', url: string): string {
+  return `${slug}|${kind}|${url}`
+}
+function markArtFailed(project: any, kind: 'logo' | 'banner', url: string): void {
+  const slug = projectSlug(project?.slug)
+  if (!slug) return
+  failedArt[artKey(slug, kind, url)] = true
+}
+function logoUrl(project: any): string {
+  const slug = projectSlug(project?.slug)
+  const url = profileOf(project)?.logo_url
+  if (!slug || !url) return ''
+  return failedArt[artKey(slug, 'logo', url)] ? '' : url
+}
+function bannerUrl(project: any): string {
+  const slug = projectSlug(project?.slug)
+  const url = profileOf(project)?.banner_url
+  if (!slug || !url) return ''
+  return failedArt[artKey(slug, 'banner', url)] ? '' : url
 }
 
 function projectHref(project: { slug?: unknown }): string {
@@ -639,6 +722,7 @@ onMounted(async () => {
   grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
   gap: 14px;
 }
+.project-card-wrap { display: flex; min-width: 0; flex-direction: column; gap: 7px; }
 .project-card {
   display: flex;
   min-width: 0;
@@ -651,23 +735,35 @@ onMounted(async () => {
   background: var(--bg-secondary);
   box-shadow: var(--shadow);
   color: var(--text-primary);
+  overflow: hidden;
   transition: border-color var(--motion-fast), transform var(--motion-fast), box-shadow var(--motion-fast);
 }
 .project-card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); color: var(--text-primary); transform: translateY(-2px); box-shadow: var(--shadow-lg); }
 .project-card:focus-visible,
 .home-action:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* The channel's own banner, bled to the card's edges. */
+.project-banner {
+  display: block;
+  height: 72px;
+  margin: -20px -20px 16px;
+  background: var(--bg-tertiary, var(--bg-primary));
+}
+.project-banner img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .project-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .project-mark {
   display: grid;
   width: 42px;
   height: 42px;
+  flex: 0 0 auto;
   place-items: center;
+  overflow: hidden;
   border-radius: 12px;
   background: var(--accent-dim);
   color: var(--accent);
   font-weight: 800;
   letter-spacing: -.02em;
 }
+.project-mark img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .project-status {
   padding: 4px 8px;
   border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
@@ -727,6 +823,16 @@ onMounted(async () => {
 .project-copy .project-counts { margin-top: 4px; overflow-wrap: anywhere; }
 .project-copy .project-counts .project-counts-warn { color: var(--warning); font-weight: 650; }
 .project-open { display: flex; justify-content: space-between; color: var(--accent); font-size: var(--font-sm); font-weight: 650; }
+/* The edit route lives outside the card's own link — a link inside a link is a
+   trap, not a shortcut. */
+.project-edit {
+  align-self: flex-start;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  text-decoration: underline;
+}
+.project-edit:hover { color: var(--text-primary); }
+.project-edit:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
 .project-card-disabled { justify-content: center; opacity: .7; }
 
 .home-state {

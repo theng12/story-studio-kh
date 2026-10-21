@@ -177,32 +177,49 @@ describe('Content Pack runtime state', () => {
     assert.equal(await fs.readFile(path.join(paths.quarantineRoot, `state-invalid-${hash}.json`), 'utf8'), invalid)
   })
 
-  test('refuses symlinked, hard-linked, and oversized recovery markers without mutation', async () => {
+  // Each case gets a fresh root: the test harness refuses to unlink a symlink,
+  // so a shared root would leave the unsafe entry in place.
+  const recoveryMarker = () => JSON.stringify({
+    schema_version: 1,
+    incident: {
+      incident_id: '11111111-1111-4111-8111-111111111111',
+      kind: 'invalid_state_reset',
+      detected_at: '2026-09-20T00:00:00.000Z',
+      quarantine_sha256: 'a'.repeat(64),
+      acknowledged_at: null,
+    },
+  })
+
+  test('refuses a symlinked recovery marker without mutation', async () => {
     const { temp, paths } = await isolatedPaths()
     await fs.mkdir(paths.root, { recursive: true })
     await fs.writeFile(paths.statePath, JSON.stringify(emptyContentPackState()), { mode: 0o600 })
     const outside = path.join(temp.dir, 'outside-recovery.json')
-    const valid = JSON.stringify({
-      schema_version: 1,
-      incident: {
-        incident_id: '11111111-1111-4111-8111-111111111111',
-        kind: 'invalid_state_reset',
-        detected_at: '2026-09-20T00:00:00.000Z',
-        quarantine_sha256: 'a'.repeat(64),
-        acknowledged_at: null,
-      },
-    })
+    const valid = recoveryMarker()
     await fs.writeFile(outside, valid, { mode: 0o600 })
 
     await fs.symlink(outside, paths.recoveryStatePath)
     await assert.rejects(readContentPackRecoveryIncident(paths), /recovery state is invalid/i)
     assert.equal(await fs.readFile(outside, 'utf8'), valid)
-    await fs.unlink(paths.recoveryStatePath)
+  })
+
+  test('refuses a hard-linked recovery marker without mutation', async () => {
+    const { temp, paths } = await isolatedPaths()
+    await fs.mkdir(paths.root, { recursive: true })
+    await fs.writeFile(paths.statePath, JSON.stringify(emptyContentPackState()), { mode: 0o600 })
+    const outside = path.join(temp.dir, 'outside-recovery.json')
+    const valid = recoveryMarker()
+    await fs.writeFile(outside, valid, { mode: 0o600 })
 
     await fs.link(outside, paths.recoveryStatePath)
     await assert.rejects(readContentPackRecoveryIncident(paths), /recovery state is invalid/i)
     assert.equal(await fs.readFile(outside, 'utf8'), valid)
-    await fs.unlink(paths.recoveryStatePath)
+  })
+
+  test('refuses an oversized recovery marker without mutation', async () => {
+    const { paths } = await isolatedPaths()
+    await fs.mkdir(paths.root, { recursive: true })
+    await fs.writeFile(paths.statePath, JSON.stringify(emptyContentPackState()), { mode: 0o600 })
 
     const oversized = Buffer.alloc(16 * 1024 + 1, 0x20)
     await fs.writeFile(paths.recoveryStatePath, oversized, { mode: 0o600 })
@@ -312,12 +329,18 @@ describe('Content Pack runtime state', () => {
       'const id = process.env.CONTENT_PACK_WORKER_ID;',
       'await mutateContentPackState(state => { state.packs[`com.storystudio.process.${id}`] = { discovery_disabled: false, versions: {} }; }, getContentPackRuntimePaths());',
     ].join('\n'))
-    await Promise.all(Array.from({ length: 20 }, (_, n) => runWorker(workerPath, {
+    // Every worker is settled before this test ends. A worker that outlived
+    // it would keep publishing the state lock inside a temp dir the cleanup
+    // is about to remove, which turns one failure into a pile of unrelated
+    // filesystem errors.
+    const results = await Promise.allSettled(Array.from({ length: 20 }, (_, n) => runWorker(workerPath, {
       ...process.env,
       STORY_STUDIO_DATA_DIR: temp.dir,
       CONTENT_PACK_WORKER_ID: String(n),
       STORY_STUDIO_DISABLE_LISTEN: '1',
     })))
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    assert.deepEqual(failures.map(failure => String(failure.reason?.message ?? failure.reason)), [])
     assert.equal(Object.keys((await readContentPackState()).packs).length, 20)
   })
 
@@ -350,6 +373,10 @@ describe('Content Pack runtime state', () => {
       await lock.release()
     }
     await assert.rejects(fs.access(`${paths.statePath}.lock`), { code: 'ENOENT' })
+    // The transient record is prepared once and published by a hard link, so
+    // nothing but the canonical lock may be left in the runtime root.
+    const leftovers = (await fs.readdir(paths.root)).filter(name => name.endsWith('.tmp'))
+    assert.deepEqual(leftovers, [])
   })
 
   test('does not steal a sleeping, live old lock or delete a successor lock token', async () => {

@@ -703,3 +703,107 @@ test('expected-slot markers explain the plan’s next-12 horizon; every returned
     assert.match(ui.host.textContent || '', /not a\s+complete\s+annual horizon/)
   } finally { ui.close() }
 })
+
+
+/** The freshness cell of one coverage row, by the channel name in that row. */
+function freshnessText(host: HTMLElement, channelName: string): string {
+  const row = [...host.querySelectorAll('table.coverage-table tbody tr')]
+    .find(candidate => (candidate.querySelector('.channel-link')?.textContent || '').trim() === channelName)
+  assert.ok(row, `a coverage row for ${channelName}`)
+  return (row!.querySelector('.freshness')?.textContent || '').trim()
+}
+
+/** The coverage cell of one coverage row, by the channel name in that row. */
+function coverageText(host: HTMLElement, channelName: string): string {
+  const row = [...host.querySelectorAll('table.coverage-table tbody tr')]
+    .find(candidate => (candidate.querySelector('.channel-link')?.textContent || '').trim() === channelName)
+  assert.ok(row, `a coverage row for ${channelName}`)
+  const cells = row!.querySelectorAll('td')
+  return (cells[1]?.textContent || '').trim()
+}
+
+test('the freshness label names the artifact that is old, and the plan-versus-releases disagreement is stated', async () => {
+  // The channel LISTING and the per-video checks have separate ages. A label
+  // that hangs "stale" on the newest check blames the wrong one — so the page
+  // says which artifact is old, with that artifact's own date.
+  const instant = (iso: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso))
+  const listingAt = '2025-10-19T07:05:52.000Z'
+  const checkAt = '2026-10-21T07:05:52.000Z'
+  const stale = channel({
+    slug: 'stale', name: 'Stale Channel',
+    channel: { channel_id: 'UC4', title: 'Stale on YouTube' },
+    confirmed: {
+      next_at: null, count: 0, last_checked_at: checkAt, freshness: 'stale',
+      schedules: [], stale_videos: 2, unchecked_videos: 0,
+      listing: {
+        state: 'complete', complete_at: listingAt, partial_at: null, stale: true,
+        last_attempt: { attempted_at: checkAt, outcome: 'complete' },
+      },
+    },
+    // The plan expects Monday/Wednesday/Friday; these releases land on Tuesday.
+    cadence: { off_cadence_count: 12, off_cadence_weekdays: [2] },
+  })
+  // A listing that could not be read, while the last successful one is still
+  // fresh: "Fresh" would hide the failed refresh.
+  const failed = channel({
+    slug: 'failed', name: 'Failed Channel',
+    channel: { channel_id: 'UC5', title: 'Failed on YouTube' },
+    confirmed: {
+      next_at: null, count: 0, last_checked_at: checkAt, freshness: 'fresh',
+      schedules: [], stale_videos: 0, unchecked_videos: 0,
+      listing: {
+        state: 'complete', complete_at: checkAt, partial_at: null, stale: false,
+        last_attempt: { attempted_at: checkAt, outcome: 'failed', error_code: 'provider_error' },
+      },
+    },
+  })
+  // A listing that stopped early: we have not seen the whole channel.
+  const partial = channel({
+    slug: 'partial', name: 'Partial Channel',
+    channel: { channel_id: 'UC6', title: 'Partial on YouTube' },
+    confirmed: {
+      next_at: null, count: 0, last_checked_at: checkAt, freshness: 'stale',
+      schedules: [], stale_videos: 0, unchecked_videos: 0,
+      listing: {
+        state: 'partial', complete_at: null, partial_at: listingAt, stale: true,
+        last_attempt: { attempted_at: checkAt, outcome: 'partial' },
+      },
+    },
+  })
+  // A plan with no expected slot in the horizon: that is not "every expected
+  // slot confirmed".
+  const noSlots = channel({
+    slug: 'noslots', name: 'No Slots Channel',
+    channel: { channel_id: 'UC7', title: 'No Slots on YouTube' },
+    plan_set: true, plan_name: 'Empty plan', timezone: 'UTC',
+    planned: { next_slot_at: null, next_uncovered_slot_at: null, next_unplanned_slot_at: null, last_slot_at: null, slots: [], assignments: [] },
+  })
+
+  const ui = await mount({ overview: overviewWith([stale, failed, partial, noSlots]) })
+  try {
+    // The stale artifact is named with ITS date — not the newest check.
+    const staleLabel = freshnessText(ui.host, 'Stale Channel')
+    assert.match(staleLabel, /Stale listing/)
+    assert.ok(staleLabel.includes(instant(listingAt)), `the listing's own date is shown: ${staleLabel}`)
+    assert.equal(staleLabel.includes(instant(checkAt)), false, `not the newest check's date: ${staleLabel}`)
+    assert.match(staleLabel, /2 stale checks/)
+
+    // A failed listing attempt is said, even when the last success is fresh.
+    const failedLabel = freshnessText(ui.host, 'Failed Channel')
+    assert.match(failedLabel, /Listing failed/)
+    assert.match(failedLabel, /provider_error/)
+    assert.equal(failedLabel.includes('Fresh'), false)
+
+    // A listing that stopped early is not a stale one.
+    assert.match(freshnessText(ui.host, 'Partial Channel'), /Listing incomplete/)
+
+    // No expected slot is not "all expected slots confirmed".
+    assert.match(coverageText(ui.host, 'No Slots Channel'), /No expected slots in the horizon/)
+    assert.equal(coverageText(ui.host, 'No Slots Channel').includes('All expected slots confirmed'), false)
+
+    // The plan-versus-releases disagreement is stated, with its weekday.
+    const text = ui.host.textContent || ''
+    assert.match(text, /12 confirmed releases land on a day the plan does not expect/)
+    assert.match(text, /\(Tue\)/)
+  } finally { ui.close() }
+})

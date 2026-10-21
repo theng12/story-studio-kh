@@ -482,6 +482,16 @@ function assertHardlinkProof(proof) {
   inspectHardlinkAliases(proof.target, proof.sourceStat, proof, snapshotFailure)
 }
 
+/**
+ * A rename SOURCE that is hardlinked keeps its local-alias proof alive until
+ * Node is asked to move it. Every path that hands the operation back to Node
+ * re-checks that proof first, so a source that changed after the proof was
+ * taken is refused instead of moved.
+ */
+function assertRenameSourceProof(sourceExisting) {
+  if (sourceExisting?.hardlinkProof) assertHardlinkProof(sourceExisting.hardlinkProof)
+}
+
 function assertExistingAllowed(resolved, label, operation, args = []) {
   const stat = lstatIfPresent(resolved.absolute)
   if (!stat) return null
@@ -496,8 +506,16 @@ function assertExistingAllowed(resolved, label, operation, args = []) {
   if (!sameIdentity(stat, confirmed)) throw snapshotFailure(`${label} identity changed`)
   let hardlinkProof = null
   if (stat.isFile() && stat.nlink !== 1) {
+    // A rename SOURCE is MOVED, never removed: the link count and the bytes
+    // it names do not change, so a hardlinked source is as safe as an
+    // unlinked one. It earns that with the SAME local-alias proof the unlink
+    // path uses: every alias of the inode sits in this owned parent, so no
+    // alias hides outside the sandbox. The rename DESTINATION never gets
+    // this allowance — overwriting it destroys bytes, and that refusal is
+    // unchanged.
     const mayRemoveDirectFile = operation === 'unlink'
       || (operation === 'rm' && args[1]?.recursive !== true)
+      || operation === 'rename-source'
     if (!mayRemoveDirectFile || stat.nlink < 2) throw refused(`${label} refuses a hard link`)
     if (confirmed.nlink !== stat.nlink || !sameStat(stat, confirmed)) {
       throw snapshotFailure(`${label} hard-link identity changed`)
@@ -861,19 +879,27 @@ function captureLocked(operation, api, args, release) {
     const sourceResolved = operation === 'rename' ? resolveContained(args[0], 'Rename source') : null
     const targetResolved = resolveContained(args[operation === 'rename' ? 1 : 0], 'Destructive target')
     targetRelative = targetResolved.relative
-    const sourceExisting = sourceResolved ? assertExistingAllowed(sourceResolved, 'Rename source') : null
+    const sourceExisting = sourceResolved
+      ? assertExistingAllowed(sourceResolved, 'Rename source', 'rename-source')
+      : null
     if (sourceResolved && !sourceExisting) {
       assertMissingParentContained(sourceResolved, 'Rename source')
+      assertRenameSourceProof(sourceExisting)
       release()
       return null
     }
     if (sourceResolved && samePath(sourceResolved.absolute, targetResolved.absolute)) {
+      assertRenameSourceProof(sourceExisting)
       release()
       return null
     }
     const targetExisting = assertExistingAllowed(targetResolved, 'Destructive target', operation, args)
     if (!targetExisting) {
       assertMissingParentContained(targetResolved, 'Destructive target')
+      // A fresh destination destroys no bytes, but the SOURCE proof is
+      // re-checked here anyway: this is the last moment before Node is asked
+      // to perform the move.
+      assertRenameSourceProof(sourceExisting)
       release()
       return null
     }
@@ -938,7 +964,7 @@ function captureLocked(operation, api, args, release) {
     // Every fallible confirmation is complete before the durable verified record.
     assertRoots()
     assertPathIdentity(targetResolved, targetExisting.identity, 'Destructive target', targetExisting.hardlinkProof)
-    if (sourceResolved) assertPathIdentity(sourceResolved, sourceExisting.identity, 'Rename source')
+    if (sourceResolved) assertPathIdentity(sourceResolved, sourceExisting.identity, 'Rename source', sourceExisting.hardlinkProof)
     assertDestination()
     if ((native.lstatSync(snapshotDir).mode & 0o222) !== 0) throw snapshotFailure('Snapshot directory remained writable')
     assertReadOnlyTree(payload)
@@ -959,6 +985,7 @@ function captureLocked(operation, api, args, release) {
       || !sameEntries(finalSourceInventory, finalSnapshotInventory)
     ) throw snapshotFailure('Final retained fixture verification failed')
     if (targetExisting.hardlinkProof) assertHardlinkProof(targetExisting.hardlinkProof)
+    assertRenameSourceProof(sourceExisting)
 
     const record = {
       receiptId,
@@ -976,6 +1003,7 @@ function captureLocked(operation, api, args, release) {
     }
     if (targetExisting.hardlinkProof) record.hardlinkProof = targetExisting.hardlinkProof.receipt
     if (sourceResolved) record.source = sourceResolved.relative
+    if (sourceExisting?.hardlinkProof) record.sourceHardlinkProof = sourceExisting.hardlinkProof.receipt
     appendRecord(record)
     return { receiptId, release }
   } catch (error) {

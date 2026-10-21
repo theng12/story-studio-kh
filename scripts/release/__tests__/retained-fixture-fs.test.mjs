@@ -23,6 +23,10 @@ const BARRIER_RESUME = '.retained-fixture-fs-test-barrier-resume'
 const BOOTSTRAP_PARENT_PREFIX = '.retained-fixture-fs-bootstrap-'
 const BOOTSTRAP_ABSENT_CHILD = 'absent'
 const OLD_ASYNC_LOCK_TIMEOUT_MS = 5_000
+// The same absolute backstop the shared backend helper uses (_timing.ts
+// DEFAULT_MAX_WALL_CLOCK_MS). A scheduled-time budget stretches under load, so
+// a stuck condition still needs a wall-clock cap or it would hang the run.
+const MAX_WALL_CLOCK_MS = 120_000
 await fs.mkdir(RETAINED_PARENT, { recursive: true, mode: 0o700 })
 const RUN_ROOT = await fs.realpath(await fs.mkdtemp(path.join(RETAINED_PARENT, 'retained-fixture-fs-contract-')))
 await fs.chmod(RUN_ROOT, 0o700)
@@ -120,17 +124,34 @@ async function runChild(fixture, source, {
 }
 
 async function waitForFile(file, timeoutMs = 5_000) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
+  // Poll for the barrier on a SCHEDULED-time budget, not on the wall clock:
+  // the barrier is written by a child process, so a loaded machine can push
+  // the write past a wall-clock ceiling that says nothing about the product.
+  // The budget decides pass or fail; the absolute wall-clock cap is a
+  // backstop so a stuck condition can never hang the run.
+  const started = Date.now()
+  let budgetMs = timeoutMs
+  let cappedOut = false
+  const pollMs = 10
+  for (;;) {
     try {
       await fs.access(file)
       return
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error
-      await delay(10)
     }
+    const before = Date.now()
+    await delay(pollMs)
+    // Credit back only the part we did not ask for: the scheduler delay.
+    budgetMs += Math.max(0, Date.now() - before - pollMs)
+    const elapsed = Date.now() - started
+    if (elapsed >= MAX_WALL_CLOCK_MS) { cappedOut = true; break }
+    if (elapsed >= budgetMs) break
   }
-  throw new Error(`timed out waiting for retained-fixture barrier: ${file}`)
+  const waited = Date.now() - started
+  throw new Error(cappedOut
+    ? `timed out waiting for retained-fixture barrier: ${file}; hit the ${MAX_WALL_CLOCK_MS}ms wall-clock backstop after ${waited}ms`
+    : `timed out waiting for retained-fixture barrier: ${file}`)
 }
 
 async function configureBarrier(fixture, phase) {
@@ -2258,4 +2279,168 @@ test('hardlink compatibility: direct regular-file rm refuses an alias outside it
   const evidence = await records(fixture)
   assert.equal(evidence.some(record => record.phase === 'snapshot-verified'), false)
   assert.equal(evidence.some(record => record.phase === 'snapshot-refused'), true)
+})
+
+test('hardlink compatibility: a rename moves a hardlinked source across owned directories with its bytes and inode intact', async () => {
+  const fixture = await makeCase('hardlink-rename-move')
+  const library = path.join(fixture.sandbox, 'library')
+  const trash = path.join(fixture.sandbox, 'trash')
+  const target = path.join(library, 'target.txt')
+  const sibling = path.join(library, 'sibling.txt')
+  const destination = path.join(trash, 'moved.txt')
+  const bytes = Buffer.from('owned hardlink move bytes\n')
+  await fs.mkdir(library, { mode: 0o700 })
+  await fs.mkdir(trash, { mode: 0o700 })
+  await fs.writeFile(target, bytes)
+  await fs.link(target, sibling)
+  const before = await fs.lstat(target)
+
+  const result = await runChild(fixture, `
+    import fs from 'node:fs/promises'
+    let outcome
+    try {
+      await fs.rename(${JSON.stringify(target)}, ${JSON.stringify(destination)})
+      outcome = { ok: true }
+    } catch (error) {
+      outcome = { ok: false, code: error.code }
+    }
+    console.log(JSON.stringify(outcome))
+  `)
+
+  assert.equal(result.exitCode, 0, result.stderr || result.stdout)
+  assert.deepEqual(lastJson(result.stdout), { ok: true })
+  await assertMissing(target)
+  const moved = await fs.lstat(destination)
+  assert.equal(moved.dev, before.dev)
+  assert.equal(moved.ino, before.ino, 'a rename moves the name; the inode and its bytes are the same file')
+  assert.equal(moved.nlink, 2, 'the moved name and its sibling alias still share one inode')
+  assert.deepEqual(await fs.readFile(destination), bytes)
+  const siblingStat = await fs.lstat(sibling)
+  assert.equal(siblingStat.dev, before.dev)
+  assert.equal(siblingStat.ino, before.ino)
+  assert.deepEqual(await fs.readFile(sibling), bytes)
+  const evidence = await records(fixture)
+  assert.equal(evidence.some(record => record.phase === 'snapshot-refused'), false)
+  assert.equal(evidence.some(record => record.phase === 'snapshot-verified'), false,
+    'a rename onto a fresh name destroys nothing, so it is not snapshotted as a destructive target')
+})
+
+test('hardlink compatibility: a rename of a hardlinked source is refused when an alias sits outside its parent', async () => {
+  const fixture = await makeCase('hardlink-rename-alias-deficit')
+  const firstParent = path.join(fixture.sandbox, 'first')
+  const secondParent = path.join(fixture.sandbox, 'second')
+  const trash = path.join(fixture.sandbox, 'trash')
+  const siblingTarget = path.join(firstParent, 'target.txt')
+  const siblingAlias = path.join(secondParent, 'alias.txt')
+  const outsideTarget = path.join(firstParent, 'outside-target.txt')
+  const outsideAlias = path.join(fixture.root, 'outside-alias.txt')
+  const siblingBytes = Buffer.from('sibling-parent bytes\n')
+  const outsideBytes = Buffer.from('outside-root bytes\n')
+  await fs.mkdir(firstParent, { mode: 0o700 })
+  await fs.mkdir(secondParent, { mode: 0o700 })
+  await fs.mkdir(trash, { mode: 0o700 })
+  await fs.writeFile(siblingTarget, siblingBytes)
+  await fs.link(siblingTarget, siblingAlias)
+  await fs.writeFile(outsideTarget, outsideBytes)
+  await fs.link(outsideTarget, outsideAlias)
+
+  const result = await runChild(fixture, `
+    import fs from 'node:fs/promises'
+    const outcomes = []
+    for (const [source, destination] of ${JSON.stringify([
+    [siblingTarget, path.join(trash, 'sibling-moved.txt')],
+    [outsideTarget, path.join(trash, 'outside-moved.txt')],
+  ])}) {
+      try { await fs.rename(source, destination); outcomes.push({ ok: true }) }
+      catch (error) { outcomes.push({ ok: false, code: error.code }) }
+    }
+    console.log(JSON.stringify(outcomes))
+  `)
+
+  assert.equal(result.exitCode, 0, result.stderr || result.stdout)
+  assert.deepEqual(lastJson(result.stdout), Array(2).fill({
+    ok: false,
+    code: 'ERR_STORY_STUDIO_RETAINED_FS_REFUSED',
+  }))
+  assert.deepEqual(await fs.readFile(siblingTarget), siblingBytes)
+  assert.deepEqual(await fs.readFile(siblingAlias), siblingBytes)
+  assert.deepEqual(await fs.readFile(outsideTarget), outsideBytes)
+  assert.deepEqual(await fs.readFile(outsideAlias), outsideBytes)
+  assert.equal((await fs.lstat(siblingTarget)).nlink, 2)
+  assert.equal((await fs.lstat(outsideTarget)).nlink, 2)
+  await assertMissing(path.join(trash, 'sibling-moved.txt'))
+  await assertMissing(path.join(trash, 'outside-moved.txt'))
+  const evidence = await records(fixture)
+  assert.equal(evidence.filter(record => record.phase === 'snapshot-refused').length, 2)
+  assert.equal(evidence.some(record => record.phase === 'snapshot-verified'), false)
+})
+
+test('hardlink compatibility: a rename onto a hardlinked destination is still refused before native dispatch', async () => {
+  const fixture = await makeCase('hardlink-rename-destination')
+  const source = path.join(fixture.sandbox, 'source.txt')
+  const trash = path.join(fixture.sandbox, 'trash')
+  const destination = path.join(trash, 'destination.txt')
+  const destinationAlias = path.join(trash, 'destination-alias.txt')
+  const sourceBytes = Buffer.from('moving bytes\n')
+  const destinationBytes = Buffer.from('destination bytes\n')
+  await fs.mkdir(trash, { mode: 0o700 })
+  await fs.writeFile(source, sourceBytes)
+  await fs.writeFile(destination, destinationBytes)
+  await fs.link(destination, destinationAlias)
+
+  const result = await runChild(fixture, `
+    import fs from 'node:fs/promises'
+    let outcome
+    try { await fs.rename(${JSON.stringify(source)}, ${JSON.stringify(destination)}); outcome = { ok: true } }
+    catch (error) { outcome = { ok: false, code: error.code } }
+    console.log(JSON.stringify(outcome))
+  `)
+
+  assert.equal(result.exitCode, 0, result.stderr || result.stdout)
+  assert.deepEqual(lastJson(result.stdout), {
+    ok: false,
+    code: 'ERR_STORY_STUDIO_RETAINED_FS_REFUSED',
+  })
+  assert.deepEqual(await fs.readFile(source), sourceBytes)
+  assert.deepEqual(await fs.readFile(destination), destinationBytes)
+  assert.deepEqual(await fs.readFile(destinationAlias), destinationBytes)
+  const evidence = await records(fixture)
+  assert.equal(evidence.filter(record => record.phase === 'snapshot-refused').length, 1)
+  assert.equal(evidence.some(record => record.phase === 'snapshot-verified'), false)
+})
+
+test('hardlink compatibility: a rename of a hardlinked source onto an existing destination records the source alias proof', async () => {
+  const fixture = await makeCase('hardlink-rename-receipt')
+  const library = path.join(fixture.sandbox, 'library')
+  const trash = path.join(fixture.sandbox, 'trash')
+  const target = path.join(library, 'target.txt')
+  const sibling = path.join(library, 'sibling.txt')
+  const destination = path.join(trash, 'destination.txt')
+  const bytes = Buffer.from('recorded hardlink move bytes\n')
+  const previousBytes = Buffer.from('previous destination bytes\n')
+  await fs.mkdir(library, { mode: 0o700 })
+  await fs.mkdir(trash, { mode: 0o700 })
+  await fs.writeFile(target, bytes)
+  await fs.link(target, sibling)
+  await fs.writeFile(destination, previousBytes)
+
+  const result = await runChild(fixture, `
+    import fs from 'node:fs/promises'
+    let outcome
+    try { await fs.rename(${JSON.stringify(target)}, ${JSON.stringify(destination)}); outcome = { ok: true } }
+    catch (error) { outcome = { ok: false, code: error.code } }
+    console.log(JSON.stringify(outcome))
+  `)
+
+  assert.equal(result.exitCode, 0, result.stderr || result.stdout)
+  assert.deepEqual(lastJson(result.stdout), { ok: true })
+  await assertMissing(target)
+  assert.deepEqual(await fs.readFile(destination), bytes)
+  assert.deepEqual(await fs.readFile(sibling), bytes)
+  const receipt = await verifiedFor(fixture, destination, 'rename')
+  assert.equal(receipt.source, 'library/target.txt')
+  assert.equal(receipt.sourceHardlinkProof.parent, 'library')
+  assert.equal(receipt.sourceHardlinkProof.nlink, 2)
+  assert.deepEqual(receipt.sourceHardlinkProof.aliases, ['library/sibling.txt', 'library/target.txt'])
+  assert.deepEqual(await fs.readFile(await snapshotPayload(fixture, receipt)), previousBytes)
 })

@@ -8,7 +8,7 @@ import sharp from 'sharp'
 
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
-import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
+import { moveToTrashSync, trashDirOf, trashRootFor } from '../lib/trash-move.js'
 import { SCENE_ANALYSIS_DIR } from './outline-masks.js'
 import type { Job } from '../models/types.js'
 import { isUpdateHoldingForRestart } from './app-update.js'
@@ -1213,10 +1213,8 @@ async function buildPreview(
     already_cleaned_episodes: alreadyCleaned,
     ...(input.preset === 'archive_episode' ? { preset: 'archive_episode' as const } : {}),
     ...(convert ? { preset: CONVERT_PNG_PRESET } : {}),
-    trash_roots: [...new Set(files.map((file) => {
-      const at = file.trash_path.indexOf(`${path.sep}_trash${path.sep}`)
-      return at < 0 ? path.dirname(file.trash_path) : file.trash_path.slice(0, at + '/_trash'.length)
-    }))],
+    trash_roots: [...new Set(files.map((file) =>
+      trashDirOf(file.trash_path) ?? path.dirname(file.trash_path)))],
     estimate: {
       compress_files: shrinkable.length,
       compress_bytes_before: sum(shrinkable),
@@ -2377,10 +2375,8 @@ async function buildLibraryPreview(
     blocked_reasons: blocked,
     already_cleaned_episodes: alreadyCleaned,
     ...(action === 'cleanup_all' ? { leftovers: { count: uniqueLeftovers.length, total_bytes: uniqueLeftovers.reduce((n, item) => n + item.bytes, 0), items: uniqueLeftovers } } : {}),
-    trash_roots: [...new Set(allFiles.map(file => {
-      const at = file.trash_path.indexOf(`${path.sep}_trash${path.sep}`)
-      return at < 0 ? path.dirname(file.trash_path) : file.trash_path.slice(0, at + '/_trash'.length)
-    }))],
+    trash_roots: [...new Set(allFiles.map(file =>
+      trashDirOf(file.trash_path) ?? path.dirname(file.trash_path)))],
     estimate: {
       compress_files: shrinkable.length,
       compress_bytes_before: sum(shrinkable),

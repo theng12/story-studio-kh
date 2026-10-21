@@ -570,6 +570,11 @@
 
         <!-- ═══ This Project → Channel identity ═══ -->
         <template v-if="activeTab === 'identity'">
+          <!-- The channel's name, handle, description, logo and banner. It owns the
+               name — the backend writes it into project.json, the app's one
+               authoritative channel name — so there is no second rename control. -->
+          <ChannelProfilePanel :slug="slug" data-setting="project-name" @saved="onChannelProfileSaved" />
+
           <section class="card settings-panel" data-setting="formula">
             <header class="settings-card-head">
               <h3>Series Formula and Topic Packs</h3>
@@ -593,17 +598,6 @@
 
           <section class="card settings-panel" data-setting="idea-quality">
             <IdeaQualitySettings :slug="slug" />
-          </section>
-
-          <section class="card settings-panel" data-setting="project-name">
-            <div class="form-group">
-              <label>Channel name</label>
-              <input v-model="projectForm.name" class="input" />
-            </div>
-            <div class="flex gap-2" style="align-items:center">
-              <button class="btn btn-primary btn-sm" @click="saveProject('identity')">Save Name</button>
-              <SaveIndicator v-bind="savedHintProps('project_identity')" />
-            </div>
           </section>
 
           <section class="card settings-panel" data-setting="content-language">
@@ -4364,6 +4358,19 @@ async function saveStandards() {
   } catch (e: any) {
     showError('Failed to save standards')
   }
+}
+
+/**
+ * The channel profile owns the channel name — the backend writes it into
+ * project.json, the app's one authoritative name. So the meta this page is
+ * holding is stale the moment the profile is saved, and the header must show
+ * the new name rather than the one it loaded.
+ */
+function onChannelProfileSaved(saved: { name?: string }): void {
+  const name = saved?.name
+  if (!name) return
+  if (project.value) project.value.name = name
+  projectForm.name = name
 }
 
 /** True only when the section was saved for the project still on screen. */

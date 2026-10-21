@@ -843,6 +843,10 @@ test('sync refreshes the whole project in ONE batched request', async () => {
       ],
     },
   })
+  // The channel listing is read as well: it is how a release Story Studio
+  // never made is found.
+  fake.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/channels\?part=contentDetails&/, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-route' } } }] } })
+  fake.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/playlistItems\?/, body: { items: [] } })
   __setYouTubeTransportForTests(fake.transport())
 
   const res = await request(app).post(`/api/projects/${slug}/youtube/sync`).send({})
@@ -851,7 +855,7 @@ test('sync refreshes the whole project in ONE batched request', async () => {
   assert.equal(res.body.updated, 2)
   assert.equal(res.body.outcome, 'ok')
   // Fifty episodes cost one quota unit, not fifty.
-  assert.equal(fake.calls.length, 1)
+  assert.equal(fake.calls.filter(call => call.path.startsWith('/youtube/v3/videos?')).length, 1)
 
   assert.equal((await operations.readYouTubeOperation(slug, first))?.lifecycle, 'ready')
   assert.equal((await operations.readYouTubeOperation(slug, second))?.lifecycle, 'rejected')
@@ -907,6 +911,8 @@ test('the last successful read and the last attempt are reported separately', as
     path: '/youtube/v3/videos?part=snippet,status,processingDetails&id=video-a',
     body: { items: [{ id: 'video-a', status: { uploadStatus: 'processed', privacyStatus: 'public' }, snippet: { title: 'A' } }] },
   })
+  ok.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/channels\?part=contentDetails&/, body: { items: [{ contentDetails: { relatedPlaylists: { uploads: 'UU-route' } } }] } })
+  ok.respondMatching({ method: 'GET', match: /^\/youtube\/v3\/playlistItems\?/, body: { items: [] } })
   __setYouTubeTransportForTests(ok.transport())
   await request(app).post(`/api/projects/${slug}/youtube/sync`).send({})
 

@@ -21,6 +21,7 @@ import type {
 } from '../models/types.js'
 import { resolveJobAutoRetryPolicy } from '../services/job-retry-policy.js'
 import { assertProjectJobsSafeToRemove } from '../services/project-job-removal-guard.js'
+import { waitFor } from './_timing.js'
 import { installTestSafeStorage, setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 import {
   attemptId, COMMITTED_AT, intentId, STORY_ID, writeV2PrivateSnapshot,
@@ -59,17 +60,19 @@ async function createRetainedFifo(filePath: string): Promise<void> {
 }
 
 async function releaseBlockedFifoReader(filePath: string): Promise<void> {
-  for (let turn = 0; turn < 100; turn++) {
+  // ENXIO means no reader is attached yet, so a writer cannot be opened. Poll
+  // for the attach on a scheduled-time budget: a fixed sleep here would bet on
+  // this machine scheduling the poll promptly, which is false under load.
+  await waitFor(async () => {
     try {
       const writer = await fs.open(filePath, constants.O_WRONLY | constants.O_NONBLOCK)
       await writer.close()
-      return
+      return true
     } catch (error: any) {
       if (error?.code !== 'ENXIO') throw error
-      await new Promise<void>(resolve => setTimeout(resolve, 5))
+      return false
     }
-  }
-  assert.fail('blocked FIFO reader was not available for bounded release')
+  }, { label: `blocked FIFO reader release for ${filePath}`, timeoutMs: 2_000 })
 }
 
 async function assertRejectsWithoutBlockingOnFifo(attempt: Promise<unknown>, filePath: string, label: string): Promise<void> {
@@ -78,29 +81,25 @@ async function assertRejectsWithoutBlockingOnFifo(attempt: Promise<unknown>, fil
     () => ({ kind: 'fulfilled' as const, error: null }),
     error => ({ kind: 'rejected' as const, error }),
   ).finally(() => { settled = true })
-  await new Promise<void>(resolve => setTimeout(resolve, 100))
-  const settledBeforeRelease = settled
-  if (!settled) await releaseBlockedFifoReader(filePath)
+  // The attempt has to reject on its own, with no FIFO writer present. Waiting
+  // for that on a scheduled-time budget replaces the old fixed 100ms sleep:
+  // that sleep asserted the machine would schedule the attempt promptly, so a
+  // loaded suite failed a correct product. The budget still bounds the wait.
+  const settledBeforeRelease = await waitFor(() => settled, {
+    label: `${label} rejection without a FIFO writer`,
+    timeoutMs: 2_000,
+  }).then(() => true, () => false)
+  if (!settledBeforeRelease) await releaseBlockedFifoReader(filePath)
   const result = await within(observed, 2_000, `${label} physical FIFO settlement`)
   assert.equal(result.kind, 'rejected', `${label} must reject the FIFO`)
   assert.equal(settledBeforeRelease, true, `${label} must reject before a FIFO writer exists`)
-}
-
-async function waitFor(check: () => boolean, label: string): Promise<void> {
-  await within((async () => {
-    for (let turn = 0; turn < 2_000; turn++) {
-      if (check()) return
-      await new Promise<void>(resolve => setTimeout(resolve, 2))
-    }
-    assert.fail(`${label} did not settle`)
-  })(), 5_000, label)
 }
 
 async function settle(): Promise<void> {
   if (!queue) return
   await waitFor(
     () => [...trackedJobIds].every(jobId => !queue._isJobWorkerActiveForTesting(jobId)),
-    'physical video workers',
+    { label: 'physical video workers' },
   )
   await within(queue._waitForJobPersistenceForTesting(), 5_000, 'job persistence')
 }
@@ -433,9 +432,9 @@ test('wait and void executor outcomes both remain logically running, physically 
   })
   trackedJobIds.add(first.job_id)
   trackedJobIds.add(second.job_id)
-  await waitFor(() => calls.length === 2, 'both executor outcomes')
+  await waitFor(() => calls.length === 2, { label: 'both executor outcomes' })
   await waitFor(() => !queue._isJobWorkerActiveForTesting(first.job_id)
-    && !queue._isJobWorkerActiveForTesting(second.job_id), 'Mini lane release')
+    && !queue._isJobWorkerActiveForTesting(second.job_id), { label: 'Mini lane release' })
   restore()
   await queue._waitForJobPersistenceForTesting()
 

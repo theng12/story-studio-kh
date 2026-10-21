@@ -147,6 +147,17 @@ function countByDay(instants: string[], tz: string): Map<string, number> {
 }
 
 /**
+ * The weekday a local calendar day falls on (0 = Sunday).
+ *
+ * A calendar DATE's weekday is the same in every timezone, so the day key the
+ * readers already use is enough — no second timezone conversion, and no chance
+ * of it disagreeing with the day a slot was matched on.
+ */
+function weekdayOfDayKey(dayKey: string): number {
+  return new Date(`${dayKey}T00:00:00Z`).getUTCDay()
+}
+
+/**
  * Can this channel's idea store actually be read?
  *
  * `getIdeas` cannot answer that. Its own reader degrades a corrupt or unreadable
@@ -182,6 +193,7 @@ async function readConfirmed(
 ): Promise<PublishingOverviewChannel['confirmed']> {
   const empty: PublishingOverviewChannel['confirmed'] = {
     next_at: null, count: 0, last_checked_at: null, freshness: 'unknown', schedules: [],
+    listing: null, stale_videos: 0, unchecked_videos: 0,
   }
   // "No channel assigned" and "assigned but not connected" need different next
   // actions, so they are different answers, not one empty list.
@@ -212,6 +224,13 @@ async function readConfirmed(
       count: schedules.length,
       last_checked_at: newest,
       freshness: freshnessOfCoverage(view.coverage),
+      // The channel LISTING and the per-video checks are SEPARATE artifacts
+      // with separate ages. The verdict above is about both; the UI has to be
+      // told which one is stale, or it hangs the word "stale" on a fresh
+      // timestamp and hides the artifact that is actually old.
+      listing: view.coverage.listing,
+      stale_videos: view.coverage.stale_videos,
+      unchecked_videos: view.coverage.unchecked_videos,
       schedules,
     }
   } catch (e: any) {
@@ -602,6 +621,35 @@ export async function buildChannelOverview(
     lastSlotAt = computed.at(-1) ?? null
   }
 
+  // The plan's expected DAYS, and the confirmed releases that do not land on
+  // one of them.
+  //
+  // Counted from the ACTUAL computed slots, never from the plan's weekday
+  // list: a phased or monthly plan has no single weekday set, and a weekday
+  // union would claim a rhythm the plan never promised. A release on an
+  // unexpected day is still real coverage of THAT day — it simply does not
+  // cover an expected slot, and the page has to be able to say so instead of
+  // leaving "nothing placed" to speak for itself.
+  //
+  // Nothing here changes coverage, at-risk or the uncovered slot: this is a
+  // fact about days, and the plan is still the plan.
+  const expectedDays = new Set(slots.map(slot => localDayKeyInTz(new Date(slot.at), tz)))
+  const horizon = [...expectedDays].sort()
+  const horizonFrom = horizon[0] ?? null
+  const horizonTo = horizon.at(-1) ?? null
+  const offCadenceWeekdays = new Set<number>()
+  let offCadenceCount = 0
+  if (horizonFrom && horizonTo) {
+    for (const entry of confirmed.schedules) {
+      const day = localDayKeyInTz(new Date(entry.scheduled_for), tz)
+      // Outside the horizon the plan's later days are nobody's business.
+      if (day < horizonFrom || day > horizonTo) continue
+      if (expectedDays.has(day)) continue
+      offCadenceCount++
+      offCadenceWeekdays.add(weekdayOfDayKey(day))
+    }
+  }
+
   const { readiness, readyToPublish, readyCodes, pendingCodes } = await readReadiness(slug, ideas, ideasUnreadable, channelId, facts)
   const recommendations = buildRecommendations(slug, readyCodes, pendingCodes)
 
@@ -677,6 +725,12 @@ export async function buildChannelOverview(
       ...(planSet === null ? { plan_error: planError || 'the publishing plan could not be read' } : {}),
       plan_name: plan?.name ?? null,
       timezone: usable?.timezone ?? null,
+      // How many confirmed releases land on days the plan does not expect.
+      // A count and the weekdays they land on — nothing here changes a date.
+      cadence: {
+        off_cadence_count: offCadenceCount,
+        off_cadence_weekdays: [...offCadenceWeekdays].sort((a, b) => a - b),
+      },
       confirmed,
       planned: {
         next_slot_at: nextSlotAt,

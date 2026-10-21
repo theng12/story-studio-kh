@@ -8,20 +8,20 @@ import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { after, before, describe, test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 
-import { useTempDataDir } from './_helpers.js'
+import { useTempDataDir, type RetainedTempDataDir } from './_helpers.js'
 import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 
-let tmp: { dir: string; cleanup: () => Promise<void> }
+let tmp: RetainedTempDataDir
 let pm: typeof import('../services/project-manager.js')
 let im: typeof import('../services/idea-manager.js')
 let utils: typeof import('../services/utils.js')
-const savedTmp = process.env.TMPDIR
-const savedDataDir = process.env.STORY_STUDIO_DATA_DIR
 
 before(async () => {
-  tmp = await useTempDataDir()
+  // A RETAINED fixture: the whole point of this test is that nothing is ever
+  // deleted, so the temp tree is kept (inside the harness sandbox, which the
+  // harness keeps under `_trash/test-fixtures`) rather than cleaned up.
+  tmp = await useTempDataDir({ retain: true, settle: async () => {} })
   // Render scratch lives under os.tmpdir(); keep it inside this test's folder.
   process.env.TMPDIR = path.join(tmp.dir, 'os-tmp')
   pm = await import('../services/project-manager.js')
@@ -30,15 +30,10 @@ before(async () => {
 })
 after(async () => {
   try {
-    const projectRoot = fileURLToPath(new URL('../../../', import.meta.url))
-    const trashFixtures = path.join(projectRoot, '_trash', 'test-fixtures')
-    await fs.mkdir(trashFixtures, { recursive: true })
-    await fs.rename(tmp.dir, path.join(trashFixtures, `storage-leftovers-${path.basename(tmp.dir)}`))
+    // Settles the retained fixture: the final manifest revision is written and
+    // the claimed environment is restored. The tree itself is never deleted.
+    await tmp.cleanup()
   } finally {
-    if (savedTmp === undefined) delete process.env.TMPDIR
-    else process.env.TMPDIR = savedTmp
-    if (savedDataDir === undefined) delete process.env.STORY_STUDIO_DATA_DIR
-    else process.env.STORY_STUDIO_DATA_DIR = savedDataDir
     setTestSafeStorageAvailable(true)
   }
 })

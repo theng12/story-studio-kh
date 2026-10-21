@@ -10,6 +10,7 @@ import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { readContentPackState } from '../content-packs/state.js'
 import { router as contentPacksRouter } from '../routes/content-packs.js'
+import { router as contentPackGatewayArchivesRouter } from '../routes/content-pack-gateway-archives.js'
 import { setApiKey } from '../services/app-secrets-store.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
 import { errorBoundary } from '../lib/error-boundary.js'
@@ -109,6 +110,7 @@ beforeEach(async () => {
   }
   app.use(express.json({ limit: '10mb' }))
   app.use('/api', contentPacksRouter)
+  app.use('/api', contentPackGatewayArchivesRouter)
   app.use(errorBoundary)
 })
 
