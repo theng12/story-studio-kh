@@ -1,5 +1,39 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.346 — 2026-10-21 (gated and released; the candidate section below is superseded)
+
+Main `008194fcff9ac18155ce1d87f9246d1d114c415d` (tree `a1d6335f…`, merge of `release/1.4.346`,
+pushed `bd4de6c4..008194fc`) carries 1.4.346 and it is released. The full unfiltered gate ran on
+this exact main tree, **exit 0, 10/10 steps, `partial_run: false`, source identity unchanged**
+(`_orchestra/app-closeout-20261021/story-346-main-gate/gate-result.json`): backend 788 files,
+7,897 tests, 7,896 pass, 1 skipped, 0 fail; frontend 318 files, 2,704/2,704; release 63/63;
+content packs 38 files, 368 tests, 366 pass, 2 skipped — the three skips have recorded environment
+reasons (macOS /var-alias harness check; two content-pack audits needing an external evidence
+root), and the configured projects root was byte-identical. The independent source review was
+accepted (`_orchestra/app-closeout-20261021/story-integration/independent-review-346-20261021.md`),
+with the legacy empty publishAt normalization and regression integrated before the final gate.
+The duplicate projection remains unchanged; both expressions agree. Accepted gate receipt:
+`_orchestra/app-closeout-20261021/story-integration/gate-346-accepted.json`.
+
+Built from main with `npm run dist:smoke` (exit 0): `dist/Story Studio KH 1.4.346-arm64.dmg`,
+243,519,307 bytes, SHA-256 `f75cd6946553fca696727520761bb4aa362bc06334fe8644be591e7447c0ceff`,
+read-only mount verified, packaged version verified
+(`_orchestra/app-closeout-20261021/story-integration/main-build-346.json`). Published with
+readback (`published-verified-20261021T031609Z.json`), then the normal guarded mini update after
+an explicit peer handback: health 200, version 1.4.346, boot_complete true, updater phase
+`installed`, no error present. Production was observed read-only (held: false, 0 paused, 3
+queued, 1 running); no production mutation was made.
+
+Cross-app closeout of the same date (evidence in `_orchestra/app-closeout-20261021/`): the
+mounted install SSDs ATLAS, NOVA and ORICO were refreshed to Story 1.4.346 / Hub 0.6.194 /
+Gateway 0.2.194 (wrapper exit 0, `all_kits_verified`, UGREEN absent and skipped, all volumes
+left mounted — `ssd-refresh-preparation/refresh-accepted-20261021.json`); current + previous
+installers are preserved outside `_trash` and hash-checked, and the finished release worktrees
+were retired with branches kept (see `_orchestra/app-closeout-20261021/story-cleanup-preserved/retirement.json`).
+No visual, content or product bug fix beyond the release notes above is claimed by this entry,
+and the queue, uploads, routines and channel settings remain the owner's. With this release
+gated, the correction note below is historical: the last fully gated release is now **1.4.346**.
+
 ## 1.4.346 — 2026-10-21 (source candidate — NOT gated, NOT shipped)
 
 **Candidate only. Not built, not published, not installed; full gate pending.** Version `1.4.346`
