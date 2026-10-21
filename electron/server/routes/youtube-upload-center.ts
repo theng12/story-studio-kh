@@ -93,7 +93,7 @@ import {
 import {
   applyScheduleAssignmentsWithRollback, computeSlots, episodeOrderShifts, getActivePlanId, getPlan,
   latestFutureProjectClaimMs, listPlans, localDayKeyInTz, orderEpisodeCodes,
-  readItemSchedule, UploadScheduleBatchWriteError,
+  plannedDateFromFacts, readItemSchedule, UploadScheduleBatchWriteError,
 } from '../services/upload-plans.js'
 import { readSidecarStrict, setScheduledFor } from '../services/upload-sidecar.js'
 import { remoteVideoFor, alreadyOnYouTubeReason, OPEN_LIFECYCLES, SUPERSEDED_LIFECYCLES } from '../services/youtube-remote-video.js'
@@ -768,12 +768,16 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
             : local.upload.state === 'running'
               ? `${code} already has an upload in progress.`
               : '')
+        // Read once: the row's publication and its planned date describe the
+        // same newest observation (never the raw snapshot a ready video's
+        // background refresh leaves stale).
+        const observed = observedForEpisode(code, publicationOperation, remote, publishingState, publicationCache, channelId)
         const publication = publicationProjection(
           publicationOperation,
           remote,
           publishingState,
           channelId,
-          observedForEpisode(code, publicationOperation, remote, publishingState, publicationCache, channelId),
+          observed,
           remoteStoresUnreadable ? REMOTE_STORE_UNREADABLE : unreadable || sidecarUnreadable || undefined,
         )
         const schedule_blocked_reason = storeBlockedReason
@@ -786,6 +790,17 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
                 : publication.visibility === 'unlisted'
                   ? `${code} is unlisted on YouTube and cannot be scheduled.`
                   : undefined
+        // The planned date from the SAME observation: a public answer clears it,
+        // a private one with no publishAt keeps the local sidecar.
+        const plannedAt = plannedDateFromFacts(
+          observed
+            ? {
+                ...(observed.privacy_status ? { privacy_status: observed.privacy_status } : {}),
+                ...(observed.scheduled_for !== undefined ? { scheduled_for: observed.scheduled_for } : {}),
+              }
+            : {},
+          sidecar?.scheduled_for,
+        )
         return {
           episode_code: code,
           title,
@@ -819,9 +834,7 @@ router.get('/projects/:slug/youtube/publishable', async (req, res) => {
           can_schedule_existing: !schedule_blocked_reason,
           ...(schedule_blocked_reason ? { schedule_blocked_reason } : {}),
           plan: {
-            ...(publicationOperation?.remote_snapshot?.scheduled_for
-              ? { scheduled_at: publicationOperation.remote_snapshot.scheduled_for }
-              : sidecar?.scheduled_for ? { scheduled_at: sidecar.scheduled_for } : {}),
+            ...(plannedAt ? { scheduled_at: plannedAt } : {}),
             ...(planTimezone ? { timezone: planTimezone } : {}),
           },
           // The route's own refusal reason, decided ONCE here. The page used to

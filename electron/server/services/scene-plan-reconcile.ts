@@ -15,7 +15,7 @@ import { mergedClosingTailSec, narrationSecFromMaster } from '../lib/closing-tai
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from './utils.js'
 import { resolveTranscriptSrtPath, stitchedSrtPath } from './subtitle-correction.js'
 import { computePlanCoverage, reconcilePlanToSubtitles, removeNonRenderableScenes } from './scene-planner.js'
-import { planEndSec, stampFromCues } from '../lib/scene-plan-timeline.js'
+import { planEndSec, stampFromCues, unrenderableSceneProblem } from '../lib/scene-plan-timeline.js'
 import type { ScenePlan } from '../models/types.js'
 
 function refusal(statusCode: number, message: string): Error {
@@ -121,6 +121,17 @@ export async function reconcileScenePlanTimings(
         + (cleanup.removed_prompt_ids.length
           ? ` ⚠ ${cleanup.removed_prompt_ids.length} of them carried a saved prompt or image — those rows are gone from the plan (their image files stay on disk).`
           : ''))
+    }
+    // Reject sub-floor timing before saving, including any rows changed by cleanup.
+    const unsafe = result.unsafe_reason || unrenderableSceneProblem(cleanup.scenes)
+    if (unsafe) {
+      const retainedIds = new Set(cleanup.scenes.map(scene => scene.id))
+      const matched = cleanup.scenes.length - result.unmatchedIds.filter(id => retainedIds.has(id)).length
+      throw refusal(409, `Reconcile timings did not save: ${unsafe}. `
+        + `${matched}/${cleanup.scenes.length} scene(s) matched today's captions. `
+        + 'Review the plan and the stitched captions, then run Reconcile timings again. '
+        + 'If this narration is new, rebuild the Scene Plan timeline instead — a rebuild replaces the timing '
+        + 'and prompts and does not carry the existing images.')
     }
     fresh.scenes = cleanup.scenes
     fresh.total_duration_sec = narrationSec

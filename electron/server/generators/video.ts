@@ -141,7 +141,7 @@ import {
 import { scenePlanLeadInShiftSec, shiftScenesForLeadIn } from '../lib/intro-lead-in.js'
 import { narrationSecFromMaster, postRollSeconds } from '../lib/closing-tail.js'
 import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
-import { compareMergedAudio } from '../lib/scene-plan-timeline.js'
+import { compareMergedAudio, MIN_RENDERABLE_SCENE_SEC, unrenderableSceneProblem } from '../lib/scene-plan-timeline.js'
 import {
   buildImagePoolPlayOrder,
   readVideoVisualSource,
@@ -2281,6 +2281,7 @@ export async function prepareUnifiedVideoAssemblyInputs(
         + `Overlaps now: ${assets.scene_plan_timing?.overlap_count ?? 0}.`,
       )
     } catch (error) {
+      // A refused repair leaves the saved plan intact; the timing audit below applies its safety mode.
       job.output_lines.push(`Scene Plan timings could not be re-aligned automatically: ${(error as Error)?.message || error}.`)
     }
   }
@@ -2380,6 +2381,17 @@ export async function prepareUnifiedVideoAssemblyInputs(
   }
   if (timing.overlap_count > 0 && job) {
     await safetyGate(slug, 'scene_overlap', job, `${timing.overlap_count} timing overlap(s) totalling ${timing.overlap_sec.toFixed(1)}s could not be re-aligned. The scene clips will render in plan order.`)
+  }
+  // Coverage can pass while short rows expand at the renderer's floor. Use the existing
+  // narration-coverage mode: Block stops; Warn/Off continue with the timing explanation.
+  const unrenderable = unrenderableSceneProblem(timing.scenes)
+  if (unrenderable) {
+    await safetyGate(slug, 'narration_covered', job,
+      `${unrenderable}. Video Assembly holds each such scene for the ${MIN_RENDERABLE_SCENE_SEC}s floor, `
+      + 'so the rendered scene track runs longer than the plan and the narration. '
+      + 'Reconcile timings on the Scene Plan page re-times the existing scenes and keeps their images; '
+      + 'if it cannot match this narration, rebuild the timeline — a rebuild replaces the timing and prompts '
+      + 'and does not carry the existing images.')
   }
 
   const available = assets.scenes
@@ -3310,7 +3322,7 @@ export async function generateVideo(job: Job): Promise<void> {
         const natural = await getAudioDuration(scene.image_path).catch(() => undefined)
         if (typeof natural === 'number' && Number.isFinite(natural) && natural > 0) {
           naturalBrollCount++
-          return Math.max(0.5, natural)
+          return Math.max(MIN_RENDERABLE_SCENE_SEC, natural)
         }
         // probe failed → fall through to the uniform cascade below
       }
@@ -3324,7 +3336,7 @@ export async function generateVideo(job: Job): Promise<void> {
         : (typeof explicitSceneDuration === 'number' && Number.isFinite(explicitSceneDuration) && explicitSceneDuration > 0)
             ? explicitSceneDuration
             : defaultSceneDuration
-      return Math.max(0.5, durationCandidate)
+      return Math.max(MIN_RENDERABLE_SCENE_SEC, durationCandidate)
       }))
     if (brollNaturalDuration) {
       job.output_lines.push(
@@ -3342,7 +3354,7 @@ export async function generateVideo(job: Job): Promise<void> {
       let revealed = 0
       for (const scene of resolvedSceneReveals.scenes) {
         if (scene.scene_index < 0 || scene.scene_index >= sceneClipDurations.length) continue
-        const planned = Math.max(0.5, scene.hold.total_seconds)
+        const planned = Math.max(MIN_RENDERABLE_SCENE_SEC, scene.hold.total_seconds)
         if (Math.abs(planned - sceneClipDurations[scene.scene_index]!) > 0.01) revealed++
         sceneClipDurations[scene.scene_index] = planned
       }
@@ -3718,7 +3730,7 @@ export async function generateVideo(job: Job): Promise<void> {
           scenes: req.scenes.map((scene: VideoScene, index: number) => ({
             scene_id: sceneIdForIndex(scene, index),
             scene_index: index,
-            window_seconds: Math.max(0.5, Number(scene.duration) || secondsPerImage),
+            window_seconds: Math.max(MIN_RENDERABLE_SCENE_SEC, Number(scene.duration) || secondsPerImage),
             snap: snapCandidatesForScene({
               scene,
               index,
@@ -3735,7 +3747,7 @@ export async function generateVideo(job: Job): Promise<void> {
         })
         for (const scene of poolReveals.scenes) {
           if (scene.scene_index >= 0 && scene.scene_index < sceneClipDurations.length) {
-            sceneClipDurations[scene.scene_index] = Math.max(0.5, scene.hold.total_seconds)
+            sceneClipDurations[scene.scene_index] = Math.max(MIN_RENDERABLE_SCENE_SEC, scene.hold.total_seconds)
           }
         }
         if (renderFingerprint && videoAssemblyCheckpoint) {
@@ -4028,7 +4040,7 @@ export async function generateVideo(job: Job): Promise<void> {
       outroClipPath,
       timelineClipsByAnchor,
       exactSceneTiming,
-      authoritativeAssets.visual_source === 'image_pool' ? 1 / quality.fps : 0.5,
+      authoritativeAssets.visual_source === 'image_pool' ? 1 / quality.fps : MIN_RENDERABLE_SCENE_SEC,
     )
 
     // 11. Pre-mix all audio into a single WAV file. Length must match the
@@ -4477,7 +4489,7 @@ function snapCandidatesForScene(input: {
   // 4.2 s" is a timestamp on a different clock. A candidate outside the scene is not offered —
   // snapping to a line the scene does not cover would stretch or crush it to hit a moment it has
   // nothing to do with, which is the padding the pace setting exists to avoid.
-  const window = Math.max(0.5, Number(input.scene.duration) || 0)
+  const window = Math.max(MIN_RENDERABLE_SCENE_SEC, Number(input.scene.duration) || 0)
   const offsets = (values: number[]): number[] => [...new Set(values
     .map(value => Number((value - input.scene_start_seconds).toFixed(3)))
     .filter(offset => Number.isFinite(offset) && offset > 0.5 && offset < window - 0.2))]
@@ -4677,7 +4689,7 @@ export async function prepareSceneClips(
   extraTailSec?: number,
   motionLibrary: SceneMotionLibrary = [],
   recovery?: VideoAssemblySceneClipRecovery,
-  minimumDurationSec = 0.5,
+  minimumDurationSec = MIN_RENDERABLE_SCENE_SEC,
 ): Promise<string[]> {
   // v1.0.515 — filled by index (scenes render in a parallel pool; order must hold).
   const clipPaths: string[] = new Array(scenes.length)
@@ -5727,7 +5739,7 @@ async function buildConcatList(
    *  prepared clips carry a +transition tail) so transitions never eat
    *  into a scene's planned window. */
   planStrict?: boolean,
-  minimumDurationSec = 0.5,
+  minimumDurationSec = MIN_RENDERABLE_SCENE_SEC,
 ): Promise<{ listPath: string; sceneEndTime: number }> {
   const listPath = path.join(tempDir, 'concat_list.txt')
   const lines: string[] = []

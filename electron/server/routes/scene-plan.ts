@@ -884,7 +884,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/reconcile-timings', async (re
     const { reconcileScenePlanTimings } = await import('../services/scene-plan-reconcile.js')
     res.json({ ok: true, ...await reconcileScenePlanTimings(slug, episodeId) })
   } catch (e: any) {
-    if (e?.statusCode === 404 || e?.statusCode === 400) return res.status(e.statusCode).json({ detail: e.message })
+    if (e?.statusCode === 404 || e?.statusCode === 400 || e?.statusCode === 409) return res.status(e.statusCode).json({ detail: e.message })
     res.status(500).json(humanizeBackendError(e, 'Failed to reconcile plan timings'))
   }
 })

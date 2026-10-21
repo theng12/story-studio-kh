@@ -105,6 +105,40 @@ export function planEndSec(audioDurationSec: number | null | undefined, cues: Sr
   return Math.max(Number(audioDurationSec) || 0, stampFromCues(cues).last_cue_end_sec)
 }
 
+/**
+ * The shortest scene window the renderer will actually play. Video Assembly
+ * clamps every requested duration to this floor, so a plan row below it is
+ * rendered at the floor rather than at its own length.
+ */
+export const MIN_RENDERABLE_SCENE_SEC = 0.5
+/** The plan's own resolution is milliseconds, so a floor comparison needs no finer tolerance. */
+export const SCENE_WINDOW_EPS = 0.001
+
+/**
+ * Reports how many scene rows fall below the window the renderer actually plays
+ * (`MIN_RENDERABLE_SCENE_SEC`); a row below it is rendered at the floor, not at
+ * its own length. A plan's total reaching the narration says nothing about this.
+ *
+ * One exemption: a single FINAL row that is a finite, positive residual sliver —
+ * the last caption ending a moment before the narration does. A zero, negative
+ * or non-finite duration is never a sliver.
+ */
+export function unrenderableSceneProblem(
+  scenes: Array<{ start_sec: number; end_sec: number }>,
+): string | null {
+  if (!Array.isArray(scenes) || scenes.length === 0) return null
+  const runts = scenes
+    .map((scene, index) => ({ index, duration: Number(scene.end_sec) - Number(scene.start_sec) }))
+    .filter(row => !Number.isFinite(row.duration) || row.duration < MIN_RENDERABLE_SCENE_SEC - SCENE_WINDOW_EPS)
+  if (runts.length === 0) return null
+  const only = runts.length === 1 ? runts[0]! : null
+  if (only && only.index === scenes.length - 1 && Number.isFinite(only.duration) && only.duration > 0) return null
+  const first = runts[0]!
+  const shown = Number.isFinite(first.duration) ? `${Math.max(0, first.duration).toFixed(3)}s` : 'an invalid duration'
+  return `${runts.length} of ${scenes.length} scene(s) are below the ${MIN_RENDERABLE_SCENE_SEC}s window the renderer plays `
+    + `(first at scene ${first.index + 1}, ${shown})`
+}
+
 export interface TimelineDrift {
   /** True only when the two timelines demonstrably differ. */
   stale: boolean

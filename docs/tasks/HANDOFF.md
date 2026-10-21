@@ -1,6 +1,57 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.345 — 2026-10-21 (gate running)
+## 1.4.346 — 2026-10-21 (source candidate — NOT gated, NOT shipped)
+
+**Candidate only. Not built, not published, not installed; full gate pending.** Version `1.4.346`
+is set in `package.json` and `package-lock.json` and the newest CHANGELOG entry agrees. Timing,
+schedule and updater changes are integrated and independently reviewed. Typecheck, lint, changelog,
+typography, security and model-drift checks passed. The first focused run passed 101/102 tests
+(7/7 files), failing only an invalid obsolete-link fixture setup; after correcting that fixture,
+the schedule file passed all 9 tests (1/1 file). Both runs preserved the configured projects root.
+An isolated real-backend preview returned reconcile 409 and Publish/cache 200 with no stale planned
+date. These focused/preview checks are not the full release gate.
+
+- **Timing refusal — integrated, checks pending.** The coordinator integrated the independently
+  reviewed scene-timing patch (6 tracked files + 2 new tests) into this branch. It is not gated:
+  focused and full checks are still owed. `reconcilePlanToSubtitles` now returns `unsafe_reason`
+  when a caption re-anchor leaves rows below the 0.5 s window the renderer plays
+  (`MIN_RENDERABLE_SCENE_SEC`); `reconcileScenePlanTimings` refuses to save such a plan (409, names
+  how many scenes matched, points to review-and-retry or rebuild); Video Assembly reports persisted
+  sub-floor rows through the existing `narration_covered` safety mode: Block stops, Warn/Off continue
+  with the floor-expansion log. No hidden safety check was added. Root cause
+  confirmed on HMH0001 (855 of 899 rows ~11 ms, one 2196 s hold); the unsupported 10% threshold was
+  replaced by the renderer's own floor.
+- **Publication-schedule freshness — integrated, checks pending.** The Publish list and the
+  schedule/coverage map use the newest observation of the episode's current video: operation
+  snapshot, verified receipt or publication cache. A public observation clears its stale planned
+  date, including the legacy schedule fallback; a private observation with no publishAt preserves
+  its local plan. Receipts for obsolete or removed videos are excluded, and legacy sidecar-only
+  videos resolve their own cache row. Regressions cover map/row freshness, identity/removal guards,
+  private sidecar plans and legacy empty/no-schedule values.
+- **Updater test lifecycle — integrated.** The fixture uses the test process PID instead of an
+  unowned five-minute sleeper. The baseline's focused proof passed 68 tests / 12 suites, 2/2 files,
+  exit 0 with no owned descendants left alive; this candidate still requires its final full gate.
+- **Legacy narration/expectation review closed with no product change.** The proposed merged-audio
+  fallback is excluded from this release (historical input identity and benefit for the six remain
+  unproven); the uncommitted proposal is preserved but not integrated. Honest state: 23 of 29
+  approved historical Story Sprout finals are frozen; **SS0055–SS0060 (6) stay unknown** for missing
+  chapter-duration evidence. An unknown is never turned into a pass by treating measured duration as
+  intended duration.
+
+No production change: the queue, uploads, routines and channel settings remain the owner's.
+
+### Correction to the record — 1.4.345 was published WITHOUT a completed full backend gate
+
+1.4.345 was published with focused tests and a packaged smoke only; neither replaces the full
+unfiltered backend gate. The last fully gated release is **1.4.344**. The baseline attempt finished
+with overall exit 1 after 9/10 stages: backend passed 7,683 tests (785/785 files), frontend passed
+2,704 tests (318/318 files), and release checks passed 62/63 tests. The sole release failure was
+its missing real built app; content-pack checks were not run after fail-fast. Evidence is retained
+under `_orchestra/app-closeout-20261021/story-gate/` in the coordination workspace. The final
+1.4.346 gate must follow its real `main` build so that prerequisite exists; **no retroactive green
+is claimed for 1.4.345** (its heading below is corrected).
+
+## 1.4.345 — 2026-10-21 (published; full backend gate NOT completed — see correction above)
 
 Merged fix/freeze-evidence (23585c85: a final's own render request is the evidence that it was frozen from; owner-sourced freeze for Story Sprout finals made before 2026-10-20T13:17Z whose measured duration matches today's settings and whose opening black is the intro asset's own; boot sweep runs once, idempotent; GET /projects/:slug/youtube/freeze-states exposes the state). Stale "written but UNRUN" notes removed from publishing-overview*, idea-campaign-* test headers on main (db55c086).
 

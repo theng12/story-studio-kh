@@ -375,8 +375,8 @@ describe('install promptly (owner, 2026-10-09)', () => {
   function stillMarked(script: string): boolean {
     return fs.existsSync(script) && fs.readFileSync(script, 'utf8').includes(HANDOFF_MARKER)
   }
-  /** A stand-in app that stays alive for the whole test, so only a second hand-off can move things. */
-  const keepAppAlive = { helperEnv: { SU_PID: String(spawn('/bin/sleep', ['300']).pid), SU_HEALTH_SECONDS: '5', SU_QUIT_WAIT: '300' } }
+  /** Use this live process as the stand-in app; an unowned sleeper keeps the test worker alive. */
+  const keepAppAlive = { helperEnv: { SU_PID: String(process.pid), SU_HEALTH_SECONDS: '5', SU_QUIT_WAIT: '300' } }
   /** What a real tracked cleanup's work returns; this file never inspects it. */
   const CLEAN = { items: [], item_count: 0, bytes_freed: 0, deleted_count: 0, skipped_count: 0, failed_count: 0 }
 
