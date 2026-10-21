@@ -5431,7 +5431,7 @@ async function checkpointPipelineHandoff(
     type: nextStep.type as JobType,
     episode_id: job.episode_id,
     title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`,
-    params: pipelineHandoffNextParams(job, nextStep, rest),
+    params: JSON.parse(JSON.stringify(pipelineHandoffNextParams(job, nextStep, rest))),
   }
   const marker: PipelineHandoff = {
     version: 1,
@@ -5724,15 +5724,87 @@ async function drainPendingPipelineHandoff(parentJobId: string): Promise<void> {
       || pipelineHandoffBlocked(authoritative)
       || !isDeepStrictEqual(pipelineHandoffOf(authoritative), marker)) return
 
-    const rest = Array.isArray(marker.options.params?.pipeline_chain)
+    // A persisted child keeps its accepted parameters when channel settings change.
+    const existingChild = jobs.get(marker.child_job_id)
+    if (existingChild) {
+      if (exactPipelineHandoffChild(existingChild, marker)) {
+        marker.state = 'dispatched'
+        if (parent.type === 'subtitles_transcribe' && marker.options.type === 'metadata') {
+          parent.params.subtitle_finalizer_dispatched = true
+        }
+        await persistJob(parent)
+        emitUpdate(parent)
+        return
+      }
+      marker.state = 'failed'
+      await failClosedPipelineHandoff(parent, 'Saved Pipeline continuation identity belongs to different work.')
+      return
+    }
+
+    let rest = Array.isArray(marker.options.params?.pipeline_chain)
       ? marker.options.params!.pipeline_chain as unknown[]
       : []
-    const nextStep = {
+    let nextStep: { type: string; title?: string; params?: Record<string, any> } | undefined = {
       type: marker.options.type,
       title: marker.options.title,
       params: marker.options.params,
     }
+
+    // Match ordinary dispatch: skip disabled or unusable links before creating a child.
+    while (nextStep && typeof nextStep.type === 'string') {
+      const skipReason = disabledOptionalStepReason(
+        parent.project_slug,
+        nextStep.params?.pipeline_step ?? nextStep.type,
+      ) ?? unusableLinkSkipReason(nextStep)
+      if (!skipReason) break
+      parent.output_lines.push(`${SKIPPED_STEP_LINE_PREFIX} ${skipReason}`)
+      const [following, ...after] = rest as any[]
+      nextStep = following
+      rest = after
+    }
+
+    if (!nextStep || typeof nextStep.type !== 'string') {
+      marker.state = 'dispatched'
+      await persistJob(parent)
+      emitUpdate(parent)
+      return
+    }
+
     try {
+      // Resolve this submission, then save its exact request before the child can exist.
+      const savedMarker = structuredClone(marker)
+      const nextParams = pipelineHandoffNextParams(parent, nextStep, rest)
+      const refreshedParams = (nextStep.type === 'video_assembly' && typeof parent.episode_id === 'string' && parent.episode_id)
+        ? await refreshChainedFinalVideoParams(parent, nextParams)
+        : nextParams
+
+      const originalType = marker.options.type
+      marker.options.type = nextStep.type as JobType
+      marker.options.title = nextStep.title || `[batch] ${nextStep.type} — ${parent.episode_id}`
+      marker.options.params = JSON.parse(JSON.stringify(refreshedParams))
+      // The saved identity belongs to this continuation, including after a skipped link.
+      if (marker.options.type !== originalType) {
+        marker.content_pack_provenance = structuredClone(await snapshotProjectContentPackProvenance(
+          parent.project_slug,
+          marker.options.type,
+        ))
+      }
+
+      const preparedMarker = structuredClone(marker)
+      await persistProjectMutation(parent.project_slug, {
+        kind: 'transform',
+        jobId: parent.job_id,
+        transform: current => {
+          if (!current || !isDeepStrictEqual(pipelineHandoffOf(current), savedMarker)) {
+            throw new PipelineHandoffIdentityError('Saved Pipeline continuation changed before dispatch.')
+          }
+          const merged = mergeDurableJobEvidence(current, safeJob(parent))
+          ;(merged as PipelineJob).pipeline_handoff = preparedMarker
+          return merged
+        },
+      })
+      emitUpdate(parent)
+
       const joined = marker.options.type === 'continuity_render' && !marker.options.params?.single_scene_id
         ? await joinActiveBulkSceneRender({
           project_slug: marker.options.project_slug,

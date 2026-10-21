@@ -52,8 +52,16 @@ after(async () => {
   await cleanup()
 })
 
+const channelSlugs: string[] = []
 const restores: Array<() => void> = []
-afterEach(() => { while (restores.length) restores.pop()!() })
+afterEach(async () => {
+  await waitFor(async () => (await Promise.all(channelSlugs.map(slug => jq.getJobs(slug)))).flat().every(job =>
+    !jq._isJobWorkerActiveForTesting(job.job_id) && job.status !== 'queued' && job.status !== 'running'
+      && (jq.getJob(job.job_id) as any)?.pipeline_handoff?.state !== 'pending'),
+  { label: 'optional-step fixture workers and continuations settle' })
+  await jq._waitForJobPersistenceForTesting()
+  while (restores.length) restores.pop()!()
+})
 
 /** Swap in a stand-in executor; restored after each test. */
 function useExecutor(type: JobType, executor: (job: Job) => Promise<void>): void {
@@ -80,6 +88,7 @@ function capturedChain(): Array<{ type: string; title: string; params: Record<st
 
 async function newChannel(name: string, cuesEnabled: boolean): Promise<string> {
   const project = await pm.createProject({ name })
+  channelSlugs.push(project.slug)
   await pm.updateConfig(project.slug, { contextual_cues: { enabled: cuesEnabled } } as any)
   optional._clearOptionalStepConfigCacheForTesting()
   return project.slug

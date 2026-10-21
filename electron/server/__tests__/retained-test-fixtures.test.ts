@@ -247,7 +247,7 @@ test('registration rejects paths outside the run and no-follow link, hardlink, a
   await fixture.cleanup()
 })
 
-test('pre-destructive preservation refuses a replaced snapshot parent before writing outside the run', async () => {
+test('pre-destructive preservation refuses a replaced snapshot parent before writing to replacement', async () => {
   const fixture = await openRetained()
   const target = path.join(fixture.dir, 'projects', 'snapshot-parent-replacement')
   await fs.mkdir(target, { recursive: true, mode: 0o700 })
@@ -259,19 +259,23 @@ test('pre-destructive preservation refuses a replaced snapshot parent before wri
   await fs.writeFile(sentinel, 'must remain byte-identical\n')
   const snapshots = path.join(fixture.runRoot, 'snapshots')
   const originalSnapshots = path.join(fixture.runRoot, 'snapshots-original')
-  const retainedLink = path.join(fixture.runRoot, 'replaced-snapshots-link')
+
+  // Replace the parent's inode without a symlink, so restoration uses the same guarded renames.
   await fs.rename(snapshots, originalSnapshots)
-  await fs.symlink(outside, snapshots)
+  await fs.rename(outside, snapshots)
 
   await assert.rejects(
     fixture.preserveBeforeDestructive(target, 'replaced-parent'),
     /snapshot parent identity changed/i,
   )
-  assert.equal(await fs.readFile(sentinel, 'utf8'), 'must remain byte-identical\n')
-  assert.deepEqual(await fs.readdir(outside), ['owner-sentinel.txt'])
+  // The replacement directory retains its sentinel byte-identical and nothing was written to it.
+  assert.equal(await fs.readFile(path.join(snapshots, 'owner-sentinel.txt'), 'utf8'), 'must remain byte-identical\n')
+  assert.deepEqual(await fs.readdir(snapshots), ['owner-sentinel.txt'])
+  // The target under retained data was never touched.
+  assert.equal(await fs.readFile(path.join(target, 'state.txt'), 'utf8'), 'fixture state')
 
-  // Retain the rejected link inside the run and restore the original owned parent without deletion.
-  await fs.rename(snapshots, retainedLink)
+  // Move the replacement back to its outside location and restore the owned snapshots directory.
+  await fs.rename(snapshots, outside)
   await fs.rename(originalSnapshots, snapshots)
   await fixture.cleanup()
 })

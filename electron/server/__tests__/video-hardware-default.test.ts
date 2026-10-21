@@ -128,8 +128,57 @@ test('a failed VideoToolbox encode falls back to libx264 with the full graph, th
     outputFile: 'outputFile',
   })
   assert.equal(chainCalls[0]!.arguments[0]?.getText(sourceFile), 'tiers')
-  assert.equal(source.match(/await verifyFinalVideo\(job, /g)?.length, 2)
   assert.match(source, /if \(defaultEncodingEffort\(req, ffmpegCheck\.hw_encoders\)\) \{\s*req\.encoding_effort = 'hardware'/)
+
+  // Post-encode verification is scoped to the compilation branch (the enclosing
+  // block of the awaited runFinalComposition call), not the entire generateVideo
+  // function. This catches a dropped post-encode check or an unrelated verify
+  // call elsewhere satisfying the test.
+  const generator = sourceFile.statements.find((statement): statement is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(statement) && statement.name?.text === 'generateVideo')
+  assert.ok(generator?.body)
+  const compositionCalls: ts.CallExpression[] = []
+  const visitCompositionCalls = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'runFinalComposition') {
+      compositionCalls.push(node)
+    }
+    ts.forEachChild(node, visitCompositionCalls)
+  }
+  visitCompositionCalls(generator.body)
+  assert.ok(compositionCalls.length >= 1, 'generateVideo contains at least one runFinalComposition call')
+  const compositionCall = compositionCalls[0]!
+  assert.ok(ts.isAwaitExpression(compositionCall.parent), 'runFinalComposition is awaited')
+  // Walk up to find the enclosing block
+  let enclosingBlock: ts.Block | undefined
+  let current: ts.Node | undefined = compositionCall.parent
+  while (current && !enclosingBlock) {
+    if (ts.isBlock(current) && !ts.isTryStatement(current.parent)) {
+      enclosingBlock = current
+    }
+    current = current.parent
+  }
+  assert.ok(enclosingBlock, 'runFinalComposition call has an enclosing block')
+  const blockPostCalls: ts.CallExpression[] = []
+  const visitBlockPost = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      if (node.expression.text === 'finalCheckFinalVideo' || node.expression.text === 'verifyFinalVideo') {
+        blockPostCalls.push(node)
+      }
+    }
+    ts.forEachChild(node, visitBlockPost)
+  }
+  visitBlockPost(enclosingBlock)
+  const finalCheckCalls = blockPostCalls.filter(c => ts.isIdentifier(c.expression) && c.expression.text === 'finalCheckFinalVideo')
+  const verifyCalls = blockPostCalls.filter(c => ts.isIdentifier(c.expression) && c.expression.text === 'verifyFinalVideo')
+  assert.ok(finalCheckCalls.length >= 1, 'enclosing block contains finalCheckFinalVideo call')
+  assert.ok(verifyCalls.length >= 1, 'enclosing block contains verifyFinalVideo call')
+  const finalCheckCall = finalCheckCalls[0]!
+  const verifyCall = verifyCalls[0]!
+  assert.ok(ts.isAwaitExpression(finalCheckCall.parent), 'finalCheckFinalVideo is awaited')
+  assert.ok(ts.isAwaitExpression(verifyCall.parent), 'verifyFinalVideo is awaited')
+  assert.ok(finalCheckCall.pos > compositionCall.pos, 'finalCheckFinalVideo appears after runFinalComposition')
+  assert.ok(verifyCall.pos > finalCheckCall.pos, 'verifyFinalVideo appears after finalCheckFinalVideo in the enclosing block')
+  assert.deepEqual(verifyCall.arguments.map(arg => arg.getText(sourceFile)), ['job', 'compResolvedPath', 'compFinalName', 'totalRenderDuration', 'loudness'])
 })
 
 test('the job says which encoder made the video, and why software when hardware was wanted', () => {
