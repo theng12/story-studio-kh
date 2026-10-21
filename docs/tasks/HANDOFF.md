@@ -1,5 +1,30 @@
 # HANDOFF — Story Studio KH
 
+## Illustrated History for Sleep — personal adoption, 2026-10-21
+
+Owner requested reusable bold illustrated history thumbnails with short subject text and a consistent
+FOR SLEEP badge, paired with substantive 2–3-hour sleep narration. Personal-library imports are the
+supported delivery route: formula `/api/niches`, style `/api/user-style-packs`, thumbnail
+`/api/thumbnail-templates`. Source lives in `content-packs/illustrated-history/`. The complete formula
+cannot use POST /niches: its strict schema excludes scriptStructure and other full-formula fields.
+The supported full-document path is the owner's `.niches/<id>.json` library. All three personal payloads
+are installed on This Mac with exact file/hash readback (`local-adoption-receipt.json`); mini 1.4.346
+style and thumbnail POSTs returned 200/201 and exact GET/catalog readback (`mini-adoption-receipt.json`).
+Mini formula remains pending because authenticated file-transfer access is unavailable. Personal IDs:
+formula `illustrated-history-for-sleep`, style `kh.owner.illustrated-history.bold-illustrated-history`,
+thumbnail `illustrated-subject-sleep-badge`. Formula default 150 minutes, range 120–180; no scene-rhythm
+override. Personal thumbnail uses the engine's supported `short-hook` mode. Reserved Store products are
+distinct and remain unshippable without real preview assets and a Store headline contract that
+preserves the short subject; the narrow signed-schema modes are not equivalent. No app runtime change,
+version bump, DMG or restart is part of this data adoption. Existing channels, presets and jobs remain
+untouched. Coordination evidence: `~/Developer/_orchestra/illustrated-sleep-history-20261021/`.
+
+A separate confirmed app defect remains open after 1.4.346: frozen final-check shape omits exact
+closing-tail geometry and legacy zero conflates unknown with known-none. Do not infer historical
+intent from current settings or measured black, and do not unblock historical finals automatically.
+Implementation and regression work remain pending; evidence:
+`~/Developer/_orchestra/app-closeout-20261021/FROZEN-TAIL-OPEN-20261021.md`.
+
 ## 1.4.346 — 2026-10-21 (gated and released; the candidate section below is superseded)
 
 Main `008194fcff9ac18155ce1d87f9246d1d114c415d` (tree `a1d6335f…`, merge of `release/1.4.346`,

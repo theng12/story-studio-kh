@@ -1,0 +1,72 @@
+{
+  "id": "illustrated-subject-sleep-badge",
+  "name": "Illustrated Subject with Sleep Badge",
+  "description": "One bold illustrated historical scene filling the frame, a large short subject line rendered across the top, and one small consistent FOR SLEEP badge pinned in the bottom-left corner on every episode. Built for a long illustrated history channel made for sleep: the picture is loud and intriguing, the badge is quiet and identical every time.",
+  "builtin": false,
+  "schemaVersion": 1,
+  "recommendedNicheIds": [
+    "illustrated-history-for-sleep"
+  ],
+  "category": "History",
+  "tags": [
+    "history",
+    "illustrated",
+    "bold subject text",
+    "sleep badge",
+    "FOR SLEEP",
+    "large headline",
+    "consistent badge",
+    "landmark",
+    "battle",
+    "poster",
+    "high contrast",
+    "16:9"
+  ],
+  "previewImages": [],
+  "aspectRatio": "16:9",
+  "recipe": {
+    "layout": "hero",
+    "conceptGuidance": "Build the frame in three fixed parts and never move them.\n\nThe scene. One bold illustrated historical scene fills the whole sixteen by nine canvas edge to edge — a walled city, a harbour, a mountain road, a battlefield or a burning town — drawn in the active Visual Style. The scene carries the drama: a clear focal landmark or figure group with a readable silhouette, dramatic light, and a bold flat-colour palette. Nothing is calmed or softened for the sleep audience; the picture is meant to be intriguing at card size. Keep the top band and the bottom-left corner free of busy detail so the subject line and the badge can sit on clean, quiet areas of the picture.\n\nThe subject line. A large short subject line is rendered directly in the image across the top of the frame on ONE single line, in heavy outlined capitals that stay readable when the frame is shrunk to a card. The line names the subject in one to four words — a place, a people, an era or an event — and nothing else; a single word is enough when the subject is a well-known name (ROME, JAPAN, CHINA), and a short phrase is enough when it is not (THE SILK ROAD, THE FALL OF CARTHAGE). The band of picture behind the letters is kept quiet and dark enough that the letters never fight it. No date range, no runtime figure, no question mark, no countdown numeral, and no claim of an entire or complete history appears in the line.\n\nThe badge. One small FOR SLEEP badge sits in the bottom-left corner of the frame — the same corner, the same shape and the same size on every episode, so a row of cards reads as one channel. The badge is a compact cream rounded rectangle with a dark outline, carrying exactly the words FOR SLEEP in small dark capitals on the cream fill, the same cream and the same dark every episode, so it stays readable at card size. It never grows, never moves out of the bottom-left corner, never carries a second line, and never repeats elsewhere in the frame.\n\nThe active Visual Style remains the final authority for medium, palette, line, shading and how a face is drawn; this recipe controls only the scene framing, the subject line and the badge.",
+    "compositionRules": [
+      "One bold illustrated historical scene fills the frame edge to edge, with a clear focal landmark or figure group and dramatic light; the scene is not calmed or muted.",
+      "A large short subject line of one to four words is rendered in the image across the top on a single line, in heavy outlined capitals.",
+      "The band behind the subject line stays quiet and dark enough that the letters never fight the picture.",
+      "One small FOR SLEEP badge sits in the bottom-left corner — the same cream rounded rectangle, with the same dark outline and dark capitals, at the same size on every episode.",
+      "The badge carries exactly the words FOR SLEEP, in small dark capitals on the flat cream fill, and appears once only.",
+      "The subject line and the badge are the only text in the frame; no date range, runtime figure, countdown numeral or complete-history claim appears anywhere.",
+      "Vary the scene, the subject, the palette and the drama between episodes; keep the top band, the subject-line size, the badge shape and the badge's bottom-left position fixed."
+    ],
+    "requiredElements": [
+      "One bold illustrated historical scene filling the whole frame, drawn in the active Visual Style and carrying real drama",
+      "A large short subject line of one to four words rendered directly in the image across the top on a single line in heavy outlined capitals",
+      "A quiet, dark band of picture behind the subject line so the letters stay legible",
+      "One small FOR SLEEP badge in the bottom-left corner — a cream rounded rectangle with a dark outline and dark capitals — identical in shape, size and position on every episode"
+    ],
+    "avoid": [
+      "A channel wordmark, mascot, logo, subscribe mark, numeral bug, or border beyond the subject line and the single badge",
+      "Any text beyond the one subject line and the one badge — a subtitle, a second line, a date range, a runtime figure, a countdown, or any claim of an entire or complete history",
+      "A calm, muted, pastel, empty or softened scene; a single small subject on a blank ground; a photographic or photorealistic ground",
+      "A moving, growing, duplicated or second FOR SLEEP badge; a badge outside the bottom-left corner; a badge in any colour but the fixed cream-and-dark; any badge text other than FOR SLEEP",
+      "A subject line longer than four words, or one that wraps to a second line or clips at either edge",
+      "Realistic gore, open wounds, wet tissue, a body treated as horror, or a figure shown in real suffering",
+      "A named or recognisable living individual, a real official's likeness, a real modern agency insignia, or a copy of another channel's reference composition",
+      "Post-render typography compositing, watermarks, or copied trade dress"
+    ],
+    "titleMode": "ai",
+    "headlineMode": "short-hook",
+    "headlineGuidance": "Write the subject line as one to four words naming the place, people, era or event the episode is about — the plainest concrete name a viewer would search for. A single word is right for a famous subject (ROME, JAPAN, CHINA); a short phrase is right when the subject needs one (THE SILK ROAD, THE FALL OF CARTHAGE). Set it in heavy outlined capitals on a single line, large enough that the smallest word still reads at card size. Never a question mark, never an exclamation, never a countdown numeral, never an exact date range, never an exact runtime, and never a claim of an entire or complete history. Because a row of these sits together on a channel page, keep the same grammatical shape down a series so the lines read as a set. Fail closed on misspelling, on clipping at either edge, and on a subject line that wraps to a second line.",
+    "defaultTextStyle": "solid warm bone-white capitals filled flat and cut with a thick dark outline, sitting on a quiet darkened band of the picture, with no bevel, no gradient, no drop shadow and no glow",
+    "defaultFontStyle": "extra-heavy condensed serif capitals wearing a thick contrasting outline, closed compact counters, tight even spacing, maximum weight and clarity, set on a single line at the largest size the top band allows",
+    "defaultTextPosition": "top",
+    "headlineFormats": [
+      "{PLACE}",
+      "{PEOPLE}",
+      "{ERA}",
+      "The {PEOPLE}",
+      "{PLACE} at War",
+      "The Fall of {PLACE}",
+      "The {ERA} {PLACE}"
+    ],
+    "visualStyleGuidance": "This recipe is built for a bold hand-drawn historical illustration look of the kind the Bold Illustrated History style ships, and it needs four things from whatever style is active. First, a strong ink outline, because the subject line and the badge must separate cleanly from the picture behind them. Second, flat rich colour, so the scene reads as one confident image at card size and the quiet top band can hold the letters. Third, a small number of hard shadow steps rather than soft gradient shading, so the picture stays legible when shrunk. Fourth, real drama in the scene — landmarks, figures and events drawn with energy — because this recipe exists to make a long sleep-history episode intriguing, not to look calm. A style that renders softly, in muted or pastel colour, photographically, or as a single small subject on an empty ground will break this recipe: the scene stops reading, the top band loses its contrast, and the badge becomes unreadable."
+  }
+}

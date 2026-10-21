@@ -1,0 +1,343 @@
+{
+  "id": "illustrated-history-for-sleep",
+  "name": "Illustrated History for Sleep",
+  "description": "Illustrated histories of one subject at a time — a city, a region, a people, an empire, a war or a route — told slowly enough to fall asleep to. Each episode runs two to three hours across linked chapters that take the one subject in turn: its origins, how it was governed, its trade, its culture, its conflicts, and what it left behind. The telling stays calm and grounded, but the pictures are bold — strong ink outlines, flat rich colour, detailed landmarks and figures, and battles, sieges and fires shown with dramatic energy rather than softened away. Pair with a Topic Pack of historical subjects and the Bold Illustrated History look.",
+  "builtin": false,
+  "schemaVersion": 1,
+  "kind": "series-formula",
+  "formulaFamily": "Calm documentary",
+  "catalogStatus": "active",
+  "catalogName": "Illustrated History for Sleep",
+  "perspectivePolicy": "Third-person, source-led, unhurried narration. Never a high-energy host; never address the listener with urgency.",
+  "narrativeQualityContract": {
+    "openingPolicy": "Open each chapter by naming its facet plainly and placing the one subject in a definite region and period. No question, no teaser, no counter-intuitive claim.",
+    "forbiddenPatterns": [
+      "Imagine this",
+      "You would not believe",
+      "Watch what happens next",
+      "but here's the twist",
+      "stay with me",
+      "cliffhanger",
+      "countdown",
+      "shocking",
+      "the truth about",
+      "you will never guess"
+    ],
+    "requiredHabits": [
+      "Anchor every beat to a definite region and period.",
+      "Favour material detail — walls, streets, tools, trade, seasons, food — over spectacle.",
+      "Use long, settled transitions; let each beat resolve before the next.",
+      "Keep the narrator's voice even; soften rather than escalate toward the end of each chapter.",
+      "When a fact is contested or the record is thin, say so plainly instead of resolving it with invention."
+    ],
+    "closingPolicy": "End every chapter on a settled image of the subject at rest; end the video with the quietest chapter and no call to action."
+  },
+  "openingProfile": {
+    "id": "sleep-landing",
+    "label": "Sleep landing",
+    "description": "A gentle branded welcome and settling ritual before the history begins."
+  },
+  "introDefaults": {
+    "wordTarget": 320,
+    "beats": [
+      {
+        "id": "welcome",
+        "custom_text": "a gentle greeting and the channel's name, slowly, with no energy in it"
+      },
+      {
+        "id": "story_teaser",
+        "custom_text": "two soft sentences naming tonight's one subject as a thing, never as a promise or a hook"
+      },
+      {
+        "id": "community_question",
+        "custom_text": "one gentle question they can answer in the comments before they drift, about a place or a period they know"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one soft line, said now rather than later — after the breathing it would only wake them"
+      },
+      {
+        "id": "relaxation",
+        "custom_text": "lead three slow breaths, paced by the length of the sentences themselves"
+      },
+      {
+        "id": "transition",
+        "custom_text": "invite them to close their eyes as the history begins"
+      }
+    ]
+  },
+  "metadataProfile": {
+    "id": "calm-history-illustrated",
+    "label": "Calm illustrated history package",
+    "description": "A quiet summary that names the one subject and its facets, a gentle chapter list, and minimal discoverability details; no urgency, no runtime claim, no complete-history claim.",
+    "descriptionSectionIds": [
+      "hook",
+      "playlists",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "titleMode": "use_idea_title",
+    "descriptionMaxChars": 3200,
+    "titleMaxLength": 110,
+    "tagCount": 20
+  },
+  "tagline": "A slow illustrated history, told until you drift off.",
+  "recommendedVisualStyleIds": [
+    "kh.owner.illustrated-history.bold-illustrated-history"
+  ],
+  "exampleTopics": [
+    "The Slow History of Venice",
+    "One Medieval City, Told Until You Sleep",
+    "The Slow History of the Silk Road",
+    "The Persians of the Plateau, Told Slowly",
+    "The Slow History of Constantinople",
+    "The Slow History of the Nile",
+    "One Roman Frontier, Told Until You Sleep",
+    "The Slow History of the Hanseatic Ports",
+    "The Slow History of Kyoto",
+    "One Ancient Harbour, Told Slowly",
+    "The Slow History of the Amber Road",
+    "The Slow History of a Desert City"
+  ],
+  "defaultTopicPackIds": [
+    "com.storystudio.topic.historical-wars-treaties-world-order"
+  ],
+  "compatibleTopicPackIds": [
+    "com.storystudio.topic.historical-wars-treaties-world-order",
+    "com.storystudio.topic.archival-ledger.empires-trade-extraction",
+    "com.storystudio.topic.archival-ledger.wars-treaties-world-order",
+    "com.storystudio.topic.archival-ledger.states-revolutions-collapse"
+  ],
+  "ideaAxes": [
+    {
+      "id": "historical-subject",
+      "label": "Historical subject",
+      "values": [
+        "a single city",
+        "one region or province",
+        "a people or kingdom",
+        "one trade route",
+        "a river or a coast",
+        "one war or campaign",
+        "an empire seen through one capital",
+        "a fortress, harbour or wall",
+        "a craft or guild",
+        "a borderland between two worlds",
+        "a vanished settlement and its remains",
+        "one monument and what it was built to say"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "calm",
+      "grounded",
+      "patient",
+      "warm",
+      "unhurried",
+      "matter-of-fact",
+      "hushed",
+      "museum-quiet",
+      "candle-lit",
+      "fireside",
+      "lantern-lit",
+      "library-hushed",
+      "amber-toned",
+      "evening",
+      "settled",
+      "weathered"
+    ],
+    "theme": [
+      "building",
+      "trade",
+      "seasons",
+      "craft",
+      "households",
+      "markets",
+      "defence",
+      "migration",
+      "custom",
+      "slow change",
+      "patience",
+      "the long road",
+      "the old quarter",
+      "the quiet frontier"
+    ],
+    "genre": [
+      "calm documentary",
+      "illustrated history",
+      "place history",
+      "bedtime history",
+      "slow history",
+      "long-form history"
+    ],
+    "keyword": [
+      "city",
+      "empire",
+      "harbour",
+      "fortress",
+      "road",
+      "river",
+      "market",
+      "temple",
+      "palace",
+      "wall",
+      "bridge",
+      "gate",
+      "caravan",
+      "guild",
+      "kiln",
+      "loom",
+      "forge",
+      "lantern",
+      "banner",
+      "map",
+      "scroll",
+      "ledger",
+      "granary",
+      "citadel",
+      "canal",
+      "harbour town",
+      "old quarter",
+      "frontier"
+    ]
+  },
+  "youtubeTagsHint": [
+    "sleep history",
+    "history to fall asleep to",
+    "calm documentary",
+    "sleep documentary",
+    "illustrated history",
+    "history of places",
+    "bedtime history",
+    "relaxing history",
+    "slow history",
+    "long sleep video",
+    "history for sleep",
+    "quiet narration"
+  ],
+  "audienceHint": "Sleep and relaxation listeners who like history — the same people who leave a two-hour documentary playing with the lights off.",
+  "scriptContext": "This is an illustrated history for sleep — its job is to ease the listener toward sleep with true, grounded, slowly told history. Each episode follows one subject across linked chapters, one facet per chapter. Keep the pace unhurried and the telling low-arousal even when the subject is a war or a collapse. The imagery may be bold and dramatic; the narration must stay calm, qualified and unhurried, and nothing startling or urgent should ever happen in the voice.",
+  "ideaSystemPromptRole": "You generate ideas for a calm, long-form illustrated history channel made for sleep. Every idea names ONE historical subject — a city, a region, a people, an empire, a war or a route — that can be told slowly across two to three hours in linked chapters. The telling lulls, but the subject should be intriguing enough to make someone want to listen; the promise is rest and a real story, never a complete or entire history.",
+  "ideaGuidanceText": "Sleep-friendly above all, but not bland. Each idea names one concrete historical subject and reads like a quiet account rather than a hype promise. Concrete nouns and places beat abstract themes. Vary the subject across a batch so no two ideas cover the same place and period.",
+  "scriptSystemPromptRole": "You are a calm, well-read history narrator writing bedtime documentaries. You take one place, people or turning point and tell its true history slowly, warmly, and with grounded material detail, for listeners who intend to fall asleep while you speak. You never tease, rank, or alarm, and you never invent a date, a name or a quotation. You anchor every beat to a definite region and period, qualify what is contested, and let each chapter settle to a quiet close.",
+  "scriptClosingHint": "Slow the pace and soften the language as each chapter closes. End on a still image of the subject at rest — a gate closing at dusk, a market swept and empty, a lamp turned low. The final chapter of the video is the quietest of all.",
+  "metadataTitleStyleHint": "calm and intriguing — one historical subject named plainly, signalling rest and length, never clickbait and never a complete-history claim",
+  "metadataTitleHookRules": [
+    "Signal the calm and the length up front — 'sleep', 'to fall asleep to', 'slow history', or the plain subject itself.",
+    "Keep the title factual and intriguing; no urgency, all-caps, questions, or hype.",
+    "Never state an exact date range, an exact runtime, or an entire-history claim in the title."
+  ],
+  "metadataTagsHookRules": [
+    "Mix broad sleep keywords (sleep history, history to fall asleep to, calm documentary) with the episode's actual place, period and subject.",
+    "Each tag 1-4 words, no '#' prefix."
+  ],
+  "visualStyleHint": "bold illustrated history — strong ink outlines, flat rich colour, detailed landmarks, cityscapes and figures, and dramatic battles, sieges and fires rendered with energy rather than softened or calmed",
+  "chapterPauseSec": 3,
+  "narratorStyles": [
+    {
+      "id": "a",
+      "label": "Calm documentary",
+      "description": "Even, grounded, matter-of-fact; the friend who reads the sources and never raises their voice."
+    },
+    {
+      "id": "b",
+      "label": "Warm museum guide",
+      "description": "Gentle and human-scale, pausing on the small detail that makes an old place feel close."
+    },
+    {
+      "id": "c",
+      "label": "Fireside historian",
+      "description": "Unhurried and companionable, with the cadence of someone telling a long story by lamplight."
+    },
+    {
+      "id": "d",
+      "label": "Quiet archivist",
+      "description": "Precise, reverent, letting charters and inventories speak; sparse and still."
+    },
+    {
+      "id": "e",
+      "label": "Nature-documentary calm",
+      "description": "Patient, observant, finding wonder in how a place was built, fed and kept."
+    },
+    {
+      "id": "f",
+      "label": "Meditative narrator",
+      "description": "Present-tense, breath-paced, grounding each beat in a single place and season."
+    }
+  ],
+  "defaultNarratorStyleId": "a",
+  "titleShapeRules": [
+    "Titles name one historical subject and signal calm and length; they may be intriguing but stay factual.",
+    "Shapes that work (vary across a batch):",
+    "  - 'The Slow History of {Place}'",
+    "  - '{Place}: A Quiet History to Fall Asleep To'",
+    "  - 'The {People} of {Region}, Told Slowly'",
+    "  - 'One {Era} City, Told Until You Sleep'",
+    "FORBIDDEN: all-caps, question marks, urgency, ranking words (best, top, greatest), exact date ranges, exact runtimes, and any claim of an entire or complete history."
+  ],
+  "titleLengthRange": [
+    4,
+    14
+  ],
+  "loglineShapeRules": [
+    "One calm sentence naming the subject and one or two facets the episode actually covers.",
+    "No stakes, no promise, no question; tone suggests slowing down."
+  ],
+  "loglineSentenceRange": [
+    1,
+    2
+  ],
+  "themeShapeRules": [
+    "Pick 2-4 material or atmospheric keywords (trade, defence, seasons, craft).",
+    "Avoid plot keywords (betrayal, revenge, massacre)."
+  ],
+  "themeCountRange": [
+    2,
+    4
+  ],
+  "structuralVariety": "vary-all",
+  "scriptStructure": {
+    "defaultChapterCount": 18,
+    "chapterCountRange": [
+      12,
+      28
+    ],
+    "defaultLengthMinutes": 150,
+    "lengthMinutesRange": [
+      120,
+      180
+    ],
+    "durationPresets": [
+      120,
+      150,
+      180
+    ],
+    "defaultWordsPerMinute": 125,
+    "chaptersIndependent": false,
+    "pacingArc": [
+      "Opening: settle the listener into the one subject — where and when it stood, and why it is worth an evening.",
+      "Then walk the subject's facets in order: its origins, how it was governed or organised, its trade and economy, its culture and daily life, its conflicts, and what it left behind.",
+      "Closing: the quietest facet and the softest telling — the subject at rest; the listener should already be asleep, and nothing here should wake them."
+    ],
+    "additionalRules": [
+      "Every chapter takes one facet of the SAME subject — origins, governance, trade, culture, conflict, legacy — rather than a different subject per chapter.",
+      "Open each chapter by naming the facet plainly, then walk it slowly with grounded material detail.",
+      "Never invent a date, a name or a quotation; use established dates where the record supports them and qualify what is contested or disputed.",
+      "Write for the ear: long, even sentences with gentle rhythm, varied enough never to feel mechanical; no lists read aloud.",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2, and so on) followed by the facet's plain name.",
+      "No padding: every facet must add something the earlier chapters did not."
+    ]
+  },
+  "metadataDescription": {
+    "voiceGuidance": "Quiet and plain. List the chapters as a simple facet index so a listener can follow the account without scrolling; no exclamation marks, no sales language, and no claim that the episode covers a subject completely.",
+    "descriptionShapeRules": [
+      "First line: what tonight's one subject is, in one calm sentence.",
+      "Then a chapter index, one facet per line.",
+      "Then one gentle line inviting a comment on a place or period they know.",
+      "Close with the calm disclosure and a few hashtags."
+    ],
+    "ctaShape": "One soft line inviting them to keep the video for another night; never 'like and subscribe now'."
+  },
+  "defaultThumbnailTemplateId": "illustrated-subject-sleep-badge"
+}

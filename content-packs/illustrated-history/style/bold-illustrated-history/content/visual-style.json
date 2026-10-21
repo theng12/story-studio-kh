@@ -1,0 +1,32 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.bold-illustrated-history",
+  "name": "Bold Illustrated History",
+  "description": "Hand-drawn historical illustration built on strong ink outlines and flat, rich colour: detailed landmarks and cityscapes, prominent historical figures, and dramatic events — battles, sieges, burning cities — drawn with energy rather than softened. Bold and intriguing, never calm or washed out; the picture is meant to make a viewer want to look, while the narration stays quiet.",
+  "category": "Illustration",
+  "tags": [
+    "historical illustration",
+    "ink outline",
+    "thick outline",
+    "flat colour",
+    "rich colour",
+    "hand-drawn",
+    "landmark",
+    "cityscape",
+    "historical figure",
+    "battle",
+    "fire",
+    "dramatic",
+    "high contrast",
+    "poster"
+  ],
+  "style_bible": "A hand-drawn historical illustration built from outline, flat colour and a small number of modelled shadow steps, in the register of a bold history poster rather than a photograph. Line: every shape is closed by a strong ink outline of confident, slightly varied weight — heaviest on the outer silhouette of a landmark or figure, a step lighter inside the form, and lighter again on small interior detail such as windows, ropes, banners and facial features — so the whole picture reads as a bold drawing before any colour is seen. The line is drawn by hand and keeps a little wobble and taper; it is never a uniform machine stroke. Fill: large areas of flat, saturated colour laid inside the outline — deep ochre, brick red, indigo, teal, forest green, sand, and a warm bone highlight — with at most one or two hard cel steps to model a face, a wall or a fold, and never a soft gradient, airbrush or photographic texture. Shadow: one or two hard, clean shadow shapes per form, a darker flat version of the same hue with a simple boundary, thrown consistently from one implied light; night scenes may invert to a warm light against cool dark. Detail and scale: this style is not a single centred subject on an empty ground. It draws whole places — a walled city with towers, gates, aqueducts and harbour cranes; a mountain road with caravans; a plaza with a market and a crowd — at a believable scale, with the figures that matter drawn prominently and legibly at the front and the rest held back by outline weight and colour rather than by blur. Figures: historical people are drawn with clear, characterful faces and period dress — helmets, robes, armour, headdresses — with expression carried in the face and pose; they may be shown in decisive moments. Drama: battles, sieges, burning cities, storms, and crowds in motion are inside this style's range and are drawn with energy — charging figures, raised banners, flames as flat bright shapes with a hard outline — while remaining illustration, not gore: no open wounds, no viscera, no suffering shown for its own sake, and no photorealistic injury. Composition: sixteen by nine, a clear focal landmark or figure group with a readable silhouette, depth built by overlapping planes and by warm-against-cool colour rather than by perspective haze. Atmosphere: dust, smoke, torchlight and weather may be drawn as flat shapes, always outlined, never as soft photographic mist. Palette stays rich and confident; the look is bold and intriguing, and must never be muted, pastel, or calmed. Keep the contract content-independent: bind the style to no single individual, era, place, wordmark or copied composition, while period banners, standards, shields and heraldry remain part of the scenes themselves.",
+  "negative_prompt": "photoreal, photorealistic, photograph, film still, camera render, 3D render, clay render, plastic surfaces, soft painterly, oil painting, watercolour, gouache wash, sketchy pencil rendering, pastel palette, muted palette, desaturated, washed out colour, low contrast, calm empty landscape, single small subject on a blank ground, minimal scene, blurred depth of field, atmospheric haze, bloom, glow, lens flare, film grain, halftone noise, smooth gradient shading, airbrush, soft shadow, ambient occlusion, chibi, kawaii, cute mascot proportions, realistic gore, realistic blood, wet tissue, viscera, open wound texture, suffering, agony, torture, cruelty, watermarks, signatures, printed logos, speech balloons, panel borders, UI chrome, an exact copy of another channel's reference composition, a specific living person's likeness",
+  "preview_assets": [
+    "assets/bold-illustrated-history-hero.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.illustrated-history-for-sleep"
+  ]
+}

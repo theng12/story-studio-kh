@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.illustrated-subject-sleep-badge",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Illustrated Subject with Sleep Badge recipe: one bold illustrated historical scene filling the frame, a large short subject line across the top, and one small consistent FOR SLEEP badge pinned in a fixed corner on every episode.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.illustrated-subject-sleep-badge",
+    "family": "com.storystudio.family.thumbnail.illustrated-subject-sleep-badge"
+  },
+  "dependencies": []
+}
