@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.346 — 2026-10-21
+
+- Reconcile timings refuses to save a Scene Plan whose caption matches would squeeze scenes below the renderer's 0.5-second minimum. It explains how to review the plan and captions or rebuild the timeline. Video Assembly also reports this timing mismatch through the existing narration-coverage safety check: Block stops, while Warn and Off preserve your choice to continue.
+- The Publish list and the schedule map now show each episode's planned date from the newest thing YouTube said about its video, so a video YouTube has already published stops showing a stale planned date. An explicit "no schedule" answer clears the episode's old local date instead of a legacy schedule entry bringing it back.
+
 ## v1.4.345 — 2026-10-21
 
 - Finished Story Sprout videos made before today now get a saved expectation record taken from their own render request, plus an owner-sourced freeze for episodes that match today's settings. This means their final check stays valid even after the channel template changes. Videos whose length or opening black doesn't match stay marked as cannot-be-checked rather than guessed.

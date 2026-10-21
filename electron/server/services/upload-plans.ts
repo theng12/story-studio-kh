@@ -26,6 +26,14 @@ import type { UploadPlatform } from './upload-store.js'
 import { operationPublicationFacts, readYouTubeRetentionStores } from './youtube-remote-video.js'
 import { getProjectYouTubeAssignment } from './youtube-connection-store.js'
 import { isYouTubeVideoRemoved } from './youtube-project-publishing-store.js'
+import {
+  cachedObservation,
+  newestObservation,
+  receiptObservation,
+  readYouTubePublicationCache,
+  snapshotObservation,
+  type ObservedPublication,
+} from './youtube-publication-cache.js'
 import type { ProjectFactsCache } from './utils.js'
 
 export interface UploadSchedule {
@@ -717,6 +725,31 @@ function daysBetween(a: Date, b: Date, tz: string): number {
 
 export const LEGACY_SCHEDULE_FIELD = 'upload_item_schedule'
 
+/**
+ * The planned date one episode's row shows, from the newest observation plus the
+ * local sidecar. ONE copy: a public/unlisted answer clears the plan, a private
+ * answer with no publishAt keeps the sidecar, and no answer falls back to it.
+ */
+export function plannedDateFromFacts(
+  facts: { privacy_status?: string; scheduled_for?: string | null },
+  sidecarScheduledFor: string | null | undefined,
+): string | null | undefined {
+  // An empty answer is no schedule: `''` becomes null, while an absent (`undefined`) field still says nothing.
+  const scheduledFor = facts.scheduled_for || null
+  if (scheduledFor) return scheduledFor
+  if (facts.privacy_status === 'private' && sidecarScheduledFor) return sidecarScheduledFor
+  if (facts.scheduled_for !== undefined) return scheduledFor
+  return sidecarScheduledFor
+}
+
+/** One observed answer, in the shape the plan rules read. Absent fields stay absent. */
+function observationFacts(observed: ObservedPublication): { privacy_status?: string; scheduled_for?: string | null } {
+  return {
+    ...(observed.privacy_status ? { privacy_status: observed.privacy_status } : {}),
+    ...(observed.scheduled_for !== undefined ? { scheduled_for: observed.scheduled_for } : {}),
+  }
+}
+
 export async function readItemPublicationStates(slug: string, cache?: ProjectFactsCache): Promise<Record<string, {
   privacy_status?: string
   scheduled_for?: string | null
@@ -729,29 +762,49 @@ export async function readItemPublicationStates(slug: string, cache?: ProjectFac
   const ideas = await im.getIdeas(slug, 'accepted', cache)
   const { records: operations, state } = await readYouTubeRetentionStores(slug, cache)
   const assignedChannel = (await getProjectYouTubeAssignment(slug))?.channel_id
+  // The shared observation index: a ready video is refreshed here while its
+  // operation snapshot is not, so a snapshot-only read kept showing a planned
+  // date for a published video. Read once; a failed read is "no cache", not
+  // "no schedule".
+  const publicationCache = await readYouTubePublicationCache(slug).catch(() => null)
   await Promise.all(ideas.map(async (idea) => {
     if (!idea.episode_code) return
-    const canonical = operations.filter(record => record.episode_code === idea.episode_code
+    const code = idea.episode_code
+    const sc = await readSidecarStrict(slug, code, 'youtube', cache)
+    const removedSidecar = isYouTubeVideoRemoved(state, code, sc?.channel_id, sc?.video_id)
+    const canonical = operations.filter(record => record.episode_code === code
       && (!assignedChannel || record.channel_id === assignedChannel)
-      && !isYouTubeVideoRemoved(state, idea.episode_code!, record.channel_id, record.video_id)).at(-1)
-    const facts = canonical ? operationPublicationFacts(canonical) : {}
-    const sc = await readSidecarStrict(slug, idea.episode_code, 'youtube', cache)
-    const removedSidecar = isYouTubeVideoRemoved(state, idea.episode_code, sc?.channel_id, sc?.video_id)
-    out[idea.episode_code] = {
+      && !isYouTubeVideoRemoved(state, code, record.channel_id, record.video_id)).at(-1)
+    const link = state.episode_video_links[code]
+    // The receipt counts only for THIS episode's current video on THIS channel,
+    // and never a removed one — not a newer receipt from an obsolete video.
+    const linked = link && assignedChannel && link.channel_id === assignedChannel
+      && (!canonical?.video_id || link.video_id === canonical.video_id)
+      && !isYouTubeVideoRemoved(state, code, link.channel_id, link.video_id) ? link : undefined
+    // Same video identity the Publish row resolves: operation, else receipt, else
+    // the sidecar (matching channel, not removed), so a sidecar-only legacy
+    // upload still finds its cache row.
+    const sidecarVideoId = sc?.video_id?.trim() && !removedSidecar
+      && (!sc.channel_id || !assignedChannel || sc.channel_id === assignedChannel)
+      ? sc.video_id.trim() : undefined
+    const videoId = canonical?.video_id ?? linked?.video_id ?? sidecarVideoId
+    // The same newest-observation selection the Publish row makes.
+    const observed = newestObservation(
+      canonical ? snapshotObservation(canonical) : undefined,
+      linked ? receiptObservation(code, linked) : undefined,
+      cachedObservation(publicationCache, assignedChannel, videoId),
+    )
+    // Fall back to the operation receipt only when nothing was observed, so an
+    // unreadable cache never turns a known plan into "none".
+    const facts = observed ? observationFacts(observed) : canonical ? operationPublicationFacts(canonical) : {}
+    const planned = plannedDateFromFacts(facts, sc?.scheduled_for)
+    out[code] = {
       ...(facts.privacy_status !== undefined
         ? { privacy_status: facts.privacy_status }
         : sc?.privacy_status && !removedSidecar ? { privacy_status: sc.privacy_status } : {}),
-      // A private remote receipt with no publishAt is not a competing claim.
-      // Keep a locally planned sidecar slot until an explicit schedule PUT
-      // confirms it remotely. A public or unlisted canonical receipt remains
-      // authoritative, including its null publishAt.
-      ...(facts.scheduled_for
-        ? { scheduled_for: facts.scheduled_for }
-        : facts.privacy_status === 'private' && sc
-          ? { scheduled_for: sc.scheduled_for }
-          : facts.scheduled_for !== undefined
-            ? { scheduled_for: facts.scheduled_for }
-            : sc ? { scheduled_for: sc.scheduled_for } : {}),
+      // A private answer with no publishAt is not a competing claim: keep the
+      // local sidecar plan. A public/unlisted answer is authoritative.
+      ...(planned !== undefined ? { scheduled_for: planned } : {}),
     }
   }))
   return out
@@ -760,9 +813,14 @@ export async function readItemPublicationStates(slug: string, cache?: ProjectFac
 /** Build the canonical schedule map, with planning/legacy sidecars as fallback. */
 export async function readItemSchedule(slug: string, cache?: ProjectFactsCache): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
+  // Codes YouTube answered "no schedule" for: absent from `out`, so the legacy
+  // merge must skip them by name or a stale `upload_item_schedule` date
+  // resurrects a published episode's old plan.
+  const cleared = new Set<string>()
   const states = await readItemPublicationStates(slug, cache)
   for (const [code, state] of Object.entries(states)) {
     if (state.scheduled_for) out[code] = state.scheduled_for
+    else if (state.scheduled_for === null) cleared.add(code)
   }
 
   // Legacy map — merge in non-episode keys. Episode-coded keys may also
@@ -776,6 +834,8 @@ export async function readItemSchedule(slug: string, cache?: ProjectFactsCache):
   if (legacy) {
     for (const [k, v] of Object.entries(legacy)) {
       if (!v) continue
+      // An explicit "no schedule" answer outranks the legacy map for that code.
+      if (cleared.has(k)) continue
       // Sidecar already wins for episode codes, so only fall through
       // when the key isn't already covered. Imports + any future non-
       // episode key types land here unconditionally.

@@ -41,6 +41,7 @@ import type {
   SceneType,
 } from '../models/types.js'
 import { endsSentence } from '../lib/sentence-ends.js'
+import { unrenderableSceneProblem } from '../lib/scene-plan-timeline.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { pacingBandAt, type ScenePacing, type ScenePacingBand, type ScenePacingPeriod } from '../contracts/pacing.js'
 
@@ -747,6 +748,12 @@ export interface ReconcileResult {
    *  effective shift, for the summary line. */
   medianShiftSec: number
   changes: string[]
+  /**
+   * Non-null when the re-anchored rows fall below the window the renderer
+   * plays (see `unrenderableSceneProblem`). Callers must refuse rather than
+   * write or adopt the result.
+   */
+  unsafe_reason: string | null
 }
 
 /**
@@ -766,7 +773,7 @@ export function reconcilePlanToSubtitles(
   const out = scenes.map(s => ({ ...s }))
   const changes: string[] = []
   if (!out.length || !cues.length) {
-    return { scenes: out, matchedCount: 0, unmatchedIds: out.map(s => s.id), medianShiftSec: 0, changes }
+    return { scenes: out, matchedCount: 0, unmatchedIds: out.map(s => s.id), medianShiftSec: 0, changes, unsafe_reason: null }
   }
 
   // Flatten cues → per-word timing stream (each word carries its cue's window).
@@ -850,6 +857,12 @@ export function reconcilePlanToSubtitles(
     out[i]!.end_sec = i < out.length - 1 ? Math.max(newStart[i]!, newStart[i + 1]!) : timelineEnd
   }
 
+  // A total that matches the narration is not proof the rows are a timeline: a sparse (or false)
+  // anchor set squeezes every unmatched scene into the time left, and the rows fall below the
+  // window the renderer plays. The shared scan enforces exactly that invariant (with the single
+  // final-sliver exemption), so the pure boundary reports what the renderers refuse.
+  const unsafeReason = unrenderableSceneProblem(out)
+
   shifts.sort((a, b) => a - b)
   const medianShiftSec = shifts.length ? shifts[Math.floor(shifts.length / 2)]! : 0
   const matchedCount = out.length - unmatchedIds.length
@@ -864,7 +877,7 @@ export function reconcilePlanToSubtitles(
   if (spreadCount) {
     changes.push(`⚠ ${spreadCount} scene(s) shared a caption start with the scene before them and were spread across that caption — their images and prompts are kept; spot-check their timing in Scene Review.`)
   }
-  return { scenes: out, matchedCount, unmatchedIds, medianShiftSec, changes }
+  return { scenes: out, matchedCount, unmatchedIds, medianShiftSec, changes, unsafe_reason: unsafeReason }
 }
 
 /**
