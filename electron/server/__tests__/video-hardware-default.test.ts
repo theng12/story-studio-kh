@@ -10,7 +10,9 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 import { useTempDataDir } from './_helpers.js'
+import { buildFinalEncodeTiers } from '../lib/final-render-core.js'
 
 let cleanup: () => Promise<void>
 let video: typeof import('../generators/video.js')
@@ -44,32 +46,88 @@ test('the hardware argv: videotoolbox at the quality tier\'s q:v, no silent Appl
 })
 
 test('a failed VideoToolbox encode falls back to libx264 with the full graph, then the result is checked', async () => {
-  const hardware = video.buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 28, effort: 'hardware' })
-  const software = video.buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 28, effort: 'ultrafast' })
+  const expectedHardware = [
+    'FULL', '-c:v', 'h264_videotoolbox', '-q:v', '50',
+    '-c:a', 'aac', '-b:a', '384k', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+    '-t', '2', '/schema/final.mp4',
+  ]
+  const expectedSoftware = [
+    'FULL', '-c:v', 'libx264', '-crf', '28', '-preset', 'ultrafast',
+    '-c:a', 'aac', '-b:a', '384k', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+    '-t', '2', '/schema/final.mp4',
+  ]
+  const tiers = buildFinalEncodeTiers({
+    format: 'mp4',
+    codec: 'h264',
+    effort: 'hardware',
+    quality: { crf: 28, preset: 'ultrafast' },
+    preEncoderArgs: ['FULL'],
+    videoInputPath: '/schema/base.mp4',
+    premixedAudioPath: '/schema/audio.wav',
+    targetDuration: 2,
+    outputFile: '/schema/final.mp4',
+  })
   const ran: string[][] = []
   const log: string[] = []
-  const result = await video.runEncodeTierChain([
-    { label: 'H.264 · hardware', build: () => ['FULL', ...hardware] },
-    { label: 'H.264 · libx264 ultrafast (hardware fallback, full effects)', degraded: 'hardware encoder unavailable', shouldRun: () => true, build: () => ['FULL', ...software] },
-    { label: 'H.264 · no effects (recovery)', build: () => ['MINIMAL'], dropsBurnedInFeatures: true },
-  ], {
+  let validated = 0
+  let cancellationChecks = 0
+  const result = await video.runEncodeTierChain(tiers, {
     run: async args => {
       ran.push(args)
       if (args.includes('h264_videotoolbox')) throw Object.assign(new Error('FFmpeg exited with code 1'), { stderr: 'Error while opening encoder: VTCompressionSessionCreate failed' })
     },
-    validate: async () => {},
+    validate: async () => { validated++ },
     log: line => log.push(line),
     logCmd: () => {},
-    isCancelled: () => false,
+    isCancelled: () => { cancellationChecks++; return false },
   })
   assert.equal(result.succeededTier?.label, 'H.264 · libx264 ultrafast (hardware fallback, full effects)')
-  assert.deepEqual(ran.map(args => args[0]), ['FULL', 'FULL'], 'effects kept: the minimal recovery never ran')
-  assert.ok(ran[1]!.includes('libx264'))
+  assert.deepEqual(ran, [expectedHardware, expectedSoftware], 'full args survive the hardware-to-software fallback; minimal recovery never runs')
+  assert.equal(validated, 1, 'the successful software output is checked')
+  assert.ok(cancellationChecks >= 2, 'cancellation is checked across fallback attempts')
 
-  // The production chain has exactly this tier, keyed on the hardware effort, and both
-  // final paths still run the length check after encoding.
+  // The local composition passes its prepared values to the shared tier owner,
+  // then runs exactly that result through the existing cancellation-aware chain.
   const source = await readFile(SOURCE, 'utf8')
-  assert.match(source, /label: `H\.264 · libx264 \$\{quality\.preset\} \(hardware fallback, full effects\)`[\s\S]{0,300}shouldRun: \(\) => effort === 'hardware',\s*build: \(\) => buildFullArgs\('h264', quality\.preset\)/)
+  const sourceFile = ts.createSourceFile(SOURCE, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const composition = sourceFile.statements.find((statement): statement is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(statement) && statement.name?.text === 'runFinalComposition')
+  assert.ok(composition?.body)
+  const tierCalls: ts.CallExpression[] = []
+  const chainCalls: ts.CallExpression[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      if (node.expression.text === 'buildFinalEncodeTiers') tierCalls.push(node)
+      if (node.expression.text === 'runEncodeTierChain') chainCalls.push(node)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(composition.body)
+  assert.equal(tierCalls.length, 1)
+  assert.equal(chainCalls.length, 1)
+  const tierCall = tierCalls[0]!
+  assert.ok(ts.isVariableDeclaration(tierCall.parent) && tierCall.parent.name.getText(sourceFile) === 'tiers')
+  const options = tierCall.arguments[0]
+  assert.ok(options && ts.isObjectLiteralExpression(options))
+  const wiring = Object.fromEntries(options.properties.map(property => {
+    assert.ok(ts.isShorthandPropertyAssignment(property) || ts.isPropertyAssignment(property))
+    return [property.name.getText(sourceFile), ts.isShorthandPropertyAssignment(property)
+      ? property.name.getText(sourceFile)
+      : property.initializer.getText(sourceFile)]
+  }))
+  assert.deepEqual(wiring, {
+    format: 'format',
+    codec: 'codec',
+    effort: 'effort',
+    quality: 'quality',
+    bitrateKbps: 'videoBitrateKbps',
+    preEncoderArgs: 'preEncoderArgs',
+    videoInputPath: 'videoInputPath',
+    premixedAudioPath: 'premixedAudioPath',
+    targetDuration: 'targetDuration',
+    outputFile: 'outputFile',
+  })
+  assert.equal(chainCalls[0]!.arguments[0]?.getText(sourceFile), 'tiers')
   assert.equal(source.match(/await verifyFinalVideo\(job, /g)?.length, 2)
   assert.match(source, /if \(defaultEncodingEffort\(req, ffmpegCheck\.hw_encoders\)\) \{\s*req\.encoding_effort = 'hardware'/)
 })
@@ -84,4 +142,18 @@ test('the job says which encoder made the video, and why software when hardware 
     'Encoder: software (libx264) — hardware unavailable: VTCompressionSessionCreate failed (-12902)',
   )
   assert.equal(video.encoderKind(hardware), 'hardware (VideoToolbox h264)')
+})
+
+test('encoder reporting reads the output codec after PNG input decoder options', () => {
+  const input = ['-y', '-c:v', 'png', '-i', 'frame.png']
+  const software = [...input, ...video.buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 23, effort: 'ultrafast' })]
+  const hardware = [...input, ...video.buildEncoderArgs({ codec: 'h264', format: 'mp4', crf: 23, effort: 'hardware' })]
+  assert.equal(video.encoderKind(software), 'software (libx264)')
+  assert.equal(video.describeEncoder(hardware, true), 'Encoder: hardware (VideoToolbox h264)')
+})
+
+test('encoder reporting says unknown when no complete output codec follows the final input', () => {
+  assert.equal(video.encoderKind(['-y', '-i', 'frame.png']), 'software (unknown)')
+  assert.equal(video.encoderKind(['-y', '-c:v', 'png', '-i', 'frame.png']), 'software (unknown)')
+  assert.equal(video.encoderKind(['-y', '-i', 'frame.png', '-c:v']), 'software (unknown)')
 })

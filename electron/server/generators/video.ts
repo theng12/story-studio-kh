@@ -17,6 +17,7 @@ import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { checkpointJobProgress, checkpointJobState, isCancelled, trackChild } from '../services/job-queue.js'
 import { withFinalVideoPathLock } from '../services/final-video-lock.js'
+import { preparePrivateFinalRenderDescriptor } from '../services/final-render-transport.js'
 import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 // v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
 // folder-resolver (this file used to carry private copies; the ✅-prefix
@@ -51,7 +52,7 @@ import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { finalDurationIssue, missingEnabledVideoInputs, missingInputsMessage, switchedOnCueGate } from '../lib/video-enabled-inputs.js'
 import {
   closingMusicWanted, runFinalCheck, storeFinalCheck, finalCheckSummary, readPlannedSectionGaps,
-  type FinalCheckExpectation, type FinalCheckIntro, type PlannedSectionGaps,
+  type FinalCheckExpectation, type FinalCheckIntro, type FinalCheckResult, type PlannedSectionGaps,
 } from '../lib/final-video-check.js'
 import { withLock } from '../lib/atomic-store.js'
 import { estimateBytesForStep, getFreeBytes, formatBytes } from '../lib/disk.js'
@@ -86,13 +87,9 @@ import { buildContextualCueDrawtextFilters } from '../lib/contextual-cue-filters
 import { measureOpeningSec } from '../lib/opening-duration.js'
 import {
   buildColorGradingFilters,
-  buildAgedArchiveFilmFilters,
   buildGateEnable,
   buildGateExpression,
   buildLetterboxFilter,
-  calculateLogoPosition,
-  computeVignetteAngle,
-  scaleAuthoredPosition,
 } from '../lib/video-effects.js'
 import { compileSceneMotion, compileSceneOverlay, letterboxBarHeight, overlayLoopShapes } from '../lib/scene-effect-compiler.js'
 import { assertNoUnavailablePackOverlays, isRotationMotion, motionPoolSlots, resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
@@ -119,7 +116,24 @@ import { requireJobCompletion, declareJobDegraded } from '../services/job-comple
 import { nonRetryable } from '../services/job-retry-policy.js'
 import { EBUR128_FILTER, measureLoudness, parseEbur128Summary, type LoudnessMeasurement } from './music-episode-build.js'
 import { finalLoudnessIssue, loudnessTarget, withinToleranceNote, type LevelPlan, type LoudnessTarget } from '../lib/final-loudness.js'
-import { FINAL_AAC_ARGS, levelAndCheck, mergedAudioMaster } from '../lib/level-audio.js'
+import {
+  defaultEncodingEffort,
+  describeEncoder,
+  encoderKind,
+} from '../lib/final-render-encoder.js'
+import {
+  buildFinalArchiveFilters,
+  buildFinalEncodeTiers,
+  buildFinalFilmGrainFilters,
+  buildFinalInputArgs,
+  buildFinalLogoFilters,
+  buildFinalOverlayFilters,
+  buildFinalVignetteFilters,
+  describeFinalBurnIns,
+  type EncodeTier,
+} from '../lib/final-render-core.js'
+import { isStaticImagePath as isFinalRenderStaticImagePath } from '../lib/final-render-export.js'
+import { levelAndCheck, mergedAudioMaster } from '../lib/level-audio.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import {
   assertContextualCueReadiness,
@@ -650,16 +664,90 @@ async function finishFinalVideo(ctx: {
   await finalCheckFinalVideo(job, resolvedOutputPath, expected)
   await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration, ctx.loudness)
   await deleteFinalSegments(tempDir, job)
+  await finishImportedFinalVideo(job, code, resolvedOutputPath, visualSource, imagePool)
+}
+
+/**
+ * The same final checks a local render runs, for a final rendered on the private fleet. The importer
+ * runs them on the downloaded candidate BEFORE the prior final is moved, anything is published, or
+ * the Gateway is acknowledged, so a short, empty, or mis-levelled import never becomes the canonical
+ * final. The expectation comes from the render's own staged plan — never today's settings — and a
+ * staged row that did not save one is reported honestly by the caller.
+ *
+ * This is the strict entry point: the checked file must already carry its final name. The importer's
+ * pre-publication gate uses `verifyStagedCandidateFinalVideo` for the `.output-import.partial` name.
+ */
+export async function verifyImportedFinalVideo(
+  job: Job,
+  code: string,
+  format: string,
+  finalPath: string,
+  totalRenderDuration: number,
+  expected: FinalCheckExpectation,
+  loudness: LoudnessTarget,
+): Promise<FinalCheckResult | null> {
+  return verifyFinalForPath(
+    job, code, format, finalPath, totalRenderDuration, expected, loudness, false,
+  )
+}
+
+/**
+ * The same checks for the importer's downloaded candidate, which still carries the intent's
+ * `.output-import.partial` name. The importer first holds the staged destination's final name
+ * against the plan, so only the content differs here. Not reachable from the local render path.
+ */
+export async function verifyStagedCandidateFinalVideo(
+  job: Job,
+  code: string,
+  format: string,
+  finalPath: string,
+  totalRenderDuration: number,
+  expected: FinalCheckExpectation,
+  loudness: LoudnessTarget,
+): Promise<FinalCheckResult | null> {
+  return verifyFinalForPath(
+    job, code, format, finalPath, totalRenderDuration, expected, loudness, true,
+  )
+}
+
+async function verifyFinalForPath(
+  job: Job,
+  code: string,
+  format: string,
+  finalPath: string,
+  totalRenderDuration: number,
+  expected: FinalCheckExpectation,
+  loudness: LoudnessTarget,
+  stagedCandidate: boolean,
+): Promise<FinalCheckResult | null> {
+  const finalName = `${code}_final_video.${format}`
+  const check = await finalCheckFinalVideo(job, finalPath, expected)
+  await verifyFinalVideo(job, finalPath, finalName, totalRenderDuration, loudness, stagedCandidate)
+  return check
+}
+
+/**
+ * The finished-video tail: stamp, cache, schedule, plays. Shared by a local render and a private-fleet
+ * render imported into the same job (services/final-render-import.ts), which must not skip it.
+ */
+export async function finishImportedFinalVideo(
+  job: Job,
+  code: string,
+  finalPath: string,
+  visualSource: Parameters<typeof writeVideoAssemblySourceStamp>[2],
+  imagePool: Parameters<typeof writeVideoAssemblySourceStamp>[3],
+): Promise<void> {
+  const project_slug = job.project_slug
   await writeVideoAssemblySourceStamp(
-    resolvedOutputPath,
+    finalPath,
     code,
     visualSource,
     imagePool,
   )
   job.progress = 100
-  job.output_lines.push(`Video saved: ${path.basename(resolvedOutputPath)}`)
-  job.output_lines.push(`Full path: ${resolvedOutputPath}`)
-  job.output_dir = path.dirname(resolvedOutputPath)
+  job.output_lines.push(`Video saved: ${path.basename(finalPath)}`)
+  job.output_lines.push(`Full path: ${finalPath}`)
+  job.output_dir = path.dirname(finalPath)
 
   // Invalidate the episode-status cache so the next /episodes call
   // recomputes status.video_assembly. The chokidar watcher catches
@@ -740,21 +828,32 @@ async function introForFinalCheck(
  * the render is done, and what to do about a bad verdict is decided at the upload (the `final_check`
  * safety check) — a check that could not run is logged as loudly as one that failed.
  */
-async function finalCheckFinalVideo(job: Job, outputPath: string, expected: FinalCheckExpectation): Promise<void> {
+async function finalCheckFinalVideo(
+  job: Job,
+  outputPath: string,
+  expected: FinalCheckExpectation,
+): Promise<FinalCheckResult | null> {
   try {
     const result = await runFinalCheck(outputPath, expected)
     await storeFinalCheck(outputPath, result)
     job.output_lines.push(`Final check: ${finalCheckSummary({ result, stale: false })}`)
     for (const issue of result.issues) job.output_lines.push(`Final check: ${issue.verdict}`)
     job.result = { ...(job.result || {}), final_check: { passed: result.passed, issues: result.issues } }
+    return result
   } catch (error: any) {
     job.output_lines.push(`⚠ Final check could not run (${error?.message || error}). The video is kept, `
       + 'and Upload Center can run the check on it later.')
+    return null
   }
 }
 
-async function verifyFinalVideo(job: Job, outputPath: string, finalName: string, plannedSec: number, loudness: LoudnessTarget): Promise<void> {
-  const valid = path.basename(outputPath) === finalName && fileExistsNonEmpty(outputPath)
+async function verifyFinalVideo(
+  job: Job, outputPath: string, finalName: string, plannedSec: number, loudness: LoudnessTarget,
+  stagedCandidate = false,
+): Promise<void> {
+  // A staged candidate is the same file the caller is about to publish under `finalName`; it has
+  // already held that name against the plan, so only the content check applies here.
+  const valid = (stagedCandidate || path.basename(outputPath) === finalName) && fileExistsNonEmpty(outputPath)
   // 2026-10-07 — a file on disk is not proof of a finished render: its length
   // must match the plan (narration + opening + outro + tail).
   const actualSec = valid ? await getAudioDuration(outputPath).catch(() => null) : null
@@ -927,126 +1026,15 @@ export function splitFadeToBlackDuration(
   }
 }
 
-/**
- * Map a libx264 CRF value to an h264_videotoolbox `-q:v` value.
- *
- * libx264 uses CRF on a 0-51 scale (lower = better). videotoolbox uses
- * `-q:v` on a 0-100 scale (higher = better). The mapping below is
- * empirically calibrated against typical 1080p output for sleep-story
- * footage — slightly biased toward higher q:v than a strict linear map
- * because Apple's hardware encoder is more compression-efficient at the
- * upper quality end than libx264 is. Output: clamped to [25, 90].
- *
- *   CRF 18 (high)    → q:v 80   (visually transparent)
- *   CRF 23 (medium)  → q:v 65   (good for streaming / sleep videos)
- *   CRF 28 (low)     → q:v 50
- *   CRF 32 (drafty)  → q:v 38
- */
-export function crfToVideotoolboxQ(crf: number): number {
-  // Linear: q:v = 80 - (crf - 18) × 3, clamped.
-  const raw = 80 - (crf - 18) * 3
-  return Math.max(25, Math.min(90, Math.round(raw)))
-}
-
-/** A usable bitrate cap in kbit/s, or 0 for none (quality-based encode). */
-export function videoBitrateCapKbps(value: unknown): number {
-  const kbps = Number(value)
-  return Number.isFinite(kbps) && kbps >= 500 ? Math.min(100_000, Math.round(kbps)) : 0
-}
-
-/**
- * Owner, 2026-10-09: "set up the hardware encoder for video assembly." With no saved
- * encoding effort the final encode uses the Media Engine (the existing `hardware`
- * path: q:v from the quality tier, libx264 fallback tier). A saved effort — even a
- * CPU preset — is the owner's choice and wins; so do HEVC and WebM, which this path
- * does not encode.
- */
-export function defaultEncodingEffort(
-  req: { encoding_effort?: string; codec?: string; format?: string },
-  hw: { h264: boolean } | undefined,
-): 'hardware' | undefined {
-  if (req.encoding_effort || req.codec === 'h265' || req.format === 'webm' || !hw?.h264) return undefined
-  return 'hardware'
-}
-
-/** `hardware (VideoToolbox h264)` or `software (libx264)`, read from the encode argv. */
-export function encoderKind(argv: readonly string[]): string {
-  const codec = argv[argv.indexOf('-c:v') + 1] || 'unknown'
-  return codec.endsWith('_videotoolbox') ? `hardware (VideoToolbox ${codec.replace('_videotoolbox', '')})` : `software (${codec})`
-}
-
-/** The job line that says which encoder made the final video, and why software when hardware was wanted. */
-export function describeEncoder(argv: readonly string[], hardwareWanted: boolean, failure?: { message?: string; stderr?: string } | null): string {
-  const kind = encoderKind(argv)
-  if (kind.startsWith('hardware') || !hardwareWanted) return `Encoder: ${kind}`
-  const reason = (failure?.stderr || '').split('\n').map(line => line.trim()).filter(Boolean).at(-1)
-    || failure?.message || 'the hardware encode did not finish'
-  return `Encoder: ${kind} — hardware unavailable: ${reason.slice(0, 200)}`
-}
-
-export function buildEncoderArgs(opts: {
-  codec: 'h264' | 'h265'
-  format: 'mp4' | 'mov' | 'webm' | string
-  crf: number
-  effort: string
-  /** Optional cap, kbit/s. Hardware targets it; software keeps CRF and caps peaks. */
-  bitrateKbps?: number
-}): string[] {
-  const { codec, format, crf, effort } = opts
-  const cap = videoBitrateCapKbps(opts.bitrateKbps)
-  const capArgs = cap ? ['-maxrate', `${cap}k`, '-bufsize', `${cap * 2}k`] : []
-  if (format === 'webm') {
-    return [
-      '-c:v', 'libvpx-vp9', '-crf', crf.toString(), '-b:v', '0',
-      '-c:a', 'libopus',
-    ]
-  }
-  // Hardware-accelerated path — h264_videotoolbox routes the encode
-  // through Apple's Media Engine silicon, ~8-15× faster on M-series
-  // Macs than libx264 medium. Quality at the same bitrate is ~5-10%
-  // worse than libx264 (Apple trades compression efficiency for speed),
-  // but for sleep-story footage — long, mostly static, low motion —
-  // the difference is functionally invisible. Falls back to libx264
-  // through the existing tier-2/3 recovery chain if videotoolbox fails
-  // to initialise (e.g. very old Intel Macs without the right
-  // hardware-encode entitlement). Only h264 is offered here; we don't
-  // pair the hardware path with h265 because hevc_videotoolbox quality
-  // varies more across hardware generations.
-  if (effort === 'hardware') {
-    return [
-      '-c:v', 'h264_videotoolbox',
-      // q:v drives quality on videotoolbox (no CRF support). The map
-      // above tunes for parity with the operator's CRF expectations.
-      // With a cap, the Media Engine targets that bitrate instead.
-      ...(cap
-        ? ['-b:v', `${cap}k`, '-maxrate', `${Math.round(cap * 1.5)}k`, '-bufsize', `${cap * 2}k`]
-        : ['-q:v', crfToVideotoolboxQ(crf).toString()]),
-      // No `-allow_sw` (1.4.264): Apple's own silent software encoder would
-      // make "Encoder: hardware" untrue. If the Media Engine cannot start,
-      // the encode fails and the libx264 tier takes over and says so.
-      ...FINAL_AAC_ARGS,
-      '-pix_fmt', 'yuv420p',
-      '-movflags', '+faststart',
-    ]
-  }
-  if (codec === 'h265') {
-    // HEVC. `-tag:v hvc1` makes the .mp4 playable in QuickTime/Safari —
-    // without the tag it plays in VLC only.
-    return [
-      '-c:v', 'libx265', '-crf', crf.toString(), '-preset', effort, ...capArgs,
-      '-tag:v', 'hvc1',
-      ...FINAL_AAC_ARGS,
-      '-pix_fmt', 'yuv420p',
-      '-movflags', '+faststart',
-    ]
-  }
-  return [
-    '-c:v', 'libx264', '-crf', crf.toString(), '-preset', effort, ...capArgs,
-    ...FINAL_AAC_ARGS,
-    '-pix_fmt', 'yuv420p',
-    '-movflags', '+faststart',
-  ]
-}
+export {
+  buildEncoderArgs,
+  crfToVideotoolboxQ,
+  defaultEncodingEffort,
+  describeEncoder,
+  encoderKind,
+  videoBitrateCapKbps,
+} from '../lib/final-render-encoder.js'
+export type { EncodeTier } from '../lib/final-render-core.js'
 
 /**
  * Build the `:enable='<expr>'` suffix that FFmpeg filters like `noise`,
@@ -2553,7 +2541,9 @@ export async function channelLoudnessTolerancePct(slug: string): Promise<number 
   } catch { return undefined }
 }
 
-export async function generateVideo(job: Job): Promise<void> {
+export type VideoAssemblyDisposition = void | { kind: 'video-assembly-remote-wait' }
+
+export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition> {
   const { project_slug, episode_id, params } = job
   const req = createVideoAssemblyExecutionRequest(params)
   const code = episode_id.toUpperCase()
@@ -2952,6 +2942,16 @@ export async function generateVideo(job: Job): Promise<void> {
       )
     : null
   if (videoAssemblyCheckpoint && carriedFinalStage) videoAssemblyCheckpoint.final_stage = carriedFinalStage
+  // A private-fleet render finishes later on this same row, and its remote-wait receipt freezes
+  // job.result, so the facts its finish tail needs are saved now, before either composition can stage it.
+  job.result = {
+    ...(job.result || {}),
+    final_render_finish: {
+      code, visual_source: authoritativeAssets.visual_source || 'scene_plan', image_pool: authoritativeAssets.image_pool ?? null,
+      work_dir: tempDir,
+    },
+  }
+  if (!videoAssemblyCheckpoint) await checkpointJobState(job)
   if (videoAssemblyCheckpoint) {
     setVideoAssemblyCheckpoint(job, videoAssemblyCheckpoint)
     await checkpointJobState(job)
@@ -2967,6 +2967,7 @@ export async function generateVideo(job: Job): Promise<void> {
     job.output_lines.push(`Debug mode ON — temp dir will be preserved: ${tempDir}`)
   }
   let succeeded = false
+  let remoteHeld = false
   const finalSegmentation = (): FinalSegmentation | undefined => (videoAssemblyCheckpoint && inputsFingerprint ? {
     checkpoint: videoAssemblyCheckpoint,
     inputsFingerprint,
@@ -3146,9 +3147,15 @@ export async function generateVideo(job: Job): Promise<void> {
       //    stay identical.
       const compTimestamp = Date.now()
       const compOutputFile = path.join(tempDir, `${code}_video_${compTimestamp}.${format}`)
+      // Compilation mode draws no closing tail and has no outro segment (v1), so the plan is the
+      // narration and nothing sits after it — the speech runs to the file's own end.
+      const compExpected = finalCheckExpectation(req, {
+        plannedSec: totalRenderDuration, tailSec: 0, tailFromEndSec: 0, width: resW, height: resH,
+        speechEndSec: totalRenderDuration,
+      })
       let compEncodeOk = false
       try {
-        await runFinalComposition({
+        const compositionResult = await runFinalComposition({
           videoInputPath: intermediateVideoPath, premixedAudioPath,
           logo: req.logo,
           targetDuration: totalRenderDuration, w: resW, h: resH, quality, format,
@@ -3177,11 +3184,23 @@ export async function generateVideo(job: Job): Promise<void> {
           encodingEffort: req.encoding_effort,
           codec: req.codec,
           videoBitrateKbps: req.video_bitrate_kbps,
+          code,
+          titleHint,
+          videoDir,
+          resolvedLoudness: {
+            lufs: loudness.lufs, true_peak_db: loudness.true_peak_db,
+            tolerance_pct: loudness.tolerance_pct!, check: loudness.check!,
+          },
+          finalCheckExpected: compExpected,
           job,
         })
+        if (compositionResult?.kind === 'video-assembly-remote-wait') {
+          remoteHeld = true
+          return compositionResult
+        }
         compEncodeOk = true
       } finally {
-        if (!compEncodeOk) {
+        if (!compEncodeOk && !remoteHeld) {
           try {
             await fs.rm(compOutputFile, { force: true })
             job.output_lines.push(`Removed partial output: ${path.basename(compOutputFile)}`)
@@ -3234,31 +3253,11 @@ export async function generateVideo(job: Job): Promise<void> {
       }
 
       compResolvedPath = await selfHealFinalPromotion(compResolvedPath, compProjectTreeFinalPath, compFinalName, job)
-      // Compilation mode draws no closing tail and has no outro segment (v1), so the plan is the
-      // narration and nothing sits after it — the speech runs to the file's own end.
-      await finalCheckFinalVideo(job, compResolvedPath, finalCheckExpectation(req, {
-        plannedSec: totalRenderDuration, tailSec: 0, tailFromEndSec: 0, width: resW, height: resH,
-        speechEndSec: totalRenderDuration,
-      }))
+      await finalCheckFinalVideo(job, compResolvedPath, compExpected)
       await verifyFinalVideo(job, compResolvedPath, compFinalName, totalRenderDuration, loudness)
-      await writeVideoAssemblySourceStamp(
-        compResolvedPath,
-        code,
-        authoritativeAssets.visual_source || 'scene_plan',
-        authoritativeAssets.image_pool,
+      await finishImportedFinalVideo(
+        job, code, compResolvedPath, authoritativeAssets.visual_source || 'scene_plan', authoritativeAssets.image_pool,
       )
-      job.progress = 100
-      job.output_lines.push(`Video saved: ${path.basename(compResolvedPath)}`)
-      job.output_lines.push(`Full path: ${compResolvedPath}`)
-      job.output_dir = path.dirname(compResolvedPath)
-
-      try {
-        const { episodeStatusCache } = await import('../services/episode-status-cache.js')
-        episodeStatusCache.invalidate(project_slug, code)
-      } catch { /* best-effort */ }
-
-      await autoScheduleFinishedEpisode(job, project_slug, code)
-      await recordMusicEpisodePlays(job, project_slug, code)
 
       succeeded = true
       return  // skip the standard scene-clip pipeline below
@@ -4098,9 +4097,19 @@ export async function generateVideo(job: Job): Promise<void> {
       job,
     })
 
+    const introClipForCheck = await introForFinalCheck(req, timelineClipsByAnchor, introClipPath)
+    const finalCheckExpected = finalCheckExpectation(req, {
+      plannedSec: totalRenderDuration, tailSec: postRoll, tailFromEndSec: outroDuration + afterOutroDur,
+      width: resW, height: resH,
+      // `narrationDuration` is the speech end (see the merged-closing-tail note above), and the
+      // narration plays from `narrationLeadInSec` in the file, so this is where the words stop.
+      speechEndSec: narrationLeadInSec + narrationDuration,
+      sectionGaps: await readPlannedSectionGaps(episodeDir),
+      ...(introClipForCheck ? { intro: introClipForCheck } : {}),
+    })
     let encodeSucceeded = false
     try {
-      await runFinalComposition({
+      const compositionResult = await runFinalComposition({
         videoInputPath: intermediateVideoPath, premixedAudioPath,
         // Pass `totalRenderDuration` so the encoder's `-t` flag covers the
         // outro segment too. Using `targetDuration` here (the historical
@@ -4127,11 +4136,23 @@ export async function generateVideo(job: Job): Promise<void> {
         videoBitrateKbps: req.video_bitrate_kbps,
         stillTailFromSec,
         segmentation: finalSegmentation(),
+        code,
+        titleHint,
+        videoDir,
+        resolvedLoudness: {
+          lufs: loudness.lufs, true_peak_db: loudness.true_peak_db,
+          tolerance_pct: loudness.tolerance_pct!, check: loudness.check!,
+        },
+        finalCheckExpected,
         job,
       })
+      if (compositionResult?.kind === 'video-assembly-remote-wait') {
+        remoteHeld = true
+        return compositionResult
+      }
       encodeSucceeded = true
     } finally {
-      if (!encodeSucceeded) {
+      if (!encodeSucceeded && !remoteHeld) {
         try {
           await fs.rm(outputFile, { force: true })
           job.output_lines.push(`Removed partial output: ${path.basename(outputFile)}`)
@@ -4157,19 +4178,10 @@ export async function generateVideo(job: Job): Promise<void> {
     //   opted in. Falls back to the project-tree path if the external
     //   write fails (cross-device error, perms, etc.) — never blocks
     //   the user from getting a final video.
-    const introClipForCheck = await introForFinalCheck(req, timelineClipsByAnchor, introClipPath)
     await finishFinalVideo({
       job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir, outputFile, totalRenderDuration,
       visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
-      expected: finalCheckExpectation(req, {
-        plannedSec: totalRenderDuration, tailSec: postRoll, tailFromEndSec: outroDuration + afterOutroDur,
-        width: resW, height: resH,
-        // `narrationDuration` is the speech end (see the merged-closing-tail note above), and the
-        // narration plays from `narrationLeadInSec` in the file, so this is where the words stop.
-        speechEndSec: narrationLeadInSec + narrationDuration,
-        sectionGaps: await readPlannedSectionGaps(episodeDir),
-        ...(introClipForCheck ? { intro: introClipForCheck } : {}),
-      }),
+      expected: finalCheckExpected,
     })
 
     succeeded = true
@@ -4180,13 +4192,15 @@ export async function generateVideo(job: Job): Promise<void> {
     //   - failed run  → keep tempDir so the user can inspect the broken
     //                   intermediate / xfade chunk that caused the failure
     //   - success     → remove tempDir (default historical behaviour)
-    const keep = debugMode || !succeeded
+    const keep = debugMode || !succeeded || remoteHeld
     if (succeeded) setVideoAssemblyCheckpoint(job, null)
     if (keep) {
       job.output_lines.push(
-        debugMode
-          ? `Debug mode: preserved temp files at ${tempDir}`
-          : `Run failed — preserved temp files for inspection at ${tempDir}`
+        remoteHeld
+          ? `Remote intent staged — preserved temp files at ${tempDir}`
+          : debugMode
+            ? `Debug mode: preserved temp files at ${tempDir}`
+            : `Run failed — preserved temp files for inspection at ${tempDir}`
       )
     } else {
       try {
@@ -5277,13 +5291,13 @@ export async function buildTitleMediaInputArgs(mediaPath: string): Promise<strin
  */
 // v1.0.515 — async: sniffs the still's real decoder (JPEG-as-.png wedge fix).
 export async function buildLoopingMediaInputArgs(mediaPath: string): Promise<string[]> {
-  return isStaticImagePath(mediaPath)
-    ? [...(await stillDecoderArgs(mediaPath)), '-loop', '1', '-i', mediaPath]
-    : ['-stream_loop', '-1', '-i', mediaPath]
+  if (!isStaticImagePath(mediaPath)) return buildFinalInputArgs(mediaPath, { kind: 'loop_stream' })
+  const decoderArgs = await stillDecoderArgs(mediaPath)
+  return buildFinalInputArgs(mediaPath, { kind: 'loop_still', decoder: decoderArgs[1] ?? null })
 }
 
 export function isStaticImagePath(mediaPath: string): boolean {
-  return /\.(png|jpe?g|webp|bmp|tiff?)$/i.test(mediaPath)
+  return isFinalRenderStaticImagePath(mediaPath)
 }
 
 export function computeXfadeTimelineDuration(
@@ -6590,7 +6604,7 @@ export async function resolveEpisodeStackForRender(opts: {
 
 // ── Run Final Composition (effects + audio on single MP4) ────────────────
 
-interface CompositionOpts {
+export interface CompositionOpts {
   videoInputPath: string
   premixedAudioPath: string
   logo?: VideoLogoConfig
@@ -6648,6 +6662,13 @@ interface CompositionOpts {
   codec?: 'h264' | 'h265'
   /** Optional bitrate cap, kbit/s (see buildEncoderArgs). */
   videoBitrateKbps?: number
+  /** Fully resolved local authority captured before optional private staging. */
+  resolvedLoudness?: { lufs: number; true_peak_db: number; tolerance_pct: number; check: 'off' | 'warn' | 'block' }
+  /**
+   * The final-check expectation this render was made to satisfy. Staged with the remote intent so
+   * an imported final is measured against the render's own plan, not today's settings.
+   */
+  finalCheckExpected?: FinalCheckExpectation
   /**
    * 1.4.265 — render in checkpointed segments that a restart keeps (lib/segmented-render.ts).
    * Absent (compilation layout, no checkpoint): one piece, exactly as before.
@@ -6658,9 +6679,32 @@ interface CompositionOpts {
   job: Job
 }
 
+/** Caller-owned destination facts used only by the optional private prepare seam. */
+export interface CompositionDestinationFacts {
+  code?: string
+  titleHint?: string
+  videoDir?: string
+}
+
 export { runFinalComposition as _runFinalCompositionForTesting }
 
-async function runFinalComposition(opts: CompositionOpts): Promise<void> {
+type FinalCompositionHook = (opts: CompositionOpts & CompositionDestinationFacts) => Promise<VideoAssemblyDisposition>
+let finalCompositionHook: FinalCompositionHook | null = null
+
+/** Test-only: stand in for the final composition (staging and encode) so the real generateVideo can be observed there. */
+export function _setFinalCompositionHookForTesting(hook: FinalCompositionHook | null): () => void {
+  const previous = finalCompositionHook
+  finalCompositionHook = hook
+  return () => { finalCompositionHook = previous }
+}
+
+async function runFinalComposition(
+  opts: CompositionOpts & CompositionDestinationFacts,
+): Promise<VideoAssemblyDisposition> {
+  if (finalCompositionHook) return finalCompositionHook(opts)
+  const prepared = await preparePrivateFinalRenderDescriptor(opts)
+  if (prepared) return prepared
+
   const {
     videoInputPath, premixedAudioPath, logo,
     targetDuration, w, h, quality, format, outputFile,
@@ -6840,99 +6884,9 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     const layer = overlayLayers[i]!
     const inIdx = overlayInputIdxs[i]!
     if (inIdx < 0) continue   // file missing — skipped at availability check
-
-    // Build per-layer scaled/keyed source label.
-    let scaleExpr = ''
-    let scaledW = -1   // -1 = unknown (only known when scale_pct is used)
-    if (typeof layer.scale_pct === 'number' && layer.scale_pct > 0) {
-      // Percentage-of-canvas-width scale (v1.0.63+, compilation foregrounds).
-      // Height auto via `-1` to preserve aspect ratio. Even pixel rounding so
-      // yuv420p subsampling doesn't reject the chain.
-      const targetW = Math.max(2, Math.round(w * Math.min(0.95, layer.scale_pct)))
-      const evenW = targetW - (targetW % 2)
-      scaleExpr = `scale=${evenW}:-2`
-      scaledW = evenW
-    } else {
-      const scaleMode = layer.scale || 'cover'
-      if (scaleMode === 'cover') {
-        // Fill canvas, crop overflow. Preserves aspect ratio.
-        scaleExpr = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}`
-        scaledW = w
-      } else if (scaleMode === 'contain') {
-        // Fit inside canvas, transparent letterbox. Useful for frame mattes.
-        scaleExpr = `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black@0`
-        scaledW = w
-      }
-      // 'native' = no scale; layer composites at its source dimensions.
-    }
-
-    const parts: string[] = []
-    if (scaleExpr) parts.push(scaleExpr)
-    if (layer.chroma_key) {
-      const ck = layer.chroma_key
-      const hex = ck.color.startsWith('#') ? '0x' + ck.color.slice(1) : ck.color
-      parts.push(`chromakey=color=${hex}:similarity=${ck.similarity ?? 0.15}:blend=${ck.blend ?? 0.1}`)
-    }
-    const opacity = layer.opacity ?? 1
-    if (opacity < 1) {
-      // Mix alpha with `aa=`. format=rgba ensures the input has an
-      // alpha channel even when the source is yuv420p (no alpha).
-      parts.push(`format=rgba,colorchannelmixer=aa=${opacity}`)
-    }
-
-    const srcLabel = vn()
-    const srcChain = parts.length
-      ? `[${inIdx}:v]${parts.join(',')}${srcLabel}`
-      : `[${inIdx}:v]null${srcLabel}`
-    filterParts.push(srcChain)
-
-    // Composite onto running base. Compose per-layer time range with
-    // the global effects gate (intro/post-audio). The two are AND-ed.
-    //
-    // position_anchor (v1.0.63+) computes x/y from a named region —
-    // `(W-w)/2` etc — using FFmpeg overlay-filter shorthands that the
-    // engine resolves at draw time against the actual source size.
-    // Falls back to `position.x` / `position.y` literals when no
-    // anchor is set.
-    let x = layer.position?.x ?? '0'
-    let y = layer.position?.y ?? '0'
-    if (layer.position_anchor) {
-      const margin = Math.round(h * 0.04)   // ~4% inset for edge-anchored placements
-      switch (layer.position_anchor) {
-        case 'center':
-          x = '(W-w)/2'; y = '(H-h)/2'
-          break
-        case 'top-third':
-          x = '(W-w)/2'; y = `(H/3-h/2)`
-          break
-        case 'bottom-third':
-          x = '(W-w)/2'; y = `(2*H/3-h/2)`
-          break
-        case 'lower-right':
-          x = `W-w-${margin}`; y = `H-h-${margin}`
-          break
-        case 'lower-left':
-          x = `${margin}`; y = `H-h-${margin}`
-          break
-      }
-    }
-    const enableExprs: string[] = []
-    if (gateEnable) {
-      // Existing gateEnable is `:enable='between(t,a,b)'` — strip wrapper
-      // so we can AND it with the per-layer expression.
-      const m = /^:enable='([^']+)'$/.exec(gateEnable)
-      if (m) enableExprs.push(m[1]!)
-    }
-    if (layer.time_range) {
-      const tr = layer.time_range
-      if (tr.end_s != null) enableExprs.push(`between(t,${tr.start_s ?? 0},${tr.end_s})`)
-      else if (tr.start_s) enableExprs.push(`gte(t,${tr.start_s})`)
-    }
-    const layerEnable = enableExprs.length ? `:enable='${enableExprs.join('*')}'` : ''
-
-    const dst = vn()
-    filterParts.push(`${vLabel}${srcLabel}overlay=${x}:${y}${layerEnable}${dst}`)
-    vLabel = dst
+    const part = buildFinalOverlayFilters({ input: vLabel, allocLabel: vn }, layer, inIdx, w, h, gateEnable)
+    filterParts.push(...part.filters)
+    vLabel = part.output
   }
 
   // 3. Color grading — the gate goes on the eq and on the warmth/tint lookup so both time-gate together.
@@ -6979,35 +6933,24 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // range below that extreme so darkness starts at the corners and expands
   // inward without dimming the center like a global exposure adjustment.
   if (vignette?.enabled) {
-    const angle = computeVignetteAngle(vignette.strength ?? 0.7)
-    const vg = vn()
-    filterParts.push(`${vLabel}vignette=angle=${angle.toFixed(4)}:mode=forward:eval=init${gateEnable}${vg}`)
-    vLabel = vg
+    const part = buildFinalVignetteFilters({ input: vLabel, allocLabel: vn }, vignette, gateEnable)
+    filterParts.push(...part.filters)
+    vLabel = part.output
   }
 
   // 5. Film grain
   if (filmGrain?.enabled) {
-    const str = Math.round(filmGrain.strength ?? 15)
-    const fg = vn()
-    filterParts.push(`${vLabel}noise=alls=${str}:allf=t+u${gateEnable}${fg}`)
-    vLabel = fg
+    const part = buildFinalFilmGrainFilters({ input: vLabel, allocLabel: vn }, filmGrain, gateEnable)
+    filterParts.push(...part.filters)
+    vLabel = part.output
   }
 
   // 6. Aged Archive Film is self-contained: it does not turn on or alter the
   // standalone colour-grade, vignette, or Film Grain controls above.
   if (agedArchiveFilm?.enabled) {
-    const grade = vn()
-    const noise = vn()
-    const marked = vn()
-    const base = vn()
-    const weave = vn()
-    const shifted = vn()
-    const archive = vn()
-    filterParts.push(...buildAgedArchiveFilmFilters({
-      input: vLabel, output: archive, grade, noise, marked, base, weave, shifted,
-      width: w, height: h, strength: agedArchiveFilm.strength, gateSuffix: gateEnable,
-    }))
-    vLabel = archive
+    const part = buildFinalArchiveFilters({ input: vLabel, allocLabel: vn }, agedArchiveFilm, w, h, gateEnable)
+    filterParts.push(...part.filters)
+    vLabel = part.output
   }
 
   // 7. Letterbox — global. 1.4.282: by default the whole picture shrinks
@@ -7277,26 +7220,9 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // the legacy 10s hardcode for back-compat with projects that pre-date
   // the exclude-intro feature.
   if (hasLogo && logo) {
-    const logoW = Math.round(w * (logo.scale || 0.1))
-    const pos = calculateLogoPosition(logo.position, logo.margin || 20,
-      scaleAuthoredPosition(logo.custom_x, w, 1920, logoW), scaleAuthoredPosition(logo.custom_y, h, 1080))
-    const opacity = logo.opacity ?? 1
-
-    const lp = vn()
-    filterParts.push(`[${logoInputIdx}:v]scale=${logoW}:-1,format=rgba,colorchannelmixer=aa=${opacity}[logo]`)
-
-    // If the global dual-sided gate is on (`gateEnable` non-empty), the logo
-    // piggybacks on it so intro/title/tail/outro all stay logo-free. Otherwise
-    // fall back to the legacy 10s hardcode when the user only toggled
-    // `hide_during_intro`. When neither is on, the logo runs every frame.
-    let logoEnable = ''
-    if (gateEnable) {
-      logoEnable = gateEnable
-    } else if (logo.hide_during_intro) {
-      logoEnable = `:enable='gt(t,10)'`
-    }
-    filterParts.push(`${vLabel}[logo]overlay=${pos.x}:${pos.y}${logoEnable}${lp}`)
-    vLabel = lp
+    const part = buildFinalLogoFilters({ input: vLabel, allocLabel: vn }, logo, logoInputIdx, w, h, gateEnable)
+    filterParts.push(...part.filters)
+    vLabel = part.output
   }
 
   // Final video label
@@ -7321,51 +7247,11 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // on its own branch because it doesn't share encoder flags.
   const effort = encodingEffort || quality.preset
 
-  // Encoder-specific args isolated in a builder so we can swap codec+retry
-  // cleanly if libx265 fails with the EINVAL signature (see the catch block
-  // below). `format === 'webm'` short-circuits through its own branch — no
-  // H.264 fallback applies there. Delegates to the pure top-level
-  // `buildEncoderArgs` so the codec/CRF/preset shape is snapshot-testable
-  // without spawning ffmpeg.
-  // `effortOverride` lets the recovery chain re-encode with a different
-  // effort than the user picked — specifically to drop a failed `hardware`
-  // (videotoolbox) attempt down to a software libx264 preset while keeping
-  // the full filter graph intact. Defaults to the user's `effort`.
-  function encoderArgs(useCodec: 'h264' | 'h265', effortOverride?: string): string[] {
-    return buildEncoderArgs({
-      codec: useCodec,
-      format,
-      crf: quality.crf,
-      effort: effortOverride ?? effort,
-      bitrateKbps: videoBitrateKbps,
-    })
-  }
-
-  const effectiveCodec: 'h264' | 'h265' = (format === 'webm' || codec !== 'h265') ? 'h264' : 'h265'
-
   // Snapshot the args array BEFORE encoder args are appended so we can
   // rebuild a clean argv for the H.264 retry without dragging H.265 tokens
   // into it. Everything after this point (encoder + -t + outputFile) is
   // codec-dependent.
   const preEncoderArgs = [...args]
-
-  function buildFullArgs(useCodec: 'h264' | 'h265', effortOverride?: string): string[] {
-    return [
-      ...preEncoderArgs,
-      ...encoderArgs(useCodec, effortOverride),
-      '-t', targetDuration.toString(),
-      outputFile,
-    ]
-  }
-
-  function codecLabel(useCodec: 'h264' | 'h265'): string {
-    if (format === 'webm') return `VP9 · CRF ${quality.crf}`
-    const cap = videoBitrateCapKbps(videoBitrateKbps)
-    if (effort === 'hardware') return cap ? `H.264 · hardware (videotoolbox, ${cap} kbit/s)` : `H.264 · hardware (videotoolbox, q:v ${crfToVideotoolboxQ(quality.crf)})`
-    if (cap && format !== 'webm') return `${useCodec === 'h265' ? 'HEVC (H.265)' : 'H.264'} · preset ${effort} · capped at ${cap} kbit/s`
-    if (useCodec === 'h265') return `HEVC (H.265) · preset ${effort}`
-    return `H.264 · preset ${effort}`
-  }
 
   // Helper for the argv-dump, called once per encode attempt. Shell-quoted +
   // chunked so a long filter_complex doesn't get truncated by any downstream
@@ -7419,82 +7305,32 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // who would publish a video missing features he explicitly requested
   // with nothing on screen to suggest anything went wrong. So we inventory
   // the request up front and diff it against what the winning tier kept.
-  const requestedBurnIns: string[] = []
-  if (colorGrading?.enabled) requestedBurnIns.push('color grading')
-  if (vignette?.enabled) requestedBurnIns.push('vignette')
-  if (filmGrain?.enabled) requestedBurnIns.push('film grain')
-  if (agedArchiveFilm?.enabled) requestedBurnIns.push('aged archive film')
-  if (letterbox?.enabled) requestedBurnIns.push('letterbox')
-  if (frame?.enabled) requestedBurnIns.push('frame')
-  if (overlayLayers.length) {
-    requestedBurnIns.push(
-      overlayLayers.some(l => l.chroma_key)
-        ? `${overlayLayers.length} overlay layer(s) incl. chroma key`
-        : `${overlayLayers.length} overlay layer(s)`,
-    )
-  }
-  if (hasLogo) requestedBurnIns.push('logo')
-  if (subtitles?.enabled && subtitles.srt_path) requestedBurnIns.push('burned-in subtitles')
-  if (contextualCues?.length) requestedBurnIns.push(`${contextualCues.length} contextual cue(s)`)
-  if (stackEntries.length) requestedBurnIns.push(`${stackEntries.length} Effects Library effect(s)`)
+  const requestedBurnIns = describeFinalBurnIns({
+    colorGrading: Boolean(colorGrading?.enabled),
+    vignette: Boolean(vignette?.enabled),
+    filmGrain: Boolean(filmGrain?.enabled),
+    agedArchiveFilm: Boolean(agedArchiveFilm?.enabled),
+    letterbox: Boolean(letterbox?.enabled),
+    frame: Boolean(frame?.enabled),
+    overlayLayers,
+    hasLogo,
+    subtitles: Boolean(subtitles?.enabled && subtitles.srt_path),
+    contextualCueCount: contextualCues?.length ?? 0,
+    stackEntryCount: stackEntries.length,
+  })
 
-  // The "minimal" builder rebuilds argv from scratch with only the safe
-  // primitives: copy video stream as-is from the intermediate, map audio,
-  // pin the format, encode with libx264. No vignette / grain / grade /
-  // chroma / subtitles / logo. Letterbox is skipped too because it can
-  // be the trigger.
-  function buildMinimalArgs(useCodec: 'h264' | 'h265'): string[] {
-    const a: string[] = ['-y', '-i', videoInputPath, '-i', premixedAudioPath]
-    a.push('-map', '0:v', '-map', '1:a')
-    a.push(...encoderArgs(useCodec))
-    a.push('-t', targetDuration.toString())
-    a.push(outputFile)
-    return a
-  }
-
-  const tiers: Tier[] = [
-    {
-      label: codecLabel(effectiveCodec),
-      build: () => buildFullArgs(effectiveCodec),
-    },
-    {
-      // Hardware (videotoolbox) → software libx264, FULL filter graph intact.
-      // Without this tier a transient videotoolbox init failure (no Media
-      // Engine session available, an old Intel Mac that advertises the
-      // encoder but can't open it, a quirky brewed build) dropped straight
-      // to the tier-3 "minimal" recovery, which strips every post effect.
-      // Re-encoding the same full graph on the CPU is the correct fallback:
-      // the user keeps grain/grade/chroma/subtitles/logo, just slower. Uses
-      // the quality tier's CPU preset (e.g. high→slow, medium→medium) so the
-      // output quality matches what a non-hardware pick would have produced.
-      label: `H.264 · libx264 ${quality.preset} (hardware fallback, full effects)`,
-      note: '(retry, libx264 software)',
-      degraded: 'hardware encoder unavailable — re-encoded on CPU (same effects, slower)',
-      shouldRun: () => effort === 'hardware',
-      build: () => buildFullArgs('h264', quality.preset),
-    },
-    {
-      label: codecLabel('h264') + ' (fallback)',
-      note: '(retry, H.264)',
-      degraded: 'codec downgraded to H.264',
-      // Original guard: only swap codec when the failure stderr matches
-      // the known libx265 EINVAL signature. Other failures aren't fixed
-      // by codec swap and should fall through to tier 3.
-      shouldRun: (e) => {
-        if (effectiveCodec !== 'h265') return false
-        const s: string = e?.stderr || ''
-        return s.includes('libx265') && s.includes('return code -22')
-      },
-      build: () => buildFullArgs('h264'),
-    },
-    {
-      label: 'H.264 · no effects (recovery)',
-      note: '(recovery, H.264 minimal)',
-      degraded: 'all post effects removed (vignette/grain/grade/chroma/subtitles/letterbox/logo)',
-      dropsBurnedInFeatures: true,
-      build: () => buildMinimalArgs('h264'),
-    },
-  ]
+  const tiers: Tier[] = buildFinalEncodeTiers({
+    format,
+    codec,
+    effort,
+    quality,
+    bitrateKbps: videoBitrateKbps,
+    preEncoderArgs,
+    videoInputPath,
+    premixedAudioPath,
+    targetDuration,
+    outputFile,
+  })
 
   const validateEncodedOutput = () => validateFinalOutput(outputFile, targetDuration)
 
@@ -7612,22 +7448,6 @@ export function narrationLeadInForOpening(opts: {
 }): number {
   if (!opts.planStrict || opts.introVideoInOpening) return 0
   return opts.sceneTimelineOffsetSec >= 0.05 ? opts.sceneTimelineOffsetSec : 0
-}
-
-export type EncodeTier = {
-  label: string
-  note?: string
-  build: () => string[]
-  /** Optional gate: only run if the previous tier failed in a way this
-   *  tier can address. For tier 2 we keep the historical libx265-EINVAL
-   *  guard so well-behaved H.265 jobs aren't quietly downgraded to H.264
-   *  on unrelated failures. */
-  shouldRun?: (prevError: any) => boolean
-  /** Human-readable description of what gets dropped at this tier. */
-  degraded?: string
-  /** True when this tier bypasses `filter_complex` entirely, so every
-   *  burned-in feature the user asked for is discarded. */
-  dropsBurnedInFeatures?: boolean
 }
 
 /**

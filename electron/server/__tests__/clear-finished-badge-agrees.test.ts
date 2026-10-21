@@ -208,3 +208,39 @@ test('finished and failed history subsets agree with the Recovered display state
   assert.deepEqual((await jq.getJobs(project.slug)).map(job => job.job_id), ['failed-still-settling'])
   await settleTo(jobsFile, ['failed-still-settling'], jq)
 })
+
+test('the finished/failed facet counts are exactly the rows those clears remove', async () => {
+  const project = await pm.createProject({ name: 'Clear Facet Agreement' })
+  const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [
+    row('facet-done', 'done', [{ state: 'succeeded' }], project.slug),
+    row('facet-cancelled', 'cancelled', [{ state: 'cancelled' }], project.slug),
+    {
+      ...row('facet-recovered', 'error', [{ state: 'succeeded' }], project.slug),
+      resolved: { at: new Date().toISOString(), reason: 'fixed later' },
+    },
+    row('facet-failed', 'error', [{ state: 'failed' }], project.slug),
+    // Reads `skipped` on the page but is an error row at the source: only the
+    // failed subset removes it, so only that count may claim it.
+    { ...row('facet-skipped', 'error', [{ state: 'failed' }], project.slug), skipped: true },
+    // A private render fence is never clearable, whatever its display status.
+    {
+      ...row('facet-fenced', 'done', [{ state: 'succeeded' }], project.slug),
+      type: 'video_assembly',
+      final_render_remote_wait: { version: 1 },
+    },
+  ] }))
+
+  const page = await jq.queryJobHistory([project.slug], {}, { facets: true })
+  assert.deepEqual(page.facets?.clearable, { finished: 3, failed: 2 },
+    'the badge counts the same buckets the subset clears act on')
+
+  assert.equal(await jq.clearFinished(project.slug, 'finished'), 3)
+  assert.deepEqual((await jq.getJobs(project.slug)).map(job => job.job_id).sort(), [
+    'facet-failed', 'facet-fenced', 'facet-skipped',
+  ])
+  assert.equal(await jq.clearFinished(project.slug, 'failed'), 2)
+  assert.deepEqual((await jq.getJobs(project.slug)).map(job => job.job_id), ['facet-fenced'])
+  assert.equal(await jq.clearFinished(project.slug), 0, 'clear-all cannot remove a fenced render either')
+  await settleTo(jobsFile, ['facet-fenced'], jq)
+})

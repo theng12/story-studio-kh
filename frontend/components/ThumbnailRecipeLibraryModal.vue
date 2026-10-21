@@ -106,7 +106,7 @@ interface ThumbnailRecipe {
   recipe?: {
     layout?: string
     titleMode?: 'ai'
-    headlineMode?: 'episode-title' | 'curiosity-hook'
+    headlineMode?: 'episode-title' | 'short-hook' | 'curiosity-hook'
     defaultTextStyle?: string
     defaultFontStyle?: string
     defaultTextPosition?: 'top' | 'center' | 'bottom' | 'bottom-left'

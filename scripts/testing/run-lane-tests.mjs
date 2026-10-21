@@ -12,7 +12,7 @@
  * reconciles the files that reported a completed suite against the files it
  * DISCOVERED, and fails the run when the first number is smaller. The other
  * three lanes — release, content-packs, frontend — were plain `node --test` /
- * `tsx --test` invocations whose only evidence was their own summary block.
+ * `node --import tsx --test` invocations whose only evidence was their own summary block.
  * That is precisely the artifact we proved can lie, so three quarters of the
  * gate was resting on it.
  *
@@ -21,10 +21,10 @@
  * the backend lane's, imported rather than copied, so there is exactly one
  * implementation of the floor and it cannot drift between lanes.
  *
- * WHAT IT DOES NOT DO. It does not change any lane's runner, flags, working
- * directory or the set of files that run — only the two reporter arguments are
- * added. A wrapper that quietly altered the run it was measuring would be
- * worth less than no wrapper at all.
+ * Runner arguments, working directories and discovered files remain the lane's.
+ * The real release lane runs its two runner contracts separately, without a
+ * lane-owned adapter, then runs the remaining files with retention enabled.
+ * Each invocation and their union must cover their exact discovery once.
  *
  * THERE IS NO EXPECTED TOTAL ANYWHERE. The floor for each lane is that lane's
  * own discovery list, so adding a test file raises the floor by itself and
@@ -36,18 +36,20 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import os from 'node:os'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import {
   assertEverySuiteCompleted,
   assertSummaryAgrees,
-  readCoverageRecords,
+  retainedFsEvidenceFailure,
 } from './run-backend-tests.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const COVERAGE_REPORTER = path.join(ROOT, 'scripts', 'testing', 'suite-coverage-reporter.mjs')
+const RETAINED_FS_PRELOAD = path.join(ROOT, 'scripts', 'testing', 'retained-fixture-fs.mjs')
+const RETAINED_FIXTURES = path.join(ROOT, '_trash', 'test-fixtures')
 
 /**
  * The lanes, described as data.
@@ -59,9 +61,8 @@ const COVERAGE_REPORTER = path.join(ROOT, 'scripts', 'testing', 'suite-coverage-
  *             This directory IS the floor; nothing else defines it.
  *   suffix  — what counts as a test file in that directory.
  *   cwd     — the directory the runner is launched from, relative to the root.
- *   runner  — 'node' runs the files directly; 'tsx' goes through tsx's CLI,
- *             which is what compiles TypeScript tests before handing them back
- *             to node's own test runner.
+ *   runner  — 'node' runs the files directly; 'tsx' registers tsx's loader
+ *             before node's own test runner loads TypeScript tests.
  *   args    — flags that belong to the lane and must be preserved verbatim.
  */
 export const LANES = {
@@ -110,46 +111,96 @@ async function discover(lane) {
  * `NODE_TEST_CONTEXT` makes node refuse to recurse ("skipping running files")
  * when this wrapper is itself launched from inside a test — which the harness
  * test does on purpose — so it is removed, exactly as the backend runner
- * removes it. `NODE_OPTIONS` goes for the same reason: an outer test run's
- * options are not this lane's, and inheriting them silently changes the run
- * being measured.
+ * removes it. Adapted invocations append the fixed preload; runner contracts
+ * preserve external `NODE_OPTIONS` verbatim, including unset and empty values.
  */
-function childEnv() {
+function childEnv(sandbox, snapshotRoot, addRetainedAdapter) {
   const env = { ...process.env }
   delete env.NODE_TEST_CONTEXT
-  delete env.NODE_OPTIONS
+  env.HOME = path.join(sandbox, 'home')
+  env.USERPROFILE = path.join(sandbox, 'profile')
+  env.APPDATA = path.join(sandbox, 'appdata')
+  env.XDG_CONFIG_HOME = path.join(sandbox, 'xdg-config')
+  env.TMPDIR = sandbox
+  env.TMP = sandbox
+  env.TEMP = sandbox
+  env.STORY_STUDIO_TEST_HARNESS_ROOT = sandbox
+  env.STORY_STUDIO_RETAINED_SNAPSHOT_ROOT = snapshotRoot
+  if (addRetainedAdapter) {
+    env.NODE_OPTIONS = [env.NODE_OPTIONS, `--import ${pathToFileURL(RETAINED_FS_PRELOAD).href}`].filter(Boolean).join(' ')
+  }
+  delete env.STORY_STUDIO_DATA_DIR
   return env
 }
 
+async function exactCoverage(discovered, records) {
+  if (!Array.isArray(records)) throw new Error('no suite-coverage record at all')
+  const expected = new Set(discovered)
+  if (expected.size !== discovered.length) throw new Error('duplicate discovered file identity')
+  const seen = new Set()
+  for (const record of records) {
+    if (!record || typeof record.file !== 'string' || !path.isAbsolute(record.file)) {
+      throw new Error('invalid coverage record file field')
+    }
+    const canonical = await fs.realpath(record.file)
+    if (record.file !== canonical || !expected.has(canonical)) throw new Error(`unexpected coverage file: ${record.file}`)
+    if (seen.has(canonical)) throw new Error(`duplicate coverage file: ${canonical}`)
+    if (typeof record.success !== 'boolean'
+      || ['tests', 'suites', 'failed'].some(key => !Number.isSafeInteger(record[key]) || record[key] < 0)) {
+      throw new Error(`malformed coverage counts: ${canonical}`)
+    }
+    if (!record.success || record.failed !== 0 || record.tests === 0) {
+      throw new Error(`coverage file failed or reported zero tests: ${canonical}`)
+    }
+    seen.add(canonical)
+  }
+  return assertEverySuiteCompleted(discovered, records)
+}
+
+async function readExactCoverage(coveragePath) {
+  const raw = await fs.readFile(coveragePath, 'utf8')
+  if (!raw || !raw.endsWith('\n')) throw new Error('empty or incomplete coverage JSONL')
+  return raw.slice(0, -1).split('\n').map(line => JSON.parse(line))
+}
+
 /**
- * Run one lane and return its exit code.
+ * Where this invocation's private container lives.
  *
- * Exported, and taking the lane object rather than only its name, so the
- * harness test can point it at a fixture directory containing a file that
- * dies mid-run. A floor that has never been shown catching a real truncation
- * is a claim, not evidence.
+ * Content-packs fixtures stage handoff artifacts and the staging helper refuses
+ * any destination contained in the repository. `os.tmpdir()` is outside it in a
+ * normal CLI run, so putting the whole container there keeps the sandbox,
+ * TMPDIR and the retained preload's snapshot root together and outside the
+ * repository. When the wrapper is itself running inside a repo-bound test
+ * sandbox (the lane harness contract), fall back to `_trash` so that run stays
+ * green; those fixture lanes never stage outside-repository artifacts.
  */
-export async function runLane(name, lane = LANES[name]) {
-  if (!lane) {
-    console.error(`[test-harness] unknown lane "${name}". Known lanes: ${Object.keys(LANES).join(', ')}`)
-    return 1
-  }
+async function containerBase() {
+  const [temp, root] = await Promise.all([fs.realpath(tmpdir()), fs.realpath(ROOT)])
+  const insideRepository = temp === root || temp.startsWith(`${root}${path.sep}`)
+  return insideRepository ? RETAINED_FIXTURES : temp
+}
 
-  const discovered = await discover(lane)
-  // Zero discovered files is NOT a pass. It is the most convincing green light
-  // there is and it means nothing ran, so it fails here — before the runner is
-  // spawned, and before anything can print a clean summary over the top of it.
-  if (discovered.length === 0) {
-    console.error(`[test-harness] the ${name} lane discovered no ${lane.suffix} files in ${lane.dir}. `
-      + 'Nothing ran, so this is a failure, not a pass.')
-    return 1
-  }
-
-  const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), `story-studio-${name}-coverage-`))
+/** One existing runner invocation, with its own transcript and retained evidence. */
+async function runInvocation(name, lane, discovered, addRetainedAdapter) {
+  await fs.mkdir(RETAINED_FIXTURES, { recursive: true })
+  const container = await fs.realpath(
+    await fs.mkdtemp(path.join(await containerBase(), `story-studio-${name}-harness-`)),
+  )
+  await fs.chmod(container, 0o700)
+  const sandbox = path.join(container, 'sandbox')
+  const snapshotRoot = path.join(container, 'snapshots')
+  await fs.mkdir(sandbox, { mode: 0o700 })
+  await fs.mkdir(snapshotRoot, { mode: 0o700 })
+  await Promise.all([
+    fs.mkdir(path.join(sandbox, 'home'), { recursive: true }),
+    fs.mkdir(path.join(sandbox, 'profile'), { recursive: true }),
+    fs.mkdir(path.join(sandbox, 'appdata'), { recursive: true }),
+    fs.mkdir(path.join(sandbox, 'xdg-config'), { recursive: true }),
+  ])
+  const coveragePath = path.join(container, 'suite-coverage.jsonl')
   try {
-    const coveragePath = path.join(sandbox, 'suite-coverage.jsonl')
     const require = createRequire(import.meta.url)
-    const runnerArgs = lane.runner === 'tsx' ? [require.resolve('tsx/cli')] : []
+    const runnerArgs = lane.runner === 'tsx' ? ['--import', require.resolve('tsx')] : []
     const child = spawn(process.execPath, [
       ...runnerArgs,
       ...lane.args,
@@ -166,7 +217,7 @@ export async function runLane(name, lane = LANES[name]) {
       ...discovered,
     ], {
       cwd: path.resolve(ROOT, lane.cwd),
-      env: childEnv(),
+      env: childEnv(sandbox, snapshotRoot, addRetainedAdapter),
       // Piped rather than inherited so the summary can be READ. The exit code
       // alone is not enough to know whether the suite passed.
       stdio: ['inherit', 'pipe', 'pipe'],
@@ -182,6 +233,20 @@ export async function runLane(name, lane = LANES[name]) {
       child.once('close', code => resolve(code ?? 1))
     })
 
+    await fs.writeFile(path.join(container, 'transcript.log'), transcript)
+    console.log(`[test-harness] ${name} child exit: ${exitCode}`)
+    if (addRetainedAdapter) {
+      const retainedFsFailure = await retainedFsEvidenceFailure(snapshotRoot)
+      if (retainedFsFailure) {
+        console.error(`[test-harness] ${name}: ${retainedFsFailure}`)
+        exitCode = 1
+      } else {
+        console.log(`[test-harness] ${name} retained filesystem evidence: complete`)
+      }
+    } else {
+      console.log(`[test-harness] ${name} lane-owned adapter reconciliation: inapplicable (explicit contract invocation)`)
+    }
+
     const summary = assertSummaryAgrees(transcript, exitCode)
     if (summary) {
       console.error(`[test-harness] ${name}: ${summary}`)
@@ -190,7 +255,17 @@ export async function runLane(name, lane = LANES[name]) {
 
     // The coverage floor. Checked even when the summary looked clean — a
     // vanished file is INVISIBLE to the summary, which is the whole point.
-    const coverage = assertEverySuiteCompleted(discovered, await readCoverageRecords(coveragePath))
+    let records = null
+    let coverage
+    try {
+      records = await readExactCoverage(coveragePath)
+      coverage = await exactCoverage(discovered, records)
+    } catch (error) {
+      console.error(`[test-harness] ${name}: invalid exact coverage: ${error.message}`)
+      records = null
+      coverage = assertEverySuiteCompleted(discovered, null)
+      exitCode = 1
+    }
     console.log(`[test-harness] ${name} suite coverage: `
       + `${coverage.completed}/${coverage.discovered} file(s) completed`
       + `, ${coverage.tests} test(s) + ${coverage.suites} suite(s) = ${coverage.tests + coverage.suites} marks`)
@@ -203,10 +278,84 @@ export async function runLane(name, lane = LANES[name]) {
       exitCode = 1
     }
 
-    return exitCode
+    return { exitCode, records, coveragePath }
   } finally {
-    await fs.rm(sandbox, { recursive: true, force: true })
+    // Never delete the container: it is this invocation's evidence. Outside a
+    // normal CLI run it may live outside the repository, so name that fact.
+    const repo = await fs.realpath(ROOT)
+    const retainedInRepository = container === repo || container.startsWith(`${repo}${path.sep}`)
+    console.log(`[test-harness] retained ${retainedInRepository ? '' : 'external '}${name} sandbox: ${container}`)
   }
+}
+
+/** Run each discovered file once; release runner contracts initialize separately. */
+export async function runLane(name, lane = LANES[name]) {
+  if (!lane) {
+    console.error(`[test-harness] unknown lane "${name}". Known lanes: ${Object.keys(LANES).join(', ')}`)
+    return 1
+  }
+  const discovered = await discover(lane)
+  if (discovered.length === 0) {
+    console.error(`[test-harness] the ${name} lane discovered no ${lane.suffix} files in ${lane.dir}. `
+      + 'Nothing ran, so this is a failure, not a pass.')
+    return 1
+  }
+  let invocations = [{ name, files: discovered, addRetainedAdapter: true }]
+  try {
+    if (new Set(discovered).size !== discovered.length) throw new Error('duplicate discovery identity')
+    // Object identity excludes caller-supplied fixture lanes, even if named release.
+    if (name === 'release' && lane === LANES.release) {
+      const contracts = await Promise.all([
+        'backend-test-harness.test.mjs', 'retained-fixture-fs.test.mjs',
+      ].map(file => fs.realpath(path.join(ROOT, LANES.release.dir, file))))
+      if (new Set(contracts).size !== contracts.length
+        || contracts.some(file => discovered.filter(candidate => candidate === file).length !== 1)) {
+        throw new Error('both canonical runner contract files must be discovered exactly once')
+      }
+      const contractSet = new Set(contracts)
+      invocations = [
+        { name: 'release-contracts', files: discovered.filter(file => contractSet.has(file)), addRetainedAdapter: false },
+        { name: 'release-adapted', files: discovered.filter(file => !contractSet.has(file)), addRetainedAdapter: true },
+      ]
+      const assigned = invocations.flatMap(invocation => invocation.files)
+      if (assigned.length !== discovered.length || new Set(assigned).size !== assigned.length
+        || discovered.some(file => !assigned.includes(file)) || invocations.some(invocation => !invocation.files.length)) {
+        throw new Error('release partitions must be nonempty, disjoint and cover exact discovery')
+      }
+    }
+  } catch (error) {
+    console.error(`[test-harness] ${name}: invalid discovery partition: ${error.message}`)
+    return 1
+  }
+
+  let exitCode = 0
+  const records = []
+  const inputs = []
+  for (const invocation of invocations) {
+    try {
+      const result = await runInvocation(invocation.name, lane, invocation.files, invocation.addRetainedAdapter)
+      if (result.exitCode !== 0) exitCode = 1
+      if (result.records) records.push(...result.records)
+      inputs.push({ name: invocation.name, coveragePath: result.coveragePath, exitCode: result.exitCode })
+    } catch (error) {
+      console.error(`[test-harness] ${invocation.name}: invocation failed: ${error.message}`)
+      inputs.push({ name: invocation.name, error: error.message })
+      exitCode = 1
+    }
+  }
+  try {
+    const coverage = await exactCoverage(discovered, records)
+    console.log(`[test-harness] ${name} aggregate suite coverage: `
+      + `${coverage.completed}/${coverage.discovered} file(s) completed; inputs=${JSON.stringify(inputs)}`)
+    if (coverage.message) {
+      console.error(`[test-harness] ${name}: ${coverage.message}`)
+      exitCode = 1
+    }
+  } catch (error) {
+    console.error(`[test-harness] ${name}: invalid aggregate coverage: ${error.message}; inputs=${JSON.stringify(inputs)}`)
+    exitCode = 1
+  }
+  return exitCode
 }
 
 // Importing this module (the harness test reaching for `runLane` or `LANES`)

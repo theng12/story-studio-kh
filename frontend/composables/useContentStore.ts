@@ -244,6 +244,109 @@ export interface ContentStoreUiError {
   recalledAt?: string | null
 }
 
+/** Local import limit; the backend enforces the same 50 MiB bound. */
+export const CONTENT_PACK_IMPORT_MAX_BYTES = 50 * 1024 * 1024
+
+/** The installed identity the local import response reports. */
+export interface LocalContentPackInstall {
+  packId: string
+  version: string
+}
+
+export type GatewayArchiveIntegrity = 'verified' | 'unavailable' | 'unreadable'
+
+/** Safe display metadata from the Gateway's authenticated archive bank. */
+export interface GatewayContentArchive {
+  archiveSha256: string
+  bytes: number | null
+  packId: string
+  version: string
+  title: string
+  minAppVersion: string
+  itemKinds: string[]
+  integrity: GatewayArchiveIntegrity
+}
+
+export const GATEWAY_ARCHIVE_DIGEST_PATTERN = /^[a-f0-9]{64}$/
+
+export interface ContentPackImportErrorPresentation {
+  title: string
+  detail: string
+  recovery: string
+}
+
+/**
+ * Copy for the Gateway archive shelf. `ownership` and `installable` from the
+ * Gateway are deliberately absent: possessing a compatible archive is enough
+ * for the shared local installer, which validates the bytes itself.
+ */
+export function gatewayArchiveErrorPresentation(
+  error: ContentStoreUiError,
+): ContentPackImportErrorPresentation {
+  const failure = (title: string, recovery: string): ContentPackImportErrorPresentation =>
+    ({ title, detail: error.detail, recovery })
+  switch (error.code) {
+    case 'CONTENT_PACK_GATEWAY_KEY_REQUIRED':
+      return failure('Gateway access is needed', 'Open Settings → This Mac, save your Gateway API Key, then refresh archives.')
+    case 'CONTENT_PACK_GATEWAY_CONFIG_UNAVAILABLE':
+      return failure('The Gateway address could not be read', 'Open Settings → Connections, test the Gateway, then refresh archives.')
+    case 'CONTENT_PACK_GATEWAY_UNREACHABLE':
+      return failure('The Gateway is not answering', 'Open the Gateway app and check the connection in Settings, then try again.')
+    case 'CONTENT_PACK_GATEWAY_REFUSED':
+      return failure('The Gateway refused the saved API key', 'Check the Gateway API Key in Settings → This Mac, then try again.')
+    case 'CONTENT_PACK_GATEWAY_ARCHIVE_UNAVAILABLE':
+      return failure('That archive is no longer available', 'Refresh the Gateway archives and choose another copy.')
+    case 'CONTENT_PACK_GATEWAY_ARCHIVE_MISMATCH':
+      return failure('The downloaded archive did not match', 'Nothing was installed. Refresh the Gateway archives and try the install again.')
+    case 'CONTENT_PACK_GATEWAY_ARCHIVE_TOO_LARGE':
+      return failure('This archive is larger than the 50 MiB local limit', 'Choose a smaller Gateway archive.')
+    case 'CONTENT_PACK_GATEWAY_ARCHIVE_EMPTY':
+      return failure('The Gateway returned an empty archive', 'Nothing was installed. Refresh the Gateway archives and try another copy.')
+    case 'CONTENT_PACK_GATEWAY_RESPONSE_INVALID':
+    case 'CONTENT_PACK_GATEWAY_RESPONSE_TOO_LARGE':
+      return failure('Gateway archives could not be read', 'Check the Gateway connection in Settings, then try again.')
+    default:
+      return failure('The Gateway archive could not be installed', 'Nothing was installed. Check the Gateway connection, then try again.')
+  }
+}
+
+/** Copy for the local file install, which needs no Gateway, account or fresh catalog. */
+export function contentPackImportErrorPresentation(
+  error: ContentStoreUiError,
+): ContentPackImportErrorPresentation {
+  const failure = (title: string, recovery: string): ContentPackImportErrorPresentation =>
+    ({ title, detail: error.detail, recovery })
+  switch (error.code) {
+    case 'CONTENT_PACK_IMPORT_TOO_LARGE':
+      return failure('This archive is larger than the 50 MiB local limit', 'Choose a smaller .sspack archive and try again.')
+    case 'CONTENT_PACK_IMPORT_EMPTY':
+      return failure('This file is empty', 'Choose the .sspack archive you intend to install.')
+    case 'CONTENT_PACK_IMPORT_RESPONSE_INVALID':
+      return failure(
+        'The installation result could not be read',
+        'Check the library pickers. If the pack is not there, choose the .sspack file again.',
+      )
+    default:
+      return {
+        title: 'This Content Pack could not be installed',
+        detail: error.detail,
+        recovery: 'Story Studio did not confirm the installation. Check the file, then try again.',
+      }
+  }
+}
+
+export function contentPackImportUiError(
+  cause: any,
+  fallback = 'This Content Pack could not be installed.',
+): ContentStoreUiError {
+  const error = uiError(cause, fallback)
+  // The local import route's size refusal carries only a detail, so name it
+  // here. A Gateway archive already names its own 413 and keeps that code.
+  return error.status === 413 && error.code === 'CONTENT_STORE_UNAVAILABLE'
+    ? { ...error, code: 'CONTENT_PACK_IMPORT_TOO_LARGE', detail: 'This archive is larger than the 50 MiB local limit.' }
+    : error
+}
+
 export interface ContentPackRecovery {
   incidentId: string
   kind: 'invalid_state_reset'
@@ -268,8 +371,9 @@ export interface ContentPackRecoveryError {
  * - `'unavailable'` — there is nothing trustworthy to show.
  *
  * Only `'fresh'` enables commerce; `networkActionsDisabled` on the Store page
- * is `catalogFreshness !== 'fresh'`, so `'restored'` disables purchase,
- * install and Restore purchases without needing a flag of its own.
+ * is `catalogFreshness !== 'fresh'`, so `'restored'` disables Gateway purchase,
+ * Gateway install and Restore purchases without needing a flag of its own. The
+ * local file install is deliberately outside that gate.
  */
 export type ContentStoreCatalogFreshness = 'fresh' | 'restored' | 'cached' | 'unavailable'
 
@@ -507,6 +611,69 @@ function uiError(cause: any, fallback: string): ContentStoreUiError {
   }
 }
 
+function localImportFailure(code: string, detail: string): Error {
+  return Object.assign(new Error(detail), { data: { code, detail } })
+}
+
+function gatewayArchiveFailure(code: string, detail: string): Error {
+  return Object.assign(new Error(detail), { data: { code, detail } })
+}
+
+/** Read the safe projection the Story backend sends for the Gateway archive bank. */
+function normalizeGatewayArchives(response: unknown): GatewayContentArchive[] {
+  const body = response as { archives?: unknown } | null
+  if (!body || typeof body !== 'object' || !Array.isArray(body.archives)) {
+    throw gatewayArchiveFailure(
+      'CONTENT_PACK_GATEWAY_RESPONSE_INVALID',
+      'Story Studio could not read the Gateway archive list.',
+    )
+  }
+  const archives: GatewayContentArchive[] = []
+  for (const value of body.archives) {
+    if (!value || typeof value !== 'object') continue
+    const row = value as Record<string, unknown>
+    const archiveSha256 = typeof row.archiveSha256 === 'string' ? row.archiveSha256 : ''
+    if (!GATEWAY_ARCHIVE_DIGEST_PATTERN.test(archiveSha256)) continue
+    const itemKinds = Array.isArray(row.itemKinds)
+      ? [...new Set(row.itemKinds
+        .filter((kind): kind is string => typeof kind === 'string')
+        .map(kind => kind.trim().slice(0, 64))
+        .filter(Boolean))].slice(0, 12)
+      : []
+    archives.push({
+      archiveSha256,
+      bytes: typeof row.bytes === 'number' && Number.isSafeInteger(row.bytes) && row.bytes >= 0
+        ? row.bytes
+        : null,
+      packId: typeof row.packId === 'string' ? row.packId.trim().slice(0, 160) : '',
+      version: typeof row.version === 'string' ? row.version.trim().slice(0, 64) : '',
+      title: typeof row.title === 'string' ? row.title.trim().slice(0, 200) : '',
+      minAppVersion: typeof row.minAppVersion === 'string' ? row.minAppVersion.trim().slice(0, 64) : '',
+      itemKinds,
+      integrity: row.integrity === 'verified' || row.integrity === 'unavailable'
+        ? row.integrity
+        : 'unreadable',
+    })
+  }
+  return archives
+}
+
+/**
+ * The import route returns the existing `ContentPackInstallResult` shape flat:
+ * `{ pack_id, version, archive_sha256, activated, retained_versions }`.
+ */
+function normalizeImportedPack(response: unknown): LocalContentPackInstall {
+  const install = (response ?? {}) as { pack_id?: unknown; version?: unknown }
+  if (typeof install.pack_id !== 'string' || install.pack_id.length === 0
+    || typeof install.version !== 'string' || install.version.length === 0) {
+    throw localImportFailure(
+      'CONTENT_PACK_IMPORT_RESPONSE_INVALID',
+      'Story Studio could not read which pack and version the server reported, so the installation is unconfirmed.',
+    )
+  }
+  return { packId: install.pack_id, version: install.version }
+}
+
 export function useContentStore(): {
   account: Readonly<Ref<ContentStoreAccount | null>>
   products: Readonly<Ref<ContentStoreProduct[]>>
@@ -528,6 +695,9 @@ export function useContentStore(): {
   confirmPurchase: (quoteId: string, options?: { refreshOverview?: boolean }) => Promise<PublicContentPurchaseAttempt>
   restoreOwnership: () => Promise<void>
   installRelease: (releaseId: string, options?: { refreshOverview?: boolean; onProgress?: (operation: ContentStoreInstallOperation) => void }) => Promise<{ pack_id: string; version: string; activated: boolean }>
+  importPack: (archive: ArrayBuffer) => Promise<LocalContentPackInstall>
+  listGatewayArchives: () => Promise<GatewayContentArchive[]>
+  installGatewayArchive: (digest: string) => Promise<LocalContentPackInstall>
 } {
   const { get, post, del } = useApi()
   const loading = ref(false)
@@ -804,6 +974,43 @@ export function useContentStore(): {
     }
   }
 
+  /** Install a `.sspack` chosen from this Mac. No Gateway overview or account is read. */
+  async function importPack(archive: ArrayBuffer): Promise<LocalContentPackInstall> {
+    const bytes = typeof archive?.byteLength === 'number' ? archive.byteLength : 0
+    if (bytes <= 0) {
+      throw localImportFailure('CONTENT_PACK_IMPORT_EMPTY', 'The chosen file is empty.')
+    }
+    if (bytes > CONTENT_PACK_IMPORT_MAX_BYTES) {
+      const mib = (bytes / (1024 * 1024)).toFixed(1)
+      throw localImportFailure(
+        'CONTENT_PACK_IMPORT_TOO_LARGE',
+        `This archive is ${mib} MiB; local installs are limited to 50 MiB.`,
+      )
+    }
+    const response = await post<unknown>('/content-packs/import', archive, {
+      headers: { 'Content-Type': 'application/octet-stream' },
+    })
+    return normalizeImportedPack(response)
+  }
+
+  /** Browse the Gateway's archive bank. This is not a Store account or shelf read. */
+  async function listGatewayArchives(): Promise<GatewayContentArchive[]> {
+    const response = await get<unknown>('/content-packs/gateway-archives', { cache: 'no-store' })
+    return normalizeGatewayArchives(response)
+  }
+
+  /** Download one exact Gateway archive and pass its bytes to the same local installer. */
+  async function installGatewayArchive(digest: string): Promise<LocalContentPackInstall> {
+    if (typeof digest !== 'string' || !GATEWAY_ARCHIVE_DIGEST_PATTERN.test(digest)) {
+      throw gatewayArchiveFailure(
+        'CONTENT_PACK_GATEWAY_DIGEST_INVALID',
+        'Choose a valid Gateway archive digest.',
+      )
+    }
+    const response = await post<unknown>(`/content-packs/gateway-archives/${digest}/install`)
+    return normalizeImportedPack(response)
+  }
+
   return {
     account: readonly(sharedAccount) as unknown as Readonly<Ref<ContentStoreAccount | null>>,
     products: readonly(sharedProducts) as unknown as Readonly<Ref<ContentStoreProduct[]>>,
@@ -825,5 +1032,8 @@ export function useContentStore(): {
     confirmPurchase,
     restoreOwnership,
     installRelease,
+    importPack,
+    listGatewayArchives,
+    installGatewayArchive,
   }
 }

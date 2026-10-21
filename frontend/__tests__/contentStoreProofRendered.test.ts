@@ -5,11 +5,21 @@ import { describe, test } from 'node:test'
 import { createApp, defineComponent, h, nextTick, ref, type Component, type Ref } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
-import { filterCatalogProducts, orderShelfProducts } from '../content-store/catalog-presentation.js'
-import { _clearContentStoreSessionCacheForTests, useContentStore } from '../composables/useContentStore.js'
+import { filterCatalogProducts, orderShelfProducts, contentStoreKindLabel } from '../content-store/catalog-presentation.js'
+import { _clearContentStoreSessionCacheForTests, contentStoreErrorPresentation, useContentStore } from '../composables/useContentStore.js'
 import type { ContentStoreProduct, ContentStoreShelf, ContentStoreUiError } from '../composables/useContentStore.js'
 
 type SfcName = 'ContentProductCard.vue' | 'ContentProductDetail.vue' | 'ContentStoreShelf.vue' | 'ContentInstalledLibraryView.vue' | '[productId].vue' | 'content-store.vue'
+
+/** Remove single- and multi-line imports; the compiled component gets explicit support values. */
+function stripImports(code: string): string {
+  return code
+    .replace(/^import\b[\s\S]*?from\s*['"][^'"]+['"];?[ \t]*$/gm, '')
+    .replace(/^import\s*['"][^'"]+['"];?[ \t]*$/gm, '')
+}
+
+;(globalThis as any).__contentStoreErrorPresentation = contentStoreErrorPresentation
+;(globalThis as any).__contentStoreKindLabel = contentStoreKindLabel
 const sourceByName: Record<SfcName, string> = {
   'ContentProductCard.vue': '../components/content-store/ContentProductCard.vue',
   'ContentProductDetail.vue': '../components/content-store/ContentProductDetail.vue',
@@ -47,8 +57,13 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const filterCatalogProducts = (items) => items
     const installedPackCount = (items) => items.length
     const orderShelfProducts = (items) => items
-    const contentStoreErrorPresentation = (error) => ({ title: error.detail, detail: error.detail, recovery: '', settingsAction: false })
+    const CONTENT_PACK_IMPORT_MAX_BYTES = 50 * 1024 * 1024
+    const contentPackImportErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: '' })
+    const contentPackImportUiError = (cause) => ({ status: cause?.status ?? null, code: cause?.data?.code || 'unknown', detail: cause?.data?.detail || cause?.message || '' })
   ` : ''
+  const componentSupport = name === 'content-store.vue' ? '' : `
+    const useContentInstallQueue = () => ({ statusOf: () => 'idle', enqueue: () => undefined, enqueueAll: () => undefined, clearFinished: () => undefined, running: ref(false), finished: ref(false), batchDone: ref(0), batchTotal: ref(0), batchFailed: ref(0), haltReason: ref(''), activeTitle: ref(''), batchInstalled: ref(0), failures: ref([]) })
+  `
   const support = `
     import { computed, defineComponent as _defineComponent, h, nextTick, onMounted, ref } from ${JSON.stringify(vueUrl)}
     const ContentProductCover = { props: ['product'], render: () => null }
@@ -59,16 +74,12 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const useContentStore = () => globalThis.__contentStoreTestStore
     const useAppTitle = () => undefined
     const navigateTo = (...args) => globalThis.__contentStoreNavigations.push(args)
+    const contentStoreErrorPresentation = globalThis.__contentStoreErrorPresentation
+    const contentStoreKindLabel = globalThis.__contentStoreKindLabel
+    ${componentSupport}
     ${pageSupport}
   `
-  const strippedScript = name === 'content-store.vue'
-    ? script.content.replace(/^import .*?\n/gm, '')
-    : script.content
-      .replace(/import ContentProductCover from '.+?'\n/, '')
-      .replace(/import ContentProductCard from '.+?'\n/, '')
-      .replace(/import ContentProductDetail from '.+?'\n/, '')
-      .replace(/import ContentPurchaseDialog from '.+?'\n/, '')
-  const code = `${support}\n${strippedScript
+  const code = `${support}\n${stripImports(script.content)
     .replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })
   const componentUrl = `data:text/javascript;base64,${Buffer.from(
@@ -130,6 +141,7 @@ function testStore(overrides: Partial<{
     loading: overrides.loading || ref(false), error: overrides.error || ref(null),
     refresh: overrides.refresh || (async () => {}), requestQuote: async () => { throw new Error('not used') },
     installRelease: async () => { throw new Error('not used') }, confirmPurchase: async () => { throw new Error('not used') },
+    importPack: async () => { throw new Error('not used') },
     recovery: overrides.recovery || ref(null), recoveryError: overrides.recoveryError || ref(null), refreshRecovery: overrides.refreshRecovery || (async () => {}),
     dismissRecovery: overrides.dismissRecovery || (async () => {}), restoreOwnership: overrides.restoreOwnership || (async () => {}),
   }

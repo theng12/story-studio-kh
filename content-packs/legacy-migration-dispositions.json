@@ -3,6 +3,7 @@
   "authoritative": false,
   "identity_authority": "content-packs/authoring-registry.json",
   "description": "Audit-only closure map for Story Studio legacy content. This file records dispositions but never assigns, reserves, transitions, or supersedes an identity; the authoring registry is the sole identity authority.",
+  "future_reservations": [],
   "dispositions": [
     {
       "legacy_key": "compatibility-successor:com.storystudio.pack.formula.history-explained@1.0.2",

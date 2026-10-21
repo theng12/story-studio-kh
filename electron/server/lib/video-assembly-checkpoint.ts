@@ -140,32 +140,31 @@ function structurallyValidCheckpoint(value: unknown): value is VideoAssemblyChec
   return validFinalSegments(row.final_segments, row.work_dir) && validFinalStage(row.final_stage)
 }
 
-async function isCanonicalOwnedWorkDir(checkpoint: VideoAssemblyCheckpoint): Promise<boolean> {
-  const runName = path.basename(checkpoint.work_dir)
+function isCanonicalOwnedWorkDir(checkpoint: VideoAssemblyCheckpoint): Promise<boolean> {
+  return isOwnedVideoAssemblyWorkDir(checkpoint.project_slug, checkpoint.episode_id, checkpoint.work_dir)
+}
+
+/** True only for a real run folder directly under this project's and episode's own work-temp folder. */
+export async function isOwnedVideoAssemblyWorkDir(projectSlug: string, episode: string, workDir: string): Promise<boolean> {
+  if (typeof workDir !== 'string' || !path.isAbsolute(workDir)) return false
+  const runName = path.basename(workDir)
   if (!RUN_DIR_RE.test(runName)) return false
   const root = getWorkTempRoot()
-  const rootRelative = path.relative(root, checkpoint.work_dir)
+  const rootRelative = path.relative(root, workDir)
   if (!rootRelative || path.isAbsolute(rootRelative) || rootRelative.startsWith(`..${path.sep}`)) return false
-  const expectedParent = path.join(
-    root,
-    sanitizeWorkTempSegment(checkpoint.project_slug),
-    sanitizeWorkTempSegment(checkpoint.episode_id),
-  )
-  if (path.dirname(checkpoint.work_dir) !== expectedParent) return false
+  const expectedParent = path.join(root, sanitizeWorkTempSegment(projectSlug), sanitizeWorkTempSegment(episode))
+  if (path.dirname(workDir) !== expectedParent) return false
 
   try {
     const [rootReal, parentReal, workReal, workStat] = await Promise.all([
       fs.realpath(root),
       fs.realpath(expectedParent),
-      fs.realpath(checkpoint.work_dir),
-      fs.lstat(checkpoint.work_dir),
+      fs.realpath(workDir),
+      fs.lstat(workDir),
     ])
     if (!workStat.isDirectory() || workStat.isSymbolicLink()) return false
-    return parentReal === path.join(
-      rootReal,
-      sanitizeWorkTempSegment(checkpoint.project_slug),
-      sanitizeWorkTempSegment(checkpoint.episode_id),
-    ) && workReal === path.join(parentReal, runName)
+    return parentReal === path.join(rootReal, sanitizeWorkTempSegment(projectSlug), sanitizeWorkTempSegment(episode))
+      && workReal === path.join(parentReal, runName)
   } catch {
     return false
   }

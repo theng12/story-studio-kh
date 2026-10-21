@@ -120,8 +120,13 @@ export const PAID_SUBTITLE_REPLACEMENT_KEY = 'paid_subtitle_replacement'
 export const PAID_AUDIO_REPLACEMENT_KEY = 'paid_audio_replacement'
 export const PAID_WRITING_REPLACEMENT_KEY = 'paid_writing_replacement'
 export const MANUAL_GENERATION_REDO_KEY = 'manual_generation_redo'
+export const PRIVATE_FINAL_RENDER_KEY = 'private_final_render'
 
 export interface ManualGenerationRedoSetting {
+  enabled: boolean
+}
+
+export interface PrivateFinalRenderSetting {
   enabled: boolean
 }
 
@@ -136,6 +141,25 @@ function parseManualGenerationRedoSetting(
     if (invalid === 'throw') {
       throw Object.assign(
         new Error('Manual generation redo requires exactly enabled as a boolean.'),
+        { statusCode: 400, expose: true },
+      )
+    }
+    return { enabled: false }
+  }
+  return { enabled: record.enabled }
+}
+
+function parsePrivateFinalRenderSetting(
+  value: unknown,
+  invalid: 'default' | 'throw',
+): PrivateFinalRenderSetting {
+  const record = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+  if (!record || Object.keys(record).length !== 1 || typeof record.enabled !== 'boolean') {
+    if (invalid === 'throw') {
+      throw Object.assign(
+        new Error('Private final render requires exactly enabled as a boolean.'),
         { statusCode: 400, expose: true },
       )
     }
@@ -307,6 +331,18 @@ export async function getManualGenerationRedoSetting(): Promise<ManualGeneration
 export async function setManualGenerationRedoSetting(value: unknown): Promise<ManualGenerationRedoSetting> {
   const setting = parseManualGenerationRedoSetting(value, 'throw')
   await setAppSetting(MANUAL_GENERATION_REDO_KEY, setting)
+  return setting
+}
+
+/** Private fleet final rendering is machine-local and defaults off. */
+export async function getPrivateFinalRenderSetting(): Promise<PrivateFinalRenderSetting> {
+  return parsePrivateFinalRenderSetting(await getAppSetting(PRIVATE_FINAL_RENDER_KEY), 'default')
+}
+
+/** Validate the complete setting before replacing the last admitted value. */
+export async function setPrivateFinalRenderSetting(value: unknown): Promise<PrivateFinalRenderSetting> {
+  const setting = parsePrivateFinalRenderSetting(value, 'throw')
+  await setAppSetting(PRIVATE_FINAL_RENDER_KEY, setting)
   return setting
 }
 

@@ -2509,6 +2509,17 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
         ? Number(recorded!.speech_end_sec)
         : await speechEndSecForEpisode(slug, episodeCode, sourcePaths.episode_dir),
     }
+    // A plan-less verdict written before the tail field carried an explicit answer holds the check's
+    // own zero placeholder with no `tail_unknown` marker beside it. That zero is not a placement: it
+    // is indistinguishable from "this file drew no tail", so the check must say it cannot place the
+    // tail rather than measure black against a known-none nobody established (AGENTS.md §6). A
+    // verdict from this build always carries the marker (`expectationFromFrozenShape`), and a
+    // render's own plan (`planned_sec > 0`) is an instruction, not a stored inference, so neither is
+    // touched.
+    if (!(Number(expected.planned_sec) > 0) && expected.tail
+      && !(Number(expected.tail.sec) > 0) && typeof expected.tail_unknown !== 'boolean') {
+      expected.tail_unknown = true
+    }
     // The planned pauses between sections, so one that shows up as silence is not read as a gap in
     // the speech (Night Atlas History EP0014: a 5 s chapter pause at 1:28:25). A render records its
     // own; an older file takes the episode's current `audio_chapters.json`.

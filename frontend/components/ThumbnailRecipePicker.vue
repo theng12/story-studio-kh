@@ -50,7 +50,7 @@ interface ThumbnailRecipe {
     defaultFontStyle?: string
     defaultTextPosition?: 'top' | 'center' | 'bottom' | 'bottom-left'
     conceptGuidance?: string
-    headlineMode?: 'episode-title' | 'curiosity-hook'
+    headlineMode?: 'episode-title' | 'short-hook' | 'curiosity-hook'
   }
 }
 

@@ -5,14 +5,64 @@ import path from 'node:path'
 import type { Job } from '../models/types.js'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor, waitForValue } from './_timing.js'
+import { withLock } from '../lib/atomic-store.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
 let jq: typeof import('../services/job-queue.js')
+const fixtureJobs = new Map<string, string>()
+const controlledReleases = new Set<() => void>()
+const sessionPaths = new Set<string>()
+
+function releaseControlledWork(): void {
+  for (const release of [...controlledReleases]) release()
+}
+
+function trackFixtureJob<T extends Job>(job: T): T {
+  fixtureJobs.set(job.job_id, job.project_slug)
+  if (job.type === 'chapter-only') {
+    const projectDir = pm.getProjectDir(job.project_slug)
+    assert.ok(projectDir, `missing fixture project path for ${job.project_slug}`)
+    sessionPaths.add(path.join(projectDir, 'sessions.json'))
+  }
+  return job
+}
+
+function enqueueTracked(options: Parameters<typeof jq.enqueuePreparedForTest>[0]): Job {
+  return trackFixtureJob(jq.enqueuePreparedForTest(options))
+}
+
+async function cancelFixtureJob(jobId: string, projectSlug: string): Promise<void> {
+  const job = jq.getJob(jobId)
+  if (!job || !['queued', 'running', 'paused'].includes(job.status)) return
+  try {
+    await jq.requestJobCancellation(projectSlug, jobId)
+  } catch (error) {
+    const latest = jq.getJob(jobId)
+    if (latest && ['queued', 'running', 'paused'].includes(latest.status)) throw error
+  }
+}
+
+async function settleFixtureWork(): Promise<void> {
+  releaseControlledWork()
+  for (const [jobId, projectSlug] of fixtureJobs) {
+    releaseControlledWork()
+    await cancelFixtureJob(jobId, projectSlug)
+  }
+  await waitFor(() => {
+    releaseControlledWork()
+    return [...fixtureJobs].every(([jobId]) => !jq._isJobWorkerActiveForTesting(jobId))
+  }, { label: 'persistence fixture workers to finish' })
+  await jq._waitForJobPersistenceForTesting()
+  for (const sessionsPath of sessionPaths) await withLock(sessionsPath, async () => {})
+}
 
 before(async () => {
-  const temp = await useTempDataDir()
+  const temp = await useTempDataDir({
+    retain: true,
+    settle: settleFixtureWork,
+  })
   tempDir = temp.dir
   cleanup = temp.cleanup
   pm = await import('../services/project-manager.js')
@@ -22,8 +72,16 @@ before(async () => {
 after(async () => { await cleanup() })
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void
-  const promise = new Promise<void>(done => { resolve = done })
+  let done!: () => void
+  let pending = true
+  const promise = new Promise<void>(resolve => { done = resolve })
+  const resolve = () => {
+    if (!pending) return
+    pending = false
+    controlledReleases.delete(resolve)
+    done()
+  }
+  controlledReleases.add(resolve)
   return { promise, resolve }
 }
 
@@ -128,7 +186,7 @@ describe('status-aware durable job retention', () => {
     await jq.setQueuePaused(true)
     jq.registerExecutor('chapter-only', async () => {})
 
-    const queued = Array.from({ length: 125 }, (_, index) => jq.enqueuePreparedForTest({
+    const queued = Array.from({ length: 125 }, (_, index) => enqueueTracked({
       project_slug: project.slug,
       type: 'chapter-only',
       episode_id: `EP${String(index).padStart(4, '0')}`,
@@ -148,7 +206,10 @@ describe('status-aware durable job retention', () => {
   test('restart restoration preserves every queued job and FIFO queue positions', async () => {
     const project = await pm.createProject({ name: 'Large Restart Queue' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
-    const queued = Array.from({ length: 130 }, (_, index) => makeJob(project.slug, index, 'queued'))
+    const queued = Array.from(
+      { length: 130 },
+      (_, index) => trackFixtureJob(makeJob(project.slug, index, 'queued')),
+    )
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: queued }, null, 2))
     await jq.setQueuePaused(true)
     jq.registerExecutor('chapter-only', async () => {})
@@ -241,7 +302,7 @@ describe('status-aware durable job retention', () => {
     const project = await pm.createProject({ name: 'Clear History Keeps Queue' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
     jq.registerExecutor('metadata', async () => {})
-    const terminal = jq.enqueuePreparedForTest({
+    const terminal = enqueueTracked({
       project_slug: project.slug,
       type: 'metadata',
       episode_id: 'EP-DONE',
@@ -258,7 +319,7 @@ describe('status-aware durable job retention', () => {
 
     await jq.setQueuePaused(true)
     jq.registerExecutor('chapter-only', async () => {})
-    const queued = Array.from({ length: 120 }, (_, index) => jq.enqueuePreparedForTest({
+    const queued = Array.from({ length: 120 }, (_, index) => enqueueTracked({
       project_slug: project.slug,
       type: 'chapter-only',
       episode_id: `EP-CLEAR-${index}`,
@@ -332,7 +393,7 @@ describe('queue-origin recovery invariant', () => {
       }
     })
     await jq.setQueuePaused(false)
-    jq.enqueuePreparedForTest({
+    enqueueTracked({
       project_slug: blockerProject.slug,
       type: 'chapter-only',
       episode_id: 'BLOCK',
@@ -341,11 +402,11 @@ describe('queue-origin recovery invariant', () => {
     })
     await blockerStarted.promise
 
-    const held = makeJob(project.slug, 1, 'paused', {
+    const held = trackFixtureJob(makeJob(project.slug, 1, 'paused', {
       job_id: 'persisted-queue-hold-false',
       pause_origin: 'queue',
       pause_requested: false,
-    })
+    }))
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [held] }, null, 2))
     const originalRename = fs.rename.bind(fs)
     let projectSnapshots = 0
@@ -373,11 +434,11 @@ describe('queue-origin recovery invariant', () => {
   test('a persisted queue-origin pause stays paused while the durable global hold is true', async () => {
     const project = await pm.createProject({ name: 'Queue Recovery Durable True' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
-    const held = makeJob(project.slug, 2, 'paused', {
+    const held = trackFixtureJob(makeJob(project.slug, 2, 'paused', {
       job_id: 'persisted-queue-hold-true',
       pause_origin: 'queue',
       pause_requested: false,
-    })
+    }))
     await jq.setQueuePaused(true)
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [held] }, null, 2))
 
@@ -392,21 +453,21 @@ describe('queue-origin recovery invariant', () => {
   test('manual and originless persisted pauses survive false-state load and global Resume', async () => {
     const project = await pm.createProject({ name: 'Queue Recovery Preserves Intent' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
-    const manual = makeJob(project.slug, 3, 'paused', {
+    const manual = trackFixtureJob(makeJob(project.slug, 3, 'paused', {
       job_id: 'persisted-manual-hold',
       pause_origin: 'manual',
       pause_requested: false,
-    })
-    const originless = makeJob(project.slug, 4, 'paused', {
+    }))
+    const originless = trackFixtureJob(makeJob(project.slug, 4, 'paused', {
       job_id: 'persisted-originless-hold',
       pause_origin: undefined,
       pause_requested: false,
-    })
-    const stalled = makeJob(project.slug, 5, 'paused', {
+    }))
+    const stalled = trackFixtureJob(makeJob(project.slug, 5, 'paused', {
       job_id: 'persisted-stall-hold',
       pause_origin: 'stall',
       pause_requested: false,
-    })
+    }))
     await jq.setQueuePaused(false)
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [manual, originless, stalled] }, null, 2))
 
@@ -427,11 +488,11 @@ describe('queue-origin recovery invariant', () => {
   test('Resume racing an in-flight project load cannot strand a queue-origin pause', async t => {
     const project = await pm.createProject({ name: 'Queue Recovery Load Race' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
-    const held = makeJob(project.slug, 5, 'paused', {
+    const held = trackFixtureJob(makeJob(project.slug, 5, 'paused', {
       job_id: 'persisted-queue-hold-race',
       pause_origin: 'queue',
       pause_requested: false,
-    })
+    }))
     const readStarted = deferred()
     const releaseRead = deferred()
     const executorStarted = deferred()

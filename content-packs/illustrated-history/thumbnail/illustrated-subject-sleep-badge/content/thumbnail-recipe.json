@@ -48,7 +48,7 @@
     "A named or recognisable living individual, a real official's likeness, a real modern agency insignia, or a copy of another channel's reference composition",
     "Post-render typography compositing, watermarks, or copied trade dress"
   ],
-  "headline_mode": "curiosity-hook",
+  "headline_mode": "short-hook",
   "headline_guidance": "Write the subject line as one to four words naming the place, people, era or event the episode is about — the plainest concrete name a viewer would search for. A single word is right for a famous subject (ROME, JAPAN, CHINA); a short phrase is right when the subject needs one (THE SILK ROAD, THE FALL OF CARTHAGE). Set it in heavy outlined capitals on a single line, large enough that the smallest word still reads at card size. Never a question mark, never an exclamation, never a countdown numeral, never an exact date range, never an exact runtime, and never a claim of an entire or complete history. Because a row of these sits together on a channel page, keep the same grammatical shape down a series so the lines read as a set. Fail closed on misspelling, on clipping at either edge, and on a subject line that wraps to a second line.",
   "default_text_style": "solid warm bone-white capitals filled flat and cut with a thick dark outline, sitting on a quiet darkened band of the picture, with no bevel, no gradient, no drop shadow and no glow",
   "default_font_style": "extra-heavy condensed serif capitals wearing a thick contrasting outline, closed compact counters, tight even spacing, maximum weight and clarity, set on a single line at the largest size the top band allows",

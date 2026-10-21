@@ -366,7 +366,10 @@ const ThumbnailRecipeDocumentSchema = z.object({
   composition_rules: z.array(safeText(1200)).max(60).optional(),
   required_elements: textList(60),
   avoid_elements: textList(60),
-  headline_mode: z.enum(['episode-title', 'curiosity-hook']),
+  // `short-hook` is the engine's "two or three words" mode (models/thumbnail-headlines.ts).
+  // The signed recipe schema had omitted it, so the owner-approved Illustrated History
+  // recipe could not be built as a pack even though the engine already generated it.
+  headline_mode: z.enum(['episode-title', 'short-hook', 'curiosity-hook']),
   headline_guidance: safeText(2000).optional(),
   default_text_style: safeText(1000),
   default_font_style: safeText(1000),

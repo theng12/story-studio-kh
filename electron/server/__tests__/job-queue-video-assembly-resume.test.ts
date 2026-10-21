@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
-import { useTempDataDir } from './_helpers.js'
+import { type RetainedTempDataDir, useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
 import { getWorkTempDir } from '../lib/work-tempdir.js'
 import type { Job } from '../models/types.js'
@@ -12,19 +12,49 @@ let tempDir: string
 let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
 let jq: typeof import('../services/job-queue.js')
-const workDirs: string[] = []
+let registerRetained: RetainedTempDataDir['register']
+const fixtureJobs = new Map<string, string>()
+
+function trackFixtureJob<T extends Job>(job: T): T {
+  fixtureJobs.set(job.job_id, job.project_slug)
+  return job
+}
+
+async function cancelFixtureJob(jobId: string, projectSlug: string): Promise<void> {
+  const job = jq.getJob(jobId)
+  if (!job || !['queued', 'running', 'paused'].includes(job.status)) return
+  try {
+    await jq.requestJobCancellation(projectSlug, jobId)
+  } catch (error) {
+    const latest = jq.getJob(jobId)
+    if (latest && ['queued', 'running', 'paused'].includes(latest.status)) throw error
+  }
+}
+
+async function settleFixtureWork(): Promise<void> {
+  for (const [jobId, projectSlug] of fixtureJobs) {
+    await cancelFixtureJob(jobId, projectSlug)
+  }
+  await waitFor(
+    () => [...fixtureJobs].every(([jobId]) => !jq._isJobWorkerActiveForTesting(jobId)),
+    { label: 'Video Assembly fixture workers to finish' },
+  )
+  await jq._waitForJobPersistenceForTesting()
+}
 
 before(async () => {
-  const temp = await useTempDataDir()
+  const temp = await useTempDataDir({
+    retain: true,
+    settle: settleFixtureWork,
+  })
   tempDir = temp.dir
   cleanup = temp.cleanup
+  registerRetained = temp.register
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
 })
 
 after(async () => {
-  await jq._waitForJobPersistenceForTesting()
-  await Promise.all(workDirs.map(dir => fs.rm(dir, { recursive: true, force: true })))
   await cleanup()
 })
 
@@ -36,7 +66,7 @@ async function fixtureJob(
 ): Promise<Job> {
   const episode = jobId.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16)
   const workDir = await getWorkTempDir(projectSlug, episode)
-  workDirs.push(workDir)
+  await registerRetained(workDir, 'work-dir')
   const checkpoint = options.malformed ? { version: 9 } : {
     version: 1,
     job_id: jobId,
@@ -46,7 +76,7 @@ async function fixtureJob(
     render_fingerprint: 'd'.repeat(64),
     completed_scene_clips: [],
   }
-  return {
+  return trackFixtureJob({
     job_id: jobId,
     project_slug: projectSlug,
     type: 'video_assembly',
@@ -61,7 +91,7 @@ async function fixtureJob(
     output_lines: [],
     params: {},
     result: { video_assembly_checkpoint: checkpoint },
-  }
+  })
 }
 
 async function persist(projectSlug: string, rows: Job[]): Promise<string> {
@@ -157,13 +187,13 @@ describe('persisted Video Assembly restart recovery', () => {
       }
       checkpointSeenOnRetry = job.result?.video_assembly_checkpoint
     })
-    const queued = jq.enqueuePreparedForTest({
+    const queued = trackFixtureJob(jq.enqueuePreparedForTest({
       project_slug: project.slug,
       type: 'video_assembly',
       episode_id: 'LOCALRETRY',
       title: 'Video Assembly local retry checkpoint',
       params: {},
-    })
+    }))
 
     await waitFor(() => jq.getJob(queued.job_id)?.status === 'done', {
       label: 'the Video Assembly checkpoint to survive local attempt two',
@@ -184,26 +214,26 @@ describe('persisted Video Assembly restart recovery', () => {
       targetAttempts++
       throw new Error('enter retry backoff')
     })
-    const target = jq.enqueuePreparedForTest({
+    const target = trackFixtureJob(jq.enqueuePreparedForTest({
       project_slug: project.slug,
       type: 'video_assembly',
       episode_id: 'STOPBACKOFF',
       title: 'Video Assembly stop during retry backoff',
       params: {},
-    })
+    }))
     targetJobId = target.job_id
 
     await waitFor(() => Boolean(jq.getJob(target.job_id)?.auto_retry?.next_retry_at), {
       label: 'the first Video Assembly attempt to enter local retry backoff',
     })
     await jq.requestJobCancellation(project.slug, target.job_id)
-    const sentinel = jq.enqueuePreparedForTest({
+    const sentinel = trackFixtureJob(jq.enqueuePreparedForTest({
       project_slug: project.slug,
       type: 'video_assembly',
       episode_id: 'AFTERSTOP',
       title: 'Video Assembly lane release sentinel',
       params: {},
-    })
+    }))
     await waitFor(() => jq.getJob(sentinel.job_id)?.status === 'done', {
       label: 'the stopped Video Assembly job to release its retry lane',
     })

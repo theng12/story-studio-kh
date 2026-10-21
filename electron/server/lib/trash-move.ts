@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, constants, copyFileSync, lstatSync, mkdirSync, renameSync, statSync } from 'node:fs'
+import {
+  appendFileSync, closeSync, constants, copyFileSync, fstatSync, fsyncSync, lstatSync,
+  mkdirSync, openSync, readSync, renameSync, statSync, writeSync, type BigIntStats,
+} from 'node:fs'
 import path from 'node:path'
 
 /**
@@ -65,15 +68,17 @@ function sameDrive(a: string, b: string): boolean {
  * fallback (a cross-device failure must skip the file, not destroy it).
  * `kind` labels it on the Trash page ("final-video", "images", …).
  */
-export function moveToTrashSync(file: string, target: string, kind = 'other'): string {
+export function moveToTrashSync(file: string, target: string, kind = 'other', durableIndex = false): string {
+  if (durableIndex && !trashDirOf(path.resolve(target))) throw new Error('Durable Trash move requires a Trash root.')
   mkdirSync(path.dirname(target), { recursive: true })
   const { dir, name, ext } = path.parse(target)
   let candidate = target
   for (let n = 0; exists(candidate); n += 1) {
+    if (durableIndex) throw new Error('Durable Trash recovery target already exists.')
     candidate = path.join(dir, `${name}.${Date.now()}${n ? `-${n}` : ''}${ext}`)
   }
   renameSync(file, candidate)
-  recordTrashMove(path.resolve(file), path.resolve(candidate), kind)
+  recordTrashMove(path.resolve(file), path.resolve(candidate), kind, durableIndex, durableIndex)
   return candidate
 }
 
@@ -102,12 +107,142 @@ export function trashDirOf(target: string): string | null {
   return at < 0 ? null : target.slice(0, at + marker.length - 1)
 }
 
-function recordTrashMove(from: string, to: string, kind: string, strict = false): void {
+/** Repair only the index after the caller has verified a retained rename's exact recovery bytes. */
+export function ensureTrashMoveIndexedSync(from: string, to: string, kind: string): void {
+  recordTrashMove(path.resolve(from), path.resolve(to), kind, true, true)
+}
+
+const TRASH_INDEX_IO_BYTES = 65_536
+const TRASH_INDEX_RECORD_BYTES = 65_536
+const TRASH_INDEX_TOTAL_BYTES = 67_108_864n
+
+function sameIndexSnapshot(left: BigIntStats, right: BigIntStats): boolean {
+  return left.isFile() && right.isFile() && left.dev === right.dev && left.ino === right.ino
+    && left.size === right.size && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs
+}
+
+function scanTrashIndex(descriptor: number, size: number, entry: TrashIndexEntry): {
+  hasExactEntry: boolean; needsNewline: boolean
+} {
+  // ponytail: synchronous 64MiB history/64KiB record ceilings; background indexing if real history outgrows them.
+  const io = Buffer.allocUnsafe(TRASH_INDEX_IO_BYTES)
+  const record = Buffer.allocUnsafe(TRASH_INDEX_RECORD_BYTES)
+  let offset = 0
+  let recordLength = 0
+  let hasExactEntry = false
+  let lastByteWasLF = false
+  const inspect = () => {
+    if (recordLength === 0) return
+    try {
+      const value = JSON.parse(record.toString('utf8', 0, recordLength)) as TrashIndexEntry
+      if (value.from === entry.from && value.to === entry.to && value.kind === entry.kind
+        && typeof value.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.id)
+        && typeof value.at === 'string' && Number.isFinite(Date.parse(value.at))) hasExactEntry = true
+    } catch { /* Preserve malformed bounded historical records. */ }
+  }
+  while (offset < size) {
+    const requested = Math.min(io.length, size - offset)
+    const count = readSync(descriptor, io, 0, requested, offset)
+    if (!Number.isInteger(count) || count <= 0 || count > requested) {
+      throw new Error('Durable Trash index scan ended early or made invalid progress.')
+    }
+    offset += count
+    for (let i = 0; i < count; i += 1) {
+      lastByteWasLF = io[i] === 10
+      if (lastByteWasLF) {
+        inspect()
+        recordLength = 0
+      } else {
+        if (recordLength === record.length) throw new Error('Durable Trash index record exceeds 64KiB.')
+        record[recordLength++] = io[i]!
+      }
+    }
+  }
+  if (recordLength > 0) inspect()
+  return { hasExactEntry, needsNewline: size > 0 && !lastByteWasLF }
+}
+
+function appendIndexBytes(descriptor: number, bytes: Buffer): void {
+  let offset = 0
+  while (offset < bytes.length) {
+    const count = writeSync(descriptor, bytes, offset, bytes.length - offset, null)
+    if (!Number.isInteger(count) || count <= 0 || count > bytes.length - offset) {
+      throw new Error('Durable Trash index append made invalid progress.')
+    }
+    offset += count
+  }
+}
+
+function recordTrashMove(from: string, to: string, kind: string, strict = false, durable = false): void {
   const dir = trashDirOf(to)
-  if (!dir) return
+  if (!dir) {
+    if (durable) throw new Error('Durable Trash index requires a Trash root.')
+    return
+  }
   const entry: TrashIndexEntry = { id: randomUUID(), from, to, kind, at: new Date().toISOString() }
-  // A lost index line only costs Restore for that item; the move itself already happened.
-  try { appendFileSync(path.join(dir, TRASH_INDEX), `${JSON.stringify(entry)}\n`) } catch (error) {
+  // Existing callers keep their historical best-effort or strict append behavior.
+  try {
+    if (!durable) {
+      appendFileSync(path.join(dir, TRASH_INDEX), `${JSON.stringify(entry)}\n`)
+      return
+    }
+    const indexPath = path.join(dir, TRASH_INDEX)
+    const descriptor = openSync(indexPath,
+      constants.O_RDWR | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600)
+    let failed = false
+    let closeFailure: { error: unknown } | undefined
+    try {
+      const before = fstatSync(descriptor, { bigint: true })
+      if (!before.isFile() || before.size < 0n || before.size > TRASH_INDEX_TOTAL_BYTES) {
+        throw new Error('Durable Trash index is not a bounded regular file (64MiB maximum).')
+      }
+      if (!sameIndexSnapshot(before, lstatSync(indexPath, { bigint: true }))) {
+        throw new Error('Durable Trash index snapshot changed before scanning.')
+      }
+      const serialized = JSON.stringify(entry)
+      if (Buffer.byteLength(serialized, 'utf8') > TRASH_INDEX_RECORD_BYTES) {
+        throw new Error('Durable Trash index entry exceeds 64KiB.')
+      }
+      const scanned = scanTrashIndex(descriptor, Number(before.size), entry)
+      if (!sameIndexSnapshot(before, fstatSync(descriptor, { bigint: true }))
+        || !sameIndexSnapshot(before, lstatSync(indexPath, { bigint: true }))) {
+        throw new Error('Durable Trash index snapshot changed during scanning.')
+      }
+      const addition = scanned.hasExactEntry ? null : Buffer.from(serialized, 'utf8')
+      const appended = (scanned.needsNewline ? 1 : 0) + (addition ? addition.length + 1 : 0)
+      const expectedSize = before.size + BigInt(appended)
+      if (expectedSize > TRASH_INDEX_TOTAL_BYTES) throw new Error('Durable Trash index append exceeds 64MiB.')
+      // O_APPEND preserves append semantics; it is not a cross-process transaction lock.
+      const newline = Buffer.from('\n')
+      if (scanned.needsNewline) appendIndexBytes(descriptor, newline)
+      if (addition) {
+        appendIndexBytes(descriptor, addition)
+        appendIndexBytes(descriptor, newline)
+      }
+      fsyncSync(descriptor)
+      const after = fstatSync(descriptor, { bigint: true })
+      if (after.dev !== before.dev || after.ino !== before.ino || after.size !== expectedSize
+        || !sameIndexSnapshot(after, lstatSync(indexPath, { bigint: true }))) {
+        throw new Error('Durable Trash index identity or size changed after append.')
+      }
+    } catch (error) {
+      failed = true
+      throw error
+    } finally {
+      try { closeSync(descriptor) } catch (error) { if (!failed) closeFailure = { error } }
+    }
+    if (closeFailure) throw closeFailure.error
+    const directory = openSync(dir, constants.O_RDONLY | constants.O_NOFOLLOW)
+    failed = false
+    closeFailure = undefined
+    try { fsyncSync(directory) } catch (error) {
+      failed = true
+      throw error
+    } finally {
+      try { closeSync(directory) } catch (error) { if (!failed) closeFailure = { error } }
+    }
+    if (closeFailure) throw closeFailure.error
+  } catch (error) {
     if (strict) throw error
   }
 }

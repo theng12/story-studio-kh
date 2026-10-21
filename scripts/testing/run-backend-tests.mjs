@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -35,9 +34,11 @@ const PROBE_PATH = path.join(ROOT, 'scripts', 'release', 'fixtures', 'hermetic-b
 // the request is answered by the neighbour instead of the app under test.
 // See scripts/testing/loopback-supertest.mjs for the full story.
 const LOOPBACK_PRELOAD = path.join(ROOT, 'scripts', 'testing', 'loopback-supertest.mjs')
+const RETAINED_FS_PRELOAD = path.join(ROOT, 'scripts', 'testing', 'retained-fixture-fs.mjs')
 // Records which FILES finished, so the run can be reconciled against the files
 // it discovered rather than against its own summary. See `assertEverySuiteCompleted`.
 const COVERAGE_REPORTER = path.join(ROOT, 'scripts', 'testing', 'suite-coverage-reporter.mjs')
+const RETAINED_FIXTURES = path.join(ROOT, '_trash', 'test-fixtures')
 
 async function writeJson(filePath, value) {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
@@ -154,19 +155,17 @@ async function backendTestFiles() {
     .map(name => path.join(testsRoot, name))
 }
 
-function trustedTempDir() {
-  const keys = ['TMPDIR', 'TMP', 'TEMP']
-  if (process.platform === 'win32') keys.push('USERPROFILE')
-  const saved = new Map(keys.map(key => [key, process.env[key]]))
-  for (const key of keys) delete process.env[key]
-  try {
-    return os.tmpdir()
-  } finally {
-    for (const [key, value] of saved) {
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
-    }
+export function assertSameDeviceForRetention(sandboxDevice, fixturesDevice, sandbox) {
+  if (sandboxDevice !== fixturesDevice) {
+    throw new Error('backend test sandbox and _trash/test-fixtures are on different devices; '
+      + `tests were not started and the original sandbox remains at ${sandbox}`)
   }
+}
+
+export async function preflightSandboxRetention(sandbox, fixtures = RETAINED_FIXTURES) {
+  await fs.mkdir(fixtures, { recursive: true })
+  const [sandboxStat, fixturesStat] = await Promise.all([fs.stat(sandbox), fs.stat(fixtures)])
+  assertSameDeviceForRetention(sandboxStat.dev, fixturesStat.dev, sandbox)
 }
 
 export async function retainSandbox(sandbox, fixtures = path.join(ROOT, '_trash', 'test-fixtures')) {
@@ -178,10 +177,69 @@ export async function retainSandbox(sandbox, fixtures = path.join(ROOT, '_trash'
   return retained
 }
 
-async function run(options) {
-  let sandbox
+export async function retainedFsEvidenceFailure(snapshotRoot) {
   try {
-    sandbox = await fs.mkdtemp(path.join(trustedTempDir(), 'story-studio-backend-tests-'))
+    const names = (await fs.readdir(snapshotRoot)).filter(name => /^manifest-.*\.jsonl$/.test(name)).sort()
+    if (names.length === 0) return 'retained filesystem preload produced no process manifest'
+    for (const name of names) {
+      const raw = await fs.readFile(path.join(snapshotRoot, name), 'utf8')
+      if (!raw || !raw.endsWith('\n')) return `${name} is empty or has a partial final line`
+      let records
+      try {
+        records = raw.trimEnd().split('\n').map(line => JSON.parse(line))
+      } catch (error) {
+        return `${name} contains invalid retained filesystem evidence: ${error.message}`
+      }
+      const finals = records.filter(record => [
+        'child-settled', 'child-unsettled', 'child-signal-settled', 'child-signal-unsettled',
+      ].includes(record.phase))
+      if (finals.length !== 1 || records.at(-1) !== finals[0]) {
+        return `${name} does not end in exactly one final child settlement record`
+      }
+      const final = finals[0]
+      if (
+        !Number.isInteger(final.activeOperations) || final.activeOperations < 0
+        || !Number.isInteger(final.pendingCaptures) || final.pendingCaptures < 0
+      ) return `${name} has invalid retained filesystem final counters`
+      if (
+        !(final.phase === 'child-settled'
+          || (final.phase === 'child-signal-settled' && final.signal === 'SIGTERM'))
+        || final.activeOperations !== 0 || final.pendingCaptures !== 0
+      ) {
+        return `${name} reports unsettled retained filesystem work`
+      }
+      for (const verified of records.filter(record => record.phase === 'snapshot-verified')) {
+        const settlements = records.filter(record => record.phase === 'operation-settled'
+          && record.receiptId === verified.receiptId)
+        if (settlements.length !== 1) return `${name} has a verified snapshot without one operation outcome`
+      }
+    }
+    try {
+      await fs.lstat(path.join(snapshotRoot, '.retained-fixture-fs.lock'))
+      return 'retained filesystem lock remained active after the child closed'
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+    return null
+  } catch (error) {
+    return `retained filesystem evidence could not be reconciled: ${error.message}`
+  }
+}
+
+async function run(options) {
+  let sandboxContainer
+  let sandbox
+  let snapshotRoot
+  try {
+    await fs.mkdir(RETAINED_FIXTURES, { recursive: true })
+    sandboxContainer = await fs.mkdtemp(path.join(RETAINED_FIXTURES, 'backend-test-harness-'))
+    sandboxContainer = await fs.realpath(sandboxContainer)
+    await fs.chmod(sandboxContainer, 0o700)
+    sandbox = path.join(sandboxContainer, 'sandbox')
+    snapshotRoot = path.join(sandboxContainer, 'snapshots')
+    await fs.mkdir(sandbox, { mode: 0o700 })
+    await fs.mkdir(snapshotRoot, { mode: 0o700 })
+    await preflightSandboxRetention(sandbox, RETAINED_FIXTURES)
     const fakeHome = path.join(sandbox, 'home')
     const fakeProfile = path.join(sandbox, 'profile')
     const fakeAppData = path.join(sandbox, 'appdata')
@@ -205,7 +263,7 @@ async function run(options) {
     const before = await snapshotTree(configuredProjectsRoot)
 
     const require = createRequire(import.meta.url)
-    const tsxCli = require.resolve('tsx/cli')
+    const tsxImport = require.resolve('tsx')
     const onlyNeedles = options.onlyNeedles
     // Real paths on both sides: Node's reporter names files by their resolved
     // path, and on macOS a discovered path can differ only by a symlink
@@ -237,15 +295,19 @@ async function run(options) {
       TMP: sandbox,
       TEMP: sandbox,
       STORY_STUDIO_TEST_HARNESS_ROOT: sandbox,
+      STORY_STUDIO_RETAINED_SNAPSHOT_ROOT: snapshotRoot,
       STORY_STUDIO_DISABLE_LISTEN: '1',
       // NEW-03 — see BUNDLED_FFMPEG_DIR. Prepended, so a caller's own PATH still
       // takes precedence for anything else it needed.
       PATH: bundledFfmpegDir
         ? [bundledFfmpegDir, process.env.PATH].filter(Boolean).join(path.delimiter)
         : process.env.PATH,
-      // `--import` rather than an argv flag: tsx re-spawns node for `--test`,
-      // and NODE_OPTIONS is what survives that hop.
-      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import ${pathToFileURL(LOOPBACK_PRELOAD).href}`]
+      // NODE_OPTIONS carries the fixed preloads into node's test workers.
+      NODE_OPTIONS: [
+        process.env.NODE_OPTIONS,
+        `--import ${pathToFileURL(LOOPBACK_PRELOAD).href}`,
+        `--import ${pathToFileURL(RETAINED_FS_PRELOAD).href}`,
+      ]
         .filter(Boolean).join(' '),
     }
     delete childEnv.STORY_STUDIO_DATA_DIR
@@ -253,7 +315,8 @@ async function run(options) {
 
     const coveragePath = path.join(sandbox, 'suite-coverage.jsonl')
     const child = spawn(process.execPath, [
-      tsxCli,
+      '--import',
+      tsxImport,
       '--test',
       '--test-concurrency=1',
       // NO `--test-force-exit`. See `startSuiteWatchdog` for what it was doing.
@@ -283,6 +346,14 @@ async function run(options) {
       child.once('error', reject)
       child.once('close', code => resolve(code ?? 1))
     }).finally(() => clearTimeout(watchdog))
+
+    const retainedFsFailure = await retainedFsEvidenceFailure(snapshotRoot)
+    if (retainedFsFailure) {
+      console.error(`[test-harness] ${retainedFsFailure}`)
+      exitCode = 1
+    } else {
+      console.log('[test-harness] retained filesystem evidence: complete')
+    }
 
     const summary = assertSummaryAgrees(transcript, exitCode)
     if (summary) {
@@ -318,7 +389,7 @@ async function run(options) {
     }
     process.exitCode = exitCode
   } finally {
-    if (sandbox) await retainSandbox(sandbox)
+    if (sandboxContainer) console.log(`[test-harness] retained sandbox: ${sandboxContainer}`)
   }
 }
 

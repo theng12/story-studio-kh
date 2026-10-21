@@ -336,7 +336,7 @@ export async function verifyContentPackArchive(
   archiveBytes: Uint8Array,
   policy: ContentPackVerificationPolicy,
 ): Promise<VerifiedContentPack> {
-  return verifyArchive(archiveBytes, policy)
+  return verifyArchive(archiveBytes, 'publisher', policy)
 }
 
 /**
@@ -346,11 +346,54 @@ export async function verifyContentPackArchive(
 export async function verifyDeliveryAttestedContentPackArchive(
   archiveBytes: Uint8Array,
 ): Promise<VerifiedContentPack> {
-  return verifyArchive(archiveBytes)
+  return verifyArchive(archiveBytes, 'delivery-attested')
+}
+
+/**
+ * Possession is the local-import intent: whoever holds a valid archive may
+ * install it without a Store account or receipt. It selects one of the two
+ * existing verifications from the manifest's own declared profile — publisher
+ * signatures stay strictly checked, and a keyless delivery-profile archive gets
+ * the same structural checks as Store delivery. Possession never proves a
+ * publisher for a keyless archive.
+ */
+export async function verifyPossessedContentPackArchive(
+  archiveBytes: Uint8Array,
+  policy: ContentPackVerificationPolicy,
+): Promise<VerifiedContentPack> {
+  return verifyArchive(archiveBytes, 'possession', policy)
+}
+
+type ArchiveVerificationIntent = 'publisher' | 'delivery-attested' | 'possession'
+
+function verifyPublisherSignature(
+  manifest: ContentPackManifest,
+  manifestBytes: Uint8Array,
+  signatureBytes: Uint8Array | undefined,
+  policy: ContentPackVerificationPolicy,
+): void {
+  if (!manifest.key_id) fail('local publisher verification requires a manifest key_id')
+  if (manifest.delivery_profile) fail('delivery-attested profile must not use the local publisher verifier')
+  const key = policy.publisherKeys.get(manifest.key_id)
+  if (!key) fail(`unknown publisher key: ${manifest.key_id}`)
+  if (key.publisherId !== manifest.publisher_id) fail('publisher key does not match manifest publisher')
+  if (!signatureBytes || !verifyEd25519Signature(manifestBytes, signatureBytes, key.publicKeyPem)) fail('manifest signature verification failed')
+}
+
+function verifyDeliveryAttestedProfile(
+  manifest: ContentPackManifest,
+  signatureEntry: ZipEntry | undefined,
+): void {
+  // model-drift-allow: Frozen Content Store receipt profile identifies the signed delivery attestation format.
+  if (manifest.delivery_profile !== 'genstudio-store-receipt-v1') {
+    fail('delivery-attested archive must declare the GenStudio Store receipt profile')
+  }
+  if (signatureEntry) fail('delivery-attested archive must not contain a publisher signature')
 }
 
 async function verifyArchive(
   archiveBytes: Uint8Array,
+  intent: ArchiveVerificationIntent,
   policy?: ContentPackVerificationPolicy,
 ): Promise<VerifiedContentPack> {
   const limits = limitsFor(policy ?? { publisherKeys: new Map() })
@@ -358,7 +401,8 @@ async function verifyArchive(
   const entriesByPath = new Map(entries.map(entry => [entry.path, entry]))
   const manifestEntry = entriesByPath.get('manifest.json')
   const signatureEntry = entriesByPath.get('signature.ed25519')
-  if (!manifestEntry || (policy && !signatureEntry)) fail('manifest.json and signature.ed25519 are required')
+  if (!manifestEntry) fail('manifest.json is required')
+  if (intent === 'publisher' && !signatureEntry) fail('manifest.json and signature.ed25519 are required')
   if (manifestEntry.expandedBytes > limits.maxJsonBytes) fail('manifest.json exceeds JSON byte limit')
   if (signatureEntry && signatureEntry.expandedBytes > limits.maxSignatureBytes) fail('signature.ed25519 exceeds signature byte limit')
 
@@ -373,19 +417,17 @@ async function verifyArchive(
   } catch (error) {
     fail(`manifest.json does not match the Content Pack contract (${error instanceof Error ? error.message : 'unknown error'})`)
   }
-  if (policy) {
-    if (!manifest.key_id) fail('local publisher verification requires a manifest key_id')
-    const key = policy.publisherKeys.get(manifest.key_id)
-    if (!key) fail(`unknown publisher key: ${manifest.key_id}`)
-    if (key.publisherId !== manifest.publisher_id) fail('publisher key does not match manifest publisher')
-    if (!signatureBytes || !verifyEd25519Signature(manifestBytes, signatureBytes, key.publicKeyPem)) fail('manifest signature verification failed')
-    if (manifest.delivery_profile) fail('delivery-attested profile must not use the local publisher verifier')
+  if (intent === 'publisher') {
+    if (!policy) fail('local publisher verification requires a verification policy')
+    verifyPublisherSignature(manifest, manifestBytes, signatureBytes, policy)
+  } else if (intent === 'delivery-attested') {
+    verifyDeliveryAttestedProfile(manifest, signatureEntry)
+  } else if (manifest.delivery_profile) {
+    // Keyless possession: structural delivery checks only, never a publisher claim.
+    verifyDeliveryAttestedProfile(manifest, signatureEntry)
   } else {
-    // model-drift-allow: Frozen Content Store receipt profile identifies the signed delivery attestation format.
-    if (manifest.delivery_profile !== 'genstudio-store-receipt-v1') {
-      fail('delivery-attested archive must declare the GenStudio Store receipt profile')
-    }
-    if (signatureEntry) fail('delivery-attested archive must not contain a publisher signature')
+    if (!policy) fail('local publisher verification requires a verification policy')
+    verifyPublisherSignature(manifest, manifestBytes, signatureBytes, policy)
   }
 
   const declaredPaths = new Set(manifest.files.map(file => file.path))

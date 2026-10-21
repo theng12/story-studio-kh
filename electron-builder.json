@@ -1,6 +1,18 @@
 {
   "appId": "com.storystudio.kh",
   "productName": "Story Studio KH",
+  "extraMetadata": {
+    "storyRenderProvenance": {
+      "format": "studio.render.story-build-provenance.v1",
+      "mode": "descriptor-only",
+      "descriptors": {
+        "profile_digest": "34495ebc66dbb6e0388d11d04a8ecb35736239e2519f5d46a87cc7659c97f7be",
+        "tools_digest": "98c25ae582d4ee43ee1cf665192365149f8d9f860c229a0be9da131df43eba8a",
+        "compiler_digest": "1239374f6cf60d025ee897c4c6ea394892d2bc146b0f1b2df94e5eaecc86b4a7"
+      },
+      "qualification": null
+    }
+  },
   "directories": {
     "output": "dist",
     "buildResources": "build"

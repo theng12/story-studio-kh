@@ -45,6 +45,7 @@ import path from 'path'
 import { pipeline } from 'stream/promises'
 import { Transform } from 'stream'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { hasFinalRenderRemoteWaitMarker } from '../lib/final-render-remote-wait.js'
 import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import { APP_TRASH, TRASH_DIRNAME, libraryTrashDir, moveToTrashSync } from '../lib/trash-move.js'
 
@@ -1015,7 +1016,10 @@ export async function restoreBackup(input: RestoreInput): Promise<RestoreResult>
         // must never start (and spend) on the new one.
         if ((await hashFile(from)) !== f.sha256) out.damaged.push(`${rel} (does not match its checksum)`)
         const saved = await readJson(from)
-        const jobs = Array.isArray(saved?.jobs) ? saved.jobs.filter((j: any) => ['done', 'error', 'cancelled'].includes(j?.status)) : []
+        const jobs = Array.isArray(saved?.jobs)
+          ? saved.jobs.filter((j: any) => ['done', 'error', 'cancelled'].includes(j?.status)
+            || (j?.type === 'video_assembly' && hasFinalRenderRemoteWaitMarker(j)))
+          : []
         await writeJsonAtomic(dest, { ...(saved || {}), jobs })
         out.files++
         out.bytes += f.size

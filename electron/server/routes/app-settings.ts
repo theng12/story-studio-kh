@@ -8,7 +8,7 @@
  */
 
 import { Router } from 'express'
-import { isOwnerRequest, readAutomationKeyHeader } from '../lib/auth-session.js'
+import { buildRequireSession, isOwnerRequest, readAutomationKeyHeader } from '../lib/auth-session.js'
 import { getServerModeConfig } from '../lib/server-mode.js'
 import { getNotifierSettings, setNotifierSettings } from '../services/job-notifier.js'
 import {
@@ -29,8 +29,11 @@ import {
   getPaidWritingReplacementSetting, setPaidWritingReplacementSetting,
   getPaidReplacementSettings,
   getManualGenerationRedoSetting, setManualGenerationRedoSetting,
+  getPrivateFinalRenderSetting, setPrivateFinalRenderSetting,
+  recordAutomationKeyUse,
   setAppSetting,
 } from '../services/app-settings.js'
+import { getGatewayBindingStatus } from '../services/private-render-identity.js'
 import { getGlobalCompression, setGlobalCompression, COMPRESSION_DEFAULTS } from '../services/generation-compression.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
@@ -55,6 +58,39 @@ import {
 
 export const router = Router()
 const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
+
+const requirePrivateRenderOwner = buildRequireSession(
+  () => getServerModeConfig()?.auth,
+  {
+    getKeys: () => getServerModeConfig()?.automation_keys || [],
+    onKeyUsed: recordAutomationKeyUse,
+    allowLocalBypass: false,
+  },
+)
+
+router.get('/app-settings/private-final-render', async (_req, res) => {
+  try {
+    res.json(await getPrivateFinalRenderSetting())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load private final render setting'))
+  }
+})
+
+router.put('/app-settings/private-final-render', requirePrivateRenderOwner, async (req, res) => {
+  try {
+    res.json(await setPrivateFinalRenderSetting(req.body))
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save private final render setting'))
+  }
+})
+
+router.get('/app-settings/private-final-render/binding', async (_req, res) => {
+  try {
+    res.json(await getGatewayBindingStatus())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load private render Gateway binding'))
+  }
+})
 
 router.get('/app-settings/manual-generation-redo', async (_req, res) => {
   try {

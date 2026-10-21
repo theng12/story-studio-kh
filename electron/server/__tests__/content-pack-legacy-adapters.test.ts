@@ -208,6 +208,21 @@ describe('Content Pack legacy adapters', () => {
     assert.equal('provider' in recipe, false)
   })
 
+  test('the engine short-hook mode survives the signed schema and the adapter unchanged', () => {
+    // The personal Illustrated History recipe uses short-hook; a portable pack
+    // that silently rewrote it to curiosity-hook would change the picture.
+    const parsed = parseContentPackDocument('thumbnail-recipe', {
+      ...recipeDocument(),
+      headline_mode: 'short-hook',
+    })
+    assert.equal(parsed.kind, 'thumbnail-recipe')
+    if (parsed.kind !== 'thumbnail-recipe') return
+    assert.equal(parsed.headline_mode, 'short-hook')
+    const recipe = contentPackDocumentToThumbnailTemplate(parsed, []).recipe
+    assert.ok(recipe, 'the adapter emits a recipe for a signed thumbnail-recipe document')
+    assert.equal(recipe.headlineMode, 'short-hook')
+  })
+
   test('maps a visual style to the renderer-safe frontend shape only', () => {
     const style = contentPackDocumentToVisualStyle(styleDocument(), '/api/content-packs/com.storystudio.test.pack/1.0.0/assets/abc')
     assert.deepEqual(style, {

@@ -4,7 +4,7 @@ import { describe, test } from 'node:test'
 
 import JSZip from 'jszip'
 
-import { verifyContentPackArchive, verifyDeliveryAttestedContentPackArchive } from '../content-packs/archive.js'
+import { verifyContentPackArchive, verifyDeliveryAttestedContentPackArchive, verifyPossessedContentPackArchive } from '../content-packs/archive.js'
 import { readGenStudioDeliveryClosure, verifyGenStudioDeliveryAttestation } from '../content-packs/delivery-attestation.js'
 import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { ContentPackDeliveryAttestationSchema } from '../content-packs/runtime-types.js'
@@ -69,6 +69,24 @@ describe('delivery-attested Content Pack archive boundary', () => {
     )
     await assert.rejects(
       verifyDeliveryAttestedContentPackArchive(await deliveryArchive({ signature: Buffer.alloc(64) })),
+      /signature|delivery-attested/i,
+    )
+  })
+
+  test('possession admits a keyless receipt-profile archive without claiming a publisher', async () => {
+    const localPolicy = createContentPackKeyring([{
+      keyId: 'com.storystudio.local-test', publisherId: 'com.storystudio',
+      publicKeyPem: localKey.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+    }])
+    const archive = await deliveryArchive()
+    const verified = await verifyPossessedContentPackArchive(archive, localPolicy)
+    assert.equal(verified.manifest.delivery_profile, 'genstudio-store-receipt-v1')
+    assert.equal(verified.manifest.key_id, undefined)
+
+    // The publisher verifier and the receipt verifier keep their own strict doors.
+    await assert.rejects(verifyContentPackArchive(archive, localPolicy), /signature|publisher/i)
+    await assert.rejects(
+      verifyPossessedContentPackArchive(await deliveryArchive({ signature: Buffer.alloc(64) }), localPolicy),
       /signature|delivery-attested/i,
     )
   })

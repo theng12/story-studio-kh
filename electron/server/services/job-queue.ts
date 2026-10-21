@@ -5,24 +5,29 @@
  */
 
 import fs from 'fs/promises'
-import { existsSync } from 'fs'
+import { constants, existsSync } from 'fs'
 import path from 'path'
 import { EventEmitter } from 'events'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
 import { repairCircularParams } from '../lib/circular-params-repair.js'
+import {
+  FINAL_RENDER_MAX_REVISION_BYTES,
+  FINAL_RENDER_MAX_REVISIONS,
+  validateFinalRenderTransportEvidence,
+} from '../lib/final-render-transport-evidence.js'
 import { deactivateSceneRenderStatus } from './scene-render-status.js'
 import { boundGenStudioRequestPreviews, pendingGenStudioEntryId, type GenStudioRequestPreview } from '../lib/genstudio-request-preview.js'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { balancedReplacementSettlement, mergeGenerationReplacementAttempts } from './generation-paid-replacement.js'
-import { projectsRoot, getProjectDir } from './project-manager.js'
+import { projectsRoot, getProjectDir, getUserDataDir } from './project-manager.js'
 import { reapRecordedChildren, recordChildProcess } from './orphan-reaper.js'
 import { trackGeneration } from './session-tracker.js'
-import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { writeJsonAtomic, withCrossProcessLock, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
-import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType, PaidImageReplacementAttempt, PaidImageReplacementPolicySnapshot } from '../models/types.js'
+import type { FinalRenderIntentStagedReceiptV2, FinalRenderRemoteWaitReceipt, FinalRenderTransportReceiptV3, Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType, PaidImageReplacementAttempt, PaidImageReplacementPolicySnapshot } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { closingTailRemixInProgress, CLOSING_TAIL_REMIX_IN_PROGRESS } from './closing-tail-remix-admission.js'
@@ -75,6 +80,13 @@ import { pipelineStepLabels, splitChainAfterFailure } from '../lib/pipeline-cont
 import { withSavedPromptCollection, withSiblingPromptCollection } from '../lib/scene-prompt-collection.js'
 import { SKIPPED_STEP_LINE_PREFIX, disabledOptionalStepReason, disabledStepReasonForJob, unusableLinkSkipReason } from '../lib/optional-steps.js'
 import { safetyGate, safetyMode } from './safety-checks.js'
+import {
+  FINAL_RENDER_ATTENTION_PREFIX,
+  hasFinalRenderRemoteWaitMarker,
+  parseFinalRenderRemoteWaitReceipt,
+  publicFinalRenderWait,
+  sameFinalRenderRemoteWaitIdentity,
+} from '../lib/final-render-remote-wait.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -519,7 +531,7 @@ function persistedJobTime(job: Pick<Job, 'finished_at' | 'created_at'>): number 
  * history. The final filter keeps the source ordering intact, which is the
  * durable FIFO order used when queued jobs are restored after restart.
  */
-export function retainJobsForPersistence<T extends Pick<Job, 'job_id' | 'status' | 'finished_at' | 'created_at'>>(
+export function retainJobsForPersistence<T extends Pick<Job, 'job_id' | 'status' | 'finished_at' | 'created_at'> & Partial<Pick<Job, 'type' | 'final_render_remote_wait'>>>(
   records: T[],
 ): T[] {
   const terminal = records
@@ -529,7 +541,8 @@ export function retainJobsForPersistence<T extends Pick<Job, 'job_id' | 'status'
   const retainedTerminalIds = new Set(terminal.map(job => job.job_id))
 
   return records.filter(job => (
-    !TERMINAL_JOB_STATUSES.has(job.status)
+    (job.type === 'video_assembly' && hasFinalRenderRemoteWaitMarker(job))
+    || !TERMINAL_JOB_STATUSES.has(job.status)
     || retainedTerminalIds.has(job.job_id)
   ))
 }
@@ -538,6 +551,19 @@ export function retainJobsForPersistence<T extends Pick<Job, 'job_id' | 'status'
 
 const jobs = new Map<string, Job>()
 const providerFinalizing = new Set<string>()
+type ProviderFinalizerReleaseProbe = (jobId: string) => void | Promise<void>
+let providerFinalizerReleaseProbeForTesting: ProviderFinalizerReleaseProbe | undefined
+
+/** Test-only observation after provider-finalizer ownership is released. */
+export function _setProviderFinalizerReleaseProbeForTesting(
+  probe: ProviderFinalizerReleaseProbe,
+): () => void {
+  const previous = providerFinalizerReleaseProbeForTesting
+  providerFinalizerReleaseProbeForTesting = probe
+  return () => {
+    if (providerFinalizerReleaseProbeForTesting === probe) providerFinalizerReleaseProbeForTesting = previous
+  }
+}
 const cancellationReconciling = new Set<string>()
 const cancellationReconcileTimers = new Map<string, NodeJS.Timeout>()
 const cancelled = new Set<string>()
@@ -554,10 +580,126 @@ const pausedTransitionClaims = new Set<string>()
 const loadedProjects = new Set<string>()
 const loadingProjects = new Map<string, Promise<void>>()
 const projectRemovalInProgress = new Set<string>()
+const finalRenderRecoveryHolds = new Set<string>()
+const finalRenderMonitorTransientHolds = new Set<string>()
+type PendingFinalRenderTransition = {
+  projectSlug: string
+  jobId: string
+  before: FinalRenderRemoteWaitReceipt | null
+  after: FinalRenderRemoteWaitReceipt
+}
+const pendingFinalRenderTransitions = new Map<string, PendingFinalRenderTransition>()
+
+function finalRenderStateKey(projectSlug: string, jobId: string): string {
+  return `${projectSlug}\0${jobId}`
+}
+
+function finalRenderTransitionLockKey(projectSlug: string, jobId: string): string {
+  return `final-render-remote-wait:${projectSlug}:${jobId}`
+}
+
+function finalRenderCrossProcessTransitionKey(intentId: string): string {
+  const safeIntent = /^render_[0-9a-f]{32}$/.test(intentId)
+    ? intentId
+    : `legacy-${createHash('sha256').update(intentId).digest('hex')}`
+  return path.join(getUserDataDir(), 'private-render', 'locks', `${safeIntent}.transition`)
+}
+
+function hasFinalRenderFence(job: Pick<Job, 'job_id' | 'project_slug' | 'type'> & Partial<Pick<Job, 'final_render_remote_wait'>>): boolean {
+  return job.type === 'video_assembly'
+    && (hasFinalRenderRemoteWaitMarker(job)
+      || finalRenderRecoveryHolds.has(finalRenderStateKey(job.project_slug, job.job_id))
+      || finalRenderMonitorTransientHolds.has(finalRenderStateKey(job.project_slug, job.job_id)))
+}
+
+function hasFinalRenderPublicHold(projectSlug: string, jobId: string): boolean {
+  const key = finalRenderStateKey(projectSlug, jobId)
+  return finalRenderRecoveryHolds.has(key) || finalRenderMonitorTransientHolds.has(key)
+}
+
+function finalRenderWaitConflict(): Error {
+  return Object.assign(new Error('This remote video render is preserved until its original lineage is reconciled.'), {
+    status: 409, statusCode: 409, expose: true,
+  })
+}
+
+export function _hasFinalRenderRecoveryHoldForTesting(jobId: string): boolean {
+  return [...finalRenderRecoveryHolds].some(key => key.endsWith(`\0${jobId}`))
+}
+
+export function hasFinalRenderMonitorTransientHold(projectSlug: string, jobId: string): boolean {
+  return finalRenderMonitorTransientHolds.has(finalRenderStateKey(projectSlug, jobId))
+}
+
+export function markFinalRenderMonitorTransientHold(projectSlug: string, jobId: string): void {
+  const key = finalRenderStateKey(projectSlug, jobId)
+  if (finalRenderMonitorTransientHolds.has(key)) return
+  finalRenderMonitorTransientHolds.add(key)
+  const live = jobs.get(jobId)
+  if (live?.project_slug === projectSlug) emitUpdate(live)
+}
+
+export async function clearFinalRenderMonitorTransientHold(
+  projectSlug: string,
+  jobId: string,
+  expected: FinalRenderRemoteWaitReceipt,
+): Promise<boolean> {
+  const key = finalRenderStateKey(projectSlug, jobId)
+  if (!finalRenderMonitorTransientHolds.has(key)) return true
+  return withLock(finalRenderTransitionLockKey(projectSlug, jobId), async () => {
+    if (pendingFinalRenderTransitions.has(key) || finalRenderRecoveryHolds.has(key)) return false
+    const disk = await loadAuthoritativeJob(projectSlug, jobId)
+    if (!disk || disk.project_slug !== projectSlug || disk.type !== 'video_assembly'
+      || disk.status !== 'running' || !exactFinalRenderReceipt(disk.final_render_remote_wait, expected, jobId)
+      || !await hasDurableFinalRenderPrivateSnapshot(expected)) return false
+    finalRenderMonitorTransientHolds.delete(key)
+    const live = jobs.get(jobId)
+    if (live?.project_slug === projectSlug) emitUpdate(live)
+    return true
+  })
+}
 const PENDING_REMOTE_CANCELLATION_STATUSES = new Set(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
 const RECOVERABLE_GENSTUDIO_OPERATIONS = new Set([
   'voice.tts', 'audio.transcription', 'image.generation', 'video.generation', 'chat.response', 'music.generation',
 ])
+
+type PipelineHandoffOptions = Pick<EnqueueOptions, 'project_slug' | 'type' | 'episode_id' | 'title' | 'params'>
+type PipelineHandoff = {
+  version: 1
+  state: 'pending' | 'dispatched' | 'failed'
+  parent_job_id: string
+  child_job_id: string
+  options: PipelineHandoffOptions
+  content_pack_provenance: NonNullable<Job['content_pack_provenance']>
+}
+type PipelineJob = Job & { pipeline_handoff?: unknown }
+
+function hasPipelineHandoffField(job: Job): boolean {
+  return Object.prototype.hasOwnProperty.call(job, 'pipeline_handoff')
+}
+
+function pipelineHandoffOf(job: Job): PipelineHandoff | null {
+  const marker = (job as PipelineJob).pipeline_handoff as Partial<PipelineHandoff> | null | undefined
+  const options = marker?.options as Partial<PipelineHandoffOptions> | null | undefined
+  if (marker?.version !== 1
+    || !['pending', 'dispatched', 'failed'].includes(String(marker.state))
+    || marker.parent_job_id !== job.job_id
+    || typeof marker.child_job_id !== 'string' || !marker.child_job_id
+    || !options || options.project_slug !== job.project_slug || options.episode_id !== job.episode_id
+    || typeof options.type !== 'string' || !Object.prototype.hasOwnProperty.call(queues, options.type)
+    || typeof options.title !== 'string'
+    || !options.params || typeof options.params !== 'object' || Array.isArray(options.params)
+    || !Array.isArray(marker.content_pack_provenance)) return null
+  return marker as PipelineHandoff
+}
+
+function samePipelineHandoffEdge(left: PipelineHandoff, right: PipelineHandoff): boolean {
+  return left.version === right.version
+    && left.parent_job_id === right.parent_job_id
+    && left.child_job_id === right.child_job_id
+    && isDeepStrictEqual(left.options, right.options)
+    && isDeepStrictEqual(left.content_pack_provenance, right.content_pack_provenance)
+}
 
 function hasPendingRemoteCancellation(job: Pick<Job, 'remote_cancellations'>): boolean {
   return Object.values(job.remote_cancellations || {}).some(record => PENDING_REMOTE_CANCELLATION_STATUSES.has(record.status))
@@ -1147,6 +1289,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
   if (!(job.genstudio_jobs || []).length || hasUnsettledProviderEvidence(job)) return
   if (providerFinalizing.has(jobId)) return
   providerFinalizing.add(jobId)
+  let drainAfterRelease = false
   try {
     const evidence = job.genstudio_jobs || []
     if (!evidence.length) return
@@ -1307,9 +1450,12 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
     job.finished_at = new Date().toISOString()
     await persistJob(job)
     emitUpdate(job)
+    drainAfterRelease = true
   } finally {
     providerFinalizing.delete(jobId)
+    await providerFinalizerReleaseProbeForTesting?.(jobId)
   }
+  if (drainAfterRelease) await drainPendingPipelineHandoff(job.job_id)
 }
 
 // Durable Story-side queue hold. When set, pump() will not dequeue the next
@@ -1346,7 +1492,7 @@ export function throwIfPauseRequested(jobId: string): void {
 }
 
 // Simple async FIFO queues
-export type JobExecutorResult = void | { kind: 'paid-image-wait' }
+export type JobExecutorResult = void | { kind: 'paid-image-wait' } | { kind: 'video-assembly-remote-wait' }
 type JobExecutor = (job: Job) => Promise<JobExecutorResult>
 
 interface QueueState {
@@ -1357,7 +1503,7 @@ interface QueueState {
 
 let queuePumpObserverForTesting: ((type: JobType, releasedJobId?: string) => void) | null = null
 
-/** Test-only observation of queue admission attempts and grouped-slot releases. */
+/** Test-only observation of queue admission attempts and slot releases. */
 export function _observeQueuePumpsForTesting(observer: (type: JobType, releasedJobId?: string) => void): () => void {
   const previous = queuePumpObserverForTesting
   queuePumpObserverForTesting = observer
@@ -1991,7 +2137,7 @@ export async function withProjectJobRemovalGuard<T>(
       return withLock(path.join(projectDir, 'jobs.json'), async () => {
         const active = Array.from(jobs.values()).find(job => (
           job.project_slug === projectSlug
-          && (!TERMINAL_JOB_STATUSES.has(job.status) || hasUnsettledProviderEvidence(job))
+          && (hasFinalRenderFence(job) || !TERMINAL_JOB_STATUSES.has(job.status) || hasUnsettledProviderEvidence(job))
         ))
         if (active) {
           throw Object.assign(
@@ -2130,6 +2276,7 @@ function trimToHistoryRow(job: RendererJob): void {
 function serializeJob(job: Job, view: JobView = 'full'): RendererJob {
   jobPersistenceCounters.public_serializations++
   const copy = safeJob(view === 'full' ? job : streamSource(job))
+  delete (copy as PipelineJob).pipeline_handoff
   if (copy.params?.manual_image_finish) {
     delete copy.params.manual_image_finish.uncertain_identity_hashes
     delete copy.params.manual_image_finish.expected_uncertain_identity_hashes
@@ -2141,6 +2288,7 @@ function serializeJob(job: Job, view: JobView = 'full'): RendererJob {
   delete copy.paid_image_replacement_attempts
   delete copy.generation_replacement_attempts
   delete copy.manual_failed_item_replacement
+  delete copy.final_render_remote_wait
   const rendererJob: RendererJob = copy
   // Read-time classification (AGENTS.md §8): a finished row whose Pipeline step
   // the channel has since switched off reads `skipped`, not failed. Nothing on
@@ -2151,6 +2299,8 @@ function serializeJob(job: Job, view: JobView = 'full'): RendererJob {
     const skipReason = disabledStepReasonForJob(job)
     if (skipReason) rendererJob.skipped = { at: job.finished_at || job.created_at, reason: skipReason }
   }
+  const remoteWait = publicFinalRenderWait(job, hasFinalRenderPublicHold(job.project_slug, job.job_id))
+  if (remoteWait) rendererJob.final_render_wait = remoteWait
   if (privateReasons.length) {
     if (rendererJob.error && privateReasons.some(reason => rendererJob.error!.includes(reason))) {
       rendererJob.error = PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE
@@ -2183,6 +2333,15 @@ function serializeJob(job: Job, view: JobView = 'full'): RendererJob {
   if (rendererJob.status === 'queued') {
     const lane = queues[job.type]
     rendererJob.queue_position = lane ? lane.pending.findIndex(candidate => candidate.job_id === job.job_id) + 1 : 0
+  }
+  if (hasFinalRenderPublicHold(job.project_slug, job.job_id)) {
+    const hold: JobControl = {
+      action: 'return-later', enabled: false, label: 'Return later',
+      reason: 'Story Studio is preserving this remote render record until it can be reconciled safely.',
+      code: 'CANCELLATION_STATUS_UNKNOWN', financial_effect: 'remote-result-required',
+    }
+    rendererJob.controls = [hold]
+    rendererJob.control = hold
   }
   if (view === 'row') trimToHistoryRow(rendererJob)
   return rendererJob
@@ -2224,6 +2383,7 @@ type ProjectPersistenceState = {
 type ProjectJobMutation =
   | { kind: 'transform'; jobId: string; transform: (current: Job | null) => Job | null }
   | { kind: 'delete'; jobId: string }
+  | { kind: 'final-render-remote-wait'; jobId: string; before: FinalRenderRemoteWaitReceipt | null; after: FinalRenderRemoteWaitReceipt }
 const projectPersistence = new Map<string, ProjectPersistenceState>()
 
 function projectPersistenceState(projectSlug: string): ProjectPersistenceState {
@@ -2312,7 +2472,8 @@ function pruneProjectSnapshot(projectSlug: string, input: Map<string, Job>, capt
     input.delete(id)
     const live = jobs.get(id)
     if (!live || live.project_slug !== projectSlug || !TERMINAL_JOB_STATUSES.has(live.status)
-      || activeRunJobIds.has(id) || (!live.force_abandoned && hasUnsettledProviderEvidence(live))) continue
+      || hasFinalRenderFence(live) || activeRunJobIds.has(id)
+      || (!live.force_abandoned && hasUnsettledProviderEvidence(live))) continue
     jobs.delete(id)
     cancelled.delete(id)
     forgotten.push(id)
@@ -2396,9 +2557,37 @@ let coalesceSoftCheckpoints = true
 
 function applyProjectMutation(state: ProjectPersistenceState, mutation: ProjectJobMutation, soft = false): Promise<void> {
   if (mutation.kind === 'delete') {
-    state.baseline!.delete(mutation.jobId)
-    state.deletedIds.add(mutation.jobId)
-  } else {
+    const previous = state.baseline!.get(mutation.jobId)
+    if (!previous || !hasFinalRenderRemoteWaitMarker(previous)) {
+      state.baseline!.delete(mutation.jobId)
+      state.deletedIds.add(mutation.jobId)
+    }
+  }
+  else if (mutation.kind === 'final-render-remote-wait') {
+    const previous = state.baseline!.get(mutation.jobId)
+    if (!previous || previous.type !== 'video_assembly') throw new Error('Remote render job is missing from canonical persistence.')
+    const markerPresent = hasFinalRenderRemoteWaitMarker(previous)
+    const current = parseFinalRenderRemoteWaitReceipt(previous.final_render_remote_wait, previous.job_id)
+    const exactAfter = current.ok && exactFinalRenderReceipt(current.receipt, mutation.after, previous.job_id)
+    const exactBefore = mutation.before !== null && current.ok
+      && exactFinalRenderReceipt(current.receipt, mutation.before, previous.job_id)
+    if ((mutation.before === null && markerPresent && !exactAfter)
+      || (mutation.before !== null && !exactBefore && !exactAfter)) {
+      throw new Error('Remote render lineage changed outside its canonical transition.')
+    }
+    if (mutation.before === null && previous.status !== 'running') {
+      throw new Error('Remote render job is not a valid canonical running row.')
+    }
+    const next: Job = {
+      ...previous,
+      status: 'running',
+      finished_at: null,
+      final_render_remote_wait: structuredClone(mutation.after),
+    }
+    delete next.final_render_wait
+    state.baseline!.set(mutation.jobId, markSafe(capFinishedLog(safeJob(next))))
+  }
+  else {
     const previous = state.baseline!.get(mutation.jobId) || null
     const next = mutation.transform(previous ? structuredClone(previous) : null)
     if (next) {
@@ -2583,12 +2772,16 @@ function coalesceExactProviderEvidence(job: Pick<Job, 'params'>, input: GenStudi
 }
 
 function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
-  if (!previous) return {
-    ...incoming,
+  if (!previous) {
+    const ordinary = structuredClone(incoming)
+    delete ordinary.final_render_remote_wait
+    delete ordinary.final_render_wait
+    return {
+    ...ordinary,
     ...(incoming.genstudio_jobs
       ? { genstudio_jobs: coalesceExactProviderEvidence(incoming, incoming.genstudio_jobs) }
       : {}),
-  }
+  }}
   const providerById = new Map((previous.genstudio_jobs || []).map(entry => [`${entry.operation}:${entry.id}`, entry]))
   for (const entry of incoming.genstudio_jobs || []) {
     const identity = `${entry.operation}:${entry.id}`
@@ -2604,17 +2797,67 @@ function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
     previous.paid_image_replacement_attempts,
     incoming.paid_image_replacement_attempts,
   )
+  const ordinaryIncoming = structuredClone(incoming)
+  delete ordinaryIncoming.final_render_remote_wait
+  delete ordinaryIncoming.final_render_wait
   const merged = {
-    ...incoming,
+    ...ordinaryIncoming,
     generation_replacement_attempts: mergeGenerationReplacementAttempts(previous.generation_replacement_attempts, incoming.generation_replacement_attempts),
     ...(Object.keys(remoteCancellations).length > 0 ? { remote_cancellations: remoteCancellations } : {}),
     ...(attempts ? { paid_image_replacement_attempts: attempts } : {}),
   }
+  const previousPrivate = (previous as PipelineJob).pipeline_handoff
+  const incomingPrivate = (incoming as PipelineJob).pipeline_handoff
+  if (hasPipelineHandoffField(previous)) {
+    const previousMarker = pipelineHandoffOf(previous)
+    const incomingMarker = pipelineHandoffOf(incoming)
+    const privateValue = previousMarker && incomingMarker && samePipelineHandoffEdge(previousMarker, incomingMarker)
+      ? {
+        ...previousMarker,
+        state: previousMarker.state === 'pending' ? incomingMarker.state : previousMarker.state,
+      }
+      : previousPrivate
+    ;(merged as PipelineJob).pipeline_handoff = structuredClone(privateValue)
+  } else if (hasPipelineHandoffField(incoming)) {
+    ;(merged as PipelineJob).pipeline_handoff = structuredClone(incomingPrivate)
+  }
   const providerJobs = coalesceExactProviderEvidence(merged, [...providerById.values()])
-  return {
+  const result: Job = {
     ...merged,
     ...(providerJobs.length > 0 ? { genstudio_jobs: providerJobs } : {}),
   }
+  const stateKey = finalRenderStateKey(previous.project_slug, previous.job_id)
+  const pending = pendingFinalRenderTransitions.get(stateKey)
+  const pendingForJob = pending?.projectSlug === previous.project_slug ? pending : undefined
+  if (pendingForJob) result.final_render_remote_wait = structuredClone(pendingForJob.after)
+  else if (hasFinalRenderRemoteWaitMarker(previous)) {
+    result.final_render_remote_wait = structuredClone(previous.final_render_remote_wait!)
+  }
+  const verifiedTerminalWasPersisted = TERMINAL_JOB_STATUSES.has(previous.status)
+    && typeof previous.result?.final_render_terminal_sha256 === 'string'
+    && ((previous.status === 'done' && previous.local_execution_complete === true)
+      || (previous.status === 'cancelled' && previous.local_execution_complete === false))
+  if (verifiedTerminalWasPersisted) {
+    result.status = previous.status
+    result.finished_at = previous.finished_at
+    result.local_execution_complete = previous.local_execution_complete
+    result.result = previous.result === undefined ? undefined : structuredClone(previous.result)
+    result.error = previous.error
+    result.params = structuredClone(previous.params)
+    result.content_pack_provenance = previous.content_pack_provenance === undefined
+      ? undefined : structuredClone(previous.content_pack_provenance)
+  } else if (pendingForJob || hasFinalRenderRemoteWaitMarker(previous)
+    || finalRenderRecoveryHolds.has(stateKey)) {
+    result.status = 'running'
+    result.finished_at = null
+    result.local_execution_complete = false
+    result.pause_requested = false
+    result.params = structuredClone(previous.params)
+    result.result = previous.result === undefined ? undefined : structuredClone(previous.result)
+    result.content_pack_provenance = previous.content_pack_provenance === undefined
+      ? undefined : structuredClone(previous.content_pack_provenance)
+  }
+  return result
 }
 
 async function persistJob(job: Job, soft = false): Promise<void> {
@@ -2627,6 +2870,7 @@ async function persistJob(job: Job, soft = false): Promise<void> {
   const observation = transaction?.jobId === job.job_id && jobs.get(job.job_id) === job ? safeJob(job) : null
   if (observation) transaction!.observations.push(observation)
   const incoming = safeJob(job)
+  delete incoming.final_render_wait
   await persistProjectMutation(job.project_slug, {
     kind: 'transform',
     jobId: job.job_id,
@@ -2657,6 +2901,780 @@ async function readLockedAuthoritativeJob(file: string, jobId: string): Promise<
 export async function loadAuthoritativeJob(projectSlug: string, jobId: string): Promise<Job | null> {
   const p = jobsPath(projectSlug)
   return withLock(p, () => readLockedAuthoritativeJob(p, jobId))
+}
+
+function exactFinalRenderReceipt(left: unknown, right: FinalRenderRemoteWaitReceipt, jobId: string): boolean {
+  const parsed = parseFinalRenderRemoteWaitReceipt(left, jobId)
+  return parsed.ok && sameFinalRenderRemoteWaitIdentity(parsed.receipt, right)
+    && parsed.receipt.revision === right.revision
+    && parsed.receipt.cancel_requested_at === right.cancel_requested_at
+}
+
+function stagedRootForTransportReceipt(receipt: FinalRenderTransportReceiptV3): FinalRenderIntentStagedReceiptV2 {
+  return {
+    version: 2,
+    phase: 'intent_staged',
+    revision: 1,
+    job_id: receipt.job_id,
+    intent_id: receipt.intent_id,
+    story_instance_id: receipt.story_instance_id,
+    story_attempt: receipt.story_attempt,
+    gateway_attempt_key: receipt.gateway_attempt_key,
+    packet_sha256: receipt.packet_sha256,
+    staging_manifest_sha256: receipt.staging_manifest_sha256,
+    submission_scope_sha256: receipt.submission_scope_sha256,
+    destination_fence_sha256: receipt.destination_fence_sha256,
+    source_generation_fence_sha256: receipt.source_generation_fence_sha256,
+    committed_at: receipt.committed_at,
+    cancel_requested_at: null,
+  }
+}
+
+async function hasDurableFinalRenderPrivateSnapshot(
+  receipt: FinalRenderRemoteWaitReceipt,
+  expectedImport?: {
+    output_sha256: string
+    output_size_bytes: number
+    receipt_sha256: string
+    destination_path: string | null
+    candidate_path: string | null
+  },
+): Promise<boolean> {
+  if (receipt.version === 1) return false
+  try {
+    const intentDir = path.join(getUserDataDir(), 'private-render', 'intents', receipt.intent_id)
+    const manifestBytes = await readStablePrivateFile(path.join(intentDir, 'manifest.json'), 1024 * 1024)
+    if (!manifestBytes) return false
+    const staged = receipt.version === 2
+      ? { ...receipt, revision: 1 as const, cancel_requested_at: null }
+      : stagedRootForTransportReceipt(receipt)
+    if (receipt.version === 2) {
+      validateFinalRenderTransportEvidence({
+        staged,
+        canonical: receipt,
+        manifestBytes,
+        revisions: [],
+      })
+      return true
+    }
+    const requestBytes = await readStablePrivateFile(path.join(intentDir, 'transport', 'request.json'), 1024 * 1024)
+    const submissionBytes = await readStablePrivateFile(path.join(intentDir, 'transport', 'submission.json'), 1024 * 1024)
+    if (!requestBytes || !submissionBytes) return false
+    const revisionsDir = path.join(intentDir, 'transport', 'revisions')
+    const names = (await fs.readdir(revisionsDir)).sort()
+    if (names.length > FINAL_RENDER_MAX_REVISIONS) return false
+    const revisions = []
+    for (const name of names) {
+      const bytes = await readStablePrivateFile(path.join(revisionsDir, name), FINAL_RENDER_MAX_REVISION_BYTES)
+      if (!bytes) return false
+      revisions.push({ name, bytes })
+    }
+    const evidence = validateFinalRenderTransportEvidence({
+      staged,
+      canonical: receipt,
+      manifestBytes,
+      requestBytes,
+      submissionBytes,
+      revisions,
+    })
+    if (expectedImport && (!evidence.importOutput
+      || evidence.importOutput.sha256 !== expectedImport.output_sha256
+      || evidence.importOutput.sizeBytes !== expectedImport.output_size_bytes
+      || evidence.importOutput.receiptSha256 !== expectedImport.receipt_sha256
+      || evidence.importOutput.destinationPath !== expectedImport.destination_path
+      || evidence.importOutput.candidatePath !== expectedImport.candidate_path)) return false
+    if (expectedImport?.destination_path === null) {
+      const { destination } = JSON.parse(manifestBytes.toString('utf8'))
+      if (destination.state.kind === 'file') {
+        const recoveryPath = path.join(destination.recovery_root, 'final-render-recovery', receipt.intent_id,
+          path.basename(destination.pathname))
+        try {
+          await fs.lstat(recoveryPath)
+          return false // Displacement without an imported revision is not the captured before-state.
+        } catch (error: any) {
+          if (error?.code !== 'ENOENT') return false
+        }
+        if (await hashStableFinalRenderMedia(destination.pathname, destination.state.size_bytes)
+          !== destination.state.sha256) return false
+      } else {
+        try {
+          await fs.lstat(destination.pathname)
+          return false
+        } catch (error: any) {
+          if (error?.code !== 'ENOENT') return false
+        }
+      }
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function readStablePrivateFile(filePath: string, maximum: number): Promise<Buffer | null> {
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null
+  try {
+    handle = await fs.open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    const before = await handle.stat({ bigint: true })
+    if (!before.isFile() || before.size <= 0n || before.size > BigInt(maximum)) return null
+    const bytes = Buffer.alloc(Number(before.size))
+    let offset = 0
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset)
+      if (!bytesRead) return null
+      offset += bytesRead
+    }
+    const after = await handle.stat({ bigint: true })
+    const visible = await fs.lstat(filePath, { bigint: true })
+    if (!visible.isFile() || visible.isSymbolicLink()
+      || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+      || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs
+      || visible.dev !== after.dev || visible.ino !== after.ino || visible.size !== after.size
+      || visible.mtimeNs !== after.mtimeNs || visible.ctimeNs !== after.ctimeNs) return null
+    return bytes
+  } catch {
+    return null
+  } finally {
+    await handle?.close().catch(() => undefined)
+  }
+}
+
+async function hashStableFinalRenderMedia(
+  filePath: string,
+  expectedSize: number,
+): Promise<string | null> {
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null
+  try {
+    handle = await fs.open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    const before = await handle.stat({ bigint: true })
+    if (!before.isFile() || before.size !== BigInt(expectedSize)) return null
+    const digest = createHash('sha256')
+    const buffer = Buffer.allocUnsafe(1024 * 1024)
+    let offset = 0
+    while (offset < expectedSize) {
+      const result = await handle.read(buffer, 0, Math.min(buffer.length, expectedSize - offset), offset)
+      if (!result.bytesRead) return null
+      digest.update(buffer.subarray(0, result.bytesRead))
+      offset += result.bytesRead
+    }
+    const after = await handle.stat({ bigint: true })
+    const visible = await fs.lstat(filePath, { bigint: true })
+    if (!visible.isFile() || visible.isSymbolicLink()
+      || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+      || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs
+      || visible.dev !== after.dev || visible.ino !== after.ino || visible.size !== after.size
+      || visible.mtimeNs !== after.mtimeNs || visible.ctimeNs !== after.ctimeNs) return null
+    return digest.digest('hex')
+  } catch {
+    return null
+  } finally {
+    await handle?.close().catch(() => undefined)
+  }
+}
+
+/** Return only this job's already-owned v2 staging lineage; never adopt an orphan. */
+export async function loadKnownFinalRenderIntentStagedReceipt(
+  projectSlug: string,
+  jobId: string,
+): Promise<FinalRenderIntentStagedReceiptV2 | null> {
+  return withLock(finalRenderTransitionLockKey(projectSlug, jobId), async () => {
+    const pending = pendingFinalRenderTransitions.get(finalRenderStateKey(projectSlug, jobId))
+    if (pending) {
+      if (pending.projectSlug !== projectSlug) {
+        throw new Error('A different remote render transition is already pending for this job.')
+      }
+      const parsed = parseFinalRenderRemoteWaitReceipt(pending.after, jobId)
+      if (!parsed.ok || parsed.receipt.version !== 2) {
+        throw new Error('Remote render lineage requires recovery before staging can continue.')
+      }
+      return structuredClone(parsed.receipt)
+    }
+    const disk = await loadAuthoritativeJob(projectSlug, jobId)
+    if (!disk || !hasFinalRenderRemoteWaitMarker(disk)) return null
+    const parsed = parseFinalRenderRemoteWaitReceipt(disk.final_render_remote_wait, jobId)
+    if (!parsed.ok || parsed.receipt.version !== 2 || disk.type !== 'video_assembly' || disk.status !== 'running') {
+      throw new Error('Remote render lineage requires recovery before staging can continue.')
+    }
+    return structuredClone(parsed.receipt)
+  })
+}
+
+/** Durable prerequisite only. The returned receipt grants no network-send authority. */
+export async function commitFinalRenderRemoteWaitReceipt(
+  job: Job,
+  receipt: FinalRenderRemoteWaitReceipt,
+): Promise<{ kind: 'committed'; receipt: FinalRenderRemoteWaitReceipt }> {
+  if (job.type !== 'video_assembly' || job.status !== 'running') {
+    throw new Error('Remote render receipt is not a valid initial commitment.')
+  }
+  const stateKey = finalRenderStateKey(job.project_slug, job.job_id)
+  finalRenderRecoveryHolds.add(stateKey)
+  // This job-scoped lock is always outside the canonical writer. The writer may
+  // acquire jobsPath; no jobsPath-held caller acquires this key, so lock order is fixed.
+  return withLock(finalRenderTransitionLockKey(job.project_slug, job.job_id), async () => {
+    const parsed = parseFinalRenderRemoteWaitReceipt(receipt, job.job_id)
+    if (!parsed.ok || parsed.receipt.revision !== 1 || parsed.receipt.cancel_requested_at !== null) {
+      throw new Error('Remote render receipt is not a valid initial commitment.')
+    }
+    if (!await hasDurableFinalRenderPrivateSnapshot(parsed.receipt)) {
+      throw new Error('Remote render private snapshot is missing or does not match its canonical receipt.')
+    }
+    const existing = pendingFinalRenderTransitions.get(stateKey)
+    if (existing && (existing.projectSlug !== job.project_slug
+      || !exactFinalRenderReceipt(existing.after, parsed.receipt, job.job_id))) {
+      throw new Error('A different remote render transition is already pending for this job.')
+    }
+    let pending = existing
+    if (!existing) {
+      const diskBefore = await loadAuthoritativeJob(job.project_slug, job.job_id)
+      if (!diskBefore || diskBefore.type !== 'video_assembly' || diskBefore.status !== 'running') {
+        throw new Error('Remote render job is not a valid canonical running row.')
+      }
+      if (hasFinalRenderRemoteWaitMarker(diskBefore)) {
+        if (exactFinalRenderReceipt(diskBefore.final_render_remote_wait, parsed.receipt, job.job_id)
+          && exactFinalRenderReceipt(job.final_render_remote_wait, parsed.receipt, job.job_id)) {
+          finalRenderRecoveryHolds.delete(stateKey)
+          return { kind: 'committed' as const, receipt: structuredClone(parsed.receipt) }
+        }
+        throw new Error('Remote render lineage already exists and is not a pending transition.')
+      }
+      pending = {
+        projectSlug: job.project_slug,
+        jobId: job.job_id,
+        before: null,
+        after: structuredClone(parsed.receipt),
+      }
+      pendingFinalRenderTransitions.set(stateKey, pending)
+    }
+    try {
+      await persistProjectMutation(job.project_slug, {
+        kind: 'final-render-remote-wait', jobId: job.job_id, before: pending!.before, after: pending!.after,
+      })
+      const disk = await loadAuthoritativeJob(job.project_slug, job.job_id)
+      if (!disk || !exactFinalRenderReceipt(disk.final_render_remote_wait, pending!.after, job.job_id)) {
+        throw new Error('Remote render receipt did not match the canonical disk readback.')
+      }
+      job.final_render_remote_wait = structuredClone(pending!.after)
+      job.status = 'running'
+      job.finished_at = null
+      const live = jobs.get(job.job_id)
+      if (live?.project_slug === job.project_slug) Object.assign(live, job)
+      if (pendingFinalRenderTransitions.get(stateKey) === pending) pendingFinalRenderTransitions.delete(stateKey)
+      finalRenderRecoveryHolds.delete(stateKey)
+      return { kind: 'committed', receipt: structuredClone(pending!.after) }
+    } catch (error) {
+      finalRenderRecoveryHolds.add(stateKey)
+      throw error
+    }
+  })
+}
+
+function sameV2V3Lineage(before: FinalRenderIntentStagedReceiptV2, after: FinalRenderTransportReceiptV3): boolean {
+  return before.job_id === after.job_id
+    && before.intent_id === after.intent_id
+    && before.story_instance_id === after.story_instance_id
+    && before.story_attempt === after.story_attempt
+    && before.gateway_attempt_key === after.gateway_attempt_key
+    && before.packet_sha256 === after.packet_sha256
+    && before.staging_manifest_sha256 === after.staging_manifest_sha256
+    && before.submission_scope_sha256 === after.submission_scope_sha256
+    && before.destination_fence_sha256 === after.destination_fence_sha256
+    && before.source_generation_fence_sha256 === after.source_generation_fence_sha256
+    && before.committed_at === after.committed_at
+}
+
+function validFinalRenderTransportTransition(
+  before: FinalRenderRemoteWaitReceipt,
+  after: FinalRenderTransportReceiptV3,
+): boolean {
+  if (before.version === 2) {
+    return before.revision === 1 && before.cancel_requested_at === null
+      && after.phase === 'request_persisted' && after.revision === 2
+      && after.cancel_requested_at === null && after.gateway_job_id === null
+      && sameV2V3Lineage(before, after)
+  }
+  if (before.version !== 3 || after.revision !== before.revision + 1
+    || before.job_id !== after.job_id || before.intent_id !== after.intent_id
+    || before.story_instance_id !== after.story_instance_id || before.story_attempt !== after.story_attempt
+    || before.gateway_attempt_key !== after.gateway_attempt_key || before.packet_sha256 !== after.packet_sha256
+    || before.staging_manifest_sha256 !== after.staging_manifest_sha256
+    || before.submission_scope_sha256 !== after.submission_scope_sha256
+    || before.destination_fence_sha256 !== after.destination_fence_sha256
+    || before.source_generation_fence_sha256 !== after.source_generation_fence_sha256
+    || before.committed_at !== after.committed_at
+    || before.request_body_sha256 !== after.request_body_sha256
+    || before.request_body_bytes !== after.request_body_bytes
+    || before.cancel_requested_at !== after.cancel_requested_at) return false
+  if (before.phase === 'request_persisted') {
+    return after.phase === 'send_may_start' && before.gateway_job_id === null && after.gateway_job_id === null
+  }
+  if (before.phase === 'send_may_start') {
+    return (after.phase === 'remote_wait' && after.gateway_job_id !== null)
+      || ((after.phase === 'send_unknown' || after.phase === 'lookup_not_found' || after.phase === 'recovery_hold')
+        && after.gateway_job_id === null)
+  }
+  if (before.phase === 'send_unknown') {
+    return (after.phase === 'remote_wait' && after.gateway_job_id !== null)
+      || ((after.phase === 'lookup_not_found' || after.phase === 'recovery_hold') && after.gateway_job_id === null)
+  }
+  if (before.phase === 'lookup_not_found') {
+    return (after.phase === 'remote_wait' && after.gateway_job_id !== null)
+      || (after.phase === 'recovery_hold' && after.gateway_job_id === null)
+  }
+  if (before.phase === 'remote_wait') {
+    return (after.phase === 'output_ready' || after.phase === 'recovery_hold')
+      && after.gateway_job_id === before.gateway_job_id
+  }
+  if (before.phase === 'output_ready') {
+    return after.phase === 'importing' && after.gateway_job_id === before.gateway_job_id
+  }
+  if (before.phase === 'importing') {
+    return after.phase === 'imported' && after.gateway_job_id === before.gateway_job_id
+  }
+  if (before.phase === 'imported') {
+    return after.phase === 'acknowledged' && after.gateway_job_id === before.gateway_job_id
+  }
+  return false
+}
+
+/**
+ * Short shared import boundary. The callback may perform only local durable
+ * publication/journal work and returns the already-journalled canonical target;
+ * callers perform no network request while this boundary is held.
+ */
+export async function commitFinalRenderImportTransitionMutation(
+  projectSlug: string,
+  jobId: string,
+  expected: FinalRenderTransportReceiptV3,
+  mutate: () => Promise<FinalRenderTransportReceiptV3>,
+): Promise<FinalRenderTransportReceiptV3> {
+  const stateKey = finalRenderStateKey(projectSlug, jobId)
+  return withCrossProcessLock(finalRenderCrossProcessTransitionKey(expected.intent_id), () => (
+    withLock(finalRenderTransitionLockKey(projectSlug, jobId), async () => {
+      finalRenderRecoveryHolds.add(stateKey)
+      const diskBefore = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!diskBefore || diskBefore.type !== 'video_assembly' || diskBefore.status !== 'running'
+        || !exactFinalRenderReceipt(diskBefore.final_render_remote_wait, expected, jobId)) {
+        throw new Error('Remote render import authority changed before its local mutation.')
+      }
+      const target = await mutate()
+      if (!validFinalRenderTransportTransition(expected, target)
+        || !await hasDurableFinalRenderPrivateSnapshot(target)) {
+        throw new Error('Remote render import mutation evidence is missing or invalid.')
+      }
+      await persistProjectMutation(projectSlug, {
+        kind: 'final-render-remote-wait', jobId, before: expected, after: target,
+      })
+      const disk = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!disk || !exactFinalRenderReceipt(disk.final_render_remote_wait, target, jobId)) {
+        throw new Error('Remote render import transition failed durable readback.')
+      }
+      finalRenderRecoveryHolds.delete(stateKey)
+      const live = jobs.get(jobId)
+      if (live?.project_slug === projectSlug) {
+        Object.assign(live, disk)
+        emitUpdate(live)
+      }
+      return structuredClone(target)
+    })
+  ))
+}
+
+/** Short no-network boundary for a durable importer journal intent. */
+export async function withFinalRenderImportJournalMutation<T>(
+  projectSlug: string,
+  jobId: string,
+  expected: FinalRenderTransportReceiptV3,
+  mutate: () => Promise<T>,
+): Promise<T> {
+  return withCrossProcessLock(finalRenderCrossProcessTransitionKey(expected.intent_id), () => (
+    withLock(finalRenderTransitionLockKey(projectSlug, jobId), async () => {
+      const before = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!before || before.type !== 'video_assembly' || before.status !== 'running'
+        || !exactFinalRenderReceipt(before.final_render_remote_wait, expected, jobId)) {
+        throw new Error('Remote render import authority changed before its journal mutation.')
+      }
+      const result = await mutate()
+      const after = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!after || !exactFinalRenderReceipt(after.final_render_remote_wait, expected, jobId)) {
+        throw new Error('Remote render import authority changed during its journal mutation.')
+      }
+      return result
+    })
+  ))
+}
+
+export interface FinalRenderTerminalArtifact {
+  format: 'studio.render.story-terminal.v1'
+  outcome: 'acknowledged' | 'cancelled'
+  project_slug: string
+  job_id: string
+  intent_id: string
+  gateway_attempt_key: string
+  canonical: FinalRenderTransportReceiptV3
+  chain_head_sha256: string
+  destination: null | { pathname: string; sha256: string; size_bytes: number }
+  cancel_requested_at: string | null
+  evidence: {
+    output_sha256: string
+    output_size_bytes: number
+    receipt_sha256: string
+    candidate_path: string | null
+    destination_mutated: boolean
+  }
+}
+
+function parseFinalRenderTerminalArtifact(
+  value: unknown,
+  projectSlug: string,
+  jobId: string,
+  expected: FinalRenderTransportReceiptV3,
+): FinalRenderTerminalArtifact {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Final render terminal artifact is invalid.')
+  }
+  const terminal = value as Record<string, unknown>
+  const keys = [
+    'format', 'outcome', 'project_slug', 'job_id', 'intent_id', 'gateway_attempt_key',
+    'canonical', 'chain_head_sha256', 'destination', 'cancel_requested_at', 'evidence',
+  ]
+  if (Object.keys(terminal).length !== keys.length || keys.some(key => !Object.hasOwn(terminal, key))
+    || terminal.format !== 'studio.render.story-terminal.v1'
+    || (terminal.outcome !== 'acknowledged' && terminal.outcome !== 'cancelled')
+    || terminal.project_slug !== projectSlug || terminal.job_id !== jobId
+    || terminal.intent_id !== expected.intent_id
+    || terminal.gateway_attempt_key !== expected.gateway_attempt_key
+    || terminal.chain_head_sha256 !== expected.transport_revision_sha256
+    || terminal.cancel_requested_at !== expected.cancel_requested_at
+    || !exactFinalRenderReceipt(terminal.canonical, expected, jobId)) {
+    throw new Error('Final render terminal artifact lineage is invalid.')
+  }
+  if ((terminal.outcome === 'acknowledged'
+      && (expected.phase !== 'acknowledged' || expected.cancel_requested_at !== null))
+    || (terminal.outcome === 'cancelled' && expected.cancel_requested_at === null)) {
+    throw new Error('Final render terminal artifact outcome is invalid.')
+  }
+  const evidence = terminal.evidence as Record<string, unknown>
+  if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)
+    || Object.keys(evidence).length !== 5
+    || typeof evidence.output_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(evidence.output_sha256)
+    || !Number.isSafeInteger(evidence.output_size_bytes) || (evidence.output_size_bytes as number) <= 0
+    || typeof evidence.receipt_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(evidence.receipt_sha256)
+    || (evidence.candidate_path !== null && (typeof evidence.candidate_path !== 'string'
+      || !path.isAbsolute(evidence.candidate_path)))
+    || typeof evidence.destination_mutated !== 'boolean'
+    || evidence.destination_mutated !== (terminal.destination !== null)) {
+    throw new Error('Final render terminal import evidence is invalid.')
+  }
+  if (terminal.destination !== null) {
+    const destination = terminal.destination as Record<string, unknown>
+    if (!destination || typeof destination !== 'object' || Array.isArray(destination)
+      || Object.keys(destination).length !== 3
+      || typeof destination.pathname !== 'string' || !path.isAbsolute(destination.pathname)
+      || typeof destination.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(destination.sha256)
+      || !Number.isSafeInteger(destination.size_bytes) || (destination.size_bytes as number) <= 0) {
+      throw new Error('Final render terminal destination is invalid.')
+    }
+    if (destination.sha256 !== evidence.output_sha256
+      || destination.size_bytes !== evidence.output_size_bytes) {
+      throw new Error('Final render terminal destination does not match its output evidence.')
+    }
+  } else if (terminal.outcome === 'acknowledged') {
+    throw new Error('Acknowledged final render terminal is missing its destination.')
+  }
+  return structuredClone(value) as FinalRenderTerminalArtifact
+}
+
+async function verifyFinalRenderTerminalDestination(
+  destination: NonNullable<FinalRenderTerminalArtifact['destination']>,
+): Promise<void> {
+  if (await hashStableFinalRenderMedia(destination.pathname, destination.size_bytes) !== destination.sha256) {
+    throw new Error('Final render terminal destination readback changed.')
+  }
+}
+
+async function persistVerifiedFinalRenderTerminal(
+  job: Job,
+  expected: FinalRenderTransportReceiptV3,
+  terminalSha256: string,
+  outcome: FinalRenderTerminalArtifact['outcome'],
+): Promise<void> {
+  const incoming = safeJob(job)
+  if (incoming.result?.final_render_terminal_sha256 !== terminalSha256
+    || (outcome === 'acknowledged'
+      ? incoming.status !== 'done' || incoming.local_execution_complete !== true
+      : incoming.status !== 'cancelled' || incoming.local_execution_complete !== false)) {
+    throw new Error('Final render verified terminal projection is invalid.')
+  }
+  await persistProjectMutation(job.project_slug, {
+    kind: 'transform', jobId: job.job_id,
+    transform: current => {
+      if (!current || current.project_slug !== job.project_slug || current.job_id !== job.job_id
+        || current.type !== 'video_assembly' || current.status !== 'running'
+        || !exactFinalRenderReceipt(current.final_render_remote_wait, expected, job.job_id)) {
+        throw new Error('Final render verified terminal authority changed before persistence.')
+      }
+      const merged = mergeDurableJobEvidence(current, incoming)
+      merged.status = incoming.status
+      merged.finished_at = incoming.finished_at
+      merged.local_execution_complete = incoming.local_execution_complete
+      merged.result = structuredClone(incoming.result)
+      merged.error = incoming.error
+      return merged
+    },
+  })
+}
+
+/** Consume one durably published importer terminal on the original queue row. */
+export async function consumeFinalRenderTerminal(
+  projectSlug: string,
+  jobId: string,
+  expected: FinalRenderTransportReceiptV3,
+  value: unknown,
+  publish?: () => Promise<void>,
+  // Runs once, on the acknowledged row before it is persisted done: its edits land with completion.
+  finish?: (job: Job) => Promise<void>,
+): Promise<Job> {
+  const terminal = parseFinalRenderTerminalArtifact(value, projectSlug, jobId, expected)
+  const terminalSha256 = createHash('sha256').update(JSON.stringify(terminal)).digest('hex')
+  const result = await withCrossProcessLock(finalRenderCrossProcessTransitionKey(expected.intent_id), () => (
+    withLock(finalRenderTransitionLockKey(projectSlug, jobId), async () => {
+      const disk = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!disk || disk.project_slug !== projectSlug || disk.job_id !== jobId || disk.type !== 'video_assembly'
+        || !exactFinalRenderReceipt(disk.final_render_remote_wait, expected, jobId)) {
+        throw new Error('Final render terminal does not match its authoritative queue row.')
+      }
+      if (!await hasDurableFinalRenderPrivateSnapshot(expected, {
+        ...terminal.evidence,
+        destination_path: terminal.destination?.pathname ?? null,
+      })) {
+        throw new Error('Final render terminal is not bound to its durable private import evidence.')
+      }
+      await publish?.()
+      if (terminal.destination) await verifyFinalRenderTerminalDestination(terminal.destination)
+      if (TERMINAL_JOB_STATUSES.has(disk.status)) {
+        if (disk.result?.final_render_terminal_sha256 !== terminalSha256
+          || (terminal.outcome === 'acknowledged' && disk.status !== 'done')
+          || (terminal.outcome === 'cancelled' && disk.status !== 'cancelled')) {
+          throw new Error('Final render terminal was already consumed by different evidence.')
+        }
+        jobs.set(jobId, structuredClone(disk))
+        return disk
+      }
+      if (disk.status !== 'running') throw new Error('Final render terminal queue row is not consumable.')
+      const job = structuredClone(disk)
+      job.result = {
+        ...(job.result || {}),
+        final_render_terminal_sha256: terminalSha256,
+        final_render_destination: terminal.destination ? structuredClone(terminal.destination) : null,
+      }
+      if (terminal.outcome === 'cancelled') {
+        job.status = 'cancelled'
+        job.finished_at = new Date().toISOString()
+        job.local_execution_complete = false
+      } else {
+        await finish?.(job)
+        // A failure cause recorded while an earlier attempt was retried must not ride a verified
+        // completion onto the done row; the log line is kept, only the live cause is cleared.
+        if (job.error?.startsWith(FINAL_RENDER_ATTENTION_PREFIX)) job.error = null
+        job.result = {
+          ...job.result,
+          output_audited: 'final-render-import',
+          complete: true,
+          completion: {
+            label: 'Final video assembly', expected: 1, completed: 1, complete: true,
+          },
+        }
+        job.local_execution_complete = true
+        await assertAuditedCompletionOnSuccess(job)
+        await completeSuccessfulJob(job)
+        job.finished_at ||= new Date().toISOString()
+      }
+      await persistVerifiedFinalRenderTerminal(job, expected, terminalSha256, terminal.outcome)
+      const readback = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!readback || readback.status !== job.status
+        || readback.result?.final_render_terminal_sha256 !== terminalSha256
+        || (terminal.outcome === 'acknowledged' && readback.local_execution_complete !== true)) {
+        throw new Error('Final render terminal queue consumption failed durable readback.')
+      }
+      jobs.set(jobId, structuredClone(readback))
+      finalRenderRecoveryHolds.delete(finalRenderStateKey(projectSlug, jobId))
+      finalRenderMonitorTransientHolds.delete(finalRenderStateKey(projectSlug, jobId))
+      emitUpdate(jobs.get(jobId)!)
+      return readback
+    })
+  ))
+  return structuredClone(result)
+}
+
+async function restoreConsumedFinalRenderTerminal(job: Job): Promise<boolean> {
+  const parsed = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id)
+  if (!parsed.ok || parsed.receipt.version !== 3
+    || (job.status !== 'done' && job.status !== 'cancelled')
+    || job.local_execution_complete !== (job.status === 'done')
+    || typeof job.result?.final_render_terminal_sha256 !== 'string') return false
+  try {
+    const bytes = await readStablePrivateFile(path.join(
+      getUserDataDir(), 'private-render', 'intents', parsed.receipt.intent_id, 'final-render-terminal.json',
+    ), 1024 * 1024)
+    if (!bytes || createHash('sha256').update(bytes).digest('hex') !== job.result.final_render_terminal_sha256) {
+      return false
+    }
+    const terminal = parseFinalRenderTerminalArtifact(
+      JSON.parse(bytes.toString('utf8')), job.project_slug, job.job_id, parsed.receipt,
+    )
+    const restored = await consumeFinalRenderTerminal(job.project_slug, job.job_id, parsed.receipt, terminal)
+    Object.assign(job, restored)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Run only after the importer's long output owner has been released. */
+export async function drainFinalRenderTerminalHandoff(jobId: string): Promise<void> {
+  await drainPendingPipelineHandoff(jobId)
+}
+
+/** Exact private V3 CAS. Only a fresh request_persisted -> send_may_start result grants a POST. */
+export async function commitFinalRenderTransportTransition(
+  projectSlug: string,
+  jobId: string,
+  expected: unknown,
+  after: unknown,
+): Promise<{ kind: 'fresh_transition' | 'already_after'; receipt: FinalRenderTransportReceiptV3 }> {
+  const parsedExpected = parseFinalRenderRemoteWaitReceipt(expected, jobId)
+  const parsedAfter = parseFinalRenderRemoteWaitReceipt(after, jobId)
+  if (!parsedExpected.ok || !parsedAfter.ok || parsedAfter.receipt.version !== 3
+    || !validFinalRenderTransportTransition(parsedExpected.receipt, parsedAfter.receipt)) {
+    throw new Error('Remote render canonical transition changed or is invalid.')
+  }
+  const target = parsedAfter.receipt
+  const stateKey = finalRenderStateKey(projectSlug, jobId)
+  return withCrossProcessLock(finalRenderCrossProcessTransitionKey(target.intent_id), () => (
+    withLock(finalRenderTransitionLockKey(projectSlug, jobId), async () => {
+      finalRenderRecoveryHolds.add(stateKey)
+      const diskBefore = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!diskBefore || diskBefore.type !== 'video_assembly' || diskBefore.status !== 'running') {
+        throw new Error('Remote render job is not a valid canonical running row.')
+      }
+      const current = parseFinalRenderRemoteWaitReceipt(diskBefore.final_render_remote_wait, jobId)
+      if (!current.ok) throw new Error('Remote render canonical receipt requires recovery.')
+      if (exactFinalRenderReceipt(current.receipt, target, jobId)) {
+        if (!await hasDurableFinalRenderPrivateSnapshot(target)) throw new Error('Remote render private transition evidence is missing.')
+        finalRenderRecoveryHolds.delete(stateKey)
+        return { kind: 'already_after' as const, receipt: structuredClone(target) }
+      }
+      if (!exactFinalRenderReceipt(current.receipt, parsedExpected.receipt, jobId)) {
+        throw new Error('Remote render canonical lineage changed before its transition.')
+      }
+      if (!await hasDurableFinalRenderPrivateSnapshot(target)) {
+        throw new Error('Remote render private transition evidence is missing or changed.')
+      }
+      const existing = pendingFinalRenderTransitions.get(stateKey)
+      if (existing && (!exactFinalRenderReceipt(existing.before, parsedExpected.receipt, jobId)
+        || !exactFinalRenderReceipt(existing.after, target, jobId))) {
+        throw new Error('A different remote render transition is already pending for this job.')
+      }
+      const pending = existing ?? {
+        projectSlug, jobId,
+        before: structuredClone(parsedExpected.receipt),
+        after: structuredClone(target),
+      }
+      pendingFinalRenderTransitions.set(stateKey, pending)
+      try {
+        await persistProjectMutation(projectSlug, {
+          kind: 'final-render-remote-wait', jobId, before: pending.before, after: pending.after,
+        })
+        const disk = await loadAuthoritativeJob(projectSlug, jobId)
+        if (!disk || !exactFinalRenderReceipt(disk.final_render_remote_wait, target, jobId)) {
+          throw new Error('Remote render canonical transition failed durable readback.')
+        }
+        if (pendingFinalRenderTransitions.get(stateKey) === pending) pendingFinalRenderTransitions.delete(stateKey)
+        finalRenderRecoveryHolds.delete(stateKey)
+        const live = jobs.get(jobId)
+        if (live?.project_slug === projectSlug) {
+          Object.assign(live, disk)
+          emitUpdate(live)
+        }
+        return { kind: 'fresh_transition' as const, receipt: structuredClone(target) }
+      } catch (error) {
+        finalRenderRecoveryHolds.add(stateKey)
+        throw error
+      }
+    })
+  ))
+}
+
+/** Record only the first cancellation instant; no Gateway call occurs here. */
+export async function requestFinalRenderRemoteWaitCancellation(projectSlug: string, jobId: string): Promise<Job> {
+  const initial = await loadAuthoritativeJob(projectSlug, jobId)
+  const parsedInitial = parseFinalRenderRemoteWaitReceipt(initial?.final_render_remote_wait, jobId)
+  if (!parsedInitial.ok) throw new Error('Remote render receipt requires recovery before cancellation can be recorded.')
+  return withCrossProcessLock(finalRenderCrossProcessTransitionKey(parsedInitial.receipt.intent_id), () => (
+    withLock(finalRenderTransitionLockKey(projectSlug, jobId), async () => {
+    const stateKey = finalRenderStateKey(projectSlug, jobId)
+    let pending = pendingFinalRenderTransitions.get(stateKey)
+    if (!pending) {
+      const disk = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!disk || disk.type !== 'video_assembly') throw new Error('Remote render job was not found.')
+      const current = parseFinalRenderRemoteWaitReceipt(disk.final_render_remote_wait, jobId)
+      if (!current.ok) throw new Error('Remote render receipt requires recovery before cancellation can be recorded.')
+      if (current.receipt.cancel_requested_at !== null) {
+        const live = jobs.get(jobId)
+        if (live?.project_slug === projectSlug) Object.assign(live, disk)
+        await hasDurableFinalRenderPrivateSnapshot(current.receipt)
+        finalRenderRecoveryHolds.add(stateKey)
+        return structuredClone(live?.project_slug === projectSlug ? live : disk)
+      }
+      const proposedCancellation = parseFinalRenderRemoteWaitReceipt({
+        ...current.receipt,
+        revision: current.receipt.revision + 1,
+        cancel_requested_at: new Date(Math.max(Date.now(), Date.parse(current.receipt.committed_at))).toISOString(),
+      }, jobId)
+      if (!proposedCancellation.ok) {
+        throw new Error('Remote render cancellation proposal is invalid.')
+      }
+      pending = {
+        projectSlug,
+        jobId,
+        before: structuredClone(current.receipt),
+        after: proposedCancellation.receipt,
+      }
+      pendingFinalRenderTransitions.set(stateKey, pending)
+    } else if (pending.projectSlug !== projectSlug || pending.before === null
+      || pending.after.cancel_requested_at === null) {
+      throw new Error('Remote render commitment must be recovered before cancellation can be recorded.')
+    }
+    if (!pending) throw new Error('Remote render cancellation proposal is unavailable.')
+    const transition = pending
+    finalRenderRecoveryHolds.add(stateKey)
+    try {
+      await persistProjectMutation(projectSlug, {
+        kind: 'final-render-remote-wait', jobId, before: transition.before, after: transition.after,
+      })
+      const disk = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!disk || !exactFinalRenderReceipt(disk.final_render_remote_wait, transition.after, jobId)) {
+        throw new Error('Remote render cancellation did not match the canonical disk readback.')
+      }
+      if (pendingFinalRenderTransitions.get(stateKey) === transition) pendingFinalRenderTransitions.delete(stateKey)
+      await hasDurableFinalRenderPrivateSnapshot(transition.after)
+      // A locally recorded cancellation is deliberately nonrunnable even when
+      // its immutable referenced phase validates. The public hold still reports
+      // the canonical first cancellation instant.
+      finalRenderRecoveryHolds.add(stateKey)
+      const live = jobs.get(jobId)
+      if (live?.project_slug === projectSlug) {
+        Object.assign(live, disk)
+        emitUpdate(live)
+      }
+      return structuredClone(live?.project_slug === projectSlug ? live : disk)
+    } catch (error) {
+      finalRenderRecoveryHolds.add(stateKey)
+      throw error
+    }
+    })
+  ))
 }
 
 /** Evaluate one read-only predicate while normal jobs.json persistence is excluded. */
@@ -3091,6 +4109,7 @@ const PAID_IMAGE_WAIT_MS = 30 * 60 * 1_000
 const PAID_IMAGE_WAIT_TYPES = new Set<JobType>(['continuity_render', 'image_pool_generate', 'thumb_images'])
 type PaidImageWaitTimer = unknown
 export type PersistedRunningJobLoadStage =
+  | 'pipeline-handoff'
   | 'pause-requested'
   | 'paid-image-wait'
   | 'ordinary-recovery'
@@ -3584,6 +4603,7 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
   const resumedTypes = new Set<JobType>()
   const quotaWaitJobs: Job[] = []
   const reconciliationJobs: string[] = []
+  const pendingPipelineHandoffs = new Set<string>()
   // v1.2.6 — finished rows whose stored evidence is still non-terminal. They
   // never entered cancellation reconciliation (that path only accepts running
   // or paused jobs), which is precisely why their evidence went stale.
@@ -3591,18 +4611,97 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
   try {
     if (existsSync(p)) {
       const data = JSON.parse(await fs.readFile(p, 'utf-8'))
+      const persistedJobs = Array.isArray(data.jobs) ? data.jobs : []
       // Settings a pre-1.4.266 save turned into '[CIRCULAR]' are restored before anything resumes.
-      const repairedOnLoad = Array.isArray(data.jobs)
-        ? repairCircularParams(data.jobs, [...data.jobs, ...jobs.values()])
+      const repairedOnLoad = persistedJobs.length
+        ? repairCircularParams(persistedJobs, [...persistedJobs, ...jobs.values()])
         : new Set<string>()
-      for (const j of data.jobs || []) {
+      // Resolve stable child references from the complete snapshot before any
+      // queued row can enter a lane. Every reference must agree; row order
+      // never chooses one parent marker over another.
+      const pipelineHandoffsByChildId = new Map<string, PipelineHandoff[]>()
+      for (const saved of persistedJobs) {
+        const marker = pipelineHandoffOf(saved)
+        if (!marker) continue
+        const references = pipelineHandoffsByChildId.get(marker.child_job_id) || []
+        references.push(marker)
+        pipelineHandoffsByChildId.set(marker.child_job_id, references)
+      }
+      for (const j of persistedJobs) {
         if (!jobs.has(j.job_id)) {
           // Durable queued jobs keep their identity and rejoin their lane.
           // Previously-running jobs need a provider checkpoint to recover;
           // otherwise they become a loud interrupted error. Persist every
           // mutation so jobs.json and the in-memory queue cannot disagree.
           let mutated = repairedOnLoad.has(j.job_id)
+          if (j.type === 'video_assembly' && hasFinalRenderRemoteWaitMarker(j)
+            && !await restoreConsumedFinalRenderTerminal(j)) {
+            j.status = 'running'
+            j.finished_at = null
+            j.pause_requested = false
+            j.local_execution_complete = false
+            j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+            const parsed = parseFinalRenderRemoteWaitReceipt(j.final_render_remote_wait, j.job_id)
+            const privateSnapshotReady = parsed.ok && await hasDurableFinalRenderPrivateSnapshot(parsed.receipt)
+            if (!privateSnapshotReady) finalRenderRecoveryHolds.add(finalRenderStateKey(j.project_slug, j.job_id))
+            j.output_lines.push(privateSnapshotReady
+              ? 'Remote video render is parked pending reconciliation.'
+              : 'Remote video render record requires recovery; local execution remains blocked.')
+            jobs.set(j.job_id, j)
+            try { await persistJob(j) } catch { finalRenderRecoveryHolds.add(finalRenderStateKey(j.project_slug, j.job_id)) }
+            continue
+          }
+          if (hasPipelineHandoffField(j) && !pipelineHandoffOf(j)) {
+            j.status = 'error'
+            j.error = 'Saved Pipeline continuation is malformed. The parent was not rerun and no child was started.'
+            j.finished_at = new Date().toISOString()
+            j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+            j.output_lines.push(j.error)
+            jobs.set(j.job_id, j)
+            try { await persistJob(j) } catch (e: any) {
+              console.warn('[job-queue] failed to persist malformed Pipeline handoff refusal', { job_id: j.job_id, error: e?.message })
+            }
+            continue
+          }
+          if (j.status === 'queued' && hasPipelineHandoffField(j)) {
+            j.status = 'error'
+            j.error = 'Saved Pipeline continuation was attached to a queued parent. The parent was not rerun and no child was started.'
+            j.finished_at = new Date().toISOString()
+            j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+            j.output_lines.push(j.error)
+            jobs.set(j.job_id, j)
+            try { await persistJob(j) } catch (e: any) {
+              console.warn('[job-queue] failed to persist invalid queued Pipeline handoff refusal', { job_id: j.job_id, error: e?.message })
+            }
+            continue
+          }
+          if (j.status === 'running' && hasPipelineHandoffField(j)) {
+            observePersistedRunningJobLoadStage(j, 'pipeline-handoff')
+            const marker = pipelineHandoffOf(j)!
+            j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+            if (j.local_execution_complete !== true) {
+              j.status = 'error'
+              j.error = 'Saved Pipeline continuation has no verified local completion checkpoint. The parent was not rerun and no child was started.'
+              j.finished_at = new Date().toISOString()
+              j.output_lines.push(j.error)
+            } else if (pipelineHandoffBlocked(j)) {
+              if (j.pause_requested === true) j.status = 'paused'
+              j.finished_at = null
+              if (marker.state === 'pending') pendingPipelineHandoffs.add(j.job_id)
+            } else {
+              j.status = 'done'
+              j.error = null
+              j.finished_at ||= new Date().toISOString()
+              if (marker.state === 'pending') pendingPipelineHandoffs.add(j.job_id)
+            }
+            jobs.set(j.job_id, j)
+            try { await persistJob(j) } catch (e: any) {
+              console.warn('[job-queue] failed to persist Pipeline handoff recovery', { job_id: j.job_id, error: e?.message })
+            }
+            continue
+          }
           if (j.status === 'queued') {
+            const handoffReferences = pipelineHandoffsByChildId.get(j.job_id)
             // Checkpointed Gateway audio/transcription reclaims its own evidence by saved task id and
             // key, exactly as the running branch below trusts it to; diverting an owner-resumed job
             // to reconcile-only ended it in error without the executor ever running (DM0003/DM0005).
@@ -3615,6 +4714,13 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
               j.output_lines.push('↻ Story Studio restarted — durable provider evidence is still settling; this job will not submit a replacement request.')
               if (requiresCancellationReconciliation(j)) reconciliationJobs.push(j.job_id)
+              mutated = true
+            } else if (handoffReferences?.some(marker => !exactPipelineHandoffChild(j, marker))) {
+              j.status = 'error'
+              j.error = 'Saved queued job conflicts with a captured Pipeline continuation identity. It was retained without running.'
+              j.finished_at = new Date().toISOString()
+              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+              if (!j.output_lines.includes(j.error)) j.output_lines.push(j.error)
               mutated = true
             } else {
               const queuedRetryAt = typeof j.params?.quota_retry_at === 'string'
@@ -3755,6 +4861,7 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
             }
           }
           jobs.set(j.job_id, j)
+          if (pipelineHandoffOf(j)?.state === 'pending') pendingPipelineHandoffs.add(j.job_id)
           if (needsHistoryEvidenceRefresh(j)) historyRefreshJobs.push(j.job_id)
           if (mutated) {
             try { await persistJob(j) } catch (e: any) {
@@ -3768,6 +4875,12 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
             }
           }
         }
+      }
+    }
+    for (const jobId of pendingPipelineHandoffs) {
+      try { await drainPendingPipelineHandoff(jobId) }
+      catch (e: any) {
+        console.warn('[job-queue] could not drain saved Pipeline handoff', { job_id: jobId, error: e?.message })
       }
     }
     // A manual order set from the Jobs page (queue_rank) outranks insertion
@@ -3850,6 +4963,28 @@ let bootJobsLoaded = false
  */
 export function areBootJobsLoaded(): boolean { return bootJobsLoaded }
 
+/** Identifier-only stable ring for the private final-render monitor. */
+export function listFinalRenderReconcileCandidates(
+  after: { project_slug: string; job_id: string } | null,
+  limit = 8,
+): Array<{ project_slug: string; job_id: string }> {
+  if (!bootJobsLoaded || !Number.isSafeInteger(limit) || limit <= 0) return []
+  const maximum = Math.min(limit, 8)
+  const candidates = [...jobs.values()]
+    .filter(job => job.type === 'video_assembly' && job.status === 'running' && hasFinalRenderRemoteWaitMarker(job))
+    .map(job => ({ project_slug: job.project_slug, job_id: job.job_id }))
+    .sort((left, right) => left.project_slug.localeCompare(right.project_slug)
+      || left.job_id.localeCompare(right.job_id))
+  if (candidates.length === 0) return []
+  const compare = (left: { project_slug: string; job_id: string }, right: { project_slug: string; job_id: string }) => (
+    left.project_slug.localeCompare(right.project_slug) || left.job_id.localeCompare(right.job_id)
+  )
+  const greater = after ? candidates.findIndex(candidate => compare(candidate, after) > 0) : 0
+  const start = greater < 0 ? 0 : greater
+  const count = Math.min(maximum, candidates.length)
+  return Array.from({ length: count }, (_, index) => structuredClone(candidates[(start + index) % candidates.length]))
+}
+
 /**
  * How a job found `running` at boot is picked up again, or null when it is not (it ends
  * "Interrupted by app restart" or waits for a provider reconcile). Shared by the boot scan and the
@@ -3926,6 +5061,16 @@ export async function runningJobsThatWouldNotResume(): Promise<Job[]> {
   const left: Job[] = []
   for (const j of jobs.values()) {
     if (j.status !== 'running') continue
+    if (hasFinalRenderFence(j)) {
+      if (finalRenderRecoveryHolds.has(finalRenderStateKey(j.project_slug, j.job_id))) {
+        left.push(j)
+        continue
+      }
+      const disk = await loadAuthoritativeJob(j.project_slug, j.job_id).catch(() => null)
+      const parsed = parseFinalRenderRemoteWaitReceipt(disk?.final_render_remote_wait, j.job_id)
+      if (!disk || !hasFinalRenderRemoteWaitMarker(disk) || !parsed.ok) left.push(j)
+      continue
+    }
     if (hasCancellationContext(j) || getValidPaidImageWait(j) || hasPaidImageCommitAttempt(j)
       || !(await bootRecoveryKind(j))) left.push(j)
   }
@@ -4085,6 +5230,7 @@ function releaseSlot(type: JobType, job: Job): void {
     if (group === IMAGE_EPISODE_GROUP) noteAdaptiveImageTailEvent()
   } else {
     queues[type].running = false
+    queuePumpObserverForTesting?.(type, job.job_id)
     pump(type)
   }
 }
@@ -4099,13 +5245,14 @@ async function recordChainHandoffFailure(
   nextStep: { type?: unknown; title?: unknown; params?: unknown },
   rest: unknown[],
   cause: unknown,
+  jobId?: string,
 ): Promise<Job> {
   const now = new Date().toISOString()
   const type = String(nextStep?.type || 'unknown') as JobType
   const message = cause instanceof Error ? cause.message : String(cause)
   const batchId = parent.params?.pipeline_batch_id
   const failed: Job = {
-    job_id: randomUUID().slice(0, 8),
+    job_id: jobId || randomUUID().slice(0, 8),
     project_slug: parent.project_slug,
     type,
     episode_id: parent.episode_id,
@@ -4244,6 +5391,71 @@ export async function assertAuditedCompletionOnSuccess(job: Job): Promise<void> 
   )
 }
 
+class PipelineHandoffCheckpointError extends Error {
+  constructor(cause: unknown) {
+    super(`Pipeline continuation checkpoint could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`)
+    this.name = 'PipelineHandoffCheckpointError'
+  }
+}
+
+class PipelineHandoffIdentityError extends Error {}
+
+function pipelineHandoffChildId(job: Job, nextStep: { type?: unknown }): string {
+  if (job.type === 'subtitles_transcribe' && nextStep.type === 'metadata') return subtitleFinalizerJobId(job)
+  return `pipeline-handoff-${job.job_id}`
+}
+
+function pipelineHandoffNextParams(job: Job, nextStep: any, rest: unknown[]): Record<string, any> {
+  const batchId = job.params?.pipeline_batch_id
+  return {
+    ...structuredClone(nextStep.params || {}),
+    episode_id: job.episode_id,
+    pipeline_chain: rest,
+    ...(batchId ? { pipeline_batch_id: batchId } : {}),
+  }
+}
+
+async function checkpointPipelineHandoff(
+  job: Job,
+  nextStep: any,
+  rest: unknown[],
+): Promise<PipelineHandoff> {
+  const existing = pipelineHandoffOf(job)
+  if (existing) return existing
+  if (hasPipelineHandoffField(job)) throw new PipelineHandoffCheckpointError('saved marker is malformed')
+  if (!Object.prototype.hasOwnProperty.call(queues, nextStep.type)) {
+    throw new Error(`No queue lane registered for job type: ${nextStep.type}`)
+  }
+  const options: PipelineHandoffOptions = {
+    project_slug: job.project_slug,
+    type: nextStep.type as JobType,
+    episode_id: job.episode_id,
+    title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`,
+    params: pipelineHandoffNextParams(job, nextStep, rest),
+  }
+  const marker: PipelineHandoff = {
+    version: 1,
+    state: 'pending',
+    parent_job_id: job.job_id,
+    child_job_id: pipelineHandoffChildId(job, nextStep),
+    options,
+    content_pack_provenance: structuredClone(await snapshotProjectContentPackProvenance(
+      job.project_slug,
+      options.type,
+    )),
+  }
+  ;(job as PipelineJob).pipeline_handoff = marker
+  if (job.type === 'subtitles_transcribe' && nextStep.type === 'metadata') {
+    job.params.subtitle_finalizer_job_id = marker.child_job_id
+  }
+  try {
+    await persistJob(job)
+  } catch (error) {
+    throw new PipelineHandoffCheckpointError(error)
+  }
+  return marker
+}
+
 /** One success path for ordinary completions and reconciled provider outputs. */
 async function completeSuccessfulJob(job: Job): Promise<void> {
   if (job.status !== 'running') return
@@ -4261,10 +5473,13 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
     job.status = 'done'
     return
   }
-  await dispatchChainLink(job, nextStep, rest)
-  // enqueue() now verifies exact Content Pack pins asynchronously. Do not
-  // expose the parent as Done until its continuation or failure record is
-  // durably present; the previous synchronous insertion made this atomic.
+  try {
+    await checkpointPipelineHandoff(job, nextStep, rest)
+  } catch (error) {
+    if (error instanceof PipelineHandoffCheckpointError) throw error
+    const failed = await recordChainHandoffFailure(job, nextStep, rest, error)
+    job.output_lines.push(`Chain-next failed: ${error instanceof Error ? error.message : String(error)} (recorded as failed job ${failed.job_id})`)
+  }
   job.status = 'done'
 }
 
@@ -4402,6 +5617,159 @@ async function dispatchChainLink(job: Job, nextStep: any, rest: unknown[]): Prom
   }
 }
 
+function exactPipelineHandoffChild(child: Job, marker: PipelineHandoff): boolean {
+  return child.job_id === marker.child_job_id
+    && child.project_slug === marker.options.project_slug
+    && child.type === marker.options.type
+    && child.episode_id === marker.options.episode_id
+    && child.title === marker.options.title
+    && isDeepStrictEqual(child.params, marker.options.params)
+    && isDeepStrictEqual(child.content_pack_provenance || [], marker.content_pack_provenance)
+}
+
+async function enqueuePipelineHandoffOnce(marker: PipelineHandoff): Promise<Job> {
+  return withLock(`pipeline-handoff-child:${marker.child_job_id}`, async () => {
+    const existing = jobs.get(marker.child_job_id)
+    if (existing) {
+      if (!exactPipelineHandoffChild(existing, marker)) {
+        throw new PipelineHandoffIdentityError('Saved Pipeline continuation identity belongs to different work.')
+      }
+      return existing
+    }
+    return withEpisodeMediaAdmissionLock(marker.options.project_slug, marker.options.episode_id, async () => {
+      const scope = marker.options
+      assertEnqueueAdmission(scope)
+      const admissionOwner = reserveChapterWriterAdmission(scope)
+      try {
+        const queued = enqueuePrepared({
+          ...scope,
+          params: structuredClone(scope.params || {}),
+          episode_recovery_job_id: marker.child_job_id,
+        }, structuredClone(marker.content_pack_provenance), admissionOwner || undefined)
+        const child = jobs.get(queued.job_id)!
+        try { await persistJob(child) }
+        catch (error) { jobs.delete(child.job_id); throw error }
+        queues[child.type].pending.push(child)
+        emitUpdate(child)
+        pump(child.type)
+        return child
+      } finally {
+        releaseChapterWriterAdmission(scope, admissionOwner)
+      }
+    })
+  })
+}
+
+function pipelineHandoffNonPauseBlocked(job: Job): boolean {
+  const providerCompletionVerified = job.result?.provider_settled === 'succeeded'
+    && job.result?.output_audited === 'provider-settlement'
+    && Boolean(job.genstudio_jobs?.length)
+    && job.genstudio_jobs!.every(entry => entry.state === 'succeeded')
+  return job.status === 'cancelled'
+    || Boolean(job.force_abandoned)
+    || (hasCancellationContext(job) && !providerCompletionVerified)
+    || hasUnsettledProviderEvidence(job)
+}
+
+function pipelineHandoffBlocked(job: Job): boolean {
+  return job.pause_requested === true
+    || job.status === 'paused'
+    || pipelineHandoffNonPauseBlocked(job)
+}
+
+async function failClosedPipelineHandoff(job: Job, message: string): Promise<void> {
+  job.status = 'error'
+  job.error = message
+  job.finished_at = new Date().toISOString()
+  if (!job.output_lines.includes(message)) job.output_lines.push(message)
+  await persistJob(job)
+  emitUpdate(job)
+}
+
+async function drainPendingPipelineHandoff(parentJobId: string): Promise<void> {
+  await withLock(`pipeline-handoff-parent:${parentJobId}`, async () => {
+    const parent = jobs.get(parentJobId)
+    if (!parent || !hasPipelineHandoffField(parent)
+      || activeRunJobIds.has(parentJobId) || providerFinalizing.has(parentJobId)) return
+    let marker = pipelineHandoffOf(parent)
+    if (!marker) {
+      await failClosedPipelineHandoff(parent,
+        'Saved Pipeline continuation is malformed. The completed parent was not rerun and no child was started.')
+      return
+    }
+    if (marker.state !== 'pending' || pipelineHandoffBlocked(parent)) return
+
+    let authoritative = await loadAuthoritativeJob(parent.project_slug, parent.job_id)
+    const durableMarker = authoritative && pipelineHandoffOf(authoritative)
+    if (!authoritative || !durableMarker || !isDeepStrictEqual(durableMarker, marker)) return
+    if (pipelineHandoffBlocked(authoritative) || authoritative.local_execution_complete !== true) return
+
+    if (authoritative.status === 'running') {
+      parent.status = 'done'
+      parent.finished_at ||= new Date().toISOString()
+      await persistJob(parent)
+      emitUpdate(parent)
+      authoritative = await loadAuthoritativeJob(parent.project_slug, parent.job_id)
+      marker = pipelineHandoffOf(parent)!
+    }
+    if (!authoritative || authoritative.status !== 'done'
+      || pipelineHandoffBlocked(authoritative)
+      || !isDeepStrictEqual(pipelineHandoffOf(authoritative), marker)) return
+
+    const rest = Array.isArray(marker.options.params?.pipeline_chain)
+      ? marker.options.params!.pipeline_chain as unknown[]
+      : []
+    const nextStep = {
+      type: marker.options.type,
+      title: marker.options.title,
+      params: marker.options.params,
+    }
+    try {
+      const joined = marker.options.type === 'continuity_render' && !marker.options.params?.single_scene_id
+        ? await joinActiveBulkSceneRender({
+          project_slug: marker.options.project_slug,
+          episode_id: marker.options.episode_id,
+          pipeline_chain: rest,
+          pipeline_batch_id: parent.params?.pipeline_batch_id,
+        })
+        : null
+      if (joined?.conflict) {
+        throw new Error(`An existing scene render already owns a different Pipeline continuation for ${parent.episode_id}`)
+      }
+      if (joined) {
+        parent.output_lines.push(`→ Joined existing scene render ${joined.job.job_id}; duplicate Hub work was not queued.`)
+      } else {
+        try {
+          await enqueuePipelineHandoffOnce(marker)
+        } catch (error) {
+          if (!(error instanceof DuplicateJobError) || !await joinDuplicateChainLink(parent, nextStep, rest)) throw error
+        }
+        parent.output_lines.push(`→ Chained next step: ${marker.options.type}`)
+      }
+      marker.state = 'dispatched'
+      if (parent.type === 'subtitles_transcribe' && marker.options.type === 'metadata') {
+        parent.params.subtitle_finalizer_dispatched = true
+      }
+    } catch (error) {
+      marker.state = 'failed'
+      if (error instanceof PipelineHandoffIdentityError) {
+        parent.output_lines.push(`Chain-next failed closed: ${error.message}`)
+      } else {
+        const existing = jobs.get(marker.child_job_id)
+        const failed = existing || await recordChainHandoffFailure(parent, nextStep, rest, error, marker.child_job_id)
+        parent.output_lines.push(`Chain-next failed: ${error instanceof Error ? error.message : String(error)} (recorded as failed job ${failed.job_id})`)
+      }
+    }
+    await persistJob(parent)
+    emitUpdate(parent)
+  })
+}
+
+/** Test-only entry into the canonical boot/worker-finally drain. */
+export async function _drainPendingPipelineHandoffForTesting(parentJobId: string): Promise<void> {
+  await drainPendingPipelineHandoff(parentJobId)
+}
+
 /**
  * Safety check `same_step_queued` (1.4.300): the next step of this Pipeline run is already queued or
  * running for the episode. Block keeps the old handoff failure; Off/Warn hand the rest of this run to
@@ -4440,6 +5808,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
   }
   try {
     if (persistenceFenced(job.project_slug)) { deferUncertain(); return }
+    if (hasFinalRenderFence(job)) {
+      await settleFinalRenderRecoveryHoldNeverThrow(job)
+      return
+    }
     if (cancelled.has(job.job_id)) {
       job.status = 'cancelled'
       job.finished_at = new Date().toISOString()
@@ -4510,6 +5882,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       let fewestRemaining = Infinity
       let chatOutcomeUnknown = false
       for (let attempt = 1; attempt <= lastAttempt; attempt++) {
+        if (hasFinalRenderFence(job)) {
+          await settleFinalRenderRecoveryHoldNeverThrow(job)
+          return
+        }
         job.auto_retry = {
           eligible: retryPolicy.eligible,
           reason: retryPolicy.reason,
@@ -4547,6 +5923,13 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             runWithJobContentPackProvenance(job.content_pack_provenance, () => q.executor!(job))
           ))
           if (!jobs.has(job.job_id)) return
+          if (executorResult?.kind === 'video-assembly-remote-wait' && !hasFinalRenderFence(job)) {
+            finalRenderRecoveryHolds.add(finalRenderStateKey(job.project_slug, job.job_id))
+          }
+          if (hasFinalRenderFence(job)) {
+            await settleFinalRenderRecoveryHoldNeverThrow(job)
+            return
+          }
           if (executorResult?.kind === 'paid-image-wait') {
             job.status = 'running'
             job.finished_at = null
@@ -4587,6 +5970,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           break
         } catch (error) {
           if (!jobs.has(job.job_id)) return
+          if (hasFinalRenderFence(job)) {
+            await settleFinalRenderRecoveryHoldNeverThrow(job)
+            return
+          }
           finalError = error
           if (cancelled.has(job.job_id)) throw error
           if (error instanceof JobPausedError || pauseRequested.has(job.job_id)) throw new JobPausedError()
@@ -4625,7 +6012,15 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         }
       }
 
+      if (hasFinalRenderFence(job)) {
+        await settleFinalRenderRecoveryHoldNeverThrow(job)
+        return
+      }
       if (!completed) {
+        if (hasFinalRenderFence(job)) {
+          await settleFinalRenderRecoveryHoldNeverThrow(job)
+          return
+        }
         if (isNonRetryableError(finalError)) {
           job.output_lines.push('ℹ Automatic retry skipped: running this job again would stop at the same point. Fix what the error names, then press Retry.')
         } else if (chatOutcomeUnknown) {
@@ -4655,6 +6050,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         if (WRITING_JOB_TYPES.has(job.type)) clearQuotaStops(writingModelOf(job) || job.type)
       }
     } catch (e: any) {
+      if (hasFinalRenderFence(job)) {
+        await settleFinalRenderRecoveryHoldNeverThrow(job)
+        return
+      }
       job.local_execution_complete = true
       if (hasCancellationContext(job) && !hasUnsettledProviderWork(job)) {
         await finalizeSettledProviderJob(job.job_id)
@@ -4669,6 +6068,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       // probe — either way, the user's intent is "cancelled", not "error".
       if (job.status !== 'running') {
         // Provider reconciliation above already finalized this job.
+      } else if (e instanceof PipelineHandoffCheckpointError) {
+        job.status = 'running'
+        job.error = null
+        job.output_lines.push(`${e.message} The completed parent is held without rerunning or starting later steps.`)
       } else if (cancelled.has(job.job_id)) {
         job.status = 'cancelled'
       } else if (isQuotaWait(job, e)) {
@@ -4774,6 +6177,44 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     }
     queuePauseReleaseCheckpoints.delete(job.job_id)
     releaseSlot(type, job)
+    await drainPendingPipelineHandoff(job.job_id)
+  }
+}
+
+async function confirmFinalRenderFenceAfterExecutor(job: Job): Promise<void> {
+  const stateKey = finalRenderStateKey(job.project_slug, job.job_id)
+  finalRenderRecoveryHolds.add(stateKey)
+  const local = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id)
+  if (!local.ok || pendingFinalRenderTransitions.has(stateKey)) return
+  const disk = await loadAuthoritativeJob(job.project_slug, job.job_id).catch(() => null)
+  if (!disk || disk.type !== 'video_assembly' || disk.status !== 'running'
+    || pendingFinalRenderTransitions.has(stateKey)
+    || !exactFinalRenderReceipt(disk.final_render_remote_wait, local.receipt, job.job_id)
+    || !await hasDurableFinalRenderPrivateSnapshot(local.receipt)) return
+  job.final_render_remote_wait = structuredClone(local.receipt)
+  const live = jobs.get(job.job_id)
+  if (live?.project_slug === job.project_slug) Object.assign(live, job)
+  finalRenderRecoveryHolds.delete(stateKey)
+}
+
+async function settleFinalRenderRecoveryHoldNeverThrow(job: Job): Promise<void> {
+  try {
+    await confirmFinalRenderFenceAfterExecutor(job)
+    job.status = 'running'
+    job.finished_at = null
+    job.local_execution_complete = false
+    job.pause_requested = false
+    pauseRequested.delete(job.job_id)
+    const live = jobs.get(job.job_id)
+    if (live && live.project_slug !== job.project_slug) return
+    jobs.set(job.job_id, job)
+    const line = finalRenderRecoveryHolds.has(finalRenderStateKey(job.project_slug, job.job_id))
+      ? 'Remote video render record requires recovery; local execution remains blocked.'
+      : 'Remote video render is parked pending reconciliation.'
+    if (!job.output_lines.includes(line)) job.output_lines.push(line)
+    emitUpdate(job)
+  } catch {
+    finalRenderRecoveryHolds.add(finalRenderStateKey(job.project_slug, job.job_id))
   }
 }
 
@@ -5454,9 +6895,13 @@ async function transitionPausedJobsToQueuedByProject(
 
   const seen = new Set<string>()
   const candidates = selected.filter(job => {
-    if (seen.has(job.job_id) || job.status !== 'paused' || pausedTransitionClaims.has(job.job_id)) return false
+    if (seen.has(job.job_id) || job.status !== 'paused' || pausedTransitionClaims.has(job.job_id)
+      || hasFinalRenderFence(job)) return false
     seen.add(job.job_id)
-    const queue = queues[job.type]
+    const marker = pipelineHandoffOf(job)
+    if (hasPipelineHandoffField(job)
+      && (!marker || job.local_execution_complete !== true || pipelineHandoffNonPauseBlocked(job))) return false
+    const queue = marker ? queues[marker.options.type] : queues[job.type]
     if (options.requireExecutor && !queue?.executor) {
       result.noExecutor.push(job)
       return false
@@ -5474,6 +6919,7 @@ async function transitionPausedJobsToQueuedByProject(
   }
 
   const durable = new Set<string>()
+  const pipelineParents = new Set<string>()
   for (const [projectSlug, projectJobs] of byProject) {
     const eligibleJobs = projectJobs.filter(job => (
       pausedTransitionClaims.has(job.job_id)
@@ -5497,11 +6943,19 @@ async function transitionPausedJobsToQueuedByProject(
       pauseRequested.delete(job.job_id)
       job.pause_requested = false
       job.pause_origin = undefined
-      job.status = 'queued'
-      if (!IMAGE_EPISODE_TYPES.has(job.type)) job.started_at = null
-      job.finished_at = null
-      job.error = null
-      job.output_lines.push('Resume requested — verifying saved assets and accepted provider tasks before submitting missing work.')
+      if (pipelineHandoffOf(job)) {
+        pipelineParents.add(job.job_id)
+        job.status = 'done'
+        job.finished_at ||= new Date().toISOString()
+        job.error = null
+        job.output_lines.push('Resume requested — releasing the saved Pipeline continuation without rerunning completed parent work.')
+      } else {
+        job.status = 'queued'
+        if (!IMAGE_EPISODE_TYPES.has(job.type)) job.started_at = null
+        job.finished_at = null
+        job.error = null
+        job.output_lines.push('Resume requested — verifying saved assets and accepted provider tasks before submitting missing work.')
+      }
     }
     try {
       await persistProjectSnapshot(projectSlug)
@@ -5510,7 +6964,7 @@ async function transitionPausedJobsToQueuedByProject(
       for (const snapshot of snapshots) {
         const { job } = snapshot
         if (
-          job.status === 'queued'
+          job.status === (pipelineParents.has(job.job_id) ? 'done' : 'queued')
           && job.pause_origin === undefined
           && job.pause_requested !== true
           && !pauseRequested.has(job.job_id)
@@ -5535,6 +6989,19 @@ async function transitionPausedJobsToQueuedByProject(
   }
 
   for (const job of candidates) {
+    if (
+      pipelineParents.has(job.job_id)
+      && durable.has(job.job_id)
+      && job.status === 'done'
+      && job.pause_origin === undefined
+      && job.pause_requested !== true
+      && !pauseRequested.has(job.job_id)
+    ) {
+      emitUpdate(job)
+      result.resumed.push(job)
+      await drainPendingPipelineHandoff(job.job_id)
+      continue
+    }
     if (
       !durable.has(job.job_id)
       || job.status !== 'queued'
@@ -5610,6 +7077,7 @@ export async function pauseJob(jobId: string, origin: 'manual' | 'queue' | 'stal
 async function pauseJobUnlocked(jobId: string, origin: 'manual' | 'queue' | 'stall' = 'manual'): Promise<Job | null> {
   const job = jobs.get(jobId)
   if (!job) return null
+  if (hasFinalRenderFence(job)) throw finalRenderWaitConflict()
   clearPaidImageWaitTimer(jobId)
   clearQuotaWaitTimer(jobId)
   if (job.status === 'queued') {
@@ -5668,6 +7136,7 @@ export async function pauseJobForStall(jobId: string, reason: string): Promise<J
  * so accepted or completed items are reclaimed rather than resubmitted. */
 export async function resumeJob(jobId: string): Promise<Job | null> {
   const job = jobs.get(jobId)
+  if (job && hasFinalRenderFence(job)) throw finalRenderWaitConflict()
   if (job && job.status === 'running' && job.pause_requested === true && pauseRequested.has(jobId)) {
     // The pause is still taking effect: workers have stopped claiming items and
     // accepted work is finishing. Undoing that mid-flight would leave the run
@@ -6561,11 +8030,9 @@ function historyFacets(scopeJobs: readonly Job[], filter: JobHistoryFilter): Job
     // The status chips count within the type/search/batch filter but not within
     // the status filter itself — otherwise every chip would read 0 or its own count.
     if (matchesHistoryBase(job, filter)) status[display] = (status[display] || 0) + 1
-    if (isFinishedStatus(job.status)
-      && jobControlsOf(job).some(control => control.enabled && control.action === 'clear-history')) {
-      if (display === 'error') clearable.failed += 1
-      else clearable.finished += 1
-    }
+    const bucket = historyClearBucket(job)
+    if (bucket === 'finished') clearable.finished += 1
+    else if (bucket === 'failed') clearable.failed += 1
   }
   return { stats, active_by_type, status, clearable }
 }
@@ -7179,9 +8646,16 @@ export function retryTerminalJob(
   if (!original || original.project_slug !== projectSlug) {
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
   }
+  if (hasFinalRenderFence(original)) throw finalRenderWaitConflict()
   if (original.status !== 'error' && original.status !== 'cancelled') {
     throw Object.assign(
       new Error('Only failed or cancelled jobs can be retried.'),
+      { status: 409, expose: true },
+    )
+  }
+  if (hasPipelineHandoffField(original)) {
+    throw Object.assign(
+      new Error('This parent already crossed its verified Pipeline completion boundary. Repair its saved continuation instead of running the paid parent again.'),
       { status: 409, expose: true },
     )
   }
@@ -7650,6 +9124,12 @@ export async function requestJobCancellation(projectSlug: string, jobId: string)
   if (!job || job.project_slug !== projectSlug) {
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
   }
+  if (hasFinalRenderFence(job)) {
+    if (!hasFinalRenderRemoteWaitMarker(job)) throw finalRenderWaitConflict()
+    const parsed = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id)
+    if (!parsed.ok) throw finalRenderWaitConflict()
+    return serializeJob(await requestFinalRenderRemoteWaitCancellation(projectSlug, jobId))
+  }
 
   // NEW-01 — the missing-key reason is written while no key exists, so the
   // primary control can name the key instead of saying only that it is checking.
@@ -7743,6 +9223,7 @@ export async function forceAbandonJob(projectSlug: string, jobId: string): Promi
   if (!job || job.project_slug !== projectSlug) {
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
   }
+  if (hasFinalRenderFence(job)) throw finalRenderWaitConflict()
   if (job.force_abandoned) return serializeJob(job)
   return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => forceAbandonJobUnlocked(job)))
 }
@@ -7794,6 +9275,7 @@ async function forceAbandonJobUnlocked(job: Job): Promise<Job> {
 export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   const job = jobs.get(jobId)
   if (!job || job.project_slug !== projectSlug) return false
+  if (hasFinalRenderFence(job)) return false
   // An abandoned job is already the owner's explicit decision to stop waiting;
   // re-applying the unsettled-evidence hold here would put the row back in the
   // dead end that abandoning exists to escape.
@@ -7856,11 +9338,27 @@ export async function noteOnFinishedJob(
   return serializeJob(job)
 }
 
+/**
+ * The clear-finished subset this row belongs to, or null when neither subset
+ * removes it. One rule for the facet counts and the action behind them, so a
+ * badge cannot promise a row the clear will refuse (v1.4.81).
+ *
+ * The subset follows the RAW status, exactly as `clearFinished` acts: a failed
+ * row whose step was skipped for channel settings still reads `skipped` on the
+ * page, but it is an error row and only the failed subset removes it.
+ */
+function historyClearBucket(job: Job): JobHistoryClearStatus | null {
+  if (!isFinishedStatus(job.status) || hasFinalRenderFence(job)) return null
+  if (!job.force_abandoned && (hasUnsettledProviderEvidence(job) || job.music_results_awaiting_import?.length)) return null
+  if (!jobControlsOf(job).some(control => control.enabled && control.action === 'clear-history')) return null
+  return job.status === 'error' && !isRecoveredFailure(job) ? 'failed' : 'finished'
+}
+
 function matchesHistoryClearStatus(job: Job, status: JobHistoryClearStatus | undefined): boolean {
   if (!isFinishedStatus(job.status)) return false
-  if (!status) return true
-  if (status === 'finished') return job.status !== 'error' || isRecoveredFailure(job)
-  return job.status === 'error' && !isRecoveredFailure(job)
+  // Omitted status is the legacy clear-all-terminal scope; the two subset
+  // selectors use the same bucket the facet counts read.
+  return status ? historyClearBucket(job) === status : true
 }
 
 export async function clearFinished(projectSlug: string, status?: JobHistoryClearStatus): Promise<number> {
@@ -7869,7 +9367,8 @@ export async function clearFinished(projectSlug: string, status?: JobHistoryClea
   const clearedIds: string[] = []
   const clearedSceneRenderJobs: Array<Pick<Job, 'episode_id' | 'job_id'>> = []
   for (const [id, job] of jobs.entries()) {
-    if (job.project_slug === projectSlug && matchesHistoryClearStatus(job, status)
+    if (job.project_slug === projectSlug && !hasFinalRenderFence(job)
+      && matchesHistoryClearStatus(job, status)
       && (job.force_abandoned || (!hasUnsettledProviderEvidence(job) && !job.music_results_awaiting_import?.length))) {
       clearPaidImageWaitTimer(id)
       clearQuotaWaitTimer(id)

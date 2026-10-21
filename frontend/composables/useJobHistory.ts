@@ -56,6 +56,30 @@ export function useJobHistory() {
     }
   }
 
+  /**
+   * A delete is about to run. An answer to a load begun before it may still
+   * carry the row being removed, so it must not land after the deletion.
+   */
+  function invalidate(): void {
+    epoch++
+    loading.value = false
+  }
+
+  /**
+   * Drop rows the server confirmed gone. The epoch bump also discards a
+   * pre-clear load still in flight; the caller reloads the authoritative list.
+   */
+  function removeIds(ids: Iterable<string>): void {
+    const drop = new Set(ids)
+    if (!drop.size) return
+    invalidate()
+    const kept = rows.value.filter(row => !drop.has(row.job_id))
+    if (kept.length !== rows.value.length) {
+      total.value = Math.max(0, total.value - (rows.value.length - kept.length))
+      rows.value = kept
+    }
+  }
+
   function reset(): void {
     epoch++
     rows.value = []
@@ -64,5 +88,5 @@ export function useJobHistory() {
     error.value = ''
   }
 
-  return { rows, total, loading, error, load, reset }
+  return { rows, total, loading, error, load, invalidate, removeIds, reset }
 }

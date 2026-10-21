@@ -30,7 +30,7 @@ async function loadJobs(): Promise<Component> {
     const useJobDetails = () => ({ ensure() {}, withDetail: job => job, stop() {} })
     // The finished half of the universal list is a server read; these fixtures are
     // project-scoped, where the stream itself still carries the whole list.
-    const useJobHistory = () => ({ rows: ref([]), total: ref(0), loading: ref(false), error: ref(''), load: async () => undefined, reset() {} })
+    const useJobHistory = () => ({ rows: ref([]), total: ref(0), loading: ref(false), error: ref(''), load: async () => undefined, invalidate() {}, removeIds() {}, reset() {} })
     const useGenStudioModelDisplay = () => ({ displayName: () => '', refresh: async () => undefined })
     const useToast = () => globalThis.__jobsToast
     const useNetworkStatus = () => ({ online: ref(true) })

@@ -24,3 +24,7 @@ export function installTestSafeStorage(): void {
 export function setTestSafeStorageAvailable(value: boolean): void {
   available = value
 }
+
+export function getTestSafeStorageAvailable(): boolean {
+  return available
+}

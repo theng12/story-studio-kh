@@ -1,0 +1,464 @@
+{
+  "version": 1,
+  "source_commit": "80e34dfd1e9eea0a4955e1a145316ee29335b823",
+  "tool_profile": {
+    "ffmpeg_sha256": "ba3a9d9d20b43492a85649d7e03122144905e3f07b713279fb5a0e659cf73e84",
+    "ffprobe_sha256": "f9827709561c11162a9fe93380fe6ecd92648461faf53c5bf5eb3a037442621e"
+  },
+  "fixture": {
+    "duration_sec": 2,
+    "width": 128,
+    "height": 96,
+    "fps": 5,
+    "codec": "h264",
+    "effort": "ultrafast",
+    "crf": 23
+  },
+  "actual_child_calls": 1,
+  "actual_child_argv": [
+    "-y",
+    "-i",
+    "<work>/intermediate_video.mp4",
+    "-i",
+    "<work>/premixed_audio.wav",
+    "-filter_complex",
+    "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+    "-map",
+    "[vout]",
+    "-map",
+    "1:a",
+    "-c:v",
+    "libx264",
+    "-threads",
+    "<x264-threads>",
+    "-crf",
+    "23",
+    "-preset",
+    "ultrafast",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "384k",
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+    "-t",
+    "2",
+    "<work>/<output>"
+  ],
+  "referenced_files": {
+    "intermediate_video.mp4": "bdc32370ea90c2f50457b607615fe03a924b1f8ed62b85c475960b420eb99be3",
+    "premixed_audio.wav": "e3a90286b3b5420103c5d188beff5aeb90737b9ee66c505ee43582c8af92a32b"
+  },
+  "media_proof": {
+    "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+    "duration": "2.000000",
+    "video": {
+      "codec_name": "h264",
+      "width": 128,
+      "height": 96,
+      "avg_frame_rate": "5/1",
+      "time_base": "1/10240"
+    },
+    "audio": {
+      "codec_name": "aac",
+      "sample_rate": "48000",
+      "channels": 2,
+      "time_base": "1/48000"
+    }
+  },
+  "job_proof": {
+    "encoder": "software (libx264)",
+    "degraded": null
+  },
+  "rich_closed_2s": {
+    "fixture_id": "rich_closed_2s",
+    "source_commit": "80e34dfd1e9eea0a4955e1a145316ee29335b823",
+    "tool_profile": {
+      "ffmpeg_sha256": "ba3a9d9d20b43492a85649d7e03122144905e3f07b713279fb5a0e659cf73e84",
+      "ffprobe_sha256": "f9827709561c11162a9fe93380fe6ecd92648461faf53c5bf5eb3a037442621e"
+    },
+    "fixture": {
+      "duration_sec": 2,
+      "width": 128,
+      "height": 96,
+      "fps": 5,
+      "codec": "h264",
+      "effort": "ultrafast",
+      "crf": 23,
+      "effects_gate": {
+        "start_sec": 0.25,
+        "end_sec": 1.75
+      },
+      "cue_offset_sec": 0.35
+    },
+    "actual_child_calls": 1,
+    "actual_child_argv": [
+      "-y",
+      "-i",
+      "<work>/intermediate_video.mp4",
+      "-i",
+      "<work>/premixed_audio.wav",
+      "-i",
+      "<work>/logo-rounded.png",
+      "-stream_loop",
+      "-1",
+      "-i",
+      "<work>/overlay-a.mp4",
+      "-c:v",
+      "png",
+      "-loop",
+      "1",
+      "-i",
+      "<work>/overlay-b.png",
+      "-c:v",
+      "png",
+      "-loop",
+      "1",
+      "-i",
+      "<work>/frame-background.png",
+      "-filter_complex",
+      "[0:v]setpts=PTS-STARTPTS[v0];\n[3:v]scale=128:96:force_original_aspect_ratio=decrease,pad=128:96:(ow-iw)/2:(oh-ih)/2:color=black@0,chromakey=color=0x00FF00:similarity=0.15:blend=0.1,format=rgba,colorchannelmixer=aa=0.75[v1];\n[v0][v1]overlay=(W-w)/2:(H-h)/2:enable='between(t,0.25,1.75)*between(t,0.1,1.7)'[v2];\n[4:v]scale=32:-2,format=rgba,colorchannelmixer=aa=0.6[v3];\n[v2][v3]overlay=W-w-4:H-h-4:enable='between(t,0.25,1.75)*between(t,0.2,1.6)'[v4];\n[v4]eq=brightness=-0.030:contrast=1.200:saturation=0.850:enable='between(t,0.25,1.75)'[v6];\n[v6]format=gbrp,split=2[v7][v8];\n[v8]format=gray,format=gbrp[v9];\n[v7][v9]lut2=c1='clip(floor(x+255*0.7*(-0.01500*clip((0.333-(2*y/255))*4+0.5,0,1)+-0.00750*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':c2='clip(floor(x+255*0.7*(0.01500*clip((0.333-(2*y/255))*4+0.5,0,1)+0.00750*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':enable='between(t,0.25,1.75)',format=yuv420p[v5];\n[v5]vignette=angle=0.7700:mode=forward:eval=init:enable='between(t,0.25,1.75)'[v10];\n[v10]noise=alls=7:allf=t+u:enable='between(t,0.25,1.75)'[v11];\n[v11]eq=brightness='0.010*sin(2*PI*t*8)':contrast=1.044:saturation=0.668:eval=frame:enable='between(t,0.25,1.75)'[v12];\n[v12]noise=alls=9:allf=t+u:enable='between(t,0.25,1.75)'[v13];\n[v13]drawbox=x=17:y=0:w=1:h=ih:color=white@0.08:t=fill:enable='between(t,0.25,1.75)',drawbox=x=99:y=0:w=1:h=ih:color=black@0.08:t=fill:enable='between(t,0.25,1.75)',drawbox=x=74:y=30:w=2:h=2:color=white@0.11:t=fill:enable='between(t,0.25,1.75)'[v14];\n[v14]split=2[v15][v16];\n[v16]crop=w=iw-12:h=ih-12:x='6+2*sin(2*PI*t*0.73)':y='6+2*cos(2*PI*t*0.53)',scale=128:96:flags=bilinear,setsar=1[v17];\n[v15][v17]overlay=0:0:enable='between(t,0.25,1.75)'[v18];\n[v18]scale=90:68,pad=128:96:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[v19];\n[v19]scale=118:86:force_original_aspect_ratio=increase,crop=118:86,format=rgba[mainframe21rgb];\ncolor=c=white:s=118x86:r=5,trim=end_frame=1,format=gray,geq=lum='if(lt(X,2)*lt(Y,2),if(lte(pow(X-2,2)+pow(Y-2,2),4),255,0),if(gte(X,W-2)*lt(Y,2),if(lte(pow(X-(W-2),2)+pow(Y-2,2),4),255,0),if(lt(X,2)*gte(Y,H-2),if(lte(pow(X-2,2)+pow(Y-(H-2),2),4),255,0),if(gte(X,W-2)*gte(Y,H-2),if(lte(pow(X-(W-2),2)+pow(Y-(H-2),2),4),255,0),255))))',loop=loop=-1:size=1[mainframe21mask];\n[mainframe21rgb][mainframe21mask]alphamerge=shortest=1[mainframe21media];\n[5:v]setpts=PTS-STARTPTS,scale=128:96:force_original_aspect_ratio=increase,crop=128:96,setsar=1[mainframe21bg];\n[mainframe21bg]drawbox=x=4:y=4:w=120:h=88:color=#F2C14E:t=fill[mainframe21border];\n[mainframe21border][mainframe21media]overlay=5:5:shortest=1,format=yuv420p[v20];\n[v20]ass=filename=<work>/subtitles-burn.ass[v21];\n[v21]drawtext=text=Archive\\\\\\'s turn\\, 40%\nLine two:expansion=none:fontcolor=white:fontsize=min(w\\,h)*0.032:line_spacing=12:box=1:boxcolor=0x111827@0.88:boxborderw=22:x=w-text_w-56:y=56:alpha=if(lt(t\\,0.750)\\,(t-0.550)/0.200\\,if(gt(t\\,0.730)\\,(1.150-t)/0.420\\,1)):enable=between(t\\,0.550\\,1.150)[v22];\n[2:v]scale=26:-1,format=rgba,colorchannelmixer=aa=0.8[logo];\n[v22][logo]overlay=4:4:enable='between(t,0.25,1.75)'[v23];\n[v23]null[vout]",
+      "-map",
+      "[vout]",
+      "-map",
+      "1:a",
+      "-c:v",
+      "libx264",
+      "-threads",
+      "<x264-threads>",
+      "-crf",
+      "23",
+      "-preset",
+      "ultrafast",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "384k",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-t",
+      "2",
+      "<work>/<output>"
+    ],
+    "referenced_files": {
+      "frame-background.png": "b50b04f32568d3e99c0470660409a9399b5126f83a47b5b5775294c45930d93e",
+      "intermediate_video.mp4": "bdc32370ea90c2f50457b607615fe03a924b1f8ed62b85c475960b420eb99be3",
+      "logo-rounded.png": "95d79545a3a95194b5b6d4f35359e0d6ec4ff2938b6e0ae051a0ff3ac651eaa6",
+      "overlay-a.mp4": "bdc32370ea90c2f50457b607615fe03a924b1f8ed62b85c475960b420eb99be3",
+      "overlay-b.png": "fb15b5eda9bd872cf0d555b87724fb58d9dbd26d3f6567cd9be97bfae170bda0",
+      "premixed_audio.wav": "e3a90286b3b5420103c5d188beff5aeb90737b9ee66c505ee43582c8af92a32b"
+    },
+    "preparation_files": {
+      "logo-source.png": "51140d8a0b892a63b72e7315dcb11c50fe1d46367982d2aee09943780129756f",
+      "captions.srt": "49238c48c55a2de7a2dd39a414db95fca73416a3f78dd5c865c0fe6136bcb834"
+    },
+    "media_proof": {
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "duration": "2.000000",
+      "video": {
+        "codec_name": "h264",
+        "width": 128,
+        "height": 96,
+        "avg_frame_rate": "25/1",
+        "time_base": "1/12800"
+      },
+      "audio": {
+        "codec_name": "aac",
+        "sample_rate": "48000",
+        "channels": 2,
+        "time_base": "1/48000"
+      }
+    },
+    "job_proof": {
+      "encoder": "software (libx264)",
+      "degraded": null
+    }
+  },
+  "f4_hardware_q_h265_request": {
+    "fixture_id": "F4-hardware-q-h265-request",
+    "source_commit": "9bed6b3b9dcda4e38e0b3b1572078c96c570ea72",
+    "tool_profile": {
+      "ffmpeg_sha256": "ba3a9d9d20b43492a85649d7e03122144905e3f07b713279fb5a0e659cf73e84",
+      "ffprobe_sha256": "f9827709561c11162a9fe93380fe6ecd92648461faf53c5bf5eb3a037442621e"
+    },
+    "fixture": {
+      "duration_sec": 2,
+      "width": 128,
+      "height": 96,
+      "fps": 5,
+      "format": "mp4",
+      "requested_codec": "h265",
+      "requested_effort": "hardware",
+      "crf": 23,
+      "video_bitrate_kbps": null,
+      "injection": null,
+      "evidence_class": "real_output"
+    },
+    "actual_child_calls": 1,
+    "attempts": [
+      {
+        "classification": "successful_final_attempt",
+        "argv": [
+          "-y",
+          "-i",
+          "<work>/intermediate_video.mp4",
+          "-i",
+          "<work>/premixed_audio.wav",
+          "-filter_complex",
+          "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+          "-map",
+          "[vout]",
+          "-map",
+          "1:a",
+          "-c:v",
+          "h264_videotoolbox",
+          "-q:v",
+          "65",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "384k",
+          "-pix_fmt",
+          "yuv420p",
+          "-movflags",
+          "+faststart",
+          "-t",
+          "2",
+          "<work>/<output>"
+        ]
+      }
+    ],
+    "referenced_files": {
+      "intermediate_video.mp4": "bdc32370ea90c2f50457b607615fe03a924b1f8ed62b85c475960b420eb99be3",
+      "premixed_audio.wav": "e3a90286b3b5420103c5d188beff5aeb90737b9ee66c505ee43582c8af92a32b"
+    },
+    "media_facts": {
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "video": {
+        "codec_name": "h264",
+        "width": 128,
+        "height": 96
+      },
+      "audio": {
+        "codec_name": "aac",
+        "sample_rate": "48000",
+        "channels": 2
+      }
+    },
+    "tier_facts": {
+      "selected_encoder": "h264_videotoolbox",
+      "encoder_kind": "hardware (VideoToolbox h264)",
+      "degraded": null
+    }
+  },
+  "f4_hardware_bitrate_2500": {
+    "fixture_id": "F4-hardware-bitrate",
+    "source_commit": "9bed6b3b9dcda4e38e0b3b1572078c96c570ea72",
+    "tool_profile": {
+      "ffmpeg_sha256": "ba3a9d9d20b43492a85649d7e03122144905e3f07b713279fb5a0e659cf73e84",
+      "ffprobe_sha256": "f9827709561c11162a9fe93380fe6ecd92648461faf53c5bf5eb3a037442621e"
+    },
+    "fixture": {
+      "duration_sec": 2,
+      "width": 128,
+      "height": 96,
+      "fps": 5,
+      "format": "mp4",
+      "requested_codec": "h264",
+      "requested_effort": "hardware",
+      "crf": 23,
+      "video_bitrate_kbps": 2500,
+      "injection": null,
+      "evidence_class": "real_output"
+    },
+    "actual_child_calls": 1,
+    "attempts": [
+      {
+        "classification": "successful_final_attempt",
+        "argv": [
+          "-y",
+          "-i",
+          "<work>/intermediate_video.mp4",
+          "-i",
+          "<work>/premixed_audio.wav",
+          "-filter_complex",
+          "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+          "-map",
+          "[vout]",
+          "-map",
+          "1:a",
+          "-c:v",
+          "h264_videotoolbox",
+          "-b:v",
+          "2500k",
+          "-maxrate",
+          "3750k",
+          "-bufsize",
+          "5000k",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "384k",
+          "-pix_fmt",
+          "yuv420p",
+          "-movflags",
+          "+faststart",
+          "-t",
+          "2",
+          "<work>/<output>"
+        ]
+      }
+    ],
+    "referenced_files": {
+      "intermediate_video.mp4": "bdc32370ea90c2f50457b607615fe03a924b1f8ed62b85c475960b420eb99be3",
+      "premixed_audio.wav": "e3a90286b3b5420103c5d188beff5aeb90737b9ee66c505ee43582c8af92a32b"
+    },
+    "media_facts": {
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "video": {
+        "codec_name": "h264",
+        "width": 128,
+        "height": 96
+      },
+      "audio": {
+        "codec_name": "aac",
+        "sample_rate": "48000",
+        "channels": 2
+      }
+    },
+    "tier_facts": {
+      "selected_encoder": "h264_videotoolbox",
+      "encoder_kind": "hardware (VideoToolbox h264)",
+      "degraded": null
+    }
+  },
+  "f4_injected_hardware_fallback": {
+    "fixture_id": "F4-injected-hardware-fallback",
+    "source_commit": "9bed6b3b9dcda4e38e0b3b1572078c96c570ea72",
+    "tool_profile": {
+      "ffmpeg_sha256": "ba3a9d9d20b43492a85649d7e03122144905e3f07b713279fb5a0e659cf73e84",
+      "ffprobe_sha256": "f9827709561c11162a9fe93380fe6ecd92648461faf53c5bf5eb3a037442621e"
+    },
+    "fixture": {
+      "duration_sec": 2,
+      "width": 128,
+      "height": 96,
+      "fps": 5,
+      "format": "mp4",
+      "requested_codec": "h264",
+      "requested_effort": "hardware",
+      "crf": 23,
+      "effect": {
+        "vignette": {
+          "enabled": true,
+          "strength": 0.4
+        }
+      },
+      "injection": "reject-videotoolbox",
+      "evidence_class": "injected_failure_real_output"
+    },
+    "actual_child_calls": 2,
+    "attempts": [
+      {
+        "classification": "injected_failed_final_attempt",
+        "argv": [
+          "-y",
+          "-i",
+          "<work>/intermediate_video.mp4",
+          "-i",
+          "<work>/premixed_audio.wav",
+          "-filter_complex",
+          "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]vignette=angle=0.7700:mode=forward:eval=init[v1];\n[v1]null[vout]",
+          "-map",
+          "[vout]",
+          "-map",
+          "1:a",
+          "-c:v",
+          "h264_videotoolbox",
+          "-q:v",
+          "65",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "384k",
+          "-pix_fmt",
+          "yuv420p",
+          "-movflags",
+          "+faststart",
+          "-t",
+          "2",
+          "<work>/<output>"
+        ]
+      },
+      {
+        "classification": "successful_final_attempt",
+        "argv": [
+          "-y",
+          "-i",
+          "<work>/intermediate_video.mp4",
+          "-i",
+          "<work>/premixed_audio.wav",
+          "-filter_complex",
+          "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]vignette=angle=0.7700:mode=forward:eval=init[v1];\n[v1]null[vout]",
+          "-map",
+          "[vout]",
+          "-map",
+          "1:a",
+          "-c:v",
+          "libx264",
+          "-threads",
+          "<x264-threads>",
+          "-crf",
+          "23",
+          "-preset",
+          "ultrafast",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "384k",
+          "-pix_fmt",
+          "yuv420p",
+          "-movflags",
+          "+faststart",
+          "-t",
+          "2",
+          "<work>/<output>"
+        ]
+      }
+    ],
+    "referenced_files": {
+      "intermediate_video.mp4": "bdc32370ea90c2f50457b607615fe03a924b1f8ed62b85c475960b420eb99be3",
+      "premixed_audio.wav": "e3a90286b3b5420103c5d188beff5aeb90737b9ee66c505ee43582c8af92a32b"
+    },
+    "media_facts": {
+      "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+      "video": {
+        "codec_name": "h264",
+        "width": 128,
+        "height": 96
+      },
+      "audio": {
+        "codec_name": "aac",
+        "sample_rate": "48000",
+        "channels": 2
+      }
+    },
+    "tier_facts": {
+      "selected_encoder": "libx264",
+      "encoder_kind": "software (libx264)",
+      "recovery_tier": "H.264 \u00b7 libx264 ultrafast (hardware fallback, full effects)",
+      "requested": [
+        "vignette"
+      ],
+      "survived": [
+        "vignette"
+      ],
+      "dropped": [],
+      "structured_degradation": null
+    }
+  }
+}

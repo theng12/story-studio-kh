@@ -214,6 +214,12 @@ export async function resolveProjectOpening(slug: string): Promise<ResolvedOpeni
 export interface EpisodeRenderShape {
   /** See `FinalCheckExpectation.after_narration_sec`. 0 when the settings ask for no tail. */
   after_narration_sec: number
+  /**
+   * See `FinalCheckExpectation.tail`: the closing post-roll and everything the settings put after it.
+   * Measured here exactly as `after_narration_sec` is, so the final check can place the tail instead
+   * of treating the whole after-narration length as an unplaceable black allowance.
+   */
+  tail: { sec: number; from_end_sec: number }
   /** Where the episode's branded intro clip plays, or null when it draws none. */
   intro: FinalCheckIntro | null
 }
@@ -261,7 +267,7 @@ export async function resolveEpisodeRenderShape(
 
 /** No settings to measure, so no tail and no intro — an answer, not a failure. */
 export function emptyRenderShape(): EpisodeRenderShape {
-  return { after_narration_sec: 0, intro: null }
+  return { after_narration_sec: 0, tail: { sec: 0, from_end_sec: 0 }, intro: null }
 }
 
 /**
@@ -311,7 +317,8 @@ export async function shapeFromVideoAssemblySettings(
     afterNarrationSec += await measurable(intro.outro.video_path, 'outro video')
   }
   // ...and the post-roll the post-audio block asks for sits between them.
-  afterNarrationSec += postRollSeconds(timeline?.post_audio)
+  const postRollSec = postRollSeconds(timeline?.post_audio)
+  afterNarrationSec += postRollSec
 
   // The intro clip plays after any `before_intro` clip, so the head's own clips put it where it is.
   let introShape: FinalCheckIntro | null = null
@@ -337,5 +344,12 @@ export async function shapeFromVideoAssemblySettings(
     }
   }
 
-  return { after_narration_sec: Math.round(afterNarrationSec * 1000) / 1000, intro: introShape }
+  return {
+    after_narration_sec: Math.round(afterNarrationSec * 1000) / 1000,
+    tail: {
+      sec: postRollSec,
+      from_end_sec: Math.round(Math.max(0, afterNarrationSec - postRollSec) * 1000) / 1000,
+    },
+    intro: introShape,
+  }
 }

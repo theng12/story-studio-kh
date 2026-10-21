@@ -26,6 +26,7 @@ function harness(rows = [job('one', 'alpha'), job('two', 'beta', 'clear-history'
     cleanupProgress: ref(''), cleanupFailures: ref<{ label: string; reason: string }[]>([]),
     actionScopeLabel: ref('All projects'),
     requests: [] as string[], updates: [] as string[], removed: [] as string[], messages: [] as string[],
+    historyRemoved: [] as string[], historyReloads: 0, isUniversal: { value: true },
     approved: true, failDelete: '', pendingPost: null as Promise<void> | null, confirms: [] as any[],
   }
   const code = ts.transpileModule(`${functions}\nreturn { ${names.join(', ')} }`, {
@@ -33,7 +34,9 @@ function harness(rows = [job('one', 'alpha'), job('two', 'beta', 'clear-history'
   }).outputText
   const api = new Function('c', `
     const { selectedCleanupIds, eligibleCleanupJobs, selectedCleanupJobs, bulkActionBusy, controlBusy,
-      clearingSelected, cleanupProgress, cleanupFailures, actionScopeLabel } = c;
+      clearingSelected, cleanupProgress, cleanupFailures, actionScopeLabel, isUniversal } = c;
+    const history = { removeIds: ids => c.historyRemoved.push(...ids), invalidate() {} };
+    const loadJobHistory = async () => { c.historyReloads += 1 };
     const jobControls = job => job.controls || [];
     const jobDisplayStatus = job => job.status;
     const jobProjectSlug = job => job.project_slug;
@@ -60,6 +63,8 @@ test('bulk cleanup confirms once and touches only selected jobs in their own pro
   assert.deepEqual(h.requests, ['/projects/alpha/jobs/one/abandon', '/projects/alpha/jobs/one', '/projects/beta/jobs/two'])
   assert.deepEqual(h.updates, ['one'])
   assert.deepEqual(h.removed, ['one', 'two'])
+  assert.deepEqual(h.historyRemoved, ['one', 'two'], 'the history read must drop both confirmed rows, not only the live stores')
+  assert.equal(h.historyReloads, 1, 'one authoritative reload after the bulk clear')
   assert.equal(h.clearingSelected.value, false)
   assert.equal(h.selectedCleanupIds.value.size, 0)
 })
@@ -68,6 +73,8 @@ test('declining bulk cleanup makes no request', async () => {
   const h = harness(); h.approved = false
   await h.abandonAndClearSelected()
   assert.deepEqual(h.requests, [])
+  assert.deepEqual(h.historyRemoved, [])
+  assert.equal(h.historyReloads, 0)
   assert.equal(h.clearingSelected.value, false)
 })
 
@@ -75,6 +82,8 @@ test('one failed clear stays selected and reported while other selected jobs com
   const h = harness(); h.failDelete = '/alpha/jobs/one'
   await h.abandonAndClearSelected()
   assert.deepEqual(h.removed, ['two'])
+  assert.deepEqual(h.historyRemoved, ['two'])
+  assert.equal(h.historyReloads, 1)
   assert.deepEqual([...h.selectedCleanupIds.value], ['one'])
   assert.equal(h.cleanupFailures.value.length, 1)
   assert.match(h.cleanupFailures.value[0].reason, /Cannot clear yet/)

@@ -365,6 +365,29 @@ describe('pipeline chain handoff failures', () => {
     )
     const finalizer = (await jq.getJobs(proj.slug)).find(job => job.type === 'metadata')!
     await waitForJobStatus(finalizer.job_id, 'done')
+    const thumbnailId = `pipeline-handoff-${finalizer.job_id}`
+    const handoffDeadline = Date.now() + 2_000
+    await waitFor(async () => {
+      if (Date.now() >= handoffDeadline) return false
+      const parent = await jq.loadAuthoritativeJob(proj.slug, finalizer.job_id) as (Job & {
+        pipeline_handoff?: { state: string; parent_job_id: string; child_job_id: string }
+      }) | null
+      const child = await jq.loadAuthoritativeJob(proj.slug, thumbnailId)
+      return Date.now() < handoffDeadline
+        && parent?.status === 'done' && parent.local_execution_complete === true && Boolean(parent.finished_at)
+        && parent.pipeline_handoff?.state === 'dispatched'
+        && parent.pipeline_handoff.parent_job_id === finalizer.job_id
+        && parent.pipeline_handoff.child_job_id === thumbnailId
+        && child?.job_id === thumbnailId && child.type === 'thumb_images'
+        && child.project_slug === proj.slug && child.episode_id === finalizer.episode_id
+        && child.status === 'done' && child.local_execution_complete === true && Boolean(child.finished_at)
+        && !jq._isJobWorkerActiveForTesting(finalizer.job_id)
+        && !jq._isJobWorkerActiveForTesting(thumbnailId)
+    }, {
+      label: 'automatic finalizer thumbnail handoff and both workers to settle',
+      timeoutMs: 2_000,
+      maxWallClockMs: 2_000,
+    })
     const recovery = await import('../services/episode-recovery.js')
     const plan = recovery.createEpisodeRecoveryPlan([failedSubtitle!])
     assert.equal(plan.continuation_dispatched, true, 'the source retains the completed handoff even after tail history is pruned')
@@ -411,7 +434,7 @@ describe('pipeline chain handoff failures', () => {
     const proj = await pm.createProject({ name: 'JQ Chain Handoff' })
     jq.registerExecutor('chapter-only', async () => {})
     const batchId = 'batch-handoff-test'
-    jq.enqueuePreparedForTest({
+    const parent = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'chapter-only',
       episode_id: 'EP001',
@@ -428,12 +451,43 @@ describe('pipeline chain handoff failures', () => {
 
     const deadline = Date.now() + 2000
     let failed: any
-    while (Date.now() < deadline) {
+    await waitFor(async () => {
+      if (Date.now() >= deadline) return false
       const list = await jq.getJobs(proj.slug)
       failed = list.find(j => (j.params as any)?.pipeline_handoff_failed === true)
-      if (failed) break
-      await new Promise(r => setTimeout(r, 20))
-    }
+      if (!failed || jq._isJobWorkerActiveForTesting(parent.job_id)
+        || jq._isJobWorkerActiveForTesting(failed.job_id)) return false
+      await jq._waitForJobPersistenceForTesting()
+      const durableParent = await jq.loadAuthoritativeJob(proj.slug, parent.job_id)
+      const durableChild = await jq.loadAuthoritativeJob(proj.slug, failed.job_id)
+      return Date.now() < deadline && durableParent?.status === 'done'
+        && durableChild?.status === 'error' && Boolean(durableChild.finished_at)
+        && durableChild.params.pipeline_parent_job_id === parent.job_id
+        && !jq._isJobWorkerActiveForTesting(parent.job_id)
+        && !jq._isJobWorkerActiveForTesting(failed.job_id)
+    }, {
+      label: 'automatic unknown-lane parent and failed child settlement',
+      timeoutMs: 2_000,
+      maxWallClockMs: 2_000,
+    })
+    const durableParent = await jq.loadAuthoritativeJob(proj.slug, parent.job_id)
+    assert.equal(durableParent?.status, 'done')
+    assert.equal(Object.hasOwn(durableParent!, 'pipeline_handoff'), false,
+      'fresh unknown lanes must not publish a private handoff marker')
+    const durable = JSON.parse(await fs.readFile(path.join(pm.getProjectDir(proj.slug)!, 'jobs.json'), 'utf8')) as { jobs: Job[] }
+    const failedChildren = durable.jobs.filter(job => (
+      job.params?.pipeline_handoff_failed === true && job.params.pipeline_parent_job_id === parent.job_id
+    ))
+    assert.equal(failedChildren.length, 1, 'exactly one durable failed child belongs to the original parent')
+    assert.equal(failedChildren[0].job_id, failed.job_id)
+    assert.equal(failedChildren[0].status, 'error')
+    assert.equal(failedChildren[0].params.pipeline_parent_job_id, parent.job_id)
+    assert.equal(failedChildren[0].type, 'removed-job-type')
+    assert.equal(failedChildren[0].params.pipeline_batch_id, batchId)
+    assert.equal(failedChildren[0].params.marker, 'preserved')
+    assert.match(failedChildren[0].error || '', /handoff failed/i)
+    assert.equal(jq._isJobWorkerActiveForTesting(parent.job_id), false)
+    assert.equal(jq._isJobWorkerActiveForTesting(failed.job_id), false)
 
     assert.ok(failed, 'handoff failure should create a visible child job')
     assert.equal(failed.status, 'error')

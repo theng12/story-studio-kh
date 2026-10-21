@@ -1,5 +1,6 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { hasFinalRenderRemoteWaitMarker } from '../lib/final-render-remote-wait.js'
 
 const TERMINAL = new Set(['done', 'error', 'cancelled'])
 const SETTLED_PROVIDER = new Set(['succeeded', 'failed', 'cancelled'])
@@ -24,6 +25,7 @@ export async function assertProjectJobsSafeToRemove(projectDir: string): Promise
 
   const blocked = records.find((value: any) => {
     if (!value || typeof value !== 'object') return true
+    if (value.type === 'video_assembly' && hasFinalRenderRemoteWaitMarker(value)) return true
     if (!TERMINAL.has(value.status)) return true
     if (Object.values(value.remote_cancellations || {}).some((record: any) => PENDING_CANCELLATION.has(record?.status))) return true
     return Array.isArray(value.genstudio_jobs) && value.genstudio_jobs.some((entry: any) => (

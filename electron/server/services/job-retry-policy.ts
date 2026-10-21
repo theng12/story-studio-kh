@@ -1,6 +1,7 @@
 import type { Job, JobType } from '../models/types.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 import { pipelinePolicyForJob, type PipelineModelPolicyStage } from '../lib/pipeline-model-policy.js'
+import { hasFinalRenderRemoteWaitMarker } from '../lib/final-render-remote-wait.js'
 
 export interface JobAutoRetryPolicy {
   eligible: boolean
@@ -126,7 +127,7 @@ export function _setAutomaticRetryForTesting(enabled: boolean): void {
  * - local work retries quickly.
  */
 export function resolveJobAutoRetryPolicy(
-  job: Pick<Job, 'type' | 'params'>,
+  job: Pick<Job, 'type' | 'params' | 'final_render_remote_wait'>,
 ): JobAutoRetryPolicy {
   const params = job.params || {}
   if (params.auto_retry === false || automaticRetryOffForTests) {
@@ -134,6 +135,9 @@ export function resolveJobAutoRetryPolicy(
   }
 
   if (job.type === 'video_assembly') {
+    if (hasFinalRenderRemoteWaitMarker(job)) {
+      return { ...MANUAL_ONLY, reason: 'Remote video assembly remains parked until its original lineage is reconciled.' }
+    }
     return localPolicy('Local video assembly can retry without provider charges.')
   }
 

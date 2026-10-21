@@ -228,6 +228,7 @@ export interface RequireSessionOptions {
   getKeys?: () => AutomationKeyRecord[]
   onKeyUsed?: (key: AutomationKeyRecord, peer: string) => void
   onKeyRejected?: (presented: string, peer: string, status: number) => void
+  allowLocalBypass?: boolean
 }
 
 /**
@@ -245,15 +246,16 @@ export interface RequireSessionOptions {
  */
 export function buildRequireSession(
   getAuth: () => ServerModeAuth | undefined,
-  { getKeys = () => [], onKeyUsed, onKeyRejected }: RequireSessionOptions = {},
+  { getKeys = () => [], onKeyUsed, onKeyRejected, allowLocalBypass = true }: RequireSessionOptions = {},
 ) {
   return function requireSession(req: any, res: any, next: any): void {
-    if (req.skip_auth) return next()
+    if (allowLocalBypass && req.skip_auth) return next()
 
     // Loopback bypass — see carve-out #1 above. `req.ip` reflects the
     // socket peer; trust-proxy is OFF so it can't be spoofed via headers.
     const peer = req.ip || req.socket?.remoteAddress || ''
-    if (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1') {
+    if (allowLocalBypass
+      && (peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1')) {
       req.user = { username: '__local__' }
       return next()
     }

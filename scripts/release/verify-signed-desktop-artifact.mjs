@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { expandArtifactName } from './release-utils.mjs'
 import { packagedDependencyFailures } from './verify-packaged-dependencies.mjs'
 import { smokeLaunch } from './smoke-launch-artifact.mjs'
+import { readSelectedStoryRenderProvenance, verifyStoryRenderProvenanceArtifacts } from './render-build-provenance.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(scriptDir, '..', '..')
@@ -46,6 +47,9 @@ if (!fs.existsSync(dmgPath)) throw new Error(`Notarized DMG is missing: ${dmgPat
 // This path ships to real customers, so it gets the same floor as the smoke
 // path — and running it first keeps the check reachable (and testable) on an
 // ad-hoc build that has no Developer ID yet.
+const expectedProvenance = readSelectedStoryRenderProvenance(fs.readFileSync(path.join(root, 'electron-builder.json')))
+verifyStoryRenderProvenanceArtifacts({ appPath, dmgPath, expected: expectedProvenance })
+
 const asarPath = path.join(appPath, 'Contents', 'Resources', 'app.asar')
 const unpackedRoot = `${asarPath}.unpacked`
 const dependencyResult = packagedDependencyFailures(asarPath, fs.existsSync(unpackedRoot) ? unpackedRoot : null)

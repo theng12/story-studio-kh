@@ -39,7 +39,7 @@ import {
 } from '../contracts/scene-effects.js'
 import { loopBakeSize, loopFrameCount, type LoopShape } from '../contracts/effect-loops.js'
 import { buildColorGradingFilters } from './color-grade.js'
-import { escapeFilterArgValue, escapeFilterPath } from './ffmpeg-utils.js'
+import { escapeFilterArgValue, escapeFilterPath } from './ffmpeg-filter-escape.js'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Shared numeric formatting

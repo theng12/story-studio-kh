@@ -23,6 +23,7 @@ const PAID = {
 }
 const CONCURRENCY = '/app-settings/concurrency'
 const MANUAL_REDO = '/app-settings/manual-generation-redo'
+const PRIVATE_FLEET = '/app-settings/private-final-render'
 
 async function loadComponent(): Promise<Component> {
   const filename = fileURLToPath(new URL('../components/PerformanceSettings.vue', import.meta.url))
@@ -51,6 +52,8 @@ async function mount(options: {
   failPaid?: string[]
   manualRedo?: { enabled: boolean }
   failManualRedo?: boolean
+  privateFleet?: { enabled: boolean }
+  refuse?: Record<string, Error>
   concurrency?: Record<string, any>
   echo?: (path: string, body: any) => any
 } = {}) {
@@ -67,6 +70,7 @@ async function mount(options: {
         if (options.failManualRedo) throw new Error('offline')
         return options.manualRedo ?? { enabled: false }
       }
+      if (path === PRIVATE_FLEET) return options.privateFleet ?? { enabled: false }
       const kind = Object.entries(PAID).find(([, p]) => p === path)?.[0]
       if (kind) {
         if (options.failPaid?.includes(kind)) throw new Error('offline')
@@ -76,6 +80,7 @@ async function mount(options: {
     },
     put: async (path: string, body: any) => {
       saves.push({ path, body })
+      if (options.refuse?.[path]) throw options.refuse[path]
       if (options.echo) return options.echo(path, body)
       if (path === CONCURRENCY) return body
       return body
@@ -103,7 +108,8 @@ async function mount(options: {
   }
   const save = async () => { saveButton().click(); await flush() }
   const manualRedo = () => host.querySelector<HTMLInputElement>('input[name="manual-generation-redo-enabled"]')
-  return { host, saves, row, turnOn, setCeiling, save, saveButton, manualRedo, unmount: () => app.unmount() }
+  const privateFleet = () => host.querySelector<HTMLInputElement>('input[name="private-final-render-enabled"]')
+  return { host, saves, row, turnOn, setCeiling, save, saveButton, manualRedo, privateFleet, unmount: () => app.unmount() }
 }
 
 describe('Performance & recovery', () => {
@@ -231,6 +237,38 @@ describe('Performance & recovery', () => {
       assert.equal(unavailable.manualRedo(), null)
       assert.match(unavailable.host.textContent || '', /Could not load this setting/)
     } finally { unavailable.unmount() }
+  })
+
+  test('private fleet rendering is Off by default, saves {enabled:true}, and shows an owner refusal truthfully', async () => {
+    const m = await mount()
+    try {
+      assert.equal(m.privateFleet()?.checked, false, 'Off by default')
+      assert.match(m.host.textContent || '', /Render final videos on your other Macs/)
+      m.privateFleet()!.checked = true
+      m.privateFleet()!.dispatchEvent(new Event('change', { bubbles: true }))
+      await flush()
+      await m.save()
+      assert.deepEqual(m.saves, [{ path: PRIVATE_FLEET, body: { enabled: true } }])
+      assert.equal(m.privateFleet()?.checked, true)
+      assert.match(m.host.textContent || '', /Saved and in effect now: private fleet rendering/)
+    } finally { m.unmount() }
+
+    for (const [status, message] of [[401, /only the signed-in owner can change/], [503, /owner sign-in is not set up/]] as const) {
+      const refusal = Object.assign(new Error(`HTTP ${status}`), { statusCode: status })
+      const refused = await mount({ refuse: { [PRIVATE_FLEET]: refusal } })
+      try {
+        refused.privateFleet()!.checked = true
+        refused.privateFleet()!.dispatchEvent(new Event('change', { bubbles: true }))
+        await flush()
+        await refused.save()
+        assert.deepEqual(refused.saves, [{ path: PRIVATE_FLEET, body: { enabled: true } }])
+        assert.match(refused.host.textContent || '', message)
+        assert.match(refused.host.textContent || '', /it was not changed/)
+        assert.doesNotMatch(refused.host.textContent || '', /Saved and in effect now/)
+        assert.equal(refused.privateFleet()?.checked, false, `${status}: the switch shows what is saved, not what was asked`)
+        assert.equal(refused.saveButton().disabled, true)
+      } finally { refused.unmount() }
+    }
   })
 
   test('unreadable job numbers are not shown and cannot be saved over the real ones', async () => {

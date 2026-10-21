@@ -1,5 +1,5 @@
 {
-  "revision": 293,
+  "revision": 296,
   "batches": [
     {
       "revision": 2,
@@ -10071,6 +10071,57 @@
           "status": "authored"
         }
       }
+    },
+    {
+      "revision": 294,
+      "transition_ref": "lifecycle:4a59689c714c14a55d1e74d47e558e2eead0f2c7663f4e02361e20957fcbfb6d",
+      "request": {
+        "expected_revision": 293,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "feat/history-portable-packs-20261021"
+        },
+        "receipt_ref": "authoring:da3b99cbbeefdefe142c705b60d240e871ef4ba110c1984738a00e83efbca371",
+        "pack_id": "com.storystudio.pack.formula.illustrated-history-for-sleep",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 295,
+      "transition_ref": "lifecycle:3e4be5fb74c2029eb4d9247a512913346832d142bde40dcb2657114f487978af",
+      "request": {
+        "expected_revision": 294,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "feat/history-portable-packs-20261021"
+        },
+        "receipt_ref": "authoring:da3b99cbbeefdefe142c705b60d240e871ef4ba110c1984738a00e83efbca371",
+        "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 296,
+      "transition_ref": "lifecycle:f270eded6c2bb385b277acda6bb2c278a98e2dc75e1ad6d13df33b23abe4095c",
+      "request": {
+        "expected_revision": 295,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "feat/history-portable-packs-20261021"
+        },
+        "receipt_ref": "authoring:da3b99cbbeefdefe142c705b60d240e871ef4ba110c1984738a00e83efbca371",
+        "pack_id": "com.storystudio.pack.thumbnail.illustrated-subject-sleep-badge",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
     }
   ],
   "records": [
@@ -16974,7 +17025,7 @@
       "min_app_version_status": "release-bound",
       "kind": "series-formula",
       "source_path": "content-packs/illustrated-history/formula/illustrated-history-for-sleep",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -16997,7 +17048,7 @@
       "min_app_version_status": "release-bound",
       "kind": "visual-style",
       "source_path": "content-packs/illustrated-history/style/bold-illustrated-history",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -17020,7 +17071,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/illustrated-history/thumbnail/illustrated-subject-sleep-badge",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {

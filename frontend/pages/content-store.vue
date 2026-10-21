@@ -1,18 +1,33 @@
 <template>
   <NuxtPage />
   <div v-if="!viewingDetail" class="content-store-page">
-    <header class="store-header"><div><PlainBackLink label="Back to Channels" fallback="/" /><h1>Content Store</h1><p>Find published channel building blocks, prove what is included, then own and install them deliberately. Packs are permanently owned by your Gateway.</p></div><div class="store-header-actions"><button type="button" class="btn btn-secondary" :disabled="loading || networkActionsDisabled" @click="restoreOwnership">Restore Purchases</button><button type="button" class="btn btn-secondary" :disabled="loading" @click="refreshStore">{{ loading ? 'Refreshing…' : 'Refresh Store' }}</button></div></header>
+    <header class="store-header"><div><PlainBackLink label="Back to Channels" fallback="/" /><h1>Content Store</h1><p>Find reusable content packs. Browse and download what your Gateway publishes, or install a .sspack file already on this Mac.</p></div><div class="store-header-actions"><button type="button" class="btn btn-secondary" title="Choose a .sspack file up to 50 MiB" :disabled="importBusy" @click="chooseContentPack">{{ importBusy ? 'Installing…' : 'Install Content Pack' }}</button><input ref="contentPackFileInput" type="file" accept=".sspack" hidden @change="onContentPackPicked" /><button type="button" class="btn btn-secondary" :disabled="loading || networkActionsDisabled" @click="restoreOwnership">Restore Purchases</button><button type="button" class="btn btn-secondary" :disabled="loading" @click="refreshStore">{{ loading ? 'Refreshing…' : 'Refresh Store' }}</button></div></header>
     <section v-if="account" class="account-strip" aria-label="Content Store account balances"><div><span>Content account</span><strong>{{ account.contentAccountId }}</strong></div><dl><div><dt>Spendable on content</dt><dd>{{ formatCredits(account.contentSpendableCredits) }} credits</dd></div><div><dt>Total available</dt><dd>{{ formatCredits(account.availableCredits) }} credits</dd></div></dl></section>
     <section v-else-if="!ownershipResolved" class="account-strip" aria-label="Content Store account balances"><div><span>Content account</span><strong>Checking with the Gateway…</strong></div><dl><div><dt>Spendable on content</dt><dd>—</dd></div><div><dt>Total available</dt><dd>—</dd></div></dl></section>
     <div v-if="recovery" class="store-notice warning" role="status" aria-live="polite"><div><strong>A local Content Pack recovery needs your attention</strong><p>Use Restore Purchases to reinstall your purchased packs.</p><p>The unreadable index was reset; pack folders were retained. Reinstall any packs still missing.</p><button type="button" class="notice-action" :disabled="recoveryDismissBusy" @click="dismissRecovery">{{ recoveryDismissBusy ? 'Dismissing…' : 'Dismiss Notice' }}</button></div></div>
     <div v-if="recoveryError" class="store-notice warning" role="status" aria-live="polite"><div><strong>{{ recoveryError.action === 'dismiss' ? 'Content Pack recovery notice was not dismissed' : 'Content Pack recovery could not be checked' }}</strong><p>{{ recoveryError.detail }}</p></div></div>
-    <div v-if="catalogFreshness === 'restored' && !pageError" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Showing the published catalogue saved on this Mac</strong><p>Checking with the Gateway now. What you own, what is installed here and your credit balance are not known yet, so buying and installing stay off until they are.</p></div></div>
-    <div v-if="catalogFreshness === 'cached'" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Showing the last verified catalog</strong><p>The Gateway is unavailable, so purchase and install actions are disabled. Last verified {{ formatVerifiedAt(lastVerifiedAt) }}.</p></div></div>
+    <div v-if="importBusy" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Installing Content Pack…</strong><p>Reading the chosen .sspack and installing it on this Mac. This local install needs no Gateway connection.</p></div></div>
+    <div v-else-if="importNotice" :class="['store-notice', importNotice.tone]" role="status" aria-live="polite"><div><strong>{{ importNotice.title }}</strong><p>{{ importNotice.detail }}</p><p v-if="importNotice.recovery">{{ importNotice.recovery }}</p></div></div>
+    <section class="gateway-archives" aria-labelledby="gateway-archives-heading" :aria-busy="gatewayArchivesBusy">
+      <div class="gateway-archives-head"><div><h2 id="gateway-archives-heading">Gateway archives</h2><p>Install the exact .sspack your Gateway keeps in its Archive Bank. No Content Store account, purchase or shelf setup is required. Story Studio checks app compatibility, document schemas and the exact SHA-256 during install.</p></div><button type="button" class="btn btn-secondary" :disabled="gatewayArchivesBusy" @click="loadGatewayArchives">{{ gatewayArchivesBusy ? 'Checking…' : 'Refresh archives' }}</button></div>
+      <div v-if="gatewayArchivesError" class="store-notice warning" role="status" aria-live="polite"><div><strong>{{ gatewayArchivesError.title }}</strong><p>{{ gatewayArchivesError.detail }}</p><p v-if="gatewayArchivesError.recovery">{{ gatewayArchivesError.recovery }}</p><button type="button" class="notice-action" :disabled="gatewayArchivesBusy" @click="loadGatewayArchives">Retry Gateway archives</button></div></div>
+      <div v-if="gatewayArchiveNotice" :class="['store-notice', gatewayArchiveNotice.tone]" role="status" aria-live="polite"><div><strong>{{ gatewayArchiveNotice.title }}</strong><p>{{ gatewayArchiveNotice.detail }}</p><p v-if="gatewayArchiveNotice.recovery">{{ gatewayArchiveNotice.recovery }}</p></div></div>
+      <p v-if="!gatewayArchivesLoaded && !gatewayArchivesError" class="gateway-archives-state" role="status" aria-live="polite">Checking the Gateway archive bank…</p>
+      <p v-else-if="gatewayArchivesLoaded && gatewayArchives.length === 0" class="gateway-archives-state" role="status">No archives are in the Gateway Archive Bank yet. Add a .sspack in the Gateway, then refresh here.</p>
+      <ul v-else-if="gatewayArchives.length" class="gateway-archive-list">
+        <li v-for="archive in gatewayArchives" :key="archive.archiveSha256" class="gateway-archive-row">
+          <div class="gateway-archive-copy"><strong>{{ gatewayArchiveTitle(archive) }}</strong><span>{{ gatewayArchiveIdentity(archive) }}</span><span>{{ gatewayArchiveMeta(archive) }}</span><span class="gateway-archive-compatibility">{{ gatewayCompatibilityLabel(archive) }}</span></div>
+          <button type="button" class="btn btn-secondary" :aria-label="`Install ${gatewayArchiveTitle(archive)}`" :disabled="!!gatewayArchiveBusyDigest" @click="installFromGatewayArchive(archive)">{{ gatewayArchiveBusyDigest === archive.archiveSha256 ? 'Installing…' : 'Install' }}</button>
+        </li>
+      </ul>
+    </section>
+    <div v-if="catalogFreshness === 'restored' && !pageError" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Showing the published catalogue saved on this Mac</strong><p>Checking with the Gateway now. Gateway purchase and download stay off until it answers. Install Content Pack still works from a local file.</p></div></div>
+    <div v-if="catalogFreshness === 'cached'" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Showing the last verified catalog</strong><p>The Gateway is unavailable, so Gateway purchase and download actions are disabled. Install Content Pack still works from a local file. Last verified {{ formatVerifiedAt(lastVerifiedAt) }}.</p></div></div>
     <div v-if="pageError" :class="['store-notice', pageError.tone]" role="status" aria-live="polite"><div><strong>{{ pageError.title }}</strong><p>{{ pageError.detail }}</p><p v-if="pageError.recovery">{{ pageError.recovery }}</p><button v-if="pageError.showSettings" type="button" class="notice-action" @click="appSettingsModal.open('connections')">Open Connection Settings</button></div></div>
     <nav class="store-tabs" role="tablist" aria-label="Content Store views" @keydown="moveTab"><button v-for="tab in tabs" :id="`content-store-tab-${tab.id}`" :key="tab.id" :ref="element => setTabRef(tab.id, element)" type="button" role="tab" :aria-selected="activeTab === tab.id" :aria-controls="`content-store-panel-${tab.id}`" :tabindex="activeTab === tab.id ? 0 : -1" @click="activeTab = tab.id">{{ tab.label }}<span>{{ tabCountLabel(tab.id) }}</span></button></nav>
     <main :id="`content-store-panel-${activeTab}`" class="store-content" role="tabpanel" :aria-labelledby="`content-store-tab-${activeTab}`">
       <div v-if="loading && catalogFreshness === 'unavailable'" class="store-state" aria-live="polite"><LoadingSpinner size="sm" /><p>Loading the Gateway catalog…</p></div>
-      <div v-else-if="catalogFreshness === 'unavailable'" class="store-state" role="status" aria-live="polite"><h2>Content Store is unavailable</h2><p>{{ pageError?.detail || 'Refresh the Store to try again.' }}</p><button type="button" class="btn btn-secondary" @click="refreshStore">Retry Content Store</button></div>
+      <div v-else-if="catalogFreshness === 'unavailable'" class="store-state" role="status" aria-live="polite"><h2>Content Store is unavailable</h2><p>{{ pageError?.detail || 'Refresh the Store to try again.' }}</p><p>Install Content Pack still works from a local file.</p><button type="button" class="btn btn-secondary" @click="refreshStore">Retry Content Store</button></div>
       <div v-else-if="catalogFreshness === 'fresh' && products.length === 0 && installed.length === 0" class="store-state" role="status"><h2>The Content Store is ready, but no packs have been published yet.</h2><p>Refresh later to see the catalog the Gateway publishes.</p></div>
       <template v-else-if="activeTab === 'discover'"><ContentStoreFilters :products="tabProducts" :query="query" :price="price" :kind="kind" :tag="tag" :compatible-only="compatibleOnly" @update:query="query = $event" @update:price="price = $event" @update:kind="kind = $event" @update:tag="tag = $event" @update:compatible-only="compatibleOnly = $event" /><div v-if="ownershipResolved && purchasableVisible.length && !allPurchasableSelected" class="selection-tools"><button type="button" class="btn btn-secondary" :disabled="networkActionsDisabled" @click="selectAllPurchasable">Select all {{ purchasableVisible.length }} purchasable</button><span class="hint">Then buy them behind one confirmation.</span></div><div v-if="selectedForPurchase.length" class="selection-bar" role="status" aria-live="polite"><div class="selection-summary"><strong>{{ selectedForPurchase.length }} {{ selectedForPurchase.length === 1 ? 'pack' : 'packs' }} selected</strong><span>{{ selectionTotal === null ? 'Price not published for every pack' : `${formatCredits(selectionTotal)} credits before discount` }}</span></div><div class="selection-actions"><button type="button" class="btn btn-secondary" @click="clearSelection">Clear</button><button type="button" class="btn btn-primary" :disabled="networkActionsDisabled || !!batchQuoteBusy" @click="startBatchPurchase">{{ batchQuoteBusy ? `Quoting ${batchProgressLabel}…` : `See Exact Quotes (${selectedForPurchase.length})` }}</button></div></div>
       <div v-if="visibleShelves.length" class="shelf-list"><ContentStoreShelf v-for="shelf in visibleShelves" :key="shelf.shelf.id" :shelf="shelf.shelf" :products="shelf.products" :account="account" :busy-product-id="quoteBusyProduct" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :selectable="true" :selected-product-ids="selectedProductIds" :queue-status="installQueue.statusOf" :halt-reason="installQueue.haltReason.value" @quote="openQuote" @install="enqueueInstall" @toggle-select="toggleSelection" /></div><div v-else class="store-state" role="status">
@@ -44,7 +59,7 @@ import ContentBatchPurchaseDialog from '~/components/content-store/ContentBatchP
 import { batchSkipReason, sumPublished, useBatchPurchase } from '~/composables/useBatchPurchase'
 import { filterCatalogProducts, installedPackCount, orderShelfProducts, type ContentStoreKindFilter } from '~/content-store/catalog-presentation'
 import { useContentInstallQueue } from '~/composables/useContentInstallQueue'
-import { contentStoreErrorPresentation, type ContentStoreProduct, type ContentStoreUiError } from '~/composables/useContentStore'
+import { contentStoreErrorPresentation, CONTENT_PACK_IMPORT_MAX_BYTES, contentPackImportErrorPresentation, contentPackImportUiError, gatewayArchiveErrorPresentation, type ContentStoreProduct, type ContentStoreUiError, type GatewayContentArchive } from '~/composables/useContentStore'
 
 useAppTitle('Content Store')
 type StoreTab = 'discover' | 'owned' | 'installed' | 'updates'
@@ -53,6 +68,20 @@ const store = useContentStore(); const appSettingsModal = useAppSettingsModal();
 const route = useRoute(); const viewingDetail = computed(() => typeof route.params.productId === 'string' && route.params.productId.length > 0)
 const activeTab = ref<StoreTab>('discover'); const query = ref(''); const price = ref<PriceFilter>('all'); const kind = ref<ContentStoreKindFilter>('all'); const tag = ref(''); const compatibleOnly = ref(false)
 const quoteBusyProduct = ref(''); const purchaseBusy = ref(false); const dialogOpen = ref(false); const selectedQuoteId = ref(''); const selectedProductId = ref(''); const dialogError = ref<ContentStoreUiError | null>(null); const recoveryDismissBusy = ref(false); const tabRefs = new Map<StoreTab, HTMLButtonElement>()
+/** Local `.sspack` install is independent of Gateway state, so it has its own busy/notice state. */
+const contentPackFileInput = ref<HTMLInputElement | null>(null)
+const importBusy = ref(false)
+const importNotice = ref<{ tone: 'success' | 'warning'; title: string; detail: string; recovery?: string } | null>(null)
+/**
+ * The Gateway archive bank is a separate, authenticated shelf read. It has no
+ * dependency on a Content Store account, purchase state or shelf assignment.
+ */
+const gatewayArchives = ref<GatewayContentArchive[]>([])
+const gatewayArchivesLoaded = ref(false)
+const gatewayArchivesBusy = ref(false)
+const gatewayArchivesError = ref<{ title: string; detail: string; recovery: string } | null>(null)
+const gatewayArchiveBusyDigest = ref('')
+const gatewayArchiveNotice = ref<{ tone: 'success' | 'warning'; title: string; detail: string; recovery?: string } | null>(null)
 const discoverProducts = computed(() => products.value.filter(product => !product.owned && !product.retired)); const ownedProducts = computed(() => products.value.filter(product => product.owned)); const ownedInstallState = (product: ContentStoreProduct) => account.value?.owned.find(item => item.entitlementFamily === product.entitlementFamily)?.installState; const updateProducts = computed(() => ownedProducts.value.filter(product => product.compatible && product.currentRelease && !account.value?.owned.find(item => item.entitlementFamily === product.entitlementFamily)?.recalledReleaseVersions.includes(product.currentRelease.version) && ownedInstallState(product) === 'update_available')); const tabProducts = computed(() => activeTab.value === 'discover' ? discoverProducts.value : activeTab.value === 'owned' ? ownedProducts.value : updateProducts.value)
 const catalogPresentation = computed(() => Object.fromEntries(products.value.map(product => [product.productId, { productId: product.productId, ...product.presentation }])));
 const filteredProducts = computed(() => filterCatalogProducts(tabProducts.value, query.value, { price: price.value, kind: kind.value, compatibleOnly: compatibleOnly.value, tag: tag.value || undefined }, catalogPresentation.value))
@@ -79,6 +108,119 @@ const pageError = computed(() => { if (!error.value || dialogOpen.value) return 
 async function loadStore(options: { background?: boolean } = {}): Promise<void> { void store.refreshRecovery(); try { await store.refresh(options) } catch { /* state renders the exact boundary */ } }
 /** Refresh store / Retry: always a visible, cache-bypassing fetch, never the quiet path. */
 function refreshStore(): void { void loadStore() }
+/**
+ * Local file install: independent of Gateway state, so it is not gated on
+ * `networkActionsDisabled`.
+ */
+function chooseContentPack(): void {
+  if (importBusy.value) return
+  importNotice.value = null
+  contentPackFileInput.value?.click()
+}
+async function onContentPackPicked(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0] ?? null
+  // Clearing the value lets the same file be chosen again after a failure.
+  input.value = ''
+  if (!file || importBusy.value) return
+  if (file.size === 0) {
+    importNotice.value = { tone: 'warning', title: 'This file is empty', detail: 'Choose the .sspack archive you intend to install.' }
+    return
+  }
+  if (file.size > CONTENT_PACK_IMPORT_MAX_BYTES) {
+    importNotice.value = {
+      tone: 'warning',
+      title: 'This archive is larger than the 50 MiB local limit',
+      detail: `${file.name || 'The chosen file'} is ${(file.size / (1024 * 1024)).toFixed(1)} MiB. Choose a smaller .sspack archive.`,
+    }
+    return
+  }
+  importBusy.value = true
+  importNotice.value = null
+  try {
+    const archive = await file.arrayBuffer()
+    const install = await store.importPack(archive)
+    importNotice.value = {
+      tone: 'success',
+      title: 'Content Pack installed',
+      detail: `${install.packId} ${install.version} is installed on this Mac and available in the library pickers.`,
+    }
+  } catch (cause) {
+    importNotice.value = { tone: 'warning', ...contentPackImportErrorPresentation(contentPackImportUiError(cause)) }
+  } finally {
+    importBusy.value = false
+  }
+}
+function gatewayArchiveTitle(archive: GatewayContentArchive): string {
+  return archive.title || archive.packId || `Archive ${archive.archiveSha256.slice(0, 12)}…`
+}
+function gatewayArchiveIdentity(archive: GatewayContentArchive): string {
+  const identity = [archive.packId, archive.version].filter(Boolean).join(' ')
+  return identity || `SHA-256 ${archive.archiveSha256.slice(0, 16)}…`
+}
+function gatewayArchiveMeta(archive: GatewayContentArchive): string {
+  const size = archive.bytes === null ? 'Size not reported' : formatBytes(archive.bytes)
+  const integrity = archive.integrity === 'verified' ? 'Gateway verified'
+    : archive.integrity === 'unavailable' ? 'Gateway could not verify this copy'
+      : 'Unreadable archive record'
+  const kinds = archive.itemKinds.length ? ` · ${archive.itemKinds.join(', ')}` : ''
+  return `${size} · ${integrity}${kinds}`
+}
+function gatewayCompatibilityLabel(archive: GatewayContentArchive): string {
+  return archive.minAppVersion
+    ? `Compatibility checked during install · requires Story Studio ${archive.minAppVersion} or newer`
+    : 'Compatibility and document schemas checked during install'
+}
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`
+  const kib = value / 1024
+  if (kib < 1024) return `${kib.toFixed(1)} KiB`
+  return `${(kib / 1024).toFixed(1)} MiB`
+}
+async function loadGatewayArchives(): Promise<void> {
+  if (gatewayArchivesBusy.value) return
+  const listArchives = store.listGatewayArchives
+  if (typeof listArchives !== 'function') {
+    // An older backend bridge: leave the local install path untouched and do
+    // not turn a missing shelf read into a page-level error.
+    gatewayArchivesLoaded.value = true
+    return
+  }
+  gatewayArchivesBusy.value = true
+  gatewayArchivesError.value = null
+  gatewayArchiveNotice.value = null
+  try {
+    gatewayArchives.value = await listArchives()
+    gatewayArchivesLoaded.value = true
+  } catch (cause) {
+    gatewayArchivesError.value = gatewayArchiveErrorPresentation(
+      contentPackImportUiError(cause, 'Story Studio could not read the Gateway archive bank.'),
+    )
+  } finally {
+    gatewayArchivesBusy.value = false
+  }
+}
+async function installFromGatewayArchive(archive: GatewayContentArchive): Promise<void> {
+  if (gatewayArchiveBusyDigest.value) return
+  gatewayArchiveBusyDigest.value = archive.archiveSha256
+  gatewayArchiveNotice.value = null
+  try {
+    const install = await store.installGatewayArchive(archive.archiveSha256)
+    gatewayArchiveNotice.value = {
+      tone: 'success',
+      title: 'Content Pack installed from the Gateway',
+      detail: `${install.packId} ${install.version} is installed on this Mac and available in the library pickers.`,
+    }
+  } catch (cause) {
+    const ui = contentPackImportUiError(cause, 'This Gateway archive could not be installed.')
+    const presentation = ui.code.startsWith('CONTENT_PACK_GATEWAY_')
+      ? gatewayArchiveErrorPresentation(ui)
+      : contentPackImportErrorPresentation(ui)
+    gatewayArchiveNotice.value = { tone: 'warning', ...presentation }
+  } finally {
+    gatewayArchiveBusyDigest.value = ''
+  }
+}
 async function showOwnedTab(): Promise<void> { activeTab.value = 'owned'; await nextTick(); tabRefs.get('owned')?.focus() }
 async function restoreOwnership(): Promise<void> { if (networkActionsDisabled.value) return; try { await store.restoreOwnership(); activeTab.value = 'owned' } catch { /* exact restore boundary is rendered from store.error */ } }
 async function dismissRecovery(): Promise<void> { const incidentId = recovery.value?.incidentId; if (!incidentId || recoveryDismissBusy.value) return; recoveryDismissBusy.value = true; try { await store.dismissRecovery(incidentId) } catch { /* recoveryError renders the exact local failure and the notice remains */ } finally { recoveryDismissBusy.value = false } }
@@ -212,15 +354,29 @@ function formatVerifiedAt(value: string | null): string { if (!value) return 'be
 // Stale-while-revalidate: a verified catalog already in memory renders at once
 // and the revalidation runs unseen. `refresh` decides whether staying quiet is
 // honest; a cold start or an expired cache loads visibly instead.
-onMounted(() => { void loadStore({ background: true }) })
+onMounted(() => { void loadStore({ background: true }); void loadGatewayArchives() })
 </script>
 
 <style scoped>
-.content-store-page { width: min(1180px, calc(100% - 36px)); margin: 0 auto; padding: 30px 0 64px; color: var(--text-primary); }.store-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; }.store-header h1 { font-size: clamp(32px, 4vw, 48px); letter-spacing: -.04em; line-height: 1.05; }.store-header p { max-width: 660px; margin-top: 10px; color: var(--text-secondary); font-size: var(--font-lg); line-height: 1.55; }.store-header-actions { display: flex; flex: 0 0 auto; gap: 8px; }.account-strip { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: center; gap: 24px; margin-top: 24px; padding: 15px 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.account-strip span, .account-strip dt { display: block; color: var(--text-muted); font-size: var(--font-xs); }.account-strip strong, .account-strip dd { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }.account-strip dl { display: flex; gap: 20px; }.store-notice { margin-top: 18px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.store-notice.warning { border-color: color-mix(in srgb, var(--warning) 38%, var(--border)); }.store-notice strong { color: var(--warning); }
+.content-store-page { width: min(1180px, calc(100% - 36px)); margin: 0 auto; padding: 30px 0 64px; color: var(--text-primary); }.store-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; }.store-header h1 { font-size: clamp(32px, 4vw, 48px); letter-spacing: -.04em; line-height: 1.05; }.store-header p { max-width: 660px; margin-top: 10px; color: var(--text-secondary); font-size: var(--font-lg); line-height: 1.55; }.store-header-actions { display: flex; flex: 0 0 auto; gap: 8px; }.account-strip { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: center; gap: 24px; margin-top: 24px; padding: 15px 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.account-strip span, .account-strip dt { display: block; color: var(--text-muted); font-size: var(--font-xs); }.account-strip strong, .account-strip dd { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }.account-strip dl { display: flex; gap: 20px; }.store-notice { margin-top: 18px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.store-notice.warning { border-color: color-mix(in srgb, var(--warning) 38%, var(--border)); }.store-notice.success { border-color: color-mix(in srgb, var(--success) 38%, var(--border)); }.store-notice.success strong { color: var(--success); }.store-notice strong { color: var(--warning); }
 /* A `neutral` notice is information, not a problem — "showing the saved
    catalogue" is not a warning. It shares the panel but not the warning colour,
    which `.store-notice strong` would otherwise give every tone. */
 .store-notice.neutral strong { color: var(--text-primary); }.store-notice p { margin-top: 3px; color: var(--text-secondary); }.notice-action { margin-top: 8px; border: 0; background: transparent; color: var(--accent); cursor: pointer; font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+.gateway-archives { display: grid; gap: 12px; margin-top: 18px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
+.gateway-archives-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.gateway-archives-head h2 { font-size: var(--font-xl); letter-spacing: -.02em; }
+.gateway-archives-head p { max-width: 720px; margin-top: 5px; color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.5; }
+.gateway-archives-head .btn { flex: 0 0 auto; }
+.gateway-archives .store-notice { margin-top: 0; }
+.gateway-archives-state { color: var(--text-secondary); font-size: var(--font-sm); }
+.gateway-archive-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.gateway-archive-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-primary); }
+.gateway-archive-row .btn { flex: 0 0 auto; }
+.gateway-archive-copy { display: grid; gap: 2px; min-width: 0; }
+.gateway-archive-copy strong { overflow-wrap: anywhere; }
+.gateway-archive-copy span { color: var(--text-secondary); font-size: var(--font-sm); overflow-wrap: anywhere; }
+.gateway-archive-copy .gateway-archive-compatibility { color: var(--text-muted); font-size: var(--font-xs); }
 .store-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 24px; padding: 5px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.store-tabs button { display: inline-flex; min-width: 0; min-height: var(--control-height-sm); align-items: center; gap: 7px; padding: 7px 10px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-weight: 650; overflow-wrap: anywhere; }.store-tabs button:focus-visible, .notice-action:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: none; }.store-tabs button[aria-selected='true'] { background: var(--accent-dim); color: var(--text-primary); }.store-tabs span { color: var(--accent); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }.store-content { display: grid; gap: 20px; margin-top: 18px; }.selection-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }.selection-tools .hint { color: var(--text-muted); font-size: var(--font-sm); }.install-failures { grid-column: 1 / -1; display: grid; gap: 4px; margin: 6px 0 0; padding-left: 18px; color: var(--text-secondary); font-size: var(--font-sm); }.shelf-list { display: grid; gap: 28px; }
 /* The selection bar and the install-queue strip are panels like `.store-notice`
    and `.account-strip`, and were being rendered with no rule at all: two bare
@@ -235,5 +391,5 @@ onMounted(() => { void loadStore({ background: true }) })
 .selection-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 8px; }
 .install-queue-strip { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 18px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); color: var(--text-secondary); font-size: var(--font-sm); }
 .install-queue-strip .notice-action { margin-top: 0; }.store-state { display: grid; justify-items: start; gap: 9px; padding: 26px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.store-state h2 { font-size: var(--font-2xl); letter-spacing: -.02em; }.store-state p { color: var(--text-secondary); }.ownership-history { display: grid; gap: 12px; padding-top: 20px; border-top: 1px solid var(--border); }.ownership-history h2 { font-size: var(--font-xl); }.ownership-history ul { display: grid; gap: 8px; padding: 0; list-style: none; }.ownership-history li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto; gap: 12px; padding: 10px; border-radius: var(--radius-md); background: var(--bg-secondary); color: var(--text-secondary); font-size: var(--font-sm); }.ownership-history li span:last-child { font-variant-numeric: tabular-nums; text-align: right; }.ownership-history > p { color: var(--text-muted); font-size: var(--font-sm); }
-@media (max-width: 720px) { .store-header { align-items: stretch; flex-direction: column; }.store-header-actions { flex-wrap: wrap; }.account-strip { grid-template-columns: 1fr; gap: 12px; }.account-strip dl { flex-wrap: wrap; }.ownership-history li { grid-template-columns: 1fr; gap: 3px; }.ownership-history li span:last-child { text-align: left; } } @media (max-width: 560px) { .store-tabs button, .store-header-actions .btn, .store-state .btn { min-height: 44px; } } @media (max-width: 420px) { .content-store-page { width: min(100% - 24px, 1180px); padding-top: 20px; }.store-header-actions .btn { flex: 1 1 130px; justify-content: center; }.store-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.store-tabs button { justify-content: center; } } @media (prefers-reduced-motion: reduce) { .store-tabs button { transition: none; } }
+@media (max-width: 720px) { .store-header { align-items: stretch; flex-direction: column; }.store-header-actions { flex-wrap: wrap; }.account-strip { grid-template-columns: 1fr; gap: 12px; }.account-strip dl { flex-wrap: wrap; }.gateway-archives-head { flex-direction: column; }.gateway-archive-row { align-items: stretch; flex-direction: column; }.ownership-history li { grid-template-columns: 1fr; gap: 3px; }.ownership-history li span:last-child { text-align: left; } } @media (max-width: 560px) { .store-tabs button, .store-header-actions .btn, .store-state .btn { min-height: 44px; } } @media (max-width: 420px) { .content-store-page { width: min(100% - 24px, 1180px); padding-top: 20px; }.store-header-actions .btn { flex: 1 1 130px; justify-content: center; }.store-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.store-tabs button { justify-content: center; } } @media (prefers-reduced-motion: reduce) { .store-tabs button { transition: none; } }
 </style>

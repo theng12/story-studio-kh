@@ -1369,10 +1369,10 @@ export interface ThumbnailRecipeProfile {
   /**
    * Controls which truthful text belongs inside the finished thumbnail.
    * Episode-title recipes preserve the familiar full-title cover treatment.
-   * Curiosity-hook recipes generate a short, editable thumbnail headline per
-   * variation while leaving the full YouTube title and metadata untouched.
+   * Short-hook and curiosity-hook recipes generate an editable thumbnail headline
+   * per variation while leaving the full YouTube title and metadata untouched.
    */
-  headlineMode?: 'episode-title' | 'curiosity-hook'
+  headlineMode?: 'episode-title' | 'short-hook' | 'curiosity-hook'
   /** Recipe-owned guardrails for generated short thumbnail hooks. */
   headlineGuidance?: string
   defaultTextStyle?: string
@@ -2647,6 +2647,81 @@ export interface GenerationReplacementAttempt {
   revision: number
 }
 
+export interface FinalRenderRemoteWaitReceiptV1 {
+  version: 1
+  phase: 'remote_wait'
+  revision: number
+  job_id: string
+  intent_id: string
+  story_attempt: number
+  gateway_attempt_key: string
+  request_body_sha256: string
+  request_body_bytes: number
+  packet_sha256: string
+  render_fingerprint: string
+  submission_scope_sha256: string
+  destination_fence_sha256: string
+  source_generation_fence_sha256: string
+  gateway_job_id: string | null
+  committed_at: string
+  cancel_requested_at: string | null
+}
+
+/** Immutable local snapshot committed before any final-render network send. */
+export interface FinalRenderIntentStagedReceiptV2 {
+  version: 2
+  phase: 'intent_staged'
+  revision: 1 | 2
+  job_id: string
+  intent_id: string
+  story_instance_id: string
+  story_attempt: 1
+  gateway_attempt_key: string
+  packet_sha256: string
+  staging_manifest_sha256: string
+  submission_scope_sha256: string
+  destination_fence_sha256: string
+  source_generation_fence_sha256: string
+  committed_at: string
+  cancel_requested_at: string | null
+}
+
+export interface FinalRenderTransportReceiptV3 {
+  version: 3
+  phase: 'request_persisted' | 'send_may_start' | 'send_unknown' | 'lookup_not_found' | 'remote_wait'
+    | 'output_ready' | 'importing' | 'imported' | 'acknowledged' | 'recovery_hold'
+  revision: number
+  job_id: string
+  intent_id: string
+  story_instance_id: string
+  story_attempt: 1
+  gateway_attempt_key: string
+  packet_sha256: string
+  staging_manifest_sha256: string
+  submission_scope_sha256: string
+  destination_fence_sha256: string
+  source_generation_fence_sha256: string
+  committed_at: string
+  cancel_requested_at: string | null
+  request_body_sha256: string
+  request_body_bytes: number
+  gateway_job_id: string | null
+  transport_revision_sha256: string
+}
+
+export type FinalRenderRemoteWaitReceipt =
+  | FinalRenderRemoteWaitReceiptV1
+  | FinalRenderIntentStagedReceiptV2
+  | FinalRenderTransportReceiptV3
+
+export interface PublicFinalRenderWait {
+  state: 'intent_staged' | 'request_persisted' | 'send_may_start' | 'send_unknown' | 'remote_wait'
+    | 'output_ready' | 'importing' | 'imported' | 'acknowledged' | 'recovery_hold'
+  cancellation_requested: boolean
+  gateway_id_known: boolean
+  committed_at: string | null
+}
+
 export interface Job {
   job_id: string
   project_slug: string
@@ -2691,6 +2766,10 @@ export interface Job {
   paid_image_replacement_attempts?: PaidImageReplacementAttempt[]
   /** Durable per-item holds for opt-in audio/writing replacements. */
   generation_replacement_attempts?: GenerationReplacementAttempt[]
+  /** Private durable fence for a future whole-video fleet submission. */
+  final_render_remote_wait?: FinalRenderRemoteWaitReceipt
+  /** Renderer-safe projection; derived at serialization and never persisted as authority. */
+  final_render_wait?: PublicFinalRenderWait
   /** Structured executor outcome. `complete: false` is a queue-enforced
    * failure declaration and can never be persisted as a green Done job. */
   result?: Record<string, any>

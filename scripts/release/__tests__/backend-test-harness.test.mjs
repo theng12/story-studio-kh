@@ -134,16 +134,32 @@ test('backend test runner ignores inherited temp-directory escape routes', async
 })
 
 test('backend test runner retains its sandbox recoverably when setup fails', async () => {
-  const { exitCode, stdout } = await runHarness(['--probe', '--fail-after-setup'])
+  const { exitCode, stdout, stderr } = await runHarness(['--probe', '--fail-after-setup'])
   assert.notEqual(exitCode, 0)
+  assert.match(stderr + stdout, /intentional backend test harness setup failure/,
+    'the nonzero exit must come from the controlled setup failure, not an earlier one')
 
   const sandbox = stdout.match(/\[test-harness\] sandbox: (.+)/)?.[1]?.trim()
   assert.ok(sandbox, 'the failing setup probe must report its sandbox')
   const retained = stdout.match(/\[test-harness\] retained sandbox: (.+)/)?.[1]?.trim()
   assert.ok(retained, 'the failing setup probe must report its retained sandbox')
-  await assert.rejects(fs.access(sandbox), error => error?.code === 'ENOENT')
+
+  // Retention creates the sandbox in place inside a fresh container; it is not renamed
+  // afterwards. Recovery means the exact reported path and the setup's own content
+  // survive, not that the reported sandbox path disappears.
+  assert.equal(retained, path.dirname(sandbox),
+    'the reported sandbox must be the retained container\'s own sandbox')
   assert.equal((await fs.stat(retained)).isDirectory(), true)
   assert.match(retained, /\/_trash\/test-fixtures\/backend-test-harness-/)
+  assert.equal(await fs.readFile(
+    path.join(sandbox, 'configured-projects', 'owner-sentinel', 'owner-marker.txt'), 'utf8',
+  ), 'must remain byte-identical\n', 'the setup sentinel is retained byte-identically')
+  assert.deepEqual(JSON.parse(await fs.readFile(
+    path.join(sandbox, 'home', 'Library', 'Application Support', 'Story Studio KH', 'app-settings.json'),
+    'utf8',
+  )), { projects_root_override: path.join(sandbox, 'configured-projects') },
+  'the retained sandbox still points at its own isolated projects root')
+  assert.equal((await fs.stat(path.join(retained, 'snapshots'))).isDirectory(), true)
 })
 
 /**

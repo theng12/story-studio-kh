@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readSelectedStoryRenderProvenance } from './render-build-provenance.mjs'
 import {
   localStartupPath,
   contentStoreAssetErrors,
@@ -26,6 +27,8 @@ const fail = (message) => failures.push(message)
 const contract = json('release/desktop-release-contract.json')
 const pkg = json('package.json')
 const builder = json('electron-builder.json')
+try { readSelectedStoryRenderProvenance(fs.readFileSync(path.join(root, 'electron-builder.json'))) }
+catch (error) { fail(`electron-builder.json render provenance: ${error.message}`) }
 
 if (contract.schemaVersion !== 1) fail('release contract: unsupported schemaVersion')
 if (pkg.productName !== contract.productName) fail('package.json: productName changed from the upgrade-stable release contract')

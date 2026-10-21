@@ -12,14 +12,79 @@ import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor as waitForScheduled } from './_timing.js'
+import { withLock } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
 
 let cleanup: () => Promise<void>
 let jq: typeof import('../services/job-queue.js')
 let pm: typeof import('../services/project-manager.js')
+const fixtureJobs = new Map<string, string>()
+const controlledReleases = new Set<() => void>()
+const sessionPaths = new Set<string>()
+
+function holdControlled(releases: Array<() => void>): Promise<void> {
+  return new Promise(resolve => {
+    let pending = true
+    const release = () => {
+      if (!pending) return
+      pending = false
+      controlledReleases.delete(release)
+      resolve()
+    }
+    controlledReleases.add(release)
+    releases.push(release)
+  })
+}
+
+function releaseControlledWork(): void {
+  for (const release of [...controlledReleases]) release()
+}
+
+function trackFixtureJob(job: Job): Job {
+  fixtureJobs.set(job.job_id, job.project_slug)
+  if (job.type === 'video') {
+    const projectDir = pm.getProjectDir(job.project_slug)
+    assert.ok(projectDir, `missing fixture project path for ${job.project_slug}`)
+    sessionPaths.add(path.join(projectDir, 'sessions.json'))
+  }
+  return job
+}
+
+function enqueueTracked(options: Parameters<typeof jq.enqueuePreparedForTest>[0]): Job {
+  return trackFixtureJob(jq.enqueuePreparedForTest(options))
+}
+
+async function cancelFixtureJob(jobId: string, projectSlug: string): Promise<void> {
+  const job = jq.getJob(jobId)
+  if (!job || !['queued', 'running', 'paused'].includes(job.status)) return
+  try {
+    await jq.requestJobCancellation(projectSlug, jobId)
+  } catch (error) {
+    const latest = jq.getJob(jobId)
+    if (latest && ['queued', 'running', 'paused'].includes(latest.status)) throw error
+  }
+}
+
+async function settleFixtureWork(): Promise<void> {
+  releaseControlledWork()
+  for (const [jobId, projectSlug] of fixtureJobs) {
+    releaseControlledWork()
+    await cancelFixtureJob(jobId, projectSlug)
+  }
+  await waitForScheduled(() => {
+    releaseControlledWork()
+    return [...fixtureJobs].every(([jobId]) => !jq._isJobWorkerActiveForTesting(jobId))
+  }, { label: 'concurrency fixture workers to finish' })
+  await jq._waitForJobPersistenceForTesting()
+  for (const sessionsPath of sessionPaths) await withLock(sessionsPath, async () => {})
+}
 
 before(async () => {
-  const t = await useTempDataDir()
+  const t = await useTempDataDir({
+    retain: true,
+    settle: settleFixtureWork,
+  })
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
@@ -43,7 +108,7 @@ function makeBlocker(): Blocker {
   b.executor = async () => {
     b.active++
     b.peak = Math.max(b.peak, b.active)
-    await new Promise<void>(res => b.releases.push(res))
+    await holdControlled(b.releases)
     b.active--
     b.done++
   }
@@ -72,7 +137,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('outline_only', b.executor)
     jq.setLlmConcurrency(2)
     for (const ep of ['EP001', 'EP002', 'EP003']) {
-      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'outline_only', episode_id: ep, title: ep, params: {} })
+      enqueueTracked({ project_slug: proj.slug, type: 'outline_only', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 2)
     await settle()
@@ -92,7 +157,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('metadata', b.executor)
     jq.setLlmConcurrency(1)
     for (const ep of ['EP001', 'EP002']) {
-      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'metadata', episode_id: ep, title: ep, params: {} })
+      enqueueTracked({ project_slug: proj.slug, type: 'metadata', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 1)
     await settle()
@@ -111,7 +176,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('metadata', b.executor)
     jq.setLlmConcurrency(1)
     for (const ep of ['EP001', 'EP002', 'EP003']) {
-      jq.enqueuePreparedForTest({
+      enqueueTracked({
         project_slug: proj.slug,
         type: 'metadata',
         episode_id: ep,
@@ -132,7 +197,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('metadata', b.executor)
     jq.setLlmConcurrency(1)
     for (const ep of ['EP001', 'EP002']) {
-      jq.enqueuePreparedForTest({
+      enqueueTracked({
         project_slug: proj.slug,
         type: 'metadata',
         episode_id: ep,
@@ -161,7 +226,7 @@ describe('LLM-group concurrency', () => {
       ['EP003', 'chatstudio:local/model-c'],
     ]
     for (const [episode_id, model] of rows) {
-      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'metadata', episode_id, title: episode_id, params: { model } })
+      enqueueTracked({ project_slug: proj.slug, type: 'metadata', episode_id, title: episode_id, params: { model } })
     }
     await waitFor(() => b.active === 3)
     assert.equal(b.peak, 3)
@@ -176,9 +241,9 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('outline_only', b.executor)
     jq.registerExecutor('metadata', b.executor)
     jq.setLlmConcurrency(2)
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'o1', params: {} })
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'metadata', episode_id: 'EP001', title: 'm1', params: {} })
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'outline_only', episode_id: 'EP002', title: 'o2', params: {} })
+    enqueueTracked({ project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'o1', params: {} })
+    enqueueTracked({ project_slug: proj.slug, type: 'metadata', episode_id: 'EP001', title: 'm1', params: {} })
+    enqueueTracked({ project_slug: proj.slug, type: 'outline_only', episode_id: 'EP002', title: 'o2', params: {} })
     await waitFor(() => b.active === 2)
     await settle()
     assert.equal(b.active, 2, 'outline + metadata together obey ONE shared budget')
@@ -197,7 +262,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('video', b.executor)
     jq.setLlmConcurrency(4)              // must NOT affect the video queue
     for (const ep of ['EP001', 'EP002']) {
-      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'video', episode_id: ep, title: ep, params: {} })
+      enqueueTracked({ project_slug: proj.slug, type: 'video', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 1)
     await settle()
@@ -217,7 +282,7 @@ describe('LLM-group concurrency', () => {
     jq.setLlmConcurrency(1)
     jq.setSubtitleTranscribeConcurrency(3)
     for (const ep of ['EP001', 'EP002', 'EP003', 'EP004']) {
-      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'subtitles_transcribe', episode_id: ep, title: ep, params: {} })
+      enqueueTracked({ project_slug: proj.slug, type: 'subtitles_transcribe', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 3)
     await settle()
@@ -237,7 +302,7 @@ describe('LLM-group concurrency', () => {
     const b = makeBlocker()
     jq.registerExecutor('video_assembly', b.executor)
     for (const ep of ['EP001', 'EP002']) {
-      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'video_assembly', episode_id: ep, title: ep, params: {} })
+      enqueueTracked({ project_slug: proj.slug, type: 'video_assembly', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 1)
     await settle()
@@ -268,7 +333,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('research_run', b.executor)
     jq.setLlmConcurrency(3)
     for (const ep of ['EP001', 'EP002', 'EP003', 'EP004']) {
-      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'research_run', episode_id: ep, title: ep, params: {} })
+      enqueueTracked({ project_slug: proj.slug, type: 'research_run', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 3)
     await settle()
@@ -287,9 +352,9 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('research_run', b.executor)
     jq.registerExecutor('outline_only', b.executor)
     jq.setLlmConcurrency(2)
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'research_run', episode_id: 'EP001', title: 'r1', params: {} })
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'o1', params: {} })
-    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'research_run', episode_id: 'EP002', title: 'r2', params: {} })
+    enqueueTracked({ project_slug: proj.slug, type: 'research_run', episode_id: 'EP001', title: 'r1', params: {} })
+    enqueueTracked({ project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'o1', params: {} })
+    enqueueTracked({ project_slug: proj.slug, type: 'research_run', episode_id: 'EP002', title: 'r2', params: {} })
     await waitFor(() => b.active === 2)
     await settle()
     assert.equal(b.active, 2, 'research + outline together obey ONE shared budget')
@@ -331,7 +396,7 @@ describe('LLM-group concurrency', () => {
       await fsp.mkdir(rp.dir, { recursive: true })
       await fsp.writeFile(rp.jsonPath, JSON.stringify({ episode: code }), 'utf-8')
       // Hold here so BOTH jobs are mid-write at the same moment.
-      await new Promise<void>(res => releases.push(res))
+      await holdControlled(releases)
       await fsp.writeFile(rp.mdPath, `# research for ${code}`, 'utf-8')
       written[code] = rp
       active--
@@ -340,7 +405,7 @@ describe('LLM-group concurrency', () => {
 
     jq.setLlmConcurrency(2)
     for (const ep of ['EP001', 'EP002']) {
-      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'research_run', episode_id: ep, title: ep, params: {} })
+      enqueueTracked({ project_slug: proj.slug, type: 'research_run', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => releases.length === 2)
     assert.equal(peak, 2, 'both research jobs were genuinely in flight together')

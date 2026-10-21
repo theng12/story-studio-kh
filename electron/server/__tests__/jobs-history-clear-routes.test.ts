@@ -55,7 +55,10 @@ async function seed(scope: string, rows: unknown[]): Promise<void> {
 }
 
 before(async () => {
-  const isolated = await useTempDataDir()
+  const isolated = await useTempDataDir({
+    retain: true,
+    settle: () => jq._waitForJobPersistenceForTesting(),
+  })
   tempDir = isolated.dir
   cleanup = isolated.cleanup
   await fs.mkdir(path.join(tempDir, 'projects'), { recursive: true })

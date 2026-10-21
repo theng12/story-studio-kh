@@ -27,7 +27,10 @@ let pm: typeof import('../services/project-manager.js')
 let jq: typeof import('../services/job-queue.js')
 
 before(async () => {
-  const t = await useTempDataDir()
+  const t = await useTempDataDir({
+    retain: true,
+    settle: () => jq._waitForJobPersistenceForTesting(),
+  })
   tempDir = t.dir
   cleanup = t.cleanup
   pm = await import('../services/project-manager.js')

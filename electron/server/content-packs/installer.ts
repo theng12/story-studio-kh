@@ -6,6 +6,7 @@ import path from 'node:path'
 import {
   verifyContentPackArchive,
   verifyDeliveryAttestedContentPackArchive,
+  verifyPossessedContentPackArchive,
   type ContentPackVerificationPolicy,
   type VerifiedContentPack,
 } from './archive.js'
@@ -74,7 +75,10 @@ async function verifyArchiveForRequest(
   // model-drift-allow: Frozen Content Store source discriminator selects receipt-attested archive verification.
   if (request.source !== 'genstudio-store') {
     if (request.deliveryAttestation) throw new Error('Only GenStudio Store archives may carry delivery attestation evidence')
-    return verifyContentPackArchive(archiveBytes, policy)
+    // model-drift-allow: Persisted Content Pack provenance discriminator selects local possession verification.
+    return request.source === 'local-import'
+      ? verifyPossessedContentPackArchive(archiveBytes, policy)
+      : verifyContentPackArchive(archiveBytes, policy)
   }
   const evidence = ContentPackDeliveryAttestationSchema.parse(request.deliveryAttestation)
   const verified = await verifyDeliveryAttestedContentPackArchive(archiveBytes)

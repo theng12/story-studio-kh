@@ -109,3 +109,79 @@ test('a slow answer for an abandoned scope cannot replace a newer one', async ()
   assert.deepEqual(history.rows.value.map(job => (job as any).job_id), ['newer'])
   assert.equal(history.total.value, 1)
 })
+
+test('a confirmed single clear drops its row at once and cannot be undone by a pre-clear read', async () => {
+  let releasePreClear!: (value: unknown) => void
+  const preClear = new Promise(resolve => { releasePreClear = resolve })
+  const history = useJobHistory()
+  let call = 0
+  await withFetch(async () => {
+    call += 1
+    if (call === 1) return { jobs: [{ job_id: 'gone' }, { job_id: 'kept' }], total: 2 }
+    if (call === 2) return preClear
+    return { jobs: [{ job_id: 'kept' }], total: 1 }
+  }, async () => {
+    await history.load('/jobs/all/history')
+    const inFlight = history.load('/jobs/all/history')
+    history.removeIds(['gone'])
+    assert.deepEqual(history.rows.value.map(job => (job as any).job_id), ['kept'])
+    assert.equal(history.total.value, 1)
+    assert.equal(history.loading.value, false, 'the discarded read must not leave the list loading')
+
+    releasePreClear({ jobs: [{ job_id: 'gone' }, { job_id: 'kept' }], total: 2 })
+    await inFlight
+    assert.deepEqual(history.rows.value.map(job => (job as any).job_id), ['kept'],
+      'an answer begun before the clear must not restore the removed row')
+
+    await history.load('/jobs/all/history')
+    assert.deepEqual(history.rows.value.map(job => (job as any).job_id), ['kept'])
+    assert.equal(history.total.value, 1)
+  })
+})
+
+test('a bulk clear invalidates a read begun before it, so its answer cannot land', async () => {
+  let releasePreClear!: (value: unknown) => void
+  const preClear = new Promise(resolve => { releasePreClear = resolve })
+  const history = useJobHistory()
+  let call = 0
+  await withFetch(async () => {
+    call += 1
+    if (call === 1) return { jobs: [{ job_id: 'a' }], total: 1 }
+    if (call === 2) return preClear
+    return { jobs: [], total: 0 }
+  }, async () => {
+    await history.load('/jobs/all/history')
+    const inFlight = history.load('/jobs/all/history')
+    history.invalidate()
+    releasePreClear({ jobs: [{ job_id: 'a' }, { job_id: 'b' }], total: 9 })
+    await inFlight
+    assert.deepEqual(history.rows.value.map(job => (job as any).job_id), ['a'],
+      'the pre-clear rows stay until the authoritative reload')
+    assert.equal(history.total.value, 1)
+    assert.equal(history.loading.value, false)
+
+    await history.load('/jobs/all/history')
+    assert.deepEqual(history.rows.value, [])
+    assert.equal(history.total.value, 0)
+  })
+})
+
+test('a bulk clear reloads the authoritative history even when the server cleared nothing', () => {
+  assert.match(page, /history\.invalidate\(\)/)
+  assert.match(page, /if \(isUniversal\.value\) \{\n\s*void refreshVisibleJobs\(\)\n\s*await loadJobHistory\(\)\n\s*\} else \{\n\s*await refreshVisibleJobs\(\)/)
+})
+
+test('a single clear removes the confirmed row from the history read, then reloads', () => {
+  assert.match(page, /control\.action === 'clear-history'\) \{[\s\S]{0,220}history\.removeIds\(\[job\.job_id\]\)[\s\S]{0,120}await loadJobHistory\(\)/)
+})
+
+test('the toolbar counts use the server clear selector, not the skipped badge', () => {
+  assert.match(page, /const finishedCount = computed\(\(\) => removableJobs\.value\.filter\(job =>\n\s*job\.status !== 'error' \|\| isRecoveredFailure\(job\)\)\.length\)/)
+  assert.match(page, /const failedCount = computed\(\(\) => removableJobs\.value\.filter\(job =>\n\s*job\.status === 'error' && !isRecoveredFailure\(job\)\)\.length\)/)
+})
+
+test('a failed history read is visible with a retry instead of looking like an empty list', () => {
+  assert.match(page, /const historyError = computed\(\(\) => history\.error\.value\)/)
+  assert.match(page, /<WorkspaceNotice v-if="historyError" tone="warning" title="Finished job history could not be loaded">/)
+  assert.match(page, /@click="loadJobHistory">Retry History<\/button>/)
+})

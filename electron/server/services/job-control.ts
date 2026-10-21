@@ -11,6 +11,7 @@ import {
   holdsUnknownMusicResult,
 } from '../contracts/provider-task-state.js'
 import { isProvenLocalStopCapableJob as isSafelyStoppableLocalJob } from './job-retry-policy.js'
+import { hasFinalRenderRemoteWaitMarker, parseFinalRenderRemoteWaitReceipt } from '../lib/final-render-remote-wait.js'
 
 export { isSafelyStoppableLocalJob as isProvenLocalStopCapableJob }
 export type { JobControl, JobControlCapabilities }
@@ -232,9 +233,17 @@ function isFinishedJob(status: Job['status']): boolean {
  * GenStudio evidence before offering a provider cancellation request.
  */
 function classifyProviderJobControl(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned' | 'music_results_awaiting_import'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned' | 'music_results_awaiting_import'>
+    & Partial<Pick<Job, 'job_id' | 'final_render_remote_wait'>>,
   capabilities: JobControlCapabilities,
 ): JobControl {
+  if (job.type === 'video_assembly' && hasFinalRenderRemoteWaitMarker(job)) {
+    const parsed = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id || '')
+    if (parsed.ok && parsed.receipt.cancel_requested_at === null) {
+      return control('request-remote-cancel', true, 'Cancel', 'Records your cancellation request while Story Studio waits for the remote render.', 'READY', 'remote-result-required')
+    }
+    return control('return-later', false, 'Return later', 'Story Studio is preserving this remote render record until it can be reconciled safely.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+  }
   const evidence = job.genstudio_jobs || []
   // An abandoned job is one the owner told Story Studio to stop tracking. The
   // unsettled-evidence gate below would immediately re-trap it in exactly the
@@ -375,10 +384,12 @@ function classifyProviderJobControl(
  */
 export function classifyJobControls(
   job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned' | 'music_results_awaiting_import'>
+    & Partial<Pick<Job, 'job_id' | 'final_render_remote_wait'>>
     & Partial<Pick<Job, 'pause_requested' | 'resume_after_pause'>>,
   capabilities: JobControlCapabilities,
 ): JobControl[] {
   const provider = classifyProviderJobControl(job, capabilities)
+  if (job.type === 'video_assembly' && hasFinalRenderRemoteWaitMarker(job)) return [provider]
   const canPause = job.status === 'running' && canPauseNewSubmissions(job)
   // A pause that is still taking effect is not "ready to pause" again: the
   // button would repeat a request already made, and the card would keep
@@ -433,7 +444,8 @@ export function classifyJobControls(
 
 /** Backwards-compatible primary control; public snapshots also include all controls. */
 export function classifyJobControl(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned' | 'music_results_awaiting_import'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned' | 'music_results_awaiting_import'>
+    & Partial<Pick<Job, 'job_id' | 'final_render_remote_wait'>>,
   capabilities: JobControlCapabilities,
 ): JobControl {
   return classifyProviderJobControl(job, capabilities)

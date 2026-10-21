@@ -1,0 +1,3046 @@
+{
+  "schema_test_only": true,
+  "qualification": "none",
+  "source": {
+    "story_base": "5283a0ccc50e9f52a0205a1278e549c584331465",
+    "historical_golden": "electron/server/__tests__/fixtures/final-composition-argv-v1.json",
+    "historical_golden_sha256": "55191860778a62a299a1b3be54faaab7c67dd58fb9dbb63c2f05dcd8be8bf4b3",
+    "derivation": "F0/F1 static argv and graph evidence only. Host -threads pair removed; paths bound to schema-only placeholders. F1 removes only ASS and contextual-cue statements, relabels logo v20→v21, then ends v21→vout. It is not a historical no-font render or output/hardware/profile/file-byte qualification.",
+    "digest_method": "Literal digests independently encoded from frozen studio.render.hash.v1 bytes during preparation; tests never calculate expected digests through the compiler or validator under test."
+  },
+  "paths": {
+    "local_assets": {
+      "base": "/schema/assets/base.mp4",
+      "audio": "/schema/assets/audio.wav",
+      "logo": "/schema/assets/logo.png",
+      "overlay_a": "/schema/assets/overlay_a.webm",
+      "overlay_b": "/schema/assets/overlay_b.png",
+      "frame": "/schema/assets/frame.png"
+    },
+    "output": "/schema/output/final.mp4"
+  },
+  "f0_base_audio": {
+    "packet": {
+      "recipe": {
+        "namespace": "studio.render.final.v1",
+        "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "base_video": {
+          "type": "asset_ref",
+          "logical_id": "base"
+        },
+        "premixed_audio": {
+          "type": "asset_ref",
+          "logical_id": "audio"
+        },
+        "canvas": {
+          "width": 128,
+          "height": 96,
+          "working_fps": 5
+        },
+        "target_duration_sec": 2,
+        "effects_gate": {
+          "start_sec": null,
+          "end_sec": null
+        },
+        "operations": [],
+        "encode": {
+          "container": "mp4",
+          "requested_codec": "h264",
+          "requested_effort": "ultrafast",
+          "crf": 23,
+          "quality_cpu_preset": "ultrafast",
+          "bitrate_kbps": null
+        }
+      },
+      "manifest": [
+        {
+          "logical_id": "audio",
+          "safe_name": "audio.wav",
+          "role": "premixed_audio",
+          "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+          "size_bytes": 22
+        },
+        {
+          "logical_id": "base",
+          "safe_name": "base.mp4",
+          "role": "base_video",
+          "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+          "size_bytes": 21
+        }
+      ],
+      "recipe_digest": "e86ab313ca78a7d0819e0179f712ab0ca7a2ac29731164cd5d87378d3fb4aa1b",
+      "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+      "packet_digest": "9c0cf536db4ba2c82d284dc713d2fd8f9e6a9b09483ce63ac7f87929bf1c303f"
+    },
+    "local_assets": {
+      "base": "/schema/assets/base.mp4",
+      "audio": "/schema/assets/audio.wav"
+    },
+    "output_path": "/schema/output/final.mp4",
+    "expected_input_uses": [
+      {
+        "logicalId": "base",
+        "index": 0
+      },
+      {
+        "logicalId": "audio",
+        "index": 1
+      }
+    ],
+    "expected_requested_burn_ins": [],
+    "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+    "expected_full_argv": [
+      "-y",
+      "-i",
+      "/schema/assets/base.mp4",
+      "-i",
+      "/schema/assets/audio.wav",
+      "-filter_complex",
+      "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+      "-map",
+      "[vout]",
+      "-map",
+      "1:a",
+      "-c:v",
+      "libx264",
+      "-crf",
+      "23",
+      "-preset",
+      "ultrafast",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "384k",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-t",
+      "2",
+      "/schema/output/final.mp4"
+    ],
+    "expected_minimal_argv": [
+      "-y",
+      "-i",
+      "/schema/assets/base.mp4",
+      "-i",
+      "/schema/assets/audio.wav",
+      "-map",
+      "0:v",
+      "-map",
+      "1:a",
+      "-c:v",
+      "libx264",
+      "-crf",
+      "23",
+      "-preset",
+      "ultrafast",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "384k",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-t",
+      "2",
+      "/schema/output/final.mp4"
+    ]
+  },
+  "f1_derived_no_font": {
+    "packet": {
+      "recipe": {
+        "namespace": "studio.render.final.v1",
+        "profile_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+        "base_video": {
+          "type": "asset_ref",
+          "logical_id": "base"
+        },
+        "premixed_audio": {
+          "type": "asset_ref",
+          "logical_id": "audio"
+        },
+        "canvas": {
+          "width": 128,
+          "height": 96,
+          "working_fps": 5
+        },
+        "target_duration_sec": 2,
+        "effects_gate": {
+          "start_sec": 0.25,
+          "end_sec": 1.75
+        },
+        "operations": [
+          {
+            "kind": "overlay_layer",
+            "asset": {
+              "type": "asset_ref",
+              "logical_id": "overlay_a"
+            },
+            "input_mode": {
+              "kind": "loop_stream"
+            },
+            "opacity": 0.75,
+            "sizing": {
+              "mode": "contain"
+            },
+            "placement": {
+              "mode": "anchor",
+              "value": "center"
+            },
+            "time_range": {
+              "start_sec": 0.1,
+              "end_sec": 1.7
+            },
+            "chroma": {
+              "color": "#00FF00",
+              "similarity": 0.15,
+              "blend": 0.1
+            }
+          },
+          {
+            "kind": "overlay_layer",
+            "asset": {
+              "type": "asset_ref",
+              "logical_id": "overlay_b"
+            },
+            "input_mode": {
+              "kind": "loop_still",
+              "decoder": "png"
+            },
+            "opacity": 0.6,
+            "sizing": {
+              "mode": "width_fraction",
+              "value": 0.25
+            },
+            "placement": {
+              "mode": "anchor",
+              "value": "lower-right"
+            },
+            "time_range": {
+              "start_sec": 0.2,
+              "end_sec": 1.6
+            },
+            "chroma": null
+          },
+          {
+            "kind": "classic_color_grade",
+            "preset": "cinematic",
+            "brightness": 0,
+            "contrast": 1,
+            "saturation": 1,
+            "warmth": 0,
+            "tint": 0
+          },
+          {
+            "kind": "classic_vignette",
+            "strength": 0.4
+          },
+          {
+            "kind": "classic_film_grain",
+            "strength": 7
+          },
+          {
+            "kind": "aged_archive_film",
+            "strength": 20
+          },
+          {
+            "kind": "classic_letterbox",
+            "ratio": "1.85:1",
+            "mode": "fit",
+            "color": "black"
+          },
+          {
+            "kind": "presentation_frame",
+            "inset_pct": 4,
+            "border_width": 12,
+            "corner_radius": 20,
+            "border_color": "#F2C14E",
+            "background_color": "#111C34",
+            "fit": "cover",
+            "background": {
+              "kind": "asset",
+              "asset": {
+                "type": "asset_ref",
+                "logical_id": "frame"
+              },
+              "input_mode": {
+                "kind": "loop_still",
+                "decoder": "png"
+              }
+            }
+          },
+          {
+            "kind": "logo",
+            "asset": {
+              "type": "asset_ref",
+              "logical_id": "logo"
+            },
+            "opacity": 0.8,
+            "scale": 0.2,
+            "anchor": "top-left",
+            "margin_px": 4,
+            "gate": "effects_gate"
+          }
+        ],
+        "encode": {
+          "container": "mp4",
+          "requested_codec": "h264",
+          "requested_effort": "ultrafast",
+          "crf": 23,
+          "quality_cpu_preset": "ultrafast",
+          "bitrate_kbps": null
+        }
+      },
+      "manifest": [
+        {
+          "logical_id": "audio",
+          "safe_name": "audio.wav",
+          "role": "premixed_audio",
+          "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+          "size_bytes": 22
+        },
+        {
+          "logical_id": "base",
+          "safe_name": "base.mp4",
+          "role": "base_video",
+          "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+          "size_bytes": 21
+        },
+        {
+          "logical_id": "frame",
+          "safe_name": "frame.png",
+          "role": "frame_background",
+          "sha256": "2e1d313405d83512c791479f50ce245a5485005abe45e5fcddb58226b04d39a2",
+          "size_bytes": 22
+        },
+        {
+          "logical_id": "logo",
+          "safe_name": "logo.png",
+          "role": "logo",
+          "sha256": "7da729bd1bc3a7156813cf4fb920fdde909b787b32fc4449e67eeacd99f1b4a7",
+          "size_bytes": 21
+        },
+        {
+          "logical_id": "overlay_a",
+          "safe_name": "overlay_a.webm",
+          "role": "overlay",
+          "sha256": "be4cfbd2ae885703e0711dad0a7b009da695932a8fa3b9c328309d154ee73f70",
+          "size_bytes": 26
+        },
+        {
+          "logical_id": "overlay_b",
+          "safe_name": "overlay_b.png",
+          "role": "overlay",
+          "sha256": "e67c7021e7c2e438e7c51d68595b225f0875fc63e940f75445967751185b2f8c",
+          "size_bytes": 26
+        }
+      ],
+      "recipe_digest": "75a3bbe96384ab9c07ecbb8246e836081c500ed641261cfe34754a20859bf823",
+      "manifest_digest": "24ac419b6cfea3cb23f8a5dbc54b1bbce550c8ef028f555dd4502543f16e722c",
+      "packet_digest": "b71d4587c84e86eb95676b33ac6970265613076da430920dc26f5ee303146e25"
+    },
+    "local_assets": {
+      "base": "/schema/assets/base.mp4",
+      "audio": "/schema/assets/audio.wav",
+      "logo": "/schema/assets/logo.png",
+      "overlay_a": "/schema/assets/overlay_a.webm",
+      "overlay_b": "/schema/assets/overlay_b.png",
+      "frame": "/schema/assets/frame.png"
+    },
+    "output_path": "/schema/output/final.mp4",
+    "expected_input_uses": [
+      {
+        "logicalId": "base",
+        "index": 0
+      },
+      {
+        "logicalId": "audio",
+        "index": 1
+      },
+      {
+        "logicalId": "logo",
+        "index": 2
+      },
+      {
+        "logicalId": "overlay_a",
+        "index": 3
+      },
+      {
+        "logicalId": "overlay_b",
+        "index": 4
+      },
+      {
+        "logicalId": "frame",
+        "index": 5
+      }
+    ],
+    "expected_requested_burn_ins": [
+      "color grading",
+      "vignette",
+      "film grain",
+      "aged archive film",
+      "letterbox",
+      "frame",
+      "2 overlay layer(s) incl. chroma key",
+      "logo"
+    ],
+    "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[3:v]scale=128:96:force_original_aspect_ratio=decrease,pad=128:96:(ow-iw)/2:(oh-ih)/2:color=black@0,chromakey=color=0x00FF00:similarity=0.15:blend=0.1,format=rgba,colorchannelmixer=aa=0.75[v1];\n[v0][v1]overlay=(W-w)/2:(H-h)/2:enable='between(t,0.25,1.75)*between(t,0.1,1.7)'[v2];\n[4:v]scale=32:-2,format=rgba,colorchannelmixer=aa=0.6[v3];\n[v2][v3]overlay=W-w-4:H-h-4:enable='between(t,0.25,1.75)*between(t,0.2,1.6)'[v4];\n[v4]eq=brightness=-0.030:contrast=1.200:saturation=0.850:enable='between(t,0.25,1.75)'[v6];\n[v6]format=gbrp,split=2[v7][v8];\n[v8]format=gray,format=gbrp[v9];\n[v7][v9]lut2=c1='clip(floor(x+255*0.7*(-0.01500*clip((0.333-(2*y/255))*4+0.5,0,1)+-0.00750*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':c2='clip(floor(x+255*0.7*(0.01500*clip((0.333-(2*y/255))*4+0.5,0,1)+0.00750*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':enable='between(t,0.25,1.75)',format=yuv420p[v5];\n[v5]vignette=angle=0.7700:mode=forward:eval=init:enable='between(t,0.25,1.75)'[v10];\n[v10]noise=alls=7:allf=t+u:enable='between(t,0.25,1.75)'[v11];\n[v11]eq=brightness='0.010*sin(2*PI*t*8)':contrast=1.044:saturation=0.668:eval=frame:enable='between(t,0.25,1.75)'[v12];\n[v12]noise=alls=9:allf=t+u:enable='between(t,0.25,1.75)'[v13];\n[v13]drawbox=x=17:y=0:w=1:h=ih:color=white@0.08:t=fill:enable='between(t,0.25,1.75)',drawbox=x=99:y=0:w=1:h=ih:color=black@0.08:t=fill:enable='between(t,0.25,1.75)',drawbox=x=74:y=30:w=2:h=2:color=white@0.11:t=fill:enable='between(t,0.25,1.75)'[v14];\n[v14]split=2[v15][v16];\n[v16]crop=w=iw-12:h=ih-12:x='6+2*sin(2*PI*t*0.73)':y='6+2*cos(2*PI*t*0.53)',scale=128:96:flags=bilinear,setsar=1[v17];\n[v15][v17]overlay=0:0:enable='between(t,0.25,1.75)'[v18];\n[v18]scale=90:68,pad=128:96:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[v19];\n[v19]scale=118:86:force_original_aspect_ratio=increase,crop=118:86,format=rgba[mainframe21rgb];\ncolor=c=white:s=118x86:r=5,trim=end_frame=1,format=gray,geq=lum='if(lt(X,2)*lt(Y,2),if(lte(pow(X-2,2)+pow(Y-2,2),4),255,0),if(gte(X,W-2)*lt(Y,2),if(lte(pow(X-(W-2),2)+pow(Y-2,2),4),255,0),if(lt(X,2)*gte(Y,H-2),if(lte(pow(X-2,2)+pow(Y-(H-2),2),4),255,0),if(gte(X,W-2)*gte(Y,H-2),if(lte(pow(X-(W-2),2)+pow(Y-(H-2),2),4),255,0),255))))',loop=loop=-1:size=1[mainframe21mask];\n[mainframe21rgb][mainframe21mask]alphamerge=shortest=1[mainframe21media];\n[5:v]setpts=PTS-STARTPTS,scale=128:96:force_original_aspect_ratio=increase,crop=128:96,setsar=1[mainframe21bg];\n[mainframe21bg]drawbox=x=4:y=4:w=120:h=88:color=#F2C14E:t=fill[mainframe21border];\n[mainframe21border][mainframe21media]overlay=5:5:shortest=1,format=yuv420p[v20];\n[2:v]scale=26:-1,format=rgba,colorchannelmixer=aa=0.8[logo];\n[v20][logo]overlay=4:4:enable='between(t,0.25,1.75)'[v21];\n[v21]null[vout]",
+    "expected_full_argv": [
+      "-y",
+      "-i",
+      "/schema/assets/base.mp4",
+      "-i",
+      "/schema/assets/audio.wav",
+      "-i",
+      "/schema/assets/logo.png",
+      "-stream_loop",
+      "-1",
+      "-i",
+      "/schema/assets/overlay_a.webm",
+      "-c:v",
+      "png",
+      "-loop",
+      "1",
+      "-i",
+      "/schema/assets/overlay_b.png",
+      "-c:v",
+      "png",
+      "-loop",
+      "1",
+      "-i",
+      "/schema/assets/frame.png",
+      "-filter_complex",
+      "[0:v]setpts=PTS-STARTPTS[v0];\n[3:v]scale=128:96:force_original_aspect_ratio=decrease,pad=128:96:(ow-iw)/2:(oh-ih)/2:color=black@0,chromakey=color=0x00FF00:similarity=0.15:blend=0.1,format=rgba,colorchannelmixer=aa=0.75[v1];\n[v0][v1]overlay=(W-w)/2:(H-h)/2:enable='between(t,0.25,1.75)*between(t,0.1,1.7)'[v2];\n[4:v]scale=32:-2,format=rgba,colorchannelmixer=aa=0.6[v3];\n[v2][v3]overlay=W-w-4:H-h-4:enable='between(t,0.25,1.75)*between(t,0.2,1.6)'[v4];\n[v4]eq=brightness=-0.030:contrast=1.200:saturation=0.850:enable='between(t,0.25,1.75)'[v6];\n[v6]format=gbrp,split=2[v7][v8];\n[v8]format=gray,format=gbrp[v9];\n[v7][v9]lut2=c1='clip(floor(x+255*0.7*(-0.01500*clip((0.333-(2*y/255))*4+0.5,0,1)+-0.00750*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':c2='clip(floor(x+255*0.7*(0.01500*clip((0.333-(2*y/255))*4+0.5,0,1)+0.00750*clip(((2*y/255)-0.333)*4+0.5,0,1)*clip((1-(2*y/255)-0.333)*4+0.5,0,1))+0.5),0,255)':enable='between(t,0.25,1.75)',format=yuv420p[v5];\n[v5]vignette=angle=0.7700:mode=forward:eval=init:enable='between(t,0.25,1.75)'[v10];\n[v10]noise=alls=7:allf=t+u:enable='between(t,0.25,1.75)'[v11];\n[v11]eq=brightness='0.010*sin(2*PI*t*8)':contrast=1.044:saturation=0.668:eval=frame:enable='between(t,0.25,1.75)'[v12];\n[v12]noise=alls=9:allf=t+u:enable='between(t,0.25,1.75)'[v13];\n[v13]drawbox=x=17:y=0:w=1:h=ih:color=white@0.08:t=fill:enable='between(t,0.25,1.75)',drawbox=x=99:y=0:w=1:h=ih:color=black@0.08:t=fill:enable='between(t,0.25,1.75)',drawbox=x=74:y=30:w=2:h=2:color=white@0.11:t=fill:enable='between(t,0.25,1.75)'[v14];\n[v14]split=2[v15][v16];\n[v16]crop=w=iw-12:h=ih-12:x='6+2*sin(2*PI*t*0.73)':y='6+2*cos(2*PI*t*0.53)',scale=128:96:flags=bilinear,setsar=1[v17];\n[v15][v17]overlay=0:0:enable='between(t,0.25,1.75)'[v18];\n[v18]scale=90:68,pad=128:96:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[v19];\n[v19]scale=118:86:force_original_aspect_ratio=increase,crop=118:86,format=rgba[mainframe21rgb];\ncolor=c=white:s=118x86:r=5,trim=end_frame=1,format=gray,geq=lum='if(lt(X,2)*lt(Y,2),if(lte(pow(X-2,2)+pow(Y-2,2),4),255,0),if(gte(X,W-2)*lt(Y,2),if(lte(pow(X-(W-2),2)+pow(Y-2,2),4),255,0),if(lt(X,2)*gte(Y,H-2),if(lte(pow(X-2,2)+pow(Y-(H-2),2),4),255,0),if(gte(X,W-2)*gte(Y,H-2),if(lte(pow(X-(W-2),2)+pow(Y-(H-2),2),4),255,0),255))))',loop=loop=-1:size=1[mainframe21mask];\n[mainframe21rgb][mainframe21mask]alphamerge=shortest=1[mainframe21media];\n[5:v]setpts=PTS-STARTPTS,scale=128:96:force_original_aspect_ratio=increase,crop=128:96,setsar=1[mainframe21bg];\n[mainframe21bg]drawbox=x=4:y=4:w=120:h=88:color=#F2C14E:t=fill[mainframe21border];\n[mainframe21border][mainframe21media]overlay=5:5:shortest=1,format=yuv420p[v20];\n[2:v]scale=26:-1,format=rgba,colorchannelmixer=aa=0.8[logo];\n[v20][logo]overlay=4:4:enable='between(t,0.25,1.75)'[v21];\n[v21]null[vout]",
+      "-map",
+      "[vout]",
+      "-map",
+      "1:a",
+      "-c:v",
+      "libx264",
+      "-crf",
+      "23",
+      "-preset",
+      "ultrafast",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "384k",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-t",
+      "2",
+      "/schema/output/final.mp4"
+    ],
+    "expected_minimal_argv": [
+      "-y",
+      "-i",
+      "/schema/assets/base.mp4",
+      "-i",
+      "/schema/assets/audio.wav",
+      "-map",
+      "0:v",
+      "-map",
+      "1:a",
+      "-c:v",
+      "libx264",
+      "-crf",
+      "23",
+      "-preset",
+      "ultrafast",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "384k",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-t",
+      "2",
+      "/schema/output/final.mp4"
+    ]
+  },
+  "overlay_input_and_formula_vector": {
+    "packet": {
+      "recipe": {
+        "namespace": "studio.render.final.v1",
+        "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "base_video": {
+          "type": "asset_ref",
+          "logical_id": "base"
+        },
+        "premixed_audio": {
+          "type": "asset_ref",
+          "logical_id": "audio"
+        },
+        "canvas": {
+          "width": 100,
+          "height": 100,
+          "working_fps": 5
+        },
+        "target_duration_sec": 2,
+        "effects_gate": {
+          "start_sec": 0.254,
+          "end_sec": 1.756
+        },
+        "operations": [
+          {
+            "kind": "overlay_layer",
+            "asset": {
+              "type": "asset_ref",
+              "logical_id": "overlay"
+            },
+            "input_mode": {
+              "kind": "loop_still",
+              "decoder": "png"
+            },
+            "opacity": 0,
+            "sizing": {
+              "mode": "width_fraction",
+              "value": 0.01
+            },
+            "placement": {
+              "mode": "anchor",
+              "value": "lower-left"
+            },
+            "time_range": {
+              "start_sec": 0.123,
+              "end_sec": null
+            },
+            "chroma": null
+          },
+          {
+            "kind": "overlay_layer",
+            "asset": {
+              "type": "asset_ref",
+              "logical_id": "overlay"
+            },
+            "input_mode": {
+              "kind": "single"
+            },
+            "opacity": 1,
+            "sizing": {
+              "mode": "native"
+            },
+            "placement": {
+              "mode": "origin"
+            },
+            "time_range": null,
+            "chroma": null
+          },
+          {
+            "kind": "overlay_layer",
+            "asset": {
+              "type": "asset_ref",
+              "logical_id": "overlay"
+            },
+            "input_mode": {
+              "kind": "loop_stream"
+            },
+            "opacity": 1,
+            "sizing": {
+              "mode": "cover"
+            },
+            "placement": {
+              "mode": "anchor",
+              "value": "top-third"
+            },
+            "time_range": null,
+            "chroma": null
+          },
+          {
+            "kind": "overlay_layer",
+            "asset": {
+              "type": "asset_ref",
+              "logical_id": "overlay"
+            },
+            "input_mode": {
+              "kind": "loop_stream"
+            },
+            "opacity": 1,
+            "sizing": {
+              "mode": "contain"
+            },
+            "placement": {
+              "mode": "anchor",
+              "value": "bottom-third"
+            },
+            "time_range": null,
+            "chroma": null
+          }
+        ],
+        "encode": {
+          "container": "mp4",
+          "requested_codec": "h264",
+          "requested_effort": "medium",
+          "crf": 23,
+          "quality_cpu_preset": "medium",
+          "bitrate_kbps": null
+        }
+      },
+      "manifest": [
+        {
+          "logical_id": "audio",
+          "safe_name": "audio.wav",
+          "role": "premixed_audio",
+          "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+          "size_bytes": 22
+        },
+        {
+          "logical_id": "base",
+          "safe_name": "base.mp4",
+          "role": "base_video",
+          "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+          "size_bytes": 21
+        },
+        {
+          "logical_id": "overlay",
+          "safe_name": "overlay.png",
+          "role": "overlay",
+          "sha256": "8d16ed1e72845eb10dfb7480c2ef0b6ce3e0d2d1b43027bd5ff3d4b57f0cf639",
+          "size_bytes": 24
+        }
+      ],
+      "recipe_digest": "fe0a152693027f948721e53d747e33678ed949d5dd8a9abcaae9d26667b3e861",
+      "manifest_digest": "b6d30349dc51ab0daaa8ae387c03893fb4aa2a82436f1cb92b5e4c604a8644f6",
+      "packet_digest": "4687ca764a7723ba871fe265d0e0f3a1224143dfc2782cadc0f9e8a94900bf23"
+    },
+    "local_assets": {
+      "base": "/schema/assets/base.mp4",
+      "audio": "/schema/assets/audio.wav",
+      "overlay": "/schema/assets/repeated-overlay.png"
+    },
+    "output_path": "/schema/output/final.mp4",
+    "expected_input_uses": [
+      {
+        "logicalId": "base",
+        "index": 0
+      },
+      {
+        "logicalId": "audio",
+        "index": 1
+      },
+      {
+        "logicalId": "overlay",
+        "index": 2
+      },
+      {
+        "logicalId": "overlay",
+        "index": 3
+      },
+      {
+        "logicalId": "overlay",
+        "index": 4
+      },
+      {
+        "logicalId": "overlay",
+        "index": 5
+      }
+    ],
+    "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[2:v]scale=2:-2,format=rgba,colorchannelmixer=aa=0[v1];\n[v0][v1]overlay=4:H-h-4:enable='between(t,0.25,1.76)*gte(t,0.123)'[v2];\n[3:v]null[v3];\n[v2][v3]overlay=0:0:enable='between(t,0.25,1.76)'[v4];\n[4:v]scale=100:100:force_original_aspect_ratio=increase,crop=100:100[v5];\n[v4][v5]overlay=(W-w)/2:(H/3-h/2):enable='between(t,0.25,1.76)'[v6];\n[5:v]scale=100:100:force_original_aspect_ratio=decrease,pad=100:100:(ow-iw)/2:(oh-ih)/2:color=black@0[v7];\n[v6][v7]overlay=(W-w)/2:(2*H/3-h/2):enable='between(t,0.25,1.76)'[v8];\n[v8]null[vout]",
+    "expected_full_argv": [
+      "-y",
+      "-i",
+      "/schema/assets/base.mp4",
+      "-i",
+      "/schema/assets/audio.wav",
+      "-c:v",
+      "png",
+      "-loop",
+      "1",
+      "-i",
+      "/schema/assets/repeated-overlay.png",
+      "-i",
+      "/schema/assets/repeated-overlay.png",
+      "-stream_loop",
+      "-1",
+      "-i",
+      "/schema/assets/repeated-overlay.png",
+      "-stream_loop",
+      "-1",
+      "-i",
+      "/schema/assets/repeated-overlay.png",
+      "-filter_complex",
+      "[0:v]setpts=PTS-STARTPTS[v0];\n[2:v]scale=2:-2,format=rgba,colorchannelmixer=aa=0[v1];\n[v0][v1]overlay=4:H-h-4:enable='between(t,0.25,1.76)*gte(t,0.123)'[v2];\n[3:v]null[v3];\n[v2][v3]overlay=0:0:enable='between(t,0.25,1.76)'[v4];\n[4:v]scale=100:100:force_original_aspect_ratio=increase,crop=100:100[v5];\n[v4][v5]overlay=(W-w)/2:(H/3-h/2):enable='between(t,0.25,1.76)'[v6];\n[5:v]scale=100:100:force_original_aspect_ratio=decrease,pad=100:100:(ow-iw)/2:(oh-ih)/2:color=black@0[v7];\n[v6][v7]overlay=(W-w)/2:(2*H/3-h/2):enable='between(t,0.25,1.76)'[v8];\n[v8]null[vout]",
+      "-map",
+      "[vout]",
+      "-map",
+      "1:a",
+      "-c:v",
+      "libx264",
+      "-crf",
+      "23",
+      "-preset",
+      "medium",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "384k",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-t",
+      "2",
+      "/schema/output/final.mp4"
+    ]
+  },
+  "zero_start_null_end_overlay_vector": {
+    "packet": {
+      "recipe": {
+        "namespace": "studio.render.final.v1",
+        "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "base_video": {
+          "type": "asset_ref",
+          "logical_id": "base"
+        },
+        "premixed_audio": {
+          "type": "asset_ref",
+          "logical_id": "audio"
+        },
+        "canvas": {
+          "width": 128,
+          "height": 96,
+          "working_fps": 5
+        },
+        "target_duration_sec": 2,
+        "effects_gate": {
+          "start_sec": null,
+          "end_sec": null
+        },
+        "operations": [
+          {
+            "kind": "overlay_layer",
+            "asset": {
+              "type": "asset_ref",
+              "logical_id": "overlay"
+            },
+            "input_mode": {
+              "kind": "single"
+            },
+            "opacity": 1,
+            "sizing": {
+              "mode": "native"
+            },
+            "placement": {
+              "mode": "origin"
+            },
+            "time_range": {
+              "start_sec": 0,
+              "end_sec": null
+            },
+            "chroma": null
+          }
+        ],
+        "encode": {
+          "container": "mp4",
+          "requested_codec": "h264",
+          "requested_effort": "ultrafast",
+          "crf": 23,
+          "quality_cpu_preset": "ultrafast",
+          "bitrate_kbps": null
+        }
+      },
+      "manifest": [
+        {
+          "logical_id": "audio",
+          "safe_name": "audio.wav",
+          "role": "premixed_audio",
+          "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+          "size_bytes": 22
+        },
+        {
+          "logical_id": "base",
+          "safe_name": "base.mp4",
+          "role": "base_video",
+          "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+          "size_bytes": 21
+        },
+        {
+          "logical_id": "overlay",
+          "safe_name": "overlay.png",
+          "role": "overlay",
+          "sha256": "8d16ed1e72845eb10dfb7480c2ef0b6ce3e0d2d1b43027bd5ff3d4b57f0cf639",
+          "size_bytes": 24
+        }
+      ],
+      "recipe_digest": "6a481305362295c74fefa5981981a0bb057a27f742d0bbcac620b76fa1d47a73",
+      "manifest_digest": "b6d30349dc51ab0daaa8ae387c03893fb4aa2a82436f1cb92b5e4c604a8644f6",
+      "packet_digest": "a486966a0f505c29f28c2981fb132f8415cc9a5738b6fa5e2d40a096197c52d4"
+    },
+    "local_assets": {
+      "base": "/schema/assets/base.mp4",
+      "audio": "/schema/assets/audio.wav",
+      "overlay": "/schema/assets/zero-start-overlay.png"
+    },
+    "output_path": "/schema/output/final.mp4",
+    "expected_input_uses": [
+      {
+        "logicalId": "base",
+        "index": 0
+      },
+      {
+        "logicalId": "audio",
+        "index": 1
+      },
+      {
+        "logicalId": "overlay",
+        "index": 2
+      }
+    ],
+    "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[2:v]null[v1];\n[v0][v1]overlay=0:0[v2];\n[v2]null[vout]",
+    "expected_full_argv": [
+      "-y",
+      "-i",
+      "/schema/assets/base.mp4",
+      "-i",
+      "/schema/assets/audio.wav",
+      "-i",
+      "/schema/assets/zero-start-overlay.png",
+      "-filter_complex",
+      "[0:v]setpts=PTS-STARTPTS[v0];\n[2:v]null[v1];\n[v0][v1]overlay=0:0[v2];\n[v2]null[vout]",
+      "-map",
+      "[vout]",
+      "-map",
+      "1:a",
+      "-c:v",
+      "libx264",
+      "-crf",
+      "23",
+      "-preset",
+      "ultrafast",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "384k",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-t",
+      "2",
+      "/schema/output/final.mp4"
+    ]
+  },
+  "aliased_repeated_overlay_vector": {
+    "packet": {
+      "recipe": {
+        "namespace": "studio.render.final.v1",
+        "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+        "base_video": {
+          "type": "asset_ref",
+          "logical_id": "base"
+        },
+        "premixed_audio": {
+          "type": "asset_ref",
+          "logical_id": "audio"
+        },
+        "canvas": {
+          "width": 128,
+          "height": 96,
+          "working_fps": 5
+        },
+        "target_duration_sec": 2,
+        "effects_gate": {
+          "start_sec": null,
+          "end_sec": null
+        },
+        "operations": [
+          {
+            "kind": "overlay_layer",
+            "asset": {
+              "type": "asset_ref",
+              "logical_id": "overlay"
+            },
+            "input_mode": {
+              "kind": "single"
+            },
+            "opacity": 1,
+            "sizing": {
+              "mode": "native"
+            },
+            "placement": {
+              "mode": "origin"
+            },
+            "time_range": {
+              "start_sec": 0,
+              "end_sec": null
+            },
+            "chroma": null
+          },
+          {
+            "kind": "overlay_layer",
+            "asset": {
+              "type": "asset_ref",
+              "logical_id": "overlay"
+            },
+            "input_mode": {
+              "kind": "single"
+            },
+            "opacity": 1,
+            "sizing": {
+              "mode": "native"
+            },
+            "placement": {
+              "mode": "origin"
+            },
+            "time_range": {
+              "start_sec": 0,
+              "end_sec": null
+            },
+            "chroma": null
+          }
+        ],
+        "encode": {
+          "container": "mp4",
+          "requested_codec": "h264",
+          "requested_effort": "ultrafast",
+          "crf": 23,
+          "quality_cpu_preset": "ultrafast",
+          "bitrate_kbps": null
+        }
+      },
+      "manifest": [
+        {
+          "logical_id": "audio",
+          "safe_name": "audio.wav",
+          "role": "premixed_audio",
+          "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+          "size_bytes": 22
+        },
+        {
+          "logical_id": "base",
+          "safe_name": "base.mp4",
+          "role": "base_video",
+          "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+          "size_bytes": 21
+        },
+        {
+          "logical_id": "overlay",
+          "safe_name": "overlay.png",
+          "role": "overlay",
+          "sha256": "8d16ed1e72845eb10dfb7480c2ef0b6ce3e0d2d1b43027bd5ff3d4b57f0cf639",
+          "size_bytes": 24
+        }
+      ],
+      "recipe_digest": "5567831bc8596c2243f0f1d145b8e9fdf943815ea9416068a66c9d844a38b6a5",
+      "manifest_digest": "b6d30349dc51ab0daaa8ae387c03893fb4aa2a82436f1cb92b5e4c604a8644f6",
+      "packet_digest": "bf4b04e8224c9696309c79ecdf74d629f064a1ca1d77fcfa27fbcadc97184d60"
+    },
+    "local_assets": {
+      "base": "/schema/assets/base.mp4",
+      "audio": "/schema/assets/audio.wav",
+      "overlay": "/schema/assets/overlay.png"
+    },
+    "output_path": "/schema/output/final.mp4",
+    "expected_input_uses": [
+      {
+        "logicalId": "base",
+        "index": 0
+      },
+      {
+        "logicalId": "audio",
+        "index": 1
+      },
+      {
+        "logicalId": "overlay",
+        "index": 2
+      },
+      {
+        "logicalId": "overlay",
+        "index": 3
+      }
+    ],
+    "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[2:v]null[v1];\n[v0][v1]overlay=0:0[v2];\n[3:v]null[v3];\n[v2][v3]overlay=0:0[v4];\n[v4]null[vout]",
+    "expected_full_argv": [
+      "-y",
+      "-i",
+      "/schema/assets/base.mp4",
+      "-i",
+      "/schema/assets/audio.wav",
+      "-i",
+      "/schema/assets/overlay.png",
+      "-i",
+      "/schema/assets/overlay.png",
+      "-filter_complex",
+      "[0:v]setpts=PTS-STARTPTS[v0];\n[2:v]null[v1];\n[v0][v1]overlay=0:0[v2];\n[3:v]null[v3];\n[v2][v3]overlay=0:0[v4];\n[v4]null[vout]",
+      "-map",
+      "[vout]",
+      "-map",
+      "1:a",
+      "-c:v",
+      "libx264",
+      "-crf",
+      "23",
+      "-preset",
+      "ultrafast",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "384k",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-t",
+      "2",
+      "/schema/output/final.mp4"
+    ]
+  },
+  "gate_vectors": [
+    {
+      "name": "both-round-to-two-decimals",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": 0.254,
+            "end_sec": 1.756
+          },
+          "operations": [
+            {
+              "kind": "classic_vignette",
+              "strength": 0.4
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "f068762fafcfc0727eed832e90eec312b9123c591ecddb45c215ec6a336eecc4",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "19e2f3e6bf7878e0414f409678f073aeeefcf90c716c5b784c269d802bccfbad"
+      },
+      "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]vignette=angle=0.7700:mode=forward:eval=init:enable='between(t,0.25,1.76)'[v1];\n[v1]null[vout]"
+    },
+    {
+      "name": "start-only-strict",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": 0.254,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "classic_vignette",
+              "strength": 0.4
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "50e06c95d52d6f89429dfe1c2d2e3a875850099fe911009b4ed55f0e9102b492",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "3a0ae2214e6d49e01492c3bb9c8c97e0fe2c312ad451b809a722d60bda109126"
+      },
+      "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]vignette=angle=0.7700:mode=forward:eval=init:enable='gt(t,0.25)'[v1];\n[v1]null[vout]"
+    },
+    {
+      "name": "end-only-strict",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": 1.756
+          },
+          "operations": [
+            {
+              "kind": "classic_vignette",
+              "strength": 0.4
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "bf7cfaaa4ae491cebe252bc1ee6e38e8d73723fcb45b84368e6abbc7477f209a",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "81858f19db632e20f079ac6f2fe91cf727cd4ab155e6e5858fbf678767a3cef2"
+      },
+      "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]vignette=angle=0.7700:mode=forward:eval=init:enable='lt(t,1.76)'[v1];\n[v1]null[vout]"
+    },
+    {
+      "name": "unbounded",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "classic_vignette",
+              "strength": 0.4
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "72dde7ef454fc6cc420fbfcb7c3e07f6d20f9df486bae1f61e0e0f7886540e13",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "c53801d9a0d23a9ecbc34f012801415b304018ec3931599a2c90977d804456b3"
+      },
+      "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]vignette=angle=0.7700:mode=forward:eval=init[v1];\n[v1]null[vout]"
+    }
+  ],
+  "fractional_frame_vectors": [
+    {
+      "name": "fractional-before-height-scale",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 960,
+            "height": 540,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "presentation_frame",
+              "inset_pct": 4,
+              "border_width": 2.51,
+              "corner_radius": 20.5,
+              "border_color": "#F2C14E",
+              "background_color": "#111C34",
+              "fit": "cover",
+              "background": {
+                "kind": "solid"
+              }
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "dc19e492acdbd9b1df1c56dc5745fc8f6ee91f2c4e135eab0c693afe52624224",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "cae566719c67a950a4f7ea18bafcad704c198b1c91ec30ca75f35111a29bd77e"
+      },
+      "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]scale=914:494:force_original_aspect_ratio=increase,crop=914:494,format=rgba[mainframe2rgb];\ncolor=c=white:s=914x494:r=5,trim=end_frame=1,format=gray,geq=lum='if(lt(X,10)*lt(Y,10),if(lte(pow(X-10,2)+pow(Y-10,2),100),255,0),if(gte(X,W-10)*lt(Y,10),if(lte(pow(X-(W-10),2)+pow(Y-10,2),100),255,0),if(lt(X,10)*gte(Y,H-10),if(lte(pow(X-10,2)+pow(Y-(H-10),2),100),255,0),if(gte(X,W-10)*gte(Y,H-10),if(lte(pow(X-(W-10),2)+pow(Y-(H-10),2),100),255,0),255))))',loop=loop=-1:size=1[mainframe2mask];\n[mainframe2rgb][mainframe2mask]alphamerge=shortest=1[mainframe2media];\ncolor=c=#111C34:s=960x540:r=5[mainframe2bg];\n[mainframe2bg]drawbox=x=22:y=22:w=916:h=496:color=#F2C14E:t=fill[mainframe2border];\n[mainframe2border][mainframe2media]overlay=23:23:shortest=1,format=yuv420p[v1];\n[v1]null[vout]"
+    },
+    {
+      "name": "fractional-authored-values",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 1920,
+            "height": 1080,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "presentation_frame",
+              "inset_pct": 4,
+              "border_width": 12.25,
+              "corner_radius": 20.5,
+              "border_color": "#F2C14E",
+              "background_color": "#111C34",
+              "fit": "cover",
+              "background": {
+                "kind": "solid"
+              }
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "b5191a609430120ab5fe109ab64588b47d8d99db00ffdac18ce3987a9fb50efa",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "60dc0c2de41b1b038c8afe49b73361a00973234abdcd76bbcaa2fd1108b28d15"
+      },
+      "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]scale=1810:970:force_original_aspect_ratio=increase,crop=1810:970,format=rgba[mainframe2rgb];\ncolor=c=white:s=1810x970:r=5,trim=end_frame=1,format=gray,geq=lum='if(lt(X,21)*lt(Y,21),if(lte(pow(X-21,2)+pow(Y-21,2),441),255,0),if(gte(X,W-21)*lt(Y,21),if(lte(pow(X-(W-21),2)+pow(Y-21,2),441),255,0),if(lt(X,21)*gte(Y,H-21),if(lte(pow(X-21,2)+pow(Y-(H-21),2),441),255,0),if(gte(X,W-21)*gte(Y,H-21),if(lte(pow(X-(W-21),2)+pow(Y-(H-21),2),441),255,0),255))))',loop=loop=-1:size=1[mainframe2mask];\n[mainframe2rgb][mainframe2mask]alphamerge=shortest=1[mainframe2media];\ncolor=c=#111C34:s=1920x1080:r=5[mainframe2bg];\n[mainframe2bg]drawbox=x=43:y=43:w=1834:h=994:color=#F2C14E:t=fill[mainframe2border];\n[mainframe2border][mainframe2media]overlay=55:55:shortest=1,format=yuv420p[v1];\n[v1]null[vout]"
+    }
+  ],
+  "logo_vectors": [
+    {
+      "name": "margin-one",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "logo",
+              "asset": {
+                "type": "asset_ref",
+                "logical_id": "logo"
+              },
+              "opacity": 0.8,
+              "scale": 0.2,
+              "anchor": "top-left",
+              "margin_px": 1,
+              "gate": "effects_gate"
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          },
+          {
+            "logical_id": "logo",
+            "safe_name": "logo.png",
+            "role": "logo",
+            "sha256": "7da729bd1bc3a7156813cf4fb920fdde909b787b32fc4449e67eeacd99f1b4a7",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "bd3852ffe498cbb451a3419bf1b087d25c5650ef5eccda386b1e47f6ce25a7fd",
+        "manifest_digest": "fe25b27cf5547bf850dc90d9d6847d580a7a8e561789c179bfa44faa0c3903ae",
+        "packet_digest": "2947c9e40ed8f4630a01bd2446d30aac45c445c3fb3dc70b4cd8ba0a175dfa1a"
+      },
+      "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[2:v]scale=26:-1,format=rgba,colorchannelmixer=aa=0.8[logo];\n[v0][logo]overlay=1:1[v1];\n[v1]null[vout]"
+    },
+    {
+      "name": "margin-twenty",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "logo",
+              "asset": {
+                "type": "asset_ref",
+                "logical_id": "logo"
+              },
+              "opacity": 0.8,
+              "scale": 0.2,
+              "anchor": "top-left",
+              "margin_px": 20,
+              "gate": "effects_gate"
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          },
+          {
+            "logical_id": "logo",
+            "safe_name": "logo.png",
+            "role": "logo",
+            "sha256": "7da729bd1bc3a7156813cf4fb920fdde909b787b32fc4449e67eeacd99f1b4a7",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "7d389b76e774f0c8f83604b972b5928030586bb7e1603e927dfe1ba5ef68f900",
+        "manifest_digest": "fe25b27cf5547bf850dc90d9d6847d580a7a8e561789c179bfa44faa0c3903ae",
+        "packet_digest": "9396d68e2318ae96bc895885ea4dae406d3f8d428b4aa7a0f0165eac5d97f938"
+      },
+      "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[2:v]scale=26:-1,format=rgba,colorchannelmixer=aa=0.8[logo];\n[v0][logo]overlay=20:20[v1];\n[v1]null[vout]"
+    },
+    {
+      "name": "after-ten-without-global-gate",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "logo",
+              "asset": {
+                "type": "asset_ref",
+                "logical_id": "logo"
+              },
+              "opacity": 0.8,
+              "scale": 0.2,
+              "anchor": "top-left",
+              "margin_px": 20,
+              "gate": "after_10_seconds"
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          },
+          {
+            "logical_id": "logo",
+            "safe_name": "logo.png",
+            "role": "logo",
+            "sha256": "7da729bd1bc3a7156813cf4fb920fdde909b787b32fc4449e67eeacd99f1b4a7",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "767f9515a99b8e25f5db2156381dc46915e0b135e2bfbbcae188ca545778f29b",
+        "manifest_digest": "fe25b27cf5547bf850dc90d9d6847d580a7a8e561789c179bfa44faa0c3903ae",
+        "packet_digest": "db1364106cc4f3193713233d58f08952ad332f6ab863c60a9888d83c19255cef"
+      },
+      "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[2:v]scale=26:-1,format=rgba,colorchannelmixer=aa=0.8[logo];\n[v0][logo]overlay=20:20:enable='gt(t,10)'[v1];\n[v1]null[vout]"
+    },
+    {
+      "name": "effects-gate-without-bound",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "logo",
+              "asset": {
+                "type": "asset_ref",
+                "logical_id": "logo"
+              },
+              "opacity": 0.8,
+              "scale": 0.2,
+              "anchor": "top-left",
+              "margin_px": 20,
+              "gate": "effects_gate"
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          },
+          {
+            "logical_id": "logo",
+            "safe_name": "logo.png",
+            "role": "logo",
+            "sha256": "7da729bd1bc3a7156813cf4fb920fdde909b787b32fc4449e67eeacd99f1b4a7",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "7d389b76e774f0c8f83604b972b5928030586bb7e1603e927dfe1ba5ef68f900",
+        "manifest_digest": "fe25b27cf5547bf850dc90d9d6847d580a7a8e561789c179bfa44faa0c3903ae",
+        "packet_digest": "9396d68e2318ae96bc895885ea4dae406d3f8d428b4aa7a0f0165eac5d97f938"
+      },
+      "expected_graph": "[0:v]setpts=PTS-STARTPTS[v0];\n[2:v]scale=26:-1,format=rgba,colorchannelmixer=aa=0.8[logo];\n[v0][logo]overlay=20:20[v1];\n[v1]null[vout]"
+    }
+  ],
+  "unsupported_vectors": [
+    {
+      "name": "zero-logo-margin",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "logo",
+              "asset": {
+                "type": "asset_ref",
+                "logical_id": "logo"
+              },
+              "opacity": 0.8,
+              "scale": 0.2,
+              "anchor": "top-left",
+              "margin_px": 0,
+              "gate": "effects_gate"
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          },
+          {
+            "logical_id": "logo",
+            "safe_name": "logo.png",
+            "role": "logo",
+            "sha256": "7da729bd1bc3a7156813cf4fb920fdde909b787b32fc4449e67eeacd99f1b4a7",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "510bbc884aa08548b4c68558e49c52a650373ec57c4f794dd7b241da2c843551",
+        "manifest_digest": "fe25b27cf5547bf850dc90d9d6847d580a7a8e561789c179bfa44faa0c3903ae",
+        "packet_digest": "c2bf1d114c91e77abdf7382edb99599c256f2b9a959ef1a20b4d3034fc74d5c9"
+      },
+      "reason": "logo_margin_default"
+    },
+    {
+      "name": "always-logo-with-global-gate",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": 0.25,
+            "end_sec": 1.75
+          },
+          "operations": [
+            {
+              "kind": "logo",
+              "asset": {
+                "type": "asset_ref",
+                "logical_id": "logo"
+              },
+              "opacity": 0.8,
+              "scale": 0.2,
+              "anchor": "top-left",
+              "margin_px": 20,
+              "gate": "always"
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          },
+          {
+            "logical_id": "logo",
+            "safe_name": "logo.png",
+            "role": "logo",
+            "sha256": "7da729bd1bc3a7156813cf4fb920fdde909b787b32fc4449e67eeacd99f1b4a7",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "ec8c2bb98915da5ddc55a6d745dbe9a4b4fd742e99880e876c68540aabd87038",
+        "manifest_digest": "fe25b27cf5547bf850dc90d9d6847d580a7a8e561789c179bfa44faa0c3903ae",
+        "packet_digest": "cdf71de345f8db5196e37903e2d2022da0c2107cb7b8395acb19df0362b8271d"
+      },
+      "reason": "logo_gate_precedence"
+    },
+    {
+      "name": "after-ten-logo-with-global-gate",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": 0.25,
+            "end_sec": 1.75
+          },
+          "operations": [
+            {
+              "kind": "logo",
+              "asset": {
+                "type": "asset_ref",
+                "logical_id": "logo"
+              },
+              "opacity": 0.8,
+              "scale": 0.2,
+              "anchor": "top-left",
+              "margin_px": 20,
+              "gate": "after_10_seconds"
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          },
+          {
+            "logical_id": "logo",
+            "safe_name": "logo.png",
+            "role": "logo",
+            "sha256": "7da729bd1bc3a7156813cf4fb920fdde909b787b32fc4449e67eeacd99f1b4a7",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "60c8d355df1dea42abf2238f2c1172c891c36096dd43deaade921543d81fb59d",
+        "manifest_digest": "fe25b27cf5547bf850dc90d9d6847d580a7a8e561789c179bfa44faa0c3903ae",
+        "packet_digest": "eac06eb1eb798ae9a117d70403bc4540b5033db042269a58bc8882a5cacd73ba"
+      },
+      "reason": "logo_gate_precedence"
+    },
+    {
+      "name": "letterbox-rounded-noop",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 370,
+            "height": 200,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "classic_letterbox",
+              "ratio": "1.85:1",
+              "mode": "fit",
+              "color": "black"
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "c5a6e7645f0cdfc91b87e754b58a4aea1d8eca8c021651ee18dfb61b7439e9be",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "a7d928ba4798f5a8c4c4ecf1ffea3d49c663d9801bbb5048157a2e42ead3b026"
+      },
+      "reason": "letterbox_noop"
+    },
+    {
+      "name": "letterbox-over-half-height",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 200,
+            "height": 400,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [
+            {
+              "kind": "classic_letterbox",
+              "ratio": "1.85:1",
+              "mode": "fit",
+              "color": "black"
+            }
+          ],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "ultrafast",
+            "crf": 23,
+            "quality_cpu_preset": "ultrafast",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "64f72fab78aec6616dfd9c6dbe1e7550bb58544c68ec7804440bf86fc7e1d89f",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "f9a9c1a372c90d2693d4e1888384f7656d7673a782f9c498fb5a3b1f76cef974"
+      },
+      "reason": "letterbox_skip"
+    }
+  ],
+  "tier_vectors": [
+    {
+      "name": "hardware-quality-slow",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "hardware",
+            "crf": 18,
+            "quality_cpu_preset": "slow",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "05bcc963a540453161621ee656cdeda6c473eb7ce712e6fc531164cd1f95297d",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "0f0da284f3b76779aad59f79e09fd59ed395ecac7bcbff797bf295cf75d79835"
+      },
+      "expected_tiers": [
+        {
+          "label": "H.264 · hardware (videotoolbox, q:v 80)",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "h264_videotoolbox",
+            "-q:v",
+            "80",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · libx264 slow (hardware fallback, full effects)",
+          "note": "(retry, libx264 software)",
+          "degraded": "hardware encoder unavailable — re-encoded on CPU (same effects, slower)",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "18",
+            "-preset",
+            "slow",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · hardware (videotoolbox, q:v 80) (fallback)",
+          "note": "(retry, H.264)",
+          "degraded": "codec downgraded to H.264",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "h264_videotoolbox",
+            "-q:v",
+            "80",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · no effects (recovery)",
+          "note": "(recovery, H.264 minimal)",
+          "degraded": "all post effects removed (vignette/grain/grade/chroma/subtitles/letterbox/logo)",
+          "drops_burned_in_features": true,
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "h264_videotoolbox",
+            "-q:v",
+            "80",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        }
+      ],
+      "expected_predicates": {
+        "hardware_fallback": true,
+        "h265_matching_error": false,
+        "h265_missing_libx265": false,
+        "h265_missing_return_code": false,
+        "h265_empty_error": false
+      }
+    },
+    {
+      "name": "hardware-bitrate-2500",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h264",
+            "requested_effort": "hardware",
+            "crf": 23,
+            "quality_cpu_preset": "medium",
+            "bitrate_kbps": 2500
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "d1b3703645a19792f6f1149debcb3223ec219a9cf1478a3a4b586b9cbfc9a81e",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "53f1719985d931291e27ff0b7dd8f5f1f66853dfd9e646a9e3abd3455427a0f2"
+      },
+      "expected_tiers": [
+        {
+          "label": "H.264 · hardware (videotoolbox, 2500 kbit/s)",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "h264_videotoolbox",
+            "-b:v",
+            "2500k",
+            "-maxrate",
+            "3750k",
+            "-bufsize",
+            "5000k",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · libx264 medium (hardware fallback, full effects)",
+          "note": "(retry, libx264 software)",
+          "degraded": "hardware encoder unavailable — re-encoded on CPU (same effects, slower)",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "23",
+            "-preset",
+            "medium",
+            "-maxrate",
+            "2500k",
+            "-bufsize",
+            "5000k",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · hardware (videotoolbox, 2500 kbit/s) (fallback)",
+          "note": "(retry, H.264)",
+          "degraded": "codec downgraded to H.264",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "h264_videotoolbox",
+            "-b:v",
+            "2500k",
+            "-maxrate",
+            "3750k",
+            "-bufsize",
+            "5000k",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · no effects (recovery)",
+          "note": "(recovery, H.264 minimal)",
+          "degraded": "all post effects removed (vignette/grain/grade/chroma/subtitles/letterbox/logo)",
+          "drops_burned_in_features": true,
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "h264_videotoolbox",
+            "-b:v",
+            "2500k",
+            "-maxrate",
+            "3750k",
+            "-bufsize",
+            "5000k",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        }
+      ],
+      "expected_predicates": {
+        "hardware_fallback": true,
+        "h265_matching_error": false,
+        "h265_missing_libx265": false,
+        "h265_missing_return_code": false,
+        "h265_empty_error": false
+      }
+    },
+    {
+      "name": "h265-software-einval",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h265",
+            "requested_effort": "slow",
+            "crf": 18,
+            "quality_cpu_preset": "slow",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "c61b0b7e7fd8eda85fadcdeda7f29d276e2af0717d3d75576fb23f39ef3552ca",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "e007d8bc6674e96b82e35f78c31231ef0924689a74164a9ab5a306e7147ded70"
+      },
+      "expected_tiers": [
+        {
+          "label": "HEVC (H.265) · preset slow",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libx265",
+            "-crf",
+            "18",
+            "-preset",
+            "slow",
+            "-tag:v",
+            "hvc1",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · libx264 slow (hardware fallback, full effects)",
+          "note": "(retry, libx264 software)",
+          "degraded": "hardware encoder unavailable — re-encoded on CPU (same effects, slower)",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "18",
+            "-preset",
+            "slow",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · preset slow (fallback)",
+          "note": "(retry, H.264)",
+          "degraded": "codec downgraded to H.264",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "18",
+            "-preset",
+            "slow",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · no effects (recovery)",
+          "note": "(recovery, H.264 minimal)",
+          "degraded": "all post effects removed (vignette/grain/grade/chroma/subtitles/letterbox/logo)",
+          "drops_burned_in_features": true,
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "18",
+            "-preset",
+            "slow",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        }
+      ],
+      "expected_predicates": {
+        "hardware_fallback": false,
+        "h265_matching_error": true,
+        "h265_missing_libx265": false,
+        "h265_missing_return_code": false,
+        "h265_empty_error": false
+      }
+    },
+    {
+      "name": "f4-h265-hardware-shape",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [],
+          "encode": {
+            "container": "mp4",
+            "requested_codec": "h265",
+            "requested_effort": "hardware",
+            "crf": 23,
+            "quality_cpu_preset": "medium",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "ade58d381ac3b87611dddc60189f59c31d30ef4b5f3013d875d1ffe8131b57c2",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "43506b263741879964cac3b9759685677145aa236a9d397b7c145859670bacd3"
+      },
+      "expected_tiers": [
+        {
+          "label": "H.264 · hardware (videotoolbox, q:v 65)",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "h264_videotoolbox",
+            "-q:v",
+            "65",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · libx264 medium (hardware fallback, full effects)",
+          "note": "(retry, libx264 software)",
+          "degraded": "hardware encoder unavailable — re-encoded on CPU (same effects, slower)",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "23",
+            "-preset",
+            "medium",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · hardware (videotoolbox, q:v 65) (fallback)",
+          "note": "(retry, H.264)",
+          "degraded": "codec downgraded to H.264",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "h264_videotoolbox",
+            "-q:v",
+            "65",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · no effects (recovery)",
+          "note": "(recovery, H.264 minimal)",
+          "degraded": "all post effects removed (vignette/grain/grade/chroma/subtitles/letterbox/logo)",
+          "drops_burned_in_features": true,
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "h264_videotoolbox",
+            "-q:v",
+            "65",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "384k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        }
+      ],
+      "expected_predicates": {
+        "hardware_fallback": true,
+        "h265_matching_error": true,
+        "h265_missing_libx265": false,
+        "h265_missing_return_code": false,
+        "h265_empty_error": false
+      }
+    },
+    {
+      "name": "webm-stays-vp9",
+      "packet": {
+        "recipe": {
+          "namespace": "studio.render.final.v1",
+          "profile_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "base_video": {
+            "type": "asset_ref",
+            "logical_id": "base"
+          },
+          "premixed_audio": {
+            "type": "asset_ref",
+            "logical_id": "audio"
+          },
+          "canvas": {
+            "width": 128,
+            "height": 96,
+            "working_fps": 5
+          },
+          "target_duration_sec": 2,
+          "effects_gate": {
+            "start_sec": null,
+            "end_sec": null
+          },
+          "operations": [],
+          "encode": {
+            "container": "webm",
+            "requested_codec": "h265",
+            "requested_effort": "slow",
+            "crf": 18,
+            "quality_cpu_preset": "slow",
+            "bitrate_kbps": null
+          }
+        },
+        "manifest": [
+          {
+            "logical_id": "audio",
+            "safe_name": "audio.wav",
+            "role": "premixed_audio",
+            "sha256": "7d9b42b32ad2007a4ca2abf19180e3380b729c2afd9e2e3e22c73cd1993ee684",
+            "size_bytes": 22
+          },
+          {
+            "logical_id": "base",
+            "safe_name": "base.mp4",
+            "role": "base_video",
+            "sha256": "5dfc42c5e8f02125444d7b9862814d0163a49147dde44f56ec2a986d217340a1",
+            "size_bytes": 21
+          }
+        ],
+        "recipe_digest": "6492cf3975d59f5770b923c76582860d71f36f525b3be756c58e5a00535673eb",
+        "manifest_digest": "ca219ad30f3250f02c50fea8a76833b4c753ac0a898fea11dbc104c29869b3c1",
+        "packet_digest": "88a660614c8dff8015b535cd6f77d029e5c448209c87fe39ad41455f19f2c293"
+      },
+      "expected_tiers": [
+        {
+          "label": "VP9 · CRF 18",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libvpx-vp9",
+            "-crf",
+            "18",
+            "-b:v",
+            "0",
+            "-c:a",
+            "libopus",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · libx264 slow (hardware fallback, full effects)",
+          "note": "(retry, libx264 software)",
+          "degraded": "hardware encoder unavailable — re-encoded on CPU (same effects, slower)",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libvpx-vp9",
+            "-crf",
+            "18",
+            "-b:v",
+            "0",
+            "-c:a",
+            "libopus",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "VP9 · CRF 18 (fallback)",
+          "note": "(retry, H.264)",
+          "degraded": "codec downgraded to H.264",
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-filter_complex",
+            "[0:v]setpts=PTS-STARTPTS[v0];\n[v0]null[vout]",
+            "-map",
+            "[vout]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libvpx-vp9",
+            "-crf",
+            "18",
+            "-b:v",
+            "0",
+            "-c:a",
+            "libopus",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        },
+        {
+          "label": "H.264 · no effects (recovery)",
+          "note": "(recovery, H.264 minimal)",
+          "degraded": "all post effects removed (vignette/grain/grade/chroma/subtitles/letterbox/logo)",
+          "drops_burned_in_features": true,
+          "argv": [
+            "-y",
+            "-i",
+            "/schema/assets/base.mp4",
+            "-i",
+            "/schema/assets/audio.wav",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libvpx-vp9",
+            "-crf",
+            "18",
+            "-b:v",
+            "0",
+            "-c:a",
+            "libopus",
+            "-t",
+            "2",
+            "/schema/output/final.mp4"
+          ]
+        }
+      ],
+      "expected_predicates": {
+        "hardware_fallback": false,
+        "h265_matching_error": false,
+        "h265_missing_libx265": false,
+        "h265_missing_return_code": false,
+        "h265_empty_error": false
+      }
+    }
+  ],
+  "local_legacy_logo_zero": {
+    "width": 128,
+    "height": 96,
+    "input_index": 2,
+    "input": "[v0]",
+    "logo": {
+      "enabled": true,
+      "position": "top-left",
+      "opacity": 0.8,
+      "scale": 0.2,
+      "margin": 0,
+      "hide_during_intro": false
+    },
+    "expected": {
+      "filters": [
+        "[2:v]scale=26:-1,format=rgba,colorchannelmixer=aa=0.8[logo]",
+        "[v0][logo]overlay=20:20[v1]"
+      ],
+      "output": "[v1]"
+    }
+  }
+}

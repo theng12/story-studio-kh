@@ -5,6 +5,16 @@ import { describe, test } from 'node:test'
 import { createApp, defineComponent, h, nextTick, ref, type Component } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
+import { contentStoreErrorPresentation } from '../composables/useContentStore.js'
+
+/** Remove single- and multi-line imports; the compiled component gets explicit support values. */
+function stripImports(code: string): string {
+  return code
+    .replace(/^import\b[\s\S]*?from\s*['"][^'"]+['"];?[ \t]*$/gm, '')
+    .replace(/^import\s*['"][^'"]+['"];?[ \t]*$/gm, '')
+}
+
+;(globalThis as any).__contentStoreErrorPresentation = contentStoreErrorPresentation
 
 const detail = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductDetail.vue', import.meta.url)), 'utf8')
 const route = readFileSync(fileURLToPath(new URL('../pages/content-store/[productId].vue', import.meta.url)), 'utf8')
@@ -19,7 +29,11 @@ async function loadComponent(relative: string): Promise<Component> {
   const script = compileScript(descriptor, { id: `content-store-state-${relative}` })
   const template = compileTemplate({ source: descriptor.template!.content, filename, id: `content-store-state-${relative}`, compilerOptions: { bindingMetadata: script.bindings } })
   const vueUrl = await import.meta.resolve('vue')
-  const code = `${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const support = `
+    import { computed, defineComponent as _defineComponent, nextTick, ref, watch } from 'vue'
+    const contentStoreErrorPresentation = globalThis.__contentStoreErrorPresentation
+  `
+  const code = `${support}\n${stripImports(script.content).replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })
   return (await import(`data:text/javascript;base64,${Buffer.from(transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
 }
@@ -44,6 +58,9 @@ async function loadStorePage(): Promise<Component> {
     const installedPackCount = (packs) => new Set(packs.filter(pack => pack.active).map(pack => pack.packId)).size
     const orderShelfProducts = (items) => items
     const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: '' })
+    const CONTENT_PACK_IMPORT_MAX_BYTES = 50 * 1024 * 1024
+    const contentPackImportErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: '' })
+    const contentPackImportUiError = (cause) => ({ status: cause?.status ?? null, code: cause?.data?.code || 'unknown', detail: cause?.data?.detail || cause?.message || '' })
     // The real queue lives in ~/composables/useInstallQueue and is covered by
     // its own tests; here it only has to exist and install straight away.
     const useInstallQueue = (install) => ({
@@ -95,7 +112,7 @@ async function loadStorePage(): Promise<Component> {
     const useRoute = () => ({ params: {} })
     const useAppTitle = () => undefined
   `
-  const code = `${support}\n${script.content.replace(/^import .*$/gm, '').replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const code = `${support}\n${stripImports(script.content).replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })
   return (await import(`data:text/javascript;base64,${Buffer.from(transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
 }
@@ -118,7 +135,7 @@ async function loadDetailRoute(): Promise<Component> {
     const useAppTitle = () => undefined
     const navigateTo = () => undefined
   `
-  const code = `${support}\n${script.content.replace(/^import .*$/gm, '').replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const code = `${support}\n${stripImports(script.content).replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })
   return (await import(`data:text/javascript;base64,${Buffer.from(transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
 }
@@ -377,7 +394,8 @@ describe('Content Store proof route contract', () => {
     assert.doesNotMatch(text, /Loading the Gateway catalog/, 'there is a catalogue to show, so there is no loading screen')
     assert.equal(rendered.host.querySelector('[data-test="request-quote"]') !== null, true, 'the saved shelf is already on screen')
     assert.match(text, /Showing the published catalogue saved on this Mac/)
-    assert.match(text, /buying and installing stay off until they are/)
+    assert.match(text, /Gateway purchase and download stay off until it answers/)
+    assert.match(text, /Install Content Pack still works from a local file/)
     assert.match(text, /Checking with the Gateway…/, 'the account strip holds its place without inventing a balance')
     assert.doesNotMatch(text, /content_a|500 credits/, 'no account id and no balance before GenStudio answers')
 

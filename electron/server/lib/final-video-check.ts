@@ -85,6 +85,12 @@ export interface FrozenFinalCheckShape {
   source: 'plan' | 'job' | 'settings' | 'owner'
   /** See `FinalCheckExpectation.after_narration_sec`. */
   after_narration_sec: number
+  /**
+   * See `FinalCheckExpectation.tail`: the closing tail's length and how far its end sits from the
+   * file's end. `null` = the freeze proves this final drew no tail; absent = a freeze written before
+   * this field existed, whose tail placement is unknown, never 0.
+   */
+  tail?: { sec: number; from_end_sec: number } | null
   /** See `FinalCheckExpectation.intro`; `null` is an answer (this final drew no intro). */
   intro: FinalCheckIntro | null
   /**
@@ -226,6 +232,13 @@ export interface FinalCheckExpectation {
    * content, not a fault — see `isIntroAssetBlack`.
    */
   intro?: FinalCheckIntro
+  /**
+   * True only for a freeze taken before the shape recorded its tail geometry. The file's intended
+   * closing-tail placement is then unknown, so a black stretch near the end cannot be called
+   * "outside the closing tail": it is reported as a STOP whose placement could not be established.
+   * A frozen `tail` (including 0 s) is a known answer, not an absence (AGENTS.md §6).
+   */
+  tail_unknown?: boolean
   /**
    * When this final's own expectation was frozen for the bytes it describes (`FrozenFinalCheckShape`),
    * or absent when it was not.
@@ -641,11 +654,22 @@ export function finalCheckIssues(
   for (const run of actual.black) {
     const length = run.end_sec - run.start_sec
     if (length < o.black_min_sec) continue
+    // A stretch inside the branded intro, which the intro's own asset is black over, is the owner's
+    // opening. Only that: black anywhere else is still judged by the rules below.
+    if (isIntroAssetBlack(run, expected.intro)) continue
+    // A legacy freeze recorded the tail's length but not where it sits. Calling this black "outside
+    // the closing tail" would assert a placement the check does not know; report the fact as STOP.
+    if (expected.tail_unknown) {
+      issues.push({
+        check: 'black',
+        verdict: `there is a ${length.toFixed(1)}s black stretch at ${clock(run.start_sec)}; this video's `
+          + 'intended closing-tail placement could not be established, so the check cannot say whether '
+          + 'that black is the closing tail',
+      })
+      continue
+    }
     // A black stretch inside the closing tail is the closing tail — that is what it was drawn for.
     if (run.start_sec >= bodyEnd - 0.5) continue
-    // ...and a stretch inside the branded intro, which the intro's own asset is black over, is the
-    // owner's opening. Only that: black anywhere else is still a fault.
-    if (isIntroAssetBlack(run, expected.intro)) continue
     issues.push({
       check: 'black',
       verdict: `there is a ${length.toFixed(1)}s black stretch at ${clock(run.start_sec)}, outside the closing tail`,

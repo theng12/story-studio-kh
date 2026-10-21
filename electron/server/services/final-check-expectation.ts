@@ -183,6 +183,7 @@ async function expectationFromRenderRequest(input: PlanlessFinalRef): Promise<Fr
     file: stat ? { size: stat.size, mtime_ms: stat.mtimeMs } : { size: 0, mtime_ms: 0 },
     source: 'job',
     after_narration_sec: rendered.after_narration_sec,
+    tail: structuredClone(rendered.tail),
     // Measured HERE, once, for this file: a later check must not re-measure an asset that may have
     // been replaced since the final was made.
     intro: rendered.intro
@@ -381,11 +382,26 @@ export function shapingFingerprint(settings: any): string {
  */
 export function expectationFromFrozenShape(
   shape: FrozenFinalCheckShape,
-): Pick<FinalCheckExpectation, 'after_narration_sec' | 'intro' | 'frozen_at'> {
-  return {
+): Pick<FinalCheckExpectation, 'after_narration_sec' | 'tail_unknown' | 'intro' | 'frozen_at'>
+  & Partial<Pick<FinalCheckExpectation, 'tail'>> {
+  const base = {
     after_narration_sec: Math.max(0, Number(shape.after_narration_sec) || 0),
     ...(shape.intro ? { intro: shape.intro } : {}),
     frozen_at: shape.frozen_at,
+  }
+  // Absent is a freeze from before the geometry was recorded: UNKNOWN, never 0. Null is the answer
+  // "this final drew no tail". Both are different from an interval nobody wrote down (AGENTS.md §6).
+  if (shape.tail === undefined) return { ...base, tail_unknown: true }
+  return {
+    ...base,
+    // A freeze that recorded the field is an explicit answer — including `null`, the answer "this
+    // final drew no tail". `false` says so in the verdict the check writes, so a later read can tell
+    // a deliberate known-none from the zero placeholder of a check that could not place the tail.
+    tail: {
+      sec: Math.max(0, Number(shape.tail?.sec) || 0),
+      from_end_sec: Math.max(0, Number(shape.tail?.from_end_sec) || 0),
+    },
+    tail_unknown: false,
   }
 }
 
@@ -424,6 +440,7 @@ async function deriveShapeFromSettings(input: PlanlessFinalRef): Promise<FrozenF
     file: stat ? { size: stat.size, mtime_ms: stat.mtimeMs } : { size: 0, mtime_ms: 0 },
     source: 'settings',
     after_narration_sec: rendered.after_narration_sec,
+    tail: structuredClone(rendered.tail),
     // The intro's own black is measured HERE, once, for the file this freeze is about: a later check
     // must not re-measure an asset that may have been replaced since the final was made.
     intro: rendered.intro
@@ -583,6 +600,28 @@ function frozenShapeFromStoredVerdict(
   if (!expected) return null
   const hasShape = Number(expected.after_narration_sec) > 0 || !!expected.intro
   if (!hasShape) return null
+  // The verdict recorded exactly where the tail sat. Carry it, so a later check does not turn a
+  // known tail into an unplaceable allowance — or into a known-none.
+  //
+  // A verdict's tail field is only evidence when the verdict says which answer it is:
+  //  - `tail_unknown === true` outranks any tail field beside it. The on-demand check flattens a
+  //    frozen expectation it cannot place onto a zero placeholder, and the placeholder is not an
+  //    answer.
+  //  - a POSITIVE interval is a placement: carry it.
+  //  - a ZERO interval is a known-none only when the verdict says `tail_unknown === false`, the
+  //    explicit marker this app now writes for a freeze that recorded the field (`expectationFrom
+  //    FrozenShape`). Without that marker — a verdict written before it existed — the zero has the
+  //    same shape as the flattened placeholder and no way to tell them apart, so the freeze stays
+  //    UNKNOWN rather than freezing "this final drew no tail" from history (AGENTS.md §6).
+  const tail = expected.tail
+    && Number.isFinite(Number(expected.tail.sec)) && Number.isFinite(Number(expected.tail.from_end_sec))
+    && expected.tail_unknown !== true
+    && (Number(expected.tail.sec) > 0 || expected.tail_unknown === false)
+    ? {
+        sec: Math.max(0, Number(expected.tail.sec)),
+        from_end_sec: Math.max(0, Number(expected.tail.from_end_sec)),
+      }
+    : undefined
   return {
     schema_version: 1,
     frozen_at: typeof expected.frozen_at === 'string' && expected.frozen_at ? expected.frozen_at : new Date().toISOString(),
@@ -590,6 +629,7 @@ function frozenShapeFromStoredVerdict(
     file: { size: stat.size, mtime_ms: stat.mtimeMs },
     source: 'plan',
     after_narration_sec: Math.max(0, Number(expected.after_narration_sec) || 0),
+    ...(tail ? { tail } : {}),
     intro: expected.intro ?? null,
     evidence: 'the plan this render recorded for itself, read back from the verdict beside the file',
   }

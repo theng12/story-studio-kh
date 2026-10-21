@@ -114,6 +114,7 @@ test('legacy migration ledger closes every real inventory key exactly once witho
   assert.equal(ledger.authoritative, false)
   assert.equal(ledger.identity_authority, 'content-packs/authoring-registry.json')
   assert.ok(Array.isArray(ledger.dispositions))
+  assert.ok(Array.isArray(ledger.future_reservations), 'the ledger must name outstanding future reservations explicitly')
 
   const runtimeInventories = new Map([
     ['runtime-niche', new Set(niches.map(entry => entry.id))],
@@ -249,5 +250,25 @@ test('legacy migration ledger closes every real inventory key exactly once witho
     [],
     'no Channel Kit may be authored again',
   )
-  assert.deepEqual(registry.records.filter(record => record.status === 'reserved'), [], 'no unexplained reserved registry row may remain')
+  // The allowance is structural, not a note: a row appears here only while its
+  // registry record is `reserved`, with the exact receipt and prepared source.
+  // Equality in both directions keeps the invariant: no unexplained row may
+  // exist, and no allowance may outlive its reservation. A row the coordinator
+  // advances to `authored` is closed by its registry identity and must leave
+  // this array rather than linger as an annotation.
+  const futureReservationIdentities = ledger.future_reservations.map(entry => entry.identity)
+  assert.equal(new Set(futureReservationIdentities).size, futureReservationIdentities.length,
+    'every future reservation must be named exactly once')
+  const reservedRecords = registry.records.filter(record => record.status === 'reserved')
+  const reservedByIdentity = new Map(reservedRecords.map(record => [registryIdentity(record), record]))
+  exactSet(futureReservationIdentities, [...reservedByIdentity.keys()],
+    'the future-reservation allowance must account for every reserved registry row and nothing else')
+  for (const entry of ledger.future_reservations) {
+    assert.equal(typeof entry.receipt_ref, 'string', `${entry.identity} must name its reservation receipt`)
+    assert.equal(typeof entry.source_path, 'string', `${entry.identity} must name its prepared source`)
+    const record = reservedByIdentity.get(entry.identity)
+    assert.ok(record, `${entry.identity} is not a live reserved registry row`)
+    assert.equal(record.receipt_ref, entry.receipt_ref, `${entry.identity} reservation receipt drifted`)
+    assert.equal(record.source_path, entry.source_path, `${entry.identity} reserved source drifted`)
+  }
 })

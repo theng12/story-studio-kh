@@ -4,13 +4,46 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Job } from '../models/types.js'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
 let jq: typeof import('../services/job-queue.js')
+const fixtureJobs = new Map<string, string>()
+
+function enqueueTracked(options: Parameters<typeof jq.enqueuePreparedForTest>[0]): Job {
+  const job = jq.enqueuePreparedForTest(options)
+  fixtureJobs.set(job.job_id, job.project_slug)
+  return job
+}
+
+async function cancelFixtureJob(jobId: string, projectSlug: string): Promise<void> {
+  const job = jq.getJob(jobId)
+  if (!job || !['queued', 'running', 'paused'].includes(job.status)) return
+  try {
+    await jq.requestJobCancellation(projectSlug, jobId)
+  } catch (error) {
+    const latest = jq.getJob(jobId)
+    if (latest && ['queued', 'running', 'paused'].includes(latest.status)) throw error
+  }
+}
+
+async function settleFixtureWork(): Promise<void> {
+  for (const [jobId, projectSlug] of fixtureJobs) {
+    await cancelFixtureJob(jobId, projectSlug)
+  }
+  await waitFor(
+    () => [...fixtureJobs].every(([jobId]) => !jq._isJobWorkerActiveForTesting(jobId)),
+    { label: 'history-bound fixture workers to finish' },
+  )
+  await jq._waitForJobPersistenceForTesting()
+}
 
 before(async () => {
-  const temp = await useTempDataDir()
+  const temp = await useTempDataDir({
+    retain: true,
+    settle: settleFixtureWork,
+  })
   cleanup = temp.cleanup
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
@@ -39,7 +72,7 @@ test('terminal history dropped from disk by retention is forgotten in memory and
   jq.jobEvents.on('cleared', onCleared)
   try {
     for (let i = 0; i < 3; i++) {
-      const job = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'chapter-only', episode_id: `EP010${i}`, title: `new ${i}`, params: {} }) as Job
+      const job = enqueueTracked({ project_slug: project.slug, type: 'chapter-only', episode_id: `EP010${i}`, title: `new ${i}`, params: {} })
       job.status = 'done'
       job.finished_at = new Date().toISOString()
       await jq.checkpointJobState(job)

@@ -556,7 +556,7 @@ type SelectedThumbnailRecipe = {
     defaultFontStyle?: string
     defaultTextPosition?: 'top' | 'center' | 'bottom' | 'bottom-left'
     conceptGuidance?: string
-    headlineMode?: 'episode-title' | 'curiosity-hook'
+    headlineMode?: 'episode-title' | 'short-hook' | 'curiosity-hook'
   }
 }
 
@@ -771,15 +771,13 @@ onMounted(async () => {
   ])
   await applyFormatDefaultsIfNoPreset()
   try {
-    const effective = await get<{ template: { id: string; name: string; recipe?: { headlineMode?: 'episode-title' | 'curiosity-hook' } } | null }>(`/projects/${slug.value}/effective-thumbnail-template`)
+    const effective = await get<{ template: { id: string; name: string; recipe?: { headlineMode?: 'episode-title' | 'short-hook' | 'curiosity-hook' } } | null }>(`/projects/${slug.value}/effective-thumbnail-template`)
     if (effective.template) {
       if (!form.thumbnail.thumbnail_template_id) form.thumbnail.thumbnail_template_id = effective.template.id
       // The template only SEEDS "Thumbnail text"; the customer's remembered or
       // preset choice stands on every later visit.
       if (!thumbnailPresets.activeId.value && !rememberedKeys.thumbnail.has('thumb_headline_mode')) {
-        form.thumbnail.thumb_headline_mode = effective.template.recipe?.headlineMode === 'curiosity-hook'
-          ? 'curiosity-hook'
-          : 'episode-title'
+        form.thumbnail.thumb_headline_mode = effective.template.recipe?.headlineMode || 'episode-title'
       }
     }
   } catch {

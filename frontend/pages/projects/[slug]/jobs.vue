@@ -171,6 +171,12 @@
         {{ refreshingJobs ? 'Refreshing Jobs…' : 'Refresh Jobs' }}
       </button>
     </WorkspaceNotice>
+    <WorkspaceNotice v-if="historyError" tone="warning" title="Finished job history could not be loaded">
+      {{ historyError }}
+      <template #actions>
+        <button class="btn btn-sm btn-secondary" @click="loadJobHistory">Retry History</button>
+      </template>
+    </WorkspaceNotice>
 
     <!-- Restart-recovery banner: surfaces when one or more jobs got
          marked as "Interrupted by app restart" (job-queue.ts boots running
@@ -606,6 +612,9 @@
         <p v-if="genStudioQueueDetail(job)" class="genstudio-queue-detail" role="status">
           {{ genStudioQueueDetail(job) }}
         </p>
+        <p v-if="finalRenderDetail(job)" class="genstudio-queue-detail final-render-detail" role="status">
+          {{ finalRenderDetail(job) }}
+        </p>
         <p v-if="paidImageReplacementAttemptText(job)" class="paid-image-replacement-attempt" role="status">
           {{ paidImageReplacementAttemptText(job) }}
         </p>
@@ -935,6 +944,9 @@
           <p v-if="genStudioQueueDetail(job)" class="genstudio-queue-detail" role="status">
             {{ genStudioQueueDetail(job) }}
           </p>
+          <p v-if="finalRenderDetail(job)" class="genstudio-queue-detail final-render-detail" role="status">
+            {{ finalRenderDetail(job) }}
+          </p>
           <p v-if="paidImageReplacementAttemptText(job)" class="paid-image-replacement-attempt" role="status">
             {{ paidImageReplacementAttemptText(job) }}
           </p>
@@ -1125,6 +1137,9 @@ const streamedJobs = computed(() => isUniversal.value ? universalQueue.jobs.valu
 // Project mode keeps its own per-project stream whole — it is bounded by the retention
 // cap and several other surfaces read the same stream.
 const history = useJobHistory()
+// A failed history read must be visible: an empty list after a successful clear
+// otherwise looks like "nothing remains" instead of "the list could not reload".
+const historyError = computed(() => history.error.value)
 const scopedJobs = computed(() => isUniversal.value
   ? [...streamedJobs.value, ...history.rows.value]
   : streamedJobs.value)
@@ -1362,6 +1377,46 @@ function formatGenStudioQueueEta(seconds: number): string {
   const remainder = minutes % 60
   return `about ${hours} hour${hours === 1 ? '' : 's'}${remainder ? ` ${remainder} min` : ''}`
 }
+
+/** Private fleet setting as last read; null when unknown, so nothing is claimed from it. */
+const privateFleetEnabled = ref<boolean | null>(null)
+
+/**
+ * Where a private-fleet final render is, from the backend's public final_render_wait only. With the
+ * setting off, sending and importing wait for it, so those say so instead of looking busy.
+ */
+function finalRenderDetail(job: RJob): string {
+  const wait = (job as { final_render_wait?: { state?: string; cancellation_requested?: boolean } }).final_render_wait
+  const state = wait?.state
+  if (!state) return ''
+  const sending = state === 'intent_staged' || state === 'request_persisted'
+  const importing = ['output_ready', 'importing', 'imported', 'acknowledged'].includes(state)
+  if ((sending || importing) && privateFleetEnabled.value === false && !wait?.cancellation_requested) return 'Needs recovery'
+  // A paused queue holds sending and importing (not cancellation) until it resumes.
+  if (queuePaused.value === true && !wait?.cancellation_requested) {
+    if (sending) return 'Paused — will send when the queue resumes'
+    if (importing) return 'Paused — will import when the queue resumes'
+  }
+  if (sending) return 'Sending to the fleet'
+  if (state === 'send_may_start' || state === 'send_unknown') return 'Checking whether the fleet received it'
+  if (state === 'remote_wait') return 'Rendering on another Mac'
+  if (importing) return 'Importing the finished video'
+  return 'Needs recovery'
+}
+
+async function refreshPrivateFleetSetting(): Promise<void> {
+  if (!projectScopedJobs.value.some((job: RJob) => (job as { final_render_wait?: unknown }).final_render_wait)) return
+  try {
+    const setting = await get<{ enabled: boolean }>('/app-settings/private-final-render')
+    privateFleetEnabled.value = typeof setting?.enabled === 'boolean' ? setting.enabled : null
+  } catch {
+    privateFleetEnabled.value = null
+  }
+}
+// Its own visible-window poll: a setting changed in Settings shows here without a reload.
+const privateFleetPoll = createVisibleInterval(() => { void refreshPrivateFleetSetting() }, 5000)
+onMounted(() => privateFleetPoll.start())
+onUnmounted(() => privateFleetPoll.stop())
 
 /**
  * Provider queue evidence belongs to the newest active GenStudio request.
@@ -2453,8 +2508,13 @@ watch(historyTotalPages, total => { currentPage.value = Math.min(currentPage.val
 const removableJobs = computed(() => projectScopedJobs.value.filter(job =>
   ['done', 'error', 'cancelled'].includes(job.status)
   && jobControls(job).some(control => control.enabled && control.action === 'clear-history')))
-const finishedCount = computed(() => removableJobs.value.filter(job => jobDisplayStatus(job) !== 'error').length)
-const failedCount = computed(() => removableJobs.value.filter(job => jobDisplayStatus(job) === 'error').length)
+// The same split the server's bulk clear uses (`matchesHistoryClearStatus`), not
+// the display badge: a raw error the page reads as "skipped" is removed by the
+// Failed action, so the number on the button must be the number that disappears.
+const finishedCount = computed(() => removableJobs.value.filter(job =>
+  job.status !== 'error' || isRecoveredFailure(job)).length)
+const failedCount = computed(() => removableJobs.value.filter(job =>
+  job.status === 'error' && !isRecoveredFailure(job)).length)
 const actionScopeLabel = computed(() => !isUniversal.value ? projectName(slug.value)
   : projectFilter.value === 'all' ? 'All channels' : projectFilter.value === '_app_' ? 'App tools' : projectName(projectFilter.value))
 const hasQueueWork = computed(() => globalQueueWork.value !== false || jobs.value.some(job => ['queued', 'running'].includes(job.status)))
@@ -2674,6 +2734,8 @@ async function abandonAndClearSelected() {
       confirmLabel: 'Abandon and Remove From List',
     })) return
     cleanupFailures.value = []
+    // A history read begun before this bulk clear may still carry rows it removes.
+    history.invalidate()
     controlBusy.value = new Set([...controlBusy.value, ...selected.map(job => job.job_id)])
     let cleared = 0
     for (const [index, job] of selected.entries()) {
@@ -2688,6 +2750,7 @@ async function abandonAndClearSelected() {
         await del(jobQueuePath(job))
         projectQueue.removeJobs([job.job_id])
         universalQueue.removeJobs([job.job_id])
+        history.removeIds([job.job_id])
         const next = new Set(selectedCleanupIds.value)
         next.delete(job.job_id)
         selectedCleanupIds.value = next
@@ -2701,6 +2764,7 @@ async function abandonAndClearSelected() {
       }
     }
     cleanupProgress.value = `${scope}: cleared ${cleared} of ${selected.length} selected jobs.${cleanupFailures.value.length ? ` ${cleanupFailures.value.length} could not be cleared; see details below.` : ''}`
+    if (cleared && isUniversal.value) await loadJobHistory()
     info(cleanupProgress.value)
   } finally {
     clearingSelected.value = false
@@ -2833,6 +2897,8 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
       await del(jobQueuePath(job))
       projectQueue.removeJobs([job.job_id])
       universalQueue.removeJobs([job.job_id])
+      history.removeIds([job.job_id])
+      if (isUniversal.value) await loadJobHistory()
     } else if (control.action === 'recheck-provider-status') {
       // v1.2.6 — this button actually asks GenStudio. The refreshed control
       // arrives with the response, so the answer replaces the question rather
@@ -3617,6 +3683,8 @@ async function clearHistory(status: 'finished' | 'failed') {
   const endpoint = isUniversal.value && project === 'all' ? '/jobs/all'
     : project === '_app_' ? '/jobs/app' : `/projects/${project}/jobs`
   clearingHistory.value = status
+  // A history read that began before this delete may still carry a row it removes.
+  history.invalidate()
   try {
     const result = await del<{ cleared: number }>(`${endpoint}?status=${status}`)
     bulkActionMessage.value = result.cleared
@@ -3624,9 +3692,15 @@ async function clearHistory(status: 'finished' | 'failed') {
       : 'Nothing was removed. Provider status may have changed; the job’s controls show what is still pending.'
     info(bulkActionMessage.value)
     // This endpoint returns only a count, not the exact ids that survived its
-    // provider-settlement gate. Refresh the visible scope instead of guessing
-    // which cards disappeared, while keeping the toolbar available.
-    void refreshVisibleJobs()
+    // provider-settlement gate. The history read is the authority for what
+    // remains, so reload it even when nothing was removed — otherwise a zero
+    // leaves rows the server's gate held looking removable forever.
+    if (isUniversal.value) {
+      void refreshVisibleJobs()
+      await loadJobHistory()
+    } else {
+      await refreshVisibleJobs()
+    }
   } catch (e: any) { showError(e?.data?.detail || `Failed to clear ${status} history`) }
   finally { clearingHistory.value = null }
 }

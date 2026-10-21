@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { packagedDependencyFailures } from './verify-packaged-dependencies.mjs'
 import { smokeLaunch } from './smoke-launch-artifact.mjs'
+import { readSelectedStoryRenderProvenance, verifyStoryRenderProvenanceArtifacts } from './render-build-provenance.mjs'
 import {
   expandArtifactName,
   contentStoreAssetErrors,
@@ -83,7 +84,15 @@ if (!fs.existsSync(dmgPath)) fail(`DMG is missing: ${dmgPath}`)
 let signatureKind = 'unavailable'
 let packagedDependencyCount = 0
 let launchResult = null
-if (fs.existsSync(appPath)) {
+let dmgMounted = false
+if (!failures.length && process.platform === 'darwin') {
+  try {
+    const expected = readSelectedStoryRenderProvenance(fs.readFileSync(path.join(root, 'electron-builder.json')))
+    verifyStoryRenderProvenanceArtifacts({ appPath, dmgPath, expected })
+    dmgMounted = true
+  } catch (error) { fail(`render provenance artifact verification: ${error.message}`) }
+}
+if (fs.existsSync(appPath) && dmgMounted) {
   if (plistValue('CFBundleIdentifier') !== contract.appId) fail('Info.plist: bundle identifier differs from release contract')
   if (plistValue('CFBundleShortVersionString') !== pkg.version) fail('Info.plist: short version differs from package.json')
   if (plistValue('CFBundleVersion') !== pkg.version) fail('Info.plist: bundle version differs from package.json')
@@ -125,7 +134,8 @@ if (fs.existsSync(appPath)) {
     }
 
     try {
-      const packagedPkg = JSON.parse(asar.extractFile(asarPath, 'package.json').toString('utf8'))
+      // The common preflight already bounded and validated this packed entry.
+      const packagedPkg = JSON.parse(asar.extractFile(asarPath, 'package.json', false).toString('utf8'))
       if (packagedPkg.version !== pkg.version) fail('app.asar package.json version differs from release version')
       if (packagedPkg.main !== contract.main) fail('app.asar package.json main differs from release contract')
     } catch (error) {
@@ -187,32 +197,6 @@ if (fs.existsSync(appPath)) {
     const first = parseChangelog(fs.readFileSync(packagedChangelog, 'utf8'))[0]
     if (first?.version !== pkg.version || !first.body.trim()) {
       fail(`packaged What's New entry does not match v${pkg.version}`)
-    }
-  }
-}
-
-let dmgMounted = false
-if (fs.existsSync(dmgPath) && process.platform === 'darwin') {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'story-studio-dmg-'))
-  const mountPoint = path.join(tempRoot, 'mount')
-  fs.mkdirSync(mountPoint)
-  try {
-    const attached = capture('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mountPoint, dmgPath])
-    dmgMounted = attached.ok
-    if (attached.ok) {
-      if (!fs.existsSync(path.join(mountPoint, `${contract.productName}.app`))) fail('DMG does not contain the app bundle')
-      if (!fs.existsSync(path.join(mountPoint, 'Applications'))) fail('DMG does not contain the Applications link')
-      if (!fs.existsSync(path.join(mountPoint, 'READ ME FIRST.txt'))) fail('DMG does not contain READ ME FIRST.txt')
-    }
-  } finally {
-    if (dmgMounted) capture('hdiutil', ['detach', mountPoint])
-    try {
-      const trashRoot = path.join(root, '_trash')
-      fs.mkdirSync(trashRoot, { recursive: true })
-      const trashDir = fs.mkdtempSync(path.join(trashRoot, 'release-'))
-      fs.renameSync(tempRoot, path.join(trashDir, path.basename(tempRoot)))
-    } catch (error) {
-      console.warn(`DMG verification sandbox retained at ${tempRoot}: could not move it into project _trash (${error.message})`)
     }
   }
 }

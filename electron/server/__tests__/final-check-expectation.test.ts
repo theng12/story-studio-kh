@@ -831,3 +831,99 @@ describe("the owner's recorded decision", () => {
     assert.match(String(row?.frozen?.evidence), /the owner's decision/)
   })
 })
+
+/**
+ * The frozen tail's exact geometry (2026-10-21). A freeze that recorded where the closing tail sits
+ * carries it through; a freeze written before the field existed is UNKNOWN, never a zero — and the
+ * check says so instead of calling black near EOF "outside the closing tail" (AGENTS.md §6).
+ */
+describe('frozen closing-tail geometry', () => {
+  const shape = (tail?: { sec: number; from_end_sec: number }): import('../lib/final-video-check.js').FrozenFinalCheckShape => ({
+    schema_version: 1, frozen_at: A_FROZEN_AT, episode_code: 'EP001',
+    file: { size: 1, mtime_ms: 1 }, source: 'plan', after_narration_sec: 600,
+    ...(tail ? { tail } : {}), intro: null,
+  })
+
+  test('a known tail round trips, a recorded zero tail is an answer, and a pre-tail freeze is unknown', () => {
+    const known = expectationFromFrozenShape(shape({ sec: 25, from_end_sec: 10 }))
+    assert.deepEqual(known.tail, { sec: 25, from_end_sec: 10 })
+    assert.equal(known.tail_unknown, false, 'a freeze that recorded the field answers explicitly')
+
+    const none = expectationFromFrozenShape(shape({ sec: 0, from_end_sec: 0 }))
+    assert.deepEqual(none.tail, { sec: 0, from_end_sec: 0 })
+    assert.equal(none.tail_unknown, false, 'a zero the freeze recorded is a known answer, not unknown')
+
+    const unknown = expectationFromFrozenShape(shape())
+    assert.equal(unknown.tail_unknown, true)
+    const issues = finalCheckIssues({
+      duration_sec: 1000, video_sec: 1000, audio_sec: 1000, width: 128, height: 96, tail_lufs: null,
+      black: [{ start_sec: 900, end_sec: 960 }], silence: [],
+    }, planlessExpectation(unknown))
+    const black = issues.find(issue => issue.check === 'black')
+    assert.match(black?.verdict ?? '', /intended closing-tail placement could not be established/)
+  })
+
+  test("a verdict's recorded tail is frozen onto the file and read back; a verdict without one stays unknown", async () => {
+    const channel = await planlessChannel()
+    await storeVerdictFor(channel.videoPath, { ...A_VERDICT, tail: { sec: 30, from_end_sec: 15 } })
+    await freezeExistingPlanlessFinals()
+    const frozen = await readFrozenShape(channel.videoPath)
+    assert.deepEqual(frozen?.shape.tail, { sec: 30, from_end_sec: 15 }, "the verdict's own tail, not a zero")
+    assert.deepEqual(expectationFromFrozenShape(frozen!.shape).tail, { sec: 30, from_end_sec: 15 })
+
+    const legacy = await planlessChannel()
+    await storeVerdictFor(legacy.videoPath, { ...A_VERDICT, tail: undefined })
+    await freezeExistingPlanlessFinals()
+    const legacyFrozen = await readFrozenShape(legacy.videoPath)
+    assert.equal(legacyFrozen?.shape.tail, undefined, 'a freeze taken without tail geometry records none')
+    assert.equal(expectationFromFrozenShape(legacyFrozen!.shape).tail_unknown, true)
+  })
+
+  test("tail_unknown outranks a zero placeholder, and a verdict's bare zero is never a placement", async () => {
+    // What the on-demand check writes when the freeze could not say where the tail sat: the seeded
+    // zero placeholder, with `tail_unknown` beside it. The zero must not become the freeze's answer.
+    const flattened = await planlessChannel()
+    await storeVerdictFor(flattened.videoPath, {
+      ...A_VERDICT, tail: { sec: 0, from_end_sec: 0 }, tail_unknown: true,
+    })
+    await freezeExistingPlanlessFinals()
+    const flattenedFrozen = await readFrozenShape(flattened.videoPath)
+    assert.equal(flattenedFrozen?.shape.tail, undefined, 'tail_unknown outranks the zero beside it')
+    assert.equal(expectationFromFrozenShape(flattenedFrozen!.shape).tail_unknown, true)
+
+    // A verdict written before `tail_unknown` existed carries the same flattened zero and no way to
+    // say whether it meant "no tail" or "could not place it". History cannot answer the question, so
+    // the freeze stays unknown rather than freezing a known-none (AGENTS.md §6).
+    const bareZero = await planlessChannel()
+    await storeVerdictFor(bareZero.videoPath, { ...A_VERDICT, tail: { sec: 0, from_end_sec: 0 } })
+    await freezeExistingPlanlessFinals()
+    const bareZeroFrozen = await readFrozenShape(bareZero.videoPath)
+    assert.equal(bareZeroFrozen?.shape.tail, undefined, "a verdict's zero proves no placement")
+    assert.equal(expectationFromFrozenShape(bareZeroFrozen!.shape).tail_unknown, true)
+
+    // The current app writes the field as an explicit answer, including a freeze whose `tail` is
+    // `null` ("this final drew no tail"). A deliberate known-none must survive the roundtrip; only
+    // an unmarked zero is ambiguous.
+    const explicitNone = await planlessChannel()
+    await storeVerdictFor(explicitNone.videoPath, {
+      ...A_VERDICT, tail: { sec: 0, from_end_sec: 0 }, tail_unknown: false,
+    })
+    await freezeExistingPlanlessFinals()
+    const explicitNoneFrozen = await readFrozenShape(explicitNone.videoPath)
+    assert.deepEqual(explicitNoneFrozen?.shape.tail, { sec: 0, from_end_sec: 0 },
+      'an explicit known-none is not history: it survives')
+    const explicitNoneExpectation = expectationFromFrozenShape(explicitNoneFrozen!.shape)
+    assert.deepEqual(explicitNoneExpectation.tail, { sec: 0, from_end_sec: 0 })
+    assert.equal(explicitNoneExpectation.tail_unknown, false)
+
+    // A positive interval beside `tail_unknown` is still not a placement the verdict established.
+    const contradictory = await planlessChannel()
+    await storeVerdictFor(contradictory.videoPath, {
+      ...A_VERDICT, tail: { sec: 30, from_end_sec: 15 }, tail_unknown: true,
+    })
+    await freezeExistingPlanlessFinals()
+    const contradictoryFrozen = await readFrozenShape(contradictory.videoPath)
+    assert.equal(contradictoryFrozen?.shape.tail, undefined, 'unknown outranks a tail field beside it')
+    assert.equal(expectationFromFrozenShape(contradictoryFrozen!.shape).tail_unknown, true)
+  })
+})

@@ -5,7 +5,9 @@
  * can empty it (automation keys get 403).
  */
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import nodeFs, { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -74,6 +76,157 @@ describe('one helper for every removal', () => {
     }
     walk(server)
     assert.deepEqual(offenders, [], 'build trash paths with trashRootFor / moveToTrashSync')
+  })
+})
+
+describe('durable Trash index EOF replay', () => {
+  test('repairs an exact EOF entry before an ordinary append so both Restore entries stay readable', async t => {
+    const { slug } = await pm.createProject({ name: 'Durable EOF Restore' })
+    const projectDir = pm.getProjectDir(slug)!
+    const root = move.trashRootFor(projectDir, projectDir, slug)
+    const index = path.join(libraryTrash(), move.TRASH_INDEX)
+    const saved = `${index}.retained-before-${randomUUID()}`
+    const hadIndex = existsSync(index)
+    if (hadIndex) await fs.rename(index, saved)
+    t.after(async () => {
+      if (existsSync(index)) await fs.rename(index, `${index}.retained-after-${randomUUID()}`)
+      if (hadIndex) await fs.rename(saved, index)
+    })
+    const first = path.join(projectDir, 'first.txt')
+    const second = path.join(projectDir, 'second.txt')
+    await write(first, 'first retained bytes')
+    const landed = move.moveToTrashSync(first, path.join(root, 'first.txt'), 'other')
+    const complete = await fs.readFile(index)
+    assert.equal(complete.at(-1), 10)
+    // Retain the complete predecessor; only its final LF is absent in the crash fixture.
+    await fs.rename(index, `${index}.retained-complete-${randomUUID()}`)
+    await fs.writeFile(index, complete.subarray(0, complete.length - 1), { flag: 'wx' })
+    move.ensureTrashMoveIndexedSync(first, landed, 'other')
+    const repaired = await fs.readFile(index)
+    move.ensureTrashMoveIndexedSync(first, landed, 'other')
+    const replayed = await fs.readFile(index)
+    await write(second, 'second retained bytes')
+    const secondLanded = move.moveToTrashSync(second, path.join(root, 'second.txt'), 'other')
+    const listing = await trash.listTrash()
+    const entries = listing.items.filter(item => item.from === first || item.from === second)
+    assert.equal(entries.length, 2, 'the real Restore reader must retain both separate index entries')
+    assert.ok(entries.every(item => item.restorable && item.kind === 'other'))
+    assert.deepEqual(entries.map(item => item.path).sort(), [landed, secondLanded].sort())
+    assert.deepEqual(repaired, complete, 'exact EOF replay adds only the lost LF, preserving the original id/time')
+    assert.deepEqual(replayed, complete, 'repeated durable replay adds no duplicate record or newline')
+    const lines = (await fs.readFile(index, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+    assert.equal(lines.length, 2)
+    assert.equal(await fs.readFile(landed, 'utf8'), 'first retained bytes')
+    assert.equal(await fs.readFile(secondLanded, 'utf8'), 'second retained bytes')
+  })
+})
+
+// Observe the real regular index FD only during the synchronous durable helper call.
+function observeDurableIndex(t: import('node:test').TestContext, index: string, action: () => void) {
+  const descriptors = new Set<number>()
+  const reads: number[] = []
+  const allocations: number[] = []
+  let wholeReads = 0
+  let appends = 0
+  let synced = 0
+  const originals = {
+    open: nodeFs.openSync, close: nodeFs.closeSync, read: nodeFs.readSync,
+    readFile: nodeFs.readFileSync, append: nodeFs.appendFileSync, sync: nodeFs.fsyncSync,
+    alloc: Buffer.alloc, allocUnsafe: Buffer.allocUnsafe,
+  }
+  const target = (value: unknown) => typeof value === 'number' ? descriptors.has(value)
+    : typeof value === 'string' && path.resolve(value) === index
+  const mocks = [
+    t.mock.method(nodeFs, 'openSync', (...args: any[]) => {
+      const fd = Reflect.apply(originals.open, nodeFs, args)
+      if (target(args[0]) && nodeFs.fstatSync(fd).isFile()) descriptors.add(fd)
+      return fd
+    }),
+    t.mock.method(nodeFs, 'closeSync', (fd: number) => {
+      originals.close(fd)
+      descriptors.delete(fd)
+    }),
+    t.mock.method(nodeFs, 'readSync', (...args: any[]) => {
+      if (descriptors.has(args[0])) reads.push(args[3])
+      return Reflect.apply(originals.read, nodeFs, args)
+    }),
+    t.mock.method(nodeFs, 'readFileSync', (...args: any[]) => {
+      if (target(args[0])) wholeReads++
+      return Reflect.apply(originals.readFile, nodeFs, args)
+    }),
+    t.mock.method(nodeFs, 'appendFileSync', (...args: any[]) => {
+      if (target(args[0])) appends++
+      return Reflect.apply(originals.append, nodeFs, args)
+    }),
+    t.mock.method(nodeFs, 'fsyncSync', (fd: number) => {
+      originals.sync(fd)
+      if (descriptors.has(fd)) synced++
+    }),
+    t.mock.method(Buffer, 'alloc', (...args: any[]) => {
+      allocations.push(args[0])
+      return Reflect.apply(originals.alloc, Buffer, args)
+    }),
+    t.mock.method(Buffer, 'allocUnsafe', (...args: any[]) => {
+      allocations.push(args[0])
+      return Reflect.apply(originals.allocUnsafe, Buffer, args)
+    }),
+  ]
+  syncBuiltinESMExports()
+  let error: unknown
+  try { action() } catch (caught) { error = caught }
+  finally {
+    for (const mocked of mocks) mocked.mock.restore()
+    syncBuiltinESMExports()
+  }
+  return { reads, allocations, wholeReads, appends, synced, error, openDescriptors: descriptors.size }
+}
+
+describe('durable Trash index bounded scan', () => {
+  test('scans real history across many buffers without whole-index reads or allocations', async t => {
+    const root = path.join(tmp.dir, `index-history-${randomUUID()}`, '_trash')
+    const index = path.join(root, move.TRASH_INDEX)
+    const from = path.join(tmp.dir, 'bounded-original-é.txt')
+    const to = path.join(root, 'kept-é.txt')
+    await write(to, 'retained recovery bytes')
+    const exact = { id: randomUUID(), from, to, kind: 'other', at: new Date().toISOString() }
+    const history = Array.from({ length: 4096 }, (_, n) => JSON.stringify({
+      ...exact, id: randomUUID(), from: `${from}.${n}`, to: `${to}.${n}`, kind: 'x'.repeat(220),
+    }) + '\n').join('')
+    const bytes = Buffer.from(history + JSON.stringify(exact) + '\n')
+    assert.ok(bytes.length > 1024 * 1024, 'the actual index spans more than sixteen 64KiB reads')
+    await fs.writeFile(index, bytes, { flag: 'wx' })
+    const observed = observeDurableIndex(t, index, () => move.ensureTrashMoveIndexedSync(from, to, 'other'))
+    assert.equal(observed.error, undefined)
+    assert.equal(observed.wholeReads, 0, 'durable replay must not call readFileSync on the real index')
+    assert.ok(observed.reads.length > 16, 'the real regular index FD is read in bounded pieces')
+    assert.ok(observed.reads.every(size => Number.isInteger(size) && size > 0 && size <= 64 * 1024))
+    assert.ok(observed.allocations.every(size => size <= 64 * 1024), 'index buffer allocations stay at most 64KiB')
+    assert.equal(observed.appends, 0, 'an exact terminated entry is reused')
+    assert.ok(observed.synced > 0, 'the actual index descriptor is fsynced')
+    assert.equal(observed.openDescriptors, 0)
+    assert.deepEqual(await fs.readFile(index), bytes, 'all existing history bytes remain unchanged')
+    assert.equal(await fs.readFile(to, 'utf8'), 'retained recovery bytes')
+  })
+
+  test('an oversized actual record fails before append and retains renamed recovery bytes', async t => {
+    const root = path.join(tmp.dir, `index-oversize-${randomUUID()}`, '_trash')
+    const index = path.join(root, move.TRASH_INDEX)
+    const from = path.join(tmp.dir, `prior-${randomUUID()}.txt`)
+    const to = path.join(root, 'prior.txt')
+    await write(from, 'prior bytes retained after rename')
+    // Valid JSON, finite fixture: one historical record exceeds the proposed 64KiB ceiling.
+    const bytes = Buffer.from(JSON.stringify({ note: 'x'.repeat(64 * 1024) }))
+    await write(index, bytes.toString('utf8'))
+    const observed = observeDurableIndex(t, index, () => move.moveToTrashSync(from, to, 'other', true))
+    assert.ok(observed.error instanceof Error, 'durable indexing must reject an oversized historical record')
+    assert.equal(observed.appends, 0, 'scan failure appends neither separator nor new record')
+    assert.equal(observed.wholeReads, 0)
+    assert.ok(observed.reads.every(size => size <= 64 * 1024))
+    assert.ok(observed.allocations.every(size => size <= 64 * 1024))
+    assert.equal(observed.openDescriptors, 0)
+    assert.deepEqual(await fs.readFile(index), bytes, 'oversized history is preserved, never rewritten')
+    assert.equal(existsSync(from), false)
+    assert.equal(await fs.readFile(to, 'utf8'), 'prior bytes retained after rename')
   })
 })
 

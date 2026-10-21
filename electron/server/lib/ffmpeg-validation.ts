@@ -39,6 +39,35 @@ export interface MediaInfo {
   /** Pixel format reported by ffprobe (e.g. yuv420p, yuv444p). Useful for
    *  spotting mismatches that x264/x265 reject at init. */
   pixelFormat?: string
+  /** Bounded, normalized ffprobe `format_name` values from the same probe. */
+  containerNames: string[]
+  /** ISO-BMFF major brand when ffprobe reports one. */
+  containerBrand: string | null
+  /** Closed classification derived from names plus the corroborating brand. */
+  container: 'mp4' | 'mov' | 'webm' | 'unknown'
+}
+
+export function classifyFinalRenderContainerEvidence(input: {
+  containerNames: string[]
+  containerBrand: string | null
+}): 'mp4' | 'mov' | 'webm' | 'unknown' {
+  if (!Array.isArray(input.containerNames) || input.containerNames.length < 1 || input.containerNames.length > 16
+    || input.containerNames.some(name => typeof name !== 'string' || !name || name.length > 32
+      || name !== name.trim().toLowerCase() || !/^[a-z0-9_-]+$/.test(name))) {
+    throw new Error('Final render container names are invalid or unbounded.')
+  }
+  if (input.containerBrand !== null && (typeof input.containerBrand !== 'string'
+    || input.containerBrand.length < 1 || input.containerBrand.length > 64 || input.containerBrand.includes('\0'))) {
+    throw new Error('Final render container brand is invalid or unbounded.')
+  }
+  const names = new Set(input.containerNames)
+  if (names.has('webm') || names.has('matroska')) return input.containerBrand === null ? 'webm' : 'unknown'
+  const isIsoBmff = ['mov', 'mp4', 'm4a', '3gp', '3g2', 'mj2'].every(name => names.has(name))
+  if (!isIsoBmff) return 'unknown'
+  if (input.containerBrand === 'qt  ') return 'mov'
+  const mp4Brands = new Set(['isom', 'iso2', 'iso3', 'iso4', 'iso5', 'iso6', 'mp41', 'mp42', 'avc1', 'dash', 'mmp4'])
+  if (input.containerBrand !== null && mp4Brands.has(input.containerBrand.toLowerCase())) return 'mp4'
+  return 'unknown'
 }
 
 function streamDuration(stream: { duration?: unknown; duration_ts?: unknown; time_base?: unknown } | undefined): number | undefined {
@@ -133,6 +162,12 @@ export async function getMediaInfo(filePath: string): Promise<MediaInfo> {
           if (num && den) frameRate = num / den
         }
         const nbFrames = v?.nb_frames ? parseInt(v.nb_frames, 10) : NaN
+        const formatName = typeof data?.format?.format_name === 'string' ? data.format.format_name : ''
+        if (!formatName || formatName.length > 512) throw new Error('ffprobe format_name is missing or unbounded')
+        const containerNames = formatName.split(',').map((name: string) => name.trim().toLowerCase())
+        const rawBrand = data?.format?.tags?.major_brand
+        const containerBrand = rawBrand === undefined || rawBrand === null ? null : String(rawBrand)
+        const container = classifyFinalRenderContainerEvidence({ containerNames, containerBrand })
 
         resolve({
           durationSec,
@@ -147,6 +182,9 @@ export async function getMediaInfo(filePath: string): Promise<MediaInfo> {
           frameRate,
           videoFrames: Number.isFinite(nbFrames) && nbFrames >= 0 ? nbFrames : undefined,
           pixelFormat: v?.pix_fmt,
+          containerNames,
+          containerBrand,
+          container,
         })
       } catch (e: any) {
         reject(new Error(`ffprobe parse failed for ${filePath}: ${e.message}`))

@@ -157,8 +157,10 @@ test('history cleanup uses distinct finished and failed requests while preservin
   assert.match(jobs, /Files and billing records are unchanged/)
 })
 
-test('toolbar history cleanup refreshes the visible authoritative scope instead of guessing cleared ids from a count', () => {
-  assert.match(jobs, /info\(bulkActionMessage\.value\)[\s\S]*?void refreshVisibleJobs\(\)/)
+test('toolbar history cleanup reloads the authoritative history, even when the clear removes nothing', () => {
+  assert.match(jobs, /history\.invalidate\(\)/)
+  assert.match(jobs, /if \(isUniversal\.value\) \{[\s\S]{0,200}await loadJobHistory\(\)/)
+  assert.match(jobs, /else \{\s*await refreshVisibleJobs\(\)/)
 })
 
 test('Jobs reports whole-batch completed, settling, cancelled, failed, and not-submitted counts', () => {

@@ -8,13 +8,9 @@ import { runFfmpeg } from './ffmpeg-utils.js'
 import { measureLoudness, type LoudnessMeasurement } from '../generators/music-episode-build.js'
 import { levelFilter, levelPlan, levelToTarget, loudnessTarget, type LevelPlan, type LoudnessTarget } from './final-loudness.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
+import { FINAL_AAC_ARGS } from './final-render-encoder.js'
 
-/**
- * The final video's audio encode (buildEncoderArgs). 384 kbit/s is YouTube's recommended stereo AAC rate
- * (1.4.281): at 192k the encoder's noise lifted the true peak of dense, noise-like beds 2–4 dB over the
- * WAV (Night Atlas Nature EP0005: +2.5 dBTP from a mix limited to -1.3), which no limiter can hold.
- */
-export const FINAL_AAC_ARGS = ['-c:a', 'aac', '-b:a', '384k']
+export { FINAL_AAC_ARGS } from './final-render-encoder.js'
 
 /**
  * Measure, plan, write, encode as the final does, measure again, correct (levelToTarget). `write(level)`

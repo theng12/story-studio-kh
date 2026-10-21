@@ -192,6 +192,10 @@ test('Thumbnail Prompts: explicit replace-all, honest toast, choices survive a r
   assert.match(page, /@loaded="existingThumbNumbers = \$event\.thumbnails"/)
   // Template seeding respects a remembered/preset "Thumbnail text".
   assert.match(page, /if \(!thumbnailPresets\.activeId\.value && !rememberedKeys\.thumbnail\.has\('thumb_headline_mode'\)\) \{\s*form\.thumbnail\.thumb_headline_mode =/)
+  // The recipe's own mode is seeded as written: short-hook must not fall back
+  // to episode-title just because it is not curiosity-hook.
+  assert.match(page, /thumb_headline_mode = effective\.template\.recipe\?\.headlineMode \|\| 'episode-title'/)
+  assert.doesNotMatch(page, /headlineMode === 'curiosity-hook'\s*\?\s*'curiosity-hook'/)
   // Format defaults only seed keys nobody chose.
   assert.match(page, /if \(seedThumb\('aspect_ratio'\)\) form\.thumbnail\.aspect_ratio = ip\.recommendedAspect/)
   assert.match(page, /seedThumb\('thumb_count'\)/)

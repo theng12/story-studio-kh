@@ -52,6 +52,8 @@ interface ArchiveOptions {
   dependencies?: Array<{ pack_id: string; version: string }>
   signature?: Uint8Array
   styleSuffix?: string
+  /** Keyless genstudio-store-receipt-v1 shape, as held by a local-import possession. */
+  possession?: boolean
 }
 
 async function buildArchive(options: ArchiveOptions = {}): Promise<Uint8Array> {
@@ -64,7 +66,9 @@ async function buildArchive(options: ArchiveOptions = {}): Promise<Uint8Array> {
     preview_assets: ['assets/preview.png'], compatible_formula_ids: [],
   }), 'utf8')
   const manifest = Buffer.from(JSON.stringify({
-    pack_format: 1, pack_id: packId, publisher_id: PUBLISHER_ID, key_id: KEY_ID, version,
+    pack_format: 1, pack_id: packId, publisher_id: PUBLISHER_ID,
+    ...(options.possession ? { delivery_profile: 'genstudio-store-receipt-v1' } : { key_id: KEY_ID }),
+    version,
     min_app_version: options.minAppVersion ?? '1.0.0', lifecycle: 'active',
     entitlement: { sku: `${packId}.sku`, family: `${packId}.family` },
     dependencies: options.dependencies,
@@ -78,7 +82,7 @@ async function buildArchive(options: ArchiveOptions = {}): Promise<Uint8Array> {
   const signature = options.signature ?? sign(null, manifest, keyPair.privateKey)
   const zip = new JSZip()
   zip.file('manifest.json', manifest, { createFolders: false })
-  zip.file('signature.ed25519', signature, { createFolders: false })
+  if (!options.possession) zip.file('signature.ed25519', signature, { createFolders: false })
   zip.file('content/visual-style.json', document, { createFolders: false })
   zip.file('assets/preview.png', PNG_1PX, { createFolders: false })
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
@@ -146,6 +150,24 @@ describe('Content Pack local installer', () => {
     assert.equal(state.packs[result.pack_id].active_version, result.version)
     assert.equal(await fs.readFile(path.join(installed.install_path, 'content/visual-style.json'), 'utf8').then(Boolean), true)
     assert.equal(await fs.readFile(path.join(installed.install_path, 'assets/preview.png')).then(bytes => sha256(bytes)), sha256(PNG_1PX))
+  })
+
+  test('installs and reverifies a keyless possessed archive as local-import provenance', async () => {
+    const paths = await isolated()
+    const archiveBytes = await buildArchive({ possession: true })
+    const result = await installContentPack(request(archiveBytes), { paths, policy })
+
+    const state = await readContentPackState(paths)
+    const installed = state.packs[result.pack_id].versions[result.version]
+    assert.equal(installed.source, 'local-import')
+    assert.equal(installed.delivery_attestation, undefined)
+    await assert.doesNotReject(verifyInstalledContentPackVersion(installed, policy))
+
+    // The same bytes cannot enter as Store delivery without receipt evidence.
+    await assert.rejects(
+      installContentPack({ archiveBytes, source: 'genstudio-store' }, { paths, policy }),
+      /attestation|invalid/i,
+    )
   })
 
   test('rejects expected-hash mismatches and bad signatures without materialising content', async () => {

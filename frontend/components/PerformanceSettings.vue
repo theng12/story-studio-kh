@@ -59,6 +59,29 @@
       </header>
     </section>
 
+    <section class="perf-card private-fleet" data-setting="private-final-render" aria-labelledby="perf-private-fleet-title">
+      <header class="perf-card-head">
+        <div>
+          <h4 id="perf-private-fleet-title">Render final videos on your other Macs</h4>
+          <p>
+            Off by default. When on, a video's final render goes through your Gateway to an idle Mac you own, and the
+            finished video comes back into the same job. Only the signed-in owner can change this.
+          </p>
+        </div>
+        <label v-if="privateFleetLoaded" class="perf-checkbox">
+          <input
+            name="private-final-render-enabled"
+            type="checkbox"
+            :checked="privateFleetEnabled"
+            :disabled="saving"
+            @change="setPrivateFleetEnabled(($event.target as HTMLInputElement).checked)"
+          />
+          Use my other Macs
+        </label>
+        <span v-else class="perf-muted">{{ privateFleetError ? 'Could not load this setting' : 'Loading…' }}</span>
+      </header>
+    </section>
+
     <section class="perf-card paid-replacement" data-setting="paid-replacement" aria-labelledby="perf-paid-title">
       <header class="perf-card-head">
         <div>
@@ -134,6 +157,7 @@ import { THROUGHPUT_FIELDS, type ThroughputField, type ThroughputKey, throughput
 
 interface PaidSetting { enabled: boolean; additional_credit_ceiling: number | null }
 interface ManualRedoSetting { enabled: boolean }
+type PrivateFleetSetting = ManualRedoSetting
 interface PaidRow {
   kind: 'image' | 'subtitle' | 'audio' | 'writing'
   label: string
@@ -218,6 +242,10 @@ const manualRedoLoaded = ref(false)
 const manualRedoError = ref('')
 const manualRedoEnabled = ref(false)
 const manualRedoBaseline = ref(false)
+const privateFleetLoaded = ref(false)
+const privateFleetError = ref('')
+const privateFleetEnabled = ref(false)
+const privateFleetBaseline = ref(false)
 
 const paidRows = reactive<PaidRow[]>([
   { kind: 'image', label: 'Images', path: '/app-settings/paid-image-replacement' },
@@ -231,7 +259,8 @@ const paidSnapshot = (row: PaidRow) => JSON.stringify({ enabled: row.enabled, ce
 const throughputDirty = computed(() => concurrencyLoaded.value && throughputSnapshot() !== baseline.value)
 const paidDirtyRows = computed(() => paidRows.filter(row => row.loaded && paidSnapshot(row) !== row.baseline))
 const manualRedoDirty = computed(() => manualRedoLoaded.value && manualRedoEnabled.value !== manualRedoBaseline.value)
-const dirty = computed(() => throughputDirty.value || manualRedoDirty.value || paidDirtyRows.value.length > 0)
+const privateFleetDirty = computed(() => privateFleetLoaded.value && privateFleetEnabled.value !== privateFleetBaseline.value)
+const dirty = computed(() => throughputDirty.value || manualRedoDirty.value || privateFleetDirty.value || paidDirtyRows.value.length > 0)
 
 function isPaidSetting(s: PaidSetting): boolean {
   return typeof s?.enabled === 'boolean'
@@ -250,6 +279,17 @@ function setPaidEnabled(row: PaidRow, enabled: boolean): void {
 function setManualRedoEnabled(enabled: boolean): void {
   manualRedoEnabled.value = enabled
   savedMessage.value = ''
+}
+function setPrivateFleetEnabled(enabled: boolean): void {
+  privateFleetEnabled.value = enabled
+  savedMessage.value = ''
+}
+/** The owner gate's refusal, said plainly; the switch stays as saved. */
+function privateFleetRefusal(e: any): string {
+  const status = e?.statusCode ?? e?.status ?? e?.response?.status
+  if (status === 401) return 'only the signed-in owner can change private fleet rendering. Sign in as the owner and try again; it was not changed'
+  if (status === 503) return 'owner sign-in is not set up on this Mac, so private fleet rendering cannot be changed yet; it was not changed'
+  return `private fleet rendering was not changed (${e?.data?.detail || e?.message || 'unknown error'})`
 }
 function setValue(field: ThroughputField, value: string | number): void {
   models[field.key] = value
@@ -270,6 +310,7 @@ function revert(): void {
     row.error = ''
   }
   if (manualRedoLoaded.value) manualRedoEnabled.value = manualRedoBaseline.value
+  if (privateFleetLoaded.value) privateFleetEnabled.value = privateFleetBaseline.value
   saveError.value = ''
   savedMessage.value = ''
 }
@@ -302,6 +343,15 @@ async function load(): Promise<void> {
     manualRedoLoaded.value = true
   } catch {
     manualRedoError.value = 'Could not load this setting'
+  }
+  try {
+    const setting = await get<PrivateFleetSetting>('/app-settings/private-final-render')
+    if (typeof setting?.enabled !== 'boolean') throw new Error('invalid')
+    privateFleetEnabled.value = setting.enabled
+    privateFleetBaseline.value = setting.enabled
+    privateFleetLoaded.value = true
+  } catch {
+    privateFleetError.value = 'Could not load this setting'
   }
 }
 
@@ -348,6 +398,19 @@ async function save(): Promise<void> {
       manualRedoEnabled.value = saved.enabled
       manualRedoBaseline.value = saved.enabled
       done.push('manual fresh-attempt controls')
+    }
+    if (privateFleetDirty.value) {
+      let saved: PrivateFleetSetting
+      try {
+        saved = await put<PrivateFleetSetting>('/app-settings/private-final-render', { enabled: privateFleetEnabled.value })
+      } catch (e: any) {
+        privateFleetEnabled.value = privateFleetBaseline.value
+        throw new Error(privateFleetRefusal(e))
+      }
+      if (typeof saved?.enabled !== 'boolean') throw new Error('The saved private fleet setting came back invalid.')
+      privateFleetEnabled.value = saved.enabled
+      privateFleetBaseline.value = saved.enabled
+      done.push('private fleet rendering')
     }
     for (const row of paidDirtyRows.value) {
       const saved = await put<PaidSetting>(row.path, {

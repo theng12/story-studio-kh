@@ -33,4 +33,10 @@ export default [
       'preserve-caught-error': 'warn',
     },
   },
+  {
+    // Pure ESM modules shared with node release scripts; not part of the typed tsconfig.json program (hand-written .d.ts siblings).
+    files: ['electron/server/lib/final-render-strict-json.js', 'electron/server/lib/final-render-provenance-contract.js'],
+    languageOptions: { parserOptions: { project: false }, globals: { Buffer: 'readonly', TextDecoder: 'readonly' } },
+    rules: ts.configs.disableTypeChecked.rules,
+  },
 ]

@@ -1116,7 +1116,10 @@ describe('Content Store renderer contract', () => {
   })
 
   test('describes account ownership and local install truth separately', () => {
-    assert.match(page, /permanently owned by your Gateway/)
+    assert.match(page, /Find reusable content packs/)
+    assert.match(page, /Browse and download what your Gateway publishes/)
+    assert.doesNotMatch(page, /Packs are permanently owned by your Gateway/i,
+      'the header must not turn Gateway possession into the whole install story')
     assert.match(card, /receiptVerification !== 'verified'/)
     assert.match(card, /restore purchases to verify on this Mac/i)
     assert.match(card, /Verified ownership · installed on this Mac/)

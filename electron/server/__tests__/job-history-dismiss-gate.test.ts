@@ -24,7 +24,7 @@ import type { Job } from '../models/types.js'
 let cleanup: () => Promise<void>
 
 before(async () => {
-  const temp = await useTempDataDir()
+  const temp = await useTempDataDir({ retain: true, settle: async () => {} })
   cleanup = temp.cleanup
   await setGenStudioUrl('https://history-gate.test')
 })
