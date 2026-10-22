@@ -201,10 +201,13 @@ async function runInvocation(name, lane, discovered, addRetainedAdapter) {
   try {
     const require = createRequire(import.meta.url)
     const runnerArgs = lane.runner === 'tsx' ? ['--import', require.resolve('tsx')] : []
+    // Adapted files share a snapshot lock whose synchronous acquisition refuses contention.
+    const concurrencyArgs = addRetainedAdapter ? ['--test-concurrency=1'] : []
     const child = spawn(process.execPath, [
       ...runnerArgs,
       ...lane.args,
       '--test',
+      ...concurrencyArgs,
       // NO `--test-force-exit`, in any lane, ever. A child that force-exits
       // drops whatever results are still sitting in its pipe.
       // `spec` is already node's default on this runtime; naming it explicitly

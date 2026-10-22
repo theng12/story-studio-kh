@@ -6,6 +6,7 @@ What's new in each release. Newest first.
 
 ## v1.4.347 — 2026-10-21
 
+- Editing a Formula's chapter count preserves its authored duration choices. The choices are recalculated only when you change the episode's default length or duration range.
 - Pipeline continuations check the channel's current optional-step settings before creating the next job and refresh Final Video's channel effects at dispatch. Saved handoffs retain their child identity for recovery.
 - Publishing Overview refreshes an outdated channel upload listing as well as known videos, so it can discover releases scheduled in YouTube Studio. Freshness identifies the listing and video checks separately, including failed and incomplete reads. Coverage and Calendar explain confirmed releases that fall outside the plan's expected dates without changing any schedules or treating them as coverage of another day.
 - Media cleanup reports the channel Library's actual Trash folder even when a parent folder is also named `_trash`.

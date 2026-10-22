@@ -186,3 +186,45 @@ test('every gate lane runs through a wrapper that proves its own completeness', 
       `${lane} must run through a wrapper that reconciles completed files against discovered files`)
   }
 })
+
+test('only adapted invocations request serial test files', async () => {
+  const body = await fs.readFile(WRAPPER, 'utf8')
+  const code = body.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
+  assert.match(code, /const concurrencyArgs = addRetainedAdapter \? \['--test-concurrency=1'\] : \[\]/)
+  assert.match(code, /'--test',\s*\.\.\.concurrencyArgs/)
+})
+
+test('a real adapted fixture lane runs test files one at a time, proven by a cross-file marker', async () => {
+  // Exercise the real child invocation as well as its argument wiring.
+  const dir = await fixtureDir('lane-serialization-')
+  try {
+    const marker = path.join(dir, 'sequence.marker')
+    await fs.writeFile(path.join(dir, 'a-sequencer.test.mjs'),
+      'import { test } from "node:test"\n'
+      + 'import fs from "node:fs"\n'
+      + `const marker = ${JSON.stringify(marker)}\n`
+      + 'test("sequencer writes start then end", async () => {\n'
+      + '  fs.writeFileSync(marker, "start")\n'
+      + '  await new Promise(r => setTimeout(r, 250))\n'
+      + '  fs.writeFileSync(marker, "end")\n'
+      + '})\n')
+    await fs.writeFile(path.join(dir, 'b-verifier.test.mjs'),
+      'import { test } from "node:test"\n'
+      + 'import assert from "node:assert/strict"\n'
+      + 'import fs from "node:fs"\n'
+      + `const marker = ${JSON.stringify(marker)}\n`
+      + 'test("verifier sees the end marker proving serialization", () => {\n'
+      + '  const content = fs.readFileSync(marker, "utf8")\n'
+      + '  assert.equal(content, "end",\n'
+      + '    "if this sees start or empty, files ran concurrently — concurrency=1 failed")\n'
+      + '})\n')
+
+    const { exitCode, out } = await runFixtureLane(dir)
+
+    assert.equal(exitCode, 0, `serialized run must pass:\n${out}`)
+    assert.match(out, /fixture suite coverage: 2\/2 file\(s\) completed/,
+      'both files must complete under serialization')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})

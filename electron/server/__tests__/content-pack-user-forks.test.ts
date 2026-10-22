@@ -433,6 +433,8 @@ describe('explicit legacy Content Pack user forks', () => {
       scriptStructure: { ...shape, defaultChapterCount: 11, chapterCountRange: [9, 13] as [number, number] },
     }
     if (!patch.metadataTitleStyleHint.trim()) delete expected.metadataTitleStyleHint
+    // Compare the JSON document that HTTP and durable storage can carry.
+    expected = JSON.parse(JSON.stringify(expected))
     assert.deepEqual(first.body.niche, expected)
     assert.deepEqual((await readUserFork(first.body.id))?.document, expected)
     const selected = await projectManager.getProject(project.slug)
