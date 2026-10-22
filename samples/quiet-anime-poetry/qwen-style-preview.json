@@ -1,0 +1,16 @@
+{
+  "modelId": "studio-hub::mflux-community/qwen-image-2-1-turbo-mflux-q4",
+  "prompt": "Original landscape illustration. At blue hour in a small hillside town, a young adult with short dark hair sits at the far end of a quiet tram-stop bench, holding a closed book loosely in their lap. A folded cream scarf rests on the unoccupied space beside them. Their posture is relaxed and contemplative, their face turned toward a distant warmly lit tram approaching around the bend. Deep blue town roofs descend toward a pale peach horizon; one nearby shelter lamp casts a gentle amber pool of light. The empty space on the bench suggests a remembered companion, while the approaching light suggests the possibility of moving forward. Understated visual metaphor, no theatrical sadness. Frame from a slightly elevated oblique angle with the figure in the left third, the winding track and town extending across the right, and generous quiet sky. Original composition. Cinematic hand-drawn anime illustration with delicate, confident ink contours, natural adult proportions and restrained clean cel shading. Combine clearly drawn figures and simple readable silhouettes with softly painted, spatially convincing environments. Use smooth sky, glass and light gradients, a pristine digital finish and carefully controlled environmental detail; avoid grain and distressed surface texture. Build colour around muted teal, deep blue and forest green, balanced by selective amber, dusty peach or cream highlights. Light is soft and directional, with luminous windows, evening skies or subtle rim light; keep shadow shapes rich but legible. Convey emotion through understated posture, meaningful spatial relationships, everyday objects and the surrounding atmosphere. Choose scene-specific visual metaphors for the underlying feeling rather than illustrating every spoken sentence literally. Compose original, elegant frames with layered depth, asymmetrical balance and uncluttered breathing room for separately rendered captions when needed. Preserve quiet intimacy, contemplation and emotional ambiguity without theatrical expressions. Adapt time of day, setting, cast and palette balance to each scene instead of repeating a fixed motif. Artwork contains no text; captions are rendered separately. Avoid: film grain, sensor noise, halftone, stippling, distressed paper, grunge, heavy canvas texture, rough dry-brush surface, muddy shadows, oversaturated neon, harsh glossy 3D rendering, photorealistic skin, chibi proportions, exaggerated facial expressions, malformed anatomy, extra fingers, lettering, captions, logos, watermarks.",
+  "aspectRatio": "16:9",
+  "resolution": "1K",
+  "requestIdentity": "quiet-anime-poetry-qwen-pack-preview-20261022",
+  "idempotencyKey": "story-image-ef2f2a948dd231893405d7d5174378ff96180589f274",
+  "file": "qwen-style-preview.png",
+  "width": 1280,
+  "height": 720,
+  "format": "png",
+  "bytes": 1133505,
+  "sha256": "2e6b72471e56b0237fd861c4d78b65987f31bf165d61ed509fa8c5d3518525ed",
+  "taskId": "377e97ee-5d9c-44d0-abb8-ecf71b5a76e7",
+  "completed_at": "2026-10-22T13:07:52.581Z"
+}
