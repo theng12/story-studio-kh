@@ -401,6 +401,68 @@ describe('explicit legacy Content Pack user forks', () => {
     assert.deepEqual(effective?.narratorStyles, before.narratorStyles)
   })
 
+  test('chapter-only edits preserve the authored duration choices and full Formula through first fork and later edits', async () => {
+    await isolated()
+    const legacy = await writeLegacyShadows()
+    const project = await projectManager.createProject({
+      name: 'Authored Duration Choices', niche_id: legacy.ids.nicheId, topic_pack_ids: [],
+    })
+    const app = express()
+    app.use(express.json())
+    app.use('/api', nichesRouter)
+    const before = await nicheLoader.loadNiche(legacy.ids.nicheId)
+    assert.ok(before?.scriptStructure)
+    assert.deepEqual(before.scriptStructure.durationPresets, [30, 36, 40, 45, 50])
+    const shape = before.scriptStructure
+    const patch = {
+      defaultChapterCount: 11, chapterCountRange: [9, 13],
+      defaultLengthMinutes: shape.defaultLengthMinutes,
+      lengthMinutesRange: shape.lengthMinutesRange,
+      defaultWordsPerMinute: shape.defaultWordsPerMinute,
+      chaptersIndependent: shape.chaptersIndependent,
+      metadataTitleStyleHint: before.metadataTitleStyleHint || '',
+    }
+    const first = await request(app)
+      .patch(`/api/niches/${legacy.ids.nicheId}/episode-shape?project_slug=${project.slug}`)
+      .send(patch)
+      .expect(200)
+    assert.match(first.body.id, /^user:/)
+    assert.equal(first.body.forked_from, legacy.ids.nicheId)
+    let expected = {
+      ...before, id: first.body.id, builtin: false,
+      scriptStructure: { ...shape, defaultChapterCount: 11, chapterCountRange: [9, 13] as [number, number] },
+    }
+    if (!patch.metadataTitleStyleHint.trim()) delete expected.metadataTitleStyleHint
+    assert.deepEqual(first.body.niche, expected)
+    assert.deepEqual((await readUserFork(first.body.id))?.document, expected)
+    const selected = await projectManager.getProject(project.slug)
+    assert.equal(selected?.niche_id, first.body.id)
+    assert.deepEqual((await nicheLoader.getEffectiveNicheFor(selected!, []))?.scriptStructure, expected.scriptStructure)
+
+    // The longer authored set is a local fixture, never a production Formula edit.
+    expected = {
+      ...expected,
+      scriptStructure: {
+        ...expected.scriptStructure, defaultLengthMinutes: 180,
+        lengthMinutesRange: [150, 200], durationPresets: [150, 165, 180, 195, 200],
+      },
+    }
+    await saveUserForkDocument(first.body.id, expected)
+    const second = await request(app)
+      .patch(`/api/niches/${first.body.id}/episode-shape?project_slug=${project.slug}`)
+      .send({ ...patch, defaultChapterCount: 12, defaultLengthMinutes: 180, lengthMinutesRange: [150, 200] })
+      .expect(200)
+    expected = { ...expected, scriptStructure: { ...expected.scriptStructure, defaultChapterCount: 12 } }
+    assert.equal(second.body.id, first.body.id)
+    assert.equal(second.body.forked_from, null)
+    assert.deepEqual(second.body.niche, expected)
+    assert.deepEqual((await readUserFork(first.body.id))?.document, expected)
+    nicheLoader._clearNicheCaches()
+    assert.deepEqual(await nicheLoader.loadNiche(first.body.id), expected)
+    assert.deepEqual((await nicheLoader.getEffectiveNicheFor(selected!, []))?.scriptStructure, expected.scriptStructure)
+    assert.equal(await fs.readFile(legacy.files.nichePath, 'utf8'), legacy.bytes.niche)
+  })
+
   test('the full-document route is the reason the episode shape is a patch', async () => {
     await isolated()
     const legacy = await writeLegacyShadows()

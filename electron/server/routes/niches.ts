@@ -369,22 +369,25 @@ router.patch('/niches/:id/episode-shape', async (req, res) => {
     if (!current) return res.status(404).json({ detail: 'Formula not found' })
 
     const patch = parsed.data
+    const durationChanged = patch.defaultLengthMinutes !== current.scriptStructure?.defaultLengthMinutes
+      || patch.lengthMinutesRange[0] !== current.scriptStructure?.lengthMinutesRange?.[0]
+      || patch.lengthMinutesRange[1] !== current.scriptStructure?.lengthMinutesRange?.[1]
     const next: Niche = {
       ...current,
       id: forkId,
       builtin: false,
-      // Presets are derived rather than asked for: three points on the range he
-      // already set is what the duration picker wants, and one fewer field is
-      // one fewer way to write a preset that sits outside its own range.
       scriptStructure: {
         ...(current.scriptStructure || {}),
         defaultChapterCount: patch.defaultChapterCount,
         chapterCountRange: [patch.chapterCountRange[0], patch.chapterCountRange[1]],
         defaultLengthMinutes: patch.defaultLengthMinutes,
         lengthMinutesRange: [patch.lengthMinutesRange[0], patch.lengthMinutesRange[1]],
-        durationPresets: Array.from(new Set([
-          patch.lengthMinutesRange[0], patch.defaultLengthMinutes, patch.lengthMinutesRange[1],
-        ])).sort((a, b) => a - b),
+        // Keep authored choices unless the duration itself changes.
+        ...(durationChanged ? {
+          durationPresets: Array.from(new Set([
+            patch.lengthMinutesRange[0], patch.defaultLengthMinutes, patch.lengthMinutesRange[1],
+          ])).sort((a, b) => a - b),
+        } : {}),
         defaultWordsPerMinute: patch.defaultWordsPerMinute,
         chaptersIndependent: patch.chaptersIndependent,
       },
