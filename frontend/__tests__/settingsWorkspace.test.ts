@@ -77,7 +77,9 @@ describe('Settings workspace navigation', () => {
 
   test('focused sections name their actions and keep secondary writing tools behind the current style', () => {
     const templateSource = settingsSource.slice(0, settingsSource.indexOf('<script setup'))
-    assert.match(templateSource, /Save Name/)
+    // Project name is saved through ChannelProfilePanel, not a separate button
+    assert.match(templateSource, /ChannelProfilePanel.*data-setting="project-name"/)
+    assert.match(templateSource, /@saved="onChannelProfileSaved"/)
     assert.match(templateSource, /Save Upload Defaults/)
     assert.match(templateSource, /Save Numbering/)
     assert.doesNotMatch(templateSource, /metadata PATCH|status\.containsSyntheticMedia/)

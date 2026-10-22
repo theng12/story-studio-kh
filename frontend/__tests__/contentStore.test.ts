@@ -1194,7 +1194,7 @@ describe('Content Store renderer contract', () => {
 
   test('mounts the Content Store page directly and loads errors in place', () => {
     assert.match(page, /useAppTitle\('Content Store'\)/)
-    assert.match(page, /onMounted\(\(\) => \{ void loadStore\(\{ background: true \}\) \}\)/)
+    assert.match(page, /onMounted\(\(\) => \{ void loadStore\(\{ background: true \}\); void loadGatewayArchives\(\) \}\)/)
     assert.match(page, /function refreshStore\(\): void \{ void loadStore\(\) \}/)
     assert.match(page, /@click="refreshStore"/)
     assert.match(page, /v-if="pageError"/)
