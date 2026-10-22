@@ -1,5 +1,5 @@
 {
-  "revision": 296,
+  "revision": 298,
   "batches": [
     {
       "revision": 2,
@@ -5892,6 +5892,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 297,
+      "receipt_ref": "authoring:1edebe1dc0261a14756cfea819db55d206686175dbdaab36ebf5f437670c3397",
+      "request": {
+        "expected_revision": 296,
+        "coordinator": {
+          "task": "quiet-anime-poetry-style-20261022",
+          "branch": "content/quiet-anime-poetry-20261022"
+        },
+        "proposal_ref": "Owner selected Qwen samples and requested reusable art-style pack with Qwen preview, 2026-10-22",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
+            "item_id": "com.storystudio.style.quiet-anime-poetry",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/poetry-looks/style/quiet-anime-poetry",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.quiet-anime-poetry",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.quiet-anime-poetry",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -10117,6 +10153,23 @@
         },
         "receipt_ref": "authoring:da3b99cbbeefdefe142c705b60d240e871ef4ba110c1984738a00e83efbca371",
         "pack_id": "com.storystudio.pack.thumbnail.illustrated-subject-sleep-badge",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 298,
+      "transition_ref": "lifecycle:ea0300a157680098b204b0f0f2b170555100e11ea07e82147e94a628c23a77dc",
+      "request": {
+        "expected_revision": 297,
+        "coordinator": {
+          "task": "quiet-anime-poetry-style-20261022",
+          "branch": "content/quiet-anime-poetry-20261022"
+        },
+        "receipt_ref": "authoring:1edebe1dc0261a14756cfea819db55d206686175dbdaab36ebf5f437670c3397",
+        "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -17080,6 +17133,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.thumbnail.illustrated-subject-sleep-badge",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:1edebe1dc0261a14756cfea819db55d206686175dbdaab36ebf5f437670c3397",
+      "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
+      "item_id": "com.storystudio.style.quiet-anime-poetry",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/poetry-looks/style/quiet-anime-poetry",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.quiet-anime-poetry",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.quiet-anime-poetry",
           "status": "proposed"
         }
       }

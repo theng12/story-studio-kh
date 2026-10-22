@@ -1,0 +1,8 @@
+{
+  "expected_revision": 297,
+  "coordinator": { "task": "quiet-anime-poetry-style-20261022", "branch": "content/quiet-anime-poetry-20261022" },
+  "receipt_ref": "authoring:1edebe1dc0261a14756cfea819db55d206686175dbdaab36ebf5f437670c3397",
+  "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
+  "version": "1.0.0",
+  "changes": { "status": "authored" }
+}

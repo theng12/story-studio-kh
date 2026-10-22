@@ -1,0 +1,21 @@
+{
+  "expected_revision": 296,
+  "coordinator": { "task": "quiet-anime-poetry-style-20261022", "branch": "content/quiet-anime-poetry-20261022" },
+  "proposal_ref": "Owner selected Qwen samples and requested reusable art-style pack with Qwen preview, 2026-10-22",
+  "records": [{
+    "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
+    "item_id": "com.storystudio.style.quiet-anime-poetry",
+    "version": "1.0.0",
+    "publisher_id": "com.storystudio",
+    "min_app_version": "{{MIN_APP_VERSION}}",
+    "min_app_version_status": "release-bound",
+    "kind": "visual-style",
+    "source_path": "content-packs/poetry-looks/style/quiet-anime-poetry",
+    "status": "reserved",
+    "dependencies": [],
+    "stocking_proposal": {
+      "family": { "id": "com.storystudio.family.style.quiet-anime-poetry", "status": "proposed" },
+      "sku": { "id": "com.storystudio.sku.style.quiet-anime-poetry", "status": "proposed" }
+    }
+  }]
+}

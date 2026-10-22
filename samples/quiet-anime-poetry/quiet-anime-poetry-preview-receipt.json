@@ -1,0 +1,15 @@
+{
+  "source": "qwen-style-preview.png",
+  "source_dimensions": [
+    1280,
+    720
+  ],
+  "transformation": "Lanczos resize and centre crop from original landscape; no compositional additions",
+  "file": "quiet-anime-poetry.webp",
+  "width": 1672,
+  "height": 941,
+  "format": "webp",
+  "bytes": 177290,
+  "sha256": "f8ae97f301a5ba13b7d9b5ee39b155492a158d241e41976892465fd7ea721a4d",
+  "decode": "full pixel decode passed"
+}
