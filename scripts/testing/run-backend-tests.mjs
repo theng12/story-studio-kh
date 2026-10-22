@@ -38,7 +38,26 @@ const RETAINED_FS_PRELOAD = path.join(ROOT, 'scripts', 'testing', 'retained-fixt
 // Records which FILES finished, so the run can be reconciled against the files
 // it discovered rather than against its own summary. See `assertEverySuiteCompleted`.
 const COVERAGE_REPORTER = path.join(ROOT, 'scripts', 'testing', 'suite-coverage-reporter.mjs')
-const RETAINED_FIXTURES = path.join(ROOT, '_trash', 'test-fixtures')
+
+/**
+ * Where retained fixtures live when nobody says otherwise: the project's own
+ * disposable `_trash/`, where every run has always left its evidence.
+ */
+export const DEFAULT_RETAINED_FIXTURES = path.join(ROOT, '_trash', 'test-fixtures')
+
+/**
+ * The override: where retained fixtures live when the operator says so.
+ *
+ * The main checkout reaches `_trash` through a symlink into a directory every
+ * checkout on this machine shares, so a retained sandbox kept there is at the
+ * mercy of that shared directory. This variable names a permanent home for
+ * the evidence instead. It is VALIDATED, not trusted — an exact absolute
+ * path, a real directory that is not itself a symbolic link, resolved to its
+ * canonical form, outside the repository, on the checkout's volume. The
+ * default is not validated this way: the shared `_trash` symlink is a
+ * supported configuration.
+ */
+export const RETAINED_FIXTURES_ROOT_ENV = 'STORY_STUDIO_RETAINED_FIXTURES_ROOT'
 
 async function writeJson(filePath, value) {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
@@ -157,20 +176,78 @@ async function backendTestFiles() {
 
 export function assertSameDeviceForRetention(sandboxDevice, fixturesDevice, sandbox) {
   if (sandboxDevice !== fixturesDevice) {
-    throw new Error('backend test sandbox and _trash/test-fixtures are on different devices; '
+    throw new Error('backend test sandbox and the retained fixtures root are on different devices; '
       + `tests were not started and the original sandbox remains at ${sandbox}`)
   }
 }
 
-export async function preflightSandboxRetention(sandbox, fixtures = RETAINED_FIXTURES) {
-  await fs.mkdir(fixtures, { recursive: true })
-  const [sandboxStat, fixturesStat] = await Promise.all([fs.stat(sandbox), fs.stat(fixtures)])
+/**
+ * The retained fixtures root for this run: the override when it is set, the
+ * project's own `_trash/test-fixtures` otherwise. An empty override is a
+ * mistake, not a request to retain fixtures at the filesystem root.
+ */
+export async function resolveRetainedFixturesRoot(env = process.env) {
+  const configured = env[RETAINED_FIXTURES_ROOT_ENV]
+  if (configured === undefined || configured === '') return DEFAULT_RETAINED_FIXTURES
+  return await assertRealRetainedRoot(configured)
+}
+
+/**
+ * A retained fixtures root must be a REAL directory on THIS volume, outside
+ * the repository.
+ *
+ * The named directory must not itself be a symbolic link: a link is the
+ * weakness this override exists to escape, because a path that looks
+ * permanent can be repointed and the evidence goes with it. An ancestor may
+ * be one — macOS resolves /var to /private/var — so the path is resolved ONCE
+ * to its canonical form here and that is where the evidence lives from then
+ * on. The directory must also be the same one across the check, outside the
+ * repository so nothing inside the checkout can take it, and on the
+ * checkout's volume so a retained sandbox is moved rather than copied.
+ */
+async function assertRealRetainedRoot(configured) {
+  const label = RETAINED_FIXTURES_ROOT_ENV
+  if (!path.isAbsolute(configured) || path.resolve(configured) !== configured) {
+    throw new Error(`${label} must be an exact absolute path, not "${configured}"`)
+  }
+  let before
+  try {
+    before = await fs.lstat(configured)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+    await fs.mkdir(configured, { recursive: true, mode: 0o700 })
+    before = await fs.lstat(configured)
+  }
+  if (!before.isDirectory() || before.isSymbolicLink()) {
+    throw new Error(`${label} must name a real directory, not a symbolic link: ${configured}`)
+  }
+  const after = await fs.lstat(configured)
+  if (before.ino !== after.ino || before.dev !== after.dev) {
+    throw new Error(`${label} changed while it was being checked: ${configured}`)
+  }
+  const canonical = await fs.realpath(configured)
+  const root = await fs.realpath(ROOT)
+  if (canonical === root || canonical.startsWith(`${root}${path.sep}`)) {
+    throw new Error(`${label} must be outside the repository (${root})`)
+  }
+  const checkout = await fs.stat(ROOT)
+  if (after.dev !== checkout.dev) {
+    throw new Error(`${label} must be on the same volume as the checkout (${ROOT})`)
+  }
+  return canonical
+}
+
+export async function preflightSandboxRetention(sandbox, fixtures) {
+  const root = fixtures ?? await resolveRetainedFixturesRoot()
+  await fs.mkdir(root, { recursive: true })
+  const [sandboxStat, fixturesStat] = await Promise.all([fs.stat(sandbox), fs.stat(root)])
   assertSameDeviceForRetention(sandboxStat.dev, fixturesStat.dev, sandbox)
 }
 
-export async function retainSandbox(sandbox, fixtures = path.join(ROOT, '_trash', 'test-fixtures')) {
-  await fs.mkdir(fixtures, { recursive: true })
-  const container = await fs.mkdtemp(path.join(fixtures, 'backend-test-harness-'))
+export async function retainSandbox(sandbox, fixtures) {
+  const root = fixtures ?? await resolveRetainedFixturesRoot()
+  await fs.mkdir(root, { recursive: true })
+  const container = await fs.mkdtemp(path.join(root, 'backend-test-harness-'))
   const retained = path.join(container, path.basename(sandbox))
   await fs.rename(sandbox, retained)
   console.log(`[test-harness] retained sandbox: ${retained}`)
@@ -226,20 +303,39 @@ export async function retainedFsEvidenceFailure(snapshotRoot) {
   }
 }
 
+/**
+ * The configured projects root is the one thing this runner promises not to
+ * touch, so a snapshot of it that cannot be taken is a FAILED RUN and must say
+ * so — not look like a mistyped command line.
+ */
+async function snapshotConfiguredProjects(root) {
+  try {
+    return await snapshotTree(root)
+  } catch (error) {
+    throw new Error(
+      'the configured projects root could not be snapshotted, so this run cannot prove it '
+      + `stayed isolated: ${root} (${error?.message ?? String(error)})`,
+      { cause: error },
+    )
+  }
+}
+
 async function run(options) {
   let sandboxContainer
   let sandbox
   let snapshotRoot
   try {
-    await fs.mkdir(RETAINED_FIXTURES, { recursive: true })
-    sandboxContainer = await fs.mkdtemp(path.join(RETAINED_FIXTURES, 'backend-test-harness-'))
+    const retainedFixtures = await resolveRetainedFixturesRoot()
+    console.log(`[test-harness] retained fixtures root: ${retainedFixtures}`)
+    await fs.mkdir(retainedFixtures, { recursive: true })
+    sandboxContainer = await fs.mkdtemp(path.join(retainedFixtures, 'backend-test-harness-'))
     sandboxContainer = await fs.realpath(sandboxContainer)
     await fs.chmod(sandboxContainer, 0o700)
     sandbox = path.join(sandboxContainer, 'sandbox')
     snapshotRoot = path.join(sandboxContainer, 'snapshots')
     await fs.mkdir(sandbox, { mode: 0o700 })
     await fs.mkdir(snapshotRoot, { mode: 0o700 })
-    await preflightSandboxRetention(sandbox, RETAINED_FIXTURES)
+    await preflightSandboxRetention(sandbox, retainedFixtures)
     const fakeHome = path.join(sandbox, 'home')
     const fakeProfile = path.join(sandbox, 'profile')
     const fakeAppData = path.join(sandbox, 'appdata')
@@ -260,7 +356,7 @@ async function run(options) {
       console.log(`[test-harness] sandbox: ${sandbox}`)
       throw new Error('intentional backend test harness setup failure')
     }
-    const before = await snapshotTree(configuredProjectsRoot)
+    const before = await snapshotConfiguredProjects(configuredProjectsRoot)
 
     const require = createRequire(import.meta.url)
     const tsxImport = require.resolve('tsx')
@@ -380,7 +476,7 @@ async function run(options) {
     // exactly how a narrowed run gets mistaken for a green release gate.
     if (onlyNeedles.length > 0) announcePartialRun(onlyNeedles, tests, skippedCount, 'finished')
 
-    const after = await snapshotTree(configuredProjectsRoot)
+    const after = await snapshotConfiguredProjects(configuredProjectsRoot)
     const unchanged = before === after
     console.log(`[test-harness] configured projects root byte-identical: ${unchanged}`)
     if (!unchanged) {
@@ -577,13 +673,28 @@ Options:
 // `assertEverySuiteCompleted` or `selectOnly`) must NOT launch the backend
 // suite as a side effect.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  let options = null
   try {
-    const options = parseBackendTestArgs(process.argv.slice(2))
-    if (options.help) console.log(USAGE)
-    else await run(options)
+    options = parseBackendTestArgs(process.argv.slice(2))
   } catch (error) {
+    // A BAD COMMAND LINE is the only thing that prints the usage text and
+    // exits 2. Everything else — a missing fixture root, a snapshot that
+    // cannot be taken, a refused override — is a RUN THAT FAILED, and it is
+    // reported as one, so nobody reads a broken gate as a mistyped flag.
     console.error(`[test-harness] ${error instanceof Error ? error.message : String(error)}`)
     console.error(USAGE)
     process.exitCode = 2
+  }
+  if (options) {
+    if (options.help) {
+      console.log(USAGE)
+    } else {
+      try {
+        await run(options)
+      } catch (error) {
+        console.error(`[test-harness] ${error instanceof Error ? error.message : String(error)}`)
+        process.exitCode = 1
+      }
+    }
   }
 }

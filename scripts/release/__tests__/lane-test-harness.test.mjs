@@ -43,7 +43,7 @@ function nestedRunnerEnv() {
  * code are observed the way the gate observes them — the banner and the status
  * are the two things under test, and neither is visible from a direct call.
  */
-async function runFixtureLane(dir) {
+async function runFixtureLane(dir, env = {}) {
   const source = `
     import { runLane } from ${JSON.stringify(WRAPPER)}
     process.exitCode = await runLane('fixture', {
@@ -56,7 +56,7 @@ async function runFixtureLane(dir) {
   `
   const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
     cwd: ROOT,
-    env: nestedRunnerEnv(),
+    env: { ...nestedRunnerEnv(), ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let out = ''
@@ -185,6 +185,28 @@ test('every gate lane runs through a wrapper that proves its own completeness', 
     assert.match(manifest.scripts[lane], /run-(backend|lane)-tests\.mjs/,
       `${lane} must run through a wrapper that reconciles completed files against discovered files`)
   }
+})
+
+test('the lane keeps its retained evidence in the override root, not the shared Trash', async () => {
+  // The same override the backend runner honours. The main checkout reaches
+  // `_trash` through a symlink into a directory every checkout shares, so a
+  // retained sandbox kept there is at the mercy of that shared directory.
+  // The lane's evidence must land where the operator named instead. The
+  // fixture is retained, not cleaned up.
+  const override = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'lane-retained-root-')))
+  const dir = await fixtureDir('lane-retained-override-')
+  await fs.writeFile(path.join(dir, 'alpha.test.mjs'),
+    'import { test } from "node:test"\ntest("alpha", () => {})\n')
+
+  const { exitCode, out } = await runFixtureLane(dir, {
+    STORY_STUDIO_RETAINED_FIXTURES_ROOT: override,
+  })
+
+  assert.equal(exitCode, 0, out)
+  const container = out.match(/retained external fixture sandbox: (.+)/)?.[1]?.trim()
+  assert.ok(container, `the wrapper must report where it retained the lane sandbox:\n${out}`)
+  assert.ok(container.startsWith(override),
+    `the retained container must live under the override root: ${container}`)
 })
 
 test('only adapted invocations request serial test files', async () => {
