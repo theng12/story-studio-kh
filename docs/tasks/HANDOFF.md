@@ -1,6 +1,16 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.348 — focused checks passed; final release gate pending (2026-10-23)
+## 1.4.348 — full gate A failed; corrections in progress (2026-10-23)
+
+Corrections focus `b82b6w7aa` passed actual exit 0: 103 tests / 14 suites / 103 pass / 0 fail / 0 skip; completion `suite coverage: 4/4 file(s) completed, 103 test(s) + 14 suite(s) = 117 marks`. Retention complete, configured projects byte-identical, source unchanged, group absent and no lifecycle errors. No late persistence/isolation violations in the raw log. The description fixture now pins intended 348 summary/timeline text; synthetic chapter control-flow executors explicitly declare completion, and cancellation fixture awaits worker/persistence settlement. Production audits are unchanged. This is a PARTIAL RUN, not release acceptance; fresh main build and full gate follow.
+
+Candidate main `61f22ca0` / tree `7a263919` built `dist:smoke` with actual exit 0; packaged health and Upload Center smoke passed. DMG 243,675,396 bytes, SHA-256 `7765757a63fc56938c4befe1723f50a1142a3728fa599c714fdd6585e26e3bd4`, permanent `dist-archive-348-a` hash-matched. Full gate A `bz4yk7v3x` settled actual exit 1: stages 01–06 passed, backend 8382 tests / 1055 suites / 8377 pass / 3 fail / 2 skip. Completion `suite coverage: 820/820 file(s) completed, 8382 test(s) + 1055 suite(s) = 9437 marks`; retained evidence complete, configured projects byte-identical, source unchanged and owned group absent with no lifecycle errors. Stages 08–10 did not run. No publication or installation.
+
+Failures: frozen description-prompt expectation, cold persisted cancellation expected done but running, and project Jobs clear event absent. Focused reproduction `bpw32ok2j` actual exit 1: 64 tests / 3 suites / 62 pass / 2 fail / 0 skip, completion 2/2 files, 67 marks; retention complete, source/projects unchanged and group absent. Both cancellation and clear failures reproduced; fixture teardown also reports late persistence after DATA_DIR restoration. Bounded correction/diagnosis is isolated; no weakening of completion or cancellation evidence. Fresh main build and all ten gate stages remain required.
+
+Separate pre-existing auto-renarration defect confirmed: latest done audio job can have skipped all files yet supply the voice for subtitle repair. Affected artifact provenance must decide historical settings; do not blindly use today's preset. Follow-up is separate from frozen 348, and production owns its repair/API. Evidence: `_orchestra/app-closeout-20261021/RENARRATE-PROVENANCE-OPEN-20261023.md`.
+
+## 1.4.348 — earlier focused checks (2026-10-23)
 
 This entry supersedes the pending/failing status in the earlier 348 progress log below. Music focus G `byyn5d2w8` passed actual child exit 0: 121 tests / 36 suites / 121 pass / 0 fail / 0 skip; completion `suite coverage: 5/5 file(s) completed, 121 test(s) + 36 suite(s) = 157 marks`. Retained evidence complete, configured projects byte-identical, source unchanged, owned group absent and no lifecycle errors. Corrections include the artifact owner binding, canonical fingerprint, valid durable request/output fixtures, nonretryable manual-Retry setup, prepared-key recovery and editorial conflict preservation. This is mock transport evidence, not live provider qualification.
 

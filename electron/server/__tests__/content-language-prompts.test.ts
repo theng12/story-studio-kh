@@ -2,9 +2,9 @@
  * The audience-language boundary in prompt bytes.
  *
  * Proves both halves of the contract at the prompt itself:
- *   - unset is EXACTLY the pre-feature output, compared against frozen
- *     fixtures copied from base commit 44601361 (not against the builder
- *     itself, which would pass for any implementation), and
+ *   - unset matches literal frozen fixtures, not the builder itself;
+ *     script/idea fixtures come from 44601361, while the description fixture
+ *     includes the intentional 1.4.348 summary/timeline changes, and
  *   - en/km add exactly the shared directive, in the right position.
  */
 import { test, describe, before } from 'node:test'
@@ -43,11 +43,9 @@ const format = {
   metadata: {},
 } as unknown as Format
 
-// ── Frozen base-commit fixtures (44601361) ────────────────────────────────
-// These are the literal strings the builders produced before the language
-// boundary existed, for the fixture above. A change to any byte fails.
-// Copied byte-for-byte from that commit's builder — the ellipses below are the
-// real `…` character the guidance teaches, not three periods.
+// Script and idea fixtures are frozen from 44601361, before the language
+// boundary. The description fixture below pins the intentional 1.4.348 text.
+// A change to any byte fails; the ellipses are the real `…` character.
 const LEGACY_TTS_GUIDANCE = `Write for the EAR — this script is read aloud by a text-to-speech voice:
 - Use ONLY simple, spoken punctuation: periods, commas, and question marks. Do NOT use em dashes or en dashes (—, –), semicolons, ellipses (…), parentheses, asterisks, or any markdown/special symbols — speech engines read them unnaturally. Use a comma or start a new sentence instead.
 - Favour natural, speakable sentences with varied length. Avoid long, clause-stacked or piled-up appositive phrasing (e.g. "the old light in his eyes, a sentinel, a friend") that sounds artificial when spoken aloud.
@@ -92,18 +90,21 @@ Example of a valid response:
 ]
 `
 
-const LEGACY_DESCRIPTION_PROMPT = `Generate a YouTube description for a story episode.
+const DESCRIPTION_PROMPT_348 = `Generate a YouTube description for a story episode.
 
 Episode: EP0001 — Title
 
 Story context:
 Context
 
+SUMMARY DIRECTIVE:
+Summarize or rephrase the episode's themes, setting, and arc in your own words — do not copy narrated passages verbatim. Do not include chapter headings, chapter numbers, timestamps, or a chapter list; the finalizer owns the only chapter timeline and no second timeline may appear in the prose.
+
 Include these sections IN THIS ORDER:
 
 
 Use separator lines (──────) between major sections.
-Total length must stay under 5,000 bytes of UTF-8 — about 5,000 characters of English, or about 1,666 characters of Khmer or another non-Latin script. Keep every chapter mark; shorten the prose instead.
+Total length must stay under 5,000 bytes of UTF-8 — about 5,000 characters of English, or about 1,666 characters of Khmer or another non-Latin script. Shorten the prose to fit; the real chapter timeline is added separately.
 Output ONLY the description text, ready to copy-paste. No meta-commentary.`
 
 describe('episode system prompt (outline / chapters / introduction)', () => {
@@ -134,10 +135,10 @@ describe('idea paste prompt', () => {
 })
 
 describe('YouTube description prompt', () => {
-  test('unset is exactly the frozen base-commit prompt', () => {
+  test('unset is exactly the frozen 348 summary prompt', () => {
     assert.equal(
       metadataPrompt.buildDescriptionPrompt('EP0001', 'Title', 'Context', [], 5000, null),
-      LEGACY_DESCRIPTION_PROMPT,
+      DESCRIPTION_PROMPT_348,
     )
   })
 

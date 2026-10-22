@@ -26,7 +26,10 @@ before(async () => {
   pm = await import('../services/project-manager.js')
 })
 
-after(async () => { await cleanup() })
+after(async () => {
+  await jq._waitForJobPersistenceForTesting()
+  await cleanup()
+})
 
 function job(status: 'queued' | 'submitting' | 'requested' | 'unknown' = 'submitting'): Job {
   return {
@@ -930,7 +933,11 @@ test('cold persisted cancellation reconciles outside a generation lane and retai
   }
   try {
     let unrelatedRan = false
-    jq.registerExecutor('chapter-only', async () => { unrelatedRan = true })
+    jq.registerExecutor('chapter-only', async (job) => {
+      unrelatedRan = true
+      // Synthetic control-flow fixture: no chapter artifact is being generated.
+      job.result = { ...(job.result || {}), complete: true }
+    })
     await jq.getJobs(project.slug)
     const deadline = Date.now() + 1_000
     while (Date.now() < deadline && jq.getJob('cold-cancel')?.remote_cancellations?.['voice.tts:provider-1']?.status !== 'requested') {
@@ -947,6 +954,8 @@ test('cold persisted cancellation reconciles outside a generation lane and retai
     assert.equal(unrelatedRan, true)
     while (Date.now() < deadline && jq.getJob(unrelated.job_id)?.status === 'running') await new Promise(resolve => setTimeout(resolve, 10))
     assert.equal(jq.getJob(unrelated.job_id)?.status, 'done')
+    await waitFor(() => !jq._isJobWorkerActiveForTesting(unrelated.job_id))
+    await jq._waitForJobPersistenceForTesting()
     assert.deepEqual(calls, [
       { method: 'GET', path: '/v1/jobs/provider-1' },
       { method: 'POST', path: '/v1/jobs/provider-1/cancel' },

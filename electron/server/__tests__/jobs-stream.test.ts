@@ -179,9 +179,10 @@ before(async () => {
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
 
-  // Register a no-op executor so enqueued jobs complete immediately and we
-  // exercise the full queued → running → done transition set in one test.
-  jq.registerExecutor('chapter-only', async () => {})
+  // Synthetic control-flow jobs declare completion without chapter artifacts.
+  jq.registerExecutor('chapter-only', async job => {
+    job.result = { ...job.result, complete: true }
+  })
 
   await new Promise<void>((resolve) => {
     server = http.createServer(app).listen(0, '127.0.0.1', () => {
