@@ -27,10 +27,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-const props = defineProps<{ job: {
+const props = defineProps<{ job: Readonly<{
   job_id: string; project_slug: string; episode_id?: string; type: string; status: string
-  params?: Record<string, any>; result?: Record<string, any>
-}; verifiedRecovered?: boolean; diagnosticsOnly?: boolean }>()
+  params?: Readonly<Record<string, any>>; result?: Readonly<Record<string, any>>
+}>; verifiedRecovered?: boolean; diagnosticsOnly?: boolean }>()
 const { post } = useApi()
 const ceiling = ref('')
 const busy = ref(false)

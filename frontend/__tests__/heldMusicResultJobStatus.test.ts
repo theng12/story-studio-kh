@@ -53,7 +53,10 @@ test('a held song is settling with one Recover-existing-result line, not a faile
 test('once the Gateway settles the song as an ordinary failure, the usual failed-item wording returns', () => {
   const job = dreamlands({ recovery_required: false, recovery_state: null })
   assert.equal(summariseJobItems(job.item_progress, job.genstudio_jobs).failed, 1)
-  assert.match(describeJobExceptions(job, nowMs).map(line => line.text).join(' '), /1 item needs another try/)
+  // The wording lives on the card's ONE summary line — not on an exception
+  // line, which would count the same failure a second time.
+  assert.doesNotMatch(describeJobExceptions(job, nowMs).map(line => line.text).join(' '), /another try/)
+  assert.match(jobs, /jobCounts\(job\)\.failed[\s\S]{0,200}needs another try/)
 })
 
 test('the Jobs page offers neither Replace Failed Items nor Retry while a result is held', () => {

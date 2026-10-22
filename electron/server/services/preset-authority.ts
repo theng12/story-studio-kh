@@ -112,17 +112,50 @@ export function composeScenePlanGuidance(episodeGuidance: unknown, reusableGuida
   return parts.length ? parts.join('\n\n') : undefined
 }
 
+/**
+ * The CHARACTER CEILING a preset asks for, resolved against the LIVE image
+ * catalogue.
+ *
+ * `intended_image_model` names the image model the prompts are written FOR;
+ * `prompt_char_cap` is the saved SELECTION — 'auto' (follow that model), 'none'
+ * (no ceiling), or an explicit number. The published ceiling comes from the
+ * catalogue, never from a list kept here, so a model that changes its ceiling
+ * changes it on the next admission.
+ *
+ * The label names the surface in the refusal, because this resolver is shared
+ * by the Scene Plan step and the Thumbnail Prompts step.
+ */
 export function resolveScenePlanPromptCharCap(
   data: Record<string, any>,
   catalog: ReadonlyArray<GenStudioProductIdentity & { max_prompt_characters?: number }>,
+  label = 'The Scene Plan preset',
 ): number | undefined {
   const intended = typeof data.intended_image_model === 'string' ? data.intended_image_model.trim() : ''
   if (!intended) return parsePromptCharCap(data.prompt_char_cap)
   const model = findGenStudioProduct(catalog, intended)
-  if (!model) throw new Error('The Scene Plan preset\'s intended image model is not in the current image catalogue.')
+  if (!model) throw new Error(`${label}'s intended image model is not in the current image catalogue.`)
   const published = parsePromptCharCap(model.max_prompt_characters)
   if (data.prompt_char_cap === 'auto') return published
   if (data.prompt_char_cap === 'none') return undefined
   const selected = parsePromptCharCap(data.prompt_char_cap)
   return selected && published ? Math.min(selected, published) : selected
+}
+
+/**
+ * The Thumbnail Prompts preset's own ceiling inputs.
+ *
+ * The Thumbnail Prompts page saves its settings under `{ form: { … } }` (see
+ * its preset snapshot), while a Scene Plan preset keeps its reusable settings
+ * at the top level. Only the two fields the character ceiling needs are read
+ * here — this is NOT a general preset sanitizer, and it changes nothing that is
+ * stored.
+ */
+export function thumbnailPromptPresetCapInputs(preset: StoredPresetLike | undefined | null): { intended_image_model: string; prompt_char_cap: unknown } {
+  const data = (preset?.data ?? preset ?? {}) as Record<string, any>
+  const form = data.form && typeof data.form === 'object' && !Array.isArray(data.form) ? data.form : null
+  const source = (form ?? data) as Record<string, any>
+  return {
+    intended_image_model: typeof source.intended_image_model === 'string' ? source.intended_image_model : '',
+    prompt_char_cap: source.prompt_char_cap,
+  }
 }

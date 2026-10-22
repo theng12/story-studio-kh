@@ -43,13 +43,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   assertEverySuiteCompleted,
   assertSummaryAgrees,
+  DEFAULT_RETAINED_FIXTURES,
+  resolveRetainedFixturesRoot,
   retainedFsEvidenceFailure,
 } from './run-backend-tests.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const COVERAGE_REPORTER = path.join(ROOT, 'scripts', 'testing', 'suite-coverage-reporter.mjs')
 const RETAINED_FS_PRELOAD = path.join(ROOT, 'scripts', 'testing', 'retained-fixture-fs.mjs')
-const RETAINED_FIXTURES = path.join(ROOT, '_trash', 'test-fixtures')
 
 /**
  * The lanes, described as data.
@@ -166,25 +167,32 @@ async function readExactCoverage(coveragePath) {
 /**
  * Where this invocation's private container lives.
  *
- * Content-packs fixtures stage handoff artifacts and the staging helper refuses
- * any destination contained in the repository. `os.tmpdir()` is outside it in a
- * normal CLI run, so putting the whole container there keeps the sandbox,
- * TMPDIR and the retained preload's snapshot root together and outside the
- * repository. When the wrapper is itself running inside a repo-bound test
- * sandbox (the lane harness contract), fall back to `_trash` so that run stays
- * green; those fixture lanes never stage outside-repository artifacts.
+ * An explicit retained fixtures root always wins: it is validated to sit
+ * outside the repository, which is where the container has to be — the
+ * content-packs fixtures stage handoff artifacts, and the staging helper
+ * refuses a destination contained in the repository.
+ *
+ * Without one, `os.tmpdir()` is used: outside the repository in a normal CLI
+ * run, which keeps the sandbox, TMPDIR and the retained preload's snapshot
+ * root together and out of the checkout. When the wrapper is itself running
+ * inside a repo-bound test sandbox (the lane harness contract), fall back to
+ * the retained fixtures root so that run stays green; those fixture lanes
+ * never stage outside-repository artifacts.
  */
-async function containerBase() {
+async function containerBase(retainedFixtures) {
+  if (retainedFixtures !== DEFAULT_RETAINED_FIXTURES) return retainedFixtures
   const [temp, root] = await Promise.all([fs.realpath(tmpdir()), fs.realpath(ROOT)])
   const insideRepository = temp === root || temp.startsWith(`${root}${path.sep}`)
-  return insideRepository ? RETAINED_FIXTURES : temp
+  return insideRepository ? retainedFixtures : temp
 }
 
 /** One existing runner invocation, with its own transcript and retained evidence. */
 async function runInvocation(name, lane, discovered, addRetainedAdapter) {
-  await fs.mkdir(RETAINED_FIXTURES, { recursive: true })
+  const retainedFixtures = await resolveRetainedFixturesRoot()
+  console.log(`[test-harness] retained fixtures root: ${retainedFixtures}`)
+  await fs.mkdir(retainedFixtures, { recursive: true })
   const container = await fs.realpath(
-    await fs.mkdtemp(path.join(await containerBase(), `story-studio-${name}-harness-`)),
+    await fs.mkdtemp(path.join(await containerBase(retainedFixtures), `story-studio-${name}-harness-`)),
   )
   await fs.chmod(container, 0o700)
   const sandbox = path.join(container, 'sandbox')

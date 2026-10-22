@@ -155,7 +155,7 @@ export interface CallAiContext {
   /** Revalidate the selected product's live capability before its charged call. */
   beforeModelAttempt?: (model: string) => void | Promise<void>
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
-  onRequestPrepared?: (idempotencyKey: string) => void | Promise<void>
+  onRequestPrepared?: (idempotencyKey: string, preview?: GenStudioRequestPreview) => void | Promise<void>
   /** Durable Pipeline candidate checkpoint, supplied by a job executor. */
   pipelinePolicyCheckpoint?: PipelinePolicyCheckpointStore
   /** Stable key for this logical request; falls back to requestIdentity. */
@@ -347,9 +347,9 @@ export async function callAiWithModelPolicy(
       await checkpointAccepted?.(idempotencyKey)
       await ctx.onJobAccepted?.(jobId, idempotencyKey)
     }
-    const onRequestPrepared = async (idempotencyKey: string) => {
+    const onRequestPrepared = async (idempotencyKey: string, preview?: GenStudioRequestPreview) => {
       await checkpointPrepared?.(idempotencyKey)
-      await ctx.onRequestPrepared?.(idempotencyKey)
+      await ctx.onRequestPrepared?.(idempotencyKey, preview)
     }
     const attemptContext: CallAiContext = recovery?.idempotencyKey
       ? { ...ctx, ...(ctx.allowUncreatedRecovery ? { recoverByIdempotencyKey: false } : { recoverByIdempotencyKey: true }), idempotencyKey: recovery.idempotencyKey, allowedRecoveryKeys: [recovery.idempotencyKey], onJobAccepted, onRequestPrepared }

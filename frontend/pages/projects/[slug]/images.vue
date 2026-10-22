@@ -71,15 +71,15 @@
           <!-- Prompt-character cap indicator. Surfaces the limit the Gateway
                publishes for the active model so users know how long their
                image prompts can be before the provider rejects or truncates
-               them. -->
+               them. The published figure is exact — no approximation marker. -->
           <span class="cap-row">
             <template v-if="activeModelCap">
-              <span class="cap-pill" :title="`Approximate prompt length limit for ${activeModelLabel}. Longer prompts may be refused or cut short.`">
-                Prompt cap: <strong>~{{ activeModelCap.toLocaleString() }} chars</strong>
+              <span class="cap-pill" :title="`The published prompt length limit for ${activeModelLabel}. A prompt longer than this is refused before it is sent, so no credits are spent on it.`">
+                Prompt cap: <strong>{{ activeModelCap.toLocaleString() }} chars</strong>
               </span>
             </template>
             <template v-else>
-              <span class="cap-pill cap-pill-unknown" title="No documented cap recorded for this model.">
+              <span class="cap-pill cap-pill-unknown" title="No prompt limit is published for this model — Story Studio cannot check the length in advance.">
                 Prompt cap: <strong>unknown</strong>
               </span>
             </template>
@@ -186,6 +186,59 @@
           placeholder="e.g. push the subject closer, make the title bigger and higher-contrast, warmer lighting"
         ></textarea>
         <p class="text-muted text-xs mt-1">Added to every thumbnail you render on this page. Cleared when you switch episode.</p>
+      </div>
+
+      <!-- The length the model will ACTUALLY receive.
+           The saved prompt is not the prompt: the render appends the extras,
+           the reference guidance and the style keywords, and refuses the
+           result when it is over the model's published limit. The number that
+           matters is therefore the ASSEMBLED length, and the customer must see
+           it while they are still choosing the extras and the reference.
+
+           The count is MEASURED by the backend with the render's own assembly
+           and read here. The page never re-derives it: the reference guidance
+           depends on the reference file existing on disk, and the style
+           keywords depend on the episode's cast and on the renderer's name
+           matching. Both live in the renderer, so a second copy of the
+           assembly here would be a second answer (AGENTS §1). -->
+      <div v-if="form.episode_id" class="form-group prompt-length-check" aria-live="polite">
+        <label>Prompt length check</label>
+        <p class="text-muted text-xs">
+          <template v-if="publishedCap">
+            {{ activeModelLabel || 'This model' }} accepts up to
+            <strong>{{ publishedCap.toLocaleString() }} characters</strong> per prompt.
+          </template>
+          <template v-else>
+            No prompt limit is published for {{ activeModelLabel || 'this model' }} —
+            Story Studio cannot check the length in advance.
+          </template>
+        </p>
+        <p class="text-muted text-xs">
+          Counts the prompt as the model receives it — the saved prompt plus your extra details, the
+          reference guidance and the style keywords. The badge on a board row counts the saved prompt only.
+        </p>
+        <p v-if="!canMeasureAssembled" class="text-muted text-xs">Choose an image model to measure the assembled prompts.</p>
+        <p v-else-if="assembledLengthsLoading" class="text-muted text-xs">Measuring the assembled prompts…</p>
+        <p v-else-if="assembledLengthsError" class="text-muted text-xs">
+          {{ assembledLengthsError }} The length is not shown. The render checks the model's own limit
+          before it submits anything, so an over-limit prompt is still refused there — before any credits are spent.
+        </p>
+        <ul v-else-if="assembledLengthRows.length" class="prompt-length-list">
+          <li v-for="row in assembledLengthRows" :key="row.number" :class="{ 'is-over': isOverCap(row) }">
+            <span class="prompt-length-num">{{ String(row.number).padStart(2, '0') }}</span>
+            <span class="prompt-length-count">
+              {{ row.characters.toLocaleString() }}<template v-if="publishedCap"> / {{ publishedCap.toLocaleString() }}</template> chars
+            </span>
+            <span v-if="isOverCap(row)" class="prompt-length-over">
+              {{ (row.characters - (publishedCap || 0)).toLocaleString() }} over the limit
+            </span>
+          </li>
+        </ul>
+        <p v-else class="text-muted text-xs">No thumbnail prompts for this episode yet.</p>
+        <p v-if="overCapRows.length" class="text-muted text-xs prompt-length-note">
+          A prompt over the limit is refused before it is sent, so no credits are spent on it. Thumbnails
+          already on disk are kept as they are unless you choose Regenerate.
+        </p>
       </div>
 
     </div>
@@ -447,6 +500,17 @@ function modelInfoFor(modelId: string) {
 }
 const thumbnailModelInfo = computed(() => modelInfoFor(form.thumbnail.model))
 const activeModelCap = computed(() => thumbnailModelInfo.value.cap)
+/**
+ * The model's PUBLISHED prompt-length limit, live.
+ *
+ * `0` — or a model that publishes no limit at all — is the ABSENCE of a
+ * limit, never a number this page made up. So the limit is either the
+ * catalogue's own figure or nothing: there is no fallback ceiling anywhere
+ * on this page (AGENTS §1).
+ */
+const publishedCap = computed<number | null>(() => (
+  typeof activeModelCap.value === 'number' && activeModelCap.value > 0 ? activeModelCap.value : null
+))
 const activeModelLabel = computed(() => thumbnailModelInfo.value.label)
 
 const activeGenStudioModel = computed(() =>
@@ -977,6 +1041,263 @@ watch([slug, () => form.episode_id], ([, v], old) => {
   }
 }, { immediate: true })
 
+// ── The ASSEMBLED prompt length (measured by the server) ──────────────────
+//
+// The SAVED prompt is not the prompt the model receives. The render appends
+// the render-time extras, the reference guidance and the style keywords, then
+// measures the result against the model's published limit and refuses it
+// BEFORE anything is submitted. So the number that decides the render is the
+// assembled length — and the customer has to see it while they are still
+// choosing the extras and the reference.
+//
+// The count is MEASURED by the backend with the render's own assembly and
+// read here. This page never re-derives it: the reference guidance depends
+// on the reference file existing on disk, and the style keywords depend on
+// the episode's cast and on the renderer's name matching. Both live in the
+// renderer, so a second copy of the assembly here would be a second answer
+// (AGENTS §1).
+interface AssembledThumbnailLength { number: number; characters: number }
+const assembledLengths = ref<AssembledThumbnailLength[] | null>(null)
+const assembledLengthsError = ref('')
+const assembledLengthsLoading = ref(false)
+/** The inputs the reading on screen was measured for. A reading that does not
+ *  match the live inputs is stale, and a stale length must never refuse a
+ *  render. Reactive, so a completed measurement is seen by everything that
+ *  asks whether the reading is current. */
+const assembledLengthsSignature = ref('')
+/** Bumped on every relevant change, so a reply measured for the old inputs
+ *  is dropped instead of landing on screen. */
+let assembledLengthsRequest = 0
+
+/**
+ * Everything the measurement depends on: the project, the episode, the model,
+ * the extras, the reference the render would use, and the revision of the
+ * prompt files (bumped whenever the board reloads them, so an edited or
+ * reloaded prompt set is re-measured rather than kept on screen).
+ *
+ * The reference is the WHOLE payload, not its id: the same id can come back
+ * with a different file or a different reframing prompt, and the render reads
+ * all three. This string is compared, never displayed — nothing from the
+ * project travels to the customer through it.
+ */
+/**
+ * A measurement needs the model the render would use: the endpoint takes the
+ * model id, and a page with no model selected has nothing to measure. While
+ * the live catalogue is still choosing one, the card says so — it does not ask
+ * the server for a reading it cannot produce.
+ */
+const canMeasureAssembled = computed(() => !!activeForm.value.model)
+
+const assembledLengthsInputs = computed(() => JSON.stringify({
+  project: slug.value,
+  episode: form.episode_id,
+  title: selectedEpisode.value?.title || '',
+  model: activeForm.value.model,
+  extras: extraDetails.value.trim(),
+  reference: thumbnailReferenceActive.value
+    ? ((config.value as any)?.thumbnail_reference_asset ?? null)
+    : null,
+  imageMode: thumbnailReferenceActive.value ? 'img2img' : 'text2img',
+  prompts: igPanelRefreshKey.value,
+}))
+
+/**
+ * One measured row — or null when the answer is malformed.
+ *
+ * A malformed answer is UNKNOWN. It must never become a row that reads as
+ * zero characters, which would look like a fact about the prompt (AGENTS §6:
+ * a zero that means two things is a defect).
+ */
+function decodeAssembledRow(value: unknown): AssembledThumbnailLength | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const row = value as { number?: unknown; characters?: unknown }
+  if (typeof row.number !== 'number' || !Number.isInteger(row.number) || row.number < 0) return null
+  if (typeof row.characters !== 'number' || !Number.isInteger(row.characters) || row.characters < 0) return null
+  return { number: row.number, characters: row.characters }
+}
+
+async function loadAssembledLengths(signature: string): Promise<void> {
+  const project = slug.value
+  const episode = form.episode_id
+  if (!project || !episode) return
+  const request = ++assembledLengthsRequest
+  try {
+    const data = await post<{ thumbnails?: AssembledThumbnailLength[] }>(
+      `/projects/${project}/episodes/${episode}/thumbnail-prompt-lengths`,
+      {
+        // The same fields the render request carries, so the measurement is
+        // the render's own assembly and not a parallel one. Everything the
+        // render request omits (reference strength, reference sources) must
+        // fall back to the render's own defaults there.
+        model: activeForm.value.model,
+        episode_title: selectedEpisode.value?.title || '',
+        extra_details: extraDetails.value.trim(),
+        thumbnail_reference_asset: thumbnailReferenceActive.value
+          ? (config.value as any).thumbnail_reference_asset
+          : null,
+        image_mode: thumbnailReferenceActive.value ? 'img2img' : 'text2img',
+      },
+    )
+    if (request !== assembledLengthsRequest) return
+    // The answer is decoded, not trusted. A row that is not a whole,
+    // non-negative count, or a repeated thumbnail number, makes the WHOLE
+    // reading unknown — never a row that reads as zero characters, which
+    // would look like a fact about the prompt (AGENTS §6).
+    const raw = (data as any)?.thumbnails
+    if (!Array.isArray(raw)) {
+      assembledLengths.value = null
+      assembledLengthsSignature.value = ''
+      assembledLengthsError.value = 'The assembled prompt length came back in a shape this page cannot read.'
+      return
+    }
+    const rows: AssembledThumbnailLength[] = []
+    const seen = new Set<number>()
+    for (const item of raw) {
+      const row = decodeAssembledRow(item)
+      if (!row || seen.has(row.number)) {
+        assembledLengths.value = null
+        assembledLengthsSignature.value = ''
+        assembledLengthsError.value = 'The assembled prompt length came back in a shape this page cannot read.'
+        return
+      }
+      seen.add(row.number)
+      rows.push(row)
+    }
+    assembledLengths.value = rows
+    assembledLengthsError.value = ''
+    assembledLengthsSignature.value = signature
+  } catch (e: any) {
+    if (request !== assembledLengthsRequest) return
+    assembledLengths.value = null
+    assembledLengthsSignature.value = ''
+    // The server's own words when it has any. A missing measurement is never
+    // dressed up as a fact about the episode — "no prompts yet" is said only
+    // when the measurement SUCCEEDS and finds none.
+    assembledLengthsError.value = e?.data?.detail || 'The assembled prompt length could not be measured.'
+  } finally {
+    if (request === assembledLengthsRequest) assembledLengthsLoading.value = false
+  }
+}
+
+let assembledLengthsTimer: ReturnType<typeof setTimeout> | undefined
+watch(assembledLengthsInputs, (signature) => {
+  // Any change invalidates the reading on screen: it was measured for the old
+  // inputs, so it is dropped (and its reply cancelled) rather than left to
+  // answer for a selection the customer has already moved on from.
+  assembledLengthsRequest++
+  assembledLengthsSignature.value = ''
+  assembledLengths.value = null
+  assembledLengthsError.value = ''
+  if (assembledLengthsTimer) clearTimeout(assembledLengthsTimer)
+  if (!form.episode_id || !activeForm.value.model) {
+    assembledLengthsLoading.value = false
+    return
+  }
+  assembledLengthsLoading.value = true
+  // One request per settled state — the extras box is typed into.
+  assembledLengthsTimer = setTimeout(() => { void loadAssembledLengths(signature) }, 250)
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  if (assembledLengthsTimer) clearTimeout(assembledLengthsTimer)
+  // A reply that lands after the page is gone must not touch anything.
+  assembledLengthsRequest++
+})
+
+/** True when the reading on screen was measured for the CURRENT inputs. */
+const assembledLengthsFresh = computed(() => (
+  !!assembledLengthsSignature.value && assembledLengthsSignature.value === assembledLengthsInputs.value
+))
+
+/** The measured rows, or none — the template never walks a nullable list. */
+const assembledLengthRows = computed<AssembledThumbnailLength[]>(() => assembledLengths.value || [])
+
+/**
+ * The measurement must describe the same prompt set the board shows.
+ *
+ * The count is checked first, and then the EXACT prompt numbers the board
+ * reports as missing: every one of them has to be a thumbnail this reading
+ * measured. A count that matches while the numbers do not is a different
+ * prompt set, and a different prompt set is not evidence about this one.
+ */
+const assembledLengthsMatchBoard = computed(() => {
+  const rows = assembledLengths.value
+  const total = activePoolStatus.value?.total
+  if (!rows || typeof total !== 'number') return false
+  if (rows.length !== total) return false
+  const missing = activePoolStatus.value?.missing
+  if (!missing?.length) return true
+  const measured = new Set(rows.map(row => row.number))
+  for (const value of missing) {
+    if (!measured.has(Number(value))) return false
+  }
+  return true
+})
+
+/** Prompts whose assembled length is over the model's published limit. */
+const overCapRows = computed(() => {
+  const rows = assembledLengths.value
+  const cap = publishedCap.value
+  if (!rows?.length || !cap) return []
+  return rows.filter(row => row.characters > cap)
+})
+
+function isOverCap(row: AssembledThumbnailLength): boolean {
+  const cap = publishedCap.value
+  return !!cap && row.characters > cap
+}
+
+/**
+ * The thumbnails a render of THIS page would actually submit.
+ *
+ * "Skip existing" (force=false) keeps the thumbnails already on disk and
+ * submits only the missing ones, so an over-limit prompt on a thumbnail that
+ * is already rendered must NOT block the healthy ones. "Regenerate"
+ * (force=true) submits every prompt.
+ *
+ * `null` = unknown (the integrity figures have not loaded) — and an unknown
+ * set never refuses a render.
+ */
+function submittedThumbnailNumbers(force: boolean): Set<number> | null {
+  const rows = assembledLengths.value
+  if (!rows?.length) return null
+  if (force) return new Set(rows.map(row => row.number))
+  const missing = activePoolStatus.value?.missing
+  if (!missing) return null
+  return new Set(missing.map(n => Number(n)).filter(n => Number.isFinite(n)))
+}
+
+/**
+ * The prompts a render would submit that are over the model's published
+ * limit.
+ *
+ * Empty when nothing is over, when the model publishes no limit, and when the
+ * reading is stale, unmatched or unknown — an unknown length never refuses
+ * anything (it would be a guess, and the render refuses authoritatively).
+ */
+function overCapToSubmit(force: boolean): AssembledThumbnailLength[] {
+  if (!assembledLengthsFresh.value) return []
+  if (!assembledLengthsMatchBoard.value) return []
+  if (!publishedCap.value) return []
+  const submitted = submittedThumbnailNumbers(force)
+  if (!submitted) return []
+  return overCapRows.value.filter(row => submitted.has(row.number))
+}
+
+function overCapRefusalText(rows: AssembledThumbnailLength[]): string {
+  const cap = publishedCap.value || 0
+  const model = activeModelLabel.value || 'The selected model'
+  const list = rows
+    .map(row => `Thumbnail ${String(row.number).padStart(2, '0')} `
+      + `(${row.characters.toLocaleString()} characters, ${(row.characters - cap).toLocaleString()} over)`)
+    .join(', ')
+  return `${model} accepts up to ${cap.toLocaleString()} characters per prompt. `
+    + `${list} would be refused. `
+    + 'Shorten "Extra details for this render" or the prompt itself on Thumbnail Prompts, '
+    + 'or render with a model that publishes a larger limit. '
+    + 'Nothing is submitted and no credits are spent on a refused prompt.'
+}
+
 function generationParams(forceOverride?: boolean) {
   // A submit can occur before Vue flushes a catalogue/preset watcher.
   if (!normalizeImageAspectRatio(activeForm.value)) return null
@@ -1057,6 +1378,18 @@ async function prepareGeneration(forceOverride?: boolean, ask = true): Promise<a
 }
 
 async function queueGeneration(forceOverride?: boolean, queuedMessage = 'Image generation queued!') {
+  // A prompt that is verifiably over the model's published limit is refused
+  // HERE, before a job is queued. The render would refuse it too — before it
+  // submits or charges — but the customer would otherwise only learn about it
+  // from a failed job, after the batch was already running. Only the prompts
+  // this render would actually submit count: "Skip existing" keeps the
+  // thumbnails already on disk, so those must not hold up the missing ones.
+  const force = forceOverride ?? activeForm.value.generation_mode === 'regenerate'
+  const overCap = overCapToSubmit(force)
+  if (overCap.length) {
+    showError(overCapRefusalText(overCap))
+    return
+  }
   const params = await prepareGeneration(forceOverride)
   if (!params) return
   const operationId = params.force ? freshImagesAction.begin(params) : null
@@ -1219,4 +1552,33 @@ async function submit() {
   border-color: var(--border);
 }
 .cap-pill strong { font-weight: 600; }
+
+/* Prompt length check — the assembled length the model receives. */
+.prompt-length-check { margin-top: 4px; }
+.prompt-length-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.prompt-length-list li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+.prompt-length-list li.is-over { color: rgb(185, 28, 28); }
+.prompt-length-num {
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  min-width: 2ch;
+}
+.prompt-length-count { font-family: var(--font-mono, monospace); }
+.prompt-length-over { font-weight: 600; }
+.prompt-length-note { margin-top: 6px; }
 </style>

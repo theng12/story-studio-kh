@@ -19,6 +19,7 @@
 
 import { randomUUID } from 'node:crypto'
 import fsp from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 import { Router } from 'express'
@@ -76,7 +77,19 @@ import {
 import { buildYouTubeMetadataPackage, resanitizeStoredSnippet, resolveYouTubeUploadSettings } from '../services/youtube-metadata-package.js'
 import { enqueueOrRun, getJobs, isDuplicate } from '../services/job-queue.js'
 import type { Job } from '../models/types.js'
-import { listUploadThumbnails, resolveUploadMetadata } from '../lib/upload-metadata.js'
+import { listUploadThumbnails, resolveUploadMetadata, snippetFromMeta, YT_TITLE_MAX } from '../lib/upload-metadata.js'
+import { findMetadataJunk } from '../lib/metadata-scaffold.js'
+import {
+  readTitleAndDescription,
+  writeTitleAndDescription,
+  resolveOverrideEpisodePaths,
+  withOverrideLock,
+} from '../services/upload-overrides.js'
+import {
+  utf8Bytes,
+  YOUTUBE_DESCRIPTION_MAX_BYTES,
+  YOUTUBE_DESCRIPTION_MAX_BYTES_PUBLISHED,
+} from '../lib/youtube-description-limit.js'
 import { createProjectFactsCache, resolveEpisodePaths, resolveScenePlanPath, EPISODE_PROBE_BATCH } from '../services/utils.js'
 import { findYouTubeSourceVideoPath, resolveYouTubeSourceRevisionCached } from '../services/youtube-source-video.js'
 import { getUploadMode } from '../services/upload-store.js'
@@ -128,6 +141,7 @@ import {
   listVideoPublicationDetails,
   registryCredentialFor,
   type VideoPublicationDetails,
+  type VideoSnippet,
 } from '../lib/youtube-client.js'
 import { ANALYTICS_METRICS, VIDEO_FACTS, fetchProjectAnalytics } from '../services/youtube-analytics-cache.js'
 import { cursorKey } from '../services/youtube-page-cursor.js'
@@ -1064,7 +1078,16 @@ router.post('/projects/:slug/youtube/library/:operation_id/drift', async (req, r
       // `final_payload` is frozen at accept time, so a payload captured before
       // a sanitizer rule existed still carries what that rule now removes.
       // Idempotent, so anything captured since is untouched.
-      const { snippet } = resanitizeStoredSnippet(JSON.parse(current.final_payload.snippet_json))
+      //
+      // WHOSE text it is comes from the payload itself: the authorship was
+      // frozen with it, so a payload pushed days later is read as it was
+      // accepted. Re-deriving it from today's sidecar would answer a
+      // different question — and would strip the owner's own words.
+      const storedSnippet = JSON.parse(current.final_payload.snippet_json) as VideoSnippet
+      const { snippet } = resanitizeStoredSnippet(storedSnippet, {
+        title_authored: current.final_payload.title_authored === true,
+        description_authored: current.final_payload.description_authored === true,
+      })
       const status = JSON.parse(current.final_payload.status_json) as {
         privacyStatus?: 'private' | 'unlisted' | 'public'
         publishAt?: string | null
@@ -1730,6 +1753,19 @@ function episodeCodeOrder(code: string): number {
 async function acceptedTitleFor(slug: string, episodeCode: string): Promise<string> {
   const ideas = await im.getIdeas(slug, 'accepted').catch(() => [])
   return ideas.find(entry => (entry.episode_code || '') === episodeCode)?.title || ''
+}
+
+/**
+ * Whether this project holds an accepted episode with this code.
+ *
+ * A code from another project, or one that was never accepted here, is not
+ * ours. An accepted episode whose folder has not been created yet IS ours —
+ * it simply has no files to save into, which is a different answer and a
+ * different word.
+ */
+async function projectHasAcceptedEpisode(slug: string, episodeCode: string): Promise<boolean> {
+  const ideas = await im.getIdeas(slug, 'accepted').catch(() => [])
+  return ideas.some(entry => (entry.episode_code || '') === episodeCode)
 }
 
 /** The channel this project publishes to now, or null when none is assigned. */
@@ -2398,19 +2434,420 @@ router.post('/projects/:slug/youtube/preview', async (req, res) => {
         ? { thumbnail_filename: req.body.thumbnail_filename }
         : {}),
     })
-    const thumbnail = await uploadThumbnailPreview(
-      req.params.slug, episodeCode, previewTitle, built.thumbnail_filename,
-    )
-    const sourcePaths = await resolveEpisodePaths(req.params.slug, episodeCode, previewTitle)
-    const sourcePath = await findYouTubeSourceVideoPath(sourcePaths, req.params.slug, episodeCode, previewTitle)
-    // Hash only an explicitly requested review, never the episode listing.
-    const source = sourcePath
-      ? { filename: path.basename(sourcePath), revision: await resolveYouTubeSourceRevisionCached(sourcePath) }
-      : null
-    const { thumbnail_filename: _thumbnailFilename, ...payload } = built
-    res.json({ ...payload, thumbnail, source })
+    res.json(await youtubePreviewResponse({
+      slug: req.params.slug, episodeCode, built, previewTitle,
+    }))
   } catch (error) {
     fail(res, error, 'Failed to build the YouTube preview.')
+  }
+})
+
+/**
+ * The limits the Upload Center's editor enforces, in the units YouTube
+ * publishes them in.
+ *
+ * The figures come from the modules that OWN them — the title cap from the
+ * resolver's sanitizer, the byte cap from the description limiter — so the
+ * panel, this route and the uploader cannot disagree about what fits. The
+ * 5,000 is YouTube's own published limit and the 4,900 is the headroom this
+ * app keeps under it; they are reported separately because they are two
+ * different numbers with two different meanings, and an editor that says
+ * "5,000" and then refuses at 4,900 without saying so reads as a bug.
+ */
+const YOUTUBE_EDIT_LIMITS = {
+  title_max_characters: YT_TITLE_MAX,
+  description_max_bytes: YOUTUBE_DESCRIPTION_MAX_BYTES,
+  description_max_bytes_youtube: YOUTUBE_DESCRIPTION_MAX_BYTES_PUBLISHED,
+} as const
+
+/**
+ * The exact payload the owner reviews: the package, the thumbnail, the video
+ * file it belongs to, and the limits the editor enforces.
+ *
+ * The preview route and the metadata-save route both answer with THIS shape,
+ * so a save hands back the refreshed package instead of making the page ask
+ * a second time — and the page's draft is then re-seeded from the same bytes
+ * the uploader will send, rather than from the raw text the owner typed.
+ */
+async function youtubePreviewResponse(options: {
+  slug: string
+  episodeCode: string
+  built: Awaited<ReturnType<typeof buildYouTubeMetadataPackage>>
+  previewTitle: string
+}): Promise<Record<string, unknown>> {
+  const { slug, episodeCode, built, previewTitle } = options
+  const thumbnail = await uploadThumbnailPreview(slug, episodeCode, previewTitle, built.thumbnail_filename)
+  const sourcePaths = await resolveEpisodePaths(slug, episodeCode, previewTitle)
+  const sourcePath = await findYouTubeSourceVideoPath(sourcePaths, slug, episodeCode, previewTitle)
+  // Hash only an explicitly requested review, never the episode listing.
+  const source = sourcePath
+    ? { filename: path.basename(sourcePath), revision: await resolveYouTubeSourceRevisionCached(sourcePath) }
+    : null
+  const { thumbnail_filename: _thumbnailFilename, ...payload } = built
+  return { ...payload, thumbnail, source, limits: YOUTUBE_EDIT_LIMITS }
+}
+
+/** A refusal the route answers itself, rather than a 500 with a stack. */
+function routeRefusal(statusCode: number, code: string, detail: string): Error & { statusCode: number; code: string } {
+  const error = new Error(detail) as Error & { statusCode: number; code: string }
+  error.statusCode = statusCode
+  error.code = code
+  return error
+}
+
+/**
+ * Save the owner's title/description edits for one episode's upload into the
+ * same durable sidecar the resolver already reads (`upload_metadata_overrides.json`).
+ *
+ * The save is a COMPARED WRITE, not a blind one. Everything the owner
+ * reviewed is fenced:
+ *
+ *   - **The episode.** Resolved the way the READER resolves it (by code and
+ *     the upload sidecar that identifies the folder), so a renamed episode
+ *     still lands in the folder that holds its files, and an episode code
+ *     that is not in this project creates nothing at all.
+ *   - **The payload.** The package the owner reviewed is rebuilt here and
+ *     compared. If anything changed underneath them, the save is refused
+ *     instead of quietly overwriting the newer state.
+ *   - **The video file.** The revision of the rendered file the owner
+ *     reviewed is compared with the file on disk.
+ *   - **An upload in flight.** A save may not land beside a package that is
+ *     already being sent.
+ *
+ * The text itself is checked against the rules that would otherwise reject
+ * it LATER, so the owner learns here, where they can fix it:
+ *
+ *   - YouTube's own limits — the title cap and the description byte cap.
+ *   - The publish gate (`assertPublishableMetadata`'s rules): a title that
+ *     starts with "#", or that opens with the document's own episode label,
+ *     is refused by the uploader itself. Refusing it here is the same rule
+ *     said earlier.
+ *   - The platform's own clean-up, which runs on every text: control
+ *     characters, angle brackets and the finalizer's private markers. A text
+ *     those would change is refused here, with the text that WOULD arrive
+ *     offered back, so the approved bytes are the bytes that reach YouTube.
+ *
+ * The EDITORIAL strips — markdown furniture, section labels, the URL
+ * heuristic — are NOT applied to the owner's text. They are for a model's
+ * words, and the resolver already leaves the owner's words alone. That is the
+ * point of the editor, and it holds on every path: the preview, the queued
+ * upload, and the push of an accepted payload.
+ *
+ * The values are stored exactly as typed. An EMPTY description is stored as
+ * an empty description (the resolver honours one); it is never silently
+ * turned back into the generated text.
+ *
+ * **A RESET is explicit.** `title: null` or `description: null` removes that
+ * override, so the generated text comes back. It is never what an empty
+ * string means: an empty string is an empty description the owner wants, and
+ * a null is "put the generated one back". A field the request does not carry
+ * is left exactly as it was.
+ */
+router.post('/projects/:slug/youtube/metadata-overrides', async (req, res) => {
+  const slug = req.params.slug
+  try {
+    const episodeCode = typeof req.body?.episode_code === 'string' ? req.body.episode_code.trim() : ''
+    if (!episodeCode) {
+      res.status(400).json({ detail: 'An episode is required to save metadata edits.' })
+      return
+    }
+    if (!getProjectDir(slug)) {
+      res.status(404).json({ detail: 'Project not found' })
+      return
+    }
+    // WHICH fields this request carries. `null` is an explicit RESET (the
+    // generated text comes back); a string is the text to store; a field the
+    // request does not mention is left exactly as it is.
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const carriesTitle = Object.prototype.hasOwnProperty.call(body, 'title')
+    const carriesDescription = Object.prototype.hasOwnProperty.call(body, 'description')
+    if (!carriesTitle && !carriesDescription) {
+      res.status(400).json({
+        code: 'YOUTUBE_NOTHING_TO_SAVE',
+        detail: 'There are no metadata changes to save.',
+      })
+      return
+    }
+    // The episode must exist in THIS project, resolved the way the resolver
+    // reads it. An unknown code is a 404 and creates no folder; a code that
+    // would resolve outside the episodes folder is a 400.
+    const previewTitle = await acceptedTitleFor(slug, episodeCode)
+    let episodePaths: Awaited<ReturnType<typeof resolveOverrideEpisodePaths>>
+    try {
+      episodePaths = await resolveOverrideEpisodePaths(slug, episodeCode, previewTitle)
+    } catch (error: any) {
+      // The resolver refuses an ambiguous episode rather than choosing one of
+      // its folders. That refusal is the answer, not a crash.
+      const tagged = error as { statusCode?: number; code?: string; message?: string } | null
+      if (typeof tagged?.statusCode === 'number' && typeof tagged.code === 'string') {
+        res.status(tagged.statusCode).json({ code: tagged.code, detail: tagged.message || 'Refused.' })
+        return
+      }
+      res.status(400).json({
+        code: 'YOUTUBE_EPISODE_CODE_INVALID',
+        detail: 'That episode code is not a valid episode code.',
+      })
+      return
+    }
+    if (!existsSync(episodePaths.episode_dir)) {
+      // A NEUTRAL answer. The folder may not exist yet, or it may sit under a
+      // name this resolver cannot reach — a renamed episode, for one. Which
+      // of those it is, is not the owner's business and not worth a guess:
+      // what matters is that nothing was written and that no folder was
+      // created. A code this project does not hold is a different answer.
+      const known = await projectHasAcceptedEpisode(slug, episodeCode)
+      res.status(known ? 400 : 404).json({
+        // One condition, one code: the shared writer's refusal for a missing
+        // folder carries this same code, so the route's own answer and the
+        // writer's cannot drift into two vocabularies.
+        code: known ? 'EPISODE_FOLDER_NOT_FOUND' : 'YOUTUBE_EPISODE_NOT_FOUND',
+        detail: known
+          ? `Story Studio could not find the folder that holds ${episodeCode}'s files, `
+            + 'so these edits were not saved.'
+          : `${episodeCode} is not in this project.`,
+      })
+      return
+    }
+
+    // ── The text ──────────────────────────────────────────────────────────
+    let title: string | null | undefined
+    if (carriesTitle) {
+      if (body.title === null) {
+        title = null
+      } else {
+        const typed = typeof body.title === 'string' ? body.title.trim() : ''
+        if (!typed) {
+          res.status(400).json({
+            code: 'YOUTUBE_TITLE_REQUIRED',
+            detail: 'A title is required. YouTube refuses an empty title.',
+          })
+          return
+        }
+        if (typed.length > YT_TITLE_MAX) {
+          res.status(400).json({
+            code: 'YOUTUBE_TITLE_TOO_LONG',
+            detail: `The title is ${typed.length} characters long; YouTube allows at most ${YT_TITLE_MAX}. Shorten it and save again.`,
+          })
+          return
+        }
+        title = typed
+      }
+    }
+    let description: string | null | undefined
+    if (carriesDescription) {
+      if (body.description === null) {
+        description = null
+      } else {
+        // The description is stored EXACTLY as typed, spaces and all. An empty
+        // description is an empty description — it is not turned back into the
+        // generated one, because that would be a reversion the owner never
+        // asked for.
+        const typed = typeof body.description === 'string' ? body.description : ''
+        const descriptionBytes = utf8Bytes(typed)
+        if (descriptionBytes > YOUTUBE_DESCRIPTION_MAX_BYTES) {
+          res.status(400).json({
+            code: 'YOUTUBE_DESCRIPTION_TOO_LONG',
+            detail: `The description is ${descriptionBytes} bytes; YouTube allows at most `
+              + `${YOUTUBE_DESCRIPTION_MAX_BYTES_PUBLISHED} bytes and Story Studio keeps `
+              + `${YOUTUBE_DESCRIPTION_MAX_BYTES} bytes of headroom. Shorten it and save again.`,
+          })
+          return
+        }
+        description = typed
+      }
+    }
+    // The publish gate's own rules, checked here so the owner is told now —
+    // and only for the text this request actually writes. A field that is not
+    // being written is somebody else's text, and a RESET restores text the
+    // upload gate already checks.
+    const junk = findMetadataJunk({
+      title: typeof title === 'string' ? title : '',
+      description: typeof description === 'string' ? description : '',
+    }).filter(finding => (
+      finding.field === 'title' ? typeof title === 'string' : typeof description === 'string'
+    ))
+    if (junk.length) {
+      res.status(400).json({
+        code: 'YOUTUBE_METADATA_NOT_PUBLISHABLE',
+        detail: 'This title and description cannot be published:\n'
+          + junk.map(finding => `  • ${finding.problem}`).join('\n')
+          + '\n\nStory Studio refuses these at upload time as well, so they are caught here '
+          + 'where you can change them.',
+      })
+      return
+    }
+    // And the PLATFORM's own rules: control characters, angle brackets and
+    // the finalizer's private markers are removed from every text, the
+    // owner's included. If they would change what the owner typed, the save
+    // is refused here and the text that WOULD arrive is offered back — so
+    // what the owner approves is exactly what reaches YouTube, on every path,
+    // with no silent change on the way out.
+    //
+    // The EDITORIAL strips (markdown furniture, section labels, the URL
+    // heuristic) are deliberately NOT applied to the owner's text: they are
+    // for a model's words, and the resolver already leaves the owner's words
+    // alone. `asWritten` is the owner's text with the editorial strips
+    // switched off, which is exactly what the uploader will carry.
+    const asWritten = snippetFromMeta({
+      title: typeof title === 'string' ? title : '',
+      description: typeof description === 'string' ? description : '',
+      tags: [], thumbnailPath: '',
+      title_from_override: true, description_from_override: true,
+    })
+    const titleWouldChange = typeof title === 'string' && asWritten.title !== title
+    const descriptionWouldChange = typeof description === 'string' && asWritten.description !== description
+    if (titleWouldChange || descriptionWouldChange) {
+      res.status(400).json({
+        code: 'YOUTUBE_METADATA_WOULD_BE_CHANGED',
+        detail: 'This title and description would be changed on the way to YouTube, so they are '
+          + 'refused here instead:\n'
+          + (titleWouldChange ? '  • the title would lose characters YouTube does not allow\n' : '')
+          + (descriptionWouldChange
+            ? '  • the description would lose characters YouTube does not allow\n' : '')
+          + '\nThe text YouTube would receive is shown below. Use it, or write the text the way '
+          + 'YouTube should show it.',
+        // The CORRECTED text, for the fields that would change. The page puts
+        // it in front of the owner instead of dropping it. A field that is
+        // already exactly what YouTube would receive is left out, so the
+        // owner is never handed text that needs no change.
+        suggestion: {
+          ...(titleWouldChange ? { title: asWritten.title } : {}),
+          ...(descriptionWouldChange ? { description: asWritten.description } : {}),
+        },
+      })
+      return
+    }
+
+    // ── The state the owner reviewed ──────────────────────────────────────
+    const expectedPackageRevision = typeof req.body?.expected_package_revision === 'string'
+      ? req.body.expected_package_revision.trim()
+      : ''
+    if (!expectedPackageRevision) {
+      res.status(400).json({
+        code: 'YOUTUBE_CONFIRMATION_REQUIRED',
+        detail: 'Review the exact YouTube upload details before saving edits to them.',
+      })
+      return
+    }
+    const settings = await resolveYouTubeUploadSettings(slug)
+    const buildInputs = {
+      project_slug: slug,
+      episode_code: episodeCode,
+      privacy_status: req.body?.privacy_status === 'public' || req.body?.privacy_status === 'unlisted'
+        ? req.body.privacy_status as 'public' | 'unlisted'
+        : 'private' as const,
+      ...(typeof req.body?.publish_at === 'string' && req.body.publish_at ? { publish_at: req.body.publish_at } : {}),
+      ...settings,
+      fallback_title: previewTitle,
+      ...(typeof req.body?.thumbnail_filename === 'string' || req.body?.thumbnail_filename === null
+        ? { thumbnail_filename: req.body.thumbnail_filename }
+        : {}),
+    }
+    const reviewed = await buildYouTubeMetadataPackage(buildInputs)
+    if (reviewed.package_revision !== expectedPackageRevision) {
+      res.status(409).json({
+        code: 'YOUTUBE_PREVIEW_STALE',
+        detail: 'The YouTube upload details changed after you opened this review. '
+          + 'Close and reopen it, make your edit again, and save.',
+      })
+      return
+    }
+    // The rendered file the owner reviewed, when there is one.
+    const expectedSourceRevision = typeof req.body?.expected_source_revision === 'string'
+      ? req.body.expected_source_revision.trim()
+      : ''
+    if (expectedSourceRevision) {
+      const sourcePaths = await resolveEpisodePaths(slug, episodeCode, previewTitle)
+      const sourcePath = await findYouTubeSourceVideoPath(sourcePaths, slug, episodeCode, previewTitle)
+      if (sourcePath) {
+        const currentRevision = await resolveYouTubeSourceRevisionCached(sourcePath)
+        if (currentRevision !== expectedSourceRevision) {
+          res.status(409).json({
+            code: 'YOUTUBE_SOURCE_CHANGED',
+            detail: 'The rendered video changed after you opened this review. '
+              + 'Close and reopen it, make your edit again, and save.',
+          })
+          return
+        }
+      }
+    }
+
+    // ── The write ─────────────────────────────────────────────────────────
+    // Only the fields this request carries are written. A field it does not
+    // carry keeps whatever is on disk — and `null` is an explicit RESET, not
+    // an empty value: it puts the generated text back.
+    const patch: { title?: string | null; description?: string | null } = {}
+    if (carriesTitle) patch.title = title ?? null
+    if (carriesDescription) patch.description = description ?? null
+    // The in-flight check runs under the same lock as the write (the guard
+    // is called inside it), so a save cannot land beside a package that is
+    // being sent.
+    await writeTitleAndDescription(slug, episodeCode, previewTitle, 'youtube', patch, async () => {
+      const jobs = await getJobs(slug, { type: 'youtube_upload' })
+      const inFlight = jobs.some(job => job.type === 'youtube_upload' && job.episode_id === episodeCode
+        && ['queued', 'running', 'paused'].includes(job.status))
+      if (inFlight) {
+        throw routeRefusal(
+          409,
+          'YOUTUBE_UPLOAD_IN_FLIGHT',
+          `${episodeCode} has an upload in progress. Wait for it to finish before editing its metadata.`,
+        )
+      }
+    })
+
+    // ── What the owner will actually send ─────────────────────────────────
+    // The refreshed package, built from the live sources AFTER the write.
+    // The page re-seeds its draft from this snippet, so the text on screen is
+    // the text that reaches YouTube — never the raw draft beside a different
+    // payload.
+    const refreshed = await buildYouTubeMetadataPackage(buildInputs)
+    // The write is proved by READING IT BACK, not by the fact that the write
+    // returned. Two proofs, because they answer different questions:
+    //
+    //   1. the sidecar holds what was asked for (an empty description stays
+    //      an empty description; a reset removed the override);
+    //   2. the package that will be sent carries the same bytes for the
+    //      fields that were written — so what the owner approves is what
+    //      reaches YouTube.
+    const stored = await readTitleAndDescription(slug, episodeCode, previewTitle, 'youtube')
+    const storedTitle = stored?.title ?? null
+    const storedDescription = stored?.description ?? null
+    if (carriesTitle && storedTitle !== (typeof title === 'string' ? title : null)) {
+      throw new Error(
+        `The saved title did not reach ${episodeCode}'s upload metadata. `
+        + 'Nothing was uploaded and no other setting was changed — try saving again.',
+      )
+    }
+    if (carriesDescription && storedDescription !== (typeof description === 'string' ? description : null)) {
+      throw new Error(
+        `The saved description did not reach ${episodeCode}'s upload metadata. `
+        + 'Nothing was uploaded and no other setting was changed — try saving again.',
+      )
+    }
+    if (typeof title === 'string' && refreshed.snippet.title !== asWritten.title) {
+      throw new Error(
+        `The saved title did not reach ${episodeCode}'s upload metadata. `
+        + 'Nothing was uploaded and no other setting was changed — try saving again.',
+      )
+    }
+    if (typeof description === 'string' && refreshed.snippet.description !== asWritten.description) {
+      throw new Error(
+        `The saved description did not reach ${episodeCode}'s upload metadata. `
+        + 'Nothing was uploaded and no other setting was changed — try saving again.',
+      )
+    }
+    res.json({
+      episode_code: episodeCode,
+      saved: true,
+      ...await youtubePreviewResponse({ slug, episodeCode, built: refreshed, previewTitle }),
+    })
+  } catch (error) {
+    const tagged = error as { statusCode?: number; code?: string; message?: string } | null
+    if (typeof tagged?.statusCode === 'number' && typeof tagged.code === 'string') {
+      res.status(tagged.statusCode).json({ code: tagged.code, detail: tagged.message || 'Refused.' })
+      return
+    }
+    fail(res, error, 'Failed to save those metadata edits.')
   }
 })
 
@@ -2889,20 +3326,6 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // saw was built by the same builder from the same resolver; rebuilding is
     // what makes a model or limit change since then impossible to smuggle
     // through, and is why no package is frozen and replayed (tell 6).
-    const built = await buildYouTubeMetadataPackage({
-      project_slug: slug,
-      episode_code: episodeCode,
-      privacy_status: req.body?.privacy_status === 'public' || req.body?.privacy_status === 'unlisted'
-        ? req.body.privacy_status
-        : 'private',
-      ...(typeof req.body?.publish_at === 'string' && req.body.publish_at ? { publish_at: req.body.publish_at } : {}),
-      // Same resolver the preview used, so the two cannot disagree.
-      ...(await resolveYouTubeUploadSettings(slug)),
-      fallback_title: episodeTitle,
-      ...(typeof req.body?.thumbnail_filename === 'string' || req.body?.thumbnail_filename === null
-        ? { thumbnail_filename: req.body.thumbnail_filename }
-        : {}),
-    })
     const expectedPackageRevision = typeof req.body?.expected_package_revision === 'string'
       ? req.body.expected_package_revision.trim()
       : ''
@@ -2913,17 +3336,6 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       })
       return
     }
-    if (expectedPackageRevision !== built.package_revision && !await letThrough('reviewed_unchanged',
-      'The YouTube upload details changed after preview; uploading the details as they are now.')) {
-      res.status(409).json({
-        code: 'YOUTUBE_PREVIEW_STALE',
-        detail: 'The YouTube upload details changed after preview. Preview and confirm the upload again.',
-      })
-      return
-    }
-    // A reviewed publish_at is an explicit scheduling choice for THIS upload.
-    // Keep ordinary no-date uploads on the configured private/apply-plan mode.
-    const approvedUploadMode = built.status.publishAt ? 'apply-plan' : await getUploadMode(slug, 'youtube')
 
     // Pre-upload channel eligibility (owner-approved, 2026-10-19).
     //
@@ -2932,6 +3344,10 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // "too long". The refusal belongs HERE — before anything is queued, in words
     // that name the fix — not twenty minutes later as a provider verdict. A
     // channel we cannot ask about is never refused.
+    //
+    // This is a NETWORK question, so it runs OUTSIDE the override lock below:
+    // a lock held across an HTTP call to YouTube would freeze every metadata
+    // save for this episode for the length of that call.
     const preflight = await preflightYouTubeChannel({
       project_slug: slug, account_id: accountId, channel_id: channelId, file_path: sourceVideoPath,
     })
@@ -2949,32 +3365,84 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // allowance fails later, somewhere the owner is not looking.
     await assertYouTubeUploadQuota(slug)
 
-    const job = await enqueueOrRun({
-      project_slug: slug,
-      type: 'youtube_upload',
-      episode_id: episodeCode,
-      params: {
+    // ── The admission ─────────────────────────────────────────────────────
+    // The build, the comparison and the enqueue happen under the OVERRIDE
+    // SIDECAR'S LOCK — the same lock a metadata save takes. That is what makes
+    // "the owner saved a new title" and "the upload was admitted with the text
+    // the owner reviewed" one thing rather than two that can interleave.
+    //
+    // Without it there is a window between the comparison and the enqueue: the
+    // owner saves a new title in that window, the preview they approved is
+    // still the one that was compared, and the upload carries the text they had
+    // just replaced. Under the lock, a save either happens before the build —
+    // and the comparison then sees the new text and refuses the stale preview —
+    // or after the enqueue, when the job already holds the text it was
+    // admitted with.
+    const admission = await withOverrideLock(slug, episodeCode, episodeTitle, async () => {
+      // Rebuilt UNDER the lock, from the sidecar as it is right now.
+      const built = await buildYouTubeMetadataPackage({
+        project_slug: slug,
+        episode_code: episodeCode,
+        privacy_status: req.body?.privacy_status === 'public' || req.body?.privacy_status === 'unlisted'
+          ? req.body.privacy_status
+          : 'private',
+        ...(typeof req.body?.publish_at === 'string' && req.body.publish_at ? { publish_at: req.body.publish_at } : {}),
+        // Same resolver the preview used, so the two cannot disagree.
+        ...(await resolveYouTubeUploadSettings(slug)),
+        fallback_title: episodeTitle,
+        ...(typeof req.body?.thumbnail_filename === 'string' || req.body?.thumbnail_filename === null
+          ? { thumbnail_filename: req.body.thumbnail_filename }
+          : {}),
+      })
+      if (expectedPackageRevision !== built.package_revision && !await letThrough('reviewed_unchanged',
+        'The YouTube upload details changed after preview; uploading the details as they are now.')) {
+        return {
+          refusal: {
+            status: 409,
+            code: 'YOUTUBE_PREVIEW_STALE',
+            detail: 'The YouTube upload details changed after preview. Preview and confirm the upload again.',
+          },
+        }
+      }
+      // A reviewed publish_at is an explicit scheduling choice for THIS upload.
+      // Keep ordinary no-date uploads on the configured private/apply-plan mode.
+      const approvedUploadMode = built.status.publishAt ? 'apply-plan' : await getUploadMode(slug, 'youtube')
+      const job = await enqueueOrRun({
+        project_slug: slug,
+        type: 'youtube_upload',
         episode_id: episodeCode,
-        account_id: accountId,
-        expected_channel_id: channelId,
-        expected_package_revision: built.package_revision,
-        // The revision the owner actually reviewed. The generator compares it
-        // with the hash of the open handle it uploads from and runs the
-        // `reviewed_unchanged` safety check on that comparison — the same
-        // check, on the bytes that are sent, instead of on a second read of
-        // the whole file in the request.
-        expected_source_revision: reviewedSourceRevision,
-        approved_final_payload: built.final_payload,
-        approved_upload_mode: approvedUploadMode,
-        ...(built.thumbnail_filename !== undefined ? { thumbnail_filename: built.thumbnail_filename } : {}),
-        privacy_status: built.status.privacyStatus,
-        // `scheduled_for`, not `publish_at` — that is the key the generator
-        // reads. Emitting the wrong one uploaded a scheduled episode as private
-        // with no transition date, so it would have stayed private forever.
-        ...(built.status.publishAt ? { scheduled_for: built.status.publishAt } : {}),
-        ...(passedChecks.length ? { safety_warnings: passedChecks } : {}),
-      },
+        params: {
+          episode_id: episodeCode,
+          account_id: accountId,
+          expected_channel_id: channelId,
+          expected_package_revision: built.package_revision,
+          // The revision the owner actually reviewed. The generator compares it
+          // with the hash of the open handle it uploads from and runs the
+          // `reviewed_unchanged` safety check on that comparison — the same
+          // check, on the bytes that are sent, instead of on a second read of
+          // the whole file in the request.
+          expected_source_revision: reviewedSourceRevision,
+          approved_final_payload: built.final_payload,
+          approved_upload_mode: approvedUploadMode,
+          ...(built.thumbnail_filename !== undefined ? { thumbnail_filename: built.thumbnail_filename } : {}),
+          privacy_status: built.status.privacyStatus,
+          // `scheduled_for`, not `publish_at` — that is the key the generator
+          // reads. Emitting the wrong one uploaded a scheduled episode as private
+          // with no transition date, so it would have stayed private forever.
+          ...(built.status.publishAt ? { scheduled_for: built.status.publishAt } : {}),
+          ...(passedChecks.length ? { safety_warnings: passedChecks } : {}),
+        },
+      })
+      return { built, job }
     })
+    if (admission.refusal) {
+      res.status(admission.refusal.status).json({
+        code: admission.refusal.code,
+        detail: admission.refusal.detail,
+      })
+      return
+    }
+    const { built, job } = admission
 
     res.json({
       job_id: job.job_id,

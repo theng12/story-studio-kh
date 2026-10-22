@@ -15,6 +15,21 @@
 export const CHAPTERS_BEGIN = '<!-- youtube:chapters:start -->'
 export const CHAPTERS_END = '<!-- youtube:chapters:end -->'
 
+/**
+ * YouTube's own published limit for `snippet.description`: 5,000 bytes.
+ *
+ * Published as a separate figure from the cap below because they are two
+ * different numbers with two different meanings: this one is YouTube's, the
+ * cap below is this app's headroom under it. An editor that shows the owner
+ * "5,000" and then refuses at 4,900 without saying so is the kind of thing
+ * that reads as a bug, so both are named where the owner can see them.
+ */
+export const YOUTUBE_DESCRIPTION_MAX_BYTES_PUBLISHED = 5000
+
+/**
+ * The cap this app enforces: 100 bytes of headroom under YouTube's own
+ * figure above.
+ */
 export const YOUTUBE_DESCRIPTION_MAX_BYTES = 4900
 
 export function utf8Bytes(text: string): number {

@@ -43,7 +43,7 @@ function nestedRunnerEnv() {
  * code are observed the way the gate observes them — the banner and the status
  * are the two things under test, and neither is visible from a direct call.
  */
-async function runFixtureLane(dir) {
+async function runFixtureLane(dir, env = {}) {
   const source = `
     import { runLane } from ${JSON.stringify(WRAPPER)}
     process.exitCode = await runLane('fixture', {
@@ -56,7 +56,7 @@ async function runFixtureLane(dir) {
   `
   const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
     cwd: ROOT,
-    env: nestedRunnerEnv(),
+    env: { ...nestedRunnerEnv(), ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let out = ''
@@ -187,6 +187,28 @@ test('every gate lane runs through a wrapper that proves its own completeness', 
   }
 })
 
+test('the lane keeps its retained evidence in the override root, not the shared Trash', async () => {
+  // The same override the backend runner honours. The main checkout reaches
+  // `_trash` through a symlink into a directory every checkout shares, so a
+  // retained sandbox kept there is at the mercy of that shared directory.
+  // The lane's evidence must land where the operator named instead. The
+  // fixture is retained, not cleaned up.
+  const override = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'lane-retained-root-')))
+  const dir = await fixtureDir('lane-retained-override-')
+  await fs.writeFile(path.join(dir, 'alpha.test.mjs'),
+    'import { test } from "node:test"\ntest("alpha", () => {})\n')
+
+  const { exitCode, out } = await runFixtureLane(dir, {
+    STORY_STUDIO_RETAINED_FIXTURES_ROOT: override,
+  })
+
+  assert.equal(exitCode, 0, out)
+  const container = out.match(/retained external fixture sandbox: (.+)/)?.[1]?.trim()
+  assert.ok(container, `the wrapper must report where it retained the lane sandbox:\n${out}`)
+  assert.ok(container.startsWith(override),
+    `the retained container must live under the override root: ${container}`)
+})
+
 test('only adapted invocations request serial test files', async () => {
   const body = await fs.readFile(WRAPPER, 'utf8')
   const code = body.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
@@ -194,29 +216,48 @@ test('only adapted invocations request serial test files', async () => {
   assert.match(code, /'--test',\s*\.\.\.concurrencyArgs/)
 })
 
-test('a real adapted fixture lane runs test files one at a time, proven by a cross-file marker', async () => {
-  // Exercise the real child invocation as well as its argument wiring.
+test('a real adapted fixture lane schedules its test files one at a time', async () => {
+  // Two proofs in ONE real invocation, neither of them a stopwatch.
+  //
+  // 1. The serial contract. Every child of the adapted invocation inherits
+  //    `--test-concurrency=1`, so a missing flag fails THIS test every time.
+  //    A marker race alone cannot do that: with the flag gone, the two files
+  //    still finish in order whenever the scheduler happens not to interleave
+  //    them, which is a green light for a broken wrapper.
+  // 2. The ordered marker. The first file's completion marker is on disk
+  //    before the second file starts, which is what "one at a time" looks
+  //    like from the inside. The marker is written by an awaited async write,
+  //    so nothing here bets on a duration: no sleep, no clock, no timeout.
   const dir = await fixtureDir('lane-serialization-')
   try {
     const marker = path.join(dir, 'sequence.marker')
+    // The contract every child of the adapted invocation must inherit.
+    const serialContract = 'function assertSerialContract() {\n'
+      + '  const serial = process.execArgv.filter(arg => arg.startsWith("--test-concurrency="))\n'
+      + '  assert.deepEqual(serial, ["--test-concurrency=1"],\n'
+      + '    "the adapted invocation must hand every child the serial runner contract")\n'
+      + '}\n'
     await fs.writeFile(path.join(dir, 'a-sequencer.test.mjs'),
       'import { test } from "node:test"\n'
-      + 'import fs from "node:fs"\n'
+      + 'import assert from "node:assert/strict"\n'
+      + 'import fs from "node:fs/promises"\n'
       + `const marker = ${JSON.stringify(marker)}\n`
-      + 'test("sequencer writes start then end", async () => {\n'
-      + '  fs.writeFileSync(marker, "start")\n'
-      + '  await new Promise(r => setTimeout(r, 250))\n'
-      + '  fs.writeFileSync(marker, "end")\n'
+      + serialContract
+      + 'test("the first file inherits the serial contract, then completes", async () => {\n'
+      + '  assertSerialContract()\n'
+      + '  await fs.writeFile(marker, "a-done")\n'
       + '})\n')
     await fs.writeFile(path.join(dir, 'b-verifier.test.mjs'),
       'import { test } from "node:test"\n'
       + 'import assert from "node:assert/strict"\n'
-      + 'import fs from "node:fs"\n'
+      + 'import fs from "node:fs/promises"\n'
       + `const marker = ${JSON.stringify(marker)}\n`
-      + 'test("verifier sees the end marker proving serialization", () => {\n'
-      + '  const content = fs.readFileSync(marker, "utf8")\n'
-      + '  assert.equal(content, "end",\n'
-      + '    "if this sees start or empty, files ran concurrently — concurrency=1 failed")\n'
+      + serialContract
+      + 'test("the second file inherits the serial contract and starts after the first finished", async () => {\n'
+      + '  assertSerialContract()\n'
+      + '  const content = await fs.readFile(marker, "utf8").catch(() => "")\n'
+      + '  assert.equal(content, "a-done",\n'
+      + '    "the first file must have finished before the second one started")\n'
       + '})\n')
 
     const { exitCode, out } = await runFixtureLane(dir)

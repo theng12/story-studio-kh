@@ -203,13 +203,18 @@ for (const status of ['done', 'running', 'error']) {
 
 test('both Jobs cards mount recovery diagnostics only inside the expanded Technical details drawer', () => {
   const page = readFileSync(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url), 'utf8')
+  const details = readFileSync(new URL('../components/JobCardDetails.vue', import.meta.url), 'utf8')
   const drawers = [...page.matchAll(/<AdvancedDisclosure[\s\S]*?<\/AdvancedDisclosure>/g)]
     .map(match => match[0]).filter(drawer => drawer.includes('label="Technical details"'))
   assert.equal(drawers.length, 2)
   for (const drawer of drawers) {
-    assert.match(drawer, /<template v-if="expanded === job.job_id">[\s\S]*<EpisodeRecoveryStatus :job="job" diagnostics-only \/>/)
+    assert.match(drawer, /<template v-if="expanded === job.job_id">[\s\S]*<JobCardDetails/)
   }
-  assert.equal((page.match(/diagnostics-only/g) || []).length, 2)
+  // The diagnostics-only copy lives in the ONE shared details body both
+  // drawers render, so it is mounted once and only inside the drawer.
+  assert.equal((details.match(/diagnostics-only/g) || []).length, 1)
+  assert.equal((page.match(/diagnostics-only/g) || []).length, 0)
+  assert.match(details, /<EpisodeRecoveryStatus :job="job" diagnostics-only \/>/)
 })
 
 test('many missing sections retain one visible reason and their total instead of a chapter wall', async () => {

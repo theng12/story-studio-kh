@@ -297,6 +297,8 @@
       :refresh-key="reviewRefreshKey"
       :thumbnail-headline-mode="thumbnailHeadlineMode"
       :thumbnail-prompt-cap="effectivePromptCharCap || null"
+      :thumbnail-prompt-cap-setting="form.thumbnail.prompt_char_cap"
+      :thumbnail-intended-image-model="form.thumbnail.intended_image_model"
       :thumbnail-model-label="intendedImageModel?.display_name || ''"
       :thumbnail-font-style="form.thumbnail.thumb_font_style"
       :thumbnail-text-style="form.thumbnail.thumb_text_style"
@@ -929,7 +931,14 @@ async function runGenerate(replaceAll = false) {
       : undefined,
     thumb_reference_style: form.thumbnail.thumb_reference_style,
     thumb_creative_direction: form.thumbnail.thumb_creative_direction,
-    prompt_char_cap: effectivePromptCharCap.value || undefined,
+    // The SELECTION travels, not a number resolved here. The backend resolves
+    // it against the LIVE catalogue for the image model these prompts are
+    // written for, so the ceiling follows the model: an 'auto' choice cannot
+    // freeze into a stale number, and a model switch cannot leave an obsolete
+    // ceiling behind. The resolved number is shown on the rows below; it is
+    // never what a request carries.
+    intended_image_model: form.thumbnail.intended_image_model,
+    prompt_char_cap: form.thumbnail.prompt_char_cap,
     title: selectedEpisode.value?.title || '',
     mode: 'thumbnails',
     character_ids: activeForm.value.character_ids,
@@ -946,8 +955,9 @@ async function runGenerate(replaceAll = false) {
       // chunked generation. total_scenes is no longer sent; the
       // executor still reads it as a fallback for legacy presets but
       // the form no longer surfaces it.
-      // The RESOLVED ceiling. Only this page knows which image model these
-      // prompts are for; 0 → undefined → no limit is sent.
+      // The character ceiling is NOT resolved here — the selection and the
+      // intended image model travel in `payload`, and the backend resolves the
+      // ceiling against the live catalogue when the job is admitted.
       // Cast for this generation. Backend resolves these via
       // character-manager and folds the descriptions into the LLM prompt
       // so every scene/thumbnail prompt actually includes them.

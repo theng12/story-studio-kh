@@ -15,6 +15,23 @@ type FinalPayload = {
   snippet_json: string
   status_json: string
   source_sha256: string
+  /**
+   * Whether the frozen title is the OWNER's own text rather than a model's.
+   *
+   * The editorial strips (markdown furniture, section labels, the URL
+   * heuristic) exist for a model's words. They do not apply to text the
+   * owner typed and approved, and the record must be able to say so LATER:
+   * a payload frozen at accept time is pushed back to YouTube days after,
+   * and re-deriving that from the live sidecar would answer a different
+   * question than the one the payload was frozen with.
+   *
+   * Optional: a payload frozen before this field existed carries no
+   * authorship, and stays valid — it is treated as generated text, which is
+   * what every payload before this field was.
+   */
+  title_authored?: boolean
+  /** Whether the frozen description is the OWNER's own text. */
+  description_authored?: boolean
 }
 
 type ProcessingState = {
@@ -249,6 +266,13 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], name: st
   return value as T
 }
 
+function boolean(value: unknown, name: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw corrupt(`The YouTube operation record has an invalid ${name}.`)
+  }
+  return value
+}
+
 function optionalText(value: Record<string, unknown>, key: string, name = key): string | undefined {
   if (!hasOwn(value, key)) return undefined
   return text(value[key], name)
@@ -272,7 +296,9 @@ function decodeResumable(value: unknown): ResumableState {
 
 function decodeFinalPayload(value: unknown): FinalPayload {
   if (!isRecord(value)) throw corrupt('The YouTube operation final payload is invalid.')
-  exactKeys(value, ['snippet_json', 'status_json', 'source_sha256'])
+  // The authorship fields are OPTIONAL: a payload frozen before they existed
+  // decodes exactly as it always did, and is treated as generated text.
+  exactKeys(value, ['snippet_json', 'status_json', 'source_sha256'], ['title_authored', 'description_authored'])
   const snippet = text(value.snippet_json, 'final_payload.snippet_json')
   const status = text(value.status_json, 'final_payload.status_json')
   try {
@@ -280,7 +306,17 @@ function decodeFinalPayload(value: unknown): FinalPayload {
   } catch {
     throw corrupt('The YouTube operation final payload JSON is invalid.')
   }
-  return { snippet_json: snippet, status_json: status, source_sha256: text(value.source_sha256, 'final_payload.source_sha256') }
+  return {
+    snippet_json: snippet,
+    status_json: status,
+    source_sha256: text(value.source_sha256, 'final_payload.source_sha256'),
+    ...(hasOwn(value, 'title_authored')
+      ? { title_authored: boolean(value.title_authored, 'final_payload.title_authored') }
+      : {}),
+    ...(hasOwn(value, 'description_authored')
+      ? { description_authored: boolean(value.description_authored, 'final_payload.description_authored') }
+      : {}),
+  }
 }
 
 function decodeProcessing(value: unknown): ProcessingState {

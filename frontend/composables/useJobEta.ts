@@ -9,7 +9,7 @@
  * rate, so nothing here may fall back to a table of "audio takes 12s an item".
  * A guess that looks like a measurement is worse than no number at all.
  *
- * Two clocks are available and this module uses both:
+ * Three clocks are available and this module uses all three:
  *
  *   1. `item_progress.completed` sampled against wall-clock. The page feeds
  *      one sample per SSE/poll refresh into `recordEtaSample`; the window it
@@ -20,6 +20,10 @@
  *      new Date().toISOString()` sits in the same object literal as
  *      `queue_state`). That makes the newest settled item's `updated_at` a
  *      real settlement clock, so no new server field was needed.
+ *   3. `genstudio_jobs[].last_provider_progress_at` — the PROVIDER's own
+ *      statement that an item moved. It is the only clock that exists for an
+ *      item still in flight, and it is published rather than derived, so it
+ *      is used exactly as it stands.
  *
  * Everything is a plain function over plain data — no Vue, no refs — so it can
  * be unit-tested directly the way `useBatchSummary.ts` is.
@@ -32,8 +36,12 @@ import {
   MUSIC_RESULT_AWAITING_IMPORT_GUIDANCE,
   holdsUnknownMusicResult,
   holdsUnknownProviderOutcome,
-  isFreeFleetWork,
 } from '@shared/provider-task-state'
+// The ONE bucketing of a Gateway request's state, the same one the Gateway
+// item list reads (`jobStateBucket` → 'held'). It is built on the published
+// `holdsUnknownProviderOutcome` predicate, so reading it here means the card
+// and the item list can never describe one request two ways.
+import { jobStateBucket } from '../utils/job-presentation.js'
 
 // ── Shapes ────────────────────────────────────────────────────────────────
 // Structural, not imported from the contract, so a test can hand these
@@ -69,7 +77,11 @@ export interface RemoteJobLike {
   waiting?: unknown
   state?: string
   queue_state?: string
+  /** The customer cancelled this request — it is not held, whatever else it says. */
+  cancelled?: boolean | null
   updated_at?: string
+  /** The provider's own progress timestamp, when it published one. */
+  last_provider_progress_at?: string | null
   failure_code?: string | null
   settled_credits?: number
   /** Nullable on the wire — GenStudio publishes an explicit null. */
@@ -153,10 +165,23 @@ export function summariseJobItems(
 ): JobItemCounts {
   const total = count(progress?.total)
   const finished = count(progress?.completed)
-  // A song the Gateway still holds as an unknown outcome, or finished but not imported yet, is
-  // still settling, not "needs another try".
-  const held = Math.min(count(progress?.failed), (remoteJobs || []).filter(remote =>
-    remote.operation === 'music.generation' && holdsUnknownProviderOutcome(remote)).length + count(awaitingImport))
+  // A request the Gateway still holds as an unknown outcome is SETTLING, not
+  // "needs another try" — for EVERY operation, not only for a song. The rule
+  // is the Gateway item list's own bucketing (`jobStateBucket` → 'held'),
+  // which is built on the published `holdsUnknownProviderOutcome` predicate,
+  // so the card and that list can never describe one request two ways: the
+  // list said "Held — outcome unknown" for a held image while the card said
+  // "1 needs another try" for the same request.
+  //
+  // A finished song that is not in the library yet is held in the same way.
+  //
+  // The count is capped by the number of failed items, so `failed + held` is
+  // always exactly the failed count the server published: a held item is
+  // MOVED out of "needs another try", never subtracted from anything twice.
+  // The queued and waiting counts are read from their own fields and are
+  // untouched by this.
+  const heldOutcomeCount = (remoteJobs || []).filter(remote => jobStateBucket(remote) === 'held').length
+  const held = Math.min(count(progress?.failed), heldOutcomeCount + count(awaitingImport))
   const failed = count(progress?.failed) - held
   const cancelled = count(progress?.cancelled)
   const active = progress?.active || []
@@ -347,12 +372,16 @@ function isSettledRemote(remote: RemoteJobLike): boolean {
 /**
  * When work last visibly moved, in epoch ms, or null if it never has.
  *
- * Two independent clocks, whichever is more recent:
+ * Three independent clocks, whichever is the most recent:
  *   • the last observed increase in `item_progress.completed` (our own
  *     sampling — a window of one sample is a first sighting, not a completion,
  *     so it does not count);
  *   • the newest `updated_at` among SETTLED remote items, which GenStudio's
- *     client rewrites as each item reaches its terminal state.
+ *     client rewrites as each item reaches its terminal state;
+ *   • `last_provider_progress_at` on ANY remote item — the provider's OWN
+ *     statement that this item moved. It is the only clock that exists for an
+ *     item still in flight, and it is published, not derived, so it is used
+ *     as it stands.
  *
  * Null rather than zero when there is nothing: a card must say nothing at all
  * rather than claim "0s ago" for a job that has never completed anything.
@@ -366,6 +395,10 @@ export function lastProgressAt(
     latest = window[window.length - 1]!.at
   }
   for (const remote of remoteJobs || []) {
+    // The provider's own progress timestamp counts for any item — it is
+    // evidence of movement, not of settlement.
+    const progressed = millis(remote.last_provider_progress_at)
+    if (progressed !== null && (latest === null || progressed > latest)) latest = progressed
     if (!isSettledRemote(remote)) continue
     const at = millis(remote.updated_at)
     if (at !== null && (latest === null || at > latest)) latest = at
@@ -448,6 +481,18 @@ function settlementNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
 
+/**
+ * A remote item whose credits are FINAL: it reached a terminal state and the
+ * Gateway is not still holding its outcome.
+ *
+ * A failed item the Gateway holds as an unknown outcome (a song it may yet
+ * adopt) is terminal but NOT settled — its reservation is still held, and
+ * saying otherwise would report a charge the Gateway has not confirmed.
+ */
+function isFinalRemote(remote: RemoteJobLike): boolean {
+  return isSettledRemote(remote) && !holdsUnknownProviderOutcome(remote)
+}
+
 /** Published settlement must be complete and balanced before it is final. */
 export function summariseSettlement(remotes: readonly RemoteJobLike[] | null | undefined): SettlementSummary {
   const items = remotes || []
@@ -461,8 +506,9 @@ export function summariseSettlement(remotes: readonly RemoteJobLike[] | null | u
     const released = settlementNumber(remote.released_credits)
     if (settled !== null) charged += settled
     if (released !== null) returned += released
-    if (!isSettledRemote(remote) && reserved !== null && (settled ?? 0) === 0 && (released ?? 0) === 0) held += reserved
-    if (!isSettledRemote(remote)
+    const final = isFinalRemote(remote)
+    if (!final && reserved !== null && (settled ?? 0) === 0 && (released ?? 0) === 0) held += reserved
+    if (!final
       || reserved === null || settled === null || released === null
       || settled + released !== reserved) confirmed = false
   }
@@ -476,8 +522,9 @@ function secondsUntil(iso: string | undefined, nowMs: number): number | null {
 
 /**
  * One line per thing that went wrong, in the register the owner asked for:
- * what failed, what it cost, what happens next. No codes, no ids, no counts
- * standing in for the work — those all live in Technical details.
+ * what happened, and what happens next. No codes, no ids, no counts standing in
+ * for the work — the counts live on the card's one summary line and the codes
+ * live in Technical details.
  *
  * Deliberately uncapped. A wall of per-scene lines for work that is going FINE
  * is what this redesign removes; a line per genuine exception is the thing it
@@ -496,6 +543,12 @@ export function describeJobExceptions(
   const counts = summariseJobItems(job.item_progress, job.genstudio_jobs)
   const waiting = (job.item_progress?.active || []).find(item => item.state === 'waiting_retry')
   const canContinueAutomatically = job.status !== 'paused'
+  // A request the Gateway still holds as an unknown outcome must NOT be
+  // continued, replaced or retried: the Gateway may yet adopt its result, and
+  // running it again would run it twice. The Gateway item list says so ("Held
+  // — outcome unknown"); the card must not say the opposite beside it. This
+  // is the same bucketing that list reads, so the two cannot drift.
+  const holdsUnknownOutcome = (job.genstudio_jobs || []).some(remote => jobStateBucket(remote) === 'held')
   const lines: JobExceptionLine[] = []
   if (counts.waiting && canContinueAutomatically) {
     if (counts.waitingForMac) {
@@ -511,36 +564,34 @@ export function describeJobExceptions(
     }
   }
   if (counts.failed > 0) {
+    // The COUNT of failed items is on the card's one summary line ("N need
+    // another try"), so it is not repeated here. What the count cannot say is
+    // what to DO about it, and that is what an exception line is for.
     const contentRefused = (job.genstudio_jobs || []).some(remote =>
       remoteState(remote) === 'failed' && remote.operation === 'image.generation' && remote.failure_code === 'IMAGE_CONTENT_REFUSED')
-    const noun = String(job.type || '').includes('image')
-      || contentRefused
-      || job.genstudio_jobs?.some(remote => String(remote.operation || '').startsWith('image.'))
-      ? 'image'
-      : 'item'
-    const plural = counts.failed === 1 ? noun : `${noun}s`
-    const prefix = counts.finished > 0
-      ? `${counts.finished.toLocaleString()} ${counts.finished === 1 ? noun : `${noun}s`} ${counts.finished === 1 ? 'is' : 'are'} ready. `
-      : ''
-    lines.push({
-      key: 'output-gap',
-      text: `${prefix}${counts.failed.toLocaleString()} ${plural} ${counts.failed === 1 ? 'needs' : 'need'} another try.`
-        + (contentRefused ? ' Review the prompt before trying again.' : ''),
-    })
+    if (contentRefused) {
+      lines.push({
+        key: 'content-refused',
+        text: 'The provider declined this image. Review the prompt before trying again.',
+      })
+    }
   } else if (counts.waiting) {
     // The waiting line above (or the pause) already says what happens next.
-  } else if (canContinueAutomatically && counts.remaining > 0 && (counts.queued > 0
+  } else if (!holdsUnknownOutcome && canContinueAutomatically && counts.remaining > 0 && (counts.queued > 0
       || (job.genstudio_jobs || []).some(remote => remoteState(remote) === 'waiting_account_capacity'))) {
+    // …and it is not said while something is held: "Story Studio will continue
+    // automatically" is exactly the claim a hold forbids. The queued count is
+    // still on the card's one summary line, so nothing about the queued work
+    // is lost.
     lines.push({ key: 'waiting-capacity', text: 'Waiting for capacity — Story Studio will continue automatically.' })
   } else if (counts.remaining > 0 && !counts.inFlight && !(job.genstudio_jobs || []).length) {
+    // A job with no Gateway requests at all holds nothing, so this branch is
+    // unreachable while something is held.
     lines.push({ key: 'waiting-start', text: 'Waiting to start.' })
   }
-  const settlement = summariseSettlement(job.genstudio_jobs)
-  // Free fleet work costs nothing, so there is no credit outcome to wait for.
-  if ((job.genstudio_jobs || []).length && !settlement.confirmed && !isFreeFleetWork(job.genstudio_jobs)) {
-    const returned = settlement.returned > 0 ? `${settlement.returned.toLocaleString()} credits returned so far. ` : ''
-    lines.push({ key: 'credit-pending', text: `${returned}Credit outcome pending — Story Studio is checking the Gateway.` })
-  }
+  // The credit outcome is NOT an exception. It is a fact the card carries in
+  // its one credit line (figures + whether the Gateway has confirmed them), so
+  // it is said once, calmly, instead of a second time as a warning.
 
   return lines
 }

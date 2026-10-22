@@ -528,63 +528,75 @@
           </span>
         </div>
 
-        <!-- Row 3: the progress tracker. Counts first, in words, because the
-             question this card exists to answer is "how much is left" — and
-             the wall of one-line-per-scene it replaces answered that only by
-             making the reader count. -->
-        <div v-if="job.item_progress && !isVerifiedRecoveredSubtitleJob(job)" class="job-stats">
-          <span class="job-stat">
-            <strong>{{ jobCounts(job).total.toLocaleString() }}</strong>
-            <span class="job-stat-label">total</span>
-          </span>
-          <span class="job-stat is-inflight">
-            <strong>{{ jobCounts(job).inFlight.toLocaleString() }}</strong>
-            <span class="job-stat-label">generating right now</span>
-          </span>
-          <span class="job-stat is-finished">
-            <strong>{{ jobCounts(job).finished.toLocaleString() }}</strong>
-            <span class="job-stat-label">finished</span>
-          </span>
-          <span class="job-stat">
-            <strong>{{ jobCounts(job).remaining.toLocaleString() }}</strong>
-            <span class="job-stat-label">left in this run</span>
-          </span>
-          <span v-if="jobCounts(job).waiting" class="job-stat is-muted">
-            <strong>{{ jobCounts(job).waiting.toLocaleString() }}</strong>
-            <span class="job-stat-label">{{ jobCounts(job).waitingForMac ? 'waiting for a free Mac' : 'waiting to try again' }}</span>
-          </span>
-          <span v-if="jobCounts(job).failed" class="job-stat is-failed">
-            <strong>{{ jobCounts(job).failed.toLocaleString() }}</strong>
-            <span class="job-stat-label">needs another try</span>
-          </span>
-          <span v-if="jobCounts(job).queued" class="job-stat is-muted">
-            <strong>{{ jobCounts(job).queued.toLocaleString() }}</strong>
-            <span class="job-stat-label">not sent yet</span>
-          </span>
-          <span v-if="jobCounts(job).settling" class="job-stat is-muted">
-            <strong>{{ jobCounts(job).settling.toLocaleString() }}</strong>
-            <span class="job-stat-label">settling</span>
-          </span>
-          <!-- Measured, never assumed — see useJobEta.ts. Absent until this
-               job's own rate or its class's median can support one. -->
-          <span
-            v-if="jobEta(job) || jobFreshness(job)"
-            class="job-stat-telemetry"
-            role="group"
-            aria-label="Job timing"
-          >
-            <span v-if="jobEta(job)" class="job-stat-eta">{{ jobEta(job) }}</span>
-            <!-- "when did something last actually happen". A quiet card is the
-                 reason this page gets opened; silence must be legible. -->
-            <span
-              v-if="jobFreshness(job)"
-              class="job-stat-fresh"
-              :class="{ 'is-stale': jobProgressStale(job) }"
-            >{{ jobFreshness(job) }}</span>
-          </span>
-        </div>
+        <!-- Row 3: the progress tracker. Now ONE line: the counts, then the
+             measured timing readings at the trailing edge.
+             The card used to answer "how is it going?" with a stat row, a
+             provider status line, a queue line, a money row, a settlement box
+             and an exception line — several of which said the same thing in
+             different words ("Running", "CheckingProviderStatus", "The
+             Gateway is generating", "credit pending", "awaiting settlement").
 
-        <!-- Money: three figures, nothing else. The per-item ledger that used
+             Now there is one line of counts, one line about the money, and one
+             line per genuine exception. The provider's own wording is still
+             available — it lives in Technical details, where diagnostics
+             belong.
+
+             NOT a live region. The timing readings at the end of this line
+             tick every second, and a `role="status"` region announces its
+             whole content whenever any of it changes — so a screen reader
+             would repeat the counts, the estimate and the freshness every
+             second for as long as the job was fresh. The counts are read on
+             demand; the ticking text is not a state change worth announcing. -->
+        <p v-if="jobHasSummary(job)" class="job-summary-line">
+          <span class="job-summary-counts">
+            <template v-if="job.item_progress && !isVerifiedRecoveredSubtitleJob(job)">
+              <span class="job-stat">
+                <strong>{{ jobCounts(job).finished.toLocaleString() }}</strong> of {{ jobCounts(job).total.toLocaleString() }} done
+              </span>
+              <span v-if="jobCounts(job).inFlight" class="job-stat is-inflight">
+                <strong>{{ jobCounts(job).inFlight.toLocaleString() }}</strong> generating right now
+              </span>
+              <span v-if="jobCounts(job).remaining" class="job-stat">
+                <strong>{{ jobCounts(job).remaining.toLocaleString() }}</strong> left in this run
+              </span>
+              <span v-if="jobCounts(job).waiting" class="job-stat is-muted">
+                <strong>{{ jobCounts(job).waiting.toLocaleString() }}</strong> {{ jobCounts(job).waitingForMac ? 'waiting for a free Mac' : 'waiting to try again' }}
+              </span>
+              <span v-if="jobCounts(job).failed" class="job-stat is-failed">
+                <strong>{{ jobCounts(job).failed.toLocaleString() }}</strong> needs another try
+              </span>
+              <span v-if="jobCounts(job).queued" class="job-stat is-muted">
+                <strong>{{ jobCounts(job).queued.toLocaleString() }}</strong> not sent yet
+              </span>
+              <span v-if="jobCounts(job).settling" class="job-stat is-muted">
+                <strong>{{ jobCounts(job).settling.toLocaleString() }}</strong> settling
+              </span>
+            </template>
+            <!-- A local render has no items and no provider. What it HAS is a
+                 state of its own, and it is the only thing worth saying. -->
+            <span v-if="finalRenderDetail(job)" class="job-stat">{{ finalRenderDetail(job) }}</span>
+            <!-- Measured, never assumed — see useJobEta.ts. Absent until this
+                 job's own rate or its class's median can support one. -->
+            <span
+              v-if="jobEta(job) || jobFreshness(job)"
+              class="job-stat-telemetry"
+              role="group"
+              aria-label="Job timing"
+            >
+              <span v-if="jobEta(job)" class="job-stat-eta">{{ jobEta(job) }}</span>
+              <!-- "when did something last actually happen". A quiet card is the
+                   reason this page gets opened; silence must be legible. -->
+              <span
+                v-if="jobFreshness(job)"
+                class="job-stat-fresh"
+                :class="{ 'is-stale': jobProgressStale(job) }"
+              >{{ jobFreshness(job) }}</span>
+            </span>
+          </span>
+        </p>
+
+        <!-- Money: ONE line. Three figures, the one sentence that explains
+             them, and the link to the record. The per-item ledger that used
              to sit here is in Technical details. -->
         <template v-if="job.genstudio_jobs?.length && !isFreeFleetWork(job.genstudio_jobs)">
           <template v-for="summary in [jobCreditSummary(job)]" :key="job.job_id">
@@ -600,21 +612,15 @@
               <span v-if="summary.charged" class="job-money-figure charged">{{ summary.charged.toLocaleString() }} credits {{ summary.confirmed ? 'charged' : 'charged so far' }}</span>
               <span v-if="summary.held" class="job-money-figure held">{{ summary.held.toLocaleString() }} credits on hold</span>
               <span v-if="summary.returned" class="job-money-figure returned">{{ summary.returned.toLocaleString() }} credits {{ summary.confirmed ? 'returned' : 'returned so far' }}</span>
+              <!-- The one sentence about the money. It used to be three: a
+                   settlement box, an exception line about a pending credit
+                   outcome, and "Awaiting settlement" in the item panel. -->
+              <GenStudioCreditSettlementHint :remote-jobs="summary.remoteJobs" compact inline :link="false" />
               <NuxtLink v-if="!summary.confirmed" class="job-money-figure" to="/usage">Credits &amp; settlement</NuxtLink>
             </template>
             </div>
-            <GenStudioCreditSettlementHint :remote-jobs="summary.remoteJobs" compact />
           </template>
         </template>
-        <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
-          {{ genStudioStatusDetail(job) }}
-        </p>
-        <p v-if="genStudioQueueDetail(job)" class="genstudio-queue-detail" role="status">
-          {{ genStudioQueueDetail(job) }}
-        </p>
-        <p v-if="finalRenderDetail(job)" class="genstudio-queue-detail final-render-detail" role="status">
-          {{ finalRenderDetail(job) }}
-        </p>
         <p v-if="paidImageReplacementAttemptText(job)" class="paid-image-replacement-attempt" role="status">
           {{ paidImageReplacementAttemptText(job) }}
         </p>
@@ -651,54 +657,17 @@
           @update:open="setTechnicalOpen(job.job_id, $event)"
         >
           <template v-if="expanded === job.job_id">
-            <p v-if="expandSummary(job)" class="technical-summary">{{ expandSummary(job) }}</p>
-            <EpisodeRecoveryStatus :job="job" diagnostics-only />
-            <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="settledRemoteJobs(job)" :items="job.item_progress ? jobCounts(job) : null" :free="isFreeFleetWork(job.genstudio_jobs)" />
-            <!--
-              What the job is actually working on, item by item. A percentage
-              says how far; a long-running step that reports nothing else is
-              indistinguishable from a hang, and that ambiguity has already
-              produced a wrong diagnosis. `waiting_retry` in particular is a
-              job doing exactly what it should and must not read as stuck.
-            -->
-            <div v-if="job.item_progress" class="job-items">
-              <span class="job-items-count">
-                {{ job.item_progress.completed }} of {{ job.item_progress.total }} done
-              </span>
-              <span v-if="jobCounts(job).waiting" class="job-items-note">
-                · {{ jobCounts(job).waiting }} {{ jobCounts(job).waitingForMac ? 'waiting for a free Mac' : 'waiting to try again' }}
-              </span>
-              <span v-if="job.item_progress.failed" class="job-items-failed">
-                · {{ job.item_progress.failed }} failed
-              </span>
-              <span v-if="job.item_progress.settling" class="job-items-note">
-                · {{ job.item_progress.settling }} settling
-              </span>
-              <span v-if="job.item_progress.cancelled" class="job-items-note">
-                · {{ job.item_progress.cancelled }} cancelled by customer
-              </span>
-              <span v-if="job.item_progress.not_submitted" class="job-items-note">
-                · {{ job.item_progress.not_submitted }} not submitted
-              </span>
-              <span
-                v-if="job.item_progress.concurrency === 1 && job.item_progress.total > 1"
-                class="job-items-note"
-                title="Sent to the provider one request at a time, on purpose — a whole batch at once gets most of it refused."
-              >· one at a time</span>
-              <span
-                v-for="item in job.item_progress.active"
-                :key="item.key || item.label"
-                class="job-items-active"
-                :class="{ waiting: item.state === 'waiting_retry' }"
-              >· {{ itemAttemptText(item) }}</span>
-            </div>
-            <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
-            <div v-if="job.output_lines?.length" class="job-output">
-              <code v-for="(line, i) in visibleJobOutputLines(job.output_lines)" :key="i">{{ customerJobText(line, job) }}</code>
-            </div>
-            <div class="job-technical-ids">
-              <span v-if="getOutputDir(job)" class="meta-tag"><span class="meta-label">Output folder:</span> {{ getOutputDir(job) }}</span>
-            </div>
+            <!-- ONE shared details body. The Active card and the History card
+                 used to carry two copies of these blocks, and the copies
+                 drifted apart. -->
+            <JobCardDetails
+              :job="job"
+              :remote-jobs="settledRemoteJobs(job)"
+              :counts="job.item_progress ? jobCounts(job) : null"
+              :provider-status="genStudioStatusDetail(job)"
+              :provider-queue="genStudioQueueDetail(job)"
+              :now-ms="now"
+            />
           </template>
         </AdvancedDisclosure>
 
@@ -892,35 +861,52 @@
             </span>
           </div>
 
-          <!-- History has no in-flight work and no ETA — its final counts,
-               its money, its exceptions, and the same drawer. -->
-          <div v-if="job.item_progress && !isVerifiedRecoveredSubtitleJob(job)" class="job-stats">
-            <span class="job-stat">
-              <strong>{{ jobCounts(job).total.toLocaleString() }}</strong>
-              <span class="job-stat-label">total</span>
+          <!-- History reads exactly like Active: ONE summary line of counts,
+               ONE line about the money. Its final counts, its exceptions and
+               the same drawer. -->
+          <p v-if="jobHasSummary(job)" class="job-summary-line">
+            <span class="job-summary-counts">
+              <template v-if="job.item_progress && !isVerifiedRecoveredSubtitleJob(job)">
+                <span class="job-stat">
+                  <strong>{{ jobCounts(job).finished.toLocaleString() }}</strong> of {{ jobCounts(job).total.toLocaleString() }} done
+                </span>
+                <span v-if="jobCounts(job).inFlight" class="job-stat is-inflight">
+                  <strong>{{ jobCounts(job).inFlight.toLocaleString() }}</strong> generating right now
+                </span>
+                <span v-if="jobCounts(job).remaining" class="job-stat">
+                  <strong>{{ jobCounts(job).remaining.toLocaleString() }}</strong> left in this run
+                </span>
+                <span v-if="jobCounts(job).waiting" class="job-stat is-muted">
+                  <strong>{{ jobCounts(job).waiting.toLocaleString() }}</strong> {{ jobCounts(job).waitingForMac ? 'waiting for a free Mac' : 'waiting to try again' }}
+                </span>
+                <span v-if="jobCounts(job).failed" class="job-stat is-failed">
+                  <strong>{{ jobCounts(job).failed.toLocaleString() }}</strong> needs another try
+                </span>
+                <span v-if="jobCounts(job).queued" class="job-stat is-muted">
+                  <strong>{{ jobCounts(job).queued.toLocaleString() }}</strong> not sent yet
+                </span>
+                <span v-if="jobCounts(job).settling" class="job-stat is-muted">
+                  <strong>{{ jobCounts(job).settling.toLocaleString() }}</strong> settling
+                </span>
+              </template>
+              <span v-if="finalRenderDetail(job)" class="job-stat">{{ finalRenderDetail(job) }}</span>
+              <span
+                v-if="jobEta(job) || jobFreshness(job)"
+                class="job-stat-telemetry"
+                role="group"
+                aria-label="Job timing"
+              >
+                <span v-if="jobEta(job)" class="job-stat-eta">{{ jobEta(job) }}</span>
+                <span
+                  v-if="jobFreshness(job)"
+                  class="job-stat-fresh"
+                  :class="{ 'is-stale': jobProgressStale(job) }"
+                >{{ jobFreshness(job) }}</span>
+              </span>
             </span>
-            <span class="job-stat is-finished">
-              <strong>{{ jobCounts(job).finished.toLocaleString() }}</strong>
-              <span class="job-stat-label">finished</span>
-            </span>
-            <span class="job-stat">
-              <strong>{{ jobCounts(job).remaining.toLocaleString() }}</strong>
-              <span class="job-stat-label">left in this run</span>
-            </span>
-            <span v-if="jobCounts(job).failed" class="job-stat is-failed">
-              <strong>{{ jobCounts(job).failed.toLocaleString() }}</strong>
-              <span class="job-stat-label">needs another try</span>
-            </span>
-            <span v-if="jobCounts(job).queued" class="job-stat is-muted">
-              <strong>{{ jobCounts(job).queued.toLocaleString() }}</strong>
-              <span class="job-stat-label">not sent yet</span>
-            </span>
-            <span v-if="jobCounts(job).settling" class="job-stat is-muted">
-              <strong>{{ jobCounts(job).settling.toLocaleString() }}</strong>
-              <span class="job-stat-label">settling</span>
-            </span>
-          </div>
+          </p>
 
+          <!-- Money: ONE line, same as the Active card. -->
           <template v-if="job.genstudio_jobs?.length && !isFreeFleetWork(job.genstudio_jobs)">
             <template v-for="summary in [jobCreditSummary(job)]" :key="job.job_id">
               <div class="job-money">
@@ -932,21 +918,12 @@
                   <span v-if="summary.charged" class="job-money-figure charged">{{ summary.charged.toLocaleString() }} credits {{ summary.confirmed ? 'charged' : 'charged so far' }}</span>
                   <span v-if="summary.held" class="job-money-figure held">{{ summary.held.toLocaleString() }} credits on hold</span>
                   <span v-if="summary.returned" class="job-money-figure returned">{{ summary.returned.toLocaleString() }} credits {{ summary.confirmed ? 'returned' : 'returned so far' }}</span>
+                  <GenStudioCreditSettlementHint :remote-jobs="summary.remoteJobs" compact inline :link="false" />
                   <NuxtLink v-if="!summary.confirmed" class="job-money-figure" to="/usage">Credits &amp; settlement</NuxtLink>
                 </template>
               </div>
-              <GenStudioCreditSettlementHint :remote-jobs="summary.remoteJobs" compact />
             </template>
           </template>
-          <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
-            {{ genStudioStatusDetail(job) }}
-          </p>
-          <p v-if="genStudioQueueDetail(job)" class="genstudio-queue-detail" role="status">
-            {{ genStudioQueueDetail(job) }}
-          </p>
-          <p v-if="finalRenderDetail(job)" class="genstudio-queue-detail final-render-detail" role="status">
-            {{ finalRenderDetail(job) }}
-          </p>
           <p v-if="paidImageReplacementAttemptText(job)" class="paid-image-replacement-attempt" role="status">
             {{ paidImageReplacementAttemptText(job) }}
           </p>
@@ -975,42 +952,15 @@
             @update:open="setTechnicalOpen(job.job_id, $event)"
           >
             <template v-if="expanded === job.job_id">
-              <p v-if="expandSummary(job)" class="technical-summary">{{ expandSummary(job) }}</p>
-              <EpisodeRecoveryStatus :job="job" diagnostics-only />
-              <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="settledRemoteJobs(job)" :items="job.item_progress ? jobCounts(job) : null" :free="isFreeFleetWork(job.genstudio_jobs)" />
-              <div v-if="job.item_progress" class="job-items">
-                <span class="job-items-count">
-                  {{ job.item_progress.completed }} of {{ job.item_progress.total }} done
-                </span>
-                <span v-if="jobCounts(job).waiting" class="job-items-note">
-                  · {{ jobCounts(job).waiting }} {{ jobCounts(job).waitingForMac ? 'waiting for a free Mac' : 'waiting to try again' }}
-                </span>
-                <span v-if="job.item_progress.failed" class="job-items-failed">
-                  · {{ job.item_progress.failed }} failed
-                </span>
-                <span v-if="job.item_progress.settling" class="job-items-note">
-                  · {{ job.item_progress.settling }} settling
-                </span>
-                <span v-if="job.item_progress.cancelled" class="job-items-note">
-                  · {{ job.item_progress.cancelled }} cancelled by customer
-                </span>
-                <span v-if="job.item_progress.not_submitted" class="job-items-note">
-                  · {{ job.item_progress.not_submitted }} not submitted
-                </span>
-                <span
-                  v-for="item in job.item_progress.active"
-                  :key="item.key || item.label"
-                  class="job-items-active"
-                  :class="{ waiting: item.state === 'waiting_retry' }"
-                >· {{ itemAttemptText(item) }}</span>
-              </div>
-              <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
-              <div v-if="job.output_lines?.length" class="job-output">
-                <code v-for="(line, i) in visibleJobOutputLines(job.output_lines)" :key="i">{{ customerJobText(line, job) }}</code>
-              </div>
-              <div class="job-technical-ids">
-                <span v-if="getOutputDir(job)" class="meta-tag"><span class="meta-label">Output folder:</span> {{ getOutputDir(job) }}</span>
-              </div>
+              <!-- The SAME shared details body as the Active card. -->
+              <JobCardDetails
+                :job="job"
+                :remote-jobs="settledRemoteJobs(job)"
+                :counts="job.item_progress ? jobCounts(job) : null"
+                :provider-status="genStudioStatusDetail(job)"
+                :provider-queue="genStudioQueueDetail(job)"
+                :now-ms="now"
+              />
             </template>
           </AdvancedDisclosure>
 
@@ -1087,7 +1037,6 @@ import {
   recordEtaSample,
   summariseSettlement,
   summariseJobItems,
-  WAITING_FALLBACK_REASON,
   type EtaSample,
 } from '~/composables/useJobEta'
 import {
@@ -1109,12 +1058,11 @@ import {
   primaryControl,
   retryAdmissionAllowed,
   secondaryControls,
-  visibleJobOutputLines,
 } from '~/utils/job-presentation'
 import { formatCredits } from '~/utils/genstudio-credit-cost'
 import { recoverEpisodeAssets, describeEpisodeAssetRecovery, type EpisodeAssetRecovery } from '~/utils/job-asset-recovery'
 import { groupEpisodeRecoveryRetries, isEpisodeRecoveryType, isRecoveredFailure, isSkippedJob, isVerifiedRecoveredSubtitleJob, jobDisplayStatus } from '~/utils/episode-recovery'
-import { effectiveGenStudioTaskState, FREE_MAC_WAIT_REASON, holdsUnknownProviderOutcome, isFreeFleetWork } from '@shared/provider-task-state'
+import { effectiveGenStudioTaskState, holdsUnknownProviderOutcome, isFreeFleetWork } from '@shared/provider-task-state'
 import { bulkConfirmOptions, capList, controlLabel, deriveOutputDir, episodeQueryValue, isPaidWork, matchesEpisodeSearch, orderJobsForDisplay, pageCount, pageSlice, rowOutputLineCount, rowProgressCounter, rowSummaryLine } from '~/utils/jobs-list'
 type RJob = DeepReadonly<Job>
 
@@ -1131,18 +1079,16 @@ const isUniversal = computed(() => route.query.scope === 'all')
 // The live streams carry slim jobs; the cards this page shows get their full Gateway evidence from
 // the per-job GET (see useJobDetails). `streamedJobs` is what the stream sent, `jobs` the merged view.
 const streamedJobs = computed(() => isUniversal.value ? universalQueue.jobs.value : projectQueue.jobs.value)
-// Universal mode's stream carries the LIVE half only. A fleet's finished history is a
-// server read (`/jobs/all/history`), not something every page pays for on connect; the
-// read returns rows without their logs and with the three summary fields a card shows.
-// Project mode keeps its own per-project stream whole — it is bounded by the retention
-// cap and several other surfaces read the same stream.
+// Both scopes stream live work and read finished history separately. History
+// returns small summary rows; full logs are loaded only when details are opened.
 const history = useJobHistory()
 // A failed history read must be visible: an empty list after a successful clear
 // otherwise looks like "nothing remains" instead of "the list could not reload".
 const historyError = computed(() => history.error.value)
-const scopedJobs = computed(() => isUniversal.value
-  ? [...streamedJobs.value, ...history.rows.value]
-  : streamedJobs.value)
+const scopedJobs = computed(() => {
+  const seen = new Set(streamedJobs.value.map(job => job.job_id))
+  return [...streamedJobs.value, ...history.rows.value.filter(job => !seen.has(job.job_id))]
+})
 const jobDetails = useJobDetails()
 const jobs = computed(() => scopedJobs.value.map(job => jobDetails.withDetail(job)) as typeof streamedJobs.value)
 const queueStats = computed(() => isUniversal.value ? universalQueue.stats.value : projectQueue.stats.value)
@@ -1241,20 +1187,28 @@ watch(isUniversal, enabled => {
 // between a fleet's history and one channel's.
 let historyReload: ReturnType<typeof setTimeout> | null = null
 async function loadJobHistory() {
-  if (!isUniversal.value) { history.reset(); return }
-  await history.load('/jobs/all/history', projectFilter.value === 'all' ? {} : { project: projectFilter.value })
+  if (isUniversal.value) {
+    await history.load('/jobs/all/history', projectFilter.value === 'all' ? {} : { project: projectFilter.value })
+  } else {
+    await history.load(`/projects/${slug.value}/jobs/history`)
+  }
 }
 function scheduleHistoryRefresh(delay: number) {
   if (historyReload) clearTimeout(historyReload)
   historyReload = setTimeout(() => { historyReload = null; void loadJobHistory() }, delay)
 }
-watch([isUniversal, projectFilter, slug], () => { void loadJobHistory() }, { immediate: true })
-// A job that finishes leaves the live stream and joins the history read: pick it up,
-// debounced so a burst of completions is one read.
-watch(() => {
-  const s = universalQueue.stats.value
-  return `${s.done}|${s.error}|${s.total}`
-}, () => scheduleHistoryRefresh(500))
+watch([isUniversal, projectFilter, slug], () => {
+  history.reset()
+  void loadJobHistory()
+}, { immediate: true })
+// A terminal update leaves the live-only stream and joins history; watching
+// its row identities avoids re-reading history for every progress frame.
+watch(() => projectQueue.jobs.value.map(job => `${job.job_id}:${job.status}`).join('|'), () => {
+  if (!isUniversal.value) scheduleHistoryRefresh(500)
+})
+watch(() => universalQueue.jobs.value.map(job => `${job.job_id}:${job.status}`).join('|'), () => {
+  if (isUniversal.value) scheduleHistoryRefresh(500)
+})
 onUnmounted(() => { if (historyReload) clearTimeout(historyReload) })
 
 // Account attribution helpers. Populated by the resolver whenever it runs
@@ -1282,27 +1236,6 @@ function visibleAccounts(job: RJob): Array<{ providerId: string; label: string; 
 
 function hasAccountsUsed(job: RJob): boolean {
   return visibleAccounts(job).length > 0
-}
-
-/**
- * The output expander is also where the redacted GenStudio request preview
- * lives, so a job that recorded a request but produced no log lines (a
- * submission rejected before it ever ran) must still be expandable — that is
- * precisely the case a user opens this page to diagnose.
- */
-function genStudioRequestCount(job: RJob): number {
-  return job.genstudio_jobs?.filter(remote => !!remote.request).length || 0
-}
-
-/** The Technical-details badge: how much is folded away behind the toggle. */
-function expandSummary(job: RJob): string {
-  const parts: string[] = []
-  // A history row counts its steps server-side; a live row still has its log.
-  const lines = rowOutputLineCount(job as any)
-  if (lines) parts.push(`${lines} line${lines === 1 ? '' : 's'}`)
-  const requests = genStudioRequestCount(job)
-  if (requests) parts.push(`${requests} request${requests === 1 ? '' : 's'}`)
-  return parts.join(' + ')
 }
 
 function jobModelProvider(job: RJob): string {
@@ -1618,8 +1551,26 @@ function jobProgressStale(job: RJob): boolean {
 }
 
 function jobExceptions(job: RJob) {
-  const lines = describeJobExceptions({ ...job, genstudio_jobs: settledRemoteJobs(job) }, now.value)
-  return isVerifiedRecoveredSubtitleJob(job) ? lines.filter(line => line.key !== 'output-gap') : lines
+  // Every exception comes from the one derivation. The recovered-subtitle case
+  // used to filter out a "gap" line here, but the derivation no longer
+  // produces that key — the failed count lives on the card's one summary line
+  // instead — so there is nothing left to filter, and a filter for a key that
+  // cannot arrive reads as if the key still can.
+  return describeJobExceptions({ ...job, genstudio_jobs: settledRemoteJobs(job) }, now.value)
+}
+
+/**
+ * Is there anything on this card worth saying in ONE line?
+ *
+ * A card with nothing to report says nothing — an empty summary line is
+ * better than a line that repeats the status badge above it. The line carries
+ * counts (when the job works through items), the local render's own state
+ * (when it has no provider at all), a measured ETA and a freshness reading.
+ */
+function jobHasSummary(job: RJob): boolean {
+  if (job.item_progress && !isVerifiedRecoveredSubtitleJob(job)) return true
+  if (finalRenderDetail(job)) return true
+  return !!(jobEta(job) || jobFreshness(job))
 }
 
 // ── Money, summarised ─────────────────────────────────────────────────────
@@ -2592,24 +2543,6 @@ function youtubeProgressLabel(job: RJob): string {
   return 'YouTube upload complete'
 }
 
-type JobItemAttempt = NonNullable<RJob['item_progress']>['active'][number]
-
-/**
- * One line for one in-flight item. A backoff shows the seconds left so the
- * pause visibly ticks down instead of looking frozen.
- */
-function itemAttemptText(item: JobItemAttempt): string {
-  if (item.state !== 'waiting_retry') return `${item.label} — running`
-  const remaining = item.retry_at
-    ? Math.max(0, Math.round((new Date(item.retry_at).getTime() - now.value) / 1000))
-    : 0
-  // A wait for a free Mac is not a numbered attempt; it ends when a Mac frees up.
-  if (item.reason === FREE_MAC_WAIT_REASON) return `${item.label}: waiting for a free Mac; next try ${remaining ? `in ${remaining}s` : 'now'}`
-  return `${item.label}: ${item.reason || WAITING_FALLBACK_REASON};`
-    + ` retrying${remaining ? ` in ${remaining}s` : ' now'}`
-    + ` (attempt ${item.attempt + 1} of ${item.max_attempts})`
-}
-
 /**
  * Pull the most recent "N / Total" or "Chapter 3/13" style marker from a
  * running job's output lines. A history row carries the server's answer in
@@ -2764,7 +2697,7 @@ async function abandonAndClearSelected() {
       }
     }
     cleanupProgress.value = `${scope}: cleared ${cleared} of ${selected.length} selected jobs.${cleanupFailures.value.length ? ` ${cleanupFailures.value.length} could not be cleared; see details below.` : ''}`
-    if (cleared && isUniversal.value) await loadJobHistory()
+    if (cleared) await loadJobHistory()
     info(cleanupProgress.value)
   } finally {
     clearingSelected.value = false
@@ -2898,7 +2831,7 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
       projectQueue.removeJobs([job.job_id])
       universalQueue.removeJobs([job.job_id])
       history.removeIds([job.job_id])
-      if (isUniversal.value) await loadJobHistory()
+      await loadJobHistory()
     } else if (control.action === 'recheck-provider-status') {
       // v1.2.6 — this button actually asks GenStudio. The refreshed control
       // arrives with the response, so the answer replaces the question rather
@@ -3695,12 +3628,9 @@ async function clearHistory(status: 'finished' | 'failed') {
     // provider-settlement gate. The history read is the authority for what
     // remains, so reload it even when nothing was removed — otherwise a zero
     // leaves rows the server's gate held looking removable forever.
-    if (isUniversal.value) {
-      void refreshVisibleJobs()
-      await loadJobHistory()
-    } else {
-      await refreshVisibleJobs()
-    }
+    if (isUniversal.value) void refreshVisibleJobs()
+    else await refreshVisibleJobs()
+    await loadJobHistory()
   } catch (e: any) { showError(e?.data?.detail || `Failed to clear ${status} history`) }
   finally { clearingHistory.value = null }
 }
@@ -3796,7 +3726,6 @@ function clearFailed() { return clearHistory('failed') }
   overflow-y: auto;
 }
 .job-more-actions-body .btn { margin-right: 4px; }
-.technical-summary { margin: 0 0 8px; color: var(--text-muted); font-size: var(--font-xs); }
 .paid-image-replacement-attempt { margin: 8px 0 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; overflow-wrap: anywhere; }
 .genstudio-capacity-summary {
   display: flex;
@@ -4233,22 +4162,29 @@ function clearFailed() { return clearHistory('failed') }
 /* Live output for running jobs */
 .job-live-output { margin-top: 10px; }
 
-/* The headline counts. Number first, then what it counts, in words — the row
-   has to be readable at a glance by someone who is not going to read it
-   twice. Tabular figures so the digits do not jump as they tick. */
-.job-stats {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px;
+/* THE summary line. One line of counts, in words, number first. The card
+   used to answer "how is it going?" with a stat row, a provider status line, a
+   queue line, a money row and a settlement box; the card now says it once.
+   Tabular figures so the digits do not jump as they tick. */
+.job-summary-line {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
   margin-top: 8px;
+  color: var(--text-muted);
   font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
 }
+.job-summary-counts {
+  display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+  min-width: 0;
+}
+/* One count, number first, then what it counts, in words. */
 .job-stat { display: inline-flex; align-items: baseline; gap: 5px; color: var(--text-muted); }
 .job-stat strong { color: var(--text-primary); font-size: 14px; font-weight: 650; }
-.job-stat-label { color: var(--text-muted); }
 .job-stat.is-inflight strong { color: var(--accent); }
-.job-stat.is-finished strong { color: var(--success, #3fb950); }
 .job-stat.is-failed strong { color: var(--error); }
 .job-stat.is-muted strong { color: var(--text-muted); font-weight: 600; }
+/* The measured timing readings, kept in one labelled group at the trailing
+   edge so the counts keep the leading edge. */
 .job-stat-telemetry {
   display: inline-flex;
   flex-wrap: wrap;
@@ -4306,13 +4242,6 @@ function clearFailed() { return clearHistory('failed') }
 }
 .job-exceptions li + li { margin-top: 5px; }
 
-/* Output metadata inside Technical details. */
-.job-technical-ids {
-  display: flex; flex-wrap: wrap; gap: 4px 12px;
-  margin-top: 8px;
-  overflow-wrap: anywhere;
-}
-
 .jobs-section { display: block; min-width: 0; max-width: 100%; }
 .section-heading {
   display: flex; align-items: center; gap: 10px;
@@ -4332,32 +4261,6 @@ function clearFailed() { return clearHistory('failed') }
 }
 .progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .progress-row > :first-child { flex: 1; min-width: 0; }
-.job-items {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 4px 0 6px;
-  font-size: var(--font-xs);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-.job-items-count { color: var(--text-primary); font-weight: 500; }
-.job-items-failed { color: rgb(202, 138, 4); }
-.job-items-note { border-bottom: 1px dotted var(--border); cursor: help; }
-.job-items-active.waiting { color: rgb(202, 138, 4); }
-.genstudio-status-detail {
-  margin: 6px 0 0;
-  color: var(--text-muted);
-  font-size: var(--font-xs);
-  line-height: 1.45;
-}
-.genstudio-queue-detail {
-  margin: 6px 0 0;
-  color: var(--text-secondary);
-  font-size: var(--font-xs);
-  line-height: 1.45;
-}
 
 .progress-counter {
   font-size: var(--font-xs); font-family: 'SF Mono', Monaco, monospace;
@@ -4376,16 +4279,6 @@ function clearFailed() { return clearHistory('failed') }
 .job-open-folder-btn {
   margin-left: auto;
   flex-shrink: 0;
-}
-
-/* Customer-safe job output inside Technical details. */
-.job-output {
-  margin-top: 6px; background: var(--bg-primary); border-radius: var(--radius-sm);
-  padding: 10px; font-size: var(--font-xs); max-height: 250px; overflow-y: auto;
-}
-.job-output code {
-  display: block; color: var(--text-secondary);
-  font-family: 'SF Mono', Monaco, monospace; line-height: 1.6;
 }
 
 /* Error section */

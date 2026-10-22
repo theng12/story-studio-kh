@@ -122,10 +122,12 @@ describe('every job type: a wait for a Mac is a wait', () => {
   test('a real failure is still a failure, beside the wait, and counted once', () => {
     const job = dreamlandsJob('audio', 'voice.tts')
     job.item_progress = { ...job.item_progress, completed: 3, failed: 1 }
+    // The failed COUNT is on the card's one summary line ("1 needs another
+    // try"), so the exception list does not repeat it.
     assert.deepEqual(describeJobExceptions(job, nowMs).map(line => line.text), [
       '10 items are waiting for a free Mac — Story Studio will start them automatically.',
-      '3 items are ready. 1 item needs another try.',
     ])
+    assert.equal(summariseJobItems(job.item_progress).failed, 1)
   })
 
   test('one waiting item reads in the singular', () => {
@@ -152,8 +154,15 @@ describe('no credit talk for free work', () => {
       return rest
     }) as typeof job.genstudio_jobs
     job.item_progress = { ...job.item_progress, active: job.item_progress.active.slice(0, 4) }
-    assert.deepEqual(describeJobExceptions(job, nowMs).map(line => line.text),
-      ['Credit outcome pending — Story Studio is checking the Gateway.'])
+    // The credit outcome is not an EXCEPTION. It is the card's one credit
+    // line, which carries the figures and whether the Gateway has confirmed
+    // them — so the exception list says nothing about money.
+    assert.deepEqual(describeJobExceptions(job, nowMs).map(line => line.text), [])
+    // …and that one line exists, on both cards.
+    const page = read('../pages/projects/[slug]/jobs.vue')
+    assert.equal((page.match(/<GenStudioCreditSettlementHint/g) || []).length, 2)
+    assert.match(page, /summary\.charged\.toLocaleString\(\) \}\} credits \{\{ summary\.confirmed \? 'charged' : 'charged so far' \}\}/)
+    assert.match(page, /<GenStudioCreditSettlementHint :remote-jobs="summary\.remoteJobs" compact inline :link="false" \/>/)
   })
 
   test('free means the Gateway\'s fleet namespace, on every request of the job', () => {
@@ -170,7 +179,10 @@ describe('no credit talk for free work', () => {
     const ledger = read('../components/GenStudioBatchLedger.vue')
     assert.equal((page.match(/v-if="job\.genstudio_jobs\?\.length && !isFreeFleetWork\(job\.genstudio_jobs\)"/g) || []).length, 2)
     assert.match(ledger, /<template v-if="!free">/)
-    assert.match(ledger, /<GenStudioCreditSettlementHint v-if="!free"/)
+    // The ledger carries no settlement sentence of its own: the card has ONE
+    // credit explanation, and it reads from the same evidence. Free work has
+    // none of either.
+    assert.doesNotMatch(ledger, /<GenStudioCreditSettlementHint/)
   })
 })
 
@@ -178,16 +190,22 @@ describe('the Gateway panel and the card count the same items', () => {
   test('the panel header reads the shared item counts', () => {
     const page = read('../pages/projects/[slug]/jobs.vue')
     const ledger = read('../components/GenStudioBatchLedger.vue')
-    assert.equal((page.match(/:items="job\.item_progress \? jobCounts\(job\) : null"/g) || []).length, 2)
+    const details = read('../components/JobCardDetails.vue')
+    // The counts reach the panel through the ONE shared details body both
+    // drawers render, so the two can never disagree.
+    assert.equal((page.match(/:counts="job\.item_progress \? jobCounts\(job\) : null"/g) || []).length, 2)
+    assert.match(details, /:items="counts"/)
     assert.match(ledger, /items\.waitingForMac \? 'waiting for a free Mac' : 'waiting to try again'/)
     // A failed Gateway request whose item is being tried again is not a failed item.
     assert.match(ledger, /v-if="exceptionJobs\.length && \(!items \|\| items\.failed\)"/)
   })
 
-  test('the stat row and Technical details show the waiting count', () => {
+  test('the summary line and Technical details show the waiting count', () => {
     const page = read('../pages/projects/[slug]/jobs.vue')
+    const details = read('../components/JobCardDetails.vue')
     assert.match(page, /jobCounts\(job\)\.waitingForMac \? 'waiting for a free Mac' : 'waiting to try again'/)
-    assert.ok((page.match(/jobCounts\(job\)\.waiting \}\}/g) || []).length >= 2, 'both drawers')
+    assert.ok((page.match(/jobCounts\(job\)\.waiting/g) || []).length >= 2, 'both cards')
+    assert.match(details, /counts\?\.waiting/)
   })
 })
 

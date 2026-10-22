@@ -33,6 +33,13 @@ import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { nonRetryable } from '../services/job-retry-policy.js'
+import {
+  assertPromptWithinCap,
+  measureAssemblyOverhead,
+  PromptLengthExceededError,
+  type AssemblyOverhead,
+} from '../services/prompt-char-cap.js'
 import { delayUnlessAborted } from '../services/tts-capacity-retry.js'
 import {
   IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
@@ -82,6 +89,166 @@ export function thumbnailReferenceGuidance(strength: ThumbnailReferenceStrength)
 
 export function thumbnailReferenceStrengthValue(strength: ThumbnailReferenceStrength): number {
   return { loose: 0.3, balanced: 0.6, strong: 0.85 }[strength]
+}
+
+/**
+ * The exact text the saved-thumbnail-reference guidance contributes to a render
+ * prompt. Extracted from the render path so the character ceiling a thumbnail
+ * prompt is written under can be computed from the SAME text the render sends.
+ */
+export function savedThumbnailReferenceGuidance(reframingPrompt: unknown): string {
+  return 'Reference-guided generation: use the supplied reference only for broad composition, hierarchy, framing, and visual rhythm. '
+    + 'Create a new original image for this episode. Do not reproduce logos, identifying text, branded elements, characters, or a near-identical copy of the reference. '
+    + String(reframingPrompt || '').trim()
+}
+
+/**
+ * The guidance the RENDER will append for the project's saved thumbnail
+ * reference — or '' when there is no saved reference, or its file is gone.
+ *
+ * One definition, used by the render and by the prompt writer that reserves
+ * room for it. The writer must not reserve guidance the render will never
+ * append (that would silently shorten every prompt body), and the two must not
+ * disagree about WHEN the guidance appears (that would let the assembled
+ * prompt over the model's ceiling).
+ */
+export function savedThumbnailReferenceGuidanceFor(projectDir: string, asset: unknown): string {
+  const record = asset as { id?: unknown; filename?: unknown; reframing_prompt?: unknown } | null | undefined
+  if (!record?.id || typeof record.filename !== 'string' || !record.filename) return ''
+  const file = path.join(projectDir, 'thumbnail-reference-assets', record.filename)
+  if (!existsSync(file)) return ''
+  return savedThumbnailReferenceGuidance(record.reframing_prompt)
+}
+
+/**
+ * The exact text the matched characters' style keywords contribute to a render
+ * prompt — the trailing `, kw1, kw2` clause image models read as modifiers.
+ */
+export function styleKeywordClause(keywords: readonly string[]): string {
+  return keywords.length ? `, ${keywords.join(', ')}` : ''
+}
+
+/**
+ * De-duplicate style keywords the way the render does: trimmed, first spelling
+ * wins, case-insensitively. "Cel-shaded" and "cel-shaded" must not both land
+ * in the prompt.
+ */
+function dedupeStyleKeywords(groups: ReadonlyArray<readonly string[]>): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const group of groups) {
+    for (const kw of group || []) {
+      const norm = kw.trim()
+      if (!norm) continue
+      const key = norm.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(norm)
+    }
+  }
+  return out
+}
+
+/**
+ * The style keywords the render appends for the characters a prompt mentions.
+ *
+ * The SAME name matching and de-duplication the render uses, exported so that a
+ * character ceiling computed from it describes the prompt the model actually
+ * receives rather than an estimate of it.
+ */
+export function matchedStyleKeywords<T extends { name: string }>(
+  promptText: string,
+  cast: readonly T[],
+): string[] {
+  const matched = findReferencedCharacters(promptText, cast as T[])
+  return dedupeStyleKeywords(
+    (matched as Array<T & { references?: { style_keywords?: string[] } | null }>)
+      .map(c => c.references?.style_keywords || []),
+  )
+}
+
+/**
+ * EVERY style keyword the render could append for a cast — the largest set,
+ * de-duplicated the same way.
+ *
+ * Used when the prompt does not exist yet, so which characters it will mention
+ * is unknown. An over-reservation here costs prompt length; it never costs
+ * correctness, because the render measures the assembled prompt before it
+ * submits and refuses an over-length one there.
+ */
+export function castStyleKeywordBound<T extends { name: string }>(
+  cast: readonly T[],
+): string[] {
+  return dedupeStyleKeywords(
+    (cast as Array<T & { references?: { style_keywords?: string[] } | null }>)
+      .map(c => c.references?.style_keywords || []),
+  )
+}
+
+/**
+ * The pieces the FINAL thumbnail render appends to the stored prompt.
+ *
+ * The stored prompt is not what the model receives: the render guidance and the
+ * style keywords land on top of it. Both are measured here — from the same text
+ * the render appends — so the character ceiling the prompt writer is given and
+ * the prompt the model actually receives cannot drift apart.
+ *
+ * WHAT THIS IS NOT
+ * ----------------
+ * A bound, not an accounting of one item. The style keywords here are the
+ * LARGEST set the render could append for the cast; which characters a given
+ * prompt actually mentions is known only once the prompt exists. The render
+ * guidance comes from the generator tab at render time, so it can differ from
+ * what the writer reserved for. The reserve is therefore SAFE — it can
+ * over-reserve, never under-reserve — and the render still measures the
+ * assembled prompt before it submits and refuses an over-length one there.
+ */
+export interface ThumbnailRenderAssembly {
+  /** Render-time guidance from the generator tab. */
+  extraDetails?: string
+  /** The reference guidance the render appends, when it has one. */
+  referenceGuidance?: string
+  /** The style keywords the render appends. */
+  styleKeywords?: readonly string[]
+}
+
+/** The characters the render adds on top of the stored prompt, measured from
+ *  the text it appends. A SAFE BOUND, not an item-exact accounting: the render
+ *  guidance can differ at render time, and the keywords here are the largest
+ *  set the render could append for the cast. */
+export function thumbnailRenderAssemblyOverhead(assembly: ThumbnailRenderAssembly): AssemblyOverhead {
+  const extra = (assembly?.extraDetails || '').trim()
+  const reference = (assembly?.referenceGuidance || '').trim()
+  const renderGuidance = [extra, reference].filter(Boolean).join('\n\n')
+  // The SAME keyword list the assembly appends, filtered the same way — so the
+  // measured overhead matches the characters those keywords really add rather
+  // than a guess at them.
+  const keywords = (assembly?.styleKeywords || []).filter(keyword => typeof keyword === 'string' && keyword.trim())
+  const styleClause = styleKeywordClause(keywords)
+  return measureAssemblyOverhead([
+    // The separator is part of what is appended, so it is counted with it.
+    { label: 'render guidance', text: renderGuidance ? `\n\n${renderGuidance}` : '' },
+    { label: 'style keywords', text: styleClause },
+  ])
+}
+
+/**
+ * The FINAL prompt a thumbnail render sends: the stored prompt, plus the render
+ * guidance, plus the style keywords.
+ *
+ * One implementation, used by the render itself and by the character ceiling
+ * the thumbnail prompt writer is given. A second copy of this assembly is how
+ * a compliant prompt ends up over the published ceiling: the writer was given
+ * a budget that did not know what the render would add.
+ */
+export function assembleThumbnailRenderPrompt(storedPrompt: string, assembly: ThumbnailRenderAssembly): string {
+  const extra = (assembly?.extraDetails || '').trim()
+  const reference = (assembly?.referenceGuidance || '').trim()
+  const renderGuidance = [extra, reference].filter(Boolean).join('\n\n')
+  const withGuidance = renderGuidance ? `${storedPrompt}\n\n${renderGuidance}` : storedPrompt
+  const keywords = (assembly?.styleKeywords || []).filter(keyword => typeof keyword === 'string' && keyword.trim())
+  if (!keywords.length) return withGuidance
+  return `${withGuidance.replace(/[\s,]+$/, '')}${styleKeywordClause(keywords)}`
 }
 
 /** What a retryable image failure buys: how long to wait, and what to tell the owner. */
@@ -443,8 +610,9 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   const savedThumbnailReference = mode === 'thumbs'
     ? ((req as any).thumbnail_reference_asset || (config as any).thumbnail_reference_asset || null)
     : null
+  const projectRootDir = pm.getProjectDir(project_slug) || path.join(pm.projectsRoot(), project_slug)
   const savedThumbnailReferencePath = savedThumbnailReference?.id && typeof savedThumbnailReference?.filename === 'string'
-    ? path.join(pm.getProjectDir(project_slug) || path.join(pm.projectsRoot(), project_slug), 'thumbnail-reference-assets', savedThumbnailReference.filename)
+    ? path.join(projectRootDir, 'thumbnail-reference-assets', savedThumbnailReference.filename)
     : ''
   const hasSavedThumbnailReference = !!savedThumbnailReferencePath && existsSync(savedThumbnailReferencePath)
 
@@ -657,21 +825,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
    * style stays consistent across episodes when a character recurs.
    */
   function resolveSceneStyleKeywords(promptText: string): string[] {
-    const matched = findReferencedCharacters(promptText, castWithStyle)
-    if (!matched.length) return []
-    const seen = new Set<string>()
-    const out: string[] = []
-    for (const c of matched) {
-      for (const kw of (c.references!.style_keywords || [])) {
-        const norm = kw.trim()
-        if (!norm) continue
-        const key = norm.toLowerCase()
-        if (seen.has(key)) continue
-        seen.add(key)
-        out.push(norm)
-      }
-    }
-    return out
+    return matchedStyleKeywords(promptText, castWithStyle)
   }
 
   /**
@@ -684,7 +838,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   function applyStyleKeywords(promptText: string, keywords: string[]): string {
     if (!keywords.length) return promptText
     const trimmed = promptText.replace(/[\s,]+$/, '')
-    return `${trimmed}, ${keywords.join(', ')}`
+    return `${trimmed}${styleKeywordClause(keywords)}`
   }
 
   // Defaults from the model's published `default_aspect_ratio` and refuses a
@@ -730,6 +884,35 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     force && generationActionId ? baseScope : resolveImageRetryScope(entry, baseScope).scope
   )
   const errors: string[] = []
+  /**
+   * The items THIS run attempted and could not produce.
+   *
+   * A file left over from an earlier run is not evidence that this run
+   * succeeded. When a targeted re-render (`thumb_number` / `scene_number`) is
+   * refused — a prompt over the model's published ceiling, a missing reference
+   * — the old file is still on disk, and counting it as this run's output
+   * would report a green success over a refused render.
+   *
+   * These items are therefore counted as MISSING by the completion audit. The
+   * file stays on disk (a valid artefact is never deleted), and Retry asks for
+   * the item again.
+   */
+  const failedItems = new Set<string>()
+  /**
+   * The first DETERMINISTIC refusal in this batch — a prompt the model's own
+   * published ceiling rejects.
+   *
+   * It is kept so the aggregate completion error can carry the refusal's
+   * identity. Without that, the job fails with "0/3 required items verified"
+   * and the queue reads it as a transient gap, so it runs the whole batch three
+   * times over, producing the same three refusals each time. The verified files
+   * of the items that DID succeed stay on disk either way.
+   */
+  let deterministicRefusal: PromptLengthExceededError | null = null
+  const noteDeterministicRefusal = (error: unknown): void => {
+    if (deterministicRefusal) return
+    if (error instanceof PromptLengthExceededError) deterministicRefusal = error
+  }
   // Read the per-folder task manifests once at the top so we can attempt
   // free recovery (existing-task poll) before issuing any fresh submit.
   // Best-effort — a missing/corrupt sidecar just means recovery isn't
@@ -1044,6 +1227,14 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
         let acceptedTaskId = ''
         let acceptedKey = ''
         try {
+          // Same rule as the thumbnail path: what the model RECEIVES is the
+          // assembled prompt, and it is measured against the ceiling the model
+          // publishes right now. Refused before submission, so nothing is
+          // charged, and typed, so a retry cannot re-learn the same refusal.
+          assertPromptWithinCap(finalPrompt, resolvedModelConfig.prompt_char_cap, {
+            modelLabel: resolvedModelConfig.label || modelName,
+            what: `the assembled scene prompt for Scene ${scene.number}`,
+          })
           if (attemptNum === 1) attempt = await prepareImageAttempt(bgDir, sceneManifest, filename, finalPrompt)
           const current = attempt!
           if (current.recovery.kind === 'uncertain') throw uncertainRecoveryError(current.recovery)
@@ -1182,6 +1373,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           failedCount++
           job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: FAILED — ${e.message}`)
           errors.push(`Scene ${scene.number}: ${e.message}`)
+          failedItems.add(`Scene ${scene.number}`)
+          noteDeterministicRefusal(e)
           return
         }
       }
@@ -1245,11 +1438,16 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
       const extra = (req.extra_details || '').trim()
       const hasThumbnailReference = hasSavedThumbnailReference || (refSources.thumbnail && existsSync(thumbnailRefPath()))
       const referenceGuidance = hasSavedThumbnailReference
-        ? `Reference-guided generation: use the supplied reference only for broad composition, hierarchy, framing, and visual rhythm. Create a new original image for this episode. Do not reproduce logos, identifying text, branded elements, characters, or a near-identical copy of the reference. ${String(savedThumbnailReference?.reframing_prompt || '').trim()}`
+        ? savedThumbnailReferenceGuidanceFor(projectRootDir, savedThumbnailReference)
         : hasThumbnailReference ? thumbnailReferenceGuidance(referenceStrength) : ''
-      const renderGuidance = [extra, referenceGuidance].filter(Boolean).join('\n\n')
-      const promptWithExtra = renderGuidance ? `${thumb.prompt}\n\n${renderGuidance}` : thumb.prompt
-      const finalPrompt = applyStyleKeywords(promptWithExtra, styleKeywords)
+      // ONE assembly, shared with the character ceiling the thumbnail prompt
+      // was written under, so the prompt that was measured and the prompt the
+      // model receives are the same text.
+      const finalPrompt = assembleThumbnailRenderPrompt(thumb.prompt, {
+        extraDetails: extra,
+        referenceGuidance,
+        styleKeywords,
+      })
       const strengthValue = thumbnailReferenceStrengthValue(referenceStrength)
       const thumbProviderParams = hasThumbnailReference
         ? { ...providerParams, image_strength: strengthValue }
@@ -1275,6 +1473,20 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
         let acceptedKey = ''
         let releasedZeroSettlementRetry = false
         try {
+          // The ceiling for the model that will render this, read live from the
+          // catalogue together with the model. What the model RECEIVES is the
+          // assembled prompt — the stored prompt plus the render guidance plus
+          // the style keywords — so that is what is measured, never the stored
+          // text on its own.
+          //
+          // Refused here, before anything is submitted, so no request and no
+          // credit charge is made. The refusal is TYPED: the same stored prompt
+          // fails the same way every time, so an automatic retry can only
+          // re-learn the same answer.
+          assertPromptWithinCap(finalPrompt, resolvedModelConfig.prompt_char_cap, {
+            modelLabel: resolvedModelConfig.label || modelName,
+            what: `the assembled thumbnail prompt for Thumbnail ${thumb.number}`,
+          })
           if (attemptNum === 1) {
             const currentManifest = await readManifest(thumbDir).catch(() => thumbManifest)
             const existing = currentManifest.tasks[filename] || null
@@ -1522,6 +1734,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
               failedCount++
               job.output_lines.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
               errors.push(jq.PAID_IMAGE_REPLACEMENT_PUBLIC_MESSAGE)
+              failedItems.add(`Thumbnail ${thumb.number}`)
               return
             } else {
               await recordImageState(thumbDir, filename, attempt, 'failed', failedTaskId, acceptedKey, true)
@@ -1615,6 +1828,8 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           failedCount++
           job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: FAILED — ${e.message}`)
           errors.push(`Thumbnail ${thumb.number}: ${e.message}`)
+          failedItems.add(`Thumbnail ${thumb.number}`)
+          noteDeterministicRefusal(e)
           return
         }
       }
@@ -1795,20 +2010,39 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   // and `requireJobCompletion` names every missing item, up to 20, plus the
   // true completed/expected counts.
   if (errors.length) job.output_lines.push(`Completed with ${errors.length} error(s)`)
+  // A deterministic refusal is named on the job itself, so the reason is not
+  // only visible in the per-item lines.
+  if (deterministicRefusal) job.output_lines.push(`✗ ${(deterministicRefusal as PromptLengthExceededError).message}`)
   const expectedItems = mode === 'scenes'
     ? (req.scene_number ? scenes.filter(scene => scene.number === req.scene_number) : scenes)
       .map(scene => ({ label: `Scene ${scene.number}`, path: path.join(bgDir, `${episode_id.toUpperCase()}_Scene${scene.number.toString().padStart(2, '0')}_v1.png`) }))
     : (req.thumb_number ? thumbnails.filter(thumb => thumb.number === req.thumb_number) : thumbnails)
       .map(thumb => ({ label: `Thumbnail ${thumb.number}`, path: path.join(thumbDir, `${episode_id.toUpperCase()}_Thumb${thumb.number.toString().padStart(2, '0')}_v1.png`) }))
   const outputReady = await Promise.all(expectedItems.map(item => fileExistsWithContent(item.path)))
-  const missing = expectedItems.filter((_, index) => !outputReady[index]).map(item => item.label)
-  requireJobCompletion(job, {
-    label: mode === 'scenes' ? 'Scene image generation' : 'Thumbnail generation',
-    expected: expectedItems.length,
-    completed: expectedItems.length - missing.length,
-    missing,
-    retry_hint: 'Existing images were kept. Retry generates or recovers only the missing files.',
-  })
+  // An item this run FAILED is missing even when an earlier run's file is still
+  // on disk: the file is not this run's output, and reporting it as verified
+  // would be a green success over a refused render. The file itself is left
+  // alone — it is a valid artefact, and Retry asks for the item again.
+  const missing = expectedItems
+    .filter((item, index) => !outputReady[index] || failedItems.has(item.label))
+    .map(item => item.label)
+  try {
+    requireJobCompletion(job, {
+      label: mode === 'scenes' ? 'Scene image generation' : 'Thumbnail generation',
+      expected: expectedItems.length,
+      completed: expectedItems.length - missing.length,
+      missing,
+      retry_hint: 'Existing images were kept. Retry generates or recovers only the missing files.',
+    })
+  } catch (error: any) {
+    // The aggregate error is what the queue classifies. A deterministic refusal
+    // must not read as a transient gap: the same stored prompt is refused the
+    // same way, so re-running the batch would only reproduce it. The verified
+    // files of the items that succeeded stay on disk either way, and Retry
+    // still asks for the missing ones only.
+    if (deterministicRefusal) nonRetryable(error)
+    throw error
+  }
   job.output_lines.push('All images generated successfully')
   // When the user ran mixed mode (all), reveal the parent episode dir so
   // they can see both scene + thumbnail folders side-by-side. Otherwise

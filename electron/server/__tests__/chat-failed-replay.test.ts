@@ -37,8 +37,9 @@ function stub(byKey: (key: string, n: number) => Record<string, unknown>, poll: 
       const key = String((init?.headers as Record<string, string>)['Idempotency-Key'])
       keys.push(key)
       const answer = byKey(key, keys.length)
-      // The gateway answers a replayed key 200 and a new job 202.
-      return Response.json(envelope(answer), { status: answer.state === 'failed' ? 200 : 202 })
+      // The gateway answers 202 for a job it just created and 200 for one it
+      // already had — so any settled job (failed, cancelled) is an old one.
+      return Response.json(envelope(answer), { status: answer.state === 'accepted' ? 202 : 200 })
     }
     return Response.json(envelope(poll))
   }
@@ -58,6 +59,77 @@ test('a replayed settled failure is resubmitted once under a key derived from th
   assert.equal(s.keys.length, 2)
   assert.equal(s.keys[1], chatKeyAfterFailedReplay(s.keys[0]!, 'job_old_failed'))
   assert.notEqual(s.keys[1], s.keys[0])
+})
+
+test('a replayed cancellation is submitted again under a key derived from the cancelled job', async () => {
+  // A cancelled job is terminal: it can never produce output, so a Retry that
+  // re-POSTed the same content-derived key would replay the same cancellation
+  // on every click and the step could never be sent again.
+  const s = stub((_key, n) => n === 1
+    ? { id: 'job_old_cancelled', state: 'cancelled', cancelled: true, failure_code: 'CANCELLED' }
+    : { id: 'job_fresh', state: 'accepted' }, ok)
+  try {
+    const result = await callChatWithGenStudio('k', request)
+    assert.deepEqual(JSON.parse(result.text), { ok: true })
+  } finally { s.restore() }
+  assert.equal(s.keys.length, 2, 'a cancelled job can never answer, so the Retry sends a fresh request')
+  assert.equal(s.keys[1], chatKeyAfterFailedReplay(s.keys[0]!, 'job_old_cancelled'))
+  assert.notEqual(s.keys[1], s.keys[0])
+})
+
+// The refusals. A cancelled job is only ever sent again when Story can PROVE
+// the stopped attempt cost nothing: missing, charged or held evidence all keep
+// the key and the single submission, because a second request could be charged
+// again or could race an attempt the Gateway still holds.
+test('a cancelled replay with no published settlement is not sent again', async () => {
+  // The Gateway published no settlement at all: Story cannot prove the stopped
+  // attempt cost nothing, so the conservative answer is to keep the key.
+  const cancelled = {
+    id: 'job_old_cancelled', state: 'cancelled', cancelled: true, failure_code: 'CANCELLED',
+    reserved_credits: undefined, settled_credits: undefined, released_credits: undefined,
+  }
+  const s = stub(() => cancelled, cancelled)
+  try {
+    await callChatWithGenStudio('k', request).catch(() => null)
+  } finally { s.restore() }
+  assert.equal(s.keys.length, 1, 'no settlement proof, so no successor is minted')
+})
+
+test('a cancelled replay that already charged is not sent again', async () => {
+  const cancelled = {
+    id: 'job_old_cancelled', state: 'cancelled', cancelled: true, failure_code: 'CANCELLED',
+    reserved_credits: 9, settled_credits: 3, released_credits: 6,
+  }
+  const s = stub(() => cancelled, cancelled)
+  try {
+    await callChatWithGenStudio('k', request).catch(() => null)
+  } finally { s.restore() }
+  assert.equal(s.keys.length, 1, 'a cancelled job that charged keeps one paid submission per click')
+})
+
+test('a cancelled replay the Gateway still holds is not sent again', async () => {
+  const cancelled = {
+    id: 'job_old_cancelled', state: 'cancelled', cancelled: true, failure_code: 'CANCELLED',
+    recovery_required: true, recovery_state: 'unknown_outcome',
+  }
+  const s = stub(() => cancelled, cancelled)
+  try {
+    await callChatWithGenStudio('k', request).catch(() => null)
+  } finally { s.restore() }
+  assert.equal(s.keys.length, 1, 'a held job may still be adopted, so it is never sent again')
+})
+
+test('a recovery-only reattach of a cancelled job never submits a successor', async () => {
+  // Recovery is a read-only lookup of a saved key: it must not turn into a new
+  // paid submission, and it must not mint a successor key either.
+  const cancelled = { id: 'job_cancelled', state: 'cancelled', cancelled: true, failure_code: 'CANCELLED' }
+  const s = stub(() => cancelled, cancelled)
+  try {
+    await callChatWithGenStudio('k', {
+      ...request, recoverByIdempotencyKey: true, idempotencyKey: 'saved-key', allowedRecoveryKeys: ['saved-key'],
+    }).catch(() => null)
+  } finally { s.restore() }
+  assert.deepEqual(s.keys, [], 'recovery never posts')
 })
 
 test('a replayed failure the gateway still holds (unknown outcome) is never resubmitted', async () => {

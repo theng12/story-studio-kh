@@ -159,14 +159,24 @@ describe('the single-row regeneration carries the workspace lettering', () => {
   })
 
   test('the route passes them into the enforcement clause', () => {
+    // The lettering the workspace sent is resolved ONCE into the options the
+    // clause is built from — the same options the character ceiling is
+    // reserved against, so the clause the row receives and the clause that
+    // was measured cannot disagree.
+    const optionsBlock = routeSource.slice(
+      routeSource.indexOf('const elementOptions = {'),
+      routeSource.indexOf('const elementOptions = {') + 1200,
+    )
+    assert.match(optionsBlock, /fontStyle: typeof req\.body\.thumb_font_style === 'string'/)
+    assert.match(optionsBlock, /textStyle: typeof req\.body\.thumb_text_style === 'string'/)
+    assert.match(optionsBlock, /fontCustomText: typeof req\.body\.thumb_font_style_custom === 'string'/)
+    assert.match(optionsBlock, /textCustomText: typeof req\.body\.thumb_text_style_custom === 'string'/)
+    // And those options are the ones the clause is built from.
     const enforceCall = routeSource.slice(
       routeSource.indexOf('next.prompt = enforceThumbnailPromptElements('),
-      routeSource.indexOf('next.prompt = enforceThumbnailPromptElements(') + 1600,
+      routeSource.indexOf('next.prompt = enforceThumbnailPromptElements(') + 400,
     )
-    assert.match(enforceCall, /fontStyle: typeof req\.body\.thumb_font_style === 'string'/)
-    assert.match(enforceCall, /textStyle: typeof req\.body\.thumb_text_style === 'string'/)
-    assert.match(enforceCall, /fontCustomText: typeof req\.body\.thumb_font_style_custom === 'string'/)
-    assert.match(enforceCall, /textCustomText: typeof req\.body\.thumb_text_style_custom === 'string'/)
+    assert.match(enforceCall, /\.\.\.elementOptions/)
   })
 
   test('the panel sends them and the page supplies them', () => {

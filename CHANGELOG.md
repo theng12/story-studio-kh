@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.348 — 2026-10-22
+
+- Upload Center lets you edit an episode's title and description during review, save both together and explicitly restore the generated description. The reviewed upload keeps the exact saved text and its authorship; conflicting episode folders are reported before an edit can reach the wrong folder.
+- Generated descriptions ask for a fresh summary and remove recognizable extra chapter lists and long sentences copied exactly from the narration. If no usable prose remains, the job refuses to save a timeline-only description and Retry requests a fresh answer.
+- Jobs show one primary summary and one credit explanation, with shared details for active and finished work. Channel Jobs loads finished history alongside live work, refreshes it as jobs finish and keeps cleared or out-of-scope rows from returning. Gateway requests, their submitted text, progress and outcomes sit together; missing evidence stays unknown. Local cancellation does not claim that dispatched remote work has stopped.
+- Image generation checks the final assembled prompt against the selected model's published character limit before submitting it. A deterministic length refusal stops automatic retry, names the affected prompt and preserves completed images.
+- Images can read existing scene and thumbnail prompts by episode code when the title is omitted. A unique renamed folder is recovered; conflicting folders are reported instead of guessed between.
+- Music scene-prompt polishing keeps a durable record of its request and returned prompts so Retry can recover completed work. Completion checks this run's own saved output, preserves valid partial answers and refuses to overwrite later prompt edits.
+
 ## v1.4.347 — 2026-10-21
 
 - Editing a Formula's chapter count preserves its authored duration choices. The choices are recalculated only when you change the episode's default length or duration range.

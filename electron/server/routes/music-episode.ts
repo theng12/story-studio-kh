@@ -366,8 +366,13 @@ router.post('/projects/:slug/music-episodes/:code/polish-prompts', async (req, r
     if (!model) return res.status(400).json({ detail: 'Pick the writing model that polishes the prompts. Story Studio does not pick one for you.' })
     const doc = await readEpisodeDoc(slug, code)
     if (!doc?.songs.length) return res.status(409).json({ detail: 'Draw songs first.' })
-    const sceneIds = Array.isArray(req.body?.scene_ids)
-      ? req.body.scene_ids.filter((id: unknown): id is string => typeof id === 'string' && /^ms-[0-9a-f]{12}$/.test(id))
+    const hasSceneSelection = Object.prototype.hasOwnProperty.call(req.body || {}, 'scene_ids')
+    if (hasSceneSelection && (!Array.isArray(req.body.scene_ids) || !req.body.scene_ids.length
+      || req.body.scene_ids.some((id: unknown) => typeof id !== 'string' || !/^ms-[0-9a-f]{12}$/.test(id)))) {
+      return res.status(400).json({ detail: 'Choose one or more valid scenes to polish.' })
+    }
+    const sceneIds: string[] = hasSceneSelection
+      ? [...new Set((req.body.scene_ids as unknown[]).filter((id): id is string => typeof id === 'string'))]
       : []
     if (jq.isDuplicate(slug, code, 'music_scene_polish' as JobType)) {
       return res.status(409).json({ detail: `${code}'s scene prompts are already being polished.` })

@@ -2329,9 +2329,22 @@ export function describeGenStudioVideoVariant(variant: GenStudioVideoVariant): s
 /**
  * `ChatJobResponse` — one durable language job on `POST /v1/chat/responses`.
  *
- * Terminal states are `succeeded` and `failed` ONLY; there is no cancelled or
- * rejected state on this route, which is why `waitForChatJob` polls on
- * `isTerminalGenStudioJobState` rather than on the image/TTS `cancelled` flag.
+ * Gateway 0.2.195 publishes the SAME job contract on every route, this one
+ * included: `_contract_fields` adds `dispatch_state`, `cancellable`,
+ * `cancellation_requested`, `cancelled` and `waiting` to the chat envelope,
+ * and `POST /v1/chat/responses/{id}/cancel` settles a chat job the same way it
+ * settles any other. The older note here — that this route publishes no
+ * cancelled flag and no cancel endpoint — described a Gateway that no longer
+ * exists. What the chat lane then did with those fields was the real defect:
+ * it read the `cancelled` flag but never recorded it, so a cancelled writing
+ * job was filed as an ordinary provider FAILURE (and could not be offered a
+ * cancel at all, because the dispatch state never arrived either).
+ *
+ * `cancelled` is a TERMINAL state on this route too (`TERMINAL_STATES` is
+ * `succeeded | failed | cancelled` for every modality). The transport maps it
+ * onto Story's own vocabulary before it reaches this lane — `state: 'failed'`
+ * beside `cancelled: true` — so the flag below, not the state, is what says a
+ * writing job was cancelled.
  *
  * The research envelope (`citations`, `citation_claims`, `research_ran_at`,
  * `web_searches_executed`, `web_search_credit_cost`) sits at the TOP LEVEL of
@@ -2359,6 +2372,15 @@ interface GenStudioChatJob extends GenStudioResearchEnvelope {
   verified_token_usage?: boolean | null
   failure_code?: string | null
   failure_detail?: string | null
+  /**
+   * The Gateway's own words for this failure, published verbatim
+   * (`_job_envelope`, Gateway 0.2.195). Story forwards them as published and never
+   * writes a substitute: absent means the Gateway published nothing, which is not
+   * the same as "no reason".
+   */
+  failure_reason?: string | null
+  /** The Gateway's classification for this failure, published verbatim. */
+  failure_class?: string | null
   retry_after_seconds?: number | null
   retry_at?: string | null
   routing_status_code?: string | null
@@ -2375,6 +2397,20 @@ interface GenStudioChatJob extends GenStudioResearchEnvelope {
   recovery_required?: boolean | null
   recovery_state?: string | null
   waiting?: GenStudioWaiting | null
+  /**
+   * The Gateway's job contract, published on this route exactly as on every
+   * other (`_contract_fields`, Gateway 0.2.195). These are READ verbatim: the
+   * Gateway decides what a cancel would do, and Story never derives them from
+   * the state, the modality or the model.
+   */
+  /** `pre_dispatch` — nothing has been sent upstream yet; `dispatched` — it has. */
+  dispatch_state?: 'pre_dispatch' | 'dispatched'
+  /** The Gateway's own promise that a cancel is honoured RIGHT NOW. */
+  cancellable?: boolean | null
+  /** True once the Gateway settled this job as cancelled. Terminal. */
+  cancelled?: boolean | null
+  /** True once a cancel was recorded for this job. */
+  cancellation_requested?: boolean | null
 }
 
 interface GenStudioVideoSourceAsset {
@@ -2630,7 +2666,7 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   /** Server-recorded pending keys allowed to use read-only recovery. */
   allowedRecoveryKeys?: string[]
   /** Persist the derived idempotency key before a charged POST can begin. */
-  onRequestPrepared?: (idempotencyKey: string) => void | Promise<void>
+  onRequestPrepared?: (idempotencyKey: string, preview?: GenStudioRequestPreview) => void | Promise<void>
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
   onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
   /** A private GenStudio-owned image asset for a vision-capable chat model. */
@@ -3149,6 +3185,46 @@ export function providerQueueFingerprint(job: GenStudioJob): string {
   // re-recorded when the position or reason changes, or the countdown crosses a bucket.
   const eta = queue.queue_eta_seconds === null ? '' : Math.floor(queue.queue_eta_seconds / QUEUE_ETA_BUCKET_SECONDS)
   return `${queue.queue_reason || ''}:${queue.queue_position ?? ''}:${eta}`
+}
+
+/**
+ * The LIVE contract the Gateway publishes on every job envelope, plus the failure words it
+ * publishes with it.
+ *
+ * **These change while the state does not.** The Gateway marks a job `running` when its dispatch
+ * loop picks it up, publishes `waiting` while the request is queued for a Mac, and then — with the
+ * state still `running` — flips `cancellable` to false and clears `waiting` the moment a Mac takes
+ * the work. A poll guard that watched only the state kept the pre-dispatch answer forever, so the
+ * saved evidence claimed a request could still be stopped after it had already been dispatched.
+ *
+ * `failure_reason` / `failure_class` belong here for the same reason: a held failure's own words can
+ * change while its state does not. Nothing here invents text — an unpublished field is empty, and
+ * empty is not the same as "false".
+ */
+export function providerContractFingerprint(job: GenStudioJob): string {
+  const waiting = normalizeGenStudioWaiting(job.waiting)
+  const flag = (value: boolean | null | undefined): string => (value === undefined || value === null ? '' : String(value))
+  return [
+    job.dispatch_state ?? '',
+    flag(job.cancellable),
+    flag(job.cancelled),
+    flag(job.cancellation_requested),
+    waiting ? `${waiting.reason ?? ''}|${waiting.next_try_at ?? ''}|${waiting.since ?? ''}` : '',
+    job.failure_reason ?? '',
+    job.failure_class ?? '',
+  ].join('~')
+}
+
+/**
+ * Everything the recorded evidence row would change on: the queue AND the live contract.
+ *
+ * The poll loops compare this to decide whether the row needs writing again, so a contract change
+ * is written and a still-running job's answer stays current. The queue part is unchanged from
+ * `providerQueueFingerprint`, so the countdown bucket still holds: the ETA keeps counting down on
+ * every poll, and only a real change re-persists the project.
+ */
+export function providerEvidenceFingerprint(job: GenStudioJob): string {
+  return `${providerQueueFingerprint(job)}|${providerContractFingerprint(job)}`
 }
 
 async function reportQueueState(
@@ -5914,14 +5990,14 @@ async function waitForVideoJob(
   let current = submitted
   let reportedState = ''
   let reportedRoutingState = ''
-  let reportedProviderQueue = ''
+  let reportedEvidence = ''
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || ''
-    const providerQueue = providerQueueFingerprint(current)
-    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
+    const evidenceFingerprint = providerEvidenceFingerprint(current)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedEvidence === evidenceFingerprint) return
     reportedState = current.state
     reportedRoutingState = routingState
-    reportedProviderQueue = providerQueue
+    reportedEvidence = evidenceFingerprint
     await recordGenStudioEvidence('video.generation', current)
     await reportQueueState(request, current)
     await request.onState?.(current.state, current.id)
@@ -6255,14 +6331,14 @@ async function waitForMusicJob(
   let current = submitted
   let reportedState = ''
   let reportedRoutingState = ''
-  let reportedProviderQueue = ''
+  let reportedEvidence = ''
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || ''
-    const providerQueue = providerQueueFingerprint(current as GenStudioJob)
-    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
+    const evidenceFingerprint = providerEvidenceFingerprint(current as GenStudioJob)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedEvidence === evidenceFingerprint) return
     reportedState = current.state
     reportedRoutingState = routingState
-    reportedProviderQueue = providerQueue
+    reportedEvidence = evidenceFingerprint
     await recordGenStudioEvidence('music.generation', current)
     await reportQueueState(request, current)
     await request.onState?.(current.state, current.id)
@@ -7562,9 +7638,27 @@ function chatJobEvidence(job: GenStudioChatJob): GenStudioJob {
     // work whose outcome is unknown. Absent stays absent — never invented as `false`/`null`.
     ...(job.recovery_required !== undefined ? { recovery_required: job.recovery_required } : {}),
     ...(job.recovery_state !== undefined ? { recovery_state: job.recovery_state } : {}),
+    // The Gateway's job contract, forwarded exactly as published. Hand-listing
+    // the fields dropped these, and the recorder downstream already knows how
+    // to store every one of them (`recordGenStudioEvidence`): a writing job
+    // therefore reached the Jobs page with NO dispatch state, NO cancellable
+    // answer and NO waiting reason, so the cancel control could never name a
+    // target and the card could only say "checking". Absent stays absent —
+    // never invented as `false`/`null`, and never derived from the modality.
+    ...(job.dispatch_state !== undefined ? { dispatch_state: job.dispatch_state } : {}),
+    ...(job.cancellable !== undefined ? { cancellable: job.cancellable } : {}),
+    ...(job.cancelled !== undefined ? { cancelled: job.cancelled } : {}),
+    ...(job.cancellation_requested !== undefined ? { cancellation_requested: job.cancellation_requested } : {}),
+    ...(job.waiting !== undefined ? { waiting: job.waiting } : {}),
     model_id: job.model_id,
     ...(job.failure_code ? { failure_code: job.failure_code } : {}),
     ...(job.failure_detail ? { failure_detail: job.failure_detail } : {}),
+    // The Gateway's own words for a failure, published verbatim on this route
+    // (`_job_envelope`, Gateway 0.2.195). Forwarded as published — the recorder
+    // downstream stores them and makes them customer-safe; Story never writes a
+    // substitute sentence of its own, and an absent field stays absent.
+    ...(job.failure_reason !== undefined ? { failure_reason: job.failure_reason } : {}),
+    ...(job.failure_class !== undefined ? { failure_class: job.failure_class } : {}),
     ...(job.retry_after_seconds === null || isValidSettlement(job.retry_after_seconds) ? { retry_after_seconds: job.retry_after_seconds } : {}),
     ...(job.retry_at === null || (typeof job.retry_at === 'string' && job.retry_at.trim()) ? { retry_at: job.retry_at } : {}),
     ...(job.routing_status_code ? { routing_status_code: job.routing_status_code } : {}),
@@ -7671,10 +7765,13 @@ async function recoverChatByIdempotencyKey(
  * `recordGenStudioEvidence` + queue-state reporting, so the Jobs page shows a
  * language job exactly the way it already shows every other modality.
  *
- * Terminal is `succeeded | failed` ONLY: unlike image/TTS/transcription this
- * route publishes no `cancelled` flag and no cancel endpoint, so a local
- * cancellation stops POLLING and says so rather than pretending it stopped the
- * job. The job stays GenStudio-owned and reconnectable by id.
+ * Terminal is `succeeded | failed | cancelled`: Gateway 0.2.195 publishes the
+ * same job contract on this route as on every other, including the
+ * `cancelled` flag and `POST /v1/chat/responses/{id}/cancel`. A job the
+ * Gateway cancelled is a settled, cancelled job — never a successful envelope
+ * with no text in it. A LOCAL cancellation is different: it stops POLLING and
+ * says so rather than pretending it stopped the job, which stays
+ * GenStudio-owned and reconnectable by id.
  */
 async function waitForChatJob(
   baseUrl: string,
@@ -7686,15 +7783,15 @@ async function waitForChatJob(
   let current = job
   let reportedState: string | null = null
   let reportedRoutingState: string | null = null
-  let reportedProviderQueue = ''
+  let reportedEvidence = ''
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || null
     const evidence = chatJobEvidence(current)
-    const providerQueue = providerQueueFingerprint(evidence)
-    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
+    const evidenceFingerprint = providerEvidenceFingerprint(evidence)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedEvidence === evidenceFingerprint) return
     reportedState = current.state
     reportedRoutingState = routingState
-    reportedProviderQueue = providerQueue
+    reportedEvidence = evidenceFingerprint
     await recordGenStudioEvidence('chat.response', evidence)
     await reportQueueState(request, evidence)
     await request.onState?.(current.state, current.id)
@@ -7723,7 +7820,7 @@ async function waitForChatJob(
     await reportState()
   }
   await genStudioAdmission.notifyTerminal(apiKey)
-  if (current.state === 'failed') {
+  if (current.state === 'failed' || current.cancelled === true) {
     const incomplete = durableIncompleteChatError(current)
     if (incomplete) throw incomplete
     throw new GenStudioChatTerminalFailureError(current)
@@ -7979,7 +8076,6 @@ async function replaceConfirmedGeneration<T>(
 function replaceFailedChat(apiKey: string, request: GenStudioChatRequest, prepared: PreparedChatSubmission, error: unknown): Promise<GenStudioChatResult> {
   return replaceConfirmedGeneration('writing', apiKey, prepared.idempotencyKey, chatReplacementItemKey(prepared, request), error, request,
     async (key, _cap, hooks) => {
-      await request.onRequestPrepared?.(key)
       return callChatViaResponses(apiKey, { ...request, ...hooks, recoverByIdempotencyKey: false }, { ...prepared, idempotencyKey: key })
     })
 }
@@ -8090,7 +8186,6 @@ async function resendLostChat(
     + 'so Story Studio sent it once more as a fresh request (it will not resend it again by itself).')
   const resend = { ...request, recoverByIdempotencyKey: false }
   const resent = { ...prepared, idempotencyKey: lostChatResendKey(prepared.idempotencyKey, lost.jobId) }
-  await request.onRequestPrepared?.(resent.idempotencyKey)
   try {
     return await callChatViaResponsesOnce(apiKey, resend, resent, baseUrlOverride)
   } catch (error) {
@@ -8141,6 +8236,38 @@ export function replayedSettledChatFailure(job: {
   const credits = [job.reserved_credits, job.settled_credits, job.released_credits]
   return (job.idempotent_replay === true || job.http_status === 200)
     && job.state === 'failed' && job.cancelled !== true
+    && !holdsUnknownOutcome(job) && !isSubmissionUncertainCode(job.failure_code)
+    && credits.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+    && job.settled_credits === 0 && job.released_credits === job.reserved_credits
+}
+
+/**
+ * The POST answered with an EARLIER job for this key that the Gateway has settled as CANCELLED.
+ *
+ * **A cancellation is terminal, so a cancelled job can never answer again.** The key is derived
+ * from the request content, so a Retry re-POSTs the very same key, the Gateway replays the very
+ * same cancelled job, and the step fails with "this writing request was cancelled" forever — the
+ * Retry never sends anything. The Gateway's own words for it are the reason to move on: the work
+ * was stopped on purpose, so a deliberate retry is a NEW request, not a replay of the stopped one.
+ *
+ * The settlement proof is the one the failed replay uses: a cancelled job that already charged
+ * keeps "one paid submission per click", because a second request could be charged again.
+ */
+export function replayedCancelledChatFailure(job: {
+  state?: unknown
+  failure_code?: unknown
+  cancelled?: unknown
+  recovery_required?: unknown
+  recovery_state?: unknown
+  idempotent_replay?: unknown
+  http_status?: unknown
+  reserved_credits?: unknown
+  settled_credits?: unknown
+  released_credits?: unknown
+}): boolean {
+  const credits = [job.reserved_credits, job.settled_credits, job.released_credits]
+  return (job.idempotent_replay === true || job.http_status === 200)
+    && job.state === 'failed' && job.cancelled === true
     && !holdsUnknownOutcome(job) && !isSubmissionUncertainCode(job.failure_code)
     && credits.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
     && job.settled_credits === 0 && job.released_credits === job.reserved_credits
@@ -8239,6 +8366,7 @@ async function callChatViaResponsesOnce(
     }
     return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview, baseUrl)
   }
+  await request.onRequestPrepared?.(prepared.idempotencyKey, requestPreview)
   let submitted: GenStudioChatJob
   const jobGroup = await jobGroupField()
   try {
@@ -8310,7 +8438,14 @@ async function callChatViaResponsesOnce(
     && replayedHeldFreeChatFailure(submitted, prepared.product.chargeable)
   const settledRedo = !request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
     && replayedSettledChatFailure(submitted)
-  if ((freeHeldRedo || settledRedo) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
+  // **A cancelled job is terminal too, and it answers with the same cancellation forever.** The
+  // work was stopped on purpose, so a Retry of an ordinary submission is a NEW request: it moves
+  // to a successor key the same way a settled failure does, instead of replaying the stopped job
+  // on every click. A caller-supplied key (exact replay, a paid replacement) is never moved, and a
+  // recovery-only reattach never reaches this block — it returns before the POST.
+  const cancelledRedo = !request.idempotencyKey?.trim() && request.replacementChargeLimit === undefined
+    && replayedCancelledChatFailure(submitted)
+  if ((freeHeldRedo || settledRedo || cancelledRedo) && replayHops < MAX_FAILED_CHAT_REPLAY_HOPS) {
     // The key is derived from the request content, so a Retry of the same step
     // re-POSTs the same key and the gateway answers with the OLD failed job.
     // Without this, one failure (the gateway
@@ -8367,6 +8502,7 @@ async function callChatViaCompletions(
     fields: [['stream', false], ...chatPreviewFields(request, prepared)],
   })
   const jobGroup = await jobGroupField()
+  await request.onRequestPrepared?.(prepared.idempotencyKey, requestPreview)
   const completion = await submitLanguageJson(
     apiKey,
     `${apiBase(baseUrl)}/v1/chat/completions`,
@@ -8592,7 +8728,6 @@ async function callChatWithGenStudioAdmitted(
       if (!isProvenUncreatedChatRequest(error)) throw error
     }
   }
-  await request.onRequestPrepared?.(prepared.idempotencyKey)
   return prepared.transport === 'completions'
     ? callChatViaCompletions(apiKey, request, prepared)
     : callChatViaResponses(apiKey, request, prepared, uncreatedRecoveryBaseUrl)
@@ -8896,17 +9031,17 @@ async function waitForImageJob(
   let current = submitted
   let reportedState = ''
   let reportedRoutingState = ''
-  let reportedProviderQueue = ''
+  let reportedEvidence = ''
   // Same change guard as the other five wait loops. Every evidence record rewrites the project's whole
   // jobs.json on the main thread; recording each unchanged poll of every in-flight scene image kept a
   // large channel's server busy writing (story-perf findings, 2026-10-06).
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || ''
-    const providerQueue = providerQueueFingerprint(current as GenStudioJob)
-    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
+    const evidenceFingerprint = providerEvidenceFingerprint(current as GenStudioJob)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedEvidence === evidenceFingerprint) return
     reportedState = current.state
     reportedRoutingState = routingState
-    reportedProviderQueue = providerQueue
+    reportedEvidence = evidenceFingerprint
     await recordGenStudioEvidence('image.generation', current)
     await reportQueueState(request, current)
     request.onState?.(current.state)
@@ -9550,14 +9685,14 @@ async function waitForTranscriptionJob(
   let current = submitted
   let reportedState: string | null = null
   let reportedRoutingState: string | null = null
-  let reportedProviderQueue = ''
+  let reportedEvidence = ''
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || null
-    const providerQueue = providerQueueFingerprint(current as GenStudioJob)
-    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
+    const evidenceFingerprint = providerEvidenceFingerprint(current as GenStudioJob)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedEvidence === evidenceFingerprint) return
     reportedState = current.state
     reportedRoutingState = routingState
-    reportedProviderQueue = providerQueue
+    reportedEvidence = evidenceFingerprint
     await recordGenStudioEvidence('audio.transcription', current)
     await reportQueueState(request, current)
     await request.onState?.(current.state, current.id)
@@ -9820,14 +9955,14 @@ async function waitForJob(
   let current = job
   let reportedState: string | null = null
   let reportedRoutingState: string | null = null
-  let reportedProviderQueue = ''
+  let reportedEvidence = ''
   const reportState = async (): Promise<void> => {
     const routingState = current.routing_status_code || null
-    const providerQueue = providerQueueFingerprint(current)
-    if (reportedState === current.state && reportedRoutingState === routingState && reportedProviderQueue === providerQueue) return
+    const evidenceFingerprint = providerEvidenceFingerprint(current)
+    if (reportedState === current.state && reportedRoutingState === routingState && reportedEvidence === evidenceFingerprint) return
     reportedState = current.state
     reportedRoutingState = routingState
-    reportedProviderQueue = providerQueue
+    reportedEvidence = evidenceFingerprint
     await recordGenStudioEvidence('voice.tts', current)
     await reportQueueState(request, current)
     await request.onState?.(current.state, current.id)

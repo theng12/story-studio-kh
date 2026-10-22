@@ -21,18 +21,26 @@ import { resolveEpisodePathsByCode, resolveSubfolderNames } from '../services/ut
 import { findEpisodeSubfolderDir } from '../services/media-root.js'
 import { buildTimeline, drawEpisode, isUsable, renderEpisodeTracklist, songKey, type EpisodeSettings } from '../services/music-episode.js'
 import {
-  MUSIC_EPISODE_FILENAME,
   loadEpisodeContext,
   newEpisodeDoc,
   readEpisodeDoc,
   saveEpisodeDoc,
-  writeDerivedScenePlan,
+  updateEpisodeDoc,
+  buildEpisodeView,
   type MusicEpisodeDoc,
 } from '../services/music-episode-store.js'
-import { writeJsonAtomic } from '../lib/atomic-store.js'
 import type { Job } from '../models/types.js'
 
 export interface StitchInput { path: string; gain_db: number }
+
+export async function saveMusicEpisodeBuild(slug: string, code: string, songKeys: string[], built: NonNullable<MusicEpisodeDoc['built']>): Promise<void> {
+  await updateEpisodeDoc(slug, code, current => {
+    if (current.songs.map(songKey).join('\n') !== songKeys.join('\n')) {
+      throw new Error(`${code}'s songs changed while the mix was building. The newer Episode Builder plan was preserved; Retry the build.`)
+    }
+    return { doc: { ...current, built }, result: undefined }
+  })
+}
 
 /** A song's gain is clamped so one bad measurement cannot blow the mix up. */
 export const MAX_GAIN_DB = 20
@@ -263,12 +271,11 @@ export async function generateMusicEpisodeBuild(job: Job): Promise<void> {
     ...(loudness.lufs !== null ? { lufs: loudness.lufs } : {}),
     ...(loudness.true_peak_db !== null ? { true_peak_db: loudness.true_peak_db } : {}),
   }
-  const next = { ...doc, built, updated_at: new Date().toISOString() }
-  await writeJsonAtomic(path.join(paths.episode_dir, MUSIC_EPISODE_FILENAME), next)
-  const plan = await writeDerivedScenePlan(slug, code, next, ctx.byKey)
+  await saveMusicEpisodeBuild(slug, code, doc.songs.map(songKey), built)
+  const sceneCount = (await buildEpisodeView(slug, code)).scenes.length
 
   job.output_dir = mergedDir
-  job.result = { merged_audio: finalPath, tracklist: tracklistPath, total_sec: built.total_sec, scenes: plan.scenes.length }
+  job.result = { merged_audio: finalPath, tracklist: tracklistPath, total_sec: built.total_sec, scenes: sceneCount }
   job.progress = 100
   requireJobCompletion(job, {
     label: 'Music episode',
@@ -276,5 +283,5 @@ export async function generateMusicEpisodeBuild(job: Job): Promise<void> {
     completed: 1,
     retry_hint: 'Retry stitches the same songs again; nothing is generated or bought.',
   })
-  job.output_lines.push(`Ready for Video Assembly: ${plan.scenes.length} scene(s), tracklist ${path.basename(tracklistPath)}.`)
+  job.output_lines.push(`Ready for Video Assembly: ${sceneCount} scene(s), tracklist ${path.basename(tracklistPath)}.`)
 }

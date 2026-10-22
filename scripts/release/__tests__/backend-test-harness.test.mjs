@@ -36,6 +36,23 @@ async function runnerFixtureEntries() {
 }
 
 /**
+ * Whether `_trash` is a symlink to a directory this checkout shares.
+ *
+ * The main checkout reaches `_trash` through a symlink into a directory every
+ * checkout on this machine uses, so its listing changes with other checkouts'
+ * runs and cannot be compared before and after. Where the directory is this
+ * checkout's own, the comparison is exact.
+ */
+async function trashIsShared() {
+  try {
+    return (await fs.lstat(path.join(ROOT, '_trash'))).isSymbolicLink()
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
+/**
  * Env for a `node --test` spawned from INSIDE a test file. Node refuses to
  * recurse ("skipping running files") when it sees its own marker, and the
  * harness deletes the same variable for the same reason.
@@ -44,6 +61,19 @@ function nestedRunnerEnv() {
   const env = { ...process.env }
   delete env.NODE_TEST_CONTEXT
   delete env.NODE_OPTIONS
+  return env
+}
+
+/**
+ * The runner's env with the retained fixtures override REMOVED.
+ *
+ * A test that proves the default behaviour must prove it even when the
+ * operator has set the override for the gate, or the gate proves nothing
+ * about the default it will fall back to.
+ */
+function defaultRunnerEnv(extra = {}) {
+  const env = { ...nestedRunnerEnv(), ...extra }
+  delete env.STORY_STUDIO_RETAINED_FIXTURES_ROOT
   return env
 }
 
@@ -68,22 +98,30 @@ test('backend runner parser rejects unknown options instead of widening the run'
 
 test('--help and unknown options exit before sandbox setup or test execution', async () => {
   const before = await runnerFixtureEntries()
+  const shared = await trashIsShared()
   const help = await runHarness(['--help'])
   assert.equal(help.exitCode, 0, help.stderr || help.stdout)
   assert.match(help.stdout, /^Usage: node scripts\/testing\/run-backend-tests\.mjs/m)
   assert.doesNotMatch(help.stdout + help.stderr, /sandbox:|suite coverage:|PARTIAL RUN|configured projects root/)
-  assert.deepEqual(await runnerFixtureEntries(), before, '--help must not create or retain a sandbox')
+  if (!shared) {
+    assert.deepEqual(await runnerFixtureEntries(), before, '--help must not create or retain a sandbox')
+  }
 
   const invalid = await runHarness(['--only', 'image-episode-concurrency', '--typo'])
   assert.notEqual(invalid.exitCode, 0)
   assert.match(invalid.stderr + invalid.stdout, /unsupported.*--typo/i)
   assert.doesNotMatch(invalid.stdout + invalid.stderr, /sandbox:|suite coverage:|PARTIAL RUN|configured projects root/)
-  assert.deepEqual(await runnerFixtureEntries(), before, 'invalid input must fail before sandbox setup')
+  if (!shared) {
+    assert.deepEqual(await runnerFixtureEntries(), before, 'invalid input must fail before sandbox setup')
+  }
 })
 
 test('sandbox retention reserves a fresh container without touching a prior colliding artifact', async () => {
-  const fixtures = path.join(ROOT, '_trash', 'test-fixtures')
-  await fs.mkdir(fixtures, { recursive: true })
+  const { resolveRetainedFixturesRoot } = await import(
+    pathToFileURL(path.join(ROOT, 'scripts', 'testing', 'run-backend-tests.mjs')).href
+  )
+  const fixtures = await resolveRetainedFixturesRoot()
+  await fs.mkdir(fixtures, { recursive: true, mode: 0o700 })
   const retentionRoot = await fs.mkdtemp(path.join(fixtures, 'backend-retention-collision-proof-'))
   const source = await fs.mkdtemp(path.join(ROOT, '.backend-retention-collision-source-'))
   const sourceName = path.basename(source)
@@ -112,6 +150,67 @@ test('sandbox retention reserves a fresh container without touching a prior coll
   }
 })
 
+/**
+ * The retained fixtures root can be moved OUT of the shared `_trash`.
+ *
+ * The main checkout reaches `_trash` through a symlink into a directory every
+ * checkout shares, so a retained sandbox kept there is at the mercy of that
+ * shared directory. `STORY_STUDIO_RETAINED_FIXTURES_ROOT` names a permanent
+ * home for the evidence instead.
+ *
+ * Proven with no stopwatch: the retained sandbox lands under the override,
+ * the isolated projects sentinel inside it is byte-identical, the run still
+ * proves its source projects untouched, and — where the Trash belongs to this
+ * checkout alone — it gains nothing.
+ */
+test('the retained fixtures root can be moved out of the shared Trash', async () => {
+  const override = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'retained-fixtures-root-')))
+  const before = await runnerFixtureEntries()
+  const shared = await trashIsShared()
+  const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
+    ...nestedRunnerEnv(),
+    STORY_STUDIO_RETAINED_FIXTURES_ROOT: override,
+  })
+
+  assert.equal(exitCode, 0, stderr || stdout)
+  assert.match(stdout, /configured projects root byte-identical: true/,
+    'the source projects must still be proven untouched')
+  const retained = stdout.match(/\[test-harness\] retained sandbox: (.+)/)?.[1]?.trim()
+  assert.ok(retained, 'the run must report where it retained its sandbox')
+  assert.ok(retained.startsWith(override),
+    `the retained sandbox must live under the override root: ${retained}`)
+  assert.equal(
+    await fs.readFile(path.join(retained, 'sandbox', 'configured-projects', 'owner-sentinel', 'owner-marker.txt'), 'utf8'),
+    'must remain byte-identical\n',
+    'the isolated projects sentinel must be retained byte-identically',
+  )
+  if (!shared) {
+    assert.deepEqual(await runnerFixtureEntries(), before,
+      'the shared Trash must gain nothing when the override is set')
+  }
+})
+
+test('a symlinked retained fixtures root is refused, not followed', async () => {
+  // Following a link is the weakness the override exists to escape: a path
+  // that looks permanent can be repointed elsewhere, and the evidence goes
+  // with it. The fixture below is retained, not cleaned up.
+  const container = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'retained-fixtures-link-')))
+  const real = path.join(container, 'real')
+  const link = path.join(container, 'link')
+  await fs.mkdir(real, { recursive: true })
+  await fs.symlink(real, link)
+
+  const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
+    ...nestedRunnerEnv(),
+    STORY_STUDIO_RETAINED_FIXTURES_ROOT: link,
+  })
+
+  assert.notEqual(exitCode, 0, 'a symlinked root must be refused, loudly')
+  assert.match(stderr + stdout, /STORY_STUDIO_RETAINED_FIXTURES_ROOT must name a real directory/)
+  assert.deepEqual(await fs.readdir(real), [],
+    'a refused root must not have been written through to')
+})
+
 test('backend test runner is hermetic without an operator-provided environment wrapper', async () => {
   const { exitCode, stdout, stderr } = await runHarness()
 
@@ -134,7 +233,9 @@ test('backend test runner ignores inherited temp-directory escape routes', async
 })
 
 test('backend test runner retains its sandbox recoverably when setup fails', async () => {
-  const { exitCode, stdout, stderr } = await runHarness(['--probe', '--fail-after-setup'])
+  // The DEFAULT retained fixtures root, proved with the override removed: the
+  // gate may set one, but the default it falls back to must still hold.
+  const { exitCode, stdout, stderr } = await runHarness(['--probe', '--fail-after-setup'], defaultRunnerEnv())
   assert.notEqual(exitCode, 0)
   assert.match(stderr + stdout, /intentional backend test harness setup failure/,
     'the nonzero exit must come from the controlled setup failure, not an earlier one')

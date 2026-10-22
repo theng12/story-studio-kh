@@ -62,7 +62,8 @@ import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import { withLock } from '../lib/atomic-store.js'
 import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
-import { resolveExactPreset, resolveScenePlanPromptCharCap, scenePlanPresetReceipt } from '../services/preset-authority.js'
+import { resolveExactPreset, resolveScenePlanPromptCharCap, scenePlanPresetReceipt, thumbnailPromptPresetCapInputs } from '../services/preset-authority.js'
+import { resolveLiveImagePromptCharCap } from '../services/image-prompt-cap.js'
 import { pipelineStepLabel } from '../lib/pipeline-continuation.js'
 import { SAFETY_CHECKS, safetyMode, safetyModeFromConfig } from '../services/safety-checks.js'
 import { isDecodableImage } from '../lib/image-validation.js'
@@ -2547,6 +2548,47 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     }
   }
 
+  /**
+   * The CHARACTER CEILING for the thumbnail prompts this batch writes.
+   *
+   * The Scene Plan step has always resolved its ceiling against the live image
+   * catalogue; the Thumbnail Prompts step did not, so a Pipeline run wrote
+   * thumbnail prompts with NO ceiling at all — and the image model refused them
+   * at render time, identically, three times per episode.
+   *
+   * The thumbnail preset's OWN ceiling inputs — the SELECTION ('auto' / 'none'
+   * / a number) and the image model it was chosen for — travel with the job, so
+   * the executor resolves the ceiling when the job RUNS, against the live
+   * catalogue. A number resolved at admission time is a snapshot: it can be out
+   * of date by the time the job runs, and it is out of date forever on a retry.
+   *
+   * FAILS CLOSED, exactly like the Scene Plan step above. A preset that names
+   * an image model the catalogue no longer publishes has no ceiling to resolve
+   * and no model to render with: continuing would write prompts with no limit
+   * for a model that does not exist, and the run would only fail later, at
+   * render time, having already spent credits. Nothing is invented — no
+   * fallback model, no fallback number — and NOTHING IS STARTED.
+   */
+  const thumbnailCapInputs: { intended_image_model: string; prompt_char_cap: unknown } = presetByStep.image_prompts
+    ? thumbnailPromptPresetCapInputs(presetByStep.image_prompts)
+    : { intended_image_model: '', prompt_char_cap: undefined }
+  if (presetByStep.image_prompts) {
+    // The ADMISSION check uses the SAME resolver the executor uses, so a
+    // malformed selection (boolean, array, object) is refused here before
+    // anything is enqueued — the executor will never see a shape it cannot
+    // read. The number resolved here is NOT written into the job; the
+    // executor resolves again when the job runs, against the live catalogue.
+    const capRefusal = await resolveLiveImagePromptCharCap({
+      intendedImageModel: thumbnailCapInputs.intended_image_model,
+      setting: thumbnailCapInputs.prompt_char_cap,
+      label: 'The Thumbnail Prompts preset',
+      nothingHappened: 'Nothing was started.',
+    })
+    if (capRefusal.error) {
+      return res.status(400).json({ detail: capRefusal.error })
+    }
+  }
+
   const actionFingerprint = force
     ? stampFreshGenerationAction(req.body || {}, operationId).generation_action_fingerprint
     : repairMissing ? pipelineRepairFingerprint({
@@ -2764,6 +2806,16 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       try {
         params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
         if (step === 'scene_plan') params.prompt_char_cap = pipelineScenePlanPromptCap
+        // The thumbnail prompts this step writes need the same treatment. The
+        // preset mapper carries the saved SELECTION ('auto' / 'none' / a
+        // number) and the image model it was chosen for; both travel with the
+        // job, and the executor resolves the ceiling against the LIVE catalogue
+        // when the job runs. A number frozen here would be a snapshot that a
+        // catalogue change or a retry could silently contradict.
+        if (step === 'image_prompts') {
+          params.prompt_char_cap = thumbnailCapInputs.prompt_char_cap
+          params.intended_image_model = thumbnailCapInputs.intended_image_model
+        }
         // 1.4.282 — readable on the job: exactly what this render bakes in. Never read by the render.
         if (step === 'video_assembly') {
           // 1.4.312 — every key this step's resolution produced, and the preset the batch chose for

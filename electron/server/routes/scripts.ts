@@ -31,6 +31,7 @@ import {
   stampFreshGenerationAction,
 } from '../lib/fresh-generation-action.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
+import { resolveLiveImagePromptCharCap } from '../services/image-prompt-cap.js'
 import type { Job } from '../models/types.js'
 import { writeMetadataPackage } from '../services/metadata-completion.js'
 
@@ -1540,6 +1541,36 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
       return res.status(409).json({
         detail: `Image-prompts generation already queued/running for ${episode_id}`,
       })
+    }
+    // THE CHARACTER CEILING, RESOLVED LIVE.
+    //
+    // The client sends the SELECTION — 'auto' (follow the selected image model),
+    // 'none' (no ceiling), or a whole number the customer chose — together with
+    // the image model the prompts are written FOR. The number is resolved here,
+    // against the live catalogue, by the same helper the Pipeline uses, so the
+    // ceiling follows the model: a model change, a catalogue change, or a
+    // different Mac cannot leave the writer working to a figure that is no
+    // longer true. A resolved number the client sent earlier is NOT trusted.
+    //
+    // It is resolved INSIDE the replay guard, after the fingerprint check, so
+    // the request that was signed is the request that was admitted.
+    //
+    // FAILS CLOSED, like the Pipeline step: a selected model the catalogue no
+    // longer publishes has no ceiling to resolve, and NOTHING IS STARTED. No
+    // fallback model and no fallback number are invented.
+    //
+    // The JOB carries the SELECTION, not the number resolved here: the executor
+    // resolves the ceiling again when the job runs — and again on every retry —
+    // so the ceiling a run is written under is the one in force AT THAT MOMENT,
+    // not the one that was true when the button was pressed.
+    const capRefusal = await resolveLiveImagePromptCharCap({
+      intendedImageModel: action.params.intended_image_model,
+      setting: action.params.prompt_char_cap,
+      label: 'The Thumbnail Prompts selection',
+      nothingHappened: 'Nothing was started.',
+    })
+    if (capRefusal.error) {
+      return res.status(400).json({ detail: capRefusal.error })
     }
     const job = await jq.enqueue({
       project_slug: slug,

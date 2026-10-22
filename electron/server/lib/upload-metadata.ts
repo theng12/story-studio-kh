@@ -16,7 +16,7 @@
 import fsp from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
-import { resolveEpisodePaths, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
+import { OVERRIDES_FILENAME, resolveOverrideEpisodePaths } from '../services/upload-overrides.js'
 import { parseMetadataTxt } from '../services/metadata-format.js'
 import type { VideoSnippet } from './youtube-client.js'
 import { truncateChars, toWellFormedText } from './well-formed-text.js'
@@ -30,6 +30,20 @@ export interface EpisodeMetadataForUpload {
   tags: string[]
   /** Highest-version thumbnail file on disk, or empty string if none. */
   thumbnailPath: string
+  /**
+   * True when `title` came from the operator's own override sidecar rather
+   * than from the generator.
+   *
+   * It is the difference between "a model wrote this" and "the owner typed
+   * this", and the two are not cleaned the same way. The editorial strips
+   * (the URL heuristic in a title, the markdown scaffold and the internal
+   * section labels in a description) exist for generated text: they keep a
+   * model's furniture off YouTube. They are not the owner's business — the
+   * owner sees the result in the preview panel and approves it there.
+   */
+  title_from_override?: boolean
+  /** True when `description` came from the operator's own override sidecar. */
+  description_from_override?: boolean
 }
 
 export interface ResolveUploadMetadataInput {
@@ -65,9 +79,12 @@ export function validateUploadThumbnailFilename(filename: string): string {
  */
 export async function listUploadThumbnails(input: ResolveUploadMetadataInput): Promise<UploadThumbnailOption[]> {
   const platform = input.platform || 'youtube'
-  const paths = await resolveEpisodePathsByCodeWithSidecar(
-    input.slug, input.episode_code, `${platform}_upload.json`,
-  ).catch(() => resolveEpisodePaths(input.slug, input.episode_code, input.fallback_title || ''))
+  // The ONE resolver, shared with every writer of this sidecar: the folder a
+  // read looks in and the folder a write lands in are the same folder, by
+  // construction rather than by two implementations agreeing.
+  const paths = await resolveOverrideEpisodePaths(
+    input.slug, input.episode_code, input.fallback_title || '', platform,
+  )
   if (!existsSync(paths.thumb_dir)) return []
 
   const filenames = (await fsp.readdir(paths.thumb_dir))
@@ -75,7 +92,7 @@ export async function listUploadThumbnails(input: ResolveUploadMetadataInput): P
     .sort((a, b) => versionOf(b) - versionOf(a) || b.localeCompare(a))
 
   let pinned = ''
-  const overridesPath = path.join(paths.episode_dir, 'upload_metadata_overrides.json')
+  const overridesPath = path.join(paths.episode_dir, OVERRIDES_FILENAME)
   if (existsSync(overridesPath)) {
     try {
       const data = JSON.parse(await fsp.readFile(overridesPath, 'utf-8'))
@@ -101,9 +118,12 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
   // finds the sibling folder that actually holds the upload sidecar (and its
   // thumbnails); non-drifted episodes resolve to the identical canonical path.
   const platform = input.platform || 'youtube'
-  const paths = await resolveEpisodePathsByCodeWithSidecar(
-    input.slug, input.episode_code, `${platform}_upload.json`,
-  ).catch(() => resolveEpisodePaths(input.slug, input.episode_code, input.fallback_title || ''))
+  // The ONE resolver, shared with every writer of this sidecar: the folder a
+  // read looks in and the folder a write lands in are the same folder, by
+  // construction rather than by two implementations agreeing.
+  const paths = await resolveOverrideEpisodePaths(
+    input.slug, input.episode_code, input.fallback_title || '', platform,
+  )
 
   // Prefer the JSON sidecar the Metadata Generator writes. Shape:
   //   { titles: string[], description: string, tags: string[], ... }
@@ -221,7 +241,16 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
   description = stripMarkdownScaffold(stripInternalSectionLabels(description))
 
   // Per-platform overrides sidecar (optional).
-  const overridesPath = path.join(paths.episode_dir, 'upload_metadata_overrides.json')
+  //
+  // `title_from_override` / `description_from_override` remember WHERE the text
+  // came from. The strip above ran before this merge on purpose (v1.4.75), so
+  // the operator's own words already reach here untouched — but `snippetFromMeta`
+  // cleans once more at the last gate, and that clean is for generated text.
+  // The flags let it tell the two apart, so an owner who typed a description
+  // gets it word for word, chapter list included.
+  let title_from_override = false
+  let description_from_override = false
+  const overridesPath = path.join(paths.episode_dir, OVERRIDES_FILENAME)
   if (existsSync(overridesPath)) {
     try {
       const raw = await fsp.readFile(overridesPath, 'utf-8')
@@ -230,9 +259,11 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
       if (platformOverride) {
         if (typeof platformOverride.title === 'string' && platformOverride.title.trim()) {
           title = platformOverride.title
+          title_from_override = true
         }
         if (typeof platformOverride.description === 'string') {
           description = platformOverride.description
+          description_from_override = true
         }
         if (Array.isArray(platformOverride.tags)) {
           tags = platformOverride.tags.filter((t: any) => typeof t === 'string' && t.trim())
@@ -292,6 +323,8 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
     description,
     tags,
     thumbnailPath,
+    ...(title_from_override ? { title_from_override: true } : {}),
+    ...(description_from_override ? { description_from_override: true } : {}),
   }
 }
 
@@ -332,7 +365,9 @@ function versionOf(filename: string): number {
 
 // YouTube Data API v3 hard limits (as of 2026). Verify against
 // https://developers.google.com/youtube/v3/docs/videos if updating.
-const YT_TITLE_MAX = 100
+// Exported so the Upload Center's own validation quotes the SAME figure
+// rather than a copy of it that can drift.
+export const YT_TITLE_MAX = 100
 const YT_TAGS_TOTAL_MAX = 500
 const PER_TAG_MAX = 30
 const MAX_TAGS = 15
@@ -424,12 +459,18 @@ export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[],
   // Title: strip control chars + angle brackets (YouTube rejects < and >
   // silently in titles), strip URLs with a warning, then cap length.
   let title = stripControl(meta.title).replace(/[<>]/g, '')
-  title = stripUrlsFromTitle(title, logs)
-  // v1.4.84 — a title is one line of plain text. Anything markdown about it
-  // came from the document it was read out of, and YouTube would show it.
-  const beforeScaffold = title
-  title = stripTitleScaffold(title)
-  if (title !== beforeScaffold.trim()) logs?.push('formatting marks removed from the title')
+  // The URL heuristic and the scaffold strip are for a MODEL's words: a title
+  // the owner typed keeps its URL and its formatting, because the owner saw
+  // it in the preview panel and approved it there. The platform's own rules
+  // (control characters, angle brackets, the length cap) still apply to both.
+  if (!meta.title_from_override) {
+    title = stripUrlsFromTitle(title, logs)
+    // v1.4.84 — a title is one line of plain text. Anything markdown about it
+    // came from the document it was read out of, and YouTube would show it.
+    const beforeScaffold = title
+    title = stripTitleScaffold(title)
+    if (title !== beforeScaffold.trim()) logs?.push('formatting marks removed from the title')
+  }
   title = capLength(title.trim(), YT_TITLE_MAX, 'title', logs)
 
   // Description: strip control chars (keeping newlines/tabs for formatting),
@@ -453,7 +494,18 @@ export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[],
   // headroom). It used to be 5,000 characters, which let a Khmer description
   // reach ~15,000 bytes and the upload be refused. Fit before the private
   // markers are stripped so the chapter list is recognised and kept whole.
-  const fitted = fitYouTubeDescription(stripMarkdownScaffold(stripInternalSectionLabels(stripControl(meta.description))))
+  // v1.4.347 — the operator's own words bypass the editorial strips (scaffold,
+  // internal section labels), the same way the resolver already lets them past
+  // at the read. Platform-authoritative constraints — control characters,
+  // private marker removal, angle brackets, the 4,900-byte cap — still apply
+  // to both. The NOTE from v1.4.75 ("move this strip so it runs before his
+  // override lands, the way the resolver already does") is answered here:
+  // when the text is the owner's, the editorial strips do not run at all.
+  const rawDescription = stripControl(meta.description)
+  const editoriallyStripped = meta.description_from_override
+    ? rawDescription
+    : stripMarkdownScaffold(stripInternalSectionLabels(rawDescription))
+  const fitted = fitYouTubeDescription(editoriallyStripped)
   if (fitted.trimmed) logs?.push(`description trimmed ${fitted.bytes_before} → ${fitted.bytes_after} bytes (YouTube limit), chapter list kept`)
   const description = cleanDescriptionForYouTube(fitted.description, logs)
 

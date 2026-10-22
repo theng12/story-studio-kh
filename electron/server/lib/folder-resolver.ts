@@ -92,24 +92,37 @@ export async function findSubfolder(
 }
 
 /**
+ * Every episode folder in `parentDir` that carries `code`, in listing order.
+ *
+ * `resolveEpisodeDir` picks the first of these. A caller that has to know
+ * whether the answer is certain counts them here — the same predicate, the
+ * same order, so the count and the pick cannot disagree.
+ */
+export async function listEpisodeDirsByCode(parentDir: string, code: string): Promise<string[]> {
+  if (!existsSync(parentDir)) return []
+
+  try {
+    const entries = await fs.readdir(parentDir, { withFileTypes: true })
+    const wanted = `${code} - `
+    return entries
+      .filter(entry => entry.isDirectory())
+      // The "✅ " done-marker prefix is stripped the same way the folder
+      // resolver strips it, so a marked folder counts as the same folder.
+      .filter(entry => cleanName(entry.name).startsWith(wanted))
+      .map(entry => path.join(parentDir, entry.name))
+  } catch {
+    return []
+  }
+}
+
+/**
  * Resolve the episode directory by matching the episode code prefix
  * within ONE directory level (typically the season dir). For a search
  * from the project root across season folders, use findEpisodeDir.
  */
 export async function resolveEpisodeDir(parentDir: string, code: string): Promise<string | null> {
-  if (!existsSync(parentDir)) return null
-
-  try {
-    const entries = await fs.readdir(parentDir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      if (cleanName(entry.name).startsWith(`${code} - `)) {
-        return path.join(parentDir, entry.name)
-      }
-    }
-  } catch {}
-
-  return null
+  const [first] = await listEpisodeDirsByCode(parentDir, code)
+  return first ?? null
 }
 
 /**

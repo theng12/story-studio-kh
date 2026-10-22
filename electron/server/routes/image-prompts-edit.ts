@@ -26,9 +26,25 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveReadPath, toMdPath } from '../lib/episode-artifacts.js'
 import { parseImagePromptsDocx, _clearImagePromptsParseCache } from '../lib/docx-parser.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
-import { enforceThumbnailPromptElements } from '../generators/image-prompts.js'
+import { enforceThumbnailPromptElements, thumbnailSaveOverhead, episodeCast } from '../generators/image-prompts.js'
 import { HEADLINE_MODE_IDS, headlineInvents } from '../models/thumbnail-headlines.js'
-import { buildPromptCharCapInstruction, parsePromptCharCap } from '../services/prompt-char-cap.js'
+import {
+  addAssemblyOverhead,
+  buildPromptCharCapInstruction,
+  promptBodyCeiling,
+  promptCharacterCount,
+  PromptAssemblyTooLargeError,
+} from '../services/prompt-char-cap.js'
+import { resolveLiveImagePromptCharCap } from '../services/image-prompt-cap.js'
+import { letteringPhraseMaps } from '../services/lettering-catalogue.js'
+import {
+  assembleThumbnailRenderPrompt,
+  castStyleKeywordBound,
+  findThumbPromptsFile,
+  matchedStyleKeywords,
+  savedThumbnailReferenceGuidanceFor,
+  thumbnailRenderAssemblyOverhead,
+} from '../generators/images.js'
 import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { freshActionFingerprint, readOperationId } from '../lib/fresh-generation-action.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
@@ -86,11 +102,27 @@ const RegenerateSchema = z.object({
   thumb_text_style: z.string().max(200).optional(),
   thumb_font_style_custom: z.string().max(240).optional(),
   thumb_text_style_custom: z.string().max(240).optional(),
-  /** The character CEILING the rewrite is written under — the intended image
-   *  model's published `max_prompt_characters`, resolved by the workspace.
+  /** The character CEILING SELECTION the rewrite is written under.
+   *
+   *  - 'auto'  follow the intended image model's published limit, resolved
+   *            live by the server against the current catalogue.
+   *  - 'none'  no ceiling at all.
+   *  - number  the customer's own ceiling (an existing client may still send
+   *            the resolved number it holds).
+   *
+   *  The SELECTION travels, never a resolved number: a number sent from the
+   *  client freezes the ceiling at the moment the page loaded. The server
+   *  resolves it against the live catalogue — see services/image-prompt-cap.ts.
    *  Absent = no limit in force. Never a length to fill; the result is never
    *  truncated. See services/prompt-char-cap.ts. */
-  prompt_char_cap: z.number().int().min(1).optional(),
+  prompt_char_cap: z.union([
+    z.literal('auto'),
+    z.literal('none'),
+    z.number().int().min(1),
+  ]).optional(),
+  /** The image model these prompts are written FOR. Read together with the
+   *  selection above: it is what the live ceiling is resolved against. */
+  intended_image_model: z.string().max(300).optional(),
   /** User-invoked "reword this prompt" — see lib/image-content-guidance.ts.
    *  Asks for a different angle on the same beat with the difficult-subjects
    *  guidance applied. Set only by the explicit action; never inferred. */
@@ -102,6 +134,34 @@ const UpdatePromptSchema = z.object({
   number: z.number().int().min(1).max(999),
   title: z.string().trim().min(1).max(300),
   prompt: z.string().trim().min(10).max(12000),
+})
+
+/**
+ * The body the Image Prompts page sends when it wants to know how long each
+ * thumbnail prompt will be.
+ *
+ * The page must measure the SAME prompt the render submits, so every field
+ * here is one the render request already carries. The model, the episode
+ * title and the image mode do NOT change the prompt text — the model selects
+ * the provider, the title names the folder, and the mode selects which
+ * reference IMAGES are attached — so they are accepted, validated, and
+ * deliberately not used to change the measurement.
+ */
+const ThumbnailPromptLengthsSchema = z.object({
+  /** The selected image model id. */
+  model: z.string().min(1),
+  /** The episode's title. Discovery is by episode CODE, as the render does it. */
+  episode_title: z.string().optional(),
+  /** The render-time extras, trimmed — the same field the render appends. */
+  extra_details: z.string().optional(),
+  /** The SAME asset object the render request carries. */
+  thumbnail_reference_asset: z.object({
+    id: z.string().optional(),
+    filename: z.string().optional(),
+    reframing_prompt: z.string().optional(),
+  }).nullable().optional(),
+  /** 'text2img' | 'img2img' — which reference images are attached. */
+  image_mode: z.enum(['text2img', 'img2img']).optional(),
 })
 
 router.post(
@@ -179,6 +239,83 @@ router.post(
         .filter(p => Math.abs(p.number - number) <= 2 && p.number !== number)
         .map(p => `Thumbnail ${p.number}: ${p.prompt}`)
 
+      /**
+       * The room the FINAL prompt needs on top of the body the LLM writes.
+       *
+       * The published ceiling applies to the prompt the image model RECEIVES,
+       * which is not the body: the save step appends the aspect-ratio and
+       * title clauses, and the render appends the reference guidance and the
+       * style keywords. A single-row regeneration written to the published
+       * ceiling produced a prompt over it — the same defect the bulk writer
+       * had.
+       *
+       * Every piece is measured with the SAME helpers the save and render use,
+       * and the lettering phrases come from the same catalogue the bulk
+       * generator resolves, so the reserve describes the text those steps
+       * really append instead of a guess at it.
+       *
+       * It is a SAFE BOUND, not an item-exact accounting: the style keywords
+       * reserved are the largest set the render could append, and the
+       * render-time guidance from the generator tab is not known here.
+       */
+      const letteringPhrases = await letteringPhraseMaps().catch(() => ({
+        font: {} as Record<string, string>,
+        text: {} as Record<string, string>,
+      }))
+      const elementOptions = {
+        aspectRatio: (req.body.aspect_ratio as string | undefined) || '16:9',
+        // The title the clause will carry. In an inventing mode the row's own
+        // hook is used and it is not known until the LLM answers, so the
+        // CURRENT title bounds it here; the exact length is measured again
+        // below, once the answer is in.
+        title: headlineInvents(req.body.headline_mode) ? currentTitle : (titleParam || currentTitle),
+        headlineMode: req.body.headline_mode as string | undefined,
+        fontStyle: typeof req.body.thumb_font_style === 'string' ? req.body.thumb_font_style : undefined,
+        textStyle: typeof req.body.thumb_text_style === 'string' ? req.body.thumb_text_style : undefined,
+        // The catalogue's phrases, so the clause this row receives is the
+        // clause the bulk run would have written for the same style.
+        fontPhrases: letteringPhrases.font,
+        textPhrases: letteringPhrases.text,
+        fontCustomText: typeof req.body.thumb_font_style_custom === 'string' ? req.body.thumb_font_style_custom : undefined,
+        textCustomText: typeof req.body.thumb_text_style_custom === 'string' ? req.body.thumb_text_style_custom : undefined,
+      }
+      const projectDir = pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug)
+      const referenceGuidance = savedThumbnailReferenceGuidanceFor(projectDir, (config as any)?.thumbnail_reference_asset)
+      const cast = await episodeCast(slug, episodeId)
+      const assemblyOverhead = addAssemblyOverhead(
+        thumbnailSaveOverhead(elementOptions),
+        thumbnailRenderAssemblyOverhead({
+          referenceGuidance,
+          styleKeywords: castStyleKeywordBound(cast),
+        }),
+      )
+      // The ceiling the rewrite is written under, resolved LIVE against the
+      // catalogue: the client sends the SELECTION and the model it selected,
+      // never a number it resolved earlier.
+      const capRefusal = await resolveLiveImagePromptCharCap({
+        intendedImageModel: req.body.intended_image_model,
+        setting: req.body.prompt_char_cap,
+        label: 'The Thumbnail Prompts selection',
+        nothingHappened: 'Nothing was changed.',
+      })
+      if (capRefusal.error) {
+        return res.status(400).json({ detail: capRefusal.error })
+      }
+      const publishedCap = capRefusal.cap
+      // The ceiling for the BODY. A published ceiling the assembly alone
+      // already exceeds is REFUSED, with the published cap and the measured
+      // overhead — never handed a one-character body, which would be a guess
+      // at what still fits.
+      let bodyCeiling: number | undefined
+      try {
+        bodyCeiling = promptBodyCeiling(publishedCap, assemblyOverhead)
+      } catch (error: any) {
+        if (error instanceof PromptAssemblyTooLargeError) {
+          return res.status(400).json({ detail: error.message })
+        }
+        throw error
+      }
+
       const llmPrompt = buildRegenPrompt({
         kind,
         number,
@@ -188,7 +325,9 @@ router.post(
         styleTag,
         notes,
         headlineMode: req.body.headline_mode as string | undefined,
-        promptCharCap: parsePromptCharCap(req.body.prompt_char_cap),
+        promptCharCap: bodyCeiling,
+        promptCharCapTotal: publishedCap,
+        promptCharReservedCharacters: assemblyOverhead.characters,
         reword: req.body.reword === true,
       })
 
@@ -240,18 +379,15 @@ router.post(
         }
 
         // Thumbnail prompts always keep the ratio and a ready-to-use in-image
-        // title, exactly like the bulk generator.
+        // title, exactly like the bulk generator — with the SAME clause texts,
+        // which means the same catalogue lettering phrases.
         if (kind === 'thumbnail') {
           next.prompt = enforceThumbnailPromptElements(next.prompt, {
-            aspectRatio: (req.body.aspect_ratio as string | undefined) || '16:9',
+            ...elementOptions,
+            // An inventing mode's words live in the row's own title, which is
+            // only known now; the reserve above bounded it with the row's
+            // current title.
             title: headlineInvents(req.body.headline_mode) ? next.title || currentTitle : titleParam || currentTitle,
-            headlineMode: req.body.headline_mode as string | undefined,
-            // NEW-10 — the workspace's current lettering, when it sent any, so a
-            // single-row regeneration states the same style the bulk run would.
-            fontStyle: typeof req.body.thumb_font_style === 'string' ? req.body.thumb_font_style : undefined,
-            textStyle: typeof req.body.thumb_text_style === 'string' ? req.body.thumb_text_style : undefined,
-            fontCustomText: typeof req.body.thumb_font_style_custom === 'string' ? req.body.thumb_font_style_custom : undefined,
-            textCustomText: typeof req.body.thumb_text_style_custom === 'string' ? req.body.thumb_text_style_custom : undefined,
           })
         }
 
@@ -299,6 +435,10 @@ router.post(
       }
       await markPromptRegenerationPublished(actionPath, operationId, actionFingerprint, publication)
 
+      // The row and nothing else. The length of the assembled prompt is
+      // measured by the dedicated endpoint, which assembles it the way the
+      // render does — this response must not carry a second, looser copy of
+      // that number.
       res.json({ ...result, ...(action.result ? { reused: true } : {}) })
     } catch (e: any) {
       res.status(500).json({ detail: e?.message || 'Failed to regenerate prompt' })
@@ -443,6 +583,86 @@ router.put(
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+/**
+ * HOW LONG EACH THUMBNAIL PROMPT WILL BE — the exact length the render
+ * submits, and nothing else.
+ *
+ * FREE AND LOCAL: the prompt file is read, the assembly is computed with the
+ * SAME helpers the render uses, and the count is returned. No provider call,
+ * no job, no credit charge, and no prompt text leaves this route.
+ *
+ * ONE ASSEMBLY, ONE DISCOVERY
+ * ---------------------------
+ * The prompt file is the one the render reads (`findThumbPromptsFile` — the
+ * render's own resolver) and the prompt is parsed with the render's own
+ * parser. A second resolver or a second copy of the assembly is how a
+ * compliant prompt ends up over the published ceiling: the measurement would
+ * describe a prompt the render never sends.
+ *
+ * The reference semantics are the render's request semantics: the saved
+ * thumbnail reference is `body.thumbnail_reference_asset ||
+ * config.thumbnail_reference_asset`, and its guidance is the same helper the
+ * render uses, including its file-existence check — no saved asset means no
+ * guidance, exactly as at render time. The render request the page sends
+ * omits `reference_strength` and `reference_sources`, so the render's own
+ * defaults apply here too: no thumbnail reference source, and therefore no
+ * strength guidance.
+ */
+router.post(
+  '/projects/:slug/episodes/:episodeId/thumbnail-prompt-lengths',
+  validateBody(ThumbnailPromptLengthsSchema),
+  async (req, res) => {
+    const { slug, episodeId } = req.params
+    try {
+      const project = await pm.getProject(slug)
+      if (!project) return res.status(404).json({ detail: 'Project not found' })
+      const config = await pm.getConfig(slug)
+      if (!config) return res.status(404).json({ detail: 'Project config not found' })
+
+      let promptsPath: string
+      try {
+        promptsPath = await findThumbPromptsFile(slug, episodeId)
+      } catch {
+        return res.status(404).json({
+          detail: `No thumbnail prompts for ${episodeId.toUpperCase()} were found on disk. Generate them on the Image Prompts page first.`,
+        })
+      }
+      const parsed = await parseImagePromptsDocx(promptsPath)
+      const thumbnails = (parsed.thumbnails || []).filter(
+        item => typeof item?.prompt === 'string' && item.prompt.trim(),
+      )
+      if (!thumbnails.length) {
+        return res.status(404).json({
+          detail: `The thumbnail prompts for ${episodeId.toUpperCase()} contain no usable thumbnail prompts.`,
+        })
+      }
+
+      const projectDir = pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug)
+      // The render's request semantics, in the render's order.
+      const savedReference = (req.body.thumbnail_reference_asset || (config as any)?.thumbnail_reference_asset || null)
+      const referenceGuidance = savedThumbnailReferenceGuidanceFor(projectDir, savedReference)
+      const cast = await episodeCast(slug, episodeId)
+      const extraDetails = typeof req.body.extra_details === 'string' ? req.body.extra_details.trim() : ''
+
+      const measured = thumbnails
+        .map(item => ({
+          number: Number(item.number),
+          characters: promptCharacterCount(assembleThumbnailRenderPrompt(String(item.prompt || ''), {
+            extraDetails,
+            referenceGuidance,
+            styleKeywords: matchedStyleKeywords(String(item.prompt || ''), cast),
+          })),
+        }))
+        .sort((a, b) => a.number - b.number)
+
+      // Counts only. The prompt text never leaves this route.
+      res.json({ thumbnails: measured })
+    } catch (e: any) {
+      res.status(500).json({ detail: e?.message || 'Failed to measure thumbnail prompt lengths' })
+    }
+  },
+)
+
 function extractStyleTag(prompt: string): string | null {
   // Bulk generator's contract: every prompt ends with the style_tag.
   // Heuristic: last sentence after the final period, or final newline-
@@ -464,8 +684,14 @@ function buildRegenPrompt(opts: {
   styleTag: string
   notes?: string
   headlineMode?: string
-  /** Published image-model ceiling, or absent for "no limit in force". */
+  /** The ceiling the prompt BODY is written under, or absent for "no limit in
+   *  force". */
   promptCharCap?: number
+  /** The published ceiling the body budget came out of, and how many
+   *  characters the final assembly adds on top of the body. The instruction
+   *  names both, so it never claims the model's limit is smaller than it is. */
+  promptCharCapTotal?: number
+  promptCharReservedCharacters?: number
   /**
    * User-invoked reword: adds the different-angle directive on top of the
    * standard difficult-subjects guidance. Only ever set from the explicit
@@ -485,7 +711,10 @@ function buildRegenPrompt(opts: {
     : ''
   // A ceiling layered on top of requirement 2's length guidance, never a
   // length to reach. Empty when no limit is in force.
-  const charCapInstruction = buildPromptCharCapInstruction(opts.promptCharCap)
+  const charCapInstruction = buildPromptCharCapInstruction(opts.promptCharCap, {
+    publishedCap: opts.promptCharCapTotal,
+    reservedCharacters: opts.promptCharReservedCharacters,
+  })
   const charCapRequirement = charCapInstruction ? `\n${charCapInstruction}` : ''
   const kindSpecific = `\n5. This is a THUMBNAIL brief, not a scene still. Make it feel like a professional YouTube cover: clear hero subject, emotional hook, negative space, title-safe composition, premium readability, and strong click appeal.\n6. If title text belongs in the image, explain how the composition, contrast, and lighting support it. If the current prompt implies a clean text-safe zone instead, preserve that deliberate layout.${headlineInvents(opts.headlineMode) ? '\n7. Keep the current title as the thumbnail’s short hook. Render that exact hook inside the image; do not replace it with the full episode title.' : ''}`
 

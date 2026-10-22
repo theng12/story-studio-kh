@@ -15,6 +15,7 @@ import { registry } from '../registry.js'
 import type { ImageGenerationRequest, ImageGenerationResult, ImageProvider } from '../types.js'
 import { GenStudioApiError, generateImageWithGenStudio, listImageModels, uploadImageSourceWithGenStudio } from '../../lib/genstudio-client.js'
 import { assertDecodableImage } from '../../lib/image-validation.js'
+import { PromptLengthExceededError } from '../../services/prompt-char-cap.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../../services/genstudio-model-migration.js'
 import { findGenStudioProduct } from '../../contracts/genstudio-product-identity.js'
 import {
@@ -89,10 +90,16 @@ const genstudioImageProvider: ImageProvider = {
     // decides. `prompt_token_allowance` is never converted into characters.
     const promptLength = request.prompt.trim().length
     if (model.max_prompt_characters && promptLength > model.max_prompt_characters) {
-      throw new Error(
-        `${model.display_name} accepts up to ${model.max_prompt_characters.toLocaleString()} prompt characters; ` +
-        `this prompt is ${promptLength.toLocaleString()}. No request or credit charge was made.`,
-      )
+      // TYPED, so the refusal keeps its identity all the way to the queue: the
+      // same bytes are refused the same way, so an automatic retry would only
+      // learn the same answer three times over. The wording is scoped to THIS
+      // prompt — a batch that refused one item says nothing about the others.
+      throw new PromptLengthExceededError({
+        modelLabel: model.display_name,
+        cap: model.max_prompt_characters,
+        characters: promptLength,
+        overage: promptLength - model.max_prompt_characters,
+      })
     }
 
     const requestedReferences = (request.referenceImagePaths || []).filter(Boolean)

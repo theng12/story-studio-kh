@@ -2,6 +2,7 @@ import type { Job, JobType } from '../models/types.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
 import { pipelinePolicyForJob, type PipelineModelPolicyStage } from '../lib/pipeline-model-policy.js'
 import { hasFinalRenderRemoteWaitMarker } from '../lib/final-render-remote-wait.js'
+import { ImagePromptCapUnavailableError, PromptAssemblyTooLargeError, PromptLengthExceededError } from './prompt-char-cap.js'
 
 export interface JobAutoRetryPolicy {
   eligible: boolean
@@ -215,16 +216,34 @@ export function nonRetryable<E extends Error>(error: E): E {
  * Input and configuration refusals ("episode_id is required", "No writing model is chosen", "no title
  * yet"): the job's params lack something no rerun can supply, so they fail once with the reason
  * instead of three tries at 60 s. Matched on the message because they are thrown from many generators.
+ *
+ * The published-ceiling refusal belongs here too, and it is the one that used to cost three
+ * identical attempts: the prompt is a stored artefact, so re-running the job submits the same bytes
+ * and the model refuses them the same way. Every attempt was free (the guard fires before the
+ * charged POST) and every attempt was wasted.
  */
 const INPUT_REFUSAL = [
   /^[a-z_]+ is required$/i,
   /^At least one \w+ is required$/i,
   /\bNo (?:writing )?model (?:is chosen|was picked|selected)\b/i,
   /\bhas no title yet\b/i,
+  /accepts up to [\d,]+ prompt characters/i,
 ]
 
 export function isNonRetryableError(error: unknown): boolean {
   if ((error as { retryable?: unknown } | null)?.retryable === false) return true
+  // TYPED first: a prompt the published ceiling will reject is deterministic.
+  // The typed identity is what survives the hop through an aggregate completion
+  // error, where the wording of the original refusal is gone.
+  if (error instanceof PromptLengthExceededError) return true
+  // Same shape, different cause: the published ceiling is shorter than the
+  // clauses and extras the prompt needs, so no prompt body fits at all.
+  if (error instanceof PromptAssemblyTooLargeError) return true
+  // The ceiling could not be RESOLVED at all: the selected image model is no
+  // longer in the catalogue, the selection is malformed, or the Gateway key is
+  // missing. A rerun meets the same catalogue, so it would refuse the same
+  // way — three attempts to learn nothing.
+  if (error instanceof ImagePromptCapUnavailableError) return true
   const message = error instanceof Error ? error.message.trim() : ''
   return INPUT_REFUSAL.some(pattern => pattern.test(message))
 }

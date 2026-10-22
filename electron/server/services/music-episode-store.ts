@@ -15,6 +15,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
+import { createHash } from 'node:crypto'
 import * as pm from './project-manager.js'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from './utils.js'
@@ -44,6 +45,131 @@ import type { ScenePlan, ScenePlanEntry } from '../models/types.js'
 export { MUSIC_EPISODE_FILENAME }
 
 const CHANNEL_HISTORY_FILENAME = 'music-episodes.json'
+
+/**
+ * Per-run exact record for `music_scene_polish`. Lives beside the episode,
+ * never in `job.params` (which `safeJob` rewrites through `redactSecrets`,
+ * turning "Key lighting" into "Key [REDACTED]"). One file per logical run,
+ * named by a validated 32-hex run id; nothing is ever pruned or removed.
+ */
+export interface MusicScenePolishRunArtifact {
+  version: 2
+  run_id: string
+  project_slug: string
+  episode_code: string
+  owner_job_id: string
+  predecessor_job_id?: string
+  scene_ids: string[]
+  request: {
+    model: string
+    system: string
+    user_message: string
+    temperature: number
+    output_budget: string
+    output_contract: unknown
+    request_identity: string
+  }
+  input_fingerprint: string
+  baseline_prompts: Record<string, string>
+  prepared_key?: string
+  accepted_key?: string
+  accepted_job_id?: string
+  request_preview?: unknown
+  outputs?: Record<string, string>
+  missing?: string[]
+  outputs_recorded_at?: string
+}
+
+export const MUSIC_SCENE_POLISH_RUN_ID_PATTERN = /^[0-9a-f]{32}$/
+
+export function musicScenePolishRunDir(episodeDir: string): string {
+  return path.join(episodeDir, 'runs', 'music_scene_polish')
+}
+
+export function musicScenePolishRunPath(episodeDir: string, runId: string): string {
+  return path.join(musicScenePolishRunDir(episodeDir), `${runId}.json`)
+}
+
+export async function readMusicScenePolishRun(
+  slug: string,
+  code: string,
+  runId: string,
+): Promise<MusicScenePolishRunArtifact | null> {
+  if (!MUSIC_SCENE_POLISH_RUN_ID_PATTERN.test(runId)) return null
+  const episodeDir = await episodeDirFor(slug, code.toUpperCase())
+  const file = musicScenePolishRunPath(episodeDir, runId)
+  if (!existsSync(file)) return null
+  try {
+    const raw = JSON.parse(await fs.readFile(file, 'utf8'))
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+    if ((raw as any).version !== 2) return null
+    if (typeof (raw as any).run_id !== 'string' || (raw as any).run_id !== runId) return null
+    if (typeof (raw as any).project_slug !== 'string' || (raw as any).project_slug !== slug) return null
+    if (typeof (raw as any).episode_code !== 'string'
+      || (raw as any).episode_code.toUpperCase() !== code.toUpperCase()) return null
+    return raw as MusicScenePolishRunArtifact
+  } catch {
+    return null
+  }
+}
+
+export async function writeMusicScenePolishRun(
+  slug: string,
+  code: string,
+  artifact: MusicScenePolishRunArtifact,
+): Promise<void> {
+  if (!MUSIC_SCENE_POLISH_RUN_ID_PATTERN.test(artifact.run_id)) {
+    throw new Error('music_scene_polish run id must be a 32-hex string.')
+  }
+  if (artifact.project_slug !== slug) {
+    throw new Error('music_scene_polish artifact project does not match the write target.')
+  }
+  if (artifact.episode_code.toUpperCase() !== code.toUpperCase()) {
+    throw new Error('music_scene_polish artifact episode does not match the write target.')
+  }
+  const episodeDir = await episodeDirFor(slug, code.toUpperCase())
+  const dir = musicScenePolishRunDir(episodeDir)
+  await fs.mkdir(dir, { recursive: true })
+  const file = musicScenePolishRunPath(episodeDir, artifact.run_id)
+  await withLock(file, async () => {
+    await writeJsonAtomic(file, artifact)
+  })
+}
+
+/**
+ * Compute a stable run id from the project, episode and the first job that
+ * started this logical run. Hex-only so it survives `safeJob` and is safe
+ * as a filename component. Binds slug/code/firstJob so two episodes cannot
+ * collide on the same job id.
+ */
+export function musicScenePolishRunId(slug: string, code: string, firstJobId: string): string {
+  return createHash('sha256').update(`music_scene_polish|${slug}|${code.toUpperCase()}|${firstJobId}`).digest('hex').slice(0, 32)
+}
+
+/**
+ * Locked read-modify-write over the episode document. Reads the freshest
+ * document inside the same lock every writer of `saveEpisodeDoc` now shares,
+ * applies the mutation, then writes through the unlocked inner helper so no
+ * nested acquisition of the same key can deadlock. The plan + history writes
+ * still happen after the document write, under their own existing locks.
+ */
+export async function updateEpisodeDoc<T>(
+  slug: string,
+  code: string,
+  mutate: (doc: MusicEpisodeDoc) => Promise<{ doc: MusicEpisodeDoc; result: T }> | { doc: MusicEpisodeDoc; result: T },
+): Promise<T> {
+  const upper = code.toUpperCase()
+  const episodeDir = await episodeDirFor(slug, upper)
+  const docPath = path.join(episodeDir, MUSIC_EPISODE_FILENAME)
+  return withLock(docPath, async () => {
+    const current = await readEpisodeDoc(slug, upper)
+    if (!current) throw new Error(`${upper}'s Episode Builder plan disappeared mid-update.`)
+    const applied = await mutate(current)
+    const ctx = await loadEpisodeContext(slug, upper, applied.doc.settings)
+    await saveEpisodeDocUnlocked(slug, applied.doc, ctx.byKey)
+    return applied.result
+  })
+}
 
 export interface MusicEpisodeBuild {
   at: string
@@ -382,11 +508,12 @@ async function readScenePlan(slug: string, code: string): Promise<ScenePlan | nu
 // ── Save ────────────────────────────────────────────────────────────────────
 
 /**
- * Write the episode, this channel's draft history and the derived scene plan.
- * Image fields already in the plan are kept for every scene id that survives,
- * so a picture follows its song through reorders and re-draws.
+ * Unlocked inner writer. Callers that need mutual exclusion with other
+ * document writers (including `updateEpisodeDoc`) MUST use `saveEpisodeDoc`,
+ * which wraps this in the shared document lock. Direct calls are only safe
+ * from inside a lock the caller already holds on the same key.
  */
-export async function saveEpisodeDoc(slug: string, doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, BuilderSong>): Promise<void> {
+async function saveEpisodeDocUnlocked(slug: string, doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, BuilderSong>): Promise<void> {
   const code = doc.episode_code.toUpperCase()
   const episodeDir = await episodeDirFor(slug, code)
   await fs.mkdir(episodeDir, { recursive: true })
@@ -413,6 +540,22 @@ export async function saveEpisodeDoc(slug: string, doc: MusicEpisodeDoc, byKey: 
     }
     await writeJsonAtomic(history, current)
   })
+}
+
+/**
+ * Write the episode, this channel's draft history and the derived scene plan.
+ * Image fields already in the plan are kept for every scene id that survives,
+ * so a picture follows its song through reorders and re-draws.
+ *
+ * This is the SHARED LOCKED entry point: every writer of `music_episode.json`
+ * goes through here so `updateEpisodeDoc`'s read-modify-write cannot race
+ * against a direct save. The lock key is the document path itself.
+ */
+export async function saveEpisodeDoc(slug: string, doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, BuilderSong>): Promise<void> {
+  const code = doc.episode_code.toUpperCase()
+  const episodeDir = await episodeDirFor(slug, code)
+  const docPath = path.join(episodeDir, MUSIC_EPISODE_FILENAME)
+  await withLock(docPath, () => saveEpisodeDocUnlocked(slug, doc, byKey))
 }
 
 /**

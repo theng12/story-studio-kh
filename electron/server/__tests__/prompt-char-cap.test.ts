@@ -179,16 +179,41 @@ describe('scene plan wiring', () => {
 
 describe('thumbnail prompt wiring', () => {
   test('the bulk thumbnail brief carries the ceiling', () => {
-    assert.match(imagePromptsGenerator, /const promptCharCap = parsePromptCharCap\(req\.prompt_char_cap\)/)
-    assert.match(imagePromptsGenerator, /const charCapInstruction = buildPromptCharCapInstruction\(args\.promptCharCap\)/)
-    assert.match(imagePromptsGenerator, /promptCharCap,/)
+    // The ceiling is resolved LIVE, when the job RUNS, from the SELECTION the
+    // request carries and the image model it was chosen for. A number the
+    // client resolved earlier is never trusted: it freezes the ceiling at the
+    // moment the page loaded.
+    assert.match(imagePromptsGenerator, /const publishedCap = await requireLiveImagePromptCharCap\(\{/)
+    assert.match(imagePromptsGenerator, /intendedImageModel: req\.intended_image_model,/)
+    assert.match(imagePromptsGenerator, /setting: req\.prompt_char_cap,/)
+    assert.doesNotMatch(imagePromptsGenerator, /const publishedCap = parsePromptCharCap\(req\.prompt_char_cap\)/)
+    // The writer is then given the ceiling for the prompt BODY — the resolved
+    // one minus the characters the final assembly adds on top of it (see
+    // services/prompt-char-cap.ts).
+    assert.match(imagePromptsGenerator, /const charCapInstruction = buildPromptCharCapInstruction\(args\.promptCharCap, \{/)
+    assert.match(imagePromptsGenerator, /publishedCap: args\.promptCharCapTotal,/)
+    assert.match(imagePromptsGenerator, /promptCharCap: bodyCeiling,/)
     assert.match(imagePromptsGenerator, /const overCapNotice = describeOverCapPrompts\(/)
   })
 
   test('a single-prompt rewrite is written under the ceiling too', () => {
-    assert.match(imagePromptsEditRoute, /prompt_char_cap: z\.number\(\)\.int\(\)\.min\(1\)\.optional\(\)/)
-    assert.match(imagePromptsEditRoute, /promptCharCap: parsePromptCharCap\(req\.body\.prompt_char_cap\)/)
-    assert.match(imagePromptsEditRoute, /const charCapInstruction = buildPromptCharCapInstruction\(opts\.promptCharCap\)/)
+    // The request carries the SELECTION and the model it is chosen for, so the
+    // server resolves the ceiling against the live catalogue.
+    assert.match(imagePromptsEditRoute, /prompt_char_cap: z\.union\(\[/)
+    assert.match(imagePromptsEditRoute, /z\.literal\('auto'\)/)
+    assert.match(imagePromptsEditRoute, /z\.literal\('none'\)/)
+    assert.match(imagePromptsEditRoute, /z\.number\(\)\.int\(\)\.min\(1\),/)
+    assert.match(imagePromptsEditRoute, /intended_image_model: z\.string\(\)\.max\(300\)\.optional\(\),/)
+    assert.match(imagePromptsEditRoute, /const capRefusal = await resolveLiveImagePromptCharCap\(\{/)
+    assert.match(imagePromptsEditRoute, /if \(capRefusal\.error\) \{/)
+    // The rewrite is written under the BODY ceiling — the published one minus
+    // the clauses the save step appends and the extras the render appends —
+    // not under the published one, which is what used to produce an
+    // over-length prompt from a compliant rewrite.
+    assert.match(imagePromptsEditRoute, /promptCharCap: bodyCeiling,/)
+    assert.doesNotMatch(imagePromptsEditRoute, /promptCharCap: parsePromptCharCap\(req\.body\.prompt_char_cap\)/)
+    assert.match(imagePromptsEditRoute, /const charCapInstruction = buildPromptCharCapInstruction\(opts\.promptCharCap, \{/)
+    assert.match(imagePromptsEditRoute, /publishedCap: opts\.promptCharCapTotal,/)
   })
 
   test('an existing thumbnail prompt is never trimmed to fit', () => {

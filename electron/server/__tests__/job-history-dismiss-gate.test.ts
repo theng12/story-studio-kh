@@ -48,16 +48,33 @@ function finishedAudioJob(overrides: Partial<GateJob> = {}): GateJob {
 const capabilities = { remoteCancellationAudited: true }
 
 describe('finished-job dismiss gate', () => {
-  test('before an answer, the control says it is asking — and it really is', () => {
+  test('before an answer, the control says it is waiting — because no check is running', () => {
+    // No `history_evidence_check` record means no request to the Gateway is in
+    // flight. The label must not name an activity that is not happening, so it
+    // says what is true: Story Studio is WAITING for the Gateway. (Before
+    // this, the disabled button said "Checking provider status" while
+    // checking nothing — the very complaint this gate was written for.)
     const control = classifyJobControl(finishedAudioJob(), capabilities)
+    assert.equal(control.action, 'return-later')
+    assert.equal(control.enabled, false)
+    assert.equal(control.label, 'Waiting for Gateway status')
+    assert.match(control.reason, /Story Studio is waiting for the Gateway to confirm whether the narration request finished/)
+    assert.match(control.reason, /can be removed as soon as the Gateway confirms it has/)
+    assert.doesNotMatch(control.reason, /voice\.tts|tts-10/)
+    // It must not assert anything about the provider it has not yet asked.
+    assert.doesNotMatch(control.reason, /still settling/)
+    assert.doesNotMatch(control.reason, /is asking Gateway/)
+  })
+
+  test('a check that IS running says so', () => {
+    const control = classifyJobControl(finishedAudioJob({
+      history_evidence_check: { state: 'checking', at: '2026-08-17T09:00:00.000Z' },
+    }), capabilities)
     assert.equal(control.action, 'return-later')
     assert.equal(control.enabled, false)
     assert.equal(control.label, 'Checking provider status')
     assert.match(control.reason, /Story Studio is asking Gateway whether the narration request finished/)
     assert.match(control.reason, /can be removed as soon as the Gateway confirms it has/)
-    assert.doesNotMatch(control.reason, /voice\.tts|tts-10/)
-    // It must not assert anything about the provider it has not yet asked.
-    assert.doesNotMatch(control.reason, /still settling/)
   })
 
   test('terminal on Gateway means dismissable, with no further clicks', () => {

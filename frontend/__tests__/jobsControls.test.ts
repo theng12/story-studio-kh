@@ -15,6 +15,12 @@ const jobs = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)),
   'utf8',
 )
+// The ONE shared details body both cards render — the per-item breakdown
+// lives here now, so the page and this component are read together.
+const jobDetails = readFileSync(
+  fileURLToPath(new URL('../components/JobCardDetails.vue', import.meta.url)),
+  'utf8',
+)
 const statusBadge = readFileSync(
   fileURLToPath(new URL('../components/StatusBadge.vue', import.meta.url)),
   'utf8',
@@ -159,20 +165,26 @@ test('history cleanup uses distinct finished and failed requests while preservin
 
 test('toolbar history cleanup reloads the authoritative history, even when the clear removes nothing', () => {
   assert.match(jobs, /history\.invalidate\(\)/)
-  assert.match(jobs, /if \(isUniversal\.value\) \{[\s\S]{0,200}await loadJobHistory\(\)/)
-  assert.match(jobs, /else \{\s*await refreshVisibleJobs\(\)/)
+  assert.match(jobs, /if \(isUniversal\.value\) void refreshVisibleJobs\(\)\n\s*else await refreshVisibleJobs\(\)\n\s*await loadJobHistory\(\)/,
+    'both scopes reload authoritative history after refreshing the live list')
 })
 
 test('Jobs reports whole-batch completed, settling, cancelled, failed, and not-submitted counts', () => {
   // v1.4.82 — these still all have to be reported; where they are reported
-  // moved. The headline four (total / in-flight / finished / remaining) plus
-  // queued and settling are the stat row in the DEFAULT card view; the raw
-  // per-field breakdown, including the customer-cancelled wording, folded into
-  // the Technical details drawer rather than being dropped.
-  assert.match(jobs, /item_progress\.settling/)
-  assert.match(jobs, /item_progress\.cancelled/)
-  assert.match(jobs, /item_progress\.not_submitted/)
-  assert.match(jobs, /cancelled by customer/i)
+  // moved. The headline counts are the one summary line in the DEFAULT card
+  // view; the rest, including the customer-cancelled wording, folded into
+  // the ONE shared Technical-details body rather than being dropped.
+  //
+  // 2026-10-22 — the details body reads the counts from the ONE shared
+  // derivation instead of the raw per-field values. Reading them raw put two
+  // copies of the same numbers on screen that were not the same numbers: a
+  // held item (the Gateway still holds it) is settling, not failed.
+  const card = jobs + jobDetails
+  assert.match(card, /counts\?\.settling/)
+  assert.match(card, /counts\?\.cancelled/)
+  assert.match(card, /counts\?\.queued/)
+  assert.match(card, /cancelled by customer/i)
+  assert.doesNotMatch(jobDetails, /job\.item_progress\.(settling|cancelled|not_submitted|failed|completed)\b/)
   for (const field of ['total', 'inFlight', 'finished', 'remaining', 'queued', 'settling', 'failed']) {
     assert.match(jobs, new RegExp(`jobCounts\\(job\\)\\.${field}`))
   }
@@ -189,8 +201,15 @@ test('Gateway batch ledger keeps customer cancellations neutral instead of faile
     fileURLToPath(new URL('../components/GenStudioBatchLedger.vue', import.meta.url)),
     'utf8',
   )
+  // The bucketing rule lives in ONE place now — the item list and the
+  // settlement sentence read it — and the ledger counts the cancelled ones.
+  const shared = readFileSync(
+    fileURLToPath(new URL('../utils/job-presentation.ts', import.meta.url)),
+    'utf8',
+  )
   assert.match(ledger, /cancelledCount/)
-  assert.match(ledger, /return 'cancelled'/)
+  assert.match(ledger, /return jobStateBucket\(remote\)/)
+  assert.match(shared, /return 'cancelled'/)
   assert.match(ledger, /class="cancelled"/)
 })
 

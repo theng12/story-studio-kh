@@ -14,9 +14,12 @@ import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { resolveRetainedFixturesRoot } from '../../testing/run-backend-tests.mjs'
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const ADAPTER = path.join(ROOT, 'scripts', 'testing', 'retained-fixture-fs.mjs')
-const RETAINED_PARENT = path.join(ROOT, '_trash', 'test-fixtures')
+// The shared retained fixtures root, or the operator's override for it.
+const RETAINED_PARENT = await resolveRetainedFixturesRoot()
 const BARRIER_CONTROL = '.retained-fixture-fs-test-barrier.json'
 const BARRIER_REACHED = '.retained-fixture-fs-test-barrier-reached.json'
 const BARRIER_RESUME = '.retained-fixture-fs-test-barrier-resume'

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { describe, test } from 'node:test'
+import { describe, test, type TestContext } from 'node:test'
 import { createApp, defineComponent, h, nextTick, reactive, ref, type Component } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
@@ -75,7 +75,7 @@ async function mount(input: {
   relayoutPreview?: any
   /** POST /youtube/plan/relayout/apply — what the save answers. */
   relayoutApply?: any
-}): Promise<{
+}, t?: TestContext): Promise<{
   el: HTMLElement; text: () => string; calls: Recorded[]
   setEpisode: (episode: string) => Promise<void>
   query: () => Record<string, unknown>
@@ -193,13 +193,25 @@ async function mount(input: {
   }))
   app.mount(el)
   for (let i = 0; i < 6; i++) await nextTick()
+  let destroyed = false
+  const destroy = () => {
+    if (destroyed) return
+    destroyed = true
+    app.unmount()
+    el.remove()
+  }
+  // A test that fails on an assertion must still give the fixture back: the
+  // page arms a 5-second final-check interval and a 60-second plan clock,
+  // and an unmounted page never clears them — the test file would then sit
+  // alive long after the last assertion.
+  t?.after(destroy)
   return {
     el, text: () => el.textContent || '', calls, confirms,
     setEpisode: async (episode: string) => { routeState.query.episode_id = episode; for (let i = 0; i < 4; i++) await nextTick() },
     query: () => routeState.query,
     setSlug: async (nextSlug: string) => { routeState.params.slug = nextSlug; for (let i = 0; i < 4; i++) await nextTick() },
     setJobs: async (nextJobs: any[]) => { jobsRef.value = nextJobs; for (let i = 0; i < 6; i++) await nextTick() },
-    destroy: () => { app.unmount(); el.remove() },
+    destroy,
   }
 }
 
@@ -274,7 +286,7 @@ describe('Upload Center Publish', () => {
     assert.doesNotMatch(text, /could not be checked/i)
   })
 
-  test('the preview shows the exact payload and itemizes every change applied', async () => {
+  test('the preview shows the exact payload and itemizes every change applied', async (t) => {
     const mounted = await mount({
       operations: [READY_OP],
       preview: {
@@ -283,7 +295,7 @@ describe('Upload Center Publish', () => {
         modifications: [{ field: 'title', reason: 'title truncated 172 → 100 chars' }],
         warnings: ['the scheduled publish time is in the past and YouTube will reject it'],
       },
-    })
+    }, t)
     const preview = [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Upload Details')!
     preview.click()
     for (let i = 0; i < 6; i++) await nextTick()
@@ -292,11 +304,24 @@ describe('Upload Center Publish', () => {
     assert.match(text, /1 change applied/)
     assert.match(text, /title truncated 172 → 100 chars/)
     assert.match(text, /the scheduled publish time is in the past/)
-    assert.match(text, /Final Title/)
-    assert.match(text, /Final description/)
     assert.match(text, /a, b/)
     assert.match(text, /private/)
-    assert.match(text, /Nothing is changed after this point/)
+    // This episode is already uploaded, so the review opens in its
+    // READ-ONLY branch: the heading names what the panel shows, and the
+    // hint says the text cannot be edited here. The sentence "This is
+    // what YouTube will receive..." belongs to the editable branch only,
+    // so it is not asserted here.
+    const heading = mounted.el.querySelector('#upload-review-title')
+    assert.equal(heading?.textContent?.trim(), 'What YouTube will receive', 'the review heading names what it shows')
+    assert.match(text, /Title and description cannot be edited here/, 'and says an uploaded episode is read-only')
+    assert.doesNotMatch(text, /Nothing is changed after this point/, 'and never claims the payload is final')
+    // The title and the description are EDITABLE FIELDS, so their text lives
+    // in the control's value, not in the text content. Reading the payload
+    // off the text would prove nothing about what is in the fields.
+    const titleField = mounted.el.querySelector('input[aria-label="YouTube title"]') as HTMLInputElement
+    const descriptionField = mounted.el.querySelector('textarea[aria-label="YouTube description"]') as HTMLTextAreaElement
+    assert.equal(titleField.value, 'Final Title', 'the title field shows the exact payload')
+    assert.equal(descriptionField.value, 'Final description', 'and so does the description field')
     mounted.destroy()
   })
 
@@ -448,6 +473,13 @@ describe('Upload Center Publish', () => {
     snippet: { title: 'The Lighthouse at Dawn', description: 'd', tags: [], categoryId: '24' },
     status: { privacyStatus: 'private', containsSyntheticMedia: true },
     modifications: [], warnings: [],
+    // The limits the server publishes for the editor. The page keeps no copy
+    // of its own, so the fixture carries what the server sends.
+    limits: {
+      title_max_characters: 100,
+      description_max_bytes: 4900,
+      description_max_bytes_youtube: 5000,
+    },
     // A thumbnail is required to upload (2026-10-07).
     thumbnail: {
       state: 'selected', filename: 'EP0001_Thumb01_v1.png', url: '/api/thumb.png',
@@ -462,6 +494,413 @@ describe('Upload Center Publish', () => {
     return [...mounted.el.querySelectorAll('button')]
       .find(b => b.textContent!.includes('Upload to YouTube')) as HTMLButtonElement
   }
+
+  test('title and description are editable in the review modal, and Save Changes persists them before upload', async () => {
+    let savedOverride: any = null
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+      postOverride: async (path, body) => {
+        if (path.endsWith('/youtube/metadata-overrides')) {
+          savedOverride = body
+          // The server answers with the REFRESHED package — the snippet it
+          // will actually send. The page re-seeds its draft from that.
+          return {
+            ...PREVIEWED,
+            package_revision: 'pack-edited',
+            snippet: { ...PREVIEWED.snippet, title: body.title, description: body.description },
+          }
+        }
+        return undefined
+      },
+    })
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+
+    const titleInput = dialog.querySelector('input[aria-label="YouTube title"]') as HTMLInputElement
+    const descTextarea = dialog.querySelector('textarea[aria-label="YouTube description"]') as HTMLTextAreaElement
+    const saveButton = [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save Changes')) as HTMLButtonElement
+
+    assert.ok(titleInput, 'title input is rendered')
+    assert.ok(descTextarea, 'description textarea is rendered')
+    assert.ok(saveButton, 'Save Changes button is rendered')
+    assert.equal(saveButton.disabled, true, 'Save is disabled when no edits')
+
+    titleInput.value = 'Edited Title'
+    titleInput.dispatchEvent(new Event('input'))
+    descTextarea.value = 'Edited description'
+    descTextarea.dispatchEvent(new Event('input'))
+    await nextTick()
+
+    assert.equal(saveButton.disabled, false, 'Save is enabled after edits')
+    saveButton.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+
+    const saveCall = mounted.calls.find(call => call.path.endsWith('/youtube/metadata-overrides'))
+    assert.ok(saveCall, 'POST /youtube/metadata-overrides was called')
+    assert.equal(saveCall?.body.episode_code, NEVER_UPLOADED.episode_code)
+    assert.equal(saveCall?.body.title, 'Edited Title')
+    assert.equal(saveCall?.body.description, 'Edited description')
+    assert.equal(saveCall?.body.expected_package_revision, PREVIEWED.package_revision, 'the reviewed payload revision travels with the save')
+    assert.equal(saveCall?.body.expected_source_revision, PREVIEWED.source.revision, 'the reviewed video file revision travels with the save')
+
+    // The refreshed package came back WITH the save, so the page did not ask
+    // for a second preview to learn what will be sent.
+    const previewCalls = mounted.calls.filter(call => call.path.endsWith('/youtube/preview'))
+    assert.equal(previewCalls.length, 1, 'the save answer carries the refreshed package')
+
+    assert.match(dialog.textContent || '', /Edits saved/, 'saved hint is shown')
+    assert.equal(titleInput.value, 'Edited Title', 'the draft is seeded from the refreshed snippet')
+
+    mounted.destroy()
+  })
+
+  test('after a save the fields show the text the server will send, not the raw typing', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+      postOverride: async (path, body) => {
+        if (path.endsWith('/youtube/metadata-overrides')) {
+          // The server's own text — a draft the page never typed.
+          return {
+            ...PREVIEWED,
+            package_revision: 'pack-edited',
+            snippet: { ...PREVIEWED.snippet, title: 'The Title YouTube Will Get', description: body.description },
+          }
+        }
+        return undefined
+      },
+    })
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    const titleInput = dialog.querySelector('input[aria-label="YouTube title"]') as HTMLInputElement
+    titleInput.value = 'Edited Title'
+    titleInput.dispatchEvent(new Event('input'))
+    await nextTick()
+
+    const saveButton = [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save Changes')) as HTMLButtonElement
+    saveButton.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+
+    assert.equal(titleInput.value, 'The Title YouTube Will Get', 'the field follows the server\'s answer')
+    assert.equal(titleInput.value !== 'Edited Title', true, 'the raw draft is not left on screen')
+
+    mounted.destroy()
+  })
+
+  test('an empty description is saved as empty and is not replaced by the generated text', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+      postOverride: async (path, body) => {
+        if (path.endsWith('/youtube/metadata-overrides')) {
+          return {
+            ...PREVIEWED,
+            package_revision: 'pack-edited',
+            snippet: { ...PREVIEWED.snippet, title: body.title, description: body.description },
+          }
+        }
+        return undefined
+      },
+    })
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    const descTextarea = dialog.querySelector('textarea[aria-label="YouTube description"]') as HTMLTextAreaElement
+    descTextarea.value = ''
+    descTextarea.dispatchEvent(new Event('input'))
+    await nextTick()
+
+    const saveButton = [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save Changes')) as HTMLButtonElement
+    assert.equal(saveButton.disabled, false, 'an empty description is still savable')
+
+    saveButton.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+
+    const saveCall = mounted.calls.find(call => call.path.endsWith('/youtube/metadata-overrides'))
+    assert.equal(saveCall?.body.description, '', 'the empty description is sent as empty')
+    assert.equal(descTextarea.value, '', 'the field stays empty — the generated text does not come back')
+    assert.match(dialog.textContent || '', /will be sent empty/, 'the page says the empty description is deliberate')
+
+    mounted.destroy()
+  })
+
+  test('unsaved edits block upload and say why', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+    })
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+
+    const titleInput = dialog.querySelector('input[aria-label="YouTube title"]') as HTMLInputElement
+    titleInput.value = 'Unsaved Title'
+    titleInput.dispatchEvent(new Event('input'))
+    await nextTick()
+
+    const uploadButton = [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Upload to YouTube')) as HTMLButtonElement
+    assert.ok(uploadButton, 'the upload button stays on screen while the edits are unsaved')
+    assert.equal(uploadButton.disabled, true, 'Upload is disabled when edits are unsaved')
+    assert.match(dialog.textContent || '', /Unsaved edits/, 'unsaved hint is shown')
+    assert.match(dialog.textContent || '', /Save your title and description changes before uploading/, 'the footer says what to do')
+
+    // And a click cannot get past it.
+    uploadButton.click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    assert.equal(mounted.calls.find(c => c.path.endsWith('/youtube/upload')), undefined, 'nothing was uploaded')
+
+    mounted.destroy()
+  })
+
+  test('invalid title or description disables Save and Upload', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+    })
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+
+    const titleInput = dialog.querySelector('input[aria-label="YouTube title"]') as HTMLInputElement
+    const saveButton = [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save Changes')) as HTMLButtonElement
+    const uploadButton = [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Upload to YouTube')) as HTMLButtonElement
+
+    // Empty title
+    titleInput.value = ''
+    titleInput.dispatchEvent(new Event('input'))
+    await nextTick()
+    assert.equal(saveButton.disabled, true, 'Save is disabled when title is empty')
+    assert.equal(uploadButton.disabled, true, 'Upload is disabled when title is empty')
+    assert.match(dialog.textContent || '', /title is required/i, 'empty title error is shown')
+
+    // Title too long
+    titleInput.value = 'x'.repeat(101)
+    titleInput.dispatchEvent(new Event('input'))
+    await nextTick()
+    assert.equal(saveButton.disabled, true, 'Save is disabled when title exceeds 100 chars')
+    assert.match(dialog.textContent || '', /101\/100 characters/, 'length counter shows overflow')
+
+    // Description too long (over the 4,900-byte cap this app keeps under
+    // YouTube's own 5,000).
+    titleInput.value = 'Valid Title'
+    titleInput.dispatchEvent(new Event('input'))
+    const descTextarea = dialog.querySelector('textarea[aria-label="YouTube description"]') as HTMLTextAreaElement
+    descTextarea.value = 'a'.repeat(4901)
+    descTextarea.dispatchEvent(new Event('input'))
+    await nextTick()
+    assert.equal(saveButton.disabled, true, 'Save is disabled when description exceeds 4900 bytes')
+    assert.match(dialog.textContent || '', /4,?901\s*\/\s*4,?900 bytes/, 'byte counter shows overflow')
+    assert.match(dialog.textContent || '', /5,?000 bytes/, 'the counter names YouTube\'s own limit too')
+
+    mounted.destroy()
+  })
+
+  test('closing the review or switching episodes clears the draft without cross-episode leak', async () => {
+    const mounted = await mount({
+      episodes: [
+        NEVER_UPLOADED,
+        { episode_code: 'EP0002', title: 'Another Episode', has_video: true },
+      ],
+      preview: PREVIEWED,
+    })
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+
+    const titleInput = dialog.querySelector('input[aria-label="YouTube title"]') as HTMLInputElement
+    titleInput.value = 'Draft Title'
+    titleInput.dispatchEvent(new Event('input'))
+    await nextTick()
+
+    // Close the review — the modal's Close button is text-labeled, not aria-label-labeled.
+    const closeButton = [...dialog.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Close') as HTMLButtonElement
+    closeButton.click()
+    for (let i = 0; i < 6; i++) await nextTick()
+
+    // Reopen the same episode
+    await previewThen(mounted)
+    const reopenedDialog = mounted.el.querySelector('[role="dialog"]')!
+    const reopenedTitleInput = reopenedDialog.querySelector('input[aria-label="YouTube title"]') as HTMLInputElement
+    assert.equal(reopenedTitleInput.value, PREVIEWED.snippet.title, 'draft was cleared on close')
+
+    mounted.destroy()
+  })
+
+  test('already-published episode disables the metadata edit fields', async () => {
+    const ALREADY_PUBLISHED = {
+      episode_code: 'EP0001',
+      title: 'The Lighthouse at Dawn',
+      has_video: true,
+      has_remote_video: true,
+      remote_video_id: 'vid-1',
+      remote_source: 'operation_record',
+      blocked_reason: 'EP0001 is already on YouTube as vid-1.',
+    }
+
+    const mounted = await mount({
+      episodes: [ALREADY_PUBLISHED],
+      preview: PREVIEWED,
+    })
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+
+    const titleInput = dialog.querySelector('input[aria-label="YouTube title"]') as HTMLInputElement
+    const descTextarea = dialog.querySelector('textarea[aria-label="YouTube description"]') as HTMLTextAreaElement
+    const saveButton = [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save Changes')) as HTMLButtonElement
+
+    assert.equal(titleInput.disabled, true, 'title input is disabled for already-published episode')
+    assert.equal(descTextarea.disabled, true, 'description textarea is disabled for already-published episode')
+    assert.equal(saveButton, undefined, 'Save Changes button is not rendered for already-published episode')
+    assert.match(dialog.textContent || '', /already on YouTube/, 'already-published hint is shown')
+
+    mounted.destroy()
+  })
+
+  test('the panel opens by saying what it shows, not by claiming an edit was saved', async () => {
+    const mounted = await mount({ episodes: [NEVER_UPLOADED], preview: PREVIEWED })
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+
+    assert.doesNotMatch(dialog.textContent || '', /Edits saved/, 'nothing was edited yet, so nothing is saved')
+    assert.match(
+      dialog.textContent || '',
+      /This is what YouTube will receive/,
+      'the opening state says what the panel is showing',
+    )
+
+    mounted.destroy()
+  })
+
+  test('a refusal that knows the corrected text shows it, and offers to use it', async () => {
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: PREVIEWED,
+      postOverride: async (path, body) => {
+        if (path.endsWith('/youtube/metadata-overrides')) {
+          throw Object.assign(new Error('refused'), {
+            data: {
+              code: 'YOUTUBE_METADATA_WOULD_BE_CHANGED',
+              detail: 'This title would be changed on the way to YouTube.',
+              suggestion: { title: 'A title with brackets' },
+            },
+          })
+        }
+        return undefined
+      },
+    })
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    const titleInput = dialog.querySelector('input[aria-label="YouTube title"]') as HTMLInputElement
+    titleInput.value = 'A title <with brackets>'
+    titleInput.dispatchEvent(new Event('input'))
+    await nextTick()
+
+    const saveButton = [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Save Changes')) as HTMLButtonElement
+    saveButton.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+
+    assert.match(dialog.textContent || '', /A title with brackets/, 'the corrected text is on screen')
+    const useButton = [...dialog.querySelectorAll('button')].find(b => b.textContent?.includes('Use this text')) as HTMLButtonElement
+    assert.ok(useButton, 'the corrected text can be taken')
+
+    useButton.click()
+    for (let i = 0; i < 4; i++) await nextTick()
+    assert.equal(titleInput.value, 'A title with brackets', 'the corrected text is in the field')
+
+    mounted.destroy()
+  })
+
+  test('the generated description can be restored, and the restore is an explicit reset', async () => {
+    const saved: any[] = []
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      // The server says the description on screen is the OWNER's own text, so
+      // the generated one is offered back.
+      preview: { ...PREVIEWED, authored: { title: true, description: true } },
+      postOverride: async (path, body) => {
+        if (path.endsWith('/youtube/metadata-overrides')) {
+          saved.push(body)
+          return {
+            ...PREVIEWED,
+            package_revision: 'pack-restored',
+            authored: { title: true, description: false },
+            snippet: { ...PREVIEWED.snippet, description: 'The generated description.' },
+          }
+        }
+        return undefined
+      },
+    })
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    const descTextarea = dialog.querySelector('textarea[aria-label="YouTube description"]') as HTMLTextAreaElement
+
+    const restoreButton = [...dialog.querySelectorAll('button')]
+      .find(b => b.textContent?.includes('Restore the generated description')) as HTMLButtonElement
+    assert.ok(restoreButton, 'the restore control is offered when the description is the owner\'s')
+
+    restoreButton.click()
+    for (let i = 0; i < 8; i++) await nextTick()
+
+    assert.equal(saved.length, 1, 'the restore reached the route')
+    assert.equal(saved[0].description, null, 'the restore is an explicit reset, not an empty description')
+    assert.equal(saved[0].title, undefined, 'and it does not touch the title')
+    assert.equal(descTextarea.value, 'The generated description.', 'the generated text is back on screen')
+
+    mounted.destroy()
+  })
+
+  test('the restore control is absent when the metadata cannot be edited', async (t) => {
+    const ALREADY_PUBLISHED = {
+      episode_code: 'EP0001',
+      title: 'The Lighthouse at Dawn',
+      has_video: true,
+      has_remote_video: true,
+      remote_video_id: 'vid-1',
+      remote_source: 'operation_record',
+      blocked_reason: 'EP0001 is already on YouTube as vid-1.',
+    }
+    const mounted = await mount({
+      episodes: [ALREADY_PUBLISHED],
+      // The server says the description on screen is the OWNER's own text, so
+      // the generated one would be offered back — but a save is refused for
+      // an already-published episode, so offering the control would be a
+      // button that does nothing.
+      preview: { ...PREVIEWED, authored: { title: true, description: true } },
+    }, t)
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    const restoreButton = [...dialog.querySelectorAll('button')]
+      .find(b => b.textContent?.includes('Restore the generated description'))
+    assert.equal(restoreButton, undefined, 'no dead restore control on a review that cannot save')
+    const descTextarea = dialog.querySelector('textarea[aria-label="YouTube description"]') as HTMLTextAreaElement
+    assert.equal(descTextarea.disabled, true, 'the description field is disabled, as the restore would have to be')
+    mounted.destroy()
+  })
+
+  test('the description limit names Story Studio’s working limit, and YouTube’s own limit separately', async (t) => {
+    // 4,901 bytes: over Story Studio's working limit, under YouTube's own.
+    const mounted = await mount({
+      episodes: [NEVER_UPLOADED],
+      preview: { ...PREVIEWED, snippet: { ...PREVIEWED.snippet, description: 'x'.repeat(4901) } },
+    }, t)
+
+    await previewThen(mounted)
+    const dialog = mounted.el.querySelector('[role="dialog"]')!
+    const text = dialog.textContent || ''
+    assert.match(text, /4,901\/4,900 bytes/, 'the counter says how far over the limit it is')
+    assert.match(text, /Story Studio's 4,900-byte working limit/, 'and names whose limit it is')
+    assert.match(text, /YouTube itself allows up to 5,000 bytes/, 'while stating YouTube’s own limit separately')
+    assert.doesNotMatch(text, /YouTube allows at most 4,900 bytes/, 'and never claims YouTube’s limit is the working limit')
+    mounted.destroy()
+  })
 
   test('an episode that has never been uploaded is offered, previewed and uploaded', async () => {
     const mounted = await mount({ episodes: [NEVER_UPLOADED], preview: PREVIEWED })
@@ -1950,7 +2389,7 @@ describe('Upload Center Publish', () => {
     mounted.destroy()
   })
 
-  test('a failed preview does not leave the previous episode’s payload on screen', async () => {
+  test('a failed preview does not leave the previous episode’s payload on screen', async (t) => {
     const mounted = await mount({
       operations: [READY_OP],
       previewFailAfter: 1,
@@ -1959,18 +2398,25 @@ describe('Upload Center Publish', () => {
         status: { privacyStatus: 'private', containsSyntheticMedia: true },
         modifications: [], warnings: [],
       },
-    })
+    }, t)
     const previewButton = () => [...mounted.el.querySelectorAll('button')].find(b => b.textContent!.trim() === 'Review Upload Details')!
     previewButton().click()
     for (let i = 0; i < 6; i++) await nextTick()
-    assert.match(mounted.text(), /First Episode Title/)
+    const titleField = mounted.el.querySelector('input[aria-label="YouTube title"]') as HTMLInputElement
+    assert.equal(titleField.value, 'First Episode Title', 'the payload is on screen')
 
     // The second request fails. The old payload must go, or the reader
     // believes they are looking at the episode they just asked about.
     previewButton().click()
     for (let i = 0; i < 6; i++) await nextTick()
 
-    assert.doesNotMatch(mounted.text(), /First Episode Title/)
+    // The payload lives in the editable fields, so "not on screen" means the
+    // fields are gone or empty — not that some string is missing from the
+    // page text.
+    const leftovers = [...mounted.el.querySelectorAll(
+      'input[aria-label="YouTube title"], textarea[aria-label="YouTube description"]',
+    )].filter(field => (field as HTMLInputElement).value !== '')
+    assert.equal(leftovers.length, 0, 'the previous episode’s payload is not on screen')
     assert.match(mounted.text(), /preview exploded/)
     mounted.destroy()
   })

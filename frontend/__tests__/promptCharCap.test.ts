@@ -242,10 +242,23 @@ describe('Thumbnail prompts control', () => {
     assert.match(imagePrompts, /readRememberedImageModelId\(slug\.value, window\.localStorage\)/)
   })
 
-  test('the ceiling reaches the generator and the review rows', () => {
-    assert.match(imagePrompts, /prompt_char_cap: effectivePromptCharCap\.value \|\| undefined,/)
+  test('the SELECTION and the model travel — never a number resolved here', () => {
+    // The bulk run carries the selection and the image model it was chosen
+    // for; the backend resolves the ceiling against the LIVE catalogue, so it
+    // follows the model instead of freezing at the moment the page loaded.
+    assert.match(imagePrompts, /intended_image_model: form\.thumbnail\.intended_image_model,/)
+    assert.match(imagePrompts, /prompt_char_cap: form\.thumbnail\.prompt_char_cap,/)
+    assert.doesNotMatch(imagePrompts, /prompt_char_cap: effectivePromptCharCap\.value/,
+      'a number resolved in the browser must never be what a request carries')
+    // The single-row rewrite carries them too.
+    assert.match(reviewPanel, /prompt_char_cap: props\.thumbnailPromptCapSetting,/)
+    assert.match(reviewPanel, /intended_image_model: props\.thumbnailIntendedImageModel,/)
+    assert.doesNotMatch(reviewPanel, /prompt_char_cap: props\.thumbnailPromptCap \|\|/,
+      'a number resolved in the browser must never be what a request carries')
+    // The RESOLVED figure is display only: the row's character counter.
     assert.match(imagePrompts, /:thumbnail-prompt-cap="effectivePromptCharCap \|\| null"/)
-    assert.match(reviewPanel, /prompt_char_cap: props\.thumbnailPromptCap \|\| undefined,/)
+    assert.match(imagePrompts, /:thumbnail-prompt-cap-setting="form\.thumbnail\.prompt_char_cap"/)
+    assert.match(imagePrompts, /:thumbnail-intended-image-model="form\.thumbnail\.intended_image_model"/)
   })
 
   test('the catalogue is read once, not fetched again for the ceiling', () => {

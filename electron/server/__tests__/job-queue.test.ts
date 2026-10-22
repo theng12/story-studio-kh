@@ -11,6 +11,7 @@ import express from 'express'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 import { waitFor } from './_timing.js'
+import { nonRetryable } from '../services/job-retry-policy.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -614,6 +615,63 @@ describe('retryTerminalJob()', () => {
     const retried = jq.retryTerminalJob(proj.slug, original.job_id)
     assert.equal(retried.params.model, 'genstudio-image:current-model')
     assert.equal(retried.params.manual_image_finish, undefined)
+  })
+
+  test('stamps a validated music polish predecessor on the actual Retry job', async () => {
+    if (!process.env.STORY_STUDIO_DATA_DIR) process.env.STORY_STUDIO_DATA_DIR = tempDir
+    const proj = await pm.createProject({ name: 'JQ Music Polish Retry Ownership' })
+    const runId = 'a'.repeat(32)
+    let ownerId = ''
+    jq.registerExecutor('music_scene_polish', async job => {
+      ownerId = job.job_id
+      job.params.music_scene_polish.owner_job_id = ownerId
+      throw nonRetryable(new Error('first attempt failed'))
+    })
+    const original = jq.enqueuePreparedForTest({
+      project_slug: proj.slug,
+      type: 'music_scene_polish',
+      episode_id: 'ME001',
+      title: 'Polish scene prompts',
+      params: {
+        episode_id: 'ME001', model: 'genstudio-chat:writer',
+        music_scene_polish: {
+          version: 2, run_id: runId, project_slug: proj.slug, episode_code: 'ME001',
+          scene_ids: ['ms-0123456789ab'], input_fingerprint: 'a'.repeat(64), owner_job_id: 'first-job',
+        },
+      },
+    })
+    await jq._waitForJobPersistenceForTesting()
+    await waitFor(() => jq.getJob(original.job_id)?.status === 'error', {
+      label: 'music polish retry fixture to fail',
+    })
+    const failed = jq.getJob(original.job_id)
+    assert.equal(failed?.status, 'error')
+    assert.equal(failed?.params?.music_scene_polish?.owner_job_id, original.job_id)
+    await waitFor(() => !jq._isJobWorkerActiveForTesting(original.job_id), { label: 'music polish worker to settle' })
+    jq.registerExecutor('music_scene_polish', async () => {})
+    const retried = jq.retryTerminalJob(proj.slug, original.job_id)
+    assert.deepEqual(retried.params.music_scene_polish_retry_of, { job_id: ownerId, run_id: runId })
+    await waitFor(() => !jq._isJobWorkerActiveForTesting(retried.job_id), { label: 'retried music polish worker to settle' })
+    await jq._waitForJobPersistenceForTesting()
+  })
+
+  test('refuses Retry of a Polish ref copied from another job', async () => {
+    if (!process.env.STORY_STUDIO_DATA_DIR) process.env.STORY_STUDIO_DATA_DIR = tempDir
+    const proj = await pm.createProject({ name: 'JQ Music Polish Foreign Retry' })
+    jq.registerExecutor('music_scene_polish', async () => { throw nonRetryable(new Error('first attempt failed')) })
+    const original = jq.enqueuePreparedForTest({
+      project_slug: proj.slug, type: 'music_scene_polish', episode_id: 'ME002',
+      title: 'Copied Polish ref', params: {
+        episode_id: 'ME002', model: 'genstudio-chat:writer', music_scene_polish: {
+          version: 2, run_id: 'b'.repeat(32), project_slug: proj.slug, episode_code: 'ME002',
+          scene_ids: ['ms-0123456789ab'], input_fingerprint: 'c'.repeat(64), owner_job_id: 'foreign-owner',
+        },
+      },
+    })
+    await jq._waitForJobPersistenceForTesting()
+    await waitFor(() => jq.getJob(original.job_id)?.status === 'error', { label: 'foreign-ref fixture to fail' })
+    await waitFor(() => !jq._isJobWorkerActiveForTesting(original.job_id), { label: 'foreign-ref worker to settle' })
+    assert.throws(() => jq.retryTerminalJob(proj.slug, original.job_id), /another run/i)
   })
 
   test('refuses to replace a non-terminal job', async () => {

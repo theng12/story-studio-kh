@@ -48,6 +48,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import PromptRow from './PromptReviewPanelRow.vue'
+import type { PromptCharCapSetting } from '~/utils/prompt-char-cap'
 
 interface PromptRowData { number: number; title: string; prompt: string }
 
@@ -67,8 +68,18 @@ const props = defineProps<{
   /** The published prompt-character CEILING for the image model these prompts
    *  will feed. Each row renders a char-counter against it, amber when over,
    *  so the user spots prompts that would be refused before paying credits.
-   *  Advisory only: nothing here blocks a save, a regenerate, or a render. */
+   *  Advisory only: nothing here blocks a save, a regenerate, or a render.
+   *  This is the RESOLVED figure, for DISPLAY only — it is never sent. */
   thumbnailPromptCap?: number | null
+  /** The ceiling SELECTION — 'auto' | 'none' | a whole number — as the
+   *  workspace holds it. A regeneration carries the SELECTION and the intended
+   *  image model, and the backend resolves the number against the live
+   *  catalogue, so the ceiling follows the model instead of freezing at the
+   *  moment the page loaded. */
+  thumbnailPromptCapSetting?: PromptCharCapSetting
+  /** The image model these prompts are written FOR. Named in every request so
+   *  the ceiling is resolved for the model the customer actually selected. */
+  thumbnailIntendedImageModel?: string
   /** Friendly model label for the row tooltips ("Seedream", etc.). */
   thumbnailModelLabel?: string
   /** Recipe-owned copy strategy for thumbnail rows. */
@@ -162,7 +173,12 @@ async function regenerateOne(
     thumb_text_style: props.thumbnailTextStyle,
     thumb_font_style_custom: props.thumbnailFontStyleCustom,
     thumb_text_style_custom: props.thumbnailTextStyleCustom,
-    prompt_char_cap: props.thumbnailPromptCap || undefined,
+    // The SELECTION and the model it is written for — never a number resolved
+    // here. The backend resolves the ceiling against the live catalogue, so a
+    // rewrite is written under the limit the SELECTED model actually publishes
+    // rather than under a figure that was true when the page loaded.
+    prompt_char_cap: props.thumbnailPromptCapSetting,
+    intended_image_model: props.thumbnailIntendedImageModel,
     ...(payload.reword ? { reword: true } : {}),
   }
   const operationId = freshPromptAction.begin(request, key)
@@ -171,9 +187,9 @@ async function regenerateOne(
       `/projects/${props.projectSlug}/episodes/${episodeId}/image-prompts/regenerate`,
       {
         ...request,
-        // The same ceiling the row's counter is measured against, so a rewrite
-        // is written under the limit rather than back over it. Null/0 → omitted
-        // → no limit is in force and the writer is left unconstrained.
+        // The ceiling the rewrite is written under travels with the request as
+        // a SELECTION plus the model it is written for; the server resolves
+        // the number against the live catalogue when the rewrite runs.
         operation_id: operationId,
         // Set only by the row's explicit "Reword" button — asks for a different
         // angle on the same idea with the difficult-subjects guidance applied.

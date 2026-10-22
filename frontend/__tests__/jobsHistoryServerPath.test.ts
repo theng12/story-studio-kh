@@ -33,10 +33,10 @@ async function withFetch<T>(handler: (url: string) => Promise<unknown>, body: ()
   try { return await body() } finally { (globalThis as any).$fetch = original }
 }
 
-test('the universal list is the live stream plus the server history, never the stream alone', () => {
+test('both scopes merge streamed live rows with server history without duplicates', () => {
   assert.match(page, /const history = useJobHistory\(\)/)
-  assert.match(page, /const scopedJobs = computed\(\(\) => isUniversal\.value\n?\s*\? \[\.\.\.streamedJobs\.value, \.\.\.history\.rows\.value\]/,
-    'a universal list built from the stream alone would drop every finished row')
+  assert.match(page, /const scopedJobs = computed\(\(\) => \{\n\s*const seen = new Set\(streamedJobs\.value\.map\(job => job\.job_id\)\)\n\s*return \[\.\.\.streamedJobs\.value, \.\.\.history\.rows\.value\.filter\(job => !seen\.has\(job\.job_id\)\)\]/,
+    'channel and universal views must both include terminal history, while a streamed row wins during settlement')
   assert.match(page, /const jobs = computed\(\(\) => scopedJobs\.value\.map\(job => jobDetails\.withDetail\(job\)\)/)
 })
 
@@ -48,13 +48,16 @@ test('search and Select All Matching run over that same composed list', () => {
     'the search reads the same list the server rows were merged into')
 })
 
-test('the history read is one call per scope, and a chosen channel narrows it server-side', () => {
-  assert.match(page, /history\.load\('\/jobs\/all\/history'/)
-  assert.match(page, /projectFilter\.value === 'all' \? \{\} : \{ project: projectFilter\.value \}/)
-  assert.match(page, /watch\(\[isUniversal, projectFilter, slug\], \(\) => \{ void loadJobHistory\(\) \}, \{ immediate: true \}\)/,
-    'one read per scope, not one per filter — the page filters these rows itself')
-  assert.match(page, /if \(!isUniversal\.value\) \{ history\.reset\(\); return \}/,
-    'project mode keeps its own per-project stream whole')
+test('the history read follows the active scope, resets on scope changes, and reloads terminal rows', () => {
+  assert.match(page, /if \(isUniversal\.value\) \{\n\s*await history\.load\('\/jobs\/all\/history'/)
+  assert.match(page, /await history\.load\(`\/projects\/\$\{slug\.value\}\/jobs\/history`\)/,
+    'a channel uses its own history endpoint')
+  assert.match(page, /watch\(\[isUniversal, projectFilter, slug\], \(\) => \{\n\s*history\.reset\(\)\n\s*void loadJobHistory\(\)\n\s*\}, \{ immediate: true \}\)/,
+    'old rows and in-flight loads are invalidated when channel or scope changes')
+  assert.match(page, /watch\(\(\) => projectQueue\.jobs\.value\.map\(job => `\$\{job\.job_id\}:\$\{job\.status\}`\)\.join\('\|'\), \(\) => \{\n\s*if \(!isUniversal\.value\) scheduleHistoryRefresh\(500\)/,
+    'a channel row leaving the active stream refreshes authoritative history without observing progress churn')
+  assert.match(page, /watch\(\(\) => universalQueue\.jobs\.value\.map\(job => `\$\{job\.job_id\}:\$\{job\.status\}`\)\.join\('\|'\), \(\) => \{\n\s*if \(isUniversal\.value\) scheduleHistoryRefresh\(500\)/,
+    'universal terminal transitions continue refreshing fleet history')
 })
 
 test('a history row is a row without its log: the card reads the small fields it carries', () => {
@@ -166,13 +169,14 @@ test('a bulk clear invalidates a read begun before it, so its answer cannot land
   })
 })
 
-test('a bulk clear reloads the authoritative history even when the server cleared nothing', () => {
+test('a confirmed clear invalidates, removes, and reloads history in either scope', () => {
   assert.match(page, /history\.invalidate\(\)/)
-  assert.match(page, /if \(isUniversal\.value\) \{\n\s*void refreshVisibleJobs\(\)\n\s*await loadJobHistory\(\)\n\s*\} else \{\n\s*await refreshVisibleJobs\(\)/)
-})
-
-test('a single clear removes the confirmed row from the history read, then reloads', () => {
-  assert.match(page, /control\.action === 'clear-history'\) \{[\s\S]{0,220}history\.removeIds\(\[job\.job_id\]\)[\s\S]{0,120}await loadJobHistory\(\)/)
+  assert.match(page, /if \(cleared\) await loadJobHistory\(\)/,
+    'selected clears reload the active scope after confirmed removals')
+  assert.match(page, /control\.action === 'clear-history'\) \{[\s\S]{0,260}history\.removeIds\(\[job\.job_id\]\)[\s\S]{0,120}await loadJobHistory\(\)/,
+    'a single clear reloads after removing the confirmed row')
+  assert.match(page, /if \(isUniversal\.value\) void refreshVisibleJobs\(\)\n\s*else await refreshVisibleJobs\(\)\n\s*await loadJobHistory\(\)/,
+    'bulk clear reloads the authoritative active scope even when the server cleared nothing')
 })
 
 test('the toolbar counts use the server clear selector, not the skipped badge', () => {

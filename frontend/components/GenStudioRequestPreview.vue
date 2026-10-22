@@ -1,90 +1,79 @@
 <template>
-  <section v-if="requests.length" class="gs-req" aria-label="Request sent to the Gateway">
-    <button type="button" class="gs-req-toggle" :aria-expanded="open" @click="open = !open">
-      <span class="gs-req-caret" :class="{ open }">&#9656;</span>
-      {{ open ? 'Hide request' : 'Show request' }} sent to the Gateway
-      <span class="gs-req-count">({{ requests.length.toLocaleString() }} call{{ requests.length === 1 ? '' : 's' }})</span>
-    </button>
+  <div class="gs-req">
+    <!-- What Story Studio actually sent, item by item. The facts are shown
+         flat: the endpoint, the product, the token limits and the fields that
+         went on the wire are the answer to "what did you ask for?", and an
+         answer behind an expander is an answer nobody opens. -->
+    <dl v-if="entry.request" class="gs-req-facts">
+      <template v-if="entry.request.method || entry.request.path">
+        <dt>Request sent</dt>
+        <dd><code>{{ entry.request.method }} {{ entry.request.path }}</code></dd>
+      </template>
+      <template v-if="entry.request.model_id">
+        <dt>Product / model submitted</dt>
+        <dd><code>{{ entry.request.model_id }}</code></dd>
+      </template>
+      <template v-if="entry.request.response_format">
+        <dt>response_format</dt>
+        <dd><code class="gs-req-wrap">{{ entry.request.response_format }}</code></dd>
+      </template>
+      <template v-for="limit in tokenLimits(entry)" :key="limit.label">
+        <dt>{{ limit.label }}</dt>
+        <dd>{{ limit.value }}</dd>
+      </template>
+      <template v-for="field in entry.request.fields || []" :key="field.label">
+        <dt>{{ field.label }}</dt>
+        <dd><code class="gs-req-wrap">{{ field.value }}</code></dd>
+      </template>
+      <template v-if="entry.request.captured_at">
+        <dt>Captured</dt>
+        <dd>{{ formatTime(entry.request.captured_at) }}</dd>
+      </template>
+    </dl>
 
-    <div v-if="open" class="gs-req-body">
-      <p class="gs-req-note">
-        Exactly what Story Studio submitted, minus credentials — the Gateway API Key and the
-        Authorization header are never captured.
-      </p>
+    <!--
+      No preview for this request.
 
-      <article v-for="entry in pageItems" :key="entry.id" class="gs-req-card">
-        <header class="gs-req-head">
-          <code class="gs-req-endpoint">{{ entry.request!.method }} {{ entry.request!.path }}</code>
-          <span class="gs-req-op">{{ entry.operation }}</span>
-          <span class="gs-req-state" :class="stateClass(entry)">{{ displayState(entry) }}</span>
-        </header>
+      The server keeps only the newest previews of a job's requests and strips
+      the rest without leaving a marker, so the reason a preview is missing is
+      not knowable from here: it may have been dropped to keep the job record
+      small, or the request may never have had one. The line therefore states
+      the one fact that is knowable — there is no stored preview — and does
+      not guess at the rest.
+    -->
+    <p v-if="!entry.request" class="gs-req-missing">No request preview is stored for this request.</p>
 
-        <dl class="gs-req-facts">
-          <template v-if="entry.request!.model_id">
-            <dt>Product / model submitted</dt>
-            <dd><code>{{ entry.request!.model_id }}</code></dd>
-          </template>
-          <template v-if="entry.request!.response_format">
-            <dt>response_format</dt>
-            <dd><code class="gs-req-wrap">{{ entry.request!.response_format }}</code></dd>
-          </template>
-          <template v-for="limit in tokenLimits(entry)" :key="limit.label">
-            <dt>{{ limit.label }}</dt>
-            <dd>{{ limit.value }}</dd>
-          </template>
-          <template v-for="field in entry.request!.fields || []" :key="field.label">
-            <dt>{{ field.label }}</dt>
-            <dd><code class="gs-req-wrap">{{ field.value }}</code></dd>
-          </template>
-          <template v-if="entry.request!.captured_at">
-            <dt>Captured</dt>
-            <dd>{{ formatTime(entry.request!.captured_at) }}</dd>
-          </template>
-        </dl>
-
-        <div v-for="(message, index) in entry.request!.messages || []" :key="index" class="gs-req-message">
-          <div class="gs-req-message-head">
-            <strong>{{ message.role }}</strong>
-            <span>{{ message.length.toLocaleString() }} characters</span>
-            <span v-if="message.truncated" class="gs-req-truncated">
-              truncated —
-              {{ storedCharacterCount(message) !== null ? `${storedCharacterCount(message)!.toLocaleString()} of ${message.length.toLocaleString()} stored` : 'preview truncated' }}
-            </span>
-            <span v-else class="gs-req-complete">stored in full</span>
-            <span class="gs-req-message-actions">
-              <button
-                type="button"
-                class="gs-req-action"
-                @click="toggleExpand(messageKey(entry, index))"
-              >{{ isExpanded(messageKey(entry, index)) ? 'Collapse' : 'Expand' }}</button>
-              <button
-                type="button"
-                class="gs-req-action"
-                @click="copyMessage(messageKey(entry, index), message.text)"
-              >{{ copiedKey === messageKey(entry, index) ? 'Copied' : 'Copy' }}</button>
-            </span>
-          </div>
-          <pre class="gs-req-text" :class="{ 'gs-req-text-expanded': isExpanded(messageKey(entry, index)) }">{{ message.text }}</pre>
+    <!-- The raw payload is the diagnostic, and it is the one thing here big
+         enough to earn an expander of its own. ONE expander, for the whole
+         request — not one per message, and not one per request inside another
+         one. -->
+    <details v-if="entry.request?.messages?.length" class="gs-req-raw">
+      <summary>Show the raw request ({{ rawCharacterCount.toLocaleString() }} characters)</summary>
+      <div v-for="(message, index) in entry.request.messages" :key="index" class="gs-req-message">
+        <div class="gs-req-message-head">
+          <strong>{{ message.role }}</strong>
+          <span>{{ message.length.toLocaleString() }} characters</span>
+          <span v-if="message.truncated" class="gs-req-truncated">
+            truncated —
+            {{ storedCharacterCount(message) !== null ? `${storedCharacterCount(message)!.toLocaleString()} of ${message.length.toLocaleString()} stored` : 'preview truncated' }}
+          </span>
+          <span v-else class="gs-req-complete">stored in full</span>
+          <span class="gs-req-message-actions">
+            <button
+              type="button"
+              class="gs-req-action"
+              @click="copyMessage(messageKey(index), message.text)"
+            >{{ copiedKey === messageKey(index) ? 'Copied' : 'Copy' }}</button>
+          </span>
         </div>
-      </article>
-
-      <div v-if="pageCount > 1" class="gs-req-pagination">
-        <button type="button" class="btn btn-xs btn-secondary" :disabled="page === 1" @click="page -= 1">Previous</button>
-        <span>Call {{ page }} / {{ pageCount }}</span>
-        <button type="button" class="btn btn-xs btn-secondary" :disabled="page === pageCount" @click="page += 1">Next</button>
+        <pre class="gs-req-text">{{ message.text }}</pre>
       </div>
-      <p v-if="omittedCount > 0" class="gs-req-note">
-        Only the {{ requests.length.toLocaleString() }} most recent calls of this job keep a stored
-        request preview; {{ omittedCount.toLocaleString() }} earlier call{{ omittedCount === 1 ? '' : 's' }}
-        {{ omittedCount === 1 ? 'has' : 'have' }} been dropped to keep the job record small.
-      </p>
-    </div>
-  </section>
+    </details>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { effectiveGenStudioTaskState } from '@shared/provider-task-state'
+import { computed, ref } from 'vue'
 
 /**
  * Renders the redacted request preview captured by
@@ -93,6 +82,10 @@ import { effectiveGenStudioTaskState } from '@shared/provider-task-state'
  * This component is display-only and receives whatever the server persisted.
  * It never reconstructs headers and has no notion of an api key — the capture
  * side guarantees no credential is present in this data.
+ *
+ * ONE entry at a time: the request preview belongs to the item it was sent
+ * for, so it is rendered inside that item's row rather than as a second list
+ * of the same items.
  */
 type RequestPreview = {
   method: string
@@ -115,12 +108,8 @@ type RemoteJob = {
   request?: RequestPreview
 }
 
-const props = defineProps<{ remoteJobs: readonly RemoteJob[] }>()
+const props = defineProps<{ entry: RemoteJob }>()
 
-const open = ref(false)
-const page = ref(1)
-/** Keys (`entryId:messageIndex`) whose `<pre>` block is expanded past the default 220px clamp. */
-const expandedMessages = ref<Set<string>>(new Set())
 /** Key of the message whose "Copy" button most recently succeeded, for transient "Copied" feedback. */
 const copiedKey = ref<string | null>(null)
 let copiedTimer: ReturnType<typeof setTimeout> | null = null
@@ -139,20 +128,13 @@ function storedCharacterCount(message: { text: string; truncated: boolean }): nu
   return Number(match[1]!.replace(/,/g, ''))
 }
 
-function messageKey(entry: RemoteJob, index: number): string {
-  return `${entry.id}:${index}`
+function messageKey(index: number): string {
+  return `${props.entry.id}:${index}`
 }
 
-function isExpanded(key: string): boolean {
-  return expandedMessages.value.has(key)
-}
-
-function toggleExpand(key: string): void {
-  const next = new Set(expandedMessages.value)
-  if (next.has(key)) next.delete(key)
-  else next.add(key)
-  expandedMessages.value = next
-}
+/** How much raw text the expander is about to reveal. */
+const rawCharacterCount = computed(() => (props.entry.request?.messages || [])
+  .reduce((total, message) => total + (message.length || 0), 0))
 
 async function copyMessage(key: string, text: string): Promise<void> {
   try {
@@ -166,56 +148,11 @@ async function copyMessage(key: string, text: string): Promise<void> {
   }
 }
 
-const requests = computed(() => props.remoteJobs.filter(entry => !!entry.request))
-/** Calls whose preview the server dropped to keep `jobs.json` bounded. */
-const omittedCount = computed(() => Math.max(0, props.remoteJobs.length - requests.value.length))
-const pageCount = computed(() => Math.max(1, requests.value.length))
-const pageItems = computed(() => requests.value.slice(page.value - 1, page.value))
-
-watch(pageCount, () => {
-  if (page.value > pageCount.value) page.value = pageCount.value
-})
-
 function tokenLimits(entry: RemoteJob) {
   return Object.entries(entry.request?.token_limits || {}).map(([label, value]) => ({
     label,
     value: Number(value).toLocaleString(),
   }))
-}
-
-const QUEUE_LABELS: Record<string, string> = {
-  waiting_local: 'Waiting locally',
-  submitting: 'Submitted — no response recorded',
-  accepted: 'Accepted',
-  waiting_account_capacity: 'Waiting for account capacity',
-  reserved: 'Reserved',
-  dispatched: 'Dispatched',
-  validating: 'Validating',
-  reconciling: 'Reconciling',
-  running: 'Running',
-  completing: 'Completing',
-  succeeded: 'Succeeded',
-  failed: 'Failed',
-  not_created: 'Not created — no request sent or charged',
-  waiting_credits: 'Waiting for credits',
-  cancelled: 'Cancelled',
-}
-
-function effectiveState(entry: RemoteJob): string {
-  return effectiveGenStudioTaskState(entry)
-}
-
-function displayState(entry: RemoteJob): string {
-  const state = effectiveState(entry) || 'unknown'
-  return QUEUE_LABELS[state] || state.replace(/_/g, ' ')
-}
-
-function stateClass(entry: RemoteJob): string {
-  const state = effectiveState(entry)
-  if (state === 'failed' || state === 'cancelled') return 'is-failed'
-  if (state === 'not_created') return 'is-terminal'
-  if (/success|succeed|complete|done|settled/.test(state)) return 'is-ok'
-  return 'is-active'
 }
 
 function formatTime(value: string): string {
@@ -226,40 +163,18 @@ function formatTime(value: string): string {
 
 <style scoped>
 .gs-req { margin-top: 6px; }
-.gs-req-toggle {
-  display: inline-flex; align-items: center; gap: 5px;
-  border: 0; padding: 0; background: transparent;
-  color: var(--accent); font: inherit; font-size: var(--font-xs); cursor: pointer;
-}
-.gs-req-toggle:hover { text-decoration: underline; }
-.gs-req-caret { display: inline-block; transition: transform .12s ease; }
-.gs-req-caret.open { transform: rotate(90deg); }
-.gs-req-count { color: var(--text-muted); }
-.gs-req-body { margin-top: 6px; }
-.gs-req-note { margin: 0 0 6px; color: var(--text-muted); font-size: var(--font-xs); }
-.gs-req-card {
-  margin-bottom: 8px; padding: 8px 10px;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-}
-.gs-req-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--font-xs); }
-.gs-req-endpoint {
-  max-width: 100%; overflow-wrap: anywhere;
-  color: var(--text-primary); font-family: 'SF Mono', Monaco, monospace; font-weight: 600;
-}
-.gs-req-op { color: var(--text-muted); }
-.gs-req-state.is-ok { color: var(--success, #3fb950); }
-.gs-req-state.is-failed { color: var(--danger, #f85149); }
-.gs-req-state.is-terminal { color: var(--text-muted); }
-.gs-req-state.is-active { color: var(--accent); }
+.gs-req-missing { margin: 0; color: var(--text-muted); font-size: var(--font-xs); }
 .gs-req-facts {
   display: grid; grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
-  gap: 3px 10px; margin: 7px 0 0; font-size: var(--font-xs);
+  gap: 3px 10px; margin: 6px 0 0; font-size: var(--font-xs);
 }
 .gs-req-facts dt { color: var(--text-muted); }
 .gs-req-facts dd { margin: 0; min-width: 0; color: var(--text-secondary); }
 .gs-req-facts code { font-family: 'SF Mono', Monaco, monospace; }
 .gs-req-wrap { display: block; max-height: 88px; overflow: auto; overflow-wrap: anywhere; }
+.gs-req-raw { margin-top: 6px; }
+.gs-req-raw > summary { color: var(--accent); font-size: var(--font-xs); cursor: pointer; }
+.gs-req-raw > summary:hover { text-decoration: underline; }
 .gs-req-message { margin-top: 8px; }
 .gs-req-message-head {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -276,16 +191,11 @@ function formatTime(value: string): string {
 }
 .gs-req-action:hover { color: var(--accent); border-color: var(--accent); }
 .gs-req-text {
-  max-height: 220px; margin: 0; padding: 8px; overflow: auto;
+  max-height: 260px; margin: 0; padding: 8px; overflow: auto;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--bg-secondary, var(--bg-primary));
   color: var(--text-secondary); font-family: 'SF Mono', Monaco, monospace;
   font-size: var(--font-xs); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
-}
-.gs-req-text-expanded { max-height: none; }
-.gs-req-pagination {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
-  color: var(--text-muted); font-size: var(--font-xs);
 }
 @media (max-width: 620px) {
   .gs-req-facts { grid-template-columns: minmax(0, 1fr); gap: 1px 0; }

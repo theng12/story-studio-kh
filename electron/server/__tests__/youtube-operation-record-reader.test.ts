@@ -153,4 +153,65 @@ describe('YouTube operation record reader', () => {
     await assert.rejects(() => reader.readYouTubeOperationRecord({ project_dir: tempDir, operation_id: 'operation-1' }), /corrupt/i)
     assert.deepEqual(await fs.readFile(file), bytes)
   })
+
+  // ── The frozen payload's authorship ────────────────────────────────────
+  //
+  // A payload frozen at accept time must be read later as it was frozen. The
+  // two flags say the title and the description hold the OWNER's own text
+  // rather than a model's — the editorial strips must not be applied to it.
+  //
+  // They are OPTIONAL: every payload frozen before they existed carries no
+  // authorship and must decode exactly as it always did. A reader that
+  // demanded them would refuse every record already on disk.
+  const FINAL_PAYLOAD = {
+    snippet_json: JSON.stringify({ title: 'A title', description: 'A description', tags: [] }),
+    status_json: JSON.stringify({ privacyStatus: 'private' }),
+    source_sha256: 'sha-1',
+  }
+
+  test('decodes a frozen payload with no authorship fields exactly as before', () => {
+    const decoded = reader.decodeYouTubeOperationRecord(record({ final_payload: FINAL_PAYLOAD }))
+    assert.deepEqual(decoded.final_payload, FINAL_PAYLOAD)
+    assert.equal(decoded.final_payload?.title_authored, undefined)
+    assert.equal(decoded.final_payload?.description_authored, undefined)
+  })
+
+  test('keeps the frozen payload authorship when it is there', () => {
+    const decoded = reader.decodeYouTubeOperationRecord(record({
+      final_payload: { ...FINAL_PAYLOAD, title_authored: true, description_authored: true },
+    }))
+    assert.equal(decoded.final_payload?.title_authored, true)
+    assert.equal(decoded.final_payload?.description_authored, true)
+    // `false` is a value too: it says the text is generated, and it must
+    // survive as `false` rather than being dropped as "not present".
+    const generated = reader.decodeYouTubeOperationRecord(record({
+      final_payload: { ...FINAL_PAYLOAD, title_authored: false },
+    }))
+    assert.equal(generated.final_payload?.title_authored, false)
+    assert.equal(generated.final_payload?.description_authored, undefined)
+  })
+
+  test('refuses an authorship flag that is not a boolean, and any unknown key', () => {
+    for (const bad of ['true', 1, null, [], {}]) {
+      assert.throws(() => reader.decodeYouTubeOperationRecord(record({
+        final_payload: { ...FINAL_PAYLOAD, title_authored: bad },
+      })), isCorrupt, JSON.stringify(bad))
+    }
+    assert.throws(() => reader.decodeYouTubeOperationRecord(record({
+      final_payload: { ...FINAL_PAYLOAD, unknown_field: true },
+    })), isCorrupt)
+  })
+
+  test('the frozen payload authorship survives save and reload byte for byte', async () => {
+    const file = reader.youtubeOperationRecordPath(tempDir, 'operation-1')
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    const original = record({
+      final_payload: { ...FINAL_PAYLOAD, title_authored: true, description_authored: true },
+    })
+    await fs.writeFile(file, JSON.stringify(original, null, 2))
+    const loaded = await reader.readYouTubeOperationRecord({ project_dir: tempDir, operation_id: 'operation-1' })
+    assert.deepEqual(loaded, reader.decodeYouTubeOperationRecord(original))
+    assert.equal(loaded?.final_payload?.title_authored, true)
+    assert.equal(loaded?.final_payload?.description_authored, true)
+  })
 })

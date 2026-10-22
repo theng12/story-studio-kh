@@ -23,7 +23,7 @@ import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
-import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { buildDescriptionPrompt, repairGeneratedDescription, stripChapterHeadingsFromContext } from '../lib/metadata-prompt.js'
 import { getContentLanguage, languageDirective } from '../lib/content-language.js'
 import { inspectMusicStitch, musicMetadataContext } from '../services/music-episode-store.js'
 import {
@@ -184,6 +184,22 @@ export async function readStoryContext(slug: string, episode_id: string, title: 
 // shared with routes/scripts.ts so the section→prompt mapping has one
 // source of truth.
 
+/**
+ * The Gateway key a refused description came under.
+ *
+ * The legacy Pipeline policy path saves the key of the request it accepted and
+ * reconnects a later attempt to it, so this is the key a Retry would have been
+ * handed. The policy's own checkpoint knows it; the job's provider evidence knows
+ * it too, for a run with no policy checkpoint.
+ */
+function refusedAnswerKey(job: Job, params: Record<string, any>, checkpointKey: string): string {
+  const saved = params?.pipeline_model_checkpoints?.[checkpointKey]?.idempotency_key
+  if (typeof saved === 'string' && saved.trim()) return saved.trim()
+  const evidence = (job.genstudio_jobs || []).filter(entry => entry.operation === 'chat.response').at(-1)
+  const key = evidence?.request_key || evidence?.request?.idempotency_key || ''
+  return typeof key === 'string' ? key.trim() : ''
+}
+
 async function resolveMetadataDir(slug: string, episode_id: string, title: string): Promise<string> {
   const paths = await resolveEpisodePaths(slug, episode_id, title || '')
   let episodeDir = paths.episode_dir.replace(/\/$/, '')
@@ -332,9 +348,13 @@ export async function generateMetadata(job: Job): Promise<void> {
   )
 
   job.output_lines.push(musicStitch.music ? 'Reading the channel formula, episode theme and tracklist…' : `Reading narration for story context…`)
-  const storyContext = musicStitch.music
+  const rawStoryContext = musicStitch.music
     ? await musicMetadataContext(project_slug, episode_id)
     : await readStoryContext(project_slug, episode_id, title)
+  // Keep story titles as context without chapter labels; music retains its tracklist.
+  const storyContext = musicStitch.music
+    ? rawStoryContext
+    : stripChapterHeadingsFromContext(rawStoryContext)
 
   // AbortController + 500 ms watcher — same pattern as subtitles + episode.
   // Three sequential LLM calls below; a user cancel mid-batch tears down
@@ -404,10 +424,14 @@ export async function generateMetadata(job: Job): Promise<void> {
         buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, promptFormat, descriptionLanguageDirective),
         episode_id,
       ) + await noEmojiDirective()
+      // The legacy Pipeline policy path reconnects a later attempt to the request
+      // its checkpoint saved, so this run's own checkpoint key is named once and
+      // used by both the call and the refusal below.
+      const descriptionCheckpointKey = `${project_slug}:${episode_id}:metadata:description`
       const descRaw = await callMetadataAi('', descPrompt, false,
         // Standard: a full YouTube description (up to ~5,000 characters).
         // Titles and tags below stay short-form on purpose.
-        { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'standard', requestIdentity: freshGenerationRequestIdentity(job, 'metadata-description'), pipelinePolicyCheckpointKey: `${project_slug}:${episode_id}:metadata:description` })
+        { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'standard', requestIdentity: freshGenerationRequestIdentity(job, 'metadata-description'), pipelinePolicyCheckpointKey: descriptionCheckpointKey })
       // The whole prompt is the source: it carries his story context, his
       // title, his custom section labels AND the niche's own voice rules — so
       // the prayer channel's deliberate single 🙏 survives, because the
@@ -424,6 +448,74 @@ export async function generateMetadata(job: Job): Promise<void> {
       description = stripMarkdownScaffold(
         stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim(), [descPrompt])),
       )
+      // The model's own chapter list, and the sentences that match the
+      // narration exactly, are removed before the finalizer writes the
+      // authoritative timeline — so the description cannot carry a second
+      // one.
+      //
+      // Only the description this run generated is repaired: the operator's
+      // edited copy (the `preserveExistingPackage` branch above) and a
+      // channel template's own text are left alone. A music episode passes
+      // no narration to compare against, so only the chapter list is taken
+      // out there.
+      const repaired = repairGeneratedDescription(description, {
+        narrationContext: musicStitch.music ? '' : rawStoryContext,
+      })
+      description = repaired.description
+      const removed: string[] = []
+      if (repaired.removed_chapter_list) removed.push('the chapter list the model wrote itself')
+      if (repaired.removed_copied_sentences) removed.push(`${repaired.removed_copied_sentences} sentence(s) that matched the narration`)
+      if (!description.trim()) {
+        // Nothing usable is left. What removed it decides what this says: the
+        // model wrote the narration back, wrote only a chapter list, or wrote
+        // nothing at all. The finalizer would add its chapter timeline to an
+        // empty description, and the package would then look complete with no
+        // prose in it — so the run stops here, before the finalizer and
+        // before anything is written. The episode's audio, subtitles,
+        // research and any earlier package stay as they are; the flag below
+        // makes a Retry ask for a fresh description instead of replaying this
+        // answer.
+        const emptiedBy = repaired.removed_chapter_list && repaired.removed_copied_sentences
+          ? ' after the generated chapter entries and the narration it copied were removed'
+          : repaired.removed_chapter_list
+            ? ' after the generated chapter entries were removed'
+            : repaired.removed_copied_sentences
+              ? ' after the narration it copied was removed'
+              : ''
+        job.output_lines.push(`  → no usable prose remained in the generated description${emptiedBy}.`)
+        // A Retry must not be handed the very answer this run refused.
+        //
+        // Two things would hand it back. The legacy Pipeline policy path saves
+        // the key of the request it accepted and reconnects a later attempt to
+        // it, so this run's own description checkpoint is dropped — that entry
+        // and no other: the titles, tags and template checkpoints belong to
+        // other requests and stay exactly as they are. And the key itself is
+        // recorded the way every other locally-refused answer is recorded
+        // (`rejected_idempotency_keys`), so an attempt that rebuilds the same
+        // request derives a fresh key instead of replaying the refused text.
+        const refusedKey = refusedAnswerKey(job, params, descriptionCheckpointKey)
+        if (refusedKey) {
+          const recorded = job.rejected_idempotency_keys || []
+          if (!recorded.includes(refusedKey)) job.rejected_idempotency_keys = [...recorded, refusedKey]
+        }
+        const checkpoints = params.pipeline_model_checkpoints
+        if (checkpoints && typeof checkpoints === 'object' && checkpoints[descriptionCheckpointKey]) {
+          const kept: Record<string, any> = { ...checkpoints }
+          delete kept[descriptionCheckpointKey]
+          params.pipeline_model_checkpoints = kept
+        }
+        job.result = { ...(job.result || {}), chat_answer_rejected: true }
+        throw new Error(
+          `The generated description was empty after the repair: no usable prose remained in the generated description${emptiedBy}. `
+          + 'Nothing was written, so the episode keeps its audio, subtitles, research and any earlier description. '
+          + 'Retry asks for a fresh description.',
+        )
+      }
+      if (removed.length) {
+        job.output_lines.push(
+          `  → removed ${removed.join(' and ')} from the description; the real chapter timeline is added by the finalizer.`,
+        )
+      }
       job.output_lines.push(`  → ${description.length} chars`)
       // Post-generation: scan the description for matches against the
       // niche's regex and append to the recency log. Fail-soft — never

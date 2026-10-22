@@ -12,7 +12,7 @@ import { getImageStatus } from '../services/asset-status.js'
 import { getImagesReconcileStatus, reconcileImages } from '../services/image-reconciler.js'
 import { settleCompletedFailures } from '../services/stale-failures.js'
 import { resolveEpisodePaths } from '../services/utils.js'
-import { readSelectedThumbnail, writeSelectedThumbnail } from '../services/upload-overrides.js'
+import { readSelectedThumbnail, writeSelectedThumbnail, resolveOverrideEpisodePaths } from '../services/upload-overrides.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { freshActionMatch } from '../lib/fresh-generation-action.js'
 
@@ -279,7 +279,12 @@ router.get('/projects/:slug/episodes/:code/thumbnails', async (req, res) => {
 
     const idea = (await im.getIdeas(slug, 'accepted')).find(i => i.episode_code === code)
     const fallbackTitle = idea?.title || ''
-    const paths = await resolveEpisodePaths(slug, code, fallbackTitle)
+    // The SAME resolver the pin route and the uploader's resolver use.
+    // Resolving by title here listed a DIFFERENT folder from the one the
+    // write lands in whenever the episode was renamed — so the picker showed
+    // files the upload never read, and the pin pre-check rejected files that
+    // were really there. One resolver: picker, pin and upload agree.
+    const paths = await resolveOverrideEpisodePaths(slug, code, fallbackTitle, platform as any)
 
     const files: Array<{ filename: string; size_bytes: number; is_pinned: boolean }> = []
     if (existsSync(paths.thumb_dir)) {
@@ -319,6 +324,12 @@ router.get('/projects/:slug/episodes/:code/thumbnails', async (req, res) => {
       auto_pick: files[0]?.filename || '',
     })
   } catch (e: any) {
+    // A refusal from the shared resolver — more than one folder for this
+    // episode code — is a refusal, not a crash. It carries its own status
+    // and code, so the caller learns what to fix instead of seeing a 500.
+    if (typeof e?.statusCode === 'number' && typeof e?.code === 'string') {
+      return res.status(e.statusCode).json({ code: e.code, detail: e.message })
+    }
     res.status(500).json(humanizeBackendError(e, 'Failed to list thumbnails'))
   }
 })
@@ -343,8 +354,13 @@ router.post('/projects/:slug/episodes/:code/thumbnails/pin', async (req, res) =>
     // Validate the filename actually exists in the thumb dir before
     // pinning — saves the user from saving a typo'd filename that
     // would silently fall back to auto-pick at upload time.
+    //
+    // The SAME resolver the writer below uses. This used to resolve by
+    // title, which is a different folder from the one the write lands in
+    // whenever the episode was renamed — so it could refuse a file that is
+    // really there, or pass a file from a folder the write never touches.
     if (filename) {
-      const paths = await resolveEpisodePaths(slug, code, idea.title || '')
+      const paths = await resolveOverrideEpisodePaths(slug, code, idea.title || '', platform as any)
       const candidate = path.join(paths.thumb_dir, filename)
       if (!existsSync(candidate)) {
         return res.status(404).json({ detail: `Thumbnail file "${filename}" not found in ${paths.thumb_dir}` })
@@ -354,6 +370,11 @@ router.post('/projects/:slug/episodes/:code/thumbnails/pin', async (req, res) =>
     await writeSelectedThumbnail(slug, code, idea.title || '', platform as any, filename)
     res.json({ ok: true, pinned: filename })
   } catch (e: any) {
+    // A refusal from the shared writer — a missing episode folder — is a
+    // refusal, not a crash. It carries its own status and code.
+    if (typeof e?.statusCode === 'number' && typeof e?.code === 'string') {
+      return res.status(e.statusCode).json({ code: e.code, detail: e.message })
+    }
     res.status(500).json(humanizeBackendError(e, 'Failed to pin thumbnail'))
   }
 })

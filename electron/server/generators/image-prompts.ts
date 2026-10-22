@@ -19,7 +19,7 @@ import { trackGeneration } from '../services/session-tracker.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
-import type { Job, ThumbnailRecipeProfile } from '../models/types.js'
+import type { Character, Job, ThumbnailRecipeProfile } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
 import { letteringPhraseMaps, type LetteringPhraseMaps } from '../services/lettering-catalogue.js'
 import { DEFAULT_HEADLINE_MODE, HEADLINE_MODE_IDS, headlineInstruction, headlineInvents, headlineMode as resolveHeadlineMode } from '../models/thumbnail-headlines.js'
@@ -31,10 +31,21 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveChosenChatModel } from '../services/genstudio-default-model.js'
 import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.js'
 import {
+  addAssemblyOverhead,
   buildPromptCharCapInstruction,
   describeOverCapPrompts,
-  parsePromptCharCap,
+  measureAssemblyOverhead,
+  promptBodyCeiling,
+  type AssemblyOverhead,
 } from '../services/prompt-char-cap.js'
+import { requireLiveImagePromptCharCap } from '../services/image-prompt-cap.js'
+import {
+  assembleThumbnailRenderPrompt,
+  castStyleKeywordBound,
+  matchedStyleKeywords,
+  savedThumbnailReferenceGuidanceFor,
+  thumbnailRenderAssemblyOverhead,
+} from './images.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
 
@@ -66,14 +77,22 @@ interface ThumbnailPromptsParams {
   character_ids?: string[]
   fill_gaps?: boolean
   /**
-   * The character CEILING each generated prompt is written under — GenStudio's
-   * published `max_prompt_characters` for the image model the user intends to
-   * render these thumbnails with, resolved by the workspace (only it knows
-   * which model that is). Absent means no limit is in force: no instruction is
-   * added and nothing is warned about. Never a length to fill, and no prompt is
-   * ever truncated to fit. See services/prompt-char-cap.ts.
+   * The character CEILING SELECTION these prompts are written under — 'auto'
+   * (follow the intended image model), 'none' (no ceiling), or a whole number
+   * the customer chose. The SELECTION travels, never a number resolved
+   * earlier: the ceiling is resolved when the job runs, against the LIVE
+   * catalogue, so it follows the selected model — on this run and on every
+   * retry. Absent means no limit is in force: no instruction is added and
+   * nothing is warned about. Never a length to fill, and no prompt is ever
+   * truncated to fit. See services/prompt-char-cap.ts and
+   * services/image-prompt-cap.ts.
    */
-  prompt_char_cap?: number
+  prompt_char_cap?: number | 'auto' | 'none'
+  /**
+   * The image model these prompts are written FOR. Named so the ceiling is
+   * resolved for the model the customer actually selected.
+   */
+  intended_image_model?: string
 }
 
 interface ThumbnailFmt {
@@ -265,7 +284,11 @@ export function stripEpisodeLabelFromDrawnText(text: string): string {
   return text.replace(EPISODE_LABEL_ON_DRAWN_TEXT, '$1')
 }
 
-export function enforceThumbnailPromptElements(prompt: string, opts: {
+/**
+ * What the save step needs to know to write the aspect-ratio and title
+ * clauses onto a thumbnail prompt.
+ */
+export interface ThumbnailPromptElements {
   aspectRatio: string
   title: string
   textStyle?: string
@@ -279,19 +302,24 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
   /** Free-form descriptions for a `custom` lettering id. */
   fontCustomText?: string
   textCustomText?: string
-}): string {
-  const out = stripEpisodeLabelFromDrawnText((prompt || '').trim())
-  if (!out) return out
+}
+
+/**
+ * The exact clause TEXTS the save step appends to a thumbnail prompt.
+ *
+ * Exported so the character ceiling the prompt body is written under can be
+ * computed from the very text the save step appends, instead of from an
+ * estimate of how long that text might be. The ratio clause has two forms and
+ * the title clause is skipped for a prompt that already carries the title, so
+ * the caller decides which apply; the texts themselves are computed once, here.
+ */
+export function thumbnailPromptClauseTexts(opts: ThumbnailPromptElements): { ratio: string; title: string } {
   const ratio = opts.aspectRatio || '16:9'
   const ratioPhrase = RATIO_DESCRIPTIONS[ratio] || `${ratio} format`
-  const clauses: string[] = []
-  if (!out.includes(ratio)) {
-    clauses.push(`Rendered as a ${ratioPhrase} — this is a YouTube thumbnail (${ratio}).`)
-  } else if (!/thumbnail/i.test(out)) {
-    clauses.push('This is a YouTube thumbnail.')
-  }
+  const ratioClause = `Rendered as a ${ratioPhrase} — this is a YouTube thumbnail (${ratio}).`
+  let titleClause = ''
   // "No text at all" must not get a title clause bolted back on.
-  if (opts.headlineMode !== 'none' && opts.title.trim() && !out.includes(opts.title.trim())) {
+  if (opts.headlineMode !== 'none' && opts.title.trim()) {
     const font = !opts.fontStyle || opts.fontStyle === 'auto'
       ? 'a font chosen to suit the concept'
       : (opts.fontPhrases?.[opts.fontStyle] || resolveFontStyle(opts.fontStyle, opts.fontCustomText))
@@ -308,8 +336,53 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
     // curiosity hook — carries its own words in `title`; calling them "the title"
     // made the image model letter the hook AND the full title.
     const headlineLabel = headlineInvents(opts.headlineMode) ? 'thumbnail hook' : 'title'
-    clauses.push(`Render the exact ${headlineLabel} "${opts.title.trim()}" inside the image as large, highly legible display text using ${font}, ${text}, positioned at ${position}. This is the finished thumbnail; do not use placeholder or gibberish lettering.`)
+    titleClause = `Render the exact ${headlineLabel} "${opts.title.trim()}" inside the image as large, highly legible display text using ${font}, ${text}, positioned at ${position}. This is the finished thumbnail; do not use placeholder or gibberish lettering.`
   }
+  return { ratio: ratioClause, title: titleClause }
+}
+
+/**
+ * The clauses that apply to THIS prompt. A prompt that already states the
+ * aspect ratio, or already carries the title, gets the shorter form or none.
+ */
+export function thumbnailPromptClauses(prompt: string, opts: ThumbnailPromptElements): string[] {
+  const out = stripEpisodeLabelFromDrawnText((prompt || '').trim())
+  if (!out) return []
+  const ratio = opts.aspectRatio || '16:9'
+  const texts = thumbnailPromptClauseTexts(opts)
+  const clauses: string[] = []
+  if (!out.includes(ratio)) {
+    clauses.push(texts.ratio)
+  } else if (!/thumbnail/i.test(out)) {
+    clauses.push('This is a YouTube thumbnail.')
+  }
+  if (texts.title && !out.includes(opts.title.trim())) clauses.push(texts.title)
+  return clauses
+}
+
+/**
+ * The characters the save step can add on top of the prompt body.
+ *
+ * This is the LARGEST the save step can add: the exact clause texts above,
+ * measured, plus the separator that is appended with them. A prompt that
+ * already states the ratio or repeats the title gets less — so this is a SAFE
+ * BOUND, not an item-exact accounting, and it is what a caller reserves
+ * before the prompt body exists. Nothing is estimated and nothing is
+ * truncated.
+ */
+export function thumbnailSaveOverhead(opts: ThumbnailPromptElements): AssemblyOverhead {
+  const texts = thumbnailPromptClauseTexts(opts)
+  const clauses = [texts.ratio, texts.title].filter(Boolean)
+  return measureAssemblyOverhead([
+    // The separator is appended with the clauses, so it is counted with them.
+    { label: 'aspect-ratio and title clauses', text: clauses.length ? `\n\n${clauses.join(' ')}` : '' },
+  ])
+}
+
+export function enforceThumbnailPromptElements(prompt: string, opts: ThumbnailPromptElements): string {
+  const out = stripEpisodeLabelFromDrawnText((prompt || '').trim())
+  if (!out) return out
+  const clauses = thumbnailPromptClauses(out, opts)
   return clauses.length ? `${out}\n\n${clauses.join(' ')}` : out
 }
 
@@ -324,8 +397,23 @@ export function buildThumbnailPrompt(args: {
   thumbnailDirective: string
   targetNumbers: number[]
   headlineMode?: string
-  /** Published image-model ceiling, or absent for "no limit in force". */
+  /**
+   * The ceiling the prompt BODY is written under, or absent for "no limit in
+   * force". It is the published image-model ceiling minus the characters the
+   * final assembly adds on top of the body — the save-step clauses and the
+   * render-step extras — so the assembled prompt the model receives fits the
+   * published ceiling. Never a length to fill, and no prompt is ever
+   * truncated. See services/prompt-char-cap.ts.
+   */
   promptCharCap?: number
+  /**
+   * The PUBLISHED ceiling the body budget came out of, and how many
+   * characters the assembly adds on top of the body. The instruction the
+   * writer reads names both, so it never claims the model's limit is smaller
+   * than it is.
+   */
+  promptCharCapTotal?: number
+  promptCharReservedCharacters?: number
 }): string {
   const ratioInstruction = RATIO_DESCRIPTIONS[args.aspectRatio] || `${args.aspectRatio} format`
   const curiosityHook = headlineInvents(args.headlineMode)
@@ -339,7 +427,10 @@ export function buildThumbnailPrompt(args: {
   const titleExample = args.headlineMode === 'curiosity-hook' ? 'SHORT CURIOSITY HOOK' : curiosityHook ? 'SHORT HOOK' : args.title.replace(/"/g, '\\"')
   // A ceiling, never a length to reach: requirement 2 above still decides how
   // long a prompt should be. Empty when no limit is in force.
-  const charCapInstruction = buildPromptCharCapInstruction(args.promptCharCap)
+  const charCapInstruction = buildPromptCharCapInstruction(args.promptCharCap, {
+    publishedCap: args.promptCharCapTotal,
+    reservedCharacters: args.promptCharReservedCharacters,
+  })
   const charCapRequirement = charCapInstruction ? `\n8. ${charCapInstruction}` : ''
   return `Create exactly ${args.count} distinct YouTube thumbnail briefs for this story episode.
 
@@ -408,6 +499,22 @@ async function resolveDefaultImagePromptsModel(config: any): Promise<string> {
   return resolveChosenChatModel(apiKey, saved, 'the Thumbnail Prompts page')
 }
 
+/**
+ * The episode's cast — the population the render matches style keywords
+ * against. A cast that cannot be read costs prompt length, never correctness.
+ *
+ * Exported so a caller that has to RESERVE room for the style keywords — the
+ * single-row regenerate route — reads the same cast the render reads, instead
+ * of guessing one.
+ */
+export async function episodeCast(projectSlug: string, episodeId: string): Promise<Character[]> {
+  try {
+    return await cm.listCharacters(projectSlug, { episodeCode: episodeId })
+  } catch {
+    return []
+  }
+}
+
 export async function generateImagePrompts(job: Job): Promise<void> {
   const { project_slug: projectSlug, episode_id: episodeId, params } = job
   const req = params as ThumbnailPromptsParams
@@ -452,12 +559,33 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     || await resolveDefaultImagePromptsModel(config)
   const count = Math.max(1, Math.round(Number(req.thumb_count) || 5))
   const fillGaps = req.fill_gaps === true
-  // Resolved by the workspace from the intended image model's published
-  // `max_prompt_characters`. Absent = no limit in force; nothing is invented.
-  const promptCharCap = parsePromptCharCap(req.prompt_char_cap)
+  // THE CHARACTER CEILING, RESOLVED LIVE — NOW, NOT AT ENQUEUE TIME.
+  //
+  // The request carries the SELECTION ('auto' / 'none' / a whole number) and
+  // the image model the prompts are written FOR. The number is resolved here,
+  // against the live catalogue, on every run — and a retry IS a fresh run, so
+  // a retry re-reads the catalogue rather than repeating a ceiling that was
+  // true when the job was queued. A model that publishes a different limit
+  // today is obeyed today.
+  //
+  // Absent = no limit in force; nothing is invented. This is the ceiling for
+  // the ASSEMBLED prompt — the stored prompt plus everything the render adds
+  // on top of it. The prompt BODY is written under the smaller ceiling derived
+  // from it below.
+  //
+  // A selection that cannot be resolved — a model the catalogue no longer
+  // publishes, a malformed setting, a missing Gateway key — STOPS the job
+  // here, before anything is written or charged. The refusal is typed, so the
+  // queue refuses to burn three attempts on an answer that cannot change.
+  const publishedCap = await requireLiveImagePromptCharCap({
+    intendedImageModel: req.intended_image_model,
+    setting: req.prompt_char_cap,
+    label: 'The Thumbnail Prompts selection',
+    nothingHappened: 'No thumbnail prompt was written, and no credits were charged for it.',
+  })
   job.output_lines.push(`Target: ${count} thumbnail prompt(s).`)
-  job.output_lines.push(promptCharCap
-    ? `Prompt length ceiling: ${promptCharCap.toLocaleString()} characters per thumbnail prompt. A ceiling only — an over-length prompt is reported, never shortened.`
+  job.output_lines.push(publishedCap
+    ? `Prompt length ceiling: ${publishedCap.toLocaleString()} characters for the assembled thumbnail prompt — the stored prompt plus the clauses and extras the render adds. A ceiling only — an over-length prompt is reported, never shortened.`
     : 'Prompt length ceiling: none — no image-model limit is in force for this run.')
 
   const existing = fillGaps
@@ -490,6 +618,31 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   // nothing to write and must not read the pack registry) but declared here
   // because the enforcement pass below runs for every run.
   let letteringPhrases: LetteringPhraseMaps = { font: {}, text: {} }
+  // The cast the render matches style keywords against, and the reference
+  // guidance it appends. Read OUTSIDE the generation branch, so the advisory
+  // after the write describes the same assembly even on a repair-only run that
+  // writes nothing: a run that repairs nothing still has to be able to SAY
+  // that a prompt it found on disk is over the ceiling, and it can only say
+  // so with the guidance the render will add.
+  //
+  // It is a SAFE BOUND, not an item-exact accounting: the style keywords are
+  // the largest set the render could append for the cast, and the render
+  // guidance comes from the generator tab at render time, so it can differ
+  // from what was reserved here. The render still measures the assembled
+  // prompt before it submits and refuses an over-length one there.
+  let renderCast: Character[] = []
+  let renderReferenceGuidance = ''
+  if (publishedCap) {
+    renderCast = await episodeCast(projectSlug, episodeId)
+    // The reference guidance the RENDER will append — the same helper the
+    // render uses, in the render's own order (the request's asset, else the
+    // project's saved one), so the two cannot disagree: no saved reference
+    // asset means the render appends nothing, and nothing is reserved for it.
+    renderReferenceGuidance = savedThumbnailReferenceGuidanceFor(
+      pm.getProjectDir(projectSlug) || path.join(pm.projectsRoot(), projectSlug),
+      (req as any)?.thumbnail_reference_asset || (config as any)?.thumbnail_reference_asset || null,
+    )
+  }
   if (targetNumbers.length > 0) {
     const storyContext = await readStoryContext(projectSlug, episodeId, title)
     const characters = Array.isArray(req.character_ids) && req.character_ids.length
@@ -603,6 +756,64 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       )
     }
 
+    /**
+     * The characters the FINAL assembly adds on top of the prompt body.
+     *
+     * The published ceiling applies to the prompt the model RECEIVES, not to
+     * the body the writer produces: the save step appends the aspect-ratio and
+     * title clauses, and the render appends the reference guidance and the
+     * style keywords. A body written to the published ceiling therefore
+     * produces an assembled prompt over it — which is exactly how a compliant
+     * thumbnail prompt came to be refused at the model.
+     *
+     * Every piece is MEASURED from the text the render appends:
+     *   - the save-step clauses, from the same clause texts the save step uses;
+     *   - the reference guidance, when the project names a thumbnail reference
+     *     asset;
+     *   - the style keywords of the episode's cast — the LARGEST set the render
+     *     can append, because which characters a prompt mentions is not known
+     *     until the prompt exists.
+     *
+     * It is a SAFE BOUND, not an item-exact accounting: the style keywords are
+     * the largest set the render could append, and the render-time guidance
+     * from the generator tab is not known here. Over-reserving costs prompt
+     * length; under-reserving would cost correctness — and the render measures
+     * the assembled prompt before it submits, so an over-length prompt is
+     * refused there with the exact numbers rather than submitted.
+     *
+     * Nothing is estimated, and nothing is truncated: this only makes the
+     * ceiling the writer is given smaller.
+     */
+    const renderAssembly = {
+      referenceGuidance: renderReferenceGuidance,
+      styleKeywords: publishedCap ? castStyleKeywordBound(renderCast) : [],
+    }
+    const assemblyOverhead = addAssemblyOverhead(
+      thumbnailSaveOverhead({
+        aspectRatio: req.aspect_ratio || '16:9',
+        title,
+        textStyle: req.thumb_text_style || 'auto',
+        fontStyle: req.thumb_font_style || 'auto',
+        textPosition: req.thumb_text_position || 'auto',
+        headlineMode,
+        fontPhrases: letteringPhrases.font,
+        textPhrases: letteringPhrases.text,
+        fontCustomText: req.thumb_font_style_custom,
+        textCustomText: req.thumb_text_style_custom,
+      }),
+      thumbnailRenderAssemblyOverhead(renderAssembly),
+    )
+    // The ceiling for the BODY: the published ceiling minus what the assembly
+    // adds on top of it. Undefined when no ceiling is published — an unknown
+    // limit is not a number, and none is invented here.
+    const bodyCeiling = promptBodyCeiling(publishedCap, assemblyOverhead)
+    if (bodyCeiling) {
+      job.output_lines.push(
+        `Reserved ${assemblyOverhead.characters.toLocaleString()} characters for the clauses and extras the render adds to each prompt; `
+        + `each prompt body is written under ${bodyCeiling.toLocaleString()} characters.`,
+      )
+    }
+
     let prompt = buildThumbnailPrompt({
       episodeId,
       title,
@@ -614,7 +825,12 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       thumbnailDirective,
       targetNumbers,
       headlineMode,
-      promptCharCap,
+      // The ceiling for the BODY, not the published ceiling: the assembly
+      // adds its own characters on top, and those count against the same
+      // published limit.
+      promptCharCap: bodyCeiling,
+      promptCharCapTotal: publishedCap,
+      promptCharReservedCharacters: assemblyOverhead.characters,
     })
     if (artStyle?.negatives.length) {
       prompt += `\n\nAvoid in all thumbnail artwork: ${artStyle.negatives.join(', ')}`
@@ -702,9 +918,21 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     .filter(number => !thumbnails.some(item => Number(item.number) === number && item.prompt?.trim()))
   job.output_lines.push(`Verified ${count - missing.length}/${count} thumbnail prompt(s).`)
   // Advisory only. Every prompt is saved in full; nothing is shortened.
+  //
+  // Measured on the ASSEMBLED prompt — the stored prompt plus the reference
+  // guidance and the style keywords the render appends — because that is what
+  // the model receives and what the published ceiling applies to. The stored
+  // prompt is shorter than this, so a stored prompt over the ceiling is
+  // certainly over it too.
   const overCapNotice = describeOverCapPrompts(
-    thumbnails.map(item => ({ label: `thumbnail ${item.number}`, text: item.prompt })),
-    promptCharCap,
+    thumbnails.map(item => ({
+      label: `thumbnail ${item.number}`,
+      text: assembleThumbnailRenderPrompt(String(item.prompt || ''), {
+        referenceGuidance: renderReferenceGuidance,
+        styleKeywords: matchedStyleKeywords(String(item.prompt || ''), renderCast),
+      }),
+    })),
+    publishedCap,
   )
   if (overCapNotice) job.output_lines.push(overCapNotice)
 

@@ -48,6 +48,7 @@ const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.met
 
 const page = read('../pages/projects/[slug]/jobs.vue')
 const ledger = read('../components/GenStudioBatchLedger.vue')
+const details = read('../components/JobCardDetails.vue')
 const composable = read('../composables/useJobEta.ts')
 
 /** The page's markup only — the script block is not what a customer reads. */
@@ -116,7 +117,9 @@ describe('the default card view carries no raw identifiers', () => {
       defaultView, /itemAttemptText\(/,
       'the in-flight COUNT is that information; the wall is not the default view',
     )
-    for (const drawer of drawers) assert.match(drawer, /itemAttemptText\(item\)/)
+    // The wall lives in the ONE shared details body both drawers render.
+    assert.match(details, /itemAttemptText\(item\)/)
+    for (const drawer of drawers) assert.match(drawer, /<JobCardDetails/)
   })
 
   test('the counts the wall used to spell out are still all reported', () => {
@@ -434,6 +437,9 @@ describe('exceptions', () => {
   const nowMs = Date.parse('2026-08-29T12:00:00.000Z')
 
   test('reports output gaps, never historical placement attempts', () => {
+    // The failed COUNT is on the card's one summary line ("N needs another
+    // try"), so an exception line that repeated it would count it twice. What
+    // is left here is only what the count cannot say.
     const DK0072 = {
       item_progress: { total: 372, completed: 372, failed: 0, concurrency: 3, active: [] },
       genstudio_jobs: Array.from({ length: 42 }, (_, i) => ({
@@ -449,13 +455,11 @@ describe('exceptions', () => {
       })),
     }
 
-    assert.deepEqual(describeJobExceptions(DK0072, nowMs).map(line => line.text), [
-      'Credit outcome pending — Story Studio is checking the Gateway.',
-    ])
-    assert.deepEqual(describeJobExceptions(DK0076, nowMs).map(line => line.text), [
-      '354 images are ready. 1 image needs another try.',
-      'Credit outcome pending — Story Studio is checking the Gateway.',
-    ])
+    assert.deepEqual(describeJobExceptions(DK0072, nowMs).map(line => line.text), [])
+    assert.deepEqual(describeJobExceptions(DK0076, nowMs).map(line => line.text), [])
+    // …and the count the summary line shows is the one these jobs carry.
+    assert.equal(summariseJobItems(DK0076.item_progress).failed, 1)
+    assert.equal(summariseJobItems(DK0076.item_progress).finished, 354)
   })
 
   test('uses compact customer states without provider diagnostics', () => {
@@ -473,8 +477,7 @@ describe('exceptions', () => {
       genstudio_jobs: [{ operation: 'image.generation', queue_state: 'failed', failure_code: 'IMAGE_CONTENT_REFUSED' }],
     }, nowMs)
     assert.deepEqual(contentRefused.map(line => line.text), [
-      '1 image needs another try. Review the prompt before trying again.',
-      'Credit outcome pending — Story Studio is checking the Gateway.',
+      'The provider declined this image. Review the prompt before trying again.',
     ])
   })
 
@@ -490,7 +493,9 @@ describe('exceptions', () => {
     assert.equal(paused.some(line => /automatically/i.test(line.text)), false)
   })
 
-  test('active work with unpublished settlement says only that credit outcome is pending', () => {
+  test('active work with unpublished settlement says nothing extra', () => {
+    // The credit outcome is not an exception: the card's ONE credit line
+    // carries the figures and whether the Gateway has confirmed them.
     const healthy = {
       type: 'scene_images_batch',
       item_progress: {
@@ -502,13 +507,11 @@ describe('exceptions', () => {
         { id: 'gs-2', operation: 'image.generation', queue_state: 'succeeded', updated_at: '' },
       ],
     }
-    assert.deepEqual(describeJobExceptions(healthy, nowMs).map(line => line.text), [
-      'Credit outcome pending — Story Studio is checking the Gateway.',
-    ])
-    assert.equal(hasJobExceptions(healthy, nowMs), true)
+    assert.deepEqual(describeJobExceptions(healthy, nowMs).map(line => line.text), [])
+    assert.equal(hasJobExceptions(healthy, nowMs), false)
   })
 
-  test('a final output gap leads with ready output, not remote attempt details', () => {
+  test('a content refusal leads with what to do about it, not with the count', () => {
     const job = {
       type: 'scene_images_batch',
       auto_retry: { eligible: true, attempt: 2, max_attempts: 4, next_retry_at: new Date(nowMs + 40_000).toISOString() },
@@ -520,9 +523,10 @@ describe('exceptions', () => {
     }
     const lines = describeJobExceptions(job, nowMs)
     assert.deepEqual(lines.map(line => line.text), [
-      '2 images are ready. 1 image needs another try. Review the prompt before trying again.',
-      '13 credits returned so far. Credit outcome pending — Story Studio is checking the Gateway.',
+      'The provider declined this image. Review the prompt before trying again.',
     ])
+    // The returned credits are still reported — on the card's credit line.
+    assert.match(page, /summary\.returned\.toLocaleString\(\) \}\} credits \{\{ summary\.confirmed \? 'returned' : 'returned so far' \}\}/)
   })
 
   test('a backoff says only that it is retrying automatically', () => {
@@ -575,11 +579,12 @@ describe('exceptions', () => {
     assert.equal(lines[0]?.key, 'waiting-retry')
   })
 
-  test('failures with no remote record still get a line, so the counts add up', () => {
+  test('a failure with no remote record gets no line of its own — the count is on the summary line', () => {
     const job = { item_progress: { total: 5, completed: 2, failed: 3, concurrency: 1, active: [] } }
     const lines = describeJobExceptions(job, nowMs)
-    assert.equal(lines.length, 1)
-    assert.equal(lines[0]!.text, '2 items are ready. 3 items need another try.')
+    assert.deepEqual(lines, [])
+    // …and the card still says it, once.
+    assert.match(defaultView, /jobCounts\(job\)\.failed[\s\S]{0,200}needs another try/)
   })
 
   test('the card renders one line per exception, and nothing when there are none', () => {
@@ -656,8 +661,8 @@ describe('settlement presence', () => {
     assert.match(page, /function settledRemoteJobs\(job: RJob\)/)
     assert.match(page, /function jobCreditSummary\(job: RJob\) \{\s*const remoteJobs = settledRemoteJobs\(job\)\s*return \{ \.\.\.summariseSettlement\(remoteJobs\), remoteJobs \}/)
     assert.match(page, /describeJobExceptions\(\{ \.\.\.job, genstudio_jobs: settledRemoteJobs\(job\) \}/)
-    assert.equal((template.match(/<GenStudioBatchLedger[^>]*:remote-jobs="settledRemoteJobs\(job\)"/g) || []).length, 2)
-    assert.doesNotMatch(template, /<GenStudioBatchLedger[^>]*:remote-jobs="job\.genstudio_jobs"/)
+    assert.equal((page.match(/:remote-jobs="settledRemoteJobs\(job\)"/g) || []).length, 2, 'both drawers')
+    assert.doesNotMatch(page, /:remote-jobs="job\.genstudio_jobs"/)
   })
 })
 
@@ -665,16 +670,21 @@ describe('settlement presence', () => {
 
 describe('the Technical details drawer', () => {
   test('contains item diagnostics while exact ids stay out of the rendered drawer', () => {
-    for (const drawer of drawers) {
-      assert.match(drawer, /<GenStudioBatchLedger[\s\S]*:remote-jobs="settledRemoteJobs\(job\)"/, 'the item ledger')
-      assert.match(drawer, /class="job-items"/, 'the per-item state block')
-      assert.match(drawer, /itemAttemptText\(item\)/, 'the per-item attempt text')
-      assert.match(drawer, /customerJobText\(line, job\)/, 'customer-safe log lines')
-      assert.match(drawer, /<GenStudioRequestPreview/, 'the redacted request preview')
-      assert.doesNotMatch(drawer, /\{\{ job\.job_id \}\}/, 'the job id')
-      assert.doesNotMatch(drawer, /\{\{ remote\.id \}\}/, 'remote job ids')
-      assert.match(drawer, /getOutputDir\(job\)/, 'the output folder')
-    }
+    // Both drawers render ONE shared details body — the Active card and the
+    // History card used to carry two copies of these blocks, and the copies
+    // drifted.
+    for (const drawer of drawers) assert.match(drawer, /<JobCardDetails/)
+    // The request preview rides inside the item list, so there is one list of
+    // the requests and not two. It is the LEDGER that renders it — the shared
+    // details body renders the ledger.
+    assert.match(details, /<GenStudioBatchLedger[\s\S]*:remote-jobs="remoteJobs"/, 'the item ledger')
+    assert.match(ledger, /<GenStudioRequestPreview :entry="remote" \/>/, 'the redacted request preview')
+    assert.match(details, /class="job-items"/, 'the per-item state block')
+    assert.match(details, /itemAttemptText\(item\)/, 'the per-item attempt text')
+    assert.match(details, /customerText\(line\)/, 'customer-safe log lines')
+    assert.doesNotMatch(details, /\{\{ job\.job_id \}\}/, 'the job id')
+    assert.doesNotMatch(details, /\{\{ remote\.id \}\}/, 'remote job ids')
+    assert.match(details, /deriveOutputDir/, 'the output folder')
   })
 
   test('only one drawer is mounted at a time, so long logs stay cheap', () => {
@@ -766,7 +776,7 @@ describe('the customer surface names no infrastructure', () => {
  */
 describe('attempt evidence stays in Technical details', () => {
   test('does not use attempt count or provider blame in default-card copy', () => {
-    for (const drawer of drawers) assert.match(drawer, /<GenStudioBatchLedger[^>]*:remote-jobs="settledRemoteJobs\(job\)"/)
+    for (const drawer of drawers) assert.match(drawer, /<JobCardDetails/)
     assert.match(ledger, /const PAGE_SIZE = 25/)
     assert.doesNotMatch(composable, /the provider declined it/)
     assert.doesNotMatch(composable, /items didn’t finish/)

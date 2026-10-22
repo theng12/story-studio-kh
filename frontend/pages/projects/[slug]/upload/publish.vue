@@ -456,8 +456,65 @@
 
         <dl class="payload">
           <div v-if="previewed.source"><dt>Video file</dt><dd><strong>{{ previewed.source.filename }}</strong><small>Story Studio will stop if this file changes before queueing.</small></dd></div>
-          <div><dt>Title</dt><dd>{{ previewed.snippet.title }}</dd></div>
-          <div><dt>Description</dt><dd class="pre">{{ previewed.snippet.description }}</dd></div>
+          <div class="payload-editable">
+            <dt>Title</dt>
+            <dd>
+              <input
+                v-model="draftTitle" type="text" class="edit-input"
+                :maxlength="draftTitleLimit || undefined"
+                :disabled="busy !== '' || !canEditMetadata"
+                aria-label="YouTube title"
+              />
+              <small v-if="draftTitleInvalid" class="field-error" role="alert">
+                {{ !draftTitle.trim()
+                  ? 'A title is required.'
+                  : `${draftTitle.length}/${draftTitleLimit} characters — YouTube allows at most ${draftTitleLimit}.` }}
+              </small>
+              <small v-else-if="draftTitleLimit" class="field-counter">{{ draftTitle.length }}/{{ draftTitleLimit }}</small>
+            </dd>
+          </div>
+          <div class="payload-editable">
+            <dt>Description</dt>
+            <dd>
+              <textarea
+                v-model="draftDescription" class="edit-textarea pre" rows="6"
+                :disabled="busy !== '' || !canEditMetadata"
+                aria-label="YouTube description"
+              ></textarea>
+              <small v-if="draftDescriptionInvalid" class="field-error" role="alert">
+                {{ draftDescriptionBytes.toLocaleString() }}/{{ draftDescriptionLimit.toLocaleString() }} bytes —
+                over Story Studio's {{ draftDescriptionLimit.toLocaleString() }}-byte working limit for this description
+                (YouTube itself allows up to {{ draftDescriptionYouTubeLimit.toLocaleString() }} bytes);
+                shorten the description.
+              </small>
+              <small v-else-if="draftDescriptionLimit" class="field-counter">
+                {{ draftDescriptionBytes.toLocaleString() }}/{{ draftDescriptionLimit.toLocaleString() }} bytes
+              </small>
+              <small v-if="draftDescription === '' && draftSaved" class="field-counter">
+                The description is empty and will be sent empty. Clearing it does not bring the generated text back.
+              </small>
+              <!--
+                The generated description is offered as a CHOICE, not imposed.
+                The owner may want the script's text back, and only the owner can
+                decide that — so the control appears only when the description
+                on screen is one they (or a saved edit) put there.
+
+                It also appears only when the metadata can be edited. The
+                restore IS a save (it posts an explicit reset), and a save is
+                refused for an already-published episode and for a schedule
+                review — so offering the control there would be a button that
+                does nothing.
+              -->
+              <button
+                v-if="previewed.authored?.description && canEditMetadata"
+                class="btn btn-sm draft-restore" type="button"
+                :disabled="busy !== ''"
+                @click="restoreGeneratedDescription"
+              >
+                {{ busy?.startsWith('save-draft-') ? 'Saving…' : 'Restore the generated description' }}
+              </button>
+            </dd>
+          </div>
           <div><dt>Tags</dt><dd>{{ (previewed.snippet.tags || []).join(', ') || 'none' }}</dd></div>
           <div><dt>Category</dt><dd>{{ previewed.snippet.categoryId }}</dd></div>
           <div><dt>Privacy</dt><dd>{{ previewed.status.privacyStatus }}</dd></div>
@@ -467,7 +524,39 @@
           </div>
           <div><dt>Marked as AI-generated</dt><dd>{{ previewed.status.containsSyntheticMedia ? 'yes' : 'no' }}</dd></div>
         </dl>
-        <p class="hint">Nothing is changed after this point. This is the payload.</p>
+        <div v-if="canEditMetadata" class="draft-actions">
+          <button
+            class="btn btn-sm" type="button"
+            :disabled="busy !== '' || draftSaved || draftTitleInvalid || draftDescriptionInvalid"
+            @click="saveDraft"
+          >
+            {{ busy?.startsWith('save-draft-') ? 'Saving…' : 'Save Changes' }}
+          </button>
+          <!--
+            Three different states, three different sentences. A panel that
+            opens by saying "Edits saved" claims an edit nobody made, so the
+            opening state says what it is: the payload as it arrived.
+          -->
+          <span v-if="!draftError && !draftSaved" class="hint tone-warn">Unsaved edits — save before uploading.</span>
+          <span v-else-if="!draftError && draftEverSaved" class="hint">Edits saved. The payload above reflects what YouTube will receive.</span>
+          <span v-else-if="!draftError" class="hint">This is what YouTube will receive. Change the title or description above, then save.</span>
+          <!--
+            The corrected text the server would send instead of what was typed.
+            It is shown, not swallowed: a refusal that says "this would change"
+            and shows nothing leaves the owner to guess what to write instead.
+          -->
+          <div v-if="draftSuggestion" class="draft-suggestion" role="status">
+            <p class="hint">YouTube would show this instead:</p>
+            <pre v-if="draftSuggestion.title" class="pre">{{ draftSuggestion.title }}</pre>
+            <pre v-if="draftSuggestion.description" class="pre">{{ draftSuggestion.description }}</pre>
+            <button class="btn btn-sm" type="button" @click="applySuggestion">Use this text</button>
+          </div>
+          <p v-if="draftError" class="row-result err draft-error" role="alert">{{ draftError }}</p>
+        </div>
+        <p v-else-if="reviewIntent === 'schedule'" class="hint">
+          This video is already on YouTube. Scheduling changes its publish date — not its title or description.
+        </p>
+        <p v-else class="hint">This video is already on YouTube. Title and description cannot be edited here.</p>
 
           </div>
           <footer class="review-foot">
@@ -508,10 +597,22 @@
         </div>
         <div v-else-if="!previewed.source?.revision" class="hint">Refresh this review so Story Studio can verify the exact video file before uploading.</div>
         <div v-else class="field-row upload-row">
-          <button class="btn btn-primary" type="button" :disabled="busy !== ''" @click="upload(previewedEpisode)">
+          <!--
+            The button stays on screen when the edits are unsaved or invalid:
+            it is REFUSED, and the reason is beside it. A button that appears
+            and disappears while the owner is typing is a worse answer than a
+            disabled one with the reason next to it.
+          -->
+          <button
+            class="btn btn-primary" type="button"
+            :disabled="busy !== '' || !draftSaved || draftTitleInvalid || draftDescriptionInvalid"
+            @click="upload(previewedEpisode)"
+          >
             {{ busy === 'upload' ? 'Uploading…' : 'Upload to YouTube' }}
           </button>
-          <span class="hint">Uploads {{ previewedEpisode }} to the assigned YouTube channel.</span>
+          <span v-if="draftTitleInvalid || draftDescriptionInvalid" class="hint">Fix the title or description above before uploading.</span>
+          <span v-else-if="!draftSaved" class="hint">Save your title and description changes before uploading.</span>
+          <span v-else class="hint">Uploads {{ previewedEpisode }} to the assigned YouTube channel.</span>
         </div>
         <p v-if="rowResults[previewedEpisode]" :class="['row-result', rowResults[previewedEpisode].kind]" role="status">
           {{ rowResults[previewedEpisode].message }}
@@ -860,6 +961,24 @@ interface Preview {
   status: { privacyStatus: string; publishAt?: string; containsSyntheticMedia?: boolean }
   modifications: Array<{ field: string; reason: string }>
   warnings: string[]
+  /**
+   * What the editor may accept, published by the server that owns the
+   * limits. The page does not keep its own copy of these numbers: a second
+   * copy is a second answer to the same question, and the two answers drift.
+   */
+  limits?: {
+    title_max_characters?: number
+    description_max_bytes?: number
+    /** YouTube's own published limit, which is larger than the cap above. */
+    description_max_bytes_youtube?: number
+  }
+  /**
+   * Which fields are the OWNER's own text rather than the generated one.
+   * Published by the server, because the server is what knows whether the
+   * sidecar supplied the text — the page cannot tell an empty description the
+   * owner typed from a generated one that happens to be empty.
+   */
+  authored?: { title?: boolean; description?: boolean }
   thumbnail: {
     state: 'selected' | 'none' | 'unavailable'
     filename?: string
@@ -987,6 +1106,46 @@ const previewHeading = ref<HTMLElement | null>(null)
 const reviewOpener = ref<HTMLElement | null>(null)
 const thumbnailImageUnavailable = ref(false)
 const thumbnailError = ref('')
+const draftTitle = ref('')
+const draftDescription = ref('')
+/** True while the fields hold exactly the payload the server last returned. */
+const draftSaved = ref(true)
+/**
+ * Whether this review has EVER been saved.
+ *
+ * Without it the panel opens saying "Edits saved" — a claim about an edit
+ * nobody made. The opening state is not a saved state: it is the payload as
+ * it arrived. The distinction matters because the same word is used for two
+ * different promises, and only one of them is true at the start.
+ */
+const draftEverSaved = ref(false)
+const draftError = ref('')
+/**
+ * The text the server would send instead, when it refused the text that was
+ * typed. Held so the corrected text can be put in front of the owner rather
+ * than dropped: a refusal that says "this would change" and shows nothing is
+ * a puzzle, and the answer is already known.
+ */
+const draftSuggestion = ref<{ title?: string; description?: string } | null>(null)
+const draftDescriptionBytes = computed(() => new TextEncoder().encode(draftDescription.value).length)
+// The limits come from the server that owns them. When it has not published
+// any (an older server, a preview that failed), the page enforces nothing on
+// its own: the save answers with the reason, and a page that keeps its own
+// copy of the numbers is a page that can disagree with the server.
+const draftTitleLimit = computed(() => previewed.value?.limits?.title_max_characters ?? 0)
+const draftDescriptionLimit = computed(() => previewed.value?.limits?.description_max_bytes ?? 0)
+const draftDescriptionYouTubeLimit = computed(
+  () => previewed.value?.limits?.description_max_bytes_youtube ?? 0,
+)
+const draftTitleInvalid = computed(() => !draftTitle.value.trim()
+  || (draftTitleLimit.value > 0 && draftTitle.value.length > draftTitleLimit.value))
+const draftDescriptionInvalid = computed(() => draftDescriptionLimit.value > 0
+  && draftDescriptionBytes.value > draftDescriptionLimit.value)
+// Editing the text is only meaningful for an upload that has not happened
+// yet. A video already on YouTube cannot be re-titled from here, and the
+// scheduling flow only moves the publish date — an editable panel there
+// would take edits that no request would ever carry.
+const canEditMetadata = computed(() => !alreadyPublished.value && reviewIntent.value !== 'schedule')
 const reviewIntent = ref<ReviewIntent>('upload')
 const timingMode = ref<TimingMode>('private')
 const customDateTime = ref('')
@@ -1243,6 +1402,12 @@ function closeReview(restoreFocus = true): void {
   timingDirty.value = false
   timingError.value = ''
   timingTimezone.value = deviceTimezone
+  draftTitle.value = ''
+  draftDescription.value = ''
+  draftSaved.value = true
+  draftEverSaved.value = false
+  draftSuggestion.value = null
+  draftError.value = ''
   if (restoreFocus && opener) {
     void nextTick(() => {
       if (opener.isConnected && !(opener as HTMLButtonElement).disabled) opener.focus()
@@ -2171,6 +2336,18 @@ async function upload(episodeCode: string): Promise<void> {
   // Off or Warn (1.4.301); the upload job applies the same switch.
   if (timingDirty.value) return
   if (thumbnailRequired.value && (previewed.value?.thumbnail.state !== 'selected' || thumbnailImageUnavailable.value)) return
+  // An unsaved edit is an edit the owner believes is on its way to YouTube.
+  // Uploading the reviewed payload instead would send something they did not
+  // approve, so the upload stops here rather than quietly dropping it.
+  if (canEditMetadata.value && (!draftSaved.value || draftTitleInvalid.value || draftDescriptionInvalid.value)) {
+    rowResults[episodeCode] = {
+      kind: 'err',
+      message: draftTitleInvalid.value || draftDescriptionInvalid.value
+        ? 'Fix the title or description before uploading.'
+        : 'Save your title and description changes before uploading.',
+    }
+    return
+  }
   const requestedSlug = slug.value
   const expectedChannelId = assignedChannel.value?.channel_id
   const expectedChannelTitle = assignedChannel.value?.title
@@ -2641,6 +2818,15 @@ async function preview(episodeCode: string, event?: Event, intent: ReviewIntent 
   previewedEpisode.value = ''
   thumbnailImageUnavailable.value = false
   thumbnailError.value = ''
+  // The draft belongs to the payload that was just dropped. Leaving one
+  // episode's edited text in the fields while another episode's review opens
+  // is a cross-episode leak of exactly the kind this page has been bitten by.
+  draftTitle.value = ''
+  draftDescription.value = ''
+  draftSaved.value = true
+  draftEverSaved.value = false
+  draftSuggestion.value = null
+  draftError.value = ''
   reviewIntent.value = intent
   customDateTime.value = ''
   customMinimum.value = localDateTimeValue(new Date(Date.now() + 60_000))
@@ -2668,6 +2854,14 @@ async function preview(episodeCode: string, event?: Event, intent: ReviewIntent 
     if (!actionIsCurrent(action)) return
     previewed.value = normalizePreview(result)
     previewedEpisode.value = episodeCode
+    draftTitle.value = previewed.value.snippet.title
+    draftDescription.value = previewed.value.snippet.description || ''
+    draftSaved.value = true
+    // A fresh review has not been saved yet: what is on screen is the payload
+    // as it arrived, not an edit the owner made and kept.
+    draftEverSaved.value = false
+    draftSuggestion.value = null
+    draftError.value = ''
     timingTimezone.value = initialMode === 'planned' ? episode?.plan?.timezone || deviceTimezone : deviceTimezone
     timingDirty.value = false
     await nextTick()
@@ -2714,6 +2908,115 @@ async function selectThumbnail(filename: string, event?: Event): Promise<void> {
     }
   }
 }
+
+/**
+ * Send one metadata edit to the server.
+ *
+ * `patch` says WHICH fields this edit is about. A field that is not in the
+ * patch is left exactly as it is on disk; a `description: null` is an EXPLICIT
+ * RESET — "put the generated description back" — which is a different thing
+ * from an empty description, and the server keeps them apart.
+ */
+async function submitDraft(patch: { title?: string; description?: string | null }): Promise<void> {
+  if (!previewed.value || !previewedEpisode.value || busy.value || !canEditMetadata.value) return
+  const episodeCode = previewedEpisode.value
+  const action = beginAction(`save-draft-${episodeCode}`)
+  draftError.value = ''
+  draftSuggestion.value = null
+  // What the panel showed before this edit, and what the owner had typed into
+  // it. Both are needed afterwards: the answer replaces the fields with the
+  // refreshed payload, and a field THIS EDIT DID NOT TOUCH must not lose the
+  // owner's typing on the way (a restore of the description must not silently
+  // wipe a title they had just rewritten).
+  const shownTitle = previewed.value.snippet.title
+  const shownDescription = previewed.value.snippet.description || ''
+  const typedTitle = draftTitle.value
+  const typedDescription = draftDescription.value
+  try {
+    // The save is a COMPARED write: the server rebuilds the package it
+    // reviewed and refuses if anything changed underneath it. The revisions
+    // sent here are the ones this review was built from.
+    const result = await post<Preview>(`/projects/${action.slug}/youtube/metadata-overrides`, {
+      episode_code: episodeCode,
+      ...patch,
+      privacy_status: previewed.value.status.privacyStatus,
+      ...(previewed.value.status.publishAt ? { publish_at: previewed.value.status.publishAt } : {}),
+      // Only an explicitly selected thumbnail is re-sent. Omitting the field
+      // leaves the server's own auto-pick rule in place; sending `null` would
+      // ask for NO thumbnail and change the payload the owner reviewed.
+      ...(previewed.value.thumbnail.state === 'selected' && previewed.value.thumbnail.filename
+        ? { thumbnail_filename: previewed.value.thumbnail.filename }
+        : {}),
+      ...(previewed.value.package_revision ? { expected_package_revision: previewed.value.package_revision } : {}),
+      ...(previewed.value.source?.revision ? { expected_source_revision: previewed.value.source.revision } : {}),
+    })
+    if (!actionIsCurrent(action) || previewedEpisode.value !== episodeCode) return
+    // The answer carries the REFRESHED package, built from the live sources
+    // after the write. The draft is re-seeded from that snippet, so the text
+    // on screen is the text YouTube will receive — never the raw draft
+    // beside a different payload.
+    previewed.value = normalizePreview(result)
+    const nextTitle = previewed.value.snippet.title
+    const nextDescription = previewed.value.snippet.description || ''
+    // A field this edit did not mention keeps the owner's own unsaved typing
+    // when there was any — and is then honestly UNSAVED, so the panel says so
+    // instead of claiming the edit is done.
+    draftTitle.value = patch.title === undefined && typedTitle !== shownTitle ? typedTitle : nextTitle
+    draftDescription.value = patch.description === undefined && typedDescription !== shownDescription
+      ? typedDescription
+      : nextDescription
+    draftSaved.value = (draftTitle.value === nextTitle && draftDescription.value === nextDescription)
+    draftEverSaved.value = true
+    draftError.value = ''
+  } catch (error: any) {
+    if (!actionIsCurrent(action) || previewedEpisode.value !== episodeCode) return
+    draftError.value = error?.data?.detail || error?.message || 'Could not save those edits.'
+    const suggestion = error?.data?.suggestion
+    draftSuggestion.value = suggestion && typeof suggestion === 'object' ? {
+      ...(typeof suggestion.title === 'string' ? { title: suggestion.title } : {}),
+      ...(typeof suggestion.description === 'string' ? { description: suggestion.description } : {}),
+    } : null
+  } finally {
+    if (actionIsCurrent(action)) busy.value = ''
+  }
+}
+
+/** The Save button: the typed title and description, exactly as typed. */
+function saveDraft(): void {
+  if (draftTitleInvalid.value || draftDescriptionInvalid.value) return
+  void submitDraft({ title: draftTitle.value, description: draftDescription.value })
+}
+
+/**
+ * Put the GENERATED description back.
+ *
+ * The owner may want their own description for this upload, or the one the
+ * script wrote. Both are legitimate, and the difference has to be the
+ * owner's to make — so the generated text is offered as a choice, and
+ * choosing it removes the override. An empty description is NOT this: it is
+ * an empty description the owner asked for, and it stays that way until the
+ * owner says otherwise.
+ */
+function restoreGeneratedDescription(): void {
+  void submitDraft({ description: null })
+}
+
+/** Put the server's corrected text into the fields, for the owner to save. */
+function applySuggestion(): void {
+  const suggestion = draftSuggestion.value
+  if (!suggestion) return
+  if (typeof suggestion.title === 'string') draftTitle.value = suggestion.title
+  if (typeof suggestion.description === 'string') draftDescription.value = suggestion.description
+  draftSuggestion.value = null
+  draftError.value = ''
+}
+
+watch([draftTitle, draftDescription], () => {
+  if (previewed.value) {
+    draftSaved.value = (draftTitle.value === previewed.value.snippet.title
+      && draftDescription.value === (previewed.value.snippet.description || ''))
+  }
+})
 
 // The shared Jobs stream is the refresh signal. Once a known upload leaves
 // the queue, re-read local publishable state so the operation/publication
@@ -2775,6 +3078,12 @@ watch(slug, () => {
   bulkQueueStopRequested.value = false
   bulkQueueWasStopped.value = false
   queuedUploadCodes.clear()
+  draftTitle.value = ''
+  draftDescription.value = ''
+  draftSaved.value = true
+  draftEverSaved.value = false
+  draftSuggestion.value = null
+  draftError.value = ''
   closeReview(false)
   closeVideo()
   for (const key of Object.keys(rowResults)) delete rowResults[key]
@@ -2995,6 +3304,35 @@ watch(slug, () => {
 .payload dd strong, .payload dd small { display: block; }
 .payload dd small { margin-top: 3px; color: var(--text-muted); font-size: var(--font-xs); }
 .payload dd.pre { white-space: pre-wrap; }
+.payload-editable dd { display: grid; gap: 4px; }
+.edit-input, .edit-textarea {
+  width: 100%; box-sizing: border-box; padding: 7px 9px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-primary); color: var(--text-primary); font: inherit; font-size: 12px;
+}
+.edit-textarea { resize: vertical; min-height: 110px; }
+.edit-input:focus-visible, .edit-textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.field-counter { color: var(--text-muted); font-size: var(--font-xs); }
+.field-error { color: var(--error); font-size: var(--font-xs); }
+.draft-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.draft-actions .row-result { flex-basis: 100%; margin: 0; }
+/*
+  The server's refusals are written as short paragraphs, one per line. Without
+  this the newlines collapse and a list of reasons arrives as one run-on
+  sentence, which is the opposite of what the refusal is for.
+*/
+.draft-error { white-space: pre-wrap; }
+/*
+  The corrected text, offered for the owner to accept. Bounded in height so a
+  long description cannot push the rest of the panel off the screen.
+*/
+.draft-suggestion { flex-basis: 100%; display: grid; gap: 6px; justify-items: start; }
+.draft-suggestion .pre {
+  max-height: 160px; overflow: auto; width: 100%; box-sizing: border-box; margin: 0;
+  padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-primary); color: var(--text-primary); font-size: 12px;
+}
+.draft-restore { justify-self: start; }
 
 .bulk-review-list { display: grid; gap: 9px; max-height: min(62vh, 620px); margin: 0; padding: 0; overflow: auto; list-style: none; }
 .bulk-review-item { display: grid; gap: 10px; padding: 11px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }

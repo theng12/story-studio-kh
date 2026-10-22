@@ -150,6 +150,23 @@ describe('Episode Builder', () => {
     assert.ok(swap.body.candidates.every((c: any) => !inEpisode.has(c.song_key)))
   })
 
+  test('rejects malformed polish scene selections before enqueue', async () => {
+    const created = await request(app).post(`/api/projects/${pianoSlug}/music-episodes`).send({ title: 'Polish validation' })
+    const episodeCode = created.body.code
+    const drawn = await request(app).post(`/api/projects/${pianoSlug}/music-episodes/${episodeCode}/draw`).send({
+      settings: { pools: ['pool_piano'], target_length_s: 20, order: 'manual' },
+    })
+    assert.equal(drawn.status, 200)
+    const jq = await import('../services/job-queue.js')
+    const before = (await jq.getJobs(pianoSlug)).length
+    for (const scene_ids of [[], ['not-a-scene'], [drawn.body.scenes[0].id, 'not-a-scene'], [null]]) {
+      const response = await request(app).post(`/api/projects/${pianoSlug}/music-episodes/${episodeCode}/polish-prompts`)
+        .send({ model: 'genstudio-chat:mock-chat-v1', scene_ids })
+      assert.equal(response.status, 400, JSON.stringify(response.body))
+    }
+    assert.equal((await jq.getJobs(pianoSlug)).length, before, 'invalid selections never enqueue work')
+  })
+
   test('the stitch: crossfaded, evened to the target, tracklist from measured lengths', async () => {
     const { generateMusicEpisodeBuild } = await import('../generators/music-episode-build.js')
     const job: any = { job_id: 'test-build', project_slug: slug, episode_id: code, params: { episode_id: code }, output_lines: [], progress: 0 }
@@ -249,7 +266,7 @@ describe('Episode Builder', () => {
     const created = await request(app).post(`/api/projects/${pianoSlug}/music-episodes`).send({ title: 'Café Nights' })
     assert.equal(created.status, 201, JSON.stringify(created.body))
     const drawn = await request(app).post(`/api/projects/${pianoSlug}/music-episodes/${created.body.code}/draw`).send({
-      settings: { pools: ['pool_piano'], target_length_s: 20, order: 'manual', scenes: { mode: 'per-song', title_on_scene: true } },
+      settings: { pools: ['pool_piano'], target_length_s: 20, order: 'manual', no_repeat_episodes: 0, scenes: { mode: 'per-song', title_on_scene: true } },
     })
     assert.equal(drawn.status, 200, JSON.stringify(drawn.body))
     const prompt: string = drawn.body.scenes[0].prompt

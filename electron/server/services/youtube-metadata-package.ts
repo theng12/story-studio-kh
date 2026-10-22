@@ -37,8 +37,29 @@ export interface YouTubeMetadataPackage {
   warnings: string[]
   /** Resolved local thumbnail for this request. Not part of the video insert payload. */
   thumbnail_filename?: string | null
+  /**
+   * Whether the title/description are the OWNER's own text.
+   *
+   * The editorial strips are for a model's words. This says which text the
+   * owner typed, so the page can offer to restore the generated description
+   * and so the frozen payload carries the same answer.
+   */
+  authored: { title: boolean; description: boolean }
   /** Exactly what `acceptYouTubeOperation` persists, so equality is checkable. */
-  final_payload: { snippet_json: string; status_json: string; source_sha256: string }
+  final_payload: {
+    snippet_json: string
+    status_json: string
+    source_sha256: string
+    /**
+     * Whether the frozen title is the owner's own text. FROZEN WITH THE
+     * PAYLOAD, not re-derived later: a payload pushed back to YouTube days
+     * after it was accepted must be read as it was frozen, not as whatever
+     * the sidecar says today.
+     */
+    title_authored?: boolean
+    /** Whether the frozen description is the owner's own text. */
+    description_authored?: boolean
+  }
 }
 
 /** Which field a sanitizer log line is talking about. */
@@ -78,6 +99,10 @@ export function metadataPackageFromFinalPayload(
     status,
     modifications: [],
     warnings: ['Using the exact metadata approved before this YouTube upload was queued.'],
+    authored: {
+      title: finalPayload.title_authored === true,
+      description: finalPayload.description_authored === true,
+    },
     final_payload: finalPayload,
   }
 }
@@ -93,14 +118,27 @@ export function metadataPackageFromFinalPayload(
  * The sanitizer is idempotent, so for anything captured after the rule landed
  * this is a no-op. It reuses `snippetFromMeta` rather than restating any rule,
  * so a future rule is inherited here the same way.
+ *
+ * `title_authored` / `description_authored` say that the field holds the
+ * OWNER's own text (saved in the episode's override sidecar) rather than a
+ * model's. The editorial strips — markdown furniture, section labels, the URL
+ * heuristic — apply to a model's words and NOT to the owner's, which is the
+ * rule the resolver already follows at the read. Without this the push would
+ * strip text the owner approved, and the bytes pushed would not be the bytes
+ * the owner saw.
  */
-export function resanitizeStoredSnippet(snippet: VideoSnippet): { snippet: VideoSnippet; changed: boolean } {
+export function resanitizeStoredSnippet(
+  snippet: VideoSnippet,
+  options: { title_authored?: boolean; description_authored?: boolean } = {},
+): { snippet: VideoSnippet; changed: boolean } {
   const cleaned = snippetFromMeta(
     {
       title: snippet.title ?? '',
       description: snippet.description ?? '',
       tags: snippet.tags ?? [],
       thumbnailPath: '',
+      ...(options.title_authored ? { title_from_override: true } : {}),
+      ...(options.description_authored ? { description_from_override: true } : {}),
     },
     undefined,
     snippet.categoryId,
@@ -199,6 +237,13 @@ export async function buildYouTubeMetadataPackage(input: {
     title: meta.title, description: meta.description, tags: meta.tags,
   }))
 
+  // The authorship travels WITH the payload, so a payload frozen at accept
+  // time can be read later as it was frozen. A record written before this
+  // field existed carries no authorship and is treated as generated text —
+  // which is what every payload before it was.
+  const titleAuthored = meta.title_from_override === true
+  const descriptionAuthored = meta.description_from_override === true
+
   return {
     package_revision: sha256(canonical({ snippet, status })),
     source_sha256,
@@ -209,10 +254,13 @@ export async function buildYouTubeMetadataPackage(input: {
     ...(meta.thumbnailPath
       ? { thumbnail_filename: path.basename(meta.thumbnailPath) }
       : input.thumbnail_filename === null ? { thumbnail_filename: null } : {}),
+    authored: { title: titleAuthored, description: descriptionAuthored },
     final_payload: {
       snippet_json: JSON.stringify(snippet),
       status_json: JSON.stringify(status),
       source_sha256,
+      ...(titleAuthored ? { title_authored: true } : {}),
+      ...(descriptionAuthored ? { description_authored: true } : {}),
     },
   }
 }

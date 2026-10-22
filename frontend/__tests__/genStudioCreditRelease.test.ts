@@ -57,11 +57,22 @@ function extractObject(source: string, name: string): string {
 
 let moduleSeq = 0
 
+/**
+ * The ONE bucketing rule both the item list and the settlement sentence read
+ * (`frontend/utils/job-presentation.ts`). It is lifted into every module
+ * alongside the components' own functions, because the components' readers now
+ * call it — lifting a reader without the rule it reads would test nothing.
+ */
+const sharedBucket = extractFunction(
+  read('frontend/utils/job-presentation.ts'),
+  'jobStateBucket',
+)
+
 /** Evaluate lifted declarations as a real TS module (tsx transpiles it). */
 async function loadLifted(prelude: string, declarations: string[], exports: string[]): Promise<any> {
   const dir = mkdtempSync(join(tmpdir(), 'story-credit-'))
   const file = join(dir, `lifted-${moduleSeq++}.ts`)
-  writeFileSync(file, `import { effectiveGenStudioTaskState } from ${JSON.stringify(providerTaskStateModule)}\n${prelude}\n${declarations.join('\n\n')}\nexport { ${exports.join(', ')} }\n`, 'utf8')
+  writeFileSync(file, `import { effectiveGenStudioTaskState, holdsUnknownProviderOutcome } from ${JSON.stringify(providerTaskStateModule)}\n${prelude}\n${sharedBucket}\n\n${declarations.join('\n\n')}\nexport { ${exports.join(', ')} }\n`, 'utf8')
   return import(pathToFileURL(file).href)
 }
 
@@ -113,13 +124,24 @@ describe('The Gateway released reservations are never shown as held', () => {
       failure_code: 'VOICE_REFERENCE_ASSET_MISSING',
     }
 
-    const previewSource = read('frontend/components/GenStudioRequestPreview.vue')
-    const preview = await loadLifted(
+    // The state is shown ONCE, in the item list — so the state reader is the
+    // ledger's, and the request preview carries no state of its own.
+    const ledgerSource = read('frontend/components/GenStudioBatchLedger.vue')
+    const ledger = await loadLifted(
       'type RemoteJob = any',
-      [extractFunction(previewSource, 'effectiveState'), extractFunction(previewSource, 'stateClass')],
-      ['stateClass'],
+      [
+        extractFunction(ledgerSource, 'effectiveState'),
+        extractFunction(ledgerSource, 'stateBucket'),
+        extractFunction(ledgerSource, 'stateClass'),
+      ],
+      ['stateBucket', 'stateClass'],
     )
-    assert.equal(preview.stateClass(transientVoiceReference), 'is-active')
+    assert.equal(ledger.stateBucket(transientVoiceReference), 'active')
+    assert.equal(ledger.stateClass(transientVoiceReference), 'state-active')
+
+    const previewSource = read('frontend/components/GenStudioRequestPreview.vue')
+    assert.doesNotMatch(previewSource, /function stateClass\(/,
+      'the request preview renders the request, not a second copy of the item state')
   })
 
   it('shows provider states in product English when Story has not assigned a local queue state', async () => {
@@ -129,17 +151,6 @@ describe('The Gateway released reservations are never shown as held', () => {
       ['validating', 'Validating'],
       ['reconciling', 'Reconciling'],
     ] as const
-
-    const previewSource = read('frontend/components/GenStudioRequestPreview.vue')
-    const preview = await loadLifted(
-      'type RemoteJob = any',
-      [
-        extractObject(previewSource, 'QUEUE_LABELS'),
-        extractFunction(previewSource, 'effectiveState'),
-        extractFunction(previewSource, 'displayState'),
-      ],
-      ['displayState'],
-    )
 
     const ledgerSource = read('frontend/components/GenStudioBatchLedger.vue')
     const ledger = await loadLifted(
@@ -154,23 +165,12 @@ describe('The Gateway released reservations are never shown as held', () => {
     )
 
     for (const [state, label] of cases) {
-      assert.equal(preview.displayState({ state }), label)
       assert.equal(ledger.displayState({ state }), label)
     }
   })
 
   it('keeps Story-owned queue_state ahead of a provider state', async () => {
     const remote = { state: 'reserved', queue_state: 'accepted' }
-    const previewSource = read('frontend/components/GenStudioRequestPreview.vue')
-    const preview = await loadLifted(
-      'type RemoteJob = any',
-      [
-        extractObject(previewSource, 'QUEUE_LABELS'),
-        extractFunction(previewSource, 'effectiveState'),
-        extractFunction(previewSource, 'displayState'),
-      ],
-      ['displayState'],
-    )
     const ledgerSource = read('frontend/components/GenStudioBatchLedger.vue')
     const ledger = await loadLifted(
       'type RemoteJob = any',
@@ -183,23 +183,11 @@ describe('The Gateway released reservations are never shown as held', () => {
       ['displayState'],
     )
 
-    assert.equal(preview.displayState(remote), 'Accepted')
     assert.equal(ledger.displayState(remote), 'Accepted')
   })
 
   it('treats provider-confirmed no-record evidence as terminal despite a stale running queue hint', async () => {
     const remote = { state: 'not_created', queue_state: 'running' }
-    const previewSource = read('frontend/components/GenStudioRequestPreview.vue')
-    const preview = await loadLifted(
-      'type RemoteJob = any',
-      [
-        extractObject(previewSource, 'QUEUE_LABELS'),
-        extractFunction(previewSource, 'effectiveState'),
-        extractFunction(previewSource, 'displayState'),
-        extractFunction(previewSource, 'stateClass'),
-      ],
-      ['displayState', 'stateClass'],
-    )
     const ledgerSource = read('frontend/components/GenStudioBatchLedger.vue')
     const ledger = await loadLifted(
       'type RemoteJob = any',
@@ -208,8 +196,9 @@ describe('The Gateway released reservations are never shown as held', () => {
         extractFunction(ledgerSource, 'effectiveState'),
         extractFunction(ledgerSource, 'stateBucket'),
         extractFunction(ledgerSource, 'displayState'),
+        extractFunction(ledgerSource, 'stateClass'),
       ],
-      ['stateBucket', 'displayState'],
+      ['stateBucket', 'displayState', 'stateClass'],
     )
     const hintSource = read('frontend/components/GenStudioCreditSettlementHint.vue')
     const hint = await loadLifted(
@@ -218,9 +207,8 @@ describe('The Gateway released reservations are never shown as held', () => {
       ['stateBucket'],
     )
 
-    assert.equal(preview.displayState(remote), 'Not created — no request sent or charged')
-    assert.equal(preview.stateClass(remote), 'is-terminal')
     assert.equal(ledger.displayState(remote), 'Not created')
+    assert.equal(ledger.stateClass(remote), 'state-not_created')
     assert.equal(ledger.stateBucket(remote), 'not_created')
     assert.equal(hint.stateBucket(remote), 'not_created')
 

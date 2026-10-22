@@ -239,7 +239,7 @@ export interface TextGenerationRequest {
   /** Durable accepted-job receipt used by explicit Pipeline policy checkpoints. */
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
   /** Stable idempotency key persisted before the provider's charged POST. */
-  onRequestPrepared?: (idempotencyKey: string) => void | Promise<void>
+  onRequestPrepared?: (idempotencyKey: string, preview?: GenStudioRequestPreview) => void | Promise<void>
   /** Abort signal passed through to the SDK — streaming providers tear down
    *  the fetch on abort, so a user-cancelled job stops paying for a long
    *  completion that would otherwise run to max_tokens. */

@@ -1,3 +1,4 @@
+import { effectiveGenStudioTaskState, holdsUnknownProviderOutcome } from '@shared/provider-task-state'
 import { jobDisplayStatus } from './episode-recovery.js'
 
 export interface JobControlLike {
@@ -62,6 +63,70 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
 /** A human label for any job type; an unknown id is humanized, never a raw slug. */
 export function jobTypeLabel(type: string): string {
   return JOB_TYPE_LABELS[type] || type.replace(/[_-]/g, ' ').replace(/\b\w/g, character => character.toUpperCase())
+}
+
+/**
+ * The Gateway's operation vocabulary, in the customer's words.
+ *
+ * The operation is what the job actually IS — a text generation, an image, a
+ * voice, a video, a song, a transcription — so the details of a job read in
+ * terms of the work rather than in terms of the endpoint. Only the six
+ * operations the contract publishes appear; anything else is shown as it
+ * stands rather than guessed at.
+ */
+export const PROVIDER_OPERATION_LABELS: Record<string, string> = {
+  'chat.response': 'Text',
+  'image.generation': 'Image',
+  'voice.tts': 'Voice',
+  'video.generation': 'Video',
+  'music.generation': 'Music',
+  'audio.transcription': 'Transcription',
+}
+
+/**
+ * The label for one Gateway operation, or '' when there is none.
+ *
+ * A job that never called a provider (a local render, a local assembly) has no
+ * operation, and says nothing about one — it is provider-free, not mislabelled.
+ */
+export function jobOperationLabel(operation: unknown): string {
+  if (typeof operation !== 'string' || !operation) return ''
+  return PROVIDER_OPERATION_LABELS[operation] || operation.replace(/[._]/g, ' ')
+}
+
+/**
+ * The ONE bucketing of a Gateway request's state.
+ *
+ * Two copies of this rule drifted once already: the Gateway item list grew a
+ * `held` bucket — a request the Gateway still holds as an unknown outcome,
+ * which is neither finished nor a failure to retry — and the settlement
+ * sentence's own copy did not, so one card described the same request in two
+ * vocabularies. It lives here now, and both read it.
+ *
+ * It says what a request IS. It says nothing about credits: whether a
+ * reservation counts as held is the settlement rule's business
+ * (`summariseSettlement`), and the two must not be quietly merged.
+ */
+export type JobStateBucket = 'settled' | 'active' | 'queued' | 'not_created' | 'cancelled' | 'held' | 'failed'
+
+export function jobStateBucket(remote: {
+  state?: unknown
+  queue_state?: unknown
+  cancelled?: boolean | null
+  failure_code?: string | null
+  recovery_required?: boolean | null
+  recovery_state?: string | null
+}): JobStateBucket {
+  const state = effectiveGenStudioTaskState(remote)
+  if (state === 'not_created') return 'not_created'
+  if (remote.cancelled === true || state === 'cancelled' || /_CANCELLED_BY_CUSTOMER$/.test(remote.failure_code || '')) return 'cancelled'
+  // A failed request the Gateway still holds as an unknown outcome is neither
+  // finished nor failed — it is held, and it is never counted as settled.
+  if (holdsUnknownProviderOutcome(remote)) return 'held'
+  if (state === 'failed') return 'failed'
+  if (/success|succeed|complete|done|settled/.test(state)) return 'settled'
+  if (/queue|pending|wait|accept/.test(state)) return 'queued'
+  return 'active'
 }
 
 /** The label a specific job shows, including the prompt-mode distinction. */

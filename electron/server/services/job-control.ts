@@ -184,11 +184,20 @@ function unsettledHistoryControl(
       'PROVIDER_WORK_ALREADY_STARTED', 'remote-result-required',
     )
   }
-  // No answer yet — a check is running or about to. The button says what is
-  // actually happening, and stays disabled only for as long as that is true.
+  // No answer yet. Whether a check is running RIGHT NOW is a fact about this
+  // job, and the button must not name an activity that is not happening: a
+  // `checking` record means a request to the Gateway is in flight, and no
+  // record at all means none is. The two get different words for that reason.
+  if (check?.state === 'checking') {
+    return control(
+      'return-later', false, 'Checking provider status',
+      `Story Studio is asking Gateway whether ${outstanding} finished. This history can be removed as soon as the Gateway confirms ${plural ? 'they have' : 'it has'}.`,
+      'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required',
+    )
+  }
   return control(
-    'return-later', false, 'Checking provider status',
-    `Story Studio is asking Gateway whether ${outstanding} finished. This history can be removed as soon as the Gateway confirms ${plural ? 'they have' : 'it has'}.`,
+    'return-later', false, 'Waiting for Gateway status',
+    `Story Studio is waiting for the Gateway to confirm whether ${outstanding} finished. It asks the Gateway again on its own, and this history can be removed as soon as the Gateway confirms ${plural ? 'they have' : 'it has'}.`,
     'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required',
   )
 }
@@ -349,7 +358,14 @@ function classifyProviderJobControl(
 
   if (ambiguous.length) {
     const work = describeProviderWork(ambiguous.filter(entry => isRemoteOperation(entry.operation)).map(entry => entry.operation as JobRemoteOperation))
-    return control('return-later', false, 'Checking provider status', `${capitalise(work.text)} ${work.plural ? 'have' : 'has'} no authoritative cancellation state yet. Story Studio will keep the duplicate lock and reconcile it.`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+    // Story Studio does not know the Gateway's cancellation state here, and it
+    // is not asking the Gateway at this moment — it asks again on its own, and
+    // keeps the duplicate lock meanwhile. A button must not name an activity
+    // that is not happening, so this says what is true: it is WAITING. (The
+    // same rule the finished-history gate follows, and the reason a stalled
+    // writing job used to read "Checking provider status" while nothing was
+    // being checked.)
+    return control('return-later', false, 'Waiting for Gateway status', `Story Studio is waiting for the Gateway to answer whether ${work.text} can still be stopped. It asks the Gateway again on its own, and keeps the duplicate lock until the Gateway answers.`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
   }
 
   if (targets.length && capabilities.remoteCancellationAudited) {

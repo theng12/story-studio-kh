@@ -49,6 +49,19 @@ import { getImageStatus, getVideoStatus } from '../services/asset-status.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { inspectPromptCompletion } from '../services/prompt-completion.js'
 import { inspectMetadataCompletion } from '../services/metadata-completion.js'
+import {
+  inspectChapterCompletion,
+  inspectContextualCueCompletion,
+  inspectExpandedScriptCompletion,
+  inspectIntroductionCompletion,
+  inspectOutlineCompletion,
+  inspectScenePolishCompletion,
+  readMusicScenePolishSnapshot,
+  requestedChapterNumber,
+  requestedChapterSelection,
+  resolvedOutlineChapterCount,
+  type ScenePolishProof,
+} from '../services/text-completion.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { isResearchComplete } from '../lib/research-verification.js'
 import { getLibraryDir } from '../services/music-library.js'
@@ -306,6 +319,80 @@ function registerCancellationAuditors(): void {
       const research = JSON.parse(await fs.readFile(jsonPath, 'utf-8'))
       return isResearchComplete(research) ? 'complete' : 'repair-required'
     } catch { return 'repair-required' }
+  })
+  // The six WRITING types that had no auditor at all. The queue's
+  // provider-settlement path asks the auditor BEFORE it offers to pick a
+  // settled writing job up again, so without one it failed the job loudly
+  // ("no completion audit is registered for this job type") and the resume
+  // never happened — even when the text was already on disk. Each auditor
+  // below proves ONE type's OWN artifact; they deliberately do not share a
+  // generic "is there a file" guess (AGENTS.md §8).
+  registerJobCancellationAuditor('outline_only', async job => {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    // The count the run was ACTUALLY asked for: its own completion
+    // declaration first, the request's chapter count as the fallback (see
+    // `resolvedOutlineChapterCount` for the generator's resolution chain).
+    const audit = await inspectOutlineCompletion(paths.script_dir, job.episode_id, resolvedOutlineChapterCount(job))
+    return audit.complete ? 'complete' : 'repair-required'
+  })
+  registerJobCancellationAuditor('expand_chapters', async job => {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const audit = await inspectExpandedScriptCompletion(
+      paths.script_dir,
+      job.episode_id,
+      requestedChapterSelection(job.params),
+    )
+    return audit.complete ? 'complete' : 'repair-required'
+  })
+  registerJobCancellationAuditor('introduction-only', async job => {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const audit = await inspectIntroductionCompletion(paths.script_dir, job.episode_id)
+    return audit.complete ? 'complete' : 'repair-required'
+  })
+  registerJobCancellationAuditor('chapter-only', async job => {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const audit = await inspectChapterCompletion(paths.script_dir, job.episode_id, requestedChapterNumber(job.params))
+    return audit.complete ? 'complete' : 'repair-required'
+  })
+  registerJobCancellationAuditor('contextual_cues', async job => {
+    const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+    const planPath = await resolveScenePlanPath(job.project_slug, job.episode_id, paths.episode_dir)
+    const audit = await inspectContextualCueCompletion(planPath)
+    return audit.complete ? 'complete' : 'repair-required'
+  })
+  registerJobCancellationAuditor('music_scene_polish', async job => {
+    const { readEpisodeDoc, readMusicScenePolishRun } = await import('../services/music-episode-store.js')
+    const { validateMusicScenePolishArtifact } = await import('../services/text-completion.js')
+    const slug = job.project_slug
+    // The same episode the generator wrote to (`params.episode_id` first).
+    const code = String((job.params as any)?.episode_id || job.episode_id || '').toUpperCase()
+    // The run's OWN artifact decides. A prompt on the episode document is not
+    // proof that this run wrote it: the same field is what the owner edits by
+    // hand and what an earlier polish left behind, so "the document is fresh
+    // and its prompts are not empty" would accept an unrelated fresh save and
+    // a partial save alike. The episode-side artifact names the scenes this
+    // run asked for and the exact text it produced for each, and the document
+    // has to carry exactly those texts.
+    const record = readMusicScenePolishSnapshot(job)
+    if (record.state !== 'valid') return 'repair-required'
+    const ref = record.ref
+    if (ref.project_slug !== slug || ref.episode_code.toUpperCase() !== code) return 'repair-required'
+    const artifact = await readMusicScenePolishRun(slug, code, ref.run_id).catch(() => null)
+    if (!artifact) return 'repair-required'
+    if (validateMusicScenePolishArtifact({ artifact, ref, jobId: job.job_id })) return 'repair-required'
+    const doc = await readEpisodeDoc(slug, code).catch(() => null)
+    if (!doc) return 'repair-required'
+    const audit = inspectScenePolishCompletion({
+      promptOverrides: doc.prompt_overrides,
+      artifact,
+      result: (job.result ?? null) as ScenePolishProof['result'],
+    })
+    return audit.complete
+      ? 'complete'
+      : {
+        verdict: 'repair-required',
+        detail: audit.detail || 'The polished prompts on the episode are not this run\'s output.',
+      }
   })
   // Idea Campaign — reuse the generator's own completion proof (idea-campaign.ts:338-359): the
   // campaign is complete when the project holds at least the clamped wanted count of ideas under

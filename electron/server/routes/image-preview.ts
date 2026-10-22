@@ -5,7 +5,11 @@
  *   GET  /api/projects/:slug/episodes/:episodeId/image-prompts
  *     200: { scenes: [{number, title, prompt}], thumbnails: [...] }
  *     404: prompts not generated yet
+ *     409: more than one folder on disk carries this episode's code
  *     Pre-flight read of the parsed prompts. Free; just a docx parse.
+ *     `?title=` is optional: the episode's own folder is found from the
+ *     code when the title is absent or no longer current — see
+ *     resolvePromptEpisodePaths below.
  *
  *   POST /api/projects/:slug/preview-image
  *     body: { prompt: string, model: string, aspect_ratio: string, tier?: string }
@@ -24,12 +28,15 @@
  */
 
 import path from 'path'
+import { existsSync } from 'fs'
 import { Router } from 'express'
 import { z } from 'zod'
 import { validateBody } from '../lib/validate.js'
 import { registry, resolveApiKeyForProvider } from '../providers/registry.js'
 import * as pm from '../services/project-manager.js'
-import { resolveEpisodePaths } from '../services/utils.js'
+import { resolveEpisodePaths, resolveEpisodePathsByCode, resolveEpisodePathsForRead } from '../services/utils.js'
+import type { EpisodePaths } from '../services/utils.js'
+import { listEpisodeDirsByCode } from '../lib/folder-resolver.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { getCached, savePreview, pathForHash } from '../services/image-preview-cache.js'
 import { imageMediaTypeForFile } from '../lib/image-media-type.js'
@@ -41,13 +48,66 @@ export const router = Router()
 
 // ── GET prompts list ─────────────────────────────────────────────────────
 
+/**
+ * The episode's OWN folder for a prompt read, resolved without guessing.
+ *
+ * An episode's folder is named `{code} - {title}`, so a read with no title
+ * resolved to `.../EP0001 - /` — a folder that does not exist — and answered
+ * "no image prompts yet" over prompts that were there all along. The Images
+ * page asks by CODE alone.
+ *
+ *   1. The folder the caller named (`?title=`), when it exists.
+ *   2. The folder the idea index names for this code — the title the episode
+ *      was created with, so membership, not a guess.
+ *   3. The folders on disk that carry the code: exactly one is used; more
+ *      than one is refused, because choosing between them would read one
+ *      episode's prompts under another's name; none means the episode is
+ *      absent.
+ */
+async function resolvePromptEpisodePaths(
+  slug: string,
+  code: string,
+  title: string,
+): Promise<{ paths: EpisodePaths | null; ambiguous: string[] }> {
+  const titled = await resolveEpisodePaths(slug, code, title)
+  if (existsSync(titled.episode_dir)) return { paths: titled, ambiguous: [] }
+
+  const byCode = await resolveEpisodePathsByCode(slug, code)
+  if (existsSync(byCode.episode_dir)) return { paths: byCode, ambiguous: [] }
+
+  // The season folder the two resolutions above point at. It depends on the
+  // CODE alone, so all three steps look in the same place.
+  const seasonDir = path.dirname(path.resolve(titled.episode_dir))
+  const candidates = await listEpisodeDirsByCode(seasonDir, code)
+  if (candidates.length > 1) return { paths: null, ambiguous: candidates }
+  if (candidates.length === 1) {
+    // The read resolver's own recovery lands on the only candidate and
+    // carries the subfolder layout with it.
+    const recovered = await resolveEpisodePathsForRead(slug, code, title)
+    return { paths: existsSync(recovered.episode_dir) ? recovered : titled, ambiguous: [] }
+  }
+
+  // Genuinely absent — the caller answers "not generated yet".
+  return { paths: titled, ambiguous: [] }
+}
+
 router.get('/projects/:slug/episodes/:episodeId/image-prompts', async (req, res) => {
   const { slug, episodeId } = req.params
   const titleParam = (req.query.title as string) || ''
   try {
     const project = await pm.getProject(slug)
     if (!project) return res.status(404).json({ detail: 'Project not found' })
-    const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
+    const { paths, ambiguous } = await resolvePromptEpisodePaths(slug, episodeId, titleParam)
+    if (!paths) {
+      // More than one folder carries this episode's code. Choosing between
+      // them would show one episode's prompts under another's name.
+      return res.status(409).json({
+        code: 'EPISODE_FOLDER_AMBIGUOUS',
+        detail: `There is more than one folder for ${episodeId} on disk (`
+          + `${ambiguous.map(dir => path.basename(dir)).join(', ')}), so Story Studio will not choose `
+          + 'between them. Resolve the conflicting folders, then try again.',
+      })
+    }
 
     // The prompt docx files live alongside the episode's other artifacts.
     // Two files: scene_prompts_docx + thumb_prompts_docx. Either may
@@ -55,7 +115,6 @@ router.get('/projects/:slug/episodes/:episodeId/image-prompts', async (req, res)
     // "scenes only" → no thumbnail_prompts.docx). Parse what's there
     // and return empty arrays for what isn't.
     const { parseImagePromptsDocx } = await import('../lib/docx-parser.js')
-    const { existsSync } = await import('fs')
 
     let scenes: any[] = []
     let thumbnails: any[] = []

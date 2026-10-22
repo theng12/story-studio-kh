@@ -29,6 +29,7 @@ import { writeJsonAtomic, withCrossProcessLock, withLock } from '../lib/atomic-s
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import type { FinalRenderIntentStagedReceiptV2, FinalRenderRemoteWaitReceipt, FinalRenderTransportReceiptV3, Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType, PaidImageReplacementAttempt, PaidImageReplacementPolicySnapshot } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
+import { readMusicScenePolishSnapshot } from './text-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { closingTailRemixInProgress, CLOSING_TAIL_REMIX_IN_PROGRESS } from './closing-tail-remix-admission.js'
 import { isChatTextJob, isLocalTextModel, isNonRetryableError, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
@@ -8831,6 +8832,22 @@ export function retryTerminalJob(
   }
 
   const savedParams = structuredClone(replacementParams || original.params || {})
+  if (original.type === 'music_scene_polish') {
+    const originalRef = readMusicScenePolishSnapshot(original)
+    if (originalRef.state !== 'valid') {
+      throw Object.assign(new Error(`This Polish run has no valid continuation record: ${originalRef.state === 'invalid' ? originalRef.reason : 'it is absent'}. Start a new Polish run instead.`), { status: 409, expose: true })
+    }
+    const ref = originalRef.ref
+    const existingRetry = original.params?.music_scene_polish_retry_of
+    if (existingRetry !== undefined && existingRetry !== null) {
+      if (typeof existingRetry !== 'object' || Array.isArray(existingRetry)
+        || existingRetry.job_id !== ref.owner_job_id || existingRetry.run_id !== ref.run_id) {
+        throw Object.assign(new Error('This Polish retry does not own the saved continuation record. Start a new Polish run instead.'), { status: 409, expose: true })
+      }
+    }
+    savedParams.music_scene_polish = structuredClone(ref)
+    savedParams.music_scene_polish_retry_of = { job_id: ref.owner_job_id, run_id: ref.run_id }
+  }
   // The new row carries params, not this row's children: hand it the accepted answers to collect first.
   const retryParams = original.type === 'scene_plan_run' ? withSavedPromptCollection(savedParams, original) : savedParams
   // Settings a pre-1.4.266 save turned into '[CIRCULAR]' come back from the job's own run.

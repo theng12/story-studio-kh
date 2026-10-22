@@ -137,8 +137,17 @@ export function bulkConfirmOptions(kind: 'retry' | 'repair', count: number, paid
   }
 }
 
-/** One vocabulary for row buttons: "Remove From List", everything else in Title Case. */
+/**
+ * One vocabulary for row buttons.
+ *
+ * "Remove From List" is the frontend's own button and stays as it is. Every
+ * other label is the BACKEND's wording, and it is used as the backend wrote
+ * it: the controls are written in sentence case ("Return later", "Checking
+ * provider status", "Pause new work"), and title-casing them here changed the
+ * words the server chose. The server owns the vocabulary of a control; the
+ * client only renders it.
+ */
 export function controlLabel(control: { action: string; label?: string }): string {
   if (control.action === 'clear-history') return 'Remove From List'
-  return (control.label || '').replace(/\b[a-z]/g, letter => letter.toUpperCase())
+  return control.label || ''
 }
