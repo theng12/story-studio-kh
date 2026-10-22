@@ -194,29 +194,48 @@ test('only adapted invocations request serial test files', async () => {
   assert.match(code, /'--test',\s*\.\.\.concurrencyArgs/)
 })
 
-test('a real adapted fixture lane runs test files one at a time, proven by a cross-file marker', async () => {
-  // Exercise the real child invocation as well as its argument wiring.
+test('a real adapted fixture lane schedules its test files one at a time', async () => {
+  // Two proofs in ONE real invocation, neither of them a stopwatch.
+  //
+  // 1. The serial contract. Every child of the adapted invocation inherits
+  //    `--test-concurrency=1`, so a missing flag fails THIS test every time.
+  //    A marker race alone cannot do that: with the flag gone, the two files
+  //    still finish in order whenever the scheduler happens not to interleave
+  //    them, which is a green light for a broken wrapper.
+  // 2. The ordered marker. The first file's completion marker is on disk
+  //    before the second file starts, which is what "one at a time" looks
+  //    like from the inside. The marker is written by an awaited async write,
+  //    so nothing here bets on a duration: no sleep, no clock, no timeout.
   const dir = await fixtureDir('lane-serialization-')
   try {
     const marker = path.join(dir, 'sequence.marker')
+    // The contract every child of the adapted invocation must inherit.
+    const serialContract = 'function assertSerialContract() {\n'
+      + '  const serial = process.execArgv.filter(arg => arg.startsWith("--test-concurrency="))\n'
+      + '  assert.deepEqual(serial, ["--test-concurrency=1"],\n'
+      + '    "the adapted invocation must hand every child the serial runner contract")\n'
+      + '}\n'
     await fs.writeFile(path.join(dir, 'a-sequencer.test.mjs'),
       'import { test } from "node:test"\n'
-      + 'import fs from "node:fs"\n'
+      + 'import assert from "node:assert/strict"\n'
+      + 'import fs from "node:fs/promises"\n'
       + `const marker = ${JSON.stringify(marker)}\n`
-      + 'test("sequencer writes start then end", async () => {\n'
-      + '  fs.writeFileSync(marker, "start")\n'
-      + '  await new Promise(r => setTimeout(r, 250))\n'
-      + '  fs.writeFileSync(marker, "end")\n'
+      + serialContract
+      + 'test("the first file inherits the serial contract, then completes", async () => {\n'
+      + '  assertSerialContract()\n'
+      + '  await fs.writeFile(marker, "a-done")\n'
       + '})\n')
     await fs.writeFile(path.join(dir, 'b-verifier.test.mjs'),
       'import { test } from "node:test"\n'
       + 'import assert from "node:assert/strict"\n'
-      + 'import fs from "node:fs"\n'
+      + 'import fs from "node:fs/promises"\n'
       + `const marker = ${JSON.stringify(marker)}\n`
-      + 'test("verifier sees the end marker proving serialization", () => {\n'
-      + '  const content = fs.readFileSync(marker, "utf8")\n'
-      + '  assert.equal(content, "end",\n'
-      + '    "if this sees start or empty, files ran concurrently — concurrency=1 failed")\n'
+      + serialContract
+      + 'test("the second file inherits the serial contract and starts after the first finished", async () => {\n'
+      + '  assertSerialContract()\n'
+      + '  const content = await fs.readFile(marker, "utf8").catch(() => "")\n'
+      + '  assert.equal(content, "a-done",\n'
+      + '    "the first file must have finished before the second one started")\n'
       + '})\n')
 
     const { exitCode, out } = await runFixtureLane(dir)
