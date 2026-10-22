@@ -96,7 +96,9 @@ describe('useJobDetails — full records for the cards a page shows', () => {
   test('the universal Jobs list reads its finished half from the server, not the live stream', () => {
     const page = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)), 'utf8')
     assert.match(page, /history\.load\('\/jobs\/all\/history'/)
-    assert.match(page, /\[\.\.\.streamedJobs\.value, \.\.\.history\.rows\.value\]/)
+    assert.match(page, /const seen = new Set\(streamedJobs\.value\.map\(job => job\.job_id\)\)/)
+    assert.match(page, /\[\s*\.\.\.streamedJobs\.value,\s*\.\.\.history\.rows\.value\.filter\(job => !seen\.has\(job\.job_id\)\),?\s*\]/,
+      'history rows are deduped against streamed jobs by job_id before merging')
     assert.match(page, /projectFilter\.value === 'all' \? \{\} : \{ project: projectFilter\.value \}/,
       'narrowing to one channel is sent to the server, which is the difference between a fleet and a channel')
   })

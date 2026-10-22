@@ -44,7 +44,7 @@ async function setupWith(row: ReturnType<typeof model>, confirm?: () => Promise<
   const script = compileScript(descriptor, { id: 'task14-image-ratios' })
   const vueUrl = import.meta.resolve('vue')
   const support = `
-    import { computed, defineComponent as _defineComponent, reactive, ref, watch } from ${JSON.stringify(vueUrl)}
+    import { computed, defineComponent as _defineComponent, onScopeDispose, reactive, ref, watch } from ${JSON.stringify(vueUrl)}
     import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, storyDefaultAspectRatio } from ${JSON.stringify(new URL('../utils/genstudio-output-options.ts', import.meta.url).href)}
     import { CREDIT_BASIS_LABEL, describeImageUnitCost } from ${JSON.stringify(new URL('../utils/genstudio-credit-cost.ts', import.meta.url).href)}
     import { customerSafeJobText, jobRequestIds } from ${JSON.stringify(new URL('../utils/job-presentation.ts', import.meta.url).href)}
@@ -67,6 +67,7 @@ async function setupWith(row: ReturnType<typeof model>, confirm?: () => Promise<
     // Exercise selection/watch/admission directly; skip unrelated mount-time
     // format/preset network hydration. All production Vue watchers stay real.
     const onMounted = () => undefined
+    const onBeforeUnmount = callback => onScopeDispose(callback)
   `
   const stripped = script.content.replace(/^import[^\n]+\n/gm, '')
   const output = await transform(`${support}\n${stripped}`, { loader: 'ts', format: 'esm' })
