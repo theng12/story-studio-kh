@@ -184,10 +184,29 @@ describe('the compiled graph', () => {
       .filters.join(';').includes('#0b0d10'))
   })
 
-  test('an unknown transition id still renders, through the plainest transition', () => {
-    const doc = mergeSceneReveal(defaultSceneReveal(), { transition: 'not-a-transition' })
+  test('an unsupported non-empty transition throws before FFmpeg', () => {
+    const doc = mergeSceneReveal(defaultSceneReveal(), { transition: 'not-a-real-transition' })
+    assert.throws(
+      () => compileSceneReveal(doc, COMPILE_OPTS),
+      /unsupported transition 'not-a-real-transition'/,
+    )
+  })
+
+  test('a preset whose document.transition is a raw xfade keyword compiles that keyword, not fade', () => {
+    // Presets store raw xfade keywords (`diagtl`); the registry uses kebab-case ids (`diag-tl`).
+    const doc = builtInReveal('reveal-draw-on')!.document
+    assert.equal(doc.transition, 'diagtl')
     const graph = compileSceneReveal(doc, COMPILE_OPTS).filters.join(';')
-    assert.match(graph, /xfade=transition=fade:/)
+    assert.match(graph, /xfade=transition=diagtl:/)
+  })
+
+  test('palette layers with raw xfade keywords compile their own transitions', () => {
+    const doc = builtInReveal('reveal-palette-dawn')!.document
+    const graph = compileSceneReveal(doc, { ...COMPILE_OPTS, timing: {
+      ...TIMING, reveal_seconds: 2, hold_seconds: 6, total_seconds: 8, micro_event_offsets: [],
+    } }).filters.join(';')
+    assert.match(graph, /xfade=transition=wipeup:/)
+    assert.match(graph, /xfade=transition=diagtr:/)
   })
 
   test('a lights-up reveal takes its field from the picture itself', () => {

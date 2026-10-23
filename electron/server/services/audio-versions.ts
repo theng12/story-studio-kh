@@ -140,13 +140,23 @@ export async function useChapterTake(input: {
     return { active: activeFiles, trashed }
   })
 
-  // Keep the chapter's provenance describing the bytes that are now active, so
-  // subtitles and Audio Assembly see this chapter as changed.
+  // Keep the chapter's provenance describing the bytes that are now active.
   const hash = await hashSubtitleAudioSources(result.active.map(file => path.join(audioDir, file)))
   await updateAudioQualityProvenance(episodeDir, current => {
     const key = Object.keys(current.chapters).find(k => k.toLowerCase() === slug.toLowerCase())
     if (key && hash) {
-      current.chapters[key] = { ...current.chapters[key]!, source_files: result.active, source_audio_hash: hash, recorded_at: new Date().toISOString() }
+      const prior = current.chapters[key]!
+      // Retain tts facts only while the active bytes are unchanged; a different
+      // take has a different producer and must not inherit the old voice link.
+      const sameBytes = hash === prior.source_audio_hash
+      current.chapters[key] = {
+        normalized_script_hash: prior.normalized_script_hash,
+        normalization: prior.normalization,
+        source_audio_hash: hash,
+        source_files: result.active,
+        recorded_at: new Date().toISOString(),
+        ...(sameBytes && prior.tts ? { tts: prior.tts } : {}),
+      }
     }
   })
   return result

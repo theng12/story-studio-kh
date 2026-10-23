@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.349 — 2026-10-23
+
+- Video Assembly plays the episode's finished video inline, using the same final file Upload Center would upload. Playback streams with seeking through the signed-in app, so it also works in a browser over remote access. A missing finished video and a video that fails to load are reported separately.
+- Scene reveals preserve supported diagonal and palette-layer transitions when a preset stores the FFmpeg keyword rather than the catalogue ID. Unsupported transition values report an error before rendering instead of silently becoming a fade.
+- Automatic re-narration uses the recorded producer of the current audio, including its voice and synthesis settings. A later run that skipped existing files cannot change the repair voice; missing or conflicting provenance leaves the chapter for manual re-narration. Choosing a different take clears producer facts unless its audio bytes are identical.
+
 ## v1.4.348 — 2026-10-22
 
 - Upload Center lets you edit an episode's title and description during review, save both together and explicitly restore the generated description. The reviewed upload keeps the exact saved text and its authorship; conflicting episode folders are reported before an edit can reach the wrong folder.

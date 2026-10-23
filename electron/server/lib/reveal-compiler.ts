@@ -32,7 +32,12 @@ import {
 import { mergeSceneMotion, type SceneMotionDocument } from '../contracts/scene-effects.js'
 import { defaultSceneMotion } from '../contracts/scene-effects.js'
 import { compileSceneMotion } from './scene-effect-compiler.js'
-import { getTransition } from '../models/transitions.js'
+import { getTransition, TRANSITIONS } from '../models/transitions.js'
+
+// Presets may use registry ids or their supported FFmpeg keywords.
+const VALID_XFADE_KEYWORDS: ReadonlySet<string> = new Set(
+  TRANSITIONS.map(t => t.xfade).filter(Boolean),
+)
 
 export interface RevealCompileOpts {
   w: number
@@ -378,9 +383,15 @@ function keywordFor(stage: RevealStage): string {
   if (stage.kind === 'tint') return stage.transition
   const def = getTransition(stage.transition)
   if (def && def.xfade) return def.xfade
-  // An unknown id is a data problem, not a crash: the picture still arrives,
-  // through the plainest transition there is.
-  return 'fade'
+  // Presets store raw FFmpeg xfade keywords (e.g. `diagtl`) while the registry
+  // uses kebab-case ids (`diag-tl`). Accept either form, but only when the
+  // value is a known keyword — an unknown string is a data defect that must
+  // fail here rather than inject arbitrary filter syntax into the graph.
+  if (VALID_XFADE_KEYWORDS.has(stage.transition)) return stage.transition
+  throw new Error(
+    `reveal stage ${stage.kind} has unsupported transition '${stage.transition}' `
+    + `— not a registry id or published xfade keyword`,
+  )
 }
 
 /**

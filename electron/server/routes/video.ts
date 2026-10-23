@@ -63,8 +63,16 @@ import { inspectSubtitleCompletion, inspectSubtitleSourceFreshness } from '../se
 import { inspectExistingTranscriptSource } from '../services/subtitle-correction.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { isPreviewablePath } from '../lib/preview-roots.js'
+import { parseHttpByteRange } from '../lib/http-byte-range.js'
+import { findYouTubeSourceVideoPath } from '../services/youtube-source-video.js'
+import {
+  createProjectFactsCache,
+  resolveEpisodePaths,
+  resolveEpisodePathsByCodeWithSidecar,
+  resolveEpisodeTitleByCode,
+  resolveScenePlanPath,
+} from '../services/utils.js'
 import { freshActionMatch, readOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
-import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
@@ -101,11 +109,78 @@ router.get('/projects/:slug/video-editor/scan/:episodeId', async (req, res) => {
 
   try {
     const assets = await scanEpisodeAssets(slug, episodeId)
-    res.json(assets)
+    // The player is secondary: a failed final-video lookup is reported beside the
+    // scan, never allowed to fail the asset scan Step 1 depends on.
+    let finishedVideoUrl = ''
+    let finishedVideoError = ''
+    try {
+      const title = await resolveEpisodeTitleByCode(slug, episodeId)
+      if (title) {
+        const facts = createProjectFactsCache(slug)
+        const paths = await resolveEpisodePaths(slug, episodeId, title, facts)
+        const finalVideo = await findYouTubeSourceVideoPath(paths, slug, episodeId, title, facts)
+        const stat = finalVideo ? await fs.stat(finalVideo) : null
+        // The revision query makes a re-render at the same path load fresh bytes.
+        if (stat) {
+          finishedVideoUrl = `/api/projects/${encodeURIComponent(slug)}/video-editor/final-video/${encodeURIComponent(episodeId)}`
+            + `?v=${Math.trunc(stat.mtimeMs)}-${stat.size}`
+        }
+      }
+    } catch (e: any) {
+      finishedVideoError = humanizeBackendError(e, 'Could not check for the finished video').detail || 'Could not check for the finished video.'
+    }
+    res.json({ ...assets, finished_video_url: finishedVideoUrl, finished_video_error: finishedVideoError })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Asset scan failed'))
   }
 })
+
+async function streamFinishedEpisodeVideo(
+  req: import('express').Request<{ slug: string; episodeId: string }>,
+  res: import('express').Response,
+): Promise<void> {
+  const { slug, episodeId } = req.params
+  try {
+    const title = await resolveEpisodeTitleByCode(slug, episodeId)
+    if (!title) return void res.status(404).json({ detail: 'No accepted episode was found for that video.' })
+    const facts = createProjectFactsCache(slug)
+    const paths = await resolveEpisodePaths(slug, episodeId, title, facts)
+    const filePath = await findYouTubeSourceVideoPath(paths, slug, episodeId, title, facts)
+    if (!filePath) return void res.status(404).json({ detail: `No finished final video exists for ${episodeId.toUpperCase()}.` })
+
+    const stat = await fs.stat(filePath)
+    const mimeTypes: Record<string, string> = {
+      '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.mkv': 'video/x-matroska',
+    }
+    const mime = mimeTypes[path.extname(filePath).toLowerCase()]
+    if (!mime || !stat.isFile() || stat.size <= 0) return void res.status(404).json({ detail: 'The finished final video is unavailable.' })
+
+    res.set('Content-Type', mime)
+    res.set('Accept-Ranges', 'bytes')
+    res.set('Cache-Control', 'private, no-cache')
+    const range = parseHttpByteRange(req.headers.range, stat.size)
+    if (range.kind === 'invalid') {
+      res.status(416).set('Content-Range', `bytes */${stat.size}`).end()
+      return
+    }
+    if (range.kind === 'partial') {
+      res.status(206)
+      res.set('Content-Range', `bytes ${range.start}-${range.end}/${stat.size}`)
+      res.set('Content-Length', String(range.end - range.start + 1))
+      if (req.method !== 'HEAD') streamTo(res, createReadStream(filePath, { start: range.start, end: range.end }))
+      else res.end()
+      return
+    }
+    res.set('Content-Length', String(stat.size))
+    if (req.method !== 'HEAD') streamTo(res, createReadStream(filePath))
+    else res.end()
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not load the finished final video'))
+  }
+}
+
+router.get('/projects/:slug/video-editor/final-video/:episodeId', streamFinishedEpisodeVideo)
+router.head('/projects/:slug/video-editor/final-video/:episodeId', streamFinishedEpisodeVideo)
 
 // The source is durable episode state. Missing/legacy source flags resolve to
 // Scene Plan so existing episodes keep their established behaviour.

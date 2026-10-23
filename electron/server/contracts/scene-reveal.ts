@@ -73,7 +73,7 @@ export interface SceneRevealField {
 export interface SceneRevealLayer {
   /** `#rrggbb` — the layer's own colour. */
   colour: string
-  /** Transition id from `models/transitions.ts`; the layer's own geometry. */
+  /** Registry transition id or supported xfade keyword; the layer's own geometry. */
   transition: string
   /** Share of the reveal window this layer takes, 1–100. Shares are normalised. */
   share_pct: number
@@ -123,7 +123,10 @@ export interface SceneRevealSeedPolicy {
 export interface SceneRevealDocument {
   schema_version: typeof SCENE_REVEAL_SCHEMA_VERSION
   family: RevealFamily
-  /** Transition id from `models/transitions.ts` — the reveal's geometry. */
+  /** Transition id from `models/transitions.ts`, or a published xfade keyword
+   *  (e.g. `diag-tl` or `diagtl`). The compiler resolves either form; validation
+   *  happens at compile time, not here — normalisation trims but does not reject
+   *  so stored documents survive registry changes. */
   transition: string
   field: SceneRevealField
   /** Palette layers, swept in order. Empty for the other two families. */

@@ -1971,25 +1971,116 @@ export async function queueAutoRenarrate(subtitleJob: Job, skipped: ChapterMissi
   const say = (line: string) => subtitleJob.output_lines.push(line)
   const narrations = (await jq.getJobs(project_slug, { type: 'audio' })).filter(other => other.episode_id === episode_id)
   if (narrations.some(other => other.params?.auto_renarrate_from === subtitleJob.job_id)) return
-  // The voice to redo with: the episode's latest finished ordinary narration.
-  const source = narrations
-    .filter(other => other.status === 'done' && typeof other.params?.model === 'string' && other.params.model.trim()
-      && !other.params.no_overwrite && !other.params.quality_repair && !other.params.quality_check)
-    .sort((a, b) => String(b.finished_at || '').localeCompare(String(a.finished_at || '')))[0]
   const slugs = skipped.map(chapter => chapter.slug)
-  if (!source) {
-    say(`ℹ ${label(slugs)} not re-narrated automatically: no earlier narration of this episode is on record.`)
+  const paths = await resolveEpisodePathsByCodeWithSidecar(project_slug, episode_id, 'audio_chapters.json').catch(() => null)
+  const provenance = paths ? (await readAudioQualityProvenance(paths.episode_dir).catch(() => null)) : null
+  const active = provenance?.chapters || {}
+  const audioDir = paths?.audio_dir || ''
+
+  // A job's status and recency do not prove it produced the bytes now on disk: a
+  // done job may have skipped every existing file (no_overwrite) or run without
+  // producing the current take. The voice AND its whole synthesis request must come
+  // from the run that actually made these artifacts. Provenance carries the hash of
+  // the active bytes and, per part file, the GenStudio request identities that run
+  // submitted; a historical job carries the same identities on its own recovery
+  // checkpoint. Matching those binds the producer durably — never by recency, never
+  // by log text. Anything unresolved is refused, not guessed.
+  const producerMatches = (
+    job: Job,
+    tts: { task_ids?: Record<string, string>; idempotency_keys?: Record<string, string> },
+  ): boolean => {
+    const assets = job.params?.genstudio_recovery?.version === 1 && job.params.genstudio_recovery.route === 'genstudio'
+      ? job.params.genstudio_recovery.assets as Record<string, { operation?: unknown; state?: unknown; idempotency_key?: unknown; job_id?: unknown }> | undefined
+      : undefined
+    if (!assets || typeof assets !== 'object') return false
+    const keyFiles = Object.keys(tts.idempotency_keys || {})
+    const taskFiles = Object.keys(tts.task_ids || {})
+    if (!keyFiles.length && !taskFiles.length) return false
+    // Complete coverage: EVERY recorded part identity must be present on this one job,
+    // be a TTS asset, and have succeeded there. A job that made only some parts (a
+    // mixed or partial producer) must not be taken for the whole chapter's producer.
+    const succeededTts = (file: string) => !!assets[file]
+      && assets[file]!.operation === 'tts'
+      && assets[file]!.state === 'succeeded'
+    const keysCovered = keyFiles.every(file => succeededTts(file) && assets[file]!.idempotency_key === tts.idempotency_keys![file])
+    const tasksCovered = taskFiles.every(file => succeededTts(file) && assets[file]!.job_id === tts.task_ids![file])
+    return keysCovered && tasksCovered
+  }
+
+  const resolveChapterVoice = async (chapterSlug: string): Promise<{ model: string; voice: string; params: Record<string, any> } | 'unknown'> => {
+    const entry = active[chapterSlug]
+    const tts = entry?.tts
+    if (!tts?.model_id || !tts.voice_id || !entry?.source_files?.length) return 'unknown'
+    if (!tts.idempotency_keys && !tts.task_ids) return 'unknown'
+    // The active selector is what plays. A missing selector (ENOENT) means base
+    // files are implicitly active; a present-but-malformed selector, a missing
+    // chapter row, or an unreadable file is an unknown active mapping — refuse
+    // rather than fall back to provenance and risk repairing the wrong take.
+    let selectorFiles: string[] | 'implicit' | 'unknown'
+    try {
+      const selector = JSON.parse(await fs.readFile(path.join(paths!.episode_dir, 'audio_chapters.json'), 'utf8'))
+      const row = Array.isArray(selector?.sections)
+        ? selector.sections.find((s: any) => typeof s?.slug === 'string' && s.slug.toLowerCase() === chapterSlug.toLowerCase())
+        : null
+      if (!row) selectorFiles = 'unknown'
+      else if (Array.isArray(row.source_files) && row.source_files.length) {
+        selectorFiles = row.source_files.filter((f: unknown): f is string => typeof f === 'string')
+        if (!selectorFiles.length) selectorFiles = 'unknown'
+      } else if (typeof row.source_file === 'string' && row.source_file.trim()) {
+        selectorFiles = [row.source_file]
+      } else selectorFiles = 'unknown'
+    } catch (error: any) {
+      selectorFiles = error?.code === 'ENOENT' ? 'implicit' : 'unknown'
+    }
+    if (selectorFiles === 'unknown') return 'unknown'
+    const currentFiles = selectorFiles === 'implicit' ? entry.source_files : selectorFiles
+    if (!currentFiles.length || currentFiles.join('\n') !== entry.source_files.join('\n')) return 'unknown'
+    const currentHash = await hashSubtitleAudioSources(currentFiles.map(file => path.join(audioDir, file))).catch(() => null)
+    if (!currentHash || currentHash !== entry.source_audio_hash) return 'unknown'
+    const producers = narrations
+      .filter(job => job.status === 'done'
+        && job.params?.model === tts.model_id && job.params?.voice === tts.voice_id
+        && !job.params.no_overwrite && !job.params.quality_repair && !job.params.quality_check
+        && producerMatches(job, tts))
+      .sort((a, b) => String(a.finished_at || a.created_at || '').localeCompare(String(b.finished_at || b.created_at || '')))
+    if (!producers.length) return 'unknown'
+    if (new Set(producers.map(job => requestSignature(job.params))).size !== 1) return 'unknown'
+    return { model: tts.model_id, voice: tts.voice_id, params: producers[0]!.params }
+  }
+
+  const resolved = await Promise.all(slugs.map(async slug => ({ slug, voice: await resolveChapterVoice(slug) })))
+  const unknown = resolved.filter(row => row.voice === 'unknown').map(row => row.slug)
+  if (unknown.length) {
+    say(`ℹ ${label(unknown)} not re-narrated automatically: the narration that produced the audio now on disk could not be identified from its recorded provenance. Listen on Subtitles, then Re-narrate by hand.`)
+    subtitleJob.result = { ...subtitleJob.result, renarrate_needs_owner: unknown }
     return
   }
-  const model: string = source.params.model.trim()
-  const paths = await resolveEpisodePathsByCodeWithSidecar(project_slug, episode_id, 'audio_chapters.json').catch(() => null)
-  const active = paths ? (await readAudioQualityProvenance(paths.episode_dir).catch(() => null))?.chapters || {} : {}
+
+  const known = resolved.map(row => row.voice as { model: string; voice: string; params: Record<string, any> })
+  if (!known.length) return
+  const voices = [...new Set(known.map(row => `${row.model}/${row.voice}`))]
+  if (voices.length > 1) {
+    say(`ℹ ${label(slugs)} not re-narrated automatically: the affected chapters were produced by different voices (${voices.join(', ')}), so no single automatic repair voice applies. Re-narrate each chapter by hand.`)
+    subtitleJob.result = { ...subtitleJob.result, renarrate_needs_owner: slugs }
+    return
+  }
+  // One repair run replays one request. If the proven producers' stored synthesis
+  // inputs differ, replaying one chapter's over the others would change them
+  // silently — refuse rather than pick a winner.
+  const settings = [...new Set(known.map(row => requestSignature(row.params)))]
+  if (settings.length > 1) {
+    say(`ℹ ${label(slugs)} not re-narrated automatically: the affected chapters were produced with different synthesis settings, so one automatic run cannot reproduce all of them. Re-narrate each chapter by hand.`)
+    subtitleJob.result = { ...subtitleJob.result, renarrate_needs_owner: slugs }
+    return
+  }
+  const model = known[0]!.model
+  const source = { params: known[0]!.params }
+
   const redo: Record<string, string[]> = {}
   const paid: string[] = []
   const capped: string[] = []
   for (const chapter of skipped) {
-    const chapterModel = active[chapter.slug]?.tts?.model_id || model
-    if (!isFreeFleetModelId(model.toLowerCase()) || chapterModel !== model) paid.push(chapter.slug)
+    if (!isFreeFleetModelId(model.toLowerCase())) paid.push(chapter.slug)
     else if (narrations.filter(other => other.params?.redo_sentences?.[chapter.slug]).length >= AUTO_RENARRATE_MAX) capped.push(chapter.slug)
     else redo[chapter.slug] = chapter.sentences
   }
@@ -2005,8 +2096,7 @@ export async function queueAutoRenarrate(subtitleJob: Job, skipped: ChapterMissi
     return
   }
   const params: Record<string, any> = { ...source.params }
-  for (const key of ['force', 'no_overwrite', 'operation_id', 'generation_action', 'generation_action_fingerprint', 'quality_repair', 'quality_check',
-    'join_only', 'genstudio_recovery', 'redo_sentences', 'auto_renarrate_from', 'then_subtitles', 'sections']) delete params[key]
+  for (const key of REQUEST_BOOKKEEPING_KEYS) delete params[key]
   const tries = Math.max(...redoSlugs.map(slug => narrations.filter(other => other.params?.redo_sentences?.[slug]).length)) + 1
   const queued = await jq.enqueue({
     project_slug, episode_id, type: 'audio',
@@ -2016,4 +2106,33 @@ export async function queueAutoRenarrate(subtitleJob: Job, skipped: ChapterMissi
   })
   subtitleJob.result = { ...subtitleJob.result, auto_renarrate_job_id: queued.job_id }
   say(`↻ Re-narrating only the part(s) of ${label(redoSlugs)} that skipped sentences, on the free fleet (automatic try ${tries} of ${AUTO_RENARRATE_MAX}); new subtitles follow (${queued.job_id}).`)
+}
+
+/**
+ * Request inputs that are per-run bookkeeping rather than sound. Every OTHER key on
+ * a job's params is an actual synthesis input (the model's published controls, speed,
+ * pauses, language, …), so two runs carry "the same request" exactly when these agree.
+ */
+const REQUEST_BOOKKEEPING_KEYS = new Set([
+  'episode_id', 'sections', 'force', 'no_overwrite', 'operation_id', 'generation_action',
+  'generation_action_fingerprint', 'quality_repair', 'quality_check', 'join_only',
+  'genstudio_recovery', 'redo_sentences', 'auto_renarrate_from', 'then_subtitles',
+])
+
+/** Order-stable fingerprint of a run's actual stored synthesis inputs (not their names). */
+function requestSignature(params: Record<string, any>): string {
+  const stable = (value: unknown): unknown => {
+    if (value === null || value === undefined) return null
+    if (Array.isArray(value)) return value.map(stable)
+    if (typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => [k, stable(v)]))
+    }
+    return value
+  }
+  return JSON.stringify(Object.keys(params || {})
+    .filter(key => !REQUEST_BOOKKEEPING_KEYS.has(key))
+    .sort()
+    .map(key => [key, stable(params[key] ?? null)]))
 }

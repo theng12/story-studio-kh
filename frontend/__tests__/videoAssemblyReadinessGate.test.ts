@@ -20,6 +20,18 @@ const source = fs.readFileSync(
   'utf-8',
 )
 
+test('the selected episode has an inline finished-video player with replacement and failure states', () => {
+  assert.match(source, /<section class="finished-video-preview mt-2"/)
+  assert.match(source, /:src="scannedAssets\.finished_video_url"/)
+  assert.match(source, /controls\s+preload="metadata"\s+playsinline/)
+  assert.doesNotMatch(source, /finished-video-player[^>]*autoplay/)
+  assert.match(source, /No finished video is available for this episode yet/)
+  assert.match(source, /Could not check for this episode’s finished video/)
+  assert.match(source, /The finished video could not be played/)
+  assert.match(source, /finishedVideoError\.value = ''/)
+  assert.match(source, /void scanAssets\(\)/)
+})
+
 test('the lumped footnote is gone', () => {
   assert.doesNotMatch(
     source,

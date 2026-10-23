@@ -93,4 +93,53 @@ describe('narration takes', () => {
     assert.match(selector, />Use This Version<\/button>/)
     assert.match(selector, /v-if="\(s\.takes_count \|\| 0\) > 1"/)
   })
+
+  test('switching to a byte-identical take retains tts provenance', async () => {
+    const ep = await episode('same-bytes', ['EP0002_Chapter_12.mp3', 'EP0002_Chapter_12_v2.mp3'], {
+      sections: [{ slug: 'Chapter_12', source_file: 'EP0002_Chapter_12.mp3', source_files: ['EP0002_Chapter_12.mp3'] }],
+    })
+    // Make v2 byte-identical to the base so the hash matches.
+    const baseContent = await fs.readFile(path.join(ep.audioDir, 'EP0002_Chapter_12.mp3'))
+    await fs.writeFile(path.join(ep.audioDir, 'EP0002_Chapter_12_v2.mp3'), baseContent)
+    const store = await import('../services/audio-quality-store.js')
+    const { hashSubtitleAudioSources } = await import('../services/subtitle-completion.js')
+    const baseHash = await hashSubtitleAudioSources([path.join(ep.audioDir, 'EP0002_Chapter_12.mp3')])
+    assert.ok(baseHash, 'the seeded take must hash')
+    const ttsFacts = { model_id: 'studio-hub::breeze', voice_id: 'v1', idempotency_keys: { 'EP0002_Chapter_12.mp3': 'k1' }, task_ids: { 'EP0002_Chapter_12.mp3': 't1' } }
+    await store.updateAudioQualityProvenance(ep.episodeDir, current => {
+      current.chapters['Chapter_12'] = {
+        normalized_script_hash: 'h', normalization: 'tts-v1',
+        source_audio_hash: baseHash, source_files: ['EP0002_Chapter_12.mp3'], recorded_at: new Date().toISOString(),
+        tts: ttsFacts,
+      }
+    })
+    await versions.useChapterTake({ ...ep, code: 'EP0002', slug: 'Chapter_12', files: ['EP0002_Chapter_12_v2.mp3'] })
+    const after = await store.readAudioQualityProvenance(ep.episodeDir)
+    assert.deepEqual(after.chapters.Chapter_12?.tts, ttsFacts, 'same bytes → tts retained')
+    assert.equal(after.chapters.Chapter_12?.source_audio_hash, baseHash)
+    assert.deepEqual(after.chapters.Chapter_12?.source_files, ['EP0002_Chapter_12_v2.mp3'])
+  })
+
+  test('switching to a different-bytes take drops stale tts provenance', async () => {
+    const ep = await episode('diff-bytes', ['EP0002_Chapter_12.mp3', 'EP0002_Chapter_12_v2.mp3'], {
+      sections: [{ slug: 'Chapter_12', source_file: 'EP0002_Chapter_12.mp3', source_files: ['EP0002_Chapter_12.mp3'] }],
+    })
+    const store = await import('../services/audio-quality-store.js')
+    const { hashSubtitleAudioSources } = await import('../services/subtitle-completion.js')
+    const baseHash = await hashSubtitleAudioSources([path.join(ep.audioDir, 'EP0002_Chapter_12.mp3')])
+    assert.ok(baseHash, 'the seeded take must hash')
+    await store.updateAudioQualityProvenance(ep.episodeDir, current => {
+      current.chapters['Chapter_12'] = {
+        normalized_script_hash: 'h', normalization: 'tts-v1',
+        source_audio_hash: baseHash, source_files: ['EP0002_Chapter_12.mp3'], recorded_at: new Date().toISOString(),
+        tts: { model_id: 'studio-hub::breeze', voice_id: 'v1', idempotency_keys: { 'EP0002_Chapter_12.mp3': 'k1' }, task_ids: { 'EP0002_Chapter_12.mp3': 't1' } },
+      }
+    })
+    // v2 already has different content ('audio:EP0002_Chapter_12_v2.mp3') from the episode() helper.
+    await versions.useChapterTake({ ...ep, code: 'EP0002', slug: 'Chapter_12', files: ['EP0002_Chapter_12_v2.mp3'] })
+    const after = await store.readAudioQualityProvenance(ep.episodeDir)
+    assert.equal(after.chapters.Chapter_12?.tts, undefined, 'different bytes → tts dropped')
+    assert.notEqual(after.chapters.Chapter_12?.source_audio_hash, baseHash)
+    assert.deepEqual(after.chapters.Chapter_12?.source_files, ['EP0002_Chapter_12_v2.mp3'])
+  })
 })

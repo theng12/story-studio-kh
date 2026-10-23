@@ -409,6 +409,26 @@
           </p>
         </div>
 
+        <section class="finished-video-preview mt-2" aria-labelledby="finished-video-heading">
+          <h4 id="finished-video-heading">Finished Video</h4>
+          <p v-if="!episodeId" class="text-muted text-sm">Select an episode to check for its finished video.</p>
+          <p v-else-if="scanning || (!scannedAssets && !scanError)" class="text-muted text-sm" role="status">Checking this episode’s finished video…</p>
+          <p v-else-if="scanError" class="text-muted text-sm" role="alert">Could not check for this episode’s finished video. {{ scanError }}</p>
+          <p v-else-if="scannedAssets?.finished_video_error" class="text-muted text-sm" role="alert">{{ scannedAssets.finished_video_error }}</p>
+          <p v-else-if="scannedAssets?.finished_video_url && finishedVideoError" class="text-muted text-sm" role="alert">{{ finishedVideoError }}</p>
+          <video
+            v-else-if="scannedAssets?.finished_video_url"
+            :key="scannedAssets.finished_video_url"
+            class="finished-video-player"
+            :src="scannedAssets.finished_video_url"
+            controls
+            preload="metadata"
+            playsinline
+            @error="finishedVideoError = 'The finished video could not be played. Check that the Library or media drive is connected, then select the episode again.'"
+          >This video cannot play in your browser.</video>
+          <p v-else-if="!scanning" class="text-muted text-sm">No finished video is available for this episode yet.</p>
+        </section>
+
         <!-- Validation Messages -->
         <div v-if="!step1Valid" class="validation-msg mt-2">
           <span v-if="!scannedAssets.scenes?.length">* At least 1 approved Scene Plan image is required</span>
@@ -3028,6 +3048,7 @@ const initialEpisodeId = typeof route.query.episode_id === 'string'
     : ''
 const episodeId = ref(initialEpisodeId)
 const selectedEpisode = ref<any>(null)
+const finishedVideoError = ref('')
 type VisualSource = 'scene_plan' | 'image_pool'
 type ImagePoolSource = {
   pool_id: string
@@ -6242,6 +6263,7 @@ async function saveVisualSource(): Promise<void> {
 
 function onEpisodeSelected(ep: any) {
   selectedEpisode.value = ep
+  finishedVideoError.value = ''
   // v1.4.0 — the frames describe the episode that produced them. Carrying a
   // confirmation across an episode change would be the same shape of defect
   // this release removes, one level up: state about one episode still standing
@@ -6375,6 +6397,7 @@ function handleWizardShortcut(e: KeyboardEvent) {
 let videoEpisodeSequence = 0
 watch([slug, episodeId], ([, newEp]) => {
   videoEpisodeSequence++
+  finishedVideoError.value = ''
   // Episode-owned source metadata must never stand while another episode is
   // on screen. Reset immediately; the scoped GET below rehydrates the new record.
   visualSourceSequence++
@@ -6451,6 +6474,7 @@ watch(activeJobFingerprint, async () => {
   if (terminal) {
     generating.value = false
     videoAssemblyGenerating.value = false
+    void scanAssets()
     // Leave activeJobId set so the final output panel stays visible
     // after completion — user can read what happened. Clearing it on
     // a new render start (next click of Generate) will reset the panel.
@@ -7217,4 +7241,14 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .path-check-reason { font-size: var(--font-xs); color: var(--error, #e25c5c); white-space: nowrap; }
+.finished-video-preview { max-width: 100%; }
+.finished-video-player {
+  display: block;
+  width: 100%;
+  max-height: min(70vh, 720px);
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #000;
+  border-radius: var(--radius-md, 8px);
+}
 </style>
