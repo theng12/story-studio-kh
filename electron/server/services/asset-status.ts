@@ -49,6 +49,7 @@ import {
 import { resolveSceneImagesDir, SCENE_IMAGES_SUBFOLDER } from '../generators/scene-image.js'
 import { resolveVideoAssetsDir } from '../generators/scene-clip.js'
 import { resolveEpisodeMotionSceneIds } from './episode-motion-scope.js'
+import { sceneClipStaleReason, resolveSketchDrawSettings } from './scene-media-checkpoint.js'
 import { getAudioStatus } from './audio-reconciler.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
@@ -1479,12 +1480,15 @@ export async function computeEpisodeStatus(
         status.scene_review_awaiting_approval = review.unapprovedIds.filter(id => !missingImages.has(id)).length
         const clipsDir = await resolveVideoAssetsDir(slug, code.toUpperCase(), byCode.episode_dir, cache)
         const scopedMotion = await resolveEpisodeMotionSceneIds(slug, code, scenes, byCode.episode_dir)
+        const motionSketchSettings = scenes.some((scene: any) => scene?.clip_renderer === 'sketch_draw')
+          ? await resolveSketchDrawSettings(slug, code).catch(() => undefined)
+          : undefined
+        const motionContext = { slug, episodeId: code, episodeDir: byCode.episode_dir, sketchSettings: motionSketchSettings }
         const motionReady = await Promise.all(scenes.filter((s: any) => scopedMotion.scene_ids.includes(s.id)).map(async (s: any) => {
           if (s?.motion_choice === 'still') return true
           const hasClip = typeof s?.id === 'string' && await fileHasContent(path.join(clipsDir, `${s.id}.mp4`))
           if (!hasClip || s?.motion_choice === 'pending') return false
-          if (typeof s?.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || '')) return false
-          if (typeof s?.image_version === 'string' && s.clip_source_image_version !== s.image_version) return false
+          if (await sceneClipStaleReason(s, motionContext)) return false
           return s?.motion_choice === 'clip' || s?.motion_choice == null
         }))
         status.motion_review = status.scene_plan && motionReady.every(Boolean)

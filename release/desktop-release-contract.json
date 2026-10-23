@@ -40,6 +40,10 @@
       "to": "LICENSE-FFMPEG.txt"
     },
     {
+      "from": "bundled/LICENSE-SKETCH-DRAW.txt",
+      "to": "LICENSE-SKETCH-DRAW.txt"
+    },
+    {
       "from": "CHANGELOG.md",
       "to": "CHANGELOG.md"
     }
@@ -47,6 +51,7 @@
   "requiredPackagedResources": [
     "CHANGELOG.md",
     "LICENSE-FFMPEG.txt",
+    "LICENSE-SKETCH-DRAW.txt",
     "ffmpeg/MANIFEST.json",
     "ffmpeg/ffmpeg",
     "ffmpeg/ffprobe",

@@ -1151,9 +1151,10 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
 
 /** Exactly the fields `services/scene-media-checkpoint.ts` writes for an image or clip. */
 const SCENE_MEDIA_FIELDS = [
-  'approved', 'image_path', 'rendered_prompt', 'image_version', 'motion_choice',
+  'approved', 'image_path', 'rendered_prompt', 'image_version', 'image_sha256', 'motion_choice',
   'clip_path', 'rendered_motion_prompt', 'clip_source_image_version',
   'clip_requested_duration_seconds', 'clip_duration_seconds', 'clip_shortfall_mode',
+  'clip_renderer', 'clip_source_image_sha256', 'clip_scene_window_seconds', 'clip_sketch',
 ] as const
 
 /** Scene Plan edits text and timing; media on disk is authoritative for every scene id it still has. */

@@ -51,7 +51,8 @@ import {
 } from '../services/scene-timeline-integrity.js'
 import { allowedSubtitleCueGapSec } from '../services/scene-plan-pacing.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
-import { checkpointSceneClip } from '../services/scene-media-checkpoint.js'
+import { checkpointSceneClip, motionPresentationSelection, resolveSketchDrawSettings, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
+import { readChannelProfileAsset } from '../services/channel-profile.js'
 import { resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
 import { parseSavedScenePlanPacing } from '../contracts/pacing.js'
@@ -307,6 +308,8 @@ interface ReviewSceneAugmented {
   clip_stale?: boolean
   /** Explicit Motion Review decision. Undefined is a legacy accepted clip. */
   motion_choice?: 'pending' | 'clip' | 'still'
+  clip_stale_reason?: string | null
+  clip_renderer?: ScenePlanEntry['clip_renderer']
 }
 
 /** Guard failures raised from inside a `withLock` body, where an Express
@@ -316,6 +319,91 @@ class SceneNotFound extends Error {
   constructor(readonly sceneId: string) { super(`Scene ${sceneId} not found`) }
 }
 class BadApprovalRequest extends Error {}
+/** A decision Motion Review can explain and refuse (stale/missing clip), not an app fault. */
+class ClipChoiceRefused extends Error {}
+
+// Channel-owned presentation choices; provider presets do not overwrite these.
+router.get('/projects/:slug/motion-presentation', async (req, res) => {
+  try {
+    const config = await pm.getConfig(req.params.slug)
+    const project = await pm.getProject(req.params.slug)
+    if (!config || !project) return res.status(404).json({ detail: 'Channel not found' })
+    const logo = await readChannelProfileAsset(req.params.slug, 'logo')
+    res.json({ ...motionPresentationSelection(config.motion_presentation), channel_name: project.name, has_logo: !!logo?.bytes.length })
+  } catch (error: any) { res.status(409).json({ detail: error.message }) }
+})
+router.put('/projects/:slug/motion-presentation', async (req, res) => {
+  try {
+    const { renderer, pen } = req.body || {}
+    if (!['image_to_video', 'sketch_draw'].includes(renderer) || !['none', 'plain', 'name', 'logo'].includes(pen)) {
+      return res.status(400).json({ detail: 'Choose an available motion renderer and pen.' })
+    }
+    if (pen === 'logo' && !await readChannelProfileAsset(req.params.slug, 'logo')) {
+      return res.status(409).json({ detail: 'This channel has no profile logo. Add one in Channel Profile or choose another pen.' })
+    }
+    if (!await pm.updateConfig(req.params.slug, { motion_presentation: { renderer, pen } } as any)) {
+      return res.status(404).json({ detail: 'Channel not found' })
+    }
+    res.json({ renderer, pen })
+  } catch (error: any) { res.status(409).json({ detail: error.message }) }
+})
+
+async function enqueueSketchDraw(req: express.Request<{ slug: string; episodeId: string }>, res: express.Response, single: boolean): Promise<void> {
+  const { slug, episodeId } = req.params
+  try {
+    if ((await readVideoVisualSource(slug, episodeId)).source !== 'scene_plan') throw new Error('Motion Review is not used for Image Pool episodes.')
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
+    const scoped = await resolveEpisodeMotionSceneIds(slug, episodeId, plan.scenes, paths.episode_dir)
+    const scope = new Set(scoped.scene_ids)
+    const sceneId = typeof req.body?.scene_id === 'string' ? req.body.scene_id.trim() : ''
+    if (single && (!/^[A-Za-z0-9_-]+$/.test(sceneId) || !scope.has(sceneId))) throw new Error('Choose a scene inside the saved motion scope.')
+    const settings = plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
+      ? await resolveSketchDrawSettings(slug, episodeId) : undefined
+    const config = await pm.getConfig(slug)
+    const floor = Math.max(0, Number(config?.animate_min_seconds) || 0)
+    const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+    const filterContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: settings }
+    const ids: string[] = []
+    const skipped_reasons: Array<{ scene_id: string; reason: string }> = []
+    for (const scene of plan.scenes) {
+      if (!scope.has(scene.id) || (single && scene.id !== sceneId)) continue
+      const skip = (reason: string) => { skipped_reasons.push({ scene_id: scene.id, reason }) }
+      if (!scene.approved) { skip('image is not approved'); continue }
+      if (!single && scene.motion_choice === 'still') { skip('marked Still'); continue }
+      let window: number
+      try { window = sceneWindowSeconds(scene) }
+      catch { skip(`invalid Scene Plan window for ${scene.id}`); continue }
+      if (window < floor) { skip(`shorter than this channel's ${floor}s animation minimum`); continue }
+      // Presence only: a full image decode belongs to generation, never to queue admission.
+      const image = await resolveSceneImageReadPath(slug, episodeId.toUpperCase(), paths.episode_dir, scene.id)
+      const imageStat = image ? await fs.stat(image).catch(() => null) : null
+      if (!image || !imageStat?.isFile() || imageStat.size <= 0) { skip('missing image'); continue }
+      if (!single && scene.clip_renderer === 'sketch_draw'
+        && await isSceneClipFresh(scene, path.join(clipsDir, `${scene.id}.mp4`), filterContext)) {
+        skip('already fresh')
+        continue
+      }
+      ids.push(scene.id)
+    }
+    if (!ids.length) {
+      if (single) throw new Error(`Scene ${sceneId} cannot start Sketch Draw: ${skipped_reasons[0]?.reason || 'it is outside the current motion scope'}.`)
+      res.json({ ok: true, queued: 0, skipped: skipped_reasons.length, skipped_reasons, queued_scene_ids: [] })
+      return
+    }
+    const type = single ? 'scene_clip_generate' : 'scene_clips_batch'
+    const job = await jq.enqueue({ project_slug: slug, type, episode_id: episodeId,
+      title: single ? `Sketch Draw — ${sceneId}` : `Sketch Draw — ${episodeId}`,
+      dedupeParams: single ? (p: any) => p.scene_id === sceneId && p.renderer === 'sketch_draw' : undefined,
+      params: { renderer: 'sketch_draw', episode_id: episodeId, ...(single ? { scene_id: sceneId } : {}),
+        motion_scene_ids: ids, visual_source: 'scene_plan', auto_approve_clip: req.body?.auto_approve_clip === true },
+    })
+    await invalidateEpisodeStatus(slug, episodeId)
+    res.status(single ? 201 : 200).json(single ? job : { ok: true, queued: ids.length,
+      skipped: skipped_reasons.length, skipped_reasons, job_id: job.job_id, queued_scene_ids: ids })
+  } catch (error: any) { res.status(409).json({ detail: error.message || 'Could not queue Sketch Draw. Retry after repairing the named scene.' }) }
+}
 
 // ── GET /scene-review/:ep ─────────────────────────────────────────────
 router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
@@ -378,6 +466,11 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const legacyNumberedPattern = new RegExp(`^${episodeId.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_Scene\\d+_v\\d+\\.(?:png|jpe?g|webp)$`, 'i')
     // One readdir per folder; a name not listed is missing without a stat (S6: the page polls every
     // 3.5 s and a 300-scene plan cost ~600 probes per poll).
+    // Resolved once per review read: every scene's freshness uses the same live channel selection.
+    const reviewSketchSettings = plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
+      ? await resolveSketchDrawSettings(slug, episodeId).catch(() => undefined)
+      : undefined
+    const reviewContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: reviewSketchSettings }
     const listed = async (dir: string) => new Set(await fs.readdir(dir).catch(() => [] as string[]))
     const [namedFiles, legacyFiles, clipFiles] = await Promise.all([listed(namedDir), listed(legacyDir), listed(clipsDir)])
     const legacyUnmappedImages = [...namedFiles].filter(filename => legacyNumberedPattern.test(filename)).length
@@ -440,10 +533,8 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       if (s.approved) approvedCount++
       // v1.0.470 — clip existence + stale (rendered from a now-changed motion prompt).
       const clipExists = clipVersion !== null
-      const clipStale = clipExists && (
-        (typeof s.rendered_motion_prompt === 'string' && s.rendered_motion_prompt !== (s.motion_prompt || ''))
-        || (typeof s.image_version === 'string' && s.clip_source_image_version !== s.image_version)
-      )
+      const clipStaleReason = clipExists ? await sceneClipStaleReason(s, reviewContext) : null
+      const clipStale = !!clipStaleReason
       if (clipExists) withClipCount++
       if (s.motion_choice === 'still' || (clipExists && !clipStale && (s.motion_choice === 'clip' || s.motion_choice == null))) {
         motionReviewedCount++
@@ -470,6 +561,8 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         // v1.0.470 — clip animation status.
         clip_exists: clipExists,
         clip_stale: clipStale,
+        clip_stale_reason: clipStaleReason,
+        clip_renderer: s.clip_renderer,
         motion_choice: s.motion_choice,
       })
     }
@@ -938,6 +1031,7 @@ router.post('/projects/:slug/scene-review/:episodeId/replace-uncertain', async (
 router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
+  if (body.renderer === 'sketch_draw') return enqueueSketchDraw(req, res, true)
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
@@ -1013,6 +1107,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
 router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
+  if (body.renderer === 'sketch_draw') return enqueueSketchDraw(req, res, false)
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
   let durationMode: SceneClipDurationMode
@@ -1083,6 +1178,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
 router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
+  if (body.renderer === 'sketch_draw') return enqueueSketchDraw(req, res, false)
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
   let durationMode: SceneClipDurationMode
@@ -1314,6 +1410,7 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
       // image (made FROM this prompt) isn't mis-flagged stale in Scene Review.
       target.rendered_prompt = target.visual_prompt
       target.image_version = new Date().toISOString()
+      target.image_sha256 = createHash('sha256').update(buf.data).digest('hex')
       target.motion_choice = 'pending'
       target.approved = false   // user re-approves after a manual swap
       await writeJsonAtomic(planPath, fresh, { compact: true })
@@ -1361,6 +1458,9 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clip
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     const scene = plan.scenes.find(s => s.id === sceneId)
     if (!scene) return res.status(404).json({ detail: `scene ${sceneId} not found in scene_plan.json` })
+    // Validate the window before touching the accepted clip, so a bad plan cannot replace it.
+    try { sceneWindowSeconds(scene) }
+    catch { throw new Error(`Scene ${sceneId} has an invalid Scene Plan window. Repair its timeline, then upload again.`) }
 
     const outDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     await fs.mkdir(outDir, { recursive: true })
@@ -1381,7 +1481,7 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clip
       scene.motion_prompt || '',
       scene.image_version,
       false,
-      { duration_seconds: measuredDurationSeconds },
+      { renderer: 'external', duration_seconds: measuredDurationSeconds },
     )
     res.json({ ok: true, scene_id: sceneId, saved_as: path.basename(outPath), bytes: buf.length })
   } catch (e: any) {
@@ -1409,6 +1509,11 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-choice', async (req, 
       return res.status(404).json({ detail: 'Scene not found' })
     }
 
+    const approvalSketchSettings = plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
+      ? await resolveSketchDrawSettings(slug, episodeId).catch(() => undefined)
+      : undefined
+    const approvalContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: approvalSketchSettings }
+
     const changed = await withLock(planPath, async () => {
       const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
       const targets = body.all === true
@@ -1419,12 +1524,16 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-choice', async (req, 
       for (const scene of targets) {
         if (choice === 'clip') {
           const clipPath = path.join(clipsDir, `${scene.id}.mp4`)
-          if (!existsSync(clipPath)) continue
-          const stale = (typeof scene.rendered_motion_prompt === 'string'
-            && scene.rendered_motion_prompt !== (scene.motion_prompt || ''))
-            || (typeof scene.image_version === 'string'
-              && scene.clip_source_image_version !== scene.image_version)
-          if (stale) continue
+          const clipStat = await fs.stat(clipPath).catch(() => null)
+          if (!clipStat?.isFile() || clipStat.size <= 0) {
+            if (body.all !== true) throw new ClipChoiceRefused(`Scene ${scene.id} has no usable clip. Generate it before choosing Use Clip.`)
+            continue
+          }
+          const stale = await sceneClipStaleReason(scene, approvalContext)
+          if (stale) {
+            if (body.all !== true) throw new ClipChoiceRefused(`Scene ${scene.id} cannot use its clip: ${stale}. Re-generate this scene, then choose Use Clip.`)
+            continue
+          }
         }
         if (scene.motion_choice !== choice) {
           scene.motion_choice = choice
@@ -1436,7 +1545,8 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-choice', async (req, 
     })
     res.json({ ok: true, changed })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to save Motion Review decision'))
+    if (e instanceof ClipChoiceRefused) return res.status(409).json(humanizeBackendError(e, 'Failed to save Motion Review decision'))
+    return res.status(500).json(humanizeBackendError(e, 'Failed to save Motion Review decision'))
   }
 })
 

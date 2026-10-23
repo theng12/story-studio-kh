@@ -149,9 +149,8 @@ function checkPackageInputs() {
     const file = path.join(root, relative)
     if (!fs.existsSync(file)) fail(`${relative}: required offline FFmpeg input is missing`)
   }
-  // The native scene-clip helper (built by `npm run build:scene-clip`). The app falls back to FFmpeg without
-  // it, so this is about not shipping the slow path by accident.
-  for (const relative of ['bundled/scene-clip/scene-clip', 'bundled/scene-clip/MANIFEST.json']) {
+  // Sketch Draw requires the bundled helper; it has no FFmpeg fallback.
+  for (const relative of ['bundled/scene-clip/scene-clip', 'bundled/scene-clip/MANIFEST.json', 'bundled/LICENSE-SKETCH-DRAW.txt']) {
     const file = path.join(root, relative)
     if (!fs.existsSync(file)) fail(`${relative}: native scene-clip helper is missing (run npm run build:scene-clip)`)
   }

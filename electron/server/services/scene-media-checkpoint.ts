@@ -5,7 +5,11 @@ import path from 'path'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
-import type { ScenePlan } from '../models/types.js'
+import { getMediaInfo } from '../lib/ffmpeg-validation.js'
+import { NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip-version.js'
+import { resolveRenderCanvas } from '../lib/render-canvas.js'
+import { readChannelProfileAsset } from './channel-profile.js'
+import type { MotionPresentationSettings, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { sceneReviewAutoApproveOn } from './preset-authority.js'
 import * as pm from './project-manager.js'
 
@@ -18,6 +22,170 @@ export interface SceneImageCompletionAudit {
 }
 
 export type SceneClipCompletionAudit = SceneImageCompletionAudit
+
+export function motionPresentationSelection(value: unknown): MotionPresentationSettings {
+  const raw = value as Partial<MotionPresentationSettings> | null
+  return {
+    renderer: raw?.renderer === 'sketch_draw' ? 'sketch_draw' : 'image_to_video',
+    pen: ['none', 'plain', 'name', 'logo'].includes(String(raw?.pen)) ? raw!.pen! : 'none',
+  }
+}
+
+export type SketchPen = { mode: 'none' } | { mode: 'plain' } | { mode: 'name'; text: string } | { mode: 'logo'; logo: string }
+export interface SketchDrawSettings {
+  fps: number
+  width: number
+  height: number
+  pen: Exclude<SketchPen, { mode: 'logo' }> | { mode: 'logo' }
+  logoBytes?: Buffer
+  penFingerprint: string
+}
+
+/** Resolve selections again at execution/read time; never persist a copied name, logo or fps. */
+export async function resolveSketchDrawSettings(slug: string, episodeId: string): Promise<SketchDrawSettings> {
+  const config = await pm.getConfig(slug)
+  if (!config) throw new Error('Channel configuration is unavailable.')
+  const mode = motionPresentationSelection(config.motion_presentation).pen
+  if (!['none', 'plain', 'name', 'logo'].includes(mode)) throw new Error('Choose a valid Sketch Draw pen.')
+  const store = config.video_assembly_last_used
+  const own = store?.episodes?.[episodeId.trim().toUpperCase()]?.settings
+  const output = (own ?? store?.channel?.settings)?.export as { fps?: unknown; resolution?: unknown; aspect_ratio?: unknown } | undefined
+  const { DEFAULT_FPS } = await import('../generators/video.js')
+  const fps = Number(output?.fps ?? DEFAULT_FPS)
+  if (!Number.isInteger(fps) || ![24, 25, 30, 60].includes(fps)) throw new Error('The saved Video Assembly frame rate is invalid. Choose a frame rate in Video Assembly.')
+  const canvas = resolveRenderCanvas(typeof output?.resolution === 'string' ? output.resolution : undefined,
+    typeof output?.aspect_ratio === 'string' ? output.aspect_ratio : undefined)
+  let pen: SketchDrawSettings['pen'] = mode === 'plain' ? { mode: 'plain' } : { mode: 'none' }
+  let logoBytes: Buffer | undefined
+  let identity: unknown = { mode }
+  if (mode === 'name') {
+    const project = await pm.getProject(slug)
+    if (!project?.name?.trim()) throw new Error('This channel has no name for its pen. Set its name in the channel profile.')
+    pen = { mode: 'name', text: project.name }
+    identity = pen
+  } else if (mode === 'logo') {
+    const asset = await readChannelProfileAsset(slug, 'logo')
+    if (!asset?.bytes.length) throw new Error('This channel has no profile logo. Add a logo in Channel Profile or choose another pen.')
+    logoBytes = asset.bytes
+    pen = { mode: 'logo' }
+    identity = { mode, sha256: createHash('sha256').update(logoBytes).digest('hex') }
+  }
+  return { fps, width: canvas.w, height: canvas.h, pen, logoBytes,
+    penFingerprint: createHash('sha256').update(JSON.stringify(identity)).digest('hex') }
+}
+
+export interface SceneClipFreshnessContext {
+  slug: string
+  episodeId: string
+  episodeDir: string
+  imagePath?: string | null
+  sketchSettings?: SketchDrawSettings
+  /** Scenes the saved request observed as deliberately Still. */
+  stillIds?: string[]
+  /** False when the run produces clips for review without choosing them (Motion Review's Generate). */
+  requireSelected?: boolean
+}
+
+export function sceneWindowSeconds(scene: Pick<ScenePlanEntry, 'start_sec' | 'end_sec'>): number {
+  const seconds = scene.end_sec - scene.start_sec
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('Scene Plan has an invalid scene window. Repair its timeline before generating motion.')
+  return seconds
+}
+
+/** Source-image bytes by path, keyed by size:mtime, so a review poll hashes only new files. */
+const imageShaCache = new Map<string, { key: string; sha256: string }>()
+
+async function currentImageSha256(filePath: string): Promise<string | null> {
+  const stat = await fs.stat(filePath).catch(() => null)
+  if (!stat?.isFile() || stat.size <= 0) return null
+  const key = `${stat.size}:${Math.trunc(stat.mtimeMs)}`
+  const cached = imageShaCache.get(filePath)
+  if (cached?.key === key) return cached.sha256
+  const bytes = await fs.readFile(filePath).catch(() => null)
+  if (!bytes?.length) return null
+  const sha256 = createHash('sha256').update(bytes).digest('hex')
+  imageShaCache.set(filePath, { key, sha256 })
+  return sha256
+}
+
+const CANNOT_VERIFY_SOURCE = 'Sketch Draw cannot verify its source image here. Open Motion Review and Retry.'
+const SETTINGS_UNAVAILABLE = 'Sketch Draw settings could not be checked. Choose the pen and Video Assembly frame rate again.'
+
+/** The single freshness rule used by review, approval, completion, status, retry and assembly. */
+export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: SceneClipFreshnessContext): Promise<string | null> {
+  const sketch = scene.clip_renderer === 'sketch_draw'
+  if (!sketch) {
+    // Provider clips are trimmed/held by Assembly; a plan-timing nudge must never turn an
+    // existing motion episode into stills. Only their source image and prompt identity matter.
+    if (typeof scene.rendered_motion_prompt === 'string'
+      && scene.rendered_motion_prompt !== (scene.motion_prompt || '')) return 'stale motion prompt'
+    if (scene.image_version != null && scene.clip_source_image_version !== scene.image_version) return 'stale source image'
+    if (scene.clip_source_image_sha256 !== undefined) {
+      if (!scene.image_sha256) {
+        if (!context?.imagePath) return 'source image cannot be verified here'
+        if (await currentImageSha256(context.imagePath) !== scene.clip_source_image_sha256) return 'stale source image'
+      } else if (scene.image_sha256 !== scene.clip_source_image_sha256) return 'stale source image'
+    }
+    return null
+  }
+
+  const window = scene.end_sec - scene.start_sec
+  if (!Number.isFinite(window) || window <= 0) return 'invalid scene window'
+  const receipt = scene.clip_sketch
+  if (!receipt || receipt.helper_version !== NATIVE_SCENE_CLIP_VERSION) return 'stale Sketch Draw renderer'
+  if (!context) {
+    // No live channel/Assembly context here: still compare the two recorded identities when
+    // both exist, and say plainly when neither can prove the source.
+    if (scene.clip_source_image_sha256 && scene.image_sha256) {
+      return scene.image_sha256 === scene.clip_source_image_sha256 ? CANNOT_VERIFY_SOURCE : 'stale source image'
+    }
+    return CANNOT_VERIFY_SOURCE
+  }
+  let settings: SketchDrawSettings
+  try { settings = context.sketchSettings ?? await resolveSketchDrawSettings(context.slug, context.episodeId) }
+  catch { return SETTINGS_UNAVAILABLE }
+  if (receipt.fps !== settings.fps) return 'stale frame rate'
+  if (!Number.isSafeInteger(receipt.frames) || receipt.frames < 1) return 'invalid Sketch Draw frame budget'
+  // One frame of tolerance: a timing re-sync that moves a boundary by less than a frame keeps the drawing.
+  if (Math.abs(receipt.frames - window * settings.fps) > 1) {
+    return `scene length changed (clip ${(receipt.frames / settings.fps).toFixed(1)}s, scene now ${window.toFixed(1)}s)`
+  }
+  if (receipt.width !== settings.width || receipt.height !== settings.height) return 'stale render canvas'
+  if (receipt.pen_fingerprint !== settings.penFingerprint) return 'stale pen configuration'
+  // Fit exactly: one frame of tolerance covers the whole-second plan's frame rounding, no more.
+  if (scene.clip_scene_window_seconds === undefined
+    || Math.abs(scene.clip_scene_window_seconds - window) > 1 / settings.fps + 1e-9) {
+    const was = scene.clip_scene_window_seconds === undefined ? 'unrecorded' : `${scene.clip_scene_window_seconds.toFixed(1)}s`
+    return `scene length changed (clip ${was}, scene now ${window.toFixed(1)}s)`
+  }
+
+  const clipSha = scene.clip_source_image_sha256
+  if (!clipSha) return CANNOT_VERIFY_SOURCE
+  if (scene.image_sha256) return scene.image_sha256 === clipSha ? null : 'stale source image'
+  if (!context.imagePath) return CANNOT_VERIFY_SOURCE
+  const currentSha = await currentImageSha256(context.imagePath)
+  return currentSha && currentSha === clipSha ? null : 'stale source image'
+}
+
+/** The one definition of "this scene already has a fresh clip", without decoding it. */
+export async function isSceneClipFresh(scene: ScenePlanEntry, clipPath: string, context?: SceneClipFreshnessContext): Promise<boolean> {
+  const stat = await fs.stat(clipPath).catch(() => null)
+  if (!stat?.isFile() || stat.size <= 0) return false
+  return (await sceneClipStaleReason(scene, context)) === null
+}
+
+export async function assertSketchDrawClip(filePath: string, expected: { fps: number; frames: number; width: number; height: number }): Promise<number> {
+  const duration = await assertPlayableSceneClip(filePath, expected.frames / expected.fps)
+  const info = await getMediaInfo(filePath)
+  if (info.videoFrames !== expected.frames
+    || info.frameRate === undefined || Math.abs(info.frameRate - expected.fps) > 0.001
+    || info.width !== expected.width || info.height !== expected.height
+    || info.hasAudio || info.videoCodec !== 'h264' || info.pixelFormat !== 'yuv420p'
+    || Math.abs(duration - expected.frames / expected.fps) > 1 / expected.fps) {
+    throw new Error(`Sketch Draw output failed its frame count, frame rate, geometry or silent H.264 check. File preserved: ${filePath}. Retry renders this scene again.`)
+  }
+  return duration
+}
 
 async function assertUsableFile(filePath: string, label: string): Promise<void> {
   const stat = await fs.stat(filePath).catch(() => null)
@@ -92,6 +260,7 @@ export async function auditSceneClipCompletion(
   sceneIds: string[],
   clipsDirectory: string,
   expectedDurations: Record<string, number> = {},
+  context?: SceneClipFreshnessContext,
 ): Promise<SceneClipCompletionAudit> {
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
   const scenesById = new Map(plan.scenes.map(scene => [scene.id, scene]))
@@ -108,7 +277,7 @@ export async function auditSceneClipCompletion(
     }
     // A saved scope snapshot remains immutable across later editorial changes.
     // Choosing Still deliberately satisfies that scene without a paid clip.
-    if (scene.motion_choice === 'still') continue
+    if (scene.motion_choice === 'still' || context?.stillIds?.includes(sceneId)) continue
     const clipPath = path.join(clipsDirectory, `${sceneId}.mp4`)
     const stat = await fs.stat(clipPath).catch(() => null)
     if (!stat?.isFile()) {
@@ -121,23 +290,20 @@ export async function auditSceneClipCompletion(
       issues.push({ item_id: sceneId, state: 'invalid', reason: 'empty clip' })
       continue
     }
-    if (scene.rendered_motion_prompt !== (scene.motion_prompt || '')) {
-      invalid.push(`${sceneId} (stale motion prompt)`)
-      issues.push({ item_id: sceneId, state: 'invalid', reason: 'stale motion prompt' })
+    const staleReason = await sceneClipStaleReason(scene, context)
+    if (staleReason) {
+      invalid.push(`${sceneId} (${staleReason})`)
+      issues.push({ item_id: sceneId, state: 'invalid', reason: staleReason })
       continue
     }
-    if (scene.image_version != null && scene.clip_source_image_version !== scene.image_version) {
-      invalid.push(`${sceneId} (stale source image)`)
-      issues.push({ item_id: sceneId, state: 'invalid', reason: 'stale source image' })
-      continue
-    }
-    if (scene.motion_choice !== 'clip') {
+    if (scene.motion_choice !== 'clip' && context?.requireSelected !== false) {
       invalid.push(`${sceneId} (clip not selected)`)
       issues.push({ item_id: sceneId, state: 'invalid', reason: 'clip not selected' })
       continue
     }
     try {
-      await assertPlayableSceneClip(clipPath, expectedDurations[sceneId] ?? scene.clip_requested_duration_seconds)
+      if (scene.clip_renderer === 'sketch_draw') await assertSketchDrawClip(clipPath, scene.clip_sketch!)
+      else await assertPlayableSceneClip(clipPath, expectedDurations[sceneId] ?? scene.clip_requested_duration_seconds)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       invalid.push(`${sceneId} (unplayable clip)`)
@@ -217,15 +383,56 @@ export async function checkpointSceneClip(
     requested_duration_seconds?: number
     duration_seconds?: number
     shortfall_mode?: 'hold'
+    renderer?: ScenePlanEntry['clip_renderer']
+    source_image_sha256?: string
+    scene_window_seconds?: number
+    sketch?: ScenePlanEntry['clip_sketch']
+    /** A verified candidate is promoted only after the current plan/settings still match. */
+    candidate_path?: string
+    context?: SceneClipFreshnessContext
+    assertActive?: () => void
   } = {},
 ): Promise<ScenePlan> {
-  await assertUsableFile(clipPath, `Motion clip for ${sceneId}`)
-  const durationSeconds = receipt.duration_seconds ?? await assertPlayableSceneClip(clipPath, receipt.requested_duration_seconds)
+  const candidate = receipt.candidate_path ?? clipPath
+  await assertUsableFile(candidate, `Motion clip for ${sceneId}`)
+  const durationSeconds = receipt.duration_seconds ?? await assertPlayableSceneClip(candidate, receipt.requested_duration_seconds)
   return withLock(planPath, async () => {
     const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     const scene = plan.scenes.find(item => item.id === sceneId)
     if (!scene) throw new Error(`Scene ${sceneId} disappeared before its motion clip could be registered.`)
+    if (receipt.renderer === 'sketch_draw') {
+      const effectiveWindow = receipt.scene_window_seconds ?? sceneWindowSeconds(scene)
+      const reason = await sceneClipStaleReason({ ...scene, clip_renderer: 'sketch_draw',
+        clip_source_image_sha256: receipt.source_image_sha256,
+        clip_scene_window_seconds: effectiveWindow, clip_sketch: receipt.sketch }, receipt.context)
+      if (reason) throw new Error(`Scene ${sceneId} changed while Sketch Draw rendered (${reason}). The previous clip was kept. Retry renders only this missing or stale scene.`)
+    }
+    receipt.assertActive?.()
+    if (receipt.candidate_path) {
+      // The render lives in app temp, which may be on another volume. Stage beside the
+      // destination first so the final visible name is still an atomic rename.
+      try {
+        await fs.rename(receipt.candidate_path, clipPath)
+      } catch (error: any) {
+        if (error?.code !== 'EXDEV') throw error
+        const staged = `${clipPath}.${process.pid}.${Date.now()}.tmp`
+        try {
+          await fs.copyFile(receipt.candidate_path, staged)
+          await fs.rename(staged, clipPath)
+          await fs.unlink(receipt.candidate_path).catch(() => {})
+        } catch (copyError) {
+          await fs.unlink(staged).catch(() => {})
+          throw copyError
+        }
+      }
+    }
 
+    scene.clip_renderer = receipt.renderer ?? 'image_to_video'
+    scene.clip_source_image_sha256 = receipt.source_image_sha256
+    if (receipt.renderer === 'sketch_draw') scene.clip_scene_window_seconds = receipt.scene_window_seconds ?? sceneWindowSeconds(scene)
+    else delete scene.clip_scene_window_seconds
+    if (receipt.sketch) scene.clip_sketch = receipt.sketch
+    else delete scene.clip_sketch
     scene.clip_path = clipPath
     scene.rendered_motion_prompt = renderedMotionPrompt
     scene.clip_source_image_version = sourceImageVersion

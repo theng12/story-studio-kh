@@ -22,7 +22,7 @@ import CoreGraphics
 import ImageIO
 import Metal
 
-let HELPER_VERSION = 1
+let HELPER_VERSION = 2
 
 struct PlanFrame: Decodable {
     var z: Double          // magnification of the canvas (1 = fitted picture fills the frame)
@@ -58,8 +58,13 @@ if args.count >= 2 && args[1] == "--version" {
     exit(0)
 }
 guard args.count >= 3, args[1] == "--job" else { fail(2, "usage: scene-clip --job job.json | --version") }
-guard let jobData = FileManager.default.contents(atPath: args[2]),
-      let job = try? JSONDecoder().decode(Job.self, from: jobData) else { fail(2, "cannot read job \(args[2])") }
+guard let jobData = FileManager.default.contents(atPath: args[2]) else { fail(2, "cannot read job \(args[2])") }
+if let kind = (try? JSONSerialization.jsonObject(with: jobData)) as? [String: Any], kind["kind"] as? String == "sketch" {
+    guard let sketch = try? JSONDecoder().decode(SketchJob.self, from: jobData) else { fail(2, "bad sketch job") }
+    renderSketch(sketch)
+    exit(0)
+}
+guard let job = try? JSONDecoder().decode(Job.self, from: jobData) else { fail(2, "cannot read job \(args[2])") }
 guard job.width > 0, job.height > 0, job.width % 2 == 0, job.height % 2 == 0, job.fps > 0, !job.frames.isEmpty else {
     fail(2, "bad geometry or empty plan")
 }

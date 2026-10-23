@@ -610,10 +610,15 @@ export async function writeDerivedScenePlan(
           ...(prev.image_path ? { image_path: prev.image_path } : {}),
           ...(prev.rendered_prompt !== undefined ? { rendered_prompt: prev.rendered_prompt } : {}),
           ...(prev.image_version ? { image_version: prev.image_version } : {}),
+          ...(prev.image_sha256 ? { image_sha256: prev.image_sha256 } : {}),
           ...(prev.motion_choice ? { motion_choice: prev.motion_choice } : {}),
           ...(prev.clip_path ? { clip_path: prev.clip_path } : {}),
           ...(prev.rendered_motion_prompt !== undefined ? { rendered_motion_prompt: prev.rendered_motion_prompt } : {}),
           ...(prev.clip_source_image_version ? { clip_source_image_version: prev.clip_source_image_version } : {}),
+          ...(prev.clip_renderer ? { clip_renderer: prev.clip_renderer } : {}),
+          ...(prev.clip_source_image_sha256 ? { clip_source_image_sha256: prev.clip_source_image_sha256 } : {}),
+          ...(prev.clip_scene_window_seconds !== undefined ? { clip_scene_window_seconds: prev.clip_scene_window_seconds } : {}),
+          ...(prev.clip_sketch ? { clip_sketch: prev.clip_sketch } : {}),
           approved: !!prev.approved,
         } : { approved: false }
         return {

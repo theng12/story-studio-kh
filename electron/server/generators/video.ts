@@ -75,6 +75,7 @@ import {
 } from '../lib/video-assembly-checkpoint.js'
 import { resolveSceneImagesDir } from './scene-image.js'
 import { resolveVideoAssetsDir } from './scene-clip.js'
+import { sceneClipStaleReason, resolveSketchDrawSettings } from '../services/scene-media-checkpoint.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
 import {
   FINAL_SEGMENT_SEC, STILL_TAIL_LOOP_SEC, canResumeGraph, concatMuxArgs, frameSecFromFramemd5, hashJson, planFinalSegments, segmentCount,
@@ -928,7 +929,7 @@ const QUALITY_PRESETS: Record<string, { crf: number; preset: string }> = {
   high:    { crf: 18, preset: 'slow' },
 }
 
-const DEFAULT_FPS = 30
+export const DEFAULT_FPS = 30
 
 /**
  * Pure builder for the codec/audio/pixfmt portion of the final encode argv.
@@ -1196,6 +1197,8 @@ export interface ScannedAssets {
     missing: Array<{ id: string; scene_index: number }>
     unapproved: Array<{ id: string; scene_index: number }>
     stale: Array<{ id: string; scene_index: number }>
+    /** Selected clips Assembly refused as stale; each names the scene and why it fell back to the still. */
+    motion_fallback?: Array<{ id: string; scene_index: number; reason: string }>
   }
   scene_plan_timing?: {
     built_at?: string
@@ -1381,10 +1384,15 @@ export async function scanEpisodeAssets(
       const missingPlannedScenes: Array<{ id: string; scene_index: number }> = []
       const unapprovedPlannedScenes: Array<{ id: string; scene_index: number }> = []
       const stalePlannedScenes: Array<{ id: string; scene_index: number }> = []
+      const motionFallback: Array<{ id: string; scene_index: number; reason: string }> = []
       const clipsDir = await resolveVideoAssetsDir(slug, code, episodeDir)
       // One readdir per folder instead of up to 4 existsSync per scene (S7).
       const listing = async (dir: string) => new Set(dir ? await safeReaddir(dir) : [])
       const [namedFiles, flatFiles, clipFiles] = await Promise.all([listing(namedSceneDir), listing(legacySceneDir), listing(clipsDir)])
+      // Resolved once for this scan; only a Sketch Draw selection needs it.
+      const scanSketchSettings = planScenes.some((scene: any) => scene.clip_renderer === 'sketch_draw')
+        ? await resolveSketchDrawSettings(slug, code).catch(() => undefined)
+        : undefined
       let usableCount = 0
       for (const scene of planScenes) {
         // v1.0.456/457 — resolve robustly: unified named folder first, then the
@@ -1408,14 +1416,13 @@ export async function scanEpisodeAssets(
         const canonicalClip = path.join(clipsDir, `${scene.id}.mp4`)
         const clipPath = clipFiles.has(`${scene.id}.mp4`) ? canonicalClip
           : scene.clip_path && existsSync(scene.clip_path) ? scene.clip_path : ''
-        const clipPromptCurrent = typeof scene.rendered_motion_prompt !== 'string'
-          || scene.rendered_motion_prompt === (scene.motion_prompt || '')
-        const clipImageCurrent = typeof scene.image_version !== 'string'
-          || scene.clip_source_image_version === scene.image_version
+        const clipFreshReason = scene.motion_choice === 'clip' && clipPath
+          ? await sceneClipStaleReason(scene, { slug, episodeId: code, episodeDir, imagePath: plannedPath, sketchSettings: scanSketchSettings })
+          : null
+        if (clipFreshReason) motionFallback.push({ id: scene.id, scene_index: scene.scene_index, reason: clipFreshReason })
         const useMotion = scene.motion_choice === 'clip'
           && !!clipPath
-          && clipPromptCurrent
-          && clipImageCurrent
+          && !clipFreshReason
         result.scenes.push({
           filename: path.basename(useMotion ? clipPath : plannedPath),
           path: useMotion ? clipPath : plannedPath,
@@ -1441,6 +1448,7 @@ export async function scanEpisodeAssets(
         missing: missingPlannedScenes,
         unapproved: unapprovedPlannedScenes,
         stale: stalePlannedScenes,
+        motion_fallback: motionFallback,
       }
     } catch (error: any) {
       throw new Error(`Scene Plan could not be read safely: ${error?.message || error}`)
@@ -2354,6 +2362,12 @@ export async function prepareUnifiedVideoAssemblyInputs(
     job?.output_lines.push(`${coverage.stale.length} scene picture(s) were drawn from an older prompt `
       + `(${coverage.stale.slice(0, 8).map(row => `#${row.scene_index}`).join(', ')}${coverage.stale.length > 8 ? ', …' : ''}); `
       + 'using them as they are. Re-render them in Scene Review to refresh them.')
+  }
+  if (coverage.motion_fallback?.length) {
+    // §4 announce rule: a selected clip that Assembly drops must be named, with its reason.
+    for (const row of coverage.motion_fallback) {
+      job?.output_lines.push(`Scene #${row.scene_index} (${row.id}) clip not used — ${row.reason}; its approved still will be used. Re-generate it in Motion Review.`)
+    }
   }
   const blockingUncovered = blockingUncoveredNarrationSeconds(
     timing,

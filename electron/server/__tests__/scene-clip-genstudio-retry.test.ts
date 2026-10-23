@@ -240,7 +240,7 @@ test('a batch audits saved clips before declaring no work and reports deleted re
   const batch = source.slice(source.indexOf('export async function generateSceneClipsBatchJob'))
 
   const earlyReturn = batch.slice(batch.indexOf('if (!ready.length)'), batch.indexOf('const originalParams'))
-  assert.match(earlyReturn, /auditSceneClipCompletion\(planPath, requiredIds, clipsDir, expectedDurations\)/,
+  assert.match(earlyReturn, /auditSceneClipCompletion\(planPath, requiredIds, clipsDir, expectedDurations[,)]/,
     'a non-empty, corrupt or wrong-duration saved file must fail completion rather than return success')
   assert.match(batch, /const requiredIds: string\[\] = requestedSceneIds \? \[\.\.\.requestedSceneIds\] : \[\]/,
     'a map entry whose Scene Plan row was deleted must remain a missing required item')
@@ -258,7 +258,9 @@ test('a Follow narration batch preserves its hold mode for each child clip', () 
 
 test('a rejected replacement candidate leaves the active clip untouched', () => {
   const source = readFileSync(new URL('../generators/scene-clip.ts', import.meta.url), 'utf8')
-  const download = source.slice(source.indexOf('await downloadVideo('), source.indexOf('await checkpointSceneClip('))
+  const downloadAt = source.indexOf('await downloadVideo(')
+  // The local Sketch Draw path checkpoints earlier in the file; bound the slice after the download.
+  const download = source.slice(downloadAt, source.indexOf('await checkpointSceneClip(', downloadAt))
 
   assert.match(download, /candidatePath/,
     'provider bytes must land beside, never directly on top of, the active clip')

@@ -10,12 +10,13 @@
  * costs speed, never correctness; the release check still insists on it so the speed-up cannot be
  * lost silently.
  *
- * Plain `swiftc`, no SwiftPM: one source file, no dependencies, and it works on a Mac that only has
+ * Plain `swiftc`, no SwiftPM: two source files, no dependencies, and it works on a Mac that only has
  * the Command Line Tools. Output lands in `bundled/` beside ffmpeg (electron-builder excludes
  * `build/` from extraResources; see fetch-ffmpeg.mjs).
  *
  *   node scripts/build-scene-clip.mjs            build (always rebuilds)
- *   node scripts/build-scene-clip.mjs --check    build into a temp dir, run `--version`, discard
+ *   node scripts/build-scene-clip.mjs --check    build into a temp dir, run `--version`, retire to _trash
+ *   node scripts/build-scene-clip.mjs --output-dir /abs/path   retain an isolated proof build
  *
  * The helper version printed by `--version` must equal NATIVE_SCENE_CLIP_VERSION in
  * native-scene-clip.ts; the app refuses a helper whose version disagrees.
@@ -29,9 +30,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const source = path.join(root, 'native', 'scene-clip', 'main.swift')
+const sources = ['main.swift', 'SketchDraw.swift'].map(file => path.join(root, 'native', 'scene-clip', file))
 const check = process.argv.includes('--check')
-const outDir = check ? fs.mkdtempSync(path.join(os.tmpdir(), 'scene-clip-')) : path.join(root, 'bundled', 'scene-clip')
+const outputArg = process.argv.indexOf('--output-dir')
+const outDir = outputArg >= 0 ? path.resolve(process.argv[outputArg + 1])
+  : check ? fs.mkdtempSync(path.join(os.tmpdir(), 'scene-clip-')) : path.join(root, 'bundled', 'scene-clip')
 const binary = path.join(outDir, 'scene-clip')
 
 if (process.platform !== 'darwin') {
@@ -46,7 +49,7 @@ const swift = spawnSync('swiftc', [
   // The AVAssetWriter APIs this uses are deprecated on the newest SDKs but present on every macOS the app supports.
   '-suppress-warnings',
   '-o', binary,
-  source,
+  ...sources,
 ], { stdio: 'inherit' })
 if (swift.error || swift.status !== 0) {
   console.error('build-scene-clip: swiftc failed (is the Xcode Command Line Tools install present?)')
@@ -63,11 +66,15 @@ if (!check) {
   const swiftVersion = spawnSync('swiftc', ['--version'], { encoding: 'utf8' }).stdout.split('\n')[0]
   fs.writeFileSync(path.join(outDir, 'MANIFEST.json'), JSON.stringify({
     helper: version.stdout.trim(),
-    source_sha256: createHash('sha256').update(fs.readFileSync(source)).digest('hex'),
+    source_sha256: createHash('sha256').update(Buffer.concat(sources.map(source => fs.readFileSync(source)))).digest('hex'),
     binary_sha256: createHash('sha256').update(fs.readFileSync(binary)).digest('hex'),
     toolchain: swiftVersion,
     target: 'arm64-apple-macos13.0',
   }, null, 2) + '\n')
 }
-console.log(`build-scene-clip: ${version.stdout.trim()} -> ${check ? '(checked, discarded)' : path.relative(root, binary)}`)
-if (check) fs.rmSync(outDir, { recursive: true, force: true })
+console.log(`build-scene-clip: ${version.stdout.trim()} -> ${path.relative(root, binary)}${check ? ' (checked)' : ''}`)
+if (check && outputArg < 0) {
+  const trash = path.join(root, '_trash', 'scene-clip-build-checks')
+  fs.mkdirSync(trash, { recursive: true })
+  fs.renameSync(outDir, path.join(trash, path.basename(outDir)))
+}

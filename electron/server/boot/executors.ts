@@ -113,7 +113,8 @@ export async function auditSceneClips(job: any): Promise<'complete' | 'repair-re
     ? ids
     : withoutDeliberateStillScenes(JSON.parse(await fs.readFile(planPath, 'utf8')), ids)
   if (!auditIds.length) return 'complete'
-  const audit = await auditSceneClipCompletion(planPath, auditIds, job.output_dir || paths.video_assets_dir)
+  const audit = await auditSceneClipCompletion(planPath, auditIds, job.output_dir || paths.video_assets_dir, {},
+    { slug: job.project_slug, episodeId: job.episode_id, episodeDir: paths.episode_dir })
   return audit.completed === audit.expected ? 'complete' : 'repair-required'
 }
 

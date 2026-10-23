@@ -81,6 +81,7 @@
     { "from": "bundled/ffmpeg",             "to": "ffmpeg" },
     { "from": "bundled/scene-clip",         "to": "scene-clip", "filter": ["scene-clip"] },
     { "from": "bundled/LICENSE-FFMPEG.txt", "to": "LICENSE-FFMPEG.txt" },
+    { "from": "bundled/LICENSE-SKETCH-DRAW.txt", "to": "LICENSE-SKETCH-DRAW.txt" },
     { "from": "CHANGELOG.md",               "to": "CHANGELOG.md" }
   ],
   "mac": {

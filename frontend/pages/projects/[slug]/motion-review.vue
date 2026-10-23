@@ -80,9 +80,35 @@
       <div class="motion-tool-row">
         <div class="motion-tool-heading">
           <strong>Motion controls</strong>
-          <span>Pick a model, then generate or make one decision for each scoped scene.</span>
+          <span>Choose how clips are made, then review each scoped scene.</span>
         </div>
-        <div class="motion-tools">
+        <div class="motion-renderer-row">
+          <label class="model-field renderer-field">
+            <span>Renderer</span>
+            <select v-model="clipRenderer" class="select" :disabled="!presentationLoaded || presentationSaving" aria-label="Motion renderer" @change="saveMotionPresentation">
+              <option value="image_to_video">Image to video</option>
+              <option value="sketch_draw">Sketch Draw</option>
+            </select>
+          </label>
+          <label v-if="isSketchDraw" class="model-field renderer-field">
+            <span>Pen</span>
+            <select v-model="sketchPen" class="select" :disabled="!presentationLoaded || presentationSaving" aria-label="Sketch Draw pen" aria-describedby="sketch-pen-help" @change="saveMotionPresentation">
+              <option value="none">No pen (default)</option>
+              <option value="plain">Plain pen</option>
+              <option value="name">Pen with channel name</option>
+              <option value="logo" :disabled="!channelHasLogo">Pen with channel logo</option>
+            </select>
+          </label>
+          <p v-if="isSketchDraw" id="sketch-pen-help" class="renderer-help" role="status">
+            Draw the exact scene image, add colour, then hold the complete image for its Scene Plan window. Free, on this Mac.
+            Each clip lasts exactly its scene window at your Video Assembly frame rate; prompt text does not change the drawing.
+            <span v-if="sketchPen === 'name'">Pen name: {{ channelName }}.</span>
+            <span v-if="!channelHasLogo">Channel logo pen is unavailable. Add a logo in Channel Profile to use it.</span>
+          </p>
+          <p v-if="presentationError" class="stale-note" role="alert">{{ presentationError }}</p>
+        </div>
+        <div class="motion-tools" :class="{ 'sketch-tools': isSketchDraw }">
+          <template v-if="!isSketchDraw">
           <label class="model-field">
             <span>Image-to-video model</span>
             <ModelMenu
@@ -208,6 +234,7 @@
             <span>Price is confirmed when each clip starts.</span>
             <span v-if="existingClipCount">Existing clips stay out of this batch.</span>
           </div>
+          </template>
           <button v-if="motionScope.mode === 'all'" class="btn btn-sm btn-secondary" :disabled="savingAll || scopedClipCount === 0" @click="approveAllClips">
             Approve All Fresh Clips
           </button>
@@ -268,11 +295,11 @@
             ><small>Estimated cost</small><strong>{{ formatCredits(scene.duration_plan.variant.credits_per_video) }}</strong></span>
           </div>
           <p class="transcript">{{ scene.transcript_segment }}</p>
-          <details class="disclosure" open>
+          <details v-if="!isSketchDraw" class="disclosure" open>
             <summary>Motion direction</summary>
             <p class="motion-prompt">{{ scene.motion_prompt || 'No motion prompt. Add one in Scene Plan, or keep this scene as a still.' }}</p>
           </details>
-          <p v-if="scene.clip_stale" class="stale-note">The motion direction changed after this clip was generated. Re-generate before approval.</p>
+          <p v-if="scene.clip_stale" class="stale-note">This clip needs to be generated again: {{ scene.clip_stale_reason || 'its source or scene window changed' }}. Re-generate before approval.</p>
         </div>
 
         <div class="motion-actions">
@@ -283,7 +310,8 @@
           >{{ uploadingId === scene.id ? 'Uploading...' : 'Upload External MP4' }}</button>
           <button
             class="btn btn-sm btn-secondary"
-            :disabled="!scopedMotionSceneIds.has(scene.id) || !selectionReady || !scene.image_filename || !scene.motion_prompt || animatingId === scene.id"
+            :disabled="!scopedMotionSceneIds.has(scene.id) || !selectionReady || !scene.image_filename || sceneTooShort(scene) || (isSketchDraw ? !scene.approved : !scene.motion_prompt) || animatingId === scene.id"
+            :title="sceneTooShort(scene) ? `Shorter than this channel's ${animateMinSeconds}s animation minimum` : undefined"
             @click="generateOne(scene)"
           >{{ animatingId === scene.id ? 'Queuing...' : (scene.clip_exists ? 'Re-Generate Clip' : 'Generate Clip') }}</button>
           <button
@@ -327,6 +355,7 @@ import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-
 import { hasPriceTruth } from '~/utils/genstudio-price-usd'
 import { variantsForVideoOperation } from '~/utils/genstudio-video-variants'
 import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModels'
+import { motionBatchEligible, sketchSelectionReady } from '~/utils/motion-review-sketch'
 
 // usePresets captures the project slug at setup. Recreate this page for a
 // project navigation so controls and scene state cannot carry into another project.
@@ -350,6 +379,8 @@ interface MotionScene {
   image_filename: string | null
   clip_exists?: boolean
   clip_stale?: boolean
+  clip_stale_reason?: string
+  clip_renderer?: 'sketch_draw' | 'image_to_video' | 'external'
   motion_choice?: MotionChoice
 }
 interface MotionStats {
@@ -410,6 +441,41 @@ const savingId = ref<string | null>(null)
 const animatingId = ref<string | null>(null)
 const uploadingId = ref<string | null>(null)
 const videoModel = ref('')
+const clipRenderer = ref<'image_to_video' | 'sketch_draw'>('image_to_video')
+const sketchPen = ref<'none' | 'plain' | 'name' | 'logo'>('none')
+const isSketchDraw = computed(() => clipRenderer.value === 'sketch_draw')
+const channelName = ref('')
+const channelHasLogo = ref(false)
+const presentationLoaded = ref(false)
+const presentationSaving = ref(false)
+const presentationError = ref('')
+let acceptedPresentation = { renderer: 'image_to_video' as 'image_to_video' | 'sketch_draw', pen: 'none' as 'none' | 'plain' | 'name' | 'logo' }
+async function loadMotionPresentation() {
+  try {
+    const result = await get<{ renderer: typeof clipRenderer.value; pen: typeof sketchPen.value; channel_name: string; has_logo: boolean }>(`/projects/${slug.value}/motion-presentation`)
+    clipRenderer.value = result.renderer
+    sketchPen.value = result.pen
+    channelName.value = result.channel_name
+    channelHasLogo.value = result.has_logo
+    acceptedPresentation = { renderer: result.renderer, pen: result.pen }
+    presentationLoaded.value = true
+    presentationError.value = ''
+  } catch (error: any) { presentationError.value = error?.data?.detail || error?.message || 'Could not load channel motion settings. Reopen Motion Review to retry.' }
+}
+async function saveMotionPresentation() {
+  presentationSaving.value = true
+  presentationError.value = ''
+  try {
+    await put(`/projects/${slug.value}/motion-presentation`, { renderer: clipRenderer.value, pen: sketchPen.value })
+    acceptedPresentation = { renderer: clipRenderer.value, pen: sketchPen.value }
+    await loadReview()
+  } catch (error: any) {
+    clipRenderer.value = acceptedPresentation.renderer
+    sketchPen.value = acceptedPresentation.pen
+    presentationError.value = error?.data?.detail || error?.message || 'Could not save the renderer and pen. Try again.'
+    showError(presentationError.value)
+  } finally { presentationSaving.value = false }
+}
 /**
  * The operator's own choice for each published switch, by published name.
  *
@@ -793,6 +859,7 @@ function formatSeconds(seconds: number): string {
 }
 
 function durationPlanForScene(scene: MotionScene): DurationPlan | null {
+  if (isSketchDraw.value) return null
   const narration = Math.max(0, scene.end_sec - scene.start_sec)
   const variant = durationMode.value === 'follow_narration'
     ? snappedVariant(narration)
@@ -827,16 +894,18 @@ function durationPlanForScene(scene: MotionScene): DurationPlan | null {
   }
 }
 
-function batchEligible(scene: MotionScene): boolean {
-  return !usesImagePool.value
-    && scopedMotionSceneIds.value.has(scene.id)
-    && scene.approved
-    && !!scene.image_filename
-    && !!scene.motion_prompt?.trim()
-    && !scene.clip_exists
-    && scene.motion_choice !== 'still'
-    && scene.end_sec - scene.start_sec >= animateMinSeconds.value
+function sceneTooShort(scene: MotionScene): boolean {
+  return scene.end_sec - scene.start_sec < animateMinSeconds.value
 }
+function batchEligible(scene: MotionScene): boolean {
+  return motionBatchEligible(scene, {
+    isSketchDraw: isSketchDraw.value,
+    scoped: scopedMotionSceneIds.value.has(scene.id),
+    animateMinSeconds: animateMinSeconds.value,
+    imagePool: usesImagePool.value,
+  })
+}
+const eligibleClipCount = computed(() => scenes.value.filter(batchEligible).length)
 const batchPlans = computed(() => scenes.value.filter(batchEligible)
   .map(durationPlanForScene)
   .filter((plan): plan is DurationPlan => plan !== null))
@@ -867,16 +936,24 @@ const allScopedMotionReviewed = computed(() => motionSceneIds.value.length > 0
 const scenePlanMotionLink = computed(() => `/projects/${slug.value}/scene-plan?episode_id=${encodeURIComponent(episodeId.value)}#visual-timing`)
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))
-const selectionReady = computed(() => !!selectedResolution.value
+const selectionReady = computed(() => isSketchDraw.value
+  ? sketchSelectionReady({ loaded: presentationLoaded.value, saving: presentationSaving.value,
+      pen: sketchPen.value, hasLogo: channelHasLogo.value })
+  : !!selectedResolution.value
   && availableAspectRatios.value.includes(selectedAspectRatio.value)
   && !!selectedResolutionVariants.value.length
   && (durationMode.value === 'follow_narration' || !!selectedManualVariant.value)
   && !i2vModels.value.find(model => model.id === videoModel.value)?.disabled)
-const canGenerate = computed(() => !usesImagePool.value && !!episodeId.value && !!videoModel.value
-  && selectionReady.value && batchPlans.value.length > 0)
+const canGenerate = computed(() => !usesImagePool.value && !!episodeId.value && (isSketchDraw.value || !!videoModel.value)
+  && selectionReady.value && (isSketchDraw.value ? eligibleClipCount.value > 0 : batchPlans.value.length > 0))
 const generateStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (usesImagePool.value) return 'Motion Review is not used for Image Pool episodes'
+  if (isSketchDraw.value) {
+    if (!presentationLoaded.value) return presentationError.value || 'Loading channel motion settings'
+    if (!selectionReady.value) return 'Choose an available pen'
+    return eligibleClipCount.value ? `${eligibleClipCount.value} missing or stale clips ready for Sketch Draw on this Mac` : 'No approved missing or stale clips are waiting for Sketch Draw'
+  }
   if (!i2vModels.value.length) return 'No image-to-video model is available right now. Scenes stay still.'
   if (!videoModel.value) return 'Pick an image-to-video model'
   if (!availableAspectRatios.value.includes(selectedAspectRatio.value)) return 'Choose an aspect ratio'
@@ -944,6 +1021,7 @@ async function loadReview(options: { bustCache?: boolean } = {}) {
 }
 
 function generationPayload(): Record<string, string | number | boolean> | null {
+  if (isSketchDraw.value) return selectionReady.value ? { renderer: 'sketch_draw' } : null
   if (!videoModel.value || !selectionReady.value) return null
   // Only a switch this model publishes AND the operator actually chose travels. The `audio`
   // wire field is carried by its published name, which is the lane's own contract — the same
@@ -969,15 +1047,17 @@ async function generateOne(scene: MotionScene) {
   if (usesImagePool.value || !scopedMotionSceneIds.value.has(scene.id)) return
   const payload = generationPayload()
   if (!payload) return
+  const ep = episodeId.value
   if (scene.clip_exists && !await ask({
     title: `Re-generate the clip for scene ${scene.scene_index}?`,
-    message: 'This replaces the current clip, and re-generating is charged again.',
+    message: isSketchDraw.value ? 'This replaces the current clip with a local Sketch Draw clip. No credits are charged.' : 'This replaces the current clip, and re-generating is charged again.',
     confirmLabel: 'Re-Generate Clip',
     danger: true,
   })) return
+  if (ep !== episodeId.value) return
   animatingId.value = scene.id
   try {
-    await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-clip`, {
+    await post(`/projects/${slug.value}/scene-review/${ep}/generate-clip`, {
       scene_id: scene.id,
       ...payload,
     })
@@ -985,33 +1065,37 @@ async function generateOne(scene: MotionScene) {
   } catch (error: any) {
     showError(error?.data?.detail || error?.message || 'Could not queue the clip')
   } finally {
-    animatingId.value = null
+    if (ep === episodeId.value) animatingId.value = null
   }
 }
 
 async function generateMissing() {
   const payload = generationPayload()
-  if (!payload || !batchPlans.value.length) return
-  const count = batchPlans.value.length
-  if (!await ask({
+  const count = isSketchDraw.value ? eligibleClipCount.value : batchPlans.value.length
+  if (!payload || !count) return
+  const ep = episodeId.value
+  if (!isSketchDraw.value && !await ask({
     title: `Generate ${count} ${count === 1 ? 'clip' : 'clips'}?`,
     message: `This starts ${count} paid ${count === 1 ? 'clip' : 'clips'}.`
       + (videoHasUsdPrice.value ? '' : ` Estimated total: ${formatCredits(batchListedTotal.value)}.`)
       + ' The price is confirmed when each clip starts.',
     confirmLabel: 'Generate Clips',
   })) return
+  if (ep !== episodeId.value) return
   queuing.value = true
   try {
-    const result = await post<{ queued: number; skipped: number }>(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-missing-clips`, {
+    const result = await post<{ queued: number; skipped: number; skipped_reasons?: Array<{ scene_id: string; reason: string }> }>(`/projects/${slug.value}/scene-review/${ep}/generate-missing-clips`, {
       ...payload,
     })
     const queued = result.queued || 0
+    const reasons = (result.skipped_reasons || []).map(row => `${row.scene_id}: ${row.reason}`)
     if (queued) success(`${queued} ${queued === 1 ? 'clip' : 'clips'} queued.`)
-    else info('Nothing new to queue. Every eligible scene already has a clip or is waiting for one.')
+    if (reasons.length) info(`Not queued — ${reasons.slice(0, 6).join('; ')}${reasons.length > 6 ? `; +${reasons.length - 6} more` : ''}.`)
+    else if (!queued) info('Nothing new to queue. Every eligible scene already has a fresh, selected clip.')
   } catch (error: any) {
     showError(error?.data?.detail || error?.message || 'Could not queue motion clips')
   } finally {
-    queuing.value = false
+    if (ep === episodeId.value) queuing.value = false
   }
 }
 
@@ -1065,9 +1149,14 @@ async function setChoice(scene: MotionScene, choice: 'clip' | 'still') {
 async function setAll(choice: 'clip' | 'still') {
   savingAll.value = true
   try {
-    await put(`/projects/${slug.value}/scene-review/${episodeId.value}/motion-choice`, { all: true, choice })
+    const result = await put<{ changed?: number }>(`/projects/${slug.value}/scene-review/${episodeId.value}/motion-choice`, { all: true, choice })
+    const changed = Number(result?.changed) || 0
     await loadReview()
-    success(choice === 'clip' ? 'All fresh clips approved.' : 'All scenes will use their still images.')
+    if (choice === 'clip') {
+      success(changed === scopedClipCount.value
+        ? 'All fresh clips approved.'
+        : `${changed} fresh clips approved. ${Math.max(0, scopedClipCount.value - changed)} clip(s) were already decided or need re-generating, so they were not approved.`)
+    } else success('All scenes will use their still images.')
   } catch (error: any) {
     showError(error?.data?.detail || error?.message || 'Could not save motion decisions')
   } finally {
@@ -1100,6 +1189,7 @@ function scrollToTop(): void {
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
+  void loadMotionPresentation()
   void refreshGenStudioMediaModels()
   refreshTimer = setInterval(() => {
     if (clipJobsActive.value && !loading.value) void loadReview()
@@ -1148,6 +1238,11 @@ onBeforeUnmount(() => {
  * that follows either fills it or reports its own failure.
  */
 function resetEpisodeScopedMotionState() {
+  queuing.value = false
+  savingAll.value = false
+  savingId.value = null
+  animatingId.value = null
+  uploadingId.value = null
   scenes.value = []
   stats.value = null
   animateMinSeconds.value = 0
@@ -1215,6 +1310,12 @@ watch(episodeId, () => {
 .motion-tool-heading { display: flex; flex-direction: column; gap: 3px; }
 .motion-tool-heading strong { font-size: 13px; }
 .motion-tool-heading span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
+.motion-renderer-row { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.motion-renderer-row .renderer-field { flex: 0 1 240px; min-width: 0; }
+.renderer-help { flex: 1 1 280px; max-width: 70ch; margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.5; }
+.renderer-help span { display: block; }
+.motion-tools.sketch-tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.motion-tools.sketch-tools > .btn { grid-column: auto; grid-row: auto; }
 .motion-tools { display: grid; grid-template-columns: minmax(300px, 1.2fr) minmax(140px, .45fr) minmax(420px, 1.4fr) max-content max-content; align-items: end; justify-content: stretch; }
 .model-field { min-width: 280px; }
 .model-field > span, .media-label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .07em; text-transform: uppercase; }

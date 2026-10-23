@@ -2093,6 +2093,13 @@ export interface ChannelProfileConfig {
   banner?: string
 }
 
+export type SceneClipRenderer = 'image_to_video' | 'sketch_draw'
+export type SketchDrawPenMode = 'none' | 'plain' | 'name' | 'logo'
+export interface MotionPresentationSettings {
+  renderer: SceneClipRenderer
+  pen: SketchDrawPenMode
+}
+
 export interface ProjectConfig {
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check; only changed rows are saved. */
   safety_checks?: Record<string, 'off' | 'warn' | 'block'>
@@ -2102,6 +2109,8 @@ export interface ProjectConfig {
    * channel's name stays in `ProjectMeta.name`.
    */
   channel_profile?: ChannelProfileConfig
+  /** Channel presentation selections only; images, duration and branding resolve live. */
+  motion_presentation?: MotionPresentationSettings
   llm_lineup_migration?: LlmLineupMigration
   /** Historical project files may contain retired fields; Story ignores them. */
   [key: string]: any
@@ -4653,6 +4662,19 @@ export interface ScenePlanEntry {
   rendered_motion_prompt?: string
   /** image_version used as the clip's first frame; enables source-image stale checks. */
   clip_source_image_version?: string
+  clip_renderer?: SceneClipRenderer | 'external'
+  /** Actual input identity and Scene Plan window at render/upload start. */
+  clip_source_image_sha256?: string
+  clip_scene_window_seconds?: number
+  /** Required, exact local-render provenance. Provider receipts remain independent. */
+  clip_sketch?: {
+    helper_version: number
+    fps: number
+    frames: number
+    width: number
+    height: number
+    pen_fingerprint: string
+  }
   /** The exact paid clip duration accepted for this scene. External clips clear
    * this provider receipt; it is not a catalogue limit or preset value. */
   clip_requested_duration_seconds?: number
