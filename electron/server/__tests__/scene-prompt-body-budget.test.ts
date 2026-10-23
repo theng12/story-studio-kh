@@ -246,7 +246,7 @@ describe('the generator hands the writer the body budget', () => {
     const text = writerText()
     assert.match(text, new RegExp(`${expectedBody.toLocaleString()} is a hard ceiling`),
       'the saved numeric ceiling is still enforced')
-    assert.match(text, /allowance saved with the run, not a figure read live from the image model/)
+    assert.match(text, /a limit saved with the run, not a figure read live from the image model/)
     assert.doesNotMatch(text, /4,800/, 'the live catalogue figure is not substituted for the saved allowance')
     assert.ok(run.output_lines.some((line: string) => line.includes('saved with this run, not a live published figure')),
       'the job log does not claim the saved number is published')

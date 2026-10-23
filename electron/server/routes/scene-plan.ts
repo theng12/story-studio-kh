@@ -82,9 +82,10 @@ function scenePromptReplayFingerprint(params: Record<string, unknown>) {
     style_prompt: params.style_prompt,
     custom_instructions: params.custom_instructions,
     creative_direction: params.creative_direction,
-    prompt_char_cap: params.prompt_char_cap,
-    prompt_char_cap_selection: params.prompt_char_cap_selection,
-    intended_image_model: params.intended_image_model,
+    // Absent and empty are the same request: jobs queued before these fields existed store neither.
+    prompt_char_cap: params.prompt_char_cap ?? undefined,
+    prompt_char_cap_selection: params.prompt_char_cap_selection ?? undefined,
+    intended_image_model: params.intended_image_model || undefined,
     avoid_legible_text: params.avoid_legible_text,
   })
 }
