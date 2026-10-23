@@ -435,6 +435,22 @@ library helpers. **Do not restore it.**
 that state and never rewrites it — the same rule as §5's "never rewrite stored presets or project
 data to compensate". The new admission simply never writes it.
 
+### Final assembly on another owned Mac — local-only rule lifted 2026-10-23
+
+AGENTS §7 used to say Final Video Assembly was local-only, with no remote-render fields or remote
+assembly clients. 1.4.347 nonetheless shipped private fleet final rendering (`private_final_render`,
+off by default; `services/final-render-transport.ts` and its staging, reconciler and importer). Its
+build carried descriptor-only render provenance with `qualification: null`, so every leaf stayed
+ineligible and renders stayed local. Formal qualification needed a local launch on an idle 16 GB
+leaf that no authorized channel could reach
+(`_orchestra/app-closeout-20261021/fleet-qualification/ACCESS-REVIEW-20261022.md`).
+
+**Owner, 2026-10-23:** "can't we just acept that it work and use it? like do it. if it breaks we
+fix it that way?" and "do update th erule too. that's outdated." The rule now allows remote final
+rendering through the one paired Gateway. What does not move is that a remote result is accepted
+only through the same import checks as a local render, and it never replaces an accepted final.
+Render Studio selection and FFmpeg credit charging stay retired.
+
 ---
 
 ## 8. Related records kept elsewhere

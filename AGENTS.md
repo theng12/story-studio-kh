@@ -207,9 +207,16 @@ Studio Hub or sibling-Studio routing. Story Studio talks to **exactly one** endp
 be handed a second address. **Named exception (owner, 2026-10-11, plan Q4):** the idea
 generator's real-source lists (`services/reference-pool.ts`) make free, read-only GETs to
 `en.wikipedia.org` — no key, no model, at most one request a second, a User-Agent with nothing
-personal in it, cached, and failing soft. It is not a model endpoint; never route generation there. Final Video Assembly is local-only: no Render Studio selection,
-remote-render fields, remote assembly clients, or credit charging for FFmpeg work on the
-customer's Mac.
+personal in it, cached, and failing soft. It is not a model endpoint; never route generation there.
+
+**Final Video Assembly — owner, 2026-10-23, superseding the earlier local-only rule:** a final
+render may be sent through the one paired Gateway to an idle Mac the owner owns (private fleet
+final rendering, `private_final_render`, off by default, owner-only switch). Render locally whenever
+remote is off, unavailable or refused, and say why. A remote result is accepted only after the same
+import checks as a local render (hash, media, loudness, shared final checks) and never replaces an
+accepted final. Still retired: Render Studio selection and credit charging for FFmpeg work on the
+customer's Mac. The owner chose to use it before formal qualification and fix what breaks; a first
+use goes to an episode with no accepted final.
 
 **Visual style packs.** Use the `story-studio-visual-style-adoption` skill and author exactly one
 standalone pack. `frontend/composables/useVisualStyleCatalog.ts` is the only frontend consumer —
@@ -226,7 +233,7 @@ inventory choose a usable fallback and persist that healed choice.
 **Retired — do not restore.** The Co-writer feature (page, navigation, API routes, local-storage
 stores, completion dependencies) · the shared Brand profile system (`/brands`, `brand_id`, Brand
 routes and storage, Brand-level prompt, voice, logo, pronunciation, art-style, metadata or format
-overrides) · text-to-video · the Add Custom Model form · Render Studio · remote assembly · the
+overrides) · text-to-video · the Add Custom Model form · Render Studio · the
 per-run Pipeline writing-model override — the "Models for this run" picker and the `model_policies`
 batch request field it fed. **Owner, 2026-10-17:** Story Studio does not own the writing model; a
 run uses the model its active preset names, and the Gateway owns any fallback across its own pool.
