@@ -154,7 +154,7 @@ import {
   type MergedAudioOpening,
 } from '../services/merged-audio-opening.js'
 import { scenePlanLeadInShiftSec, shiftScenesForLeadIn } from '../lib/intro-lead-in.js'
-import { narrationSecFromMaster, postRollSeconds } from '../lib/closing-tail.js'
+import { mergedBackgroundMusic, narrationSecFromMaster, postRollSeconds } from '../lib/closing-tail.js'
 import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { compareMergedAudio, MIN_RENDERABLE_SCENE_SEC, unrenderableSceneProblem } from '../lib/scene-plan-timeline.js'
 import {
@@ -774,11 +774,22 @@ export async function finishImportedFinalVideo(
  * check reads the speech end as "not recorded" and reports a silence it cannot place as unknown
  * rather than as speech — so a path that cannot say must not send 0 as if it had measured.
  */
-function finalCheckExpectation(
+export function finalCheckExpectation(
   req: GenerateVideoRequest,
   opts: {
     plannedSec: number
     tailSec: number
+    /**
+     * Seconds of closing music the merged master carries (`closing_tail_sec`: baked at Audio Assembly or
+     * re-mixed by the guard). Required, so no call site can leave the expectation to the preset.
+     */
+    bakedTailSec: number
+    /**
+     * Whether the master's merge recorded a background music bed: true / false as recorded, null when it
+     * did not say (an older merge, or no merged master). Only a KNOWN music-free master may have a
+     * silent tail without the check objecting; "could not tell" keeps the check on (AGENTS.md §6).
+     */
+    backgroundMusic: boolean | null
     tailFromEndSec: number
     width: number
     height: number
@@ -792,7 +803,10 @@ function finalCheckExpectation(
   return {
     planned_sec: opts.plannedSec,
     tail: { sec: opts.tailSec, from_end_sec: opts.tailFromEndSec },
-    closing_music: closingMusicWanted(req.post_audio),
+    // Music is expected over a tail the master carries, and over a padded tail unless the master is
+    // known to have no bed (music off on purpose). A silent ending is never accepted for lack of a record.
+    closing_music: closingMusicWanted(req.post_audio)
+      && (opts.bakedTailSec > 0 || (opts.tailSec > 0 && opts.backgroundMusic !== false)),
     width: opts.width,
     height: opts.height,
     subtitles_path: req.subtitles?.enabled ? ((req.subtitles.srt_path || '').trim() || null) : null,
@@ -2817,6 +2831,10 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
   // (coverage, captions, Image Pool, the plan's clock) must look — while
   // `targetDuration` stays the master's own length.
   const mergedClosingTailSec = useMergedAudio ? (authoritativeAssets.merged_audio[0]?.closing_tail_sec || 0) : 0
+  // Whether that master was recorded with a music bed — the final check's answer to a silent tail.
+  const mergedBackgroundMusicRecord = useMergedAudio && authoritativeAssets.merged_audio[0]
+    ? await mergedBackgroundMusic(authoritativeAssets.merged_audio[0].path, code)
+    : null
   const lengths = resolveVideoLengths({
     sourceDurationSec: narrationDuration,
     bakedClosingTailSec: mergedClosingTailSec,
@@ -3009,8 +3027,8 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
           // this render, so this one cannot place the speech end — and a number that is nearly right
           // would make the check claim a silence it cannot place.
           expected: finalCheckExpectation(req, {
-            plannedSec: carriedFinalStage.total_render_sec, tailSec: postRoll, tailFromEndSec: 0,
-            width: w, height: h,
+            plannedSec: carriedFinalStage.total_render_sec, tailSec: postRoll, bakedTailSec: mergedClosingTailSec, backgroundMusic: mergedBackgroundMusicRecord,
+            tailFromEndSec: 0, width: w, height: h,
           }),
         })
         succeeded = true
@@ -3164,7 +3182,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       // Compilation mode draws no closing tail and has no outro segment (v1), so the plan is the
       // narration and nothing sits after it — the speech runs to the file's own end.
       const compExpected = finalCheckExpectation(req, {
-        plannedSec: totalRenderDuration, tailSec: 0, tailFromEndSec: 0, width: resW, height: resH,
+        plannedSec: totalRenderDuration, tailSec: 0, bakedTailSec: 0, backgroundMusic: null, tailFromEndSec: 0, width: resW, height: resH,
         speechEndSec: totalRenderDuration,
       })
       let compEncodeOk = false
@@ -4113,7 +4131,8 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
 
     const introClipForCheck = await introForFinalCheck(req, timelineClipsByAnchor, introClipPath)
     const finalCheckExpected = finalCheckExpectation(req, {
-      plannedSec: totalRenderDuration, tailSec: postRoll, tailFromEndSec: outroDuration + afterOutroDur,
+      plannedSec: totalRenderDuration, tailSec: postRoll, bakedTailSec: mergedClosingTailSec, backgroundMusic: mergedBackgroundMusicRecord,
+      tailFromEndSec: outroDuration + afterOutroDur,
       width: resW, height: resH,
       // `narrationDuration` is the speech end (see the merged-closing-tail note above), and the
       // narration plays from `narrationLeadInSec` in the file, so this is where the words stop.

@@ -182,8 +182,7 @@ describe('the renderer composition is the one the budget measures', () => {
 describe('the generator hands the writer the body budget', () => {
   test('a live selection reserves the Style Bible and character text — for a non-continuity format too', async () => {
     service.reset()
-    // The renderer is the only scene-image path and appends these layers for
-    // EVERY project. A budget gated on `continuity-chain` would under-reserve
+    // The continuity renderer appends these layers for EVERY project. A budget gated on `continuity-chain` would under-reserve
     // here and the writer would produce a prompt the renderer refuses.
     const f = await fixture({ scenePrompts: ['s1 existing prompt'], format: 'timestamp-driven' })
     service.queueScenario('chat', {

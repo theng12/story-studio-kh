@@ -25,7 +25,7 @@ import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
 import { MIX_LIMITER, type LoudnessTarget } from '../lib/final-loudness.js'
 import { channelLoudnessTarget, levelAndCheck, mergedAudioMasterPath } from '../lib/level-audio.js'
-import { resolveProjectClosingTail, type ClosingTailRequest } from '../lib/closing-tail.js'
+import { closingTailFromPostAudio, resolveProjectClosingTail, type ClosingTailRequest } from '../lib/closing-tail.js'
 import { buildMusicBed, MUSIC_REFERENCE_LUFS } from '../lib/music-bed.js'
 import { measureLoudness } from './music-episode-build.js'
 import type {
@@ -1055,12 +1055,15 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     const noiseEnabled = req.background_noise?.enabled
 
     // The closing tail — the music that plays AFTER the spoken content ends.
-    // Its length and its music controls both come from the Video Assembly
-    // preset's own `post_audio` block (see lib/closing-tail.ts): ONE source of
-    // truth, so the mix and the picture the renderer draws under it cannot
-    // disagree. Only background music can carry it, so a merge with no music
+    // Its length and its music controls both come from the `post_audio` block
+    // of the render this audio is for (see lib/closing-tail.ts): the one the
+    // request carries (Pipeline run, closing-tail re-mix), else the episode's
+    // own saved Video Assembly choice. ONE source of truth, so the mix and the
+    // picture the renderer draws under it cannot disagree. Only background music can carry it, so a merge with no music
     // bakes none and says so rather than leaving a silence unexplained.
-    const savedClosingTail = await resolveProjectClosingTail(project_slug)
+    const savedClosingTail = req.closing_post_audio
+      ? closingTailFromPostAudio(req.closing_post_audio)
+      : await resolveProjectClosingTail(project_slug, code)
     const tailCap = Number(req.closing_tail_sec_cap)
     const requestedClosingTail = tailCap > 0 && savedClosingTail.seconds > tailCap
       ? { ...savedClosingTail, seconds: tailCap }
@@ -1208,6 +1211,13 @@ export async function generateAudioMerge(job: Job): Promise<void> {
          * all, and stays the physical fact `asset-status` verifies.
          */
         closing_tail_sec: closingTail.seconds,
+        /**
+         * Whether the mix carries a background music bed (1.4.352). `closing_tail_sec` 0 cannot say:
+         * it is 0 both for a merge with no bed and for a bed mixed before a closing was saved. A record
+         * without this field (older merges) says nothing — `mergedBackgroundMusic` reads that as
+         * unknown, never as "no bed".
+         */
+        background_music: !!musicEnabled,
         opening,
       }, null, 2),
       'utf-8',

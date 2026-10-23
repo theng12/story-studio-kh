@@ -4,9 +4,11 @@
  * A stored `visual_prompt` is not the text the image model receives. The scene
  * renderer appends the anchor character descriptors and the Style Bible to
  * every prompt it renders (`generators/continuity-render.ts`), for EVERY
- * project — the renderer is the only scene-image path. Scene Plan therefore has
- * to budget the writer against a ceiling that leaves room for exactly this
- * text.
+ * project. `generators/scene-image.ts` (the single-image path) submits the
+ * stored `visual_prompt` bare, without the anchors or the Style Bible, so this
+ * assembly is the worst case a stored prompt meets, not the only one. Scene
+ * Plan therefore budgets the writer against a ceiling that leaves room for
+ * exactly this text, so the prompt fits wherever it is rendered.
  *
  * WHY THIS MODULE EXISTS
  * ----------------------

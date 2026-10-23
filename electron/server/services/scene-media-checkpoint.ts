@@ -9,7 +9,8 @@ import { getMediaInfo } from '../lib/ffmpeg-validation.js'
 import { NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip-version.js'
 import { resolveRenderCanvas } from '../lib/render-canvas.js'
 import { readChannelProfileAsset } from './channel-profile.js'
-import type { MotionPresentationSettings, ScenePlan, ScenePlanEntry } from '../models/types.js'
+import type { MotionPresentationSettings, ProjectConfig, ScenePlan, ScenePlanEntry, SketchDrawPenMode } from '../models/types.js'
+import { readEpisodeSketchPen } from './episode-sketch-pen.js'
 import { sceneReviewAutoApproveOn } from './preset-authority.js'
 import * as pm from './project-manager.js'
 
@@ -41,11 +42,28 @@ export interface SketchDrawSettings {
   penFingerprint: string
 }
 
+export interface EpisodePenChoice {
+  /** The pen this episode renders with: its own when it has one, else the channel's. */
+  pen: SketchDrawPenMode
+  pen_source: 'episode' | 'channel'
+  episode_pen: SketchDrawPenMode | null
+  channel_pen: SketchDrawPenMode
+}
+
+/** The one place an episode's effective pen is decided; freshness, status, approval and Assembly all come here. */
+export async function resolveEpisodePen(slug: string, episodeId: string, loaded?: ProjectConfig | null): Promise<EpisodePenChoice> {
+  const config = loaded ?? await pm.getConfig(slug)
+  if (!config) throw new Error('Channel configuration is unavailable.')
+  const channel_pen = motionPresentationSelection(config.motion_presentation).pen
+  const episode_pen = await readEpisodeSketchPen(slug, episodeId)
+  return { pen: episode_pen ?? channel_pen, pen_source: episode_pen ? 'episode' : 'channel', episode_pen, channel_pen }
+}
+
 /** Resolve selections again at execution/read time; never persist a copied name, logo or fps. */
 export async function resolveSketchDrawSettings(slug: string, episodeId: string): Promise<SketchDrawSettings> {
   const config = await pm.getConfig(slug)
   if (!config) throw new Error('Channel configuration is unavailable.')
-  const mode = motionPresentationSelection(config.motion_presentation).pen
+  const mode = (await resolveEpisodePen(slug, episodeId, config)).pen
   if (!['none', 'plain', 'name', 'logo'].includes(mode)) throw new Error('Choose a valid Sketch Draw pen.')
   const store = config.video_assembly_last_used
   const own = store?.episodes?.[episodeId.trim().toUpperCase()]?.settings

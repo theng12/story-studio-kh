@@ -950,8 +950,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   /**
    * Exactly what the scene renderer appends, measured with the SAME composition
    * it submits (services/scene-prompt-assembly.ts). Reserved for every project:
-   * `generators/continuity-render.ts` is the only scene-image renderer and it
-   * appends these layers regardless of the format's visualSource.
+   * `generators/continuity-render.ts` appends these layers regardless of the
+   * format's visualSource. `generators/scene-image.ts` submits the stored
+   * `visual_prompt` without them, so this is the largest assembly any render
+   * path produces, and a body that fits it fits every path.
    *
    * The character layer is always included, even for a scene whose type drops
    * it: the writer's budget is one number for every scene in a pack, so it must

@@ -22,7 +22,9 @@ import fs from 'fs/promises'
 import path from 'path'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import type { Job, VideoPostAudio } from '../models/types.js'
-import { mergedAudioCompletionPath, mergedClosingTailSec, postRollSeconds, resolveProjectClosingTail } from '../lib/closing-tail.js'
+import {
+  mergedAudioCompletionPath, mergedBackgroundMusic, mergedClosingTailSec, postRollSeconds,
+} from '../lib/closing-tail.js'
 import { closingMusicWanted } from '../lib/final-video-check.js'
 import { resolveEpisodeMergedAudioFilename, writeSelectedMergedAudio } from '../lib/merged-audio-selection.js'
 import { MERGED_AUDIO_TOLERANCE_SEC } from '../lib/scene-plan-timeline.js'
@@ -131,7 +133,10 @@ async function remixSuccessor(dir: string, code: string, base: string, wantedSec
  *
  * `none` for every request that does not ask for closing music over a tail, for a track that already
  * carries a tail (the merged audio is the truth, 1.4.327), and for a channel whose saved Audio Assembly
- * preset mixes no background music (its tail is silent by design). `preferredFilename` is the track the
+ * preset mixes no background music (its tail is silent by design). With no active Audio Assembly preset it
+ * refuses only when the merge recorded a bed (`background_music: true`) it cannot re-make; a merge that recorded
+ * none, or an older record that says nothing, stays `none`. The closing re-mixed is the one `postAudio` (this
+ * render's own) asks for, whatever else is saved. `preferredFilename` is the track the
  * render is about to lay down; without it the episode's own selection is read. `use` when that track
  * was already re-mixed and the re-mix pinned. An interrupted re-mix reads as `recover` (the render finishes
  * or undoes it first), never as `use`, `remix` or a refusal.
@@ -179,9 +184,25 @@ export async function planClosingTailRemix(opts: {
   const config = await pm.getConfig(opts.slug)
   const { preset } = findActivePreset(config, 'audio_merge')
   const params = preset ? resolveStepParams('audio_merge', code, '', preset, await getEffectiveFormat(opts.slug)) : null
+  const seconds = Number(wanted.toFixed(1))
+  // No active Audio Assembly preset: there is nothing to re-make the mix from. Refuse only where the
+  // merge RECORDED a bed — a render would otherwise draw a silent padded tail over music the owner
+  // mixed (Wonder in Ink WI0001, 2026-10-23). A merge that recorded none, and an older record that says
+  // nothing either way, keep the behaviour they always had: the final check still looks at the tail.
+  if (!preset) {
+    if (await mergedBackgroundMusic(mergedPath, code) !== true) return { action: 'none' }
+    return {
+      action: 'refuse',
+      reason: `${code}: this render asks for a ${seconds} s closing with music, but this episode's audio was mixed with background music `
+        + 'and without that closing, and the channel has no active Audio Assembly preset to re-mix it from. '
+        + `Save an Audio Assembly preset with the music and make it the active one (the audio is then re-mixed with the ${seconds} s closing at render), `
+        + `or re-run Audio Assembly now that the ${seconds} s closing is set in Video Assembly, then render again. `
+        + 'If the ending should stay silent, re-run Audio Assembly with background music turned off.',
+    }
+  }
+  // A saved preset with music off is the explicit answer: the silent tail is designed.
   if (!params?.music?.enabled) return { action: 'none' }
 
-  const seconds = Number(wanted.toFixed(1))
   const refuse = (why: string): ClosingTailVerdict => ({
     action: 'refuse',
     reason: `${code}: this episode's audio was mixed before closing music existed; re-mix the audio to add the `
@@ -205,9 +226,6 @@ export async function planClosingTailRemix(opts: {
   } else {
     settings.push(`music: ${path.basename(params.music.files[0])} — not recorded, the current Audio Assembly preset\'s`)
   }
-  if ((await resolveProjectClosingTail(opts.slug)).seconds + 0.5 < wanted) {
-    return refuse(`the saved Video Assembly preset does not ask for ${seconds} s, and Audio Assembly bakes what it saves. Save the Video Assembly preset with that closing first.`)
-  }
   let recordText = ''
   let record: any = null
   try {
@@ -226,7 +244,7 @@ export async function planClosingTailRemix(opts: {
     action: 'remix',
     wantedSec: wanted,
     settings,
-    params: { ...params, episode_id: code, write_mode: 'new', closing_tail_sec_cap: wanted },
+    params: { ...params, episode_id: code, write_mode: 'new', closing_tail_sec_cap: wanted, closing_post_audio: opts.postAudio },
     track: {
       dir, code, filename, episodeDir: paths.episode_dir, recordText,
       durationSec: Number(record.duration_sec), leadInSec: Number.isFinite(lead) ? lead : null,

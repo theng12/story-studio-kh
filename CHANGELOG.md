@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.352 — 2026-10-24
+
+- App updates no longer stall after a check-in times out. Every step of a check is time-limited, a failed check is retried after 5 minutes, and an installer that fails to mount is always cleaned up.
+- Each episode can keep its own Sketch Draw pen, with the channel pen as the default. Changing one episode's pen no longer makes other episodes' Sketch Draw clips stale; making a pen the channel default asks first.
+- Closing music: Audio Assembly and the render use the same closing as the render that will use them, so a Pipeline run follows its own preset and one episode's manual render never sets another's closing. A mix known to have music but no closing is refused before rendering with clear steps; the final check still flags a silent ending unless the mix is known to have no music.
+- Scene Plan names the limit actually in force when a chosen character limit is higher than the model's own, and does less work while waiting for a plan.
+
 ## v1.4.351 — 2026-10-23
 
 - Scene Plan sizes each visual prompt so the final prompt fits the image model: the writer's allowance is the selected model's limit minus the exact character details and Style Bible text the scene render adds. The limit is read live when the run starts; a limit you chose or one saved with an older queued run is labelled as such, never as the model's own figure. When those additions alone fill the limit, the run stops with a clear message instead of writing prompts the model would refuse.

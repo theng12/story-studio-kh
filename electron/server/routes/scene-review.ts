@@ -51,7 +51,8 @@ import {
 } from '../services/scene-timeline-integrity.js'
 import { allowedSubtitleCueGapSec } from '../services/scene-plan-pacing.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
-import { checkpointSceneClip, motionPresentationSelection, resolveSketchDrawSettings, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
+import { isEpisodeCode, isSketchPenMode, writeEpisodeSketchPen } from '../services/episode-sketch-pen.js'
+import { checkpointSceneClip, motionPresentationSelection, resolveEpisodePen, resolveSketchDrawSettings, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
 import { readChannelProfileAsset } from '../services/channel-profile.js'
 import { resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
@@ -322,7 +323,8 @@ class BadApprovalRequest extends Error {}
 /** A decision Motion Review can explain and refuse (stale/missing clip), not an app fault. */
 class ClipChoiceRefused extends Error {}
 
-// Channel-owned presentation choices; provider presets do not overwrite these.
+// Channel-owned presentation choices; provider presets do not overwrite these. The renderer is
+// channel-wide; `pen` here is the channel DEFAULT that episodes without a pen of their own follow.
 router.get('/projects/:slug/motion-presentation', async (req, res) => {
   try {
     const config = await pm.getConfig(req.params.slug)
@@ -334,8 +336,12 @@ router.get('/projects/:slug/motion-presentation', async (req, res) => {
 })
 router.put('/projects/:slug/motion-presentation', async (req, res) => {
   try {
-    const { renderer, pen } = req.body || {}
-    if (!['image_to_video', 'sketch_draw'].includes(renderer) || !['none', 'plain', 'name', 'logo'].includes(pen)) {
+    const config = await pm.getConfig(req.params.slug)
+    if (!config) return res.status(404).json({ detail: 'Channel not found' })
+    const { renderer } = req.body || {}
+    // An omitted pen keeps the channel default; the renderer control must not move it.
+    const pen = req.body?.pen === undefined ? motionPresentationSelection(config.motion_presentation).pen : req.body.pen
+    if (!['image_to_video', 'sketch_draw'].includes(renderer) || !isSketchPenMode(pen)) {
       return res.status(400).json({ detail: 'Choose an available motion renderer and pen.' })
     }
     if (pen === 'logo' && !await readChannelProfileAsset(req.params.slug, 'logo')) {
@@ -345,6 +351,36 @@ router.put('/projects/:slug/motion-presentation', async (req, res) => {
       return res.status(404).json({ detail: 'Channel not found' })
     }
     res.json({ renderer, pen })
+  } catch (error: any) { res.status(409).json({ detail: error.message }) }
+})
+
+// An episode's own Sketch Draw pen. `pen: null` returns the episode to the channel default.
+// Only this episode's clips can go stale; the channel and every other episode are untouched.
+router.get('/projects/:slug/scene-review/:episodeId/motion-pen', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!isEpisodeCode(episodeId)) return res.status(400).json({ detail: 'Choose a valid episode.' })
+  try {
+    res.json(await resolveEpisodePen(slug, episodeId))
+  } catch (error: any) {
+    // An unreadable pen file must not lock the control: answer with a usable state so the owner can
+    // choose a pen (the PUT overwrites the bad file). The effective pen is unknown, not "none".
+    const config = await pm.getConfig(slug).catch(() => null)
+    if (!config) return res.status(409).json({ detail: error.message })
+    res.json({ pen: null, pen_source: 'unreadable', episode_pen: null,
+      channel_pen: motionPresentationSelection(config.motion_presentation).pen, error: error.message })
+  }
+})
+router.put('/projects/:slug/scene-review/:episodeId/motion-pen', async (req, res) => {
+  try {
+    const { slug, episodeId } = req.params
+    if (!isEpisodeCode(episodeId)) return res.status(400).json({ detail: 'Choose a valid episode.' })
+    const pen = req.body?.pen
+    if (pen !== null && !isSketchPenMode(pen)) return res.status(400).json({ detail: 'Choose an available pen, or null to use the channel default.' })
+    if (pen === 'logo' && !await readChannelProfileAsset(slug, 'logo')) {
+      return res.status(409).json({ detail: 'This channel has no profile logo. Add one in Channel Profile or choose another pen.' })
+    }
+    await writeEpisodeSketchPen(slug, episodeId, pen)
+    res.json(await resolveEpisodePen(slug, episodeId))
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
 

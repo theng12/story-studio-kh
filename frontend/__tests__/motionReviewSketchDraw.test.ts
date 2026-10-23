@@ -63,7 +63,7 @@ test('one renderer choice sits inside the existing Motion controls; no extra act
 
 test('Sketch Draw hides provider model, cost and switches and shows no invented price', () => {
   assert.match(source, /<template v-if="!isSketchDraw">[\s\S]*Image-to-video model[\s\S]*<\/template>\s*<button v-if="motionScope.mode === 'all'"/)
-  assert.match(source, /if \(isSketchDraw\.value\) \{\s+if \(!presentationLoaded\.value\)/)
+  assert.match(source, /if \(isSketchDraw\.value\) \{\s+if \(!presentationLoaded\.value \|\| !penLoaded\.value\)/)
   assert.match(source, /return eligibleClipCount\.value \? .*Sketch Draw on this Mac/)
   // The only price text sits inside the image-to-video confirmation, which Sketch Draw skips.
   assert.equal(fn('generateMissing').match(/formatCredits/g)?.length, 1)
@@ -71,8 +71,8 @@ test('Sketch Draw hides provider model, cost and switches and shows no invented 
   assert.match(source, /return selectionReady\.value \? \{ renderer: 'sketch_draw' \} : null/)
 })
 
-test('the four pens reuse channel name and the channel-profile logo; unavailable logo is explained', () => {
-  for (const label of ['No pen (default)', 'Plain pen', 'Pen with channel name', 'Pen with channel logo']) {
+test('the pens reuse channel name and the channel-profile logo; unavailable logo is explained', () => {
+  for (const label of ['No pen', 'Plain pen', 'Pen with channel name', 'Pen with channel logo']) {
     assert.ok(source.includes(`>${label}</option>`), label)
   }
   assert.match(source, /:disabled="!channelHasLogo"/)
@@ -81,12 +81,81 @@ test('the four pens reuse channel name and the channel-profile logo; unavailable
   assert.match(source, /Pen name: \{\{ channelName \}\}/)
 })
 
-test('renderer and pen are channel selections, saved as a selection only and rolled back on failure', () => {
-  assert.doesNotMatch(source, /renderer:.*presetType|motion_presentation.*snapshot/)
-  assert.match(fn('saveMotionPresentation'), /acceptedPresentation = \{ renderer: clipRenderer\.value, pen: sketchPen\.value \}/)
-  assert.match(fn('saveMotionPresentation'), /clipRenderer\.value = acceptedPresentation\.renderer/)
-  assert.match(fn('saveMotionPresentation'), /sketchPen\.value = acceptedPresentation\.pen/)
+test('the pen control edits THIS episode, is labelled so, and can return to the channel default', () => {
+  assert.match(source, /<span>Pen for \{\{ episodeId \}\}<\/span>/)
+  assert.match(source, /<option value="channel">Channel default \(\{\{ penLabel\(channelPen\) \}\}\)<\/option>/)
+  assert.match(source, /v-model="penChoice"[^>]*@change="saveEpisodePen"/)
+  // It says whose pen is in force, in both directions.
+  assert.match(source, /\{\{ episodeId \}\} uses its own pen: \{\{ penLabel\(episodePen\) \}\}\. Other episodes are not affected\./)
+  assert.match(source, /\{\{ episodeId \}\} follows the channel default pen: \{\{ penLabel\(channelPen\) \}\}/)
+  // The effective pen is the episode's, else the channel's; the server resolves it the same way.
+  assert.match(source, /const sketchPen = computed<PenMode>\(\(\) => episodePen\.value \?\? channelPen\.value\)/)
+  const save = fn('saveEpisodePen')
+  assert.match(save, /penChoice\.value === 'channel' \? null : penChoice\.value/)
+  assert.match(save, /scene-review\/\$\{encodeURIComponent\(ep\)\}\/motion-pen`, \{ pen: next \}/)
+  assert.match(save, /penChoice\.value = penUnreadable\.value \? '' : episodePen\.value \?\? 'channel'/, 'a failed save rolls the control back')
+  assert.match(save, /if \(ep !== episodeId\.value\) return/, 'a late answer never lands on the next episode')
+})
+
+test('the renderer is a channel choice that never moves a pen; the channel default is moved only on purpose', () => {
+  assert.doesNotMatch(source, /renderer:.*presetType|motion_presentation.*snapshot|pen:.*presetType/)
+  const save = fn('saveMotionPresentation')
+  assert.match(save, /\{ renderer: clipRenderer\.value \}\)/)
+  assert.doesNotMatch(save, /\b(pen|sketchPen|episodePen|penChoice)\b\s*[:.]/, 'saving the renderer sends no pen')
+  assert.match(save, /clipRenderer\.value = acceptedRenderer/)
   assert.match(source, /\/projects\/\$\{slug\.value\}\/motion-presentation/)
+  assert.match(source, /Make this the channel default/)
+  assert.match(fn('setChannelPenDefault'), /\{ renderer: clipRenderer\.value, pen \}/)
+})
+
+test('presets never carry a pen: the preset snapshot is built without it', () => {
+  const start = source.indexOf('const motionPresets = usePresets(')
+  const snapshot = source.slice(start, source.indexOf('\n  apply:', start))
+  assert.ok(snapshot.includes('duration_mode'), 'found the snapshot')
+  assert.doesNotMatch(snapshot, /\b(sketchPen|episodePen|channelPen|penChoice|clipRenderer)\b/)
+})
+
+test('an episode change blanks the pen, disables the control until the new answer, and reloads it', () => {
+  const reset = fn('resetEpisodeScopedMotionState')
+  assert.match(reset, /episodePen\.value = null/)
+  assert.match(reset, /penChoice\.value = 'channel'/)
+  assert.match(reset, /penLoaded\.value = false/)
+  assert.match(reset, /penSaving\.value = false/)
+  assert.match(source, /watch\(episodeId, \(\) => \{[\s\S]*resetEpisodeScopedMotionState\(\)[\s\S]*void loadEpisodePen\(\)/)
+  assert.match(source, /:disabled="!penLoaded \|\| penSaving"/)
+  // Generation waits for this episode's pen, never the previous episode's.
+  assert.match(source, /loaded: presentationLoaded\.value && penLoaded\.value/)
+  const load = fn('loadEpisodePen')
+  assert.match(load, /if \(ep !== episodeId\.value\) return/)
+  assert.match(load, /episodePen\.value = result\.episode_pen/)
+  assert.match(load, /penChoice\.value = result\.error \? '' : result\.episode_pen \?\? 'channel'/)
+})
+
+test('moving the channel default asks first, names the effect, and announces the result', () => {
+  const move = fn('setChannelPenDefault')
+  assert.match(move, /await ask\(\{[\s\S]*Episodes without their own pen will use \$\{penLabel\(pen\)\}; their existing Sketch Draw clips will need re-generating\./)
+  assert.ok(move.indexOf('await ask(') < move.indexOf("put(`/projects/"), 'nothing is saved before the answer')
+  assert.match(move, /\) return\n  presentationSaving\.value = true/, 'declining stops before any save')
+  assert.match(move, /success\(`Channel default pen is now \$\{penLabel\(pen\)\}\./)
+})
+
+test('an unreadable saved pen keeps the control enabled, says so, and blocks Sketch Draw until a pen is chosen', () => {
+  const load = fn('loadEpisodePen')
+  assert.match(load, /penUnreadable\.value = result\.error \|\| ''/)
+  assert.match(load, /penChoice\.value = result\.error \? '' : result\.episode_pen \?\? 'channel'/)
+  assert.match(load, /penLoaded\.value = true/, 'loaded, so the select is not disabled')
+  assert.match(source, /<option v-if="penUnreadable" value="" disabled>Choose a pen…<\/option>/)
+  assert.match(source, /\{\{ penUnreadable \}\} Choose a pen to replace it; Sketch Draw waits until you do\./)
+  assert.match(source, /loaded: presentationLoaded\.value && penLoaded\.value && !penUnreadable\.value/)
+  assert.match(fn('saveEpisodePen'), /penUnreadable\.value = ''/, 'a successful save clears it')
+  assert.match(fn('resetEpisodeScopedMotionState'), /penUnreadable\.value = ''/)
+})
+
+test('the logo choice is disabled with no logo and a logo pen is not ready without one', () => {
+  assert.match(source, /<option value="logo" :disabled="!channelHasLogo">/)
+  // The readiness rule is fed the EFFECTIVE pen, so an episode (or a channel default) on logo is blocked too.
+  assert.match(source, /pen: sketchPen\.value, hasLogo: channelHasLogo\.value/)
+  assert.equal(sketchSelectionReady({ loaded: true, saving: false, pen: 'logo', hasLogo: false }), false)
 })
 
 test('episode changes blank in-flight controls and late queue dialogs cannot act on the next episode', () => {

@@ -1145,10 +1145,15 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     // composition it submits, and re-read on every load. The page compares each
     // stored prompt against the BODY budget this leaves, so its "N of M
     // characters" counter describes the same ceiling the render will meet.
-    const renderAssembly = await readSceneRenderAssembly(slug, paths.episode_dir)
-    const promptRenderOverhead = measureAssemblyOverhead(
-      sceneRenderAssemblyParts(renderAssembly.characters, renderAssembly.styleBible, true),
-    )
+    // Reading it means continuity.json, the Style Bible and every anchor
+    // character from disk, so a caller that is only polling for a plan to land
+    // says `?render_overhead=0` and keeps the figure it already has.
+    const renderAssembly = req.query.render_overhead === '0'
+      ? null
+      : await readSceneRenderAssembly(slug, paths.episode_dir)
+    const promptRenderOverhead = renderAssembly
+      ? measureAssemblyOverhead(sceneRenderAssemblyParts(renderAssembly.characters, renderAssembly.styleBible, true))
+      : null
 
     res.json({
       stitched_srt: existsSync(stitchedPath) ? {
@@ -1177,10 +1182,7 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
       timeline_integrity: subtitleTimelineIntegrity,
       plan_stale_vs_stitched: planStaleVsStitched,
       scene_plan: responsePlan,
-      prompt_render_overhead: {
-        characters: promptRenderOverhead.characters,
-        parts: promptRenderOverhead.parts,
-      },
+      ...(promptRenderOverhead ? { prompt_render_overhead: { characters: promptRenderOverhead.characters } } : {}),
       coverage_integrity: scenePlan ? inspectScenePlanCoverage(scenePlan) : null,
       audio_merged: existsSync(audioChaptersPath),
       audio_merge_gap_s: audioMergeGap,

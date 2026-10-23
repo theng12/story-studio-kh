@@ -999,7 +999,7 @@
                     : promptBodyBudget
                       ? `${scenePromptLength(scene).characters.toLocaleString()} of ${promptBodyBudget.toLocaleString()} characters for the prompt body.${promptReserveNote}`
                       : effectivePromptCharCap
-                        ? `${scenePromptLength(scene).characters.toLocaleString()} characters — the Style Bible and character text the render appends already fill the whole ${effectivePromptCharCap.toLocaleString()}-character ceiling.`
+                        ? `${scenePromptLength(scene).characters.toLocaleString()} characters — the Style Bible and character text the render appends already fill the whole ${enforcedPromptCharCap.toLocaleString()}-character ceiling.`
                         : `${scenePromptLength(scene).characters.toLocaleString()} characters — no limit in force.`"
                 >{{ scenePromptLengthLabel(scene) }} chars</span>
               </label>
@@ -1477,10 +1477,10 @@ interface ScenePlanStatus {
   scene_plan: ScenePlan | null
   /** Characters the scene renderer appends to every prompt (Style Bible and
    *  anchor character text), measured by the server with the renderer's own
-   *  composition. Re-read live; absent means it was not measured. */
+   *  composition. Re-read live; absent means it was not measured (a poll that
+   *  asked the server to skip it keeps the figure it already had). */
   prompt_render_overhead?: {
     characters: number
-    parts: Array<{ label: string; characters: number }>
   }
   plan_stale_vs_stitched?: boolean
   audio_merged: boolean
@@ -2293,13 +2293,19 @@ const promptRenderOverhead = computed(() => {
  * model's limit and still be refused once the Style Bible is appended.
  */
 const promptBodyBudget = computed(() => {
+  const enforced = enforcedPromptCharCap.value
+  return enforced ? Math.max(0, enforced - promptRenderOverhead.value) : 0
+})
+/**
+ * The ceiling the writer is actually held to. The server clamps it to what the
+ * model publishes, so a custom choice above that cannot enlarge what the
+ * writer is given. The selection itself is left untouched (the warning above
+ * still says so); messages about what fills the ceiling name THIS figure.
+ */
+const enforcedPromptCharCap = computed(() => {
   const chosen = effectivePromptCharCap.value
   if (!chosen) return 0
-  // The server clamps the enforced ceiling to what the model publishes, so a
-  // custom choice above that cannot enlarge what the writer is actually given.
-  // The selection itself is left untouched (the warning above still says so).
-  const enforced = intendedImageModelCap.value ? Math.min(chosen, intendedImageModelCap.value) : chosen
-  return Math.max(0, enforced - promptRenderOverhead.value)
+  return intendedImageModelCap.value ? Math.min(chosen, intendedImageModelCap.value) : chosen
 })
 /** Says where the reserved characters went, when there are any. */
 const promptReserveNote = computed(() => promptRenderOverhead.value
@@ -2551,7 +2557,15 @@ async function runHeaderPrimaryAction(): Promise<void> {
   else if (headerPrimaryStage.value === 'motion') await runPromptStage('motion')
 }
 
-async function loadStatus(): Promise<void> {
+/** Whose status `status` holds, so a poll only carries the render overhead over within one episode. */
+let statusFor = ''
+/**
+ * `refreshOverhead: false` is for the poll that waits for a plan to land: the server then skips
+ * re-reading continuity.json, the Style Bible and every anchor character, and the figure this
+ * episode already had is kept. Every other load re-measures it.
+ */
+async function loadStatus(options: { refreshOverhead?: boolean } = {}): Promise<void> {
+  const refreshOverhead = options.refreshOverhead !== false
   const ep = episodeId.value
   const project = slug.value
   const requestSequence = ++statusLoadSequence
@@ -2566,9 +2580,11 @@ async function loadStatus(): Promise<void> {
   statusLoading.value = true
   statusLoadError.value = ''
   try {
-    const r = await get<ScenePlanStatus>(`/projects/${project}/scene-plan/${ep}`)
+    const r = await get<ScenePlanStatus>(`/projects/${project}/scene-plan/${ep}${refreshOverhead ? '' : '?render_overhead=0'}`)
     if (requestSequence !== statusLoadSequence || episodeId.value !== ep || slug.value !== project) return
-    status.value = r
+    const carried = !refreshOverhead && statusFor === `${project}/${ep}` ? status.value?.prompt_render_overhead : undefined
+    status.value = carried ? { ...r, prompt_render_overhead: carried } : r
+    statusFor = `${project}/${ep}`
     statusLoadError.value = ''
     if (r.scene_plan) {
       plan.value = r.scene_plan
@@ -2716,7 +2732,7 @@ async function pollUntilPlanLanded(
         }
       } catch { /* transient job-poll error — keep waiting on generated_at */ }
     }
-    await loadStatus()
+    await loadStatus({ refreshOverhead: false })
     // A tracked staged job persists every completed Hub pack immediately, so
     // generated_at may advance long before the full batch is terminal. Keep
     // polling the Story job; only untracked legacy calls use timestamp change.

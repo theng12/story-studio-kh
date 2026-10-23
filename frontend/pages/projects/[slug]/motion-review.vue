@@ -91,17 +91,26 @@
             </select>
           </label>
           <label v-if="isSketchDraw" class="model-field renderer-field">
-            <span>Pen</span>
-            <select v-model="sketchPen" class="select" :disabled="!presentationLoaded || presentationSaving" aria-label="Sketch Draw pen" aria-describedby="sketch-pen-help" @change="saveMotionPresentation">
-              <option value="none">No pen (default)</option>
+            <span>Pen for {{ episodeId }}</span>
+            <select v-model="penChoice" class="select" :disabled="!penLoaded || penSaving" aria-label="Sketch Draw pen for this episode" aria-describedby="sketch-pen-help" @change="saveEpisodePen">
+              <option v-if="penUnreadable" value="" disabled>Choose a pen…</option>
+              <option value="channel">Channel default ({{ penLabel(channelPen) }})</option>
+              <option value="none">No pen</option>
               <option value="plain">Plain pen</option>
               <option value="name">Pen with channel name</option>
               <option value="logo" :disabled="!channelHasLogo">Pen with channel logo</option>
             </select>
           </label>
+          <button v-if="isSketchDraw && penLoaded && episodePen && episodePen !== channelPen" type="button" class="btn btn-sm btn-ghost" :disabled="penSaving || presentationSaving" @click="setChannelPenDefault">
+            Make this the channel default
+          </button>
           <p v-if="isSketchDraw" id="sketch-pen-help" class="renderer-help" role="status">
             Draw the exact scene image, add colour, then hold the complete image for its Scene Plan window. Free, on this Mac.
             Each clip lasts exactly its scene window at your Video Assembly frame rate; prompt text does not change the drawing.
+            <span v-if="!penLoaded">Loading this episode's pen.</span>
+            <span v-else-if="penUnreadable">{{ penUnreadable }} Choose a pen to replace it; Sketch Draw waits until you do.</span>
+            <span v-else-if="episodePen">{{ episodeId }} uses its own pen: {{ penLabel(episodePen) }}. Other episodes are not affected.</span>
+            <span v-else>{{ episodeId }} follows the channel default pen: {{ penLabel(channelPen) }}. Choosing a pen here changes only {{ episodeId }}.</span>
             <span v-if="sketchPen === 'name'">Pen name: {{ channelName }}.</span>
             <span v-if="!channelHasLogo">Channel logo pen is unavailable. Add a logo in Channel Profile to use it.</span>
           </p>
@@ -442,37 +451,107 @@ const animatingId = ref<string | null>(null)
 const uploadingId = ref<string | null>(null)
 const videoModel = ref('')
 const clipRenderer = ref<'image_to_video' | 'sketch_draw'>('image_to_video')
-const sketchPen = ref<'none' | 'plain' | 'name' | 'logo'>('none')
+type PenMode = 'none' | 'plain' | 'name' | 'logo'
+// The channel default, and this episode's own pen when it has one. The pen that renders is the
+// episode's, else the channel's; the server resolves it the same way for freshness and Assembly.
+const channelPen = ref<PenMode>('none')
+const episodePen = ref<PenMode | null>(null)
+const penChoice = ref<'' | 'channel' | PenMode>('channel')
+// Set when this episode's saved pen file cannot be read: the effective pen is then unknown, not "none".
+const penUnreadable = ref('')
+const sketchPen = computed<PenMode>(() => episodePen.value ?? channelPen.value)
+const penLoaded = ref(false)
+const penSaving = ref(false)
+const PEN_LABELS: Record<PenMode, string> = { none: 'no pen', plain: 'plain pen', name: 'pen with channel name', logo: 'pen with channel logo' }
+const penLabel = (pen: PenMode) => PEN_LABELS[pen]
 const isSketchDraw = computed(() => clipRenderer.value === 'sketch_draw')
 const channelName = ref('')
 const channelHasLogo = ref(false)
 const presentationLoaded = ref(false)
 const presentationSaving = ref(false)
 const presentationError = ref('')
-let acceptedPresentation = { renderer: 'image_to_video' as 'image_to_video' | 'sketch_draw', pen: 'none' as 'none' | 'plain' | 'name' | 'logo' }
+let acceptedRenderer: 'image_to_video' | 'sketch_draw' = 'image_to_video'
 async function loadMotionPresentation() {
   try {
-    const result = await get<{ renderer: typeof clipRenderer.value; pen: typeof sketchPen.value; channel_name: string; has_logo: boolean }>(`/projects/${slug.value}/motion-presentation`)
+    const result = await get<{ renderer: typeof clipRenderer.value; pen: PenMode; channel_name: string; has_logo: boolean }>(`/projects/${slug.value}/motion-presentation`)
     clipRenderer.value = result.renderer
-    sketchPen.value = result.pen
+    channelPen.value = result.pen
     channelName.value = result.channel_name
     channelHasLogo.value = result.has_logo
-    acceptedPresentation = { renderer: result.renderer, pen: result.pen }
+    acceptedRenderer = result.renderer
     presentationLoaded.value = true
     presentationError.value = ''
   } catch (error: any) { presentationError.value = error?.data?.detail || error?.message || 'Could not load channel motion settings. Reopen Motion Review to retry.' }
 }
+// The renderer is a channel choice; it never touches any pen.
 async function saveMotionPresentation() {
   presentationSaving.value = true
   presentationError.value = ''
   try {
-    await put(`/projects/${slug.value}/motion-presentation`, { renderer: clipRenderer.value, pen: sketchPen.value })
-    acceptedPresentation = { renderer: clipRenderer.value, pen: sketchPen.value }
+    await put(`/projects/${slug.value}/motion-presentation`, { renderer: clipRenderer.value })
+    acceptedRenderer = clipRenderer.value
     await loadReview()
   } catch (error: any) {
-    clipRenderer.value = acceptedPresentation.renderer
-    sketchPen.value = acceptedPresentation.pen
-    presentationError.value = error?.data?.detail || error?.message || 'Could not save the renderer and pen. Try again.'
+    clipRenderer.value = acceptedRenderer
+    presentationError.value = error?.data?.detail || error?.message || 'Could not save the renderer. Try again.'
+    showError(presentationError.value)
+  } finally { presentationSaving.value = false }
+}
+// AGENTS.md §4: the pen belongs to one episode. A late answer for the previous episode is dropped.
+async function loadEpisodePen() {
+  const ep = episodeId.value
+  if (!ep) return
+  try {
+    const result = await get<{ episode_pen: PenMode | null; channel_pen: PenMode; error?: string }>(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-pen`)
+    if (ep !== episodeId.value) return
+    episodePen.value = result.episode_pen
+    channelPen.value = result.channel_pen
+    penUnreadable.value = result.error || ''
+    penChoice.value = result.error ? '' : result.episode_pen ?? 'channel'
+    penLoaded.value = true
+  } catch (error: any) {
+    if (ep === episodeId.value) presentationError.value = error?.data?.detail || error?.message || `Could not load the pen for ${ep}. Switch episodes and back to retry.`
+  }
+}
+async function saveEpisodePen() {
+  const ep = episodeId.value
+  // The unreadable-file placeholder is not a choice; nothing to save until a real pen is picked.
+  if (!penChoice.value) return
+  const next = penChoice.value === 'channel' ? null : penChoice.value
+  penSaving.value = true
+  presentationError.value = ''
+  try {
+    await put(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-pen`, { pen: next })
+    if (ep !== episodeId.value) return
+    episodePen.value = next
+    penUnreadable.value = ''
+    await loadReview()
+  } catch (error: any) {
+    if (ep !== episodeId.value) return
+    penChoice.value = penUnreadable.value ? '' : episodePen.value ?? 'channel'
+    presentationError.value = error?.data?.detail || error?.message || `Could not save the pen for ${ep}. Try again.`
+    showError(presentationError.value)
+  } finally { if (ep === episodeId.value) penSaving.value = false }
+}
+// Deliberate: moves the channel default, so episodes without a pen of their own re-render under it.
+async function setChannelPenDefault() {
+  const ep = episodeId.value
+  const pen = episodePen.value
+  if (!pen) return
+  if (!await ask({
+    title: 'Make this the channel default pen?',
+    message: `Episodes without their own pen will use ${penLabel(pen)}; their existing Sketch Draw clips will need re-generating. ${ep} and episodes with their own pen are not affected.`,
+    confirmLabel: 'Make channel default',
+  })) return
+  presentationSaving.value = true
+  presentationError.value = ''
+  try {
+    await put(`/projects/${slug.value}/motion-presentation`, { renderer: clipRenderer.value, pen })
+    channelPen.value = pen
+    success(`Channel default pen is now ${penLabel(pen)}. Episodes without their own pen follow it, and their Sketch Draw clips need re-generating.`)
+    if (ep === episodeId.value) await loadReview()
+  } catch (error: any) {
+    presentationError.value = error?.data?.detail || error?.message || 'Could not save the channel default pen. Try again.'
     showError(presentationError.value)
   } finally { presentationSaving.value = false }
 }
@@ -937,7 +1016,7 @@ const scenePlanMotionLink = computed(() => `/projects/${slug.value}/scene-plan?e
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))
 const selectionReady = computed(() => isSketchDraw.value
-  ? sketchSelectionReady({ loaded: presentationLoaded.value, saving: presentationSaving.value,
+  ? sketchSelectionReady({ loaded: presentationLoaded.value && penLoaded.value && !penUnreadable.value, saving: presentationSaving.value || penSaving.value,
       pen: sketchPen.value, hasLogo: channelHasLogo.value })
   : !!selectedResolution.value
   && availableAspectRatios.value.includes(selectedAspectRatio.value)
@@ -950,7 +1029,7 @@ const generateStatus = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (usesImagePool.value) return 'Motion Review is not used for Image Pool episodes'
   if (isSketchDraw.value) {
-    if (!presentationLoaded.value) return presentationError.value || 'Loading channel motion settings'
+    if (!presentationLoaded.value || !penLoaded.value) return presentationError.value || 'Loading Sketch Draw settings'
     if (!selectionReady.value) return 'Choose an available pen'
     return eligibleClipCount.value ? `${eligibleClipCount.value} missing or stale clips ready for Sketch Draw on this Mac` : 'No approved missing or stale clips are waiting for Sketch Draw'
   }
@@ -1253,12 +1332,19 @@ function resetEpisodeScopedMotionState() {
   visualSource.value = 'scene_plan'
   loadError.value = ''
   cacheBuster.value = Date.now()
+  // The pen is this episode's own: blank it until the new episode's answer arrives.
+  episodePen.value = null
+  penChoice.value = 'channel'
+  penLoaded.value = false
+  penSaving.value = false
+  penUnreadable.value = ''
 }
 
 watch(episodeId, () => {
   renderedSceneLimit.value = SCENE_RENDER_BATCH
   resetEpisodeScopedMotionState()
   void loadReview()
+  void loadEpisodePen()
 }, { immediate: true })
 </script>
 

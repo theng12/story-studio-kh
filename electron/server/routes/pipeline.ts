@@ -2849,6 +2849,13 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         })
         continue
       }
+      // Audio Assembly bakes the closing the Video Assembly preset THIS run renders from asks for — not
+      // another episode's last render or a different saved preset (the same block preflight checks).
+      if (step === 'audio_merge' && !preflight.musicChannel && effectiveSteps.includes('video_assembly')) {
+        const vaBundle = presetByStep['video_assembly']
+        const closing = vaBundle ? flattenVideoAssemblyBundle(vaBundle.data ?? vaBundle, '', '').post_audio : undefined
+        if (closing && typeof closing === 'object') params.closing_post_audio = closing
+      }
       if (step === 'subtitles' && pipelineTranscriptionParams) {
         Object.assign(params, pipelineTranscriptionParams)
       }

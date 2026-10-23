@@ -73,7 +73,16 @@ import { machineName, STORY_CALLER } from '../lib/machine-name.js'
 import { isServerMode, resolveAppSettingsPath } from '../lib/server-mode.js'
 import { APP_TRASH, libraryTrashDir, moveToTrashSync } from '../lib/trash-move.js'
 
-const run = promisify(execFile)
+const execFileAsync = promisify(execFile)
+/**
+ * Every tool this file shells out to is bounded: a `hdiutil attach` that never returns would hold the
+ * single in-flight check (`checking`) and with it every later check-in.
+ */
+const TOOL_TIMEOUT_MS = 30_000
+type ToolRunner = (file: string, args: string[], timeout?: number) => Promise<{ stdout: string; stderr: string }>
+const realRun: ToolRunner = (file, args, timeout = TOOL_TIMEOUT_MS) =>
+  execFileAsync(file, args, { timeout, killSignal: 'SIGKILL' })
+let run: ToolRunner = realRun
 
 export type UpdatePhase =
   'idle' | 'downloading' | 'ready' | 'draining' | 'installing' | 'installed' | 'rolled_back' | 'failed'
@@ -141,6 +150,12 @@ export interface UpdateState {
   failed_at?: number | null
   last_check_at?: number | null
   last_check_error?: string | null
+  /**
+   * When the latest check-in STARTED, whether or not it got an answer. `last_check_at` moves only on
+   * an answer, so a run of timed-out check-ins leaves it frozen and looks exactly like a check-in that
+   * never ran. Also what the schedule reads: an attempt newer than `last_check_at` failed.
+   */
+  last_attempt_at?: number | null
   installed_at?: number | null
   installing_at?: number | null
 }
@@ -149,6 +164,14 @@ export const RELEASE_SCHEMA = 'storystudio.app-release.v1'
 export const AGENT_LABEL = 'local.storystudio.kh'
 const SETTINGS_KEY = 'app_update'
 export const CHECK_INTERVAL_MS = 30 * 60_000
+/** A check-in that got no answer is tried again after this, not after another full interval. */
+export const CHECK_RETRY_MS = 5 * 60_000
+/** How often the schedule looks at the wall clock to see whether a check-in is due. */
+export const CHECK_POLL_MS = 60_000
+/** The whole request: Gateway address, report, POST and reading the answer. */
+export const CHECKIN_TIMEOUT_MS = 20_000
+/** The channel count in the report; past this the report says `null` and the check-in goes out. */
+export const CHANNELS_TIMEOUT_MS = 10_000
 /** An install that failed (not a rollback) is tried again automatically after about two checks. */
 export const FAILED_RETRY_AFTER_MS = 2 * CHECK_INTERVAL_MS
 // ponytail: one fixed drain ceiling (install-local.sh's default); make it a setting if 30 min is wrong.
@@ -622,7 +645,8 @@ export async function report(): Promise<Record<string, unknown>> {
     instance_id: machineName(),
     machine: machineName(),
     version: o.currentVersion,
-    channels: await o.channels().catch(() => null),
+    // A slow or hung count must not cost the whole check-in: no figure is `null`, as when it throws.
+    channels: await within(CHANNELS_TIMEOUT_MS, 'The channel count did not finish', () => o.channels()).catch(() => null),
     queue: { ...o.queue.summary(), held: o.queue.isPaused() },
     update: { phase: state.phase, version: state.release?.version ?? null, error: state.error ?? null,
       request_id: state.gateway_update_request_id ?? null,
@@ -643,25 +667,55 @@ export function checkNow(force = false): Promise<UpdateState> {
   return checking
 }
 
+/**
+ * Run `work` for at most `ms`. The signal is aborted at the deadline AND the promise rejects there, so
+ * a transport that ignores the signal (or a step that is not a request at all) still cannot hold the
+ * caller. `AbortSignal.timeout` alone bounded only a fetch that honours it.
+ */
+function within<T>(ms: number, what: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`${what} within ${Math.round(ms / 1000)} s.`)
+      controller.abort(error)
+      reject(error)
+    }, ms)
+  })
+  return Promise.race([work(controller.signal), expired]).finally(() => clearTimeout(timer))
+}
+
+type CheckInAnswer = { noKey: true } | { status: number; offer?: Parameters<typeof handleOffer>[0] }
+
+/** The check schedule's clock (`now` is the test hook). */
+const clock = (): number => opts?.now?.() ?? Date.now()
+
 async function checkInOnce(force: boolean): Promise<UpdateState> {
   const o = opts
   if (!o) return readState()
-  const { url, key } = await o.gateway()
-  if (!key) return patchState({ last_check_at: Date.now(), last_check_error: 'No Gateway API Key is set, so updates are not checked.' })
-  const f = o.fetch ?? fetch
-  const response = await f(`${url.replace(/\/+$/, '')}/v1/apps/story/checkin`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'X-Caller': STORY_CALLER, 'Content-Type': 'application/json' },
-    body: JSON.stringify(await report()),
-    signal: AbortSignal.timeout(20_000),
+  patchState({ last_attempt_at: clock() })
+  // Built before the network deadline starts, so only the Gateway's own latency can time a check-in out.
+  const body = JSON.stringify(await report())
+  const answer = await within<CheckInAnswer>(CHECKIN_TIMEOUT_MS, 'The Gateway did not answer the update check', async (signal) => {
+    const { url, key } = await o.gateway()
+    if (!key) return { noKey: true }
+    const f = o.fetch ?? fetch
+    const response = await f(`${url.replace(/\/+$/, '')}/v1/apps/story/checkin`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'X-Caller': STORY_CALLER, 'Content-Type': 'application/json' },
+      body,
+      signal,
+    })
+    if (response.status === 404 || !response.ok) return { status: response.status }
+    return { status: response.status, offer: await response.json() }
   })
-  if (response.status === 404) {
-    return patchState({ last_check_at: Date.now(), last_check_error: 'This Gateway does not offer Story Studio updates yet.' })
+  if ('noKey' in answer) return patchState({ last_check_at: clock(), last_check_error: 'No Gateway API Key is set, so updates are not checked.' })
+  if (answer.status === 404) {
+    return patchState({ last_check_at: clock(), last_check_error: 'This Gateway does not offer Story Studio updates yet.' })
   }
-  if (!response.ok) throw new Error(`The Gateway answered ${response.status} to the update check.`)
-  const offer = await response.json() as { release?: unknown; publisher?: { public_key_base64?: string }; update_now?: boolean; update_request_id?: string }
-  patchState({ last_check_at: Date.now(), last_check_error: null })
-  await handleOffer(offer, force)
+  if (!answer.offer) throw new Error(`The Gateway answered ${answer.status} to the update check.`)
+  patchState({ last_check_at: clock(), last_check_error: null })
+  await handleOffer(answer.offer, force)
   return readState()
 }
 
@@ -825,21 +879,53 @@ async function stage(release: ReleaseDescriptor, requestId: string | null = null
   }
 }
 
+/**
+ * Detach whatever is mounted at `mount` (plain, then `-force`) and remove the temp mountpoint.
+ * Never throws and never `rm`s: an empty directory is `rmdir`ed, a non-empty one moves to Story's
+ * Trash, and a directory that is STILL a mountpoint (the detach failed) is left alone, because
+ * moving it would move the disk image's contents.
+ */
+async function releaseMountpoint(mount: string): Promise<void> {
+  try {
+    await run('/usr/bin/hdiutil', ['detach', mount])
+  } catch {
+    await run('/usr/bin/hdiutil', ['detach', mount, '-force']).catch((error: any) => {
+      console.warn(`[app-update] could not detach ${mount}:`, String(error?.stderr || error?.message || error).trim().slice(0, 300))
+    })
+  }
+  try {
+    const stillMounted = (await fsp.stat(mount)).dev !== (await fsp.stat(path.dirname(mount))).dev
+    if (stillMounted) {
+      console.warn(`[app-update] ${mount} is still mounted; leaving it in place.`)
+      return
+    }
+    await fsp.rmdir(mount)
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return
+    if (error?.code === 'ENOTEMPTY' || error?.code === 'EEXIST') {
+      await toTrash(mount, 'app-update').catch(e => console.warn(`[app-update] could not move ${mount} to Trash:`, e))
+      return
+    }
+    console.warn(`[app-update] could not remove ${mount}:`, error)
+  }
+}
+
 /** The one .app inside a .dmg (read-only mount) or a .zip, copied out with `ditto`. */
 export async function extractApp(file: string, into: string): Promise<string> {
   await fsp.mkdir(into, { recursive: true })
   if (/\.zip$/i.test(file)) {
-    await run('/usr/bin/ditto', ['-x', '-k', file, into])
+    await run('/usr/bin/ditto', ['-x', '-k', file, into], 10 * 60_000)
   } else {
     const mount = await fsp.mkdtemp(path.join(os.tmpdir(), 'story-update-'))
-    await run('/usr/bin/hdiutil', ['attach', '-readonly', '-nobrowse', '-noautoopen', '-noverify', '-mountpoint', mount, file])
     try {
+      // Inside the try: an attach that times out (SIGKILL) or fails part way can leave a
+      // half-attached volume at `mount`, and the cleanup below must still run.
+      await run('/usr/bin/hdiutil', ['attach', '-readonly', '-nobrowse', '-noautoopen', '-noverify', '-mountpoint', mount, file], 3 * 60_000)
       const apps = (await fsp.readdir(mount)).filter(n => n.endsWith('.app'))
       if (apps.length !== 1) throw new Error('The disk image does not hold exactly one app.')
-      await run('/usr/bin/ditto', [path.join(mount, apps[0]), path.join(into, apps[0])])
+      await run('/usr/bin/ditto', [path.join(mount, apps[0]), path.join(into, apps[0])], 10 * 60_000)
     } finally {
-      await run('/usr/bin/hdiutil', ['detach', mount, '-force']).catch(() => {})
-      await fsp.rmdir(mount).catch(() => {})
+      await releaseMountpoint(mount)
     }
   }
   const apps = (await fsp.readdir(into)).filter(n => n.endsWith('.app'))
@@ -867,7 +953,7 @@ export async function checkBundle(app: string, version: string): Promise<void> {
  */
 export async function verifyCodeSignature(app: string): Promise<void> {
   try {
-    await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
+    await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app], 3 * 60_000)
     return
   } catch (e: any) {
     const detail = String(e?.stderr || e?.message || e).trim()
@@ -1113,6 +1199,31 @@ export async function install(): Promise<boolean> {
 }
 
 let timer: NodeJS.Timeout | null = null
+let bootCheckTimer: NodeJS.Timeout | null = null
+/**
+ * Is a check-in due? Read from the clock and the persisted `last_attempt_at`, not from a count of
+ * timer firings, so a timer that was coalesced or skipped (sleep, App Nap) cannot postpone it, and a
+ * check-in that got no answer is retried after `CHECK_RETRY_MS` instead of a full interval.
+ */
+function checkDue(): boolean {
+  if (!opts) return false
+  const state = readState()
+  const now = clock()
+  const attempt = state.last_attempt_at ?? 0
+  const unanswered = attempt > (state.last_check_at ?? 0)
+  return now < attempt || now - attempt >= (unanswered ? CHECK_RETRY_MS : CHECK_INTERVAL_MS)
+}
+
+function armCheckSchedule(): void {
+  const tick = () => { void checkNow().catch(() => {}) }
+  if (bootCheckTimer) clearTimeout(bootCheckTimer)
+  bootCheckTimer = setTimeout(tick, 15_000)
+  bootCheckTimer.unref()
+  if (timer) clearInterval(timer)
+  timer = setInterval(() => { if (checkDue()) tick() }, CHECK_POLL_MS)
+  timer.unref()
+}
+
 /** Boot settle, a check-in shortly after startup, then every 30 minutes (and on Check Now). */
 export async function startAppUpdater(options: UpdaterOptions): Promise<void> {
   const booted = await onBoot(options)
@@ -1120,10 +1231,7 @@ export async function startAppUpdater(options: UpdaterOptions): Promise<void> {
   // previous build's helper may still roll back from its KEEP copy in the Trash Folder.
   if (booted.phase !== 'failed') await migrateTrashFolder().catch(error => console.warn('[app-update] Trash Folder migration:', error))
   await keepPreviousApps(options.appBundle).catch(error => console.warn('[app-update] previous apps:', error))
-  const tick = () => { void checkNow() }
-  setTimeout(tick, 15_000).unref()
-  timer = setInterval(tick, CHECK_INTERVAL_MS)
-  timer.unref()
+  armCheckSchedule()
 }
 
 /** Settings card: state, settings and the pinned key's fingerprint. */
@@ -1173,6 +1281,9 @@ export function _resetForTesting(): void {
   idleTimer = null
   if (timer) clearInterval(timer)
   timer = null
+  if (bootCheckTimer) clearTimeout(bootCheckTimer)
+  bootCheckTimer = null
+  run = realRun
   quittingForUpdate = false
   installing = null
   ourPauseToken = null
@@ -1180,6 +1291,10 @@ export function _resetForTesting(): void {
   quitDeadlineMs = 6 * 60_000
 }
 export function _configureForTesting(options: UpdaterOptions): void { opts = options }
+/** Test seam: replace the shell-outs (hdiutil, ditto, codesign…); `null` restores the real ones. */
+export function _setToolRunnerForTesting(runner: ToolRunner | null): void { run = runner ?? realRun }
+/** Test seam: arm the check schedule without the boot settle. */
+export const _armCheckScheduleForTesting = armCheckSchedule
 /** Test seam for the quit deadline (the 6-minute timer that calls the hand-off off). */
 export function _setQuitDeadlineForTesting(ms: number): void { quitDeadlineMs = ms }
 

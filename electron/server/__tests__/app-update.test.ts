@@ -1099,6 +1099,166 @@ describe('Gateway update request receipts', () => {
   })
 })
 
+describe('check-in schedule (a failed or timed-out check-in must never stop the next one)', () => {
+  /** setImmediate is not mocked, so this lets the fake transport and the state writes run. */
+  const settle = async () => { for (let i = 0; i < 50; i++) await new Promise(r => setImmediate(r)) }
+  const pending = (): Promise<never> => new Promise<never>(() => {})
+  const noRelease = () => Response.json({ release: null })
+
+  for (const honoursSignal of [true, false]) {
+    test(`a check-in the Gateway never answers is bounded${honoursSignal ? '' : ' even if the transport ignores the abort'}, and the next one is not blocked`, async (t) => {
+      let requests = 0
+      const fetch = (async (_url: string, init: RequestInit) => {
+        requests++
+        if (requests > 1) return noRelease()
+        return new Promise<never>((_, reject) => {
+          if (honoursSignal) init.signal?.addEventListener('abort', () => reject(new Error('aborted by signal')), { once: true })
+        })
+      }) as any
+      updater._configureForTesting(options(fakeQueue(), { fetch }))
+      t.mock.timers.enable({ apis: ['setTimeout'] })
+      try {
+        const first = updater.checkNow()
+        await settle()
+        assert.equal(requests, 1)
+        t.mock.timers.tick(updater.CHECKIN_TIMEOUT_MS)
+        await first
+        const state = updater.readState()
+        assert.match(String(state.last_check_error), /did not answer the update check within 20 s/)
+        assert.ok(state.last_attempt_at, 'the attempt is recorded even though nothing answered')
+        assert.equal(state.last_check_at ?? null, null, 'no answer, so last_check_at did not move')
+        await updater.checkNow()
+        assert.equal(requests, 2, 'the single flight was released: a later check runs instead of joining the old promise')
+        assert.equal(updater.readState().last_check_error, null)
+      } finally {
+        t.mock.timers.reset()
+      }
+    })
+  }
+
+  test('a channel count that never finishes does not time out the check-in: the report says null and goes out', async (t) => {
+    let requests = 0, reported: any = null
+    const fetch = (async (_url: string, init: RequestInit) => {
+      requests++
+      reported = JSON.parse(String(init.body))
+      return noRelease()
+    }) as any
+    updater._configureForTesting(options(fakeQueue(), { fetch, channels: pending }))
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    try {
+      const check = updater.checkNow()
+      await settle()
+      assert.equal(requests, 0, 'still waiting on the channel count')
+      t.mock.timers.tick(updater.CHANNELS_TIMEOUT_MS)
+      await check
+      assert.equal(requests, 1)
+      assert.equal(reported.channels, null)
+      assert.equal(updater.readState().last_check_error, null, 'the check-in itself did not time out')
+    } finally {
+      t.mock.timers.reset()
+    }
+  })
+
+  test('the schedule keeps firing: a timed-out check-in is retried after 5 minutes, then every 30', async (t) => {
+    let clock = 1_000_000_000_000
+    let requests = 0
+    const fetch = (async () => {
+      requests++
+      if (requests === 1) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+      return noRelease()
+    }) as any
+    updater._configureForTesting(options(fakeQueue(), { fetch, now: () => clock }))
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+    try {
+      updater._armCheckScheduleForTesting()
+      t.mock.timers.tick(15_000)
+      await settle()
+      assert.equal(requests, 1, 'the startup check-in ran and failed')
+      assert.match(String(updater.readState().last_check_error), /timeout/)
+      assert.equal(updater.readState().last_check_at ?? null, null)
+
+      clock += updater.CHECK_POLL_MS
+      t.mock.timers.tick(updater.CHECK_POLL_MS)
+      await settle()
+      assert.equal(requests, 1, 'not due yet: the retry waits 5 minutes, not a poll')
+
+      clock += updater.CHECK_RETRY_MS
+      t.mock.timers.tick(updater.CHECK_POLL_MS)
+      await settle()
+      assert.equal(requests, 2, 'the failed check-in was retried after CHECK_RETRY_MS')
+      assert.equal(updater.readState().last_check_error, null)
+      assert.equal(updater.readState().last_check_at, clock)
+
+      clock += updater.CHECK_INTERVAL_MS - updater.CHECK_POLL_MS
+      t.mock.timers.tick(updater.CHECK_POLL_MS)
+      await settle()
+      assert.equal(requests, 2, 'an answered check-in waits the full 30 minutes')
+
+      clock += updater.CHECK_POLL_MS
+      t.mock.timers.tick(updater.CHECK_POLL_MS)
+      await settle()
+      assert.equal(requests, 3, 'and then runs again')
+    } finally {
+      t.mock.timers.reset()
+    }
+  })
+
+  test('a check-in that hangs forever does not wedge the schedule: the deadline frees it and the next poll retries', async (t) => {
+    let clock = 1_000_000_000_000
+    let requests = 0
+    const fetch = (async () => { requests++; return requests === 1 ? pending() : noRelease() }) as any
+    updater._configureForTesting(options(fakeQueue(), { fetch, now: () => clock }))
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+    try {
+      updater._armCheckScheduleForTesting()
+      t.mock.timers.tick(15_000)
+      await settle()
+      assert.equal(requests, 1)
+      t.mock.timers.tick(updater.CHECKIN_TIMEOUT_MS)
+      await settle()
+      assert.match(String(updater.readState().last_check_error), /did not answer/)
+      clock += updater.CHECK_RETRY_MS
+      t.mock.timers.tick(updater.CHECK_POLL_MS)
+      await settle()
+      assert.equal(requests, 2)
+      assert.equal(updater.readState().last_check_error, null)
+    } finally {
+      t.mock.timers.reset()
+    }
+  })
+
+  test('a download aborted part way ("not fully available yet") leaves the schedule alive: the next scheduled check downloads again', async (t) => {
+    let clock = 1_000_000_000_000
+    const release = signed()
+    settings.trusted_publisher_key = PUB
+    let downloads = 0, cancelled = false
+    const fetch = (async (url: string) => {
+      if (String(url).endsWith('/checkin')) return Response.json({ release, publisher: { public_key_base64: PUB } })
+      downloads++
+      if (downloads > 1) return new Response('missing', { status: 404 })
+      return new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array([1])) }, cancel() { cancelled = true } }))
+    }) as any
+    updater._configureForTesting(options(fakeQueue(), { fetch, now: () => clock }))
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+    try {
+      updater._armCheckScheduleForTesting()
+      t.mock.timers.tick(15_000)
+      await settle()
+      assert.equal(downloads, 1)
+      t.mock.timers.tick(30_000) // 30 s without a byte: the inactivity abort
+      await settle()
+      assert.match(String(updater.readState().error), /not fully available yet/)
+      assert.equal(cancelled, true)
+      clock += updater.CHECK_INTERVAL_MS
+      t.mock.timers.tick(updater.CHECK_POLL_MS)
+      await settle()
+      assert.equal(downloads, 2, 'the scheduled check ran again instead of joining a stuck promise')
+    } finally {
+      t.mock.timers.reset()
+    }
+  })
+})
+
 describe('boot settle', () => {
   test('the new version healthy: installed, and the queue pause the updater made is released', async () => {
     updater.writeState({ phase: 'installing', release: signed(), we_paused: false, pause_owner_token: 'healthy-owned', installing_at: Date.now() })
@@ -1469,6 +1629,55 @@ describe('extraction', () => {
     await assert.rejects(updater.checkBundle(app, '1.4.259'), /reports 1\.4\.258, not the signed 1\.4\.259/)
     fs.appendFileSync(path.join(app, 'Contents', 'Info.plist'), '\n')
     await assert.rejects(updater.checkBundle(app, '1.4.258'), /code signature does not verify/)
+  })
+})
+
+describe('extraction cleanup (a failed or killed attach leaves nothing behind)', () => {
+  /** Stands in for hdiutil/ditto: `attach` fails the way a SIGKILLed one does, after optionally writing into the mountpoint. */
+  function stubTools(opts: { leave?: string; failPlainDetach?: boolean; failForceDetach?: boolean }) {
+    const calls: string[][] = []
+    const seen = { mount: '' }
+    updater._setToolRunnerForTesting(async (file, args) => {
+      calls.push([path.basename(file), ...args])
+      if (args[0] === 'attach') {
+        seen.mount = args[args.indexOf('-mountpoint') + 1]
+        if (opts.leave) fs.writeFileSync(path.join(seen.mount, opts.leave), 'x')
+        throw Object.assign(new Error('Command failed: hdiutil attach (killed)'), { killed: true })
+      }
+      if (args[0] === 'detach' && !args.includes('-force') && opts.failPlainDetach) throw new Error('busy')
+      if (args[0] === 'detach' && args.includes('-force') && opts.failForceDetach) throw new Error('not mounted')
+      return { stdout: '', stderr: '' }
+    })
+    return { calls, seen }
+  }
+  const dmg = () => { const f = path.join(tmp.dir, 'r.dmg'); fs.writeFileSync(f, 'x'); return f }
+
+  test('a killed attach still detaches (plain, then -force) and removes the empty mountpoint', async (t) => {
+    const warn = t.mock.method(console, 'warn', () => {})
+    const { calls, seen } = stubTools({ failPlainDetach: true })
+    await assert.rejects(updater.extractApp(dmg(), path.join(tmp.dir, 'out')), /attach/)
+    assert.deepEqual(calls.filter(c => c[1] === 'detach').map(c => c.includes('-force')), [false, true])
+    assert.equal(fs.existsSync(seen.mount), false, 'the mkdtemp mountpoint was removed')
+    assert.equal(warn.mock.callCount(), 0)
+  })
+
+  test('a detach that fails twice is logged, and the (unmounted) empty directory is still removed', async (t) => {
+    const warn = t.mock.method(console, 'warn', () => {})
+    const { seen } = stubTools({ failPlainDetach: true, failForceDetach: true })
+    await assert.rejects(updater.extractApp(dmg(), path.join(tmp.dir, 'out')), /attach/)
+    assert.ok(warn.mock.calls.some(c => /could not detach/.test(String(c.arguments[0]))), 'the swallowed failure is logged')
+    assert.equal(fs.existsSync(seen.mount), false)
+  })
+
+  test('a non-empty mountpoint goes to Story\'s Trash, never deleted', async () => {
+    const { seen } = stubTools({ leave: 'leftover.txt' })
+    await assert.rejects(updater.extractApp(dmg(), path.join(tmp.dir, 'out')), /attach/)
+    assert.equal(fs.existsSync(seen.mount), false)
+    const found: string[] = []
+    const walk = (dir: string) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) walk(path.join(dir, e.name)); else found.push(e.name) } }
+    walk(await libraryAppTrash())
+    assert.ok(found.includes('leftover.txt'), 'the leftover contents were moved, not removed')
   })
 })
 

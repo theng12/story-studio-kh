@@ -151,7 +151,7 @@ async function oldMergeEpisode(opts: { musicOn?: boolean; savedTail?: number } =
     status: 'running', created_at: new Date().toISOString(), started_at: null, finished_at: null, error: null,
     output_lines: [], params: {},
   }
-  return { slug, mergedDir, chapter, job, merge, original: path.join(mergedDir, 'EP001_merged_audio.mp3') }
+  return { slug, mergedDir, chapter, job, merge, musicPath, original: path.join(mergedDir, 'EP001_merged_audio.mp3') }
 }
 
 describe('an old merge (no closing tail) asked for a 25 s closing with music', () => {
@@ -226,6 +226,114 @@ describe('an old merge (no closing tail) asked for a 25 s closing with music', (
   })
 })
 
+describe('with no active Audio Assembly preset (Wonder in Ink WI0001, 2026-10-23)', () => {
+  const clearAudioPreset = (slug: string) => pm.updateConfig(slug, { audio_merge_presets: [], audio_merge_last_preset: '' } as any)
+  const recordPath = (ep: { mergedDir: string }) => path.join(ep.mergedDir, 'EP001_merged_audio.completion.json')
+  const rewriteRecord = async (ep: { mergedDir: string }, mutate: (record: any) => void) => {
+    const record = JSON.parse(await fs.readFile(recordPath(ep), 'utf-8'))
+    mutate(record)
+    await fs.writeFile(recordPath(ep), JSON.stringify(record, null, 2))
+  }
+
+  test('a mix KNOWN to have a bed is refused, naming the episode and the way out', async () => {
+    const ep = await oldMergeEpisode()
+    await clearAudioPreset(ep.slug)
+    assert.equal(JSON.parse(await fs.readFile(recordPath(ep), 'utf-8')).background_music, true, 'the merge records its bed')
+    const verdict = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
+    assert.equal(verdict.action, 'refuse')
+    const reason = (verdict as any).reason as string
+    assert.match(reason, /^EP001:/)
+    assert.match(reason, /no active Audio Assembly preset/)
+    assert.match(reason, /Save an Audio Assembly preset with the music/)
+    assert.match(reason, /re-run Audio Assembly/)
+    assert.match(reason, /music turned off/, 'and the way to keep the ending silent on purpose')
+    const assets = await scanEpisodeAssets(ep.slug, 'EP001')
+    await assert.rejects(
+      guardClosingTail(ep.slug, 'EP001', postAudioReq(assets.merged_audio[0]!.path), assets, ep.job),
+      /no active Audio Assembly preset/,
+      'the render refuses before it draws a padded silent tail',
+    )
+  })
+
+  test('a record that does not say whether it has a bed (older merge) keeps the old behaviour: no refusal', async () => {
+    const ep = await oldMergeEpisode()
+    await clearAudioPreset(ep.slug)
+    await rewriteRecord(ep, record => { delete record.background_music })
+    assert.deepEqual(await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO }), { action: 'none' })
+    const assets = await scanEpisodeAssets(ep.slug, 'EP001')
+    assert.equal(await guardClosingTail(ep.slug, 'EP001', postAudioReq(assets.merged_audio[0]!.path), assets, ep.job), assets)
+  })
+
+  test('a mix KNOWN to have no bed is not refused; neither is a saved preset with music off', async () => {
+    const noBed = await oldMergeEpisode({ musicOn: false })
+    await clearAudioPreset(noBed.slug)
+    assert.equal(JSON.parse(await fs.readFile(recordPath(noBed), 'utf-8')).background_music, false)
+    assert.deepEqual(await planClosingTailRemix({ slug: noBed.slug, code: 'EP001', postAudio: POST_AUDIO }), { action: 'none' })
+    const musicOffPreset = await oldMergeEpisode({ musicOn: false })
+    assert.deepEqual(await planClosingTailRemix({ slug: musicOffPreset.slug, code: 'EP001', postAudio: POST_AUDIO }), { action: 'none' })
+  })
+
+  test("a closing saved only as the episode's last render is the one a manual Audio Assembly bakes", async () => {
+    const ep = await oldMergeEpisode()
+    // No Video Assembly preset at all: the 25 s closing exists only as EP001's last render.
+    await pm.updateConfig(ep.slug, {
+      video_bundle_presets: [], video_bundle_last_preset: '',
+      video_assembly_last_used: { episodes: { EP001: { episode_id: 'EP001', saved_at: '2026-10-23T00:00:00.000Z', settings: { timeline: { post_audio: { ...POST_AUDIO } } } } } },
+    } as any)
+    await ep.merge()
+    assert.equal((await scanEpisodeAssets(ep.slug, 'EP001')).merged_audio[0]!.closing_tail_sec, TAIL_SEC)
+  })
+})
+
+describe("the render's own closing outranks whatever is saved", () => {
+  const lastRenderOnly = (slug: string, postAudio: Record<string, unknown>) => pm.updateConfig(slug, {
+    video_bundle_presets: [], video_bundle_last_preset: '',
+    video_assembly_last_used: { episodes: { EP001: { episode_id: 'EP001', saved_at: '2026-10-23T00:00:00.000Z', settings: { timeline: { post_audio: postAudio } } } } },
+  } as any)
+
+  test('a manual last render with no tail and a Pipeline preset of 25 s: re-mixed to 25 s, not refused', async () => {
+    const ep = await oldMergeEpisode()
+    await lastRenderOnly(ep.slug, { behavior: 'hard-cut', fade_duration: 5 })
+    const verdict = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
+    assert.equal(verdict.action, 'remix', JSON.stringify(verdict))
+    assert.deepEqual((verdict as any).params.closing_post_audio, POST_AUDIO)
+    const before = await scanEpisodeAssets(ep.slug, 'EP001')
+    const after = await guardClosingTail(ep.slug, 'EP001', postAudioReq(before.merged_audio[0]!.path), before, ep.job)
+    assert.equal(after.merged_audio[0]!.closing_tail_sec, TAIL_SEC)
+  })
+
+  test('a saved closing shorter than the render asks for no longer blocks it', async () => {
+    const ep = await oldMergeEpisode({ savedTail: 5 })
+    const verdict = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
+    assert.equal(verdict.action, 'remix', JSON.stringify(verdict))
+  })
+
+  test('a merge that carries closing_post_audio bakes that block, not the episode\'s last render', async () => {
+    const ep = await oldMergeEpisode()
+    // The episode last rendered with a 25 s closing; the Pipeline preset this run renders from says 10 s.
+    await lastRenderOnly(ep.slug, { ...POST_AUDIO })
+    const record = JSON.parse(await fs.readFile(path.join(ep.mergedDir, 'EP001_merged_audio.completion.json'), 'utf-8'))
+    assert.equal(record.closing_tail_sec, 0, 'the fixture merge is the old one')
+    const job = mergeJob(ep.slug, {
+      episode_id: 'EP001', chapters: [], gap_duration: 0, normalize_volume: false, write_mode: 'new',
+      music: { enabled: true, source: 'manual', files: [ep.musicPath], volume: 0.5, post_narration_volume: 0.6, fade_in: 0, fade_out: 0, lead_in_enabled: true, lead_in_seconds: LEAD_IN_SEC },
+      closing_post_audio: { ...POST_AUDIO, tail_seconds: 10 },
+    })
+    await generateAudioMerge(job)
+    const written = JSON.parse(await fs.readFile(path.join(ep.mergedDir, 'EP001_merged_audio.completion.json'), 'utf-8'))
+    assert.equal(written.closing_tail_sec, 10, 'the render\'s 10 s, not the last render\'s 25 s')
+  })
+
+  test('the re-mixed track records its bed, so the next render knows it', async () => {
+    const ep = await oldMergeEpisode()
+    const before = await scanEpisodeAssets(ep.slug, 'EP001')
+    await guardClosingTail(ep.slug, 'EP001', postAudioReq(before.merged_audio[0]!.path), before, ep.job)
+    const record = JSON.parse(await fs.readFile(path.join(ep.mergedDir, 'EP001_merged_audio.completion.json'), 'utf-8'))
+    assert.equal(record.background_music, true)
+    assert.equal(record.closing_tail_remix_of, 'EP001_merged_audio.mp3')
+  })
+})
+
 describe('where a re-mix is not safely possible, the render is refused with a plain reason', () => {
   const WORDING = /this episode's audio was mixed before closing music existed; re-mix the audio to add the 25 s closing/
 
@@ -241,14 +349,6 @@ describe('where a re-mix is not safely possible, the render is refused with a pl
       WORDING,
       'the admission route (no job) refuses too',
     )
-  })
-
-  test('a saved Video Assembly preset that disagrees with the request cannot bake the tail asked for', async () => {
-    const ep = await oldMergeEpisode({ savedTail: 5 })
-    const verdict = await planClosingTailRemix({ slug: ep.slug, code: 'EP001', postAudio: POST_AUDIO })
-    assert.equal(verdict.action, 'refuse')
-    assert.match((verdict as any).reason, WORDING)
-    assert.match((verdict as any).reason, /Save the Video Assembly preset/)
   })
 
   test('a re-mix that moves the narration is undone and refused: original kept, nothing selected', async () => {
@@ -296,6 +396,23 @@ describe('Pipeline preflight says the same thing before anything is queued', () 
     assert.ok(issue, JSON.stringify(response.body.issues))
     assert.equal(issue.episode_id, 'EP001')
     assert.match(issue.message, /this episode's audio was mixed before closing music existed; re-mix the audio to add the 25 s closing/)
+  })
+
+  test('no active Audio Assembly preset: refused for a recorded bed, left alone for an older record', async () => {
+    const known = await oldMergeEpisode()
+    await pm.updateConfig(known.slug, { audio_merge_presets: [], audio_merge_last_preset: '' } as any)
+    const refused = (await preflight(known.slug)).body.issues.find((row: any) => row.code === 'closing_tail_unsafe')
+    assert.ok(refused, 'a recorded bed with nothing to re-mix it from is announced before anything is queued')
+    assert.match(refused.message, /no active Audio Assembly preset/)
+
+    const legacy = await oldMergeEpisode()
+    await pm.updateConfig(legacy.slug, { audio_merge_presets: [], audio_merge_last_preset: '' } as any)
+    const file = path.join(legacy.mergedDir, 'EP001_merged_audio.completion.json')
+    const record = JSON.parse(await fs.readFile(file, 'utf-8'))
+    delete record.background_music
+    await fs.writeFile(file, JSON.stringify(record, null, 2))
+    const response = await preflight(legacy.slug)
+    assert.ok(!response.body.issues.some((row: any) => row.code === 'closing_tail_unsafe'), JSON.stringify(response.body.issues))
   })
 
   test('a merge that carries the tail raises nothing', async () => {

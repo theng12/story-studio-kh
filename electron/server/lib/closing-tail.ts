@@ -59,20 +59,45 @@ export interface ClosingTailRequest {
 }
 
 /**
- * The closing tail the channel's Video Assembly preset asks for.
+ * The closing a render's `post_audio` block asks for, in the shape Audio Assembly bakes.
  *
- * Audio Assembly calls this so it bakes the tail the renderer will draw — the
- * same `post_audio` block, from the same active timeline slot the page itself
- * resolves (`resolveTimelineSlot`). 0 when the project has no Video Assembly
- * preset, when it asks for no tail, or when the config cannot be read at all: an
- * unreadable setting is no tail, never a guessed one.
+ * `postAudio` is the block of THE render this audio is for: a Pipeline run's Video Assembly bundle, or
+ * the request the render guard holds. Whatever will actually be drawn is the truth about what to bake.
  */
-export async function resolveProjectClosingTail(slug: string): Promise<ClosingTailRequest> {
+export function closingTailFromPostAudio(postAudio: VideoPostAudio | null | undefined): ClosingTailRequest {
+  return { seconds: postRollSeconds(postAudio), music: postAudio?.closing_music }
+}
+
+/**
+ * The `post_audio` block a MANUAL Audio Assembly of this episode bakes, from the project's config: the
+ * episode's own last Video Assembly render, else the active timeline preset — the order the page
+ * restores for this episode.
+ *
+ * The CHANNEL-level last render is deliberately not a source. It is another episode's choice, offered
+ * to the page only as a starting point, and letting it decide how long THIS episode's audio runs would
+ * leak one episode's closing into another's (AGENTS.md §4). A last render whose timeline names no
+ * `post_audio` leaves the preset's in place, as the page's `applyTimelineData` does.
+ *
+ * A Pipeline run or a render does not come through here: both carry the block they will draw
+ * (`closing_post_audio` on the merge), which outranks anything saved.
+ */
+export async function resolveClosingPostAudio(config: any, episodeId: string): Promise<VideoPostAudio | undefined> {
+  const { resolveTimelineSlot } = await import('../services/opening-assets.js')
+  const own = config?.video_assembly_last_used?.episodes?.[episodeId.trim().toUpperCase()]?.settings
+  const rendered = own?.timeline?.post_audio
+  if (rendered && typeof rendered === 'object') return rendered as VideoPostAudio
+  return resolveTimelineSlot(config)?.post_audio as VideoPostAudio | undefined
+}
+
+/**
+ * The closing tail a manual Audio Assembly of this episode bakes (`resolveClosingPostAudio`). 0 when the
+ * project has no Video Assembly setting, when it asks for no tail, or when the config cannot be read at
+ * all: an unreadable setting is no tail, never a guessed one.
+ */
+export async function resolveProjectClosingTail(slug: string, episodeId: string): Promise<ClosingTailRequest> {
   try {
-    const { resolveTimelineSlot } = await import('../services/opening-assets.js')
     const pm = await import('../services/project-manager.js')
-    const postAudio = resolveTimelineSlot(await pm.getConfig(slug))?.post_audio as VideoPostAudio | undefined
-    return { seconds: postRollSeconds(postAudio), music: postAudio?.closing_music }
+    return closingTailFromPostAudio(await resolveClosingPostAudio(await pm.getConfig(slug), episodeId))
   } catch {
     return { seconds: 0 }
   }
@@ -96,6 +121,21 @@ export async function mergedClosingTailSec(mergedAudioPath: string, code: string
     return Number.isFinite(sec) && sec > 0 ? sec : 0
   } catch {
     return 0
+  }
+}
+
+/**
+ * Whether the merge recorded a background music bed in this file: true / false as written, null when
+ * the record does not say (no record, a record for a different file, or one written before 1.4.352).
+ * Null is "could not tell", which the caller must not read as "no bed" (AGENTS.md §6).
+ */
+export async function mergedBackgroundMusic(mergedAudioPath: string, code: string): Promise<boolean | null> {
+  try {
+    const record = JSON.parse(await fs.readFile(mergedAudioCompletionPath(mergedAudioPath, code), 'utf-8'))
+    if (record?.output_filename !== path.basename(mergedAudioPath)) return null
+    return typeof record?.background_music === 'boolean' ? record.background_music : null
+  } catch {
+    return null
   }
 }
 
