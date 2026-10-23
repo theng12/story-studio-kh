@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.351 — 2026-10-23
+
+- Scene Plan sizes each visual prompt so the final prompt fits the image model: the writer's allowance is the selected model's limit minus the exact character details and Style Bible text the scene render adds. The limit is read live when the run starts; a limit you chose or one saved with an older queued run is labelled as such, never as the model's own figure. When those additions alone fill the limit, the run stops with a clear message instead of writing prompts the model would refuse.
+- Scene Plan shows each prompt's length against the space actually available to it.
+
 ## v1.4.350 — 2026-10-23
 
 - Motion Review adds Sketch Draw beside Image to video. It draws the exact scene image as line work, adds its colour, then holds the complete picture for exactly the scene's Scene Plan length. It runs free on this Mac with no model, and Video Assembly uses an approved Sketch Draw clip like any other motion clip.

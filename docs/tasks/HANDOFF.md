@@ -1,5 +1,13 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.351 — scene prompt body budget + remote-render rule (2026-10-23, pending gate)
+
+Scene Plan's writer allowance = effective image-prompt cap minus the exact render additions, measured by the shared `services/scene-prompt-assembly.ts` that `continuity-render.ts` also uses (renderer output byte-identical). Raw cap selection and intended image model travel from admission and resolve live; legacy numeric-only queued jobs keep their saved figure and are labelled "saved", never "published". A "none" selection needs no catalogue. Overhead ≥ cap is a typed non-retryable refusal. Two earlier attempts were held from 349 for failing review; this third version passed independent review of all 12 earlier findings. Focused verification on the candidate caught and fixed one more defect: the regenerate-prompt replay fingerprint treated an empty intended model differently from an absent one, so a retry of an already-queued job got a 409.
+
+AGENTS §7 updated per the owner (2026-10-23): remote final rendering through the paired Gateway is allowed; see docs/architecture/agents-decisions.md §7. Fleet rendering needs no app change to try: the blocker is a one-use `render-authority/qualify.json` on an idle 16 GB worker Mac (_orchestra/app-closeout-20261021/FLEET-RENDER-OPTIN-SCOPE-20261023.md); a remote failure parks that job in recovery hold rather than falling back.
+
+1.4.350 (Sketch Draw) shipped and installed on the mini 2026-10-23 12:28Z.
+
 ## 1.4.350 — Sketch Draw in Motion Review, verification pending (2026-10-23)
 
 Owner approved implementing Sketch Draw ("ok approved on everything. especially the sketch draw thing. so please implement it."), placed in **Motion Review**, not Video Assembly (owner, relayed by production: Assembly is already crowded and the drawings must be reviewable before the final render). Text-to-sketch is not offered: the renderer draws an existing image, and text-to-video stays retired (§7).
