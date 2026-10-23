@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.350 — 2026-10-23
+
+- Motion Review adds Sketch Draw beside Image to video. It draws the exact scene image as line work, adds its colour, then holds the complete picture for exactly the scene's Scene Plan length. It runs free on this Mac with no model, and Video Assembly uses an approved Sketch Draw clip like any other motion clip.
+- Sketch Draw pens: no pen (default), a plain pen, or a pen showing the channel name or the channel profile logo.
+- A Sketch Draw clip is marked stale, with the reason, when its scene image, scene length, Video Assembly frame rate or pen changes. A timing nudge of less than one frame keeps it. Generate leaves new clips for you to review before Use Clip; stale clips cannot be chosen and Video Assembly logs any scene it falls back to a still for.
+
 ## v1.4.349 — 2026-10-23
 
 - Video Assembly plays the episode's finished video inline, using the same final file Upload Center would upload. Playback streams with seeking through the signed-in app, so it also works in a browser over remote access. A missing finished video and a video that fails to load are reported separately.
