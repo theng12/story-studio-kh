@@ -130,15 +130,42 @@ export function resolveScenePlanPromptCharCap(
   catalog: ReadonlyArray<GenStudioProductIdentity & { max_prompt_characters?: number }>,
   label = 'The Scene Plan preset',
 ): number | undefined {
+  return resolveScenePlanPromptCharCapDetail(data, catalog, label).cap
+}
+
+export interface ScenePlanPromptCharCapDetail {
+  /** The ceiling to enforce: the selection, clamped to what the model publishes. */
+  cap?: number
+  /** The model's published figure, when the intended model was resolved. */
+  publishedCap?: number
+}
+
+/**
+ * The same resolution, keeping the model's PUBLISHED figure separate from the
+ * enforced one.
+ *
+ * They differ whenever the customer chose a tighter number than the model
+ * publishes. Callers that tell the writer or the job log what the number IS
+ * need both: calling the chosen number "the model's limit" is a claim the
+ * reader cannot check and that the model will not honour.
+ */
+export function resolveScenePlanPromptCharCapDetail(
+  data: Record<string, any>,
+  catalog: ReadonlyArray<GenStudioProductIdentity & { max_prompt_characters?: number }>,
+  label = 'The Scene Plan preset',
+): ScenePlanPromptCharCapDetail {
   const intended = typeof data.intended_image_model === 'string' ? data.intended_image_model.trim() : ''
-  if (!intended) return parsePromptCharCap(data.prompt_char_cap)
+  if (!intended) return { cap: parsePromptCharCap(data.prompt_char_cap) }
   const model = findGenStudioProduct(catalog, intended)
   if (!model) throw new Error(`${label}'s intended image model is not in the current image catalogue.`)
   const published = parsePromptCharCap(model.max_prompt_characters)
-  if (data.prompt_char_cap === 'auto') return published
-  if (data.prompt_char_cap === 'none') return undefined
+  if (data.prompt_char_cap === 'auto') return { cap: published, publishedCap: published }
+  if (data.prompt_char_cap === 'none') return { cap: undefined, publishedCap: published }
   const selected = parsePromptCharCap(data.prompt_char_cap)
-  return selected && published ? Math.min(selected, published) : selected
+  return {
+    cap: selected && published ? Math.min(selected, published) : selected,
+    publishedCap: published,
+  }
 }
 
 /**

@@ -26,12 +26,12 @@ import {
   readManifest,
   type TaskManifestEntry,
 } from '../services/task-manifest.js'
-import { getCharacter } from '../services/character-manager.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from './scene-image.js'
 import type { Job, ScenePlan, ScenePlanEntry } from '../models/types.js'
 import { awaitingApprovalLabel } from '../contracts/episode-step-jobs.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { resolveStyleBible } from '../lib/style-bible.js'
+import { composeSceneRenderPrompt, loadAnchorCharacters } from '../services/scene-prompt-assembly.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage, countScenesAwaitingApproval, liveSceneAutoApprove } from '../services/scene-media-checkpoint.js'
@@ -452,49 +452,42 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     ? createHash('sha256').update(await fs.readFile(episodeReferencePaths[0]!)).digest('hex').slice(0, 16)
     : ''
 
-  // Anchor character descriptions reinforce identity as text.
-  const characterDescs: Array<{ name: string; description: string }> = []
-  for (const id of cfg.anchor_character_ids) {
-    try {
-      const ch = await getCharacter(job.project_slug, id)
-      const name = (ch as any)?.name || id
-      const desc = typeof (ch as any)?.description === 'string' ? (ch as any).description.trim() : ''
-      if (desc) characterDescs.push({ name, description: desc })
-    } catch { /* skip a missing/corrupt character */ }
-  }
+  // Anchor character descriptions reinforce identity as text. The reader is
+  // shared with Scene Plan's budget, so the text it counts as overhead is the
+  // text this renderer appends — including its tolerance for a missing or
+  // corrupt character.
+  const characterDescs = await loadAnchorCharacters(job.project_slug, cfg.anchor_character_ids)
 
   // v1.0.243 — compose the final render prompt: [scene action/setting from the
   // planner] + [anchor character descriptors] + [Style Bible]. Sections are
   // omitted when empty, so a project with none of the extras renders exactly
   // the bare visual_prompt as before.
-  const charText = characterDescs.length
-    ? characterDescs.map(c => `${c.name}: ${c.description}`).join('; ')
-    : ''
+  //
   // v1.0.795 — the Style Bible has two tiers: this episode's continuity.json,
   // else the project's standing default (config.json `default_style_bible`).
   // Resolved through the SAME helper the planner uses (lib/style-bible.ts) so
   // the text baked into each visual_prompt at plan time and the text appended
   // here at render time can never be two different looks. A project with no
   // default and an episode with no Style Bible resolves to '' exactly as before.
+  //
+  // The composition itself lives in services/scene-prompt-assembly.ts: Scene
+  // Plan measures the same parts to size the writer's body budget, so the two
+  // cannot disagree about what is appended.
   const resolvedStyle = await resolveStyleBible({ slug: job.project_slug, episodeDir: paths.episode_dir })
   const styleBible = resolvedStyle.text
   // v1.0.336 — non-character scenes (event / map / artifact / environment) drop
   // the guide's descriptor text so the prompt describes ONLY the subject. Plans
   // with no scene_type behave as before (the guide everywhere).
   const isCharacterScene = (s: ScenePlanEntry): boolean => !s.scene_type || s.scene_type === 'character'
-  const composePrompt = (visualPrompt: string, includeCharacter = true): string => {
-    const parts = [visualPrompt.trim()]
-    if (includeCharacter && charText) parts.push(`Character details — ${charText}.`)
-    if (styleBible) parts.push(`Style: ${styleBible}`)
-    return parts.join('\n\n')
-  }
+  const composePrompt = (visualPrompt: string, includeCharacter = true): string =>
+    composeSceneRenderPrompt(visualPrompt, characterDescs, styleBible, includeCharacter)
   // The log names only layers that are actually in the prompt. It used to add
   // "+ negative prompt", which told him something had been applied when nothing
   // had been sent.
-  if (charText || styleBible) {
+  if (characterDescs.length || styleBible) {
     const styleLabel = resolvedStyle.source === 'project' ? 'style bible (project default)' : 'style bible'
     job.output_lines.push(
-      `Prompt layer: ${[charText && 'character text', styleBible && styleLabel].filter(Boolean).join(' + ')}.`,
+      `Prompt layer: ${[characterDescs.length && 'character text', styleBible && styleLabel].filter(Boolean).join(' + ')}.`,
     )
   }
 

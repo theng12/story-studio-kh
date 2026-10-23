@@ -32,7 +32,7 @@
 
 import { listImageModels } from '../lib/genstudio-client.js'
 import { getApiKey } from './app-secrets-store.js'
-import { resolveScenePlanPromptCharCap } from './preset-authority.js'
+import { resolveScenePlanPromptCharCapDetail } from './preset-authority.js'
 import { ImagePromptCapUnavailableError, parsePromptCharCap } from './prompt-char-cap.js'
 
 /** The persisted SELECTION. A number is the customer's own ceiling. */
@@ -52,6 +52,10 @@ export interface LiveImagePromptCapRequest {
 export interface LiveImagePromptCap {
   /** The ceiling to enforce, or undefined when no ceiling is in force. */
   cap?: number
+  /** The model's published figure, when the catalogue supplied one. Kept
+   *  apart from `cap` so a tighter customer choice is never described as the
+   *  model's limit. */
+  publishedCap?: number
   /** Why the request cannot be honoured, when it cannot. */
   error?: string
 }
@@ -102,10 +106,13 @@ export async function resolveLiveImagePromptCharCap(
   if (!selection.ok) return { error: `${selection.error} ${nothing}` }
 
   const intended = typeof request.intendedImageModel === 'string' ? request.intendedImageModel.trim() : ''
+  // "none" needs no figure from the model, so a retired model or missing key cannot block it.
+  if (selection.selection === 'none') return { cap: undefined }
   if (!intended) {
     // No model named: the helper's own rule applies — a number is the
-    // ceiling, anything else means no ceiling is in force.
-    const cap = resolveScenePlanPromptCharCap(
+    // ceiling, anything else means no ceiling is in force. Nothing published
+    // was read, so nothing is labelled as published.
+    const { cap } = resolveScenePlanPromptCharCapDetail(
       { intended_image_model: '', prompt_char_cap: selection.selection },
       [],
       label,
@@ -122,12 +129,12 @@ export async function resolveLiveImagePromptCharCap(
   }
   const catalogue = await listImageModels(apiKey)
   try {
-    const cap = resolveScenePlanPromptCharCap(
+    const { cap, publishedCap } = resolveScenePlanPromptCharCapDetail(
       { intended_image_model: intended, prompt_char_cap: selection.selection },
       catalogue,
       label,
     )
-    return { cap }
+    return { cap, publishedCap }
   } catch {
     // The selected model is not in the catalogue. Nothing is invented in its
     // place — the customer is told which model could not be resolved.
@@ -141,7 +148,7 @@ export async function resolveLiveImagePromptCharCap(
 /**
  * The same resolution for a caller that must FAIL rather than answer.
  *
- * Used by the executor, which runs inside a job: there is no HTTP response to
+ * Used by an executor, which runs inside a job: there is no HTTP response to
  * carry a refusal, so the refusal is thrown — typed, so the queue refuses to
  * retry it. The job stops with the reason in its log and no prompt is
  * written.
@@ -149,7 +156,15 @@ export async function resolveLiveImagePromptCharCap(
 export async function requireLiveImagePromptCharCap(
   request: LiveImagePromptCapRequest,
 ): Promise<number | undefined> {
+  return (await requireLiveImagePromptCharCapDetail(request)).cap
+}
+
+/** As above, keeping the model's published figure separate from the enforced
+ *  one for callers that must not present a chosen limit as published. */
+export async function requireLiveImagePromptCharCapDetail(
+  request: LiveImagePromptCapRequest,
+): Promise<{ cap?: number; publishedCap?: number }> {
   const result = await resolveLiveImagePromptCharCap(request)
   if (result.error) throw new ImagePromptCapUnavailableError(result.error)
-  return result.cap
+  return { cap: result.cap, publishedCap: result.publishedCap }
 }

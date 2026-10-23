@@ -44,7 +44,8 @@ import {
   parseScenePromptTokenSetting,
   type ScenePromptPackSetting,
 } from '../services/scene-prompt-batching.js'
-import { parsePromptCharCap } from '../services/prompt-char-cap.js'
+import { measureAssemblyOverhead, parsePromptCharCap } from '../services/prompt-char-cap.js'
+import { readSceneRenderAssembly, sceneRenderAssemblyParts } from '../services/scene-prompt-assembly.js'
 import { freshActionMatch, freshActionFingerprint, readOperationId, readOptionalOperationId, stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import {
   composeScenePlanGuidance,
@@ -82,8 +83,27 @@ function scenePromptReplayFingerprint(params: Record<string, unknown>) {
     custom_instructions: params.custom_instructions,
     creative_direction: params.creative_direction,
     prompt_char_cap: params.prompt_char_cap,
+    prompt_char_cap_selection: params.prompt_char_cap_selection,
+    intended_image_model: params.intended_image_model,
     avoid_legible_text: params.avoid_legible_text,
   })
+}
+
+/**
+ * The character-ceiling fields exactly as the job will store them.
+ *
+ * Both the replay fingerprint AND the enqueued params are built from this one
+ * object. A lost-response retry re-sends the same body, so the fingerprint it
+ * reconstructs must match the one on the stored job byte for byte — two
+ * separately-parsed copies of `prompt_char_cap` were enough to turn that retry
+ * into a 409.
+ */
+function scenePromptCapFields(body: Record<string, unknown>) {
+  return {
+    prompt_char_cap: parsePromptCharCap(body.prompt_char_cap),
+    prompt_char_cap_selection: body.prompt_char_cap_selection,
+    intended_image_model: typeof body.intended_image_model === 'string' ? body.intended_image_model.trim() : '',
+  }
 }
 
 async function assertScenePlanVisualSource(slug: string, episodeId: string) {
@@ -368,6 +388,11 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       prompt_pack_size: promptPackSize,
       prompt_max_tokens: promptMaxTokens,
       prompt_char_cap: promptCharCap,
+      // The SELECTION, not only the admission-time number. The job re-resolves
+      // it against the LIVE catalogue when it runs, so a model or catalogue
+      // change between admission and execution follows the selected model.
+      // Older queued jobs have no selection; the generator keeps their number.
+      prompt_char_cap_selection: presetData.prompt_char_cap,
       creative_direction: creativeDirection,
       avoid_legible_text: avoidLegibleText,
       intended_image_model: presetData.intended_image_model,
@@ -436,7 +461,8 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
   const creativeDirection = parseCreativeDirection(body.creative_direction)
-  const promptCharCap = parsePromptCharCap(body.prompt_char_cap)
+  // One parsed copy, used for BOTH the replay fingerprint and the stored job.
+  const capFields = scenePromptCapFields(body as Record<string, unknown>)
   // A user-invoked REWORD of a prompt that did not render: same beat, different
   // angle, difficult-subjects guidance applied. Only the explicit action sets
   // it — no failure is inspected to infer it. See lib/image-content-guidance.ts.
@@ -463,7 +489,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
         style_prompt: stylePrompt || undefined,
         custom_instructions: customInstructions || undefined,
         creative_direction: creativeDirection,
-        prompt_char_cap: promptCharCap,
+        ...capFields,
         avoid_legible_text: avoidLegibleText,
       }
       if (previous.type !== 'scene_plan_run' || scenePromptReplayFingerprint(previous.params as Record<string, unknown>) !== scenePromptReplayFingerprint(replay)) {
@@ -513,7 +539,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
       style_prompt: stylePrompt || undefined,
       custom_instructions: customInstructions || undefined,
       creative_direction: creativeDirection,
-      prompt_char_cap: promptCharCap,
+      ...capFields,
       avoid_legible_text: avoidLegibleText,
     }, operationId)
     if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
@@ -570,7 +596,10 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
     return res.status(400).json({ detail: error?.message || 'Invalid prompt_pack_size' })
   }
   const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
-  const promptCharCap = parsePromptCharCap(body.prompt_char_cap)
+  // The SELECTION and the model it was chosen for travel with the job; the
+  // executor resolves the ceiling live. A legacy client sends only the number,
+  // which is kept as a saved allowance.
+  const capFields = scenePromptCapFields(body as Record<string, unknown>)
   const useResearch = body.use_research !== false
   const avoidLegibleText = typeof body.avoid_legible_text === 'boolean' ? body.avoid_legible_text : undefined
 
@@ -594,7 +623,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
       creative_direction: creativeDirection,
       prompt_pack_size: promptPackSize,
       prompt_max_tokens: promptMaxTokens,
-      prompt_char_cap: promptCharCap,
+      ...capFields,
       use_research: useResearch,
       avoid_legible_text: avoidLegibleText,
     },
@@ -1111,6 +1140,14 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     const responsePlan = scenePlan
       ? { ...scenePlan, ...(scenePlan.pacing === undefined ? {} : { pacing: parseSavedScenePlanPacing(scenePlan.pacing) }) }
       : null
+    // What the scene renderer appends to every prompt — measured with the same
+    // composition it submits, and re-read on every load. The page compares each
+    // stored prompt against the BODY budget this leaves, so its "N of M
+    // characters" counter describes the same ceiling the render will meet.
+    const renderAssembly = await readSceneRenderAssembly(slug, paths.episode_dir)
+    const promptRenderOverhead = measureAssemblyOverhead(
+      sceneRenderAssemblyParts(renderAssembly.characters, renderAssembly.styleBible, true),
+    )
 
     res.json({
       stitched_srt: existsSync(stitchedPath) ? {
@@ -1139,6 +1176,10 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
       timeline_integrity: subtitleTimelineIntegrity,
       plan_stale_vs_stitched: planStaleVsStitched,
       scene_plan: responsePlan,
+      prompt_render_overhead: {
+        characters: promptRenderOverhead.characters,
+        parts: promptRenderOverhead.parts,
+      },
       coverage_integrity: scenePlan ? inspectScenePlanCoverage(scenePlan) : null,
       audio_merged: existsSync(audioChaptersPath),
       audio_merge_gap_s: audioMergeGap,

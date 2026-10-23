@@ -336,8 +336,11 @@ describe('style-bible — source wiring', () => {
       !readsConfigKeyDirectly(src),
       'the renderer must never read the config key directly either',
     )
-    // The composition itself is unchanged: still appended, still skipped when empty.
-    assert.match(src, /if \(styleBible\) parts\.push\(`Style: \$\{styleBible\}`\)/)
+    // The composition lives in the shared assembly Scene Plan also measures:
+    // the renderer must use it, and it still appends the Style Bible only when set.
+    assert.match(src, /composeSceneRenderPrompt\(visualPrompt, characterDescs, styleBible, includeCharacter\)/)
+    const assembly = await fs.readFile(path.join(serverRoot, 'services/scene-prompt-assembly.ts'), 'utf-8')
+    assert.match(assembly, /\.\.\.\(styleBible \? \[\{ label: 'Style Bible', text: `\\n\\nStyle: \$\{styleBible\}` \}\] : \[\]\)/)
   })
 
   test('the thumbnail art-style system is left alone — these are separate questions', async () => {

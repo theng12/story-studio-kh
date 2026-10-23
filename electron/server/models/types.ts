@@ -4983,6 +4983,18 @@ export interface ScenePlanRunOptions {
   /** v1.0.242 — extra free-text instructions the planner must follow for all
    *  scenes (e.g. recurring props, things to always/never show). */
   custom_instructions?: string
+  /** The prompt-BODY character ceiling each visual prompt is written under:
+   *  the effective image-model cap minus the exact text the writer's style
+   *  lead and the renderer append. Absent = no limit in force. */
+  prompt_char_cap?: number
+  /** The model's published figure, when one was read live. Never set for a
+   *  limit the customer chose, and never for a legacy numeric allowance. */
+  prompt_char_cap_published?: number
+  /** Characters reserved on top of the body (style lead + render assembly). */
+  prompt_char_cap_reserved?: number
+  /** Where the ceiling came from: the model's published figure, a chosen
+   *  limit, or a numeric allowance saved by an older version. */
+  prompt_char_cap_source?: 'model' | 'chosen' | 'saved'
   /** v1.0.193 (continuity-chain) — density pacing guardrails. When set, the
    *  planner segments scenes to fit [min_sec, max_sec] (the user's per-episode
    *  band from continuity.json) and cuts denser on busy passages for a "live"

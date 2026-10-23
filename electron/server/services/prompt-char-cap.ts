@@ -70,36 +70,93 @@ export function parsePromptCharCap(value: unknown): number | undefined {
  *
  * THE BODY-BUDGET FORM
  * -------------------
- * When the number handed over is the BODY budget — the published ceiling minus
+ * When the number handed over is the BODY budget — the effective ceiling minus
  * the characters the final assembly adds on top — the instruction says so, and
- * names the published ceiling as the model's real limit. Stating the body
- * budget as if it were the model's limit would be a small lie the writer
- * cannot check; stating the published limit alone would invite it to spend
- * exactly the characters the assembly is going to need.
+ * keeps the model's published ceiling separate from the writer's smaller body
+ * allowance. Stating the body budget as if it were the model's limit would be a
+ * small lie the writer cannot check; stating the published limit alone would
+ * invite it to spend exactly the characters the assembly is going to need.
+ *
+ * AND NEVER CALL A CHOSEN LIMIT PUBLISHED
+ * ---------------------------------------
+ * The ceiling can come from three places, and the writer is told which:
+ *   'model'  — the image model's own published figure (default; unchanged
+ *              wording for every existing caller);
+ *   'chosen' — a limit selected for this run, including a tighter one than the
+ *              model publishes;
+ *   'saved'  — a numeric allowance carried by a job accepted by an older
+ *              version. Nothing may present that number as the model's.
+ */
+
+/** Where the enforced ceiling came from. */
+export type PromptCharCapSource = 'model' | 'chosen' | 'saved'
+
+export interface PromptCharCapInstructionOptions {
+  /** The model's published ceiling, when one was actually read. */
+  publishedCap?: number
+  /** Characters the final assembly adds on top of the prompt body. */
+  reservedCharacters?: number
+  /** Exactly what those reserved characters are. Defaults to the Thumbnail
+   *  Prompts wording (save-step clauses plus render extras). */
+  reservedDescription?: string
+  /** 'model' (default) keeps the historical wording. */
+  capSource?: PromptCharCapSource
+}
+
+/**
+ * Build the writer instruction for a ceiling.
+ *
+ * `cap` is the ceiling for the TEXT the writer produces. When
+ * `reservedCharacters` is given, the caller has already subtracted it — `cap`
+ * is the body budget and the assembled ceiling is `cap + reservedCharacters`.
+ * The instruction names both, and names the source so a chosen or saved number
+ * is never presented as the model's published limit.
  */
 export function buildPromptCharCapInstruction(
   cap: number | undefined,
-  options: { publishedCap?: number; reservedCharacters?: number } = {},
+  options: PromptCharCapInstructionOptions = {},
 ): string {
   const limit = parsePromptCharCap(cap)
   if (!limit) return ''
-  const published = parsePromptCharCap(options.publishedCap) ?? limit
+  const published = parsePromptCharCap(options.publishedCap)
   const reserved = Math.max(0, Math.floor(Number(options.reservedCharacters) || 0))
-  if (!reserved || published <= limit) {
-    const ceiling = limit.toLocaleString()
-    return `PROMPT LENGTH LIMIT: the image model that will render these prompts refuses any prompt longer than ${ceiling} characters. `
-      + 'Write each prompt at whatever length the scene genuinely needs, following the length and detail guidance above; a prompt that is naturally short must stay short. '
-      + `${ceiling} is a hard ceiling the prompt must not exceed — never pad, restate, or add detail in order to approach it. `
-      + 'Count characters, not words. Do not cut a prompt off mid-sentence, and do not mention this limit in the prompt text.'
+  const source: PromptCharCapSource = options.capSource === 'chosen' || options.capSource === 'saved'
+    ? options.capSource
+    : 'model'
+  const reservedDescription = (options.reservedDescription
+    || 'the aspect-ratio and title clauses the save step appends, and the extras the render adds').trim()
+  // `cap` is the ceiling for the writer's TEXT. When a reserve is given, the
+  // caller has already subtracted it, so the number here is the body budget and
+  // the assembled ceiling is that plus the reserve.
+  const bodyText = limit.toLocaleString()
+  const assembled = reserved > 0 ? limit + reserved : limit
+  const assembledText = assembled.toLocaleString()
+  // A published figure above the assembled ceiling means the customer chose a
+  // tighter ceiling. Saying the model publishes the smaller number would be a
+  // lie the writer cannot check.
+  const tighterThanPublished = published !== undefined && published > assembled
+  const modelFigureInForce = source === 'model' && (published === undefined || published === assembled)
+
+  let head: string
+  if (tighterThanPublished) {
+    head = `PROMPT LENGTH LIMIT: the image model that will render these prompts accepts prompts up to ${published!.toLocaleString()} characters. `
+      + `The limit chosen for these prompts is tighter: ${assembledText} characters in total for the assembled prompt.`
+  } else if (modelFigureInForce) {
+    head = `PROMPT LENGTH LIMIT: the image model that will render these prompts refuses any prompt longer than ${assembledText} characters.`
+  } else if (source === 'saved') {
+    head = `PROMPT LENGTH LIMIT: this run carries a limit of ${assembledText} characters for the assembled prompt — `
+      + 'a limit saved with the run, not a figure read live from the image model.'
+  } else {
+    head = `PROMPT LENGTH LIMIT: the assembled prompt for these scenes is limited to ${assembledText} characters. `
+      + 'That limit was chosen for this run, not read as a published model figure.'
   }
-  const ceiling = published.toLocaleString()
-  const reservedText = reserved.toLocaleString()
-  const budget = limit.toLocaleString()
-  return `PROMPT LENGTH LIMIT: the image model that will render these prompts refuses any prompt longer than ${ceiling} characters. `
-    + `${reservedText} of those characters are added on top of your prompt — the aspect-ratio and title clauses the save step appends, and the extras the render adds — `
-    + `so your prompt text must be at most ${budget} characters. `
+  const reservedSentence = reserved > 0
+    ? ` ${reserved.toLocaleString()} of those characters are added on top of your prompt — ${reservedDescription} — `
+      + `so your prompt text must be at most ${bodyText} characters.`
+    : ''
+  return `${head}${reservedSentence} `
     + 'Write each prompt at whatever length the scene genuinely needs, following the length and detail guidance above; a prompt that is naturally short must stay short. '
-    + `${budget} is a hard ceiling the prompt must not exceed — never pad, restate, or add detail in order to approach it. `
+    + `${bodyText} is a hard ceiling the prompt must not exceed — never pad, restate, or add detail in order to approach it. `
     + 'Count characters, not words. Do not cut a prompt off mid-sentence, and do not mention this limit in the prompt text.'
 }
 
@@ -175,8 +232,15 @@ export function addAssemblyOverhead(...overheads: AssemblyOverhead[]): AssemblyO
   return { characters: parts.reduce((sum, part) => sum + part.characters, 0), parts }
 }
 
+/** One already-counted piece (e.g. a text a writer prepends itself), named for
+ *  reporting. Nothing is estimated: the caller passes the exact count. */
+export function assemblyOverheadOf(label: string, characters: number): AssemblyOverhead {
+  const counted = Math.max(0, Math.floor(Number(characters) || 0))
+  return counted ? { characters: counted, parts: [{ label, characters: counted }] } : { characters: 0, parts: [] }
+}
+
 /**
- * The ceiling the prompt BODY may occupy: the published cap minus everything
+ * The ceiling the prompt BODY may occupy: the effective cap minus everything
  * the final assembly adds on top of it.
  *
  * Undefined when no cap is published — an unknown limit is not a number, and
@@ -189,13 +253,17 @@ export function addAssemblyOverhead(...overheads: AssemblyOverhead[]): AssemblyO
  * anyway. The refusal is typed and deterministic — the same settings fail the
  * same way — so it is never retried in place.
  */
-export function promptBodyCeiling(cap: number | undefined, overhead: AssemblyOverhead): number | undefined {
+export function promptBodyCeiling(
+  cap: number | undefined,
+  overhead: AssemblyOverhead,
+  opts: { detail?: string } = {},
+): number | undefined {
   const limit = parsePromptCharCap(cap)
   if (!limit) return undefined
   const reserved = Math.max(0, overhead?.characters || 0)
   const remaining = limit - reserved
   if (remaining < 1) {
-    throw new PromptAssemblyTooLargeError({ cap: limit, overhead: reserved })
+    throw new PromptAssemblyTooLargeError({ cap: limit, overhead: reserved, detail: opts.detail })
   }
   return remaining
 }

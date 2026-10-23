@@ -398,7 +398,8 @@
             this limit can still be refused at render time.
           </p>
           <p v-if="overCapPromptCount" class="prompt-cap-notice">
-            ⚠ {{ overCapPromptCount }} written prompt{{ overCapPromptCount === 1 ? ' is' : 's are' }} over this limit. Every one is
+            ⚠ {{ overCapPromptCount }} written prompt{{ overCapPromptCount === 1 ? ' is' : 's are' }} over the
+            {{ promptBodyBudget.toLocaleString() }}-character prompt-body budget{{ promptOverBudgetNote }}. Every one is
             saved in full — generation is not blocked.
           </p>
           <p class="scene-setting-help">
@@ -994,10 +995,12 @@
                   class="prompt-char-badge"
                   :class="`is-${scenePromptLengthTone(scene)}`"
                   :title="scenePromptLength(scene).overCap
-                    ? `${scenePromptLength(scene).overage.toLocaleString()} characters over the ${scenePromptLength(scene).cap.toLocaleString()}-character limit. Nothing was shortened — trim it, raise the limit, or render as-is.`
-                    : effectivePromptCharCap
-                      ? `${scenePromptLength(scene).characters.toLocaleString()} of ${effectivePromptCharCap.toLocaleString()} characters.`
-                      : `${scenePromptLength(scene).characters.toLocaleString()} characters — no limit in force.`"
+                    ? `${scenePromptLength(scene).overage.toLocaleString()} characters over the ${scenePromptLength(scene).cap.toLocaleString()}-character prompt-body limit.${promptReserveNote} Nothing was shortened — trim it, raise the limit, or render as-is.`
+                    : promptBodyBudget
+                      ? `${scenePromptLength(scene).characters.toLocaleString()} of ${promptBodyBudget.toLocaleString()} characters for the prompt body.${promptReserveNote}`
+                      : effectivePromptCharCap
+                        ? `${scenePromptLength(scene).characters.toLocaleString()} characters — the Style Bible and character text the render appends already fill the whole ${effectivePromptCharCap.toLocaleString()}-character ceiling.`
+                        : `${scenePromptLength(scene).characters.toLocaleString()} characters — no limit in force.`"
                 >{{ scenePromptLengthLabel(scene) }} chars</span>
               </label>
               <textarea
@@ -1009,7 +1012,7 @@
               />
               <p v-if="scenePromptLength(scene).overCap" class="prompt-cap-notice">
                 ⚠ {{ scenePromptLength(scene).overage.toLocaleString() }} characters over the
-                {{ scenePromptLength(scene).cap.toLocaleString() }}-character limit. Saved in full — you can shorten it, raise the
+                {{ scenePromptLength(scene).cap.toLocaleString() }}-character prompt-body limit.{{ promptReserveNote }} Saved in full — you can shorten it, raise the
                 limit, or render it as-is.
               </p>
             </div>
@@ -1472,6 +1475,13 @@ interface ScenePlanStatus {
     }>
   } | null
   scene_plan: ScenePlan | null
+  /** Characters the scene renderer appends to every prompt (Style Bible and
+   *  anchor character text), measured by the server with the renderer's own
+   *  composition. Re-read live; absent means it was not measured. */
+  prompt_render_overhead?: {
+    characters: number
+    parts: Array<{ label: string; characters: number }>
+  }
   plan_stale_vs_stitched?: boolean
   audio_merged: boolean
   audio_merge_gap_s: number | null
@@ -2263,6 +2273,43 @@ const effectivePromptCharCap = computed(() =>
   resolvePromptCharCap(normalizePromptCharCapSetting(form.value.prompt_char_cap), intendedImageModelCap.value),
 )
 /**
+ * What the scene renderer appends to every prompt — the Style Bible and the
+ * anchor character descriptors — measured by the server with the SAME
+ * composition the renderer submits (see services/scene-prompt-assembly.ts).
+ * Re-read on every status load; 0 when nothing is appended or nothing was
+ * measured, so the counter falls back to the assembled ceiling rather than
+ * inventing a reserve.
+ */
+const promptRenderOverhead = computed(() => {
+  const measured = status.value?.prompt_render_overhead?.characters
+  return typeof measured === 'number' && measured > 0 ? measured : 0
+})
+/**
+ * The BODY budget actually given to the writer: the ceiling in force minus the
+ * text the render adds on top of the body. 0 = no ceiling.
+ *
+ * The per-scene "N of M characters" counter and the over-cap summary measure
+ * against THIS, not the larger assembled ceiling: a prompt can sit under the
+ * model's limit and still be refused once the Style Bible is appended.
+ */
+const promptBodyBudget = computed(() => {
+  const chosen = effectivePromptCharCap.value
+  if (!chosen) return 0
+  // The server clamps the enforced ceiling to what the model publishes, so a
+  // custom choice above that cannot enlarge what the writer is actually given.
+  // The selection itself is left untouched (the warning above still says so).
+  const enforced = intendedImageModelCap.value ? Math.min(chosen, intendedImageModelCap.value) : chosen
+  return Math.max(0, enforced - promptRenderOverhead.value)
+})
+/** Says where the reserved characters went, when there are any. */
+const promptReserveNote = computed(() => promptRenderOverhead.value
+  ? ` ${promptRenderOverhead.value.toLocaleString()} of those characters are reserved for the Style Bible and character text the render appends.`
+  : '')
+/** Parenthetical for the summary line above the scene list. */
+const promptOverBudgetNote = computed(() => promptRenderOverhead.value
+  ? ` (the ceiling minus ${promptRenderOverhead.value.toLocaleString()} the render appends)`
+  : '')
+/**
  * What one image model publishes, shown AT THE POINT OF CHOOSING so models can
  * be compared at a glance — a longer limit means room for more detailed (and
  * more expensive to write) prompts. A model that publishes nothing says so;
@@ -2284,9 +2331,15 @@ const autoPromptCharCapLabel = computed(() => {
   if (!intendedImageModelCap.value) return `${intendedImageModel.value?.display_name || 'this model'} publishes no limit`
   return `${intendedImageModelCap.value.toLocaleString()} characters`
 })
-const promptCharCapSummary = computed(() =>
-  effectivePromptCharCap.value ? `${effectivePromptCharCap.value.toLocaleString()} char ceiling` : 'No limit',
-)
+const promptCharCapSummary = computed(() => {
+  if (!effectivePromptCharCap.value) return 'No limit'
+  const ceiling = `${effectivePromptCharCap.value.toLocaleString()} char ceiling`
+  // The figure that actually applies to the prompt TEXT: what the render will
+  // add is reserved out of it. Shown where the ceiling is chosen (§1).
+  return promptRenderOverhead.value && promptBodyBudget.value
+    ? `${ceiling} · ${promptBodyBudget.value.toLocaleString()} for prompt text`
+    : ceiling
+})
 /** The only combination that still ends in a render-time refusal. */
 const promptCharCapExceedsModel = computed(() =>
   promptCharCapAboveModel(effectivePromptCharCap.value, intendedImageModelCap.value),
@@ -2319,7 +2372,7 @@ const defaultStyleBibleCapNote = computed(() => {
 })
 
 function scenePromptLength(scene: { visual_prompt?: string }) {
-  return promptLengthState(scene.visual_prompt, effectivePromptCharCap.value)
+  return promptLengthState(scene.visual_prompt, promptBodyBudget.value)
 }
 function scenePromptLengthLabel(scene: { visual_prompt?: string }): string {
   return promptLengthLabel(scenePromptLength(scene))
@@ -2329,7 +2382,7 @@ function scenePromptLengthTone(scene: { visual_prompt?: string }): string {
 }
 /** How many written prompts are over the ceiling. Advisory — never blocking. */
 const overCapPromptCount = computed(() => {
-  if (!effectivePromptCharCap.value) return 0
+  if (!promptBodyBudget.value) return 0
   return (plan.value?.scenes || []).filter(scene => scenePromptLength(scene).overCap).length
 })
 // Auto has to follow SOMETHING, so the intended model is seeded from whatever
@@ -2729,6 +2782,10 @@ async function regenerateScenePrompt(scene: ScenePlanEntry, opts: { reword?: boo
     model: form.value.model,
     detail_level: 4,
     prompt_char_cap: effectivePromptCharCap.value || undefined,
+    // The SELECTION, not only the resolved number: the server re-reads the
+    // model's published ceiling when the job runs. See services/image-prompt-cap.ts.
+    prompt_char_cap_selection: form.value.prompt_char_cap,
+    intended_image_model: form.value.intended_image_model,
     creative_direction: creativeDirectionPayload.value,
     custom_instructions: composeScenePlanGuidance(form.value.custom_instructions, form.value.reusable_guidance),
     avoid_legible_text: form.value.avoid_legible_text,
@@ -2825,6 +2882,8 @@ async function regenerateSelectedPrompts(): Promise<void> {
     model: form.value.model,
     detail_level: 4,
     prompt_char_cap: effectivePromptCharCap.value || undefined,
+    prompt_char_cap_selection: form.value.prompt_char_cap,
+    intended_image_model: form.value.intended_image_model,
     creative_direction: creativeDirectionPayload.value,
     custom_instructions: composeScenePlanGuidance(form.value.custom_instructions, form.value.reusable_guidance),
     avoid_legible_text: form.value.avoid_legible_text,
@@ -2962,6 +3021,8 @@ async function regenAllEmptyPrompts(): Promise<void> {
       prompt_pack_size: form.value.prompt_pack_size,
       prompt_max_tokens: form.value.prompt_max_tokens,
       prompt_char_cap: effectivePromptCharCap.value || undefined,
+      prompt_char_cap_selection: form.value.prompt_char_cap,
+      intended_image_model: form.value.intended_image_model,
       use_research: form.value.use_research,
       creative_direction: creativeDirectionPayload.value,
       // X-06 — the episode box plus the preset-carried reusable text, composed

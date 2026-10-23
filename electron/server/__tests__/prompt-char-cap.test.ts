@@ -135,14 +135,20 @@ describe('prompt character ceiling', () => {
 
 describe('scene plan wiring', () => {
   test('the ceiling reaches the packed visual-prompt instruction', () => {
-    assert.match(scenePlanGenerator, /const promptCharCap = parsePromptCharCap\(params\.prompt_char_cap\)/)
-    assert.match(scenePlanGenerator, /const promptCharCapInstruction = isMotion \? '' : buildPromptCharCapInstruction\(promptCharCap\)/)
+    // A legacy job's number is kept as a saved allowance; a job with a
+    // SELECTION resolves it live inside promptBudget().
+    assert.match(scenePlanGenerator, /const legacyPromptCharCap = parsePromptCharCap\(params\.prompt_char_cap\)/)
+    assert.match(scenePlanGenerator, /const visualBudget = isMotion \? undefined : await promptBudget\(\)/)
+    // The writer is handed the BODY ceiling, not the assembled one.
+    assert.match(scenePlanGenerator, /buildPromptCharCapInstruction\(visualBudget!\.bodyCeiling, \{/)
+    assert.match(scenePlanGenerator, /reservedCharacters: visualBudget!\.reserved\.characters,/)
     assert.match(scenePlanGenerator, /\$\{task\}\$\{promptCharCapInstruction \? `\\n\$\{promptCharCapInstruction\}` : ''\}/)
   })
 
   test('the single-scene rewrite is written under the same ceiling', () => {
-    assert.match(scenePlanGenerator, /prompt_char_cap: promptCharCap,/)
-    assert.match(scenePlanner, /const charCapInstruction = buildPromptCharCapInstruction\(opts\.prompt_char_cap\)/)
+    assert.match(scenePlanGenerator, /prompt_char_cap: rewriteBudget\.bodyCeiling,/)
+    assert.match(scenePlanGenerator, /readPromptLength\(newPrompt, rewriteBudget\.storedBodyCeiling\)/)
+    assert.match(scenePlanner, /const charCapInstruction = buildPromptCharCapInstruction\(opts\.prompt_char_cap, \{/)
     assert.match(scenePlanner, /prompt_char_cap: ctx\.prompt_char_cap,/)
   })
 
@@ -155,16 +161,20 @@ describe('scene plan wiring', () => {
   })
 
   test('every scene-prompt endpoint accepts the ceiling from its request authority', () => {
-    assert.match(scenePlanRoutes, /import \{ parsePromptCharCap \} from '\.\.\/services\/prompt-char-cap\.js'/)
-    assert.equal(scenePlanRoutes.match(/parsePromptCharCap\(body\.prompt_char_cap\)/g)?.length, 2,
-      'prompt repair endpoints use their immutable submitted body')
-    assert.equal(scenePlanRoutes.match(/parsePromptCharCap\(presetData\.prompt_char_cap\)/g)?.length, 1,
-      'new full Scene Plan admission uses the exact selected preset')
+    assert.match(scenePlanRoutes, /import \{ measureAssemblyOverhead, parsePromptCharCap \} from '\.\.\/services\/prompt-char-cap\.js'/)
+    // ONE parser for the regenerate endpoints: the replay fingerprint and the
+    // stored job must read the same object, or a lost-response retry 409s.
+    assert.match(scenePlanRoutes, /function scenePromptCapFields\(body: Record<string, unknown>\)/)
+    assert.match(scenePlanRoutes, /prompt_char_cap: parsePromptCharCap\(body\.prompt_char_cap\)/)
     assert.equal(
-      scenePlanRoutes.match(/prompt_char_cap: promptCharCap,/g)?.length,
-      4,
-      'the three request handlers forward the ceiling, and accepted single-scene replays retain it as request identity',
+      scenePlanRoutes.match(/const capFields = scenePromptCapFields\(body as Record<string, unknown>\)/g)?.length,
+      2,
+      'the prompt repair endpoints parse the ceiling once, for replay and storage',
     )
+    assert.equal(scenePlanRoutes.match(/\.\.\.capFields,/g)?.length, 3,
+      'both repair endpoints forward the exact parsed fields to the job (replay + storage)')
+    assert.match(scenePlanRoutes, /prompt_char_cap: promptCharCap,/)
+    assert.match(scenePlanRoutes, /prompt_char_cap_selection: presetData\.prompt_char_cap,/)
   })
 
   test('a token allowance is never reused as a character ceiling', () => {

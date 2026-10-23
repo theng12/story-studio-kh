@@ -200,6 +200,18 @@ function buildScenePlannerPrompt(opts: {
   style_prompt?: string
   /** v1.0.242 — extra free-text planner instructions. */
   custom_instructions?: string
+  /**
+   * The ceiling each visual prompt is written under (see
+   * `generateVisualPromptOnly`): the model's effective cap minus the text the
+   * writer and renderer add on top of the body. Absent = no limit in force.
+   */
+  prompt_char_cap?: number
+  /** The model's published figure, when one was read live. */
+  prompt_char_cap_published?: number
+  /** Characters the style lead and the render append on top of the body. */
+  prompt_char_cap_reserved?: number
+  /** Where the ceiling came from — see services/prompt-char-cap.ts. */
+  prompt_char_cap_source?: 'model' | 'chosen' | 'saved'
   /** continuity-chain density pacing — see ScenePlanRunOptions.pacing. */
   pacing?: {
     min_sec: number
@@ -393,7 +405,17 @@ ${schemaBlock}`
   // are this channel's actual material. The shared guidance teaches the planner
   // to describe them in ways that render, without sanitising the history — see
   // lib/image-content-guidance.ts.
-  return { system: system + imagePromptGuidanceBlock(), user: userParts.join('\n\n') }
+  // The image model that will RENDER these prompts publishes the ceiling, so
+  // the writer is told up front to fit it — minus the text the writer's style
+  // lead and the renderer's assembly add on top of the body. Empty when
+  // nothing is published and nothing was chosen.
+  const charCapInstruction = buildPromptCharCapInstruction(opts.prompt_char_cap, {
+    publishedCap: opts.prompt_char_cap_published,
+    reservedCharacters: opts.prompt_char_cap_reserved,
+    reservedDescription: reserveDescription(opts.style_prompt),
+    capSource: opts.prompt_char_cap_source,
+  })
+  return { system: system + (charCapInstruction ? `\n\n${charCapInstruction}` : '') + imagePromptGuidanceBlock(), user: userParts.join('\n\n') }
 }
 
 /** Tolerant JSON parser — strips fences, handles prose preamble, and (v1.0.225)
@@ -1573,6 +1595,9 @@ export async function generatePromptsForScenes(
     /** The character ceiling these prompts are written under (see
      *  `generateVisualPromptOnly`). Absent = no limit in force. */
     prompt_char_cap?: number
+    prompt_char_cap_published?: number
+    prompt_char_cap_reserved?: number
+    prompt_char_cap_source?: 'model' | 'chosen' | 'saved'
     neighbor_context_back?: number
     neighbor_context_forward?: number
     apiKeys: Record<string, string | undefined>
@@ -1642,6 +1667,9 @@ export async function generatePromptsForScenes(
             creative_direction: ctx.creative_direction,
             creative_strategy: scene.creative_strategy,
             prompt_char_cap: ctx.prompt_char_cap,
+            prompt_char_cap_published: ctx.prompt_char_cap_published,
+            prompt_char_cap_reserved: ctx.prompt_char_cap_reserved,
+            prompt_char_cap_source: ctx.prompt_char_cap_source,
             apiKeys: ctx.apiKeys,
             callAi: ctx.callAi,
             slug: ctx.slug,
@@ -1707,6 +1735,28 @@ export function leadWithStyle(description: string, style: string | undefined): s
 }
 
 /**
+ * How many characters `leadWithStyle` can prepend to a description, measured
+ * from the SAME function that does the prepending. `leadWithStyle` no-ops when
+ * the description already opens with the style, so this is the LARGEST the lead
+ * can add — the amount a writer's body budget must leave room for.
+ */
+export function styleLeadOverhead(style: string | undefined): number {
+  return Math.max(0, leadWithStyle('', style).length)
+}
+
+/**
+ * What the writer's reserved characters consist of — the style lead this
+ * writer prepends (when a style is present) plus what the renderer appends.
+ * Used only to describe the reserve; the numbers come from
+ * `prompt_char_cap_reserved`.
+ */
+function reserveDescription(style: string | undefined): string {
+  return (style || '').trim()
+    ? 'the style clause placed at the front of your prompt and the character descriptions and Style Bible text the render appends'
+    : 'the character descriptions and Style Bible text the render appends'
+}
+
+/**
  * v1.0.288 — generate JUST the `visual_prompt` for a single scene, without
  * touching its time boundaries or transcript. Returns the prompt as a
  * plain string — no JSON, no structure.
@@ -1734,14 +1784,20 @@ export async function generateVisualPromptOnly(opts: {
   creative_direction?: Partial<SceneCreativeDirection>
   creative_strategy?: SceneCreativeStrategy
   /**
-   * The character CEILING this prompt is written under — GenStudio's published
-   * `max_prompt_characters` for the image model that will render it, or a
-   * smaller number the user chose. Absent means no limit is in force: the
-   * writer is left unconstrained rather than handed an invented number. It is
-   * never a length to fill, and the returned prompt is never trimmed to fit.
+   * The character ceiling this prompt BODY is written under — the model's
+   * effective cap minus the style lead this function prepends and the text the
+   * renderer appends. Absent means no limit is in force: the writer is left
+   * unconstrained rather than handed an invented number. It is never a length
+   * to fill, and the returned prompt is never trimmed to fit.
    * See services/prompt-char-cap.ts.
    */
   prompt_char_cap?: number
+  /** The model's published figure, when one was read live. */
+  prompt_char_cap_published?: number
+  /** Characters the style lead and the render append on top of the body. */
+  prompt_char_cap_reserved?: number
+  /** Where the ceiling came from — see services/prompt-char-cap.ts. */
+  prompt_char_cap_source?: 'model' | 'chosen' | 'saved'
   apiKeys: Record<string, string | undefined>
   callAi?: typeof callAi
   slug?: string
@@ -1789,9 +1845,15 @@ export async function generateVisualPromptOnly(opts: {
       `ART STYLE / MEDIUM (context only): "${styleForLead}". This exact clause is placed automatically at the START of the final prompt, so do NOT restate the style — just describe the scene content (subject, action, setting, framing, lighting, mood) in a way that suits that style.`,
     )
   }
-  // The image model that will RENDER this prompt owns the ceiling. Empty string
-  // when GenStudio publishes none, so nothing is invented.
-  const charCapInstruction = buildPromptCharCapInstruction(opts.prompt_char_cap)
+  // The image model that will RENDER this prompt owns the ceiling. The body
+  // budget it is given already has the style lead this function prepends and
+  // the renderer's appended text reserved out of it.
+  const charCapInstruction = buildPromptCharCapInstruction(opts.prompt_char_cap, {
+    publishedCap: opts.prompt_char_cap_published,
+    reservedCharacters: opts.prompt_char_cap_reserved,
+    reservedDescription: reserveDescription(styleForLead),
+    capSource: opts.prompt_char_cap_source,
+  })
   if (charCapInstruction) sysParts.push(charCapInstruction)
   if (opts.custom_instructions && opts.custom_instructions.trim()) {
     sysParts.push(`Additional rules: ${opts.custom_instructions.trim()}`)
@@ -2116,6 +2178,10 @@ export async function planScenesTwoPass(opts: ScenePlannerRunOptions): Promise<S
       detail_level: opts.detail_level,
       style_prompt: opts.style_prompt,
       custom_instructions: opts.custom_instructions,
+      prompt_char_cap: opts.prompt_char_cap,
+      prompt_char_cap_published: opts.prompt_char_cap_published,
+      prompt_char_cap_reserved: opts.prompt_char_cap_reserved,
+      prompt_char_cap_source: opts.prompt_char_cap_source,
       neighbor_context_back: opts.neighbor_context_back,
       neighbor_context_forward: opts.neighbor_context_forward,
       apiKeys,
@@ -2312,6 +2378,10 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
       detail_level: opts.detail_level,
       style_prompt: opts.style_prompt,
       custom_instructions: opts.custom_instructions,
+      prompt_char_cap: opts.prompt_char_cap,
+      prompt_char_cap_published: opts.prompt_char_cap_published,
+      prompt_char_cap_reserved: opts.prompt_char_cap_reserved,
+      prompt_char_cap_source: opts.prompt_char_cap_source,
       window: {
         index: w + 1,
         total: windows.length,
@@ -2469,6 +2539,10 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
         detail_level: opts.detail_level,
         style_prompt: opts.style_prompt,
         custom_instructions: opts.custom_instructions,
+        prompt_char_cap: opts.prompt_char_cap,
+        prompt_char_cap_published: opts.prompt_char_cap_published,
+        prompt_char_cap_reserved: opts.prompt_char_cap_reserved,
+        prompt_char_cap_source: opts.prompt_char_cap_source,
         apiKeys,
         callAi: opts.callAi,
         onWarn: opts.onWarn,

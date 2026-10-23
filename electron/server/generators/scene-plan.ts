@@ -10,7 +10,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { isDeepStrictEqual } from 'node:util'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes, COVERAGE_FAIL_SEC } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes, COVERAGE_FAIL_SEC, styleLeadOverhead } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { compareMergedAudio, comparePlanStamp, planNarrationShortfallSec, readNarrationRecord, stampFromCues } from '../lib/scene-plan-timeline.js'
 import { checkpointJobState, hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
@@ -59,11 +59,19 @@ import {
   type ScenePromptTokenSetting,
 } from '../services/scene-prompt-batching.js'
 import {
+  addAssemblyOverhead,
+  assemblyOverheadOf,
   buildPromptCharCapInstruction,
   describeOverCapPrompts,
+  measureAssemblyOverhead,
   parsePromptCharCap,
+  promptBodyCeiling,
   readPromptLength,
+  type AssemblyOverhead,
+  type PromptCharCapSource,
 } from '../services/prompt-char-cap.js'
+import { readSceneRenderAssembly, sceneRenderAssemblyParts } from '../services/scene-prompt-assembly.js'
+import { requireLiveImagePromptCharCapDetail } from '../services/image-prompt-cap.js'
 import { scanEpisodeAssets } from './video.js'
 import { assertSubtitleTimelineComplete, readSubtitleTimelineIntegrity, restitchIfBroken, safetyCarriesOn, type SubtitleCueGap } from '../services/scene-timeline-integrity.js'
 import { allowedSubtitleCueGapSec, resolveScenePlanPacing, type ScenePlanPacing } from '../services/scene-plan-pacing.js'
@@ -248,14 +256,18 @@ interface ScenePlanRunParams {
    * survives the image model that will render it. It is never a length to fill:
    * a scene that needs 500 characters keeps 500 under an 8,000 ceiling.
    *
-   * The number is GenStudio's published `max_prompt_characters` for the image
-   * model the workspace has selected, resolved there (only the workspace knows
-   * which image model that is) and sent as a plain number. Absent means the
-   * selected model publishes no cap, or the user chose no target: no
-   * instruction is added and nothing is warned about. Nothing is ever
-   * truncated — see services/prompt-char-cap.ts.
+   * A job accepted by the current version also carries `prompt_char_cap_selection`
+   * and re-resolves the ceiling against the LIVE catalogue when it runs. Jobs
+   * accepted by 1.4.348 and earlier carry only this number: it is then used
+   * as-is, as a saved allowance — never re-resolved, never described as a
+   * published figure. See services/prompt-char-cap.ts.
    */
   prompt_char_cap?: number
+  /** The persisted SELECTION ('auto' / 'none' / a whole number) plus the image
+   *  model it was chosen for. Present only on jobs accepted since the live
+   *  re-resolution existed; absence means this is a legacy numeric allowance. */
+  prompt_char_cap_selection?: unknown
+  intended_image_model?: string
   /** Single-pass visual interpretation controls. Strategies are assigned
    * locally across the full episode before existing prompt packs are sent. */
   creative_direction?: Partial<SceneCreativeDirection>
@@ -882,9 +894,137 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     await checkpointJobState(job)
   }
   // A published image-model figure or nothing. No default is invented here.
-  const promptCharCap = parsePromptCharCap(params.prompt_char_cap)
+  // Legacy jobs carry this number instead of a selection; see promptBudget().
+  const legacyPromptCharCap = parsePromptCharCap(params.prompt_char_cap)
 
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode_id)
+
+  /** The ceiling in force and where it came from. */
+  interface ResolvedPromptCap {
+    cap?: number
+    /** The model's published figure, when the live catalogue supplied one. */
+    publishedCap?: number
+    source: PromptCharCapSource
+  }
+  interface ScenePromptBudget extends ResolvedPromptCap {
+    /** Everything added on top of the writer's output (render + style lead). */
+    reserved: AssemblyOverhead
+    /** The ceiling for the text the writer produces. */
+    bodyCeiling?: number
+    /** The ceiling for the saved prompt body, which includes the style lead. */
+    storedBodyCeiling?: number
+    styleLeadCharacters: number
+  }
+
+  let promptCapPromise: Promise<ResolvedPromptCap> | undefined
+  /**
+   * Resolve the ceiling LIVE when this job carries a selection. A job accepted
+   * by 1.4.348 or earlier carries only a number: that allowance is kept exactly
+   * (never re-resolved, never described as a published figure). Timeline-only
+   * runs never call this, so they never reach the image catalogue.
+   */
+  const resolvePromptCap = (): Promise<ResolvedPromptCap> => {
+    if (!promptCapPromise) {
+      promptCapPromise = (async () => {
+        if (params.prompt_char_cap_selection === undefined) {
+          return { cap: legacyPromptCharCap, publishedCap: undefined, source: 'saved' as const }
+        }
+        const live = await requireLiveImagePromptCharCapDetail({
+          intendedImageModel: params.intended_image_model,
+          setting: params.prompt_char_cap_selection,
+          label: 'The Scene Plan selection',
+          nothingHappened: 'No prompts were written.',
+        })
+        const source: PromptCharCapSource = live.cap !== undefined
+          && live.publishedCap !== undefined
+          && live.cap === live.publishedCap
+          ? 'model'
+          : 'chosen'
+        return { cap: live.cap, publishedCap: live.publishedCap, source }
+      })()
+    }
+    return promptCapPromise
+  }
+
+  let renderOverheadPromise: Promise<AssemblyOverhead> | undefined
+  /**
+   * Exactly what the scene renderer appends, measured with the SAME composition
+   * it submits (services/scene-prompt-assembly.ts). Reserved for every project:
+   * `generators/continuity-render.ts` is the only scene-image renderer and it
+   * appends these layers regardless of the format's visualSource.
+   *
+   * The character layer is always included, even for a scene whose type drops
+   * it: the writer's budget is one number for every scene in a pack, so it must
+   * leave room for the LARGEST assembly the render can produce.
+   */
+  const renderAssemblyOverhead = (): Promise<AssemblyOverhead> => {
+    if (!renderOverheadPromise) {
+      renderOverheadPromise = (async () => {
+        const assembly = await readSceneRenderAssembly(job.project_slug, paths.episode_dir)
+        return measureAssemblyOverhead(sceneRenderAssemblyParts(assembly.characters, assembly.styleBible, true))
+      })()
+    }
+    return renderOverheadPromise
+  }
+
+  /**
+   * The body budget handed to the writer. `writerStyle` is the exact style text
+   * the writer prepends as a lead (`planScenes` / `generateVisualPromptOnly`);
+   * omit it where nothing is prepended (the packed repair writer).
+   *
+   * A ceiling the assembly alone already exceeds is REFUSED here, typed and
+   * deterministic, before any scene is written — never handed a one-character
+   * body and never caught by a per-scene handler.
+   */
+  const promptBudget = async (writerStyle?: string): Promise<ScenePromptBudget> => {
+    const cap = await resolvePromptCap()
+    const render = await renderAssemblyOverhead()
+    const styleLeadCharacters = styleLeadOverhead(writerStyle)
+    const reserved = addAssemblyOverhead(render, assemblyOverheadOf('style lead', styleLeadCharacters))
+    const addedBy = styleLeadCharacters > 0
+      ? 'the style lead this writer prepends and the Style Bible and character text the render appends'
+      : 'the Style Bible and character text the render appends'
+    // The refusal names the pieces a Scene Plan prompt really needs — not the
+    // thumbnail clauses — and says what to do about them.
+    const refusalDetail = (limit: number, overhead: number): string =>
+      `The image model accepts up to ${limit.toLocaleString()} prompt characters, and ${addedBy} already use `
+      + `${overhead.toLocaleString()} of them. There is no room for the prompt itself, so no prompt was written and no request was made. `
+      + 'Shorten the Style Bible or the anchor character descriptions, or render with a model that publishes a larger limit.'
+    const ceilingFor = (overhead: AssemblyOverhead): number | undefined => promptBodyCeiling(cap.cap, overhead, {
+      detail: cap.cap === undefined ? undefined : refusalDetail(cap.cap, overhead.characters),
+    })
+    return {
+      ...cap,
+      reserved,
+      styleLeadCharacters,
+      bodyCeiling: ceilingFor(reserved),
+      storedBodyCeiling: ceilingFor(render),
+    }  }
+
+  /** One honest job line: what the ceiling is, and who chose it. */
+  const describePromptCeiling = (cap: ResolvedPromptCap): string => {
+    if (!cap.cap) return 'Prompt length ceiling: none — no image-model limit is in force for this run.'
+    const source = cap.source === 'model'
+      ? 'the selected image model\'s published limit'
+      : cap.source === 'saved'
+        ? 'the allowance saved with this run, not a live published figure'
+        : 'the limit chosen for this run'
+    return `Prompt length ceiling: ${cap.cap.toLocaleString()} characters for the assembled prompt (${source}). `
+      + 'A ceiling only — prompts stay as short as the scene needs, and an over-length prompt is reported, never shortened.'
+  }
+
+  /** What the renderer will add, and the smaller ceiling the writer gets. */
+  const describePromptBudget = (budget: ScenePromptBudget): string => {
+    if (!budget.cap || budget.bodyCeiling === undefined || budget.reserved.characters === 0) return ''
+    const lead = budget.styleLeadCharacters > 0
+      ? `, plus ${budget.styleLeadCharacters.toLocaleString()} for the style lead the writer prepends`
+      : ''
+    return `Prompt assembly: ${budget.reserved.characters.toLocaleString()} characters are added to every prompt — the Style Bible and character text the render appends${lead} — `
+      + `so each prompt body is written under ${budget.bodyCeiling.toLocaleString()} characters.`
+      + (budget.storedBodyCeiling !== undefined && budget.storedBodyCeiling !== budget.bodyCeiling
+        ? ` The saved prompt body may reach ${budget.storedBodyCeiling.toLocaleString()} before the render adds its own text.`
+        : '')
+  }
 
   // Resolve inputs.
   //
@@ -971,6 +1111,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   const wantAvoidLegibleText = resolveAvoidLegibleText(params.avoid_legible_text, projectAvoidLegibleTextDefault)
 
   const timelineOnly = params.stage === 'timeline'
+  // A motion-only run writes camera prompts, never image prompts. It must not
+  // reach the image catalogue either: nothing it writes is character-capped.
+  const motionOnly = requestedStage === 'motion'
+    || !!params.regenerate_motion_prompt_scene_id
+    || params.regenerate_empty_motion_prompts === true
+  const visualPromptWriting = !timelineOnly && !motionOnly
   if (timelineOnly) job.output_lines.push('Timeline engine: deterministic (no LLM)')
   else job.output_lines.push(`Prompt model: ${model}`)
   job.output_lines.push(`Stitched SRT: ${stitchedSrt}`)
@@ -990,9 +1136,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     job.output_lines.push(
       `Prompt batching: ${describeScenePromptPackSize(activePromptOutputBudget, promptPackSetting, promptPackTuning)}`,
     )
-    job.output_lines.push(promptCharCap
-      ? `Prompt length ceiling: ${promptCharCap.toLocaleString()} characters per visual prompt. A ceiling only — prompts stay as short as the scene needs, and an over-length prompt is reported, never shortened.`
-      : 'Prompt length ceiling: none — no image-model limit is in force for this run.')
+    job.output_lines.push(describePromptCeiling(visualPromptWriting
+      ? await resolvePromptCap()
+      // Nothing here was read live, so the numeric receipt on the job is
+      // presented as exactly that — a saved allowance.
+      : { cap: legacyPromptCharCap, publishedCap: undefined, source: 'saved' }))
     if (params.style_prompt) job.output_lines.push(`Style: ${params.style_prompt.slice(0, 120)}${params.style_prompt.length > 120 ? '…' : ''}`)
     if (params.custom_instructions) job.output_lines.push(`Custom instructions: ${params.custom_instructions.slice(0, 120)}${params.custom_instructions.length > 120 ? '…' : ''}`)
     job.output_lines.push(wantAvoidLegibleText
@@ -1555,9 +1703,23 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const task = isMotion
       ? `Write one restrained image-to-video motion prompt for each scene. Describe camera, ambient, and subject motion only; do not redesign the image. When a scene specifies motion_mode, follow it exactly: gentle means slow camera drift with one or two ambient elements only; limited means one narration-supported focal movement plus a slow camera move. Never add frantic or ungrounded action. Scenes marked still are intentionally excluded from this request. If no motion_mode is supplied, use the fallback intensity — ${motionSpec.label}: ${motionSpec.allow} Camera: ${motionSpec.camera}`
       : 'Write one full-detail cinematic image-generation prompt (110-150 words) for each scene. Honor each scene\'s assigned creative_strategy while keeping recurring subjects, wardrobe, locations, and visual style continuous. Vary the visual thinking across the pack; do not print or explain strategy labels.'
+    // The packed writer stores the model's answer verbatim — it prepends no
+    // style lead — so its body ceiling reserves only what the render appends.
+    // A ceiling the render's own text already exceeds is refused here, typed,
+    // before a single charged request is made.
+    const visualBudget = isMotion ? undefined : await promptBudget()
+    if (visualBudget) {
+      const budgetLine = describePromptBudget(visualBudget)
+      if (budgetLine) job.output_lines.push(budgetLine)
+    }
     // The image model that will RENDER these prompts publishes the ceiling, so
-    // the writer is told to fit it up front. Empty when nothing is published.
-    const promptCharCapInstruction = isMotion ? '' : buildPromptCharCapInstruction(promptCharCap)
+    // the writer fits the prompt BODY under it. Empty when no limit is in force.
+    const promptCharCapInstruction = isMotion ? '' : buildPromptCharCapInstruction(visualBudget!.bodyCeiling, {
+      publishedCap: visualBudget!.publishedCap,
+      reservedCharacters: visualBudget!.reserved.characters,
+      reservedDescription: 'the character descriptions and Style Bible text the render appends',
+      capSource: visualBudget!.source,
+    })
     const contextBack = Math.max(0, Math.min(10, params.neighbor_context_back ?? 2))
     const contextForward = Math.max(0, Math.min(10, params.neighbor_context_forward ?? 1))
     const payloadBySceneId = new Map<string, ScenePromptPayload>()
@@ -2204,13 +2366,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     job.progress = 100
     job.output_lines.push(`Verified ${completion.completed_ids.length}/${targets.length} ${stage} prompt(s) on disk by stable scene ID.`)
     // Advisory only. Every prompt was saved in full; a prompt that overran the
-    // ceiling is named so the user can decide, and is never shortened for them.
+    // BODY budget it was written under is named so the user can decide, and is
+    // never shortened for them. Comparing against the body budget (not the
+    // model's larger assembled ceiling) is what says whether the render will
+    // have room for the Style Bible and character text it appends.
     if (!isMotion) {
       const overCapNotice = describeOverCapPrompts(
         completion.plan.scenes
           .filter(scene => targetIds.has(scene.id))
           .map(scene => ({ label: `scene #${scene.scene_index}`, text: scene.visual_prompt })),
-        promptCharCap,
+        visualBudget!.storedBodyCeiling,
       )
       if (overCapNotice) job.output_lines.push(overCapNotice)
     }
@@ -2268,6 +2433,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         ? 'Using the project default Style Bible to keep the rewrite on-style.'
         : 'Using the episode Style Bible to keep the rewrite on-style.'),
     )
+    // This writer prepends `stylePromptForRewrite` as a lead, so reserve that
+    // AND what the render appends. Measured once, BEFORE the per-scene loop: a
+    // ceiling the assembly alone already exceeds is a deterministic refusal and
+    // must surface typed through the batched path, never turn into one scene's
+    // "failure" and get retried.
+    const rewriteBudget = await promptBudget(stylePromptForRewrite)
+    const rewriteBudgetLine = describePromptBudget(rewriteBudget)
+    if (rewriteBudgetLine) job.output_lines.push(rewriteBudgetLine)
     const creativeDirectionForRewrite = assignCreativeStrategies(
       existing.scenes,
       existing.creative_direction || params.creative_direction,
@@ -2295,7 +2468,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           custom_instructions: params.custom_instructions,
           creative_direction: creativeDirectionForRewrite,
           creative_strategy: target.creative_strategy,
-          prompt_char_cap: promptCharCap,
+          prompt_char_cap: rewriteBudget.bodyCeiling,
+          prompt_char_cap_published: rewriteBudget.publishedCap,
+          prompt_char_cap_reserved: rewriteBudget.reserved.characters,
+          prompt_char_cap_source: rewriteBudget.source,
           avoid_legible_text: wantAvoidLegibleText,
           // A user-invoked reword asks for a different ANGLE on the same beat with
           // the difficult-subjects guidance applied, rather than another pass at
@@ -2330,14 +2506,18 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           fresh.generated_at = new Date().toISOString()
           await writeJsonAtomic(outPath, fresh)
         })
-        const rewriteLength = readPromptLength(newPrompt, promptCharCap)
+        // The saved prompt includes the style lead the writer prepended, so it
+        // is measured against the saved-body ceiling (the assembled ceiling
+        // minus only what the render appends) — the largest body that will fit
+        // once rendered. Nothing is shortened either way.
+        const rewriteLength = readPromptLength(newPrompt, rewriteBudget.storedBodyCeiling)
         job.output_lines.push(
           `✓ Prompt regenerated (${rewriteLength.characters.toLocaleString()}`
           + `${rewriteLength.cap ? ` / ${rewriteLength.cap.toLocaleString()}` : ''} chars). Other scenes untouched.`,
         )
         if (rewriteLength.over_cap) {
           job.output_lines.push(
-            `⚠ ${rewriteLength.overage.toLocaleString()} characters over the ${rewriteLength.cap!.toLocaleString()}-character limit. `
+            `⚠ ${rewriteLength.overage.toLocaleString()} characters over the ${rewriteLength.cap!.toLocaleString()}-character prompt-body limit. `
             + 'The prompt was saved in full — shorten it, raise the limit, or render as-is.',
           )
         }
@@ -2441,6 +2621,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         ? 'No style prompt set — using the project default Style Bible for the re-plan.'
         : 'No style prompt set — using the episode Style Bible for the re-plan.'),
     )
+    // The re-plan runs the same writer (which prepends the style lead) and the
+    // same renderer, so it gets the same body budget.
+    const replanBudget = await promptBudget(replanStyle)
+    const replanBudgetLine = describePromptBudget(replanBudget)
+    if (replanBudgetLine) job.output_lines.push(replanBudgetLine)
     const replanned = await planScenes({
       stitched_srt_path: stitchedSrt,
       research_path: useResearch ? researchPath : undefined,
@@ -2455,6 +2640,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       detail_level: params.detail_level,
       style_prompt: replanStyle,
       custom_instructions: params.custom_instructions,
+      prompt_char_cap: replanBudget.bodyCeiling,
+      prompt_char_cap_published: replanBudget.publishedCap,
+      prompt_char_cap_reserved: replanBudget.reserved.characters,
+      prompt_char_cap_source: replanBudget.source,
       pacing,
       range: { start_sec: target.start_sec, end_sec: target.end_sec },
       // v1.0.285 — re-plan honours the user's chosen window size too. For a
@@ -2512,6 +2701,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       ? 'No style prompt set — using the project default Style Bible for the plan.'
       : 'No style prompt set — using the episode Style Bible for the plan.'),
   )
+  // This writer prepends the style lead and the renderer appends its own
+  // layers, so the planner is given the body ceiling that leaves room for both.
+  const planBudget = await promptBudget(effectiveStyle)
+  const planBudgetLine = describePromptBudget(planBudget)
+  if (planBudgetLine) job.output_lines.push(planBudgetLine)
 
   // v1.0.423 — sleep-story intro skip. When on (per-episode override, else the
   // project default), drop the leading "Introduction" chapter so scenes are
@@ -2560,6 +2754,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     detail_level: params.detail_level,
     style_prompt: effectiveStyle,
     custom_instructions: params.custom_instructions,
+    prompt_char_cap: planBudget.bodyCeiling,
+    prompt_char_cap_published: planBudget.publishedCap,
+    prompt_char_cap_reserved: planBudget.reserved.characters,
+    prompt_char_cap_source: planBudget.source,
     pacing,
     character_density: characterDensity,
     // v1.0.285 — per-window scene count tuning ('auto' now sizes off the

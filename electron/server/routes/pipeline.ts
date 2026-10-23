@@ -2531,8 +2531,14 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   }
 
   let pipelineScenePlanPromptCap: number | undefined
+  let pipelineScenePlanCapSelection: unknown
+  let pipelineScenePlanImageModel = ''
   if (presetByStep.scene_plan) {
     const sceneData = scenePlanPresetReceipt(presetByStep.scene_plan).data
+    // The SELECTION and its intended model travel with the job so the executor
+    // re-resolves the ceiling live. The number below is the admission receipt.
+    pipelineScenePlanCapSelection = sceneData.prompt_char_cap
+    pipelineScenePlanImageModel = typeof sceneData.intended_image_model === 'string' ? sceneData.intended_image_model : ''
     if (sceneData.intended_image_model) {
       const apiKey = await getApiKey('genstudio').catch(() => '')
       if (!apiKey) {
@@ -2805,7 +2811,11 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       let params: Record<string, any>
       try {
         params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
-        if (step === 'scene_plan') params.prompt_char_cap = pipelineScenePlanPromptCap
+        if (step === 'scene_plan') {
+          params.prompt_char_cap = pipelineScenePlanPromptCap
+          params.prompt_char_cap_selection = pipelineScenePlanCapSelection
+          params.intended_image_model = pipelineScenePlanImageModel
+        }
         // The thumbnail prompts this step writes need the same treatment. The
         // preset mapper carries the saved SELECTION ('auto' / 'none' / a
         // number) and the image model it was chosen for; both travel with the
