@@ -1,6 +1,12 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.348 — installed and healthy; SSD recovery and disk cleanup (2026-10-23)
+## 1.4.348 — installed, SSD kits verified and disk cleanup completed (2026-10-23)
+
+SSD recovery `bvfbjduqb` completed actual exit 0 with `all_kits_verified`. Independent coordinator verification passed nine live installer SHA-256/size checks, unchanged volume identities and unchanged model indexes. ATLAS/NOVA/ORICO contain Story1.4.348, Hub0.6.195 and Gateway0.2.195; UGREEN absent/skipped. No drive ejected. Receipt: `~/Developer/_orchestra/app-closeout-20261021/ssd-refresh-preparation/recovery348-independent-verification-20261023.json`. This supersedes the failed refresh and pending recovery observations below.
+
+Owner-authorized cleanup completed its bounded audits: 20 obsolete failed/focused test roots moved into `_trash/obsolete-test-fixtures/20261023T015846Z/` (independent `du -sk`:14125520KiB, ~13.5GiB); five obsolete Hub runtime/download outputs into `_trash/development-build-junk/20261023-085339/` (3764408KiB, ~3.6GiB); unused Go cache790788KiB (~0.75GiB) into `_trash/rebuildable-caches/20261023T015435Z/`. Earlier installer batches total24110398924 logical bytes (~22.5GiB), including outdated Story candidate directories; current348C and previous347H retained. Approximate combined measured batch sizes are ~40GiB; logical/allocated measurements differ and do not prove physical reclaim. Interim free space after SSD recovery:24776508KiB (~23.6GiB). Moving toTrash requires owner deletion before reclaim. Receipts and corrected units survive outsideTrash in `DISK-USAGE-20261023.md`, `OBSOLETE-FIXTURES-MOVE-RECEIPT-20261023.json` and `development-build-junk-retired-20261023.md` under app-closeout evidence. Accepted348C retained roots,347H proof,poetry preservation,current runtime/models,source and production data remain protected. Worker reported an old product HEAD as checkout HEAD; authoritative main docs identity must be read from Git, not that worker claim.
+
+The observations below record earlier stages of this closeout.
 
 Resumed readback at01:42Z supersedes earlier deferred status: updater HTTP200/current1.4.348/installed/heldfalse/installrequestedfalse/queuepausedfalse, six jobs. Independent health HTTP200/ok/version1.4.348/boot_completetrue at01:42:39Z. No development update POST or intent made; observed installation adopted. API explicitly returned and acknowledged by production. Receipts `mini-readiness-resumed-20261023T014232Z.json` and `mini-installed-independent-resumed-20261023.json` in permanent348release directory.
 
