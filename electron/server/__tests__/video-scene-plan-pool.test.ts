@@ -110,6 +110,8 @@ describe('Video Assembly authoritative Scene Plan pool', () => {
       missing: [{ id: 'scene-missing', scene_index: 3 }],
       unapproved: [{ id: 'scene-unapproved', scene_index: 2 }],
       stale: [],
+      // No selected clip in this plan, so Assembly falls back to no still for motion reasons.
+      motion_fallback: [],
     })
     assert.equal(assets.scenes.length, 2)
 
