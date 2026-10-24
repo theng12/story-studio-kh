@@ -819,8 +819,8 @@ const selectedTtsModelEligible = computed(() => !ttsModelsStale.value
   && selectedTtsModel.value.locked !== true)
 
 /**
- * The writing system of this episode's narration (Khmer, Thai…), read from the script on disk, so a
- * voice model that cannot speak it is flagged before Generate (owner, 2026-10-24: Khmer channels
+ * The writing system of this episode's narration, read from the script on disk, so a
+ * voice model that cannot speak it is flagged before Generate (owner, 2026-10-24: channels in a non-Latin script
  * set to Breeze babbled and failed every quality check). The model's own `supported_languages`
  * decides; a model listing none is never flagged. Blanked on every episode change (AGENTS §4).
  */
@@ -833,7 +833,6 @@ async function loadNarrationScript(episode: string) {
     if (form.episode_id === episode) narrationScript.value = found
   } catch { /* no narration yet: nothing to judge */ }
 }
-watch(() => form.episode_id, episode => { void loadNarrationScript(episode) }, { immediate: true })
 function modelLanguageMismatch(model: GenStudioTtsModel | null): string {
   const script = narrationScript.value
   const listed = (model?.supported_languages || []).map(code => String(code).toLowerCase().split(/[-_]/)[0])
@@ -874,6 +873,8 @@ const form = reactive({
   paragraph_pause_sec: undefined as number | undefined,
   sentence_pause_sec: undefined as number | undefined,
 })
+// After `form` exists: an immediate watcher reading it earlier throws in setup (TDZ).
+watch(() => form.episode_id, episode => { void loadNarrationScript(episode) }, { immediate: true })
 
 // The join pauses, with the selected model's published bounds/default where it
 // has them. Story's own part seams use the same values on any model.
