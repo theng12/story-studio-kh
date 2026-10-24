@@ -286,7 +286,11 @@ export function customerSafeJobText(value: unknown, exactIds: readonly string[] 
     .replace(/\b((?:story\s+)?(?:job|task|request))\s+(?=[A-Za-z0-9._:-]{6,}\b)(?=[A-Za-z0-9._:-]*\d)(?=[A-Za-z0-9._:-]*[_.:-])[A-Za-z0-9._:-]+\b/gi, '$1 [request hidden]')
 }
 
-/** A navigation-only shortcut; opening a workspace never retries provider work. */
+/**
+ * A navigation-only shortcut to the page that made this job; opening a workspace never retries
+ * provider work. Every status gets it (owner, 2026-10-24: "add a go to the generator for each
+ * different job so i don't have to hunt for it") — it used to appear only on failed jobs.
+ */
 export function jobWorkspaceLink(job: {
   type: string
   status: string
@@ -294,7 +298,7 @@ export function jobWorkspaceLink(job: {
   episode_id?: string | null
   params?: { mode?: unknown; pool?: unknown }
 }): { to: string; label: string; ariaLabel: string } | null {
-  if (!['error', 'cancelled'].includes(job.status) || !job.project_slug || job.project_slug === '_app_') return null
+  if (!job.project_slug || job.project_slug === '_app_') return null
   const destinations: Record<string, [string, string]> = {
     idea_campaign: ['ideas', 'Ideas Generator'],
     'chapter-only': ['scripts', 'Script Generator'],

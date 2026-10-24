@@ -19,8 +19,13 @@ test('failed audio opens its own project and episode without retry or repair par
 test('unknown and app-wide tasks have no misleading workspace shortcut', () => {
   for (const job of [
     { ...failed, type: 'future_job' }, { ...failed, type: 'constructor' }, { ...failed, project_slug: '_app_' },
-    { ...failed, project_slug: '' }, ...['running', 'queued', 'done', 'paused'].map(status => ({ ...failed, status })),
+    { ...failed, project_slug: '' },
   ]) assert.equal(jobWorkspaceLink(job), null)
+})
+
+test('every status opens its generator, not only failed ones', () => {
+  for (const status of ['running', 'queued', 'done', 'paused', 'needs_attention'])
+    assert.equal(jobWorkspaceLink({ ...failed, status })?.to, '/projects/terranash-sleep-stories/audio?episode_id=TN0354')
 })
 
 test('writing, media and upload tasks use existing work pages', () => {
