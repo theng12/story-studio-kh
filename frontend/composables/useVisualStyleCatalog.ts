@@ -13,11 +13,22 @@ export interface VisualStyleCatalogItem {
     negative_prompt: string
   }
   preview_image: string
-  /** Every preview, hero first (at least three per signed style); `[]` for a user style. */
+  /** Every preview, hero first (at least three per signed style); `[]` for a user style with none rendered. */
   preview_images: string[]
+  /** True only for a style from the owner's own user style pack — the "Your style" card. */
+  user_style?: boolean
+  /** Its saved previews were made from style text that has since been edited. */
+  preview_stale?: boolean
 }
 
-const PREVIEW_URL = /^\/api\/content-packs\/[a-z0-9.%_-]+\/[0-9.]+\/assets\/[a-f0-9]{64}$/
+/**
+ * The two shapes a preview URL may take: a signed pack's verified asset by
+ * content hash, and this Mac's own saved preview for a user style, also by
+ * content hash. Both are strict — anything else (a filesystem path, a data URL,
+ * a host this app never served) drops the image and, for `preview_image`,
+ * the whole style, which is what keeps pack disk paths out of the renderer.
+ */
+const PREVIEW_URL = /^(?:\/api\/content-packs\/[a-z0-9.%_-]+\/[0-9.]+\/assets\/[a-f0-9]{64}|\/api\/user-style-previews\/assets\/[a-f0-9]{64})$/
 
 const catalogStyles = shallowRef<VisualStyleCatalogItem[]>([])
 const catalogLoading = ref(false)
@@ -37,8 +48,11 @@ function isVisualStyleCatalogItem(value: unknown): value is VisualStyleCatalogIt
     && typeof data?.style_bible === 'string'
     && typeof data?.negative_prompt === 'string'
     && typeof style.preview_image === 'string'
-    // A user style pack style (v1.4.277) has no preview: an empty string.
+    // A user style pack style (v1.4.277) with nothing rendered yet: an empty string.
     && (style.preview_image === '' || PREVIEW_URL.test(style.preview_image))
+    // Stated flags only. A main process that publishes neither leaves them absent.
+    && (style.user_style === undefined || typeof style.user_style === 'boolean')
+    && (style.preview_stale === undefined || typeof style.preview_stale === 'boolean')
 }
 
 /**

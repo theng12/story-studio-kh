@@ -64,6 +64,8 @@ describe('user style packs', () => {
       category: 'Painterly', tags: ['painterly'],
       data: { style_bible: 'Soft dreamlands brushwork, no text.', negative_prompt: '' },
       preview_image: '',
+      preview_images: [],
+      user_style: true,
     })
     assert.equal(library.body.visual_styles.find((s: any) => s.id === 'kh.art-styles.woodcut').data.negative_prompt, 'photo, 3D render')
 

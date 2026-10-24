@@ -5,6 +5,7 @@ import { writeJsonAtomic } from '../lib/atomic-store.js'
 import type { ContentPackVisualStyle } from '../content-packs/legacy-adapters.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { UserStylePackSchema, type UserStylePack } from '../content-packs/schemas.js'
+import { publishUserStylePreviews } from './user-style-previews.js'
 
 /** One JSON file per pack, named by its pack id, beside the signed Content Pack runtime. */
 function packDir(paths?: ContentPackRuntimePaths): string {
@@ -39,17 +40,47 @@ export async function listUserStylePacks(paths?: ContentPackRuntimePaths): Promi
   return packs
 }
 
-/** User pack styles in the Style Library's record shape. They have no preview image. */
+/** One style from the installed user pack that declares it, or null. */
+export async function findUserStylePackStyle(
+  styleId: string,
+  paths?: ContentPackRuntimePaths,
+): Promise<UserStylePack['styles'][number] | null> {
+  for (const pack of await listUserStylePacks(paths)) {
+    const found = pack.styles.find(style => style.id === styleId)
+    if (found) return found
+  }
+  return null
+}
+
+/**
+ * User pack styles in the Style Library's record shape.
+ *
+ * They carry no preview inside their own file — an unsigned pack has nowhere
+ * signed to put one — so whatever this Mac has already rendered for the style
+ * is published here, hero first, from `user-style-previews.ts`. `user_style` is
+ * stated rather than inferred from the id: the card that says "Your style" must
+ * not be reading a naming convention, and `preview_stale` says the saved
+ * previews were made from style text that has since been edited.
+ */
 export async function listUserVisualStyles(paths?: ContentPackRuntimePaths): Promise<ContentPackVisualStyle[]> {
-  return (await listUserStylePacks(paths)).flatMap(pack => pack.styles.map(style => ({
-    id: style.id,
-    name: style.name,
-    builtin: true as const,
-    blurb: style.description,
-    category: style.category,
-    tags: [...style.tags],
-    data: { style_bible: style.style_bible, negative_prompt: style.negative_prompt ?? '' },
-    preview_image: '',
-    preview_images: [],
-  })))
+  const styles: ContentPackVisualStyle[] = []
+  for (const pack of await listUserStylePacks(paths)) {
+    for (const style of pack.styles) {
+      const previews = await publishUserStylePreviews(style.id, style, paths)
+      styles.push({
+        id: style.id,
+        name: style.name,
+        builtin: true as const,
+        blurb: style.description,
+        category: style.category,
+        tags: [...style.tags],
+        data: { style_bible: style.style_bible, negative_prompt: style.negative_prompt ?? '' },
+        preview_image: previews.urls[0] ?? '',
+        preview_images: previews.urls,
+        user_style: true as const,
+        ...(previews.stale ? { preview_stale: true as const } : {}),
+      })
+    }
+  }
+  return styles
 }

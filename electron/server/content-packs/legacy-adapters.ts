@@ -41,8 +41,19 @@ export interface ContentPackVisualStyle {
   tags: string[]
   data: { style_bible: string; negative_prompt: string }
   preview_image: string
-  /** Every verified preview, hero first; `[]` for a user style pack style. */
+  /** Every verified preview, hero first; `[]` for a user style pack style with none rendered yet. */
   preview_images: string[]
+  /**
+   * True only for a style from the owner's own user style pack (v1.4.277). Stated
+   * rather than inferred from the id, so the card that says "Your style" is not
+   * reading a naming convention.
+   */
+  user_style?: boolean
+  /**
+   * The saved previews were made from style text that has since been edited, so
+   * they describe the look it used to have. Shown as out of date, never as current.
+   */
+  preview_stale?: boolean
 }
 
 function mapIdeaAxes(axes: FormulaDocument['idea_axes'] | TopicDocument['idea_axes']) {

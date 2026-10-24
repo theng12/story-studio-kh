@@ -13,6 +13,20 @@
           <h2 id="style-library-title">Style Library</h2>
           <p>Find a channel look without turning the page into a hundred-card scroll.</p>
         </div>
+        <div class="slm-bulk">
+          <button
+            v-if="!bulkRunning"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="!previewModel || !bulkTargets.length"
+            :title="bulkDisabledReason"
+            @click="generateAllMissingPreviews"
+          >
+            Generate previews for all styles without one<span v-if="bulkTargets.length"> ({{ bulkTargets.length }})</span>
+          </button>
+          <button v-else type="button" class="btn btn-secondary btn-sm" @click="cancelBulkPreviews">Stop</button>
+          <p v-if="bulkStatus" class="slm-bulk-status" role="status">{{ bulkStatus }}</p>
+        </div>
         <button type="button" class="slm-close" aria-label="Close style library" @click="emit('close')">×</button>
       </header>
 
@@ -101,16 +115,27 @@
               decoding="async"
             />
             <div v-else class="slm-image-empty">
-              <span>Preview unavailable</span>
+              <span>{{ previewStates[style.id]?.progress || 'Preview unavailable' }}</span>
               <button
                 type="button"
                 class="btn btn-ghost btn-sm"
                 :disabled="!previewModel || previewStates[style.id]?.loading"
-                @click.stop="generatePreview(style)"
+                @click.stop="generatePreviewFor(style)"
               >
-                {{ previewStates[style.id]?.loading ? 'Rendering…' : 'Generate Preview' }}
+                {{ previewStates[style.id]?.loading ? 'Rendering…' : emptyPreviewActionLabel(style) }}
               </button>
             </div>
+            <button
+              v-if="style.user_style && style.preview_images.length"
+              type="button"
+              class="slm-regenerate"
+              :disabled="!previewModel || previewStates[style.id]?.loading"
+              :aria-label="`Generate new previews for ${style.name}`"
+              :title="style.preview_stale ? 'These previews are out of date — generate new ones' : 'Generate new previews'"
+              @click.stop="generatePreviewFor(style)"
+            >
+              ↻
+            </button>
             <button
               type="button"
               class="slm-favorite"
@@ -122,6 +147,8 @@
               {{ favoriteIds.has(style.id) ? '★' : '☆' }}
             </button>
             <span v-if="draftStyleId === style.id" class="slm-selected-mark">Selected</span>
+            <span v-if="style.user_style" class="slm-own-mark">Your style</span>
+            <span v-if="style.preview_stale" class="slm-stale-mark">Out of date</span>
             <div v-if="style.preview_images.length > 1" class="slm-preview-dots" aria-label="Style previews">
               <button
                 v-for="(_, index) in style.preview_images"
@@ -142,6 +169,10 @@
             <div class="slm-tags">
               <span v-for="tag in style.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
             </div>
+            <p v-if="style.preview_stale" class="slm-stale-note">
+              These previews were made before this style was last edited.
+            </p>
+            <p v-if="previewStates[style.id]?.progress" class="slm-progress" role="status">{{ previewStates[style.id]?.progress }}</p>
             <p v-if="previewStates[style.id]?.error" class="slm-error">{{ previewStates[style.id]?.error }}</p>
           </div>
         </article>
@@ -182,6 +213,11 @@
 <script setup lang="ts">
 import { type VisualStyleCatalogItem, useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
+import {
+  runPreviewQueue,
+  userStylesNeedingPreviews,
+  type PreviewQueueEntry,
+} from '~/utils/style-preview-queue'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -208,12 +244,41 @@ const {
 const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
 const FAVORITES_KEY = 'story-studio:style-library:favorites'
 const RECENTS_KEY = 'story-studio:style-library:recents'
+/**
+ * The image model the owner last chose for style previews, restored before the
+ * picker mounts (never a remembered price tier, never a hardcoded model). A
+ * choice that has left the live Gateway falls to a usable one, and that healed
+ * choice is written back, so the next open starts from a model that exists.
+ */
+const PREVIEW_MODEL_KEY = 'story-studio:style-library:preview-model'
 const categories = computed(() => Array.from(new Set(styles.value.map(style => style.category))).sort())
+
+/** The three previews every style shows, in the order the pager reads them. */
+const PREVIEW_SLOTS = ['hero', 'scene', 'face'] as const
+type PreviewSlot = typeof PREVIEW_SLOTS[number]
+/**
+ * What each image is, in the owner's own words
+ * (`content-packs/PREVIEW-BACKFILL-2026-09-08.md`): the shot the style exists
+ * for, a quiet wide scene with no figure in it, and the hardest legal case.
+ */
+const PREVIEW_SLOT_LABELS: Record<PreviewSlot, string> = {
+  hero: 'the hero shot',
+  scene: 'the empty scene',
+  face: 'the hardest case',
+}
 
 interface PreviewState {
   loading: boolean
   url: string | null
   error: string | null
+  /** What is rendering now, e.g. "Rendering the empty scene — 2 of 3". */
+  progress: string
+  /** Every image the last run could not make, named with its own reason (§8). */
+  failures: Array<{ slot: string; error: string }>
+}
+
+const EMPTY_PREVIEW_STATE: PreviewState = {
+  loading: false, url: null, error: null, progress: '', failures: [],
 }
 
 const query = ref('')
@@ -229,6 +294,10 @@ const previewStates = ref<Record<string, PreviewState>>({})
 const previewModel = ref('')
 const previewAspect = ref('16:9')
 const searchInput = ref<HTMLInputElement | null>(null)
+/** The bulk action runs ONE style at a time; a stop is honoured between styles. */
+const bulkRunning = ref(false)
+const bulkCancelled = ref(false)
+const bulkStatus = ref('')
 
 const selectedImageModel = computed(() =>
   genStudioImageModels.value.find(model => model.id === previewModel.value),
@@ -238,6 +307,13 @@ const selectedImageModel = computed(() =>
 const aspectOptions = computed<string[]>(() => selectedImageModel.value?.aspect_ratios?.filter(Boolean) || [])
 const hasBrokenPackPreview = computed(() => Object.keys(packPreviewFailed.value).length > 0)
 const draftStyle = computed(() => styles.value.find(style => style.id === draftStyleId.value) || null)
+/** The owner's own styles with no current previews — what the bulk action is for. */
+const bulkTargets = computed(() => userStylesNeedingPreviews(styles.value))
+const bulkDisabledReason = computed(() => {
+  if (!previewModel.value) return 'Choose an image model first'
+  if (!bulkTargets.value.length) return 'Every one of your own styles already has previews'
+  return `Render the missing previews for ${bulkTargets.value.length} of your own styles, one at a time`
+})
 const filters = computed(() => [
   { id: 'all', label: 'All styles', count: styles.value.length },
   { id: 'favorites', label: 'Favorites', count: styles.value.filter(style => favoriteIds.value.has(style.id)).length },
@@ -287,9 +363,22 @@ watch([selectedImageModel, aspectOptions], ([model, aspects]) => {
     : aspects[0]!
 }, { immediate: true })
 
+watch(previewModel, (modelId) => {
+  // Every change is written — the owner's own pick, and the healed one when a
+  // remembered model has left the live Gateway.
+  if (!modelId) return
+  try {
+    localStorage.setItem(PREVIEW_MODEL_KEY, JSON.stringify(modelId))
+  } catch { /* a locked-down profile keeps the choice for this session only */ }
+})
+
 onMounted(() => {
   favoriteIds.value = new Set(readStoredIds(FAVORITES_KEY))
   recentIds.value = readStoredIds(RECENTS_KEY).slice(0, 8)
+  // Before the picker is used, and before the catalogue arrives: the last
+  // explicit choice is what the customer sees first, not a model this app
+  // picked for them.
+  previewModel.value = readStoredPreviewModel()
   void refreshGenStudioImageModels()
   void refreshVisualStyles()
 })
@@ -302,6 +391,15 @@ function readStoredIds(key: string): string[] {
       : []
   } catch {
     return []
+  }
+}
+
+function readStoredPreviewModel(): string {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PREVIEW_MODEL_KEY) || '""')
+    return typeof parsed === 'string' ? parsed : ''
+  } catch {
+    return ''
   }
 }
 
@@ -336,9 +434,35 @@ function stylePreview(style: VisualStyleCatalogItem): string {
   return images[previewPage.value[style.id] || 0] || images[0] || ''
 }
 
-async function generatePreview(style: VisualStyleCatalogItem): Promise<void> {
+function emptyPreviewActionLabel(style: VisualStyleCatalogItem): string {
+  if (!style.user_style) return 'Generate Preview'
+  const state = previewStates.value[style.id]
+  if (state?.failures?.length) return `Retry ${state.failures.length} missing`
+  return 'Generate previews'
+}
+
+/**
+ * Generate previews for one style.
+ *
+ * For the owner's own styles (user style packs), this makes the three images
+ * (hero, empty scene, hardest legal case), reports progress per image, saves
+ * each on disk, and on partial failure a retry only asks for what is still
+ * missing (§8). For a signed style whose preview failed to load, it falls back
+ * to the single-proof route the modal previously used.
+ */
+async function generatePreviewFor(style: VisualStyleCatalogItem): Promise<void> {
   if (!previewModel.value) return
-  previewStates.value[style.id] = { loading: true, url: null, error: null }
+  if (!style.user_style) {
+    await generateSignedStyleProof(style)
+    return
+  }
+  await generateUserStylePreviewsFor(style)
+}
+
+async function generateSignedStyleProof(style: VisualStyleCatalogItem): Promise<void> {
+  previewStates.value[style.id] = {
+    loading: true, url: null, error: null, progress: 'Rendering style proof…', failures: [],
+  }
   try {
     const data = await post<{ url: string }>(`/projects/${props.projectSlug}/style-preview`, {
       style_tag: style.data.style_bible,
@@ -346,20 +470,162 @@ async function generatePreview(style: VisualStyleCatalogItem): Promise<void> {
       aspect_ratio: previewAspect.value,
       variant_id: 'style-proof',
     })
-    previewStates.value[style.id] = { loading: false, url: data.url, error: null }
+    previewStates.value[style.id] = {
+      loading: false, url: data.url, error: null, progress: '', failures: [],
+    }
   } catch (error: any) {
     previewStates.value[style.id] = {
       loading: false,
       url: null,
       error: error?.data?.detail || error?.message || 'Preview failed',
+      progress: '',
+      failures: [],
     }
   }
+}
+
+/**
+ * Render the missing previews for one of the owner's own styles.
+ *
+ * It queues the missing slots one at a time, shows which image is rendering
+ * right now, and reports every failure BY NAME (§8). When a slot fails, retry
+ * asks only for that slot.
+ */
+async function generateUserStylePreviewsFor(style: VisualStyleCatalogItem, force = false): Promise<void> {
+  const currentImages = style.preview_images || []
+  // Which slots are missing. An edited style whose previews are stale re-renders
+  // all three; an unstale style only renders what has never succeeded.
+  const targetSlots: PreviewSlot[] = style.preview_stale || force
+    ? [...PREVIEW_SLOTS]
+    : PREVIEW_SLOTS.filter((_, index) => !currentImages[index])
+  if (!targetSlots.length) return
+
+  previewStates.value[style.id] = {
+    loading: true,
+    url: null,
+    error: null,
+    progress: `Starting ${targetSlots.length} preview${targetSlots.length === 1 ? '' : 's'}…`,
+    failures: [],
+  }
+
+  const failures: Array<{ slot: string; error: string }> = []
+  for (const [position, slot] of targetSlots.entries()) {
+    const slotNumber = position + 1
+    const slotLabel = PREVIEW_SLOT_LABELS[slot]
+    previewStates.value[style.id] = {
+      loading: true,
+      url: null,
+      error: null,
+      progress: `Rendering ${slotLabel} (${slotNumber} of ${targetSlots.length})…`,
+      failures,
+    }
+    try {
+      const response = await post<{
+        images: string[]
+        generated: string[]
+        skipped: string[]
+        failed: Array<{ slot: string; error: string }>
+        stale: boolean
+      }>(`/user-style-previews/${encodeURIComponent(style.id)}/generate`, {
+        model: previewModel.value,
+        aspect_ratio: previewAspect.value,
+        slots: [slot],
+        force,
+      })
+      if (response.failed?.length) {
+        failures.push(...response.failed)
+      }
+    } catch (error: any) {
+      failures.push({
+        slot,
+        error: error?.data?.detail || error?.message || `Could not render ${slotLabel}`,
+      })
+    }
+  }
+
+  // Refresh the catalog so the new previews become reactive throughout the app.
+  await refreshVisualStyles()
+
+  if (failures.length) {
+    const list = failures.map(f => `${PREVIEW_SLOT_LABELS[f.slot as PreviewSlot] || f.slot}: ${f.error}`).join('; ')
+    previewStates.value[style.id] = {
+      loading: false,
+      url: null,
+      error: `${failures.length} of ${targetSlots.length} image${failures.length === 1 ? '' : 's'} failed (${list}). Click Retry to render only the missing ones.`,
+      progress: '',
+      failures,
+    }
+  } else {
+    previewStates.value[style.id] = {
+      loading: false, url: null, error: null, progress: '', failures: [],
+    }
+  }
+}
+
+/**
+ * Bulk action: generate previews for every one of the owner's styles that lacks
+ * them, queueing one style at a time, cancellable.
+ */
+async function generateAllMissingPreviews(): Promise<void> {
+  if (bulkRunning.value || !previewModel.value) return
+  const targets = [...bulkTargets.value]
+  if (!targets.length) return
+
+  bulkRunning.value = true
+  bulkCancelled.value = false
+  bulkStatus.value = `Starting previews for ${targets.length} style${targets.length === 1 ? '' : 's'}…`
+
+  const entries: PreviewQueueEntry[] = targets.map(style => ({
+    key: style.id,
+    label: style.name,
+  }))
+
+  const outcome = await runPreviewQueue({
+    entries,
+    isCancelled: () => bulkCancelled.value,
+    async generate(entry) {
+      const target = styles.value.find(s => s.id === entry.key)
+      if (!target) return
+      await generateUserStylePreviewsFor(target)
+      const failed = previewStates.value[target.id]?.failures?.length
+      if (failed) {
+        throw new Error(`${failed} image${failed === 1 ? '' : 's'} could not render`)
+      }
+    },
+    onProgress(progress) {
+      bulkStatus.value = `Rendering ${progress.entry.label} (${progress.index} of ${progress.total})…`
+    },
+  })
+
+  bulkRunning.value = false
+  if (outcome.cancelled) {
+    bulkStatus.value = `Stopped. ${outcome.completed.length} completed, ${outcome.notStarted.length} skipped.`
+  } else if (outcome.failed.length) {
+    bulkStatus.value = `Finished with ${outcome.failed.length} failure${outcome.failed.length === 1 ? '' : 's'} (${outcome.completed.length} succeeded).`
+  } else {
+    bulkStatus.value = `All ${outcome.completed.length} style${outcome.completed.length === 1 ? '' : 's'} now have previews.`
+  }
+}
+
+function cancelBulkPreviews(): void {
+  if (!bulkRunning.value) return
+  bulkCancelled.value = true
+  bulkStatus.value = 'Stopping after the current image finishes…'
 }
 </script>
 
 <style scoped>
 .slm-shell { display: flex; min-height: min(760px, calc(100vh - 96px)); flex-direction: column; gap: 16px; }
-.slm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.slm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.slm-bulk { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.slm-bulk-status { margin: 0; color: var(--text-muted); font-size: var(--font-xs); }
+.slm-own-mark { position: absolute; left: 7px; top: 7px; padding: 3px 7px; border-radius: 999px; background: rgba(10, 12, 18, .76); color: var(--accent); border: 1px solid var(--accent); font-size: var(--font-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; backdrop-filter: blur(8px); }
+.slm-stale-mark { position: absolute; left: 7px; bottom: 7px; padding: 3px 7px; border-radius: 999px; background: rgba(220, 110, 20, .9); color: #fff; font-size: var(--font-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.slm-regenerate { position: absolute; top: 7px; right: 42px; width: 30px; height: 30px; border: 1px solid rgba(255,255,255,.24); border-radius: 50%; background: rgba(10,12,18,.72); color: white; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); }
+.slm-regenerate:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.slm-regenerate:disabled { opacity: .4; cursor: not-allowed; }
+.slm-progress { color: var(--accent) !important; font-size: var(--font-xs); }
+.slm-stale-note { color: var(--warning, #e6a23c) !important; font-size: var(--font-xs); }
 .slm-head h2 { margin: 2px 0 5px; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.035em; }
 .slm-head p { margin: 0; color: var(--text-secondary); font-size: 13px; }
 .slm-eyebrow { color: var(--accent) !important; font-size: var(--font-xs) !important; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
