@@ -303,7 +303,7 @@ complete solution. Keep updates concise and distinguish verified results from
 remaining limitations. This supersedes earlier Luna-only or unrestricted
 model-selection guidance. Workers must not recursively delegate, commit, push,
 merge, publish, deploy, or make paid calls unless specifically assigned that
-authority. Run only one test suite at a time across all workers.
+authority. Fan tests out whenever it is safe — see **Parallel tests** below.
 
 **Tests.** `npm run test:backend` runs every backend file and **is the release gate** — do not
 narrow it when verifying a release. While iterating, run only what you are working on:
@@ -311,9 +311,26 @@ narrow it when verifying a release. While iterating, run only what you are worki
 the test file's name). A filtered run prints a loud `PARTIAL RUN` banner before and after the
 results — **if you see that banner, the release gate did not run**, and never quote a filtered run
 as a green suite. An `--only` that matches nothing fails, and so does a run whose summary reports
-zero tests. Do not run competing suites: one test run at a time, and read-only agents stay off the
-suite entirely. For every suite you cite, report the actual exit status, the completion line, and
+zero tests. Read-only agents stay off the suite entirely. For every suite you cite, report the actual exit status, the completion line, and
 the test count — a wrapper's exit code is not the suite's, and "completed" is not "passed".
+
+**Parallel tests — owner, 2026-10-24: "do that whenever possible."** This replaces the earlier
+"one test suite at a time across all workers". Serial is now the exception, kept only where running
+side by side has actually broken a result.
+
+- **The Story release gate runs alone among Story suites.** While `npm run test:backend` or the
+  full gate runs, start no other Story backend or frontend suite and no second Story DMG build. The
+  gate runs its files one by one on purpose: timing-sensitive tests flake under load, and on
+  2026-10-24 a busy Mac failed gate A with zero failing tests.
+- **Alongside a Story gate, these are allowed:** Studio Hub and GatewayKH test modules, static
+  checks (typecheck, lint, `py_compile`, `git diff --check`), and builds of other repos.
+- **With no gate running:** up to two focused (`--only`) Story runs at once, in different
+  worktrees, and Hub and Gateway modules freely in parallel, since each test uses its own temp data.
+- **Never in parallel:** two runs in the same worktree; installer tests (they share `_trash`);
+  anything that touches the real mini, the live Gateway, or production.
+- **A failure that looks timing-related while something else was running** (a timeout, a sleep, an
+  empty evidence manifest, a killed child): rerun that file alone before treating it as a defect,
+  and say in the report that it ran alongside other work.
 
 **Installer tests must isolate trash as well as the install target.** Copy the real installer into
 a private temporary project, and keep source, target, and default/overridden trash there. Never
