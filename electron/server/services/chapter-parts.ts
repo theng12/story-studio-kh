@@ -241,6 +241,14 @@ export interface ConsolidateInput {
   loadTexts?: () => Promise<Map<string, { sectionText: string; parts: string[] }>>
   /** Limit to these chapters (slugs, any case). */
   only?: string[]
+  /**
+   * Complete part sets the caller has already proven (Audio Assembly's readiness: every expected
+   * `_partN` file present), keyed by chapter slug, in part order. Consulted ONLY for a chapter with
+   * neither an `audio_quality.json` entry nor a selector row, which is how an episode generated
+   * with no_overwrite arrives; its parts are then joined like any other. Never used when the
+   * chapter's single file already exists.
+   */
+  provenParts?: Record<string, string[]>
   settings?: Record<string, unknown>
   /** The channel's sentence / paragraph pause (`seamPauseRule`); absent = the uniform 1.0 / 1.5 s. */
   pauseRule?: SeamPauseRule
@@ -295,6 +303,8 @@ export async function consolidateChapterParts(input: ConsolidateInput): Promise<
     const slugs = new Map<string, string>()
     for (const slug of Object.keys(provenance.chapters)) slugs.set(slug.toLowerCase(), slug)
     for (const row of rows.values()) if (!slugs.has(String(row.slug).toLowerCase())) slugs.set(String(row.slug).toLowerCase(), String(row.slug))
+    const proven = new Map(Object.entries(input.provenParts || {}).map(([slug, files]) => [slug.toLowerCase(), files] as const))
+    for (const key of proven.keys()) if (!slugs.has(key)) slugs.set(key, Object.keys(input.provenParts!).find(slug => slug.toLowerCase() === key)!)
     let texts = input.texts
 
     for (const [key, slug] of slugs) {
@@ -326,8 +336,16 @@ export async function consolidateChapterParts(input: ConsolidateInput): Promise<
         }
       }
 
-      const files = chapter?.source_files?.length ? chapter.source_files : rowFiles(row)
+      // A proven set stands in only where no record names the chapter, and never over a joined file.
+      const files = chapter?.source_files?.length ? chapter.source_files
+        : rowFiles(row) ?? (!chapter && !existsSync(basePath) ? proven.get(key) ?? null : null)
       if (!files || files.length < 2 || !files.every(file => partRe.test(file))) continue
+      // A proven set is a prediction; join it only when the disk holds exactly those parts, never a subset.
+      if (!chapter && !row) {
+        const onDisk = (await fs.readdir(input.audioDir).catch(() => [] as string[]))
+          .filter(name => partRe.test(name))
+        if (onDisk.length !== files.length) continue
+      }
       if (row && !same(rowFiles(row), files)) continue
       const numbers = files.map(file => Number(file.match(partRe)![1]))
       if (!numbers.every((n, i) => n === i + 1)) continue
@@ -462,7 +480,9 @@ export async function loadPartTexts(slug: string, code: string, episodeDir: stri
  * this episode. Never throws — a join that cannot run leaves the parts exactly
  * as they were (the old, still-working layout) and says so.
  */
-export async function consolidateEpisodeParts(slug: string, code: string, log: (line: string) => void): Promise<string[]> {
+export async function consolidateEpisodeParts(
+  slug: string, code: string, log: (line: string) => void, provenParts?: Record<string, string[]>,
+): Promise<string[]> {
   try {
     const { resolveEpisodePathsByCodeWithSidecar, projectDirFor } = await import('./utils.js')
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
@@ -472,7 +492,7 @@ export async function consolidateEpisodeParts(slug: string, code: string, log: (
     const pauses = await getEffectiveFormat(slug).then(format => format?.script.narrationPauses).catch(() => undefined)
     return await consolidateChapterParts({
       projectDir: projectDirFor(slug), episodeDir: paths.episode_dir, audioDir: paths.audio_dir,
-      code: code.toUpperCase(), loadTexts: () => loadPartTexts(slug, code, paths.episode_dir), log,
+      code: code.toUpperCase(), loadTexts: () => loadPartTexts(slug, code, paths.episode_dir), log, provenParts,
       pauseRule: seamPauseRule({ paragraph: pauses?.paragraphSec, sentence: pauses?.sentenceSec }),
     })
   } catch (error: any) {

@@ -30,6 +30,10 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     const useJobs = () => ({ isJobActiveFor: () => false })
     const useGenStudioMediaModels = () => ({ videoModels: globalThis.__task13VideoModels, refresh: async () => undefined })
     const usePresets = options => ({ apply: options.apply })
+    const HOLD_MAX_SECONDS = 60
+    const holdDrafts = () => ({ fixed: '2.5', min: '2', max: '3' })
+    const holdFromDraft = () => ({ ok: true, hold: null })
+    const holdLabel = () => ''
   `
   const stripped = script.content.replace(/^import[\s\S]*?from ['"][^'"]+['"]\n/gm, '')
   const code = `${support}\n${stripped.replace('export default', 'const __sfc__ =')}\nexport default __sfc__`

@@ -24,7 +24,7 @@ export function isSketchPenMode(value: unknown): value is SketchDrawPenMode {
 /** The same episode-code shape Media Cleanup accepts; no separator or dot can pass, so no `../`. */
 export const isEpisodeCode = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z]{1,12}\d{1,8}$/.test(value.trim())
 
-async function episodeDir(slug: string, episodeId: string): Promise<string> {
+export async function episodeDir(slug: string, episodeId: string): Promise<string> {
   if (!isEpisodeCode(episodeId)) throw new Error('Choose a valid episode.')
   const { SCENE_PLAN_FILENAME } = await import('../generators/scene-plan.js')
   return (await resolveEpisodePathsByCodeWithSidecar(slug, episodeId.trim(), SCENE_PLAN_FILENAME)).episode_dir

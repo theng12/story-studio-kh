@@ -18,7 +18,8 @@ before(async () => { const temp = await useTempDataDir(); dir = temp.dir; cleanu
 after(async () => { await cleanup() })
 
 function settings(penFingerprint = sha(Buffer.from('none')), fps = 30, width = 1920, height = 1080) {
-  return { fps, width, height, pen: { mode: 'none' as const }, penFingerprint }
+  return { fps, width, height, pen: { mode: 'none' as const }, penFingerprint,
+    hold: { mode: 'auto' as const }, holdFingerprint: sha(Buffer.from('auto')) }
 }
 
 function scene(over: Record<string, unknown> = {}) {
@@ -27,8 +28,9 @@ function scene(over: Record<string, unknown> = {}) {
     visual_prompt: 'A', approved: true, motion_prompt: 'slow push', motion_choice: 'clip' as const,
     clip_source_image_version: 'v1', clip_renderer: 'sketch_draw' as const,
     image_sha256: sha(PNG), clip_source_image_sha256: sha(PNG), clip_scene_window_seconds: 4,
+    // 4 s at 30 fps under auto: half the scene (60 frames), since 2.5 s would overrun it.
     clip_sketch: { helper_version: NATIVE_SCENE_CLIP_VERSION, fps: 30, frames: 120, width: 1920, height: 1080,
-      pen_fingerprint: sha(Buffer.from('none')) },
+      pen_fingerprint: sha(Buffer.from('none')), hold_frames: 60, hold_fingerprint: sha(Buffer.from('auto')) },
     ...over,
   }
 }

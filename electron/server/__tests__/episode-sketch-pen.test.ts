@@ -73,7 +73,8 @@ async function renderedUnderCurrentPen(slug: string, code: string) {
     clip_renderer: 'sketch_draw' as const, image_sha256: sha(PNG), clip_source_image_sha256: sha(PNG),
     clip_scene_window_seconds: 4,
     clip_sketch: { helper_version: version.NATIVE_SCENE_CLIP_VERSION, fps: s.fps, frames: Math.round(4 * s.fps),
-      width: s.width, height: s.height, pen_fingerprint: s.penFingerprint },
+      width: s.width, height: s.height, pen_fingerprint: s.penFingerprint,
+      hold_frames: checkpoint.sketchHoldFramesFor(s, code, 'scene-1', Math.round(4 * s.fps)), hold_fingerprint: s.holdFingerprint },
   }
 }
 

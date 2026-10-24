@@ -37,7 +37,7 @@ import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { closingTailRemixInProgress, CLOSING_TAIL_REMIX_IN_PROGRESS } from '../services/closing-tail-remix-admission.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { chapterKeyOf, inspectChapterAudioReadiness } from '../services/audio-workflow-readiness.js'
+import { chapterKeyOf, inspectChapterAudioReadiness, type ChapterAudioReadiness } from '../services/audio-workflow-readiness.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import { hashSubtitleAudioSources } from '../services/subtitle-completion.js'
 import { recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
@@ -546,6 +546,21 @@ async function pendingSelectedQualityRefresh(input: {
 
 // ── Main Generator ────────────────────────────────────────────────────────
 
+/**
+ * The split chapters whose every expected `_partN` file is on disk, by chapter slug, in part order.
+ * Readiness is the proof (it predicts the parts generation writes and checks each is present), so a
+ * first assembly can join them although no chapter record exists yet (episodes made with
+ * no_overwrite write none).
+ */
+export function provenPartSets(readiness: Pick<ChapterAudioReadiness, 'expected_files' | 'present_files'>, code: string): Record<string, string[]> {
+  const present = new Set(readiness.present_files)
+  const sets: Record<string, string[]> = {}
+  for (const file of readiness.expected_files) {
+    if (/_part\d+\.mp3$/i.test(file)) (sets[chapterKeyOf(file, code)] ??= []).push(file)
+  }
+  return Object.fromEntries(Object.entries(sets).filter(([, files]) => files.length > 1 && files.every(file => present.has(file))))
+}
+
 export async function generateAudioMerge(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as AudioMergeRequest
@@ -569,6 +584,19 @@ export async function generateAudioMerge(job: Job): Promise<void> {
   // base set immediately before FFmpeg starts. This is read-only; the selected
   // sidecar map below remains the source authority for a promoted `_vN` file.
   let readiness = await inspectChapterAudioReadiness(project_slug, code)
+  // The merge publishes `audio_chapters.json` naming exactly the files it concatenates, and the next
+  // reader (Subtitles, the Audio Editor page) joins any split chapter that record names, replacing it
+  // with a newer file and so making this very merge stale. With loose parts and no chapter record the
+  // join above had nothing to go on, so join the proven part sets now, re-check, and build the master
+  // from the single chapter file the record will keep.
+  if (!req.audio_quality_refresh) {
+    const proven = provenPartSets(readiness, code)
+    if (Object.keys(proven).length) {
+      const { consolidateEpisodeParts } = await import('../services/chapter-parts.js')
+      const joined = await consolidateEpisodeParts(project_slug, code, line => job.output_lines.push(line), proven)
+      if (joined.length) readiness = await inspectChapterAudioReadiness(project_slug, code)
+    }
+  }
   if (!readiness.ready) {
     // 1.4.300 — "All chapter audio present": Block stops as before; Off and Warn join the chapters
     // that are there (nothing at all still stops).

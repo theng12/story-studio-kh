@@ -8,6 +8,7 @@ import type { ContentPackItemKind } from '../content-packs/types.js'
 import type { MotionScope } from '../contracts/motion-scope.js'
 import type { ScenePacing, ScenePacingPeriod } from '../contracts/pacing.js'
 import type { ContextualCueCorner } from '../contracts/contextual-cue-position.js'
+import type { SketchHoldSetting } from '../lib/sketch-hold.js'
 import type { AssignedPipelineModelPolicy, PipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 
 // ── Project ─────────────────────────────────────────────────────────────────
@@ -2098,6 +2099,8 @@ export type SketchDrawPenMode = 'none' | 'plain' | 'name' | 'logo'
 export interface MotionPresentationSettings {
   renderer: SceneClipRenderer
   pen: SketchDrawPenMode
+  /** The channel DEFAULT closing hold; an episode may carry its own (`sketch_hold.json`). Absent means auto. */
+  hold?: SketchHoldSetting
 }
 
 export interface ProjectConfig {
@@ -4679,6 +4682,10 @@ export interface ScenePlanEntry {
     width: number
     height: number
     pen_fingerprint: string
+    /** Resolved closing hold, in frames, this clip was rendered with. Absent on helper-v2 clips (old 15% hold). */
+    hold_frames?: number
+    /** Identity of the hold setting it was resolved from; evidence only, freshness compares the frames. */
+    hold_fingerprint?: string
   }
   /** The exact paid clip duration accepted for this scene. External clips clear
    * this provider receipt; it is not a catalogue limit or preset value. */

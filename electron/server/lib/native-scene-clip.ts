@@ -29,6 +29,8 @@ import { appendCappedTail } from './ffmpeg-utils.js'
 import { trackChild } from '../services/job-queue.js'
 import { NATIVE_SCENE_CLIP_VERSION, SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS } from './native-scene-clip-version.js'
 export { NATIVE_SCENE_CLIP_VERSION, SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS }
+// One definition, in a dependency-free module the freshness rule can import; mirrors the helper's default.
+export { sketchDefaultHoldFrames } from './sketch-hold.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
@@ -202,12 +204,6 @@ export interface SketchDrawJob {
   paper: string
   pen: SketchDrawPen
   quality?: number
-}
-
-/** Closing hold: min(2.5 s, half the clip), at least 1 frame. Under 3 frames only the finished image fits. Mirrors the helper. */
-export function sketchDefaultHoldFrames(frames: number, fps: number): number {
-  if (frames < 3) return frames
-  return Math.min(frames - 2, Math.max(1, Math.round(Math.min(2.5 * fps, frames / 2))))
 }
 
 export class SketchDrawError extends Error {

@@ -52,7 +52,9 @@ import {
 import { allowedSubtitleCueGapSec } from '../services/scene-plan-pacing.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
 import { isEpisodeCode, isSketchPenMode, writeEpisodeSketchPen } from '../services/episode-sketch-pen.js'
-import { checkpointSceneClip, motionPresentationSelection, resolveEpisodePen, resolveSketchDrawSettings, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
+import { writeEpisodeSketchHold } from '../services/episode-sketch-hold.js'
+import { parseSketchHold, sketchHoldSelection } from '../lib/sketch-hold.js'
+import { checkpointSceneClip, motionPresentationSelection, resolveEpisodeHold, resolveEpisodePen, resolveSketchDrawSettings, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
 import { readChannelProfileAsset } from '../services/channel-profile.js'
 import { resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
@@ -331,7 +333,8 @@ router.get('/projects/:slug/motion-presentation', async (req, res) => {
     const project = await pm.getProject(req.params.slug)
     if (!config || !project) return res.status(404).json({ detail: 'Channel not found' })
     const logo = await readChannelProfileAsset(req.params.slug, 'logo')
-    res.json({ ...motionPresentationSelection(config.motion_presentation), channel_name: project.name, has_logo: !!logo?.bytes.length })
+    res.json({ ...motionPresentationSelection(config.motion_presentation), hold: sketchHoldSelection(config.motion_presentation?.hold),
+      channel_name: project.name, has_logo: !!logo?.bytes.length })
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
 router.put('/projects/:slug/motion-presentation', async (req, res) => {
@@ -347,10 +350,18 @@ router.put('/projects/:slug/motion-presentation', async (req, res) => {
     if (pen === 'logo' && !await readChannelProfileAsset(req.params.slug, 'logo')) {
       return res.status(409).json({ detail: 'This channel has no profile logo. Add one in Channel Profile or choose another pen.' })
     }
-    if (!await pm.updateConfig(req.params.slug, { motion_presentation: { renderer, pen } } as any)) {
+    // The channel default closing hold rides in the same object. Neither the renderer nor the pen
+    // control sends it, and an omitted hold keeps what is stored; it is never dropped by a save.
+    let hold = config.motion_presentation?.hold
+    if (req.body?.hold !== undefined) {
+      const parsed = parseSketchHold(req.body.hold)
+      if (!parsed.ok) return res.status(400).json({ detail: parsed.error })
+      hold = parsed.hold
+    }
+    if (!await pm.updateConfig(req.params.slug, { motion_presentation: { renderer, pen, ...(hold ? { hold } : {}) } } as any)) {
       return res.status(404).json({ detail: 'Channel not found' })
     }
-    res.json({ renderer, pen })
+    res.json({ renderer, pen, hold: sketchHoldSelection(hold) })
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
 
@@ -381,6 +392,39 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-pen', async (req, res
     }
     await writeEpisodeSketchPen(slug, episodeId, pen)
     res.json(await resolveEpisodePen(slug, episodeId))
+  } catch (error: any) { res.status(409).json({ detail: error.message }) }
+})
+
+// An episode's own closing hold, beside its pen. `hold: null` returns the episode to the channel
+// default. Only this episode's clips whose resolved hold moves go stale.
+router.get('/projects/:slug/scene-review/:episodeId/motion-hold', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!isEpisodeCode(episodeId)) return res.status(400).json({ detail: 'Choose a valid episode.' })
+  try {
+    res.json(await resolveEpisodeHold(slug, episodeId))
+  } catch (error: any) {
+    // As for the pen: an unreadable file must not lock the control. The effective hold is unknown, not "auto".
+    const config = await pm.getConfig(slug).catch(() => null)
+    if (!config) return res.status(409).json({ detail: error.message })
+    let channel_hold: ReturnType<typeof sketchHoldSelection>
+    try { channel_hold = sketchHoldSelection(config.motion_presentation?.hold) }
+    catch { return res.status(409).json({ detail: error.message }) }
+    res.json({ hold: null, hold_source: 'unreadable', episode_hold: null, channel_hold, error: error.message })
+  }
+})
+router.put('/projects/:slug/scene-review/:episodeId/motion-hold', async (req, res) => {
+  try {
+    const { slug, episodeId } = req.params
+    if (!isEpisodeCode(episodeId)) return res.status(400).json({ detail: 'Choose a valid episode.' })
+    const hold = req.body?.hold
+    if (hold === undefined) return res.status(400).json({ detail: 'Choose a closing hold, or null to use the channel default.' })
+    if (hold !== null) {
+      const parsed = parseSketchHold(hold)
+      if (!parsed.ok) return res.status(400).json({ detail: parsed.error })
+    }
+    await writeEpisodeSketchHold(slug, episodeId, hold)
+    await invalidateEpisodeStatus(slug, episodeId)
+    res.json(await resolveEpisodeHold(slug, episodeId))
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
 

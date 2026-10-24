@@ -104,6 +104,48 @@
           <button v-if="isSketchDraw && penLoaded && episodePen && episodePen !== channelPen" type="button" class="btn btn-sm btn-ghost" :disabled="penSaving || presentationSaving" @click="setChannelPenDefault">
             Make this the channel default
           </button>
+          <label v-if="isSketchDraw" class="model-field renderer-field">
+            <span>Closing hold for {{ episodeId }}</span>
+            <select v-model="holdChoice" class="select" :disabled="!holdLoaded || holdSaving" aria-label="Sketch Draw closing hold for this episode" aria-describedby="sketch-hold-help" @change="onHoldChoice">
+              <option v-if="holdUnreadable" value="" disabled>Choose a hold…</option>
+              <option value="channel">Channel default ({{ holdLabel(channelHold) }})</option>
+              <option value="auto">Auto (follows the clip length)</option>
+              <option value="off">No hold</option>
+              <option value="fixed">Fixed seconds</option>
+              <option value="range">Random range</option>
+            </select>
+          </label>
+          <div v-if="isSketchDraw && holdLoaded && (holdChoice === 'fixed' || holdChoice === 'range')" class="hold-inputs">
+            <label v-if="holdChoice === 'fixed'" class="model-field">
+              <span>Seconds</span>
+              <input v-model="holdDraft.fixed" type="number" class="input" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" aria-label="Closing hold in seconds" aria-describedby="sketch-hold-help" @keydown.enter.prevent="applyHold">
+            </label>
+            <template v-else>
+              <label class="model-field">
+                <span>Shortest (s)</span>
+                <input v-model="holdDraft.min" type="number" class="input" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" aria-label="Shortest closing hold in seconds" aria-describedby="sketch-hold-help" @keydown.enter.prevent="applyHold">
+              </label>
+              <label class="model-field">
+                <span>Longest (s)</span>
+                <input v-model="holdDraft.max" type="number" class="input" min="0.1" :max="HOLD_MAX_SECONDS" step="0.1" inputmode="decimal" aria-label="Longest closing hold in seconds" aria-describedby="sketch-hold-help" @keydown.enter.prevent="applyHold">
+              </label>
+            </template>
+            <button type="button" class="btn btn-sm" :disabled="holdSaving || !holdPending" @click="applyHold">Apply hold</button>
+          </div>
+          <button v-if="isSketchDraw && holdLoaded && episodeHold && JSON.stringify(episodeHold) !== JSON.stringify(channelHold)" type="button" class="btn btn-sm btn-ghost" :disabled="holdSaving || presentationSaving" @click="setChannelHoldDefault">
+            Make this the channel default hold
+          </button>
+          <p v-if="isSketchDraw" id="sketch-hold-help" class="renderer-help" role="status">
+            The drawing finishes, then the complete image holds for the closing hold. A hold never takes more than half a scene, so the drawing always has time; scene length and narration do not change.
+            <span v-if="!holdLoaded">Loading this episode's closing hold.</span>
+            <span v-else-if="holdUnreadable">{{ holdUnreadable }} Choose a hold to replace it; Sketch Draw waits until you do.</span>
+            <span v-else-if="episodeHold">{{ episodeId }} uses its own hold: {{ holdLabel(episodeHold) }}. Other episodes are not affected.</span>
+            <span v-else>{{ episodeId }} follows the channel default hold: {{ holdLabel(channelHold) }}. Choosing a hold here changes only {{ episodeId }}.</span>
+            <span v-if="holdChoice === 'range'">Each scene gets its own hold between the two, the same every time it is re-rendered.</span>
+            <span v-if="holdPending">Not applied yet. Apply the hold, or pick another option, before generating.</span>
+            <span v-if="holdError" class="stale-note" role="alert">{{ holdError }}</span>
+            <span>Clips made before this setting keep their old hold until you re-generate them.</span>
+          </p>
           <p v-if="isSketchDraw" id="sketch-pen-help" class="renderer-help" role="status">
             Draw the exact scene image, add colour, then hold the complete image for its Scene Plan window. Free, on this Mac.
             Each clip lasts exactly its scene window at your Video Assembly frame rate; prompt text does not change the drawing.
@@ -365,6 +407,7 @@ import { hasPriceTruth } from '~/utils/genstudio-price-usd'
 import { variantsForVideoOperation } from '~/utils/genstudio-video-variants'
 import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModels'
 import { motionBatchEligible, sketchSelectionReady } from '~/utils/motion-review-sketch'
+import { HOLD_MAX_SECONDS, holdDrafts, holdFromDraft, holdLabel, type HoldChoice, type HoldDrafts, type SketchHold } from '~/utils/sketch-hold'
 
 // usePresets captures the project slug at setup. Recreate this page for a
 // project navigation so controls and scene state cannot carry into another project.
@@ -465,6 +508,23 @@ const penSaving = ref(false)
 const PEN_LABELS: Record<PenMode, string> = { none: 'no pen', plain: 'plain pen', name: 'pen with channel name', logo: 'pen with channel logo' }
 const penLabel = (pen: PenMode) => PEN_LABELS[pen]
 const isSketchDraw = computed(() => clipRenderer.value === 'sketch_draw')
+// The closing hold follows the pen's pattern: a channel default, and this episode's own when it has one.
+const channelHold = ref<SketchHold>({ mode: 'auto' })
+const episodeHold = ref<SketchHold | null>(null)
+const holdChoice = ref<HoldChoice>('channel')
+const holdDraft = ref<HoldDrafts>(holdDrafts(null))
+const holdLoaded = ref(false)
+const holdSaving = ref(false)
+// Set when this episode's saved hold file cannot be read: the effective hold is then unknown, not "auto".
+const holdUnreadable = ref('')
+const holdError = ref('')
+const acceptedHoldChoice = (): HoldChoice => holdUnreadable.value ? '' : episodeHold.value?.mode ?? 'channel'
+// Fixed and range wait for Apply; this is true while what is shown is not what is saved.
+const holdPending = computed(() => {
+  if (holdChoice.value !== 'fixed' && holdChoice.value !== 'range') return false
+  const parsed = holdFromDraft(holdChoice.value, holdDraft.value)
+  return !parsed.ok || JSON.stringify(parsed.hold) !== JSON.stringify(episodeHold.value)
+})
 const channelName = ref('')
 const channelHasLogo = ref(false)
 const presentationLoaded = ref(false)
@@ -473,9 +533,10 @@ const presentationError = ref('')
 let acceptedRenderer: 'image_to_video' | 'sketch_draw' = 'image_to_video'
 async function loadMotionPresentation() {
   try {
-    const result = await get<{ renderer: typeof clipRenderer.value; pen: PenMode; channel_name: string; has_logo: boolean }>(`/projects/${slug.value}/motion-presentation`)
+    const result = await get<{ renderer: typeof clipRenderer.value; pen: PenMode; hold?: SketchHold; channel_name: string; has_logo: boolean }>(`/projects/${slug.value}/motion-presentation`)
     clipRenderer.value = result.renderer
     channelPen.value = result.pen
+    if (result.hold) channelHold.value = result.hold
     channelName.value = result.channel_name
     channelHasLogo.value = result.has_logo
     acceptedRenderer = result.renderer
@@ -512,6 +573,82 @@ async function loadEpisodePen() {
   } catch (error: any) {
     if (ep === episodeId.value) presentationError.value = error?.data?.detail || error?.message || `Could not load the pen for ${ep}. Switch episodes and back to retry.`
   }
+}
+// AGENTS.md §4: the hold belongs to one episode. A late answer for the previous episode is dropped.
+async function loadEpisodeHold() {
+  const ep = episodeId.value
+  if (!ep) return
+  try {
+    const result = await get<{ episode_hold: SketchHold | null; channel_hold: SketchHold; error?: string }>(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-hold`)
+    if (ep !== episodeId.value) return
+    episodeHold.value = result.episode_hold
+    channelHold.value = result.channel_hold
+    holdUnreadable.value = result.error || ''
+    holdChoice.value = acceptedHoldChoice()
+    holdDraft.value = holdDrafts(result.episode_hold ?? result.channel_hold)
+    holdLoaded.value = true
+  } catch (error: any) {
+    if (ep === episodeId.value) presentationError.value = error?.data?.detail || error?.message || `Could not load the closing hold for ${ep}. Switch episodes and back to retry.`
+  }
+}
+async function saveEpisodeHold(next: SketchHold | null) {
+  const ep = episodeId.value
+  holdSaving.value = true
+  holdError.value = ''
+  presentationError.value = ''
+  try {
+    await put(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-hold`, { hold: next })
+    if (ep !== episodeId.value) return
+    episodeHold.value = next
+    holdUnreadable.value = ''
+    holdChoice.value = acceptedHoldChoice()
+    holdDraft.value = holdDrafts(next ?? channelHold.value)
+    await loadReview()
+  } catch (error: any) {
+    if (ep !== episodeId.value) return
+    holdChoice.value = acceptedHoldChoice()
+    holdDraft.value = holdDrafts(episodeHold.value ?? channelHold.value)
+    holdError.value = error?.data?.detail || error?.message || `Could not save the closing hold for ${ep}. Try again.`
+    showError(holdError.value)
+  } finally { if (ep === episodeId.value) holdSaving.value = false }
+}
+// Off, auto and "follow the channel" need no numbers, so they save at once; fixed and range wait for Apply.
+function onHoldChoice() {
+  holdError.value = ''
+  if (holdChoice.value === 'fixed' || holdChoice.value === 'range') {
+    holdDraft.value = holdDrafts(episodeHold.value ?? channelHold.value)
+    return
+  }
+  const parsed = holdFromDraft(holdChoice.value, holdDraft.value)
+  if (parsed.ok) void saveEpisodeHold(parsed.hold)
+}
+function applyHold() {
+  const parsed = holdFromDraft(holdChoice.value, holdDraft.value)
+  if ('error' in parsed) { holdError.value = parsed.error; return }
+  holdError.value = ''
+  void saveEpisodeHold(parsed.hold)
+}
+// Deliberate: moves the channel default, so episodes without a hold of their own re-render under it.
+async function setChannelHoldDefault() {
+  const ep = episodeId.value
+  const hold = episodeHold.value
+  if (!hold) return
+  if (!await ask({
+    title: 'Make this the channel default hold?',
+    message: `Episodes without their own hold will use ${holdLabel(hold)}; their Sketch Draw clips whose hold changes will need re-generating. ${ep} and episodes with their own hold are not affected.`,
+    confirmLabel: 'Make channel default',
+  })) return
+  presentationSaving.value = true
+  presentationError.value = ''
+  try {
+    await put(`/projects/${slug.value}/motion-presentation`, { renderer: clipRenderer.value, hold })
+    channelHold.value = hold
+    success(`Channel default hold is now ${holdLabel(hold)}. Episodes without their own hold follow it.`)
+    if (ep === episodeId.value) await loadReview()
+  } catch (error: any) {
+    presentationError.value = error?.data?.detail || error?.message || 'Could not save the channel default hold. Try again.'
+    showError(presentationError.value)
+  } finally { presentationSaving.value = false }
 }
 async function saveEpisodePen() {
   const ep = episodeId.value
@@ -1016,7 +1153,8 @@ const scenePlanMotionLink = computed(() => `/projects/${slug.value}/scene-plan?e
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))
 const selectionReady = computed(() => isSketchDraw.value
-  ? sketchSelectionReady({ loaded: presentationLoaded.value && penLoaded.value && !penUnreadable.value, saving: presentationSaving.value || penSaving.value,
+  ? sketchSelectionReady({ loaded: presentationLoaded.value && penLoaded.value && !penUnreadable.value && holdLoaded.value && !holdUnreadable.value && !holdPending.value,
+      saving: presentationSaving.value || penSaving.value || holdSaving.value,
       pen: sketchPen.value, hasLogo: channelHasLogo.value })
   : !!selectedResolution.value
   && availableAspectRatios.value.includes(selectedAspectRatio.value)
@@ -1030,6 +1168,9 @@ const generateStatus = computed(() => {
   if (usesImagePool.value) return 'Motion Review is not used for Image Pool episodes'
   if (isSketchDraw.value) {
     if (!presentationLoaded.value || !penLoaded.value) return presentationError.value || 'Loading Sketch Draw settings'
+    if (!holdLoaded.value) return presentationError.value || 'Loading Sketch Draw settings'
+    if (holdUnreadable.value) return 'Choose a closing hold'
+    if (holdPending.value) return 'Apply the closing hold, or pick another option'
     if (!selectionReady.value) return 'Choose an available pen'
     return eligibleClipCount.value ? `${eligibleClipCount.value} missing or stale clips ready for Sketch Draw on this Mac` : 'No approved missing or stale clips are waiting for Sketch Draw'
   }
@@ -1338,6 +1479,14 @@ function resetEpisodeScopedMotionState() {
   penLoaded.value = false
   penSaving.value = false
   penUnreadable.value = ''
+  // Likewise the closing hold.
+  episodeHold.value = null
+  holdChoice.value = 'channel'
+  holdDraft.value = holdDrafts(null)
+  holdLoaded.value = false
+  holdSaving.value = false
+  holdUnreadable.value = ''
+  holdError.value = ''
 }
 
 watch(episodeId, () => {
@@ -1345,6 +1494,7 @@ watch(episodeId, () => {
   resetEpisodeScopedMotionState()
   void loadReview()
   void loadEpisodePen()
+  void loadEpisodeHold()
 }, { immediate: true })
 </script>
 
@@ -1400,6 +1550,8 @@ watch(episodeId, () => {
 .motion-renderer-row .renderer-field { flex: 0 1 240px; min-width: 0; }
 .renderer-help { flex: 1 1 280px; max-width: 70ch; margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.5; }
 .renderer-help span { display: block; }
+.hold-inputs { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.hold-inputs .model-field { min-width: 0; flex: 0 1 104px; }
 .motion-tools.sketch-tools { display: flex; flex-wrap: wrap; gap: 8px; }
 .motion-tools.sketch-tools > .btn { grid-column: auto; grid-row: auto; }
 .motion-tools { display: grid; grid-template-columns: minmax(300px, 1.2fr) minmax(140px, .45fr) minmax(420px, 1.4fr) max-content max-content; align-items: end; justify-content: stretch; }

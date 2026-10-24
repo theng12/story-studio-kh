@@ -1288,6 +1288,12 @@ export interface ScannedAssets {
     /** The track `merged_audio[0]` resolves to, when there is one. */
     filename: string | null
   }
+  /**
+   * Whether this episode's merged narration is CURRENT: the verdict episode status gives, from the
+   * same function (`inspectAudioMergeAtPaths`), so the scan and the Board cannot disagree. A merge
+   * built from chapters that were since replaced is on disk but not current; `reason` says why.
+   */
+  merged_audio_current?: { current: boolean; file: string | null; reason?: import('../services/asset-status.js').AudioMergeReason }
   intro_videos: Array<{ filename: string; path: string }>
   music_files: Array<{ filename: string; path: string; duration?: number }>
   rendered_videos: Array<{ filename: string; path: string; mtime: number }>
@@ -1608,6 +1614,11 @@ export async function scanEpisodeAssets(
       // invalid and there is therefore no track this episode may render.
       filename: choice.source === 'invalid' ? null : (chosen ?? result.merged_audio[0]?.filename ?? null),
     }
+    const { inspectAudioMergeAtPaths } = await import('../services/asset-status.js')
+    const verdict = await inspectAudioMergeAtPaths({
+      episode_dir: episodeDir, audio_dir: audioDir || path.join(episodeDir, names.audio), merged_audio_dir: mergedAudioDir,
+    }, code)
+    result.merged_audio_current = { current: verdict.present, file: verdict.file ?? null, ...(verdict.reason ? { reason: verdict.reason } : {}) }
   }
 
   // If merged audio exists, intro/chapter audio is stale — the audio assembly

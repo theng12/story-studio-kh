@@ -635,35 +635,48 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
 
 // ── Audio-Merge ────────────────────────────────────────────────────────────
 
+/**
+ * Why a merged track is not `present`, in words a reader can act on. One rule decides it
+ * (`inspectAudioMergeAtPaths`); episode status, the Audio Assembly page and Video Assembly's scan
+ * all report this value rather than each re-deriving "stale".
+ *   missing                 no usable merged file (or the pinned file is gone)
+ *   completion-mismatch     the completion record does not describe this file
+ *   chapter-changed:<file>  an active chapter is newer than the merge (or gone)
+ *   chapter-record-unreadable  audio_chapters.json cannot say which chapters the merge used
+ */
+export type AudioMergeReason = 'missing' | 'completion-mismatch' | 'chapter-record-unreadable' | `chapter-changed:${string}`
+
 export interface AudioMergeStatus {
   present: boolean            // is there at least one merged file with content?
   file?: string               // filename of newest merged output (v1 or v{N})
   dir?: string
   path?: string
+  /** Set exactly when `present` is false. */
+  reason?: AudioMergeReason
 }
 
-/** A changed active chapter invalidates the assembled track even at the same duration. */
-async function mergedAudioSourcesAreCurrent(
+/** A changed active chapter invalidates the assembled track even at the same duration. Null = current, else the reason. */
+async function mergedAudioSourcesStaleReason(
   episodeDir: string,
   audioDir: string,
   mergedPath: string,
-): Promise<boolean> {
+): Promise<AudioMergeReason | null> {
   let raw: string
   try {
     raw = await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf8')
   } catch (error) {
     // Merges created before source sidecars existed remain compatible. An
     // existing sidecar that cannot be read is unknown, never proof of freshness.
-    return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+    return (error as NodeJS.ErrnoException)?.code === 'ENOENT' ? null : 'chapter-record-unreadable'
   }
 
   let sidecar: { sections?: Array<{ source_file?: unknown; source_files?: unknown }> }
   try {
     sidecar = JSON.parse(raw)
   } catch {
-    return false
+    return 'chapter-record-unreadable'
   }
-  if (!Array.isArray(sidecar.sections)) return false
+  if (!Array.isArray(sidecar.sections)) return 'chapter-record-unreadable'
 
   try {
     const names = (sidecar.sections || []).flatMap(section => {
@@ -675,14 +688,15 @@ async function mergedAudioSourcesAreCurrent(
         ? [section.source_file]
         : []
     })
-    if (!names.length) return false
+    if (!names.length) return 'chapter-record-unreadable'
     const [merged, sources] = await Promise.all([
       fs.stat(mergedPath),
       Promise.all(names.map(name => fs.stat(path.join(audioDir, name)).catch(() => null))),
     ])
-    return sources.every(source => source && source.mtimeMs <= merged.mtimeMs)
+    const changed = names.find((_, index) => !sources[index] || sources[index]!.mtimeMs > merged.mtimeMs)
+    return changed === undefined ? null : `chapter-changed:${changed}`
   } catch {
-    return false
+    return 'chapter-record-unreadable'
   }
 }
 
@@ -704,7 +718,7 @@ export async function inspectAudioMergeAtPaths(
     // which narration the video carries is the owner's call. `present: false`
     // makes B-Roll's narration authority refuse rather than fall back to raw
     // audio, and the status carries the pin so the page can say what happened.
-    return { present: false, file: choice.pinned ?? undefined, dir: paths.merged_audio_dir }
+    return { present: false, file: choice.pinned ?? undefined, dir: paths.merged_audio_dir, reason: 'missing' }
   }
 
   const completionPath = path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`)
@@ -712,7 +726,7 @@ export async function inspectAudioMergeAtPaths(
   if (choice.source === 'selected') {
     const file = choice.filename!
     if (!await fileHasContent(path.join(paths.merged_audio_dir, file))) {
-      return { present: false, file, dir: paths.merged_audio_dir }
+      return { present: false, file, dir: paths.merged_audio_dir, reason: 'missing' }
     }
     best = { version: 0, file }
   } else {
@@ -728,7 +742,7 @@ export async function inspectAudioMergeAtPaths(
     }
   }
 
-  if (!best) return { present: false, dir: paths.merged_audio_dir }
+  if (!best) return { present: false, dir: paths.merged_audio_dir, reason: 'missing' }
   const mergedPath = path.join(paths.merged_audio_dir, best.file)
   if (existsSync(completionPath)) {
     try {
@@ -742,16 +756,15 @@ export async function inspectAudioMergeAtPaths(
         const verified = Number(completion?.bytes) === stat.size
           && stat.size > 0
           && Number(completion?.duration_sec) > 0
-        if (!verified) return { present: false, file: best.file, dir: paths.merged_audio_dir }
+        if (!verified) return { present: false, file: best.file, dir: paths.merged_audio_dir, reason: 'completion-mismatch' }
       } else if (choice.source !== 'selected') {
         // Legacy rule: with no pin the record must name the highest version.
-        return { present: false, file: best.file, dir: paths.merged_audio_dir }
+        return { present: false, file: best.file, dir: paths.merged_audio_dir, reason: 'completion-mismatch' }
       }
-    } catch { return { present: false, file: best.file, dir: paths.merged_audio_dir } }
+    } catch { return { present: false, file: best.file, dir: paths.merged_audio_dir, reason: 'completion-mismatch' } }
   }
-  if (!await mergedAudioSourcesAreCurrent(paths.episode_dir, paths.audio_dir, mergedPath)) {
-    return { present: false, file: best.file, dir: paths.merged_audio_dir }
-  }
+  const stale = await mergedAudioSourcesStaleReason(paths.episode_dir, paths.audio_dir, mergedPath)
+  if (stale) return { present: false, file: best.file, dir: paths.merged_audio_dir, reason: stale }
   return { present: true, file: best.file, dir: paths.merged_audio_dir, path: mergedPath }
 }
 
@@ -1037,6 +1050,8 @@ export interface EpisodeStatus {
   thumbnails: boolean
   audio: boolean
   merged_audio: boolean
+  /** Why `merged_audio` is false when it is (see `AudioMergeReason`); absent when present or when nothing was inspected. */
+  merged_audio_reason?: AudioMergeReason
   // Subtitle completion is chapter-aware: every audio_chapters.json section
   // needs a transcript, unless an intentional whole-episode track exists.
   // The Subtitles page filters its "pending" list by this.
@@ -1615,6 +1630,8 @@ export async function computeEpisodeStatus(
   }
 
   status.merged_audio = mergedS.status === 'fulfilled' && mergedS.value.present
+  // Say WHY when a merge exists but is not current; a bare false made a rebuilt chapter look like a lost merge.
+  if (mergedS.status === 'fulfilled' && !mergedS.value.present && mergedS.value.reason) status.merged_audio_reason = mergedS.value.reason
   for (const settled of [audioS, imageS, mergedS]) {
     if (settled.status === 'rejected') flagTransientReadError(status, settled.reason)
   }

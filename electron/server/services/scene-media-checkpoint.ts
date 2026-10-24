@@ -6,11 +6,13 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
 import { getMediaInfo } from '../lib/ffmpeg-validation.js'
-import { NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip-version.js'
+import { SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS } from '../lib/native-scene-clip-version.js'
+import { resolveSketchHoldFrames, sketchHoldFingerprint, sketchHoldSelection, type SketchHoldSetting } from '../lib/sketch-hold.js'
 import { resolveRenderCanvas } from '../lib/render-canvas.js'
 import { readChannelProfileAsset } from './channel-profile.js'
 import type { MotionPresentationSettings, ProjectConfig, ScenePlan, ScenePlanEntry, SketchDrawPenMode } from '../models/types.js'
 import { readEpisodeSketchPen } from './episode-sketch-pen.js'
+import { readEpisodeSketchHold } from './episode-sketch-hold.js'
 import { sceneReviewAutoApproveOn } from './preset-authority.js'
 import * as pm from './project-manager.js'
 
@@ -40,6 +42,9 @@ export interface SketchDrawSettings {
   pen: Exclude<SketchPen, { mode: 'logo' }> | { mode: 'logo' }
   logoBytes?: Buffer
   penFingerprint: string
+  /** The closing hold this episode renders under: its own, else the channel's. Resolved to frames per scene. */
+  hold: SketchHoldSetting
+  holdFingerprint: string
 }
 
 export interface EpisodePenChoice {
@@ -59,11 +64,34 @@ export async function resolveEpisodePen(slug: string, episodeId: string, loaded?
   return { pen: episode_pen ?? channel_pen, pen_source: episode_pen ? 'episode' : 'channel', episode_pen, channel_pen }
 }
 
+export interface EpisodeHoldChoice {
+  /** The hold this episode renders with: its own when it has one, else the channel's (auto until chosen). */
+  hold: SketchHoldSetting
+  hold_source: 'episode' | 'channel'
+  episode_hold: SketchHoldSetting | null
+  channel_hold: SketchHoldSetting
+}
+
+/** The one place an episode's effective closing hold is decided, as `resolveEpisodePen` is for the pen. */
+export async function resolveEpisodeHold(slug: string, episodeId: string, loaded?: ProjectConfig | null): Promise<EpisodeHoldChoice> {
+  const config = loaded ?? await pm.getConfig(slug)
+  if (!config) throw new Error('Channel configuration is unavailable.')
+  const channel_hold = sketchHoldSelection(config.motion_presentation?.hold)
+  const episode_hold = await readEpisodeSketchHold(slug, episodeId)
+  return { hold: episode_hold ?? channel_hold, hold_source: episode_hold ? 'episode' : 'channel', episode_hold, channel_hold }
+}
+
+/** Frames of closing hold for one scene of an episode under these settings; the freshness rule and the generator share it. */
+export function sketchHoldFramesFor(settings: Pick<SketchDrawSettings, 'hold' | 'fps'>, episodeId: string, sceneId: string, frames: number): number {
+  return resolveSketchHoldFrames(settings.hold, { episodeId, sceneId, frames, fps: settings.fps })
+}
+
 /** Resolve selections again at execution/read time; never persist a copied name, logo or fps. */
 export async function resolveSketchDrawSettings(slug: string, episodeId: string): Promise<SketchDrawSettings> {
   const config = await pm.getConfig(slug)
   if (!config) throw new Error('Channel configuration is unavailable.')
   const mode = (await resolveEpisodePen(slug, episodeId, config)).pen
+  const { hold } = await resolveEpisodeHold(slug, episodeId, config)
   if (!['none', 'plain', 'name', 'logo'].includes(mode)) throw new Error('Choose a valid Sketch Draw pen.')
   const store = config.video_assembly_last_used
   const own = store?.episodes?.[episodeId.trim().toUpperCase()]?.settings
@@ -89,7 +117,8 @@ export async function resolveSketchDrawSettings(slug: string, episodeId: string)
     identity = { mode, sha256: createHash('sha256').update(logoBytes).digest('hex') }
   }
   return { fps, width: canvas.w, height: canvas.h, pen, logoBytes,
-    penFingerprint: createHash('sha256').update(JSON.stringify(identity)).digest('hex') }
+    penFingerprint: createHash('sha256').update(JSON.stringify(identity)).digest('hex'),
+    hold, holdFingerprint: sketchHoldFingerprint(hold) }
 }
 
 export interface SceneClipFreshnessContext {
@@ -150,7 +179,8 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
   const window = scene.end_sec - scene.start_sec
   if (!Number.isFinite(window) || window <= 0) return 'invalid scene window'
   const receipt = scene.clip_sketch
-  if (!receipt || receipt.helper_version !== NATIVE_SCENE_CLIP_VERSION) return 'stale Sketch Draw renderer'
+  // Version-2 clips (old 15% hold) are complete and exactly scene-length: they stay fresh until regenerated.
+  if (!receipt || !SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(receipt.helper_version)) return 'stale Sketch Draw renderer'
   if (!context) {
     // No live channel/Assembly context here: still compare the two recorded identities when
     // both exist, and say plainly when neither can prove the source.
@@ -176,6 +206,13 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
     const was = scene.clip_scene_window_seconds === undefined ? 'unrecorded' : `${scene.clip_scene_window_seconds.toFixed(1)}s`
     return `scene length changed (clip ${was}, scene now ${window.toFixed(1)}s)`
   }
+
+  // The hold is compared as resolved frames for THIS scene, so a setting change stales only the clips
+  // whose hold it actually moves. A clip that recorded none is a legacy helper-v2 clip, or malformed.
+  if (receipt.hold_frames === undefined) {
+    if (receipt.helper_version >= 3) return 'stale closing hold'
+  } else if (!Number.isSafeInteger(receipt.hold_frames)
+    || receipt.hold_frames !== sketchHoldFramesFor(settings, context.episodeId, scene.id, receipt.frames)) return 'stale closing hold'
 
   const clipSha = scene.clip_source_image_sha256
   if (!clipSha) return CANNOT_VERIFY_SOURCE

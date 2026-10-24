@@ -26,7 +26,7 @@ import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as jq from '../services/job-queue.js'
 import type { Job, SceneClipVariantSelection, ScenePlan } from '../models/types.js'
-import { auditSceneClipCompletion, checkpointSceneClip, assertSketchDrawClip, isSceneClipFresh, resolveSketchDrawSettings, sceneClipStaleReason, sceneWindowSeconds } from '../services/scene-media-checkpoint.js'
+import { auditSceneClipCompletion, checkpointSceneClip, assertSketchDrawClip, isSceneClipFresh, resolveSketchDrawSettings, sceneClipStaleReason, sceneWindowSeconds, sketchHoldFramesFor } from '../services/scene-media-checkpoint.js'
 import { NATIVE_CLIP_QUALITY, renderSketchDraw } from '../lib/native-scene-clip.js'
 import { NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip-version.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
@@ -396,6 +396,8 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
   const settings = await resolveSketchDrawSettings(job.project_slug, episodeId)
   const frames = Math.round(window * settings.fps)
   if (!Number.isSafeInteger(frames) || frames < 1) throw new Error(`Scene ${sceneId} has no renderable frames. Repair Scene Plan and Retry.`)
+  // The hold resolves to exact frames for THIS scene, from the same rule freshness applies to the receipt.
+  const holdFrames = sketchHoldFramesFor(settings, episodeId, sceneId, frames)
   const outDir = await resolveVideoAssetsDir(job.project_slug, episodeId.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
   // Evidence lives in app temp, never in the customer's Video Assets folder. A success
@@ -412,8 +414,8 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
     if (pen.mode === 'logo') await fs.writeFile(pen.logo, settings.logoBytes!)
     const helperJob = { kind: 'sketch' as const, input: snapshotPath, output: candidatePath,
       width: settings.width, height: settings.height, fps: settings.fps, frames,
-      paper: '#ffffff', pen, quality: NATIVE_CLIP_QUALITY }
-    job.output_lines.push(`Scene ${sceneId}: Sketch Draw locally, ${frames} frames at ${settings.fps} fps (${window}s).`)
+      hold_frames: holdFrames, paper: '#ffffff', pen, quality: NATIVE_CLIP_QUALITY }
+    job.output_lines.push(`Scene ${sceneId}: Sketch Draw locally, ${frames} frames at ${settings.fps} fps (${window}s), closing hold ${holdFrames} frames (${(holdFrames / settings.fps).toFixed(1)}s).`)
     job.progress = 10
     assertActive()
     await render(helperJob, { trackChild: jq.trackChild })
@@ -429,7 +431,8 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
         scene_window_seconds: window, duration_seconds: duration,
         shortfall_mode: 'hold', sketch: { helper_version: NATIVE_SCENE_CLIP_VERSION,
           fps: settings.fps, frames, width: settings.width, height: settings.height,
-          pen_fingerprint: settings.penFingerprint },
+          pen_fingerprint: settings.penFingerprint,
+          hold_frames: holdFrames, hold_fingerprint: settings.holdFingerprint },
         candidate_path: candidatePath,
         context: { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, imagePath }, assertActive,
       })
