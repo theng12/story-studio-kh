@@ -43,6 +43,14 @@
          parent folder's mtime bumping (cache stays stale). One click fires
          a full project rescan and re-fetches the episode's status. -->
     <WorkspaceNotice
+      v-if="form.episode_id && selectedModelLanguageMismatch"
+      tone="error"
+      title="This voice model cannot speak this script"
+    >
+      {{ selectedModelLanguageMismatch }} Its audio would be noise and fail the quality check. Choose a voice
+      model that lists {{ narrationScript?.codes[0] }} — models that cannot are greyed out in the picker.
+    </WorkspaceNotice>
+    <WorkspaceNotice
       v-if="form.episode_id && statusKnown && !scriptReady"
       tone="warning"
       title="No finished script yet"
@@ -788,10 +796,11 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
       `Up to ${model.maximum_input_characters.toLocaleString()} characters per request`,
     ].join(' · '),
     description: model.description,
-    disabled: ttsModelsStale.value || !model.generation_enabled || model.locked === true,
+    disabled: ttsModelsStale.value || !model.generation_enabled || model.locked === true || !!modelLanguageMismatch(model),
     disabledReason: ttsModelsStale.value
       ? 'Last-known catalog only. Refresh the Gateway before starting new narration work.'
-      : genStudioModelLockReason(model) || (model.generation_enabled ? '' : 'The Gateway has generation turned off for this model.'),
+      : genStudioModelLockReason(model) || (model.generation_enabled ? '' : 'The Gateway has generation turned off for this model.')
+        || modelLanguageMismatch(model),
     badges: [
       ...(model.supports_voice_cloning ? [{ label: 'Voice cloning', tone: 'info' as const }] : []),
       ...(ttsModelsStale.value ? [{ label: 'last known', tone: 'warning' as const }] : []),
@@ -808,6 +817,30 @@ const selectedTtsModel = computed<GenStudioTtsModel | null>(() =>
 const selectedTtsModelEligible = computed(() => !ttsModelsStale.value
   && selectedTtsModel.value?.generation_enabled === true
   && selectedTtsModel.value.locked !== true)
+
+/**
+ * The writing system of this episode's narration (Khmer, Thai…), read from the script on disk, so a
+ * voice model that cannot speak it is flagged before Generate (owner, 2026-10-24: Khmer channels
+ * set to Breeze babbled and failed every quality check). The model's own `supported_languages`
+ * decides; a model listing none is never flagged. Blanked on every episode change (AGENTS §4).
+ */
+const narrationScript = ref<{ script: string | null, codes: string[] } | null>(null)
+async function loadNarrationScript(episode: string) {
+  narrationScript.value = null
+  if (!episode) return
+  try {
+    const found = await get(`/projects/${slug.value}/episodes/${encodeURIComponent(episode)}/narration-language`)
+    if (form.episode_id === episode) narrationScript.value = found
+  } catch { /* no narration yet: nothing to judge */ }
+}
+watch(() => form.episode_id, episode => { void loadNarrationScript(episode) }, { immediate: true })
+function modelLanguageMismatch(model: GenStudioTtsModel | null): string {
+  const script = narrationScript.value
+  const listed = (model?.supported_languages || []).map(code => String(code).toLowerCase().split(/[-_]/)[0])
+  if (!model || !script?.script || !listed.length || script.codes.some(code => listed.includes(code))) return ''
+  return `${model.display_name} cannot speak this ${script.script} script (it lists ${listed.join(', ')}).`
+}
+const selectedModelLanguageMismatch = computed(() => modelLanguageMismatch(selectedTtsModel.value))
 
 const { success, info: showInfo, error: showError, showAction } = useToast()
 const { audioGenerating } = useGenerating()
@@ -1901,6 +1934,7 @@ const inlineGenerateDisabled = computed(() =>
   || !selectedTtsModelEligible.value
   || !form.voice
   || !selectedVoiceCompatible.value
+  || !!selectedModelLanguageMismatch.value
   || submitting.value
   || audioJobActiveForEpisode.value,
 )
@@ -1909,6 +1943,7 @@ const inlineGenerateDisabledReason = computed(() => {
   if (!selectedTtsModelEligible.value) return 'Refresh and choose a current voice model first.'
   if (!form.voice) return 'Pick a voice first.'
   if (!selectedVoiceCompatible.value) return 'Pick a voice this model can currently generate with.'
+  if (selectedModelLanguageMismatch.value) return `${selectedModelLanguageMismatch.value} Choose a model that lists ${narrationScript.value?.codes[0]}.`
   if (submitting.value) return 'The audio request is being queued.'
   if (audioJobActiveForEpisode.value) return 'Another audio job for this episode is already queued or running.'
   return ''

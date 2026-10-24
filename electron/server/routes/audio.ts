@@ -415,6 +415,27 @@ async function quoteCandidateTts(input: {
  * Quoting is not generation: no TTS job is submitted here and nothing is
  * charged for asking.
  */
+/**
+ * Which writing system this episode's narration is in, so the Audio page can warn before a
+ * voice model that cannot speak it is used (owner, 2026-10-24). `null` script: Latin or mixed —
+ * nothing to judge. Read-only; nothing is generated or sent.
+ */
+router.get('/projects/:slug/episodes/:code/narration-language', async (req, res) => {
+  const { slug, code } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const narrationPath = await resolveNarrationOr404(slug, code, res)
+    if (!narrationPath) return
+    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+    const { dominantScript } = await import('../services/tts-language-guard.js')
+    const sections = await parseNarrationDocx(narrationPath)
+    const script = dominantScript(sections.map(section => section.text).join('\n'))
+    res.json({ script: script?.name ?? null, codes: script?.codes ?? [] })
+  } catch (error: any) {
+    res.status(500).json({ detail: error?.message || 'Could not read the narration.' })
+  }
+})
+
 router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
   const { slug, code } = req.params
   try {

@@ -42,3 +42,8 @@ test('the generator refuses before planning any request', () => {
   const firstSubmit = source.indexOf('for (const [sectionIndex, section] of sections.entries())')
   assert.ok(guard > 0 && guard < firstSubmit, 'the language check runs before the first section is sent')
 })
+
+test('the Audio page can ask which script an episode is written in, without generating anything', () => {
+  const routes = readFileSync(new URL('../routes/audio.ts', import.meta.url), 'utf8')
+  assert.match(routes, /router\.get\('\/projects\/:slug\/episodes\/:code\/narration-language'/)
+})
