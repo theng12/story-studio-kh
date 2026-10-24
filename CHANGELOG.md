@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.354 — 2026-10-24
+
+- Motion Review: with Sketch Draw, choose which scenes get motion right on the page — Off, the opening, or all scenes. Sketch Draw needs no motion prompts, so it no longer depends on Scene Plan; it is the same one setting Scene Plan shows, and changing it never touches the episode's rhythm. Image-to-video still takes its scope from Scene Plan, where its prompts are written.
+- Motion Review shows each scene's clip while it is being made — queued, then making with progress — instead of only a pop-up when it is queued.
+- A greyed-out Generate Clip now says why on the scene, for example that the motion scope is off or that the image needs approving first.
+- Music episodes: a new "By duration" scene choice in Episode Builder and the Music Formula. Each picture lasts a random length in your range (for example 10–20 s or 50–60 s) and may change mid-song; a rebuild or a re-order keeps the same pictures, the end of a song never gets a sliver, and the song title (if on) appears only on each song's first picture. Every existing scene choice works as before.
+
 ## v1.4.353 — 2026-10-24
 
 - Sketch Draw can hold the finished drawing at the end of each scene: Auto (the default — 2.5 s, or half a short scene), no hold, a fixed number of seconds, or a random range that stays the same for each scene on re-render. Set it as a channel default or for one episode in Motion Review. The hold never makes a scene longer or moves narration, and only clips whose hold actually changes need re-generating.
