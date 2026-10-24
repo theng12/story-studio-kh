@@ -41,7 +41,7 @@ describe('encoder PID ledger', () => {
     let child!: ReturnType<typeof spawn>
     jq.registerExecutor('chapter-only', async () => {
       // Lives until the test closes its stdin — no timer decides when it exits.
-      child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'] })
+      child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'], env: { ...process.env, NODE_OPTIONS: '' } })
       childPid = child.pid!
       jq.trackChild(child)
       await new Promise(resolve => child.once('exit', resolve))

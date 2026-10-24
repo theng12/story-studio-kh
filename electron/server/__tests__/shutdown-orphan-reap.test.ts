@@ -47,7 +47,7 @@ describe('killAllTrackedChildren()', () => {
     const exited = new Promise<void>((r) => { resolved = r })
 
     jq.registerExecutor('chapter-only', async () => {
-      const child = spawn('node', ['-e', 'setInterval(() => {}, 1000)'])
+      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { env: { ...process.env, NODE_OPTIONS: '' } })
       jq.trackChild(child)
       child.on('exit', (_code, signal) => {
         exitSignal = signal

@@ -28,6 +28,11 @@ import { useTempDataDir } from './_helpers.js'
 import { router as jobsRouter } from '../routes/jobs.js'
 import { registerJobCancellationAuditor } from '../services/job-cancellation-auditors.js'
 
+// An idle stand-in for ffmpeg. It runs without the test harness's NODE_OPTIONS preloads: a SIGTERM that
+// lands while a preload is still starting kills it before it can write its evidence record, which fails the
+// whole gate although every test passed (1.4.353 gate A). It touches no files, so it has nothing to record.
+const idleChild = () => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { env: { ...process.env, NODE_OPTIONS: '' } })
+
 let cleanup: () => Promise<void>
 let tempDir: string
 let jq: typeof import('../services/job-queue.js')
@@ -86,7 +91,7 @@ describe('requestJobCancellation()', () => {
     // registers it with the queue and then awaits its exit.
     const childExitedWithSignal = new Promise<string | null>((resolve) => {
       jq.registerExecutor('video_assembly', async () => {
-        const child = spawn('node', ['-e', 'setInterval(() => {}, 1000)'])
+        const child = idleChild()
         jq.trackChild(child)
         reportChildTracked()
         await new Promise<void>((r) => {
@@ -127,7 +132,7 @@ describe('requestJobCancellation()', () => {
     // shape runFfmpeg produces on cancel. The queue must still classify
     // this terminal state as `cancelled`, not `error`.
     jq.registerExecutor('video_assembly', async () => {
-      const child = spawn('node', ['-e', 'setInterval(() => {}, 1000)'])
+      const child = idleChild()
       jq.trackChild(child)
       await new Promise<void>((_, reject) => {
         child.on('exit', (code, signal) => {
@@ -166,7 +171,7 @@ describe('requestJobCancellation()', () => {
 
     try {
       jq.registerExecutor('video_assembly', async () => {
-        const child = spawn('node', ['-e', 'setInterval(() => {}, 1000)'])
+        const child = idleChild()
         jq.trackChild(child)
         await new Promise<void>((_, reject) => {
           child.on('exit', () => reject(new Error('Killed')))

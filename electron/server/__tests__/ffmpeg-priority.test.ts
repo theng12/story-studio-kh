@@ -7,7 +7,7 @@ import { lowerFfmpegPriority, withX264ThreadCap } from '../lib/ffmpeg-utils.js'
 
 test('a spawned encoder is lowered to nice 10; a vanished pid is ignored', async () => {
   // Stays alive until killed: it waits on stdin, which this test never closes.
-  const proc = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'] })
+  const proc = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['pipe', 'ignore', 'ignore'], env: { ...process.env, NODE_OPTIONS: '' } })
   try {
     lowerFfmpegPriority(proc)
     assert.equal(os.getPriority(proc.pid!), 10)
