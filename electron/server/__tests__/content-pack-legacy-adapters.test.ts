@@ -229,6 +229,7 @@ describe('Content Pack legacy adapters', () => {
       id: STYLE_ID, name: 'Archive Desk', builtin: true, blurb: 'Muted documentary evidence.', category: 'Realistic',
       tags: ['archive', 'documentary'], data: { style_bible: 'Muted archival documentary reconstruction.', negative_prompt: 'No modern objects.' },
       preview_image: '/api/content-packs/com.storystudio.test.pack/1.0.0/assets/abc',
+      preview_images: ['/api/content-packs/com.storystudio.test.pack/1.0.0/assets/abc'],
     })
     assert.doesNotMatch(JSON.stringify(style), /(?:\/Users\/|file:|provider|model)/i)
   })
