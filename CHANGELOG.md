@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.356 — 2026-10-25
+
+- Jobs: every job row has an "Open" link to the page that made it — Audio, Scene Plan, Video Assembly and so on — not only failed jobs.
+- Audio refuses to narrate in a language the selected voice model does not list, before any request is sent, and the Audio page warns about it and disables Generate with the reason.
+- Style Library: each style shows all of its previews, hero first, with dots to page through them. Your own art styles can now save previews too; use Generate previews for one style or for all of them. A style you edit shows its old previews as "Out of date" until you regenerate.
+- Thumbnail Recipe Library: each recipe appears once (the newest signed version), your own copies say "Your copy", a filter with no match says so, the star and dots no longer sit on the artwork, and the filter chips show that they scroll.
+- Scene prompts name the episode's real subject. Each prompt is written knowing the episode's title and opening narration, and words with another everyday meaning are spelled out — "the metal teeth of a zipper", not just "teeth". This applies to prompts written from now on; existing prompts are unchanged.
+
 ## v1.4.355 — 2026-10-24
 
 - Music episodes, "By duration" scenes: every picture now gets its own prompt. A long episode has more pictures than the channel has scene settings, so a setting could repeat word for word and image generation refused the duplicates; each picture now also gets its own viewpoint (a wide view, a table close-up, a window seat…) so no two prompts in an episode are the same. Rebuild the episode in Episode Builder to pick this up.
