@@ -41,6 +41,8 @@ export interface ContentPackVisualStyle {
   tags: string[]
   data: { style_bible: string; negative_prompt: string }
   preview_image: string
+  /** Every verified preview, hero first; `[]` for a user style pack style. */
+  preview_images: string[]
 }
 
 function mapIdeaAxes(axes: FormulaDocument['idea_axes'] | TopicDocument['idea_axes']) {
@@ -384,7 +386,8 @@ export function contentPackDocumentToSceneReveal(
 }
 
 /** Explicit signed visual-style → renderer-safe catalog mapping. */
-export function contentPackDocumentToVisualStyle(document: StyleDocument, previewImage: string): ContentPackVisualStyle {
+export function contentPackDocumentToVisualStyle(document: StyleDocument, previewImage: string,
+  previewImages: string[] = previewImage ? [previewImage] : []): ContentPackVisualStyle {
   return {
     id: document.id,
     name: document.name,
@@ -394,5 +397,6 @@ export function contentPackDocumentToVisualStyle(document: StyleDocument, previe
     tags: [...document.tags],
     data: { style_bible: document.style_bible, negative_prompt: document.negative_prompt },
     preview_image: previewImage,
+    preview_images: previewImages,
   }
 }

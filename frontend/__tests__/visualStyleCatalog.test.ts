@@ -27,6 +27,19 @@ describe('reactive visual style catalog', () => {
     assert.deepEqual(catalog.styles.value.map(style => style.id), [signedStyle.id])
   })
 
+  test('carries every preview, hero first, and never drops a style for lacking a gallery', async () => {
+    const hero = signedStyle.preview_image
+    const scene = `/api/content-packs/com.storystudio.pack.archive/1.0.0/assets/${'b'.repeat(64)}`
+    const gallery = { ...signedStyle, id: 'gallery', preview_images: [hero, scene, 'javascript:alert(1)'] }
+    const legacy = { ...signedStyle, id: 'legacy' } // an older main process: no preview_images at all
+    ;(globalThis as any).$fetch = async () => ({ visual_styles: [gallery, legacy] })
+    const catalog = useVisualStyleCatalog()
+    await catalog.refresh()
+    const byId = Object.fromEntries(catalog.styles.value.map(style => [style.id, style]))
+    assert.deepEqual(byId.gallery!.preview_images, [hero, scene], 'unsafe URLs are dropped, order kept')
+    assert.deepEqual(byId.legacy!.preview_images, [hero], 'a style without a gallery still shows its hero')
+  })
+
   test('accepts author-defined Content Pack categories', async () => {
     const naturalWorldStyle = { ...signedStyle, category: 'Natural world' }
     ;(globalThis as any).$fetch = async () => ({ visual_styles: [naturalWorldStyle] })

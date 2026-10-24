@@ -16,13 +16,15 @@ function assetUrl(packId: string, version: string, assetId: string): string {
 
 function mapEntry(entry: Awaited<ReturnType<typeof resolveCatalogItem>>): ContentPackVisualStyle | null {
   if (!entry || entry.value.kind !== 'visual-style' || !entry.pack) return null
-  const previewPath = entry.value.preview_assets[0]
-  const asset = entry.assets?.[previewPath]
-  if (!asset) return null
-  return contentPackDocumentToVisualStyle(
-    entry.value,
-    assetUrl(entry.pack.pack_id, entry.pack.version, asset.asset_id),
-  )
+  const pack = entry.pack
+  // Every verified preview, hero first (owner, 2026-10-24: at least three per style). The hero
+  // stays `preview_image` too: older readers, and the card's first image, use it.
+  const previews = entry.value.preview_assets.flatMap(previewPath => {
+    const asset = entry.assets?.[previewPath]
+    return asset ? [assetUrl(pack.pack_id, pack.version, asset.asset_id)] : []
+  })
+  if (!entry.assets?.[entry.value.preview_assets[0]]) return null
+  return contentPackDocumentToVisualStyle(entry.value, previews[0]!, previews)
 }
 
 /** Resolve one signed style through the immutable current-job snapshot. */

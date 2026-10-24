@@ -13,7 +13,11 @@ export interface VisualStyleCatalogItem {
     negative_prompt: string
   }
   preview_image: string
+  /** Every preview, hero first (at least three per signed style); `[]` for a user style. */
+  preview_images: string[]
 }
+
+const PREVIEW_URL = /^\/api\/content-packs\/[a-z0-9.%_-]+\/[0-9.]+\/assets\/[a-f0-9]{64}$/
 
 const catalogStyles = shallowRef<VisualStyleCatalogItem[]>([])
 const catalogLoading = ref(false)
@@ -34,8 +38,20 @@ function isVisualStyleCatalogItem(value: unknown): value is VisualStyleCatalogIt
     && typeof data?.negative_prompt === 'string'
     && typeof style.preview_image === 'string'
     // A user style pack style (v1.4.277) has no preview: an empty string.
-    && (style.preview_image === ''
-      || /^\/api\/content-packs\/[a-z0-9.%_-]+\/[0-9.]+\/assets\/[a-f0-9]{64}$/.test(style.preview_image))
+    && (style.preview_image === '' || PREVIEW_URL.test(style.preview_image))
+}
+
+/**
+ * `preview_images` is normalised rather than required: a style from an older main process carries
+ * only `preview_image`, and a missing gallery must never drop the style from the library (a
+ * filtered-out style is a silently empty picker). Unusable entries are dropped; the hero leads.
+ */
+function withPreviewImages(style: VisualStyleCatalogItem): VisualStyleCatalogItem {
+  const listed = Array.isArray((style as Partial<VisualStyleCatalogItem>).preview_images)
+    ? style.preview_images.filter(url => typeof url === 'string' && PREVIEW_URL.test(url))
+    : []
+  const images = style.preview_image && !listed.includes(style.preview_image) ? [style.preview_image, ...listed] : listed
+  return { ...style, preview_images: images }
 }
 
 /** Reactive catalog of locally installed signed Content Pack styles and user style pack styles. */
@@ -47,7 +63,7 @@ export function useVisualStyleCatalog() {
     refreshPromise = (async () => {
       try {
         const response = await get<{ visual_styles?: unknown[] }>('/visual-styles', { cache: 'no-store' })
-        catalogStyles.value = (response.visual_styles ?? []).filter(isVisualStyleCatalogItem)
+        catalogStyles.value = (response.visual_styles ?? []).filter(isVisualStyleCatalogItem).map(withPreviewImages)
         catalogError.value = null
       } catch (error: unknown) {
         catalogStyles.value = []

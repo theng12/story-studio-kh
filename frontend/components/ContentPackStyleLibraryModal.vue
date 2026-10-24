@@ -86,12 +86,12 @@
         >
           <div class="slm-image-wrap">
             <img
-              v-if="style.preview_image && !packPreviewFailed[style.id]"
-              :src="style.preview_image"
-              :alt="`${style.name} preview`"
+              v-if="stylePreview(style) && !packPreviewFailed[stylePreview(style)]"
+              :src="stylePreview(style)"
+              :alt="`${style.name} preview ${previewPage[style.id] ? previewPage[style.id]! + 1 : 1} of ${style.preview_images.length || 1}`"
               loading="lazy"
               decoding="async"
-              @error="onPackPreviewError(style.id)"
+              @error="onPackPreviewError(stylePreview(style))"
             />
             <img
               v-else-if="previewStates[style.id]?.url"
@@ -122,6 +122,16 @@
               {{ favoriteIds.has(style.id) ? '★' : '☆' }}
             </button>
             <span v-if="draftStyleId === style.id" class="slm-selected-mark">Selected</span>
+            <div v-if="style.preview_images.length > 1" class="slm-preview-dots" aria-label="Style previews">
+              <button
+                v-for="(_, index) in style.preview_images"
+                :key="index"
+                type="button"
+                :class="{ active: (previewPage[style.id] || 0) === index }"
+                :aria-label="`Show ${style.name} preview ${index + 1}`"
+                @click.stop="previewPage = { ...previewPage, [style.id]: index }"
+              />
+            </div>
           </div>
           <div class="slm-card-copy">
             <div class="slm-card-title">
@@ -211,7 +221,10 @@ const activeFilter = ref('all')
 const draftStyleId = ref('')
 const favoriteIds = ref(new Set<string>())
 const recentIds = ref<string[]>([])
+/** Keyed by preview URL: one broken image never hides a style's other previews. */
 const packPreviewFailed = ref<Record<string, boolean>>({})
+/** Which preview each card shows; the hero (0) until the customer pages. */
+const previewPage = ref<Record<string, number>>({})
 const previewStates = ref<Record<string, PreviewState>>({})
 const previewModel = ref('')
 const previewAspect = ref('16:9')
@@ -314,8 +327,13 @@ function resetFilters(): void {
   activeFilter.value = 'all'
 }
 
-function onPackPreviewError(id: string): void {
-  packPreviewFailed.value = { ...packPreviewFailed.value, [id]: true }
+function onPackPreviewError(url: string): void {
+  packPreviewFailed.value = { ...packPreviewFailed.value, [url]: true }
+}
+
+function stylePreview(style: VisualStyleCatalogItem): string {
+  const images = style.preview_images.length ? style.preview_images : (style.preview_image ? [style.preview_image] : [])
+  return images[previewPage.value[style.id] || 0] || images[0] || ''
 }
 
 async function generatePreview(style: VisualStyleCatalogItem): Promise<void> {
@@ -368,6 +386,9 @@ async function generatePreview(style: VisualStyleCatalogItem): Promise<void> {
 .slm-image-wrap { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--bg-tertiary); }
 .slm-image-wrap > img { width: 100%; height: 100%; display: block; object-fit: cover; transition: transform .2s ease; }
 .slm-card:hover .slm-image-wrap > img { transform: scale(1.025); }
+.slm-preview-dots { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; padding: 4px 6px; border-radius: 999px; background: rgba(10, 12, 18, .55); }
+.slm-preview-dots button { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .55); cursor: pointer; }
+.slm-preview-dots button.active { background: #fff; transform: scale(1.2); }
 .slm-image-empty { display: flex; height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--text-muted); font-size: var(--font-xs); }
 .slm-favorite { position: absolute; top: 7px; right: 7px; width: 30px; height: 30px; border: 1px solid rgba(255,255,255,.24); border-radius: 50%; background: rgba(10,12,18,.72); color: white; cursor: pointer; font-size: 16px; backdrop-filter: blur(8px); }
 .slm-favorite.active { color: var(--accent); }

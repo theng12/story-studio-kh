@@ -122,6 +122,10 @@ describe('the six Production Looks reach the image generator as signed styles', 
       assert.equal(style.name, source.name)
       assert.equal(style.data.style_bible, source.style_bible)
       assert.equal(style.data.negative_prompt, source.negative_prompt)
+      // Every preview the pack ships reaches the gallery, hero first (owner, 2026-10-24).
+      assert.equal(style.preview_images.length, source.preview_assets.length, `${slug} publishes every preview`)
+      assert.equal(style.preview_images[0], style.preview_image, `${slug}: the hero stays the card image`)
+      assert.equal(new Set(style.preview_images).size, style.preview_images.length, `${slug}: previews are distinct`)
     }
   })
 

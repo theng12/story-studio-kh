@@ -50,5 +50,6 @@ export async function listUserVisualStyles(paths?: ContentPackRuntimePaths): Pro
     tags: [...style.tags],
     data: { style_bible: style.style_bible, negative_prompt: style.negative_prompt ?? '' },
     preview_image: '',
+    preview_images: [],
   })))
 }
