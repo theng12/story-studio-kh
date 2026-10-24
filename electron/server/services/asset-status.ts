@@ -646,6 +646,21 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
  */
 export type AudioMergeReason = 'missing' | 'completion-mismatch' | 'chapter-record-unreadable' | `chapter-changed:${string}`
 
+/** The refusal Video Assembly shows for a merged track the freshness rule rejects, naming why and the repair. */
+export function staleMergedAudioMessage(episodeId: string, file: string | null | undefined, reason: AudioMergeReason): string {
+  const code = episodeId.toUpperCase()
+  const track = file ? `"${file}"` : 'merged audio'
+  const why = reason === 'completion-mismatch'
+    ? 'its completion record does not match the file (the merge may be unfinished or replaced)'
+    : reason === 'chapter-record-unreadable'
+      ? 'audio_chapters.json cannot be read, so it is unknown which chapters it was built from'
+      : reason.startsWith('chapter-changed:')
+        ? `chapter audio "${reason.slice('chapter-changed:'.length)}" changed (or is gone) after it was merged`
+        : 'it is not current'
+  return `Video Assembly is blocked: ${code}'s ${track} is out of date because ${why}. `
+    + 'Re-run Audio Assembly for this episode, then retry.'
+}
+
 export interface AudioMergeStatus {
   present: boolean            // is there at least one merged file with content?
   file?: string               // filename of newest merged output (v1 or v{N})

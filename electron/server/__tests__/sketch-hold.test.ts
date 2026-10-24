@@ -345,8 +345,11 @@ describe('the hold in settings and freshness', () => {
     const file = path.join(ep.dir, holdStore.EPISODE_SKETCH_HOLD_FILENAME)
     await fs.writeFile(file, '{ not json')
     await assert.rejects(holdStore.readEpisodeSketchHold(slug, 'EP001'), /malformed/)
-    assert.equal(await reason(slug, ep, clip), 'Sketch Draw settings could not be checked. Choose the pen and Video Assembly frame rate again.')
+    // Motion Review says which file is unreadable and what to do, not the generic "settings could not be checked".
+    assert.match((await reason(slug, ep, clip))!, /^This episode's closing hold setting file \(sketch_hold\.json for EP001\) is malformed and cannot be read\. Choose its closing hold again in Motion Review to rewrite it\.$/)
+    assert.equal(await fs.readFile(file, 'utf8'), '{ not json', 'reading never rewrites the bad file')
     await fs.writeFile(file, JSON.stringify({ hold: { mode: 'fixed', seconds: 'long' } }))
+    assert.match((await reason(slug, ep, clip))!, /sketch_hold\.json for EP001\) holds something that is not a valid hold\. Choose its closing hold again/)
     await assert.rejects(holdStore.readEpisodeSketchHold(slug, 'EP001'), /not a valid hold/)
     await fs.writeFile(file, JSON.stringify({ hold: { mode: 'sometimes' } }))
     await assert.rejects(holdStore.readEpisodeSketchHold(slug, 'EP001'), /not a valid hold/)
@@ -396,7 +399,8 @@ describe('closing hold routes', () => {
     assert.equal(broken.hold_source, 'unreadable')
     assert.equal(broken.episode_hold, null)
     assert.deepEqual(broken.channel_hold, { mode: 'off' })
-    assert.match(broken.error, /malformed/)
+    assert.match(broken.error, /closing hold setting file \(sketch_hold\.json for EP001\) is malformed.*Choose its closing hold again in Motion Review to rewrite it/)
+    assert.equal(await fs.readFile(path.join(ep.dir, holdStore.EPISODE_SKETCH_HOLD_FILENAME), 'utf8'), '{ not json', 'GET leaves the bad file alone')
     assert.equal((await request(app).put(url(slug)).send({ hold: { mode: 'auto' } }).expect(200)).body.hold_source, 'episode')
     assert.equal((await request(app).get(url(slug)).expect(200)).body.error, undefined)
     await fs.writeFile(path.join(ep.dir, holdStore.EPISODE_SKETCH_HOLD_FILENAME), '{ not json')
@@ -437,6 +441,44 @@ describe('closing hold routes', () => {
     assert.deepEqual((await request(app).get(presentation).expect(200)).body.hold, fixed, 'a refused PUT changes nothing')
     await request(app).put(presentation).send({ renderer: 'sketch_draw', hold: { mode: 'off' } }).expect(200)
     assert.deepEqual((await request(app).get(presentation).expect(200)).body.hold, { mode: 'off' })
+  })
+})
+
+describe('the channel default and cached episode status', () => {
+  // config.json is not a watcher event, so a list read serves a watcher-trusted row without re-statting it:
+  // changing a channel default has to drop the rows of the episodes that follow it.
+  test('changing the channel default hold or pen drops the cached status of the episodes that follow it, and only those', async () => {
+    const [{ episodeStatusCache }, watcher, im] = await Promise.all([
+      import('../services/episode-status-cache.js'), import('../services/episode-folder-watcher.js'), import('../services/idea-manager.js')])
+    const slug = await channel('Cached status', { mode: 'fixed', seconds: 2 })
+    const codes: string[] = []
+    for (const title of ['Follows both', 'Own hold', 'Own pen']) {
+      const [idea] = await im.addIdeas(slug, [{ title, logline: '', themes: [], suggested_chapters: 1, suggested_length: 'short', mood: 'calm' }], 'test-model')
+      const code = (await im.acceptIdea(slug, idea!.id, false)).episode_code
+      await episode(slug, code)
+      codes.push(code)
+    }
+    const [follows, ownHold, ownPen] = codes as [string, string, string]
+    await holdStore.writeEpisodeSketchHold(slug, ownHold, { mode: 'off' })
+    await (await import('../services/episode-sketch-pen.js')).writeEpisodeSketchPen(slug, ownPen, 'name')
+
+    const readAll = () => Promise.all(codes.map(code => episodeStatusCache.getForList(slug, code)))
+    await readAll()
+    await new Promise(resolve => setTimeout(resolve, 400)) // let the watcher settle on the fixture writes
+    await readAll()
+    assert.notEqual(watcher.watcherTrustedSince(slug), null, 'the rows are served on the watcher\'s word, which is the path under test')
+    const dropped = async (change: Record<string, unknown>) => {
+      const before = await readAll()
+      assert.deepEqual(await readAll(), before, 'warm rows are served as they are')
+      await request(app).put(`/api/projects/${slug}/motion-presentation`).send({ renderer: 'sketch_draw', ...change }).expect(200)
+      const after = await readAll()
+      return codes.filter((_, i) => after[i] !== before[i])
+    }
+
+    assert.deepEqual(await dropped({ hold: { mode: 'fixed', seconds: 3 } }), [follows, ownPen], 'the episode with its own hold keeps its row')
+    assert.deepEqual(await dropped({ pen: 'plain' }), [follows, ownHold], 'the episode with its own pen keeps its row')
+    assert.deepEqual(await dropped({ pen: 'plain', hold: { mode: 'fixed', seconds: 3 } }), [], 'a save that moves nothing drops nothing')
+    assert.deepEqual(await dropped({ renderer: 'image_to_video' }), [], 'neither does a renderer-only save')
   })
 })
 

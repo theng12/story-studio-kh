@@ -11,7 +11,7 @@ import { resolveSketchHoldFrames, sketchHoldFingerprint, sketchHoldSelection, ty
 import { resolveRenderCanvas } from '../lib/render-canvas.js'
 import { readChannelProfileAsset } from './channel-profile.js'
 import type { MotionPresentationSettings, ProjectConfig, ScenePlan, ScenePlanEntry, SketchDrawPenMode } from '../models/types.js'
-import { readEpisodeSketchPen } from './episode-sketch-pen.js'
+import { EpisodeSettingFileUnreadable, readEpisodeSketchPen } from './episode-sketch-pen.js'
 import { readEpisodeSketchHold } from './episode-sketch-hold.js'
 import { sceneReviewAutoApproveOn } from './preset-authority.js'
 import * as pm from './project-manager.js'
@@ -79,6 +79,18 @@ export async function resolveEpisodeHold(slug: string, episodeId: string, loaded
   const channel_hold = sketchHoldSelection(config.motion_presentation?.hold)
   const episode_hold = await readEpisodeSketchHold(slug, episodeId)
   return { hold: episode_hold ?? channel_hold, hold_source: episode_hold ? 'episode' : 'channel', episode_hold, channel_hold }
+}
+
+/**
+ * A channel default for the pen or hold just changed: drop the cached status of every episode that follows it
+ * (no override of its own), so Motion Review readiness there is read again. An episode with its own pen or hold
+ * is untouched, as are its clips.
+ */
+export async function invalidateEpisodesFollowingChannelSketch(slug: string, changed: { pen: boolean; hold: boolean }): Promise<void> {
+  if (!changed.pen && !changed.hold) return
+  const { episodeStatusCache } = await import('./episode-status-cache.js')
+  await episodeStatusCache.invalidateWhere(slug, async code =>
+    (changed.pen && await readEpisodeSketchPen(slug, code) === null) || (changed.hold && await readEpisodeSketchHold(slug, code) === null))
 }
 
 /** Frames of closing hold for one scene of an episode under these settings; the freshness rule and the generator share it. */
@@ -191,7 +203,7 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
   }
   let settings: SketchDrawSettings
   try { settings = context.sketchSettings ?? await resolveSketchDrawSettings(context.slug, context.episodeId) }
-  catch { return SETTINGS_UNAVAILABLE }
+  catch (error) { return error instanceof EpisodeSettingFileUnreadable ? error.message : SETTINGS_UNAVAILABLE }
   if (receipt.fps !== settings.fps) return 'stale frame rate'
   if (!Number.isSafeInteger(receipt.frames) || receipt.frames < 1) return 'invalid Sketch Draw frame budget'
   // One frame of tolerance: a timing re-sync that moves a boundary by less than a frame keeps the drawing.

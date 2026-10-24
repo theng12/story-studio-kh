@@ -279,9 +279,9 @@ async function seedEpisode(name: string) {
   return { slug: project.slug, code: accepted.episode_code, paths }
 }
 
-test("Video Assembly's scan reports the same verdict, and reason, as the inspection and episode status", async () => {
-  const { scanEpisodeAssets } = await import('../generators/video.js')
-  const { slug, code, paths } = await seedEpisode('Scan parity')
+/** An episode with one chapter and a merged master built after it, as a finished Audio Assembly leaves them. */
+async function seedMergedEpisode(name: string) {
+  const { slug, code, paths } = await seedEpisode(name)
   const chapter = path.join(paths.audio_dir, `${code}_Chapter_01.mp3`)
   await fs.mkdir(paths.audio_dir, { recursive: true })
   await fs.mkdir(paths.merged_audio_dir, { recursive: true })
@@ -296,6 +296,12 @@ test("Video Assembly's scan reports the same verdict, and reason, as the inspect
   await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), JSON.stringify({
     sections: [{ slug: 'Chapter_01', duration_s: 1, source_files: [`${code}_Chapter_01.mp3`] }],
   }))
+  return { slug, code, paths, chapter, merged }
+}
+
+test("Video Assembly's scan reports the same verdict, and reason, as the inspection and episode status", async () => {
+  const { scanEpisodeAssets } = await import('../generators/video.js')
+  const { slug, code, paths, chapter } = await seedMergedEpisode('Scan parity')
 
   const agree = async () => {
     const inspected = await inspectAudioMergeAtPaths(paths, code)
@@ -320,4 +326,44 @@ test("Video Assembly's scan reports the same verdict, and reason, as the inspect
   assert.equal(stale.reason, `chapter-changed:${code}_Chapter_01.mp3`)
   assert.deepEqual((await scanEpisodeAssets(slug, code)).merged_audio_current,
     { current: false, file: `${code}_merged_audio.mp3`, reason: `chapter-changed:${code}_Chapter_01.mp3` })
+})
+
+test('Video Assembly refuses a stale merge in preflight, naming why and the repair, before any closing-tail or FFmpeg work', async () => {
+  const { prepareUnifiedVideoAssemblyInputs } = await import('../generators/video.js')
+  const { isNonRetryableError } = await import('../services/job-retry-policy.js')
+  const { slug, code, paths, chapter } = await seedMergedEpisode('Stale refusal')
+  const prepare = () => {
+    const job = { output_lines: [] as string[] } as any
+    const req = { post_audio: { closing_music: { enabled: true } } } as any
+    return { job, req, run: () => prepareUnifiedVideoAssemblyInputs(slug, code, req, job) }
+  }
+  const staleMessage = (file: string, why: string) => new RegExp(
+    `Video Assembly is blocked: ${code}'s "${file}" is out of date because ${why}\\. Re-run Audio Assembly for this episode, then retry\\.$`)
+
+  // A current merge is not refused for freshness (the fixture has no pictures, so the render still stops further on).
+  const current = prepare()
+  await current.run().then(() => undefined, error => assert.doesNotMatch(String(error?.message), /out of date/))
+
+  // A chapter replaced after the merge: refused, the chapter named.
+  await setTime(chapter, new Date())
+  const changed = prepare()
+  const error = await changed.run().then(() => null, caught => caught as Error)
+  assert.match(error?.message ?? '', staleMessage(`${code}_merged_audio.mp3`, `chapter audio "${code}_Chapter_01.mp3" changed \\(or is gone\\) after it was merged`))
+  assert.equal(isNonRetryableError(error), true, 'retrying the same render cannot repair it')
+  assert.deepEqual(changed.job.output_lines, [], 'nothing was rendered or re-mixed first')
+  assert.equal(changed.req.merged_audio_path, undefined, 'and the stale master was not chosen for the render')
+
+  // The completion record no longer describes the file.
+  await setTime(chapter, ago(300))
+  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`), JSON.stringify({
+    output_filename: `${code}_merged_audio.mp3`, bytes: 1, duration_sec: 12,
+  }))
+  await assert.rejects(prepare().run(), staleMessage(`${code}_merged_audio.mp3`, 'its completion record does not match the file \\(the merge may be unfinished or replaced\\)'))
+
+  // The chapter record cannot say what the merge used.
+  await fs.writeFile(path.join(paths.merged_audio_dir, `${code}_merged_audio.completion.json`), JSON.stringify({
+    output_filename: `${code}_merged_audio.mp3`, bytes: 'MERGED-MASTER'.length, duration_sec: 12,
+  }))
+  await fs.writeFile(path.join(paths.episode_dir, 'audio_chapters.json'), '{ not json')
+  await assert.rejects(prepare().run(), /audio_chapters\.json cannot be read, so it is unknown which chapters it was built from\. Re-run Audio Assembly/)
 })

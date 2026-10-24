@@ -21,6 +21,13 @@ export function isSketchPenMode(value: unknown): value is SketchDrawPenMode {
   return typeof value === 'string' && (SKETCH_PEN_MODES as readonly string[]).includes(value)
 }
 
+/**
+ * An episode's own setting file (`sketch_pen.json`, `sketch_hold.json`) that exists but cannot be read.
+ * Its message already says which file and what to do, so freshness shows it as is rather than the
+ * generic "settings could not be checked". The bad file is never rewritten until the owner chooses again.
+ */
+export class EpisodeSettingFileUnreadable extends Error {}
+
 /** The same episode-code shape Media Cleanup accepts; no separator or dot can pass, so no `../`. */
 export const isEpisodeCode = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z]{1,12}\d{1,8}$/.test(value.trim())
 
@@ -41,10 +48,10 @@ export async function readEpisodeSketchPen(slug: string, episodeId: string): Pro
   }
   let value: unknown
   try { value = JSON.parse(raw) }
-  catch { throw new Error(`${EPISODE_SKETCH_PEN_FILENAME} for ${episodeId} is malformed. Choose this episode's pen again in Motion Review.`) }
+  catch { throw new EpisodeSettingFileUnreadable(`This episode's pen setting file (${EPISODE_SKETCH_PEN_FILENAME} for ${episodeId}) is malformed and cannot be read. Choose its pen again in Motion Review to rewrite it.`) }
   const pen = (value as { pen?: unknown } | null)?.pen
   if (pen === null) return null
-  if (!isSketchPenMode(pen)) throw new Error(`${EPISODE_SKETCH_PEN_FILENAME} for ${episodeId} names an unknown pen. Choose this episode's pen again in Motion Review.`)
+  if (!isSketchPenMode(pen)) throw new EpisodeSettingFileUnreadable(`This episode's pen setting file (${EPISODE_SKETCH_PEN_FILENAME} for ${episodeId}) names an unknown pen. Choose its pen again in Motion Review to rewrite it.`)
   return pen
 }
 

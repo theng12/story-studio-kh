@@ -3,7 +3,7 @@ import path from 'path'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { parseSketchHold, type SketchHoldSetting } from '../lib/sketch-hold.js'
-import { episodeDir } from './episode-sketch-pen.js'
+import { episodeDir, EpisodeSettingFileUnreadable } from './episode-sketch-pen.js'
 
 /**
  * An episode's own Sketch Draw closing hold, stored exactly like its pen: a file of its own in the
@@ -23,11 +23,11 @@ export async function readEpisodeSketchHold(slug: string, episodeId: string): Pr
   }
   let value: unknown
   try { value = JSON.parse(raw) }
-  catch { throw new Error(`${EPISODE_SKETCH_HOLD_FILENAME} for ${episodeId} is malformed. Choose this episode's closing hold again in Motion Review.`) }
+  catch { throw new EpisodeSettingFileUnreadable(`This episode's closing hold setting file (${EPISODE_SKETCH_HOLD_FILENAME} for ${episodeId}) is malformed and cannot be read. Choose its closing hold again in Motion Review to rewrite it.`) }
   const hold = (value as { hold?: unknown } | null)?.hold
   if (hold === null) return null
   const parsed = parseSketchHold(hold)
-  if (!parsed.ok) throw new Error(`${EPISODE_SKETCH_HOLD_FILENAME} for ${episodeId} is not a valid hold. Choose this episode's closing hold again in Motion Review.`)
+  if (!parsed.ok) throw new EpisodeSettingFileUnreadable(`This episode's closing hold setting file (${EPISODE_SKETCH_HOLD_FILENAME} for ${episodeId}) holds something that is not a valid hold. Choose its closing hold again in Motion Review to rewrite it.`)
   return parsed.hold
 }
 

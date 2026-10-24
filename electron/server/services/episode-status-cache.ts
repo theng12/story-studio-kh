@@ -601,6 +601,19 @@ class EpisodeStatusCache {
   }
 
   /**
+   * Drop the cached status of the project's episodes for which `affected` answers true. For a channel-wide
+   * setting that only some episodes follow: `config.json` is not a watcher event, so a list read serves
+   * a watcher-trusted row without ever re-statting it. A failed answer drops the row (unknown is not unaffected).
+   */
+  async invalidateWhere(slug: string, affected: (code: string) => Promise<boolean>): Promise<void> {
+    const prefix = `${slug}::`
+    for (const [k, entry] of [...this.entries]) {
+      if (!k.startsWith(prefix)) continue
+      if (await affected(entry.episode_code).catch(() => true)) this.invalidate(slug, entry.episode_code)
+    }
+  }
+
+  /**
    * Hard reset for one project: drop in-memory entries, delete the on-disk
    * cache file, and reset hydration so the next access starts fresh.
    *

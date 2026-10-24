@@ -2258,6 +2258,15 @@ export async function prepareUnifiedVideoAssemblyInputs(
     throw new Error(message)
   }
 
+  // The scan's verdict is the one freshness rule (`inspectAudioMergeAtPaths`). A merge it says is not
+  // current is refused here, before the closing-tail re-mix or any FFmpeg work could build on it.
+  // `missing` stays with the existing "merged audio is missing" handling further down.
+  const mergeVerdict = assets.merged_audio_current
+  if (mergeVerdict && !mergeVerdict.current && mergeVerdict.reason && mergeVerdict.reason !== 'missing') {
+    const { staleMergedAudioMessage } = await import('../services/asset-status.js')
+    throw nonRetryable(new Error(staleMergedAudioMessage(episodeId, mergeVerdict.file, mergeVerdict.reason)))
+  }
+
   assets = await guardClosingTail(slug, episodeId, req, assets, job)
   acceptedMergedName = assets.merged_audio[0]?.filename ?? acceptedMergedName
 

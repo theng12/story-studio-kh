@@ -145,7 +145,8 @@ describe('per-episode Sketch Draw pen', () => {
     const clip = await renderedUnderCurrentPen(slug, 'EP001')
     await fs.writeFile(path.join(ep.dir, penStore.EPISODE_SKETCH_PEN_FILENAME), '{ not json')
     await assert.rejects(penStore.readEpisodeSketchPen(slug, 'EP001'), /malformed/)
-    assert.equal(await reason(slug, ep, clip), 'Sketch Draw settings could not be checked. Choose the pen and Video Assembly frame rate again.')
+    assert.match((await reason(slug, ep, clip))!, /^This episode's pen setting file \(sketch_pen\.json for EP001\) is malformed and cannot be read\. Choose its pen again in Motion Review to rewrite it\.$/)
+    assert.equal(await fs.readFile(path.join(ep.dir, penStore.EPISODE_SKETCH_PEN_FILENAME), 'utf8'), '{ not json', 'reading never rewrites the bad file')
     await fs.writeFile(path.join(ep.dir, penStore.EPISODE_SKETCH_PEN_FILENAME), JSON.stringify({ pen: 'brand' }))
     await assert.rejects(penStore.readEpisodeSketchPen(slug, 'EP001'), /unknown pen/)
   })
@@ -193,7 +194,7 @@ describe('episode pen routes', () => {
     assert.equal(broken.channel_pen, 'plain')
     assert.match(broken.error, /malformed/)
     // Freshness keeps reporting it, in plain words, until it is fixed.
-    assert.equal(await reason(slug, ep, clip), 'Sketch Draw settings could not be checked. Choose the pen and Video Assembly frame rate again.')
+    assert.match((await reason(slug, ep, clip))!, /pen setting file \(sketch_pen\.json for EP001\) is malformed/)
 
     assert.equal((await request(app).put(base).send({ pen: 'name' }).expect(200)).body.pen, 'name')
     assert.equal((await request(app).get(base).expect(200)).body.error, undefined)

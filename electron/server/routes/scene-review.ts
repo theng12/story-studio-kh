@@ -54,7 +54,7 @@ import { inspectSceneReviewCompletion } from '../services/scene-review-completio
 import { isEpisodeCode, isSketchPenMode, writeEpisodeSketchPen } from '../services/episode-sketch-pen.js'
 import { writeEpisodeSketchHold } from '../services/episode-sketch-hold.js'
 import { parseSketchHold, sketchHoldSelection } from '../lib/sketch-hold.js'
-import { checkpointSceneClip, motionPresentationSelection, resolveEpisodeHold, resolveEpisodePen, resolveSketchDrawSettings, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
+import { checkpointSceneClip, invalidateEpisodesFollowingChannelSketch, motionPresentationSelection, resolveEpisodeHold, resolveEpisodePen, resolveSketchDrawSettings, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
 import { readChannelProfileAsset } from '../services/channel-profile.js'
 import { resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
@@ -361,6 +361,11 @@ router.put('/projects/:slug/motion-presentation', async (req, res) => {
     if (!await pm.updateConfig(req.params.slug, { motion_presentation: { renderer, pen, ...(hold ? { hold } : {}) } } as any)) {
       return res.status(404).json({ detail: 'Channel not found' })
     }
+    // Episodes without their own pen or hold follow these defaults, and their cached status does not see config.json move.
+    await invalidateEpisodesFollowingChannelSketch(req.params.slug, {
+      pen: pen !== motionPresentationSelection(config.motion_presentation).pen,
+      hold: JSON.stringify(hold ?? null) !== JSON.stringify(config.motion_presentation?.hold ?? null),
+    })
     res.json({ renderer, pen, hold: sketchHoldSelection(hold) })
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
