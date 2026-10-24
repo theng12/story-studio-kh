@@ -8,6 +8,9 @@ What's new in each release. Newest first.
 
 - Sketch Draw can hold the finished drawing at the end of each scene: Auto (the default — 2.5 s, or half a short scene), no hold, a fixed number of seconds, or a random range that stays the same for each scene on re-render. Set it as a channel default or for one episode in Motion Review. The hold never makes a scene longer or moves narration, and only clips whose hold actually changes need re-generating.
 - Audio Assembly joins a chapter's split narration parts before mixing, so a finished mix no longer goes out of date when the parts are joined later. Episode status and Video Assembly now use the same freshness check for the mix, and the status says why a mix is out of date.
+- Video Assembly refuses to render from a mix that is out of date, before any rendering starts, and says which chapter changed and to re-run Audio Assembly.
+- An unreadable per-episode pen or closing-hold setting file is reported as exactly that, with how to fix it, instead of a generic settings message.
+- Changing a channel's default pen or closing hold now updates the status of the episodes that follow it straight away; episodes with their own setting are unaffected.
 
 ## v1.4.352 — 2026-10-24
 
