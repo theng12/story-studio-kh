@@ -84,9 +84,12 @@ export const EpisodeDefaultsSchema = z.object({
   true_peak_db: z.number().min(-12).max(0),
   join: z.object({ style: z.enum(['crossfade', 'butt', 'silence']), seconds: z.number().min(0).max(30) }),
   scenes: z.object({
-    mode: z.enum(['per-song', 'count', 'every-minutes', 'manual']),
+    mode: z.enum(['per-song', 'count', 'every-minutes', 'manual', 'duration']),
     count: z.number().int().min(1).max(500).optional(),
     minutes: z.number().min(0.5).max(600).optional(),
+    /** 'duration': each picture lasts a random length in this range, and may change mid-song. */
+    min_seconds: z.number().min(2).max(600).optional(),
+    max_seconds: z.number().min(2).max(600).optional(),
     /** Draw each song's title as lettering in its own picture (one-per-song scenes). */
     title_on_scene: z.boolean().optional(),
   }),

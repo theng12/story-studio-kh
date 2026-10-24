@@ -433,6 +433,27 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-hold', async (req, re
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
 
+// Sketch Draw needs no motion prompts, so its scope is set right here (owner, 2026-10-24). It is the
+// episode's one motion scope, the same value Scene Plan's Visual timing & motion panel shows.
+router.put('/projects/:slug/scene-review/:episodeId/motion-scope', async (req, res) => {
+  try {
+    const { slug, episodeId } = req.params
+    if (!isEpisodeCode(episodeId)) return res.status(400).json({ detail: 'Choose a valid episode.' })
+    if (req.body?.motion_scope == null) return res.status(400).json({ detail: 'Choose a motion scope: off, opening or all scenes.' })
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Channel not found' })
+    const { writeEpisodeMotionScope, ContinuityConfigValidationError } = await import('./continuity.js')
+    try {
+      const config = await writeEpisodeMotionScope(slug, episodeId, req.body?.motion_scope, project.continuity_mode || 'independent-stills')
+      await invalidateEpisodeStatus(slug, episodeId)
+      res.json({ motion_scope: config.motion_scope })
+    } catch (error: any) {
+      if (error instanceof ContinuityConfigValidationError) return res.status(400).json({ detail: error.message })
+      throw error
+    }
+  } catch (error: any) { res.status(409).json({ detail: error.message }) }
+})
+
 async function enqueueSketchDraw(req: express.Request<{ slug: string; episodeId: string }>, res: express.Response, single: boolean): Promise<void> {
   const { slug, episodeId } = req.params
   try {

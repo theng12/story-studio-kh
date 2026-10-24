@@ -177,8 +177,9 @@
             </div>
             <input v-if="e.scenes.mode === 'count'" v-model.number="e.scenes.count" type="number" min="1" class="mp-inp narrow" aria-label="Scenes per episode">
             <span v-if="e.scenes.mode === 'every-minutes'" class="mp-row"><input v-model.number="e.scenes.minutes" type="number" min="1" class="mp-inp narrow" aria-label="Minutes per scene"> min</span>
+            <span v-if="e.scenes.mode === 'duration'" class="mp-row"><input v-model.number="e.scenes.min_seconds" type="number" min="2" max="600" placeholder="10" class="mp-inp narrow" aria-label="Shortest picture in seconds"> – <input v-model.number="e.scenes.max_seconds" type="number" min="2" max="600" placeholder="20" class="mp-inp narrow" aria-label="Longest picture in seconds"> s</span>
           </div>
-          <p class="mp-hint">Scene changes always land on a song boundary.</p>
+          <p class="mp-hint">{{ e.scenes.mode === 'duration' ? 'Each picture lasts a random length in this range and may change mid-song; a rebuild keeps the same cuts.' : 'Scene changes always land on a song boundary.' }}</p>
           <label v-if="e.scenes.mode === 'per-song'" class="mp-check" style="margin-top: 8px">
             <input v-model="e.scenes.title_on_scene" type="checkbox"> Song title on each picture
             <span class="mp-hint">Each picture shows its song's title on one large sign in the foreground (a chalkboard, a menu board or a big window). Use Qwen Image; FLUX Klein spells text poorly.</span>
@@ -347,7 +348,7 @@ const weightedAxes = [
   { key: 'textures', label: 'Texture / production' },
   { key: 'structures', label: 'Structure' },
 ]
-const sceneModes = [{ id: 'per-song', label: 'One per song' }, { id: 'count', label: 'Fixed count' }, { id: 'every-minutes', label: 'Every N minutes' }, { id: 'manual', label: 'Manual' }]
+const sceneModes = [{ id: 'per-song', label: 'One per song' }, { id: 'count', label: 'Fixed count' }, { id: 'every-minutes', label: 'Every N minutes' }, { id: 'manual', label: 'Manual' }, { id: 'duration', label: 'By duration' }]
 const joins = [{ id: 'crossfade', label: 'Crossfade' }, { id: 'butt', label: 'Butt-join' }, { id: 'silence', label: 'Short silence' }]
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`

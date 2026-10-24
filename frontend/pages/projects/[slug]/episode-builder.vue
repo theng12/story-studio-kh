@@ -80,7 +80,9 @@
             </div>
             <div v-if="settings.scenes.mode === 'count'" class="eb-inline eb-sub"><input v-model.number="settings.scenes.count" type="number" min="1" max="500" class="input eb-num" aria-label="Number of scenes" @change="saveSettings"> scenes</div>
             <div v-if="settings.scenes.mode === 'every-minutes'" class="eb-inline eb-sub">every <input v-model.number="settings.scenes.minutes" type="number" min="0.5" max="120" step="0.5" class="input eb-num" aria-label="Minutes per scene" @change="saveSettings"> min</div>
+            <div v-if="settings.scenes.mode === 'duration'" class="eb-inline eb-sub">each picture <input v-model.number="settings.scenes.min_seconds" type="number" min="2" max="600" step="1" class="input eb-num" aria-label="Shortest picture in seconds" @change="saveSettings"> – <input v-model.number="settings.scenes.max_seconds" type="number" min="2" max="600" step="1" class="input eb-num" aria-label="Longest picture in seconds" @change="saveSettings"> s, random; may change mid-song</div>
             <label v-if="settings.scenes.mode === 'per-song'" class="eb-check eb-sub"><input v-model="settings.scenes.title_on_scene" type="checkbox" @change="saveSettings"> Song title on each picture</label>
+            <label v-if="settings.scenes.mode === 'duration'" class="eb-check eb-sub"><input v-model="settings.scenes.title_on_scene" type="checkbox" @change="saveSettings"> Song title on each song's first picture</label>
             <div v-if="titleModelNote" class="eb-hint">{{ titleModelNote }}</div>
           </div>
           <div class="eb-field">
@@ -398,11 +400,11 @@ import type { OutputOptionChoice } from '../../../utils/genstudio-output-options
 definePageMeta({ layout: 'dashboard' })
 
 type Order = 'random' | 'smooth' | 'manual'
-type SceneMode = 'per-song' | 'count' | 'every-minutes' | 'manual'
+type SceneMode = 'per-song' | 'count' | 'every-minutes' | 'manual' | 'duration'
 type Join = 'crossfade' | 'butt' | 'silence'
 interface Settings {
   pools: string[]; target_length_s: number; no_repeat_episodes: number; order: Order
-  scenes: { mode: SceneMode; count: number; minutes: number; title_on_scene: boolean }; theme: string
+  scenes: { mode: SceneMode; count: number; minutes: number; min_seconds: number; max_seconds: number; title_on_scene: boolean }; theme: string
   join: { style: Join; seconds: number }; scene_change: { transition: string; seconds: number }
   frame_rate: number; resolution: '720p' | '1080p'; loudness_lufs: number; true_peak_db: number
   upscale_sharpen: 'off' | 'light'; still_no_repeat_episodes: number
@@ -432,6 +434,7 @@ const ORDER_OPTIONS: Array<{ value: Order; label: string }> = [
 const SCENE_OPTIONS: Array<{ value: SceneMode; label: string }> = [
   { value: 'per-song', label: 'One per song' }, { value: 'count', label: 'Fixed count' },
   { value: 'every-minutes', label: 'Every N min' }, { value: 'manual', label: 'Manual' },
+  { value: 'duration', label: 'By duration' },
 ]
 const JOIN_OPTIONS: Array<{ value: Join; label: string }> = [
   { value: 'crossfade', label: 'Crossfade' }, { value: 'butt', label: 'Butt-join' }, { value: 'silence', label: 'Short silence' },
@@ -463,7 +466,7 @@ const transitionOptions = ref<Array<{ id: string; label: string }>>([{ id: 'none
 function blankSettings(): Settings {
   return {
     pools: [], target_length_s: 3900, no_repeat_episodes: 30, order: 'smooth',
-    scenes: { mode: 'per-song', count: 12, minutes: 5, title_on_scene: false }, theme: '', join: { style: 'crossfade', seconds: 3 },
+    scenes: { mode: 'per-song', count: 12, minutes: 5, min_seconds: 10, max_seconds: 20, title_on_scene: false }, theme: '', join: { style: 'crossfade', seconds: 3 },
     scene_change: { transition: 'crossfade', seconds: 4 }, frame_rate: 24, resolution: '720p', loudness_lufs: -14, true_peak_db: -1,
     upscale_sharpen: 'light', still_no_repeat_episodes: 0,
   }
@@ -537,7 +540,7 @@ const selectedImageModel = computed(() => findGenStudioProduct(imageModels.value
 const outputOption = ref<OutputOptionChoice | null>(null)
 // Title on scene needs a model that can spell: Qwen Image does; FLUX Klein and Z-Image garble lettering.
 const titleModelNote = computed(() => {
-  if (settings.value.scenes.mode !== 'per-song' || !settings.value.scenes.title_on_scene) return ''
+  if (!['per-song', 'duration'].includes(settings.value.scenes.mode) || !settings.value.scenes.title_on_scene) return ''
   if (!imageForm.value.model) return 'Pick Qwen Image below: it writes titles cleanly.'
   return /qwen/i.test(`${imageForm.value.model} ${selectedImageModel.value?.display_name || ''}`) ? '' : 'This image model draws text poorly. Qwen Image spells titles best.'
 })

@@ -59,7 +59,15 @@
           </p>
           <p v-if="motionScopeError" class="motion-scope-error">{{ motionScopeError }}</p>
         </div>
-        <NuxtLink :to="scenePlanMotionLink" class="btn btn-sm btn-secondary">Edit in Scene Plan</NuxtLink>
+        <div v-if="isSketchDraw" class="scope-control" role="group" aria-label="Motion scope for this episode">
+          <button v-for="o in SCOPE_CHOICES" :key="o.mode" type="button" class="btn btn-sm"
+            :class="motionScope.mode === o.mode ? 'btn-primary' : 'btn-ghost'" :aria-pressed="motionScope.mode === o.mode"
+            :disabled="scopeSaving || !episodeId" @click="saveMotionScope(o.mode)">{{ o.label }}</button>
+          <label v-if="motionScope.mode === 'opening'" class="scope-opening">first
+            <input v-model.number="openingSeconds" type="number" min="1" step="1" class="input scope-num" aria-label="Opening seconds" :disabled="scopeSaving" @change="saveMotionScope('opening')"> s</label>
+          <NuxtLink v-if="motionScope.mode === 'selected'" :to="scenePlanMotionLink" class="btn btn-sm btn-ghost">Pick scenes in Scene Plan</NuxtLink>
+        </div>
+        <NuxtLink v-else :to="scenePlanMotionLink" class="btn btn-sm btn-secondary">Edit in Scene Plan</NuxtLink>
       </div>
       <div class="motion-summary">
         <div class="motion-summary-copy">
@@ -326,6 +334,9 @@
           <div class="media-box">
             <span class="media-label">Motion result</span>
             <video v-if="scene.clip_exists" :src="clipUrl(scene)" controls loop preload="none" />
+            <div v-else-if="clipWork(scene)" class="missing-media clip-working" role="status">
+              <span class="clip-spinner" aria-hidden="true" />{{ clipWork(scene) }}
+            </div>
             <div v-else class="missing-media">No clip yet</div>
           </div>
         </div>
@@ -334,7 +345,7 @@
           <div class="scene-line">
             <strong>Scene {{ scene.scene_index }}</strong>
             <span>{{ scene.start_sec.toFixed(1) }}s to {{ scene.end_sec.toFixed(1) }}s</span>
-            <span class="choice-badge">{{ choiceLabel(scene) }}</span>
+            <span class="choice-badge" :class="{ working: !!clipWork(scene) }">{{ clipWork(scene) || choiceLabel(scene) }}</span>
           </div>
           <div v-if="scene.duration_plan" class="scene-duration-plan" :class="{ 'has-shortfall': scene.duration_plan.adjustment === 'hold' }">
             <span><small>Narration</small><strong>{{ formatSeconds(scene.duration_plan.narration_seconds) }}</strong></span>
@@ -350,6 +361,7 @@
             <summary>Motion direction</summary>
             <p class="motion-prompt">{{ scene.motion_prompt || 'No motion prompt. Add one in Scene Plan, or keep this scene as a still.' }}</p>
           </details>
+          <p v-if="!clipWork(scene) && !scene.clip_exists && generateBlocked(scene)" class="blocked-note">Generate Clip is off: {{ generateBlocked(scene) }}.</p>
           <p v-if="scene.clip_stale" class="stale-note">This clip needs to be generated again: {{ scene.clip_stale_reason || 'its source or scene window changed' }}. Re-generate before approval.</p>
         </div>
 
@@ -361,10 +373,10 @@
           >{{ uploadingId === scene.id ? 'Uploading...' : 'Upload External MP4' }}</button>
           <button
             class="btn btn-sm btn-secondary"
-            :disabled="!scopedMotionSceneIds.has(scene.id) || !selectionReady || !scene.image_filename || sceneTooShort(scene) || (isSketchDraw ? !scene.approved : !scene.motion_prompt) || animatingId === scene.id"
-            :title="sceneTooShort(scene) ? `Shorter than this channel's ${animateMinSeconds}s animation minimum` : undefined"
+            :disabled="!!generateBlocked(scene) || animatingId === scene.id || !!clipWork(scene)"
+            :title="generateBlocked(scene) || undefined"
             @click="generateOne(scene)"
-          >{{ animatingId === scene.id ? 'Queuing...' : (scene.clip_exists ? 'Re-Generate Clip' : 'Generate Clip') }}</button>
+          >{{ animatingId === scene.id ? 'Queuing...' : clipWork(scene) ? 'Making clip…' : (scene.clip_exists ? 'Re-Generate Clip' : 'Generate Clip') }}</button>
           <button
             class="btn btn-sm btn-primary"
             :disabled="!scene.clip_exists || scene.clip_stale || savingId === scene.id"
@@ -463,7 +475,7 @@ const episodeId = ref(initialEpisodeId)
 const { get, post, put } = useApi()
 const { success, error: showError, info } = useToast()
 const { ask } = useConfirm()
-const { isJobActiveFor } = useJobs()
+const { isJobActiveFor, jobs } = useJobs()
 const scenes = ref<MotionScene[]>([])
 const SCENE_RENDER_BATCH = 24
 const renderedSceneLimit = ref(SCENE_RENDER_BATCH)
@@ -1188,6 +1200,54 @@ function imageUrl(scene: MotionScene) {
 function clipUrl(scene: MotionScene) {
   return `/api/projects/${slug.value}/scene-review/${episodeId.value}/clip/${scene.id}?t=${cacheBuster.value}`
 }
+// Sketch Draw needs no motion prompts, so its scope is chosen here; it is the same saved value Scene Plan shows.
+const SCOPE_CHOICES = [{ mode: 'off', label: 'Off' }, { mode: 'opening', label: 'Opening' }, { mode: 'all', label: 'All scenes' }] as const
+const scopeSaving = ref(false)
+const openingSeconds = ref(60)
+watch(motionScope, scope => { if (scope.mode === 'opening') openingSeconds.value = scope.end_sec }, { immediate: true })
+async function saveMotionScope(mode: 'off' | 'opening' | 'all') {
+  const ep = episodeId.value
+  if (!ep) return
+  const seconds = Number(openingSeconds.value)
+  if (mode === 'opening' && !(Number.isFinite(seconds) && seconds > 0)) { showError('Enter the opening length in seconds, more than 0.'); return }
+  scopeSaving.value = true
+  try {
+    await put(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-scope`, {
+      motion_scope: mode === 'opening' ? { mode, end_sec: seconds } : { mode },
+    })
+    if (ep === episodeId.value) await loadReview()
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Could not save the motion scope')
+  } finally {
+    scopeSaving.value = false
+  }
+}
+
+/** Live clip work per scene: a single-scene job or a batch that names it. */
+const clipWorkByScene = computed(() => {
+  const work = new Map<string, string>()
+  for (const job of jobs.value as any[]) {
+    if (job.episode_id !== episodeId.value || !['queued', 'running', 'paused'].includes(job.status)) continue
+    if (job.type !== 'scene_clip_generate' && job.type !== 'scene_clips_batch') continue
+    const ids: unknown[] = job.type === 'scene_clip_generate' ? [job.params?.scene_id] : (job.params?.motion_scene_ids || [])
+    const pct = typeof job.progress === 'number' && job.progress > 0 && job.progress < 100 ? ` ${Math.round(job.progress)}%` : ''
+    const label = job.status === 'running' ? `Making clip…${pct}` : job.status === 'paused' ? 'Clip paused' : 'Clip queued'
+    for (const id of ids) if (typeof id === 'string') work.set(id, label)
+  }
+  return work
+})
+function clipWork(scene: MotionScene): string { return clipWorkByScene.value.get(scene.id) || '' }
+/** Why this scene's Generate Clip is off, in words; '' when it can run. */
+function generateBlocked(scene: MotionScene): string {
+  if (!scopedMotionSceneIds.value.has(scene.id)) return motionScope.value.mode === 'off'
+    ? `motion scope is Off for this episode (${isSketchDraw.value ? 'choose a scope above' : 'set it in Scene Plan → Visual timing & motion'})`
+    : `this scene is outside the episode's motion scope (${isSketchDraw.value ? 'choose a scope above' : 'Scene Plan → Visual timing & motion'})`
+  if (!scene.image_filename) return 'the scene image is missing'
+  if (sceneTooShort(scene)) return `shorter than this channel's ${animateMinSeconds.value}s animation minimum`
+  if (isSketchDraw.value ? !scene.approved : !scene.motion_prompt) return isSketchDraw.value ? 'approve the image in Scene Review first' : 'no motion prompt (add one in Scene Plan)'
+  if (!selectionReady.value) return generateStatus.value
+  return ''
+}
 function choiceLabel(scene: MotionScene) {
   if (scene.motion_choice === 'clip') return 'Clip approved'
   if (scene.motion_choice === 'still') return 'Still selected'
@@ -1567,6 +1627,15 @@ watch(episodeId, () => {
 .duration-mode strong { font-size: 12px; }
 .duration-mode small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; }
 .duration-mode:disabled label { cursor: not-allowed; opacity: .55; }
+.clip-working { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.clip-spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: clip-spin .9s linear infinite; }
+@keyframes clip-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .clip-spinner { animation: none; } }
+.choice-badge.working { color: var(--accent, #f59e0b); }
+.blocked-note { margin-top: 8px; font-size: .85rem; opacity: .8; }
+.scope-control { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.scope-opening { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; }
+.scope-num { width: 5.5rem; }
 .manual-duration { grid-column: 1 / -1; grid-row: 2; width: min(100%, 760px); }
 .manual-duration-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .manual-duration-heading span { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 700; }

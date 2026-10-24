@@ -18,7 +18,7 @@ export const MUSIC_EPISODE_FILENAME = 'music_episode.json'
 // ── Settings ────────────────────────────────────────────────────────────────
 
 export type JoinStyle = 'crossfade' | 'butt' | 'silence'
-export type SceneMode = 'per-song' | 'count' | 'every-minutes' | 'manual'
+export type SceneMode = 'per-song' | 'count' | 'every-minutes' | 'manual' | 'duration'
 export type OrderMode = 'random' | 'smooth' | 'manual'
 export type EpisodeResolution = '720p' | '1080p'
 /** Light sharpening of each 720p scene still while it is upscaled for a 1080p render. */
@@ -32,8 +32,12 @@ export interface EpisodeSettings {
   /** No-repeat window, counted in this channel's episodes. */
   no_repeat_episodes: number
   order: OrderMode
-  /** title_on_scene: each one-song scene's picture shows that song's title as lettering. */
-  scenes: { mode: SceneMode; count: number; minutes: number; title_on_scene: boolean }
+  /**
+   * title_on_scene: each one-song scene's picture shows that song's title as lettering (in 'duration'
+   * mode, only the song's first picture). min/max_seconds: the random picture length for 'duration',
+   * the one mode that may change picture mid-song.
+   */
+  scenes: { mode: SceneMode; count: number; minutes: number; min_seconds: number; max_seconds: number; title_on_scene: boolean }
   /** One theme for this episode; free text or a register/world name. */
   theme: string
   join: { style: JoinStyle; seconds: number }
@@ -56,7 +60,7 @@ export const STARTING_EPISODE_SETTINGS: EpisodeSettings = {
   target_length_s: 65 * 60,
   no_repeat_episodes: 30,
   order: 'smooth',
-  scenes: { mode: 'per-song', count: 12, minutes: 5, title_on_scene: false },
+  scenes: { mode: 'per-song', count: 12, minutes: 5, min_seconds: 10, max_seconds: 20, title_on_scene: false },
   theme: '',
   join: { style: 'crossfade', seconds: 3 },
   scene_change: { transition: 'crossfade', seconds: 4 },
@@ -99,9 +103,10 @@ export function normalizeEpisodeSettings(raw: unknown, base: EpisodeSettings = S
     no_repeat_episodes: Math.round(num(r.no_repeat_episodes, 0, 1000, base.no_repeat_episodes)),
     order: oneOf(r.order, ['random', 'smooth', 'manual'] as const, base.order),
     scenes: {
-      mode: oneOf(scenes.mode, ['per-song', 'count', 'every-minutes', 'manual'] as const, base.scenes.mode),
+      mode: oneOf(scenes.mode, ['per-song', 'count', 'every-minutes', 'manual', 'duration'] as const, base.scenes.mode),
       count: Math.round(num(scenes.count, 1, 500, base.scenes.count)),
       minutes: num(scenes.minutes, 0.5, 120, base.scenes.minutes),
+      ...sceneLengthRange(scenes, base.scenes),
       title_on_scene: typeof scenes.title_on_scene === 'boolean' ? scenes.title_on_scene : base.scenes.title_on_scene,
     },
     theme: text(r.theme, 120, base.theme),
@@ -134,7 +139,7 @@ export function settingsFromEpisodeDefaults(defaults: unknown): EpisodeSettings 
     pools: d.pools,
     target_length_s: d.target_length_s,
     no_repeat_episodes: d.no_repeat_episodes,
-    scenes: { mode: scenes.mode, count: scenes.count, minutes: scenes.minutes, title_on_scene: scenes.title_on_scene },
+    scenes: { mode: scenes.mode, count: scenes.count, minutes: scenes.minutes, min_seconds: scenes.min_seconds, max_seconds: scenes.max_seconds, title_on_scene: scenes.title_on_scene },
     theme: Array.isArray(d.scene_themes) ? d.scene_themes.find((t: unknown) => typeof t === 'string' && t.trim()) : undefined,
     join: d.join && typeof d.join === 'object' ? { style: d.join.style, seconds: d.join.seconds } : undefined,
     scene_change: d.scene_change,
@@ -501,6 +506,41 @@ export function groupScenes(
     groups[groups.length - 1]!.push(i)
   }
   return groups
+}
+
+export const SCENE_SECONDS_MIN = 2
+export const SCENE_SECONDS_MAX = 600
+
+/** The 'duration' range: each end clamped to 2–600 s, and the longest never shorter than the shortest. */
+function sceneLengthRange(raw: Record<string, unknown>, base: { min_seconds: number; max_seconds: number }) {
+  const min = num(raw.min_seconds, SCENE_SECONDS_MIN, SCENE_SECONDS_MAX, base.min_seconds)
+  return { min_seconds: min, max_seconds: Math.max(min, num(raw.max_seconds, SCENE_SECONDS_MIN, SCENE_SECONDS_MAX, base.max_seconds)) }
+}
+
+/**
+ * 'duration' mode: cut one song's span into pictures of a random length between min and max seconds.
+ * Each length comes from the song and the picture's place in it, so a rebuild or a reorder cuts the
+ * song the same way. A picture is never shorter than `min`: when what would be left after the next cut
+ * is under `min`, the song's last picture takes all of it (so it may run up to max + min). A song
+ * shorter than `min` is one picture.
+ */
+export function songPieces(key: string, start: number, end: number, min: number, max: number): Array<{ start: number; end: number }> {
+  const pieces: Array<{ start: number; end: number }> = []
+  let at = start
+  for (let k = 0; end - at > max && pieces.length < 10_000; k++) {
+    const unit = createHash('sha256').update(`${key}#${k}`).digest().readUInt32BE(0) / 0x1_0000_0000
+    const length = min + unit * (max - min)
+    if (end - at - length < min) break
+    pieces.push({ start: at, end: at + length })
+    at += length
+  }
+  pieces.push({ start: at, end: Math.max(at, end) })
+  return pieces
+}
+
+/** Picture `k` (from 0) of a song in 'duration' mode; the first keeps the song's own scene id. */
+export function scenePieceIdFor(song: SongRef, k: number): string {
+  return k === 0 ? sceneIdFor(song) : `ms-${createHash('sha256').update(`${songKey(song)}#${k}`).digest('hex').slice(0, 12)}`
 }
 
 /** Stable scene id: a picture follows the first song of its scene through reorders. */

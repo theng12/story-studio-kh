@@ -249,6 +249,33 @@ export async function writeContinuityConfig(
 }
 
 /**
+ * Set ONLY the episode's motion scope (Motion Review's Sketch Draw control, owner 2026-10-24). Every
+ * other field on disk — the rhythm above all — is kept exactly as it is. A missing file starts from the
+ * channel's defaults; a file that exists but does not parse is refused rather than overwritten.
+ */
+export async function writeEpisodeMotionScope(
+  slug: string, episodeId: string, value: unknown, mode: ContinuityMode = 'independent-stills',
+): Promise<ContinuityConfig> {
+  const motionScope = validateSetting(() => normalizeMotionScope(value))
+  const paths = await resolveEpisodePathsByCode(slug, episodeId)
+  const sidecarPath = path.join(paths.episode_dir, CONTINUITY_FILENAME)
+  return withLock(sidecarPath, async () => {
+    let current: Record<string, unknown>
+    try {
+      const parsed = JSON.parse(await fs.readFile(sidecarPath, 'utf-8'))
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('expected an object')
+      current = parsed
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') throw new Error(`continuity.json is malformed, so the motion scope was not saved: ${error?.message || error}`)
+      current = { ...buildContinuityConfig(undefined, mode) }
+    }
+    const next = { ...current, motion_scope: motionScope, updated_at: new Date().toISOString() } as unknown as ContinuityConfig
+    await fs.writeFile(sidecarPath, JSON.stringify(next, null, 2), 'utf-8')
+    return next
+  })
+}
+
+/**
  * The `pacing` already saved for this episode, or `undefined` when this
  * episode has none yet.
  *

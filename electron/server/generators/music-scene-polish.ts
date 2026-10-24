@@ -273,7 +273,7 @@ async function buildMusicScenePolishRequest(
       style: view.visual_style,
       never,
       scenes: scenes.map(scene => {
-        const title = doc.settings.scenes.title_on_scene && scene.song_keys.length === 1 ? titleOf.get(scene.song_keys[0]!) : undefined
+        const title = doc.settings.scenes.title_on_scene && scene.title_on_scene ? titleOf.get(scene.song_keys[0]!) : undefined
         return { id: scene.id, prompt: scene.prompt, songs: scene.song_keys.map(k => titleOf.get(k) || k), ...(title ? { title } : {}) }
       }),
     }),

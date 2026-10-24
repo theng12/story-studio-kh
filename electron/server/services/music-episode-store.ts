@@ -28,6 +28,8 @@ import {
   buildScenePrompt,
   buildTimeline,
   groupScenes,
+  scenePieceIdFor,
+  songPieces,
   normalizeEpisodeSettings,
   sceneIdFor,
   settingsFromEpisodeDefaults,
@@ -305,6 +307,8 @@ export interface EpisodeSceneView {
   start_sec: number
   end_sec: number
   song_keys: string[]
+  /** This picture may carry its song's title: a one-song scene, or a song's first picture in 'duration' mode. */
+  title_on_scene: boolean
   prompt: string
   prompt_is_custom: boolean
   image: 'ready' | 'stale' | 'missing'
@@ -376,29 +380,47 @@ export function planEpisode(doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, Bui
   const timeline = built
     ? { starts: built.starts, total: built.total_sec, join_seconds: built.join_seconds }
     : buildTimeline(rows.map(song => song?.duration_s || 0), doc.settings.join)
-  const breaks = new Set(doc.scene_breaks.map(key => keys.indexOf(key)).filter(i => i > 0))
-  const groups = groupScenes(timeline.starts, timeline.total, doc.settings.scenes, breaks)
-  const settingOf = assignSceneSettings(groups.map(group => sceneIdFor(doc.songs[group[0]!]!)), sceneSettings)
-  const scenes = groups.map((group, index) => {
+  // Every mode but 'duration' groups whole songs; 'duration' cuts each song into pictures of its own.
+  type Slot = { id: string; songs: number[]; start: number; end: number; titled: boolean }
+  let slots: Slot[]
+  const { scenes: sceneMode } = doc.settings
+  if (sceneMode.mode === 'duration') {
+    slots = doc.songs.flatMap((ref, i) => songPieces(keys[i]!, timeline.starts[i] ?? 0, timeline.starts[i + 1] ?? timeline.total,
+      sceneMode.min_seconds, sceneMode.max_seconds).map((piece, k) => ({
+      id: scenePieceIdFor(ref, k), songs: [i], start: piece.start, end: piece.end, titled: k === 0,
+    })))
+  } else {
+    const breaks = new Set(doc.scene_breaks.map(key => keys.indexOf(key)).filter(i => i > 0))
+    const groups = groupScenes(timeline.starts, timeline.total, sceneMode, breaks)
+    slots = groups.map((group, index) => ({
+      id: sceneIdFor(doc.songs[group[0]!]!), songs: group, start: timeline.starts[group[0]!] ?? 0,
+      end: index + 1 < groups.length ? timeline.starts[groups[index + 1]![0]!]! : timeline.total,
+      // A picture shared by several songs would name only the first one, so it stays text-free.
+      titled: group.length === 1,
+    }))
+  }
+  const settingOf = assignSceneSettings(slots.map(slot => slot.id), sceneSettings)
+  const scenes = slots.map((slot, index) => {
+    const group = slot.songs
     const first = doc.songs[group[0]!]!
-    const id = sceneIdFor(first)
+    const id = slot.id
     const firstSong = rows[group[0]!]
     const custom = doc.prompt_overrides[id]?.trim()
     return {
       id,
       scene_index: index + 1,
-      start_sec: timeline.starts[group[0]!] ?? 0,
-      end_sec: index + 1 < groups.length ? timeline.starts[groups[index + 1]![0]!]! : timeline.total,
+      start_sec: slot.start,
+      end_sec: slot.end,
       song_keys: group.map(i => keys[i]!),
       titles: group.map(i => rows[i]?.title || doc.songs[i]!.song_id),
+      title_on_scene: slot.titled,
       prompt: custom || buildScenePrompt({
         sceneIdea: firstSong?.scene_idea,
         title: firstSong?.title || first.song_id,
         theme: doc.settings.theme,
         setting: settingOf[index],
         mood: firstSong?.mood,
-        // A picture shared by several songs would name only the first one, so it stays text-free.
-        titleOnScene: doc.settings.scenes.title_on_scene && group.length === 1 && !!firstSong?.title,
+        titleOnScene: doc.settings.scenes.title_on_scene && slot.titled && !!firstSong?.title,
       }),
       prompt_is_custom: !!custom,
       // Drives "every '<theme>' scene" effects (feat/music-effects): the episode theme, else the song's.
@@ -449,7 +471,8 @@ export async function buildEpisodeView(slug: string, code: string): Promise<Epis
   }
   if (!doc) return view
   const { timeline, scenes } = planEpisode(doc, ctx.byKey, channel.scene_settings)
-  const sceneOfKey = new Map(scenes.flatMap(scene => scene.song_keys.map(key => [key, scene.id] as const)))
+  // A song cut into several pictures points at its first one.
+  const sceneOfKey = new Map(scenes.flatMap(scene => scene.song_keys.map(key => [key, scene.id] as const)).reverse())
   doc.songs.forEach((ref, i) => {
     const song = ctx.byKey.get(songKey(ref))
     if (!song) { view.unresolved_songs.push(songKey(ref)); return }
@@ -480,6 +503,7 @@ export async function buildEpisodeView(slug: string, code: string): Promise<Epis
       start_sec: scene.start_sec,
       end_sec: scene.end_sec,
       song_keys: scene.song_keys,
+      title_on_scene: scene.title_on_scene,
       prompt: scene.prompt,
       prompt_is_custom: scene.prompt_is_custom,
       image: !hasFile ? 'missing' : stale ? 'stale' : 'ready',
