@@ -13,6 +13,8 @@ const {
   STARTING_EPISODE_SETTINGS, normalizeEpisodeSettings, sceneIdFor, scenePieceIdFor, settingsFromEpisodeDefaults, songKey, songPieces,
 } = await import('../services/music-episode.js')
 const { planEpisode } = await import('../services/music-episode-store.js')
+const { inspectScenePromptIntegrity } = await import('../services/scene-prompt-integrity.js')
+const { readFileSync } = await import('node:fs')
 
 const lengths = (pieces: Array<{ start: number; end: number }>) => pieces.map(p => p.end - p.start)
 
@@ -109,4 +111,25 @@ describe('planning an episode', () => {
     assert.equal(scenes.length, 3)
     assert.deepEqual(scenes.map(s => s.id), songs.map(s => sceneIdFor({ pool_id: s.pool_id, song_id: s.id })))
   })
+
+  test('many pictures and few settings still give every picture its own prompt (Coffee Jazz CJ0001)', () => {
+    const settings = ['Rainy window booth', 'Greenhouse café full of plants', 'Lakeside wooden café in autumn']
+    const d = doc({ mode: 'duration', min_seconds: 4, max_seconds: 6 })
+    const { scenes } = planEpisode(d as any, byKey, settings)
+    assert.ok(scenes.length > settings.length * 4, `${scenes.length} pictures for ${settings.length} settings`)
+    const integrity = inspectScenePromptIntegrity(scenes.map(s => ({ id: s.id, visual_prompt: s.prompt })) as any)
+    assert.deepEqual([integrity.complete, integrity.duplicate_ids], [true, []], 'no two pictures share a prompt')
+    assert.deepEqual(planEpisode(d as any, byKey, settings).scenes.map(s => s.prompt), scenes.map(s => s.prompt), 'a rebuild gives the same prompts')
+  })
+
+  test('one-per-song prompts are unchanged by the views', () => {
+    const { scenes } = planEpisode(doc({ mode: 'per-song' }) as any, byKey, ['Rainy window booth'])
+    assert.ok(scenes.every(s => !/view|close-up|overhead/.test(s.prompt)), scenes.map(s => s.prompt).join(' | '))
+  })
+})
+
+test('Scene Review does not hold a music episode on a subtitle timeline it can never have', () => {
+  const route = readFileSync(new URL('../routes/scene-review.ts', import.meta.url), 'utf8')
+  assert.match(route, /const musicEpisode = isMusicEpisodeDir\(paths\.episode_dir\)/)
+  assert.match(route, /complete: musicEpisode \|\| \(integrity\.missing_sections\.length === 0/)
 })

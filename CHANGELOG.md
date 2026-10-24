@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.355 — 2026-10-24
+
+- Music episodes, "By duration" scenes: every picture now gets its own prompt. A long episode has more pictures than the channel has scene settings, so a setting could repeat word for word and image generation refused the duplicates; each picture now also gets its own viewpoint (a wide view, a table close-up, a window seat…) so no two prompts in an episode are the same. Rebuild the episode in Episode Builder to pick this up.
+- Scene Review no longer holds a music episode as unfinished for lacking a subtitle timeline: a music episode has no narration to caption.
+
 ## v1.4.354 — 2026-10-24
 
 - Motion Review: with Sketch Draw, choose which scenes get motion right on the page — Off, the opening, or all scenes. Sketch Draw needs no motion prompts, so it no longer depends on Scene Plan; it is the same one setting Scene Plan shows, and changing it never touches the episode's rhythm. Image-to-video still takes its scope from Scene Plan, where its prompts are written.

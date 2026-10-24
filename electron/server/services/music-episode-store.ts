@@ -28,6 +28,7 @@ import {
   buildScenePrompt,
   buildTimeline,
   groupScenes,
+  distinctView,
   scenePieceIdFor,
   songPieces,
   normalizeEpisodeSettings,
@@ -400,6 +401,7 @@ export function planEpisode(doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, Bui
     }))
   }
   const settingOf = assignSceneSettings(slots.map(slot => slot.id), sceneSettings)
+  const usedViews = new Set<string>()
   const scenes = slots.map((slot, index) => {
     const group = slot.songs
     const first = doc.songs[group[0]!]!
@@ -420,6 +422,10 @@ export function planEpisode(doc: MusicEpisodeDoc, byKey: ReadonlyMap<string, Bui
         theme: doc.settings.theme,
         setting: settingOf[index],
         mood: firstSong?.mood,
+        // Only 'duration' needs it: its pictures outnumber the settings, so a setting alone repeats.
+        view: sceneMode.mode === 'duration'
+          ? distinctView(slot.id, `${settingOf[index] || firstSong?.scene_idea || ''}\u0000${firstSong?.mood || ''}`, usedViews)
+          : undefined,
         titleOnScene: doc.settings.scenes.title_on_scene && slot.titled && !!firstSong?.title,
       }),
       prompt_is_custom: !!custom,

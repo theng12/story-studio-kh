@@ -536,14 +536,18 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const cfg = await pm.getConfig(slug).catch(() => null)
     const captionGapMode = safetyModeFromConfig(cfg, 'caption_gap')
     const planningTranscript = await inspectExistingTranscriptSource(paths.subtitles_dir, episodeId)
+    const { isMusicEpisodeDir } = await import('../services/music-episode-store.js')
+    const musicEpisode = isMusicEpisodeDir(paths.episode_dir)
     const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId, {
       max_cue_gap_sec: allowedSubtitleCueGapSec(),
       cue_source_path: planningTranscript.path,
     }).then(integrity => ({
       ...integrity,
       caption_gap_mode: captionGapMode,
-      complete: integrity.missing_sections.length === 0
-        && (captionGapMode !== 'block' || !integrity.blocking_cue_gaps?.length),
+      // A music episode has no narration to caption, so no subtitle timeline can be missing.
+      ...(musicEpisode ? { missing_sections: [], blocking_cue_gaps: [], not_applicable: 'music episode: no narration' } : {}),
+      complete: musicEpisode || (integrity.missing_sections.length === 0
+        && (captionGapMode !== 'block' || !integrity.blocking_cue_gaps?.length)),
     }))
     let motionScope: Awaited<ReturnType<typeof resolveEpisodeMotionSceneIds>> = {
       motion_scope: { mode: 'off' },

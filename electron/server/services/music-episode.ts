@@ -607,8 +607,32 @@ export function sceneTitleClause(title: string): string {
  * `titleOnScene` the picture shows the song's title as lettering instead of "no text";
  * "no people" stays.
  */
+/**
+ * 'duration' mode cuts a song into many pictures, more than a channel has settings, so a setting alone
+ * would repeat word for word and the image step refuses duplicate prompts (Coffee Jazz CJ0001,
+ * 2026-10-24). Each picture also gets one of these viewpoints; together they keep every prompt distinct.
+ */
+export const SCENE_VIEWS = [
+  'wide establishing view', 'close-up of a table detail', 'view from a window seat', 'view across the counter',
+  'low angle view from the floor', 'overhead view of a tabletop', 'view through the doorway', 'corner view with soft depth of field',
+  'view toward the window light', 'detail of cups and saucers', 'view along the seating', 'view of the shelves and decor',
+] as const
+
+/** A view for picture `sceneId` not already used with `base` in this episode (deterministic; a full set adds a number). */
+export function distinctView(sceneId: string, base: string, used: Set<string>): string {
+  const start = createHash('sha256').update(sceneId).digest().readUInt32BE(0) % SCENE_VIEWS.length
+  for (let k = 0; k < SCENE_VIEWS.length; k++) {
+    const view = SCENE_VIEWS[(start + k) % SCENE_VIEWS.length]!
+    if (!used.has(`${base}\u0000${view}`)) { used.add(`${base}\u0000${view}`); return view }
+  }
+  for (let n = 2; ; n++) {
+    const view = `${SCENE_VIEWS[start]} ${n}`
+    if (!used.has(`${base}\u0000${view}`)) { used.add(`${base}\u0000${view}`); return view }
+  }
+}
+
 export function buildScenePrompt(input: {
-  sceneIdea?: string; title: string; theme?: string; style?: string; titleOnScene?: boolean; setting?: string; mood?: string
+  sceneIdea?: string; title: string; theme?: string; style?: string; titleOnScene?: boolean; setting?: string; mood?: string; view?: string
 }): string {
   const setting = input.setting?.trim().replace(/[.\s]+$/, '')
   const idea = setting || input.sceneIdea?.trim().replace(/[.\s]+$/, '')
@@ -616,6 +640,7 @@ export function buildScenePrompt(input: {
   const titled = !!input.titleOnScene && !!input.title.trim()
   return [
     idea,
+    input.view?.trim() || '',
     setting && input.mood?.trim() ? `${input.mood.trim().toLowerCase()} atmosphere` : '',
     input.theme?.trim() ? `${input.theme.trim()} mood` : '',
     input.style?.trim() || '',
