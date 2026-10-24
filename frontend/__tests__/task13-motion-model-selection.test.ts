@@ -27,7 +27,7 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     const useApi = () => ({ get: async () => ({ scenes: [], stats: null }), post: async () => ({}), put: async () => ({}) })
     const useToast = () => ({ success: () => undefined, error: () => undefined, info: () => undefined })
     const useConfirm = () => ({ ask: async () => true })
-    const useJobs = () => ({ isJobActiveFor: () => false })
+    const useJobs = () => ({ isJobActiveFor: () => false, jobs: { value: [] } })
     const useGenStudioMediaModels = () => ({ videoModels: globalThis.__task13VideoModels, refresh: async () => undefined })
     const usePresets = options => ({ apply: options.apply })
     const HOLD_MAX_SECONDS = 60

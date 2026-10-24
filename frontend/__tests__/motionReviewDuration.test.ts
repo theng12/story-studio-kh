@@ -27,7 +27,7 @@ async function loadPage(): Promise<Component> {
     const useApi = () => globalThis.__mrApi
     const useToast = () => ({ success: () => {}, error: error => { throw error }, info: () => {} })
     const useConfirm = () => ({ ask: async () => true })
-    const useJobs = () => ({ isJobActiveFor: () => false })
+    const useJobs = () => ({ isJobActiveFor: () => false, jobs: { value: [] } })
     const useGenStudioMediaModels = () => ({ videoModels: globalThis.__mrModels, refresh: async () => {} })
     const usePresets = options => { globalThis.__mrPreset = options; return {} }
   `

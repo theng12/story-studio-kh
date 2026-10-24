@@ -174,6 +174,9 @@ test('one Use Clip expression and stale reason are shared with the approval rule
 test('skip reasons are named and the per-scene Generate action respects the animate floor', () => {
   assert.match(source, /skipped_reasons/)
   assert.match(source, /sceneTooShort\(scene\)/)
-  assert.match(source, /Shorter than this channel's \$\{animateMinSeconds\}s animation minimum/)
+  // The floor is the disabled button's stated reason (1.4.354: every disabled Generate Clip says why).
+  assert.match(source, /if \(sceneTooShort\(scene\)\) return `shorter than this channel's \$\{animateMinSeconds\.value\}s animation minimum`/)
+  assert.match(source, /:disabled="!!generateBlocked\(scene\)/)
+  assert.match(source, /:title="generateBlocked\(scene\) \|\| undefined"/)
   assert.match(source, /function sceneTooShort\(scene: MotionScene\)/)
 })
