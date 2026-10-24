@@ -26,6 +26,7 @@
             {{ filter.label }} <span>{{ filter.count }}</span>
           </button>
         </div>
+        <p v-if="filters.length > 5" class="rlm-scroll-hint" aria-hidden="true">Scroll for more formats →</p>
       </div>
 
       <div v-if="loading" class="rlm-status">Loading thumbnail recipes…</div>
@@ -50,14 +51,24 @@
             @keydown.space.prevent="draftId = recipe.id"
           >
             <div class="rlm-image-wrap">
-              <img :src="previewSrc(recipe)" :alt="previewAlt(recipe, previewIndex(recipe.id))" loading="lazy" decoding="async" />
-              <div v-if="recipe.previewImages && recipe.previewImages.length > 1" class="rlm-preview-dots" aria-label="Recipe examples">
-                <button v-for="(_, index) in recipe.previewImages" :key="index" type="button" :class="{ active: previewIndex(recipe.id) === index }" :aria-label="`Show example ${index + 1}`" @click.stop="setPreview(recipe.id, index)" />
+              <img v-if="hasGeneratedExample(recipe, previewIndex(recipe.id))" :src="exampleSrc(recipe, previewIndex(recipe.id))!" :alt="previewAlt(recipe, previewIndex(recipe.id))" loading="lazy" decoding="async" />
+              <div v-else class="rlm-no-example">
+                <strong>No example yet</strong>
+                <span>{{ recipe.name }}</span>
               </div>
-              <button type="button" class="rlm-favorite" :class="{ active: favoriteIds.has(recipe.id) }" :aria-label="favoriteIds.has(recipe.id) ? `Remove ${recipe.name} from favorites` : `Add ${recipe.name} to favorites`" :title="favoriteIds.has(recipe.id) ? 'Remove from favorites' : 'Add to favorites'" @click.stop="toggleFavorite(recipe.id)">
-                {{ favoriteIds.has(recipe.id) ? '★' : '☆' }}
-              </button>
               <span v-if="draftId === recipe.id" class="rlm-selected-mark">Selected</span>
+            </div>
+            <!-- Controls sit below the example, never over it: the example is a
+                 finished thumbnail with its own headline drawn in, and an
+                 overlay hides the very text it is meant to show. -->
+            <div class="rlm-card-controls">
+              <button type="button" class="rlm-favorite" :class="{ active: favoriteIds.has(recipe.id) }" :aria-pressed="favoriteIds.has(recipe.id)" :aria-label="favoriteIds.has(recipe.id) ? `Remove ${recipe.name} from favorites` : `Add ${recipe.name} to favorites`" :title="favoriteIds.has(recipe.id) ? 'Remove from favorites' : 'Add to favorites'" @click.stop="toggleFavorite(recipe.id)">
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 2.6l2.3 4.8 5.2.7-3.8 3.6 1 5.2-4.7-2.5-4.7 2.5 1-5.2L2.5 8.1l5.2-.7z" /></svg>
+              </button>
+              <span v-if="!recipe.builtin" class="rlm-copy-badge">Your copy</span>
+              <div v-if="recipe.previewImages && recipe.previewImages.length > 1" class="rlm-preview-dots" role="group" :aria-label="`${recipe.name} examples`">
+                <button v-for="(_, index) in recipe.previewImages" :key="index" type="button" :class="{ active: previewIndex(recipe.id) === index }" :aria-label="`Show example ${index + 1} of ${recipe.previewImages!.length}`" :aria-current="previewIndex(recipe.id) === index" @click.stop="setPreview(recipe.id, index)" />
+              </div>
             </div>
             <div class="rlm-card-copy">
               <div class="rlm-card-title">
@@ -80,7 +91,8 @@
 
       <footer class="rlm-footer">
         <div class="rlm-selection">
-          <img v-if="selectedRecipe" :src="previewSrc(selectedRecipe)" alt="" />
+          <img v-if="footerExample(selectedRecipe, selectedRecipe ? previewIndex(selectedRecipe.id) : 0)" :src="footerExample(selectedRecipe, selectedRecipe ? previewIndex(selectedRecipe.id) : 0)!" alt="" />
+          <div v-else-if="selectedRecipe" class="rlm-selection-empty" aria-hidden="true">▧</div>
           <div>
             <span>{{ selectedRecipe ? previewStatus(selectedRecipe, previewIndex(selectedRecipe.id)) : 'Choose a recipe' }}</span>
             <strong>{{ selectedRecipe?.name || 'No recipe selected' }}</strong>
@@ -100,6 +112,8 @@ interface ThumbnailRecipe {
   id: string
   name: string
   description: string
+  /** False for the customer's own fork or saved copy — badged "Your copy". */
+  builtin?: boolean
   category?: string
   tags?: string[]
   previewImages?: string[]
@@ -159,22 +173,31 @@ const selectedRecipe = computed(() => recipes.value.find(recipe => recipe.id ===
 
 function previewIndex(id: string): number { return previews.value[id] || 0 }
 function setPreview(id: string, index: number): void { previews.value = { ...previews.value, [id]: index } }
-function previewSrc(recipe: ThumbnailRecipe): string {
-  const images = recipe.previewImages || []
-  return images[previewIndex(recipe.id)] || `/api/thumbnail-templates/${encodeURIComponent(recipe.id)}/preview.png`
+/**
+ * The declared example at `index`, or nothing at all.
+ *
+ * There is deliberately no fallback: the composer's synthetic portrait route
+ * paints a dark stand-in with placeholder text, which on a card reads as a real
+ * example of a recipe that has none. A card with no example says so instead.
+ */
+function exampleSrc(recipe: ThumbnailRecipe, index = 0): string | null {
+  return recipe.previewImages?.[index] || null
 }
 function hasGeneratedExample(recipe: ThumbnailRecipe, index = 0): boolean {
   return Boolean(recipe.previewImages?.[index])
 }
 function previewAlt(recipe: ThumbnailRecipe, index = 0): string {
-  if (!hasGeneratedExample(recipe, index)) return `${recipe.name} layout placeholder; no generated example available`
+  if (!hasGeneratedExample(recipe, index)) return `${recipe.name} has no example image yet`
   const count = recipe.previewImages?.length || 0
   return count > 1
     ? `${recipe.name} generated thumbnail example ${index + 1} of ${count}`
     : `${recipe.name} generated thumbnail example`
 }
 function previewStatus(recipe: ThumbnailRecipe, index = 0): string {
-  return hasGeneratedExample(recipe, index) ? 'Generated examples included' : 'Layout placeholder · no generated examples yet'
+  return hasGeneratedExample(recipe, index) ? 'Generated examples included' : 'No example yet'
+}
+function footerExample(recipe: ThumbnailRecipe | null, index = 0): string | null {
+  return recipe ? exampleSrc(recipe, index) : null
 }
 function readStoredIds(key: string): string[] {
   try {
@@ -229,10 +252,21 @@ watch(() => props.selectedRecipeId, id => { if (id && recipes.value.some(recipe 
 .rlm-close { width:36px; height:36px; border:1px solid var(--border); border-radius:50%; background:var(--bg-tertiary); color:var(--text-secondary); cursor:pointer; font-size:22px; line-height:1; }.rlm-close:hover { border-color:var(--accent); color:var(--text-primary); }
 .rlm-tools { display:grid; gap:10px; }.rlm-search { display:flex; min-height:44px; align-items:center; gap:10px; padding:0 13px; border:1px solid var(--border); border-radius:11px; background:var(--bg-primary); color:var(--text-muted); }.rlm-search:focus-within { border-color:var(--accent); box-shadow:var(--focus-ring); }.rlm-search input { width:100%; border:0; outline:0; background:transparent; color:var(--text-primary); font:inherit; }
 .rlm-filter-row { display:flex; gap:7px; overflow-x:auto; padding-bottom:2px; scrollbar-width:thin; }.rlm-filter { display:inline-flex; flex:0 0 auto; align-items:center; gap:6px; padding:7px 10px; border:1px solid var(--border); border-radius:999px; background:var(--bg-primary); color:var(--text-secondary); cursor:pointer; font:inherit; font-size:var(--font-xs); }.rlm-filter span { color:var(--text-muted); font-size:var(--font-xs); }.rlm-filter:hover,.rlm-filter.active { border-color:color-mix(in srgb,var(--accent) 60%,var(--border)); color:var(--text-primary); }.rlm-filter.active { background:var(--accent-dim); color:var(--accent); }
+.rlm-scroll-hint { margin:-4px 0 0; color:var(--text-muted); font-size:var(--font-xs); letter-spacing:.02em; }
 .rlm-status,.rlm-empty { display:flex; min-height:220px; align-items:center; justify-content:center; flex-direction:column; gap:8px; color:var(--text-muted); text-align:center; }.rlm-empty strong { color:var(--text-primary); }.rlm-results-head { display:flex; align-items:baseline; gap:6px; color:var(--text-muted); font-size:var(--font-xs); }.rlm-results-head strong { color:var(--text-primary); font-size:12px; }
 .rlm-grid { display:grid; flex:1; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px; align-content:start; max-height:min(510px,calc(100vh - 330px)); overflow-y:auto; padding:2px 5px 8px 2px; scrollbar-width:thin; }.rlm-card { min-width:0; overflow:hidden; border:1px solid var(--border); border-radius:12px; background:var(--bg-primary); cursor:pointer; transition:border-color .16s ease,transform .16s ease,box-shadow .16s ease; }.rlm-card:hover { transform:translateY(-2px); border-color:var(--border-light); box-shadow:0 12px 30px rgba(0,0,0,.16); }.rlm-card:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }.rlm-card.selected { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent),0 10px 28px var(--accent-dim); }
-.rlm-image-wrap { position:relative; aspect-ratio:16/9; overflow:hidden; background:var(--bg-tertiary); }.rlm-image-wrap>img { width:100%; height:100%; display:block; object-fit:cover; transition:transform .2s ease; }.rlm-card:hover .rlm-image-wrap>img { transform:scale(1.025); }.rlm-favorite { position:absolute; top:7px; right:7px; width:30px; height:30px; border:1px solid rgba(255,255,255,.24); border-radius:50%; background:rgba(10,12,18,.72); color:#fff; cursor:pointer; font-size:16px; backdrop-filter:blur(8px); }.rlm-favorite.active { color:var(--accent); }.rlm-selected-mark { position:absolute; left:7px; bottom:7px; padding:4px 7px; border-radius:999px; background:var(--accent); color:var(--accent-on); font-size:var(--font-xs); font-weight:800; letter-spacing:.06em; text-transform:uppercase; }.rlm-preview-dots { position:absolute; right:8px; bottom:8px; display:flex; gap:4px; }.rlm-preview-dots button { width:7px; height:7px; padding:0; border:0; border-radius:50%; background:rgba(255,255,255,.55); cursor:pointer; }.rlm-preview-dots button.active { background:#fff; transform:scale(1.25); }
+.rlm-image-wrap { position:relative; display:grid; aspect-ratio:16/9; overflow:hidden; background:var(--bg-tertiary); }.rlm-image-wrap>img { width:100%; height:100%; display:block; object-fit:cover; transition:transform .2s ease; }.rlm-card:hover .rlm-image-wrap>img { transform:scale(1.025); }
+/* Honest empty state: a recipe with no declared example says so instead of
+   showing the composer's synthetic portrait, which reads as a real example. */
+.rlm-no-example { display:flex; height:100%; flex-direction:column; align-items:center; justify-content:center; gap:4px; padding:12px; background:repeating-linear-gradient(135deg,var(--bg-secondary) 0 9px,var(--bg-tertiary) 9px 18px); text-align:center; }.rlm-no-example strong { color:var(--text-secondary); font-size:var(--font-xs); font-weight:750; letter-spacing:.06em; text-transform:uppercase; }.rlm-no-example span { display:-webkit-box; overflow:hidden; color:var(--text-muted); font-size:var(--font-xs); line-height:1.4; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+/* Controls live under the example, never across it — an overlay would cover the
+   headline the example exists to show. */
+.rlm-card-controls { display:flex; min-height:34px; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--border); background:var(--bg-secondary); }
+.rlm-favorite { display:grid; width:26px; height:26px; flex:0 0 auto; place-items:center; padding:0; border:1px solid var(--border); border-radius:50%; background:var(--bg-primary); color:var(--text-muted); cursor:pointer; }.rlm-favorite svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linejoin:round; }.rlm-favorite:hover { border-color:var(--accent); color:var(--accent); }.rlm-favorite.active { border-color:color-mix(in srgb,var(--accent) 65%,var(--border)); background:var(--accent-dim); color:var(--accent); }.rlm-favorite.active svg { fill:currentColor; }
+.rlm-copy-badge { padding:3px 7px; border:1px solid color-mix(in srgb,var(--accent) 45%,var(--border)); border-radius:999px; background:var(--accent-dim); color:var(--accent); font-size:var(--font-xs); font-weight:800; letter-spacing:.06em; text-transform:uppercase; white-space:nowrap; }
+.rlm-selected-mark { position:absolute; left:7px; bottom:7px; padding:4px 7px; border-radius:999px; background:var(--accent); color:var(--accent-on); font-size:var(--font-xs); font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
+.rlm-preview-dots { display:flex; gap:5px; margin-left:auto; }.rlm-preview-dots button { width:9px; height:9px; padding:0; border:1px solid var(--border-light); border-radius:50%; background:var(--bg-primary); cursor:pointer; }.rlm-preview-dots button:hover { border-color:var(--accent); }.rlm-preview-dots button.active { border-color:var(--accent); background:var(--accent); transform:scale(1.15); }
 .rlm-card-copy { display:grid; gap:7px; padding:11px; }.rlm-card-title { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }.rlm-card-title h3 { margin:0; font-size:13px; line-height:1.35; }.rlm-card-title>span { flex:0 0 auto; color:var(--accent); font-size:var(--font-xs); font-weight:750; letter-spacing:.04em; text-transform:uppercase; }.rlm-card-copy>p { display:-webkit-box; min-height:34px; margin:0; overflow:hidden; color:var(--text-secondary); font-size:var(--font-xs); line-height:1.45; -webkit-box-orient:vertical; -webkit-line-clamp:2; }.rlm-tags { display:flex; gap:5px; overflow:hidden; }.rlm-tags span { flex:0 0 auto; padding:3px 6px; border-radius:999px; background:var(--bg-tertiary); color:var(--text-muted); font-size:var(--font-xs); }
-.rlm-footer { display:flex; align-items:center; justify-content:space-between; gap:14px; padding-top:14px; border-top:1px solid var(--border); }.rlm-selection { display:flex; min-width:0; align-items:center; gap:10px; }.rlm-selection img { width:64px; aspect-ratio:16/9; object-fit:cover; border:1px solid var(--border); border-radius:7px; }.rlm-selection div { display:flex; min-width:0; flex-direction:column; gap:2px; }.rlm-selection span { color:var(--text-muted); font-size:var(--font-xs); letter-spacing:.07em; text-transform:uppercase; }.rlm-selection strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }.rlm-actions { display:flex; flex:0 0 auto; gap:8px; }
+.rlm-footer { display:flex; align-items:center; justify-content:space-between; gap:14px; padding-top:14px; border-top:1px solid var(--border); }.rlm-selection { display:flex; min-width:0; align-items:center; gap:10px; }.rlm-selection img,.rlm-selection-empty { width:64px; aspect-ratio:16/9; object-fit:cover; border:1px solid var(--border); border-radius:7px; }.rlm-selection-empty { display:grid; place-items:center; background:var(--bg-tertiary); color:var(--text-muted); font-size:18px; }.rlm-selection div { display:flex; min-width:0; flex-direction:column; gap:2px; }.rlm-selection span { color:var(--text-muted); font-size:var(--font-xs); letter-spacing:.07em; text-transform:uppercase; }.rlm-selection strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }.rlm-actions { display:flex; flex:0 0 auto; gap:8px; }
 @media (max-width:720px) { .rlm-shell { min-height:calc(100vh - 72px); }.rlm-grid { grid-template-columns:repeat(2,minmax(0,1fr)); max-height:calc(100vh - 350px); }.rlm-footer { align-items:stretch; flex-direction:column; }.rlm-actions .btn { flex:1; } } @media (max-width:480px) { .rlm-grid { grid-template-columns:1fr; } }
 </style>

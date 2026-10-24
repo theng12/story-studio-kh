@@ -9,7 +9,7 @@
     </div>
 
     <div class="recipe-picker-current" :class="{ empty: !activeRecipe }">
-      <img v-if="activeRecipe" :src="previewSrc(activeRecipe)" :alt="previewAlt(activeRecipe)" />
+      <img v-if="activeRecipe && hasGeneratedExample(activeRecipe)" :src="exampleSrc(activeRecipe)!" :alt="previewAlt(activeRecipe)" />
       <div v-else class="recipe-picker-placeholder" aria-hidden="true">▧</div>
       <div class="recipe-picker-current-copy">
         <span>{{ activeRecipe?.category || 'No recipe selected' }}</span>
@@ -42,6 +42,8 @@ interface ThumbnailRecipe {
   id: string
   name: string
   description: string
+  /** False for the customer's own fork or saved copy. */
+  builtin?: boolean
   category?: string
   tags?: string[]
   previewImages?: string[]
@@ -62,21 +64,22 @@ const libraryOpen = ref(false)
 const activeRecipe = computed(() => recipes.value.find(recipe => recipe.id === props.selectedRecipeId) || null)
 const recipeCount = computed(() => recipes.value.length)
 
-function previewSrc(recipe: ThumbnailRecipe): string {
-  return recipe.previewImages?.[0] || `/api/thumbnail-templates/${encodeURIComponent(recipe.id)}/preview.png`
+/** The declared example, or nothing. No synthetic-portrait fallback: it reads as a real example. */
+function exampleSrc(recipe: ThumbnailRecipe): string | null {
+  return recipe.previewImages?.[0] || null
 }
 function hasGeneratedExample(recipe: ThumbnailRecipe, index = 0): boolean {
   return Boolean(recipe.previewImages?.[index])
 }
 function previewAlt(recipe: ThumbnailRecipe, index = 0): string {
-  if (!hasGeneratedExample(recipe, index)) return `${recipe.name} layout placeholder; no generated example available`
+  if (!hasGeneratedExample(recipe, index)) return `${recipe.name} has no example image yet`
   const count = recipe.previewImages?.length || 0
   return count > 1
     ? `${recipe.name} generated thumbnail example ${index + 1} of ${count}`
     : `${recipe.name} generated thumbnail example`
 }
 function previewStatus(recipe: ThumbnailRecipe): string {
-  return hasGeneratedExample(recipe) ? 'Generated examples included' : 'Layout placeholder · no generated examples yet'
+  return hasGeneratedExample(recipe) ? 'Generated examples included' : 'No example yet'
 }
 function selectRecipe(recipe: ThumbnailRecipe): void {
   libraryOpen.value = false

@@ -41,6 +41,7 @@ import {
 } from '../content-packs/registry.js'
 import { contentPackDocumentToThumbnailTemplate } from '../content-packs/legacy-adapters.js'
 import type { ContentPackDocument } from '../content-packs/types.js'
+import { compareVersionStrings } from '../content-packs/version-order.js'
 import { registryOptionsForCurrentJob, resolveProjectContentPinsForKinds } from '../content-packs/project-pins.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -131,7 +132,46 @@ function signedTemplate(entry: CatalogEntry<ContentPackDocument>): ThumbnailTemp
       ? [`/api/content-packs/${encodeURIComponent(entry.pack!.pack_id)}/${encodeURIComponent(entry.pack!.version)}/assets/${encodeURIComponent(asset.asset_id)}`]
       : []
   })
-  return contentPackDocumentToThumbnailTemplate(entry.value, previews)
+  const mapped = contentPackDocumentToThumbnailTemplate(entry.value, previews)
+  // `builtin: true` — system content, never the customer's own copy. The library
+  // badges a card "Your copy" exactly when this is false.
+  return Object.assign(mapped, { signedPackVersion: entry.pack.version })
+}
+
+/**
+ * One library card per recipe identity (2026-10-24).
+ *
+ * Before this, the library listed the same recipe two or three times:
+ *
+ *   1. A signed pack recipe and its legacy bundled twin are the SAME recipe
+ *      under two ids — `com.storystudio.thumbnail.documentary-label-tableau`
+ *      and `documentary-label-tableau`. Keying the list by raw id showed both.
+ *   2. A pack that ships `1.0.0` and `1.0.1` with the same recipe id, or a
+ *      project pin older than the active version, emitted the recipe once per
+ *      version.
+ *
+ * The identity is the recipe id's last dot-segment, which the signed id keeps
+ * from the legacy id it replaces. Resolution is read-time only: no pack, no
+ * project pin and no preset is rewritten (§5).
+ */
+type RankedRecipe = ThumbnailTemplate & { signedPackVersion?: string }
+
+function recipeFamilyKey(recipe: ThumbnailTemplate): string {
+  const id = recipe.id.toLowerCase()
+  // The name too: two different recipes that happen to share an id tail must never merge.
+  return `${id.slice(id.lastIndexOf('.') + 1)}|${recipe.name.trim().toLowerCase()}`
+}
+
+function preferRecipe(seen: Map<string, RankedRecipe>, recipe: RankedRecipe): void {
+  const key = recipeFamilyKey(recipe)
+  const current = seen.get(key)
+  // A signed pack version always outranks a bundled legacy twin; between two
+  // signed copies the newest version wins. The customer's own copies never
+  // reach here — they resolve before this list is consulted.
+  if (current?.signedPackVersion && recipe.signedPackVersion
+    && compareVersionStrings(recipe.signedPackVersion, current.signedPackVersion) <= 0) return
+  if (current?.signedPackVersion && !recipe.signedPackVersion) return
+  seen.set(key, recipe)
 }
 
 export async function loadTemplate(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<ThumbnailTemplate | null> {
@@ -175,15 +215,18 @@ export async function loadLegacyThumbnailTemplate(id: string): Promise<{ documen
  * failing the list — one bad file shouldn't hide the whole library.
  */
 export async function listTemplates(registryOptions: ContentPackRegistryOptions = {}): Promise<ThumbnailTemplate[]> {
-  const seen = new Map<string, ThumbnailTemplate>()
+  const seen = new Map<string, RankedRecipe>()
   for (const entry of await listCatalogEntries('thumbnail-recipe', registryOptions)) {
     const mapped = signedTemplate(entry)
-    if (mapped) seen.set(mapped.id, mapped)
+    if (mapped) preferRecipe(seen, mapped)
   }
 
   for (const entry of await listUserForkCatalogEntries('thumbnail-recipe', registryOptions)) {
     const template = entry.value as ThumbnailTemplate
-    if (!seen.has(template.id)) seen.set(template.id, template)
+    // The customer's own copy keeps its own identity: same name, own card. A
+    // fork's id is its own `user:<uuid>`, so it never collides with the signed
+    // recipe it was forked from — even when the legacy source id does.
+    if (!seen.has(`copy:${template.id}`)) seen.set(`copy:${template.id}`, { ...template, builtin: false })
   }
 
   const userDir = userTemplatesDir()
@@ -194,7 +237,7 @@ export async function listTemplates(registryOptions: ContentPackRegistryOptions 
       if (!name.endsWith('.json')) continue
       try {
         const t = await loadFile(path.join(userDir, name))
-        if (!seen.has(t.id)) seen.set(t.id, t)
+        seen.set(`copy:${t.id}`, { ...t, builtin: false })
       } catch (e: any) {
         console.warn(`[thumbnail-template-loader] skipping malformed user template ${name}: ${e.message}`)
       }
@@ -208,14 +251,16 @@ export async function listTemplates(registryOptions: ContentPackRegistryOptions 
       if (!name.endsWith('.json')) continue
       try {
         const t = await loadFile(path.join(BUILTIN_TEMPLATES_DIR, name))
-        if (!seen.has(t.id)) seen.set(t.id, t)
+        preferRecipe(seen, t)
       } catch (e: any) {
         console.warn(`[thumbnail-template-loader] skipping malformed built-in template ${name}: ${e.message}`)
       }
     }
   }
 
-  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+  return [...seen.values()]
+    .map(({ signedPackVersion: _signedPackVersion, ...template }) => template)
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /**

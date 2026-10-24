@@ -90,7 +90,7 @@ test('thumbnail recipe library scales with searchable classifications, favorites
   assert.match(picker, /ThumbnailRecipeLibraryModal/)
 })
 
-test('recipe previews identify declared examples and synthetic layout placeholders', async () => {
+test('recipe previews identify declared examples and never fake one', async () => {
   const realPicker = await mountPicker('real-recipe')
   try {
     const image = realPicker.host.querySelector<HTMLImageElement>('.recipe-picker-current img')!
@@ -101,10 +101,11 @@ test('recipe previews identify declared examples and synthetic layout placeholde
 
   const placeholderPicker = await mountPicker('placeholder-recipe')
   try {
-    const image = placeholderPicker.host.querySelector<HTMLImageElement>('.recipe-picker-current img')!
-    assert.equal(image.getAttribute('src'), '/api/thumbnail-templates/placeholder-recipe/preview.png')
-    assert.equal(image.getAttribute('alt'), 'Placeholder Recipe layout placeholder; no generated example available')
-    assert.match(placeholderPicker.host.querySelector('.recipe-picker-hints')!.textContent!, /Layout placeholder · no generated examples yet/)
+    // No declared example means no image at all. The composer's synthetic
+    // portrait must never stand in: it reads as a real example of the recipe.
+    assert.equal(placeholderPicker.host.querySelector('.recipe-picker-current img'), null)
+    assert.equal(placeholderPicker.host.querySelector('.recipe-picker-current')!.className.includes('empty'), false)
+    assert.match(placeholderPicker.host.querySelector('.recipe-picker-hints')!.textContent!, /No example yet/)
     assert.doesNotMatch(placeholderPicker.host.querySelector('.recipe-picker-hints')!.textContent!, /Generated examples included/)
   } finally { placeholderPicker.unmount() }
 
@@ -114,15 +115,18 @@ test('recipe previews identify declared examples and synthetic layout placeholde
     const realCard = cards.find(card => card.textContent?.includes('Real Recipe'))!
     const placeholderCard = cards.find(card => card.textContent?.includes('Placeholder Recipe'))!
     const realImage = realCard.querySelector<HTMLImageElement>('img')!
-    const placeholderImage = placeholderCard.querySelector<HTMLImageElement>('img')!
+    const emptyState = placeholderCard.querySelector<HTMLElement>('.rlm-no-example')!
 
     assert.equal(realImage.getAttribute('src'), '/examples/real-1.webp')
     assert.equal(realImage.getAttribute('alt'), 'Real Recipe generated thumbnail example 1 of 2')
-    assert.equal(placeholderImage.getAttribute('src'), '/api/thumbnail-templates/placeholder-recipe/preview.png')
-    assert.equal(placeholderImage.getAttribute('alt'), 'Placeholder Recipe layout placeholder; no generated example available')
+    // The card states the absence instead of rendering a placeholder portrait.
+    assert.equal(placeholderCard.querySelector('img'), null)
+    assert.match(emptyState.textContent!, /No example yet/)
+    assert.match(emptyState.textContent!, /Placeholder Recipe/)
     assert.equal(placeholderCard.querySelector('.rlm-preview-dots'), null)
-    assert.equal(library.host.querySelector<HTMLImageElement>('.rlm-selection img')!.getAttribute('alt'), '')
-    assert.match(library.host.querySelector('.rlm-selection')!.textContent!, /Layout placeholder · no generated examples yet/)
+    assert.equal(library.host.querySelector('.rlm-selection img'), null)
+    assert.equal(library.host.querySelector('.rlm-selection-empty') !== null, true)
+    assert.match(library.host.querySelector('.rlm-selection')!.textContent!, /No example yet/)
 
     realCard.querySelector<HTMLElement>('.rlm-preview-dots button:nth-child(2)')!.click()
     await flush()
@@ -133,6 +137,62 @@ test('recipe previews identify declared examples and synthetic layout placeholde
     await flush()
     assert.match(library.host.querySelector('.rlm-selection')!.textContent!, /Generated examples included/)
   } finally { library.unmount() }
+})
+
+test('recipe cards keep the favorite star and example dots out of the image box', async () => {
+  const library = await mountLibrary('real-recipe')
+  try {
+    const card = [...library.host.querySelectorAll<HTMLElement>('.rlm-card')]
+      .find(item => item.textContent?.includes('Real Recipe'))!
+    const imageWrap = card.querySelector<HTMLElement>('.rlm-image-wrap')!
+    const controls = card.querySelector<HTMLElement>('.rlm-card-controls')!
+
+    // An overlay would cover the example's own drawn headline, which is the
+    // whole reason the example is on the card.
+    assert.equal(imageWrap.querySelector('.rlm-favorite'), null)
+    assert.equal(imageWrap.querySelector('.rlm-preview-dots'), null)
+    assert.ok(controls.querySelector('.rlm-favorite'), 'the star lives in the card controls rail')
+    assert.ok(controls.querySelector('.rlm-preview-dots'), 'the example dots live in the card controls rail')
+    // Still reachable and still labelled.
+    const favorite = controls.querySelector<HTMLButtonElement>('.rlm-favorite')!
+    assert.equal(favorite.getAttribute('aria-pressed'), 'false')
+    assert.match(favorite.getAttribute('aria-label')!, /Add Real Recipe to favorites/)
+    assert.equal(controls.querySelectorAll('.rlm-preview-dots button')[1]!.getAttribute('aria-label'), 'Show example 2 of 2')
+
+    favorite.click()
+    await flush()
+    assert.equal(controls.querySelector<HTMLButtonElement>('.rlm-favorite')!.getAttribute('aria-pressed'), 'true')
+  } finally { library.unmount() }
+})
+
+test('a recipe the customer owns is badged as their own copy', () => {
+  const catalog = source('../components/ThumbnailRecipeLibraryModal.vue')
+  // The badge is driven by the backend's builtin flag, which is false for a
+  // fork or a saved copy — a signed pack recipe keeps its own card separately.
+  assert.match(catalog, /v-if="!recipe\.builtin" class="rlm-copy-badge">Your copy/)
+  assert.match(catalog, /builtin\?: boolean/)
+})
+
+/** Source with comments removed, so an assertion about code cannot match prose about it. */
+function code(path: string): string {
+  return source(path).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+}
+
+test('no recipe surface ever renders the synthetic placeholder portrait', () => {
+  for (const file of ['ThumbnailRecipeLibraryModal.vue', 'ThumbnailRecipePicker.vue'] as const) {
+    // `/thumbnail-templates/:id/preview.png` composites a synthetic dark portrait
+    // with "EPISODE TITLE GOES HERE" over the layout. On a card it reads as a
+    // real example of a recipe that has none, so no surface may fall back to it.
+    assert.doesNotMatch(code(`../components/${file}`), /preview\.png/)
+    assert.match(source(`../components/${file}`), /No example yet/)
+  }
+})
+
+test('the recipe filter row shows that more formats are reachable off-screen', () => {
+  const catalog = source('../components/ThumbnailRecipeLibraryModal.vue')
+  assert.match(catalog, /rlm-scroll-hint/)
+  assert.match(catalog, /Scroll for more formats/)
+  assert.match(catalog, /\.rlm-filter-row \{[^}]*overflow-x:auto/)
 })
 
 test('thumbnail prompts can choose a catalog recipe without replacing visual art style', () => {
