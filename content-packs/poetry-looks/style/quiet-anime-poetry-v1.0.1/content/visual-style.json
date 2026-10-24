@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.quiet-anime-poetry",
+  "name": "Quiet Anime Poetry",
+  "description": "Cinematic hand-drawn anime with delicate ink contours, restrained cel shading, muted teal-blue-green palette, and contemplative atmosphere.",
+  "category": "Illustration",
+  "tags": [
+    "anime",
+    "contemplative",
+    "ink contours",
+    "cel shading",
+    "muted palette",
+    "cinematic",
+    "poetry",
+    "emotional restraint",
+    "hand-drawn",
+    "painted environments"
+  ],
+  "style_bible": "Cinematic hand-drawn anime illustration with delicate, confident ink contours, natural adult proportions and restrained clean cel shading. Combine clearly drawn figures and simple readable silhouettes with softly painted, spatially convincing environments. Use smooth sky, glass and light gradients, a pristine digital finish and carefully controlled environmental detail; avoid grain and distressed surface texture. Build colour around muted teal, deep blue and forest green, balanced by selective amber, dusty peach or cream highlights. Light is soft and directional, with luminous windows, evening skies or subtle rim light; keep shadow shapes rich but legible. Convey emotion through understated posture, meaningful spatial relationships, everyday objects and the surrounding atmosphere. Choose scene-specific visual metaphors for the underlying feeling rather than illustrating every spoken sentence literally. Compose original, elegant frames with layered depth, asymmetrical balance and uncluttered breathing room for separately rendered captions when needed. Preserve quiet intimacy, contemplation and emotional ambiguity without theatrical expressions. Adapt time of day, setting, cast and palette balance to each scene instead of repeating a fixed motif. Artwork contains no text; captions are rendered separately.",
+  "negative_prompt": "film grain, sensor noise, halftone, stippling, distressed paper, grunge, heavy canvas texture, rough dry-brush surface, muddy shadows, oversaturated neon, harsh glossy 3D rendering, photorealistic skin, chibi proportions, exaggerated facial expressions, malformed anatomy, extra fingers, lettering, captions, logos, watermarks",
+  "preview_assets": [
+    "assets/quiet-anime-poetry.webp",
+    "assets/quiet-anime-poetry-scene.webp",
+    "assets/quiet-anime-poetry-face.webp"
+  ],
+  "compatible_formula_ids": []
+}

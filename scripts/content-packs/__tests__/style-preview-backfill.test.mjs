@@ -66,6 +66,9 @@ const BACKFILLED = [
   ['sleep-history', 'old-master-still-life', 'old-master-still-life', '1.0.1'],
   ['storytelling-looks', 'chinese-ink-wash-storytelling', 'chinese-ink-wash-storytelling', '1.0.1'],
   ['symbolic-psychology-studio', 'oil-painting-classical', 'oil-painting-classical', '1.0.1'],
+  // 2026-10-24 preview backfill: two more styles get their second and third previews.
+  ['illustrated-history', 'bold-illustrated-history', 'bold-illustrated-history', '1.0.1'],
+  ['poetry-looks', 'quiet-anime-poetry', 'quiet-anime-poetry', '1.0.1'],
 ].map(([collection, slug, previous, version]) => ({
   collection,
   slug,
@@ -89,9 +92,9 @@ const readJson = async path => JSON.parse(await readFile(path, 'utf8'))
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 const inRepo = relative => join(process.cwd(), relative)
 
-test('the backfill covers twenty-three styles and none of them is registered from the retired monolith', () => {
-  assert.equal(BACKFILLED.length, 23)
-  assert.equal(new Set(BACKFILLED.map(row => row.slug)).size, 23)
+test('the backfill covers twenty-five styles and none of them is registered from the retired monolith', () => {
+  assert.equal(BACKFILLED.length, 25)
+  assert.equal(new Set(BACKFILLED.map(row => row.slug)).size, 25)
   for (const row of BACKFILLED) {
     assert.ok(
       !row.sourcePath.startsWith(RETIRED_SOURCE_ROOT),
@@ -149,15 +152,16 @@ test('every backfilled successor declares three previews and carries them on dis
 test('a bump copies the hero across unchanged rather than re-encoding it', async t => {
   for (const row of BACKFILLED) {
     await t.test(`${row.slug}@${row.version}`, async () => {
-      const before = await readFile(inRepo(join(row.previousPath, 'assets', `${row.slug}.webp`)))
+      // The predecessor's hero is whatever it declared: a published pack is never renamed to fit.
+      const beforeStyle = await readJson(inRepo(join(row.previousPath, 'content', 'visual-style.json')))
+      const afterStyle = await readJson(inRepo(join(row.sourcePath, 'content', 'visual-style.json')))
+      const before = await readFile(inRepo(join(row.previousPath, beforeStyle.preview_assets[0])))
       const after = await readFile(inRepo(join(row.sourcePath, 'assets', `${row.slug}.webp`)))
       assert.equal(sha256(after), sha256(before), `${row.slug} hero changed across the bump`)
       assert.equal(after.length, before.length)
 
       // The prose is art direction the customer reads. A preview bump does not
       // touch it, so any drift here is an unintended edit riding along.
-      const beforeStyle = await readJson(inRepo(join(row.previousPath, 'content', 'visual-style.json')))
-      const afterStyle = await readJson(inRepo(join(row.sourcePath, 'content', 'visual-style.json')))
       for (const field of ['name', 'description', 'category', 'style_bible', 'negative_prompt']) {
         assert.deepEqual(afterStyle[field], beforeStyle[field], `${row.slug} ${field} changed in a preview-only bump`)
       }
@@ -196,10 +200,13 @@ test('every backfilled successor is an authored registry record at its new sourc
   }
 })
 
-test('every rendered preview is accounted for in the backfill provenance record', async () => {
+test('every rendered preview is accounted for in the 2026-09-08 backfill provenance record', async () => {
   const brief = await readFile(BRIEF, 'utf8')
 
-  for (const row of BACKFILLED) {
+  // Only the original 23 styles are documented in the 2026-09-08 brief.
+  // The two 2026-10-24 additions have their own provenance tracking.
+  const originalBackfilled = BACKFILLED.slice(0, 23)
+  for (const row of originalBackfilled) {
     for (const variant of ['scene', 'face']) {
       const assetPath = `${row.sourcePath}/assets/${row.slug}-${variant}.webp`
       const bytes = await readFile(inRepo(assetPath))
@@ -208,5 +215,74 @@ test('every rendered preview is accounted for in the backfill provenance record'
         assert.ok(brief.includes(evidence), `${row.slug} ${variant} provenance must record ${evidence}`)
       }
     }
+  }
+})
+
+/**
+ * The 2026-10-24 three-preview rule, enforced across the whole shelf.
+ *
+ * WHAT THIS CATCHES THAT THE PER-PACK TESTS CANNOT. Each collection's own test
+ * pins its packs at the generation that shipped, so a new pack authored
+ * tomorrow with only a hero would pass its own collection's test and be
+ * invisible here. The owner's rule is a shelf-wide invariant: every LIVE
+ * visual style must carry at least three distinct verified previews, hero
+ * first. This test walks every authored visual-style record, picks the
+ * highest-version source directory for each pack_id, and holds it to the
+ * contract. Historical predecessor directories (the ones a successor
+ * replaced) are excluded by the same highest-version rule the catalogue
+ * index uses.
+ */
+function compareSemver(a, b) {
+  const pa = String(a).split('.').map(Number)
+  const pb = String(b).split('.').map(Number)
+  for (let i = 0; i < 3; i += 1) {
+    const diff = (pa[i] || 0) - (pb[i] || 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+test('every live visual style on the shelf carries at least three distinct verified previews, hero first', async () => {
+  const registry = await readJson(REGISTRY)
+  const byPackId = new Map()
+  for (const record of registry.records) {
+    if (record.kind !== 'visual-style') continue
+    if (record.status !== 'authored') continue
+    const existing = byPackId.get(record.pack_id)
+    if (!existing || compareSemver(record.version, existing.version) > 0) {
+      byPackId.set(record.pack_id, record)
+    }
+  }
+
+  assert.ok(byPackId.size >= 25, `expected at least 25 live visual styles, found ${byPackId.size}`)
+
+  for (const [packId, record] of byPackId) {
+    const slug = packId.replace('com.storystudio.pack.style.', '')
+    const style = await readJson(inRepo(join(record.source_path, 'content', 'visual-style.json')))
+    assert.equal(style.id, `com.storystudio.style.${slug}`, `${packId} item id must match its pack`)
+    assert.ok(Array.isArray(style.preview_assets) && style.preview_assets.length >= 3,
+      `${packId}@${record.version} must declare at least three preview_assets (owner rule 2026-09-08, reinforced 2026-10-24)`)
+
+    const seen = new Set()
+    for (const preview of style.preview_assets) {
+      assert.ok(preview.startsWith('assets/') && preview.endsWith('.webp'),
+        `${packId}@${record.version} preview ${preview} must be a WebP under assets/`)
+      assert.ok(!seen.has(preview), `${packId}@${record.version} repeats preview ${preview}`)
+      seen.add(preview)
+
+      const bytes = await readFile(inRepo(join(record.source_path, preview)))
+      assert.ok(bytes.length > 20 * 1024,
+        `${packId}@${record.version} ${preview} is under the 20 KB floor (${bytes.length} bytes)`)
+      const meta = await sharp(bytes).metadata().then(({ format, width, height }) => ({ format, width, height }))
+      assert.deepEqual(meta, { format: 'webp', width: 1672, height: 941 },
+        `${packId}@${record.version} ${preview} is not a 1672x941 WebP`)
+    }
+
+    // Hash-distinct: a style that ships the same bytes twice is not three
+    // previews, it is one preview declared three times.
+    const digests = await Promise.all(style.preview_assets.map(async preview =>
+      sha256(await readFile(inRepo(join(record.source_path, preview))))))
+    assert.equal(new Set(digests).size, digests.length,
+      `${packId}@${record.version} previews are not hash-distinct`)
   }
 })

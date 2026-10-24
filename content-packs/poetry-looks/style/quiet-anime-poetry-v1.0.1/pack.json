@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Adds two original style previews alongside the unchanged hero: a quiet wide scene with no figure and a close human face, giving the style the owner's three-preview set. No art direction, metadata or policy change.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.quiet-anime-poetry",
+    "family": "com.storystudio.family.style.quiet-anime-poetry"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.cinematic-historical-illustration",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First review draft of Cinematic Historical Illustration: soft-painted full-colour history in natural light, with three original previews. Registry identity and stocking proposals await the authoring lead.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.cinematic-historical-illustration",
+    "family": "com.storystudio.family.style.cinematic-historical-illustration"
+  },
+  "dependencies": []
+}

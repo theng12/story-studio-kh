@@ -1,22 +1,24 @@
 # Content pack index
 
 Regenerate: `npm run content-pack:index` (runs `node scripts/content-packs/index.mjs`)
-Generated: 2026-09-09
+Generated: 2026-10-24
 
 One line per pack item, deduped to the highest version per `pack_id`. Format:
 
 `- <id> | <name> | <collection dir> | <category/tags or axis> | <description> | v<version> <lifecycle>`
 
-Totals — 203 items. Visual styles: 40, Lettering styles: 50, Thumbnail recipes: 36, Series formulas: 19, Metadata formulas: 13, Topic packs: 45.
+Totals — 208 items. Visual styles: 43, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 20, Metadata formulas: 13, Topic packs: 45.
 
-## Visual styles (40)
+## Visual styles (43)
 
 - com.storystudio.style.academic-classical-oil | Academic Classical Oil | royal-history/style/academic-classical-oil | Illustration | The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped… | v1.0.0 active
 - com.storystudio.style.anime-cel | Anime Cel | production-looks/style/anime-cel-v1.0.1 | Digital | Modern anime cel-shading — clean lineart, flat cel light, expressive and vivid. | v1.0.1 active
 - com.storystudio.style.archival-documentary-reconstruction | Archival Documentary Reconstruction | paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.1 | Realistic | Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document… | v1.0.1 active
 - com.storystudio.style.baroque-mythological-sky | Baroque Mythological Sky | baroque-myth/style/baroque-mythological-sky | Illustration | Gods and heroes carried on banks of cloud in the high-baroque manner — long diagonal compositions, drapery billowing in… | v1.0.0 active
 - com.storystudio.style.bold-gory-cartoon | Bold Gory Cartoon | gory-cartoon-history/style/bold-gory-cartoon | Illustration | Thick black outlines and flat saturated fills, one subject per panel on a plain coloured backdrop, faces pushed all the… | v1.0.0 active
+- com.storystudio.style.bold-illustrated-history | Bold Illustrated History | illustrated-history/style/bold-illustrated-history-v1.0.1 | Illustration | Hand-drawn historical illustration built on strong ink outlines and flat, rich colour: detailed landmarks and cityscape… | v1.0.1 active
 - com.storystudio.style.chinese-ink-wash-storytelling | Chinese Ink-Wash Storytelling | storytelling-looks/style/chinese-ink-wash-storytelling-v1.0.1 | Illustration | Monochrome brush-and-wash storytelling with calligraphic contours, wet blooms, dry-brush texture, and spacious rice-pap… | v1.0.1 active
+- com.storystudio.style.cinematic-historical-illustration | Cinematic Historical Illustration | illustrated-history/style/cinematic-historical-illustration | Illustration | Soft-painted historical storytelling in full colour and natural daylight: human-scale moments, believable places, gentl… | v1.0.0 active
 - com.storystudio.style.cinematic-photoreal | Cinematic Photoreal | free-starters/style/cinematic-photoreal-v1.0.1 | Realistic | Filmic photoreal look — shallow depth of field, golden-hour light, graded like a movie still. | v1.0.1 active
 - com.storystudio.style.comic-pulp-mystery | Comic Pulp Mystery | sleep-theories/style/comic-pulp-mystery | Illustration | Graphic-novel cel shading with heavy black outlines and one object glowing at the centre of the frame — saturated teal… | v1.0.0 active
 - com.storystudio.style.dark-regal-portrait | Dark Regal Portrait | royal-history/style/dark-regal-portrait | Illustration | The cover look for royal biography — a painted portrait held at chest height under one warm source, with a castle, pala… | v1.0.0 active
@@ -44,6 +46,7 @@ Totals — 203 items. Visual styles: 40, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.style.pastel-surreal-psychological-collage | Pastel Surreal Psychological Collage | psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.2 | Editorial psychology | A restrained matte mixed-media collage language for symbolic psychological subjects and editorial emotional imagery. | v1.0.2 active
 - com.storystudio.style.pixel-art-story | Pixel Art Story | production-looks/style/pixel-art-story-v1.0.1 | Digital | Readable retro RPG pixel art with strong silhouettes and playful adventure framing. | v1.0.1 active
 - com.storystudio.style.prehistoric-stick-cartoon | Prehistoric Stick Cartoon | free-starters/style/prehistoric-stick-cartoon-v1.0.2 | Explainer | Playful history-explainer cartoon with stick-limbed cave people, mammoths, flat snowy scenes, and bold black outlines. | v1.0.2 active
+- com.storystudio.style.quiet-anime-poetry | Quiet Anime Poetry | poetry-looks/style/quiet-anime-poetry-v1.0.1 | Illustration | Cinematic hand-drawn anime with delicate ink contours, restrained cel shading, muted teal-blue-green palette, and conte… | v1.0.1 active
 - com.storystudio.style.retro-paint-fantasy | Retro Paint Fantasy | production-looks/style/retro-paint-fantasy-v1.0.1 | Digital | Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy. | v1.0.1 active
 - com.storystudio.style.scratchy-editorial-poster | Scratchy Editorial Poster | standalone-looks/style/scratchy-editorial-poster | Editorial | An editorial magazine cover drawn in scratchy pen and marker over rough blocks of colour — two inks on stark white pape… | v1.0.0 active
 - com.storystudio.style.sepia-ink-wash | Sepia Ink & Wash | free-starters/style/sepia-ink-wash-v1.0.1 | Illustration | Muted line-and-wash illustration — fine ink over desaturated watercolor, lamplit and weathered, like a period expeditio… | v1.0.1 active
@@ -105,7 +108,7 @@ Totals — 203 items. Visual styles: 40, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.lettering.weathered-brush-stamp | Weathered Brush Stamp | lost-voyage/lettering/weathered-brush-stamp | text | Distressed hand-brushed capitals, stamped in thick paint and left rough at the edges. | v1.0.0 active
 - com.storystudio.lettering.wet-ink-drip | Wet Ink Drip | paid/lettering/dread | text | Glossy black ink still wet, running slowly down from the baseline. | v1.0.0 active
 
-## Thumbnail recipes (36)
+## Thumbnail recipes (37)
 
 - com.storystudio.thumbnail.animal-hardship-annotation | Animal Hardship Annotation | free-starters/thumbnail/animal-hardship-annotation | Natural world | A direct 16:9 animal explainer cover pairing one expressive animal with one restrained hand-drawn hardship note. | v1.0.1 active
 - com.storystudio.thumbnail.annotated-business-board | Annotated Business Board | free-starters/thumbnail/annotated-business-board | Explainer | A clean hand-drawn economics explainer: one unmistakable business or location in the center, surrounded by a small visu… | v1.0.0 active
@@ -124,6 +127,7 @@ Totals — 203 items. Visual styles: 40, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.thumbnail.hero-payoff-companion | Hero Payoff Companion | thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion | Explainer | A generic or rights-cleared host visibly connected to one separate tangible result object. | v1.0.0 active
 - com.storystudio.thumbnail.hook-left-frightened-face-right | Hook Left, Frightened Face Right | midnight-archives/thumbnail/hook-left-frightened-face-right | History | Two variants for one dark-history channel. A: a three-to-five-word hook filling the left half of the frame, a frightene… | v1.0.0 active
 - com.storystudio.thumbnail.iconic-result-closeup | Iconic Result Close-Up | thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup | Explainer | One truthful finished outcome dominates the frame at a detail-revealing angle. | v1.0.0 active
+- com.storystudio.thumbnail.illustrated-subject-sleep-badge | Illustrated Subject with Sleep Badge | illustrated-history/thumbnail/illustrated-subject-sleep-badge | History | One bold illustrated historical scene filling the frame, a large short subject line rendered across the top, and one sm… | v1.0.0 active
 - com.storystudio.thumbnail.labelled-caricature-trio | Labelled Caricature Trio | cartoon-animal-explainer/thumbnail/labelled-caricature-trio | Explainer | Three caricatured animals of one species standing side by side on plain white, each with a single hand-printed word abo… | v1.0.0 active
 - com.storystudio.thumbnail.macro-mystery-detail | Macro Mystery Detail | thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail | Explainer | One ambiguous macro detail with a small honest edge clue that preserves context. | v1.0.0 active
 - com.storystudio.thumbnail.maritime-title-left-subject-right | Maritime Title Left, Subject Right | lost-voyage/thumbnail/maritime-title-left-subject-right | History | A short engraved title stack holds the left third against pale open sky while the subject — an anonymous period figure… | v1.0.0 active
@@ -144,7 +148,7 @@ Totals — 203 items. Visual styles: 40, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.thumbnail.two-option-criteria-split | Two-Option Criteria Split | thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split | Explainer | A balanced present-time comparison of two alternatives under shared visible criteria. | v1.0.0 active
 - com.storystudio.thumbnail.two-tone-hook-portrait-right | Two-Tone Hook, Portrait Right | royal-history/thumbnail/two-tone-hook-portrait-right | History | A two-word hook sits bottom-left in two colours — the first word white, the second gold — while a portrait cut at the c… | v1.0.0 active
 
-## Series formulas (19)
+## Series formulas (20)
 
 - com.storystudio.formula.ancient-humans | How Did Ancient Humans…? | free-starters/formula/ancient-humans-v1.0.2 | Evidence & systems | Long-form prehistoric and early-human survival explainers. Each episode asks one concrete question about how ancient hu… | v1.0.2 active
 - com.storystudio.formula.archival-ledger | Archival Ledger | paid/archival-ledger/formula/archival-ledger | Evidence & systems | Long-form historical documentaries that reconstruct how major outcomes came about: the institutions, material pressures… | v1.0.1 active
@@ -156,6 +160,7 @@ Totals — 203 items. Visual styles: 40, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.formula.guided-mindfulness | Guided Mindfulness | free-starters/formula/guided-mindfulness-v1.0.1 | Mind & ideas | Guided meditation, breathing exercises, body-scan, present-moment awareness. Tone is slow, present, breath-paced. Pair… | v1.0.1 active
 - com.storystudio.formula.history-explained | History, Explained | free-starters/formula/history-explained-v1.0.2 | Evidence & systems | Short narrated history facts — events, people, oddities. Tone is curious and grounded; voice is the friend who reads a… | v1.0.2 active
 - com.storystudio.formula.human-behavior-explained | Human Behavior, Explained | free-starters/formula/human-behavior-explained-v1.0.2 | Mind & ideas | Pop-psychology narration — habits, cognitive biases, relationships, mental health, focus, anxiety, ADHD, stoicism-as-CB… | v1.0.2 active
+- com.storystudio.formula.illustrated-history-for-sleep | Illustrated History for Sleep | illustrated-history/formula/illustrated-history-for-sleep | Calm documentary | Illustrated histories of one subject at a time — a city, a region, a people, an empire, a war or a route — told slowly… | v1.0.0 active
 - com.storystudio.formula.natural-world-explained | Natural World, Explained | free-starters/formula/natural-world-explained-v1.0.2 | Living world | Wildlife subjects from across the whole animal kingdom, vertebrates and invertebrates alike — mammals, birds, reptiles,… | v1.0.2 active
 - com.storystudio.formula.pastoral-scripture | Pastoral Scripture | legacy-niche-conversion/formula/pastoral-scripture | Faith | A scripture-anchored pastoral Formula with two explicit modes: a concise daily reflection that teaches one takeaway, an… | v1.0.0 active
 - com.storystudio.formula.philosophy-real-problem | Philosophy for a Real Problem | legacy-niche-conversion/formula/philosophy-real-problem | Mind & ideas | Short philosophical reflections — Stoicism, Taoism, Buddhism, existentialism, ethics. Tone is thoughtful and unhurried;… | v1.0.0 active
@@ -163,8 +168,8 @@ Totals — 203 items. Visual styles: 40, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.formula.practical-motivation | Practical Motivation | free-starters/formula/practical-motivation-v1.0.1 | Mind & ideas | Spoken-word motivational narration — discipline, mindset, hard work, resilience. Pair with cinematic B-Roll (runners, s… | v1.0.1 active
 - com.storystudio.formula.prayer | Prayer | legacy-niche-conversion/formula/prayer | Faith | Spoken-word Christian prayer paired with calm, reverent B-Roll. Topics span morning / evening / mealtime / family / anx… | v1.0.0 active
 - com.storystudio.formula.question-ladder | Question Ladder | reusable-primitives/formula/question-ladder | Evidence-aware explainers | A reusable explanatory Formula that starts with one concrete audience question, defines its scope, explains the mechani… | v1.0.0 active
-- com.storystudio.formula.sleep-history-compilation | Sleep History Compilation | sleep-history/formula/sleep-history-compilation | Calm documentary | Long, calm compilations of true histories — ten to twenty independent chapters per video, each the slow story of one fo… | v1.0.0 active
-- com.storystudio.formula.sleep-story | Sleep Story | free-starters/formula/sleep-story | Calm stories | Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories wit… | v1.0.0 active
+- com.storystudio.formula.sleep-history-compilation | Sleep History Compilation | sleep-history/formula/sleep-history-compilation-v1.0.1 | Calm documentary | Long, calm compilations of true histories — ten to twenty independent chapters per video, each the slow story of one fo… | v1.0.1 active
+- com.storystudio.formula.sleep-story | Sleep Story | free-starters/formula/sleep-story-v1.0.1 | Calm stories | Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories wit… | v1.0.1 active
 
 ## Metadata formulas (13)
 

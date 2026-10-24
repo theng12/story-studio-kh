@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-09T02:13:03.690Z",
-  "count": 203,
+  "generated": "2026-10-24T18:38:13.719Z",
+  "count": 208,
   "items": [
     {
       "kind": "lettering-style",
@@ -734,6 +734,16 @@
     },
     {
       "kind": "series-formula",
+      "id": "com.storystudio.formula.illustrated-history-for-sleep",
+      "name": "Illustrated History for Sleep",
+      "collection_dir": "illustrated-history/formula/illustrated-history-for-sleep",
+      "axis": "Calm documentary",
+      "description": "Illustrated histories of one subject at a time — a city, a region, a people, an empire, a war or a route — told slowly…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
       "id": "com.storystudio.formula.natural-world-explained",
       "name": "Natural World, Explained",
       "collection_dir": "free-starters/formula/natural-world-explained-v1.0.2",
@@ -806,20 +816,20 @@
       "kind": "series-formula",
       "id": "com.storystudio.formula.sleep-history-compilation",
       "name": "Sleep History Compilation",
-      "collection_dir": "sleep-history/formula/sleep-history-compilation",
+      "collection_dir": "sleep-history/formula/sleep-history-compilation-v1.0.1",
       "axis": "Calm documentary",
       "description": "Long, calm compilations of true histories — ten to twenty independent chapters per video, each the slow story of one fo…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
       "kind": "series-formula",
       "id": "com.storystudio.formula.sleep-story",
       "name": "Sleep Story",
-      "collection_dir": "free-starters/formula/sleep-story",
+      "collection_dir": "free-starters/formula/sleep-story-v1.0.1",
       "axis": "Calm stories",
       "description": "Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories wit…",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
@@ -989,6 +999,16 @@
       "collection_dir": "thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup",
       "axis": "Explainer",
       "description": "One truthful finished outcome dominates the frame at a detail-revealing angle.",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "thumbnail-recipe",
+      "id": "com.storystudio.thumbnail.illustrated-subject-sleep-badge",
+      "name": "Illustrated Subject with Sleep Badge",
+      "collection_dir": "illustrated-history/thumbnail/illustrated-subject-sleep-badge",
+      "axis": "History",
+      "description": "One bold illustrated historical scene filling the frame, a large short subject line rendered across the top, and one sm…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1684,12 +1704,32 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.bold-illustrated-history",
+      "name": "Bold Illustrated History",
+      "collection_dir": "illustrated-history/style/bold-illustrated-history-v1.0.1",
+      "axis": "Illustration",
+      "description": "Hand-drawn historical illustration built on strong ink outlines and flat, rich colour: detailed landmarks and cityscape…",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.chinese-ink-wash-storytelling",
       "name": "Chinese Ink-Wash Storytelling",
       "collection_dir": "storytelling-looks/style/chinese-ink-wash-storytelling-v1.0.1",
       "axis": "Illustration",
       "description": "Monochrome brush-and-wash storytelling with calligraphic contours, wet blooms, dry-brush texture, and spacious rice-pap…",
       "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.cinematic-historical-illustration",
+      "name": "Cinematic Historical Illustration",
+      "collection_dir": "illustrated-history/style/cinematic-historical-illustration",
+      "axis": "Illustration",
+      "description": "Soft-painted historical storytelling in full colour and natural daylight: human-scale moments, believable places, gentl…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {
@@ -1960,6 +2000,16 @@
       "axis": "Explainer",
       "description": "Playful history-explainer cartoon with stick-limbed cave people, mammoths, flat snowy scenes, and bold black outlines.",
       "version": "1.0.2",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.quiet-anime-poetry",
+      "name": "Quiet Anime Poetry",
+      "collection_dir": "poetry-looks/style/quiet-anime-poetry-v1.0.1",
+      "axis": "Illustration",
+      "description": "Cinematic hand-drawn anime with delicate ink contours, restrained cel shading, muted teal-blue-green palette, and conte…",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {

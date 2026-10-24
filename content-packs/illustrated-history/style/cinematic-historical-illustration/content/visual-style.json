@@ -1,0 +1,27 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.cinematic-historical-illustration",
+  "name": "Cinematic Historical Illustration",
+  "description": "Soft-painted historical storytelling in full colour and natural daylight: human-scale moments, believable places, gently modelled faces and selective brush detail, without poster staging or a photographic finish.",
+  "category": "Illustration",
+  "tags": [
+    "historical illustration",
+    "soft painted",
+    "natural light",
+    "full colour",
+    "cinematic",
+    "human-scale history",
+    "painted environments",
+    "gentle edges",
+    "everyday life"
+  ],
+  "style_bible": "Soft-painted full-colour historical illustration, visibly made of blended brush strokes rather than captured by a camera. Model forms with broad, opaque-to-translucent painted colour planes, soft transitions and selective lost-and-found edges; reserve small crisp strokes for the focal eyes, a tool or an architectural joint. No enclosing ink contour and no hard cel-shadow steps. Keep a fine, unobtrusive painted surface, with neither thick impasto nor distressed paper. Use a broad natural palette: foliage greens, river blues, terracotta, limestone, indigo textiles and varied human skin tones, with colours chosen by each setting instead of a fixed gold or brown grade. Light comes from a believable natural source such as open sky, a window, morning sun or bright cloud; carry coloured reflected light into legible shadows, with gentle highlights and restrained contrast. Historical people have plausible adult proportions, individual understated expressions and simple period-appropriate dress; faces remain brush-modelled at close range rather than pore-sharp or doll-smooth. Allow individuals, small groups, working communities and unoccupied environments as the narrative requires. Stage history at human eye level through lived-in architecture, landscapes, craft and ordinary gestures; ceremonial or dramatic subjects may occur without requiring regal dress, combat or spectacle. Compose a continuous cinematic sixteen-by-nine scene with asymmetrical balance and clear foreground, middle distance and background. Use scale, overlap and softly simplified distant brushwork for depth; keep focal detail selective instead of making every distant object equally sharp. Do not reserve a title block or assemble a promotional montage. Adapt period, place, cast, weather and time of day to the scene. The contract contains no fixed ruler, dynasty, landmark, channel identity, named artist, copied composition or written caption.",
+  "negative_prompt": "sepia, monochrome brown, gold-and-bronze colour lock, desaturated wash, photorealism, photograph, film still, camera-sharp pores, glossy 3D render, plastic skin, hyper-detailed cinematic poster, promotional key art, heroic regalia portrait over an empire panorama, collage montage, title block, theatrical god-rays, orange-teal blockbuster grading, thick ink outline, comic contour, flat vector, hard cel shading, anime, heavy impasto, distressed parchment, neon, oversharpening, malformed anatomy, extra fingers, gore, lettering, captions, watermarks, signatures, logos, borders, copied composition, recognisable living person",
+  "preview_assets": [
+    "assets/cinematic-historical-illustration.webp",
+    "assets/cinematic-historical-illustration-scene.webp",
+    "assets/cinematic-historical-illustration-face.webp"
+  ],
+  "compatible_formula_ids": []
+}

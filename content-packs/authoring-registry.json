@@ -1,5 +1,5 @@
 {
-  "revision": 298,
+  "revision": 302,
   "batches": [
     {
       "revision": 2,
@@ -5928,6 +5928,86 @@
           }
         ]
       }
+    },
+    {
+      "revision": 299,
+      "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+      "request": {
+        "expected_revision": 298,
+        "coordinator": {
+          "task": "20261024 three-preview backfill and Cinematic Historical Illustration review draft",
+          "branch": "feat/job-go-to-generator-20261024"
+        },
+        "proposal_ref": "Owner's three-preview rule 2026-10-24; orchestrator-approved previews and worker evidence at /build/Developer/_orchestra/story-356-focus/preview-work-NOTES.md (two 1.0.1 successors plus one new style, Cinematic Historical Illustration)",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+            "item_id": "com.storystudio.style.bold-illustrated-history",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/illustrated-history/style/bold-illustrated-history-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.bold-illustrated-history",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.bold-illustrated-history",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
+            "item_id": "com.storystudio.style.quiet-anime-poetry",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/poetry-looks/style/quiet-anime-poetry-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.quiet-anime-poetry",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.quiet-anime-poetry",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.cinematic-historical-illustration",
+            "item_id": "com.storystudio.style.cinematic-historical-illustration",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/illustrated-history/style/cinematic-historical-illustration",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.cinematic-historical-illustration",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.cinematic-historical-illustration",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -10170,6 +10250,57 @@
         },
         "receipt_ref": "authoring:1edebe1dc0261a14756cfea819db55d206686175dbdaab36ebf5f437670c3397",
         "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 300,
+      "transition_ref": "lifecycle:9b87fd3069f2aa94c2555a1330717f9ae1695863b8f130b952f8926a38cec562",
+      "request": {
+        "expected_revision": 299,
+        "coordinator": {
+          "task": "20261024 three-preview backfill and Cinematic Historical Illustration review draft",
+          "branch": "feat/job-go-to-generator-20261024"
+        },
+        "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+        "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 301,
+      "transition_ref": "lifecycle:8db5afa6c5a7a174c48a32f8414ec6a3f824afd0e18e937db082668f037e6ae4",
+      "request": {
+        "expected_revision": 300,
+        "coordinator": {
+          "task": "20261024 three-preview backfill and Cinematic Historical Illustration review draft",
+          "branch": "feat/job-go-to-generator-20261024"
+        },
+        "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+        "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 302,
+      "transition_ref": "lifecycle:664fc44d9ce7bb610031cbf2f4f7b38d367dce10cb516f9cef9cc7c3a7efa047",
+      "request": {
+        "expected_revision": 301,
+        "coordinator": {
+          "task": "20261024 three-preview backfill and Cinematic Historical Illustration review draft",
+          "branch": "feat/job-go-to-generator-20261024"
+        },
+        "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+        "pack_id": "com.storystudio.pack.style.cinematic-historical-illustration",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -17156,6 +17287,75 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.quiet-anime-poetry",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+      "pack_id": "com.storystudio.pack.style.bold-illustrated-history",
+      "item_id": "com.storystudio.style.bold-illustrated-history",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/illustrated-history/style/bold-illustrated-history-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.bold-illustrated-history",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.bold-illustrated-history",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+      "pack_id": "com.storystudio.pack.style.quiet-anime-poetry",
+      "item_id": "com.storystudio.style.quiet-anime-poetry",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/poetry-looks/style/quiet-anime-poetry-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.quiet-anime-poetry",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.quiet-anime-poetry",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
+      "pack_id": "com.storystudio.pack.style.cinematic-historical-illustration",
+      "item_id": "com.storystudio.style.cinematic-historical-illustration",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/illustrated-history/style/cinematic-historical-illustration",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.cinematic-historical-illustration",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.cinematic-historical-illustration",
           "status": "proposed"
         }
       }
