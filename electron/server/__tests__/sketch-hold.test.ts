@@ -17,6 +17,7 @@ import express from 'express'
 import request from 'supertest'
 
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import {
   DEFAULT_SKETCH_HOLD, SKETCH_HOLD_MAX_SECONDS, parseSketchHold, resolveSketchHoldFrames, sketchDefaultHoldFrames,
   sketchHoldFingerprint, sketchHoldSelection, sketchHoldUnit, type SketchHoldSetting,
@@ -463,9 +464,11 @@ describe('the channel default and cached episode status', () => {
     await (await import('../services/episode-sketch-pen.js')).writeEpisodeSketchPen(slug, ownPen, 'name')
 
     const readAll = () => Promise.all(codes.map(code => episodeStatusCache.getForList(slug, code)))
-    await readAll()
-    await new Promise(resolve => setTimeout(resolve, 400)) // let the watcher settle on the fixture writes
-    await readAll()
+    // The watcher settles on the fixture writes: it vouches for the project and two reads serve the same rows.
+    await waitFor(async () => {
+      const [a, b] = [await readAll(), await readAll()]
+      return watcher.watcherTrustedSince(slug) !== null && a.every((row, i) => row === b[i])
+    }, { label: 'the folder watcher to vouch for the fixture episodes' })
     assert.notEqual(watcher.watcherTrustedSince(slug), null, 'the rows are served on the watcher\'s word, which is the path under test')
     const dropped = async (change: Record<string, unknown>) => {
       const before = await readAll()
