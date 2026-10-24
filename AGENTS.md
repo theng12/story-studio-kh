@@ -221,9 +221,12 @@ use goes to an episode with no accepted final.
 **Visual style packs.** Use the `story-studio-visual-style-adoption` skill and author exactly one
 standalone pack. `frontend/composables/useVisualStyleCatalog.ts` is the only frontend consumer —
 no static style list, no offline fallback. Each style needs a registry-issued qualified id,
-searchable metadata, a render-ready `style_bible`, a `negative_prompt`, and a verified 1672x941
-WebP preview inside its own pack `assets/`. Generate an original preview; never copy composition or
-depend on generated captions. Legacy `builtin-*` ids may remain only inside existing project-local
+searchable metadata, a render-ready `style_bible`, a `negative_prompt`, and **at least three
+distinct verified 1672x941 WebP previews** inside its own pack `assets/`, in this order: the hero
+(the card image, `preview_assets[0]`), a quiet wide scene with no figure, and the hardest legal case
+for the style (owner, 2026-09-08 and again 2026-10-24; `content-packs/PREVIEW-BACKFILL-2026-09-08.md`).
+The Style Library shows them all. Generate original previews — with Qwen Image 2.1 turbo, so the
+library is consistent (owner, 2026-10-24) — never copy composition or depend on generated captions. Legacy `builtin-*` ids may remain only inside existing project-local
 `style_presets` and historical migration evidence.
 
 **Generator model defaults.** Restore the user's last explicit choice before the picker mounts;

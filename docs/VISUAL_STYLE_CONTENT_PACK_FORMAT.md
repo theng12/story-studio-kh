@@ -25,8 +25,8 @@ The `style_bible` describes repeatable rendering traits: medium, edges and shape
 
 ## Preview rules
 
-- Use an original 16:9 example generated from the exact style direction, without important text, logos, or watermarks.
-- Store a 1672x941 WebP over 20 KB in the pack's `assets/` directory.
+- Ship at least three distinct original 16:9 previews generated from the exact style direction (Qwen Image 2.1 turbo), without important text, logos, or watermarks: the hero first (the Style Library card image), then a quiet wide scene with no figure, then the hardest legal case for the style. The Style Library shows every preview.
+- Store each as a 1672x941 WebP over 20 KB in the pack's `assets/` directory.
 - Record provenance, rights, SHA-256, decoding result, dimensions, and file size.
 - The preview must be present and declared by `preview_assets`; missing or undecodable bytes block release.
 - This control Mac verifies preview handoffs but does not perform production image generation.
