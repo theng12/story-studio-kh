@@ -10,14 +10,14 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { isDeepStrictEqual } from 'node:util'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes, COVERAGE_FAIL_SEC, styleLeadOverhead } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes, COVERAGE_FAIL_SEC, styleLeadOverhead, buildEpisodePromptContext, episodePromptContextBlock } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { compareMergedAudio, comparePlanStamp, planNarrationShortfallSec, readNarrationRecord, stampFromCues } from '../lib/scene-plan-timeline.js'
 import { checkpointJobState, hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
 import { subtitleChapterLabel } from '../contracts/subtitle-gaps.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { resolveEpisodePathsByCode, resolveScenePlanPath, resolveSubfolderNames } from '../services/utils.js'
+import { resolveEpisodePathsByCode, resolveScenePlanPath, resolveSubfolderNames, resolveEpisodeTitleByCode } from '../services/utils.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
@@ -27,8 +27,8 @@ import { narrationSecFromMaster } from '../lib/closing-tail.js'
 import { resolveEpisodeMergedAudioChoice, expectedMergedAudioFilename } from '../lib/merged-audio-selection.js'
 import { resolveProjectOpening } from '../services/opening-assets.js'
 import { describeOpeningHead, measureOpeningSec } from '../lib/opening-duration.js'
-import { parseSrt } from '../lib/subtitle-builder.js'
-import { imagePromptGuidanceBlock, legibleTextGuidanceBlock, resolveAvoidLegibleText } from '../lib/image-content-guidance.js'
+import { parseSrt, type SrtCue } from '../lib/subtitle-builder.js'
+import { imagePromptGuidanceBlock, legibleTextGuidanceBlock, resolveAvoidLegibleText, sceneSubjectGuidanceBlock } from '../lib/image-content-guidance.js'
 import { resolveStyleBible } from '../lib/style-bible.js'
 import { callAi, callAiWithModelPolicy, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
@@ -96,7 +96,7 @@ import { normalizeMotionScope, type MotionScope } from '../contracts/motion-scop
 import { DEFAULT_SCENE_PACING, parseSavedScenePlanPacing, parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
 import { readEpisodeMotionScope } from '../services/episode-motion-scope.js'
 import { motionPromptSceneIds } from '../services/scene-motion-prompt-scope.js'
-import type { Job, SceneCreativeDirection, SceneCreativeStrategy, ScenePlan } from '../models/types.js'
+import type { EpisodePromptContext, Job, SceneCreativeDirection, SceneCreativeStrategy, ScenePlan } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { withSavedPromptCollection } from '../lib/scene-prompt-collection.js'
 
@@ -1151,6 +1151,38 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   }
   job.progress = 10
 
+  /**
+   * v1.4.356 — the episode-level context every SCENE prompt writer gets: THIS
+   * episode's own title, plus a short passage of its own opening narration.
+   *
+   * It exists because a scene prompt reaches the image model VERBATIM and
+   * ALONE — no narration, no title, no neighbouring scene — so a writer told
+   * only about one four-second excerpt can name a part of the subject and have
+   * it rendered as something else entirely (WI0004: 46 saved prompts described
+   * a zipper's teeth, 29 never said "zipper", and the render came back as human
+   * teeth).
+   *
+   * Resolved LAZILY and memoized per job: a timeline-only run never reads the
+   * SRT twice, and nothing is cached across jobs or episodes, so this episode's
+   * title can never be carried into another one's prompts. A missing title or
+   * unreadable SRT leaves the field ABSENT — the writer is told nothing rather
+   * than handed a guess, and the subject-naming rule still applies (it does not
+   * depend on knowing the episode).
+   */
+  let episodeContextPromise: Promise<EpisodePromptContext> | undefined
+  const episodePromptContext = (): Promise<EpisodePromptContext> => {
+    if (!episodeContextPromise) {
+      episodeContextPromise = (async () => {
+        const episodeTitle = await resolveEpisodeTitleByCode(job.project_slug, episode_id).catch(() => '')
+        const cues = await fs.readFile(stitchedSrt, 'utf-8')
+          .then(text => parseSrt(text))
+          .catch(() => [] as SrtCue[])
+        return buildEpisodePromptContext({ episodeTitle, cues })
+      })()
+    }
+    return episodeContextPromise
+  }
+
   // v1.0.467 — scene_plan.json lives in the "03 Scene Prompts" folder now
   // (with a legacy episode-root fallback for older episodes). One resolved
   // path drives every read + in-place rewrite below, so they all stay in sync.
@@ -1683,6 +1715,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       .map(c => c.text)
       .join(' ')
     const storyContext = truncateChars(storyContextRaw, 3500)
+    // v1.4.356 — the episode's own title, named for every visual prompt in the
+    // pack: the image model reading each scene sees no title and no narration.
+    const episodeTitleLine = isMotion
+      ? ''
+      : episodePromptContextBlock({ title: (await episodePromptContext()).title })
     let researchContext = ''
     if (!isMotion && useResearch && existsSync(researchPath)) {
       researchContext = truncateChars((await fs.readFile(researchPath, 'utf-8').catch(() => '')).trim(), 6000)
@@ -1721,6 +1758,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       reservedCharacters: visualBudget!.reserved.characters,
       reservedDescription: 'the character descriptions and Style Bible text the render appends',
       capSource: visualBudget!.source,
+      // A ceiling may shorten a prompt; it may never erase what the image is OF.
+      keepNamedSubject: true,
     })
     const contextBack = Math.max(0, Math.min(10, params.neighbor_context_back ?? 2))
     const contextForward = Math.max(0, Math.min(10, params.neighbor_context_forward ?? 1))
@@ -1769,10 +1808,15 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       return [
         {
           role: 'system',
-          // Visual packs get the shared difficult-subjects guidance; motion
-          // packs do not — they describe movement over an already-approved
-          // still and introduce no subject matter of their own.
-          content: `${task}${promptCharCapInstruction ? `\n${promptCharCapInstruction}` : ''}${isMotion ? '' : imagePromptGuidanceBlock()}${isMotion ? '' : legibleTextGuidanceBlock(wantAvoidLegibleText)}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is a repair request: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
+          // Visual packs get the shared difficult-subjects guidance and the
+          // subject-naming rule; motion packs get neither — they describe
+          // movement over an already-approved still and introduce no subject
+          // matter of their own.
+          //
+          // The subject-naming rule sits BEFORE the length ceiling on purpose:
+          // a limit may shorten a prompt, it may never erase what the image is
+          // of (WI0004 rendered a zipper's teeth as human teeth).
+          content: `${task}${isMotion ? '' : sceneSubjectGuidanceBlock()}${promptCharCapInstruction ? `\n${promptCharCapInstruction}` : ''}${isMotion ? '' : imagePromptGuidanceBlock()}${isMotion ? '' : legibleTextGuidanceBlock(wantAvoidLegibleText)}\nReturn strict JSON only: {"results":[{"scene_id":"exact input id","${isMotion ? 'motion_prompt' : 'visual_prompt'}":"text"}]}. Start with { and output no analysis, reasoning, markdown, or commentary. Return every ID exactly once. Never invent IDs.${recovery ? ' This is a repair request: return every requested ID, with a non-empty, distinct prompt for each.' : ''}`,
         },
         {
           role: 'user',
@@ -1781,6 +1825,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             !isMotion && creativeDirection ? buildCreativeDirectionPrompt(creativeDirection) : '',
             !isMotion && creativeDirection ? `STRATEGY GLOSSARY:\n${buildStrategyGlossary(scenePayloads.map(scene => scene.creative_strategy).filter((strategy): strategy is SceneCreativeStrategy => !!strategy))}` : '',
             params.custom_instructions ? `EXTRA RULES:\n${params.custom_instructions}` : '',
+            // v1.4.356 — this episode's own title. The STORY PREMISE line below
+            // already carries what the episode is about (the subject passage and
+            // it are the same opening narration), so this names the subject
+            // rather than repeating it.
+            episodeTitleLine,
             !isMotion && storyContext ? `STORY PREMISE / FIRST STORY PASSAGE:\n${storyContext}` : '',
             researchContext ? `EPISODE RESEARCH:\n${researchContext}` : '',
             isPackedRepair && !isMotion
@@ -2468,6 +2517,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           detail_level: params.detail_level,
           style_prompt: stylePromptForRewrite,
           custom_instructions: params.custom_instructions,
+          // This episode's own subject, resolved for THIS call — a prompt is
+          // read by the image model alone, and a rewrite is no different.
+          episode_context: await episodePromptContext(),
           creative_direction: creativeDirectionForRewrite,
           creative_strategy: target.creative_strategy,
           prompt_char_cap: rewriteBudget.bodyCeiling,
@@ -2642,6 +2694,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       detail_level: params.detail_level,
       style_prompt: replanStyle,
       custom_instructions: params.custom_instructions,
+      episode_context: await episodePromptContext(),
       prompt_char_cap: replanBudget.bodyCeiling,
       prompt_char_cap_published: replanBudget.publishedCap,
       prompt_char_cap_reserved: replanBudget.reserved.characters,
@@ -2756,6 +2809,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     detail_level: params.detail_level,
     style_prompt: effectiveStyle,
     custom_instructions: params.custom_instructions,
+    episode_context: await episodePromptContext(),
     prompt_char_cap: planBudget.bodyCeiling,
     prompt_char_cap_published: planBudget.publishedCap,
     prompt_char_cap_reserved: planBudget.reserved.characters,

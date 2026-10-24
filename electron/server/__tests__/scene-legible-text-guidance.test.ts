@@ -134,11 +134,23 @@ describe('scene path — both toggle states', () => {
 describe('scene path — source wiring', () => {
   test('generators/scene-plan.ts imports and gates the guidance on the visual (non-motion) stage', async () => {
     const src = await fs.readFile(path.join(serverRoot, 'generators/scene-plan.ts'), 'utf-8')
+    // v1.4.356 added `sceneSubjectGuidanceBlock` to this same import, so the
+    // assertion names the MODULE and each helper rather than pinning one exact
+    // brace list — a further scene-only helper must not have to rewrite this.
     assert.match(
       src,
-      /import \{ imagePromptGuidanceBlock, legibleTextGuidanceBlock, resolveAvoidLegibleText \} from '\.\.\/lib\/image-content-guidance\.js'/,
+      /import \{[^}]*\} from '\.\.\/lib\/image-content-guidance\.js'/,
       'must import the shared helpers rather than restate the text',
     )
+    for (const helper of [
+      'imagePromptGuidanceBlock', 'legibleTextGuidanceBlock', 'resolveAvoidLegibleText', 'sceneSubjectGuidanceBlock',
+    ]) {
+      assert.match(
+        src,
+        new RegExp(`import \\{[^}]*\\b${helper}\\b[^}]*\\} from '\\.\\./lib/image-content-guidance\\.js'`),
+        `generators/scene-plan.ts must take ${helper} from the shared guidance module`,
+      )
+    }
     // The existing content-safety guidance call is untouched byte-for-byte —
     // this is also asserted by image-content-guidance.test.ts, and staying
     // in that exact shape is what keeps this change additive, not a rewrite.

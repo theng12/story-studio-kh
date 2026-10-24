@@ -142,7 +142,9 @@ describe('scene plan wiring', () => {
     // The writer is handed the BODY ceiling, not the assembled one.
     assert.match(scenePlanGenerator, /buildPromptCharCapInstruction\(visualBudget!\.bodyCeiling, \{/)
     assert.match(scenePlanGenerator, /reservedCharacters: visualBudget!\.reserved\.characters,/)
-    assert.match(scenePlanGenerator, /\$\{task\}\$\{promptCharCapInstruction \? `\\n\$\{promptCharCapInstruction\}` : ''\}/)
+    // v1.4.356 — the subject-naming block is spliced in BEFORE the cap
+    // instruction so a writer trimming to fit is told what not to trim.
+    assert.match(scenePlanGenerator, /\$\{task\}\$\{isMotion \? '' : sceneSubjectGuidanceBlock\(\)\}\$\{promptCharCapInstruction \? `\\n\$\{promptCharCapInstruction\}` : ''\}/)
   })
 
   test('the single-scene rewrite is written under the same ceiling', () => {

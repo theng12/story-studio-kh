@@ -4970,6 +4970,27 @@ export interface SoundDesignTimeline {
   cues: SoundDesignCue[]
 }
 
+/**
+ * What a SCENE prompt writer is told about the episode it is writing for.
+ *
+ * A scene prompt reaches the image model VERBATIM and ALONE — no narration, no
+ * episode title, no neighbouring scene — so the writer has to name the subject
+ * itself, and the episode's own title and opening narration are the honest
+ * source for what that subject is (WI0004: 46 saved prompts described a
+ * zipper's teeth, 29 never said "zipper", and the render came back as human
+ * teeth). Assembled from THIS episode's own metadata and its own opening
+ * narration, then passed down; nothing here is cached, so an episode change
+ * cannot carry the previous episode's title into the next one's prompts.
+ *
+ * Episode-level state, never a reusable setting: it belongs in no preset.
+ */
+export interface EpisodePromptContext {
+  /** The episode's title, as its own metadata holds it. */
+  title?: string
+  /** A short passage of this episode's own opening narration. */
+  subject?: string
+}
+
 /** Options passed to the scene planner. */
 export interface ScenePlanRunOptions {
   /** Path to the stitched SRT (output of the subtitle stitcher). */
@@ -4981,6 +5002,14 @@ export interface ScenePlanRunOptions {
   narration_docx_path?: string
   /** LLM model id (anything supported by callAi). */
   model: string
+  /**
+   * This episode's own title + a short passage of its opening narration, sent
+   * with the subject-naming rule so a scene prompt never loses what the image
+   * is of. Resolved by the CALLER (it holds the episode's metadata and SRT) and
+   * read per call — never carried over from a previous episode. Absent = the
+   * planner was told nothing about the episode, and says nothing.
+   */
+  episode_context?: EpisodePromptContext
   /** Target scene count. Adapters interpret as a guideline, not strict. */
   target_scene_count?: number
   /** v1.0.242 — how richly the LLM writes each `visual_prompt`. 1 = concise

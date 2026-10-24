@@ -29,9 +29,15 @@ import {
   CREATIVE_STRATEGY_INSTRUCTIONS,
 } from './scene-creative-direction.js'
 import { buildPromptCharCapInstruction } from './prompt-char-cap.js'
-import { imagePromptGuidanceBlock, legibleTextGuidanceBlock } from '../lib/image-content-guidance.js'
+import {
+  imagePromptGuidanceBlock,
+  legibleTextGuidanceBlock,
+  SCENE_SUBJECT_GUIDANCE,
+  sceneSubjectGuidanceBlock,
+} from '../lib/image-content-guidance.js'
 import { availableInputTokens, maxSafeScenePromptPackSize } from './scene-prompt-batching.js'
 import type {
+  EpisodePromptContext,
   ResearchOutput,
   SceneCreativeDirection,
   SceneCreativeStrategy,
@@ -200,6 +206,12 @@ function buildScenePlannerPrompt(opts: {
   style_prompt?: string
   /** v1.0.242 — extra free-text planner instructions. */
   custom_instructions?: string
+  /**
+   * v1.4.356 — this episode's own title + a short passage of its opening
+   * narration. Sent with the subject-naming rule (lib/image-content-guidance.ts)
+   * because each scene's prompt is all the image model ever sees of it.
+   */
+  episode_context?: EpisodePromptContext | null
   /**
    * The ceiling each visual prompt is written under (see
    * `generateVisualPromptOnly`): the model's effective cap minus the text the
@@ -414,8 +426,22 @@ ${schemaBlock}`
     reservedCharacters: opts.prompt_char_cap_reserved,
     reservedDescription: reserveDescription(opts.style_prompt),
     capSource: opts.prompt_char_cap_source,
+    // A limit may shorten a prompt; it may never erase what the image is OF.
+    keepNamedSubject: true,
   })
-  return { system: system + (charCapInstruction ? `\n\n${charCapInstruction}` : '') + imagePromptGuidanceBlock(), user: userParts.join('\n\n') }
+  // The episode context and the subject-naming rule are placed BEFORE the
+  // ceiling instruction, so a writer trimming to fit is told what not to trim
+  // rather than discovering it after the fact. Both are SCENE-only — the
+  // thumbnail paths never receive them (lib/image-content-guidance.ts).
+  const episodeBlock = episodePromptContextBlock(opts.episode_context)
+  return {
+    system: system
+      + (episodeBlock ? `\n\n${episodeBlock}` : '')
+      + sceneSubjectGuidanceBlock()
+      + (charCapInstruction ? `\n\n${charCapInstruction}` : '')
+      + imagePromptGuidanceBlock(),
+    user: userParts.join('\n\n'),
+  }
 }
 
 /** Tolerant JSON parser — strips fences, handles prose preamble, and (v1.0.225)
@@ -1073,6 +1099,70 @@ export function buildStorySoFar(scenes: ScenePlanEntry[], live: boolean): string
 }
 
 /**
+ * v1.4.356 — the episode-level context every SCENE prompt writer is given.
+ *
+ * A scene prompt reaches the image model VERBATIM and ALONE: no narration, no
+ * episode title, no neighbouring scene. Measured on WI0004 (a zipper episode,
+ * 2026-10-25): 46 saved prompts described the zipper's TEETH, 29 of them never
+ * said "zipper" anywhere, and the render came back as human teeth.
+ *
+ * The RULE that prevents that lives in lib/image-content-guidance.ts
+ * (`SCENE_SUBJECT_GUIDANCE`). This is the other half — the episode's own title
+ * and a bounded passage of its own opening narration, so the writer has the
+ * subject to hand instead of having to infer it from one four-second excerpt.
+ *
+ * Both come from data the caller already holds. No extra model call, and no
+ * cached summary that could outlive the episode it describes: an absent input
+ * stays absent rather than being filled with a guess (AGENTS §6 — "I could not
+ * work out the subject" must not look like "the subject is nothing").
+ */
+export function buildEpisodePromptContext(opts: {
+  /** The episode's title, from its own metadata (idea index / folder). */
+  episodeTitle?: string | null
+  /** Cues from THIS episode's own stitched SRT. */
+  cues: readonly SrtCue[]
+  /** Opening cues the subject passage is drawn from. Default 8. */
+  subjectCueCount?: number
+  /** Character ceiling for the subject passage. Default 700. */
+  subjectCharCap?: number
+}): EpisodePromptContext {
+  const title = (opts.episodeTitle || '').trim()
+  const cueCount = Math.max(1, Math.floor(opts.subjectCueCount ?? 8))
+  const charCap = Math.max(80, Math.floor(opts.subjectCharCap ?? 700))
+  const opening = (opts.cues || [])
+    .slice(0, cueCount)
+    .map(cue => cue.text.trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return {
+    ...(title ? { title } : {}),
+    ...(opening ? { subject: truncateChars(opening, charCap) } : {}),
+  }
+}
+
+/**
+ * The episode context as a block for a SCENE prompt writer's instructions, or
+ * '' when nothing is known. Says out loud that the image model never sees this
+ * text — that is exactly why the writer has to name the subject itself.
+ */
+export function episodePromptContextBlock(context?: EpisodePromptContext | null): string {
+  const title = (context?.title || '').trim()
+  const subject = (context?.subject || '').trim()
+  if (!title && !subject) return ''
+  const lines: string[] = []
+  if (title) lines.push(`EPISODE: ${JSON.stringify(title)}`)
+  if (subject) {
+    lines.push(
+      'WHAT THIS EPISODE IS ABOUT — the image model never sees this text, so name this subject in the prompt:',
+      subject,
+    )
+  }
+  return lines.join('\n')
+}
+
+/**
  * v1.0.291 — deterministic scene split (no LLM). Walks the SRT cues left
  * to right, groups them into scenes targeting `target_sec` seconds each,
  * snaps boundaries to cue ends so we never mid-sentence-cut, and respects
@@ -1591,6 +1681,9 @@ export async function generatePromptsForScenes(
     detail_level?: number
     style_prompt?: string
     custom_instructions?: string
+    /** v1.4.356 — this episode's own title + opening narration, handed to every
+     *  per-scene writer so no prompt loses the subject it is about. */
+    episode_context?: EpisodePromptContext | null
     creative_direction?: Partial<SceneCreativeDirection>
     /** The character ceiling these prompts are written under (see
      *  `generateVisualPromptOnly`). Absent = no limit in force. */
@@ -1653,6 +1746,18 @@ export async function generatePromptsForScenes(
         const t = scenes[j]?.transcript_segment
         if (t && t.trim()) nextTranscripts.push(t)
       }
+      // v1.4.356 — the SAME window BACKWARD, in narration rather than image
+      // prose. A previous scene's visual prompt says how that image was
+      // described; it never says what the episode was talking about, which is
+      // what a prompt needs when the narration names a part whose everyday
+      // meaning is a different object (a zipper's teeth). Transcripts are
+      // already final, so this reads them directly rather than through the
+      // in-flight guard above.
+      const prevTranscripts: string[] = []
+      for (let j = Math.max(0, i - back); j < i; j++) {
+        const t = scenes[j]?.transcript_segment
+        if (t && t.trim()) prevTranscripts.push(t)
+      }
 
       let lastErr: any = null
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -1674,7 +1779,9 @@ export async function generatePromptsForScenes(
             callAi: ctx.callAi,
             slug: ctx.slug,
             prev_visual_prompts: prevPrompts,
+            prev_transcript_segments: prevTranscripts,
             next_transcript_segments: nextTranscripts,
+            episode_context: ctx.episode_context,
           })
         } catch (e: any) {
           lastErr = e
@@ -1812,6 +1919,21 @@ export async function generateVisualPromptOnly(opts: {
   prev_visual_prompts?: string[]
   next_transcript_segments?: string[]
   /**
+   * v1.4.356 — the SAME neighbour window as `next_transcript_segments`, read
+   * BACKWARD and in NARRATION rather than image prose. A previous scene's
+   * visual prompt records how that image was described; it does not record what
+   * the episode was talking about, which is what a prompt needs when the
+   * narration names a part whose everyday meaning is a different object.
+   */
+  prev_transcript_segments?: string[]
+  /**
+   * v1.4.356 — this episode's own title + a short passage of its opening
+   * narration. Read fresh on every call (never held in state), so an episode
+   * change cannot carry the previous episode's title into this prompt. Absent =
+   * the writer knows nothing about the episode and claims nothing.
+   */
+  episode_context?: EpisodePromptContext | null
+  /**
    * User-invoked "reword this prompt" — asks for a genuinely different angle on
    * the SAME narrative beat, on top of the standard difficult-subjects
    * guidance. Set only by the manual per-scene action; nothing infers it from a
@@ -1845,6 +1967,13 @@ export async function generateVisualPromptOnly(opts: {
       `ART STYLE / MEDIUM (context only): "${styleForLead}". This exact clause is placed automatically at the START of the final prompt, so do NOT restate the style — just describe the scene content (subject, action, setting, framing, lighting, mood) in a way that suits that style.`,
     )
   }
+  // v1.4.356 — the episode's own subject, then the rule that keeps it, both
+  // placed BEFORE the length ceiling below: a ceiling may shorten a prompt, it
+  // may never erase what the image is OF. Both are SCENE-only; the thumbnail
+  // paths never call them (see lib/image-content-guidance.ts).
+  const episodeBlock = episodePromptContextBlock(opts.episode_context)
+  if (episodeBlock) sysParts.push(episodeBlock)
+  sysParts.push(SCENE_SUBJECT_GUIDANCE)
   // The image model that will RENDER this prompt owns the ceiling. The body
   // budget it is given already has the style lead this function prepends and
   // the renderer's appended text reserved out of it.
@@ -1853,6 +1982,7 @@ export async function generateVisualPromptOnly(opts: {
     reservedCharacters: opts.prompt_char_cap_reserved,
     reservedDescription: reserveDescription(styleForLead),
     capSource: opts.prompt_char_cap_source,
+    keepNamedSubject: true,
   })
   if (charCapInstruction) sysParts.push(charCapInstruction)
   if (opts.custom_instructions && opts.custom_instructions.trim()) {
@@ -1894,6 +2024,13 @@ export async function generateVisualPromptOnly(opts: {
   if (opts.prev_visual_prompts && opts.prev_visual_prompts.length > 0) {
     const lines = opts.prev_visual_prompts.map((p, i) => `  ${i + 1}. ${p.trim()}`).join('\n')
     userParts.push(`Previous scene(s), most recent last:\n${lines}`)
+  }
+  // v1.4.356 — the narration AROUND this scene, not just the frames before it.
+  // The prompt has to be readable on its own, and the surrounding narration is
+  // what says what the episode is actually about.
+  if (opts.prev_transcript_segments && opts.prev_transcript_segments.length > 0) {
+    const lines = opts.prev_transcript_segments.map((t, i) => `  ${i + 1}. ${t.trim()}`).join('\n')
+    userParts.push(`Narration just before this scene (context only — do NOT write for these):\n${lines}`)
   }
   if (opts.next_transcript_segments && opts.next_transcript_segments.length > 0) {
     const lines = opts.next_transcript_segments.map((t, i) => `  ${i + 1}. ${t.trim()}`).join('\n')
@@ -2178,6 +2315,9 @@ export async function planScenesTwoPass(opts: ScenePlannerRunOptions): Promise<S
       detail_level: opts.detail_level,
       style_prompt: opts.style_prompt,
       custom_instructions: opts.custom_instructions,
+      // Per-scene prompts are read by the image model ALONE, so every one of
+      // them carries the episode's own subject (v1.4.356).
+      episode_context: opts.episode_context,
       prompt_char_cap: opts.prompt_char_cap,
       prompt_char_cap_published: opts.prompt_char_cap_published,
       prompt_char_cap_reserved: opts.prompt_char_cap_reserved,
@@ -2378,6 +2518,7 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
       detail_level: opts.detail_level,
       style_prompt: opts.style_prompt,
       custom_instructions: opts.custom_instructions,
+      episode_context: opts.episode_context,
       prompt_char_cap: opts.prompt_char_cap,
       prompt_char_cap_published: opts.prompt_char_cap_published,
       prompt_char_cap_reserved: opts.prompt_char_cap_reserved,
@@ -2539,6 +2680,7 @@ export async function planScenes(opts: ScenePlannerRunOptions): Promise<ScenePla
         detail_level: opts.detail_level,
         style_prompt: opts.style_prompt,
         custom_instructions: opts.custom_instructions,
+        episode_context: opts.episode_context,
         prompt_char_cap: opts.prompt_char_cap,
         prompt_char_cap_published: opts.prompt_char_cap_published,
         prompt_char_cap_reserved: opts.prompt_char_cap_reserved,

@@ -101,6 +101,14 @@ export interface PromptCharCapInstructionOptions {
   reservedDescription?: string
   /** 'model' (default) keeps the historical wording. */
   capSource?: PromptCharCapSource
+  /**
+   * SCENE prompts only: the image model is handed this text ALONE, so whatever
+   * names the subject has to survive any shortening. Adds one sentence saying
+   * so. Thumbnail callers leave this unset — their subject is the episode
+   * itself, not the writer's to choose — so their instruction stays
+   * byte-for-byte what it was before this existed.
+   */
+  keepNamedSubject?: boolean
 }
 
 /**
@@ -154,10 +162,18 @@ export function buildPromptCharCapInstruction(
     ? ` ${reserved.toLocaleString()} of those characters are added on top of your prompt — ${reservedDescription} — `
       + `so your prompt text must be at most ${bodyText} characters.`
     : ''
+  // A ceiling tells the writer what to CUT. Without this sentence the obvious
+  // thing to cut is the longest phrase — and on a scene prompt that phrase is
+  // often the only place the subject is named, which is how a zipper's teeth
+  // became human teeth (WI0004, 2026-10-25). See SCENE_SUBJECT_GUIDANCE.
+  const subjectSentence = options.keepNamedSubject
+    ? ' The SUBJECT is the last thing to go: if a prompt has to come in shorter, drop adjectives, atmosphere, and secondary detail first — never the noun that names what the image actually shows.'
+    : ''
   return `${head}${reservedSentence} `
     + 'Write each prompt at whatever length the scene genuinely needs, following the length and detail guidance above; a prompt that is naturally short must stay short. '
     + `${bodyText} is a hard ceiling the prompt must not exceed — never pad, restate, or add detail in order to approach it. `
     + 'Count characters, not words. Do not cut a prompt off mid-sentence, and do not mention this limit in the prompt text.'
+    + subjectSentence
 }
 
 /** One prompt measured against the cap. `over_cap` is false whenever no cap

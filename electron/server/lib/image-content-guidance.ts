@@ -67,6 +67,25 @@
  * whose scenes render on a higher-quality model (GPT Image 2, Nano Banana
  * Pro) that gets real words right can turn this off in Scene Plan settings.
  *
+ * ── Naming the actual subject, in SCENE images only ─────────────────────────
+ * `SCENE_SUBJECT_GUIDANCE` / `sceneSubjectGuidanceBlock` is another SEPARATE block
+ * for one equally narrow problem: a scene prompt reaches the image model
+ * VERBATIM and ALONE — no narration, no episode title, no neighbouring scene —
+ * so a prompt that names only a part of the subject, or uses a word that also
+ * means something else in everyday speech, is rendered as that other thing.
+ * Measured on WI0004 (a zipper episode, 2026-10-25): 46 saved prompts described
+ * the zipper's TEETH, 29 of them never said "zipper" anywhere, and the render
+ * came back as human teeth.
+ *
+ * Deliberately a SEPARATE block from `IMAGE_CONTENT_GUIDANCE`, with the same
+ * scene-only arrangement as the legible-text block above: a YouTube thumbnail's
+ * subject is always the episode itself and its headline is typography, so the
+ * Thumbnail path must never be handed a rule about naming a scene's subject.
+ *
+ * It carries NO per-subject code and no lookup table of terms — the illustrative
+ * words (teeth, spine, comb) are examples of the SHAPE, never a list to match on.
+ * A "zipper" rule would be one episode's fix wearing a general rule's coat.
+ *
  * ── On rewriting after a refusal ────────────────────────────────────────────
  * `IMAGE_PROMPT_REWORD_DIRECTIVE` powers a MANUAL, user-invoked reword only.
  * GenStudio's exact terminal `IMAGE_CONTENT_REFUSED` code can identify that
@@ -170,4 +189,36 @@ export function legibleTextGuidanceBlock(include = false): string {
 export function resolveAvoidLegibleText(explicit?: boolean | null, projectDefault?: boolean | null): boolean {
   if (explicit != null) return explicit
   return projectDefault !== false
+}
+
+/**
+ * Name the ACTUAL subject, so a prompt cannot be read as a different one.
+ *
+ * `IMAGE_CONTENT_GUIDANCE` guards a scene against a provider's content filters.
+ * This guards it against the ordinary meaning of the words it uses: the image
+ * model is shown the prompt and nothing else, so it has no way to know that
+ * "teeth" here means the teeth of a zipper. SCENE prompt-writers only — see the
+ * "Naming the actual subject, in SCENE images only" note at the top of this
+ * file for why this is a separate block rather than folded into
+ * `IMAGE_CONTENT_GUIDANCE` (which every path, thumbnails included, gets
+ * unconditionally).
+ */
+export const SCENE_SUBJECT_GUIDANCE = `NAME THE ACTUAL SUBJECT: your prompt is read by the image model ALONE — it never sees the narration, the episode title, or any other scene, so anything the prompt does not name outright does not exist for it.
+
+- Name the real physical subject in every prompt — the object, place, or action the episode is about — not only a part of it. A prompt that shows a component on its own is rendered as that component on its own.
+- When the narration uses a word that also means something else in everyday speech — a part named like a body part, an animal, or another object (teeth, head, arm, mouth, spine, eye, tongue, jaw, comb, wing) — describe the literal thing in this episode's subject matter so the prompt cannot be read the other way. "The interlocking metal teeth of a zipper sewn to fabric tape" is unambiguous; "teeth" on its own is not.
+- The named subject is the LAST thing to give up. If a length limit or a short scene forces a choice, cut adjectives, atmosphere, and secondary detail first — never the noun that says what the image shows, and never swap it for a vaguer one.
+- If the episode's subject is not stated to you, take it from the narration you were given and name it in the prompt anyway. Never leave a prompt that could be read as a different subject.`
+
+/**
+ * The subject-naming block, spliced into a SCENE prompt-writer's instructions.
+ *
+ * `include` defaults to TRUE — unlike the legible-text block this is not a
+ * per-project preference: a prompt that loses its subject renders the WRONG
+ * image, and every scene writer needs the rule. It is still an independent
+ * named call so it can never reach a thumbnail path by accident, which is what
+ * `imagePromptGuidanceBlock()` would do.
+ */
+export function sceneSubjectGuidanceBlock(include = true): string {
+  return include ? `\n\n${SCENE_SUBJECT_GUIDANCE}` : ''
 }
