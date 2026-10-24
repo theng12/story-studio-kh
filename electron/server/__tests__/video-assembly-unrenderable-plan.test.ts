@@ -60,7 +60,8 @@ before(async () => {
     '-codec:a', 'libmp3lame', '-q:a', '9', path.join(mergedDir, `${CODE}_merged_audio.mp3`),
   ])
   await fs.writeFile(path.join(mergedDir, `${CODE}_merged_audio.completion.json`), JSON.stringify({
-    output_filename: `${CODE}_merged_audio.mp3`, duration_sec: 20, opening: { lead_in_sec: 0 },
+    output_filename: `${CODE}_merged_audio.mp3`, bytes: (await fs.stat(path.join(mergedDir, `${CODE}_merged_audio.mp3`))).size,
+    duration_sec: 20, opening: { lead_in_sec: 0 },
   }))
   // Two mid-plan rows are ~10 ms each — a window no renderer can play. The total
   // still reaches the 20 s narration, so every coverage check passes; only the

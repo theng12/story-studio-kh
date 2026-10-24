@@ -67,7 +67,10 @@ async function episode() {
 
   await fs.writeFile(path.join(episodeDir, 'audio_chapters.json'), JSON.stringify({
     gap_duration_s: 1,
-    sections: [{ slug: 'chapter_1', duration_s: 6 }, { slug: 'chapter_2', duration_s: 6 }],
+    sections: [
+      { slug: 'chapter_1', duration_s: 6, source_files: [`${CODE}_chapter_1.mp3`] },
+      { slug: 'chapter_2', duration_s: 6, source_files: [`${CODE}_chapter_2.mp3`] },
+    ],
   }))
   const tone = (file: string, seconds: number) => runFfmpeg([
     '-y', '-f', 'lavfi', '-i', `anullsrc=channel_layout=mono:sample_rate=8000,atrim=duration=${seconds}`,
@@ -86,6 +89,7 @@ async function episode() {
   await tone(path.join(mergedDir, `${CODE}_merged_audio.mp3`), 13)
   await fs.writeFile(path.join(mergedDir, `${CODE}_merged_audio.completion.json`), JSON.stringify({
     output_filename: `${CODE}_merged_audio.mp3`,
+    bytes: (await fs.stat(path.join(mergedDir, `${CODE}_merged_audio.mp3`))).size,
     duration_sec: 13,
     opening: { lead_in_sec: 0, music_lead_in_sec: 0 },
   }))

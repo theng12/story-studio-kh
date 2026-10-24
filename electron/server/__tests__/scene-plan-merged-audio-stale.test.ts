@@ -58,7 +58,7 @@ async function episode(code: string, plannedSec: number, mergedSec: number) {
     '-codec:a', 'libmp3lame', '-q:a', '9', path.join(mergedDir, filename),
   ])
   const completion = path.join(mergedDir, `${code}_merged_audio.completion.json`)
-  await fs.writeFile(completion, JSON.stringify({ output_filename: filename, duration_sec: mergedSec, opening: { lead_in_sec: 0 } }))
+  await fs.writeFile(completion, JSON.stringify({ output_filename: filename, bytes: (await fs.stat(path.join(mergedDir, filename))).size, duration_sec: mergedSec, opening: { lead_in_sec: 0 } }))
   return { planPath, completion }
 }
 
