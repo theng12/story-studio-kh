@@ -27,8 +27,8 @@ import type { SceneMotionDocument } from '../contracts/scene-effects.js'
 import { planStillMotion, type MotionPlan } from './scene-motion-plan.js'
 import { appendCappedTail } from './ffmpeg-utils.js'
 import { trackChild } from '../services/job-queue.js'
-import { NATIVE_SCENE_CLIP_VERSION } from './native-scene-clip-version.js'
-export { NATIVE_SCENE_CLIP_VERSION }
+import { NATIVE_SCENE_CLIP_VERSION, SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS } from './native-scene-clip-version.js'
+export { NATIVE_SCENE_CLIP_VERSION, SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
@@ -197,9 +197,17 @@ export interface SketchDrawJob {
   height: number
   fps: number
   frames: number
+  /** Exact closing hold. Omit for the default; see sketchDefaultHoldFrames. */
+  hold_frames?: number
   paper: string
   pen: SketchDrawPen
   quality?: number
+}
+
+/** Closing hold: min(2.5 s, half the clip), at least 1 frame. Under 3 frames only the finished image fits. Mirrors the helper. */
+export function sketchDefaultHoldFrames(frames: number, fps: number): number {
+  if (frames < 3) return frames
+  return Math.min(frames - 2, Math.max(1, Math.round(Math.min(2.5 * fps, frames / 2))))
 }
 
 export class SketchDrawError extends Error {
@@ -218,6 +226,9 @@ export function validateSketchDrawJob(job: SketchDrawJob): void {
   }
   if (!Number.isInteger(job.fps) || job.fps < 1 || job.fps > 120) invalid('fps must be an integer, 1–120')
   if (!Number.isInteger(job.frames) || job.frames < 1 || job.frames > 1_000_000) invalid('frames must be an integer, 1–1000000')
+  if (job.hold_frames !== undefined && (!Number.isInteger(job.hold_frames) || (job.frames < 3 ? job.hold_frames !== job.frames : job.hold_frames < 1 || job.hold_frames > job.frames - 2))) {
+    invalid('hold_frames must be 1 to frames-2 (or frames when frames < 3)')
+  }
   if (typeof job.input !== 'string' || typeof job.output !== 'string' || !path.isAbsolute(job.input) || !path.isAbsolute(job.output) || path.resolve(job.input) === path.resolve(job.output)) invalid('input and output must be different absolute paths')
   if (typeof job.paper !== 'string' || !/^#[a-f\d]{6}$/i.test(job.paper)) invalid('paper must be a six-digit hex colour')
   if (job.quality !== undefined && (!Number.isFinite(job.quality) || job.quality < 0 || job.quality > 1)) invalid('quality must be 0–1')

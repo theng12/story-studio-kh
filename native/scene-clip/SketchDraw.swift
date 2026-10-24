@@ -1,8 +1,8 @@
 // Sketch Draw: local skeleton ink + feathered colour reveal. No upstream assets or runtime.
 //
-// Frames: closing hold = max(round(0.5*fps), round(0.15*frames)), ink:colour split 2:1.
-// When fewer than hold+2 frames remain, only the completed image is shown: the contract
-// never overruns the scene window. Regions are connected ink areas clustered by centre
+// Frames: closing hold = min(2.5 s, 50% of the clip) in frames (at least 1), or the job's exact
+// hold_frames; the rest is split ink:colour 2:1 (each at least 1 frame). A clip of fewer than
+// 3 frames cannot hold both phases, so it shows only the completed image: never an overrun. Regions are connected ink areas clustered by centre
 // (at most six), ordered top-to-bottom then left-to-right; brush sweeps are serpentine.
 // Pen tip is anchored at the newest stroke sample and hidden during the hold.
 import Foundation
@@ -26,9 +26,16 @@ struct SketchJob: Decodable {
     var height: Int
     var fps: Int
     var frames: Int
+    var hold_frames: Int?      // exact closing hold; 1...frames-2, or frames when frames < 3. Default: sketchDefaultHold
     var paper: String
     var pen: SketchPen
     var quality: Double?
+}
+
+/// The closing hold the app and the helper agree on; lib/native-scene-clip.ts mirrors it.
+func sketchDefaultHold(frames: Int, fps: Int) -> Int {
+    if frames < 3 { return frames }
+    return min(frames - 2, max(1, Int(min(2.5 * Double(fps), Double(frames) / 2).rounded())))
 }
 
 private final class SketchBitmap {
@@ -402,6 +409,7 @@ func renderSketch(_ job: SketchJob) {
     guard job.kind == "sketch", job.width >= 2, job.height >= 2, job.width <= 4096, job.height <= 4096,
           job.width % 2 == 0, job.height % 2 == 0, job.fps >= 1, job.fps <= 120,
           job.frames >= 1, job.frames <= 1_000_000,
+          job.hold_frames == nil || (job.frames < 3 ? job.hold_frames! == job.frames : (1...(job.frames - 2)).contains(job.hold_frames!)),
           job.quality == nil || (job.quality!.isFinite && (0...1).contains(job.quality!)),
           job.paper.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil,
           ["none", "plain", "name", "logo"].contains(job.pen.mode),
@@ -428,9 +436,7 @@ func renderSketch(_ job: SketchJob) {
     analysis.context.interpolationQuality = .high
     analysis.context.draw(source.context.makeImage()!, in: CGRect(x: 0, y: 0, width: aw, height: ah))
     let ink = sketchInk(analysis), skeleton = sketchSkeleton(ink, aw, ah), strokes = sketchTrace(skeleton, aw, ah)
-    let requestedHold = max(Int((0.5 * Double(job.fps)).rounded()), Int((0.15 * Double(job.frames)).rounded()))
-    // Too short for both drawing phases and the minimum hold: complete image only, never an overrun.
-    let hold = job.frames < requestedHold + 2 ? job.frames : requestedHold
+    let hold = job.hold_frames ?? sketchDefaultHold(frames: job.frames, fps: job.fps)
     let drawing = job.frames - hold
     var (regions, owners) = sketchRegions(ink, aw, ah, strokes, max(1, min(6, drawing / 3)))
     let canvas = SketchCanvas(source, ink, owners, aw, ah, paper, CGRect(x: px, y: py, width: fw, height: fh))

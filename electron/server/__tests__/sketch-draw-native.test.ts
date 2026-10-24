@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import {
-  NATIVE_SCENE_CLIP_VERSION, NATIVE_CLIP_QUALITY, SketchDrawError,
+  NATIVE_SCENE_CLIP_VERSION, NATIVE_CLIP_QUALITY, SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS, SketchDrawError, sketchDefaultHoldFrames,
   renderSketchDraw, validateSketchDrawJob, type SketchDrawJob,
 } from '../lib/native-scene-clip.js'
 
@@ -21,7 +21,7 @@ async function scratch(t: { after: (fn: () => Promise<void>) => void }) {
 }
 
 test('Sketch Draw job has exact integer frames and accepts the four pen modes and supported frame rates', () => {
-  assert.equal(NATIVE_SCENE_CLIP_VERSION, 2)
+  assert.equal(NATIVE_SCENE_CLIP_VERSION, 3)
   for (const fps of [24, 25, 30, 60]) {
     for (const pen of [{ mode: 'none' }, { mode: 'plain' }, { mode: 'name', text: 'Channel Name' }, { mode: 'logo', logo: '/profile/logo.webp' }] as SketchDrawJob['pen'][]) {
       assert.doesNotThrow(() => validateSketchDrawJob({ ...base, fps, pen }))
@@ -36,6 +36,7 @@ test('Sketch Draw rejects malformed JSON fields before invoking a helper', async
     { fps: 29.97 }, { fps: 0 }, { fps: 121 }, { frames: 0 }, { frames: 1.5 }, { frames: 1_000_001 },
     { paper: 'white' }, { paper: '#fff' }, { quality: NaN }, { quality: 1.01 },
     { input: 'relative.png' }, { output: base.input }, { output: '/input/../input/scene.png' },
+    { hold_frames: 0 }, { hold_frames: 246 }, { hold_frames: 1.5 }, { frames: 2, hold_frames: 1 },
     { pen: null }, { pen: { mode: 'hand' } }, { pen: { mode: 'name', text: ' ' } },
     { pen: { mode: 'name', text: 'x'.repeat(257) } }, { pen: { mode: 'logo', logo: 'relative.png' } },
   ]) {
@@ -111,3 +112,35 @@ test('Sketch Draw rejects cancellation before starting and after an in-flight re
 })
 
 // These tests pin process/job boundaries, not visual quality or encoded media validity.
+
+test('closing hold is min(2.5 s, half the clip) with the documented tiny-clip degradation', () => {
+  assert.equal(sketchDefaultHoldFrames(240, 30), 75, '8 s at 30 fps holds 2.5 s')
+  assert.equal(sketchDefaultHoldFrames(90, 30), 45, '3 s holds half the clip')
+  assert.equal(sketchDefaultHoldFrames(12, 24), 6, '0.5 s holds half the clip')
+  assert.equal(sketchDefaultHoldFrames(3, 24), 1)
+  assert.equal(sketchDefaultHoldFrames(2, 24), 2, 'fewer than 3 frames: finished image only')
+  assert.equal(sketchDefaultHoldFrames(1, 24), 1)
+  for (const [frames, fps] of [[247, 30], [100, 25], [120, 60], [5, 24], [4, 60]] as const) {
+    const hold = sketchDefaultHoldFrames(frames, fps)
+    assert.ok(hold >= 1 && hold <= frames - 2, `${frames}f@${fps}: hold ${hold} leaves ink and colour a frame each`)
+    assert.doesNotThrow(() => validateSketchDrawJob({ ...base, frames, fps, hold_frames: hold }))
+  }
+  assert.doesNotThrow(() => validateSketchDrawJob({ ...base, frames: 2, hold_frames: 2 }))
+})
+
+test('version-2 Sketch Draw clips stay valid renders for freshness', () => {
+  assert.deepEqual([...SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3])
+  assert.ok(SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(NATIVE_SCENE_CLIP_VERSION))
+  assert.ok(!SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS.includes(1))
+})
+
+test('hold_frames reaches the helper in the job JSON', async t => {
+  const job = { ...(await scratch(t)), hold_frames: 75 }
+  let seen: any
+  await renderSketchDraw(job, { run: async (_helper, file) => {
+    seen = JSON.parse(await fs.readFile(file, 'utf8'))
+    await fs.writeFile(job.output, 'clip')
+    return { code: 0, stderr: '' }
+  } })
+  assert.equal(seen.hold_frames, 75)
+})
