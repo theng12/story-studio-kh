@@ -33,6 +33,7 @@ import {
   TTS_ROUTE_RETRY_MAX_ATTEMPTS,
   ttsRouteRetryDelayMs,
 } from '../services/tts-capacity-retry.js'
+import { narrationLanguageRefusal } from '../services/tts-language-guard.js'
 import {
   normalizeSectionsForTts,
   planGenStudioTtsRequests,
@@ -835,6 +836,11 @@ export async function generateAudio(job: Job): Promise<void> {
   // catalogue row by `resolveTtsRequestBudget` — so what GenStudio was asked to
   // price is what is about to be submitted.
   const genStudioRequestPlan = planGenStudioTtsRequests(sections, requestBudget.effective)
+
+  // A language the model does not list is refused here, before the first request: the audio
+  // could never pass its quality check, and every attempt would be fleet time thrown away.
+  const languageRefusal = narrationLanguageRefusal(sections.map(section => section.text), ttsModel.supported_languages, ttsModel.display_name)
+  if (languageRefusal) throw new Error(languageRefusal)
 
   for (const [sectionIndex, section] of sections.entries()) {
     if (isCancelled()) break
