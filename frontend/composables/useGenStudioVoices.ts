@@ -49,7 +49,17 @@ export interface GenStudioTtsModel extends PriceTruth {
   sale_disclaimer: string | null
   queue_class: 'direct' | 'relaxed'
   relaxed_queue_hint: RelaxedQueueHint | null
+  /**
+   * The identifiers this product also answers to (`customer_handle`,
+   * `public_model_id`, `legacy_ids`), exactly as the Gateway published them.
+   * The picker matches a saved id against this set through
+   * `@shared/genstudio-product-identity`, so a preset holding a superseded id
+   * still resolves to the live row instead of leaving the voice picker with no
+   * model to scope to.
+   */
   legacy_ids?: string[]
+  customer_handle?: string | null
+  public_model_id?: string | null
   /**
    * `TTSModelResponse.controls[]` — every extra knob THIS model takes, with its
    * own label, type, published bounds, default and description. Rendered as

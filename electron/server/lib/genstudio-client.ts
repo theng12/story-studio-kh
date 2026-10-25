@@ -1724,7 +1724,7 @@ export interface GenStudioVoice {
 }
 
 /** `TTSModelResponse` — the selection and pricing axis for speech. */
-export interface GenStudioTtsModel extends GenStudioCatalogLock, GenStudioPriceTruth {
+export interface GenStudioTtsModel extends GenStudioCatalogLock, GenStudioPriceTruth, GenStudioProductAliases {
   id: string
   display_name: string
   provider_id: string
@@ -5234,6 +5234,13 @@ export async function listTtsModelsSnapshot(
         // this model takes no controls — never a reason to supply some.
         controls: parseTtsControls(value?.controls),
         pause_parameters: parseTtsPauseParameters(value?.pause_parameters),
+        // The identifiers this product also answers to, exactly as published.
+        // Without this the TTS catalogue was the one modality that dropped
+        // them, so a saved preset or remembered form holding a superseded id
+        // could never be matched to the live row: the model resolved to
+        // nothing, which left `selectedTtsModel` null and the voice picker
+        // saying "Choose a voice model first." with the saved voice stranded.
+        ...parseGenStudioProductAliases(value),
       }]
     })
   }, { ...options, baseUrl, apiKey })
