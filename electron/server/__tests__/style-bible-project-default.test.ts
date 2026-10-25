@@ -113,20 +113,31 @@ describe('style-bible — project default', () => {
       assert.equal(await sb.readEpisodeStyleBible(dir), '')
     })
 
-    test('the episode tier still guards at the write cap that routes/continuity.ts enforces', async () => {
-      // The project tier's ceiling moved to the selected image model (owner
-      // decision #2), but the per-episode field is written by
-      // routes/continuity.ts with a fixed cap, so its read guard stays and must
-      // keep matching it. Asserting the boundary — not merely "long input is
-      // shorter" — is what stops the two from drifting apart unnoticed.
-      const dir = await episodeDirWith('ep-too-long', 'x'.repeat(sb.STYLE_BIBLE_MAX_CHARS + 500))
+    test('a long episode Style Bible comes back whole — no silent truncation (v1.4.358)', async () => {
+      // v1.4.358 — production defect MANU2-NATIVE-20261025T115324Z-092ce216:
+      // a 2,751-character Style Bible was silently trimmed to 2,000 on save.
+      // AGENTS.md §1: a limit must come from the selected model's published
+      // max_prompt_characters, never a Story Studio constant. The fixed cap
+      // was removed from both the write boundary (routes/continuity.ts) and
+      // this read guard. An over-long value now fails loudly at render time
+      // (the image provider refuses and names the model's limit), not here.
+      const longText = 'x'.repeat(2751)
+      const dir = await episodeDirWith('ep-long-2751', longText)
       const read = await sb.readEpisodeStyleBible(dir)
-      assert.equal(read.length, sb.STYLE_BIBLE_MAX_CHARS)
-      assert.equal(sb.STYLE_BIBLE_MAX_CHARS, 2000,
-        'must still match the per-episode cap in routes/continuity.ts')
-      // A value at the cap is untouched: the guard is a ceiling, not a trimmer.
-      const exact = await episodeDirWith('ep-exact', 'y'.repeat(sb.STYLE_BIBLE_MAX_CHARS))
-      assert.equal((await sb.readEpisodeStyleBible(exact)).length, sb.STYLE_BIBLE_MAX_CHARS)
+      assert.equal(read.length, 2751,
+        'a 2,751-character Style Bible must round-trip unchanged — the production defect was silent truncation to 2,000')
+      assert.equal(read, longText)
+    })
+
+    test('a very long episode Style Bible comes back whole — the ceiling lives at prompt assembly', async () => {
+      // Even 5,000 characters must survive the round trip. The real ceiling
+      // is enforced by promptBudget() in generators/scene-plan.ts, which
+      // reads the live published max_prompt_characters from the image model
+      // catalogue and shows it where the choice is made.
+      const veryLong = 'y'.repeat(5000)
+      const dir = await episodeDirWith('ep-very-long', veryLong)
+      assert.equal(await sb.readEpisodeStyleBible(dir), veryLong,
+        'no fixed cap here — the model limit is enforced at render time, not on read')
     })
   })
 
@@ -155,19 +166,16 @@ describe('style-bible — project default', () => {
     })
 
     test('a long default comes back whole — the ceiling lives where the model is known', async () => {
-      // v1.4.207 — THIS TEST'S EXPECTATION WAS REVERSED ON PURPOSE, and the
-      // reversal is the fix rather than a relaxation. It used to pin a fixed
-      // 2,000-character READ trim, justified as "must match the per-episode cap
-      // in routes/continuity.ts". Owner decision #2 (2026-09-20) moved the
-      // channel default's ceiling onto the SELECTED image model's published
-      // `max_prompt_characters`, enforced and SHOWN beside the box in the Scene
-      // Plan UI. A fixed read trim below that ceiling would silently cut a value
-      // the UI had just told the customer it accepted — the §1 defect the
-      // ruling exists to remove. An over-long hand-edited value now fails loudly
-      // at render time (the image provider refuses an over-cap prompt and names
-      // the model's limit) instead of being silently shortened here.
+      // v1.4.207 / v1.4.358 — THIS TEST'S EXPECTATION WAS REVERSED ON PURPOSE.
+      // It used to pin a fixed 2,000-character READ trim. Owner decision #2
+      // moved the channel default's ceiling onto the SELECTED image model's
+      // published `max_prompt_characters`. A fixed read trim below that ceiling
+      // would silently cut a value the UI had just told the customer it accepted
+      // — the §1 defect the ruling exists to remove. An over-long hand-edited
+      // value now fails loudly at render time instead of being silently shortened
+      // here, so we test that a 5,000-character value survives intact.
       const proj = await pm.createProject({ name: 'StyleTooLong' })
-      const long = 'x'.repeat(sb.STYLE_BIBLE_MAX_CHARS + 500)
+      const long = 'x'.repeat(5000)
       await pm.updateConfig(proj.slug, { default_style_bible: long } as any)
       assert.equal(await sb.readProjectStyleBible(proj.slug), long,
         'a stored channel default must come back whole, not silently trimmed')

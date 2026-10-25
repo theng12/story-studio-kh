@@ -51,16 +51,15 @@ import path from 'path'
 import * as pm from '../services/project-manager.js'
 
 /**
- * The per-EPISODE Style Bible cap, mirroring the write cap in
- * routes/continuity.ts. Kept as a read-side guard because `continuity.json` can
- * be edited by hand: an episode bible the app itself wrote is already ≤ this.
- *
- * The PROJECT default no longer shares this number. Its bound is what the
- * SELECTED image model publishes (`max_prompt_characters`), enforced and
- * displayed in the Scene Plan UI where that model is known — see
- * `readProjectStyleBible` below.
+ * v1.4.358 — REMOVED the fixed per-episode cap (was 2,000). Owner decision
+ * 2026-10-25 (production defect MANU2-NATIVE-20261025T115324Z-092ce216):
+ * AGENTS.md §1 — a limit must come from what the selected model publishes,
+ * never a Story Studio constant. The real ceiling is enforced at prompt
+ * assembly time via promptBudget() in generators/scene-plan.ts, which reads
+ * the live published max_prompt_characters. Both tiers now store and return
+ * the text whole; an over-long value fails loudly at render time (the image
+ * provider refuses and names the model's limit), not silently here.
  */
-export const STYLE_BIBLE_MAX_CHARS = 2000
 
 /** Where a resolved Style Bible came from. Used for operator-facing job log lines. */
 export type StyleBibleSource = 'episode' | 'project' | 'none'
@@ -107,7 +106,7 @@ export async function readEpisodeStyleBible(episodeDir: string): Promise<string>
     if (!existsSync(continuityPath)) return ''
     const raw = JSON.parse(await fs.readFile(continuityPath, 'utf-8'))
     if (typeof raw?.style_bible !== 'string') return ''
-    return raw.style_bible.trim().slice(0, STYLE_BIBLE_MAX_CHARS)
+    return raw.style_bible.trim()
   } catch {
     return ''
   }
