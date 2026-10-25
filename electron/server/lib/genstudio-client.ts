@@ -1984,6 +1984,8 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioPrice
    * 0 means "not published" — never a Story Studio guess.
    */
   context_window_tokens: number
+  /** Published input character ceiling, when the chat product states one. */
+  max_prompt_characters?: number
   /**
    * Maximum selectable output allowance published for this product.
    *
@@ -5660,6 +5662,7 @@ export async function listChatModelsSnapshot(
     qualification_only: value?.qualification_only !== false,
     ...parseGenStudioCatalogLock(value),
     ...parseGenStudioPriceTruth(value),
+    max_prompt_characters: publishedPositiveInteger(value?.max_prompt_characters),
     context_window_tokens: readPublishedTokenLimit(
       value?.context_window_tokens,
       value?.context_limit_tokens,
