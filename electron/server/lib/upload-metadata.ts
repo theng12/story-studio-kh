@@ -17,6 +17,7 @@ import fsp from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
 import { OVERRIDES_FILENAME, resolveOverrideEpisodePaths } from '../services/upload-overrides.js'
+import { assertVariantUploadable } from '../services/thumbnail-text-variants.js'
 import { parseMetadataTxt } from '../services/metadata-format.js'
 import type { VideoSnippet } from './youtube-client.js'
 import { truncateChars, toWellFormedText } from './well-formed-text.js'
@@ -73,6 +74,23 @@ export function validateUploadThumbnailFilename(filename: string): string {
 }
 
 /**
+ * Drop text-layer variants whose source artwork changed.
+ *
+ * A text layer is a NEW file beside the art it was drawn on, so it sorts and pins like any other
+ * thumbnail. When that art is re-rendered the text stays frozen in the old picture, which is a lie
+ * about what the customer is about to upload — so a stale one is removed from BOTH the list and the
+ * automatic pick here, at the one boundary every upload path reads (AGENTS §8).
+ */
+async function dropStaleTextLayers(options: UploadThumbnailOption[]): Promise<UploadThumbnailOption[]> {
+  const kept: UploadThumbnailOption[] = []
+  for (const option of options) {
+    const refusal = await assertVariantUploadable(option.filename, path.dirname(option.path))
+    if (!refusal) kept.push(option)
+  }
+  return kept
+}
+
+/**
  * Return every usable thumbnail for an episode in the same order as the
  * automatic picker. Paths are resolved server-side so callers never have to
  * construct or trust an arbitrary filesystem location from the browser.
@@ -103,11 +121,40 @@ export async function listUploadThumbnails(input: ResolveUploadMetadataInput): P
     } catch { /* an invalid optional override must not hide valid thumbnails */ }
   }
 
-  return filenames.map(filename => ({
+  const options = await dropStaleTextLayers(filenames.map(filename => ({
     filename,
     path: path.join(paths.thumb_dir, filename),
     is_pinned: filename === pinned,
-  }))
+  })))
+
+  // A pin that is still on disk but was dropped as a STALE TEXT LAYER must not be answered with a
+  // silent fall back to different artwork (2026-10-25). It is reported as a refusal by the caller
+  // that can say so; here it is simply not offered as the pinned choice.
+  return options
+}
+
+/**
+ * The pinned filename when it names a text layer whose artwork has since changed.
+ *
+ * `null` when the pin is fine, or when it is missing for an ordinary reason. The upload preview
+ * uses this to explain WHY the customer's pinned choice is not on offer, instead of showing a
+ * different image without a word (AGENTS §4: announce what was dropped).
+ */
+export async function stalePinnedTextLayer(input: ResolveUploadMetadataInput): Promise<string | null> {
+  const platform = input.platform || 'youtube'
+  const paths = await resolveOverrideEpisodePaths(
+    input.slug, input.episode_code, input.fallback_title || '', platform,
+  )
+  const overridesPath = path.join(paths.episode_dir, OVERRIDES_FILENAME)
+  if (!existsSync(overridesPath)) return null
+  let pinned = ''
+  try {
+    const data = JSON.parse(await fsp.readFile(overridesPath, 'utf-8'))
+    const block = typeof data[platform] === 'object' ? data[platform] : null
+    if (typeof block?.selected_thumbnail === 'string') pinned = block.selected_thumbnail
+  } catch { return null }
+  if (!pinned || !existsSync(path.join(paths.thumb_dir, pinned))) return null
+  return await assertVariantUploadable(pinned, paths.thumb_dir)
 }
 
 export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): Promise<EpisodeMetadataForUpload> {
@@ -295,6 +342,10 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
   // The auto rule preserves pre-v1.0.41 behaviour for episodes the user
   // never touched the picker for, so installs upgrade silently.
   let thumbnailPath = ''
+  if (input.thumbnail_filename === undefined) {
+    const staleTextLayer = await stalePinnedTextLayer(input)
+    if (staleTextLayer) throw new Error(staleTextLayer)
+  }
   try {
     const options = await listUploadThumbnails(input)
     const requested = typeof input.thumbnail_filename === 'string' ? input.thumbnail_filename.trim() : ''
@@ -306,7 +357,11 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
       const safeFilename = validateUploadThumbnailFilename(requested)
       const exact = options.find(option => option.filename === safeFilename)
       if (!exact) {
-        throw new Error(`Thumbnail "${requested}" is no longer available for ${input.episode_code}. Reopen Upload preview and choose another image.`)
+        // A text layer that exists on disk but names changed artwork is refused by name: "choose
+        // another image" would hide the reason and invite the same mistake again (AGENTS §8).
+        const staleTextLayer = await assertVariantUploadable(safeFilename, paths.thumb_dir)
+        throw new Error(staleTextLayer
+          || `Thumbnail "${requested}" is no longer available for ${input.episode_code}. Reopen Upload preview and choose another image.`)
       }
       thumbnailPath = exact.path
     } else {
@@ -316,6 +371,10 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
     // Explicit choices are a completion contract: never silently replace the
     // user's selection. Legacy automatic resolution remains best-effort.
     if (input.thumbnail_filename !== undefined) throw error
+    // A pinned-but-stale text layer is the ONE automatic case that must not fall back quietly: the
+    // customer chose that picture, and uploading different art in its place is the defect the
+    // staleness rule exists to prevent.
+    if (error instanceof Error && /re-apply it to the current artwork/.test(error.message)) throw error
   }
 
   return {

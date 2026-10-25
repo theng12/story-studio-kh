@@ -30,6 +30,7 @@ import { router as charactersRouter } from './characters.js'
 import { router as characterLibraryRouter } from './character-library.js'
 import { router as nichesRouter } from './niches.js'
 import { router as thumbnailTemplatesRouter } from './thumbnail-templates.js'
+import { router as thumbnailTextRouter } from './thumbnail-text.js'
 import { router as contentPacksRouter } from './content-packs.js'
 import { router as contentPackGatewayArchivesRouter } from './content-pack-gateway-archives.js'
 import { router as contentStoreRouter } from './content-store.js'
@@ -96,6 +97,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', characterLibraryRouter)
   app.use('/api', nichesRouter)
   app.use('/api', thumbnailTemplatesRouter)
+  app.use('/api', thumbnailTextRouter)
   app.use('/api', contentPacksRouter)
   app.use('/api', contentPackGatewayArchivesRouter)
   app.use('/api', contentStoreRouter)

@@ -449,10 +449,37 @@
             </button>
           </div>
           <p v-if="thumbnailError" class="row-result err" role="alert">{{ thumbnailError }}</p>
-          <NuxtLink class="thumbnail-generator-link" :to="thumbnailGeneratorLink(previewedEpisode)">
-            Open {{ previewedEpisode }} in Thumbnail Generator
-          </NuxtLink>
+          <div class="thumbnail-review-actions">
+            <button
+              v-if="thumbnailTextEnabled && previewed.thumbnail.state === 'selected' && previewed.thumbnail.filename"
+              type="button"
+              class="btn btn-sm btn-secondary"
+              :disabled="busy !== '' || !!alreadyPublished"
+              title="Add a headline to a copy of this thumbnail"
+              @click="openTextEditor"
+            >
+              Add text
+            </button>
+            <NuxtLink class="thumbnail-generator-link" :to="thumbnailGeneratorLink(previewedEpisode)">
+              Open {{ previewedEpisode }} in Thumbnail Generator
+            </NuxtLink>
+          </div>
         </section>
+
+        <!-- ── Thumbnail text editor (owner-approved 2026-10-24) ──────────
+             Only reachable when this channel switched the text layer on. The
+             source is the thumbnail this upload review has actually selected —
+             the same file the payload will pin. -->
+        <ThumbnailTextEditor
+          :visible="textEditorOpen"
+          :project-slug="slug"
+          :episode-code="previewedEpisode"
+          :initial-source="previewed.thumbnail.state === 'selected' ? previewed.thumbnail.filename || '' : ''"
+          :sources="previewed.thumbnail.options"
+          @close="textEditorOpen = false"
+          @applied="onTextApplied"
+          @pinned="onTextApplied"
+        />
 
         <dl class="payload">
           <div v-if="previewed.source"><dt>Video file</dt><dd><strong>{{ previewed.source.filename }}</strong><small>Story Studio will stop if this file changes before queueing.</small></dd></div>
@@ -888,6 +915,7 @@ import { applyRowSelection, spreadPublishTimes } from '~/utils/upload-bulk'
 import { secureOperationId } from '~/composables/useFreshGenerationAction'
 import { PUBLISH_PAGE, finalChecksRunning, readPublishView, writePublishView, type PublishSort, type PublishStatus } from '~/utils/publish-view'
 import { sameQuery } from '~/utils/route-query-state'
+import { thumbnailTextEnabled as thumbnailTextEnabledFor } from '~/utils/thumbnail-text'
 
 interface Channel { channel_id: string; title: string; status: string }
 
@@ -1011,6 +1039,23 @@ const route = useRoute()
 const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, post } = useApi()
+const { config } = useProject()
+/** This channel's thumbnail text layer switch (default false). The backend
+ *  refuses the endpoints too — this only decides whether to show the button. */
+const thumbnailTextEnabled = computed(() => thumbnailTextEnabledFor(config.value))
+const textEditorOpen = ref(false)
+function openTextEditor() {
+  if (!thumbnailTextEnabled.value || !previewedEpisode.value || !previewed.value) return
+  if (previewed.value.thumbnail.state !== 'selected' || !previewed.value.thumbnail.filename) return
+  textEditorOpen.value = true
+}
+/** A written variant can become the pin, so rebuild the payload the customer
+ *  is about to queue rather than trusting the editor's own report. */
+async function onTextApplied() {
+  const code = previewedEpisode.value
+  if (!code) return
+  await preview(code, undefined, reviewIntent.value)
+}
 /** 1.4.301 — the channel's "Thumbnail present" safety check: only Block (the default) requires one here. */
 const thumbnailRequired = ref(true)
 watch(slug, async value => {
@@ -1102,6 +1147,11 @@ const quotaExhausted = ref(false)
 const uploadQuotaExhausted = ref(false)
 const quotaUnavailableReason = ref('')
 const previewedEpisode = ref('')
+// The text editor belongs to the episode whose review is open. Switching
+// reviews (or closing one) replaces the editor's own state, and the editor
+// itself blanks the headline/source/variants it was holding — never carries
+// one episode's headline into another (AGENTS §4).
+watch(previewedEpisode, () => { textEditorOpen.value = false })
 const previewHeading = ref<HTMLElement | null>(null)
 const reviewOpener = ref<HTMLElement | null>(null)
 const thumbnailImageUnavailable = ref(false)
@@ -1386,6 +1436,10 @@ function closeVideo(): void { videoEpisode.value = null; videoError.value = '' }
 function closeReview(restoreFocus = true): void {
   const opener = reviewOpener.value
   reviewOpener.value = null
+  // The editor was holding this episode's headline and source. Closing the
+  // review drops them with it rather than leaving one episode's draft behind
+  // for the next one to inherit (AGENTS §4).
+  textEditorOpen.value = false
   // A review still being built is abandoned, not merely hidden: its late
   // answer must not reopen the dialog. Nothing queued is touched here.
   if (previewedEpisode.value && busy.value === `preview-${previewedEpisode.value}`) {

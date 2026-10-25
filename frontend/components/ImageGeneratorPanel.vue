@@ -69,9 +69,11 @@
           :cap="promptCharCap ?? null"
           :model-label="modelLabel"
           :paid="paid"
+          :show-text-layer="showTextLayer"
           @generate="runOne(row.number)"
           @pin-toggle="togglePinForRow(imageByNumber.get(row.number)?.filename || null)"
           @open-preview="(p) => $emit('open-preview', p)"
+          @add-text="$emit('add-text', imageByNumber.get(row.number)?.filename || null)"
         />
       </div>
 
@@ -122,6 +124,8 @@ const props = defineProps<{
   modelLabel?: string
   /** The thumbnail currently selected for upload, if the user pinned one. */
   pinnedFilename?: string | null
+  /** Channel has the thumbnail text layer on — shows each row's Add text button. */
+  showTextLayer?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -130,6 +134,8 @@ const emit = defineEmits<{
    *  the parent invalidate any sibling caches (e.g. its thumbnail scan). */
   (e: 'refresh'): void
   (e: 'pin-toggle', filename: string): void
+  /** The row's rendered filename to headline; null when the row has no image. */
+  (e: 'add-text', filename: string | null): void
 }>()
 
 const { get, post } = useApi()

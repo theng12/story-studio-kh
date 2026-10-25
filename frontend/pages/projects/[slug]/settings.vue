@@ -1083,6 +1083,27 @@
         </p>
         <span v-if="artStyleSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ artStyleSaveMessage }}</span>
       </div>
+
+      <!-- Thumbnail text layer — owner-approved 2026-10-24. Off by default.
+           Saves straight to config on change, like the art style above, rather
+           than riding a section Save button that owns different fields. -->
+      <div class="form-group" data-setting="thumbnail-text-layer">
+        <label>Thumbnail text</label>
+        <label class="thumbnail-text-toggle">
+          <input
+            v-model="thumbnailTextLayerEnabled"
+            type="checkbox"
+            :disabled="thumbnailTextSaving"
+          />
+          Add a headline layer on top of a copy of a thumbnail
+        </label>
+        <p class="settings-hint">
+          Adds an <strong>Add text</strong> button beside your thumbnails, where you write a
+          headline onto a copy of the artwork. The original image is never changed and no credits
+          are used.
+        </p>
+        <span v-if="thumbnailTextSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ thumbnailTextSaveMessage }}</span>
+      </div>
           </section>
 
           <CollapsibleCard title="Writing instructions" description="Channel guidance and intro rules, with reusable presets" data-setting="writing-instructions">
@@ -4032,6 +4053,47 @@ async function revealInFinder() {
   }
 }
 
+// ── Thumbnail text layer switch (owner-approved 2026-10-24) ──────────────
+// Default FALSE: a channel that never asked for this sees no new button. The
+// value is a project config boolean, saved on change like the art style above.
+const thumbnailTextLayerEnabled = ref(false)
+const thumbnailTextSaving = ref(false)
+const thumbnailTextSaveMessage = ref('')
+let thumbnailTextInitialized = false
+let thumbnailTextRollback = false
+// Mirrors the art style watcher: the FIRST hydration writes the ref, and only
+// a later user change is persisted — otherwise opening Settings would save.
+watch(() => (config.value as any)?.thumbnail_text_layer_enabled, value => {
+  if (thumbnailTextSaving.value) return
+  thumbnailTextRollback = true
+  thumbnailTextLayerEnabled.value = value === true
+  thumbnailTextInitialized = true
+}, { immediate: true })
+
+watch(thumbnailTextLayerEnabled, async next => {
+  if (thumbnailTextRollback) { thumbnailTextRollback = false; return }
+  if (!thumbnailTextInitialized || thumbnailTextSaving.value) return
+  const targetSlug = slug.value
+  thumbnailTextSaving.value = true
+  thumbnailTextSaveMessage.value = 'Saving…'
+  try {
+    await put(`/projects/${targetSlug}/settings/config`, { thumbnail_text_layer_enabled: next })
+    if (slug.value !== targetSlug) return
+    await refreshConfig(targetSlug)
+    thumbnailTextSaveMessage.value = next
+      ? 'Thumbnail text is on for this channel'
+      : 'Thumbnail text is off for this channel'
+    setTimeout(() => { thumbnailTextSaveMessage.value = '' }, 2500)
+  } catch (e: any) {
+    if (slug.value !== targetSlug) return
+    thumbnailTextSaveMessage.value = e?.data?.detail || e?.message || 'Failed to save thumbnail text setting'
+    thumbnailTextRollback = true
+    thumbnailTextLayerEnabled.value = !next
+  } finally {
+    thumbnailTextSaving.value = false
+  }
+})
+
 // Confirmation preferences
 // `group: 'generation'` → action-only dialogs before generation begins.
 // `group: 'action'` → everyday action dialogs (Open in Finder, etc.)
@@ -4557,6 +4619,7 @@ async function deleteProject() {
 .settings-card-head h3 { margin: 0 0 4px; font-size: 16px; }
 .settings-card-head p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 .settings-hint { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.thumbnail-text-toggle { display: flex; align-items: center; gap: 8px; font-size: var(--font-sm); cursor: pointer; }
 .settings-warn { margin: 6px 0 0; color: var(--warning, #d97706); font-size: 12px; }
 .settings-status { margin: 6px 0 0; font-size: 12px; }
 .settings-status.ok { color: var(--success); }

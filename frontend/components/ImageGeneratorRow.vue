@@ -81,6 +81,18 @@
       >
         {{ pinnedForUpload ? 'Pinned for Upload' : 'Pin for Upload' }}
       </button>
+      <!-- Add text: only present when the channel has the thumbnail text layer
+           switched on. It opens the editor against THIS rendered file, so the
+           headline is drawn onto a copy and the artwork itself is never changed. -->
+      <button
+        v-if="showTextLayer && imagePath"
+        type="button"
+        class="btn btn-sm btn-secondary"
+        title="Add a headline to a copy of this thumbnail"
+        @click="$emit('add-text')"
+      >
+        Add text
+      </button>
     </div>
 
     <div v-if="expanded" class="igr-prompt">{{ row.prompt }}</div>
@@ -118,12 +130,15 @@ const props = defineProps<{
   modelLabel?: string
   /** Whether the selected model uses credits (unknown counts as paid). */
   paid?: boolean
+  /** Channel has the thumbnail text layer on — shows the Add text button. */
+  showTextLayer?: boolean
 }>()
 
 defineEmits<{
   (e: 'generate'): void
   (e: 'open-preview', path: string): void
   (e: 'pin-toggle'): void
+  (e: 'add-text'): void
 }>()
 
 const expanded = ref(false)

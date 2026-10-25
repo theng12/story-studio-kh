@@ -2104,6 +2104,12 @@ export interface MotionPresentationSettings {
 }
 
 export interface ProjectConfig {
+  /**
+   * Thumbnail text layer — draw a real headline onto a copy of a text-free thumbnail
+   * (owner, 2026-10-24). Absent means off, so every existing channel is untouched and the
+   * routes still work: the page decides what to show, the server never gates on this.
+   */
+  thumbnail_text_layer_enabled?: boolean
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check; only changed rows are saved. */
   safety_checks?: Record<string, 'off' | 'warn' | 'block'>
   /**
