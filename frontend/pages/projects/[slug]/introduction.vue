@@ -1,33 +1,3 @@
-<!--
-  The Introduction — v1.4.73.
-
-  This page exists because the answer to "does this channel open with a host?"
-  had nowhere to live. It was a checkbox on the Script page's Outline tab that
-  reset itself on every context reload, drawn only for channels whose niche
-  happened to declare an `openingProfile` — one niche of twenty-one, so seven
-  of ten channels had no control at all and no explanation.
-
-  Four rules this page must keep:
-
-  1. IT IS ALWAYS IN THE SIDEBAR, whether or not the channel uses an opening.
-     A page that appears only once the feature is switched on cannot teach
-     anybody that the feature exists; it just moves the hiding place.
-
-  2. GENERATION FOLLOWS WHAT IS SAVED HERE, not what anyone clicked last.
-     If this channel says it opens with an Introduction, every path that
-     writes an episode writes one — this page, and an unattended batch alike.
-     The batch's separate tick-box is gone.
-
-  3. EVERY BEAT SAYS WHAT IT DOES, on screen, without being opened. Seven
-     unexplained labels teaches no more than a hidden checkbox did. The
-     wording is served by the API, so there is one copy of it.
-
-  4. A SAVED RECIPE CANNOT REACH THE BATCH. Presets fill this form in;
-     pressing Save is what changes what gets written. `introduction-only`
-     stays in the pipeline's NO_PRESET_STEPS, because a step that is added
-     automatically must never be able to demand a preset — that demand is
-     what refused entire batches on every channel that had never saved one.
--->
 <template>
   <div class="workspace-page introduction-workspace" @input="retireIntroductionManualAction" @change="retireIntroductionManualAction">
     <WorkspaceHero
@@ -44,7 +14,7 @@
             <strong>~{{ recipe.word_target }}</strong> words
           </span>
           <span v-if="segment.enabled" class="workspace-metric">
-            <strong>{{ enabledBeats.length }}</strong> {{ enabledBeats.length === 1 ? 'beat' : 'beats' }}
+            <strong>{{ enabledBeats.length }}</strong> {{ enabledBeats.length === 1 ? 'section' : 'sections' }}
           </span>
         </div>
       </template>
@@ -56,7 +26,7 @@
         :presets="introPresets"
         v-model:episode-id="episodeId"
         filter-field="introduction"
-        generate-label="Write This Episode's Opening"
+        generate-label="Write this episode's intro"
         :generate-loading="generating"
         :generate-disabled="!canGenerateIntroduction"
         :generate-status="actionStatus"
@@ -65,7 +35,7 @@
       />
       <p class="muted mt-1">
         The preset bar above keeps a reusable recipe you can load on any channel. It does not change what
-        this channel writes — only <strong>Save for this channel</strong> below does.
+        this channel writes — only <strong>Save channel defaults</strong> below does.
       </p>
       <p v-if="scriptReadinessState === 'missing'" class="muted mt-1">
         <NuxtLink :to="`/projects/${slug}/scripts?episode_id=${encodeURIComponent(episodeId)}`">Open Script Generator</NuxtLink>
@@ -81,7 +51,7 @@
             {{ source.label }}
           </option>
         </select>
-        <small>The stopped request remains recoverable; this starts a separate attempt using the saved recipe.</small>
+        <small>The stopped request remains recoverable; this starts a separate attempt using this form.</small>
       </label>
     </div>
 
@@ -98,16 +68,16 @@
       <div>
         <span class="section-kicker">Channel setting</span>
         <h2>This channel opens with an Introduction</h2>
-        <p>
-          Some channels open with a host greeting the audience; some open on the story itself. This is
-          where that choice lives, and it is the only place it lives. Turn it on and every episode this
-          channel writes gets an opening — from this page and from an unattended batch run alike.
-        </p>
+        <p>Saved defaults shape future openings. Existing episodes, audio and final videos stay as they are.</p>
         <p class="intro-cost-note">
-          An opening is about {{ recipe.word_target }} words against a full episode's script, so it is a
-          small part of what an episode costs to write. It is read aloud as part of the same narration
-          the episode already pays to voice, so it adds no separate audio charge.
+          An opening is about {{ recipe.word_target }} words against a full episode's script, and it is
+          read aloud as part of the narration the episode already pays to voice, so it adds no separate
+          audio charge.
         </p>
+        <p><strong>{{ contentLanguageLabel }}</strong> — follows channel language</p>
+        <p>{{ musicSummary }} · <NuxtLink :to="`/projects/${slug}/audio-merge`">Audio Assembly</NuxtLink></p>
+        <p>Automatic intro for future episodes: <strong>{{ automaticIntro ? 'On' : 'Off' }}</strong> ·
+          <NuxtLink :to="`/projects/${slug}/settings`">Channel settings</NuxtLink></p>
       </div>
       <label class="intro-switch">
         <input v-model="segment.enabled" type="checkbox" :disabled="saving" />
@@ -128,11 +98,11 @@
     <section class="card intro-recipe">
       <div class="recipe-heading">
         <div>
-          <span class="section-kicker">The opening's recipe</span>
-          <h2>What it says, every time</h2>
+
+          <h2>Shape the opening</h2>
           <p>
-            This belongs to the channel, not to a saved preset and not to one episode. The words are
-            written fresh for each episode; what you set here is the shape they follow.
+            Choose sections, try the illustrative example, then write an opening from this episode’s chapters.
+            Save defaults separately when you want this shape for future episodes.
           </p>
           <!--
             Where this recipe came from.
@@ -152,18 +122,49 @@
           </p>
         </div>
         <button class="btn btn-primary" :disabled="saving || (!dirty && !segment.inferred_at)" @click="save">
-          {{ saving ? 'Saving…' : 'Save for This Channel' }}
+          {{ saving ? 'Saving…' : 'Save channel defaults' }}
         </button>
       </div>
 
+      <fieldset class="intro-starting-styles">
+        <legend class="field-label">Start with a style</legend>
+        <p class="field-help">Suggestions fill this form only. Edit any section before saving or writing.</p>
+        <div class="intro-style-options">
+          <button v-for="style in INTRO_STYLES" :key="style.id" type="button"
+            class="btn btn-secondary intro-style" :aria-pressed="recipe.starting_style === style.id" @click="chooseStyle(style.id)">
+            <strong>{{ style.label }}</strong><small>{{ style.hint }}</small>
+          </button>
+        </div>
+        <button type="button" class="btn btn-sm btn-secondary" @click="chooseStyle('scratch')">Start from scratch</button>
+        <p v-if="!recipe.starting_style" class="field-help">Your saved sections are kept as they are. A starting style is optional.</p>
+      </fieldset>
+      <div class="recipe-fields intro-surrounding">
+        <label class="recipe-field"><span class="field-label">Length</span>
+          <select class="input" :value="recipe.length || ''" @change="onLengthChange">
+            <option value="">Saved word target ({{ recipe.word_target }})</option>
+            <option value="short">Short · about 100 words</option>
+            <option value="standard">Standard · about 160 words</option>
+            <option value="extended">Extended · about 300 words</option>
+          </select>
+          <small class="field-help">Editorial targets, not model limits.</small>
+        </label>
+        <label class="recipe-field"><span class="field-label">Tone</span>
+          <select v-model="recipe.tone" class="input">
+            <option :value="undefined">Keep saved wording</option>
+            <option value="friendly">Friendly</option><option value="curious">Curious</option>
+            <option value="documentary">Documentary</option><option value="calm">Calm</option>
+          </select>
+        </label>
+      </div>
+      <details class="intro-more"><summary>More settings · exact wording, word target and model</summary>
       <div class="recipe-fields">
         <label class="recipe-field">
           <span class="field-label">Host or narrator name</span>
-          <input v-model="recipe.host_name" class="input" placeholder="e.g. Luna, Vincent, or your own name" />
+          <input v-model="recipe.host_name" class="input" placeholder="Optional host name" />
           <small class="field-help">Leave blank and the opening will not name a host.</small>
         </label>
         <label class="recipe-field">
-          <span class="field-label">Length</span>
+          <span class="field-label">Word target</span>
           <input
             v-model.number="recipe.word_target"
             class="input"
@@ -172,7 +173,7 @@
             :max="wordTargetMax"
           />
           <small class="field-help">
-            Roughly how many words the opening runs to, between {{ wordTargetMin }} and {{ wordTargetMax }}.
+            Approximate editorial word target, between {{ wordTargetMin }} and {{ wordTargetMax }}.
           </small>
         </label>
         <label class="recipe-field recipe-field-wide">
@@ -228,12 +229,12 @@
         />
       </div>
 
+      </details>
+
       <div class="beats-heading">
         <h3>What the opening covers</h3>
         <p>
-          In order. Every beat says what it actually produces — switch one off and it is skipped
-          entirely rather than summarised. Open a beat to say what you want it to cover in this
-          channel's own words.
+          Sections run in this order. Uncheck to skip, move to reorder, or remove. Your custom sections and wording stay editable.
         </p>
       </div>
 
@@ -246,7 +247,7 @@
             </div>
             <label class="beat-label">
               <input v-model="beat.enabled" type="checkbox" />
-              <span>{{ beat.label }}</span>
+              <span>{{ INTRO_SECTIONS[beat.id]?.label || beat.label }}</span>
             </label>
             <button
               class="btn-icon"
@@ -266,11 +267,21 @@
             {{ beatDescription(beat.id) }}
             <em v-if="beatSuitsNote(beat.id)" class="beat-suits">{{ beatSuitsNote(beat.id) }}</em>
           </p>
+          <label v-if="INTRO_SECTIONS[beat.id]" class="section-choice">
+            <span class="field-help">Section choice</span>
+            <select v-model="beat.choice" class="input input-sm">
+              <option :value="undefined">Keep saved wording</option>
+              <option v-for="option in INTRO_SECTIONS[beat.id]?.options ?? []" :key="option.id" :value="option.id">{{ option.label }}</option>
+            </select>
+          </label>
+          <p v-if="introOption(beat)" class="beat-description">{{ introOption(beat)?.hint }}</p>
+          <p v-if="sampleFor(beat).text" class="section-sample" :lang="contentLanguage"><strong>{{ sampleLabel(sampleFor(beat).source) }}</strong> {{ sampleFor(beat).text }}</p>
           <div v-if="expanded.has(beat.id)" class="beat-detail">
             <textarea
               v-model="beat.custom_text"
               class="textarea beat-textarea"
-              :placeholder="`Optional — what this beat should cover. For example: ${beatPlaceholder(beat.id)}`"
+              :aria-label="`Custom wording for ${beat.label}`"
+              placeholder="Optional instructions for this section"
             />
           </div>
         </div>
@@ -287,7 +298,7 @@
       -->
       <div class="beat-add-row">
         <select v-if="restorableBeats.length" v-model="restoreBeatId" class="input input-sm">
-          <option value="">Put a standard beat back…</option>
+          <option value="">Add a section…</option>
           <option v-for="b in restorableBeats" :key="b.id" :value="b.id">{{ b.label }}</option>
         </select>
         <button
@@ -301,13 +312,23 @@
         <input
           v-model="newBeatLabel"
           class="input input-sm"
-          placeholder="…or write your own — e.g. Sponsor mention, Weekly riddle"
+          placeholder="Custom section name"
           @keydown.enter.prevent="addBeat"
         />
         <button class="btn btn-sm btn-secondary" :disabled="!newBeatLabel.trim()" @click="addBeat">
-          + Add Beat
+          + Add custom section
         </button>
       </div>
+    </section>
+
+    <section class="card intro-example" aria-live="polite">
+      <h2>Illustrative example</h2>
+      <p class="field-help">Example wording only — not generated or checked against this episode. Story details and the question are written from its actual chapters when you choose Write.</p>
+      <p v-if="illustration" class="illustration-text" :lang="contentLanguage">{{ illustration }}</p>
+      <p v-else class="muted">{{ enabledBeats.length ? 'Purpose hints are available above. Spoken examples are available in Khmer and English.' : 'Add a section to build an example.' }}</p>
+      <button class="btn btn-primary" :disabled="!canGenerateIntroduction" @click="generateForEpisode">{{ generating ? 'Writing…' : "Write this episode’s intro" }}</button>
+      <p class="field-help">Uses this form for one episode. Channel defaults change only with Save channel defaults.</p>
+      <p class="field-help">Replaced introductions are kept in <NuxtLink to="/trash">Trash</NuxtLink>, where you can restore them.</p>
     </section>
 
     <!-- "still running" and "it failed" are different answers, and the empty
@@ -331,6 +352,7 @@
 </template>
 
 <script setup lang="ts">
+import { INTRO_STYLES, INTRO_SECTIONS, INTRO_LENGTHS, introStyleBeats, introOption, introSampleFor, type IntroTone, type IntroLength } from '../../../../electron/server/contracts/intro-settings.js'
 import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -351,18 +373,25 @@ import {
 definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
 useAppTitle('Introduction')
 
-type Beat = { id: string; label: string; enabled: boolean; custom_text?: string }
+type Beat = { id: string; label: string; enabled: boolean; custom_text?: string; choice?: string }
 type Recipe = {
   host_name: string
   word_target: number
   custom_opening_line: string
   beats: Beat[]
+  starting_style?: string
+  tone?: IntroTone
+  length?: IntroLength
   /** '' = follow the Script Generator's model. See the radio pair above. */
   model: string
 }
 type Segment = { enabled: boolean; recipe: Recipe; inferred_at?: string }
 type BeatDefinition = { id: string; label: string; description: string; example: string; suitsNote?: string }
 type SegmentsResponse = {
+  channel_name?: string
+  content_language?: string
+  auto_introduction_enabled?: boolean
+  music_summary?: string
   segments: Record<string, Segment>
   /** What each standard beat produces. Served by the API; never copied here. */
   beat_library: BeatDefinition[]
@@ -425,6 +454,35 @@ const previewRefreshKey = ref(0)
 const openingProfile = ref<SegmentsResponse['opening_profile']>(null)
 const followsFormula = ref(false)
 const formulaName = ref('')
+const channelName = ref('')
+const contentLanguage = ref('')
+const automaticIntro = ref(false)
+const musicSummary = ref('Choose music in Audio Assembly')
+const contentLanguageLabel = computed(() => ({ km: 'Khmer', en: 'English' }[contentLanguage.value.toLowerCase()] || contentLanguage.value || 'Language not set'))
+function sampleFor(beat: Beat): { text: string; source: string } {
+  return introSampleFor(beat, contentLanguage.value, channelName.value, recipe.value.custom_opening_line)
+}
+/** Says whose words the sample is, so an example is never read as the owner's own. */
+function sampleLabel(source: string): string { return source === 'custom' ? 'Your wording:' : 'Example:' }
+const illustration = computed(() => enabledBeats.value.map(beat => sampleFor(beat).text).filter(Boolean).join('\n\n'))
+function chooseStyle(id: string): void {
+  retireIntroductionManualAction()
+  recipe.value.beats = introStyleBeats(id)
+  recipe.value.starting_style = id
+  const style = INTRO_STYLES.find(s => s.id === id)
+  if (style) recipe.value.tone = style.tone
+}
+// Template expressions stay plain JS: the page is also compiled at runtime without TypeScript.
+function onLengthChange(event: Event): void {
+  chooseLength((event.target as HTMLSelectElement).value)
+}
+
+function chooseLength(value: string): void {
+  if (!(value in INTRO_LENGTHS)) { delete recipe.value.length; return }
+  recipe.value.length = value as IntroLength
+  recipe.value.word_target = INTRO_LENGTHS[value as IntroLength]
+}
+
 /**
  * The recipe exactly as the server last sent it.
  *
@@ -460,7 +518,7 @@ const heroDescription = computed(() => openingProfile.value?.description
   || 'A spoken opening before the story begins. Some channels use one every episode; some never do.')
 
 function recipeShape(r: Recipe): string {
-  return JSON.stringify([r.word_target, r.beats.map(b => [b.id, b.enabled !== false, (b.custom_text || '').trim()])])
+  return JSON.stringify([r.word_target, r.tone, r.length, r.starting_style, r.beats.map(b => [b.id, b.enabled !== false, (b.custom_text || '').trim(), b.choice])])
 }
 const recipeTouched = computed(() => !loading.value
   && !!loadedRecipeShape.value
@@ -473,14 +531,16 @@ const provenanceState = computed<'edited' | 'formula' | 'own'>(() => {
 const provenanceLine = computed(() => {
   const named = formulaName.value ? `the ${formulaName.value} Formula` : 'this channel\u2019s Formula'
   if (provenanceState.value === 'edited') {
-    return 'Edited, and not saved yet. Press Save for this channel and this becomes this channel\u2019s own opening,'
+    return 'Edited, and not saved yet. Press Save channel defaults and this becomes this channel\u2019s own opening,'
       + ' kept exactly as you leave it.'
   }
   if (provenanceState.value === 'formula') {
-    return `Following the opening that comes with ${named} \u2014 nobody here chose these beats or this`
+    return `Following the opening that comes with ${named} \u2014 nobody here chose these sections or this`
       + ' length, they came with the Formula. Change anything and this channel keeps your version'
       + ' from then on.'
   }
+  // With no Formula there is nothing to differ from; saying "no longer matches" would invent one.
+  if (!formulaName.value) return 'This channel\u2019s own opening, kept exactly as it was saved.'
   return `This channel\u2019s own opening. It no longer matches what ${named} ships, so it is left`
     + ' exactly as it is.'
 })
@@ -492,7 +552,7 @@ const actionStatus = computed(() => {
   if (scriptReadinessState.value === 'loading') return 'Checking this episode’s script…'
   if (scriptReadinessState.value === 'missing') return 'Generate a script first. This episode has no chapters yet.'
   if (scriptReadinessState.value === 'error') return 'Could not check the script. Refresh the preview to try again.'
-  if (dirty.value) return 'Your recipe edits are saved for this channel first — the opening is written from what is saved.'
+  if (dirty.value) return 'Writes from this form for this episode only. Save channel defaults separately for future episodes.'
   return 'Writes the opening for this one episode. Its chapters must already exist — the opening introduces them.'
 })
 
@@ -614,6 +674,10 @@ async function load(): Promise<void> {
       modelMode.value = introduction.recipe.model?.trim() ? 'own' : 'script'
       loadedRecipeShape.value = recipeShape(introduction.recipe)
     }
+    channelName.value = data.channel_name || ''
+    contentLanguage.value = data.content_language || ''
+    automaticIntro.value = data.auto_introduction_enabled === true
+    musicSummary.value = data.music_summary || 'Choose music in Audio Assembly'
     beatLibrary.value = Array.isArray(data.beat_library) ? data.beat_library : []
     openingProfile.value = data.opening_profile
     followsFormula.value = data.opening_follows_formula === true
@@ -664,9 +728,8 @@ async function save(): Promise<boolean> {
 /**
  * Writing one episode's opening by hand.
  *
- * Nothing about HOW it is written is sent: the channel's recipe is read on the
- * server, so this button and an unattended batch produce the same opening from
- * the same instructions. That was the whole defect — two paths, two shapes.
+ * The form is snapshotted for this run. Batches continue to read saved channel
+ * defaults; only the explicit Save action changes those defaults.
  */
 function onPreviewSavingChange(saving: boolean): void {
   previewSaving.value = saving
@@ -679,7 +742,7 @@ type ManualIntroductionCapture = {
   episodeId: string
   userEpoch: number
   operationId: string
-  body: { episode_id: string; operation_id: string; manual_redo: { intent: 'replace_unresolved'; source_job_id: string } }
+  body: { episode_id: string; operation_id: string; introduction_recipe: Recipe; manual_redo: { intent: 'replace_unresolved'; source_job_id: string } }
 }
 
 function manualIntroductionCaptureIsCurrent(capture: ManualIntroductionCapture): boolean {
@@ -722,9 +785,8 @@ async function submitManualIntroductionCapture(capture: ManualIntroductionCaptur
 
 async function generateForEpisode(): Promise<void> {
   if (!canGenerateIntroduction.value) return
-  // The opening is written from what is SAVED for this channel, so unsaved
-  // edits are saved first rather than silently ignored.
-  if (dirty.value && !await save()) return
+  // One-run snapshot: writing never persists channel defaults.
+  const runRecipe: Recipe = JSON.parse(JSON.stringify(segment.recipe))
   if (manualIntroductionChecked.value) {
     const source = selectedManualIntroductionSource.value
     if (!source) {
@@ -733,6 +795,7 @@ async function generateForEpisode(): Promise<void> {
     }
     const scope = {
       episode_id: episodeId.value,
+      introduction_recipe: runRecipe,
       manual_redo: { intent: 'replace_unresolved' as const, source_job_id: source.source_job_id },
     }
     const operationId = freshIntroductionAction.begin({ scope, userEpoch: introductionManualUserEpoch.value }, 'manual-introduction')
@@ -746,7 +809,7 @@ async function generateForEpisode(): Promise<void> {
     return submitManualIntroductionCapture(capture)
   }
   generating.value = true
-  const payload = { episode_id: episodeId.value }
+  const payload = { episode_id: episodeId.value, introduction_recipe: runRecipe }
   const operationId = freshIntroductionAction.begin(payload)
   try {
     const job = await post<{ job_id?: string }>(`/projects/${slug.value}/generate/introduction-only`, {
@@ -869,7 +932,7 @@ const introPresets = usePresets<{ recipe: Recipe }>({
       // A preset saved by an older build may be missing a field the page has
       // since gained. Start from a complete shape so applying one can never
       // leave a control bound to `undefined`.
-      ...segment.recipe,
+      host_name: '', word_target: 350, custom_opening_line: '', beats: [], model: '',
       ...data.recipe,
     }
     modelMode.value = segment.recipe.model?.trim() ? 'own' : 'script'
@@ -884,6 +947,26 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.intro-starting-styles { border: 0; padding: 0; margin: 0 0 1.5rem; min-width: 0; }
+.intro-style-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin: .75rem 0; }
+.intro-style { display: grid; gap: .3rem; text-align: left; white-space: normal; padding: .8rem; height: auto; }
+.intro-style small { font-weight: 400; color: var(--text-secondary); line-height: 1.5; }
+.intro-style[aria-pressed="true"] { border-color: var(--accent-gold); background: var(--accent-dim); }
+.intro-more { margin-bottom: 1.5rem; }
+.intro-more summary { cursor: pointer; margin-bottom: 1rem; font-weight: 600; }
+.section-choice { display: grid; gap: .3rem; margin: .6rem 0 .3rem 2.1rem; max-width: 24rem; }
+.section-sample { margin: .6rem 0 .3rem 2.1rem; font-size: .9rem; line-height: 1.8; overflow-wrap: anywhere; }
+.intro-example { padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
+.intro-example h2 { margin: 0 0 .5rem; font-size: 1.1rem; }
+.illustration-text { white-space: pre-line; line-height: 1.9; max-width: 72ch; margin: 1rem 0; overflow-wrap: anywhere; }
+.introduction-workspace { min-width: 0; }
+@media (max-width: 600px) {
+  .intro-style-options { grid-template-columns: 1fr; }
+  .intro-command, .intro-recipe, .intro-example { padding: 1rem; }
+  .section-choice, .section-sample { margin-left: 0; }
+  .beat-row { flex-wrap: wrap; }
+}
+
 .intro-job-status { margin: 14px 0 0; padding: 9px 12px; border-radius: var(--radius-md); font-size: var(--font-xs); line-height: 1.45; }
 .intro-job-status.running { background: var(--accent-dim); color: var(--text-primary); }
 .intro-job-status.failed { background: color-mix(in srgb, var(--error) 11%, transparent); color: var(--error); }

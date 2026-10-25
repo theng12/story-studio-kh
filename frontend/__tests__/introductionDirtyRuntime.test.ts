@@ -18,11 +18,13 @@ import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 import { createApp, defineComponent, h, nextTick, onMounted, ref, watch, type Component } from 'vue'
 
+import * as introSettings from '../../electron/server/contracts/intro-settings.js'
 import * as introWatch from '../composables/useIntroductionJobWatch.js'
 
 const filename = fileURLToPath(new URL('../pages/projects/[slug]/introduction.vue', import.meta.url))
 
 async function loadPage(): Promise<Component> {
+  ;(globalThis as any).__introSettings = introSettings
   const source = readFileSync(filename, 'utf8')
   const { descriptor } = parse(source, { filename })
   const script = compileScript(descriptor, { id: 'introduction-dirty-runtime' })
@@ -35,6 +37,7 @@ async function loadPage(): Promise<Component> {
   const vueUrl = await import.meta.resolve('vue')
   const support = `
     import { computed, defineComponent as _defineComponent, onMounted, reactive, ref, watch } from ${JSON.stringify(vueUrl)}
+    const { INTRO_STYLES, INTRO_SECTIONS, INTRO_LENGTHS, introStyleBeats, introOption, introSampleFor } = globalThis.__introSettings
     const F = () => globalThis.__introFixture
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
@@ -78,16 +81,18 @@ const savedSegment = () => ({
   },
 })
 
-async function mount(jobs: any[] = []) {
+async function mount(jobs: any[] = [], segment: any = savedSegment(), beatLibrary: any[] = []) {
   const fixture: any = {
     toasts: [] as Array<[string, string]>,
     calls: [] as string[],
     jobs: ref(jobs),
     watch: introWatch,
     refreshKeys: [] as number[],
+    bodies: [] as any[],
     get: async () => ({
-      segments: { introduction: savedSegment() },
-      beat_library: [],
+      channel_name: 'កម្សាន្ត', content_language: 'km', auto_introduction_enabled: true,
+      segments: { introduction: segment },
+      beat_library: beatLibrary,
       opening_profile: null,
       word_target_min: 50,
       word_target_max: 600,
@@ -96,7 +101,8 @@ async function mount(jobs: any[] = []) {
       fixture.calls.push(`PUT ${path}`)
       return { segments: { introduction: JSON.parse(JSON.stringify(body)) } }
     },
-    post: async (path: string) => {
+    post: async (path: string, body: any) => {
+      fixture.bodies.push(body)
       fixture.calls.push(`POST ${path}`)
       return { job_id: 'new-job' }
     },
@@ -136,7 +142,7 @@ async function mount(jobs: any[] = []) {
 let page: Component
 
 const saveButton = (host: HTMLElement) => Array.from(host.querySelectorAll('button'))
-  .find(button => button.textContent?.includes('Save for This Channel')) as HTMLButtonElement
+  .find(button => button.textContent?.includes('Save channel defaults')) as HTMLButtonElement
 
 test('no unsaved changes right after load, after an edit there are, and none again after Save', async () => {
   page = await loadPage()
@@ -194,7 +200,7 @@ test('openings that finished before the page opened are not replayed', async () 
   }
 })
 
-test('writing the opening saves unsaved recipe edits first', async () => {
+test('writing snapshots unsaved edits without saving channel defaults', async () => {
   const mounted = await mount()
   try {
     const host = mounted.host.querySelector('input.input') as HTMLInputElement
@@ -204,10 +210,93 @@ test('writing the opening saves unsaved recipe edits first', async () => {
     mounted.fixture.generate()
     await flush()
     assert.deepEqual(mounted.fixture.calls, [
-      'PUT /projects/terra/segments/introduction',
       'POST /projects/terra/generate/introduction-only',
     ])
   } finally {
     mounted.dispose()
   }
+})
+
+
+test('style fills the form, shows Khmer examples, and never saves or generates', async () => {
+  const mounted = await mount()
+  try {
+    const button = Array.from(mounted.host.querySelectorAll('button')).find(b => b.textContent?.includes('Question first'))!
+    button.click()
+    await flush()
+    assert.deepEqual(mounted.fixture.calls, [])
+    assert.equal(mounted.fixture.dirty.value, true)
+    assert.match(mounted.host.textContent || '', /Example:/)
+    assert.match(mounted.host.textContent || '', /បើអ្នកនៅក្នុងស្ថានភាពនោះ/)
+    assert.match(mounted.host.textContent || '', /Khmer.*follows channel language/)
+    const choices = mounted.host.querySelectorAll('.section-choice select')
+    assert.equal(choices.length, 3)
+    const scratch = Array.from(mounted.host.querySelectorAll('button')).find(b => b.textContent?.includes('Start from scratch'))!
+    scratch.click()
+    await flush()
+    assert.equal(mounted.host.querySelectorAll('.beat-card').length, 0)
+    assert.deepEqual(mounted.fixture.calls, [])
+  } finally { mounted.dispose() }
+})
+
+/**
+ * What a section's inline sample shows, and whose words they are.
+ *
+ * The owner's rule: a section carrying his own saved wording must show THOSE
+ * words, marked as his, rather than the catalogue's first option — which is a
+ * different sentence from the one that would be generated. A section with
+ * neither a chosen option nor saved wording shows no sample at all, so the
+ * purpose hint stands alone instead of an invented line presented as an example.
+ */
+const recipeWith = (beats: any[]) => ({
+  enabled: true,
+  recipe: { host_name: '', word_target: 160, custom_opening_line: '', model: '', beats },
+})
+
+test('a section with the owner’s own wording shows that wording, marked as his', async () => {
+  const mounted = await mount([], recipeWith([
+    { id: 'story_teaser', label: 'Story teaser', enabled: true, custom_text: 'Mention the flood the village survived.' },
+  ]))
+  try {
+    const sample = mounted.host.querySelector('.section-sample') as HTMLElement | null
+    assert.ok(sample, 'the saved wording is shown rather than the catalogue’s first option')
+    assert.match(sample.textContent || '', /Your wording:/, 'it is marked as his, not as an example')
+    assert.match(sample.textContent || '', /Mention the flood the village survived\./)
+    assert.doesNotMatch(sample.textContent || '', /Today, we explore/,
+      'no catalogue sample is invented for a section he already wrote')
+  } finally { mounted.dispose() }
+})
+
+test('a section with neither a chosen option nor saved wording shows no sample at all', async () => {
+  const mounted = await mount(
+    [],
+    recipeWith([{ id: 'story_teaser', label: 'Story teaser', enabled: true }]),
+    [{ id: 'story_teaser', label: 'Story teaser', description: 'Says what tonight’s episode is about.', example: '' }],
+  )
+  try {
+    assert.equal(mounted.host.querySelectorAll('.section-sample').length, 0,
+      'no invented sentence may stand in for wording nobody chose')
+    assert.match(mounted.host.textContent || '', /Says what tonight’s episode is about\./,
+      'the purpose hint stands alone instead')
+  } finally { mounted.dispose() }
+})
+
+test('a welcome section keeps preferring the channel’s exact opening line', async () => {
+  const opening = 'សូមស្វាគមន៍មកកាន់ឆានែលកម្សាន្ត។'
+  const mounted = await mount([], {
+    enabled: true,
+    recipe: {
+      host_name: '', word_target: 160, custom_opening_line: opening, model: '',
+      beats: [{ id: 'welcome', label: 'Welcome & host intro', enabled: true, custom_text: 'not this' }],
+    },
+  })
+  try {
+    const sample = mounted.host.querySelector('.section-sample') as HTMLElement | null
+    assert.ok(sample, 'the saved opening line is shown')
+    assert.match(sample.textContent || '', /សូមស្វាគមន៍មកកាន់ឆានែលកម្សាន្ត។/)
+    assert.doesNotMatch(sample.textContent || '', /not this/,
+      'the exact opening line outranks this section’s own wording')
+    assert.match(sample.textContent || '', /Example:/,
+      'the channel’s own opening is the page’s example, not “your wording”')
+  } finally { mounted.dispose() }
 })

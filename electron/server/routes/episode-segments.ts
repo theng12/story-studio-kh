@@ -61,7 +61,18 @@ router.get('/projects/:slug/segments', async (req, res) => {
     } catch {
       openingProfile = null
     }
+    const pm = await import('../services/project-manager.js')
+    const project = await pm.getProject(req.params.slug)
+    const config = await pm.getConfig(req.params.slug) as any
+    const audioPreset = config?.audio_merge_presets?.find((p: any) => p.id === config.audio_merge_last_preset)
+    const music = audioPreset?.data?.music
     res.json({
+      channel_name: project?.name || '',
+      content_language: project?.content_language || '',
+      auto_introduction_enabled: project?.auto_introduction_enabled === true,
+      music_summary: music ? (music.enabled
+        ? music.lead_in_enabled ? `${music.lead_in_seconds} seconds before the voice (saved Audio Assembly preset)` : 'Background music with the voice (saved Audio Assembly preset)'
+        : 'Music off in the saved Audio Assembly preset') : 'Choose music in Audio Assembly',
       segments,
       kinds: Object.values(SEGMENT_KINDS),
       // What each beat actually produces, so the page can say so instead of
