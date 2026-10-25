@@ -3,9 +3,6 @@ import { z } from 'zod'
 
 import {
   ContentStoreLocalError,
-  ContentStoreUpstreamRefusal,
-  confirmContentStorePurchase,
-  createContentStoreQuote,
   loadContentStoreOverview,
 } from '../services/content-store.js'
 import {
@@ -21,10 +18,6 @@ import { logLine } from '../services/logger.js'
 
 const MAX_BODY_BYTES = 16 * 1024
 const OPAQUE_ID = z.string().min(1).max(256).regex(/^[^\u0000-\u001f\u007f]+$/)
-const QuoteBodySchema = z.object({
-  product_id: OPAQUE_ID,
-  release_id: OPAQUE_ID.nullable().default(null),
-}).strict()
 
 /**
  * The Mac's Keychain (Electron safeStorage) protects the pack signing keys. When it is
@@ -72,10 +65,6 @@ router.use('/content-store', express.json({ limit: MAX_BODY_BYTES }))
 
 function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? '') : (value ?? '')
-}
-
-function quoteId(req: Request): string {
-  return OPAQUE_ID.parse(firstParam(req.params.quoteId))
 }
 
 function emptyBody(value: unknown): void {
@@ -147,9 +136,6 @@ function projectFailure(
   fallback: string,
   requiredScope: 'content:read' | 'content:purchase',
 ): ContentStoreFailure {
-  if (error instanceof ContentStoreUpstreamRefusal) {
-    return { status: error.status, body: { ...error.refusal, status: error.attempt.status } }
-  }
   const keychain = keychainFailure(error)
   if (keychain) return keychain
   if (error instanceof GenStudioContentStoreApiError) {
@@ -260,24 +246,6 @@ router.get('/content-store/installs/:operationId', (req, res) => {
     res.json({ operation })
   } catch (error) {
     handleFailure(res, error, 'Failed to read Content Store install progress.', 'content:read')
-  }
-})
-
-router.post('/content-store/quotes', async (req, res) => {
-  try {
-    const input = QuoteBodySchema.parse(req.body)
-    res.status(201).json(await createContentStoreQuote(input))
-  } catch (error) {
-    handleFailure(res, error, 'Failed to request a Content Store quote.', 'content:read')
-  }
-})
-
-router.post('/content-store/quotes/:quoteId/purchase', async (req, res) => {
-  try {
-    emptyBody(req.body)
-    res.json(await confirmContentStorePurchase(quoteId(req)))
-  } catch (error) {
-    handleFailure(res, error, 'Failed to confirm the Content Store purchase.', 'content:purchase')
   }
 })
 

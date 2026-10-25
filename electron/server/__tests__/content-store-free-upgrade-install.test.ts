@@ -109,9 +109,8 @@ test('a free upgrade installs: no purchase receipt exists for it, and none is ne
 
   const local = app()
 
-  // Claim and install the version he owns. This one HAS a purchase receipt.
-  const quote = await request(local).post('/api/content-store/quotes').send({ product_id: productId }).expect(201)
-  await request(local).post(`/api/content-store/quotes/${quote.body.quote_id}/purchase`).send({}).expect(200)
+  // Own the version he owns. This one HAS a purchase receipt.
+  mock.seedContentProductOwnership(ACCOUNT, productId)
   const owned = await request(local).get('/api/content-store').expect(200)
   const ownedRelease = owned.body.account.owned[0].currentRelease.releaseId
   await request(local).post(`/api/content-store/releases/${ownedRelease}/install`).send({}).expect(200)

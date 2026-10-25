@@ -1,15 +1,12 @@
 import {
   GenStudioContentStoreApiError,
-  GenStudioContentStoreTransportError,
   canonicalizeContentStoreObject,
   getGenStudioContentAccount,
   getGenStudioContentReceipts,
   listGenStudioOwnedContentReleases,
   listGenStudioContentProducts,
   listGenStudioContentStoreShelves,
-  purchaseGenStudioContentProduct,
   parseContentStorePublicKey,
-  quoteGenStudioContentProduct,
   resolveStoryStudioVersion,
   type GenStudioContentAccount,
   type GenStudioContentProduct,
@@ -19,17 +16,10 @@ import { verifyContentStoreRestoreReceipt } from '../lib/genstudio-content-store
 import { getApiKey } from './app-secrets-store.js'
 import { getGenStudioUrl } from './app-settings.js'
 import {
-  claimPurchaseAttempt,
   readContentStoreCommerceState,
   readVerifiedContentStoreRestore,
-  recordCompletedPurchase,
-  recordPurchaseRefusal,
-  recordPurchaseUncertain,
   recoverInterruptedContentPurchases,
   resolveVerifiedContentStoreSigningKey,
-  restoreQuotedAfterPurchaseScopeRefusal,
-  restoreQuotedAfterPurchaseNotSent,
-  saveQuotedAttempt,
 } from '../content-store/commerce-state.js'
 import {
   resolveContentStoreInstallSnapshot,
@@ -38,7 +28,6 @@ import {
   type ContentStoreLocalInstallState,
 } from './content-store-install-state.js'
 import {
-  CachedContentRefusalSchema,
   type CachedContentQuote,
   type CachedContentRefusal,
 } from '../content-store/types.js'
@@ -177,10 +166,10 @@ export interface ContentStoreOverview {
   shelves: PublicContentStoreShelf[]
   attempts: PublicContentPurchaseAttempt[]
   capabilities: {
-    purchase: true
+    purchase: false
     receipt_verification: true
     download: true
-    install_after_purchase: true
+    install_after_purchase: false
     restore: true
   }
 }
@@ -198,18 +187,6 @@ export class ContentStoreLocalError extends Error {
   }
 }
 
-export class ContentStoreUpstreamRefusal extends Error {
-  constructor(
-    readonly status: number,
-    readonly refusal: CachedContentRefusal,
-    readonly attempt: PublicContentPurchaseAttempt,
-  ) {
-    super(refusal.detail)
-    this.name = 'ContentStoreUpstreamRefusal'
-  }
-}
-
-const activePurchaseClaims = new Map<string, Promise<PublicContentPurchaseAttempt>>()
 async function currentGenStudioOrigin(): Promise<string> {
   return new URL(await getGenStudioUrl()).origin
 }
@@ -655,139 +632,11 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     ],
     attempts: await localAttempts(account.accountId, dependencies),
     capabilities: {
-      purchase: true,
+      purchase: false,
       receipt_verification: true,
       download: true,
-      install_after_purchase: true,
+      install_after_purchase: false,
       restore: true,
     },
-  }
-}
-
-function requirePurchasableProduct(
-  products: GenStudioContentProduct[],
-  input: { product_id: string; release_id: string | null },
-): GenStudioContentProduct {
-  const product = products.find(entry => entry.productId === input.product_id)
-  if (!product) throw new ContentStoreLocalError(404, 'CONTENT_PRODUCT_NOT_AVAILABLE', 'This Content Store product is not available.')
-  if (product.owned) throw new ContentStoreLocalError(409, 'CONTENT_PRODUCT_ALREADY_OWNED', 'This Content Store product is already owned by the active account.')
-  if (product.retired) throw new ContentStoreLocalError(409, 'CONTENT_PRODUCT_RETIRED', 'This Content Store product is retired and cannot be newly purchased.')
-  if (!product.compatible) throw new ContentStoreLocalError(409, 'CONTENT_PRODUCT_INCOMPATIBLE', product.compatibilityReason || 'This product is not compatible with this Story Studio version.')
-  if (!product.currentRelease) throw new ContentStoreLocalError(404, 'CONTENT_RELEASE_NOT_AVAILABLE', 'This product has no published release.')
-  if (input.release_id !== null && input.release_id !== product.currentRelease.releaseId) {
-    throw new ContentStoreLocalError(404, 'CONTENT_RELEASE_NOT_AVAILABLE', 'The requested Content Store release is not available.')
-  }
-  return product
-}
-
-export async function createContentStoreQuote(input: {
-  product_id: string
-  release_id: string | null
-}): Promise<PublicContentPurchaseAttempt> {
-  const apiKey = await activeKey()
-  const catalog = await listGenStudioContentProducts(apiKey, await resolveStoryStudioVersion())
-  requirePurchasableProduct(catalog.products, input)
-  const quote = await quoteGenStudioContentProduct(apiKey, input)
-  const saved = await saveQuotedAttempt(quote)
-  const installSnapshot = await resolveContentStoreInstallSnapshot(catalog.products.map(product => product.currentRelease))
-  const catalogByProduct = new Map(catalog.products.map(product => [product.productId, product]))
-  const installed: PublicContentInstalledPack[] = installSnapshot.installed.map(local => ({
-    ...local,
-    title: catalogByProduct.get(local.productId)?.title ?? local.packId,
-    kind: catalogByProduct.get(local.productId)?.kind ?? 'unknown',
-    ownedByActiveAccount: false,
-  }))
-  const dependencies = await publicDependencies(saved, dependencyContext(apiKey, catalog.products, installed))
-  return publicAttempt(saved, dependencies)
-}
-
-function refusalFrom(error: GenStudioContentStoreApiError): CachedContentRefusal | null {
-  const parsed = CachedContentRefusalSchema.safeParse({ status: error.status, ...error.refusal })
-  return parsed.success ? parsed.data : null
-}
-
-async function purchaseLeader(
-  quoteId: string,
-  apiKey: string,
-  accountId: string,
-): Promise<PublicContentPurchaseAttempt> {
-  const claim = await claimPurchaseAttempt(quoteId, accountId)
-  if (claim.outcome !== 'claimed') return publicAttempt(claim.attempt)
-  const submitting = claim.attempt
-  try {
-    const purchase = await purchaseGenStudioContentProduct(apiKey, {
-      quoteCanonicalJson: submitting.quote_canonical_json,
-      quoteSignature: submitting.quote_signature,
-      idempotencyKey: submitting.idempotency_key,
-    })
-    return publicAttempt(await recordCompletedPurchase(quoteId, purchase))
-  } catch (error) {
-    if (error instanceof GenStudioContentStoreApiError) {
-      const refusal = refusalFrom(error)
-      if (refusal) {
-        const attempt = publicAttempt(await recordPurchaseRefusal(quoteId, refusal))
-        throw new ContentStoreUpstreamRefusal(error.status, refusal, attempt)
-      }
-      if (error.status === 401) {
-        await restoreQuotedAfterPurchaseScopeRefusal(quoteId)
-        throw error
-      }
-      const detail = 'GenStudio returned a purchase response Story Studio could not safely classify. No replacement purchase was sent. Retry this exact purchase to replay its saved idempotency key.'
-      await recordPurchaseUncertain(quoteId, detail)
-      throw new ContentStoreLocalError(502, 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN', detail)
-    }
-    if (error instanceof GenStudioContentStoreTransportError && error.outcome === 'uncertain') {
-      const detail = 'Story Studio did not receive GenStudio\'s answer. No replacement purchase was sent. Retry this exact purchase to replay its saved idempotency key.'
-      await recordPurchaseUncertain(quoteId, detail)
-      throw new ContentStoreLocalError(502, 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN', detail)
-    }
-    if (error instanceof GenStudioContentStoreTransportError && error.outcome === 'not-sent') {
-      await restoreQuotedAfterPurchaseNotSent(quoteId)
-      throw new ContentStoreLocalError(502, 'CONTENT_PURCHASE_NOT_SENT', 'Story Studio could not send the purchase request. No credits were debited.')
-    }
-    const detail = 'Story Studio could not prove the Content Store purchase outcome. No replacement purchase was sent. Retry this exact purchase to replay its saved idempotency key.'
-    await recordPurchaseUncertain(quoteId, detail)
-    throw new ContentStoreLocalError(502, 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN', detail)
-  }
-}
-
-export async function confirmContentStorePurchase(quoteId: string): Promise<PublicContentPurchaseAttempt> {
-  const state = await readContentStoreCommerceState()
-  const saved = state.attempts[quoteId]
-  if (!saved) throw new ContentStoreLocalError(404, 'CONTENT_STORE_QUOTE_NOT_FOUND', 'The saved Content Store quote was not found.')
-
-  const apiKey = await activeKey()
-  let account: GenStudioContentAccount
-  try {
-    account = await getGenStudioContentAccount(apiKey)
-  } catch (error) {
-    if (error instanceof GenStudioContentStoreApiError && error.status === 401) {
-      throw new ContentStoreLocalError(
-        401,
-        'CONTENT_STORE_SCOPE_REQUIRED',
-        'The active GenStudio key was not accepted for required content:read access.',
-      )
-    }
-    throw error
-  }
-  if (account.accountId !== saved.account_id) {
-    throw new ContentStoreLocalError(
-      409,
-      'CONTENT_PURCHASE_ACCOUNT_MISMATCH',
-      'This quote belongs to a different GenStudio account. Switch back to that account before purchasing.',
-      publicAttempt(saved),
-    )
-  }
-
-  if (saved.status === 'completed') return publicAttempt(saved)
-  if (saved.status === 'submitting') return publicAttempt(saved)
-  const follower = activePurchaseClaims.get(quoteId)
-  if (follower) return follower
-  const claim = purchaseLeader(quoteId, apiKey, account.accountId)
-  activePurchaseClaims.set(quoteId, claim)
-  try {
-    return await claim
-  } finally {
-    if (activePurchaseClaims.get(quoteId) === claim) activePurchaseClaims.delete(quoteId)
   }
 }

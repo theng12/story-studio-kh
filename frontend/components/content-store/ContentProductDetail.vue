@@ -17,11 +17,11 @@
 
     <section class="detail-section" aria-labelledby="release-heading"><h2 id="release-heading">Release proof</h2><dl class="proof-grid"><div><dt>Publisher</dt><dd>{{ product.publisherId }}</dd></div><div><dt>Current release</dt><dd>{{ release?.version || 'Unavailable' }}</dd></div><div><dt>Minimum Story Studio version</dt><dd>{{ release?.minStoryVersion || 'Not published' }}</dd></div><div><dt>License</dt><dd>{{ product.presentation.licenseLabel || 'Not published' }}</dd></div></dl><p v-if="product.presentation.licenseText" class="license-text">{{ product.presentation.licenseText }}</p><div v-if="release?.changelog" class="changelog"><h3>Changelog</h3><p>{{ release.changelog }}</p></div></section>
 
-    <section v-if="dependencies.length || product.bundleComponents.length || componentSummary.length" class="detail-section" aria-labelledby="components-heading"><h2 id="components-heading">Included components</h2><ul v-if="dependencies.length" class="component-list"><li v-for="dependency in dependencies" :key="dependency.releaseId"><span><strong>{{ dependency.title }}</strong><small>{{ dependency.version }}</small></span><span>{{ dependency.states.map(stateLabel).join(' · ') }}</span></li></ul><p v-else-if="product.bundleComponents.length" class="dependency-pending">Request an exact quote to see the signed included versions and dependency states.</p><dl v-if="componentSummary.length" class="summary-grid"><div v-for="fact in componentSummary" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl></section>
+    <section v-if="product.bundleComponents.length || componentSummary.length" class="detail-section" aria-labelledby="components-heading"><h2 id="components-heading">Included components</h2><ul v-if="product.bundleComponents.length" class="component-list"><li v-for="component in product.bundleComponents" :key="component.productId"><span><strong>{{ component.title }}</strong><small>{{ component.kind }}</small></span><span>{{ component.owned ? 'Owned' : 'Included' }}</span></li></ul><dl v-if="componentSummary.length" class="summary-grid"><div v-for="fact in componentSummary" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl></section>
 
     <section v-if="ownership?.recalledReleaseVersions.length" class="detail-warning" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><span>Ownership remains permanent. The Gateway stopped serving these exact versions.</span></section>
 
-    <footer class="detail-actions"><NuxtLink to="/content-store" class="back-to-store">Back to Content Store</NuxtLink><button v-if="ownershipResolved && !product.owned && !product.retired && product.compatible && release" type="button" class="btn btn-primary" :disabled="networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting Quote…' : product.free ? 'Get Free' : 'See Exact Quote' }}</button><button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="installBusy || networkUnavailable" :aria-busy="installBusy ? 'true' : undefined" @click="$emit('install', release!.releaseId)">{{ installLabel }}</button><span v-else-if="queueStatus === 'installed'" class="detail-pending" role="status">Installed just now</span></footer>
+    <footer class="detail-actions"><NuxtLink to="/library" class="back-to-store">Back to Studio Library</NuxtLink><button v-if="canInstall" type="button" class="btn btn-primary" :disabled="installBusy || networkUnavailable" :aria-busy="installBusy ? 'true' : undefined" @click="$emit('install', release!.releaseId)">{{ installLabel }}</button><span v-else-if="queueStatus === 'installed'" class="detail-pending" role="status">Installed just now</span></footer>
   </article>
 </template>
 
@@ -29,19 +29,18 @@
 import { computed } from 'vue'
 import ContentProductCover from './ContentProductCover.vue'
 import { contentStoreKindLabel } from '~/content-store/catalog-presentation'
-import type { ContentStoreAccount, ContentStoreProduct, ContentStoreShowcaseVideo, PublicContentPurchaseAttempt } from '~/composables/useContentStore'
+import type { ContentStoreAccount, ContentStoreProduct, ContentStoreShowcaseVideo } from '~/composables/useContentStore'
 import type { InstallQueueStatus } from '~/composables/useInstallQueue'
 
 type OwnedContent = ContentStoreAccount['owned'][number]
 const props = withDefaults(
-  defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; attempt?: PublicContentPurchaseAttempt | null; busy?: boolean; queueStatus?: InstallQueueStatus; networkUnavailable?: boolean; ownershipResolved?: boolean }>(),
+  defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; queueStatus?: InstallQueueStatus; networkUnavailable?: boolean; ownershipResolved?: boolean }>(),
   { ownershipResolved: true, queueStatus: 'idle' },
 )
-defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
+defineEmits<{ install: [releaseId: string] }>()
 const kindLabel = computed(() => contentStoreKindLabel(props.product.kind))
 const release = computed(() => props.product.currentRelease)
 const showcaseVideos = computed<readonly ContentStoreShowcaseVideo[]>(() => props.ownership?.showcaseVideos.length ? props.ownership.showcaseVideos : props.product.showcaseVideos)
-const dependencies = computed(() => props.attempt?.dependencies ?? [])
 const status = computed(() => {
   if (props.queueStatus === 'queued') return 'Queued to install'
   if (props.queueStatus === 'installing') return 'Installing…'
@@ -49,10 +48,9 @@ const status = computed(() => {
   if (props.queueStatus === 'failed') return 'Install failed'
   if (!props.product.compatible) return 'Not compatible with this Story Studio version'
   if (props.product.retired) return 'Retired'
-  // The published price is a catalogue fact and stays on screen; whether this
-  // account already owns it is not known yet and must not be implied.
-  if (!props.ownershipResolved) return props.product.free ? 'Free · checking ownership' : `${props.product.creditPrice.toLocaleString()} credits · checking ownership`
-  if (!props.product.owned) return props.product.free ? 'Free to claim' : `${props.product.creditPrice.toLocaleString()} credits`
+  // Ownership is not known yet and must not be implied either way.
+  if (!props.ownershipResolved) return 'Checking ownership'
+  if (!props.product.owned) return 'Not owned by this account'
   if (props.ownership?.installState === 'installed_current') return 'Installed'
   if (props.ownership?.installState === 'update_available') return 'Owned · update available'
   return 'Owned'
@@ -73,7 +71,6 @@ const componentSummary = computed(() => Object.entries(release.value?.componentS
   return []
 }))
 function factLabel(key: string): string { return key.replace(/[_-]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()) }
-function stateLabel(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1) }
 function openExternalShowcase(url: string): void {
   let parsed: URL
   try { parsed = new URL(url) } catch { return }

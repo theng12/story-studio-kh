@@ -189,8 +189,7 @@ async function setupClosure(options: { appVersion?: string } = {}) {
   mock.seedContentProductOwnership(ACCOUNT, 'product-sentinel')
 
   const local = app(options)
-  const quoted = await request(local).post('/api/content-store/quotes').send({ product_id: ROOT.productId, release_id: null }).expect(201)
-  await request(local).post(`/api/content-store/quotes/${quoted.body.quote_id}/purchase`).send({}).expect(200)
+  mock.seedContentBundleOwnership(ACCOUNT, ROOT.productId)
 
   return {
     local, rootId: ROOT.packId, dep1Id: COMPONENTS[0].packId, dep2Id: COMPONENTS[3].packId,

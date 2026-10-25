@@ -17,7 +17,7 @@
       <div class="titlebar-drag" />
       <!-- Credits and lanes sit in the top bar on every view, so account
            standing reads the same on a project page as it does on channels
-           and the Content Store. -->
+           and the Studio Library. -->
       <div class="top-bar-actions">
         <GenStudioStandingStrip variant="inline" class="top-bar-standing-strip" />
         <FeatureHelpCenter />
@@ -117,7 +117,7 @@
               All Jobs
               <span v-if="allActiveJobCount > 0" class="nav-badge">{{ allActiveJobCount }}</span>
             </NuxtLink>
-            <NuxtLink to="/content-store" class="sidebar-utility" active-class="active">Content Store</NuxtLink>
+            <NuxtLink to="/library" class="sidebar-utility" active-class="active">Studio Library</NuxtLink>
             <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#free-up-space`" class="sidebar-utility">Free Up Space</NuxtLink>
             <NuxtLink to="/trash" class="sidebar-utility" active-class="active">Trash</NuxtLink>
             <NuxtLink v-if="slug" :to="`/projects/${slug}/settings`" class="sidebar-utility" active-class="active">Settings</NuxtLink>
@@ -154,7 +154,7 @@
           {{ projectLoadError }}
         </WorkspaceNotice>
         <NicheMissingBanner v-if="slug && project" :key="slug" :slug="slug" :niche-id="project.niche_id" />
-        <!-- Content Pack installs / purchases keep running after the Store is left: show them here too. -->
+        <!-- Content Pack installs keep running after the Library is left: show them here too. -->
         <ContentInstallStrip class="dashboard-install-strip" />
         <slot />
       </main>

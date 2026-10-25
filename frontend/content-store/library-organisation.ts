@@ -1,7 +1,7 @@
 /**
  * Organising an owned library that has outgrown a flat grid.
  *
- * The owner's Content Store reached sixty-five packs and read as "everywhere":
+ * The owner's Studio Library reached sixty-five packs and read as "everywhere":
  * a Visual Style, a Topic Pack and a Thumbnail Recipe sat side by side with
  * nothing but a small tag to tell them apart, and there was no way to see what
  * was still missing from this Mac. Grouping and the install filter are the two

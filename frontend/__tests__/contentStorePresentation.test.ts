@@ -56,7 +56,7 @@ const products: ContentStoreProduct[] = [
   }),
 ]
 
-describe('Content Store catalog presentation boundary', () => {
+describe('Studio Library catalog presentation boundary', () => {
   test('uses explicit server order and never appends unplaced products', () => {
     const ordered = orderShelfProducts(products, {
       id: 'starter', title: 'Free Starter Kits', productIds: ['kit-b', 'kit-a'],
@@ -66,25 +66,25 @@ describe('Content Store catalog presentation boundary', () => {
 
   test('searches only published customer text and tags', () => {
     const result = filterCatalogProducts(products, 'documentary', {
-      price: 'all', kind: 'all', compatibleOnly: false,
+      kind: 'all', compatibleOnly: false,
     })
     assert.deepEqual(result.map(product => product.productId), ['kit-a'])
   })
 
   test('does not search opaque product identifiers', () => {
     const result = filterCatalogProducts(products, 'kit-b', {
-      price: 'all', kind: 'all', compatibleOnly: false,
+      kind: 'all', compatibleOnly: false,
     })
     assert.deepEqual(result, [])
   })
 
-  test('applies price, kind, and compatibility filters together', () => {
+  test('applies kind and compatibility filters together', () => {
     const result = filterCatalogProducts([
       product('free-formula', { kind: 'series_formula', title: 'Formula', free: true }),
       product('paid-formula', { kind: 'series_formula', title: 'Paid Formula', free: false }),
       product('paid-kit', { kind: 'niche_bundle', title: 'Paid Kit', free: false, compatible: false }),
-    ], '', { price: 'paid', kind: 'series_formula', compatibleOnly: true })
-    assert.deepEqual(result.map(product => product.productId), ['paid-formula'])
+    ], '', { kind: 'series_formula', compatibleOnly: true })
+    assert.deepEqual(result.map(product => product.productId), ['free-formula', 'paid-formula'])
   })
 
   test('rejects duplicate product references in one shelf', () => {
@@ -125,7 +125,7 @@ describe('Content Store catalog presentation boundary', () => {
     const result = filterCatalogProducts(
       [product('kit-tags', { title: 'Starter' })],
       'documentary',
-      { price: 'all', kind: 'all', compatibleOnly: false },
+      { kind: 'all', compatibleOnly: false },
       {
         'kit-tags': {
           productId: 'kit-tags', cover: null, licenseLabel: null, tags: ['documentary'],
@@ -140,7 +140,7 @@ describe('Content Store catalog presentation boundary', () => {
       presentation: { tags: ['documentary'] },
     })
     const result = filterCatalogProducts([productWithHiddenPresentation], 'documentary', {
-      price: 'all', kind: 'all', compatibleOnly: false,
+      kind: 'all', compatibleOnly: false,
     })
     assert.deepEqual(result, [])
   })

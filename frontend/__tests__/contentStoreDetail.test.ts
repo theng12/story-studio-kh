@@ -17,10 +17,9 @@ function stripImports(code: string): string {
 ;(globalThis as any).__contentStoreErrorPresentation = contentStoreErrorPresentation
 
 const detail = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductDetail.vue', import.meta.url)), 'utf8')
-const route = readFileSync(fileURLToPath(new URL('../pages/content-store/[productId].vue', import.meta.url)), 'utf8')
+const route = readFileSync(fileURLToPath(new URL('../pages/library/[productId].vue', import.meta.url)), 'utf8')
 const cover = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCover.vue', import.meta.url)), 'utf8')
-const storePage = readFileSync(fileURLToPath(new URL('../pages/content-store.vue', import.meta.url)), 'utf8')
-const purchaseDialog = readFileSync(fileURLToPath(new URL('../components/content-store/ContentPurchaseDialog.vue', import.meta.url)), 'utf8')
+const storePage = readFileSync(fileURLToPath(new URL('../pages/library.vue', import.meta.url)), 'utf8')
 
 async function loadComponent(relative: string): Promise<Component> {
   const filename = fileURLToPath(new URL(relative, import.meta.url))
@@ -39,7 +38,7 @@ async function loadComponent(relative: string): Promise<Component> {
 }
 
 async function loadStorePage(): Promise<Component> {
-  const filename = fileURLToPath(new URL('../pages/content-store.vue', import.meta.url))
+  const filename = fileURLToPath(new URL('../pages/library.vue', import.meta.url))
   const source = readFileSync(filename, 'utf8')
   const { descriptor } = parse(source, { filename })
   const script = compileScript(descriptor, { id: 'content-store-page-state' })
@@ -48,10 +47,9 @@ async function loadStorePage(): Promise<Component> {
   const support = `
     import { computed, h, nextTick, onMounted, ref, defineComponent as _defineComponent } from "vue"
     const ContentStoreFilters = { emits: ['update:query'], setup: (props, { emit }) => () => h('div', { 'data-test': 'catalog-filters' }, [h('button', { 'data-test': 'set-query', onClick: () => emit('update:query', 'zzz') }, 'search')]) }
-    const ContentStoreShelf = { props: ['products'], emits: ['quote'], setup: (props, { emit }) => () => props.products?.[0] ? h('button', { 'data-test': 'request-quote', onClick: () => emit('quote', props.products[0]) }, 'See Exact Quote') : null }
+    const ContentStoreShelf = { props: ['products'], setup: (props) => () => props.products?.[0] ? h('div', { 'data-test': 'catalog-item' }, props.products[0].title) : null }
     const ContentLibraryView = { render: () => null }
     const ContentInstalledLibraryView = { render: () => null }
-    const ContentPurchaseDialog = { props: ['visible', 'attempt'], emits: ['close', 'confirm'], setup: (props, { emit }) => () => props.visible ? h('div', { role: 'dialog' }, [h('button', { 'data-test': 'confirm-purchase', onClick: () => emit('confirm', props.attempt.quote_id) }, 'Confirm'), h('button', { 'data-test': 'purchase-done', onClick: () => emit('close') }, 'Done')]) : null }
     const filterCatalogProducts = (items, query) => query ? items.filter(item => String(item.title || '').toLowerCase().includes(String(query).toLowerCase())) : items
     // Real implementation, not a simplification: the tab counts are asserted
     // here, and a stub would let them agree with something nothing ships.
@@ -62,51 +60,21 @@ async function loadStorePage(): Promise<Component> {
     const contentPackImportErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: '' })
     const contentPackImportUiError = (cause) => ({ status: cause?.status ?? null, code: cause?.data?.code || 'unknown', detail: cause?.data?.detail || cause?.message || '' })
     // The real queue lives in ~/composables/useInstallQueue and is covered by
-    // its own tests; here it only has to exist and install straight away.
-    const useInstallQueue = (install) => ({
-      enqueue: (id) => { void install(id) },
-      enqueueAll: (ids) => { for (const id of ids) void install(id) },
+    // its own tests; here it only has to exist and accept work.
+    const useContentInstallQueue = () => ({
+      enqueue: () => undefined,
+      enqueueAll: () => undefined,
       statusOf: () => 'idle',
       isBusy: () => false,
       activeReleaseId: computed(() => ''),
       pendingCount: computed(() => 0),
       failedCount: computed(() => 0),
       running: computed(() => false),
+      finished: computed(() => false),
       clearFinished: () => undefined,
-    })
-    // The shared, app-wide queue (v1.4.152) wraps useInstallQueue; its own
-    // tests are contentInstallQueueShared. Here it installs straight away.
-    const useContentInstallQueue = () => ({
-      ...useInstallQueue((id) => globalThis.__contentStorePageStore.installRelease(id, { refreshOverview: false })),
       batchTotal: computed(() => 0), batchDone: computed(() => 0), batchInstalled: computed(() => 0),
-      batchFailed: computed(() => 0), haltReason: computed(() => ''), activeTitle: computed(() => ''), finished: computed(() => false),
+      batchFailed: computed(() => 0), haltReason: computed(() => ''), activeTitle: computed(() => ''), failures: computed(() => []),
     })
-    // Real rule, not a stub: Select All counts on it.
-    const batchSkipReason = (product) => !product ? 'No longer in the catalog' : product.owned ? 'Already owned' : product.retired ? 'Retired by GenStudio' : !product.compatible ? (product.compatibilityReason || 'Not compatible') : !product.currentRelease ? 'No published release' : null
-    // Buying a whole selection lives in ~/composables/useBatchPurchase and has
-    // its own tests (contentStoreBatchPurchase). Here it only has to exist, so
-    // that mounting the page exercises the single-pack paths these tests are
-    // actually about.
-    const useBatchPurchase = () => ({
-      items: ref([]), phase: ref('idle'), open: ref(false), busy: ref(false),
-      progress: ref({ done: 0, total: 0 }),
-      quoted: computed(() => []), quotedTotal: computed(() => 0),
-      start: async () => undefined, confirmAll: async () => [],
-      retryFailed: async () => undefined, close: () => undefined, dismiss: () => undefined, show: () => undefined,
-    })
-    const ContentBatchPurchaseDialog = { props: ['visible'], render: () => null }
-    // The real one lives beside useBatchPurchase and is covered there. It has to
-    // behave correctly here too: the page's selection total depends on it, and a
-    // stub that summed blindly would hide the very defect it exists to prevent.
-    const sumPublished = (rows, read) => {
-      let total = 0
-      for (const row of rows) {
-        const value = read(row)
-        if (typeof value !== 'number' || !Number.isFinite(value)) return null
-        total += value
-      }
-      return total
-    }
     const useContentStore = () => globalThis.__contentStorePageStore
     const useAppSettingsModal = () => ({ open: () => undefined })
     const useRoute = () => ({ params: {} })
@@ -118,7 +86,7 @@ async function loadStorePage(): Promise<Component> {
 }
 
 async function loadDetailRoute(): Promise<Component> {
-  const filename = fileURLToPath(new URL('../pages/content-store/[productId].vue', import.meta.url))
+  const filename = fileURLToPath(new URL('../pages/library/[productId].vue', import.meta.url))
   const source = readFileSync(filename, 'utf8')
   const { descriptor } = parse(source, { filename })
   const script = compileScript(descriptor, { id: 'content-store-detail-route-state' })
@@ -127,8 +95,7 @@ async function loadDetailRoute(): Promise<Component> {
   const support = `
     import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, defineComponent as _defineComponent } from "vue"
     const ContentProductDetail = { props: ['product', 'ownership', 'networkUnavailable', 'queueStatus'], setup: (props) => () => h('div', { 'data-test': 'historical-proof', 'data-owned': String(props.product.owned), 'data-ownership': String(!!props.ownership), 'data-network-unavailable': String(props.networkUnavailable), 'data-queue-status': String(props.queueStatus || '') }, props.product.title) }
-    const ContentPurchaseDialog = { render: () => null }
-    const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: 'Refresh the Store.' })
+    const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: 'Refresh the Library.' })
     const useContentStore = () => globalThis.__contentStoreDetailStore
     const useContentInstallQueue = () => ({ enqueue: () => undefined, isBusy: () => false, statusOf: () => globalThis.__contentStoreDetailQueueStatus || 'idle', failureOf: () => '' })
     const useRoute = () => ({ params: { productId: 'formula' } })
@@ -153,15 +120,14 @@ async function mount(component: Component, props: Record<string, unknown>) {
   return { host, unmount: () => app.unmount() }
 }
 
-describe('Content Store proof route contract', () => {
+describe('Studio Library proof route contract', () => {
   test('mounts semantic roving tabs and moves focus with ArrowRight, Home, and End', async () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = {
       account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
       catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
       recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
-      refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
-      confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
+      refresh: async () => {}, restoreOwnership: async () => {},
     }
     const rendered = await mount(Page, {})
     const tabs = [...rendered.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
@@ -169,13 +135,13 @@ describe('Content Store proof route contract', () => {
     tabs[0]!.focus()
     tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     await nextTick()
-    assert.equal(document.activeElement?.id, 'content-store-tab-owned')
+    assert.equal(document.activeElement?.id, 'library-tab-owned')
     tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
     await nextTick()
-    assert.equal(document.activeElement?.id, 'content-store-tab-updates')
+    assert.equal(document.activeElement?.id, 'library-tab-updates')
     tabs[3]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
     await nextTick()
-    assert.equal(document.activeElement?.id, 'content-store-tab-discover')
+    assert.equal(document.activeElement?.id, 'library-tab-discover')
     rendered.unmount()
   })
 
@@ -186,11 +152,10 @@ describe('Content Store proof route contract', () => {
       catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), lastVerifiedAt: ref(null), loading: ref(false),
       error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio could not be reached.' }),
       recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
-      refresh: async () => { throw new Error('offline') }, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
-      confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
+      refresh: async () => { throw new Error('offline') }, restoreOwnership: async () => {},
     }
     const rendered = await mount(Page, {})
-    assert.match(rendered.host.textContent || '', /Content Store is unavailable/)
+    assert.match(rendered.host.textContent || '', /Studio Library is unavailable/)
     assert.equal(rendered.host.querySelector('[data-test="catalog-filters"]'), null)
     assert.doesNotMatch(rendered.host.textContent || '', /No published products match these filters/)
     rendered.unmount()
@@ -204,8 +169,7 @@ describe('Content Store proof route contract', () => {
       products: ref([{ productId: 'formula', title: 'Account A Formula', entitlementFamily: 'formula-family', owned: true }]), attempts: ref([]),
       cachedProof: ref({ accountId: 'acct_a', origin: 'https://a.example.test', verifiedAt: '2026-08-14T10:00:00Z' }),
       catalogFreshness: ref('cached'), ownershipResolved: ref(true), loading: ref(false), error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio is offline.' }),
-      refresh: async () => { throw new Error('offline') }, requestQuote: async () => { actionCalls++; throw new Error('not allowed') },
-      confirmPurchase: async () => { actionCalls++; throw new Error('not allowed') }, installRelease: async () => { actionCalls++; throw new Error('not allowed') },
+      refresh: async () => { throw new Error('offline') },
     }
     const rendered = await mount(DetailRoute, {})
     const proof = rendered.host.querySelector<HTMLElement>('[data-test="historical-proof"]')!
@@ -226,128 +190,12 @@ describe('Content Store proof route contract', () => {
       account: ref({ accountId: 'acct_a', owned: [{ entitlementFamily: 'formula-family', downloadAvailable: true, installState: 'not_installed', recalledReleaseVersions: [] }] }),
       products: ref([{ productId: 'formula', title: 'Formula', entitlementFamily: 'formula-family', owned: true, compatible: true, currentRelease: { releaseId: 'release_1' } }]), attempts: ref([]),
       cachedProof: ref(null), catalogFreshness: ref('fresh'), ownershipResolved: ref(true), loading: ref(false), error: ref(null),
-      refresh: async () => {}, requestQuote: async () => { throw new Error('not used') }, confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
+      refresh: async () => {},
     }
     const rendered = await mount(DetailRoute, {})
     assert.equal(rendered.host.querySelector<HTMLElement>('[data-test="historical-proof"]')?.dataset.queueStatus, 'installed')
     rendered.unmount()
     delete (globalThis as any).__contentStoreDetailQueueStatus
-  })
-
-  /**
-   * REVERSED ON PURPOSE, 2026-08-24. This used to assert that a completed
-   * purchase moved the customer to the Owned tab. The owner, buying several
-   * packs in a row from a sixty-five pack catalogue, asked for the opposite:
-   * "when i purchased it, don't let it take me to the install page." Being
-   * thrown out of the grid after every purchase is what made buying six packs
-   * six separate journeys. What a purchase must still do is leave the dialog
-   * closed and the tab the customer chose still selected.
-   */
-  test('a completed purchase leaves the customer exactly where they were', async () => {
-    const Page = await loadStorePage()
-    const attempt = {
-      quote_id: 'quote_1', status: 'quoted', product_id: 'formula', credits_charged: 400,
-      base_credit_price: 400, discount_credits: 0, quoted_credits: 400, balance_before: 500, balance_after: 100,
-      expires_at: '2026-08-14T10:15:00Z', sufficient_credits: true, shortfall_credits: 0,
-    }
-    const attempts = ref<any[]>([])
-    const product = { productId: 'formula', entitlementFamily: 'formula-family', owned: false, retired: false, compatible: true, free: false, currentRelease: { releaseId: 'release_1' }, presentation: { tags: [] } }
-    ;(globalThis as any).__contentStorePageStore = {
-      account: ref({ contentAccountId: 'content_a', availableCredits: 500, contentSpendableCredits: 500, owned: [] }), products: ref([product]), installed: ref([]), shelves: ref([{ id: 'featured', productIds: ['formula'] }]), attempts,
-      catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
-      recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
-      refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { attempts.value = [attempt]; return attempt },
-      confirmPurchase: async () => { attempts.value = [{ ...attempt, status: 'completed' }]; return attempts.value[0] }, installRelease: async () => ({ activated: false }),
-    }
-    const rendered = await mount(Page, {})
-    rendered.host.querySelector<HTMLButtonElement>('[data-test="request-quote"]')!.click()
-    await nextTick(); await nextTick()
-    rendered.host.querySelector<HTMLButtonElement>('[data-test="confirm-purchase"]')!.click()
-    await nextTick(); await nextTick()
-    rendered.host.querySelector<HTMLButtonElement>('[data-test="purchase-done"]')!.click()
-    await nextTick(); await nextTick()
-    assert.equal(rendered.host.querySelector('[role="dialog"]'), null, 'the dialog closes on completion')
-    const discoverTab = rendered.host.querySelector<HTMLButtonElement>('#content-store-tab-discover')!
-    assert.equal(discoverTab.getAttribute('aria-selected'), 'true', 'the Discover tab the customer was on stays selected')
-    assert.notEqual(document.activeElement?.id, 'content-store-tab-owned', 'nothing steals focus to another tab')
-    rendered.unmount()
-  })
-
-  test('mounts the purchase refusal as text, announces it, and focuses the non-spending close control', async () => {
-    const Dialog = await loadComponent('../components/content-store/ContentPurchaseDialog.vue')
-    const visible = ref(false)
-    const rendered = await mount(defineComponent({ setup: () => () => h(Dialog, {
-      visible: visible.value,
-      busy: false,
-      product: { title: 'Archive Formula', free: false },
-      attempt: {
-        quote_id: 'quote_1', status: 'refused', base_credit_price: 400, discount_credits: 0, quoted_credits: 400,
-        balance_before: 500, balance_after: 100, expires_at: '2026-08-14T10:15:00Z', sufficient_credits: true, shortfall_credits: 0,
-        refusal: { status: 409, code: 'quote_rejected', detail: '<strong>Quote expired</strong>' },
-      },
-      error: null,
-    }) }), {})
-    visible.value = true
-    await nextTick(); await nextTick(); await new Promise(resolve => setTimeout(resolve, 0))
-    assert.equal(document.activeElement?.getAttribute('aria-label'), 'Close purchase dialog')
-    assert.match(rendered.host.textContent || '', /Quote expired/)
-    assert.equal(rendered.host.querySelector('strong strong'), null, 'server detail is rendered as text, not HTML')
-    assert.equal(rendered.host.querySelector('[role="status"]')?.textContent?.includes('This price has expired'), true)
-    rendered.unmount()
-  })
-
-  test('renders final signed operator and component discount facts without exposing signing material', async () => {
-    const Dialog = await loadComponent('../components/content-store/ContentPurchaseDialog.vue')
-    const rendered = await mount(Dialog, {
-      visible: true,
-      busy: false,
-      product: { title: 'Archive Formula', free: false },
-      attempt: {
-        quote_id: 'quote_1', status: 'completed', base_credit_price: 2_000, discount_credits: 400,
-        component_discount_credits: 400, operator_discount_credits: 1_440, quoted_credits: 160,
-        credits_charged: 160, balance_before: 2_000, balance_after: 1_840,
-        expires_at: '2026-08-14T10:15:00Z', sufficient_credits: true, shortfall_credits: 0,
-        operator_discount: { discount_id: 'cdsc_archival_launch', version: 1, percent: 90, starts_on: null, ends_on: '2026-12-31', timezone: 'Asia/Phnom_Penh' },
-        quote_signature: 'must-not-render', receipt_signature: 'must-not-render', canonical_json: 'must-not-render',
-      },
-      error: null,
-    })
-    const proof = rendered.host.textContent || ''
-    assert.match(proof, /Base price[\s\S]*2,000/)
-    assert.match(proof, /Discount for parts you already own[\s\S]*400/)
-    assert.match(proof, /Store discount[\s\S]*90% off[\s\S]*Ends 2026-12-31/)
-    assert.doesNotMatch(proof, /cdsc_archival_launch|Asia\/Phnom_Penh/, 'internal discount ids are not shown')
-    assert.match(proof, /Store discount[\s\S]*1,440/)
-    assert.match(proof, /Credits charged[\s\S]*160/)
-    assert.match(proof, /Balance before[\s\S]*2,000[\s\S]*Balance after[\s\S]*1,840/)
-    assert.match(proof, /Ends 2026-12-31/)
-    assert.doesNotMatch(proof, /must-not-render|signature|canonical/i)
-    rendered.unmount()
-  })
-
-  test('does not offer exact-attempt retry for terminal or refetch-required refusals', async () => {
-    const Dialog = await loadComponent('../components/content-store/ContentPurchaseDialog.vue')
-    for (const [code, recovery] of [
-      ['quote_expired', /ask for a new price/i],
-      ['quote_rejected', /ask for a new price/i],
-      ['already_owned', /refresh the Content Store/i],
-    ] as const) {
-      const rendered = await mount(Dialog, {
-        visible: true,
-        busy: false,
-        product: { title: 'Archive Formula', free: false },
-        attempt: {
-          quote_id: `quote_${code}`, status: 'refused', base_credit_price: 400, discount_credits: 0, quoted_credits: 400,
-          balance_before: 500, balance_after: 100, expires_at: '2026-08-14T10:15:00Z', sufficient_credits: true, shortfall_credits: 0,
-          refusal: { status: 409, code, detail: 'GenStudio refused this saved attempt.' },
-        },
-        error: null,
-      })
-      assert.match(rendered.host.textContent || '', recovery, code)
-      assert.equal([...rendered.host.querySelectorAll('button')].some(button => /Retry This Purchase/.test(button.textContent || '')), false, code)
-      assert.equal([...rendered.host.querySelectorAll('button')].some(button => /Confirm/.test(button.textContent || '')), false, code)
-      rendered.unmount()
-    }
   })
 
   function pageStore(overrides: Record<string, unknown> = {}) {
@@ -356,8 +204,7 @@ describe('Content Store proof route contract', () => {
       products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
       catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-17T10:00:00Z'), loading: ref(false), error: ref(null),
       recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
-      refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
-      confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
+      refresh: async () => {}, restoreOwnership: async () => {},
       ...overrides,
     }
   }
@@ -377,7 +224,7 @@ describe('Content Store proof route contract', () => {
     const rendered = await mount(Page, {})
     assert.deepEqual(refreshCalls, [{ background: true }], 'mount asks to revalidate quietly')
     assert.doesNotMatch(rendered.host.textContent || '', /Loading the Gateway catalog/)
-    assert.equal(rendered.host.querySelector('[data-test="request-quote"]') !== null, true, 'the cached shelf is already on screen')
+    assert.equal(rendered.host.querySelector('[data-test="catalog-item"]') !== null, true, 'the cached shelf is already on screen')
     rendered.unmount()
   })
 
@@ -392,17 +239,16 @@ describe('Content Store proof route contract', () => {
     const text = rendered.host.textContent || ''
 
     assert.doesNotMatch(text, /Loading the Gateway catalog/, 'there is a catalogue to show, so there is no loading screen')
-    assert.equal(rendered.host.querySelector('[data-test="request-quote"]') !== null, true, 'the saved shelf is already on screen')
+    assert.equal(rendered.host.querySelector('[data-test="catalog-item"]') !== null, true, 'the saved shelf is already on screen')
     assert.match(text, /Showing the published catalogue saved on this Mac/)
-    assert.match(text, /Gateway purchase and download stay off until it answers/)
+    assert.match(text, /Gateway download stays off until it answers/)
     assert.match(text, /Install Content Pack still works from a local file/)
-    assert.match(text, /Checking with the Gateway…/, 'the account strip holds its place without inventing a balance')
     assert.doesNotMatch(text, /content_a|500 credits/, 'no account id and no balance before GenStudio answers')
 
     const tabCounts = [...rendered.host.querySelectorAll('[role="tab"] span')].map(node => node.textContent)
     assert.deepEqual(tabCounts, ['1', '—', '—', '—'], 'the published count is a catalogue fact; the rest are not counted yet')
 
-    const restore = [...rendered.host.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Restore Purchases')
+    const restore = [...rendered.host.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Re-check my packs')
     assert.equal(restore?.disabled, true, 'commerce stays off until ownership is verified')
     rendered.unmount()
   })
@@ -462,7 +308,7 @@ describe('Content Store proof route contract', () => {
       shelves: ref([{ id: 's1', productIds: ['p1'] }]),
     })
     const rendered = await mount(Page, {})
-    assert.equal(rendered.host.querySelector('[data-test="request-quote"]') !== null, true)
+    assert.equal(rendered.host.querySelector('[data-test="catalog-item"]') !== null, true)
 
     rendered.host.querySelector<HTMLButtonElement>('[data-test="set-query"]')!.click()
     await nextTick(); await nextTick()
@@ -489,14 +335,14 @@ describe('Content Store proof route contract', () => {
     assert.match(detail, /Changelog/)
     assert.match(detail, /License/)
     assert.match(detail, /componentSummary/)
-    assert.match(detail, /attempt\?\.dependencies/)
+    assert.match(detail, /product\.bundleComponents/)
     assert.doesNotMatch(detail, /versionFromSignedSummary/)
-    assert.match(route, /Unknown Content Store product/)
+    assert.match(route, /Unknown Studio Library product/)
     assert.doesNotMatch(route, /project selection|select a project/i)
   })
 
   test('leaves the proof route through PlainBackLink, which yields Escape to an open dialog', () => {
-    assert.match(route, /<PlainBackLink label="Back to Content Store" fallback="\/content-store" \/>/)
+    assert.match(route, /<PlainBackLink label="Back to Studio Library" fallback="\/library" \/>/)
     assert.doesNotMatch(route, /event\.key === 'Escape'/, 'no page-level Escape handler to fight the purchase dialog')
   })
 
@@ -505,15 +351,13 @@ describe('Content Store proof route contract', () => {
     assert.doesNotMatch(storePage, /<NuxtPage\s+v-if/)
   })
 
-  test('uses truthful cover text and server-published price/status', () => {
+  test('uses truthful cover text and shows no price on the cover', () => {
     assert.match(cover, /product\.presentation\.cover/)
     assert.match(cover, /:alt="coverAlt"/)
-    assert.match(cover, /product\.free \? 'Free'/)
-    assert.match(cover, /product\.creditPrice/)
+    assert.doesNotMatch(cover, /creditPrice|product\.free/)
   })
 
-  test('uses a solid 3px focus outline for the dialog close control and 44px text-link targets', () => {
-    assert.match(purchaseDialog, /\.dialog-close:focus-visible\s*\{\s*outline:\s*3px solid var\(--accent\);\s*outline-offset:\s*2px;\s*box-shadow:\s*none;/)
+  test('uses 44px text-link targets on the library page', () => {
     assert.match(storePage, /<PlainBackLink label="Back to Channels" fallback="\/" \/>/)
     assert.match(readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCard.vue', import.meta.url)), 'utf8'), /\.proof-action\s*\{[^}]*min-height:\s*44px/)
   })

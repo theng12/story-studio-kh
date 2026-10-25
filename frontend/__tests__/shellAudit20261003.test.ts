@@ -46,9 +46,9 @@ test('Server Mode button text has no raw HTML entity inside an interpolation', (
   assert.doesNotMatch(read('../components/ServerModeSettingsPanel.vue'), /\{\{[^}]*&amp;[^}]*\}\}/)
 })
 
-test('the Content Store has its own page guide', () => {
-  assert.equal(featureGuideKeyForPath('/content-store'), 'content-store')
-  assert.equal(featureGuideKeyForPath('/content-store/cprod_a'), 'content-store')
+test('the Studio Library has its own page guide', () => {
+  assert.equal(featureGuideKeyForPath('/library'), 'content-store')
+  assert.equal(featureGuideKeyForPath('/library/cprod_a'), 'content-store')
 })
 
 test('with no key the header says "Gateway · Connect", not the paid service\'s name', () => {

@@ -9,7 +9,7 @@ import { filterCatalogProducts, orderShelfProducts, contentStoreKindLabel } from
 import { _clearContentStoreSessionCacheForTests, contentStoreErrorPresentation, useContentStore } from '../composables/useContentStore.js'
 import type { ContentStoreProduct, ContentStoreShelf, ContentStoreUiError } from '../composables/useContentStore.js'
 
-type SfcName = 'ContentProductCard.vue' | 'ContentProductDetail.vue' | 'ContentStoreShelf.vue' | 'ContentInstalledLibraryView.vue' | '[productId].vue' | 'content-store.vue'
+type SfcName = 'ContentProductCard.vue' | 'ContentProductDetail.vue' | 'ContentStoreShelf.vue' | 'ContentInstalledLibraryView.vue' | '[productId].vue' | 'library.vue'
 
 /** Remove single- and multi-line imports; the compiled component gets explicit support values. */
 function stripImports(code: string): string {
@@ -25,8 +25,8 @@ const sourceByName: Record<SfcName, string> = {
   'ContentProductDetail.vue': '../components/content-store/ContentProductDetail.vue',
   'ContentStoreShelf.vue': '../components/content-store/ContentStoreShelf.vue',
   'ContentInstalledLibraryView.vue': '../components/content-store/ContentInstalledLibraryView.vue',
-  '[productId].vue': '../pages/content-store/[productId].vue',
-  'content-store.vue': '../pages/content-store.vue',
+  '[productId].vue': '../pages/library/[productId].vue',
+  'library.vue': '../pages/library.vue',
 }
 
 async function loadComponent(name: SfcName): Promise<Component> {
@@ -42,18 +42,14 @@ async function loadComponent(name: SfcName): Promise<Component> {
     compilerOptions: { bindingMetadata: script.bindings },
   })
   const vueUrl = await import.meta.resolve('vue')
-  const pageSupport = name === 'content-store.vue' ? `
+  const pageSupport = name === 'library.vue' ? `
     const ContentStoreFilters = { render: () => null }
     const ContentStoreShelf = { render: () => null }
     const ContentLibraryView = { render: () => null }
     const ContentInstalledLibraryView = { render: () => null }
-    const ContentBatchPurchaseDialog = { render: () => null }
     const NuxtPage = { render: () => null }
     const useAppSettingsModal = () => ({ open: () => undefined })
     const useContentInstallQueue = () => ({ statusOf: () => 'idle', enqueue: () => undefined, enqueueAll: () => undefined, clearFinished: () => undefined, running: ref(false), finished: ref(false), batchDone: ref(0), batchTotal: ref(0), batchFailed: ref(0), haltReason: ref(''), activeTitle: ref(''), batchInstalled: ref(0), failures: ref([]) })
-    const useBatchPurchase = () => ({ busy: ref(false), phase: ref('idle'), progress: ref({ done: 0, total: 0 }), items: ref([]), open: ref(false), start: () => undefined, confirmAll: async () => [], dismiss: () => undefined, close: () => undefined, show: () => undefined, retryFailed: () => undefined })
-    const batchSkipReason = () => null
-    const sumPublished = (items, price) => items.every(item => typeof price(item) === 'number') ? items.reduce((total, item) => total + price(item), 0) : null
     const filterCatalogProducts = (items) => items
     const installedPackCount = (items) => items.length
     const orderShelfProducts = (items) => items
@@ -61,7 +57,7 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const contentPackImportErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: '' })
     const contentPackImportUiError = (cause) => ({ status: cause?.status ?? null, code: cause?.data?.code || 'unknown', detail: cause?.data?.detail || cause?.message || '' })
   ` : ''
-  const componentSupport = name === 'content-store.vue' ? '' : `
+  const componentSupport = name === 'library.vue' ? '' : `
     const useContentInstallQueue = () => ({ statusOf: () => 'idle', enqueue: () => undefined, enqueueAll: () => undefined, clearFinished: () => undefined, running: ref(false), finished: ref(false), batchDone: ref(0), batchTotal: ref(0), batchFailed: ref(0), haltReason: ref(''), activeTitle: ref(''), batchInstalled: ref(0), failures: ref([]) })
   `
   const support = `
@@ -69,7 +65,6 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const ContentProductCover = { props: ['product'], render: () => null }
     const ContentProductCard = { props: ['product'], render() { return h('article', { class: 'component-card' }, this.product.title) } }
     const ContentProductDetail = { props: ['product'], render() { return h('article', { class: 'detail-stub' }, this.product.title) } }
-    const ContentPurchaseDialog = { render: () => null }
     const useRoute = () => globalThis.__contentStoreTestRoute
     const useContentStore = () => globalThis.__contentStoreTestStore
     const useAppTitle = () => undefined
@@ -139,15 +134,14 @@ function testStore(overrides: Partial<{
     account: ref(null), products: overrides.products || ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
     catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref(null), cachedProof: ref(null),
     loading: overrides.loading || ref(false), error: overrides.error || ref(null),
-    refresh: overrides.refresh || (async () => {}), requestQuote: async () => { throw new Error('not used') },
-    installRelease: async () => { throw new Error('not used') }, confirmPurchase: async () => { throw new Error('not used') },
+    refresh: overrides.refresh || (async () => {}),
     importPack: async () => { throw new Error('not used') },
     recovery: overrides.recovery || ref(null), recoveryError: overrides.recoveryError || ref(null), refreshRecovery: overrides.refreshRecovery || (async () => {}),
     dismissRecovery: overrides.dismissRecovery || (async () => {}), restoreOwnership: overrides.restoreOwnership || (async () => {}),
   }
 }
 
-describe('Content Store rendered catalog and proof regressions', () => {
+describe('Studio Library rendered catalog and proof regressions', () => {
   test('keeps local recovery failures visible, ignores an old GET after dismissal, and surfaces a new incident', async () => {
     const originalFetch = (globalThis as any).$fetch
     const requests: Array<{ path: string; method?: string }> = []
@@ -208,7 +202,7 @@ describe('Content Store rendered catalog and proof regressions', () => {
   })
 
   test('renders local recovery errors independently of an unavailable Store overview and retains the incident through restore or failed dismissal', async () => {
-    const Store = await loadComponent('content-store.vue')
+    const Store = await loadComponent('library.vue')
     const recovery = ref({ incidentId: 'incident-one', kind: 'invalid_state_reset' as const, detectedAt: '2026-09-20T01:00:00Z' })
     const recoveryError = ref<{ action: 'check' | 'dismiss'; detail: string } | null>(null)
     let recoveryReads = 0
@@ -226,14 +220,14 @@ describe('Content Store rendered catalog and proof regressions', () => {
     const rendered = await mount(Store)
     await Promise.resolve(); await nextTick()
     const notice = rendered.host.querySelector('.store-notice.warning')
-    assert.match(notice?.textContent || '', /Use Restore Purchases to reinstall your purchased packs\./)
+    assert.match(notice?.textContent || '', /Use Re-check my packs to confirm which packs this account owns/)
     assert.match(notice?.textContent || '', /The unreadable index was reset; pack folders were retained\. Reinstall any packs still missing\./)
     assert.match(rendered.host.textContent || '', /Your Content Pack recovery notice could not be read\./)
     assert.equal(recoveryReads, 1)
-    ;([...rendered.host.querySelectorAll('button')].find(button => button.textContent === 'Refresh Store') as HTMLButtonElement).click()
+    ;([...rendered.host.querySelectorAll('button')].find(button => button.textContent === 'Refresh Library') as HTMLButtonElement).click()
     await Promise.resolve(); await nextTick()
     assert.equal(recoveryReads, 2)
-    ;([...rendered.host.querySelectorAll('button')].find(button => button.textContent === 'Restore Purchases') as HTMLButtonElement).click()
+    ;([...rendered.host.querySelectorAll('button')].find(button => button.textContent === 'Re-check my packs') as HTMLButtonElement).click()
     await Promise.resolve(); await nextTick()
     assert.equal(restores, 1)
     assert.equal(recovery.value?.incidentId, 'incident-one')
@@ -299,28 +293,18 @@ describe('Content Store rendered catalog and proof regressions', () => {
     rendered.unmount()
   })
 
-  test('renders signed exact dependency versions and authoritative states without current-version substitution', async () => {
+  test('renders the published bundle components and whether this account already owns each', async () => {
     const Detail = await loadComponent('ContentProductDetail.vue')
     const bundle = product('bundle', 'Bundle')
     bundle.bundleComponents = [
       { productId: 'free-component', entitlementFamily: 'free.family', title: 'Free component', kind: 'topic_pack', componentCreditValue: 0, owned: false },
       { productId: 'owned-component', entitlementFamily: 'owned.family', title: 'Owned component', kind: 'visual_style', componentCreditValue: 400, owned: true },
-      { productId: 'recalled-component', entitlementFamily: 'recalled.family', title: 'Recalled component', kind: 'thumbnail_recipe', componentCreditValue: 0, owned: false },
     ]
-    const currentCatalogComponent = product('component', 'Component')
-    currentCatalogComponent.currentRelease!.version = '9.9.9'
-    const rendered = await mount(Detail, { product: bundle, attempt: {
-      dependencies: [
-        { position: 0, productId: 'free-component', entitlementFamily: 'free.family', releaseId: 'rel_free_123', version: '1.2.3', archiveSha256: 'a'.repeat(64), title: 'Free component', kind: 'topic_pack', states: ['free', 'included'] },
-        { position: 1, productId: 'owned-component', entitlementFamily: 'owned.family', releaseId: 'rel_owned_234', version: '2.3.4', archiveSha256: 'b'.repeat(64), title: 'Owned component', kind: 'visual_style', states: ['owned', 'included', 'installed', 'withdrawn'] },
-        { position: 2, productId: 'recalled-component', entitlementFamily: 'recalled.family', releaseId: 'rel_recalled_345', version: '3.4.5', archiveSha256: 'c'.repeat(64), title: 'Recalled component', kind: 'thumbnail_recipe', states: ['included', 'unavailable', 'recalled'] },
-      ],
-    }, catalogProducts: [bundle, currentCatalogComponent] })
+    const rendered = await mount(Detail, { product: bundle })
     const proof = rendered.host.querySelector('.component-list')?.textContent || ''
-    assert.match(proof, /Free component[\s\S]*1\.2\.3[\s\S]*Free[\s\S]*Included/)
-    assert.match(proof, /Owned component[\s\S]*2\.3\.4[\s\S]*Owned[\s\S]*Included[\s\S]*Installed[\s\S]*Withdrawn/)
-    assert.match(proof, /Recalled component[\s\S]*3\.4\.5[\s\S]*Included[\s\S]*Unavailable[\s\S]*Recalled/)
-    assert.doesNotMatch(proof, /9\.9\.9/)
+    assert.match(proof, /Free component[\s\S]*topic_pack[\s\S]*Included/)
+    assert.match(proof, /Owned component[\s\S]*visual_style[\s\S]*Owned/)
+    assert.doesNotMatch(proof, /exact quote/i)
     rendered.unmount()
   })
 
@@ -329,7 +313,7 @@ describe('Content Store rendered catalog and proof regressions', () => {
     const item = product('proof', 'Proof product')
     item.presentation.hero = { src: 'https://cdn.example.test/proof-hero.webp', alt: 'Published proof hero' }
     item.presentation.licenseText = 'Use in monetized Story Studio videos; redistribution of the source pack is prohibited.'
-    const rendered = await mount(Detail, { product: item, attempt: null })
+    const rendered = await mount(Detail, { product: item })
     const hero = rendered.host.querySelector<HTMLImageElement>('img.detail-hero-media')
     assert.equal(hero?.src, 'https://cdn.example.test/proof-hero.webp')
     assert.equal(hero?.alt, 'Published proof hero')
@@ -349,7 +333,7 @@ describe('Content Store rendered catalog and proof regressions', () => {
     assert.match(loading.host.textContent || '', /Loading product proof…/)
     resolveLoad()
     await Promise.resolve(); await nextTick()
-    assert.match(loading.host.textContent || '', /Unknown Content Store product/)
+    assert.match(loading.host.textContent || '', /Unknown Studio Library product/)
     loading.unmount()
 
     const error = ref<ContentStoreUiError | null>(null)
@@ -359,13 +343,13 @@ describe('Content Store rendered catalog and proof regressions', () => {
     } })
     const failed = await mount(Route)
     await Promise.resolve(); await nextTick()
-    assert.match(failed.host.textContent || '', /Content Store access is needed/)
+    assert.match(failed.host.textContent || '', /Studio Library access is needed/)
     assert.match(failed.host.textContent || '', /content:read scope is required/)
-    assert.doesNotMatch(failed.host.textContent || '', /Unknown Content Store product/)
+    assert.doesNotMatch(failed.host.textContent || '', /Unknown Studio Library product/)
     failed.unmount()
   })
 
-  test('leaves keyboard back navigation to PlainBackLink, falling back to the Store', async () => {
+  test('leaves keyboard back navigation to PlainBackLink, falling back to the Library', async () => {
     const Route = await loadComponent('[productId].vue')
     const products = ref([product('proof', 'Proof product')])
     ;(globalThis as any).__contentStoreTestRoute = { params: { productId: 'proof' } }
@@ -375,7 +359,7 @@ describe('Content Store rendered catalog and proof regressions', () => {
     await Promise.resolve(); await nextTick()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     assert.deepEqual((globalThis as any).__contentStoreNavigations, [], 'the page no longer handles Escape itself')
-    assert.equal(rendered.host.querySelector('.plain-back-link')?.getAttribute('href'), '/content-store')
+    assert.equal(rendered.host.querySelector('.plain-back-link')?.getAttribute('href'), '/library')
     rendered.unmount()
   })
 
@@ -399,7 +383,7 @@ describe('Content Store rendered catalog and proof regressions', () => {
   test('searches the published customer-facing product kind label without shelf data', () => {
     const item = product('kit', 'Night archive', 'niche_bundle')
     assert.deepEqual(
-      filterCatalogProducts([item], 'channel kit', { price: 'all', kind: 'all', compatibleOnly: false }),
+      filterCatalogProducts([item], 'channel kit', { kind: 'all', compatibleOnly: false }),
       [item],
     )
   })

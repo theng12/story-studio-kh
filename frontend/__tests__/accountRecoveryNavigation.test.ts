@@ -19,8 +19,8 @@ test('unconfigured the Gateway and usage failures lead to the connection setting
   assert.match(usage, /GENSTUDIO_USAGE_SCOPE_UNAVAILABLE/)
 })
 
-test('Content Store access errors expose the actual settings recovery', () => {
-  const store = source('../pages/content-store.vue')
+test('Studio Library access errors expose the actual settings recovery', () => {
+  const store = source('../pages/library.vue')
   const presentation = source('../composables/useContentStore.ts')
 
   assert.match(presentation, /settingsAction: boolean/)
@@ -42,7 +42,7 @@ test('dashboard and channel identity offer honest first actions', () => {
   assert.match(banner, /grid-column: 1 \/ -1/)
 })
 
-test('sidebar keeps Store and Settings in its fixed utility footer', () => {
+test('sidebar keeps the Studio Library and Settings in its fixed utility footer', () => {
   const layout = source('../layouts/dashboard.vue')
   const manageStart = layout.indexOf('<span class="nav-section-label">Manage</span>')
   const manageEnd = layout.indexOf('</div>', manageStart)
@@ -51,9 +51,9 @@ test('sidebar keeps Store and Settings in its fixed utility footer', () => {
   const manage = layout.slice(manageStart, manageEnd)
   const footer = layout.slice(footerStart, footerEnd)
 
-  assert.doesNotMatch(manage, />Content Store</)
+  assert.doesNotMatch(manage, />Studio Library</)
   assert.doesNotMatch(manage, />Settings</)
-  assert.match(footer, /to="\/content-store"[^>]*>Content Store</)
+  assert.match(footer, /to="\/library"[^>]*>Studio Library</)
   assert.match(footer, /\/projects\/\$\{slug\}\/settings/)
   assert.match(footer, /v-else type="button"[^>]*appSettingsModal\.open\(\)/)
 })

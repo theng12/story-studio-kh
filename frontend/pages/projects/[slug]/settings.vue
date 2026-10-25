@@ -1010,7 +1010,7 @@
                 </small>
                 <small v-else>
                   Not installed. Get it from the
-                  <NuxtLink to="/content-store">Content Store</NuxtLink>, or keep the style you already use.
+                  <NuxtLink to="/library">Studio Library</NuxtLink>, or keep the style you already use.
                 </small>
               </template>
               <template v-else>
@@ -1078,13 +1078,13 @@
         </p>
         <p v-else-if="!visualStyles.length" class="text-muted text-sm mt-1">
           No Content Pack styles are installed. Add one from the
-          <NuxtLink to="/content-store">Content Store</NuxtLink>.
+          <NuxtLink to="/library">Studio Library</NuxtLink>.
         </p>
         <p v-if="unresolvedArtStyleId" class="text-warning text-sm mt-1">
           This channel is saved against the art style <code>{{ humanizeCatalogId(unresolvedArtStyleId) }}</code>,
           but nothing installed provides it — images are being generated without it. Pick a style
           above, or install the pack that provides it from the
-          <NuxtLink to="/content-store">Content Store</NuxtLink>.
+          <NuxtLink to="/library">Studio Library</NuxtLink>.
         </p>
         <span v-if="artStyleSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ artStyleSaveMessage }}</span>
       </div>
@@ -2073,7 +2073,7 @@ const humanizeCatalogId = (value?: string) => (value || 'Not specified')
  * three honest states, and the card says which one you are in:
  *   - in use            → you already picked it, nothing to do
  *   - installed         → one click applies it
- *   - not installed     → we name it and point at the Content Store
+ *   - not installed     → we name it and point at the Studio Library
  * Before v1.4.64 there was no state at all: saving the Formula silently wrote
  * a style into the project, so the look was decided for you and the picker
  * showed a value you never chose.

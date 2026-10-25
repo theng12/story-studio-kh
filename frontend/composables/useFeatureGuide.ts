@@ -408,15 +408,16 @@ export const featureGuides: Record<string, FeatureGuide> = {
     tips: ['If the page cannot load, check the Gateway app is running, then press Try Again.', 'A balance of 0 only matters for paid cloud work; jobs on your own Macs are free.'],
   },
   'content-store': {
-    title: 'Content Store',
-    summary: 'Browse, buy and install Content Packs — series formulas, styles and other building blocks — that your Gateway keeps for you permanently.',
-    workflow: ['Browse Discover, or select several packs and see their exact quotes together.', 'Confirm once to buy; each pack is charged at most once.', 'Install owned packs from the Owned tab, or Install all missing.'],
+    title: 'Studio Library',
+    summary: 'Everything reusable in one place — visual styles, Series Formulas, topic packs and thumbnail recipes. Browse what your Gateway publishes and install it on this Mac.',
+    workflow: ['Open Discover to see what your Gateway publishes, or Owned for the packs this account already has.', 'Install on this Mac from a pack card, or use Install all missing.', 'Install a .sspack from a file, or from the Gateway archive bank.'],
     topics: [
-      { title: 'Restore purchases', purpose: 'Re-checks which packs your account owns, e.g. on a new Mac. Never charges.' },
+      { title: 'Re-check my packs', purpose: 'Asks the Gateway to confirm again which packs this account owns, e.g. on a new Mac. It never charges anything.' },
       { title: 'Owned', purpose: 'Packs your account owns, installed here or not.' },
+      { title: 'Installed', purpose: 'Signed packs verified and present on this Mac.' },
       { title: 'Updates', purpose: 'Installed packs with a newer release ready to install.' },
     ],
-    tips: ['Buying and installing stay off while the Gateway is not answering; nothing is lost.', 'If a purchase answer does not arrive, Retry re-sends the same purchase — it is never bought twice.'],
+    tips: ['Installing stays off while the Gateway is not answering; nothing is lost, and Install Content Pack from a file still works.', 'A pack you do not own is shown as not owned; ownership is granted by the Gateway, not here.'],
   },
   remote: {
     title: 'Remote Control',
@@ -543,7 +544,7 @@ export function featureGuideKeyForPath(path: string): string {
   if (path === '/login') return 'login'
   if (path === '/remote') return 'remote'
   if (path === '/usage') return 'usage'
-  if (path === '/content-store' || path.startsWith('/content-store/')) return 'content-store'
+  if (path === '/library' || path.startsWith('/library/')) return 'content-store'
   if (path === '/character-library') return 'channel-characters'
   if (path === '/broll-library') return 'assets-library'
   const match = path.match(/^\/projects\/[^/]+(?:\/([^/?#]+))?/)

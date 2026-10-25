@@ -691,6 +691,36 @@ export class MockGenStudioService {
     this.contentPurchaseRecords.set(accountId, records)
   }
 
+  /**
+   * Test-only bridge for a fixture that starts out owning a BUNDLE.
+   *
+   * A bundle claim leaves ONE purchase receipt whose `entitlement_families`
+   * lists the root plus its exact pinned closure, in closure order — the
+   * delivery verifier compares that list byte for byte (see
+   * `verifyContentStoreDeliveryClosureMemberReceipt`). Seeding each product
+   * separately would produce a root-only receipt and fail that check, so this
+   * reproduces the claim as a whole.
+   */
+  seedContentBundleOwnership(accountId: string, rootProductId: string): void {
+    const root = this.contentProducts.find(entry => entry.product_id === rootProductId)
+    if (!root) throw new Error(`Unknown mock Content Store product: ${rootProductId}`)
+    const purchaseId = `cpur_seed_${String((this.contentPurchaseRecords.get(accountId) || []).length + 1)}`
+    this.grantContentProducts(accountId, rootProductId, purchaseId)
+    const entitlementFamilies = [rootProductId, ...(this.contentBundleComponents.get(rootProductId) || [])]
+      .map(id => this.contentProducts.find(candidate => candidate.product_id === id))
+      .map(product => String(product!.entitlement_family))
+    const records = this.contentPurchaseRecords.get(accountId) || []
+    records.push({
+      purchaseId, productId: rootProductId, entitlementFamilies,
+      creditsCharged: 0, issuedAt: '2026-08-14T09:12:44Z',
+      // Held BY REFERENCE, for the same reason as a real purchase record: a
+      // later successor publishes a new object and this stays on the version
+      // the claim actually covered.
+      release: root.current_release as Record<string, unknown>,
+    })
+    this.contentPurchaseRecords.set(accountId, records)
+  }
+
   queueScenario(operation: MockGenStudioOperation, scenario: MockGenStudioScenario): void {
     const queue = this.queuedScenarios.get(operation) || []
     queue.push(normalizeScenario(operation, scenario))

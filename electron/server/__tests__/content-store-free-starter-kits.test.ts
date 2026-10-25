@@ -283,31 +283,15 @@ test('free Starter sources claim and restore; historical Kits install and remain
 
   const local = app()
   const freeStarterProducts = products.filter(product => product.retired !== true)
-  for (const product of freeStarterProducts) {
-    const quote = await request(local).post('/api/content-store/quotes').send({ product_id: product.product_id, release_id: null }).expect(201)
-    assert.equal(quote.body.quoted_credits, 0)
-    const claimed = await request(local).post(`/api/content-store/quotes/${quote.body.quote_id}/purchase`).send({}).expect(200)
-    assert.equal(claimed.body.credits_charged, 0)
-    assert.equal(claimed.body.ownership, 'owned_not_installed')
-  }
+  // Ownership is seeded on the account directly: Story Studio no longer sells
+  // Content Packs, so there is no claim step for a free Starter Kit to run.
+  for (const product of freeStarterProducts) mock.seedContentProductOwnership(ACCOUNT, String(product.product_id))
   assert.equal(mock.totalCreditsCharged, 0)
-  assert.equal(mock.contentPurchaseCharges.length, freeStarterProducts.length)
-  assert.deepEqual(mock.contentPurchaseCharges, Array(freeStarterProducts.length).fill(0))
-  assert.equal(new Set(mock.grantedFamilies).size, mock.grantedFamilies.length)
-  assert.equal(mock.familyGrantCount('com.storystudio.family.style.watercolor-storybook'), 1)
-  assert.equal(mock.familyGrantCount('com.storystudio.family.thumbnail.centered-hero-headline'), 1)
 
-  // Create exact historical purchase receipts while these fixtures are still
-  // publishable, then retire them before any current-product behavior. A
-  // seeded root-only receipt would not match its four exact closure pins.
+  // Create exact historical purchase receipts for the retired kits too. A kit
+  // is a bundle, so its receipt must name the exact pinned closure.
   const historicalKitProducts = legacyKits.map(kit => productsByPackId.get(kit.pack.pack_id)!)
-  for (const product of historicalKitProducts) product.retired = false
-  for (const product of historicalKitProducts) {
-    const quote = await request(local).post('/api/content-store/quotes').send({ product_id: product.product_id, release_id: null }).expect(201)
-    assert.equal(quote.body.quoted_credits, 0)
-    await request(local).post(`/api/content-store/quotes/${quote.body.quote_id}/purchase`).send({}).expect(200)
-  }
-  for (const product of historicalKitProducts) product.retired = true
+  for (const product of historicalKitProducts) mock.seedContentBundleOwnership(ACCOUNT, String(product.product_id))
 
   const owned = await request(local).get('/api/content-store').expect(200)
   assert.ok(owned.body.account.owned.every((entry: { installState: string }) => entry.installState !== 'installed_current'))

@@ -54,5 +54,5 @@ test('the shared queue wires the stop and every surface shows the one message', 
   assert.match(queue, /\}, \(\) => halt\.value !== ''\)/)
   assert.match(read('../components/content-store/ContentLibraryView.vue'), /v-if="haltReason" class="install-all-status">Stopped early\. \{\{ haltReason \}\}/)
   assert.match(read('../components/content-store/ContentInstallStrip.vue'), /stopped early\. \{\{ queue\.haltReason\.value \}\}/)
-  assert.match(read('../pages/content-store.vue'), /stopped early\. \{\{ installQueue\.haltReason\.value \}\}/)
+  assert.match(read('../pages/library.vue'), /stopped early\. \{\{ installQueue\.haltReason\.value \}\}/)
 })

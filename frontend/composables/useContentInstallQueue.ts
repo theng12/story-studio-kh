@@ -3,7 +3,7 @@
  *
  * Owner report 2026-09-12: "i don't know if i can click out after placing
  * order or clicking installation. like it should run in the background
- * right?" The queue used to be created inside the Content Store page, so
+ * right?" The queue used to be created inside the library page, so
  * leaving the page dropped every count and status while the requests kept
  * going somewhere nobody could see. This one lives at module scope: it is the
  * same queue from every page, the global strip reads it, and coming back to
