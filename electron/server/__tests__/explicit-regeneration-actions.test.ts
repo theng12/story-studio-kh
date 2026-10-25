@@ -219,6 +219,13 @@ void test('image and music routes retain one paid provider request per operation
     const stitched = path.join(paths.subtitles_dir, `${episodeId}_stitched.srt`)
     await fs.writeFile(stitched, '1\n00:00:00,000 --> 00:00:02,000\nFixture\n')
     await fs.writeFile(`${stitched}.json`, JSON.stringify({ complete: true, sections: [] }))
+    // This channel keeps Scene Review approval manual. Since 2026-10-25 a channel with no
+    // saved choice auto-approves (owner), which would approve scene-001 and leave the
+    // continuity Retry below nothing to recover.
+    await pm.updateConfig(project.slug, {
+      scene_review_genstudio_presets: [{ id: 'manual', name: 'Manual approval', type: 'scene-review', data: { auto_approve_generated: false } }],
+      'scene_review_genstudio_last_preset_scene-review': 'manual',
+    } as any)
     const sceneAction = '55555555-5555-4555-8555-555555555555'
     const sceneBody = (autoApprove: boolean) => ({
       scene_id: 'scene-001', model: 'mock-image-v1', aspect_ratio: '16:9',

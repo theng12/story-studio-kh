@@ -130,7 +130,7 @@ describe('every inventing mode keeps its own words end to end', () => {
     const body = 'A diplomat on a ship deck at golden hour, Angkor on the horizon.'
     const out = enforceThumbnailPromptElements(body, { aspectRatio: '16:9', title: 'អ្វីដែលទូតចិនបានឃើញ', textStyle: 'none' })
     assert.doesNotMatch(out, /Render the exact/)
-    assert.doesNotMatch(out, /gold/i)
+    assert.doesNotMatch(out, /display text|legible/i, "no lettering instruction of any kind")
     const lettered = enforceThumbnailPromptElements(body, { aspectRatio: '16:9', title: 'អ្វីដែលទូតចិនបានឃើញ', textStyle: 'gold' })
     assert.match(lettered, /Render the exact title/, 'a real treatment still letters the title')
   })
