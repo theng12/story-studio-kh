@@ -15,6 +15,7 @@ import { callAiWithRetry, resolveLivePipelineModel } from '../lib/ai-client.js'
 import { listChatModels } from '../lib/genstudio-client.js'
 import { getApiKey } from './app-secrets-store.js'
 import { coveredTopicsOutputContract } from '../lib/story-output-contracts.js'
+import { getContentLanguage, languageDirective } from '../lib/content-language.js'
 import type { TextOutputContract } from '../lib/json-output-contract.js'
 import * as pm from './project-manager.js'
 
@@ -192,12 +193,14 @@ export async function updateCoveredMap(options: {
     } catch {
       return { map: done.size ? map : null, added: 0, note: `Idea helper model "${options.helperModel}" is not available; covered-topics map not updated` }
     }
+    const directive = languageDirective(await getContentLanguage(options.slug))
     let added = 0
     for (let start = 0; start < pending.length; start += CHUNK) {
       if (options.signal?.aborted) break
       const chunk = pending.slice(start, start + CHUNK)
       const identity = `${options.slug}:covered-topics:${chunk[0]!.id}:${chunk.length}`
       const prompt = helperPrompt(options.channelName, options.description || '', map.entries, chunk)
+        + (directive ? `\n\n${directive}\nWrite new names in the channel language; existing canonical names are merge keys and must be reused unchanged.` : '')
       let add: unknown
       try {
         const call = options.deps?.callModel || ((model, text, id) => callHelperModel(model, text, id, options.slug, coveredTopicsOutputContract(), options.signal))

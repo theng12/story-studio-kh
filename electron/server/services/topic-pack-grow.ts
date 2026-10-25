@@ -14,6 +14,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { existsSync } from 'fs'
 import * as pm from './project-manager.js'
+import { projectContentLanguageDirective } from '../lib/content-language.js'
 import { readIdeaUpgrades, getIdeaUpgrades, normalizeCategories } from './idea-upgrades.js'
 import { resolveCampaignNiche } from '../generators/idea-campaign.js'
 import { callHelperModel, checkHelperModel, readCoveredMap } from './covered-topics.js'
@@ -139,11 +140,12 @@ export async function growTopicPack(slug: string, options: { trigger: 'manual' |
 
   let proposals: Array<{ name: string; why: string }>
   try {
+    const directive = projectContentLanguageDirective(project)
     const prompt = growPrompt({
       channel: project.name || slug,
       formula: `"${niche.name}"${niche.description ? `: ${niche.description}` : ''}`,
       existing, covered, candidates,
-    })
+    }) + (directive ? `\n\n${directive}\nApply this to name and why_it_fits; keep JSON keys unchanged.${candidates.length ? '\nWikipedia candidate names are exact source identifiers: copy name unchanged; write why_it_fits in the channel language.' : ''}` : '')
     const identity = `${slug}:grow-subjects:${Date.now()}`
     const raw = await (deps.callModel || ((model, text, id) => callHelperModel(model, text, id, slug, grownSubjectsOutputContract())))(upgrades.helper_model, prompt, identity)
     proposals = parseSubjects(raw)
@@ -265,6 +267,7 @@ export async function suggestReferenceCategories(slug: string, deps: GrowDeps = 
     throw new GrowError(`Idea helper model "${upgrades.helper_model}" is not available right now.`, 503)
   }
   const packs = (niche.activeTopicPacks || []).map(pack => `- ${pack.name}: ${pack.subjects.slice(0, 12).join(', ')}`).join('\n')
+  // Category names are en.wikipedia.org lookup keys, not generated idea prose; translation breaks fetching.
   const prompt = `Channel "${project.name || slug}", Series Formula "${niche.name}"${niche.description ? `: ${niche.description}` : ''}.
 ${packs ? `Its Topic Packs (with example subjects):\n${packs}\n` : ''}
 Suggest 5 to 12 English Wikipedia category names whose direct member articles are concrete subjects this channel could make whole episodes about (one food, object, place, person or event per article). Prefer specific categories ("Category:Spices", "Category:Ancient Roman roads") over huge general ones. Use real category names exactly as they appear on Wikipedia.

@@ -17,7 +17,8 @@ import assert from 'node:assert/strict'
 import { test, describe } from 'node:test'
 import { __ideaCampaignInternals } from '../generators/idea-campaign.js'
 
-const { campaignPrompt, mentionsSubject } = __ideaCampaignInternals
+const { campaignPrompt, checkSubject } = __ideaCampaignInternals
+const mentionsSubject = (idea: unknown, a: never) => checkSubject(idea, a, null) !== 'drift'
 
 function assignment(subject: string, episodeObject?: string) {
   return { idea_key: 'idea-1', dimensions: { subject, ...(episodeObject ? { 'episode-object': episodeObject } : {}) } } as never
@@ -106,4 +107,17 @@ test('a mixed-profile campaign gives each reserved assignment its own idea role 
   assert.match(expository, /EXPOSITORY PASSAGE GUIDANCE/)
   assert.match(expository, /EXPOSITORY TEACHING CONTEXT/)
   assert.match(expository, /EXPOSITORY TITLE POLICY/)
+})
+
+describe('a channel writing in Khmer', () => {
+  test('a faithful Khmer idea is kept: the English overlap check cannot measure it', () => {
+    const idea = { title: 'ហេតុអ្វីខ្លារខិនលើកសត្វដែលវាចាប់ឡើងដើមឈើ', logline: 'រឿងរបស់ខ្លារខិនមួយក្បាល។' }
+    assert.equal(checkSubject(idea, assignment('big cats', 'a leopard hauling a kill up a tree'), 'km'), 'unmeasurable')
+  })
+  test('an English channel still rejects a drifting idea, and keeps a matching one', () => {
+    const drift = { title: 'The Secret Life of Bees', logline: 'Inside a hive.' }
+    assert.equal(checkSubject(drift, assignment('big cats', 'a leopard hauling a kill up a tree'), 'en'), 'drift')
+    const match = { title: 'The Leopard in the Tree', logline: 'Why it hauls its kill up high.' }
+    assert.equal(checkSubject(match, assignment('big cats', 'a leopard hauling a kill up a tree'), 'en'), 'match')
+  })
 })

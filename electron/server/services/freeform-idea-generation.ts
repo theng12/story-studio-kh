@@ -4,6 +4,7 @@
  * Topic Pack campaigns intentionally keep their structured planner path.
  */
 import { callAiWithRetry, type CallAiContext } from '../lib/ai-client.js'
+import { getContentLanguage, languageDirective } from '../lib/content-language.js'
 import { type Format, type GenerateIdeasRequest } from '../models/types.js'
 import { ideaOutputTokenBudget } from './idea-output-budget.js'
 import type { OutputBudget } from './output-token-budget.js'
@@ -147,6 +148,8 @@ export function buildFreeformIdeaPrompt(
   extraAvoidNote?: string,
   titleTemplate?: string,
   topPerformersBlock: string = '',
+  /** Live channel directive; empty keeps legacy prompt bytes. */
+  languageDirectiveText: string = '',
 ): string {
   const standardsSection = standards
     ? `\nOptional project instructions (use only when consistent with the active Series Formula):\n\n${truncateChars(standards, 2000)}\n`
@@ -170,7 +173,11 @@ export function buildFreeformIdeaPrompt(
   // The format's role line ("You are helping generate new story ideas for a
   // sleep-story narration channel.") flows in here too so the LLM gets the
   // channel context even though this prompt has no system message.
-  const formatGuidance = `${format.idea.systemPromptRole}
+  // The audience-language directive follows the role line and precedes the
+  // format guidance, exactly as the paste prompt places it: the instruction is
+  // read before the recipe examples and format text it outranks. '' adds
+  // nothing, so a channel with no language gets the byte-identical prompt.
+  const formatGuidance = `${format.idea.systemPromptRole}${languageDirectiveText ? `\n\n${languageDirectiveText}\nApply this to every returned text value, including title, logline, each theme, mood and suggested_length. Keep JSON keys and technical identifiers unchanged.` : ''}
 
 ${format.idea.guidanceText}`
 
@@ -398,7 +405,11 @@ export interface GenerateFreeformIdeaBatchInput {
  * similarity filtering, and any durable campaign provenance.
  */
 export async function generateFreeformIdeaBatch(input: GenerateFreeformIdeaBatchInput): Promise<any[]> {
-  const prompt = input.preparePrompt?.() || buildFreeformIdeaPrompt(
+  // A caller that prepared its own prompt already carries the directive (a campaign reads it once
+  // at job start). This fallback is the shared entry's own build, so it reads the channel's live
+  // language here — never a cached copy — and an unset language still adds nothing.
+  const prepared = input.preparePrompt?.()
+  const prompt = prepared || buildFreeformIdeaPrompt(
       input.request,
       input.format,
       input.standards,
@@ -406,6 +417,7 @@ export async function generateFreeformIdeaBatch(input: GenerateFreeformIdeaBatch
       input.extraAvoidNote,
       input.titleTemplate,
       input.topPerformersBlock,
+      languageDirective(await getContentLanguage(input.slug)),
     )
   input.onPrompt?.(prompt)
   const context: CallAiContext = {

@@ -15,6 +15,14 @@ import fs from 'fs/promises'
 const AUDIENCE_IMPORT_FILES = [
   'generators/episode.ts',
   'generators/metadata.ts',
+  // Idea text is audience-facing too: the shared freeform idea prompt and the
+  // campaign generator that owns both of its branches (formula-only freeform and
+  // Topic Pack coverage) must carry the channel's language, or a Khmer channel
+  // gets English ideas — the defect this list is here to keep closed.
+  'generators/idea-campaign.ts',
+  'services/freeform-idea-generation.ts',
+  'services/topic-pack-grow.ts',
+  'services/covered-topics.ts',
   'routes/ideas.ts',
 ]
 
