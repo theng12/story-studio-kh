@@ -318,8 +318,9 @@ export function thumbnailPromptClauseTexts(opts: ThumbnailPromptElements): { rat
   const ratioPhrase = RATIO_DESCRIPTIONS[ratio] || `${ratio} format`
   const ratioClause = `Rendered as a ${ratioPhrase} — this is a YouTube thumbnail (${ratio}).`
   let titleClause = ''
-  // "No text at all" must not get a title clause bolted back on.
-  if (opts.headlineMode !== 'none' && opts.title.trim()) {
+  // "No text at all" must not get a title clause bolted back on — chosen as the
+  // headline or as a text style of 'none' (which resolveTextStyle would turn into gold).
+  if (opts.headlineMode !== 'none' && opts.textStyle !== 'none' && opts.title.trim()) {
     const font = !opts.fontStyle || opts.fontStyle === 'auto'
       ? 'a font chosen to suit the concept'
       : (opts.fontPhrases?.[opts.fontStyle] || resolveFontStyle(opts.fontStyle, opts.fontCustomText))
@@ -611,9 +612,18 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   let thumbnails = [...existingByNumber.values()]
   // An explicit choice on the request is authoritative; otherwise the recipe
   // supplies one below; otherwise the catalogue's default.
-  let headlineMode: string = HEADLINE_MODE_IDS.includes(String(req.thumb_headline_mode))
-    ? String(req.thumb_headline_mode)
-    : DEFAULT_HEADLINE_MODE
+  // A text style of 'none' asks for no lettering. It is not a treatment id, and
+  // resolveTextStyle would quietly turn it into gold display text (Manu, 2026-10-25),
+  // so it decides the headline instead, over any recipe default.
+  const textFree = req.thumb_text_style === 'none'
+  let headlineMode: string = textFree
+    ? 'none'
+    : HEADLINE_MODE_IDS.includes(String(req.thumb_headline_mode))
+      ? String(req.thumb_headline_mode)
+      : DEFAULT_HEADLINE_MODE
+  if (textFree && req.thumb_headline_mode && req.thumb_headline_mode !== 'none') {
+    job.output_lines.push(`Text style "none" asks for no lettering, so the "${req.thumb_headline_mode}" headline was not used.`)
+  }
   // Resolved inside the generation branch (a fully-verified repair run has
   // nothing to write and must not read the pack registry) but declared here
   // because the enforcement pass below runs for every run.
@@ -702,7 +712,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       }
       // The recipe supplies a DEFAULT. It no longer overrules the customer,
       // who may not have chosen at all — in which case this is the choice.
-      if (!req.thumb_headline_mode && recipe?.headlineMode) headlineMode = recipe.headlineMode
+      if (!req.thumb_headline_mode && !textFree && recipe?.headlineMode) headlineMode = recipe.headlineMode
     }
     // A lettering style bought as a Content Pack is NOT in the built-in
     // `FONT_STYLES` / `TEXT_STYLES` maps, so the synchronous builders below can

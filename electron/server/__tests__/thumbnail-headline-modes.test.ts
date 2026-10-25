@@ -125,6 +125,23 @@ describe('every inventing mode keeps its own words end to end', () => {
     assert.doesNotMatch(out, /Render the exact/)
   })
 
+  test('a text style of "none" gets no title clause and no gold lettering (Manu, 2026-10-25)', async () => {
+    const { enforceThumbnailPromptElements } = await import('../generators/image-prompts.js')
+    const body = 'A diplomat on a ship deck at golden hour, Angkor on the horizon.'
+    const out = enforceThumbnailPromptElements(body, { aspectRatio: '16:9', title: 'អ្វីដែលទូតចិនបានឃើញ', textStyle: 'none' })
+    assert.doesNotMatch(out, /Render the exact/)
+    assert.doesNotMatch(out, /gold/i)
+    const lettered = enforceThumbnailPromptElements(body, { aspectRatio: '16:9', title: 'អ្វីដែលទូតចិនបានឃើញ', textStyle: 'gold' })
+    assert.match(lettered, /Render the exact title/, 'a real treatment still letters the title')
+  })
+
+  test('the generator turns text style "none" into the no-text headline, over a recipe default', async () => {
+    const { readFileSync } = await import('node:fs')
+    const src = readFileSync(new URL('../generators/image-prompts.ts', import.meta.url), 'utf8')
+    assert.match(src, /const textFree = req\.thumb_text_style === 'none'\n\s+let headlineMode: string = textFree\n\s+\? 'none'/)
+    assert.match(src, /if \(!req\.thumb_headline_mode && !textFree && recipe\?\.headlineMode\)/)
+  })
+
   test('the authoring brief asks inventing modes for their own words, not the episode title', async () => {
     const { buildThumbnailPrompt } = await import('../generators/image-prompts.js')
     const base = { episodeId: 'EP0001', title: 'Weaving the Starlit Cloud Linen', storyContext: 'x', castBlock: '', count: 3, styleTag: '', aspectRatio: '16:9', thumbnailDirective: '', targetNumbers: [1, 2, 3] }

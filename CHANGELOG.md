@@ -15,6 +15,7 @@ What's new in each release. Newest first.
 - Scripts: edit one chapter's text directly. Only that chapter's narration — and the mix, subtitles and timeline made from it — become out of date; the other chapters are untouched. The old text is kept in Trash, and a save is refused if the chapter changed since you opened it.
 - Subtitles: script-timed subtitles now say plainly that they are the script laid on the narration's timing, not a transcription of the audio.
 - Video Assembly: when remote final rendering is switched off, the log now says the video stays on this Mac and why.
+- Thumbnail prompts: choosing no text style now really means no lettering. It used to fall back to gold title text, so the image came out with the title written on it.
 - Scene Plan refuses a music episode straight away and points to Episode Builder, which makes its pictures and prompts, instead of failing three times on a missing subtitle file.
 
 ## v1.4.356 — 2026-10-25
