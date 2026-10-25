@@ -33,7 +33,6 @@ import {
 } from '../contracts/pacing.js'
 import { normalizeMotionScope } from '../contracts/motion-scope.js'
 import type { ContinuityConfig, ProjectMeta } from '../models/types.js'
-import { truncateChars } from '../lib/well-formed-text.js'
 import { readProjectStartingPacing } from '../services/formula-starting-defaults.js'
 
 export const router = Router()
@@ -179,10 +178,16 @@ export function buildContinuityConfig(
       composition: b.references?.composition === true,
     },
     denoise_strength: Number.isFinite(denoise) ? denoise : 0.5,
-    // v1.0.243 — render-time Style Bible + negative prompt. Trimmed; capped so
-    // a malformed client can't write an unbounded blob into the prompt.
-    style_bible: typeof b.style_bible === 'string' ? truncateChars(b.style_bible.trim(), 2000) : '',
-    negative_prompt: typeof b.negative_prompt === 'string' ? truncateChars(b.negative_prompt.trim(), 1000) : '',
+    // v1.0.243 — render-time Style Bible + negative prompt. Trimmed only.
+    // NO fixed cap here: AGENTS.md §1 (owner 2026-10-25) — a limit must come
+    // from what the selected model publishes, never a Story Studio constant.
+    // The real ceiling is enforced at prompt assembly time via promptBudget()
+    // in generators/scene-plan.ts, which reads the live published
+    // max_prompt_characters and shows it where the choice is made. A save that
+    // exceeds the model's limit is refused LOUDLY at render time (the image
+    // provider names the model's published limit), not silently trimmed here.
+    style_bible: typeof b.style_bible === 'string' ? b.style_bible.trim() : '',
+    negative_prompt: typeof b.negative_prompt === 'string' ? b.negative_prompt.trim() : '',
     updated_at: new Date().toISOString(),
   }
 }
