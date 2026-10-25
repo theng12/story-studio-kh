@@ -720,6 +720,7 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
         paths.audio_dir,
         paths.subtitles_dir,
         req.params.code,
+        paths.script_dir,
       )
       staleSubtitleSections = new Set(freshness.stale_sections.map(section => section.toLowerCase()))
       if (qualityEnabled && scriptDir) {

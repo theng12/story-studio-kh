@@ -168,6 +168,8 @@ export interface EnsureStitchedOptions {
   episodeCode: string
   /** Active chapter audio. Omitted only by legacy/test callers without a source manifest. */
   audioDir?: string
+  /** The episode's resolved Script folder, when the caller knows it (a renamed folder must still be seen). */
+  scriptDir?: string
   /** Re-stitch even when the fingerprint matches — the manual "Re-stitch" button. */
   force?: boolean
 }
@@ -204,7 +206,7 @@ export async function ensureStitchedSubtitle(
   // block anything. An episode that never needed a stitch is never stopped by a
   // number it does not use.
   if (opts.audioDir) {
-    const freshness = await inspectSubtitleSourceFreshness(episodeDir, opts.audioDir, subtitlesDir, code)
+    const freshness = await inspectSubtitleSourceFreshness(episodeDir, opts.audioDir, subtitlesDir, code, opts.scriptDir)
     if (freshness.stale_sections.length) {
       throw new SubtitleStitchBlocked(
         `Video Assembly is blocked: ${code}'s subtitles need updating for ${freshness.stale_sections.join(', ')} because the active audio changed. `

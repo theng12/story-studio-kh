@@ -385,7 +385,7 @@ export async function existingTranscriptIsCurrent(input: {
     input.projectSlug, input.episodeId, 'audio_chapters.json',
   )
   const freshness = await inspectSubtitleSourceFreshness(
-    epaths.episode_dir, epaths.audio_dir, input.outDir, input.code,
+    epaths.episode_dir, epaths.audio_dir, input.outDir, input.code, epaths.script_dir,
   )
   if (freshness.stale_sections.length) {
     return {
@@ -440,13 +440,14 @@ async function stitchAndVerifyTranscript(
       subtitlesDir: outDir,
       mergedAudioDir: epaths.merged_audio_dir,
       audioDir: epaths.audio_dir,
+      scriptDir: epaths.script_dir,
       episodeCode: code,
     })
     if (outcome.status !== 'stitched' && outcome.status !== 'fresh') {
       requireWrittenSubtitleStitch(outcome)
       throw new Error('Unreachable subtitle stitch state')
     }
-    const timeline = await readSubtitleTimelineIntegrity(outDir, code)
+    const timeline = await readSubtitleTimelineIntegrity(outDir, code, { scriptDir: epaths.script_dir })
     if (!timeline.complete) {
       throw new Error(`Subtitle stitch did not verify: ${timeline.missing_sections.join(', ')}. Retry the local subtitle stitch before Scene Plan.`)
     }
@@ -820,6 +821,7 @@ async function transcribePerChapter(
     audioDir,
     outDir,
     code,
+    episodePaths.script_dir,
   )).stale_sections.map(section => section.toLowerCase()))
 
   const { runFfmpeg, formatConcatFileLine } = await import('../lib/ffmpeg-utils.js')

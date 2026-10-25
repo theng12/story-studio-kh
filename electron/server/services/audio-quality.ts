@@ -182,7 +182,7 @@ export async function inspectChapterAudioQuality(input: InspectChapterAudioQuali
   const [chapters, provenance, freshness, completion] = await Promise.all([
     activeChapters(input.episodeDir),
     readAudioQualityProvenance(input.episodeDir),
-    inspectSubtitleSourceFreshness(input.episodeDir, input.audioDir, input.subtitlesDir, code),
+    inspectSubtitleSourceFreshness(input.episodeDir, input.audioDir, input.subtitlesDir, code, input.scriptDir),
     inspectSubtitleCompletion(input.episodeDir, input.subtitlesDir, code, { require_per_section: true }),
   ])
   const stale = new Set(freshness.stale_sections.map(normalizeSlug))

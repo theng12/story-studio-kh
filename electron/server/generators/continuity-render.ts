@@ -320,7 +320,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     throw new Error(`No scene_plan.json at ${planPath}. Run Scene Plan first.`)
   }
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir, scriptDir: paths.script_dir })
   const requestedIds = params.scene_ids?.length
     ? params.scene_ids
     : (params.single_scene_id ? [params.single_scene_id] : undefined)

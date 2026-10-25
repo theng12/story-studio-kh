@@ -106,7 +106,21 @@
               ↻ Retry
             </button>
           </div>
-          <pre v-else-if="previewCache.get(ch.number)" class="chp-preview-content">{{ previewCache.get(ch.number) }}</pre>
+          <template v-else-if="previewCache.has(ch.number)">
+            <template v-if="editingChapter === ch.number">
+              <p class="chp-edit-note">Edit the body only. Saving applies narration normalization and marks this chapter’s audio and its downstream outputs as out of date.</p>
+              <textarea v-model="editText" class="input chp-editor" :aria-label="`Chapter ${ch.number} text`" :disabled="saving" rows="12" />
+              <p v-if="editError" role="alert" class="chp-preview-error">{{ editError }}</p>
+              <div class="chp-edit-actions">
+                <button class="btn btn-sm btn-primary" :disabled="saving || !editText.trim()" @click="saveText(ch.number)">{{ saving ? 'Saving…' : 'Save text' }}</button>
+                <button class="btn btn-sm btn-ghost" :disabled="saving" @click="editingChapter = null">Cancel</button>
+              </div>
+            </template>
+            <template v-else>
+              <button class="btn btn-sm btn-ghost" :disabled="saving || editingChapter !== null || isRegenerating(ch.number)" @click="startEditing(ch.number)">Edit text</button>
+              <pre class="chp-preview-content">{{ previewCache.get(ch.number) }}</pre>
+            </template>
+          </template>
           <div v-else class="chp-preview-status">No content available.</div>
         </div>
       </li>
@@ -139,9 +153,10 @@ const props = defineProps<{
   refreshKey?: number
 }>()
 
-const { get } = useApi()
+const emit = defineEmits<{ saved: [] }>()
+const { get, put } = useApi()
 const { jobs } = useJobs()
-const { error: showError } = useToast()
+const { error: showError, success } = useToast()
 
 const chapters = ref<ChapterRow[]>([])
 const loading = ref(false)
@@ -169,6 +184,47 @@ const expandedChapters = ref<Set<number>>(new Set())
 const previewCache = ref<Map<number, string>>(new Map())
 const previewLoading = ref<Set<number>>(new Set())
 const previewErrors = ref<Map<number, string>>(new Map())
+const previewHashes = ref<Map<number, string>>(new Map())
+const editingChapter = ref<number | null>(null)
+const editText = ref('')
+const editHash = ref('')
+const editError = ref('')
+const saving = ref(false)
+let scopeVersion = 0
+
+async function startEditing(num: number) {
+  const scope = scopeVersion
+  await loadPreview(num, true)
+  if (scope !== scopeVersion || previewErrors.value.has(num) || editingChapter.value !== null) return
+  editingChapter.value = num
+  editText.value = previewCache.value.get(num) || ''
+  editHash.value = previewHashes.value.get(num) || ''
+  editError.value = ''
+}
+
+async function saveText(num: number) {
+  const scope = scopeVersion
+  saving.value = true
+  editError.value = ''
+  try {
+    await put(`/projects/${props.projectSlug}/episodes/${props.episodeId}/chapters/${num}/content`, {
+      text: editText.value, expected_sha256: editHash.value,
+    })
+    if (scope !== scopeVersion) return
+    editingChapter.value = null
+    await loadPreview(num, true)
+    if (scope !== scopeVersion) return
+    await refresh()
+    if (scope !== scopeVersion) return
+    success(`Chapter ${num} saved. Its audio and downstream outputs need refreshing; other chapters were kept.`)
+    emit('saved')
+  } catch (e: any) {
+    if (scope === scopeVersion) editError.value = e?.data?.detail || 'Could not save chapter text. Your draft is kept; cancel and reopen to reload the saved text.'
+  } finally {
+    if (scope === scopeVersion) saving.value = false
+  }
+}
+
 
 const noScriptTooltip = 'Generate the script first to unlock per-chapter regenerate.'
 const staleTooltip = 'This chapter\'s source was changed after the audio was generated. Visit the Audio page and regenerate this section to refresh.'
@@ -193,17 +249,19 @@ async function refresh() {
     return
   }
   loading.value = true
+  const scope = scopeVersion
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
     const data = await get<{ chapters: ChapterRow[] }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/chapter-list${titleParam}`,
     )
-    chapters.value = data.chapters || []
+    if (scope === scopeVersion) chapters.value = data.chapters || []
   } catch (e: any) {
+    if (scope !== scopeVersion) return
     chapters.value = []
     showError(e?.data?.detail || 'Could not load chapters')
   } finally {
-    loading.value = false
+    if (scope === scopeVersion) loading.value = false
   }
 }
 
@@ -213,22 +271,28 @@ async function loadPreview(num: number, force = false): Promise<void> {
   if (!force && previewCache.value.has(num)) return
   previewLoading.value.add(num)
   previewErrors.value.delete(num)
+  const scope = scopeVersion
   try {
     const titleParam = props.title ? `?title=${encodeURIComponent(props.title)}` : ''
-    const data = await get<{ content: string }>(
+    const data = await get<{ content: string; sha256: string }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/chapters/${num}/content${titleParam}`,
     )
-    previewCache.value.set(num, data.content || '(empty chapter)')
+    if (scope !== scopeVersion) return
+    previewHashes.value.set(num, data.sha256)
+    previewCache.value.set(num, data.content)
     // Trigger Vue reactivity for the Map (set() doesn't auto-trigger
     // on reactive Maps in some cases; bump the ref to force it).
     previewCache.value = new Map(previewCache.value)
   } catch (e: any) {
+    if (scope !== scopeVersion) return
     const msg = e?.data?.detail || `Could not load chapter ${num}`
     previewErrors.value.set(num, msg)
     previewErrors.value = new Map(previewErrors.value)
   } finally {
-    previewLoading.value.delete(num)
-    previewLoading.value = new Set(previewLoading.value)
+    if (scope === scopeVersion) {
+      previewLoading.value.delete(num)
+      previewLoading.value = new Set(previewLoading.value)
+    }
   }
 }
 
@@ -249,6 +313,7 @@ function clearPreviewCache() {
   // Keeps the expanded set so the user's chosen "open" rows stay open
   // through a regen — the next render fetches fresh content for each.
   previewCache.value = new Map()
+  previewHashes.value = new Map()
   previewErrors.value = new Map()
   previewLoading.value = new Set()
   // Re-fetch any currently-open chapters so the user sees fresh content
@@ -326,16 +391,25 @@ watch(relevantJobsSignal, () => {
 // 'parentNode')" freeze on the next navigation/render of scripts.vue.
 const lastEpisodeId = ref<string | undefined>(undefined)
 
-watch(() => [props.episodeId, props.title, props.refreshKey], () => {
+watch(() => [props.projectSlug, props.episodeId, props.title, props.refreshKey], () => {
   // Clear per-row word overrides AND collapse + clear preview cache on
   // episode switch — the previous episode's state doesn't apply to the
   // new one. Refresh-key bumps (job-completion ticks) keep wordOverrides
   // since the user is still on the same episode, but DO clear the
   // preview cache (chapter content just changed on disk).
-  if (props.episodeId !== lastEpisodeId.value) {
+  const identity = `${props.projectSlug}/${props.episodeId}`
+  if (identity !== lastEpisodeId.value) {
+    scopeVersion++
+    if (editingChapter.value !== null) showError('Chapter draft cleared because the selected episode changed.')
+    editingChapter.value = null
+    editText.value = ''
+    editHash.value = ''
+    editError.value = ''
+    saving.value = false
+    chapters.value = []
     wordOverrides.value = {}
     expandedChapters.value = new Set()
-    lastEpisodeId.value = props.episodeId
+    lastEpisodeId.value = identity
   }
   clearPreviewCache()
   refresh()
@@ -477,6 +551,9 @@ function relativeTime(iso: string): string {
   max-height: 400px;
   overflow-y: auto;
 }
+.chp-edit-note { color: var(--text-secondary); font-size: 13px; }
+.chp-editor { display: block; width: 100%; box-sizing: border-box; resize: vertical; line-height: 1.7; font-size: 16px; }
+.chp-edit-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .chp-meta {
   min-width: 0;
   display: flex;

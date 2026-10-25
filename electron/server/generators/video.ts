@@ -1617,6 +1617,7 @@ export async function scanEpisodeAssets(
     const { inspectAudioMergeAtPaths } = await import('../services/asset-status.js')
     const verdict = await inspectAudioMergeAtPaths({
       episode_dir: episodeDir, audio_dir: audioDir || path.join(episodeDir, names.audio), merged_audio_dir: mergedAudioDir,
+      script_dir: path.join(episodeDir, names.script),
     }, code)
     result.merged_audio_current = { current: verdict.present, file: verdict.file ?? null, ...(verdict.reason ? { reason: verdict.reason } : {}) }
   }
@@ -1867,7 +1868,7 @@ function isInsideDir(child: string, parent: string): boolean {
  */
 async function stitchEpisodeSubtitles(
   subtitlesDir: string,
-  stitchPaths: { episodeDir: string; mergedAudioDir: string; audioDir: string },
+  stitchPaths: { episodeDir: string; mergedAudioDir: string; audioDir: string; scriptDir?: string },
   episodeId: string,
 ) {
   const { ensureStitchedSubtitle } = await import('../lib/subtitle-autostitch.js')
@@ -1877,6 +1878,7 @@ async function stitchEpisodeSubtitles(
     mergedAudioDir: stitchPaths.mergedAudioDir,
     audioDir: stitchPaths.audioDir,
     episodeCode: episodeId.toUpperCase(),
+    ...(stitchPaths.scriptDir ? { scriptDir: stitchPaths.scriptDir } : {}),
   })
 }
 
@@ -1932,7 +1934,7 @@ export async function resolveEpisodeSubtitleFile(
    * brings the stitched transcript up to date before choosing what to burn.
    * Omitted by the ownership unit tests, which exercise selection alone.
    */
-  stitchPaths?: { episodeDir: string; mergedAudioDir: string; audioDir: string },
+  stitchPaths?: { episodeDir: string; mergedAudioDir: string; audioDir: string; scriptDir?: string },
 ): Promise<void> {
   if (!req.subtitles?.enabled) return
 

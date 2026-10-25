@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import pathMod from 'path'
@@ -1437,18 +1437,129 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
 // + word_count + modified_at, lazy-loaded one chapter at a time so opening
 // the panel doesn't pay for parsing N docx files up front.
 //
-// Read-only by design (per the user's choice in plan review). If we ever
-// want inline editing, add a sibling PUT that round-trips the body back
-// through buildNarrationDocx + assembleUnifiedNarration.
+async function readChapterContent(filePath: string, n: number) {
+  const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+  const sections = await parseNarrationDocx(filePath)
+  const content = (sections[0]?.text || '').trim()
+  return {
+    number: n,
+    title: sections[0]?.title || `Chapter ${String(n).padStart(2, '0')}`,
+    content,
+    sha256: createHash('sha256').update(content).digest('hex'),
+    word_count: content.split(/\s+/).filter(Boolean).length,
+    character_count: content.length,
+    modified_at: (await fs.stat(filePath)).mtime.toISOString(),
+  }
+}
+
+// Body-only replacement: heading identity stays on disk, and CAS covers exactly
+// the prose returned by GET (not the Markdown/legacy Word container).
+router.put('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content', async (req, res) => {
+  const { slug, episodeId, chapterNumber } = req.params
+  const n = Number(chapterNumber)
+  if (!Number.isSafeInteger(n) || n < 1) {
+    return res.status(400).json({ detail: `Invalid chapter number: ${chapterNumber}` })
+  }
+  const { text, expected_sha256 } = req.body || {}
+  if (typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ detail: 'Provide the chapter body as non-empty `text`.' })
+  }
+  if (typeof expected_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(expected_sha256)) {
+    return res.status(400).json({ detail: 'Provide `expected_sha256` from the chapter content GET response.' })
+  }
+  if (/^\s*#{1,2}\s/m.test(text)
+    || /^\s*(?:Chapter|Reason|Topic|Section|Part|Lesson|Bit|Beat)\s+\d+\s*[:\-–—]/im.test(text)
+    || /^\s*\*\*(?:[IVXLCDM]+\.?|[^\n]*narration[^\n]*)\*\*\s*$/im.test(text)) {
+    return res.status(400).json({ detail: 'Edit the chapter body only. Keep its heading, number, and title unchanged.' })
+  }
+  try {
+    const project = await pm.getProject(slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const title = await resolveEpisodeTitleByCode(slug, episodeId)
+    if (!title) return res.status(404).json({ detail: 'Episode not found' })
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, title)
+    const result = await withLock(paths.narration_docx, async () => {
+      const { selectNarrationSections } = await import('../services/tts-request-plan.js')
+      const section = { slug: `Chapter_${String(n).padStart(2, '0')}`, label: `Chapter ${String(n).padStart(2, '0')}`, text: '' }
+      if (['introduction-only', 'chapter-only', 'expand_chapters', 'outline_only'].some(type => jq.isDuplicate(slug, episodeId, type))) {
+        return { status: 409, body: { detail: 'A queued, running, or paused script job owns this episode. Finish or cancel it before editing chapter text.' } }
+      }
+      if (jq.isDuplicate(slug, episodeId, 'audio', params =>
+        selectNarrationSections([section], String(params.sections || 'all')).length > 0)
+        || jq.isDuplicate(slug, episodeId, 'audio_merge')) {
+        return { status: 409, body: { detail: `Audio for Chapter ${n} is queued, running, or paused. Finish or cancel the audio job before editing its text.` } }
+      }
+      const { chapterFilePath, writeChapterFiles, assembleUnifiedNarration } = await import('../lib/narration-assembly.js')
+      const target = chapterFilePath(paths.script_dir, episodeId, n)
+      const file = resolveReadPath(target)
+      if (!existsSync(file)) return { status: 404, body: { detail: `Chapter ${n} is not on disk yet. Expand it from the outline panel first.` } }
+      const revision = `sha256:${createHash('sha256').update(await fs.readFile(file)).digest('hex')}` as const
+      const current = await readChapterContent(file, n)
+      if (current.sha256 !== expected_sha256) {
+        return { status: 409, body: { detail: 'This chapter changed since you opened it. Reload its text, then apply your edit again.' } }
+      }
+      const { narrationDocxToMarkdown } = await import('../lib/docx-parser.js')
+      const markdown = /\.md$/i.test(file) ? await fs.readFile(file, 'utf8') : await narrationDocxToMarkdown(file)
+      const headings = markdown.split('\n').filter(line => /^\s*#{1,2}\s/.test(line))
+      const heading = headings[0]
+      const match = heading?.match(/^##\s+(?:Chapter|Reason|Topic|Section|Part|Lesson|Bit|Beat)\s+(\d+)\s*[:\-–—]\s*(.+)$/i)
+      if (headings.length !== 1 || !match || Number(match[1]) !== n) {
+        return { status: 409, body: { detail: `Chapter ${n} has an invalid heading. Restore its original heading before editing its text.` } }
+      }
+      if (text.trim() === current.content) {
+        const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+        const combined = existsSync(resolveReadPath(paths.narration_docx))
+          ? await parseNarrationDocx(resolveReadPath(paths.narration_docx)) : []
+        // A retry after a failed assembly must repair the derivative before succeeding.
+        if (combined.find(value => value.slug === section.slug)?.text !== current.content) {
+          await assembleUnifiedNarration(paths.script_dir, episodeId, title)
+          const repaired = await parseNarrationDocx(paths.narration_docx)
+          if (repaired.find(value => value.slug === section.slug)?.text !== current.content) {
+            throw new Error('Combined narration could not be repaired. The chapter was kept; reload and retry.')
+          }
+          const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+          episodeStatusCache.invalidate(slug, episodeId)
+        }
+        return { status: 200, body: { ok: true, chapter: current } }
+      }
+      const projectDir = pm.getProjectDir(slug)!
+      const archiveFiles = [target, target.replace(/\.md$/, '.docx'),
+        paths.narration_docx, paths.narration_docx.replace(/\.md$/, '.docx')]
+      await writeChapterFiles(paths.script_dir, episodeId, title, {
+        chapters: [{ number: n, title: current.title, heading, text: text.trim() }],
+      }, { manualPromotion: { expectedRevision: revision, sourcePath: file, ownerActionId: randomUUID(), projectDir, projectSlug: slug, archiveFiles } })
+      await assembleUnifiedNarration(paths.script_dir, episodeId, title)
+      const saved = await readChapterContent(target, n)
+      const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+      const combined = await parseNarrationDocx(paths.narration_docx)
+      if (!saved.content || combined.find(value => value.slug === section.slug)?.text !== saved.content) {
+        throw new Error('Chapter text was saved but combined narration could not be verified. Reload and retry; the previous files are preserved in Trash.')
+      }
+      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+      episodeStatusCache.invalidate(slug, episodeId)
+      const { writeTextEditMarker } = await import('../lib/narration-source-freshness.js')
+      await writeTextEditMarker(paths.script_dir, episodeId, section.slug, createHash('sha256').update(text.trim()).digest('hex'))
+      return { status: 200, body: { ok: true, chapter: saved } }
+    })
+    return res.status(result.status).json(result.body)
+  } catch (e: any) {
+    if (e?.code === 'SCRIPT_REVISION_CONFLICT') {
+      return res.status(409).json({ detail: 'This chapter changed while saving. Reload its text, then apply your edit again.' })
+    }
+    return res.status(500).json(humanizeBackendError(e, `Could not save chapter ${n}`))
+  }
+})
 router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content', async (req, res) => {
   const { slug, episodeId, chapterNumber } = req.params
-  const titleQuery = (req.query.title as string) || ''
   const n = Number(chapterNumber)
-  if (!Number.isFinite(n) || n < 1) {
+  if (!Number.isSafeInteger(n) || n < 1) {
     return res.status(400).json({ detail: `Invalid chapter number: ${chapterNumber}` })
   }
   try {
-    const paths = await resolveEpisodePathsForRead(slug, episodeId, titleQuery)
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const title = await resolveEpisodeTitleByCode(slug, episodeId)
+    if (!title) return res.status(404).json({ detail: 'Episode not found' })
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, title)
     // v1.0.249 — resolve the chapter file in either format: new `.md` first,
     // legacy `.docx` fallback. Previously this only looked for `.md`, so the
     // inline preview 404'd on whichever format the episode didn't have.
@@ -1459,33 +1570,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content'
       })
     }
 
-    const stat = await fs.stat(filePath)
-    const modifiedAt = stat.mtime.toISOString()
-
-    // Single mammoth parse: parseNarrationDocx exposes the descriptive
-    // title on the section now, so we don't need a second convertToHtml
-    // round-trip just to recover the heading. The section label
-    // ("Chapter NN") gets stripped for the body — the user wants the
-    // narrative prose, not the header line.
-    const { parseNarrationDocx } = await import('../lib/docx-parser.js')
-    const sections = await parseNarrationDocx(filePath)
-    const body = (sections[0]?.text || '').trim()
-    const wordCount = body.split(/\s+/).filter(Boolean).length
-    let title = `Chapter ${String(n).padStart(2, '0')}`
-    if (sections[0]?.title) title = sections[0].title
-    // Character count drives per-chapter TTS billing previews — TTS
-    // providers charge per-character, not per-word, so this is the
-    // closer-to-truth volume signal for cost estimation.
-    const characterCount = body.length
-
-    res.json({
-      number: n,
-      title,
-      content: body,
-      word_count: wordCount,
-      character_count: characterCount,
-      modified_at: modifiedAt,
-    })
+    res.json(await readChapterContent(filePath, n))
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, `Could not load chapter ${n}`))
   }

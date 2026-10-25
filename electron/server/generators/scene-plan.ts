@@ -1048,7 +1048,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // scene_plan.json, which is built from these cues.
   // 1.4.300 — before the transcript is read, so the corrected transcript follows a re-stitch.
   await restitchIfBroken(job, {
-    subtitlesDir: paths.subtitles_dir, episodeDir: paths.episode_dir, audioDir: paths.audio_dir, mergedAudioDir: paths.merged_audio_dir,
+    subtitlesDir: paths.subtitles_dir, episodeDir: paths.episode_dir, audioDir: paths.audio_dir, mergedAudioDir: paths.merged_audio_dir, scriptDir: paths.script_dir,
   }, episode_id)
   const transcript = await resolveTranscriptSrt({
     subtitles_dir: paths.subtitles_dir,
@@ -1230,7 +1230,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // prompts are durable adaptive Hub packs keyed by stable scene IDs, with direct generation as
   // a connection-only fallback. This branch is intentionally before all legacy
   // re-plan modes so those remain available for repairing old plans.
-  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir }, job)
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir, scriptDir: paths.script_dir }, job)
   if (requestedStage || !isSingleSceneRepair) {
     const pipelineAutoVisual = requestedStage == null && !isSingleSceneRepair
     // Ordinary Pipeline continuation owns the missing prompts, not permission
@@ -1283,6 +1283,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episode_id, {
         max_cue_gap_sec: allowedSubtitleCueGapSec(),
         cue_source_path: stitchedSrt,
+        scriptDir: paths.script_dir,
       })
       const suspiciousGap = subtitleIntegrity.blocking_cue_gaps?.[0]
       if (suspiciousGap && !await captionGapCarriesOn(job, subtitleIntegrity.blocking_cue_gaps!)) {
@@ -1425,7 +1426,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         if (continueExistingPlan) {
           const cues = parseSrt(await fs.readFile(stitchedSrt, 'utf-8'))
           const integrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episode_id, {
-            max_cue_gap_sec: allowedSubtitleCueGapSec(), cue_source_path: stitchedSrt,
+            max_cue_gap_sec: allowedSubtitleCueGapSec(), cue_source_path: stitchedSrt, scriptDir: paths.script_dir,
           })
           if (integrity.missing_sections.length || !cues.length
             || !await captionGapCarriesOn(job, integrity.blocking_cue_gaps || [])) {

@@ -235,6 +235,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/stitch-subtitles', async (req
       subtitlesDir: paths.subtitles_dir,
       mergedAudioDir: paths.merged_audio_dir,
       audioDir: paths.audio_dir,
+      scriptDir: paths.script_dir,
       episodeCode: episodeId.toUpperCase(),
       force: true,
     })
@@ -1131,6 +1132,7 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
       ? await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId, {
         max_cue_gap_sec: allowedSubtitleCueGapSec(),
         cue_source_path: transcript.path,
+        scriptDir: paths.script_dir,
       }).then(integrity => ({
         ...integrity,
         caption_gap_mode: captionGapMode,

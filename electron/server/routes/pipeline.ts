@@ -2310,7 +2310,7 @@ async function pipelineSubtitleRepairComplete(slug: string, episodeId: string): 
     episodeId,
   )
   if (!readiness.expected_sections.length || readiness.affected_sections.length) return false
-  return (await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId)).complete
+  return (await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId, { scriptDir: paths.script_dir })).complete
 }
 
 /**
