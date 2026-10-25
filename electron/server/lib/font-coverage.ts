@@ -170,7 +170,6 @@ export async function coveredScripts(file: string): Promise<string[]> {
     else if (code >= 0x0400 && code <= 0x04FF) scripts.add('cyrl')
     else if (code >= 0x0370 && code <= 0x03FF) scripts.add('grek')
     else if (code >= 0x0590 && code <= 0x05FF) scripts.add('hebr')
-    else if (code >= 0x0E00 && code <= 0x0E7F) scripts.add('thai')
     else if ((code >= 0x41 && code <= 0x5A) || (code >= 0x61 && code <= 0x7A) || (code >= 0xC0 && code <= 0x24F)) scripts.add('latn')
   }
   return [...scripts].sort()

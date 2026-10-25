@@ -231,7 +231,7 @@ const liveTextStyle = computed<CSSProperties>(() => {
 .tte-fields select, .tte-preview-column select { width: 100%; min-width: 0; }
 .tte-check { display: flex; align-items: center; gap: 6px; font-size: var(--font-sm); }
 .tte-anchor-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }
-.tte-anchor-grid .btn { min-width: 0; white-space: normal; padding: 6px 3px; font-size: 10px; }
+.tte-anchor-grid .btn { min-width: 0; white-space: normal; padding: 6px 3px; font-size: var(--font-xs); }
 .tte-variants { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px; }
 .tte-variant { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding: 12px 0; }
 .tte-variant > div { min-width: 0; overflow-wrap: anywhere; }
