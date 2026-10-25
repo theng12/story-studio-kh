@@ -169,13 +169,11 @@ function customerSearchText(
 export function filterCatalogProducts(
   products: readonly ContentStoreProduct[],
   query: string,
-  options: { price: 'all' | 'free' | 'paid'; kind: ContentStoreKindFilter; compatibleOnly: boolean; tag?: string },
+  options: { kind: ContentStoreKindFilter; compatibleOnly: boolean; tag?: string },
   presentations?: CatalogPresentationFixture['products'],
 ): ContentStoreProduct[] {
   const normalizedQuery = query.trim().toLocaleLowerCase()
   return products.filter(product => {
-    if (options.price === 'free' && !product.free) return false
-    if (options.price === 'paid' && product.free) return false
     if (options.kind !== 'all' && product.kind !== options.kind) return false
     if (options.compatibleOnly && !product.compatible) return false
     if (options.tag && !(presentations?.[product.productId]?.tags || []).includes(options.tag)) return false

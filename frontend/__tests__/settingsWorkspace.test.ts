@@ -220,12 +220,12 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /id: 'models'/)
     assert.equal(LEGACY_SETTINGS_HASHES.models, 'connections')
     // Owner 2026-10-03: the connection is his Gateway, not the paid GenStudio cloud service, and the
-    // permission-scope list is jargon he cannot act on. The key test still reports the Content Store.
+    // permission-scope list is jargon he cannot act on. The key test still reports the Studio Library.
     assert.match(thisMacSettingsSource, /<h4>Gateway<\/h4>/)
     assert.match(thisMacSettingsSource, /Your GatewayKH on this Mac or network — it runs your free local models/)
     assert.match(thisMacSettingsSource, /Copy it from Gateway → Settings → Gateway API Key/)
     assert.match(thisMacSettingsSource, /connections: 'Gateway connection'/)
-    assert.match(thisMacSettingsSource, /Content Store: \{\{/)
+    assert.match(thisMacSettingsSource, /Studio Library: \{\{/)
     assert.doesNotMatch(thisMacSettingsSource, /<code>content:purchase<\/code>|Required scopes|GenStudio API key<\/label>/)
     assert.doesNotMatch(thisMacSettingsSource, /Sole AI boundary|Test scopes/)
     assert.doesNotMatch(thisMacSettingsSource, /one scoped key|Scoped API key|Scoped Gateway API Key saved/i)

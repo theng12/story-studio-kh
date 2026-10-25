@@ -1,7 +1,6 @@
 <template>
-  <article class="content-product-card" :data-owned="ownershipResolved ? product.owned : undefined" :data-compatible="product.compatible" :data-selected="selected || undefined" :data-queue-status="queueStatus === 'idle' ? undefined : queueStatus" :aria-busy="installBusy ? 'true' : undefined">
-    <label v-if="selectable" class="select-row"><input type="checkbox" :checked="selected" @change="$emit('toggle-select', product)" /><span>{{ selected ? 'Selected' : 'Select' }}</span></label>
-    <NuxtLink :to="`/content-store/${product.productId}`" class="product-proof-link" :aria-label="`View proof for ${product.title}`">
+  <article class="content-product-card" :data-owned="ownershipResolved ? product.owned : undefined" :data-compatible="product.compatible" :data-queue-status="queueStatus === 'idle' ? undefined : queueStatus" :aria-busy="installBusy ? 'true' : undefined">
+    <NuxtLink :to="`/library/${product.productId}`" class="product-proof-link" :aria-label="`View proof for ${product.title}`">
       <ContentProductCover :product="product" />
       <div class="product-copy">
         <div class="product-title-row"><h3>{{ product.title }}</h3><span class="status-tag">{{ status }}</span></div>
@@ -14,14 +13,13 @@
     <p v-else-if="!product.compatible" class="compatibility-message" role="status"><strong>Not compatible with this Story Studio version.</strong>{{ product.compatibilityReason }}</p>
     <p v-else-if="product.owned" class="ownership-status">{{ ownedStatus }}</p>
     <p v-else-if="product.retired" class="ownership-status">No longer available for new ownership.</p>
-    <p v-else class="ownership-status">GenStudio supplies the exact quote before any purchase.</p>
+    <p v-else class="ownership-status">Not owned by this Gateway account.</p>
     <section v-if="ownership?.recalledReleaseVersions.length" class="recall-message" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><p>The Gateway stopped serving those versions. Ownership remains permanent.</p><p v-if="ownership.currentRelease">The newest safe owned release is {{ ownership.currentRelease.version }}.</p></section>
     <section v-if="ownership?.installState === 'incomplete'" class="closure-message" role="status"><strong>Installed files are incomplete</strong><p v-if="ownership.missingDependencies.length">{{ closureSummary }}</p><p v-else>Story Studio could not verify the installed pack. Install the published release explicitly to repair it.</p></section>
 
     <div class="product-action">
-      <NuxtLink :to="`/content-store/${product.productId}`" class="proof-action">View proof</NuxtLink>
-      <button v-if="ownershipResolved && !product.owned && !product.retired && product.compatible && product.currentRelease" type="button" class="btn btn-primary" :disabled="networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting Quote…' : product.free ? 'Get Free' : 'See Exact Quote' }}</button>
-      <button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="installDisabled" :aria-busy="installBusy ? 'true' : undefined" @click="$emit('install', product.currentRelease!.releaseId)">{{ installLabel }}</button>
+      <NuxtLink :to="`/library/${product.productId}`" class="proof-action">View proof</NuxtLink>
+      <button v-if="canInstall" type="button" class="btn btn-primary" :disabled="installDisabled" :aria-busy="installBusy ? 'true' : undefined" @click="$emit('install', product.currentRelease!.releaseId)">{{ installLabel }}</button>
       <span v-else-if="queueStatus === 'installed'" class="queue-note">Installed just now</span>
     </div>
   </article>
@@ -37,15 +35,15 @@ type OwnedContent = ContentStoreAccount['owned'][number]
 /**
  * `ownershipResolved: false` means the catalogue came off this Mac and
  * GenStudio has not answered yet. Everything the card would say about this
- * account — owned, installed, compatible, buyable — is unknown, not false, so
- * the card says it is checking and offers no action. Defaults to true because
+ * account — owned, installed, compatible — is unknown, not false, so the card
+ * says it is checking and offers no action. Defaults to true because
  * every other caller renders a verified overview.
  */
 const props = withDefaults(
-  defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; networkUnavailable?: boolean; ownershipResolved?: boolean; queueStatus?: InstallQueueStatus; selectable?: boolean; selected?: boolean }>(),
-  { ownershipResolved: true, queueStatus: 'idle', selectable: false, selected: false },
+  defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; networkUnavailable?: boolean; ownershipResolved?: boolean; queueStatus?: InstallQueueStatus }>(),
+  { ownershipResolved: true, queueStatus: 'idle' },
 )
-defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string]; 'toggle-select': [product: ContentStoreProduct] }>()
+defineEmits<{ install: [releaseId: string] }>()
 
 /**
  * A queued install is ACCEPTED, not refused. Before the queue existed a second
@@ -73,7 +71,7 @@ const status = computed(() => {
   if (props.queueStatus === 'failed') return 'Install failed'
   if (props.queueStatus === 'installed') return 'Installed'
   if (!props.product.compatible) return 'Not compatible'
-  if (!props.product.owned) return props.product.free ? 'Free to claim' : 'Available'
+  if (!props.product.owned) return 'Not owned'
   if (props.ownership?.installState === 'installed_current') return 'Installed'
   if (props.ownership?.installState === 'update_available') return 'Update available'
   if (props.ownership?.installState === 'incomplete') return 'Incomplete'
@@ -81,7 +79,7 @@ const status = computed(() => {
 })
 const ownedStatus = computed(() => {
   if (!props.ownership) return 'Owned in GenStudio.'
-  if (props.ownership.receiptVerification !== 'verified') return 'Owned in GenStudio · restore purchases to verify on this Mac.'
+  if (props.ownership.receiptVerification !== 'verified') return 'Owned in GenStudio · re-check my packs to verify on this Mac.'
   if (props.ownership.installState === 'installed_current') return 'Verified ownership · installed on this Mac.'
   if (props.ownership.installState === 'update_available') return `Installed ${props.ownership.installedVersion || 'version'} · newer owned release available.`
   if (props.ownership.installState === 'installed_other_version') return `Verified ownership · ${props.ownership.installedVersion || 'another version'} is active.`
@@ -116,9 +114,6 @@ const canInstall = computed(() => {
  */
 .content-product-card { display: flex; flex-direction: column; min-width: 0; gap: 13px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
 .content-product-card[data-owned='true'] { border-color: color-mix(in srgb, var(--success) 44%, var(--border)); }
-.content-product-card[data-selected] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.select-row { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; color: var(--text-secondary); cursor: pointer; font-size: var(--font-sm); font-weight: 650; }
-.select-row input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
 .queue-note { margin-left: auto; color: var(--success); font-size: var(--font-sm); font-weight: 650; }
 /* Same reason as the card itself: as a grid this stretched the cover to
    whatever height the copy left over, which is why no two covers were the
@@ -127,7 +122,7 @@ const canInstall = computed(() => {
 .product-proof-link:hover h3 { color: var(--accent); }
 .product-copy { display: grid; min-width: 0; gap: 6px; }
 .product-title-row { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
-/* Two lines maximum keeps the title row — and so the "Available" tag beside
+/* Two lines maximum keeps the title row — and so the status tag beside
    it — the same height on every card. Longer titles do exist. */
 h3 { display: -webkit-box; min-width: 0; overflow: hidden; overflow-wrap: anywhere; font-size: var(--font-xl); letter-spacing: -.02em; line-height: 1.2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .status-tag { flex: 0 0 auto; max-width: 48%; padding: 3px 7px; border: 1px solid var(--border-light); border-radius: 999px; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.25; text-align: right; }
@@ -145,7 +140,7 @@ h3 { display: -webkit-box; min-width: 0; overflow: hidden; overflow-wrap: anywhe
 /*
  * The slack goes ABOVE the status line, not below it. Titles run to one or two
  * lines and promises to two or three, so without this the last line of the card
- * ("GenStudio supplies the exact quote…") sat at three different heights across
+ * ("Not owned by this Gateway account.") sat at three different heights across
  * a row. Taking the auto margin here instead of on `.product-action` pins the
  * status line and the action row together at the bottom, and puts the variation
  * in one deliberate gap after the description. The status branch in the

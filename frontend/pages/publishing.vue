@@ -295,7 +295,7 @@ load()
 
 const generatedAt = computed(() => (overview.value ? formatInstant(overview.value.generated_at) : ''))
 
-// ---- Accessible Coverage/Calendar tabs (the Content Store's roving-tabindex pattern)
+// ---- Accessible Coverage/Calendar tabs (the Studio Library's roving-tabindex pattern)
 type PublishingTab = 'coverage' | 'calendar'
 
 const tabs: Array<{ id: PublishingTab; label: string }> = [

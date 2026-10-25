@@ -129,7 +129,7 @@ describe('Gateway archive shelf', () => {
 
   test('the Store page shows the archive shelf, compatibility and visible failures outside account state', () => {
     const page = readFileSync(
-      fileURLToPath(new URL('../pages/content-store.vue', import.meta.url)),
+      fileURLToPath(new URL('../pages/library.vue', import.meta.url)),
       'utf8',
     )
     assert.match(page, /Gateway archives/)
@@ -139,7 +139,7 @@ describe('Gateway archive shelf', () => {
     assert.match(page, /:disabled="!!gatewayArchiveBusyDigest"/)
     assert.match(page, /gatewayCompatibilityLabel/)
     assert.match(page, /gatewayArchivesError/)
-    assert.match(page, /No Content Store account, purchase or shelf setup is required/)
+    assert.match(page, /Nothing needs to be on a shelf first\./)
     // The shelf itself must not be rendered behind the account/ownership gates
     // used by Gateway Store products.
     assert.doesNotMatch(page, /v-if="account"[^>]*>\s*<section class="gateway-archives"/)

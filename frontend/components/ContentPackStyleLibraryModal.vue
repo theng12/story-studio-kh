@@ -179,8 +179,8 @@
 
         <div v-if="!styles.length" class="slm-empty">
           <strong>No Content Pack styles installed</strong>
-          <span>Install a Visual Style from the Content Store to add it here.</span>
-          <NuxtLink to="/content-store" class="btn btn-secondary btn-sm">Open Content Store</NuxtLink>
+          <span>Install a Visual Style from the Studio Library to add it here.</span>
+          <NuxtLink to="/library" class="btn btn-secondary btn-sm">Open Studio Library</NuxtLink>
         </div>
 
         <div v-else-if="!filteredStyles.length" class="slm-empty">

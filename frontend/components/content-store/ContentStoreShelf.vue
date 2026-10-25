@@ -2,7 +2,7 @@
   <section class="content-store-shelf" :aria-labelledby="`shelf-${shelf.id}`">
     <header><h2 :id="`shelf-${shelf.id}`">{{ shelf.title }}</h2><span>{{ products.length }} {{ products.length === 1 ? 'product' : 'products' }}</span></header>
     <div class="shelf-grid">
-      <ContentProductCard v-for="product in products" :key="product.productId" :product="product" :ownership="ownershipFor(product.entitlementFamily)" :busy="busyProductId === product.productId || busyReleaseId === product.currentRelease?.releaseId" :network-unavailable="networkUnavailable" :ownership-resolved="ownershipResolved" :selectable="selectable" :selected="selectedProductIds.includes(product.productId)" :queue-status="queueStatusFor(product)" @quote="$emit('quote', $event)" @install="$emit('install', $event)" @toggle-select="$emit('toggle-select', $event)" />
+      <ContentProductCard v-for="product in products" :key="product.productId" :product="product" :ownership="ownershipFor(product.entitlementFamily)" :busy="busyProductId === product.productId || busyReleaseId === product.currentRelease?.releaseId" :network-unavailable="networkUnavailable" :ownership-resolved="ownershipResolved" :queue-status="queueStatusFor(product)" @install="$emit('install', $event)" />
     </div>
   </section>
 </template>
@@ -13,10 +13,10 @@ import type { ContentStoreAccount, ContentStoreProduct, ContentStoreShelf } from
 import type { InstallQueueStatus } from '~/composables/useInstallQueue'
 
 const props = withDefaults(
-  defineProps<{ shelf: ContentStoreShelf; products: readonly ContentStoreProduct[]; account: ContentStoreAccount | null; busyProductId: string; busyReleaseId: string; networkUnavailable?: boolean; ownershipResolved?: boolean; selectable?: boolean; selectedProductIds?: readonly string[]; queueStatus?: (releaseId: string) => InstallQueueStatus }>(),
-  { ownershipResolved: true, selectable: false, selectedProductIds: () => [] },
+  defineProps<{ shelf: ContentStoreShelf; products: readonly ContentStoreProduct[]; account: ContentStoreAccount | null; busyProductId: string; busyReleaseId: string; networkUnavailable?: boolean; ownershipResolved?: boolean; queueStatus?: (releaseId: string) => InstallQueueStatus }>(),
+  { ownershipResolved: true },
 )
-defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string]; 'toggle-select': [product: ContentStoreProduct] }>()
+defineEmits<{ install: [releaseId: string] }>()
 function ownershipFor(entitlementFamily: string) { return props.account?.owned.find(item => item.entitlementFamily === entitlementFamily) || null }
 function queueStatusFor(product: ContentStoreProduct): InstallQueueStatus { const releaseId = product.currentRelease?.releaseId; return releaseId && props.queueStatus ? props.queueStatus(releaseId) : 'idle' }
 </script>

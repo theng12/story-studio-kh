@@ -13,10 +13,10 @@ test('the dashboard footer sends credits and billing to the Usage page, not to "
   assert.doesNotMatch(page, /billing live in GenStudio/)
 })
 
-test('Content Store account wording names the Gateway', () => {
+test('Studio Library account wording names the Gateway', () => {
   for (const file of [
-    '../pages/content-store.vue',
-    '../pages/content-store/[productId].vue',
+    '../pages/library.vue',
+    '../pages/library/[productId].vue',
     '../components/content-store/ContentInstalledLibraryView.vue',
     '../composables/useFeatureGuide.ts',
   ]) {
@@ -24,7 +24,7 @@ test('Content Store account wording names the Gateway', () => {
   }
 })
 
-test('Content Store asks for the Gateway API Key, not a "GenStudio API key"', () => {
+test('Studio Library asks for the Gateway API Key, not a "GenStudio API key"', () => {
   for (const rel of ['../../electron/server/services/content-store.ts', '../../electron/server/services/content-store-delivery.ts']) {
     const src = readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
     assert.doesNotMatch(src, /'Save a GenStudio API key/)

@@ -28,8 +28,8 @@ describe('GenStudio-only project onboarding', () => {
     assert.doesNotMatch(source, /app-settings\/api-keys|test-key|connectivity\/precheck/)
   })
 
-  test('links to the account-scoped Content Store instead of embedding commerce in onboarding', () => {
-    assert.match(source, /to="\/content-store"/)
+  test('links to the Studio Library instead of embedding a shop in onboarding', () => {
+    assert.match(source, /to="\/library"/)
     assert.doesNotMatch(source, /content-store\/quotes|purchase/i)
   })
 })

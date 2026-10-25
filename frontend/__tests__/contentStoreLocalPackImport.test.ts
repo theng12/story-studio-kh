@@ -115,7 +115,7 @@ describe('local Content Pack import', () => {
 
   test('the Store page exposes the local action without a Gateway freshness gate', () => {
     const page = readFileSync(
-      fileURLToPath(new URL('../pages/content-store.vue', import.meta.url)),
+      fileURLToPath(new URL('../pages/library.vue', import.meta.url)),
       'utf8',
     )
     assert.match(page, /Install Content Pack/)

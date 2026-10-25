@@ -74,16 +74,13 @@ test('pickers and previews use <Modal> too', () => {
   assert.match(modalTag('components/FileBrowserModal.vue', 'picker.isOpen'), /:z-index="2100"/)
 })
 
-test('Content Store goes back through PlainBackLink and leaves Escape to its dialogs', () => {
-  const store = read('pages/content-store.vue')
-  const product = read('pages/content-store/[productId].vue')
+test('Studio Library goes back through PlainBackLink and leaves Escape alone', () => {
+  const store = read('pages/library.vue')
+  const product = read('pages/library/[productId].vue')
   assert.match(store, /<PlainBackLink label="Back to Channels" fallback="\/" \/>/)
-  assert.equal(product.match(/<PlainBackLink label="Back to Content Store" fallback="\/content-store" \/>/g)?.length, 2)
+  assert.equal(product.match(/<PlainBackLink label="Back to Studio Library" fallback="\/library" \/>/g)?.length, 2)
   for (const page of [store, product]) {
     assert.doesNotMatch(page, /<NuxtLink[^>]*>Back to/)
     assert.doesNotMatch(page, /'Escape'/)
-  }
-  for (const dialog of ['ContentPurchaseDialog.vue', 'ContentBatchPurchaseDialog.vue']) {
-    assert.match(read(`components/content-store/${dialog}`), /<Modal[\s\S]*?@close="requestClose"/)
   }
 })

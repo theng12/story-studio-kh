@@ -1563,47 +1563,6 @@ export async function listGenStudioContentStoreShelves(
   })
 }
 
-export async function quoteGenStudioContentProduct(
-  apiKey: string,
-  request: { product_id: string; release_id: string | null },
-): Promise<GenStudioContentQuote> {
-  assertApiKey(apiKey)
-  if (typeof request.product_id !== 'string' || request.product_id.length === 0) throw new TypeError('product_id is required')
-  if (request.release_id !== null && (typeof request.release_id !== 'string' || request.release_id.length === 0)) {
-    throw new TypeError('release_id must be a non-empty string or null')
-  }
-  return requestOnce({
-    method: 'POST', path: '/v1/content/quotes', apiKey, timeoutMs: 8_000,
-    body: JSON.stringify({ product_id: request.product_id, release_id: request.release_id }),
-    parse: parseContentStoreQuote,
-  })
-}
-
-export async function purchaseGenStudioContentProduct(
-  apiKey: string,
-  request: { quoteCanonicalJson: string; quoteSignature: string; idempotencyKey: string },
-): Promise<GenStudioContentPurchase> {
-  assertApiKey(apiKey)
-  if (typeof request.idempotencyKey !== 'string' || request.idempotencyKey.length < 8 || request.idempotencyKey.length > 128) {
-    throw new TypeError('Content Store purchase idempotency key must contain 8 to 128 characters')
-  }
-  if (typeof request.quoteSignature !== 'string' || request.quoteSignature.length === 0) throw new TypeError('quote signature is required')
-  let canonicalQuote: CanonicalJsonObject
-  try { canonicalQuote = canonicalizeContentStoreJson(request.quoteCanonicalJson) } catch (error) {
-    throw new TypeError('Saved Content Store quote JSON is invalid', { cause: error })
-  }
-  if (canonicalQuote.canonicalJson !== request.quoteCanonicalJson) {
-    throw new TypeError('Saved Content Store quote JSON is not canonical')
-  }
-  return requestOnce({
-    method: 'POST', path: '/v1/content/purchases', apiKey, timeoutMs: 30_000,
-    idempotencyKey: request.idempotencyKey,
-    body: `{"quote":${request.quoteCanonicalJson},"quote_signature":${JSON.stringify(request.quoteSignature)}}`,
-    purchase: true,
-    parse: parseContentStorePurchase,
-  })
-}
-
 export async function issueGenStudioContentDownload(
   apiKey: string,
   target: { releaseId: string } | { entitlementFamily: string; version: string },

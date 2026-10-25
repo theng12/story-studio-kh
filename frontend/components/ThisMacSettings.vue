@@ -82,7 +82,7 @@
         <p v-else-if="!savedKey?.hasKey" class="masked">No key saved.</p>
         <p v-if="result" :class="['result', result.kind]">{{ result.message }}</p>
         <p v-if="result?.contentStore" class="masked">
-          Content Store: {{ result.contentStore.readScope === 'verified' ? 'can browse and buy packs' : result.contentStore.readScope === 'not_connected' ? 'not connected on this Gateway (generation is unaffected)' : 'not confirmed' }}.
+          Studio Library: {{ result.contentStore.readScope === 'verified' ? 'can browse and install packs' : result.contentStore.readScope === 'not_connected' ? 'not connected on this Gateway (generation is unaffected)' : 'not confirmed' }}.
         </p>
       </div>
     </section>

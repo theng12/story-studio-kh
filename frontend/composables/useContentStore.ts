@@ -224,10 +224,10 @@ interface ContentStoreOverview {
   shelves: ContentStoreShelf[]
   attempts: PublicContentPurchaseAttempt[]
   capabilities: {
-    purchase: true
+    purchase: false
     receipt_verification: true
     download: true
-    install_after_purchase: true
+    install_after_purchase: false
     restore: true
   }
 }
@@ -370,10 +370,10 @@ export interface ContentPackRecoveryError {
  *                 the last verified catalogue stays up and is labelled stale.
  * - `'unavailable'` — there is nothing trustworthy to show.
  *
- * Only `'fresh'` enables commerce; `networkActionsDisabled` on the Store page
- * is `catalogFreshness !== 'fresh'`, so `'restored'` disables Gateway purchase,
- * Gateway install and Restore purchases without needing a flag of its own. The
- * local file install is deliberately outside that gate.
+ * Only `'fresh'` enables Gateway actions; `networkActionsDisabled` on the
+ * Library page is `catalogFreshness !== 'fresh'`, so `'restored'` disables
+ * Gateway download, install and the ownership re-check without needing a flag
+ * of its own. The local file install is deliberately outside that gate.
  */
 export type ContentStoreCatalogFreshness = 'fresh' | 'restored' | 'cached' | 'unavailable'
 
@@ -386,11 +386,11 @@ export type ContentStoreCatalogFreshness = 'fresh' | 'restored' | 'cached' | 'un
  * whether re-opening the Store is allowed to look calm while that fetch runs.
  *
  * Five minutes is chosen against what actually changes underneath: ownership
- * and install state only move through this app's own purchase, install and
- * restore paths, and each of those forces its own visible refetch. What can
- * move without Story Studio knowing is the published catalogue and the credit
- * balance, and neither is worth a loading state a customer sees on every
- * visit. Past five minutes we stop being quiet: the fetch is identical, but
+ * and install state only move through this app's own install and ownership
+ * re-check paths, and each of those forces its own visible refetch. What can
+ * move without Story Studio knowing is the published catalogue, and that is
+ * not worth a loading state a customer sees on every visit. Past five minutes
+ * we stop being quiet: the fetch is identical, but
  * the page says it is refreshing, because figures from an unbounded time ago
  * should not be presented as if nobody were re-checking them.
  */
@@ -416,27 +416,27 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
   switch (error.code) {
     case 'GATEWAY_UNREACHABLE': return failure('The Gateway is not answering', 'Open the Gateway app, then press Refresh store. Nothing was bought or changed.', true)
     case 'CONTENT_STORE_KEY_REQUIRED':
-    case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Content Store access is needed', 'Open Settings and test the Content Store scope, then refresh.', true)
+    case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Studio Library access is needed', 'Open Settings and test the Studio Library scope, then refresh.', true)
     case 'CONTENT_STORE_KEYCHAIN_UNAVAILABLE': return failure('This Mac\u2019s Keychain is not available', 'Sign in to macOS and unlock the Keychain, restart Story Studio, then try again.')
-    case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Content Store access is needed', 'GenStudio did not publish the signing key needed to verify this Content Store proof. Refresh later.')
-    case 'CONTENT_PRODUCT_NOT_AVAILABLE': return failure('This product is not available', 'Refresh the Store to see currently published products.')
-    case 'CONTENT_PRODUCT_ALREADY_OWNED': return failure('Already owned in GenStudio', 'Restore purchases to verify ownership on this Mac.')
+    case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Studio Library access is needed', 'GenStudio did not publish the signing key needed to verify this ownership proof. Refresh later.')
+    case 'CONTENT_PRODUCT_NOT_AVAILABLE': return failure('This product is not available', 'Refresh the Library to see currently published products.')
+    case 'CONTENT_PRODUCT_ALREADY_OWNED': return failure('Already owned in GenStudio', 'Re-check my packs to verify ownership on this Mac.')
     case 'CONTENT_PRODUCT_RETIRED': return failure('This product is retired', 'Choose a currently published product instead.')
     case 'CONTENT_PRODUCT_INCOMPATIBLE':
     case 'incompatible_story_version': return failure('A newer Story Studio version is needed', 'Update Story Studio before requesting this release.')
-    case 'CONTENT_RELEASE_NOT_AVAILABLE': return failure('This release is not available', 'Refresh the Store and choose a published release.')
+    case 'CONTENT_RELEASE_NOT_AVAILABLE': return failure('This release is not available', 'Refresh the Library and choose a published release.')
     case 'CONTENT_STORE_QUOTE_NOT_FOUND': return failure('This quote is no longer available', 'Close it and request a new exact quote.')
     case 'CONTENT_PURCHASE_NOT_SENT': return failure('This purchase was not sent', 'Request or retry the saved exact quote when GenStudio is available.')
     case 'insufficient_credits': return failure('More credits are needed', 'Add credits, then request a new exact quote.')
     case 'quote_expired':
     case 'quote_rejected': return failure('This quote can no longer be used', 'Close it and request a new exact quote.')
     case 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN': return failure('GenStudio’s answer is uncertain', 'Retry this exact purchase; Story Studio will reuse its saved attempt.')
-    case 'signing_unavailable': return failure('The Content Store is not open yet', 'Try again after GenStudio can sign Content Store evidence.')
+    case 'signing_unavailable': return failure('The Studio Library is not open yet', 'Try again after GenStudio can sign ownership evidence.')
     case 'CONTENT_STORE_ACCOUNT_MISMATCH':
     case 'CONTENT_PURCHASE_ACCOUNT_MISMATCH':
     case 'CONTENT_PACK_OWNED_RELEASE_MISMATCH':
     case 'CONTENT_PACK_NOT_OWNED':
-    case 'not_entitled': return failure('Ownership could not be confirmed', 'Restore purchases to verify the active Gateway account.')
+    case 'not_entitled': return failure('Ownership could not be confirmed', 'Re-check my packs to verify the active Gateway account.')
     case 'download_grant_expired': return failure('The download authorization expired', 'Request the owned release again to receive a new authorization.')
     case 'archive_limit_exceeded':
     case 'CONTENT_PACK_TOO_LARGE_FOR_THIS_APP': return failure('This archive is too large to install safely', 'Choose another published release or contact the publisher.')
@@ -463,14 +463,14 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_PACK_STAGING_FAILED':
     case 'CONTENT_PACK_ACTIVATION_FAILED': return failure('This Mac could not prepare the install', 'Check available disk space, then install the owned release again.')
     case 'CONTENT_STORE_REQUEST_INVALID':
-    case 'CONTENT_STORE_REQUEST_TOO_LARGE': return failure('This Content Store request is invalid', 'Refresh the Store and try the action again.')
-    case 'CONTENT_STORE_UPSTREAM_REFUSED': return failure('GenStudio could not complete this request', 'Refresh the Store before trying again.')
+    case 'CONTENT_STORE_REQUEST_TOO_LARGE': return failure('This Studio Library request is invalid', 'Refresh the Library and try the action again.')
+    case 'CONTENT_STORE_UPSTREAM_REFUSED': return failure('GenStudio could not complete this request', 'Refresh the Library before trying again.')
     // The limit lives in the installed build, so refreshing cannot clear it --
     // only a version with a larger bound can. On 2026-08-25 this fell to the
     // default below and told the owner his whole Store was "unavailable" while
     // every count sat at zero, which is a day of guessing instead of a sentence.
-    case 'CONTENT_STORE_PAYLOAD_TOO_LARGE': return failure('The Content Store sent more than this version can read', 'Update Story Studio; refreshing will not clear this.')
-    default: return failure('The Content Store is unavailable', 'Refresh the Store before trying again.')
+    case 'CONTENT_STORE_PAYLOAD_TOO_LARGE': return failure('The Studio Library sent more than this version can read', 'Update Story Studio; refreshing will not clear this.')
+    default: return failure('The Studio Library is unavailable', 'Refresh the Library before trying again.')
   }
 }
 
@@ -691,8 +691,6 @@ export function useContentStore(): {
   refresh: (options?: { background?: boolean }) => Promise<void>
   refreshRecovery: () => Promise<void>
   dismissRecovery: (incidentId: string) => Promise<void>
-  requestQuote: (productId: string, releaseId?: string | null) => Promise<PublicContentPurchaseAttempt>
-  confirmPurchase: (quoteId: string, options?: { refreshOverview?: boolean }) => Promise<PublicContentPurchaseAttempt>
   restoreOwnership: () => Promise<void>
   installRelease: (releaseId: string, options?: { refreshOverview?: boolean; onProgress?: (operation: ContentStoreInstallOperation) => void }) => Promise<{ pack_id: string; version: string; activated: boolean }>
   importPack: (archive: ArrayBuffer) => Promise<LocalContentPackInstall>
@@ -735,40 +733,6 @@ export function useContentStore(): {
     })
   }
 
-  function replaceAttempt(attempt: PublicContentPurchaseAttempt): void {
-    const index = sharedAttempts.value.findIndex(row => row.quote_id === attempt.quote_id)
-    if (index === -1) sharedAttempts.value = [attempt, ...sharedAttempts.value]
-    else sharedAttempts.value.splice(index, 1, attempt)
-  }
-
-  function applyFailedAttempt(quoteId: string, cause: any): void {
-    const data = cause?.data || cause?.response?._data || {}
-    if (data.attempt && typeof data.attempt === 'object') {
-      const current = sharedAttempts.value.find(row => row.quote_id === quoteId)
-      replaceAttempt({ ...current, ...data.attempt } as PublicContentPurchaseAttempt)
-      return
-    }
-    const current = sharedAttempts.value.find(row => row.quote_id === quoteId)
-    if (!current) return
-    const status = data.status
-    if (!['quoted', 'submitting', 'uncertain', 'refused', 'completed'].includes(status)) return
-    replaceAttempt({
-      ...current,
-      status,
-      ...(status === 'uncertain' ? { uncertain_detail: data.detail } : {}),
-      ...(status === 'refused' && typeof data.code === 'string' ? {
-        refusal: {
-          status: Number(cause?.status || cause?.response?.status || 0),
-          code: data.code,
-          detail: data.detail || 'GenStudio declined this purchase.',
-          ...(Number.isInteger(data.required_credits) ? { required_credits: data.required_credits } : {}),
-          ...(Number.isInteger(data.available_credits) ? { available_credits: data.available_credits } : {}),
-          ...(Number.isInteger(data.shortfall_credits) ? { shortfall_credits: data.shortfall_credits } : {}),
-        },
-      } : {}),
-    })
-  }
-
   /**
    * Read the overview from GenStudio. Always a real fetch, never a cache read.
    *
@@ -807,65 +771,11 @@ export function useContentStore(): {
           sharedAttempts.value = []
         }
         sharedCatalogFreshness.value = hasVerifiedOverview ? 'cached' : hasRestoredCatalog ? 'restored' : 'unavailable'
-        if (!silent) error.value = uiError(cause, 'The Content Store could not be loaded.')
+        if (!silent) error.value = uiError(cause, 'The Studio Library could not be loaded.')
       }
       throw cause
     } finally {
       if (!silent) loading.value = false
-    }
-  }
-
-  async function requestQuote(productId: string, releaseId: string | null = null): Promise<PublicContentPurchaseAttempt> {
-    error.value = null
-    try {
-      const attempt = await post<PublicContentPurchaseAttempt>('/content-store/quotes', {
-        product_id: productId,
-        release_id: releaseId,
-      })
-      replaceAttempt(attempt)
-      return attempt
-    } catch (cause: any) {
-      error.value = uiError(cause, 'GenStudio could not create an exact quote.')
-      throw cause
-    }
-  }
-
-  async function confirmPurchase(
-    quoteId: string,
-    options: { refreshOverview?: boolean } = {},
-  ): Promise<PublicContentPurchaseAttempt> {
-    const wantsOverview = options.refreshOverview !== false
-    const generation = wantsOverview ? beginOverviewRequest() : sharedOverviewGeneration
-    error.value = null
-    try {
-      const attempt = await post<PublicContentPurchaseAttempt>(
-        `/content-store/quotes/${encodeURIComponent(quoteId)}/purchase`,
-        {},
-      )
-      replaceAttempt(attempt)
-      if (attempt.status === 'completed' && typeof attempt.balance_after === 'number' && sharedAccount.value) {
-        sharedAccount.value = { ...sharedAccount.value, contentSpendableCredits: attempt.balance_after }
-      }
-      // A batch settles many quotes and re-reads the overview once at the end
-      // rather than after every pack (each read is several GenStudio calls).
-      if (attempt.status === 'completed' && wantsOverview) {
-        void (async () => {
-          try {
-            const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
-            if (generation === sharedOverviewGeneration) {
-              applyOverview(overview, generation)
-              if (!overview.attempts.some(row => row.quote_id === attempt.quote_id)) sharedAttempts.value = [attempt, ...overview.attempts]
-            }
-          } catch {
-            // Ownership is already durable. A read-side refresh must not turn success into failure.
-          }
-        })()
-      }
-      return attempt
-    } catch (cause: any) {
-      applyFailedAttempt(quoteId, cause)
-      error.value = uiError(cause, 'GenStudio could not finish this purchase.')
-      throw cause
     }
   }
 
@@ -1028,8 +938,6 @@ export function useContentStore(): {
     refresh,
     refreshRecovery,
     dismissRecovery,
-    requestQuote,
-    confirmPurchase,
     restoreOwnership,
     installRelease,
     importPack,

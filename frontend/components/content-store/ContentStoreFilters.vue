@@ -1,14 +1,8 @@
 <template>
-  <form class="store-filters" aria-label="Filter Content Store catalog" @submit.prevent>
+  <form class="store-filters" aria-label="Filter Studio Library catalog" @submit.prevent>
     <label>
       <span>Search</span>
       <input :value="query" type="search" placeholder="Search titles, promises, and tags" @input="$emit('update:query', ($event.target as HTMLInputElement).value)" />
-    </label>
-    <label>
-      <span>Price</span>
-      <select :value="price" @change="$emit('update:price', ($event.target as HTMLSelectElement).value as PriceFilter)">
-        <option value="all">All prices</option><option value="free">Free</option><option value="paid">Credits</option>
-      </select>
     </label>
     <label>
       <span>Type</span>
@@ -32,9 +26,8 @@ import { computed } from 'vue'
 import type { ContentStoreProduct, ContentStoreProductKind } from '~/composables/useContentStore'
 import type { ContentStoreKindFilter } from '~/content-store/catalog-presentation'
 
-export type PriceFilter = 'all' | 'free' | 'paid'
-const props = defineProps<{ products: readonly ContentStoreProduct[]; query: string; price: PriceFilter; kind: ContentStoreKindFilter; tag: string; compatibleOnly: boolean }>()
-defineEmits<{ 'update:query': [value: string]; 'update:price': [value: PriceFilter]; 'update:kind': [value: ContentStoreKindFilter]; 'update:tag': [value: string]; 'update:compatibleOnly': [value: boolean] }>()
+const props = defineProps<{ products: readonly ContentStoreProduct[]; query: string; kind: ContentStoreKindFilter; tag: string; compatibleOnly: boolean }>()
+defineEmits<{ 'update:query': [value: string]; 'update:kind': [value: ContentStoreKindFilter]; 'update:tag': [value: string]; 'update:compatibleOnly': [value: boolean] }>()
 const labels: Record<ContentStoreProductKind, string> = { series_formula: 'Series Formula', topic_pack: 'Topic Pack', visual_style: 'Visual Style', thumbnail_recipe: 'Thumbnail Recipe', font_pack: 'Font Pack', metadata_formula: 'Metadata Formula', niche_bundle: 'Channel Kit' }
 const kinds = computed(() => [...new Set(props.products.map(product => product.kind))].map(id => ({ id, label: labels[id] })))
 const tags = computed(() => [...new Set(props.products.flatMap(product => product.presentation.tags))].sort((a, b) => a.localeCompare(b)))

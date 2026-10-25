@@ -43,13 +43,9 @@
             :ownership="ownershipFor(product.entitlementFamily)"
             :busy="busyProductId === product.productId || busyReleaseId === product.currentRelease?.releaseId"
             :queue-status="queueStatusFor(product)"
-            :selected="selectedProductIds.includes(product.productId)"
-            :selectable="selectable"
             :network-unavailable="networkUnavailable"
             :ownership-resolved="ownershipResolved"
-            @quote="$emit('quote', $event)"
             @install="$emit('install', $event)"
-            @toggle-select="$emit('toggle-select', $event)"
           />
         </div>
       </section>
@@ -86,18 +82,14 @@ const props = withDefaults(defineProps<{
   networkUnavailable?: boolean
   ownershipResolved?: boolean
   showInstallAll?: boolean
-  selectable?: boolean
-  selectedProductIds?: readonly string[]
   queueStatus?: (releaseId: string) => InstallQueueStatus
   /** Why the install queue stopped early (a failure every pack would share), or ''. */
   haltReason?: string
-}>(), { ownershipResolved: true, showInstallAll: false, selectable: false, selectedProductIds: () => [] })
+}>(), { ownershipResolved: true, showInstallAll: false })
 
 const emit = defineEmits<{
-  quote: [product: ContentStoreProduct]
   install: [releaseId: string]
   'install-many': [releaseIds: string[]]
-  'toggle-select': [product: ContentStoreProduct]
 }>()
 
 const installFilter = ref<InstallStateFilter>('all')
