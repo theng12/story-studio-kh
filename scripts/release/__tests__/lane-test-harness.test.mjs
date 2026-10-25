@@ -19,6 +19,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { retainSandbox } from '../../testing/run-backend-tests.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const WRAPPER = path.join(ROOT, 'scripts', 'testing', 'run-lane-tests.mjs')
@@ -27,11 +28,15 @@ const WRAPPER = path.join(ROOT, 'scripts', 'testing', 'run-lane-tests.mjs')
  * Env for a runner spawned from INSIDE a test file. Node refuses to recurse
  * ("skipping running files") when it sees its own marker, and an outer run's
  * NODE_OPTIONS are not this run's.
+ *
+ * Nested runners establish their own sandbox; never preload against the outer one.
  */
 function nestedRunnerEnv() {
   const env = { ...process.env }
   delete env.NODE_TEST_CONTEXT
   delete env.NODE_OPTIONS
+  delete env.STORY_STUDIO_TEST_HARNESS_ROOT
+  delete env.STORY_STUDIO_RETAINED_SNAPSHOT_ROOT
   return env
 }
 
@@ -43,7 +48,20 @@ function nestedRunnerEnv() {
  * code are observed the way the gate observes them — the banner and the status
  * are the two things under test, and neither is visible from a direct call.
  */
-async function runFixtureLane(dir, env = {}) {
+const POLL_MS = 20
+const DEADLINE_MS = 20_000
+
+async function waitFor(condition, label) {
+  const deadline = Date.now() + DEADLINE_MS
+  for (;;) {
+    const value = await condition()
+    if (value) return value
+    assert.ok(Date.now() < deadline, `timed out waiting for ${label}`)
+    await new Promise(resolve => setTimeout(resolve, POLL_MS))
+  }
+}
+
+async function runFixtureLane(dir, env = {}, duringRun) {
   const source = `
     import { runLane } from ${JSON.stringify(WRAPPER)}
     process.exitCode = await runLane('fixture', {
@@ -58,15 +76,32 @@ async function runFixtureLane(dir, env = {}) {
     cwd: ROOT,
     env: { ...nestedRunnerEnv(), ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   })
   let out = ''
+  let closed = false
+  let childError
+  const completion = new Promise(resolve => {
+    child.once('error', error => { childError = error })
+    child.once('close', code => { closed = true; resolve(code ?? 1) })
+  })
   child.stdout.setEncoding('utf8').on('data', chunk => { out += chunk })
   child.stderr.setEncoding('utf8').on('data', chunk => { out += chunk })
-  const exitCode = await new Promise((resolve, reject) => {
-    child.once('error', reject)
-    child.once('exit', code => resolve(code ?? 1))
-  })
-  return { exitCode, out }
+  try {
+    if (duringRun) await duringRun({ output: () => out, closed: () => closed })
+    await waitFor(() => closed, `fixture lane completion; output:\n${out}`)
+    const exitCode = await completion
+    if (childError) throw childError
+    return { exitCode, out }
+  } finally {
+    if (!closed) {
+      if (process.platform !== 'win32' && child.pid) {
+        try { process.kill(-child.pid, 'SIGKILL') } catch (error) {
+          if (error?.code !== 'ESRCH') throw error
+        }
+      } else child.kill('SIGKILL')
+    }
+  }
 }
 
 /**
@@ -98,7 +133,7 @@ test('a whole lane reports one completed file per discovered file', async () => 
     assert.match(out, /3 test\(s\) \+ 2 suite\(s\) = 5 marks/)
     assert.doesNotMatch(out, /BELOW FLOOR/, 'a healthy lane must not fire the banner')
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await retainSandbox(dir, undefined, 'lane-contract')
   }
 })
 
@@ -127,7 +162,7 @@ test('a file that dies mid-run fails the lane, however green node reports it', a
     assert.match(out, /✗ truncated\.test\.mjs/, 'the vanished file must be named')
     assert.match(out, /A file that never finished cannot have passed/)
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await retainSandbox(dir, undefined, 'lane-contract')
   }
 })
 
@@ -140,7 +175,7 @@ test('a lane that discovers nothing is a failure, never an empty pass', async ()
     assert.match(out, /discovered no \.test\.mjs files/)
     assert.match(out, /Nothing ran, so this is a failure/)
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await retainSandbox(dir, undefined, 'lane-contract')
   }
 })
 
@@ -193,7 +228,9 @@ test('the lane keeps its retained evidence in the override root, not the shared 
   // retained sandbox kept there is at the mercy of that shared directory.
   // The lane's evidence must land where the operator named instead. The
   // fixture is retained, not cleaned up.
-  const override = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'lane-retained-root-')))
+  // Use a path explicitly outside the repo, not os.tmpdir() which may resolve
+  // inside the worktree on some platforms.
+  const override = await fs.realpath(await fs.mkdtemp(path.join(path.resolve(ROOT, '..'), 'lane-retained-root-')))
   const dir = await fixtureDir('lane-retained-override-')
   await fs.writeFile(path.join(dir, 'alpha.test.mjs'),
     'import { test } from "node:test"\ntest("alpha", () => {})\n')
@@ -203,11 +240,89 @@ test('the lane keeps its retained evidence in the override root, not the shared 
   })
 
   assert.equal(exitCode, 0, out)
-  const container = out.match(/retained external fixture sandbox: (.+)/)?.[1]?.trim()
+  const container = out.match(/\[test-harness\] retained fixture sandbox: (.+)/)?.[1]?.trim()
   assert.ok(container, `the wrapper must report where it retained the lane sandbox:\n${out}`)
   assert.ok(container.startsWith(override),
     `the retained container must live under the override root: ${container}`)
 })
+
+for (const removeLiveWork of [false, true]) {
+  test(removeLiveWork
+    ? 'a vanished live work root fails loudly and stops the child'
+    : 'emptying finished evidence during a run leaves live work intact', async () => {
+    // The container must be OUTSIDE the repository (the retained-root override
+    // is refused inside it) and outside `_trash` (a live work root there is
+    // refused by construction). The checkout's parent satisfies both, and is
+    // already this file's fixture home for the retained-root override.
+    const container = await fs.realpath(
+      await fs.mkdtemp(path.join(path.resolve(ROOT, '..'), 'lane-work-lifecycle-')),
+    )
+    const work = path.join(container, 'work')
+    const retained = path.join(container, 'retained')
+    const dir = path.join(container, 'tests')
+    await fs.mkdir(retained)
+    await fs.mkdir(dir)
+    await fs.writeFile(path.join(retained, 'old-evidence.txt'), 'finished evidence\n')
+    // Only reads occur during the handshake, so the fixture does not race a destructive-operation lock.
+    await fs.writeFile(path.join(dir, 'handshake.test.mjs'), `
+      import assert from 'node:assert/strict'
+      import fs from 'node:fs/promises'
+      import path from 'node:path'
+      import test from 'node:test'
+      const POLL_MS = 20
+      test('waits for parent action before completing', async () => {
+        const sandbox = process.env.STORY_STUDIO_TEST_HARNESS_ROOT
+        console.log('WORK_READY=' + sandbox)
+        const deadline = Date.now() + 20_000
+        for (;;) {
+          try { await fs.access(path.join(sandbox, 'resume')); break }
+          catch (error) { if (error.code !== 'ENOENT') throw error }
+          assert.ok(Date.now() < deadline, 'parent never resumed the fixture')
+          await new Promise(resolve => setTimeout(resolve, POLL_MS))
+        }
+        await fs.writeFile(path.join(sandbox, 'after-parent.txt'), 'completed after parent action')
+      })
+    `)
+    const { exitCode, out } = await runFixtureLane(dir, {
+      STORY_STUDIO_TEST_WORK_ROOT: work,
+      STORY_STUDIO_RETAINED_FIXTURES_ROOT: retained,
+    }, async ({ output, closed }) => {
+      const sandbox = await waitFor(() => {
+        const match = output().match(/WORK_READY=(.+)/)
+        assert.ok(match || !closed(), `fixture exited before readiness:\n${output()}`)
+        return match?.[1]?.trim()
+      }, 'fixture readiness')
+      const realWork = await fs.realpath(work)
+      assert.ok(sandbox.startsWith(realWork + path.sep), `sandbox ${sandbox} not under resolved work ${realWork}`)
+      assert.doesNotMatch(sandbox, /(?:^|\/)_trash(?:\/|$)/)
+      // Rename models removal from the original path without deleting any evidence.
+      const source = removeLiveWork ? work : retained
+      await fs.rename(source, path.join(container, 'removed-root'))
+      if (!removeLiveWork) await fs.writeFile(path.join(sandbox, 'resume'), 'parent finished')
+    })
+    try {
+      if (removeLiveWork) {
+        assert.notEqual(exitCode, 0, out)
+        assert.match(out, /live test work disappeared or changed; failing the run/)
+        assert.doesNotMatch(out, /retained fixture sandbox:/)
+      } else {
+        assert.equal(exitCode, 0, out)
+        const archived = out.match(/retained fixture sandbox: (.+)/)?.[1]?.trim()
+        assert.ok(archived?.startsWith(retained + path.sep), out)
+        assert.equal(await fs.readFile(path.join(archived, 'sandbox', 'after-parent.txt'), 'utf8'),
+          'completed after parent action')
+        await assert.rejects(fs.access(path.join(retained, 'old-evidence.txt')), { code: 'ENOENT' })
+        const aggregate = out.match(/inputs=(.+)/)?.[1]
+        assert.ok(aggregate, out)
+        const inputs = JSON.parse(aggregate)
+        assert.ok(inputs[0].coveragePath.startsWith(archived + path.sep), aggregate)
+        assert.ok((await fs.stat(inputs[0].coveragePath)).isFile(), aggregate)
+      }
+    } finally {
+      await retainSandbox(container, undefined, 'lifecycle-contract')
+    }
+  })
+}
 
 test('only adapted invocations request serial test files', async () => {
   const body = await fs.readFile(WRAPPER, 'utf8')
@@ -266,6 +381,6 @@ test('a real adapted fixture lane schedules its test files one at a time', async
     assert.match(out, /fixture suite coverage: 2\/2 file\(s\) completed/,
       'both files must complete under serialization')
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await retainSandbox(dir, undefined, 'lane-contract')
   }
 })

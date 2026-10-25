@@ -22,7 +22,7 @@
  * implementation of the floor and it cannot drift between lanes.
  *
  * Runner arguments, working directories and discovered files remain the lane's.
- * The real release lane runs its two runner contracts separately, without a
+ * The real release lane runs its runner contracts separately, without a
  * lane-owned adapter, then runs the remaining files with retention enabled.
  * Each invocation and their union must cover their exact discovery once.
  *
@@ -36,15 +36,17 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import {
   assertEverySuiteCompleted,
   assertSummaryAgrees,
-  DEFAULT_RETAINED_FIXTURES,
+  preflightSandboxRetention,
+  retainSandbox,
+  waitForSuiteChild,
   resolveRetainedFixturesRoot,
+  resolveWorkRoot,
   retainedFsEvidenceFailure,
 } from './run-backend-tests.mjs'
 
@@ -164,49 +166,31 @@ async function readExactCoverage(coveragePath) {
   return raw.slice(0, -1).split('\n').map(line => JSON.parse(line))
 }
 
-/**
- * Where this invocation's private container lives.
- *
- * An explicit retained fixtures root always wins: it is validated to sit
- * outside the repository, which is where the container has to be — the
- * content-packs fixtures stage handoff artifacts, and the staging helper
- * refuses a destination contained in the repository.
- *
- * Without one, `os.tmpdir()` is used: outside the repository in a normal CLI
- * run, which keeps the sandbox, TMPDIR and the retained preload's snapshot
- * root together and out of the checkout. When the wrapper is itself running
- * inside a repo-bound test sandbox (the lane harness contract), fall back to
- * the retained fixtures root so that run stays green; those fixture lanes
- * never stage outside-repository artifacts.
- */
-async function containerBase(retainedFixtures) {
-  if (retainedFixtures !== DEFAULT_RETAINED_FIXTURES) return retainedFixtures
-  const [temp, root] = await Promise.all([fs.realpath(tmpdir()), fs.realpath(ROOT)])
-  const insideRepository = temp === root || temp.startsWith(`${root}${path.sep}`)
-  return insideRepository ? retainedFixtures : temp
-}
-
 /** One existing runner invocation, with its own transcript and retained evidence. */
 async function runInvocation(name, lane, discovered, addRetainedAdapter) {
+  const workRoot = await resolveWorkRoot(process.env, name === 'content-packs')
   const retainedFixtures = await resolveRetainedFixturesRoot()
+  console.log(`[test-harness] work root: ${workRoot}`)
   console.log(`[test-harness] retained fixtures root: ${retainedFixtures}`)
-  await fs.mkdir(retainedFixtures, { recursive: true })
-  const container = await fs.realpath(
-    await fs.mkdtemp(path.join(await containerBase(retainedFixtures), `story-studio-${name}-harness-`)),
+  // LIVE work happens in the work root, outside any `_trash`
+  const workContainer = await fs.realpath(
+    await fs.mkdtemp(path.join(workRoot, `story-studio-${name}-harness-`)),
   )
-  await fs.chmod(container, 0o700)
-  const sandbox = path.join(container, 'sandbox')
-  const snapshotRoot = path.join(container, 'snapshots')
-  await fs.mkdir(sandbox, { mode: 0o700 })
-  await fs.mkdir(snapshotRoot, { mode: 0o700 })
-  await Promise.all([
-    fs.mkdir(path.join(sandbox, 'home'), { recursive: true }),
-    fs.mkdir(path.join(sandbox, 'profile'), { recursive: true }),
-    fs.mkdir(path.join(sandbox, 'appdata'), { recursive: true }),
-    fs.mkdir(path.join(sandbox, 'xdg-config'), { recursive: true }),
-  ])
-  const coveragePath = path.join(container, 'suite-coverage.jsonl')
+  const coveragePath = path.join(workContainer, 'suite-coverage.jsonl')
+  let result
   try {
+    await fs.chmod(workContainer, 0o700)
+    const sandbox = path.join(workContainer, 'sandbox')
+    const snapshotRoot = path.join(workContainer, 'snapshots')
+    await fs.mkdir(sandbox, { mode: 0o700 })
+    await fs.mkdir(snapshotRoot, { mode: 0o700 })
+    await Promise.all([
+      fs.mkdir(path.join(sandbox, 'home'), { recursive: true }),
+      fs.mkdir(path.join(sandbox, 'profile'), { recursive: true }),
+      fs.mkdir(path.join(sandbox, 'appdata'), { recursive: true }),
+      fs.mkdir(path.join(sandbox, 'xdg-config'), { recursive: true }),
+    ])
+    await preflightSandboxRetention(sandbox, retainedFixtures)
     const require = createRequire(import.meta.url)
     const runnerArgs = lane.runner === 'tsx' ? ['--import', require.resolve('tsx')] : []
     // Adapted files share a snapshot lock whose synchronous acquisition refuses contention.
@@ -232,6 +216,7 @@ async function runInvocation(name, lane, discovered, addRetainedAdapter) {
       // Piped rather than inherited so the summary can be READ. The exit code
       // alone is not enough to know whether the suite passed.
       stdio: ['inherit', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
     })
 
     let transcript = ''
@@ -239,12 +224,9 @@ async function runInvocation(name, lane, discovered, addRetainedAdapter) {
       stream.setEncoding('utf8')
       stream.on('data', chunk => { transcript += chunk; sink.write(chunk) })
     }
-    let exitCode = await new Promise((resolve, reject) => {
-      child.once('error', reject)
-      child.once('close', code => resolve(code ?? 1))
-    })
+    let exitCode = await waitForSuiteChild(child, [workRoot, workContainer, sandbox, snapshotRoot])
 
-    await fs.writeFile(path.join(container, 'transcript.log'), transcript)
+    await fs.writeFile(path.join(workContainer, 'transcript.log'), transcript)
     console.log(`[test-harness] ${name} child exit: ${exitCode}`)
     if (addRetainedAdapter) {
       const retainedFsFailure = await retainedFsEvidenceFailure(snapshotRoot)
@@ -289,14 +271,13 @@ async function runInvocation(name, lane, discovered, addRetainedAdapter) {
       exitCode = 1
     }
 
-    return { exitCode, records, coveragePath }
+    result = { exitCode, records, coveragePath }
   } finally {
-    // Never delete the container: it is this invocation's evidence. Outside a
-    // normal CLI run it may live outside the repository, so name that fact.
-    const repo = await fs.realpath(ROOT)
-    const retainedInRepository = container === repo || container.startsWith(`${repo}${path.sep}`)
-    console.log(`[test-harness] retained ${retainedInRepository ? '' : 'external '}${name} sandbox: ${container}`)
+    console.log(`[test-harness] finished ${name} work container: ${workContainer}`)
+    const retained = await retainSandbox(workContainer, retainedFixtures, name)
+    if (result) result.coveragePath = path.join(retained, 'suite-coverage.jsonl')
   }
+  return result
 }
 
 /** Run each discovered file once; release runner contracts initialize separately. */
@@ -317,11 +298,11 @@ export async function runLane(name, lane = LANES[name]) {
     // Object identity excludes caller-supplied fixture lanes, even if named release.
     if (name === 'release' && lane === LANES.release) {
       const contracts = await Promise.all([
-        'backend-test-harness.test.mjs', 'retained-fixture-fs.test.mjs',
+        'backend-test-harness.test.mjs', 'lane-test-harness.test.mjs', 'retained-fixture-fs.test.mjs',
       ].map(file => fs.realpath(path.join(ROOT, LANES.release.dir, file))))
       if (new Set(contracts).size !== contracts.length
         || contracts.some(file => discovered.filter(candidate => candidate === file).length !== 1)) {
-        throw new Error('both canonical runner contract files must be discovered exactly once')
+        throw new Error('all canonical runner contract files must be discovered exactly once')
       }
       const contractSet = new Set(contracts)
       invocations = [

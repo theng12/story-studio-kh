@@ -341,6 +341,14 @@ run a test that removes or rearranges the checkout's `_trash/app`; a temporary
 `STORY_STUDIO_INSTALL_TARGET` alone does not protect that archive. The release lane's read-only
 built-bundle existence check runs after the main DMG build.
 
+**Live test work never sits inside `_trash`.** Backend, frontend, release and retained-filesystem
+contract fixtures use `.test-work/` (gitignored). Content-pack staging needs a path outside the
+checkout, so that lane uses `../.test-work/<checkout-name>/`. `STORY_STUDIO_TEST_WORK_ROOT` may
+name another real directory outside Trash. Only after children close and evidence is reconciled
+may finished containers move to `_trash/test-fixtures/` (or `STORY_STUDIO_RETAINED_FIXTURES_ROOT`).
+Removing the retained root mid-run is safe; removing or replacing a live work directory fails the
+run loudly and stops its owned test process group. Do not use Trash for a test's own live fixtures.
+
 **Releases.** Classify the deliverable first.
 
 - **Application release** — fixes, reliability work, UI/API/runtime behaviour, dependency updates,

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
+import { lstatSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -41,7 +42,8 @@ const COVERAGE_REPORTER = path.join(ROOT, 'scripts', 'testing', 'suite-coverage-
 
 /**
  * Where retained fixtures live when nobody says otherwise: the project's own
- * disposable `_trash/`, where every run has always left its evidence.
+ * disposable `_trash/`, where finished evidence is moved after a run settles.
+ * Live test work never sits here — only completed containers are moved in.
  */
 export const DEFAULT_RETAINED_FIXTURES = path.join(ROOT, '_trash', 'test-fixtures')
 
@@ -58,6 +60,10 @@ export const DEFAULT_RETAINED_FIXTURES = path.join(ROOT, '_trash', 'test-fixture
  * supported configuration.
  */
 export const RETAINED_FIXTURES_ROOT_ENV = 'STORY_STUDIO_RETAINED_FIXTURES_ROOT'
+
+/** Live sandboxes stay outside Trash; only settled evidence may be archived there. */
+export const WORK_ROOT_ENV = 'STORY_STUDIO_TEST_WORK_ROOT'
+export const DEFAULT_WORK_ROOT = path.join(ROOT, '.test-work')
 
 async function writeJson(filePath, value) {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
@@ -192,6 +198,79 @@ export async function resolveRetainedFixturesRoot(env = process.env) {
   return await assertRealRetainedRoot(configured)
 }
 
+/** Content-pack staging must also stay outside the checkout. */
+export async function resolveWorkRoot(env = process.env, outsideRepository = false) {
+  const configured = env[WORK_ROOT_ENV]
+  const workRoot = configured || (outsideRepository
+    ? path.join(path.dirname(ROOT), '.test-work', path.basename(ROOT))
+    : DEFAULT_WORK_ROOT)
+  if (!path.isAbsolute(workRoot) || path.resolve(workRoot) !== workRoot) {
+    throw new Error(`${WORK_ROOT_ENV} must be an exact absolute path, not "${workRoot}"`)
+  }
+  if (workRoot.split(path.sep).includes('_trash')) {
+    throw new Error(`${WORK_ROOT_ENV} must stay outside _trash: ${workRoot}`)
+  }
+  await fs.mkdir(workRoot, { recursive: true, mode: 0o700 })
+  const leaf = await fs.lstat(workRoot)
+  if (!leaf.isDirectory() || leaf.isSymbolicLink()) {
+    throw new Error(`${WORK_ROOT_ENV} must name a real directory: ${workRoot}`)
+  }
+  const canonical = await fs.realpath(workRoot)
+  const trash = await fs.realpath(path.join(ROOT, '_trash')).catch(error => {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  })
+  if (canonical.split(path.sep).includes('_trash')
+    || (trash && (canonical === trash || canonical.startsWith(`${trash}${path.sep}`)))) {
+    throw new Error(`${WORK_ROOT_ENV} must stay outside _trash: ${canonical}`)
+  }
+  const repo = await fs.realpath(ROOT)
+  if (outsideRepository && (canonical === repo || canonical.startsWith(`${repo}${path.sep}`))) {
+    throw new Error(`${WORK_ROOT_ENV} must be outside the repository for content-pack staging`)
+  }
+  return canonical
+}
+
+/** Observe identities while the child runs, including a final check before accepting its exit. */
+export function waitForSuiteChild(child, roots) {
+  return new Promise((resolve, reject) => {
+    let failure
+    let identities
+    const check = (terminate = true) => {
+      try {
+        const current = roots.map(root => lstatSync(root))
+        for (const [index, stat] of current.entries()) {
+          if (!stat.isDirectory() || stat.isSymbolicLink()
+            || (identities && (stat.dev !== identities[index].dev || stat.ino !== identities[index].ino))) {
+            throw new Error(`directory identity changed: ${roots[index]}`)
+          }
+        }
+        identities ??= current
+      } catch (error) {
+        if (failure) return
+        failure = new Error(`live test work disappeared or changed; failing the run: ${error.message}`)
+        console.error(`[test-harness] ${failure.message}`)
+        if (!terminate) return
+        // The detached group contains Node's test workers too; leaving them alive can keep the pipes open.
+        if (process.platform !== 'win32' && child.pid) {
+          try { process.kill(-child.pid, 'SIGKILL') } catch (killError) {
+            if (killError?.code !== 'ESRCH') child.kill('SIGKILL')
+          }
+        } else child.kill('SIGKILL')
+      }
+    }
+    const poll = setInterval(check, 100)
+    child.once('error', error => { failure ??= error })
+    child.once('close', code => {
+      clearInterval(poll)
+      check(false)
+      if (failure) reject(failure)
+      else resolve(code ?? 1)
+    })
+    check()
+  })
+}
+
 /**
  * A retained fixtures root must be a REAL directory on THIS volume, outside
  * the repository.
@@ -244,13 +323,17 @@ export async function preflightSandboxRetention(sandbox, fixtures) {
   assertSameDeviceForRetention(sandboxStat.dev, fixturesStat.dev, sandbox)
 }
 
-export async function retainSandbox(sandbox, fixtures) {
+export async function retainSandbox(sandbox, fixtures, label = '') {
   const root = fixtures ?? await resolveRetainedFixturesRoot()
-  await fs.mkdir(root, { recursive: true })
-  const container = await fs.mkdtemp(path.join(root, 'backend-test-harness-'))
+  await fs.mkdir(root, { recursive: true, mode: 0o700 })
+  const container = await fs.mkdtemp(path.join(root, label ? `story-studio-${label}-harness-` : 'backend-test-harness-'))
   const retained = path.join(container, path.basename(sandbox))
-  await fs.rename(sandbox, retained)
-  console.log(`[test-harness] retained sandbox: ${retained}`)
+  try {
+    await fs.rename(sandbox, retained)
+  } catch (error) {
+    throw new Error(`could not retain finished test work; original location: ${sandbox} (${error.message})`, { cause: error })
+  }
+  console.log(`[test-harness] retained ${label ? `${label} ` : ''}sandbox: ${retained}`)
   return retained
 }
 
@@ -321,20 +404,26 @@ async function snapshotConfiguredProjects(root) {
 }
 
 async function run(options) {
-  let sandboxContainer
+  let workContainer
   let sandbox
   let snapshotRoot
+  let retainedFixtures
   try {
-    const retainedFixtures = await resolveRetainedFixturesRoot()
+    const workRoot = await resolveWorkRoot()
+    retainedFixtures = await resolveRetainedFixturesRoot()
+    console.log(`[test-harness] work root: ${workRoot}`)
     console.log(`[test-harness] retained fixtures root: ${retainedFixtures}`)
-    await fs.mkdir(retainedFixtures, { recursive: true })
-    sandboxContainer = await fs.mkdtemp(path.join(retainedFixtures, 'backend-test-harness-'))
-    sandboxContainer = await fs.realpath(sandboxContainer)
-    await fs.chmod(sandboxContainer, 0o700)
-    sandbox = path.join(sandboxContainer, 'sandbox')
-    snapshotRoot = path.join(sandboxContainer, 'snapshots')
+    // LIVE work happens in the work root, outside any `_trash`
+    workContainer = await fs.mkdtemp(path.join(workRoot, 'backend-test-harness-'))
+    workContainer = await fs.realpath(workContainer)
+    await fs.chmod(workContainer, 0o700)
+    sandbox = path.join(workContainer, 'sandbox')
+    snapshotRoot = path.join(workContainer, 'snapshots')
     await fs.mkdir(sandbox, { mode: 0o700 })
     await fs.mkdir(snapshotRoot, { mode: 0o700 })
+    // Preflight checks that the retained root is on the same device, so the
+    // end-of-run move stays a rename. If the retained root is missing, we
+    // create it here; if it disappears mid-run, the run continues unaffected.
     await preflightSandboxRetention(sandbox, retainedFixtures)
     const fakeHome = path.join(sandbox, 'home')
     const fakeProfile = path.join(sandbox, 'profile')
@@ -391,6 +480,7 @@ async function run(options) {
       TMP: sandbox,
       TEMP: sandbox,
       STORY_STUDIO_TEST_HARNESS_ROOT: sandbox,
+      STORY_STUDIO_TEST_WORK_ROOT: workRoot,
       STORY_STUDIO_RETAINED_SNAPSHOT_ROOT: snapshotRoot,
       STORY_STUDIO_DISABLE_LISTEN: '1',
       // NEW-03 — see BUNDLED_FFMPEG_DIR. Prepended, so a caller's own PATH still
@@ -431,6 +521,7 @@ async function run(options) {
       // See `assertSummaryAgrees` below for why the exit code alone is not
       // enough to know whether the suite passed.
       stdio: ['inherit', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
     })
     let transcript = ''
     for (const [stream, sink] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
@@ -438,10 +529,8 @@ async function run(options) {
       stream.on('data', chunk => { transcript += chunk; sink.write(chunk) })
     }
     const watchdog = startSuiteWatchdog(child)
-    let exitCode = await new Promise((resolve, reject) => {
-      child.once('error', reject)
-      child.once('close', code => resolve(code ?? 1))
-    }).finally(() => clearTimeout(watchdog))
+    let exitCode = await waitForSuiteChild(child, [workRoot, workContainer, sandbox, snapshotRoot])
+      .finally(() => clearTimeout(watchdog))
 
     const retainedFsFailure = await retainedFsEvidenceFailure(snapshotRoot)
     if (retainedFsFailure) {
@@ -485,7 +574,11 @@ async function run(options) {
     }
     process.exitCode = exitCode
   } finally {
-    if (sandboxContainer) console.log(`[test-harness] retained sandbox: ${sandboxContainer}`)
+    // Retire only after the child closed and all evidence was reconciled.
+    if (workContainer) {
+      console.log(`[test-harness] finished work container: ${workContainer}`)
+      await retainSandbox(workContainer, retainedFixtures)
+    }
   }
 }
 

@@ -1,8 +1,8 @@
 /**
  * Contract tests for the runner-only retained-fixture filesystem preload.
  *
- * Every fixture is created under this project's `_trash/` and deliberately
- * retained. The preload is exercised only in fresh child processes with an
+ * Live fixtures stay in the work root; the after hook archives settled evidence.
+ * The preload is exercised only in fresh child processes with an
  * exact private sandbox and a separate same-device snapshot root.
  */
 import assert from 'node:assert/strict'
@@ -10,16 +10,15 @@ import { createHash } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import test from 'node:test'
+import test, { after } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { resolveRetainedFixturesRoot } from '../../testing/run-backend-tests.mjs'
+import { resolveWorkRoot, retainSandbox } from '../../testing/run-backend-tests.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const ADAPTER = path.join(ROOT, 'scripts', 'testing', 'retained-fixture-fs.mjs')
-// The shared retained fixtures root, or the operator's override for it.
-const RETAINED_PARENT = await resolveRetainedFixturesRoot()
+const WORK_PARENT = await resolveWorkRoot()
 const BARRIER_CONTROL = '.retained-fixture-fs-test-barrier.json'
 const BARRIER_REACHED = '.retained-fixture-fs-test-barrier-reached.json'
 const BARRIER_RESUME = '.retained-fixture-fs-test-barrier-resume'
@@ -30,10 +29,10 @@ const OLD_ASYNC_LOCK_TIMEOUT_MS = 5_000
 // DEFAULT_MAX_WALL_CLOCK_MS). A scheduled-time budget stretches under load, so
 // a stuck condition still needs a wall-clock cap or it would hang the run.
 const MAX_WALL_CLOCK_MS = 120_000
-await fs.mkdir(RETAINED_PARENT, { recursive: true, mode: 0o700 })
-const RUN_ROOT = await fs.realpath(await fs.mkdtemp(path.join(RETAINED_PARENT, 'retained-fixture-fs-contract-')))
+const RUN_ROOT = await fs.realpath(await fs.mkdtemp(path.join(WORK_PARENT, 'retained-fixture-fs-contract-')))
 await fs.chmod(RUN_ROOT, 0o700)
-console.log(`[retained-fixture-fs] retained contract fixtures: ${RUN_ROOT}`)
+console.log(`[retained-fixture-fs] live contract fixtures: ${RUN_ROOT}`)
+after(async () => { await retainSandbox(RUN_ROOT, undefined, 'retained-fs-contract') })
 
 let childNumber = 0
 

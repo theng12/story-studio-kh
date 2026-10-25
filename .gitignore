@@ -89,3 +89,4 @@ graphify-out/
 .superpowers/**/*.secret
 .superpowers/**/.env
 .superpowers/**/.env.*
+.test-work
