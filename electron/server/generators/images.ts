@@ -592,7 +592,17 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     if (isMusicEpisodeDir(await episodeDirFor(project_slug, episode_id))) {
       const { writeMusicThumbnailPrompts } = await import('../services/music-episode-thumbnail.js')
       const written = await writeMusicThumbnailPrompts(project_slug, episode_id)
-      if (written.written) job.output_lines.push(`Wrote ${written.count} thumbnail prompt(s) from this music episode's scenes and theme.`)
+      if (written.written) {
+        job.output_lines.push(`Wrote ${written.count} thumbnail prompt(s) from this music episode's scenes and theme.`)
+        // Candidates come from distinct scenes, so an episode with fewer scenes
+        // than the target can only offer what it has. Said plainly rather than
+        // failing a step the customer cannot do better at.
+        if (written.count < written.requested) {
+          job.output_lines.push(
+            `This episode has ${written.count} scene(s), so it has ${written.count} candidate(s) — not the usual ${written.requested}.`,
+          )
+        }
+      }
     }
     thumbPromptsPath = await findThumbPromptsFile(project_slug, episode_id)
     job.output_lines.push(`Found thumbnail prompts: ${path.basename(thumbPromptsPath)}`)

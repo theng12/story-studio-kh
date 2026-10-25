@@ -598,7 +598,18 @@ export type GenerateChapterOnlyBody = z.infer<typeof GenerateChapterOnlySchema>
 
 export const GenerateImagesSchema = z.object({
   episode_id: EpisodeId,
-  model: z.string().min(1),
+  /**
+   * Optional, and allowed to be blank (2026-10-25).
+   *
+   * It was `z.string().min(1)`, so a Thumbnail Generator request that named no
+   * model was refused by the schema with a field error — never with the one
+   * sentence that helps: choose a model. The route now resolves the channel's
+   * saved Thumbnail Generator preset (AGENTS §7) and refuses in plain words when
+   * neither the request nor the preset names one, before any job row exists.
+   * Nothing reaches the provider without a model: `requestedImageModelName()`
+   * still refuses an empty one at the generator.
+   */
+  model: z.string().optional(),
   mode: z.enum(['scenes', 'thumbs']).optional(),
   // Same defensive pattern as elsewhere — '' = "use generator default
   // (typically 16:9)" rather than a 400. Empty isn't sent today by the

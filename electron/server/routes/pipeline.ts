@@ -63,6 +63,12 @@ import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTran
 import { withLock } from '../lib/atomic-store.js'
 import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
 import { autoApproveOn, resolveExactPreset, resolveScenePlanPromptCharCap, scenePlanPresetReceipt, thumbnailPromptPresetCapInputs } from '../services/preset-authority.js'
+import {
+  noThumbnailModelMessage,
+  thumbnailGeneratorModelFromPreset,
+  thumbnailPromptsModelFromPreset,
+  type ThumbnailStep,
+} from '../services/thumbnail-presets.js'
 import { resolveLiveImagePromptCharCap } from '../services/image-prompt-cap.js'
 import { pipelineStepLabel } from '../lib/pipeline-continuation.js'
 import { SAFETY_CHECKS, safetyMode, safetyModeFromConfig } from '../services/safety-checks.js'
@@ -799,13 +805,12 @@ async function preflightBatch(
       else if (ticked) leaveOut(step, 'step_preset', message)
       return message
     }
-    // A preset that names no writing model is not a usable preset either — see
+    // A preset that names no model is not a usable preset either — see
     // PRESET_MODEL_READERS. Said here rather than letting the step enqueue and
     // die inside its generator, and handled through the SAME `step_preset`
     // switch as a missing preset, because to the operator it is the same fact.
     if (presetHasNoWritingModel(step, result.preset)) {
-      const label = pipelineStepLabel(step)
-      const message = `${label} has no writing model chosen. Open ${label} and pick one.`
+      const message = presetModelMissingMessage(step)
       if (ticked && mode('step_preset') === 'block') addMissingPresetIssue(issues, visualSettingsByEpisode, step, message)
       else if (ticked) leaveOut(step, 'step_preset', message)
       return message
@@ -1182,6 +1187,21 @@ export function findActivePreset(
 const PRESET_MODEL_READERS: Partial<Record<BatchStep, (body: Record<string, any>) => unknown>> = {
   'script-only': body => body.form?.model ?? body.model,
   scene_plan: body => body.model,
+  // The two thumbnail steps (AGENTS §7: thumbnail_prompts_* / thumbnail_generator_*).
+  //
+  // Their readers are the SAME functions the two enqueue routes use
+  // (`services/thumbnail-presets.ts`), so a preset the Thumbnail Prompts page
+  // itself can read is never called model-less here, and one that really names
+  // no model is refused in PREFLIGHT rather than admitted to die inside its
+  // generator — which is what happened to four real `image_prompts` jobs on
+  // 2026-10-25, admitted with `model: ''` against a channel whose
+  // `thumbnail_prompts_presets` was empty.
+  //
+  // A step in this table that names no model is left out exactly as if it had no
+  // preset at all: the operator gets one plain message naming the step and where
+  // to choose, through the same `step_preset` switch.
+  image_prompts: thumbnailPromptsModelFromPreset,
+  thumb_images: thumbnailGeneratorModelFromPreset,
 }
 
 /**
@@ -1200,6 +1220,27 @@ export function presetHasNoWritingModel(step: BatchStep, preset: StoredPreset | 
   if (!body || typeof body !== 'object' || Array.isArray(body)) return true
   const model = reader(body)
   return !(typeof model === 'string' && model.trim())
+}
+
+/** The two thumbnail steps, for the places that phrase their refusal differently. */
+const THUMBNAIL_MODEL_STEPS: readonly BatchStep[] = ['image_prompts', 'thumb_images']
+
+function isThumbnailModelStep(step: BatchStep): step is ThumbnailStep {
+  return THUMBNAIL_MODEL_STEPS.includes(step)
+}
+
+/**
+ * The sentence a step whose preset names no model is reported with.
+ *
+ * The thumbnail steps get the same one-line refusal the enqueue routes give, so
+ * "choose a model" reads identically whether the run was started from the page
+ * or from Pipeline. Every other step keeps the writing-model wording, which is
+ * what it needs.
+ */
+function presetModelMissingMessage(step: BatchStep): string {
+  if (isThumbnailModelStep(step)) return noThumbnailModelMessage(step)
+  const label = pipelineStepLabel(step)
+  return `${label} has no writing model chosen. Open ${label} and pick one.`
 }
 
 /**
@@ -1318,8 +1359,21 @@ export function resolveStepParams(
         ;(rest as any).aspect_ratio = fmtIp.recommendedAspect
       }
     }
+    // NOTE the count is NOT defaulted here. A preset that names no count is a
+    // run that named no count, and the generator takes THE default
+    // (contracts/thumbnail-counts: 3) — the same number the page shows. The
+    // format's `defaultThumbnails` still wins when the format publishes one.
+    const presetModel = thumbnailPromptsModelFromPreset(preset)
     return {
       ...rest,
+      // The model the preset names travels with the params, whatever key an
+      // older preset stored it under (`form.model`, a flat `model`, or the
+      // legacy `prompt_model`). The generator reads `model`; without this a
+      // preset that named its model under a legacy key would pass preflight and
+      // still reach the writer with nothing chosen.
+      ...(presetModel && !String((rest as Record<string, unknown>).model || '').trim()
+        ? { model: presetModel }
+        : {}),
       episode_id: episodeId,
       title: title || '',
       mode: 'thumbnails',
@@ -1334,10 +1388,14 @@ export function resolveStepParams(
     const automaticForm = { ...form }
     delete automaticForm.image_steps
     delete automaticForm.image_quality
+    const renderModel = thumbnailGeneratorModelFromPreset(preset)
     // Pipeline-step variant determines mode. Split steps force the
     // corresponding mode regardless of what the preset carries.
     return {
       ...automaticForm,
+      // Same rule as Thumbnail Prompts: the preset's own image model reaches the
+      // render, so a batch and the page render with the product the owner chose.
+      ...(renderModel && !String(automaticForm.model || '').trim() ? { model: renderModel } : {}),
       episode_id: episodeId,
       mode: 'thumbs',
     }

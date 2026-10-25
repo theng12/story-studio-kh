@@ -21,37 +21,19 @@ import { getApiKey } from './app-secrets-store.js'
 import { dominantScript } from './tts-language-guard.js'
 import type { ThumbnailTextSuggestions } from '../contracts/thumbnail-text.js'
 import type { OutputBudgetTier } from './output-token-budget.js'
+// The ONE reader of the Thumbnail Prompts preset (§7 keys) — shared with the
+// Pipeline's preflight and the enqueue routes so all four agree on which model
+// this channel has chosen. Re-exported below for the callers that already know
+// it by this name.
+import { modelFromThumbnailPromptsPreset } from './thumbnail-presets.js'
 
-/** The config key the Thumbnail Prompts page writes its preset list to (AGENTS §7). */
-const PRESET_LIST_KEY = 'thumbnail_prompts_presets'
-const PRESET_ACTIVE_KEYS = ['thumbnail_prompts_last_preset']
+export { modelFromThumbnailPromptsPreset }
 
 export interface SuggestionSource {
   title: string
   script: string
   /** The channel's own language setting, when it has one. */
   channelLanguage?: string | null
-}
-
-/**
- * The writing model the channel's active Thumbnail Prompts preset names.
- *
- * Preset shapes in this app are not uniform: a typed preset nests its form, an older one is flat, and
- * the thumbnail-prompts page has stored the model under `model`, `form.model` and `prompt_model`
- * over its life. All three are read, so a preset the rest of the app can read is never reported as
- * model-less — the same reasoning `PRESET_MODEL_READERS` documents in `routes/pipeline.ts`.
- */
-export function modelFromThumbnailPromptsPreset(config: Record<string, any> | null | undefined): string {
-  if (!config) return ''
-  const list = Array.isArray(config[PRESET_LIST_KEY]) ? config[PRESET_LIST_KEY] : []
-  if (!list.length) return ''
-  const activeId = PRESET_ACTIVE_KEYS.map(key => config[key]).find(value => typeof value === 'string' && value) || ''
-  const preset = list.find((entry: any) => entry?.id === activeId)
-    || list.find((entry: any) => entry?.last_used === true)
-    || list[list.length - 1]
-  const data = (preset?.data ?? preset) as Record<string, any> | undefined
-  if (!data) return ''
-  return String(data.form?.model || data.model || data.prompt_model || '').trim()
 }
 
 /**

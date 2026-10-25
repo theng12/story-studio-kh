@@ -16,6 +16,7 @@ import {
 } from '../models/defaults.js'
 import { sanitizeVideoCatalog } from '../models/video-catalog.js'
 import { OWNER_STANDARD_SCENE_PACING } from '../contracts/pacing.js'
+import { DEFAULT_THUMBNAIL_COUNT } from '../contracts/thumbnail-counts.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import type {
@@ -884,6 +885,37 @@ function ownerStandardPacingPreset(): Record<string, unknown> {
   }
 }
 
+/**
+ * The Thumbnail Prompts preset a NEW channel starts with (owner, 2026-10-25):
+ * *"from now on all thumbnail prompts and generation is required to have 3
+ * each, so I have something to choose from."* He asked for it to be "set as a
+ * preset and saved for any new channels later on, but I guess you can make it a
+ * default" — so three is the starting COUNT here, not a hard rule: it is an
+ * ordinary editable preset from the moment the channel exists, and the counter
+ * on the Thumbnail Prompts page changes it for any later episode.
+ *
+ * It deliberately carries NO model. Story Studio never picks a writing or an
+ * image model (AGENTS §1 and §7; owner 2026-10-17) — the channel's own preset
+ * names one when the owner saves it on the Thumbnail Prompts page, exactly as
+ * with a hand-saved preset. The Pipeline preflight counts this seeded preset as
+ * UNUSABLE until then and says "choose a writing model" rather than enqueuing a
+ * run that would fail inside its generator.
+ *
+ * Only ONE preset is seeded, because the count lives only here: the Thumbnail
+ * GENERATOR's page has no count of its own (the images follow the prompts), so a
+ * seeded `thumbnail_generator_presets` entry could carry nothing but a model —
+ * which is the one thing a seed must not choose.
+ */
+const NEW_CHANNEL_THUMBNAIL_PRESET_ID = 'preset-new-channel-thumbnails'
+
+function newChannelThumbnailPromptsPreset(): Record<string, unknown> {
+  return {
+    id: NEW_CHANNEL_THUMBNAIL_PRESET_ID,
+    name: 'Three thumbnail options',
+    data: { form: { thumb_count: DEFAULT_THUMBNAIL_COUNT } },
+  }
+}
+
 export async function createProject(
   req: CreateProjectRequest,
   initialContentPins: Pick<ProjectMeta, 'content_pack_versions' | 'content_pack_items'> = {},
@@ -1005,6 +1037,15 @@ export async function createProject(
     default_scene_pacing: structuredClone(OWNER_STANDARD_SCENE_PACING),
     scene_plan_presets: [ownerStandardPacingPreset()],
     'scene_plan_last_preset_scene-plan': OWNER_STANDARD_PACING_PRESET_ID,
+    // Owner decision, 2026-10-25 — a NEW channel's thumbnail work starts at
+    // three prompts (and therefore three candidate images), as an ordinary
+    // Thumbnail Prompts preset marked last-used, naming no model. See
+    // `newChannelThumbnailPromptsPreset`. Written only here, at creation, so an
+    // existing channel is never rewritten and nothing already on disk is
+    // backfilled: episodes that were complete under their own count stay
+    // complete, and an accepted thumbnail is never regenerated or replaced.
+    thumbnail_prompts_presets: [newChannelThumbnailPromptsPreset()],
+    thumbnail_prompts_last_preset: NEW_CHANNEL_THUMBNAIL_PRESET_ID,
   })
   // No per-project secrets.json is seeded — API keys live in the
   // app-level store (see app-secrets-store.ts). YouTube OAuth state is

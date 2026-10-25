@@ -24,6 +24,7 @@ import { writePromptCompletionManifest } from './prompt-completion.js'
 import { writeSelectedThumbnail } from './upload-overrides.js'
 import { episodeDirFor, isMusicEpisodeDir, readEpisodeDoc, untitledScenePrompts } from './music-episode-store.js'
 import type { ScenePlan } from '../models/types.js'
+import { THUMBNAIL_COUNT_MAX, thumbnailCount } from '../contracts/thumbnail-counts.js'
 
 /** YouTube's thumbnail size. Scene pictures are 1280x720 already; anything else is cover-cropped to it. */
 export const THUMBNAIL_W = 1280
@@ -111,19 +112,26 @@ export async function writeMusicThumbnailPrompts(
   slug: string,
   code: string,
   opts: { sceneIds?: string[]; count?: number; overwrite?: boolean } = {},
-): Promise<{ path: string; written: boolean; count: number }> {
+): Promise<{ path: string; written: boolean; count: number; requested: number }> {
   const upper = code.toUpperCase()
+  // No count named → the ONE default (contracts/thumbnail-counts): three
+  // thumbnail prompts, so there is something to choose from. It was 1 here, so
+  // a music episode was the one surface still making a single candidate.
+  const requested = thumbnailCount(opts.count)
   const title = await episodeTitle(slug, upper)
   const paths = await resolveEpisodePaths(slug, upper, title)
   const target = paths.thumb_prompts_docx
-  if (existsSync(target) && !opts.overwrite) return { path: target, written: false, count: 0 }
+  if (existsSync(target) && !opts.overwrite) return { path: target, written: false, count: 0, requested }
   const doc = await readEpisodeDoc(slug, upper)
   if (!doc) throw Object.assign(new Error(`${upper} has no Episode Builder plan yet. Draw songs first.`), { statusCode: 409 })
   const scenes = await musicThumbnailScenes(slug, upper)
   if (!scenes.length) throw Object.assign(new Error(`${upper} has no scenes yet. Draw songs in Episode Builder first.`), { statusCode: 409 })
+  // One candidate per SCENE: distinct scenes are what makes candidates distinct,
+  // so an episode with fewer scenes than the target can only offer what it has.
+  // `count` in the answer is what was really written, and the caller says so.
   const wanted = opts.sceneIds?.length
     ? opts.sceneIds.map(id => scenes.find(s => s.id === id)).filter((s): s is MusicThumbnailScene => !!s)
-    : scenes.slice(0, Math.max(1, Math.min(6, Math.round(opts.count || 1))))
+    : scenes.slice(0, Math.min(THUMBNAIL_COUNT_MAX, requested))
   if (!wanted.length) throw Object.assign(new Error('None of those scenes are in this episode any more. Reload the page.'), { statusCode: 404 })
   const { enforceThumbnailPromptElements } = await import('../generators/image-prompts.js')
   const { resolveStyleBible } = await import('../lib/style-bible.js')
@@ -140,5 +148,5 @@ export async function writeMusicThumbnailPrompts(
   await fs.mkdir(path.dirname(target), { recursive: true })
   await buildImagePromptsDocx(markdown, upper, title, target)
   await writePromptCompletionManifest(path.dirname(target), upper, 'thumbnail', wanted.length)
-  return { path: target, written: true, count: wanted.length }
+  return { path: target, written: true, count: wanted.length, requested }
 }

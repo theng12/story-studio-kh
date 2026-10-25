@@ -48,6 +48,7 @@ import {
 } from './images.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
+import { thumbnailCount, thumbnailOptionsLabel } from '../contracts/thumbnail-counts.js'
 
 interface ThumbnailPromptsParams {
   episode_id: string
@@ -558,7 +559,15 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   // services/genstudio-default-model.ts).
   const model = req.model?.trim() || pipelinePolicyForJob(job.params, 'image_prompts')?.assigned_model
     || await resolveDefaultImagePromptsModel(config)
-  const count = Math.max(1, Math.round(Number(req.thumb_count) || 5))
+  // The count this run makes — from THE one default (contracts/thumbnail-counts):
+  // owner requirement 2026-10-25, three thumbnail prompts so there is something
+  // to choose from, superseding "one good thumbnail is enough" for new work. It
+  // was `|| 5` here and 3 on the page, so the same channel got a different
+  // number depending on which path started the run. A count the caller gave is
+  // used as given, and the count this run was given is what the completion
+  // manifest records — an episode completed under its own count is never
+  // reopened by this default.
+  const count = thumbnailCount(req.thumb_count)
   const fillGaps = req.fill_gaps === true
   // THE CHARACTER CEILING, RESOLVED LIVE — NOW, NOT AT ENQUEUE TIME.
   //
@@ -584,7 +593,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     label: 'The Thumbnail Prompts selection',
     nothingHappened: 'No thumbnail prompt was written, and no credits were charged for it.',
   })
-  job.output_lines.push(`Target: ${count} thumbnail prompt(s).`)
+  job.output_lines.push(`Target: ${count} thumbnail prompt(s) — ${thumbnailOptionsLabel(count)} to choose from.`)
   job.output_lines.push(publishedCap
     ? `Prompt length ceiling: ${publishedCap.toLocaleString()} characters for the assembled thumbnail prompt — the stored prompt plus the clauses and extras the render adds. A ceiling only — an over-length prompt is reported, never shortened.`
     : 'Prompt length ceiling: none — no image-model limit is in force for this run.')

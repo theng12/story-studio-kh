@@ -1626,6 +1626,14 @@ export async function computeEpisodeStatus(
     && audioS.value.expected.length > 0
     && audioS.value.missing.length === 0
 
+  // Completion is the episode's OWN recorded count (the completion manifest,
+  // written by the run that made the prompts), observed on disk — never the
+  // app-wide default of three (contracts/thumbnail-counts.ts). That is what
+  // keeps an episode that was complete — including one whose thumbnail a person
+  // already accepted and pinned — from being REOPENED by today's default: its own
+  // record still says what it was asked for, and nothing here re-derives it.
+  // `missing` stays computed and reported, so a short set is never hidden; it is
+  // simply not a reason to re-open finished work.
   status.thumbnails = imageS.status === 'fulfilled'
     && !!imageS.value.thumbnails
     && imageS.value.thumbnails.total > 0

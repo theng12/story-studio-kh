@@ -34,6 +34,7 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { resolveEpisodePaths, resolveScenePlanPath } from '../services/utils.js'
 import { musicThumbnailScenes, useSceneAsThumbnail, writeMusicThumbnailPrompts } from '../services/music-episode-thumbnail.js'
+import { thumbnailCount } from '../contracts/thumbnail-counts.js'
 import { resolveSceneImagesDir } from '../generators/scene-image.js'
 import { checkpointSceneImage } from '../services/scene-media-checkpoint.js'
 import {
@@ -427,7 +428,9 @@ router.post('/projects/:slug/music-episodes/:code/thumbnail/prompts', async (req
     const sceneIds = Array.isArray(req.body?.scene_ids) ? req.body.scene_ids.filter((id: unknown): id is string => typeof id === 'string') : []
     res.json(await writeMusicThumbnailPrompts(slug, code, {
       sceneIds,
-      count: Number(req.body?.count) || 1,
+      // No count sent → the ONE default of three candidates
+      // (contracts/thumbnail-counts), never a hardcoded 1.
+      count: thumbnailCount(req.body?.count),
       overwrite: req.body?.overwrite === true,
     }))
   } catch (e) {
