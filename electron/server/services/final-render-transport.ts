@@ -4,12 +4,14 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
-import { describeFinalRenderExport } from '../lib/final-render-export.js'
+import { describeFinalRenderExport, type FinalRenderExportDescription } from '../lib/final-render-export.js'
 import { readInstalledStoryRenderProvenance } from '../lib/final-render-build-provenance.js'
 import { RenderProvenanceError, sameDescriptorPins } from '../lib/final-render-provenance-contract.js'
 import {
   FINAL_RENDER_MAX_REVISION_BYTES,
   FINAL_RENDER_MAX_REVISIONS,
+  FINAL_RENDER_REFUSAL_LOOKUP_GAP_MS,
+  isDefiniteFinalRenderRefusal,
   finalRenderCanonicalReceiptHash,
   validateFinalRenderTransportEvidence,
   type FinalRenderTransportRevisionRecord,
@@ -27,6 +29,7 @@ import {
   submitFinalRender,
   validateSubmitBytes,
   type FinalRenderBlobStatus,
+  type FinalRenderCapabilities,
   type FinalRenderCancelView,
   type FinalRenderEncodeEntry,
   type FinalRenderJobView,
@@ -47,6 +50,7 @@ import {
   loadAuthoritativeJob,
   loadKnownFinalRenderIntentStagedReceipt,
   markFinalRenderMonitorTransientHold,
+  validateRefusedFinalRenderForLocal,
 } from './job-queue.js'
 import { readPrivateRenderAccess, type PrivateRenderAccess } from './private-render-identity.js'
 import { getUserDataDir } from './project-manager.js'
@@ -87,10 +91,77 @@ function destinationFacts(opts: PrepareOpts): {
   }
 }
 
+/**
+ * The packet the Gateway will measure against its own published execution bounds, checked before any
+ * durable intent exists so a composition it must refuse never becomes a parked unknown POST. Every
+ * figure comes from the live descriptor (§1), and a source whose size cannot be read keeps the local
+ * render rather than being guessed past.
+ */
+async function privateFinalRenderBoundsViolation(
+  description: Readonly<FinalRenderExportDescription>,
+  bounds: NonNullable<FinalRenderCapabilities['execution_bounds']>,
+): Promise<string | null> {
+  const recipe = description.recipe
+  const canvas = recipe.canvas as { width: number; height: number; working_fps: number }
+  const width = canvas.width
+  const height = canvas.height
+  const publishedFps = [...bounds.working_fps].sort((left, right) => left - right)
+  if (!publishedFps.includes(canvas.working_fps)) {
+    return `this video is ${canvas.working_fps} fps and the paired Gateway renders only `
+      + `${publishedFps.join(' or ')} fps`
+  }
+  if (!bounds.canvas_pairs.some(pair => pair.width === width && pair.height === height)) {
+    return `this video is ${width}x${height} and the paired Gateway renders only `
+      + bounds.canvas_pairs.map(pair => `${pair.width}x${pair.height}`).join(' or ')
+  }
+  const duration = recipe.target_duration_sec as number
+  if (duration > bounds.max_duration_sec) {
+    return `this video is ${Math.round(duration)} seconds and the paired Gateway renders at most `
+      + `${bounds.max_duration_sec} seconds`
+  }
+  const operations = (recipe.operations as unknown[]).length
+  if (operations > bounds.max_operations) {
+    return `this video needs ${operations} effects and the paired Gateway renders at most `
+      + `${bounds.max_operations}`
+  }
+  const sources = description.source_requirements
+  const sizes: number[] = []
+  for (const source of sources) {
+    try {
+      const info = await fs.stat(source.source_path)
+      if (!info.isFile() || !Number.isSafeInteger(info.size) || info.size <= 0) return null
+      sizes.push(info.size)
+    } catch {
+      return null
+    }
+  }
+  if (sources.length > bounds.max_assets) {
+    return `this video sends ${sources.length} source files and the paired Gateway accepts at most `
+      + `${bounds.max_assets}`
+  }
+  const largest = Math.max(...sizes)
+  if (largest > bounds.max_asset_bytes) {
+    return `one source file is ${Math.ceil(largest / (1024 * 1024))} MB and the paired Gateway accepts at `
+      + `most ${Math.floor(bounds.max_asset_bytes / (1024 * 1024))} MB per file`
+  }
+  const total = sizes.reduce((sum, size) => sum + size, 0)
+  if (total > bounds.max_total_input_bytes) {
+    return `the sources total ${Math.ceil(total / (1024 * 1024))} MB and the paired Gateway accepts at `
+      + `most ${Math.floor(bounds.max_total_input_bytes / (1024 * 1024))} MB`
+  }
+  const pixelFrames = width * height * canvas.working_fps * duration
+  if (pixelFrames > bounds.max_pixel_frames) {
+    return `this video needs ${Math.ceil(pixelFrames / 1_000_000)}M pixel-frames and the paired Gateway `
+      + `allows ${Math.floor(bounds.max_pixel_frames / 1_000_000)}M`
+  }
+  return null
+}
+
 /** Prepare and durably hold a local S2A snapshot. This grants no send authority. */
 export async function preparePrivateFinalRenderDescriptor(
   opts: PrepareOpts,
 ): Promise<{ kind: 'video-assembly-remote-wait' } | null> {
+  if (await validateRefusedFinalRenderForLocal(opts.job)) return null
   const known = await loadKnownFinalRenderIntentStagedReceipt(opts.job.project_slug, opts.job.job_id)
   const setting = await getPrivateFinalRenderSetting()
   if (!setting.enabled) {
@@ -181,6 +252,18 @@ export async function preparePrivateFinalRenderDescriptor(
     opts.job.output_lines.push('Private final render: the still tail is sent in full; this build does not claim '
       + 'the local still-loop acceleration for a remote encode.')
   }
+  // The Gateway enforces these same published figures in `_require_packet_bounds` and answers an
+  // outside packet with 409 RENDER_PROFILE_MISMATCH — after it has already accepted the key. Checking
+  // them here keeps that refusal from becoming an unknown POST, and keeps the composition local.
+  if (discovery.execution_bounds) {
+    const violation = await privateFinalRenderBoundsViolation(description, discovery.execution_bounds)
+    if (violation) {
+      if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
+      opts.job.output_lines.push(`Private final render: ${violation}, so it stays on this Mac. `
+        + 'The render is otherwise unchanged.')
+      return null
+    }
+  }
 
   // The imported finish runs this render's own final checks. Its expectation and level authority are
   // staged with the intent: a receipt freezes job.result, so they survive every recovery path, and a
@@ -217,7 +300,7 @@ export async function preparePrivateFinalRenderDescriptor(
 const MAX_CHUNK_BYTES = 8 * 1024 * 1024
 const TRANSITION_EVENTS = new Set([
   'request_sealed', 'send_may_start', 'post_accepted', 'post_unknown', 'lookup_accepted', 'lookup_not_found',
-  'monitor_output_ready', 'monitor_recovery_hold', 'monitor_cancel_terminal',
+  'monitor_output_ready', 'monitor_recovery_hold', 'monitor_cancel_terminal', 'post_refused', 'lookup_refused',
   'output_import_intent', 'output_imported', 'output_ack_observed', 'output_ack_reconciled',
 ])
 
@@ -1056,12 +1139,12 @@ export async function reconcileSealedPrivateFinalRenderOnce(
 ): Promise<void> {
   const initial = await canonicalReceipt(projectSlug, jobId)
   if (initial.version !== 3 || initial.phase === 'request_persisted') return
-  if (initial.phase === 'output_ready' || initial.phase === 'recovery_hold') return
+  if (initial.phase === 'output_ready' || initial.phase === 'recovery_hold' || initial.phase === 'refused') return
   const computeKey = path.join(getUserDataDir(), 'private-render', 'locks', `${initial.intent_id}.compute`)
   await withCrossProcessLock(computeKey, async () => {
     const context = await monitorContext(projectSlug, jobId)
     if (!context || context.current.phase === 'request_persisted'
-      || context.current.phase === 'output_ready' || context.current.phase === 'recovery_hold') return
+      || context.current.phase === 'output_ready' || context.current.phase === 'recovery_hold' || context.current.phase === 'refused') return
     const expected = monitorLookupExpectation(context.current)
     let view: FinalRenderJobView
     try {
@@ -1085,16 +1168,11 @@ export async function reconcileSealedPrivateFinalRenderOnce(
       if (context.current.gateway_job_id !== null) {
         await appendMonitorJobTransition(projectSlug, jobId, context,
           'monitor_recovery_hold', 'recovery_hold', { reason: 'bound_key_not_found', status: 404 })
-      } else if (context.current.phase !== 'lookup_not_found') {
+      } else if (context.current.phase !== 'lookup_not_found'
+        || canRefuseAbsentLookup(context.chain, context.current, error.code)) {
         const owner = await acquireMonitorMutationOwner(projectSlug, jobId, context)
-        const after = afterProjection({
-          ...context.current,
-          phase: 'lookup_not_found',
-          revision: context.current.revision + 1,
-          transport_revision_sha256: '0'.repeat(64),
-        })
-        await appendCanonicalTransition(projectSlug, jobId, context.intentDir, context.chain,
-          context.current, owner, 'lookup_not_found', after, { status: 404 })
+        await recordAbsentLookup(projectSlug, jobId, context.intentDir, context.chain,
+          context.current, owner, error.code)
       }
       return
     }
@@ -1189,11 +1267,37 @@ export async function reconcileSealedPrivateFinalRenderOnce(
   })
 }
 
+function canRefuseAbsentLookup(chain: Chain, current: FinalRenderTransportReceiptV3, code: string | null): boolean {
+  const unknown = chain.records.find(item => item.value.event === 'post_unknown')
+  const first = chain.records.find(item => item.value.event === 'lookup_not_found')
+  return current.phase === 'lookup_not_found' && current.gateway_job_id === null
+    && current.cancel_requested_at === null && unknown?.value.payload.failure_class === 'http'
+    && code === 'RENDER_NOT_FOUND' && first !== undefined
+    && Date.parse(first.value.recorded_at) >= Date.parse(unknown.value.recorded_at)
+    && Date.now() - Date.parse(first.value.recorded_at) >= FINAL_RENDER_REFUSAL_LOOKUP_GAP_MS
+}
+
+async function recordAbsentLookup(
+  projectSlug: string, jobId: string, intentDir: string, chain: Chain,
+  current: FinalRenderTransportReceiptV3, owner: { token: string; epoch: number }, code: string | null,
+): Promise<boolean> {
+  const canRefuse = canRefuseAbsentLookup(chain, current, code)
+  if (current.phase === 'lookup_not_found' && !canRefuse) return false
+  const after = afterProjection({
+    ...current, phase: canRefuse ? 'refused' : 'lookup_not_found', revision: current.revision + 1,
+    gateway_job_id: null, transport_revision_sha256: '0'.repeat(64),
+  })
+  await appendCanonicalTransition(projectSlug, jobId, intentDir, chain, current, owner,
+    canRefuse ? 'lookup_refused' : 'lookup_not_found', after,
+    canRefuse ? { status: 404, code: 'RENDER_NOT_FOUND' } : { status: 404 })
+  return canRefuse
+}
+
 /** One bounded upload/seal/send advance. It is intentionally not scheduled by this slice. */
 export async function advanceSealedPrivateFinalRenderTransport(
   projectSlug: string,
   jobId: string,
-): Promise<{ kind: 'video-assembly-remote-wait' }> {
+): Promise<{ kind: 'video-assembly-remote-wait' } | { kind: 'video-assembly-local' }> {
   const initial = await canonicalReceipt(projectSlug, jobId)
   if (initial.version === 1) throw new Error('Private final render transport lineage is incompatible.')
   const staged = v2Projection(initial)
@@ -1306,6 +1410,7 @@ export async function advanceSealedPrivateFinalRenderTransport(
       sendGranted = promoted.kind === 'fresh_transition'
     }
 
+    if (current.phase === 'refused') return { kind: 'video-assembly-local' }
     if (current.phase === 'remote_wait') return { kind: 'video-assembly-remote-wait' }
     await assertAuthority(projectSlug, jobId, current, access, evidence, owner)
     if (current.phase === 'send_may_start' && sendGranted) {
@@ -1320,6 +1425,16 @@ export async function advanceSealedPrivateFinalRenderTransport(
       } catch (error) {
         const latest = await canonicalReceipt(projectSlug, jobId)
         if (!sameReceipt(latest, current)) throw error
+        if (error instanceof FinalRenderHttpError && isDefiniteFinalRenderRefusal(error.status, error.code)) {
+          await assertAuthority(projectSlug, jobId, current, access, evidence, owner)
+          const after = afterProjection({
+            ...current, phase: 'refused', revision: current.revision + 1,
+            gateway_job_id: null, transport_revision_sha256: '0'.repeat(64),
+          })
+          await appendCanonicalTransition(projectSlug, jobId, reopened.intent_dir, chain, current, owner,
+            'post_refused', after, { status: error.status, code: error.code })
+          return { kind: 'video-assembly-local' }
+        }
         const after = afterProjection({
           ...current, phase: 'send_unknown', revision: current.revision + 1,
           gateway_job_id: null, transport_revision_sha256: '0'.repeat(64),
@@ -1346,13 +1461,8 @@ export async function advanceSealedPrivateFinalRenderTransport(
     } catch (error) {
       if (error instanceof FinalRenderHttpError && error.status === 404) {
         await assertAuthority(projectSlug, jobId, current, access, evidence, owner)
-        if (current.phase !== 'lookup_not_found') {
-          const after = afterProjection({
-            ...current, phase: 'lookup_not_found', revision: current.revision + 1,
-            gateway_job_id: null, transport_revision_sha256: '0'.repeat(64),
-          })
-          await appendCanonicalTransition(projectSlug, jobId, reopened.intent_dir, chain, current, owner,
-            'lookup_not_found', after, { status: 404 })
+        if (await recordAbsentLookup(projectSlug, jobId, reopened.intent_dir, chain, current, owner, error.code)) {
+          return { kind: 'video-assembly-local' }
         }
       }
       throw error

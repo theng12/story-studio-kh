@@ -24,6 +24,28 @@ import type {
 export const FINAL_RENDER_MAX_REVISION_BYTES = 64 * 1024
 export const FINAL_RENDER_MAX_REVISIONS = 16_384
 const MAX_CHUNK_BYTES = 8 * 1024 * 1024
+
+// Gateway accept() returns synchronously; an HTTP reply plus two same-key absences ten minutes
+// apart outlives that completed create. A lost network reply never supplies this proof.
+export const FINAL_RENDER_REFUSAL_LOOKUP_GAP_MS = 10 * 60_000
+
+/** Only RenderServiceError pairs emitted before staging by Gateway create/auth. */
+export function isDefiniteFinalRenderRefusal(status: number, code: unknown): boolean {
+  return (status === 400 && (code === 'IDEMPOTENCY_KEY_INVALID' || code === 'RENDER_REQUEST_INVALID'))
+    || (status === 401 && code === 'UNAUTHORIZED')
+    || (status === 403 && code === 'FORBIDDEN')
+    || (status === 404 && code === 'RENDER_ASSET_NOT_FOUND')
+    || (status === 409 && (code === 'RENDER_PROFILE_MISMATCH' || code === 'RENDER_ASSET_CONFLICT'))
+    || (status === 413 && code === 'RENDER_REQUEST_INVALID')
+    || (status === 422 && (code === 'RENDER_REQUEST_INVALID' || code === 'IDEMPOTENCY_KEY_REQUIRED'))
+}
+
+export function finalRenderRefusalMessage(refusal: FinalRenderTransportRevisionRecord): string {
+  if (refusal.event !== 'post_refused' && refusal.event !== 'lookup_refused') fail('local fallback lacks refusal proof')
+  return refusal.event === 'post_refused'
+    ? `Private final render: the paired Gateway refused this render (${refusal.payload.code}), so this video renders on this Mac.`
+    : 'Private final render: two authoritative original-key lookups at least 10 minutes apart found no render after an HTTP create failure; the Gateway never accepted this render, so this video renders on this Mac.'
+}
 const REVISION_KEYS = [
   'version', 'sequence', 'previous_sha256', 'canonical_before_sha256', 'event',
   'recorded_at', 'owner_token', 'owner_epoch', 'payload',
@@ -150,7 +172,7 @@ function validTransition(before: FinalRenderRemoteWaitReceipt, after: FinalRende
   }
   if (before.phase === 'send_may_start') {
     return (after.phase === 'remote_wait' && after.gateway_job_id !== null)
-      || ((after.phase === 'send_unknown' || after.phase === 'lookup_not_found' || after.phase === 'recovery_hold')
+      || ((after.phase === 'send_unknown' || after.phase === 'lookup_not_found' || after.phase === 'recovery_hold' || after.phase === 'refused')
         && after.gateway_job_id === null)
   }
   if (before.phase === 'send_unknown') {
@@ -159,7 +181,7 @@ function validTransition(before: FinalRenderRemoteWaitReceipt, after: FinalRende
   }
   if (before.phase === 'lookup_not_found') {
     return (after.phase === 'remote_wait' && after.gateway_job_id !== null)
-      || (after.phase === 'recovery_hold' && after.gateway_job_id === null)
+      || ((after.phase === 'recovery_hold' || after.phase === 'refused') && after.gateway_job_id === null)
   }
   if (before.phase === 'remote_wait') {
     return (after.phase === 'output_ready' || after.phase === 'recovery_hold')
@@ -374,6 +396,8 @@ export function validateFinalRenderTransportEvidence(
   let logicalCanonical: FinalRenderRemoteWaitReceipt = input.staged
   let ownerToken: string | null = null
   let ownerEpoch = 0
+  let postUnknown: FinalRenderTransportRevisionRecord | null = null
+  let firstAbsent: FinalRenderTransportRevisionRecord | null = null
   let repeatPut: FinalRenderTransportRevisionRecord | null = null
   let pinnedOutput: FinalRenderJobView | null = null
   let importOutputSha256: string | null = null
@@ -430,6 +454,8 @@ export function validateFinalRenderTransportEvidence(
     } else if (value.owner_token !== ownerToken || value.owner_epoch !== ownerEpoch) {
       fail('revision owner fence is invalid')
     }
+
+    if (logicalCanonical.phase === 'refused' && value.event !== 'owner_acquired') fail('refused lineage is terminal')
 
     if (value.event === 'blob_status_intent' || value.event === 'blob_put_intent') {
       const keys = value.event === 'blob_status_intent'
@@ -711,6 +737,7 @@ export function validateFinalRenderTransportEvidence(
       }
       consumedCancelIntents.add(cancelIntentSha256)
     } else if (value.event !== 'owner_acquired') {
+      const refused = value.event === 'post_refused' || value.event === 'lookup_refused'
       const accepted = value.event === 'post_accepted' || value.event === 'lookup_accepted'
       const monitorOutput = value.event === 'monitor_output_ready'
       const monitorHold = value.event === 'monitor_recovery_hold'
@@ -720,7 +747,8 @@ export function validateFinalRenderTransportEvidence(
       const ackObserved = value.event === 'output_ack_observed'
       const ackReconciled = value.event === 'output_ack_reconciled'
       const keys = value.event === 'request_sealed' || value.event === 'send_may_start' ? ['after']
-        : accepted ? ['after', 'response']
+        : refused ? ['after', 'status', 'code']
+          : accepted ? ['after', 'response']
           : value.event === 'post_unknown' ? ['after', 'failure_class']
             : value.event === 'lookup_not_found' ? ['after', 'status']
               : monitorOutput ? ['after', 'response']
@@ -752,20 +780,37 @@ export function validateFinalRenderTransportEvidence(
           : after.phase === 'send_may_start' ? 'send_may_start'
             : after.phase === 'send_unknown' ? 'post_unknown'
               : after.phase === 'lookup_not_found' ? 'lookup_not_found'
-                : value.event
+                : after.phase === 'refused' ? (logicalCanonical.phase === 'send_may_start' ? 'post_refused' : 'lookup_refused')
+                  : value.event
       if (value.event !== expectedEvent) fail('canonical transition event does not match')
-      if (accepted) {
+      if (refused) {
+        if (logicalCanonical.version !== 3 || logicalCanonical.gateway_job_id !== null
+          || logicalCanonical.cancel_requested_at !== null || after.phase !== 'refused') fail('refusal lineage is invalid')
+        if (value.event === 'post_refused') {
+          if (logicalCanonical.phase !== 'send_may_start'
+            || !isDefiniteFinalRenderRefusal(value.payload.status, value.payload.code)) fail('POST refusal proof is invalid')
+        } else if (logicalCanonical.phase !== 'lookup_not_found' || !postUnknown || !firstAbsent
+          || postUnknown.payload.failure_class !== 'http'
+          || value.payload.status !== 404 || value.payload.code !== 'RENDER_NOT_FOUND'
+          || Date.parse(firstAbsent.recorded_at) < Date.parse(postUnknown.recorded_at)
+          || Date.parse(value.recorded_at) - Date.parse(firstAbsent.recorded_at) < FINAL_RENDER_REFUSAL_LOOKUP_GAP_MS) {
+          fail('lookup refusal proof is invalid')
+        }
+      } else if (accepted) {
         validateFinalRenderJobEvidence(value.payload.response, sealed.access, {
           key: after.gateway_attempt_key, storyUuid: after.story_instance_id, intent: after.intent_id,
           attemptNo: after.story_attempt, inboundDigest: sealed.requestDigest,
           packetDigest: after.packet_sha256, acceptance: value.event === 'post_accepted',
         })
         if (value.payload.response.id !== after.gateway_job_id) fail('Gateway job id does not match canonical')
-      } else if (value.event === 'post_unknown'
-        && value.payload.failure_class !== 'http' && value.payload.failure_class !== 'network') {
-        fail('unknown POST failure class is invalid')
-      } else if (value.event === 'lookup_not_found' && value.payload.status !== 404) {
-        fail('lookup absence status is invalid')
+      } else if (value.event === 'post_unknown') {
+        if (value.payload.failure_class !== 'http' && value.payload.failure_class !== 'network') {
+          fail('unknown POST failure class is invalid')
+        }
+        postUnknown = value
+      } else if (value.event === 'lookup_not_found') {
+        if (value.payload.status !== 404) fail('lookup absence status is invalid')
+        firstAbsent ??= value
       } else if (importIntent) {
         const response = validateFinalRenderJobEvidence(value.payload.response, sealed.access, {
           id: after.gateway_job_id ?? undefined, key: after.gateway_attempt_key,

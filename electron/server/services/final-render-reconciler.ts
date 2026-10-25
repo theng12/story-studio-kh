@@ -6,6 +6,7 @@ import {
   listFinalRenderReconcileCandidates,
   loadAuthoritativeJob,
   mutateAuthoritativeJob,
+  resumeRefusedFinalRenderLocally,
 } from './job-queue.js'
 import {
   advanceSealedPrivateFinalRenderTransport,
@@ -102,6 +103,11 @@ async function reconcileOne({ project_slug, job_id }: Identity): Promise<boolean
   const job = await loadAuthoritativeJob(project_slug, job_id)
   const parsed = parseFinalRenderRemoteWaitReceipt(job?.final_render_remote_wait, job_id)
   const receipt = parsed.ok ? parsed.receipt : null
+  if (receipt?.version === 3 && receipt.phase === 'refused') {
+    if (receipt.cancel_requested_at !== null || isQueuePaused()) return false
+    await resumeRefusedFinalRenderLocally(project_slug, job_id)
+    return true
+  }
   const sends = receipt?.version === 2 || (receipt?.version === 3 && receipt.phase === 'request_persisted')
   const imports = receipt?.version === 3 && IMPORT_PHASES.has(receipt.phase)
   if (!receipt || (!sends && !imports)) {
@@ -115,7 +121,10 @@ async function reconcileOne({ project_slug, job_id }: Identity): Promise<boolean
   } else if (sends) {
     return false // an unsent cancelled intent has nothing to send or observe
   }
-  if (sends) await advanceSealedPrivateFinalRenderTransport(project_slug, job_id)
+  if (sends) {
+    const result = await advanceSealedPrivateFinalRenderTransport(project_slug, job_id)
+    if (result.kind === 'video-assembly-local') await resumeRefusedFinalRenderLocally(project_slug, job_id)
+  }
   else await recoverFinalRenderImport(project_slug, job_id)
   return true
 }

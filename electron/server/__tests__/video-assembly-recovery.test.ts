@@ -140,7 +140,7 @@ describe('Video Assembly render fingerprint and scene reuse', () => {
     const finalEncodeAt = generate.lastIndexOf('await runFinalComposition({')
     const finishAt = generate.lastIndexOf('await finishFinalVideo({')
     const finish = source.slice(source.indexOf('async function finishFinalVideo('), source.indexOf('async function verifyFinalVideo('))
-    const finalPromoteAt = finish.indexOf('await withFinalVideoPathLock(finalPath')
+    const finalPromoteAt = finish.indexOf('await publishLocalFinalVideo(job, outputFile, finalPath')
     const finalVerifyAt = finish.indexOf('await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration, ctx.loudness)')
 
     assert.ok(cloneAt >= 0 && cloneAt < authoritativeAt)
@@ -152,9 +152,9 @@ describe('Video Assembly render fingerprint and scene reuse', () => {
     assert.match(generate, /const inputsFingerprint = renderState \? await buildVideoAssemblyRenderFingerprint\(renderState\) : null/)
     assert.ok(finalEncodeAt >= 0 && finalEncodeAt < finishAt)
     assert.ok(finalPromoteAt >= 0 && finalPromoteAt < finalVerifyAt)
-    assert.match(generate, /withFinalVideoPathLock\(compFinalPath/)
-    assert.match(generate, /withFinalVideoPathLock\(compProjectTreeFinalPath/)
-    assert.match(finish, /withFinalVideoPathLock\(projectTreeFinalPath/)
+    assert.match(generate, /publishLocalFinalVideo\(job, compOutputFile, compFinalPath/)
+    assert.match(generate, /publishLocalFinalVideo\(job, compOutputFile, compProjectTreeFinalPath/)
+    assert.match(finish, /publishLocalFinalVideo\(job, outputFile, projectTreeFinalPath/)
   })
 
   test('generator replay keeps durable params unchanged and resolves the same default animation choices', async () => {

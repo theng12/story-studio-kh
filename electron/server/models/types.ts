@@ -2740,7 +2740,7 @@ export interface FinalRenderIntentStagedReceiptV2 {
 export interface FinalRenderTransportReceiptV3 {
   version: 3
   phase: 'request_persisted' | 'send_may_start' | 'send_unknown' | 'lookup_not_found' | 'remote_wait'
-    | 'output_ready' | 'importing' | 'imported' | 'acknowledged' | 'recovery_hold'
+    | 'output_ready' | 'importing' | 'imported' | 'acknowledged' | 'recovery_hold' | 'refused'
   revision: number
   job_id: string
   intent_id: string

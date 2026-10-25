@@ -46,6 +46,16 @@ export interface FinalRenderCapabilities {
   compiler: DescriptorText
   qualification_provenance?: QualificationProvenance | null
   encode?: FinalRenderEncodeAuthority | null
+  execution_bounds?: {
+    canvas_pairs: Array<{ width: number; height: number }>
+    working_fps: number[]
+    max_duration_sec: number
+    max_operations: number
+    max_assets: number
+    max_asset_bytes: number
+    max_total_input_bytes: number
+    max_pixel_frames: number
+  }
 }
 
 export interface FinalRenderOutputReceipt {
@@ -328,7 +338,7 @@ function parseCompilerDescriptor(raw: string): void {
   ]) sha256(compiler[key], `compiler descriptor.${key}`)
 }
 
-function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest: string): void {
+function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest: string): Record<string, any> {
   const profile = exactRecord(parseJsonText(raw, 'profile descriptor'), [
     'format', 'implementation', 'recipe_namespace', 'compiler_artifact_sha256',
     'tools_artifact_sha256', 'combination_set', 'tier_policy', 'output_policy',
@@ -377,6 +387,7 @@ function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest
     'max_pixel_frames', 'scratch_reserve_bytes', 'output_limit_bytes',
     'process_tree_rss_limit_bytes', 'cumulative_wall_seconds',
   ]) positiveSafeInteger(bounds[key], `profile descriptor.execution_bounds.${key}`)
+  return bounds as unknown as Record<string, any>
 }
 
 async function readBounded(response: Response, limit: number): Promise<Uint8Array> {
@@ -411,7 +422,7 @@ async function readBounded(response: Response, limit: number): Promise<Uint8Arra
 export class FinalRenderHttpError extends Error {
   readonly status: number
 
-  constructor(label: string, status: number) {
+  constructor(label: string, status: number, readonly code: string | null = null) {
     super(`${label} request failed with HTTP ${status}`)
     this.name = 'FinalRenderHttpError'
     this.status = status
@@ -420,7 +431,16 @@ export class FinalRenderHttpError extends Error {
 
 async function readJson(response: Response, label: string, expectedStatus: number): Promise<unknown> {
   const bytes = await readBounded(response, MAX_JSON_BYTES)
-  if (response.status !== expectedStatus) throw new FinalRenderHttpError(label, response.status)
+  if (response.status !== expectedStatus) {
+    let code: string | null = null
+    try {
+      const body = decodeStrictJson(bytes, `${label} error`) as any
+      if (body && Object.keys(body).length === 1 && body.error
+        && Object.keys(body.error).length === 1 && typeof body.error.code === 'string'
+        && /^[A-Z][A-Z0-9_]{0,79}$/.test(body.error.code)) code = body.error.code
+    } catch { /* An unrecognised error body cannot prove refusal. */ }
+    throw new FinalRenderHttpError(label, response.status, code)
+  }
   try {
     return decodeStrictJson(bytes, `${label} response`)
   } catch {
@@ -531,7 +551,8 @@ function parseCapabilities(value: unknown, connection: PrivateRenderConnection):
   if (typeof result.profile_descriptor_utf8 !== 'string') invalid('capabilities profile descriptor bytes are invalid')
   const profileDigest = sha256(result.profile_digest, 'capabilities profile_digest')
   if (digestBytes(result.profile_descriptor_utf8) !== profileDigest) invalid('capabilities profile byte digest does not match')
-  parseProfileDescriptor(result.profile_descriptor_utf8, tools.digest, compiler.digest)
+  const parsedBounds = parseProfileDescriptor(result.profile_descriptor_utf8, tools.digest, compiler.digest)
+  ;(result as any).execution_bounds = parsedBounds
   if (Object.hasOwn(result, 'qualification_provenance') && result.qualification_provenance !== null) {
     try { result.qualification_provenance = parseQualificationProvenance(result.qualification_provenance) } catch (error) {
       if (error instanceof RenderProvenanceError) invalid(error.message)
