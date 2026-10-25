@@ -90,9 +90,12 @@ async function stateFor(slug: string, presetId: string): Promise<any> {
 
 /** Every image prompt the mock Gateway was asked to render. */
 function imagePrompts(): string[] {
-  return service.submissions
-    .filter(submission => submission.operation === 'image')
-    .map(submission => String((submission.parsedBody as any)?.prompt ?? submission.bodyText))
+  return imageSubmissions().map(submission => String((submission.parsedBody as any)?.prompt ?? submission.bodyText))
+}
+
+/** Every image submission the mock Gateway accepted, in order. */
+function imageSubmissions(): Array<{ idempotencyKey: string; operation: string; parsedBody?: unknown; bodyText: string }> {
+  return service.submissions.filter(submission => submission.operation === 'image') as never
 }
 
 before(async () => {
@@ -284,24 +287,34 @@ describe('channel style previews — missing slots and retries', () => {
     service.queueScenario('image', { states: ['succeeded'] })
     service.queueScenario('image', { states: ['succeeded'] })
 
+    const submissionsBeforeFirst = imageSubmissions().length
     const body = await generatePreview(slug, { style_tag: text })
 
     assert.deepEqual(body.generated, ['scene', 'face'], 'the two that could render still landed')
     assert.deepEqual(body.failed.map((failure: any) => failure.slot), ['hero'])
     assert.match(body.failed[0].error, /\w/, 'the failure carries its own reason')
     assert.deepEqual(body.slots.map((slot: any) => slot.slot), ['scene', 'face'])
+    const failedHeroKey = imageSubmissions()[submissionsBeforeFirst]!.idempotencyKey
 
     // A retry asks only for what is still missing — the settled success IS
-    // reported as asked-for-and-already-saved, so nothing is rendered twice.
-    //
-    // (The hero's own retry replays the identity its first attempt used, so the
-    // mock Gateway hands back the same settled failure. Moving the identity
-    // after a settled provider failure is the shared preview service's existing
-    // rule — `force`, and nothing else, is what rerolls — and it applies to the
-    // owner's own styles in exactly the same way. Changing it is not this
-    // surface's call.)
+    // reported as asked-for-and-already-saved, so nothing is rendered twice —
+    // AND the slot the provider settled as failed is repaired under a NEW
+    // idempotency identity. A stable identity would replay the dead job for ever
+    // and Retry would never fix the slot (§8); see `SettledPreviewFailure`.
+    const submissionsBeforeRetry = imageSubmissions().length
     const retried = await generatePreview(slug, { style_tag: text })
     assert.deepEqual([...retried.skipped].sort(), ['face', 'scene'])
+    assert.deepEqual(retried.generated, ['hero'], 'the failed slot is really re-rendered')
+    assert.deepEqual(retried.failed, [])
+    assert.equal(retried.slots.length, 3, 'all three previews now exist')
+
+    const retriedSubmissions = imageSubmissions().slice(submissionsBeforeRetry)
+    assert.equal(retriedSubmissions.length, 1, 'exactly one new render, for the hero alone')
+    assert.notEqual(
+      retriedSubmissions[0]!.idempotencyKey,
+      failedHeroKey,
+      'the retry must not replay the key the provider settled as failed',
+    )
   })
 })
 

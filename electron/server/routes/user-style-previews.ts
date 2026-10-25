@@ -30,12 +30,13 @@ import { Router } from 'express'
 import { z } from 'zod'
 
 import { validateBody } from '../lib/validate.js'
-import { generateImageWithGenStudio, listImageModels } from '../lib/genstudio-client.js'
+import { generateImageWithGenStudio, isGenStudioSettledOutcomeError, listImageModels } from '../lib/genstudio-client.js'
 import { streamTo } from '../lib/stream-file.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { findUserStylePackStyle } from '../services/user-style-packs.js'
 import {
   USER_STYLE_PREVIEW_SLOTS,
+  SettledPreviewFailure,
   generateUserStylePreviews,
   pathForUserStylePreviewAsset,
   userStylePreviewPrompts,
@@ -116,13 +117,29 @@ router.post('/user-style-previews/:styleId/generate', validateBody(GenerateSchem
     force,
     ...(slots ? { slots } : {}),
     async generate({ prompt, requestIdentity }) {
-      const rendered = await generateImageWithGenStudio(apiKey, {
-        prompt,
-        modelId: selectedModel.id,
-        aspectRatio,
-        requiresAdmissionPermit: selectedModel.requires_admission_permit,
-        requestIdentity,
-      })
+      let rendered: Awaited<ReturnType<typeof generateImageWithGenStudio>>
+      try {
+        rendered = await generateImageWithGenStudio(apiKey, {
+          prompt,
+          modelId: selectedModel.id,
+          aspectRatio,
+          requiresAdmissionPermit: selectedModel.requires_admission_permit,
+          requestIdentity,
+        })
+      } catch (error: unknown) {
+        // The Gateway SETTLED this attempt (failed it, or settled it and lost the
+        // artifact): replaying the same idempotency key could only re-read that
+        // dead outcome, so the service must move it for the retry. Anything else
+        // — a dropped connection — keeps the key, because the job may still be
+        // running and re-submitting it would buy the same image twice.
+        if (isGenStudioSettledOutcomeError(error)) {
+          throw new SettledPreviewFailure(
+            error instanceof Error ? error.message : String(error),
+            { cause: error },
+          )
+        }
+        throw error
+      }
       // The Gateway hands back a data URL for this lane; anything else is not an
       // artifact this route knows how to keep.
       if (!rendered.url.startsWith('data:')) throw new Error('The Gateway returned an unsupported preview artifact')

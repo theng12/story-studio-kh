@@ -31,7 +31,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 
 import { validateBody } from '../lib/validate.js'
-import { generateImageWithGenStudio } from '../lib/genstudio-client.js'
+import { generateImageWithGenStudio, isGenStudioSettledOutcomeError } from '../lib/genstudio-client.js'
 import { resolvePreviewImageModel } from '../lib/preview-image-model.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
@@ -42,6 +42,7 @@ import {
 } from '../services/channel-style-previews.js'
 import {
   USER_STYLE_PREVIEW_SLOTS,
+  SettledPreviewFailure,
   generateUserStylePreviews,
   sharedStylePreviewKey,
   sharedStylePreviewSlots,
@@ -116,13 +117,27 @@ router.post('/projects/:slug/channel-style-previews', validateBody(GenerateSchem
     force,
     ...(slots ? { slots } : {}),
     async generate({ prompt, requestIdentity }) {
-      const rendered = await generateImageWithGenStudio(apiKey, {
-        prompt,
-        modelId: selectedModel.id,
-        aspectRatio,
-        requiresAdmissionPermit: selectedModel.requires_admission_permit,
-        requestIdentity,
-      })
+      let rendered: Awaited<ReturnType<typeof generateImageWithGenStudio>>
+      try {
+        rendered = await generateImageWithGenStudio(apiKey, {
+          prompt,
+          modelId: selectedModel.id,
+          aspectRatio,
+          requiresAdmissionPermit: selectedModel.requires_admission_permit,
+          requestIdentity,
+        })
+      } catch (error: unknown) {
+        // The Gateway SETTLED this attempt: its job can never be reopened, so the
+        // retry must move the identity or it replays the dead job forever. A
+        // dropped connection keeps the identity, because the job may still run.
+        if (isGenStudioSettledOutcomeError(error)) {
+          throw new SettledPreviewFailure(
+            error instanceof Error ? error.message : String(error),
+            { cause: error },
+          )
+        }
+        throw error
+      }
       // The Gateway hands back a data URL for this lane; anything else is not an
       // artifact this route knows how to keep.
       if (!rendered.url.startsWith('data:')) throw new Error('The Gateway returned an unsupported preview artifact')
