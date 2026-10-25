@@ -55,7 +55,8 @@ import { inspectSceneReviewCompletion } from '../services/scene-review-completio
 import { isEpisodeCode, isSketchPenMode, writeEpisodeSketchPen } from '../services/episode-sketch-pen.js'
 import { writeEpisodeSketchHold } from '../services/episode-sketch-hold.js'
 import { parseSketchHold, sketchHoldSelection } from '../lib/sketch-hold.js'
-import { checkpointSceneClip, invalidateEpisodesFollowingChannelSketch, motionPresentationSelection, resolveEpisodeHold, resolveEpisodePen, resolveSketchDrawSettings, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
+import { DEFAULT_SKETCH_REVEAL, parseSketchReveal, sketchRevealChoice, type SketchRevealType } from '../lib/sketch-reveal.js'
+import { checkpointSceneClip, invalidateEpisodesFollowingChannelSketch, motionPresentationSelection, resolveEpisodeHold, resolveEpisodePen, resolveSketchDrawSettings, revealTypeFor, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
 import { readChannelProfileAsset } from '../services/channel-profile.js'
 import { resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
@@ -287,6 +288,8 @@ interface ReviewSceneAugmented {
   end_sec: number
   transcript_segment: string
   visual_prompt: string
+  /** The reveal style this Sketch Draw scene resolves to, or null for other renderers. */
+  reveal_type?: SketchRevealType | null
   /** v1.0.468 — image-to-video motion instruction (read-only in Scene Review). */
   motion_prompt?: string
   approved: boolean
@@ -335,6 +338,7 @@ router.get('/projects/:slug/motion-presentation', async (req, res) => {
     if (!config || !project) return res.status(404).json({ detail: 'Channel not found' })
     const logo = await readChannelProfileAsset(req.params.slug, 'logo')
     res.json({ ...motionPresentationSelection(config.motion_presentation), hold: sketchHoldSelection(config.motion_presentation?.hold),
+      reveal: sketchRevealChoice(config.motion_presentation?.reveal),
       channel_name: project.name, has_logo: !!logo?.bytes.length })
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
@@ -359,15 +363,28 @@ router.put('/projects/:slug/motion-presentation', async (req, res) => {
       if (!parsed.ok) return res.status(400).json({ detail: parsed.error })
       hold = parsed.hold
     }
-    if (!await pm.updateConfig(req.params.slug, { motion_presentation: { renderer, pen, ...(hold ? { hold } : {}) } } as any)) {
+    // The reveal style rides here too, and `null` is a real value: it means the channel has never
+    // chosen one, which is what keeps clips rendered before the control existed fresh.
+    let reveal = config.motion_presentation?.reveal
+    if (req.body?.reveal !== undefined) {
+      if (req.body.reveal === null) reveal = undefined
+      else {
+        const parsed = parseSketchReveal(req.body.reveal)
+        if (!parsed.ok) return res.status(400).json({ detail: parsed.error })
+        reveal = parsed.reveal
+      }
+    }
+    if (!await pm.updateConfig(req.params.slug, { motion_presentation: { renderer, pen, ...(hold ? { hold } : {}), ...(reveal ? { reveal } : {}) } } as any)) {
       return res.status(404).json({ detail: 'Channel not found' })
     }
-    // Episodes without their own pen or hold follow these defaults, and their cached status does not see config.json move.
+    // Episodes without their own pen or hold follow these defaults, and their cached status does not
+    // see config.json move. The reveal style has no per-episode override, so every episode is touched.
     await invalidateEpisodesFollowingChannelSketch(req.params.slug, {
       pen: pen !== motionPresentationSelection(config.motion_presentation).pen,
       hold: JSON.stringify(hold ?? null) !== JSON.stringify(config.motion_presentation?.hold ?? null),
+      reveal: JSON.stringify(reveal ?? null) !== JSON.stringify(config.motion_presentation?.reveal ?? null),
     })
-    res.json({ renderer, pen, hold: sketchHoldSelection(hold) })
+    res.json({ renderer, pen, hold: sketchHoldSelection(hold), reveal: sketchRevealChoice(reveal) })
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
 
@@ -471,7 +488,7 @@ async function enqueueSketchDraw(req: express.Request<{ slug: string; episodeId:
     const config = await pm.getConfig(slug)
     const floor = Math.max(0, Number(config?.animate_min_seconds) || 0)
     const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
-    const filterContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: settings }
+    const filterContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: settings, revealScenes: plan.scenes.map(item => item.id) }
     const ids: string[] = []
     const skipped_reasons: Array<{ scene_id: string; reason: string }> = []
     for (const scene of plan.scenes) {
@@ -582,7 +599,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const reviewSketchSettings = plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
       ? await resolveSketchDrawSettings(slug, episodeId).catch(() => undefined)
       : undefined
-    const reviewContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: reviewSketchSettings }
+    const reviewContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: reviewSketchSettings, revealScenes: plan.scenes.map(item => item.id) }
     const listed = async (dir: string) => new Set(await fs.readdir(dir).catch(() => [] as string[]))
     const [namedFiles, legacyFiles, clipFiles] = await Promise.all([listed(namedDir), listed(legacyDir), listed(clipsDir)])
     const legacyUnmappedImages = [...namedFiles].filter(filename => legacyNumberedPattern.test(filename)).length
@@ -676,6 +693,12 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         clip_stale_reason: clipStaleReason,
         clip_renderer: s.clip_renderer,
         motion_choice: s.motion_choice,
+        // Which reveal style THIS scene resolves to, from the same resolver the generator and the
+        // freshness rule call. Null for a channel that has never chosen one, and for everything
+        // that is not a Sketch Draw scene.
+        reveal_type: s.clip_renderer === 'sketch_draw' && reviewSketchSettings?.reveal
+          ? revealTypeFor(reviewSketchSettings.reveal, reviewContext, s.id)
+          : null,
       })
     }
 
@@ -1624,7 +1647,7 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-choice', async (req, 
     const approvalSketchSettings = plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
       ? await resolveSketchDrawSettings(slug, episodeId).catch(() => undefined)
       : undefined
-    const approvalContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: approvalSketchSettings }
+    const approvalContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: approvalSketchSettings, revealScenes: plan.scenes.map(item => item.id) }
 
     const changed = await withLock(planPath, async () => {
       const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan

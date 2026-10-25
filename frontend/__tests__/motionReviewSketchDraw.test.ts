@@ -180,3 +180,42 @@ test('skip reasons are named and the per-scene Generate action respects the anim
   assert.match(source, /:title="generateBlocked\(scene\) \|\| undefined"/)
   assert.match(source, /function sceneTooShort\(scene: MotionScene\)/)
 })
+
+test('the reveal style control is channel-wide, has a not-chosen option, and a Mix waits for Apply', () => {
+  // The select is scoped to Sketch Draw and is channel-wide (no per-episode override).
+  assert.match(source, /<span>Reveal style<\/span>/)
+  assert.match(source, /<select v-model="revealChoice"[^>]*aria-label="Sketch Draw reveal style"/)
+  // "Not chosen" means every existing clip keeps its recorded reveal — distinct from a saved style.
+  assert.match(source, /<option value="">Not chosen \(clips keep the reveal they have\)<\/option>/)
+  // Each of the five styles is offered by name through a v-for loop.
+  assert.match(source, /<option v-for="type in REVEAL_TYPES" :key="type" :value="type">\{\{ REVEAL_LABELS\[type\] \}\}<\/option>/)
+  assert.match(source, /<option value="mix">Mix — a different style per scene<\/option>/)
+  // The Mix expands into checkboxes and an Apply button; a single style saves at once.
+  assert.match(source, /<div v-if="isSketchDraw && revealChoice === 'mix'" class="hold-inputs">/)
+  assert.match(source, /<label v-for="type in REVEAL_TYPES"[^>]*class="reveal-mix-item">/)
+  assert.match(source, /<input v-model="revealMixDraft" type="checkbox" :value="type"/)
+  assert.match(source, /@click="applyReveal">Apply mix<\/button>/)
+  // A single style and "not chosen" save at once; a Mix waits for Apply.
+  const onChoice = fn('onRevealChoice')
+  assert.match(onChoice, /if \(revealChoice\.value === 'mix'\)/)
+  assert.match(onChoice, /const parsed = revealFromDraft\(revealChoice\.value, \[\]\)/)
+  assert.match(onChoice, /if \(parsed\.ok\) void saveReveal\(parsed\.reveal\)/)
+  const apply = fn('applyReveal')
+  assert.match(apply, /const parsed = revealFromDraft\('mix', revealMixDraft\.value\)/)
+  assert.match(apply, /void saveReveal\(parsed\.reveal\)/)
+  // The save carries the renderer (required by the route) and sends the reveal value.
+  const save = fn('saveReveal')
+  assert.match(save, /await put\(`\/projects\/\$\{slug\.value\}\/motion-presentation`, \{ renderer: clipRenderer\.value, reveal: next \}\)/)
+  assert.match(save, /revealSetting\.value = next/)
+  assert.match(save, /revealChoice\.value = revealChoiceOf\(next\)/)
+  // The state is channel-wide: it never blanks on an episode change.
+  const reset = fn('resetEpisodeScopedMotionState')
+  assert.doesNotMatch(reset, /revealSetting\.value =/)
+  assert.doesNotMatch(reset, /revealChoice\.value =/)
+  assert.doesNotMatch(reset, /revealMixDraft\.value =/)
+  // Each scene row shows the style it actually drew with.
+  assert.match(source, /<p v-if="isSketchDraw && scene\.reveal_type" class="reveal-note">Reveal: \{\{ REVEAL_LABELS\[scene\.reveal_type\] \}\}<\/p>/)
+  // The help line names the current channel setting and the stale-clip rule.
+  assert.match(source, /No reveal style chosen, so clips keep the reveal they were made with\./)
+  assert.match(source, /Clips made before this setting keep their reveal until you re-generate them\./)
+})

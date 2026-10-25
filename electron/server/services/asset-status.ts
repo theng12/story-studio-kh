@@ -1526,7 +1526,7 @@ export async function computeEpisodeStatus(
         const motionSketchSettings = scenes.some((scene: any) => scene?.clip_renderer === 'sketch_draw')
           ? await resolveSketchDrawSettings(slug, code).catch(() => undefined)
           : undefined
-        const motionContext = { slug, episodeId: code, episodeDir: byCode.episode_dir, sketchSettings: motionSketchSettings }
+        const motionContext = { slug, episodeId: code, episodeDir: byCode.episode_dir, sketchSettings: motionSketchSettings, revealScenes: scenes.map((scene: any) => scene?.id).filter((id: unknown): id is string => typeof id === 'string') }
         const motionReady = await Promise.all(scenes.filter((s: any) => scopedMotion.scene_ids.includes(s.id)).map(async (s: any) => {
           if (s?.motion_choice === 'still') return true
           const hasClip = typeof s?.id === 'string' && await fileHasContent(path.join(clipsDir, `${s.id}.mp4`))

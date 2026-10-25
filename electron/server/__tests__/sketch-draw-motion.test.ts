@@ -7,6 +7,7 @@ import { after, before, describe, test } from 'node:test'
 
 import { auditSceneClipCompletion, assertSketchDrawClip, checkpointSceneClip, isSceneClipFresh, motionPresentationSelection, sceneClipStaleReason, sceneWindowSeconds } from '../services/scene-media-checkpoint.js'
 import { NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip-version.js'
+import { sketchRevealFingerprint, type SketchRevealSetting } from '../lib/sketch-reveal.js'
 import { runFfmpeg } from '../lib/ffmpeg-utils.js'
 import { useTempDataDir } from './_helpers.js'
 
@@ -17,9 +18,11 @@ let cleanup: () => Promise<void>
 before(async () => { const temp = await useTempDataDir(); dir = temp.dir; cleanup = temp.cleanup })
 after(async () => { await cleanup() })
 
-function settings(penFingerprint = sha(Buffer.from('none')), fps = 30, width = 1920, height = 1080) {
+function settings(penFingerprint = sha(Buffer.from('none')), fps = 30, width = 1920, height = 1080,
+  reveal: SketchRevealSetting | null = null) {
   return { fps, width, height, pen: { mode: 'none' as const }, penFingerprint,
-    hold: { mode: 'auto' as const }, holdFingerprint: sha(Buffer.from('auto')) }
+    hold: { mode: 'auto' as const }, holdFingerprint: sha(Buffer.from('auto')),
+    reveal, revealFingerprint: sha(Buffer.from(JSON.stringify(reveal ?? 'default'))) }
 }
 
 function scene(over: Record<string, unknown> = {}) {
@@ -91,7 +94,7 @@ describe('Sketch Draw freshness', () => {
 
   test('a settings-resolution failure is a plain sentence, never an exception string', async () => {
     const reason = await sceneClipStaleReason(scene(), { slug: 'no-such-channel', episodeId: 'EP001', episodeDir: dir })
-    assert.equal(reason, 'Sketch Draw settings could not be checked. Choose the pen and Video Assembly frame rate again.')
+    assert.equal(reason, 'Sketch Draw settings could not be checked. Choose the pen, reveal style and Video Assembly frame rate again.')
   })
 
   test('a fresh pending clip is not stale, so retry does not render it again', async () => {

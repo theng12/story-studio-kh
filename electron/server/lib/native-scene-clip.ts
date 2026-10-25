@@ -28,6 +28,7 @@ import { planStillMotion, type MotionPlan } from './scene-motion-plan.js'
 import { appendCappedTail } from './ffmpeg-utils.js'
 import { trackChild } from '../services/job-queue.js'
 import { NATIVE_SCENE_CLIP_VERSION, SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS } from './native-scene-clip-version.js'
+import { SKETCH_REVEAL_TYPES, type SketchRevealType } from './sketch-reveal.js'
 export { NATIVE_SCENE_CLIP_VERSION, SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS }
 // One definition, in a dependency-free module the freshness rule can import; mirrors the helper's default.
 export { sketchDefaultHoldFrames } from './sketch-hold.js'
@@ -203,6 +204,11 @@ export interface SketchDrawJob {
   hold_frames?: number
   paper: string
   pen: SketchDrawPen
+  /**
+   * The reveal style this scene resolved to. The app resolves a Mix per scene and passes the
+   * ANSWER; the helper never sees the mix set, so a re-render cannot drift from freshness.
+   */
+  reveal: SketchRevealType
   quality?: number
 }
 
@@ -227,6 +233,7 @@ export function validateSketchDrawJob(job: SketchDrawJob): void {
   }
   if (typeof job.input !== 'string' || typeof job.output !== 'string' || !path.isAbsolute(job.input) || !path.isAbsolute(job.output) || path.resolve(job.input) === path.resolve(job.output)) invalid('input and output must be different absolute paths')
   if (typeof job.paper !== 'string' || !/^#[a-f\d]{6}$/i.test(job.paper)) invalid('paper must be a six-digit hex colour')
+  if (typeof job.reveal !== 'string' || !(SKETCH_REVEAL_TYPES as readonly string[]).includes(job.reveal)) invalid('reveal must be one of line, buildup, swipes, patches, bloom')
   if (job.quality !== undefined && (!Number.isFinite(job.quality) || job.quality < 0 || job.quality > 1)) invalid('quality must be 0–1')
   const pen = job.pen
   if (!pen || !['none', 'plain', 'name', 'logo'].includes(pen.mode)) invalid('unknown pen mode')

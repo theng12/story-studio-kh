@@ -1462,7 +1462,7 @@ export async function scanEpisodeAssets(
         const clipPath = clipFiles.has(`${scene.id}.mp4`) ? canonicalClip
           : scene.clip_path && existsSync(scene.clip_path) ? scene.clip_path : ''
         const clipFreshReason = scene.motion_choice === 'clip' && clipPath
-          ? await sceneClipStaleReason(scene, { slug, episodeId: code, episodeDir, imagePath: plannedPath, sketchSettings: scanSketchSettings })
+          ? await sceneClipStaleReason(scene, { slug, episodeId: code, episodeDir, imagePath: plannedPath, sketchSettings: scanSketchSettings, revealScenes: plan.scenes.map(item => item.id) })
           : null
         if (clipFreshReason) motionFallback.push({ id: scene.id, scene_index: scene.scene_index, reason: clipFreshReason })
         const useMotion = scene.motion_choice === 'clip'
