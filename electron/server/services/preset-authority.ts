@@ -48,11 +48,18 @@ export function resolveExactPreset(
 }
 
 /** The channel's CURRENT automatic scene approval: the active Scene Review preset (the one Pipeline
- * runs, keys mirror PRESET_KEYS.scene_review) saved with `auto_approve_generated` on. */
+ * runs, keys mirror PRESET_KEYS.scene_review) saved with `auto_approve_generated` off.
+ * Owner decision 2026-10-25: generated images auto-approve by DEFAULT. Absent = on, explicit false = off. */
 export function sceneReviewAutoApproveOn(config: unknown): boolean {
   const { preset } = resolveExactPreset(
     config, 'scene_review_genstudio_presets', ['scene_review_genstudio_last_preset_scene-review'], undefined, 'Scene Review')
-  return preset?.data?.auto_approve_generated === true
+  return preset?.data?.auto_approve_generated !== false
+}
+
+/** Shared helper: auto-approve is ON unless explicitly set to false.
+ * Owner decision 2026-10-25: new channels and callers with no saved choice auto-approve. */
+export function autoApproveOn(value: unknown): boolean {
+  return value !== false
 }
 
 const SCENE_PLAN_REUSABLE_KEYS = [
