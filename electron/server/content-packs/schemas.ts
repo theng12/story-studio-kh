@@ -263,6 +263,13 @@ const SeriesFormulaDocumentSchema = z.object({
   youtube_tags_hint: z.array(safeText(80)).max(80).optional(),
   recommended_visual_style_ids: z.array(qualifiedId).max(MAX_LIST),
   recommended_thumbnail_recipe_ids: z.array(qualifiedId).max(MAX_LIST),
+  /**
+   * Optional, advisory link to Metadata Formula packs for this Series Formula
+   * (owner ruling, 2026-10-25). It never decides dispatch: the channel's own
+   * metadata selection stays the choice, and an id that is not installed is
+   * simply not offered.
+   */
+  recommended_metadata_formulas: z.array(qualifiedId).max(20).optional(),
   idea_axes: z.array(IdeaAxisSchema).max(20).optional(),
   vocabulary: VocabularySchema.optional(),
   audience_hint: safeText(1000).optional(),

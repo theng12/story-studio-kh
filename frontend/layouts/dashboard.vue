@@ -153,7 +153,7 @@
         <WorkspaceNotice v-if="projectLoadError" tone="warning" title="Channel loading failed">
           {{ projectLoadError }}
         </WorkspaceNotice>
-        <NicheMissingBanner v-if="slug && project" :key="slug" :slug="slug" :niche-id="project.niche_id" />
+        <NicheMissingBanner v-if="slug && project" :key="slug" :slug="slug" :niche-id="project.niche_id" :formula-choice="project.formula_choice" :name="project.name" />
         <!-- Content Pack installs / purchases keep running after the Store is left: show them here too. -->
         <ContentInstallStrip class="dashboard-install-strip" />
         <slot />

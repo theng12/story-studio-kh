@@ -934,12 +934,17 @@ export async function createProject(
     // change it after creation.
     format_id: 'continuity-chain',
     continuity_mode: req.continuity_mode || 'independent-stills',
-    // Niche is optional (subject-domain layer, orthogonal to format).
-    // Unset = no niche, generators behave exactly like format defaults.
+    // Niche is optional at the API boundary, but the creation wizard makes the
+    // choice mandatory (owner ruling, 2026-10-25). A selected Formula records
+    // `formula_choice: 'selected'`; the wizard's explicit Generic option records
+    // `'generic'`; an older client that sends neither leaves the field absent,
+    // which is the honest "never chose" state — the in-app prompt is for it.
     // We trust the wizard to pass a valid id; the niche-loader logs and
     // falls back to null on missing files so a stale id doesn't break
     // the project.
-    ...(req.niche_id ? { niche_id: req.niche_id } : {}),
+    ...(req.niche_id
+      ? { niche_id: req.niche_id, formula_choice: 'selected' as const }
+      : req.formula_choice === 'generic' ? { formula_choice: 'generic' as const } : {}),
     ...(req.topic_pack_ids?.length ? { topic_pack_ids: [...new Set(req.topic_pack_ids)] } : {}),
     // Absent stays absent: a legacy create must not gain a language field and
     // change prompt bytes. The two-value enum is the whole catalogue.

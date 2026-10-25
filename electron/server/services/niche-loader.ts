@@ -226,14 +226,98 @@ function validateNicheShape(n: any, filePath: string): void {
   }
 }
 
+// ── Read-time legacy-id aliases ────────────────────────────────────────────
+
+/**
+ * Owner ruling, 2026-10-25: reconcile the old Formula ids onto the store's
+ * Formulas like the art styles were reconciled — aliases, never a migration.
+ *
+ * A project, preset, or sidecar that stores a bare legacy id keeps its bytes;
+ * every READ of that id resolves to the qualified store Formula instead. No
+ * project config, preset, or niche file is rewritten, and the legacy
+ * `electron/server/niches/*.json` sources stay in place (AGENTS §5).
+ *
+ * The map is the identity table in `content-packs/legacy-migration-dispositions
+ * .json`, made executable for the read path. `music-mix` is deliberately
+ * absent: it was retired as a Story Content Store Formula and remains owned by
+ * the music-video subsystem.
+ *
+ * The three owner-authored forks below are unique contracts, not duplicates
+ * (owner ruling, 2026-10-25), so they were adopted into the store under
+ * registry-issued ids and their custom ids alias to the adopted pack.
+ */
+export const LEGACY_FORMULA_ALIASES: Readonly<Record<string, string>> = Object.freeze({
+  'ancient-humans': 'com.storystudio.formula.ancient-humans',
+  animals: 'com.storystudio.formula.natural-world-explained',
+  'business-economics': 'com.storystudio.formula.economics-of',
+  'dark-psychology': 'com.storystudio.formula.human-behavior-explained',
+  'deep-time-documentary': 'com.storystudio.formula.deep-time-documentary',
+  devotional: 'com.storystudio.formula.pastoral-scripture',
+  fungi: 'com.storystudio.formula.natural-world-explained',
+  'hidden-mechanics-history': 'com.storystudio.formula.archival-ledger',
+  'history-narration': 'com.storystudio.formula.history-explained',
+  insects: 'com.storystudio.formula.natural-world-explained',
+  'listicle-explainer': 'com.storystudio.formula.counted-explainer',
+  mindfulness: 'com.storystudio.formula.guided-mindfulness',
+  motivation: 'com.storystudio.formula.practical-motivation',
+  philosophy: 'com.storystudio.formula.philosophy-real-problem',
+  plants: 'com.storystudio.formula.natural-world-explained',
+  'pov-hustle': 'com.storystudio.formula.build-under-constraints',
+  'pov-life': 'com.storystudio.formula.pov-your-life-as',
+  prayer: 'com.storystudio.formula.prayer',
+  preaching: 'com.storystudio.formula.pastoral-scripture',
+  psychology: 'com.storystudio.formula.human-behavior-explained',
+  sleep: 'com.storystudio.formula.sleep-story',
+  // Owner custom Formulas adopted as store packs (content-only adoption).
+  'user:c0293626-910a-4dbd-9c5a-2e0a6c90d798': 'com.storystudio.formula.wildlife-under-pressure',
+  'user:9388c497-e3a1-4faa-9334-f86deead2efe': 'com.storystudio.formula.coffee-jazz-ambient',
+  'kh.owner.formula.illustrated-history-for-sleep': 'com.storystudio.formula.a-world-before-us',
+})
+
+/** The qualified id a stored Formula id reads as. Unknown ids pass through. */
+export function resolveFormulaAlias(id: string): string {
+  return LEGACY_FORMULA_ALIASES[id] ?? id
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Load a niche by id. User-custom first (shadows built-ins by id), then
- * built-in library. Returns null if not found.
+ * Load a niche by id. An aliased legacy id reads as its qualified store
+ * Formula first; every other id resolves user-custom → qualified → legacy.
+ * Returns null if not found.
  */
 export async function loadNiche(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<Niche | null> {
   if (!id) return null
+  const alias = LEGACY_FORMULA_ALIASES[id]
+  if (alias) return loadAliasedFormula(id, alias, registryOptions)
+  return loadResolvedNiche(id, registryOptions)
+}
+
+/**
+ * The alias is a strict preference, not a replacement of the file: when the
+ * store Formula is not installed on this machine the legacy source still
+ * answers, with a warning. A channel losing its Formula because a store pack
+ * is absent would be a worse defect than reading the superseded file.
+ */
+async function loadAliasedFormula(
+  legacyId: string,
+  targetId: string,
+  registryOptions: ContentPackRegistryOptions,
+): Promise<Niche | null> {
+  try {
+    const target = await loadResolvedNiche(targetId, registryOptions)
+    if (target) return target
+  } catch (e: any) {
+    console.warn(`[niche-loader] alias '${legacyId}' → '${targetId}' could not be resolved: ${e.message}`)
+  }
+  console.warn(
+    `[niche-loader] '${legacyId}' reads as '${targetId}', which is not available on this machine; `
+    + 'falling back to the legacy Formula so generation keeps working',
+  )
+  return loadLegacyNiche(legacyId).then(result => result?.document ?? null)
+}
+
+async function loadResolvedNiche(id: string, registryOptions: ContentPackRegistryOptions): Promise<Niche | null> {
   const userFork = await resolveUserForkCatalogItem(id, 'series-formula', registryOptions)
   if (userFork) return userFork.value as Niche
   if (isQualifiedContentPackId(id)) {
@@ -312,7 +396,16 @@ export async function listNicheCatalogEntries(registryOptions: ContentPackRegist
     }
   }
 
-  return [...seen.values()].sort((a, b) => a.value.name.localeCompare(b.value.name))
+  // A superseded legacy entry is only hidden when its qualified target is
+  // listed too. On a machine where the store Formula is not installed the
+  // legacy source still appears (and still reads through the alias fallback),
+  // so the picker never loses the only way to choose that Formula.
+  const listedIds = new Set([...seen.values()].map(entry => entry.value.id))
+  const visible = [...seen.values()].filter(entry => {
+    const target = LEGACY_FORMULA_ALIASES[entry.value.id]
+    return !target || !listedIds.has(target)
+  })
+  return visible.sort((a, b) => a.value.name.localeCompare(b.value.name))
 }
 
 export async function listNiches(registryOptions: ContentPackRegistryOptions = {}): Promise<Niche[]> {

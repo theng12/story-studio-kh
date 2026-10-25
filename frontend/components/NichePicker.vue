@@ -11,7 +11,8 @@
       :disabled="isLoading || disabled"
       @change="onSelect(($event.target as HTMLSelectElement).value)"
     >
-      <option value="">— No Series Formula (generic generation) —</option>
+      <option v-if="allowEmpty" value="">— No Series Formula (generic generation) —</option>
+      <option v-else value="" disabled>Choose a Formula…</option>
       <optgroup v-for="group in groupedNiches" :key="group.family" :label="group.family">
         <option
           v-for="n in group.items"
@@ -24,7 +25,7 @@
       </optgroup>
     </select>
 
-    <p v-if="!modelValue" class="niche-empty-note">
+    <p v-if="!modelValue && allowEmpty" class="niche-empty-note">
       Without a Series Formula, Story Studio has no reusable hook or structure to keep a channel consistent.
     </p>
 
@@ -90,11 +91,17 @@
 import { computed, onMounted } from 'vue'
 import type { Niche } from '../composables/useNiches.js'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   /** Empty string = no niche (this primitive is OPTIONAL, unlike Format). */
   modelValue: string
   disabled?: boolean
-}>()
+  /**
+   * Whether "no Formula" can be chosen from the picker itself. Settings keeps
+   * it (a channel may clear its Formula); the creation step and the no-Formula
+   * prompt do not, because Generic has its own explicit choice there.
+   */
+  allowEmpty?: boolean
+}>(), { allowEmpty: true })
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]

@@ -186,6 +186,20 @@ export interface ProjectMeta {
    * the whole JSON.
    */
   niche_id?: string
+  /**
+   * Whether this channel's Formula was an explicit choice (owner ruling,
+   * 2026-10-25: a Formula is mandatory at creation, with "Generic — no
+   * Formula" as a deliberate option).
+   *
+   *   'selected' — `niche_id` names the Formula the customer chose.
+   *   'generic'  — the customer deliberately chose a channel with no Formula.
+   *   absent     — nobody has chosen yet. This is every channel created before
+   *                the ruling, and the state the in-app prompt exists for.
+   *
+   * Two values that both mean "no Formula" would be the §6 defect: without
+   * this field "chose generic" and "never chose" are indistinguishable.
+   */
+  formula_choice?: 'selected' | 'generic'
   niche_overrides?: DeepPartial<Niche>
   /**
    * Reusable subject-domain packs layered under the Series Formula selected by
@@ -1651,6 +1665,14 @@ export interface CreateProjectRequest {
    * rather than rejecting the create, matching how format_id behaves.
    */
   niche_id?: string
+  /**
+   * The wizard's explicit Formula choice. `'generic'` means the customer
+   * deliberately chose a channel with no Formula (owner ruling, 2026-10-25);
+   * `'selected'` accompanies a `niche_id`. Absent keeps older API clients and
+   * tests working, and leaves the project in the "never chose" state the
+   * in-app prompt is for.
+   */
+  formula_choice?: 'selected' | 'generic'
   /** Optional Topic Packs under niche_id; absent uses formula defaults. */
   topic_pack_ids?: string[]
   /** Audience-facing language. Absent keeps legacy prompts unchanged. */
