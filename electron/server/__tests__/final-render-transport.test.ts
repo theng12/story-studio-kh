@@ -93,6 +93,33 @@ const PROFILE_UTF8 = canonicalJson({
   production_eligible: false,
 })
 const PROFILE_DIGEST = sha256(PROFILE_UTF8)
+// The two descriptors a paired Gateway can publish, differing only in the canvas rule: an open pair
+// list (v1) and the even-canvas range v2 states through `bounds_version`. Everything else — the
+// duration, operation, asset and wall-clock ceilings — is the Gateway's own published envelope.
+const PAIRED_ENVELOPE = {
+  max_duration_sec: 10_800, max_operations: 32, max_assets: 32,
+  max_asset_bytes: 1024 * 1024, max_total_input_bytes: 2 * 1024 * 1024,
+  scratch_reserve_bytes: 1, output_limit_bytes: 1024 * 1024,
+  process_tree_rss_limit_bytes: 1024 * 1024, cumulative_wall_seconds: 14_400,
+}
+const PROFILE_V1_1080P24_UTF8 = canonicalJson({
+  ...JSON.parse(PROFILE_UTF8),
+  execution_bounds: {
+    canvas_pairs: [{ width: 1920, height: 1080 }], working_fps: [24],
+    max_pixel_frames: 1920 * 1080 * 24 * 10_800, ...PAIRED_ENVELOPE,
+  },
+})
+function profileV2(overrides: Record<string, unknown> = {}): string {
+  return canonicalJson({
+    ...JSON.parse(PROFILE_UTF8),
+    execution_bounds: {
+      bounds_version: 2, canvas_range: { max_edge: 3840, max_pixels: 8_294_400 },
+      working_fps: [24, 25, 30, 60], max_pixel_frames: 5_374_771_200_000,
+      ...PAIRED_ENVELOPE, ...overrides,
+    },
+  })
+}
+const PROFILE_V2_UTF8 = profileV2()
 const DESCRIPTOR_PROVENANCE = {
   format: 'studio.render.story-build-provenance.v1', mode: 'descriptor-only',
   descriptors: { profile_digest: PROFILE_DIGEST, tools_digest: TOOLS_DIGEST, compiler_digest: COMPILER_DIGEST },
@@ -463,10 +490,15 @@ test('existing and malformed intent evidence blocks disabled or revoked preparat
 })
 
 /** A real fresh process gives each installed-reader singleton exactly one bundle. */
-async function isolatedBuildPrepare(value: PreparedCase, mode: string, qualification?: unknown): Promise<any> {
+async function isolatedBuildPrepare(
+  value: PreparedCase,
+  mode: string,
+  qualification?: unknown,
+  pairedProfile?: string,
+): Promise<any> {
   const fixture = path.join(retainedRoot, 'build-cases', `${mode}-${trackedJobIds.size}-${Date.now()}`)
   await fs.mkdir(fixture, { recursive: true, mode: 0o700 })
-  const provenance = mode === 'legacy' ? undefined : mode === 'tool-only' ? {
+  const selected = mode === 'legacy' ? undefined : mode === 'tool-only' ? {
     ...DESCRIPTOR_PROVENANCE, mode, descriptors: null,
   } : mode === 'sealed-candidate' ? {
     ...DESCRIPTOR_PROVENANCE, mode, qualification,
@@ -474,6 +506,11 @@ async function isolatedBuildPrepare(value: PreparedCase, mode: string, qualifica
     : mode.startsWith('mismatch-') ? { ...DESCRIPTOR_PROVENANCE, descriptors: {
       ...DESCRIPTOR_PROVENANCE.descriptors, [mode.slice('mismatch-'.length)]: '0'.repeat(64),
     } } : DESCRIPTOR_PROVENANCE
+  // A paired profile is only a paired profile when this build pins its digest, so the installed
+  // descriptors move with the capability the child's Gateway serves.
+  const provenance = selected && pairedProfile !== undefined
+    ? { ...selected, descriptors: { ...DESCRIPTOR_PROVENANCE.descriptors, profile_digest: sha256(pairedProfile) } }
+    : selected
   const source = `
     import fs from 'node:fs/promises';
     import path from 'node:path';
@@ -514,7 +551,11 @@ async function isolatedBuildPrepare(value: PreparedCase, mode: string, qualifica
   `
   const env = { ...process.env }
   delete env.NODE_TEST_CONTEXT
-  const payload = { fixture, mode, provenance, capabilities: capabilities(), origin: ORIGIN,
+  const payload = { fixture, mode, provenance, origin: ORIGIN,
+    capabilities: pairedProfile === undefined ? capabilities() : {
+      ...capabilities(),
+      profile_descriptor_utf8: pairedProfile, profile_digest: sha256(pairedProfile),
+    },
     server: path.resolve(HERE, '..'), composition: value.composition }
   const child = spawn(process.execPath, ['--import', require.resolve('tsx'), '--input-type=module', '-e', source, JSON.stringify(payload)], {
     env, stdio: ['ignore', 'pipe', 'pipe'],
@@ -769,4 +810,72 @@ test('an encode the paired machine cannot execute stays local before staging', a
   } finally {
     supported.restore()
   }
+})
+
+test('a v2 canvas range admits the request the v1 pair list refuses, and counts whole frames', async () => {
+  await setPrivateFinalRenderSetting({ enabled: true })
+  const at1080p30 = async (label: string, duration = 2): Promise<PreparedCase> => {
+    const value = await prepareCase(label)
+    value.composition.w = 1920
+    value.composition.h = 1080
+    value.composition.targetDuration = duration
+    value.composition.quality = { ...value.composition.quality, fps: 30 }
+    return value
+  }
+
+  // The descriptor Story shipped before the range names one 1080p24 canvas, so the same 1080p30
+  // request stays on this Mac — refused here, before any durable intent, rather than parked as an
+  // unknown POST the Gateway would answer 409.
+  const legacy = await at1080p30('v1-1080p30')
+  const refused = await isolatedBuildPrepare(legacy, 'descriptor-only', undefined, PROFILE_V1_1080P24_UTF8)
+  assert.equal(refused.error, undefined)
+  assert.equal(refused.disposition, null)
+  assert.deepEqual(refused.calls.map((call: { method: string }) => call.method), ['GET'])
+  assert.match(refused.output_lines.join('\n'), /this video is 30 fps and the paired Gateway renders only 24 fps/)
+  assert.match(refused.output_lines.join('\n'), /stays on this Mac/)
+  assert.equal(refused.receipt, undefined, 'nothing is staged under the v1 pair list')
+
+  // Under v2 the identical request stages.
+  const current = await at1080p30('v2-1080p30')
+  const staged = await isolatedBuildPrepare(current, 'descriptor-only', undefined, PROFILE_V2_UTF8)
+  assert.equal(staged.error, undefined)
+  assert.deepEqual(staged.disposition, { kind: 'video-assembly-remote-wait' })
+  assert.equal(staged.receipt?.phase, 'intent_staged')
+
+  // 4K60 sits exactly on the published range and inside the published work budget.
+  const fourK = await prepareCase('v2-4k60')
+  fourK.composition.w = 3840
+  fourK.composition.h = 2160
+  fourK.composition.quality = { ...fourK.composition.quality, fps: 60 }
+  const accepted = await isolatedBuildPrepare(fourK, 'descriptor-only', undefined, PROFILE_V2_UTF8)
+  assert.equal(accepted.error, undefined)
+  assert.deepEqual(accepted.disposition, { kind: 'video-assembly-remote-wait' })
+
+  // An odd edge is not a canvas v2 renders, so it stays local with nothing staged. Story refuses an
+  // odd canvas when it describes the composition, before the descriptor is consulted at all, so this
+  // asserts the outcome the user sees rather than which of the two gates answered.
+  const odd = await at1080p30('v2-odd')
+  odd.composition.w = 1921
+  const oddResult = await isolatedBuildPrepare(odd, 'descriptor-only', undefined, PROFILE_V2_UTF8)
+  assert.equal(oddResult.error, undefined)
+  assert.equal(oddResult.disposition, null)
+  assert.match(oddResult.output_lines.join('\n'), /stays on this Mac/)
+  assert.equal(oddResult.receipt, undefined)
+
+  // The work budget counts whole frames, as the Gateway does. 2.01 s at 30 fps is 61 frames, and
+  // 1920x1080x61 is over a budget that 1920x1080x60 sits under — a float duration times fps is not.
+  const tight = profileV2({ max_pixel_frames: 126_000_000 })
+  const onBudget = await at1080p30('v2-on-budget')
+  const onBudgetResult = await isolatedBuildPrepare(onBudget, 'descriptor-only', undefined, tight)
+  assert.equal(onBudgetResult.error, undefined)
+  assert.deepEqual(onBudgetResult.disposition, { kind: 'video-assembly-remote-wait' })
+
+  const overBudget = await at1080p30('v2-over-budget', 2.01)
+  const overBudgetResult = await isolatedBuildPrepare(overBudget, 'descriptor-only', undefined, tight)
+  assert.equal(overBudgetResult.error, undefined)
+  assert.equal(overBudgetResult.disposition, null)
+  assert.match(overBudgetResult.output_lines.join('\n'),
+    /needs 127M pixel-frames and the paired Gateway allows 126M/)
+  assert.match(overBudgetResult.output_lines.join('\n'), /stays on this Mac/)
+  assert.equal(overBudgetResult.receipt, undefined)
 })

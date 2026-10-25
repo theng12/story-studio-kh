@@ -75,6 +75,19 @@ const PROFILE_UTF8 = canonicalJson({
   production_eligible: false,
 })
 const PROFILE_DIGEST = digestUtf8(PROFILE_UTF8)
+/** The same paired profile under the v2 canvas rule: a version and a range, in place of the pairs. */
+const BOUNDS_V2 = {
+  bounds_version: 2, canvas_range: { max_edge: 3840, max_pixels: 8_294_400 },
+  working_fps: [24, 25, 30, 60], max_duration_sec: 10_800, max_operations: 32,
+  max_assets: 32, max_asset_bytes: 32 * 1024 * 1024, max_total_input_bytes: 64 * 1024 * 1024,
+  max_pixel_frames: 5_374_771_200_000, scratch_reserve_bytes: 1,
+  output_limit_bytes: 32 * 1024 * 1024, process_tree_rss_limit_bytes: 1,
+  cumulative_wall_seconds: 14_400,
+}
+function profileV2(executionBounds: Record<string, unknown>): string {
+  return canonicalJson({ ...JSON.parse(PROFILE_UTF8), execution_bounds: executionBounds })
+}
+const PROFILE_V2_UTF8 = profileV2(BOUNDS_V2)
 
 before(async () => {
   retained = await useTempDataDir({ retain: true, settle: async () => {} })
@@ -734,4 +747,66 @@ test('closed client rejects caller-shaped routes, envelope extensions, and malfo
       body: byteStream(bytes),
     }), /body|length|bytes/i)
   }
+})
+
+test('the paired profile is read at the bounds version it states, and an unknown one is refused', async () => {
+  const client = await import('../lib/final-render-gateway-client.js')
+  const serve = (profile: string) => {
+    globalThis.fetch = async () => Response.json(capabilities({
+      profile_descriptor_utf8: profile, profile_digest: digestUtf8(profile),
+    }))
+  }
+  const refuses = async (profile: string, message: string): Promise<void> => {
+    serve(profile)
+    await assert.rejects(client.getFinalRenderCapabilities(), error => {
+      const text = String(error)
+      assert.match(text, /Invalid private final render/)
+      assert.ok(text.includes(message), `expected ${message} in ${text}`)
+      return true
+    })
+  }
+
+  // v1, unchanged: an open pair list and no version key at all, so an older Gateway still pairs.
+  serve(PROFILE_UTF8)
+  const versionOne = await client.getFinalRenderCapabilities()
+  const versionOneBounds = versionOne.execution_bounds
+  assert.ok(versionOneBounds && 'canvas_pairs' in versionOneBounds, 'v1 bounds are an open pair list')
+  assert.deepEqual(versionOneBounds.canvas_pairs, [{ width: 1920, height: 1080 }])
+  assert.deepEqual(versionOneBounds.working_fps, [24])
+  assert.equal(Object.hasOwn(versionOneBounds, 'bounds_version'), false)
+  assert.equal(Object.hasOwn(versionOneBounds, 'canvas_range'), false)
+
+  // v2: the version it states, the range it states, and no pairs.
+  serve(PROFILE_V2_UTF8)
+  const versionTwo = await client.getFinalRenderCapabilities()
+  const versionTwoBounds = versionTwo.execution_bounds
+  assert.ok(versionTwoBounds && 'canvas_range' in versionTwoBounds, 'v2 bounds state a range')
+  assert.deepEqual(versionTwoBounds, BOUNDS_V2)
+  assert.equal(Object.hasOwn(versionTwoBounds, 'canvas_pairs'), false)
+
+  // Each rule's fields are closed, so a version and the other rule's shape cannot both be read.
+  await refuses(profileV2({ ...BOUNDS_V2, canvas_pairs: [{ width: 1920, height: 1080 }] }),
+    'profile descriptor.execution_bounds must have the exact closed fields')
+  await refuses(canonicalJson({
+    ...JSON.parse(PROFILE_UTF8),
+    execution_bounds: {
+      ...(JSON.parse(PROFILE_UTF8).execution_bounds as Record<string, unknown>),
+      canvas_range: { max_edge: 3840, max_pixels: 8_294_400 },
+    },
+  }), 'profile descriptor.execution_bounds must have the exact closed fields')
+
+  // An unknown version is refused by name: never read as v1 because a pair list is absent, and never
+  // read as v2 because the shape looks close enough.
+  for (const version of [1, 3, '2', null, 2.5, true]) {
+    await refuses(profileV2({ ...BOUNDS_V2, bounds_version: version }),
+      `profile descriptor.execution_bounds.bounds_version ${JSON.stringify(version)} is unsupported`)
+  }
+  await refuses(profileV2({ ...BOUNDS_V2, canvas_range: { max_edge: 3840, max_pixels: 8_294_400, extra: 1 } }),
+    'profile descriptor.execution_bounds.canvas_range must have the exact closed fields')
+  await refuses(profileV2({ ...BOUNDS_V2, canvas_range: { max_edge: 0, max_pixels: 8_294_400 } }),
+    'profile descriptor.execution_bounds.canvas_range.max_edge must be a positive safe integer')
+  await refuses(profileV2({ ...BOUNDS_V2, canvas_range: { max_edge: 3840, max_pixels: 0 } }),
+    'profile descriptor.execution_bounds.canvas_range.max_pixels must be a positive safe integer')
+  await refuses(profileV2({ ...BOUNDS_V2, canvas_range: { max_edge: 3840 } }),
+    'profile descriptor.execution_bounds.canvas_range must have the exact closed fields')
 })
