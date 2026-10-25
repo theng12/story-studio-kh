@@ -8,7 +8,7 @@
   >
     <div class="slm-shell">
       <header class="slm-head">
-        <div>
+        <div class="slm-heading">
           <p class="slm-eyebrow">Visual identity</p>
           <h2 id="style-library-title">Style Library</h2>
           <p>Find a channel look without turning the page into a hundred-card scroll.</p>
@@ -721,8 +721,13 @@ function cancelBulkPreviews(): void {
 
 <style scoped>
 .slm-shell { display: flex; min-height: min(760px, calc(100vh - 96px)); flex-direction: column; gap: 16px; }
-.slm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
-.slm-bulk { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+/* Title and close share the first row at every width; the bulk action owns the
+   second. A wrapping flex row used to push the close button onto a line of its
+   own as soon as the bulk count made the button wider, which read as a stray ×
+   floating under the heading. */
+.slm-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px 16px; }
+.slm-heading { min-width: 0; }
+.slm-bulk { display: flex; grid-column: 1 / -1; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .slm-bulk-status { margin: 0; color: var(--text-muted); font-size: var(--font-xs); }
 .slm-own-mark { position: absolute; left: 7px; top: 7px; padding: 3px 7px; border-radius: 999px; background: rgba(10, 12, 18, .76); color: var(--accent); border: 1px solid var(--accent); font-size: var(--font-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; backdrop-filter: blur(8px); }
 .slm-stale-mark { position: absolute; left: 7px; bottom: 7px; padding: 3px 7px; border-radius: 999px; background: rgba(220, 110, 20, .9); color: #fff; font-size: var(--font-xs); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
@@ -734,7 +739,7 @@ function cancelBulkPreviews(): void {
 .slm-head h2 { margin: 2px 0 5px; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.035em; }
 .slm-head p { margin: 0; color: var(--text-secondary); font-size: 13px; }
 .slm-eyebrow { color: var(--accent) !important; font-size: var(--font-xs) !important; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-.slm-close { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 50%; background: var(--bg-tertiary); color: var(--text-secondary); cursor: pointer; font-size: 22px; line-height: 1; }
+.slm-close { grid-column: 2; grid-row: 1; justify-self: end; width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 50%; background: var(--bg-tertiary); color: var(--text-secondary); cursor: pointer; font-size: 22px; line-height: 1; }
 .slm-close:hover { border-color: var(--accent); color: var(--text-primary); }
 .slm-tools { display: grid; gap: 10px; }
 .slm-search { display: flex; min-height: 44px; align-items: center; gap: 10px; padding: 0 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--bg-primary); color: var(--text-muted); }
