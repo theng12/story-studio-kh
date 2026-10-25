@@ -4,9 +4,17 @@
  */
 
 import fs from 'fs/promises'
+import { existsSync } from 'fs'
 import path from 'path'
+import { createHash, randomUUID } from 'node:crypto'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { listChatModels, type GenStudioChatModel } from '../lib/genstudio-client.js'
+import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
+import { resolveOutputTokenBudget } from '../services/output-token-budget.js'
 import { callAiWithModelPolicy, callAiWithRetry, type CallAiContext } from '../lib/ai-client.js'
 import { matchChapterFile, introMarkerPath, resolveArtifact, resolveReadPath } from '../lib/episode-artifacts.js'
+import { copyToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { projectContentLanguageDirective } from '../lib/content-language.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
@@ -517,6 +525,42 @@ function cleanGeneratedIntroduction(text: string): string {
   ).trim()
 }
 
+/** Keep the recipe intact; share remaining space evenly across chapter openings. */
+export function introductionStoryContext(
+  chapters: Array<{ number: number; title: string; text: string }>,
+  system: string,
+  prompt: string,
+  model?: Pick<GenStudioChatModel, 'max_prompt_characters' | 'context_window_tokens' | 'max_output_tokens'>,
+): { block: string; included: number; total: number } {
+  const total = chapters.reduce((sum, chapter) => sum + chapter.text.length, 0)
+  if (!total) return { block: '', included: 0, total }
+  const render = (share: number) => '\n\nEPISODE STORY (for context; do not retell it in full)\n'
+    + chapters.map(chapter => `Chapter ${chapter.number}: ${chapter.title}\n${chapter.text.slice(0, share).replace(/[\uD800-\uDBFF]$/, '')}`).join('\n\n')
+    + '\nEND EPISODE STORY'
+  const characterCap = model?.max_prompt_characters
+  const output = model ? resolveOutputTokenBudget('long', model.max_output_tokens) : null
+  const inputTokens = model?.context_window_tokens ? Math.max(0, model.context_window_tokens - (output ?? 0)) : undefined
+  const fits = (block: string) => {
+    const input = system + prompt + block
+    // ponytail: UTF-8 bytes conservatively bound byte-tokenized text; use a model-tokenizer API when Gateway publishes one.
+    return (characterCap === undefined || input.length <= characterCap)
+      && (inputTokens === undefined || Buffer.byteLength(input, 'utf8') <= inputTokens)
+  }
+  if (!fits(render(0))) return { block: '', included: 0, total }
+  let low = 0
+  let high = Math.max(...chapters.map(chapter => chapter.text.length))
+  while (low < high) {
+    const share = Math.ceil((low + high) / 2)
+    if (fits(render(share))) low = share
+    else high = share - 1
+  }
+  return {
+    block: render(low),
+    included: chapters.reduce((sum, chapter) => sum + chapter.text.slice(0, low).replace(/[\uD800-\uDBFF]$/, '').length, 0),
+    total,
+  }
+}
+
 export async function generateIntroductionOnly(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
   const req = params as any
@@ -607,7 +651,7 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   }
 
   // Generate introduction-only prompt
-  const introPrompt = `Generate ONLY the introduction section for a story episode. Do NOT include the story chapters.
+  let introPrompt = `Generate ONLY the introduction section for a story episode. Do NOT include the story chapters.
 
 Episode code: ${episode_id}
 Episode title: ${title}
@@ -639,27 +683,10 @@ Do not add a heading, preface, explanation, divider, or separator.`
   // legacy unified-only narration if needed so users with old episodes
   // can still run intro generation without manually re-running the
   // script step.
-  const { ensureChapterFilesMigrated, writeChapterFiles, assembleUnifiedNarration, hasIntroductionScriptSource, introductionFilePath } =
+  const { ensureChapterFilesMigrated, writeChapterFiles, assembleUnifiedNarration, chapterFilePath, splitNarrationIntoChapters, introductionFilePath, hasIntroductionScriptSource } =
     await import('../lib/narration-assembly.js')
   await withLock(paths.narration_docx, () =>
     ensureChapterFilesMigrated(paths.script_dir, episode_id, title))
-
-  // Say so when this is about to REPLACE an introduction rather than write a
-  // first one. Migration above has just materialised any introduction that
-  // lived only inside the unified narration, so by here the file is the
-  // honest answer. Deliberately a log line and not a refusal: `force` never
-  // reaches this generator (`presetToParams` passes only episode/title/model),
-  // so a refusal here would be a lock the owner has no key for — he would
-  // press Regenerate and get nothing. The real defence is upstream, in
-  // asset-status, which no longer reports these episodes as having none.
-  const existingIntro = resolveArtifact(paths.script_dir, `${episode_id}_Introduction`)
-  if (existingIntro) {
-    const existingWords = (await fs.readFile(existingIntro, 'utf-8').catch(() => ''))
-      .trim().split(/\s+/).filter(Boolean).length
-    if (existingWords > 0) {
-      job.output_lines.push(`Replacing an existing introduction (${existingWords} words) — the previous text is not kept.`)
-    }
-  }
 
   // After potential migration, verify chapters exist.
   if (!await hasIntroductionScriptSource(paths.script_dir, episode_id)) {
@@ -669,12 +696,108 @@ Do not add a heading, preface, explanation, divider, or separator.`
     )
   }
 
+  const { narrationDocxToMarkdown } = await import('../lib/docx-parser.js')
+  const chapters: Array<{ number: number; title: string; text: string }> = []
+  const entries = await fs.readdir(paths.script_dir).catch(() => [] as string[])
+  const numbers = [...new Set(entries.map(name => matchChapterFile(name, episode_id))
+    .filter((number): number is number => number !== null))].sort((a, b) => a - b)
+  for (const number of numbers) {
+    try {
+      const source = resolveReadPath(chapterFilePath(paths.script_dir, episode_id, number))
+      const parts = splitNarrationIntoChapters(await narrationDocxToMarkdown(source))
+      const chapter = parts.chapters.find(chapter => chapter.number === number)
+      if (chapter?.text.trim()) chapters.push(chapter)
+    } catch (error: any) {
+      job.output_lines.push(`Intro context: could not read Chapter ${number} (${error?.message || error}).`)
+    }
+  }
+  const introPolicy = pipelinePolicyForJob(params, 'introduction-only')
+  if (chapters.length) {
+    const key = await getApiKey('genstudio').catch(() => '')
+    const selected = introPolicy?.assigned_model || req.model
+    const catalog = key ? await listChatModels(key) : []
+    const model = findGenStudioProduct(catalog, resolveGenStudioModelId('chat', selected) || selected)
+    const context = introductionStoryContext(chapters, sysPrompt, introPrompt, model)
+    introPrompt += context.block
+    job.output_lines.push(`Intro context: ${chapters.length} chapters, ${context.included} of ${context.total} characters`)
+    if (!context.block) job.output_lines.push('Intro context: the published input limit leaves no room for all chapter titles; continuing without story context.')
+    if (!model?.max_prompt_characters && !model?.context_window_tokens) {
+      job.output_lines.push('Intro context: no input limit published; included the complete story without inventing a ceiling.')
+    }
+  } else {
+    job.output_lines.push('Intro context: no chapter text could be read; continuing without story context.')
+  }
+
   const controller = new AbortController()
   const cancelWatcher = setInterval(() => {
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
   try {
-    const introPolicy = pipelinePolicyForJob(params, 'introduction-only')
+    // Preserve the previous introduction and its derivatives BEFORE calling the AI,
+    // so a provider failure or write error leaves the originals byte-identical.
+    const introMarkerFile = introMarkerPath(paths.narration_docx)
+    const manualWrite = req.script_document_write
+    const introTarget = introductionFilePath(paths.script_dir, episode_id)
+    const projectDir = pm.getProjectDir(project_slug)
+    let promotion: {
+      expectedRevision: 'missing' | `sha256:${string}`
+      ownerActionId: string
+      projectDir: string
+      projectSlug: string
+      sourcePath: string
+      archiveFiles: string[]
+      oldWords?: number
+    } | undefined
+    if (projectDir) {
+      const oldSource = resolveReadPath(introTarget)
+      const previous = await fs.readFile(oldSource).catch((error: any) => {
+        if (error?.code === 'ENOENT') return null
+        throw error
+      })
+      const oldText = previous ? await narrationDocxToMarkdown(oldSource) : ''
+      const oldWords = oldText.replace(/^# Introduction[^\n]*\n/, '').trim().split(/\s+/).filter(Boolean).length
+      promotion = {
+        expectedRevision: previous ? `sha256:${createHash('sha256').update(previous).digest('hex')}` as const : 'missing' as const,
+        ownerActionId: randomUUID(),
+        projectDir,
+        projectSlug: project_slug,
+        sourcePath: oldSource,
+        archiveFiles: [introTarget, introTarget.replace(/\.md$/, '.docx'),
+          paths.narration_docx, paths.narration_docx.replace(/\.md$/, '.docx'), introMarkerFile],
+        oldWords,
+      }
+      if (manualWrite) {
+        if (manualWrite.version !== 1 || manualWrite.item !== 'introduction'
+          || manualWrite.owner_action_id !== req.generation_action?.id) {
+          throw new Error('The accepted introduction write owner is invalid.')
+        }
+        promotion.expectedRevision = manualWrite.expected_revision
+        promotion.ownerActionId = manualWrite.owner_action_id
+      }
+    }
+
+    // Copy the previous introduction and its derivatives to Trash BEFORE calling the AI,
+    // so a provider failure or write error leaves the originals byte-identical and recoverable.
+    if (promotion && projectDir) {
+      const root = trashRootFor(promotion.projectDir, promotion.projectDir, promotion.projectSlug)
+      for (const file of promotion.archiveFiles) {
+        try {
+          if (existsSync(file)) {
+            const rel = path.relative(promotion.projectDir, file)
+            if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+              copyToTrashSync(
+                file,
+                path.join(root, 'script-versions', promotion.ownerActionId, rel),
+                'script-version',
+              )
+            }
+          }
+        } catch (error: any) {
+          job.output_lines.push(`Warning: could not preserve ${path.basename(file)} in Trash (${error?.message || error}).`)
+        }
+      }
+    }
+
     const introCall = introPolicy
       ? callAiWithModelPolicy(introPolicy, sysPrompt, introPrompt, apiKeys, true, {
           slug: project_slug,
@@ -713,26 +836,12 @@ Do not add a heading, preface, explanation, divider, or separator.`
     const wordCount = cleanedIntro.split(/\s+/).length
     job.output_lines.push(`Introduction: ${wordCount.toLocaleString()} words`)
 
-    const introMarkerFile = introMarkerPath(paths.narration_docx)
-    const manualWrite = req.script_document_write
-    const introTarget = introductionFilePath(paths.script_dir, episode_id)
     const promote = async () => {
-      const projectDir = pm.getProjectDir(project_slug)
-      const promotion = manualWrite?.version === 1 && manualWrite.item === 'introduction'
-        && manualWrite.owner_action_id === req.generation_action?.id && projectDir
-        ? {
-            expectedRevision: manualWrite.expected_revision,
-            ownerActionId: manualWrite.owner_action_id,
-            projectDir,
-            projectSlug: project_slug,
-            archiveFiles: [introTarget, resolveReadPath(paths.narration_docx), introMarkerFile],
-          }
-        : undefined
-      if (manualWrite && !promotion) throw new Error('The accepted introduction write owner is invalid.')
       await writeChapterFiles(paths.script_dir, episode_id, title, {
         chapters: [],
         intro: { text: cleanedIntro },
-      }, { log: line => job.output_lines.push(line), ...(promotion ? { manualPromotion: promotion } : {}) })
+      }, { log: line => job.output_lines.push(line), manualPromotion: promotion })
+      if (promotion?.oldWords !== undefined) job.output_lines.push(`Previous introduction (${promotion.oldWords} words) kept in Trash`)
       job.output_lines.push(`Wrote: ${episode_id}_Introduction.md`)
       await chapterOnce(job, await assembleUnifiedNarration(paths.script_dir, episode_id, title))
       job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
