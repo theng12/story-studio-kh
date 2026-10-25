@@ -385,6 +385,7 @@ async function refreshAudioQualityTimeline(input: {
   const { findNarrationFile } = await import('./audio.js')
   const narration = await findNarrationFile(input.projectSlug, input.episodeId)
   const { inspectAudioQualityActionScope, currentChapterScriptHash } = await import('../services/audio-quality.js')
+  const { recordNarrationSource } = await import('../services/narration-staleness.js')
   const currentScope = await inspectAudioQualityActionScope({
     episodeDir: input.episodeDir, audioDir: input.audioDir, subtitlesDir,
     scriptDir: path.dirname(narration), episodeCode: input.episodeId,
@@ -457,6 +458,7 @@ async function refreshAudioQualityTimeline(input: {
   if (!['stitched', 'fresh'].includes(stitch.status)) {
     throw new Error(`Audio-quality subtitles could not be stitched: ${stitch.reason}`)
   }
+  const refreshedNarrationSource: Array<{ slug: string; sha256: string }> = []
   await updateAudioQualityProvenance(input.episodeDir, async current => {
     const currentAction = current.actions?.[actionId]
     if (!currentAction || currentAction.source_fingerprint !== sourceFingerprint) {
@@ -468,6 +470,10 @@ async function refreshAudioQualityTimeline(input: {
     for (const section of ready) {
       const scriptHash = await currentChapterScriptHash(path.dirname(narration), input.episodeId, section.slug)
       if (!scriptHash) throw new Error(`The current script for ${section.slug} could not be fingerprinted during refresh.`)
+      // The narration-text record follows the same truth: this audio is the
+      // narration for the script fingerprint just taken, so the shared
+      // staleness rule must not fall back to mtimes for it.
+      refreshedNarrationSource.push({ slug: section.slug, sha256: scriptHash })
       current.chapters[section.slug] = {
         normalized_script_hash: scriptHash,
         normalization: 'tts-v1',
@@ -483,6 +489,7 @@ async function refreshAudioQualityTimeline(input: {
     currentAction.state = 'fixed'
     delete currentAction.refresh_needed
   })
+  await recordNarrationSource(input.episodeDir, refreshedNarrationSource)
   input.job.result = {
     ...input.job.result,
     quality_repair: { action_id: actionId, state: 'fixed', refreshed_sections: ready.map(section => section.slug), stitch: stitch.status },

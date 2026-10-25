@@ -63,6 +63,7 @@ import { resolveOutputFormat } from '../services/generation-compression.js'
 import { AudioQualityVerificationCreditCeilingError, verifyAudioQualityCandidateRawTranscript } from '../services/audio-quality-transcription.js'
 import { promoteAudioQualityCandidate, readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
 import { readAudioTtsModelRecord, writeAudioTtsModelRecord, type AudioTtsModelRecord } from '../services/audio-tts-model-record.js'
+import { recordNarrationSource } from '../services/narration-staleness.js'
 import { consolidateChapterParts, keptPartPath, measurePart, partsDir, seamPauseRule } from '../services/chapter-parts.js'
 import { partHoldingSentence, type ChapterMissingSentences } from '../lib/script-transcript-check.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
@@ -1666,13 +1667,29 @@ export async function generateAudio(job: Job): Promise<void> {
         }
       })
 
+      // Narration just became the active audio for these sections, so record the
+      // text it was made from. This is what makes staleness a comparison of
+      // CONTENT: a re-import or save that rewrites identical words no longer
+      // marks the chapter stale (MANU0002, 2026-10-25). `scriptHash` is the X-01
+      // capture above — the fingerprint of the script ON DISK, taken before any
+      // in-memory transform. Written in the same commit as the provenance, so
+      // the record and the active selection cannot disagree.
+      const commitNarrationSource = () => recordNarrationSource(
+        episodeDir,
+        pendingUpdates.map(update => ({ slug: update.slug, sha256: update.scriptHash })),
+      )
+      const commitActivation = async () => {
+        await commitProvenance()
+        await commitNarrationSource()
+      }
+
       let selectedSources: number | null
       try {
         selectedSources = await selectNormalAudioSources(
           episodeDir,
           audioDir,
           replacementSources,
-          commitProvenance,
+          commitActivation,
         )
       } catch (error: any) {
         throw audioActivationError(error?.message || String(error))

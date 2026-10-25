@@ -2,7 +2,6 @@ import { Router } from 'express'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
-import { resolveArtifact } from '../lib/episode-artifacts.js'
 import { validateBody } from '../lib/validate.js'
 import { GenerateAudioSchema } from '../schemas/index.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -657,10 +656,13 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
       bySlug.set(slug, entry)
     }
 
-    // Per-chapter refactor: detect stale audio by comparing each
-    // chapter's source mtime against its audio chunks' mtimes. If a
-    // chapter source is newer than every matching audio chunk, the
-    // audio is stale (chapter was regenerated after audio was made).
+    // Per-chapter refactor: is this chapter's narration still the narration for
+    // the chapter's CURRENT TEXT? There is one rule, shared with the Scripts
+    // page's chapter panel and owned by services/narration-staleness.ts. It used
+    // to compare the chapter file's mtime with its audio chunks' mtimes, which
+    // marked a whole episode stale when a re-import rewrote identical text
+    // (MANU0002, 2026-10-25); audio narrated before the text record exists still
+    // uses that mtime fallback, and says so.
     //
     // Path discovery: derive scriptDir from the unified narration path
     // the audio reconciler already located. resolveEpisodePaths needs a
@@ -671,42 +673,31 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
     const fs = await import('fs/promises')
     const path = await import('path')
     const { findNarrationFile } = await import('../generators/audio.js')
+    const { narrationStaleness } = await import('../services/narration-staleness.js')
     const code = req.params.code
     let scriptDir: string | null = null
     try {
       const narrationPath = await findNarrationFile(req.params.slug, code)
       scriptDir = path.dirname(narrationPath)
     } catch { /* no narration → no per-chapter sources to check, fall through */ }
+    // The episode folder holding the narration-text record; resolved with the
+    // sidecar paths below, before any section row is built.
+    let episodeDir: string | null = null
 
-    async function isSectionStale(slug: string): Promise<boolean> {
-      if (!scriptDir) return false
-      // Source: chapter file for Chapter_NN, intro file for Introduction.
-      let sourcePath: string | null = null
-      if (slug === 'Introduction') {
-        sourcePath = resolveArtifact(scriptDir, `${code}_Introduction`)
-      } else {
-        const m = slug.match(/^Chapter_(\d+)$/)
-        if (m) sourcePath = resolveArtifact(scriptDir, `${code}_Chapter_${m[1]}`)
-      }
-      if (!sourcePath) return false
-      let sourceMs: number
-      try { sourceMs = (await fs.stat(sourcePath)).mtimeMs }
-      catch { return false } // no source → can't be stale
-      // Compare against ALL existing chunks for this section.
-      const chunkRe = new RegExp(`^${code}_${slug}(?:_part\\d+)?\\.mp3$`)
+    async function sectionStaleness(slug: string): Promise<Awaited<ReturnType<typeof narrationStaleness>>> {
+      // Chunk presence is per-section: `{CODE}_Chapter_NN.mp3` (single chunk) or
+      // `{CODE}_Chapter_NN_part{N}.mp3` (multi). The rule only needs to know the
+      // audio is there; the answer itself comes from the text.
       let dirEntries: string[] = []
-      try { dirEntries = await fs.readdir(status.audio_dir) } catch { return false }
-      const matchingChunks = dirEntries.filter(n => chunkRe.test(n))
-      if (!matchingChunks.length) return false // nothing generated → not "stale", just not done
-      // Stat all chunks in parallel — they're independent files. Sequential
-      // awaits made multi-chunk sections pay N round-trips of disk latency
-      // before we could decide; parallel stats finish in one round-trip.
-      const chunkStats = await Promise.all(
-        matchingChunks.map(c => fs.stat(path.join(status.audio_dir, c)).catch(() => null)),
-      )
-      // "Not stale" iff at least one chunk is newer than the source.
-      if (chunkStats.some(s => s != null && s.mtimeMs >= sourceMs)) return false
-      return true
+      try { dirEntries = await fs.readdir(status.audio_dir) } catch { /* no audio dir yet */ }
+      const chunkRe = new RegExp(`^${code}_${slug}(?:_part\\d+)?\\.mp3$`)
+      return narrationStaleness({
+        episodeCode: code,
+        slug,
+        scriptDir,
+        episodeDir,
+        audioFilePaths: dirEntries.filter(n => chunkRe.test(n)).map(n => path.join(status.audio_dir, n)),
+      })
     }
 
     let staleSubtitleSections = new Set<string>()
@@ -715,6 +706,9 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
     const activeChecksBySection = new Map<string, any>()
     try {
       const paths = await resolveEpisodePathsByCodeWithSidecar(req.params.slug, req.params.code, 'audio_chapters.json')
+      // The narration-text record lives beside `audio_chapters.json`; every
+      // section row below answers from it.
+      episodeDir = paths.episode_dir
       const freshness = await inspectSubtitleSourceFreshness(
         paths.episode_dir,
         paths.audio_dir,
@@ -834,8 +828,10 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
           : s.present_chunks < s.total_chunks || status.awaiting_join.includes(s.slug) ? 'partial'
           : 'generated',
         // Purely informational. Front-end shows a "⚠ stale" pill so the
-        // user can choose to regenerate; we do NOT auto-delete.
-        audio_stale: await isSectionStale(s.slug),
+        // user can choose to regenerate; we do NOT auto-delete. The answer
+        // carries its basis, so the UI never claims "the script changed"
+        // when the legacy mtime fallback is what noticed (AGENTS.md §6).
+        audio_staleness: await sectionStaleness(s.slug),
         subtitles_stale: staleSubtitleSections.has(s.slug.toLowerCase()),
         ...(qualityBySection.has(s.slug.toLowerCase())
           ? { quality: {

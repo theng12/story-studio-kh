@@ -1355,6 +1355,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
     } catch { /* no audio dir yet */ }
 
     const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+    const { narrationStaleness } = await import('../services/narration-staleness.js')
 
     const chapters: Array<{
       number: number
@@ -1363,7 +1364,8 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
       word_count: number
       character_count: number
       modified_at: string | null
-      audio_stale: boolean
+      /** The shared narration freshness answer, with the basis it was reached on. */
+      audio_staleness: Awaited<ReturnType<typeof narrationStaleness>>
     }> = []
     for (const num of numbers) {
       // Prefer the new `.md`, fall back to legacy `.docx`.
@@ -1395,25 +1397,21 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
         }
       } catch { /* unreadable file → present:false below */ }
 
-      // Stale check: chapter source newer than ALL existing audio
-      // chunks for this section means audio is out of date.
+      // Is this chapter's narration still the narration for the text on disk?
+      // ONE rule, shared with the Audio page — see services/narration-staleness.ts.
+      // Comparing mtimes marked every chapter stale when a re-import rewrote
+      // identical text (MANU0002, 2026-10-25); audio narrated before the text
+      // record exists keeps the mtime fallback and reports it as legacy.
       const slug = `Chapter_${String(num).padStart(2, '0')}`
       const chunkRe = new RegExp(`^${episodeId}_${slug}(?:_part\\d+)?\\.mp3$`)
-      let audioStale = false
-      if (modifiedAt && audioEntries.length) {
-        const matchingChunks = audioEntries.filter(n => chunkRe.test(n))
-        if (matchingChunks.length) {
-          const sourceMs = new Date(modifiedAt).getTime()
-          let anyFresher = false
-          for (const c of matchingChunks) {
-            try {
-              const cs = await fs.stat(pathMod.join(paths.audio_dir, c))
-              if (cs.mtimeMs >= sourceMs) { anyFresher = true; break }
-            } catch { /* skip */ }
-          }
-          audioStale = !anyFresher
-        }
-      }
+      const audioStaleness = await narrationStaleness({
+        episodeCode: episodeId,
+        slug,
+        scriptDir: paths.script_dir,
+        episodeDir: paths.episode_dir,
+        audioFilePaths: audioEntries.filter(n => chunkRe.test(n))
+          .map(n => pathMod.join(paths.audio_dir, n)),
+      })
 
       chapters.push({
         number: num,
@@ -1422,7 +1420,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
         word_count: wordCount,
         character_count: characterCount,
         modified_at: modifiedAt,
-        audio_stale: audioStale,
+        audio_staleness: audioStaleness,
       })
     }
 
