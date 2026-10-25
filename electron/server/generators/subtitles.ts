@@ -111,13 +111,30 @@ export interface TranscribeSubtitlesRequest {
   /**
    * 2026-10-05 — 'script' times the script we wrote against the narration's
    * known section timeline (no speech recognition, nothing charged);
-   * 'transcribe' is the Whisper path. Absent: Khmer (which no transcriber
-   * reads) is script-timed, everything else transcribed.
+   * 'transcribe' is the Whisper path. Absent: Khmer is script-timed by
+   * default (see 2026-10-25 production evidence on resolveSubtitleMethod);
+   * everything else transcribed. An explicit method always wins.
    */
   method?: 'script' | 'transcribe'
 }
 
-/** Whisper cannot read Khmer (GATE.md), so a Khmer episode is script-timed unless asked otherwise. */
+/**
+ * 2026-10-25 production evidence: whisper-large-v3-turbo publishes `km` in its
+ * language list, but a forced Khmer transcription (191 s chapter) returned
+ * 13 cues with ~276 Khmer characters against 2,269 intended, so the published
+ * language list does not prove usable output. Khmer therefore stays script-
+ * timed by default; an explicit method always wins.
+ *
+ * Decision rule:
+ * - explicit `method` ('script' | 'transcribe') -> that method, unchanged;
+ * - language starts with 'km' OR the script text is Khmer -> 'script';
+ * - otherwise -> 'transcribe'.
+ *
+ * A script-timed SRT is NOT speech-coverage evidence: it is the script laid
+ * on the narration's section timeline. The job log and result record this so
+ * downstream consumers (Scene Plan, Production Board, recovery) cannot
+ * mistake it for a transcription.
+ */
 export function resolveSubtitleMethod(req: Pick<TranscribeSubtitlesRequest, 'method' | 'language'>, scriptText: string): 'script' | 'transcribe' {
   if (req.method === 'script' || req.method === 'transcribe') return req.method
   return req.language?.toLowerCase().startsWith('km') || /[\u1780-\u17ff]/.test(scriptText) ? 'script' : 'transcribe'
@@ -782,7 +799,7 @@ async function transcribePerChapter(
   const genstudio = method === 'script' ? null : await resolveGenStudioTranscription(job, req)
   if (method === 'script') {
     if (!narration.length) throw new Error('Script-timed subtitles need the narration script, and none was found for this episode. Write or restore the script, or choose Transcribe.')
-    job.output_lines.push('Method: script-timed — the script\'s own words, timed by the narration\'s sections (no transcription, nothing charged).')
+    job.output_lines.push('Method: script-timed — the script\'s own words, timed by the narration\'s sections (no speech recognition; this SRT is NOT evidence of what the audio says).')
   }
   // Subtitles are timed to the chapter file: join complete split chapters
   // first so captions are made once, for the file Audio Assembly will use.
@@ -1123,6 +1140,8 @@ async function transcribePerChapter(
     generated_sections: generatedSections,
     new_cues: totalCues,
     subtitle_method: genstudio ? 'transcribe' : 'script',
+    // A script-timed SRT is the script laid on the narration timeline, not evidence of what the audio says.
+    ...(genstudio ? {} : { subtitle_method_reason: 'script-timed: no speech recognition; the SRT is the script laid on the narration timeline' }),
     ...(proportionalChapters ? { script_timing_proportional_chapters: proportionalChapters } : {}),
     missing_sections: episodeMissingSlugs,
     recovery_state: 'needs_attention',

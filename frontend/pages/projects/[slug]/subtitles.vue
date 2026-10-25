@@ -251,7 +251,7 @@
         <div class="form-group mt-2">
           <label for="sub-method">How subtitles are made</label>
           <select id="sub-method" v-model="subtitleMethod" class="input">
-            <option value="">Transcribe the audio (Khmer is always script-timed)</option>
+            <option value="">Transcribe the audio (Khmer uses the script's own words)</option>
             <option value="script">Script-timed (fast, exact text)</option>
           </select>
           <small class="text-muted">
@@ -613,7 +613,7 @@ const loading = ref(false)
 const statusError = ref('')
 
 const force = ref(false)
-/** '' = transcribe (Khmer script-timed automatically), 'script' = script-timed (2026-10-05). */
+/** '' = transcribe (Khmer script-timed by default), 'script' = script-timed (2026-10-05). */
 const subtitleMethod = ref<'' | 'script'>('')
 const transcribing = ref(false)
 /**
