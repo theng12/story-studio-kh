@@ -262,6 +262,8 @@ test('default-off and unsupported compositions stay local before any durable int
   assert.equal(await prepare(disabled), null)
   assert.deepEqual(fetchCalls, [], 'default-off does not discover private capabilities')
   assert.equal(disabled.job.final_render_remote_wait, undefined)
+  // A local render says why it is local, the switch being off included (AGENTS §7).
+  assert.match(disabled.composition.job.output_lines.join('\n'), /^Private final render: off .*stays on this Mac/m)
 
   await setPrivateFinalRenderSetting({ enabled: true })
   const unsupported = await prepareCase('unsupported')

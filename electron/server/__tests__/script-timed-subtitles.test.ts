@@ -83,6 +83,24 @@ test('Khmer picks script-timed automatically; English keeps transcription unless
   assert.equal(resolveSubtitleMethod({ method: 'transcribe' }, 'ព្រះអាទិត្យរះ។'), 'transcribe')
 })
 
+test('2026-10-25 scope: explicit method always wins; default unchanged for km and en', () => {
+  // Explicit method wins both ways, regardless of language or script
+  assert.equal(resolveSubtitleMethod({ method: 'script' }, 'The tide came in.'), 'script')
+  assert.equal(resolveSubtitleMethod({ method: 'transcribe' }, 'ព្រះអាទិត្យរះ។'), 'transcribe')
+  assert.equal(resolveSubtitleMethod({ method: 'transcribe', language: 'km' }, ''), 'transcribe')
+  assert.equal(resolveSubtitleMethod({ method: 'script', language: 'en' }, 'Hello'), 'script')
+
+  // Default unchanged: Khmer (by language or script) stays script-timed
+  assert.equal(resolveSubtitleMethod({ language: 'km' }, ''), 'script')
+  assert.equal(resolveSubtitleMethod({}, 'ព្រះអាទិត្យរះ។'), 'script')
+  assert.equal(resolveSubtitleMethod({ language: 'km-KH' }, 'Some text'), 'script')
+
+  // Default unchanged: English and other languages stay transcribed
+  assert.equal(resolveSubtitleMethod({ language: 'en' }, 'Hello'), 'transcribe')
+  assert.equal(resolveSubtitleMethod({}, 'The tide came in.'), 'transcribe')
+  assert.equal(resolveSubtitleMethod({ language: 'th' }, 'สวัสดี'), 'transcribe')
+})
+
 test('a Hub timeline is kept only when every row is usable', () => {
   const row = { section: 1, start_s: 0, end_s: 1, text_start: 0, text_end: 4 }
   assert.deepEqual(sectionTimelineRows({ timeline: [row] }), [{ start_s: 0, end_s: 1, text_start: 0, text_end: 4 }])

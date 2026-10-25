@@ -95,6 +95,7 @@ export async function preparePrivateFinalRenderDescriptor(
   const setting = await getPrivateFinalRenderSetting()
   if (!setting.enabled) {
     if (known) throw new Error('Existing private final render lineage is recovery-blocked; local rendering is refused.')
+    opts.job.output_lines.push('Private final render: off in Settings, so this video stays on this Mac.')
     return null
   }
 

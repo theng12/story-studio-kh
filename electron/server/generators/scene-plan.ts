@@ -818,6 +818,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   let model = params.model || ''
   if (scenePolicy) model = scenePolicy.assigned_model
   if (!episode_id) throw new Error('episode_id is required')
+  // A music episode has no narration to plan from: Episode Builder writes its pictures and prompts.
+  // Refuse before reading a transcript it never has, instead of failing every retry on ENOENT.
+  const { isMusicEpisodeDir } = await import('../services/music-episode-store.js')
+  if (isMusicEpisodeDir((await resolveEpisodePathsByCode(job.project_slug, episode_id)).episode_dir)) {
+    throw nonRetryable(new Error(`${episode_id} is a music episode: its pictures and prompts come from Episode Builder, not Scene Plan. Rebuild it in Episode Builder to refresh them.`))
+  }
   const packedRepairStage: 'visual' | 'motion' | undefined = params.regenerate_empty_motion_prompts
     ? 'motion'
     : params.regenerate_empty_prompts
