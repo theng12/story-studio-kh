@@ -4,8 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
-## v1.4.357 — 2026-10-25
+## v1.4.358 — 2026-10-25
 
+- Remote final rendering: a video the paired Gateway cannot take (for example 30 fps while it renders only 24 fps) now renders on this Mac and the log says why, before anything is sent. A render the Gateway refuses renders locally too, instead of waiting forever, and assemblies already stuck that way finish locally on their own. A local render never replaces a final that was already accepted.
+- App updates are no longer held back by those parked remote renders.
+- Sketch Draw never hangs: if the video writer fails under load the scene stops with the real error, and a batch retries that scene once.
+- A new episode's first save keeps the channel's starting scene rhythm instead of resetting it to 1–3 seconds.
+- Generated images are approved automatically by default. A channel or preset that turned this off stays off.
 - Thumbnails: a text layer for headlines, in Khmer or any other script. Turn it on per channel in Settings. Pick a suggested headline or type your own; it fits short and long titles automatically. Choose fill or gradient, outline, shadow and a background box, start from a built-in look, and save your own looks as presets (a preset keeps the look, never the words). Fonts included: Kantumruy Pro, Moul, Battambang, Inter and Anton. If the thumbnail's artwork changes afterwards, the headline version is marked out of date and is not uploaded.
 - Scripts: edit one chapter's text directly. Only that chapter's narration — and the mix, subtitles and timeline made from it — become out of date; the other chapters are untouched. The old text is kept in Trash, and a save is refused if the chapter changed since you opened it.
 - Subtitles: script-timed subtitles now say plainly that they are the script laid on the narration's timing, not a transcription of the audio.
