@@ -1020,12 +1020,18 @@ test('catalogue absence keeps the legacy direct path without a permit request', 
 })
 
 test('all production image entry paths forward the published permit requirement', async () => {
-  const [provider, styles, lettering] = await Promise.all([
+  const [provider, styles, channelStyles, lettering] = await Promise.all([
     readFile(path.join(SERVER, 'providers/image/genstudio.ts'), 'utf8'),
     readFile(path.join(SERVER, 'routes/style-preview.ts'), 'utf8'),
+    readFile(path.join(SERVER, 'routes/channel-style-previews.ts'), 'utf8'),
     readFile(path.join(SERVER, 'routes/lettering-previews.ts'), 'utf8'),
   ])
-  for (const [label, source] of [['provider', provider], ['style preview', styles], ['lettering preview', lettering]] as const) {
+  for (const [label, source] of [
+    ['provider', provider],
+    ['style preview', styles],
+    ['channel style preview', channelStyles],
+    ['lettering preview', lettering],
+  ] as const) {
     assert.match(source, /requiresAdmissionPermit:\s*\w+\.requires_admission_permit/, `${label} must forward permit policy`)
   }
 })

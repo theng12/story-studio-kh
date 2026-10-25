@@ -75,10 +75,50 @@ export interface StoredUserStylePreview {
   created_at: string
 }
 
+/**
+ * The last attempt the PROVIDER settled as failed for one slot.
+ *
+ * A rendered preview is bought under a stable idempotency identity, so an
+ * accidental repeat replays the first job instead of paying for a second. That
+ * is right until the provider SETTLES the attempt as failed: a settled job can
+ * never be reopened, so replaying the same key would re-read the same dead job
+ * for ever and Retry would never repair anything (§8). This record is what lets
+ * the next attempt move the identity — and because it is persisted, two retries
+ * after the same failure derive the same next identity and cannot both be
+ * charged (`previewRequestIdentity`).
+ */
+export interface UserStylePreviewFailure {
+  /** 1 for the first attempt, 2 for the first retry, and so on. */
+  attempt: number
+  /** The exact identity that attempt submitted under, kept so it can be traced. */
+  identity: string
+}
+
 export interface UserStylePreviewEntry {
   /** Hash of the style's own `style_bible` + `negative_prompt` when these were made. */
   source_hash: string
   slots: Partial<Record<UserStylePreviewSlot, StoredUserStylePreview>>
+  /** Slots whose last attempt the provider settled as failed. Absent when none. */
+  failed?: Partial<Record<UserStylePreviewSlot, UserStylePreviewFailure>>
+}
+
+/**
+ * Thrown by a caller's renderer when the PROVIDER settled this attempt —
+ * failed it, or settled it and destroyed the artifact — so replaying the same
+ * idempotency key could only re-read that dead outcome.
+ *
+ * It is a marker rather than a condition the service could work out for itself:
+ * only the caller talks to the provider, so only the caller knows whether an
+ * error means "the job is dead, move the key" or "the connection dropped, keep
+ * the key and let the retry replay the job that may still be running". Anything
+ * thrown that is NOT this class keeps the identity, so a retry can never buy the
+ * same pixels twice.
+ */
+export class SettledPreviewFailure extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'SettledPreviewFailure'
+  }
 }
 
 interface UserStylePreviewIndex {
@@ -90,6 +130,36 @@ interface UserStylePreviewIndex {
 export interface UserStylePreviewStyle {
   style_bible: string
   negative_prompt?: string
+}
+
+/**
+ * The store key that makes two channels' identical style text share ONE set of
+ * three previews.
+ *
+ * The owner's rule, 2026-10-25: every art style — a signed pack's, one of the
+ * owner's own, or a channel's own custom style — shows exactly three previews
+ * (hero, empty scene, hardest legal case). A channel's custom styles live in
+ * `ProjectConfig.style_presets` as a `description`, so they have no registry id
+ * to key a store by — and on the owner's Mac all 215 channel styles across ~17
+ * channels are only 34 distinct texts, copied channel to channel.
+ *
+ * So a channel style's previews are addressed by THE HASH OF ITS OWN TEXT, and
+ * this key names that entry. Two channels whose style text hashes the same read
+ * and write one entry, so the second channel's render is a SKIP for all three
+ * slots rather than three more paid images.
+ *
+ * The `text:` prefix is what keeps the two kinds of key apart: a user style
+ * pack's registry-qualified id (`kh.art-styles.dreamlands`) never contains a
+ * colon, so a shared entry can never be mistaken for one of the owner's styles,
+ * and vice versa.
+ */
+export function sharedStylePreviewKeyForHash(sourceHash: string): string {
+  return `text:${sourceHash}`
+}
+
+/** The shared store key for one style text. */
+export function sharedStylePreviewKey(style: UserStylePreviewStyle): string {
+  return sharedStylePreviewKeyForHash(hashUserStyleSource(style))
 }
 
 /** Where a stored preview is served from. Content-addressed, so it is immutable. */
@@ -133,6 +203,68 @@ async function readIndex(paths?: ContentPackRuntimePaths): Promise<UserStylePrev
 
 async function writeIndex(index: UserStylePreviewIndex, paths?: ContentPackRuntimePaths): Promise<void> {
   await writeJsonAtomic(indexPath(paths), index)
+}
+
+/**
+ * The idempotency identity one preview attempt submits under.
+ *
+ * Two properties at once, and both matter:
+ *
+ *  - **Stable for the same style text, slot, model and shape**, so an accidental
+ *    repeat replays the first job instead of buying the same image twice.
+ *  - **Moved after the provider settled an attempt as failed**, because a
+ *    settled job can never be reopened: with a stable key, Retry would replay
+ *    the dead job forever and never repair the slot (§8).
+ *
+ * The move is derived from PERSISTED state — the attempt number of the failure
+ * recorded for this slot — and never from a clock or a random value, which is
+ * the rule `resolveGenStudioRetryScope` states for the durable lanes. So two
+ * retries issued after the SAME failure compute the same next identity and
+ * replay each other rather than both being charged.
+ *
+ * `force` is the customer saying "give me new pixels" and is the one caller that
+ * asks for a random identity on purpose.
+ */
+export function previewRequestIdentity(input: {
+  styleId: string
+  sourceHash: string
+  slot: UserStylePreviewSlot
+  modelId: string
+  aspectRatio: string
+  tier?: string
+  /** The attempt already recorded for this slot, when the provider settled one. */
+  failedAttempt?: number
+}): string {
+  const base = `user-style-preview:${input.styleId}:${input.sourceHash}:${input.slot}:${input.modelId}:${input.aspectRatio}:${input.tier || ''}`
+  return input.failedAttempt ? `${base}:retry:${input.failedAttempt + 1}` : base
+}
+
+/**
+ * Record that the provider settled one slot's attempt as failed.
+ *
+ * Written beside the entry's slots, and reset whenever the style text changes:
+ * a failure belongs to the text it was rendered from, exactly as the stored
+ * images do.
+ */
+export async function recordUserStylePreviewFailure(input: {
+  styleId: string
+  sourceHash: string
+  slot: UserStylePreviewSlot
+  identity: string
+  attempt: number
+  paths?: ContentPackRuntimePaths
+}): Promise<void> {
+  const index = await readIndex(input.paths)
+  const previous = index.styles[input.styleId]
+  const sameSource = previous && previous.source_hash === input.sourceHash
+  const failed = sameSource ? { ...(previous.failed || {}) } : {}
+  failed[input.slot] = { attempt: input.attempt, identity: input.identity }
+  index.styles[input.styleId] = {
+    source_hash: input.sourceHash,
+    slots: sameSource ? { ...previous.slots } : {},
+    failed,
+  }
+  await writeIndex(index, input.paths)
 }
 
 /** The stored entry for one style, or null. Absent means nothing has been rendered. */
@@ -197,10 +329,21 @@ export async function saveUserStylePreview(input: {
   const index = await readIndex(input.paths)
   const previous = index.styles[input.styleId]
   // An edited style starts again: previews made from the text it no longer has
-  // are not carried forward as if they described the new one.
-  const slots = previous && previous.source_hash === input.sourceHash ? { ...previous.slots } : {}
+  // are not carried forward as if they described the new one — and the same goes
+  // for a recorded failure, which belongs to the text it was rendered from.
+  const sameSource = previous && previous.source_hash === input.sourceHash
+  const slots = sameSource ? { ...previous.slots } : {}
   slots[input.slot] = stored
-  index.styles[input.styleId] = { source_hash: input.sourceHash, slots }
+  // This slot's attempt is now a success, so its failure record is spent. The
+  // OTHER slots' records are carried across, or a retry of a slot that failed
+  // beside this one would fall back to its dead identity and replay for ever.
+  const failed = sameSource ? { ...(previous.failed || {}) } : {}
+  delete failed[input.slot]
+  index.styles[input.styleId] = {
+    source_hash: input.sourceHash,
+    slots,
+    ...(Object.keys(failed).length ? { failed } : {}),
+  }
   await writeIndex(index, input.paths)
   return stored
 }
@@ -230,6 +373,30 @@ export async function publishUserStylePreviews(
     }),
     stale: entry.source_hash !== hashUserStyleSource(style),
   }
+}
+
+/**
+ * The slots stored for one style TEXT, hero first and present ones only.
+ *
+ * This is the read side of the shared key: a channel style has no id to store
+ * an entry under, only its text, so its caller already holds the text hash and
+ * asks for the entry that hash names. Keyed by the hash rather than by a preset
+ * id, the same three images answer for every channel whose style text hashes the
+ * same — and the entry's own `source_hash` is checked, so bytes that describe
+ * some other text are never published as this one's (§6: an empty answer and a
+ * wrong answer must not look alike, so a mismatch returns no slots at all).
+ */
+export async function sharedStylePreviewSlots(
+  sourceHash: string,
+  paths?: ContentPackRuntimePaths,
+): Promise<Array<{ slot: UserStylePreviewSlot; url: string; hash: string }>> {
+  if (!ASSET_HASH.test(sourceHash)) return []
+  const entry = await readUserStylePreviewEntry(sharedStylePreviewKeyForHash(sourceHash), paths)
+  if (!entry || entry.source_hash !== sourceHash) return []
+  return USER_STYLE_PREVIEW_SLOTS.flatMap(slot => {
+    const stored = entry.slots[slot]
+    return stored ? [{ slot, url: userStylePreviewUrl(stored.hash), hash: stored.hash }] : []
+  })
 }
 
 /** The absolute path of one stored preview, or null. Strict: a 64-hex id and nothing else. */
@@ -318,6 +485,14 @@ export interface UserStylePreviewGeneration {
  *    for a preview that succeeded, and `skipped` says so rather than leaving the
  *    caller to guess. `force` is the deliberate "render it again" and overrides
  *    the skip.
+ *  - **A retry of a FAILED slot moves its idempotency identity.** The provider
+ *    settled that job, so replaying the key could only re-read a dead outcome;
+ *    the identity for the next attempt is derived from the recorded attempt
+ *    (`previewRequestIdentity`), which keeps the move deterministic. A failure
+ *    that was NOT settled — a dropped connection, or a render this app could not
+ *    save — keeps its identity, because the job may still exist and a moved key
+ *    would buy the same pixels twice. Callers signal a settled failure by
+ *    throwing `SettledPreviewFailure`.
  *  - **No slot list means "the ones this style is missing".**
  *  - **Failures are reported by name, and never stop the others.** A style whose
  *    face will not render still keeps its hero and scene.
@@ -351,15 +526,52 @@ export async function generateUserStylePreviews(input: {
 
   const generated: UserStylePreviewSlot[] = []
   const failed: Array<{ slot: UserStylePreviewSlot; error: string }> = []
+  // The attempts the provider already settled as failed for THIS style text.
+  const settled = entry && entry.source_hash === sourceHash ? { ...(entry.failed || {}) } : {}
   for (const slot of wanted) {
+    const previousFailure = settled[slot]
     // Stable for a style's own text, so an unintended repeat is the same paid
-    // identity rather than a second charge. `force` is the customer saying
+    // identity rather than a second charge — and MOVED after a settled failure,
+    // or Retry would replay the dead job forever. `force` is the customer saying
     // "render it again" and asks for new pixels on purpose.
-    const identity = input.force
+    const identity = input.force === true
       ? `user-style-preview:${input.styleId}:${slot}:${randomUUID()}`
-      : `user-style-preview:${input.styleId}:${sourceHash}:${slot}:${input.modelId}:${input.aspectRatio}:${input.tier || ''}`
+      : previewRequestIdentity({
+          styleId: input.styleId,
+          sourceHash,
+          slot,
+          modelId: input.modelId,
+          aspectRatio: input.aspectRatio,
+          tier: input.tier,
+          ...(previousFailure ? { failedAttempt: previousFailure.attempt } : {}),
+        })
+
+    let bytes: Buffer
     try {
-      const bytes = await input.generate({ slot, prompt: prompts[slot], requestIdentity: identity })
+      bytes = await input.generate({ slot, prompt: prompts[slot], requestIdentity: identity })
+    } catch (error: unknown) {
+      // Only a PROVIDER-SETTLED failure moves the identity. A dropped connection
+      // may have left the job running, so its identity stays and the retry
+      // replays that job rather than buying the same image a second time.
+      if (error instanceof SettledPreviewFailure) {
+        const attempt = (previousFailure?.attempt ?? 0) + 1
+        await recordUserStylePreviewFailure({
+          styleId: input.styleId,
+          sourceHash,
+          slot,
+          identity,
+          attempt,
+          paths: input.paths,
+        })
+        settled[slot] = { attempt, identity }
+      }
+      failed.push({ slot, error: error instanceof Error ? error.message : String(error) })
+      continue
+    }
+
+    try {
+      // Saving succeeds → this slot's failure record is spent, and the save
+      // itself clears it in the same write as the stored image.
       await saveUserStylePreview({
         styleId: input.styleId,
         sourceHash,
@@ -368,8 +580,11 @@ export async function generateUserStylePreviews(input: {
         paths: input.paths,
         now: input.now,
       })
+      delete settled[slot]
       generated.push(slot)
     } catch (error: unknown) {
+      // The pixels exist: the identity must NOT move, or a retry would pay for
+      // the same image twice instead of replaying the settled success.
       failed.push({ slot, error: error instanceof Error ? error.message : String(error) })
     }
   }

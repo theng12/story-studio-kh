@@ -23,7 +23,7 @@
       <div>
         <label>{{ title }}</label>
         <p class="text-muted text-xs mt-1">
-          Build a reusable style pack, render one representative proof with a live Gateway image model, then save the style text and preview with this project.
+          Build a reusable style pack, render its three previews with a live Gateway image model, then save the style text with this project. Every style shows the same three: the hero shot, a quiet wide scene with no figure in it, and the hardest case the look can be asked for.
         </p>
       </div>
       <div class="psl-controls">
@@ -58,6 +58,7 @@
       <div class="psl-editor-state">
         <span v-if="editingPresetId" class="psl-state-pill">Editing saved style</span>
         <span v-else-if="editorOriginLabel" class="psl-state-pill">{{ editorOriginLabel }}</span>
+        <span v-if="editorStale" class="psl-stale-pill">Out of date</span>
         <button
           v-if="editingPresetId || draftName || draftDescription || liveSamples.some(sample => sample.url)"
           class="btn btn-ghost btn-sm"
@@ -69,18 +70,20 @@
       <div class="psl-actions">
         <button
           class="btn btn-secondary btn-sm"
-          :disabled="renderingAll || anySampleLoading || !draftDescription.trim() || !previewModel"
-          :title="!previewModel ? 'Pick a Gateway image model first' : 'Render one balanced scene that tests the complete visual style'"
-          @click="generateAllSamples"
+          :disabled="renderingAll || anySampleLoading || !draftDescription.trim() || !previewModel || !editorMissingSlots.length"
+          :title="previewModel
+            ? 'Render the previews this style is still missing, one image at a time'
+            : 'Pick a Gateway image model first'"
+          @click="generateMissingSamples"
         >
-          {{ renderingAll ? 'Rendering Style Proof…' : 'Generate Style Proof' }}
+          {{ generateAllLabel }}
         </button>
         <button
           class="btn btn-primary btn-sm"
           :disabled="saving || !draftName.trim() || !draftDescription.trim()"
           :title="editingPresetId
-            ? 'Update this saved style. If you rendered new samples, they replace the old preview gallery.'
-            : 'Save this style into the project library. If live samples exist, they are saved too.'"
+            ? 'Update this saved style. Its saved previews stay on disk either way.'
+            : 'Save this style into the project library.'"
           @click="saveStyle"
         >
           {{ saving ? 'Saving…' : (editingPresetId ? 'Update Saved Style' : 'Save Style to Project') }}
@@ -102,23 +105,24 @@
         >
           Apply to Style Bible
         </button>
-        <span v-if="galleryCount" class="psl-gallery-count">{{ galleryCount }} sample{{ galleryCount === 1 ? '' : 's' }} selected for gallery</span>
         <span class="text-muted text-xs">Uses the live Gateway catalog and the selected model's supported defaults.</span>
       </div>
+      <p v-if="editorStale" class="psl-stale-note">
+        These previews were made before this style's text was last edited. They are still shown, and they still describe a real look — generate them again to see the look as it is now.
+      </p>
       <p v-if="renderError" class="psl-error">{{ renderError }}</p>
 
       <div class="psl-samples-grid">
         <article
           v-for="sample in liveSamples"
-          :key="sample.variant_id"
+          :key="sample.slot"
           class="psl-sample-card"
-          :class="{ 'is-included': sample.included }"
+          :class="{ 'is-empty': !sample.url }"
         >
           <div class="psl-sample-head">
             <strong>{{ sample.label }}</strong>
             <div class="psl-sample-badges">
-              <span v-if="sample.url" class="psl-sample-chip">{{ sample.sourceFile ? 'saved' : (sample.cached ? 'cached' : 'fresh') }}</span>
-              <span v-if="sample.included" class="psl-sample-chip psl-sample-chip-gallery">gallery</span>
+              <span v-if="sample.url" class="psl-sample-chip">{{ editorStale ? 'out of date' : 'ready' }}</span>
             </div>
           </div>
           <div class="psl-sample-preview">
@@ -127,7 +131,7 @@
               type="button"
               class="psl-image-button"
               title="Open large preview"
-              @click="openLiveSample(sample.variant_id)"
+              @click="openLiveSample(sample.slot)"
             >
               <img :src="sample.url" :alt="sample.label" class="psl-sample-img" />
               <span class="psl-zoom-hint">View larger</span>
@@ -140,18 +144,10 @@
             <button
               class="btn btn-secondary btn-sm"
               :disabled="renderingAll || sample.loading || !draftDescription.trim() || !previewModel"
-              :title="sample.url ? 'Spend one image credit to create a new version of this sample' : 'Generate only this sample'"
-              @click="generateSample(sample.variant_id, !!sample.url)"
+              :title="sample.url ? 'Spend one image credit to create a new version of this preview' : 'Generate only this preview'"
+              @click="generateSample(sample.slot, !!sample.url)"
             >
-              {{ sample.loading ? 'Rendering…' : (sample.url ? 'Regenerate This Sample' : 'Generate This Sample') }}
-            </button>
-            <button
-              v-if="sample.url"
-              class="btn btn-ghost btn-sm"
-              :class="{ 'psl-gallery-toggle-active': sample.included }"
-              @click="toggleSampleIncluded(sample.variant_id)"
-            >
-              {{ sample.included ? 'Included in Gallery' : 'Add to Gallery' }}
+              {{ sample.loading ? 'Rendering…' : (sample.url ? 'Regenerate This Preview' : 'Generate This Preview') }}
             </button>
           </div>
           <p class="psl-sample-copy">{{ sample.scene_hint }}</p>
@@ -183,23 +179,45 @@
               <button class="btn btn-ghost btn-sm psl-delete" @click="deletePreset(preset)">Delete</button>
             </div>
           </div>
-          <div v-if="presetPreviewFiles(preset).length" class="psl-preset-previews">
+          <div class="psl-preset-previews">
+            <template v-for="(tile, index) in presetTiles(preset)" :key="tile.slot">
+              <button
+                v-if="presetTileUrl(preset, tile)"
+                type="button"
+                class="psl-image-button"
+                :title="`${SLOT_TITLES[tile.slot]} — open large preview`"
+                @click="openPresetPreview(preset, index)"
+              >
+                <img :src="presetTileUrl(preset, tile)" :alt="`${preset.name} ${SLOT_TITLES[tile.slot]}`" class="psl-preset-img" />
+                <span class="psl-zoom-hint">View larger</span>
+              </button>
+              <div
+                v-else
+                class="psl-preset-empty-tile"
+                :title="`${SLOT_TITLES[tile.slot]} — not generated yet`"
+                :aria-label="`${SLOT_TITLES[tile.slot]} not generated`"
+              >
+                <strong>{{ SLOT_TILE_LABELS[tile.slot] }}</strong>
+              </div>
+            </template>
+          </div>
+          <div class="psl-preset-meta">
+            <span v-if="presetOutOfDate(preset)" class="psl-stale-mark">Out of date</span>
             <button
-              v-for="file in presetPreviewFiles(preset)"
-              :key="file"
-              type="button"
-              class="psl-image-button"
-              title="Open large preview"
-              @click="openPresetPreview(preset, file)"
+              v-if="presetMissingSlots(preset).length"
+              class="btn btn-secondary btn-sm"
+              :disabled="!previewModel || presetGenerating === preset.id"
+              :title="previewModel
+                ? `Render the ${presetMissingSlots(preset).length} preview${presetMissingSlots(preset).length === 1 ? '' : 's'} this style is missing`
+                : 'Choose an image model first'"
+              @click="generatePresetPreviews(preset)"
             >
-              <img
-                :src="previewUrlForPreset(preset, file)"
-                :alt="`${preset.name} preview`"
-                class="psl-preset-img"
-              />
-              <span class="psl-zoom-hint">View larger</span>
+              {{ presetGenerating === preset.id ? 'Rendering…' : 'Generate previews' }}
             </button>
           </div>
+          <p v-if="presetOutOfDate(preset)" class="psl-stale-note">
+            Shown from previews made before this style's text was last edited. Generating again renders the three as the style is now; the older pictures stay on disk.
+          </p>
           <p class="psl-preset-copy">{{ preset.description }}</p>
         </article>
       </div>
@@ -249,6 +267,15 @@
 <script setup lang="ts">
 import { type VisualStyleCatalogItem, useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
+import {
+  STYLE_PREVIEW_SLOTS,
+  STYLE_PREVIEW_SLOT_LABELS,
+  channelStylePreviewDisplay,
+  type ChannelStylePreviewDisplay,
+  type ChannelStylePreviewState,
+  type ChannelStylePreviewTile,
+  type StylePreviewSlot,
+} from '~/utils/style-preview-queue'
 
 interface PresetEntry {
   id: string
@@ -260,18 +287,15 @@ interface PresetEntry {
   preview_aspect_ratio?: string
   preview_tier?: string
   preview_saved_at?: string
+  preview_source_hash?: string
 }
 
 interface LiveSampleState {
-  variant_id: string
+  slot: StylePreviewSlot
   label: string
   scene_hint: string
   loading: boolean
   url: string | null
-  hash: string | null
-  sourceFile: string | null
-  included: boolean
-  cached: boolean | null
   error: string | null
 }
 
@@ -301,15 +325,51 @@ const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
 
+/** Short captions for the three tiles a style card shows, in slot order. */
+const SLOT_TITLES: Record<StylePreviewSlot, string> = {
+  hero: 'Hero',
+  scene: 'Empty scene',
+  face: 'Hardest case',
+}
+/**
+ * The same three slots, one word each, for the caption inside an empty tile —
+ * a card can be only ~220px wide, so a three-word caption would wrap inside a
+ * 16:9 tile. The full name is the tile's own title and its accessible label.
+ */
+const SLOT_TILE_LABELS: Record<StylePreviewSlot, string> = {
+  hero: 'Hero',
+  scene: 'Scene',
+  face: 'Face',
+}
+
+/**
+ * The three framings, in slot order: the hero, a quiet wide scene with no figure
+ * in it, and the hardest legal case (owner, 2026-09-08 and again 2026-10-25 —
+ * every art style shows exactly these three). The prompts themselves are built
+ * on the server from the style's own text and are never sent from here; these
+ * hints only say what each picture is for.
+ */
 const SAMPLE_VARIANTS = [
   {
-    id: 'style-proof',
-    label: 'Style proof',
-    scene_hint: 'One balanced scene tests character design, environment, lighting, depth, palette, and texture together.',
+    slot: 'hero' as StylePreviewSlot,
+    label: SLOT_TITLES.hero,
+    scene_hint: `The shot the look exists for — ${STYLE_PREVIEW_SLOT_LABELS.hero}, the one a cover would use.`,
   },
-] as const
+  {
+    slot: 'scene' as StylePreviewSlot,
+    label: SLOT_TITLES.scene,
+    scene_hint: 'A quiet wide scene with no figure in it at all: no person, no face, no hands, no animal — so the look can be judged on somewhere nobody is standing.',
+  },
+  {
+    slot: 'face' as StylePreviewSlot,
+    label: SLOT_TITLES.face,
+    scene_hint: 'The hardest case the look can legally be asked for from its own description: a face held close to camera, or a crowd at readable size.',
+  },
+]
 
 const presets = ref<PresetEntry[]>([])
+/** What each saved style shows right now, as the channel-style-previews route resolves it. */
+const channelStates = ref<Record<string, ChannelStylePreviewState>>({})
 const draftName = ref('')
 const draftDescription = ref('')
 const previewModel = ref('')
@@ -318,6 +378,12 @@ const saving = ref(false)
 const renderingAll = ref(false)
 const renderError = ref<string | null>(null)
 const liveSamples = ref<LiveSampleState[]>(SAMPLE_VARIANTS.map(defaultSampleState))
+/** The style text the images in the editor were made from. */
+const samplesSourceText = ref('')
+/** True when those images were already out of date when they were loaded. */
+const samplesStaleAtLoad = ref(false)
+/** The saved style whose previews are rendering right now, if any. */
+const presetGenerating = ref('')
 const editingPresetId = ref<string | null>(null)
 const editorOriginLabel = ref<string | null>(null)
 const lightboxImages = ref<LightboxImage[]>([])
@@ -331,8 +397,29 @@ const selectedImageModel = computed(() =>
 // rather than an invented '16:9' the customer would take for the model's own.
 const aspectOptions = computed<string[]>(() => selectedImageModel.value?.aspect_ratios?.filter(Boolean) || [])
 const anySampleLoading = computed(() => liveSamples.value.some(sample => sample.loading))
-const galleryCount = computed(() => liveSamples.value.filter(sample => sample.url && sample.included).length)
 const lightboxCurrent = computed(() => lightboxImages.value[lightboxIndex.value] || null)
+const hasSampleImages = computed(() => liveSamples.value.some(sample => !!sample.url))
+/**
+ * True when the previews on screen do not describe the text in the editor —
+ * either because they were already out of date when loaded, or because the text
+ * has been edited since. Either way they say so rather than passing for current.
+ */
+const editorStale = computed(() => hasSampleImages.value
+  && (samplesStaleAtLoad.value || samplesSourceText.value !== draftDescription.value.trim()))
+/**
+ * The slots still needed for the text as it is NOW. A stale set needs all three
+ * re-made even though three pictures are already on screen.
+ */
+const editorMissingSlots = computed<StylePreviewSlot[]>(() => (editorStale.value
+  ? [...STYLE_PREVIEW_SLOTS]
+  : liveSamples.value.filter(sample => !sample.url).map(sample => sample.slot)))
+const generateAllLabel = computed(() => {
+  if (renderingAll.value) return 'Rendering previews…'
+  const count = editorMissingSlots.value.length
+  if (!count) return 'Previews are complete'
+  if (count === STYLE_PREVIEW_SLOTS.length) return 'Generate Previews'
+  return `Generate ${count} missing preview${count === 1 ? '' : 's'}`
+})
 
 watch(genStudioImageModels, (models) => {
   previewModel.value = selectLiveGenStudioModel(previewModel.value, models)?.id || ''
@@ -351,12 +438,14 @@ watch([selectedImageModel, aspectOptions], ([model, aspects]) => {
 watch(() => props.projectSlug, () => {
   resetEditor()
   void loadPresets()
+  void loadChannelStates()
 })
 
 onMounted(() => {
   void refreshGenStudioImageModels()
   void refreshVisualStyles()
   void loadPresets()
+  void loadChannelStates()
 })
 
 onBeforeUnmount(() => {
@@ -365,15 +454,11 @@ onBeforeUnmount(() => {
 
 function defaultSampleState(variant: typeof SAMPLE_VARIANTS[number]): LiveSampleState {
   return {
-    variant_id: variant.id,
+    slot: variant.slot,
     label: variant.label,
     scene_hint: variant.scene_hint,
     loading: false,
     url: null,
-    hash: null,
-    sourceFile: null,
-    included: false,
-    cached: null,
     error: null,
   }
 }
@@ -385,6 +470,8 @@ function resetEditor(): void {
   draftDescription.value = ''
   renderError.value = null
   liveSamples.value = SAMPLE_VARIANTS.map(defaultSampleState)
+  samplesSourceText.value = ''
+  samplesStaleAtLoad.value = false
 }
 
 async function loadPresets(): Promise<void> {
@@ -393,6 +480,26 @@ async function loadPresets(): Promise<void> {
     presets.value = Array.isArray(cfg?.style_presets) ? cfg.style_presets : []
   } catch {
     presets.value = []
+  }
+}
+
+/**
+ * What this channel's custom styles show right now.
+ *
+ * The three images are not stored per channel: they live once per style text in
+ * the shared store, and this route resolves which of them each style shows —
+ * including whether what is shown was made from text the style no longer has.
+ */
+async function loadChannelStates(): Promise<void> {
+  try {
+    const data = await get<{ styles?: ChannelStylePreviewState[] }>(
+      `/projects/${props.projectSlug}/channel-style-previews`,
+    )
+    const next: Record<string, ChannelStylePreviewState> = {}
+    for (const state of data?.styles || []) next[state.preset_id] = state
+    channelStates.value = next
+  } catch {
+    channelStates.value = {}
   }
 }
 
@@ -407,78 +514,166 @@ function presetPreviewFiles(preset: PresetEntry): string[] {
   return preset.preview_filename ? [preset.preview_filename] : []
 }
 
-async function generateAllSamples(): Promise<void> {
-  if (!draftDescription.value.trim() || !previewModel.value || renderingAll.value || anySampleLoading.value) return
-  renderingAll.value = true
-  renderError.value = null
-  liveSamples.value = liveSamples.value.map(sample => ({ ...sample, loading: true, error: null }))
-  try {
-    await renderSample(SAMPLE_VARIANTS[0].id, false)
-  } finally {
-    renderingAll.value = false
-    if (liveSamples.value.every(s => !s.url)) {
-      renderError.value = 'No samples rendered. Check the selected model or Gateway API Key.'
-    }
-  }
+/**
+ * The three tiles one saved style shows, in slot order.
+ *
+ * With no resolved state — the route has not answered yet, or is unavailable —
+ * the preset's own saved files stand in, capped at the same three tiles, so a
+ * style that has pictures on disk never reads as empty.
+ */
+function presetDisplay(preset: PresetEntry): ChannelStylePreviewDisplay {
+  const state = channelStates.value[preset.id]
+  if (state) return channelStylePreviewDisplay(state)
+  const files = presetPreviewFiles(preset).slice(0, STYLE_PREVIEW_SLOTS.length)
+  return channelStylePreviewDisplay({ stored_files: files, stale: files.length > 0 })
 }
 
-async function generateSample(variantId: string, force: boolean): Promise<void> {
-  if (!draftDescription.value.trim() || !previewModel.value || renderingAll.value) return
-  renderError.value = null
-  await renderSample(variantId, force)
+function presetTiles(preset: PresetEntry): ChannelStylePreviewTile[] {
+  return presetDisplay(preset).tiles
 }
 
-async function renderSample(variantId: string, force: boolean): Promise<void> {
-  patchSample(variantId, { loading: true, error: null })
-  try {
-    const data = await post<{
-      hash: string
-      url: string
-      cached: boolean
-      model_id: string
-      aspect_ratio: string
-      tier: string
-      variant_id: string
-      created_at: string
-    }>(`/projects/${props.projectSlug}/style-preview`, {
-      style_tag: draftDescription.value.trim(),
-      model: previewModel.value,
-      aspect_ratio: previewAspect.value,
-      variant_id: variantId,
-      force,
-    })
-    patchSample(variantId, {
-      loading: false,
-      url: `${data.url}${data.url.includes('?') ? '&' : '?'}t=${encodeURIComponent(data.created_at || Date.now())}`,
-      hash: data.hash,
-      sourceFile: null,
-      included: true,
-      cached: !!data.cached,
-      error: null,
-    })
-  } catch (e: any) {
-    const message = e?.data?.detail || e?.message || 'Preview failed'
-    patchSample(variantId, { loading: false, error: message })
-  }
+function presetTileUrl(preset: PresetEntry, tile: ChannelStylePreviewTile): string {
+  if (tile.url) return tile.url
+  return tile.sourceFile ? previewUrlForPreset(preset, tile.sourceFile) : ''
 }
 
-function patchSample(variantId: string, patch: Partial<LiveSampleState>): void {
+function presetOutOfDate(preset: PresetEntry): boolean {
+  return presetDisplay(preset).stale
+}
+
+function presetMissingSlots(preset: PresetEntry): StylePreviewSlot[] {
+  return presetDisplay(preset).missing
+}
+
+function patchSample(slot: StylePreviewSlot, patch: Partial<LiveSampleState>): void {
   liveSamples.value = liveSamples.value.map(sample =>
-    sample.variant_id === variantId ? { ...sample, ...patch } : sample,
+    sample.slot === slot ? { ...sample, ...patch } : sample,
   )
 }
 
-function savePayload() {
-  const includedSamples = liveSamples.value.filter(sample => sample.url && sample.included)
-  const gallery_items: Array<{ hash?: string; source_file?: string }> = []
-  for (const sample of includedSamples) {
-    if (sample.hash) gallery_items.push({ hash: sample.hash })
-    else if (sample.sourceFile) gallery_items.push({ source_file: sample.sourceFile })
+/**
+ * Take the slots the route just published into the editor.
+ *
+ * The editor only calls itself current when all three images describe the text
+ * in the box: regenerating one preview of three leaves the set mixed, and a
+ * mixed set still says "out of date" rather than passing for the look.
+ */
+function applySampleSlots(slots: Array<{ slot: string; url: string }>, styleTag: string): void {
+  for (const entry of slots) {
+    const slot = entry.slot as StylePreviewSlot
+    if (!STYLE_PREVIEW_SLOTS.includes(slot)) continue
+    patchSample(slot, { loading: false, url: entry.url, error: null })
   }
+  if (STYLE_PREVIEW_SLOTS.every(slot => liveSamples.value.find(sample => sample.slot === slot)?.url)) {
+    samplesSourceText.value = styleTag
+    samplesStaleAtLoad.value = false
+  }
+}
+
+async function generateMissingSamples(): Promise<void> {
+  await renderSamples(editorMissingSlots.value, false)
+}
+
+async function generateSample(slot: StylePreviewSlot, force: boolean): Promise<void> {
+  await renderSamples([slot], force)
+}
+
+/**
+ * Render the given previews, ONE image at a time.
+ *
+ * Each call asks only for the slot it names, so a failure costs that one image
+ * and the others still land (§8), and a retry asks for exactly what is still
+ * missing rather than re-rendering what already exists.
+ */
+async function renderSamples(slots: StylePreviewSlot[], force: boolean): Promise<void> {
+  const styleTag = draftDescription.value.trim()
+  if (!styleTag || !previewModel.value || !slots.length || renderingAll.value || presetGenerating.value) return
+  renderingAll.value = true
+  renderError.value = null
+  const failures: string[] = []
+  try {
+    for (const slot of slots) {
+      patchSample(slot, { loading: true, error: null })
+      try {
+        const data = await post<{
+          slots: Array<{ slot: string; url: string }>
+          failed: Array<{ slot: string; error: string }>
+        }>(`/projects/${props.projectSlug}/channel-style-previews`, {
+          style_tag: styleTag,
+          model: previewModel.value,
+          aspect_ratio: previewAspect.value,
+          slots: [slot],
+          force,
+        })
+        applySampleSlots(data.slots || [], styleTag)
+        for (const failure of data.failed || []) {
+          const message = `${STYLE_PREVIEW_SLOT_LABELS[failure.slot as StylePreviewSlot] || failure.slot}: ${failure.error}`
+          failures.push(message)
+          if (failure.slot === slot) patchSample(slot, { loading: false, error: failure.error })
+        }
+      } catch (e: any) {
+        const message = e?.data?.detail || e?.message || 'Preview failed'
+        failures.push(`${STYLE_PREVIEW_SLOT_LABELS[slot]}: ${message}`)
+        patchSample(slot, { loading: false, error: message })
+      } finally {
+        patchSample(slot, { loading: false })
+      }
+    }
+  } finally {
+    renderingAll.value = false
+  }
+  if (failures.length) {
+    renderError.value = `${failures.length} of ${slots.length} image${failures.length === 1 ? '' : 's'} failed (${failures.join('; ')}). Generate again to render only what is missing.`
+  } else if (editingPresetId.value) {
+    // A saved style's own record follows the previews it now has.
+    await Promise.all([loadPresets(), loadChannelStates()])
+  }
+}
+
+/** Render the previews one SAVED style is missing, one image at a time. */
+async function generatePresetPreviews(preset: PresetEntry): Promise<void> {
+  if (!previewModel.value || presetGenerating.value || renderingAll.value || !preset.description.trim()) return
+  const slots = presetMissingSlots(preset)
+  if (!slots.length) return
+  presetGenerating.value = preset.id
+  const failures: string[] = []
+  try {
+    for (const slot of slots) {
+      try {
+        const data = await post<{ failed: Array<{ slot: string; error: string }> }>(
+          `/projects/${props.projectSlug}/channel-style-previews`,
+          {
+            style_tag: preset.description,
+            model: previewModel.value,
+            aspect_ratio: previewAspect.value,
+            slots: [slot],
+          },
+        )
+        for (const failure of data.failed || []) {
+          failures.push(`${STYLE_PREVIEW_SLOT_LABELS[failure.slot as StylePreviewSlot] || failure.slot}: ${failure.error}`)
+        }
+      } catch (e: any) {
+        failures.push(`${STYLE_PREVIEW_SLOT_LABELS[slot]}: ${e?.data?.detail || e?.message || 'Preview failed'}`)
+      }
+    }
+  } finally {
+    presetGenerating.value = ''
+    await Promise.all([loadPresets(), loadChannelStates()])
+  }
+  if (failures.length) {
+    showError(`${failures.length} of ${slots.length} preview${failures.length === 1 ? '' : 's'} for "${preset.name}" failed: ${failures.join('; ')}`)
+  } else {
+    success(`Rendered the previews for "${preset.name}"`)
+  }
+}
+
+function savePayload() {
+  // No gallery is sent: the three previews live in the shared store, keyed by
+  // the style's own text, and a save must not touch the preset's older files on
+  // disk (§5 — never rewrite stored project data to compensate).
   return {
     name: draftName.value.trim(),
     description: draftDescription.value.trim(),
-    gallery_items,
     ...(previewModel.value ? { preview_model: previewModel.value } : {}),
     ...(previewAspect.value ? { preview_aspect_ratio: previewAspect.value } : {}),
   }
@@ -499,7 +694,9 @@ async function saveStyle(): Promise<void> {
       editingPresetId.value = saved.id
       success(`Saved style "${saved.name}"`)
     }
-    loadPreset(saved)
+    await Promise.all([loadPresets(), loadChannelStates()])
+    const target = presets.value.find(p => p.id === saved.id)
+    if (target) loadPreset(target)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to save style')
   } finally {
@@ -518,6 +715,14 @@ async function saveAsNewStyle(): Promise<void> {
   }
 }
 
+/**
+ * Load a saved style into the editor, previews and all.
+ *
+ * The three tiles come from the resolved state, so what the editor shows is
+ * exactly what the card shows — and when those images were made from other text
+ * than the style has now, the editor says so instead of passing them for the
+ * look in the box.
+ */
 function loadPreset(preset: PresetEntry): void {
   editingPresetId.value = preset.id
   editorOriginLabel.value = null
@@ -527,24 +732,14 @@ function loadPreset(preset: PresetEntry): void {
   if (preset.preview_aspect_ratio) {
     previewAspect.value = preset.preview_aspect_ratio
   }
-  const previewFiles = presetPreviewFiles(preset)
+  const display = presetDisplay(preset)
   liveSamples.value = SAMPLE_VARIANTS.map((variant, index) => {
-    const file = previewFiles[index]
-    if (!file) return defaultSampleState(variant)
-    return {
-      ...defaultSampleState(variant),
-      url: previewUrlForPreset(preset, file),
-      sourceFile: file,
-      included: true,
-      cached: true,
-    }
+    const tile = display.tiles[index]
+    const url = tile?.url || (tile?.sourceFile ? previewUrlForPreset(preset, tile.sourceFile) : '')
+    return { ...defaultSampleState(variant), url: url || null }
   })
-}
-
-function toggleSampleIncluded(variantId: string): void {
-  const sample = liveSamples.value.find(item => item.variant_id === variantId)
-  if (!sample?.url) return
-  patchSample(variantId, { included: !sample.included })
+  samplesSourceText.value = preset.description
+  samplesStaleAtLoad.value = display.stale
 }
 
 function liveSampleLightboxImages(): LightboxImage[] {
@@ -553,19 +748,22 @@ function liveSampleLightboxImages(): LightboxImage[] {
     .map(sample => ({ url: sample.url!, label: sample.label }))
 }
 
-function openLiveSample(variantId: string): void {
+function openLiveSample(slot: StylePreviewSlot): void {
   const images = liveSampleLightboxImages()
-  const sample = liveSamples.value.find(item => item.variant_id === variantId)
+  const sample = liveSamples.value.find(item => item.slot === slot)
   if (!sample?.url) return
   openLightbox(images, Math.max(0, images.findIndex(image => image.url === sample.url)))
 }
 
-function openPresetPreview(preset: PresetEntry, file: string): void {
-  const images = presetPreviewFiles(preset).map((previewFile, index) => ({
-    url: previewUrlForPreset(preset, previewFile),
-    label: `${preset.name} · Sample ${index + 1}`,
-  }))
-  openLightbox(images, Math.max(0, presetPreviewFiles(preset).indexOf(file)))
+function openPresetPreview(preset: PresetEntry, index: number): void {
+  const shown = presetTiles(preset)
+    .map((tile, position) => ({
+      url: presetTileUrl(preset, tile),
+      label: `${preset.name} · ${SLOT_TITLES[tile.slot]}`,
+      position,
+    }))
+    .filter(image => !!image.url)
+  openLightbox(shown, Math.max(0, shown.findIndex(image => image.position === index)))
 }
 
 function openLightbox(images: LightboxImage[], index: number): void {
@@ -603,12 +801,14 @@ function loadCatalogStyle(style: VisualStyleCatalogItem): void {
   draftName.value = style.name
   draftDescription.value = style.data.style_bible
   liveSamples.value = SAMPLE_VARIANTS.map(defaultSampleState)
+  samplesSourceText.value = ''
+  samplesStaleAtLoad.value = false
 }
 
 async function deletePreset(preset: PresetEntry): Promise<void> {
   const ok = await ask({
     title: `Delete style "${preset.name}"?`,
-    body: 'This removes the saved prompt and bundled preview gallery from this project. Existing generated images stay untouched.',
+    body: 'This removes the saved prompt and its saved preview files from this project. Previews held for other styles with the same text are left where they are.',
     confirmLabel: 'Delete',
     danger: true,
   })
@@ -634,7 +834,8 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
 .psl-saved-head,
 .psl-preset-top,
 .psl-sample-head,
-.psl-editor-state {
+.psl-editor-state,
+.psl-preset-meta {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -671,7 +872,7 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   color: var(--text-muted);
 }
 .psl-samples-grid {
-  grid-template-columns: minmax(0, 760px);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 .psl-samples-grid,
 .psl-preset-grid {
@@ -703,15 +904,22 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   letter-spacing: .12em;
   text-transform: uppercase;
 }
-.psl-state-pill {
+.psl-state-pill,
+.psl-stale-pill {
   display: inline-flex;
   align-items: center;
   padding: 3px 8px;
   border-radius: 999px;
   font-size: var(--font-xs);
   font-weight: 600;
+}
+.psl-state-pill {
   background: rgba(108, 143, 255, 0.14);
   color: var(--accent);
+}
+.psl-stale-pill {
+  background: color-mix(in srgb, var(--warning, #e6a23c) 20%, transparent);
+  color: var(--warning, #e6a23c);
 }
 .psl-sample-card {
   display: flex;
@@ -722,9 +930,8 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   border-radius: 10px;
   background: var(--bg-primary);
 }
-.psl-sample-card.is-included {
-  border-color: rgba(108, 143, 255, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(108, 143, 255, 0.12);
+.psl-sample-card.is-empty {
+  border-style: dashed;
 }
 .psl-sample-preview {
   width: 100%;
@@ -771,17 +978,6 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   object-fit: cover;
   display: block;
 }
-.psl-gallery-count {
-  font-size: var(--font-xs);
-  font-weight: 600;
-  color: var(--accent);
-}
-.psl-gallery-toggle-active,
-.psl-sample-chip-gallery {
-  color: rgb(110, 231, 183);
-  border-color: rgba(16, 185, 129, 0.45);
-  background: rgba(16, 185, 129, 0.12);
-}
 .psl-sample-empty {
   width: 100%;
   height: 100%;
@@ -804,9 +1000,12 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   margin: 0;
   font-size: 14px;
 }
+/* Exactly three tiles, always side by side: the owner's rule is three options,
+   no more or less, so the card reads as one contact sheet rather than a
+   wrapping gallery whose last row changes length per style. */
 .psl-preset-previews {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin: 10px 0;
 }
@@ -815,6 +1014,29 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-tertiary);
+}
+.psl-preset-empty-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.2;
+  text-align: center;
+  padding: 2px 4px;
+}
+.psl-preset-empty-tile strong {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .psl-sample-chip {
   display: inline-flex;
@@ -825,6 +1047,24 @@ async function deletePreset(preset: PresetEntry): Promise<void> {
   font-weight: 600;
   background: rgba(108, 143, 255, 0.14);
   color: var(--accent);
+}
+.psl-stale-mark {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(220, 110, 20, .9);
+  color: #fff;
+  font-size: var(--font-xs);
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.psl-stale-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warning, #e6a23c);
+  line-height: 1.5;
 }
 .psl-error {
   margin: 0;

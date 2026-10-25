@@ -10,9 +10,11 @@ import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { router as userStylePreviewsRouter } from '../routes/user-style-previews.js'
 import {
   USER_STYLE_PREVIEW_SLOTS,
+  SettledPreviewFailure,
   generateUserStylePreviews,
   hashUserStyleSource,
   pathForUserStylePreviewAsset,
+  previewRequestIdentity,
   publishUserStylePreviews,
   readUserStylePreviewEntry,
   saveUserStylePreview,
@@ -259,6 +261,131 @@ describe('user style previews — generate orchestration', () => {
     assert.deepEqual(result.skipped, [])
     // Forced identities are UUID-suffixed so the provider treats them as new.
     assert.equal(result.generated.length, 3)
+  })
+})
+
+describe('user style previews — a retry after a settled failure', () => {
+  /**
+   * A settled provider job can never be reopened, so a retry that resubmits the
+   * same idempotency key can only re-read the same dead job: Retry would report
+   * the identical failure for ever and never repair the slot (§8). The identity
+   * therefore moves — but ONLY after the provider SETTLED the attempt, because a
+   * dropped connection may have left the job running and a moved key would buy
+   * the same image twice.
+   */
+  test('a settled provider failure moves the identity, and the retry repairs the slot', async () => {
+    const temp = await useTempDataDir(); cleanup = temp.cleanup
+    const bytes = await pngBytes()
+    const identities = new Map<string, string>()
+    const first = await generateUserStylePreviews({
+      styleId: STYLE_ID, style: STYLE, modelId: 'mock-image-v1', aspectRatio: '16:9',
+      async generate(job) {
+        identities.set(`1:${job.slot}`, job.requestIdentity)
+        if (job.slot === 'hero') throw new SettledPreviewFailure('the Gateway settled this job as failed')
+        return bytes
+      },
+    })
+    assert.deepEqual(first.generated, ['scene', 'face'])
+    assert.deepEqual(first.failed.map(failure => failure.slot), ['hero'])
+    // The failure is recorded against the style text it was rendered from.
+    const afterFailure = await readUserStylePreviewEntry(STYLE_ID)
+    assert.equal(afterFailure?.failed?.hero?.attempt, 1)
+    assert.equal(afterFailure?.failed?.hero?.identity, identities.get('1:hero'))
+
+    const retry = await generateUserStylePreviews({
+      styleId: STYLE_ID, style: STYLE, modelId: 'mock-image-v1', aspectRatio: '16:9',
+      async generate(job) {
+        identities.set(`2:${job.slot}`, job.requestIdentity)
+        return bytes
+      },
+    })
+
+    // The slot that failed is repaired; the two that succeeded are not re-asked.
+    assert.deepEqual(retry.generated, ['hero'])
+    assert.deepEqual([...retry.skipped].sort(), ['face', 'scene'])
+    assert.equal(retry.failed.length, 0)
+    assert.ok(identities.get('2:hero'))
+    assert.notEqual(identities.get('2:hero'), identities.get('1:hero'), 'the dead key must not be replayed')
+    assert.match(identities.get('2:hero')!, /:retry:2$/)
+    assert.equal(identities.get('2:scene'), undefined, 'a saved slot is never rendered again')
+    // A success spends the failure record.
+    assert.equal((await readUserStylePreviewEntry(STYLE_ID))?.failed, undefined)
+  })
+
+  test('a failure the provider did NOT settle keeps its identity, so the retry cannot pay twice', async () => {
+    const temp = await useTempDataDir(); cleanup = temp.cleanup
+    const bytes = await pngBytes()
+    const identities: string[] = []
+    await generateUserStylePreviews({
+      styleId: STYLE_ID, style: STYLE, modelId: 'mock-image-v1', aspectRatio: '16:9', slots: ['hero'],
+      // A dropped connection: the job may still be running at the provider.
+      async generate(job) { identities.push(job.requestIdentity); throw new Error('fetch failed') },
+    })
+    await generateUserStylePreviews({
+      styleId: STYLE_ID, style: STYLE, modelId: 'mock-image-v1', aspectRatio: '16:9', slots: ['hero'],
+      async generate(job) { identities.push(job.requestIdentity); return bytes },
+    })
+    assert.equal(identities.length, 2)
+    assert.equal(identities[0], identities[1], 'the retry replays the same job rather than buying a second one')
+    assert.equal((await readUserStylePreviewEntry(STYLE_ID))?.failed, undefined)
+  })
+
+  test('a save that fails after the render succeeded keeps the identity — the pixels exist', async () => {
+    const temp = await useTempDataDir(); cleanup = temp.cleanup
+    const bytes = await pngBytes()
+    const identities: string[] = []
+    const unusable = Buffer.from('not an image at all')
+    const first = await generateUserStylePreviews({
+      styleId: STYLE_ID, style: STYLE, modelId: 'mock-image-v1', aspectRatio: '16:9', slots: ['hero'],
+      async generate(job) { identities.push(job.requestIdentity); return unusable },
+    })
+    assert.deepEqual(first.generated, [])
+    assert.match(first.failed[0]!.error, /not a usable image/)
+    const second = await generateUserStylePreviews({
+      styleId: STYLE_ID, style: STYLE, modelId: 'mock-image-v1', aspectRatio: '16:9', slots: ['hero'],
+      async generate(job) { identities.push(job.requestIdentity); return bytes },
+    })
+    assert.deepEqual(second.generated, ['hero'])
+    assert.equal(identities[0], identities[1],
+      'a local failure must not move the identity: the render was already bought')
+  })
+
+  test('the next identity is derived from the recorded attempt, so two retries after one failure agree', () => {
+    const base = {
+      styleId: STYLE_ID, sourceHash: hashUserStyleSource(STYLE), slot: 'hero' as const,
+      modelId: 'mock-image-v1', aspectRatio: '16:9',
+    }
+    const first = previewRequestIdentity(base)
+    const retry = previewRequestIdentity({ ...base, failedAttempt: 1 })
+    // Deterministic: the same recorded failure always yields the same next key.
+    assert.equal(retry, previewRequestIdentity({ ...base, failedAttempt: 1 }))
+    assert.notEqual(retry, first)
+    // A failure of the retry itself moves it again, so a slot cannot get stuck.
+    const secondRetry = previewRequestIdentity({ ...base, failedAttempt: 2 })
+    assert.notEqual(secondRetry, retry)
+    assert.notEqual(secondRetry, first)
+  })
+
+  test('a slot that fails keeps its record when a sibling slot succeeds', async () => {
+    const temp = await useTempDataDir(); cleanup = temp.cleanup
+    const bytes = await pngBytes()
+    await generateUserStylePreviews({
+      styleId: STYLE_ID, style: STYLE, modelId: 'mock-image-v1', aspectRatio: '16:9',
+      async generate(job) {
+        if (job.slot === 'hero') throw new SettledPreviewFailure('hero settled failed')
+        return bytes
+      },
+    })
+    // Saving the face and scene must carry the hero's record across rather than
+    // replacing the entry, or the hero's retry would replay its dead job.
+    const entry = await readUserStylePreviewEntry(STYLE_ID)
+    assert.equal(entry?.failed?.hero?.attempt, 1)
+    const identities: string[] = []
+    await generateUserStylePreviews({
+      styleId: STYLE_ID, style: STYLE, modelId: 'mock-image-v1', aspectRatio: '16:9', slots: ['hero'],
+      async generate(job) { identities.push(job.requestIdentity); return bytes },
+    })
+    assert.match(identities[0]!, /:retry:2$/)
   })
 })
 

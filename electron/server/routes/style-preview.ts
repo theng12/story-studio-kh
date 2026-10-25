@@ -30,6 +30,8 @@ import {
 import { getApiKey } from '../services/app-secrets-store.js'
 import { generateImageWithGenStudio, listImageModels } from '../lib/genstudio-client.js'
 import { streamTo } from '../lib/stream-file.js'
+import { channelStyleTagSourceHash } from '../services/channel-style-previews.js'
+import { pathForUserStylePreviewAsset, sharedStylePreviewSlots } from '../services/user-style-previews.js'
 
 export const router = Router()
 
@@ -326,6 +328,72 @@ function slugify(name: string): string {
     .slice(0, 60) || 'preset'
 }
 
+/**
+ * The pointer a saved style should carry to the style text its previews describe.
+ *
+ * A channel style's three previews are not stored in this preset: they live in
+ * the shared content-addressed store, keyed by the hash of the style text
+ * (`services/channel-style-previews.ts`). So the preset records only WHICH text
+ * those previews were made from, and that pointer is what makes a later edit
+ * visible — the style's own text no longer hashes to it, so the previews on
+ * screen are shown as out of date rather than as current.
+ *
+ * It is derived, not asserted by the client: a pointing hash is written only
+ * when three previews really exist for the text being saved, and otherwise the
+ * preset keeps pointing at whatever text its previews actually came from —
+ * including the text it used to have, which is the whole point of the field.
+ * That is why an edit does not clear it.
+ */
+async function previewSourceHashForSave(description: string, existing?: string): Promise<string | undefined> {
+  const hash = channelStyleTagSourceHash(description)
+  const stored = await sharedStylePreviewSlots(hash)
+  if (stored.length) return hash
+  return existing
+}
+
+/**
+ * Give a saved style the ONE project-local picture it still needs.
+ *
+ * A style's three previews are held once per style TEXT in the shared store and
+ * are read from there by every channel, so nothing is copied for display. But a
+ * channel's active art style ALSO feeds one reference image into image-to-image
+ * renders, and `services/art-style-resolver.ts` reads that from a file inside the
+ * project — which is what the older "save the rendered proof into the project"
+ * step used to provide. So a style with no picture of its own yet gets the hero
+ * slot copied in as one file.
+ *
+ * Only when it has none: an existing picture is never overwritten, nothing is
+ * ever removed, and no second or third copy is made (§5 — a style's older files
+ * are left exactly as they are).
+ */
+async function seedPresetReferenceImage(
+  slug: string,
+  presetId: string,
+  sourceHash: string,
+): Promise<{ preview_filename: string; preview_files: string[]; preview_saved_at: string } | null> {
+  const slots = await sharedStylePreviewSlots(sourceHash)
+  const hero = slots.find(entry => entry.slot === 'hero') || slots[0]
+  if (!hero) return null
+  const source = await pathForUserStylePreviewAsset(hero.hash)
+  if (!source) return null
+  const projDir = pm.getProjectDir(slug)
+  if (!projDir) return null
+  try {
+    const fsMod = await import('fs')
+    const fsp = await import('fs/promises')
+    const pathMod = await import('path')
+    const dir = pathMod.join(projDir, 'style-previews')
+    if (!fsMod.existsSync(dir)) await fsp.mkdir(dir, { recursive: true })
+    const filename = `${presetId}.png`
+    await fsp.writeFile(pathMod.join(dir, filename), await fsp.readFile(source))
+    return { preview_filename: filename, preview_files: [filename], preview_saved_at: new Date().toISOString() }
+  } catch {
+    // A missing reference image costs the style one img2img hint; it must never
+    // fail the save the customer asked for.
+    return null
+  }
+}
+
 router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema), async (req, res) => {
   const { slug } = req.params
   try {
@@ -377,13 +445,32 @@ router.post('/projects/:slug/style-presets', validateBody(StylePresetSaveSchema)
     const preset: any = {
       id, name, description, created_at: now,
     }
+    // The live model the previews were rendered with, recorded whenever the
+    // caller names one. A preset whose previews come from the shared store has
+    // no file of its own, so this must not be gated on one existing.
+    if (preview_model) preset.preview_model = preview_model
+    if (preview_aspect_ratio) preset.preview_aspect_ratio = preview_aspect_ratio
+    if (preview_tier) preset.preview_tier = preview_tier
     if (preview_filename) {
       preset.preview_filename = preview_filename
       preset.preview_files = preview_files
-      preset.preview_model = preview_model
-      preset.preview_aspect_ratio = preview_aspect_ratio
-      preset.preview_tier = preview_tier
       preset.preview_saved_at = preview_saved_at
+    }
+    const sourceHash = await previewSourceHashForSave(description)
+    if (sourceHash) {
+      preset.preview_source_hash = sourceHash
+      preset.preview_saved_at = preset.preview_saved_at || now
+      // A style saved for a text that already has its three previews has no
+      // project-local picture of its own: take the hero as its img2img
+      // reference. The displayed previews still come from the shared store.
+      if (!preset.preview_filename) {
+        const seeded = await seedPresetReferenceImage(slug, id, sourceHash)
+        if (seeded) {
+          preset.preview_filename = seeded.preview_filename
+          preset.preview_files = seeded.preview_files
+          preset.preview_saved_at = seeded.preview_saved_at
+        }
+      }
     }
 
     const nextPresets = [...existing, preset]
@@ -473,6 +560,19 @@ router.put('/projects/:slug/style-presets/:id', validateBody(StylePresetSaveSche
       name,
       description,
     }
+    // Re-derive the pointer to the text these previews describe. An edit that
+    // has no three previews of its own yet keeps pointing at the text they DID
+    // come from, so the earlier images are still shown — and shown as out of
+    // date — instead of the style silently losing its previews.
+    const keptSourceHash = await previewSourceHashForSave(description, target.preview_source_hash)
+    if (keptSourceHash) updated.preview_source_hash = keptSourceHash
+    else delete updated.preview_source_hash
+    // The model the previews were rendered with is a setting the caller states,
+    // not a side effect of attaching files: a preset whose previews live in the
+    // shared store has no files to attach and still needs to say what made them.
+    if (preview_model) updated.preview_model = preview_model
+    if (preview_aspect_ratio) updated.preview_aspect_ratio = preview_aspect_ratio
+    if (preview_tier) updated.preview_tier = preview_tier
     if (hasNewPreviewPayload) {
       if (replacementPreview.preview_filename) {
         updated.preview_filename = replacementPreview.preview_filename
@@ -488,6 +588,20 @@ router.put('/projects/:slug/style-presets/:id', validateBody(StylePresetSaveSche
         delete updated.preview_aspect_ratio
         delete updated.preview_tier
         delete updated.preview_saved_at
+        // The caller asked for a new preview set and none materialized, so the
+        // preset has no previews: the pointer must not outlive them.
+        delete updated.preview_source_hash
+      }
+    }
+
+    // A style saved with no picture of its own takes the hero slot as its
+    // img2img reference; its three previews still come from the shared store.
+    if (!hasNewPreviewPayload && !updated.preview_filename && keptSourceHash) {
+      const seeded = await seedPresetReferenceImage(slug, id, keptSourceHash)
+      if (seeded) {
+        updated.preview_filename = seeded.preview_filename
+        updated.preview_files = seeded.preview_files
+        updated.preview_saved_at = seeded.preview_saved_at
       }
     }
 
