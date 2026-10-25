@@ -238,7 +238,12 @@ export async function writeContinuityConfig(
   const sidecarPath = path.join(paths.episode_dir, CONTINUITY_FILENAME)
   await fs.mkdir(paths.episode_dir, { recursive: true })
   return withLock(sidecarPath, async () => {
-    const storedPacing = options.claimPacingAuthority ? undefined : await readStoredPacing(sidecarPath)
+    let storedPacing = options.claimPacingAuthority ? undefined : await readStoredPacing(sidecarPath)
+    // No rhythm of its own yet and none sent: the channel's starting rhythm, as the GET shows it —
+    // never the 1–3s default (Komsan KOM0001/2, 2026-10-25).
+    if (storedPacing === undefined && !options.claimPacingAuthority && body?.pacing === undefined) {
+      storedPacing = await readProjectStartingPacing(slug)
+    }
     const config = buildContinuityConfig(
       storedPacing === undefined ? body : { ...(body || {}), pacing: storedPacing },
       mode,
@@ -267,7 +272,7 @@ export async function writeEpisodeMotionScope(
       current = parsed
     } catch (error: any) {
       if (error?.code !== 'ENOENT') throw new Error(`continuity.json is malformed, so the motion scope was not saved: ${error?.message || error}`)
-      current = { ...buildContinuityConfig(undefined, mode) }
+      current = { ...buildContinuityConfig({ pacing: await readProjectStartingPacing(slug) }, mode) }
     }
     const next = { ...current, motion_scope: motionScope, updated_at: new Date().toISOString() } as unknown as ContinuityConfig
     await fs.writeFile(sidecarPath, JSON.stringify(next, null, 2), 'utf-8')
