@@ -144,3 +144,23 @@ test('hold_frames reaches the helper in the job JSON', async t => {
   } })
   assert.equal(seen.hold_frames, 75)
 })
+
+test('a helper that stalls on the encoder fails with a clear message instead of hanging until the Node timeout', async t => {
+  const job = await scratch(t)
+  // Simulate what the fixed Swift helper now does: fail with exit 4 and a stall message
+  // rather than spinning on isReadyForMoreMediaData forever.
+  const result = await renderSketchDraw(job, {
+    run: async () => ({ code: null, stderr: 'timed out after 600s' }),
+  }).catch((e: unknown) => e)
+  assert.ok(result instanceof SketchDrawError)
+  assert.equal(result.code, 'failed')
+  assert.match(result.message, /timed out/)
+  // The fixed helper would instead produce: "sketch encoder stall: waited 10s for isReadyForMoreMediaData at frame N"
+  const stallResult = await renderSketchDraw(job, {
+    run: async () => ({ code: 4, stderr: 'scene-clip: sketch encoder stall: waited 10s for isReadyForMoreMediaData at frame 847' }),
+  }).catch((e: unknown) => e)
+  assert.ok(stallResult instanceof SketchDrawError)
+  assert.equal(stallResult.code, 'failed')
+  assert.match(stallResult.message, /encoder stall/)
+  assert.match(stallResult.message, /frame 847/)
+})

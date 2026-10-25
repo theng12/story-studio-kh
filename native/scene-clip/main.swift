@@ -466,7 +466,14 @@ var gpuTotal = 0.0, waitTotal = 0.0, appendTotal = 0.0
 let profile = ProcessInfo.processInfo.environment["SCENE_CLIP_PROFILE"] != nil
 for (i, f) in job.frames.enumerated() {
     let tw = DispatchTime.now().uptimeNanoseconds
-    while !input.isReadyForMoreMediaData { usleep(300) }
+    while !input.isReadyForMoreMediaData {
+        if writer.status == .failed || writer.status == .cancelled {
+            fail(4, "encoder \(writer.status == .cancelled ? "cancelled" : "failed"): \(writer.error?.localizedDescription ?? "unknown error") at frame \(i)")
+        }
+        let waited = Double(DispatchTime.now().uptimeNanoseconds - tw) / 1e9
+        if waited > 300.0 { fail(4, "encoder stall: waited \(Int(waited))s for isReadyForMoreMediaData at frame \(i); writer status=\(writer.status.rawValue)") }
+        usleep(3000)
+    }
     waitTotal += Double(DispatchTime.now().uptimeNanoseconds - tw) / 1e9
     guard let pool = adaptor.pixelBufferPool else { fail(4, "no pixel buffer pool") }
     var pbOpt: CVPixelBuffer?
@@ -503,5 +510,5 @@ input.markAsFinished()
 let sem = DispatchSemaphore(value: 0)
 writer.endSession(atSourceTime: CMTime(value: CMTimeValue(job.frames.count) * 512, timescale: timescale))
 writer.finishWriting { sem.signal() }
-sem.wait()
-if writer.status != .completed { fail(4, "finish: \(writer.error?.localizedDescription ?? "?")") }
+if sem.wait(timeout: .now() + 180) == .timedOut { fail(4, "finish stall: finishWriting did not complete within 180s; writer status=\(writer.status.rawValue)") }
+if writer.status != .completed { fail(4, "finish \(writer.status == .failed ? "failed" : writer.status == .cancelled ? "cancelled" : "incomplete"): \(writer.error?.localizedDescription ?? "unknown error")") }
