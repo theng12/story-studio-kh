@@ -356,6 +356,7 @@ async function refreshAudioQualityTimeline(input: {
   episodeDir: string
   audioDir: string
   mergedAudioDir: string
+  scriptDir?: string
 }): Promise<void> {
   const marker = (input.job.params as AudioMergeRequest).audio_quality_refresh
     || await pendingSelectedQualityRefresh(input)
@@ -451,6 +452,7 @@ async function refreshAudioQualityTimeline(input: {
     mergedAudioDir: input.mergedAudioDir,
     audioDir: input.audioDir,
     episodeCode: input.episodeId,
+    ...(input.scriptDir ? { scriptDir: input.scriptDir } : {}),
   })
   if (!['stitched', 'fresh'].includes(stitch.status)) {
     throw new Error(`Audio-quality subtitles could not be stitched: ${stitch.reason}`)
@@ -501,6 +503,7 @@ async function pendingSelectedQualityRefresh(input: {
   episodeDir: string
   audioDir: string
   mergedAudioDir: string
+  scriptDir?: string
 }): Promise<NonNullable<AudioMergeRequest['audio_quality_refresh']> | null> {
   const saved = await readAudioQualityProvenance(input.episodeDir)
   const pending = Object.values(saved.actions || {}).filter(action =>
@@ -1266,6 +1269,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     await refreshAudioQualityTimeline({
       job, projectSlug: project_slug, episodeId: code, episodeDir,
       audioDir: path.dirname(validChapters[0]!), mergedAudioDir: mergedDir,
+      scriptDir: path.join(episodeDir, (await resolveSubfolderNames(project_slug, code)).script),
     })
 
     // v1.0.107+ — when the request was pre-filled from the music-pool

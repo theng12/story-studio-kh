@@ -34,6 +34,8 @@ export interface NarrationParts {
   chapters: Array<{
     number: number
     title: string
+    /** Existing heading retained by a scoped text edit. */
+    heading?: string
     text: string
   }>
   /** True when the final parsed chapter ended at a later recognised heading. */
@@ -52,6 +54,8 @@ export interface WriteChapterFilesOptions {
   /** Manual replacement CAS + copy-first recoverable package preservation. */
   manualPromotion?: {
     expectedRevision: 'missing' | `sha256:${string}`
+    /** Legacy .docx remains the revision authority until its first Markdown save. */
+    sourcePath?: string
     ownerActionId: string
     projectDir: string
     projectSlug: string
@@ -71,9 +75,9 @@ async function currentRevision(file: string): Promise<'missing' | `sha256:${stri
 async function preserveManualPackage(target: string, options: WriteChapterFilesOptions): Promise<void> {
   const promotion = options.manualPromotion
   if (!promotion) return
-  const revision = await currentRevision(target)
+  const revision = await currentRevision(existsSync(target) ? target : promotion.sourcePath || target)
   if (revision !== promotion.expectedRevision) {
-    throw new Error('The script item changed after this replacement was accepted. The generated candidate was not promoted.')
+    throw Object.assign(new Error('The script item changed after this replacement was accepted. The generated candidate was not promoted.'), { code: 'SCRIPT_REVISION_CONFLICT' })
   }
   const root = trashRootFor(promotion.projectDir, promotion.projectDir, promotion.projectSlug)
   const unique = [...new Set(promotion.archiveFiles.filter(file => existsSync(file)))]
@@ -256,7 +260,8 @@ export async function writeChapterFiles(
       }
       await preserveManualPackage(target, options)
       const spokenText = spokenProse(ch.text, `Chapter ${ch.number}`, options)
-      const md = `## Chapter ${ch.number.toString().padStart(2, '0')}: ${ch.title}\n\n${spokenText}\n`
+      const heading = ch.heading || `## Chapter ${ch.number.toString().padStart(2, '0')}: ${ch.title}`
+      const md = `${heading}\n\n${spokenText}\n`
       await buildNarrationDocx(md, code, episodeTitle, target, { includeTitleBlock: false })
     })
   }

@@ -607,6 +607,7 @@
       :script-ready="scriptGenerated"
       :form="form"
       :refresh-key="previewRefreshKey"
+      @saved="previewRefreshKey++"
     />
 
     <!-- Preview panels: refresh after each generation completes via previewRefreshKey -->

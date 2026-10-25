@@ -7,6 +7,7 @@ import { parseSrt } from '../lib/subtitle-builder.js'
 import { readStitchPlan } from './subtitle-stitcher.js'
 import { allowedSubtitleCueGapSec } from './scene-plan-pacing.js'
 import { readSubtitleSourceAudioHashes } from './subtitle-recovery.js'
+import { staleNarrationSections } from '../lib/narration-source-freshness.js'
 
 export interface SubtitleCompletion {
   complete: boolean
@@ -177,6 +178,8 @@ export async function inspectSubtitleSourceFreshness(
   audioDir: string,
   subtitlesDir: string,
   episodeCode: string,
+  /** The episode's resolved Script folder, when the caller knows it (a renamed folder must still be seen). */
+  scriptDir?: string,
 ): Promise<SubtitleSourceFreshness> {
   let sidecar: AudioChapterManifest
   try {
@@ -200,10 +203,10 @@ export async function inspectSubtitleSourceFreshness(
     if (section && !/_stitched\./i.test(filename)) sourceSrt.set(normalize(section), filename)
   }
 
-  const stale: string[] = []
+  const stale: string[] = await staleNarrationSections(episodeDir, episodeCode.toUpperCase(), sections, { audioDir }, scriptDir)
   for (const section of sections) {
     const slug = typeof section.slug === 'string' ? section.slug.trim() : ''
-    if (!slug) continue
+    if (!slug || stale.includes(slug)) continue
     const srt = sourceSrt.get(normalize(slug))
     if (!srt) continue // An intentional whole-track has no per-section source to stale.
     const audioFiles = audioFilesForSection(section, audioDir, episodeCode.toUpperCase())

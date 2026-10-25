@@ -68,6 +68,7 @@ import { findYouTubeSourceVideoPath } from '../services/youtube-source-video.js'
 import {
   createProjectFactsCache,
   resolveEpisodePaths,
+  resolveEpisodePathsByCode,
   resolveEpisodePathsByCodeWithSidecar,
   resolveEpisodeTitleByCode,
   resolveScenePlanPath,
@@ -1494,6 +1495,7 @@ router.get('/projects/:slug/video-editor/subtitles/timeline-integrity/:episodeId
       readSubtitleTimelineIntegrity(subtitlesDir, episodeId, {
         max_cue_gap_sec: allowedSubtitleCueGapSec(),
         cue_source_path: planningTranscript?.path,
+        scriptDir: (await resolveEpisodePathsByCode(slug, episodeId)).script_dir,
       }),
       safetyMode(slug, 'caption_gap'),
     ])
@@ -1526,7 +1528,7 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
     }
     try {
       const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, 'audio_chapters.json')
-      const inspected = await inspectSubtitleSourceFreshness(paths.episode_dir, paths.audio_dir, subtitlesDir, episodeId)
+      const inspected = await inspectSubtitleSourceFreshness(paths.episode_dir, paths.audio_dir, subtitlesDir, episodeId, paths.script_dir)
       subtitleFreshness = { ...inspected, freshness_unavailable: false, freshness_reason: null }
     } catch {
       // Do not turn an unreadable active-source map into evidence that every
@@ -1604,6 +1606,7 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       ? await readSubtitleTimelineIntegrity(subtitlesDir, episodeId, {
         max_cue_gap_sec: allowedSubtitleCueGapSec(),
         cue_source_path: planningTranscript?.path,
+        scriptDir: (await resolveEpisodePathsByCode(slug, episodeId)).script_dir,
       }).then(integrity => ({
         ...integrity,
         caption_gap_mode: captionGapMode,
@@ -2391,7 +2394,7 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
     req.body.visual_source = source.source
     if (source.source === 'scene_plan') {
       const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episode_id, SCENE_PLAN_FILENAME)
-      await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
+      await assertSubtitleTimelineComplete(paths.subtitles_dir, episode_id, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir, scriptDir: paths.script_dir })
       const planPath = await resolveScenePlanPath(slug, episode_id, paths.episode_dir)
       if (!existsSync(planPath)) throw new Error('No Scene Plan timeline was found.')
       const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan

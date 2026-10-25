@@ -6,6 +6,7 @@ import { stitchedSrtPath } from './subtitle-correction.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { stampFromCues } from '../lib/scene-plan-timeline.js'
 import { inspectSubtitleSourceFreshness } from './subtitle-completion.js'
+import { staleNarrationSections } from '../lib/narration-source-freshness.js'
 import { MUSIC_EPISODE_FILENAME } from './music-episode.js'
 import { safetyGate, safetyMode } from './safety-checks.js'
 import { isFreeFleetModelId } from '../contracts/provider-task-state.js'
@@ -96,7 +97,7 @@ function writtenTimelineMatches(meta: any, cues: ReturnType<typeof parseSrt>): b
 export async function readSubtitleTimelineIntegrity(
   subtitlesDir: string,
   episodeCode: string,
-  options: { max_cue_gap_sec?: number; cue_source_path?: string } = {},
+  options: { max_cue_gap_sec?: number; cue_source_path?: string; scriptDir?: string } = {},
 ): Promise<SubtitleTimelineIntegrity> {
   // Deliberately the RAW stitch, not the corrected transcript: this checks
   // that every audio section produced subtitles at all. Correction happens
@@ -117,6 +118,10 @@ export async function readSubtitleTimelineIntegrity(
       ...(Array.isArray(meta?.missing_sections) ? meta.missing_sections : []),
     ]))
     if (meta?.complete === false && !missing.length) missing.push('subtitle timeline verification')
+    // A self-consistent old stitch still describes old speech after a chapter edit.
+    const episodeDir = path.dirname(subtitlesDir)
+    const stale = await staleNarrationSections(episodeDir, episodeCode.toUpperCase(), meta?.sections ?? [], { derivedPath: stitchedPath }, options.scriptDir)
+    missing.push(...stale.map(slug => `${slug} narration changed; regenerate audio, transcribe and stitch again`))
     const maxGap = Number(options.max_cue_gap_sec)
     if (!Number.isFinite(maxGap) || maxGap < 0) {
       return { complete: missing.length === 0, missing_sections: missing }
@@ -165,7 +170,7 @@ export async function verifyWrittenSubtitleTimeline(
  */
 export async function restitchIfBroken(
   job: Job,
-  dirs: { subtitlesDir: string; episodeDir: string; audioDir: string; mergedAudioDir: string },
+  dirs: { subtitlesDir: string; episodeDir: string; audioDir: string; mergedAudioDir: string; scriptDir?: string },
   episodeCode: string,
 ): Promise<void> {
   if (existsSync(path.join(dirs.episodeDir, MUSIC_EPISODE_FILENAME))) return
@@ -200,14 +205,14 @@ async function retranscribeOnFreeFleet(job: Job, subtitlesDir: string, episodeCo
 export async function assertSubtitleTimelineComplete(
   subtitlesDir: string,
   episodeCode: string,
-  source?: { episodeDir: string; audioDir: string },
+  source?: { episodeDir: string; audioDir: string; scriptDir?: string },
   /** 1.4.300 — with the job, "Subtitles match today's audio" Off/Warn carries on (Block = the old stop). */
   job?: Job,
 ): Promise<void> {
   // An Episode Builder (music) episode has no narration, so there is no subtitle
   // timeline to wait for; its scene times come from the stitched songs.
   if (source && existsSync(path.join(source.episodeDir, MUSIC_EPISODE_FILENAME))) return
-  const integrity = await readSubtitleTimelineIntegrity(subtitlesDir, episodeCode)
+  const integrity = await readSubtitleTimelineIntegrity(subtitlesDir, episodeCode, { scriptDir: source?.scriptDir })
   if (!integrity.complete) {
     throw new Error(
       `Subtitle timeline is incomplete: ${integrity.missing_sections.join(', ')}. `
@@ -220,6 +225,7 @@ export async function assertSubtitleTimelineComplete(
     source.audioDir,
     subtitlesDir,
     episodeCode,
+    source.scriptDir,
   )
   if (freshness.stale_sections.length) {
     if (job && await safetyCarriesOn(job, 'subtitles_match_audio',

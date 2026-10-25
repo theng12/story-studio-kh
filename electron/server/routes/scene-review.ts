@@ -274,7 +274,7 @@ async function validateSceneRenderRequest(
   const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
   if (!existsSync(planPath)) throw new Error('No scene_plan.json yet')
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-  await assertSubtitleTimelineComplete(paths.subtitles_dir, episodeId, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir })
+  await assertSubtitleTimelineComplete(paths.subtitles_dir, episodeId, { episodeDir: paths.episode_dir, audioDir: paths.audio_dir, scriptDir: paths.script_dir })
   if (validatePrompts) assertScenePromptsRenderable(plan.scenes, sceneIds)
   return { paths, plan, planPath }
 }
@@ -541,6 +541,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId, {
       max_cue_gap_sec: allowedSubtitleCueGapSec(),
       cue_source_path: planningTranscript.path,
+      scriptDir: paths.script_dir,
     }).then(integrity => ({
       ...integrity,
       caption_gap_mode: captionGapMode,
@@ -1715,7 +1716,7 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
     const hasImage = await sceneImageNames(slug, episodeId, paths.episode_dir)
     const imageReady = plan.scenes.map(s => hasImage(s.id))
     const promptIntegrity = inspectScenePromptIntegrity(plan.scenes)
-    const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId)
+    const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId, { scriptDir: paths.script_dir })
     const reviewCompletion = inspectSceneReviewCompletion(
       plan.scenes,
       imageReady,

@@ -644,12 +644,16 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
  *   chapter-changed:<file>  an active chapter is newer than the merge (or gone)
  *   chapter-record-unreadable  audio_chapters.json cannot say which chapters the merge used
  */
-export type AudioMergeReason = 'missing' | 'completion-mismatch' | 'chapter-record-unreadable' | `chapter-changed:${string}`
+export type AudioMergeReason = 'missing' | 'completion-mismatch' | 'chapter-record-unreadable' | `chapter-changed:${string}` | `script-changed:${string}`
 
 /** The refusal Video Assembly shows for a merged track the freshness rule rejects, naming why and the repair. */
 export function staleMergedAudioMessage(episodeId: string, file: string | null | undefined, reason: AudioMergeReason): string {
   const code = episodeId.toUpperCase()
   const track = file ? `"${file}"` : 'merged audio'
+  if (reason.startsWith('script-changed:')) {
+    return `Video Assembly is blocked: ${code}'s ${track} uses old chapter text for ${reason.slice('script-changed:'.length)}. `
+      + 'Regenerate that chapter’s narration, then re-run Audio Assembly, transcription and subtitle stitching before retrying.'
+  }
   const why = reason === 'completion-mismatch'
     ? 'its completion record does not match the file (the merge may be unfinished or replaced)'
     : reason === 'chapter-record-unreadable'
@@ -675,6 +679,9 @@ async function mergedAudioSourcesStaleReason(
   episodeDir: string,
   audioDir: string,
   mergedPath: string,
+  code: string,
+  /** The episode's resolved Script folder — a renamed folder must still be seen (AGENTS §6). */
+  scriptDir?: string,
 ): Promise<AudioMergeReason | null> {
   let raw: string
   try {
@@ -685,7 +692,7 @@ async function mergedAudioSourcesStaleReason(
     return (error as NodeJS.ErrnoException)?.code === 'ENOENT' ? null : 'chapter-record-unreadable'
   }
 
-  let sidecar: { sections?: Array<{ source_file?: unknown; source_files?: unknown }> }
+  let sidecar: { sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }> }
   try {
     sidecar = JSON.parse(raw)
   } catch {
@@ -694,6 +701,9 @@ async function mergedAudioSourcesStaleReason(
   if (!Array.isArray(sidecar.sections)) return 'chapter-record-unreadable'
 
   try {
+    const { staleNarrationSections } = await import('../lib/narration-source-freshness.js')
+    const stale = await staleNarrationSections(episodeDir, code, sidecar.sections, { audioDir }, scriptDir)
+    if (stale.length) return `script-changed:${stale.join(', ')}`
     const names = (sidecar.sections || []).flatMap(section => {
       const listed = Array.isArray(section.source_files)
         ? section.source_files.filter((file): file is string => typeof file === 'string' && path.basename(file) === file)
@@ -717,7 +727,7 @@ async function mergedAudioSourcesStaleReason(
 
 /** Resolve the one canonical, completion-verified, current merge at known episode paths. */
 export async function inspectAudioMergeAtPaths(
-  paths: Pick<EpisodePaths, 'episode_dir' | 'audio_dir' | 'merged_audio_dir'>,
+  paths: Pick<EpisodePaths, 'episode_dir' | 'audio_dir' | 'merged_audio_dir'> & Partial<Pick<EpisodePaths, 'script_dir'>>,
   episodeId: string,
 ): Promise<AudioMergeStatus> {
   const code = episodeId.toUpperCase()
@@ -778,7 +788,7 @@ export async function inspectAudioMergeAtPaths(
       }
     } catch { return { present: false, file: best.file, dir: paths.merged_audio_dir, reason: 'completion-mismatch' } }
   }
-  const stale = await mergedAudioSourcesStaleReason(paths.episode_dir, paths.audio_dir, mergedPath)
+  const stale = await mergedAudioSourcesStaleReason(paths.episode_dir, paths.audio_dir, mergedPath, code, paths.script_dir)
   if (stale) return { present: false, file: best.file, dir: paths.merged_audio_dir, reason: stale }
   return { present: true, file: best.file, dir: paths.merged_audio_dir, path: mergedPath }
 }
@@ -831,6 +841,7 @@ export async function getAudioMergeStatus(
     episode_dir: epDir,
     audio_dir: audioDir,
     merged_audio_dir: mergedDir,
+    script_dir: await resolveEpisodeSubfolderDir(slug, code, 'script', epDir, subfolders.script, false, cache),
   }, code)
 }
 
@@ -1328,6 +1339,7 @@ export async function computeEpisodeStatus(
           subtitlePaths.audio_dir,
           subtitlePaths.subtitles_dir,
           code,
+          subtitlePaths.script_dir,
         )
         // A transcript can exist and still describe superseded narration. Keep
         // it on disk as evidence, but leave Pipeline's subtitle step pending.
@@ -1345,6 +1357,7 @@ export async function computeEpisodeStatus(
         const integrity = await readSubtitleTimelineIntegrity(subtitlePaths.subtitles_dir, code, {
           max_cue_gap_sec: allowedSubtitleCueGapSec(),
           cue_source_path: planningTranscript.path,
+          scriptDir: subtitlePaths.script_dir,
         })
         // A missing/stale correction is not a transcription failure. Scene Plan
         // rebuilds and validates that source before provider work; only a fresh,
@@ -1427,7 +1440,7 @@ export async function computeEpisodeStatus(
         // done merely because scene_plan.json exists (for example, 273/273
         // timestamp rows with 0 prompts).
         const promptIntegrity = inspectScenePromptIntegrity(scenes)
-        const subtitleIntegrity = await readSubtitleTimelineIntegrity(byCode.subtitles_dir, code)
+        const subtitleIntegrity = await readSubtitleTimelineIntegrity(byCode.subtitles_dir, code, { scriptDir: byCode.script_dir })
         const coverageIntegrity = inspectScenePlanCoverage(plan)
         // Which merged track is THIS episode's narration — the owner's explicit
         // choice when he made one, else the base track over a `_v2` (v1.4.314).
