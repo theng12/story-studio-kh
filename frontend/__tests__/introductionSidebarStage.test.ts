@@ -305,7 +305,8 @@ function loadIntroductionReadinessGate(): any {
     // mutable here so the real gate is exercised for queued/running/paused.
     const scriptWriting = ref(false)
     ${state}
-    const segment = { enabled: true }
+    // Write snapshots the form for one run, so the gate needs a real recipe.
+    const segment = { enabled: true, recipe: { host_name: '', word_target: 350, custom_opening_line: '', beats: [], model: '' } }
     const introductionInFlight = ref(false)
     ${generate}
     return {
@@ -326,6 +327,8 @@ function loadIntroductionReadinessGate(): any {
  * explanation on the server, the rendered assertions below stop finding it.
  */
 const { BEAT_LIBRARY } = await import('../../electron/server/lib/episode-segments.js')
+// The page's own style and section catalogue, also the real module, for the same reason.
+const { INTRO_STYLES, INTRO_SECTIONS, introOption, introSampleFor } = await import('../../electron/server/contracts/intro-settings.js')
 
 /** Render the real page template with its surrounding components stubbed. */
 async function renderPage(state: Record<string, unknown>): Promise<string> {
@@ -346,6 +349,14 @@ async function renderPage(state: Record<string, unknown>): Promise<string> {
       restoreBeatId: '',
       modelMode: 'script',
       beatLibrary: Object.values(BEAT_LIBRARY),
+      INTRO_STYLES,
+      INTRO_SECTIONS,
+      // The channel's real identity, which the section samples resolve
+      // against. Plain data, exactly as the API serves it.
+      channelName: 'Dozing Knight',
+      contentLanguage: '',
+      automaticIntro: false,
+      musicSummary: 'Choose music in Audio Assembly',
       introPresets: { presets: { value: [] }, activeId: { value: '' } },
       expanded: new Set<string>(),
       previewRefreshKey: 0,
@@ -368,6 +379,13 @@ async function renderPage(state: Record<string, unknown>): Promise<string> {
         const present = new Set(this.segment.recipe.beats.map((b: any) => b.id))
         return this.beatLibrary.filter((b: any) => !present.has(b.id))
       },
+      contentLanguageLabel(this: any) {
+        return ({ km: 'Khmer', en: 'English' } as any)[String(this.contentLanguage).toLowerCase()]
+          || this.contentLanguage || 'Language not set'
+      },
+      illustration(this: any) {
+        return this.enabledBeats.map((b: any) => this.sampleFor(b).text).filter(Boolean).join('\n\n')
+      },
     },
     // The page's real per-beat readers, so what is rendered is the catalogue's
     // own wording. Everything else the template calls is a no-op.
@@ -375,6 +393,13 @@ async function renderPage(state: Record<string, unknown>): Promise<string> {
       beatDescription(this: any, id: string) { return (BEAT_LIBRARY as any)[id]?.description || '' },
       beatSuitsNote(this: any, id: string) { return (BEAT_LIBRARY as any)[id]?.suitsNote || '' },
       beatPlaceholder(this: any, id: string) { return (BEAT_LIBRARY as any)[id]?.example || '' },
+      introOption(this: any, beat: any) { return (introOption as any)(beat) },
+      // The real chooser, so a rendered sample is the sentence the page would
+      // really show — including whose words it is.
+      sampleFor(this: any, beat: any) {
+        return (introSampleFor as any)(beat, this.contentLanguage, this.channelName, this.segment.recipe.custom_opening_line)
+      },
+      sampleLabel(_source: string) { return _source === 'custom' ? 'Your wording:' : 'Example:' },
       ...(methodOverrides || {}),
     } as Record<string, unknown>, {
       get: (target, key) => (key in target ? (target as any)[key] : () => ''),
@@ -422,7 +447,11 @@ describe('the Introduction page renders whether or not the channel uses one', ()
     assert.match(text, /begin at chapter one/, 'saying what happens instead')
     // The whole recipe is editable while off, so it can be set up in advance.
     assert.match(text, /Host or narrator name/)
-    assert.match(text, /Welcome & host intro/)
+    // The redesign names the section in plain words — "Welcome", not the
+    // catalogue's "Welcome & host intro", which the prompt still uses. A beat
+    // outside the section catalogue keeps its own catalogue name.
+    assert.match(text, /Welcome/)
+    assert.match(text, /Patreon \/ membership mention/)
   })
 
   test('switched ON, it states that every episode will get one', async () => {
@@ -525,7 +554,9 @@ describe('the Introduction page renders whether or not the channel uses one', ()
     const text = strip(await renderPage({
       segment: { enabled: true, recipe: { host_name: '', word_target: 350, custom_opening_line: '', beats, model: '' } },
     }))
-    assert.match(text, /Put a standard beat back/)
+    // The redesign renamed "beats" to "sections" in every reader's copy; the
+    // picker still restores a removed one BY ID, which is what this pins.
+    assert.match(text, /Add a section/)
     assert.match(text, /Story teaser/, 'the removed beat is offered back by its catalogue name')
   })
 
@@ -566,7 +597,10 @@ describe('the page distinguishes a Formula\u2019s opening from the owner\u2019s 
     const text = strip(html)
     assert.match(text, /Following the opening that comes with the Business Economics Formula/,
       'the page must name what the channel is following, not just that it follows something')
-    assert.match(text, /nobody here chose these beats/,
+    // "sections", not "beats" \u2014 the same rename the redesign applied everywhere
+    // a reader meets the word. The claim being pinned is unchanged: a Formula
+    // default is never presented as somebody's decision.
+    assert.match(text, /nobody here chose these sections/,
       'and must not present a Formula default as somebody\u2019s decision')
     assert.match(html, /data-state="formula"/)
   })
@@ -656,10 +690,14 @@ describe('the Introduction page only submits for the checked episode script', ()
     assert.equal(gate.canGenerateIntroduction.value, true, 'clearing busy state restores the matching ready gate')
     await gate.generateForEpisode()
 
-    assert.deepEqual(gate.operations, [{ episode_id: 'EP0001' }])
+    // The redesign separated "Save channel defaults" from writing one episode's
+    // intro, so the request now carries the form as a one-run snapshot instead
+    // of the page saving first. The gate assertions above are unchanged.
+    const runRecipe = { host_name: '', word_target: 350, custom_opening_line: '', beats: [], model: '' }
+    assert.deepEqual(gate.operations, [{ episode_id: 'EP0001', introduction_recipe: runRecipe }])
     assert.deepEqual(gate.posts, [[
       '/projects/demo/generate/introduction-only',
-      { episode_id: 'EP0001', operation_id: 'introduction-operation' },
+      { episode_id: 'EP0001', introduction_recipe: runRecipe, operation_id: 'introduction-operation' },
     ]])
   })
 })

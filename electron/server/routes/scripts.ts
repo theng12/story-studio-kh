@@ -1086,7 +1086,10 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
   // chapters — the defect fixed in v1.4.68.
   const { getSegmentModel } = await import('../services/channel-segments.js')
   const { INTRODUCTION_SEGMENT_ID } = await import('../lib/episode-segments.js')
-  let model = await getSegmentModel(slug, INTRODUCTION_SEGMENT_ID)
+  const { normalizeChannelSegments, beatLinesForPrompt: runBeatLines } = await import('../lib/episode-segments.js')
+  const runRecipe = req.body.introduction_recipe
+    ? normalizeChannelSegments({ introduction: { recipe: req.body.introduction_recipe } }).introduction.recipe : null
+  let model = runRecipe ? runRecipe.model : await getSegmentModel(slug, INTRODUCTION_SEGMENT_ID)
   if (!model) model = typeof req.body.model === 'string' ? req.body.model.trim() : ''
   if (!model) {
     const { resolveScriptSideChatModel } = await import('./pipeline.js')
@@ -1099,6 +1102,19 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
           + 'No model was substituted.',
       })
     }
+  }
+
+  let runIntroduction: Record<string, unknown> | undefined
+  if (runRecipe) {
+    const format = await getEffectiveFormat(slug, { episodeId: req.body.episode_id })
+    const requestedStyle = req.body.style || format.script.defaultNarratorStyleId
+    const style = requestedStyle === 'auto'
+      ? await (await import('../generators/episode.js')).automaticNarratorStyleForEpisode(format, slug, req.body.episode_id)
+      : requestedStyle
+    runIntroduction = { version: 1, title, model, style,
+      ...(typeof req.body.custom_style_text === 'string' ? { custom_style_text: req.body.custom_style_text } : {}),
+      recipe: { host_name: runRecipe.host_name, word_target: runRecipe.word_target,
+        custom_opening: runRecipe.custom_opening_line, beats: runBeatLines(runRecipe) } }
   }
 
   if (manualReplay.intent) {
@@ -1141,7 +1157,7 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
           targetFile: introductionFilePath(paths.script_dir, req.body.episode_id),
           operationId: manualReplay.operationId!,
           clientFingerprint: manualReplay.clientFingerprint!,
-          extraParams: { title, model, resolved_introduction: resolvedIntroduction },
+          extraParams: { title, model, resolved_introduction: runIntroduction || resolvedIntroduction },
         })
       })
       const job = await jq.enqueueManualGenerationRedo({
@@ -1162,6 +1178,8 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
   let action
   try {
     action = await prepareExplicitScriptAction(slug, { ...req.body, title, model }, 'optional')
+    // Client snapshots are validated above; only this route may attach the resolved job contract.
+    if (runIntroduction) action.params.resolved_introduction = runIntroduction
   } catch (error) {
     return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }

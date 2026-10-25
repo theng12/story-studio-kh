@@ -1,3 +1,5 @@
+import { introPromptLines, INTRO_SECTIONS, INTRO_STYLES, type IntroTone, type IntroLength } from '../contracts/intro-settings.js'
+
 /**
  * Episode segments — generated narration that attaches to an episode at a
  * POSITION, rather than being "the Introduction" specifically.
@@ -96,6 +98,7 @@ export interface SegmentBeat {
   enabled: boolean
   /** Extra wording for this beat. Blank = write from the label alone. */
   custom_text?: string
+  choice?: string
 }
 
 /** Everything about HOW a segment is written. All of it is the owner's. */
@@ -105,6 +108,9 @@ export interface SegmentRecipe {
   word_target: number
   custom_opening_line: string
   beats: SegmentBeat[]
+  starting_style?: string
+  tone?: IntroTone
+  length?: IntroLength
   /**
    * The language model that writes this segment.
    *
@@ -505,13 +511,14 @@ function normalizeBeats(raw: unknown, fallback: SegmentBeat[]): SegmentBeat[] {
         id,
         label: known ? known.label : (typeof b.label === 'string' ? b.label : ''),
         enabled: b.enabled !== false,
+        ...(typeof b.choice === 'string' && INTRO_SECTIONS[id]?.options.some(o => o.id === b.choice) ? { choice: b.choice } : {}),
         ...(typeof b.custom_text === 'string' && b.custom_text.trim()
           ? { custom_text: b.custom_text }
           : {}),
       }
     })
     .filter(b => b.label.trim().length > 0)
-  return beats.length ? beats : fallback
+  return raw.length === 0 ? [] : beats.length ? beats : fallback
 }
 
 /**
@@ -549,6 +556,9 @@ export function normalizeChannelSegments(
           : defaults.custom_opening_line,
         beats: normalizeBeats(recipe.beats, defaults.beats),
         model: typeof recipe.model === 'string' ? recipe.model.trim() : defaults.model,
+        ...(typeof recipe.starting_style === 'string' && (recipe.starting_style === 'scratch' || INTRO_STYLES.some(s => s.id === recipe.starting_style)) ? { starting_style: recipe.starting_style } : {}),
+        ...(['friendly', 'curious', 'documentary', 'calm'].includes(recipe.tone as string) ? { tone: recipe.tone as IntroTone } : {}),
+        ...(['short', 'standard', 'extended'].includes(recipe.length as string) ? { length: recipe.length as IntroLength } : {}),
       },
       ...(typeof stored.inferred_at === 'string' && stored.inferred_at
         ? { inferred_at: stored.inferred_at }
@@ -569,7 +579,8 @@ export function normalizeChannelSegments(
 function openingShape(recipe: SegmentRecipe): string {
   return JSON.stringify([
     recipe.word_target,
-    recipe.beats.map(b => [b.id, b.enabled !== false, (b.custom_text || '').trim()]),
+    recipe.beats.map(b => [b.id, b.enabled !== false, (b.custom_text || '').trim(), ...(b.choice ? [b.choice] : [])]),
+    ...(recipe.tone || recipe.starting_style ? [recipe.tone, recipe.starting_style] : []),
   ])
 }
 
@@ -621,12 +632,7 @@ export function matchesLegacyDefaultOpening(recipe: SegmentRecipe): boolean {
  * batch, or from a direct API call is written from identical instructions.
  */
 export function beatLinesForPrompt(recipe: SegmentRecipe): string[] {
-  return recipe.beats
-    .filter(beat => beat.enabled)
-    .map(beat => {
-      const extra = (beat.custom_text || '').trim()
-      return extra ? `${beat.label} — specifically cover: ${extra}` : beat.label
-    })
+  return introPromptLines(recipe)
 }
 
 /**

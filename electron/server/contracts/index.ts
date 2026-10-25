@@ -565,6 +565,15 @@ export type GenerateScriptOnlyBody = z.infer<typeof GenerateScriptOnlySchema>
 // working; supplying one overrides the channel's own value for that one run.
 // The server never invents a model — it refuses and says so.
 export const GenerateIntroductionOnlySchema = z.object({
+  /** Explicit one-run form snapshot; never changes channel defaults. */
+  introduction_recipe: z.object({
+    host_name: z.string(), word_target: z.number().int().min(50).max(600),
+    custom_opening_line: z.string(), model: z.string(),
+    beats: z.array(z.object({ id: z.string(), label: z.string(), enabled: z.boolean(), custom_text: z.string().optional(), choice: z.string().optional() })),
+    tone: z.enum(['friendly', 'curious', 'documentary', 'calm']).optional(),
+    length: z.enum(['short', 'standard', 'extended']).optional(),
+    starting_style: z.string().optional(),
+  }).optional(),
   episode_id: EpisodeId,
   title: z.string().max(300).optional(),
   model: z.string().optional(),
