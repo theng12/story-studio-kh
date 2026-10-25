@@ -129,3 +129,47 @@ describe('Script Generator workspace', () => {
     assert.match(scripts, /if \(!scriptModelReady\.value\) return 'Pick a writing model'/)
   })
 })
+
+describe('Chapters per request (1.4.359)', () => {
+  const panel = readFileSync(
+    fileURLToPath(new URL('../components/OutlineReviewPanel.vue', import.meta.url)),
+    'utf8',
+  )
+
+  test('the Script page carries both modes and their values in the form', () => {
+    assert.match(scripts, /chapter_batch_mode: 'count' as 'count' \| 'length'/)
+    assert.match(scripts, /chapters_per_request: 0/)
+    assert.match(scripts, /chapter_batch_words: 1800/)
+    assert.match(scripts, /<label>Chapters per request<\/label>/)
+    assert.match(scripts, /<option value="count">A fixed number of chapters<\/option>/)
+    assert.match(scripts, /<option value="length">By length \(words\)<\/option>/)
+    // The owner's one-line hint, verbatim.
+    assert.match(scripts, /Fewer chapters per request is safer for long or Khmer chapters\./)
+  })
+
+  test('the setting is reusable configuration: preset and last choice', () => {
+    // AGENTS.md §5 — a preset restores reusable settings, never episode state.
+    // These three keys are reusable configuration, so they belong in the form
+    // that the Script preset snapshots wholesale.
+    const remembered = scripts.slice(scripts.indexOf("useRememberedForm('scripts'"), scripts.indexOf('})', scripts.indexOf("useRememberedForm('scripts'")))
+    for (const key of ['chapter_batch_mode', 'chapters_per_request', 'chapter_batch_words']) {
+      assert.match(remembered, new RegExp(key), `${key} is not remembered on this Mac`)
+    }
+    // And they are not in the preset exclusion list (it REPLACES the default).
+    const presets = scripts.slice(scripts.indexOf("configKey: 'script'"), scripts.indexOf('apply: (data)'))
+    assert.doesNotMatch(presets, /chapter_batch_mode/)
+    assert.doesNotMatch(presets, /chapters_per_request/)
+    assert.doesNotMatch(presets, /chapter_batch_words/)
+  })
+
+  test('every expansion request sends the setting, so a run honours the page', () => {
+    for (const key of ['chapter_batch_mode', 'chapters_per_request', 'chapter_batch_words']) {
+      assert.match(panel, new RegExp(`${key}: props\\.form\\?\\.${key}`), `${key} is not sent with an expansion`)
+    }
+  })
+
+  test('the call estimate follows the chosen number instead of a hardcoded 3', () => {
+    assert.doesNotMatch(scripts, /Math\.ceil\(chapters \/ 3\)\s*\n\s*return/)
+    assert.match(scripts, /Math\.ceil\(chapters \/ perCall\)/)
+  })
+})

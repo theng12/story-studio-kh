@@ -19,18 +19,23 @@
  *
  * CREDIT IMPLICATIONS (read before raising a tier)
  * ------------------------------------------------
- * GenStudio settles a language job on the tokens actually generated
+ * A language job settles on the tokens it actually generated
  * (`verified_language_credits(prompt_tokens, completion_tokens)`), so a larger
  * ceiling does NOT by itself cost more — a 400-token answer costs the same
  * whether the ceiling was 2,048 or 32,768.
  *
- * What a larger ceiling DOES change is the up-front reservation:
- * `quote_language_reservation` holds credits for `max_output_tokens`, not for
- * the eventual answer. So a generous tier makes each request hold more of the
- * balance while it runs, and an account close to empty can be refused with
- * "insufficient credits" for a request that would have been cheap. It also
- * removes the ceiling as a brake, so a model that wants to ramble now can —
- * and rambling is charged. Tier by what the workflow genuinely needs.
+ * What this file no longer claims — 1.4.359, owner 2026-10-25 — is an up-front
+ * credit RESERVATION against `max_output_tokens`. The note that used to sit
+ * here said `quote_language_reservation` held credits for the requested ceiling
+ * and an account near empty could therefore be refused for a request that would
+ * have been cheap. A read-only audit on 2026-10-25 found NO such mechanism
+ * anywhere: no quote/reserve call exists in the chat submission path
+ * (`prepareChatSubmission` reads the cached catalogue and then posts once), the
+ * function named does not exist in story-studio-kh, gateway-kh or
+ * studio-hub-kh, every chat row in the captured catalogue publishes 0 credits
+ * per million tokens, and the settled provider entries carry no positive hold.
+ * Tier by what the workflow genuinely needs, not to protect a reservation that
+ * is not being made.
  *
  * WHEN THE PRODUCT PUBLISHES NO CEILING (owner decision #6, 2026-09-20)
  * ---------------------------------------------------------------------
@@ -39,8 +44,7 @@
  * field and the provider — the only authority on what it will return — decides.
  * `resolveOutputTokenBudget` therefore answers `null` for them rather than
  * refusing or substituting a number, and every caller must omit the wire field
- * accordingly. GenStudio makes its own reservation in that case, because there
- * is no ceiling for Story Studio to reserve against.
+ * accordingly. The provider is then the only party that bounds the answer.
  */
 
 /**
@@ -56,12 +60,14 @@
  * - `workload` the caller counted its own output BEFORE asking, so the number
  *              comes from the work rather than from a fraction of whatever
  *              product happens to be selected. Supply the count in
- *              `minimumTokens`. See the reservation note below for why this
- *              exists: a chapter batch that generates ~8,000 tokens has no
- *              business reserving the whole 128,000-token ceiling. Omitting
- *              `minimumTokens` falls back to the FULL ceiling, never to a
- *              small number — a caller that fails to size its work must not
- *              be able to under-request and get truncated.
+ *              `minimumTokens`. Omitting `minimumTokens` falls back to the
+ *              FULL ceiling, never to a small number — a caller that fails to
+ *              size its work must not be able to under-request and get
+ *              truncated.
+ *              Chapter expansion deliberately does NOT use this tier any more
+ *              (1.4.359): its count is also the job's expected answer length,
+ *              and asking a model for everything it publishes is now exactly
+ *              what that workflow wants (see chunked-narration.ts).
  */
 export type OutputBudgetTier = 'short' | 'standard' | 'long' | 'maximum' | 'workload'
 

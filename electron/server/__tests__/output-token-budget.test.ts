@@ -443,9 +443,11 @@ test('every long-form workflow declares a product-derived budget', () => {
     ['research (model knowledge)', '../services/research/genstudio.ts', /outputBudget: 'long'/],
     ['research (web search)', '../services/research/genstudio-web.ts', /outputBudget: 'long'/],
     ['chunked narration outline', '../lib/chunked-narration.ts', /outputBudget: 'long'/],
-    // Batches size their own reservation from the batch's word targets rather
-    // than taking the product's whole ceiling — see chunking-budget.test.ts.
-    ['chunked narration batches', '../lib/chunked-narration.ts', /outputBudget: batchOutputBudget\(batch, params\.wordsPerChapter\)/],
+    // 1.4.359 — a chapter batch asks for EVERYTHING the selected product
+    // publishes, bounded only by that product's published context window. No
+    // words→tokens estimate: Khmer broke it on 2026-10-25 (Komsan). See
+    // chunking-budget.test.ts for the budget itself.
+    ['chunked narration batches', '../lib/chunked-narration.ts', /expansionRequestOutputBudget\(\s*\n?\s*budget, expansionPromptCharacters\(params\.systemPrompt, prompt\)/],
     ['script chapter + intro', '../generators/episode.ts', /outputBudget: 'long'/],
     ['scene planner windows', '../services/scene-planner.ts', /outputBudget: 'maximum'/],
     ['metadata description', '../generators/metadata.ts', /outputBudget: 'standard'/],

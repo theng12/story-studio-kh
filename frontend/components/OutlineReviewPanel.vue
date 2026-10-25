@@ -1210,6 +1210,12 @@ async function postExpand(chapters: number[] | null): Promise<void> {
     words_per_chapter: props.form?.words_per_chapter,
     character_ids: props.form?.character_ids,
     custom_style_text: props.customStyleText,
+    // 1.4.359 — the channel's "Chapters per request" setting. Sent with every
+    // expansion so the run honours the number on the page now, rather than the
+    // one recorded when the outline was built.
+    chapter_batch_mode: props.form?.chapter_batch_mode,
+    chapters_per_request: props.form?.chapters_per_request,
+    chapter_batch_words: props.form?.chapter_batch_words,
   }
   if (chapters) body.chapters_to_expand = [...chapters]
   // A retry replays this exact body and operation identity. It never rebuilds

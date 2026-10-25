@@ -182,7 +182,8 @@ test('Chunked policy restart retains an accepted chapter range when today\'s bat
   // Chapters 1 and 5 already reached disk. A new one-chapter live batch
   // limit must not turn the unresolved old 1–3 / 4–6 submissions into new
   // 2–2 / 3–3 / 4–4 requests with different checkpoint identities.
-  const resumed = policyChapterGroups(job, 'narrative', outline, [outline[1]!, outline[2]!, outline[3]!], 1)
+  const resumed = policyChapterGroups(job, 'narrative', outline, [outline[1]!, outline[2]!, outline[3]!],
+    [[outline[0]!, outline[1]!, outline[2]!], [outline[3]!, outline[4]!, outline[5]!]])
   assert.deepEqual(resumed?.map(group => group.map(entry => entry.n)), [[1, 2, 3], [4, 5, 6]])
 })
 

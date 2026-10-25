@@ -322,7 +322,7 @@ describe('resume across a model change', () => {
 
     const log = job.output_lines.join('\n')
     // Exactly one slot was pending, and it was the missing one.
-    assert.match(log, /1 batch\(es\) to run/)
+    assert.match(log, /1 request\(s\) to run/)
     assert.ok(!/chapters 1-/.test(log), `an earlier chapter entered a batch: ${log}`)
 
     // The sidecar still records the nine, and does not claim the tenth.

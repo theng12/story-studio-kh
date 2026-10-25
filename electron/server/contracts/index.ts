@@ -573,6 +573,12 @@ export const GenerateScriptOnlySchema = z.object({
   // + chapter prompts (ad-hoc names, setting, names to avoid). Capped so a
   // runaway paste can't blow the prompt budget.
   manual_guidance: z.string().max(2000).optional(),
+  // 1.4.359 — the channel's "Chapters per request" setting for script
+  // expansion. 0 / absent = this format's own default (3 narrative, 8
+  // listicle), so a caller that never sets it behaves exactly as before.
+  chapters_per_request: z.number().int().min(0).max(10).optional(),
+  chapter_batch_mode: z.enum(['count', 'length']).optional(),
+  chapter_batch_words: z.number().int().min(0).max(100_000).optional(),
 }).passthrough()
 export type GenerateScriptOnlyBody = z.infer<typeof GenerateScriptOnlySchema>
 

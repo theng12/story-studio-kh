@@ -495,6 +495,44 @@
           </button>
         </div>
 
+        <!-- 1.4.359 — chapters per expansion REQUEST. A reusable setting, so it
+             rides this page's preset and this Mac's remembered form. The output
+             size of each request is not decided here: it always comes from the
+             selected model's own published limit. -->
+        <div class="expansion-request-row">
+          <div class="form-group">
+            <label>Chapters per request</label>
+            <div class="expansion-request-controls">
+              <select v-model="form.chapter_batch_mode" class="input expansion-mode-select">
+                <option value="count">A fixed number of chapters</option>
+                <option value="length">By length (words)</option>
+              </select>
+              <template v-if="form.chapter_batch_mode === 'count'">
+                <input
+                  v-model.number="form.chapters_per_request"
+                  class="input expansion-request-number"
+                  type="number"
+                  min="0"
+                  :max="EXPANSION_CHAPTERS_MAX"
+                  placeholder="3"
+                />
+                <span class="text-muted text-sm">chapters (0 = this format's default)</span>
+              </template>
+              <template v-else>
+                <input
+                  v-model.number="form.chapter_batch_words"
+                  class="input expansion-request-number"
+                  type="number"
+                  min="100"
+                  step="100"
+                />
+                <span class="text-muted text-sm">words of chapter targets per request</span>
+              </template>
+            </div>
+            <span class="sizing-sub text-muted">Fewer chapters per request is safer for long or Khmer chapters.</span>
+          </div>
+        </div>
+
       </div>
 
       <div class="script-regeneration-controls">
@@ -946,6 +984,14 @@ const form = reactive({
   // names to AVOID. Spread into the outline-only request by submitOutline, so
   // adding it here is all that's needed to send it.
   manual_guidance: '',
+  // 1.4.359 — chapters per expansion REQUEST. Reusable configuration, so it is
+  // part of this page's preset and this Mac's remembered form (AGENTS §5).
+  // `chapters_per_request: 0` means "this format's own default" (3 narrative,
+  // 8 listicle) — the exact behaviour every run had before the setting existed,
+  // which is why 0 rather than 3 is the default here.
+  chapter_batch_mode: 'count' as 'count' | 'length',
+  chapters_per_request: 0,
+  chapter_batch_words: 1800,
 })
 
 // v1.0.259 — remember the generation "how" across reloads. Allowlist ONLY the
@@ -953,7 +999,7 @@ const form = reactive({
 // the idea per-episode (route query), and character_ids / force are per-run, so
 // none of those are persisted.
 useRememberedForm('scripts', slug, form, {
-  include: ['model', 'style'],
+  include: ['model', 'style', 'chapter_batch_mode', 'chapters_per_request', 'chapter_batch_words'],
 })
 
 // Saved model ids are only preferences. Keep every generation action disabled
@@ -1763,12 +1809,22 @@ watch(
  * credits, not dollars, and the rate belonged to a model the user may not have
  * selected. Do not reintroduce a locally computed total here.
  */
+/** The most chapters one expansion request may carry (mirrors
+ *  EXPANSION_CHAPTERS_MAX in lib/chunked-narration.ts). */
+const EXPANSION_CHAPTERS_MAX = 10
+
 function estimateChunkedCalls(chapters: number): {
   batches: number; expansionCalls: number
 } {
-  // Narrative expansion writes ~3 chapters per call; listicles batch 8. The
-  // narrative figure is the one reported because it is the larger call count.
-  const expansionCallsNarrative = Math.ceil(chapters / 3)
+  // 1.4.359 — the call count follows the channel's own "Chapters per request"
+  // setting. 0 / unset = the format's default (3 narrative). By-length mode
+  // cannot be counted from a chapter total here, so it uses the default count
+  // as the estimate rather than inventing a words→calls ratio.
+  const requested = Number(form.chapters_per_request)
+  const perCall = Number.isInteger(requested) && requested >= 1
+    ? Math.min(requested, EXPANSION_CHAPTERS_MAX)
+    : 3
+  const expansionCallsNarrative = Math.ceil(chapters / perCall)
   return {
     batches: 1 + expansionCallsNarrative,
     expansionCalls: expansionCallsNarrative,
@@ -2224,6 +2280,18 @@ onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500)
   padding: 16px;
   margin-top: 8px;
 }
+
+/* 1.4.359 — "Chapters per request" controls. One row, wrapping on narrow
+ * windows so the select and its number never overlap. */
+.expansion-request-row { margin-top: 12px; }
+.expansion-request-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.expansion-mode-select { max-width: 220px; }
+.expansion-request-number { max-width: 110px; }
 
 /* v1.0.297 — Story guidance card. */
 .guidance-card {

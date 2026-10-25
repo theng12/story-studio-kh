@@ -361,7 +361,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.match(fakeCalls.filter(call => call.kind === 'expansion')[1]!.userMessage, /Chapter 2: Chapter 2/)
     assert.match(fakeCalls.filter(call => call.kind === 'expansion')[1]!.userMessage, /Chapter 3: Chapter 3/)
     assert.doesNotMatch(fakeCalls.filter(call => call.kind === 'expansion')[1]!.userMessage, /Chapter 1: Chapter 1/)
-    assert.ok(job.output_lines.some(line => /one bounded missing-chapter pass/.test(line)))
+    assert.ok(job.output_lines.some(line => /re-requesting chapters 2, 3 in 1 smaller request/.test(line)))
     assert.equal(result.chaptersWritten, 3)
   })
 
@@ -379,9 +379,18 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
       format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
     })
 
-    assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 4)
-    assert.ok(job.output_lines.some(line => /[Tt]he Gateway reported incomplete output \(max_tokens\); preserved 0 parsed chapter/.test(line)))
-    assert.ok(job.output_lines.some(line => /one bounded single-chapter repair pass/.test(line)))
+    // 1.4.359 — a truncated batch is HALVED rather than sent one chapter at a
+    // time: [1,2,3] becomes [1,2] + [3], so the initial request plus two
+    // re-requests. Both smaller requests carry the same published cap.
+    assert.equal(fakeCalls.filter(call => call.kind === 'expansion').length, 3)
+    assert.deepEqual(
+      fakeCalls.filter(call => call.kind === 'expansion').map(call =>
+        [...call.userMessage.matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1])).slice(0, 3)),
+      [[1, 2, 3], [1, 2], [3]],
+      'the unfinished chapters are split, never re-asked as the same batch',
+    )
+    assert.ok(job.output_lines.some(line => /the provider stopped this answer early \(max_tokens\)/.test(line)))
+    assert.ok(job.output_lines.some(line => /Preserved 0 complete chapter\(s\)/.test(line)))
     assert.equal(result.chaptersWritten, 3)
     for (let n = 1; n <= 3; n++) {
       assert.equal(existsSync(path.join(scriptDir, `EPREPAIR2_Chapter_${String(n).padStart(2, '0')}.md`)), true)
@@ -444,11 +453,8 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     assert.deepEqual(slots, [[1, 2, 3], [2], [3]])
     assert.deepEqual(
       expansionCalls.slice(1).map(call => call.outputBudget),
-      [
-        { tier: 'workload', minimumTokens: 8_192 },
-        { tier: 'workload', minimumTokens: 8_192 },
-      ],
-      'each automatic repair is bounded independently at 8,192 output tokens',
+      ['maximum', 'maximum'],
+      'each re-request asks for everything the selected product publishes — never an 8,192 stump (Khmer, 2026-10-25)',
     )
     assert.match(
       await fs.readFile(path.join(scriptDir, 'EPREPAIR-LENGTH_Chapter_01.md'), 'utf8'),
@@ -458,8 +464,8 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
     const repairedSecond = await fs.readFile(path.join(scriptDir, 'EPREPAIR-LENGTH_Chapter_02.md'), 'utf8')
     assert.match(repairedSecond, /quick brown fox/)
     assert.doesNotMatch(repairedSecond, /UNPROVEN PARTIAL CHAPTER TWO/)
-    assert.ok(job.output_lines.some(line => /incomplete output \(length\)/.test(line)))
-    assert.ok(job.output_lines.some(line => /bounded single-chapter repair/.test(line)))
+    assert.ok(job.output_lines.some(line => /the provider stopped this answer early \(length\)/.test(line)))
+    assert.ok(job.output_lines.some(line => /re-requesting chapters 2, 3 in 2 smaller request/.test(line)))
   })
 
   test('a heading-only truncation retains the preceding boundary-proven chapter', async () => {
@@ -541,7 +547,7 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
         episode_id: episodeId, title: 'Length Resume Repair', totalChapters: 3, wordsPerChapter: 500,
         format: makeFormat('narrative'), systemPrompt: 'sys', scriptDir, model: FAKE_MODEL, apiKeys: {},
       }),
-      /one-repair completion check; missing 2/i,
+      /did not pass its completion check; missing 2 after asking for every output token/i,
     )
 
     assert.equal(existsSync(path.join(scriptDir, `${episodeId}_Chapter_02.md`)), false,

@@ -2850,14 +2850,25 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         const outlineParams = resolveStepParams('script-only', episodeId, idea.title || '', presetByStep['script-only'], effectiveFormat)
         const episodePaths = await resolveEpisodePathsByCode(slug, episodeId)
         const completion = await inspectChunkedScriptCompletion(episodePaths.script_dir, episodeId)
+        // 1.4.359 — the channel's "Chapters per request" setting is reusable
+        // configuration from the Script preset, and the expand links below are
+        // hand-built (they take every OTHER sizing field from the outline
+        // sidecar), so it has to be carried across explicitly or an unattended
+        // batch would silently ignore the owner's choice. Absent in an older
+        // preset = this format's own default, exactly as before.
+        const expansionBatchParams = {
+          chapter_batch_mode: outlineParams.chapter_batch_mode ?? undefined,
+          chapters_per_request: outlineParams.chapters_per_request ?? undefined,
+          chapter_batch_words: outlineParams.chapter_batch_words ?? undefined,
+        }
         if (completion.resumable) {
           // An approved outline plus partial chapter files is recoverable.
           // Resume only missing work; rebuilding the outline could discard
           // reviewed creative decisions and spend unnecessary credits.
-          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script (finish missing chapters) — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script (finish missing chapters) — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...expansionBatchParams } })
         } else {
           chain.push({ type: 'outline_only' as JobType, title: `Pipeline: Script outline — ${episodeId}`, params: { ...outlineParams, auto_approve: true } })
-          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true } })
+          chain.push({ type: 'expand_chapters' as JobType, title: `Pipeline: Script chapters — ${episodeId}`, params: { episode_id: episodeId, title: idea.title || '', model: outlineParams.model, auto_approve: true, ...expansionBatchParams } })
         }
         continue
       }
