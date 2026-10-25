@@ -5,25 +5,55 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { resolveWorkRoot, retainSandbox } from '../../testing/run-backend-tests.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
-async function runHarness(args = ['--probe'], env = process.env) {
+const POLL_MS = 20
+const DEADLINE_MS = 20_000
+
+async function waitFor(condition, label) {
+  const deadline = Date.now() + DEADLINE_MS
+  for (;;) {
+    const value = await condition()
+    if (value) return value
+    assert.ok(Date.now() < deadline, `timed out waiting for ${label}`)
+    await new Promise(resolve => setTimeout(resolve, POLL_MS))
+  }
+}
+
+async function runHarness(args = ['--probe'], env = process.env, duringRun) {
   const child = spawn(process.execPath, ['scripts/testing/run-backend-tests.mjs', ...args], {
     cwd: ROOT,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
   })
   let stdout = ''
   let stderr = ''
   child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk })
   child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
-  const exitCode = await new Promise((resolve, reject) => {
-    child.once('error', reject)
-    child.once('exit', code => resolve(code ?? 1))
+  let closed = false
+  let childError
+  const completion = new Promise(resolve => {
+    child.once('error', error => { childError = error })
+    child.once('close', code => { closed = true; resolve(code ?? 1) })
   })
-
-  return { exitCode, stdout, stderr }
+  try {
+    if (duringRun) await duringRun({ output: () => stdout + stderr, closed: () => closed })
+    await waitFor(() => closed, 'backend harness completion')
+    const exitCode = await completion
+    if (childError) throw childError
+    return { exitCode, stdout, stderr }
+  } finally {
+    if (!closed) {
+      if (process.platform !== 'win32' && child.pid) {
+        try { process.kill(-child.pid, 'SIGKILL') } catch (error) {
+          if (error?.code !== 'ESRCH') throw error
+        }
+      } else child.kill('SIGKILL')
+    }
+  }
 }
 
 async function runnerFixtureEntries() {
@@ -56,11 +86,15 @@ async function trashIsShared() {
  * Env for a `node --test` spawned from INSIDE a test file. Node refuses to
  * recurse ("skipping running files") when it sees its own marker, and the
  * harness deletes the same variable for the same reason.
+ *
+ * Nested runners establish their own sandbox; never preload against the outer one.
  */
 function nestedRunnerEnv() {
   const env = { ...process.env }
   delete env.NODE_TEST_CONTEXT
   delete env.NODE_OPTIONS
+  delete env.STORY_STUDIO_TEST_HARNESS_ROOT
+  delete env.STORY_STUDIO_RETAINED_SNAPSHOT_ROOT
   return env
 }
 
@@ -73,7 +107,8 @@ function nestedRunnerEnv() {
  */
 function defaultRunnerEnv(extra = {}) {
   const env = { ...nestedRunnerEnv(), ...extra }
-  delete env.STORY_STUDIO_RETAINED_FIXTURES_ROOT
+  delete env.STORY_STUDIO_TEST_HARNESS_ROOT
+  delete env.STORY_STUDIO_RETAINED_SNAPSHOT_ROOT
   return env
 }
 
@@ -117,12 +152,7 @@ test('--help and unknown options exit before sandbox setup or test execution', a
 })
 
 test('sandbox retention reserves a fresh container without touching a prior colliding artifact', async () => {
-  const { resolveRetainedFixturesRoot } = await import(
-    pathToFileURL(path.join(ROOT, 'scripts', 'testing', 'run-backend-tests.mjs')).href
-  )
-  const fixtures = await resolveRetainedFixturesRoot()
-  await fs.mkdir(fixtures, { recursive: true, mode: 0o700 })
-  const retentionRoot = await fs.mkdtemp(path.join(fixtures, 'backend-retention-collision-proof-'))
+  const retentionRoot = await fs.mkdtemp(path.join(await resolveWorkRoot(), 'backend-retention-collision-proof-'))
   const source = await fs.mkdtemp(path.join(ROOT, '.backend-retention-collision-source-'))
   const sourceName = path.basename(source)
   const collision = path.join(retentionRoot, `backend-test-harness-${sourceName}`)
@@ -147,6 +177,7 @@ test('sandbox retention reserves a fresh container without touching a prior coll
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error
     }
+    await retainSandbox(retentionRoot, undefined, 'collision-contract')
   }
 })
 
@@ -164,7 +195,9 @@ test('sandbox retention reserves a fresh container without touching a prior coll
  * checkout alone — it gains nothing.
  */
 test('the retained fixtures root can be moved out of the shared Trash', async () => {
-  const override = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'retained-fixtures-root-')))
+  // Use a path explicitly outside the repo, not os.tmpdir() which may resolve
+  // inside the worktree on some platforms.
+  const override = await fs.realpath(await fs.mkdtemp(path.join(path.resolve(ROOT, '..'), 'retained-fixtures-root-')))
   const before = await runnerFixtureEntries()
   const shared = await trashIsShared()
   const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
@@ -194,7 +227,9 @@ test('a symlinked retained fixtures root is refused, not followed', async () => 
   // Following a link is the weakness the override exists to escape: a path
   // that looks permanent can be repointed elsewhere, and the evidence goes
   // with it. The fixture below is retained, not cleaned up.
-  const container = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'retained-fixtures-link-')))
+  // Use a path explicitly outside the repo, not os.tmpdir() which may resolve
+  // inside the worktree on some platforms.
+  const container = await fs.realpath(await fs.mkdtemp(path.join(path.resolve(ROOT, '..'), 'retained-fixtures-link-')))
   const real = path.join(container, 'real')
   const link = path.join(container, 'link')
   await fs.mkdir(real, { recursive: true })
@@ -235,6 +270,9 @@ test('backend test runner ignores inherited temp-directory escape routes', async
 test('backend test runner retains its sandbox recoverably when setup fails', async () => {
   // The DEFAULT retained fixtures root, proved with the override removed: the
   // gate may set one, but the default it falls back to must still hold.
+  // Live work happens in .test-work/; only after settling does the container
+  // move into _trash/test-fixtures/. A setup failure still triggers the finally
+  // block, so the evidence is retained.
   const { exitCode, stdout, stderr } = await runHarness(['--probe', '--fail-after-setup'], defaultRunnerEnv())
   assert.notEqual(exitCode, 0)
   assert.match(stderr + stdout, /intentional backend test harness setup failure/,
@@ -245,23 +283,98 @@ test('backend test runner retains its sandbox recoverably when setup fails', asy
   const retained = stdout.match(/\[test-harness\] retained sandbox: (.+)/)?.[1]?.trim()
   assert.ok(retained, 'the failing setup probe must report its retained sandbox')
 
-  // Retention creates the sandbox in place inside a fresh container; it is not renamed
-  // afterwards. Recovery means the exact reported path and the setup's own content
-  // survive, not that the reported sandbox path disappears.
-  assert.equal(retained, path.dirname(sandbox),
-    'the reported sandbox must be the retained container\'s own sandbox')
+  // After the work-root separation, the sandbox lives under .test-work/ during
+  // the run, and the retained container lands under _trash/test-fixtures/ after
+  // the finally block moves it. The sandbox path is INSIDE the retained container.
   assert.equal((await fs.stat(retained)).isDirectory(), true)
   assert.match(retained, /\/_trash\/test-fixtures\/backend-test-harness-/)
+  // The sandbox reported during setup is under the work root, but after retention
+  // the whole container (including sandbox/) has moved. Verify the sentinel survived.
+  const retainedSandbox = path.join(retained, 'sandbox')
   assert.equal(await fs.readFile(
-    path.join(sandbox, 'configured-projects', 'owner-sentinel', 'owner-marker.txt'), 'utf8',
+    path.join(retainedSandbox, 'configured-projects', 'owner-sentinel', 'owner-marker.txt'), 'utf8',
   ), 'must remain byte-identical\n', 'the setup sentinel is retained byte-identically')
+  // The app-settings.json was written when the sandbox lived under the work root,
+  // so its projects_root_override points to the work-root sandbox path (captured
+  // from stdout), not the retained-root sandbox path.
   assert.deepEqual(JSON.parse(await fs.readFile(
-    path.join(sandbox, 'home', 'Library', 'Application Support', 'Story Studio KH', 'app-settings.json'),
+    path.join(retainedSandbox, 'home', 'Library', 'Application Support', 'Story Studio KH', 'app-settings.json'),
     'utf8',
   )), { projects_root_override: path.join(sandbox, 'configured-projects') },
   'the retained sandbox still points at its own isolated projects root')
   assert.equal((await fs.stat(path.join(retained, 'snapshots'))).isDirectory(), true)
 })
+
+for (const removeLiveWork of [false, true]) {
+  test(removeLiveWork
+    ? 'backend stops with a loud failure when its live work root vanishes'
+    : 'backend survives removal of finished evidence during a run', async () => {
+    // The container must be OUTSIDE the repository (the retained-root override
+    // is refused inside it) and outside `_trash` (a live work root there is
+    // refused by construction). The checkout's parent satisfies both, and is
+    // already this file's fixture home for the retained-root override.
+    const container = await fs.realpath(
+      await fs.mkdtemp(path.join(path.resolve(ROOT, '..'), 'backend-work-lifecycle-')),
+    )
+    const work = path.join(container, 'work')
+    const retained = path.join(container, 'retained')
+    const preload = path.join(container, 'handshake.mjs')
+    await fs.mkdir(retained)
+    await fs.writeFile(path.join(retained, 'old-evidence.txt'), 'finished evidence\n')
+    await fs.writeFile(preload, `
+      import assert from 'node:assert/strict'
+      import fs from 'node:fs/promises'
+      import path from 'node:path'
+      if (process.env.STORY_STUDIO_TEST_HARNESS_ROOT?.startsWith(
+        process.env.STORY_STUDIO_TEST_WORK_ROOT + path.sep,
+      )) {
+        const sandbox = process.env.STORY_STUDIO_TEST_HARNESS_ROOT
+        // Print the sandbox so the parent can verify it lives under the work root.
+        console.log('WORK_READY=' + sandbox)
+        const POLL_MS = 20
+        const deadline = Date.now() + 20_000
+        for (;;) {
+          try { await fs.access(path.join(sandbox, 'resume')); break }
+          catch (error) { if (error.code !== 'ENOENT') throw error }
+          assert.ok(Date.now() < deadline, 'parent never resumed backend probe')
+          await new Promise(resolve => setTimeout(resolve, POLL_MS))
+        }
+      }
+    `)
+    try {
+      const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
+        ...nestedRunnerEnv(),
+        NODE_OPTIONS: `--import ${pathToFileURL(preload).href}`,
+        STORY_STUDIO_TEST_WORK_ROOT: work,
+        STORY_STUDIO_RETAINED_FIXTURES_ROOT: retained,
+      }, async ({ output, closed }) => {
+        const sandbox = await waitFor(() => {
+          const match = output().match(/WORK_READY=(.+)/)
+          assert.ok(match || !closed(), `backend exited before readiness:\n${output()}`)
+          return match?.[1]?.trim()
+        }, 'backend readiness')
+        const realWork = await fs.realpath(work)
+        assert.ok(sandbox.startsWith(realWork + path.sep), `sandbox ${sandbox} not under resolved work ${realWork}`)
+        await fs.rename(removeLiveWork ? work : retained, path.join(container, 'removed-root'))
+        if (!removeLiveWork) await fs.writeFile(path.join(sandbox, 'resume'), 'parent finished')
+      })
+      const output = stdout + stderr
+      if (removeLiveWork) {
+        assert.notEqual(exitCode, 0, output)
+        assert.match(output, /live test work disappeared or changed; failing the run/)
+        assert.doesNotMatch(output, /retained sandbox:/)
+      } else {
+        assert.equal(exitCode, 0, output)
+        assert.match(output, /configured projects root byte-identical: true/)
+        const archived = stdout.match(/retained sandbox: (.+)/)?.[1]?.trim()
+        assert.ok(archived?.startsWith(retained + path.sep), output)
+        assert.equal(await fs.readFile(path.join(archived, 'sandbox', 'resume'), 'utf8'), 'parent finished')
+      }
+    } finally {
+      await retainSandbox(container, undefined, 'backend-lifecycle-contract')
+    }
+  })
+}
 
 /**
  * `--only <substring>` — running part of the suite on purpose.
@@ -414,7 +527,7 @@ test('failing and skipped files still report a completed suite, so the floor can
     assert.equal(verdict.completed, 2)
     assert.equal(records.find(r => r.file.endsWith('failing.test.mjs')).success, false)
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await retainSandbox(dir, undefined, 'coverage-contract')
   }
 })
 
@@ -487,6 +600,6 @@ test('a file killed mid-run leaves node green — and leaves no summary of its o
     assert.deepEqual(verdict.missing, [path.join(dir, 'truncated.test.mjs')])
     assert.match(String(verdict.message), /never reported a completed suite/i)
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await retainSandbox(dir, undefined, 'coverage-contract')
   }
 })
