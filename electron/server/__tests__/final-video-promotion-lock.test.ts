@@ -47,9 +47,11 @@ describe('final-video promotion locks', () => {
       fs.readFile(new URL('../generators/video.ts', import.meta.url), 'utf8'),
       fs.readFile(new URL('../generators/broll-assemble.ts', import.meta.url), 'utf8'),
     ])
-    assert.match(videoSource, /withFinalVideoPathLock\(finalPath/)
-    assert.match(videoSource, /withFinalVideoPathLock\(compFinalPath/)
-    assert.match(videoSource, /withFinalVideoPathLock\(projectTreeFinalPath/)
+    // Local publishes go through publishLocalFinalVideo, which takes the lock on its destination.
+    assert.match(videoSource, /function publishLocalFinalVideo\([^)]*destination[^)]*\)[^{]*\{\s*return withFinalVideoPathLock\(destination,/)
+    assert.match(videoSource, /publishLocalFinalVideo\(job, outputFile, finalPath/)
+    assert.match(videoSource, /publishLocalFinalVideo\(job, compOutputFile, compFinalPath/)
+    assert.match(videoSource, /publishLocalFinalVideo\(job, currentPath, projectTreeFinalPath/)
     assert.match(brollSource, /withFinalVideoPathLock\(input\.finalPath/)
     assert.match(brollSource, /fsp\.rename\(input\.tempPath, input\.finalPath\)/)
     assert.match(brollSource, /promoteVerifiedBrollFinal\(\{[\s\S]{0,600}?finalPath: outPath/)
