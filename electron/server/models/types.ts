@@ -132,6 +132,19 @@ export interface ProjectMeta {
   youtube_channel_url?: string
 
   /**
+   * Free-text labels the owner gives this channel — "Khmer", "Sleep",
+   * "History" — so the start page can search, filter and sort by what a
+   * channel is rather than only by what it is called. Absent = no labels.
+   *
+   * Written only through `updateProject` (`UpdateProjectSchema`), which
+   * normalises them: trimmed, whitespace-collapsed, empty dropped,
+   * case-insensitively de-duplicated with the first spelling kept, and bounded
+   * by both ceilings in `contracts/project-labels.ts`. A label is the owner's
+   * own word and is never re-cased or re-ordered for him.
+   */
+  labels?: string[]
+
+  /**
    * Format primitive (Phase 1 of the format/character/pattern system).
    *
    * `format_id` selects a base Format profile from the built-in library
@@ -1680,6 +1693,11 @@ export interface UpdateProjectRequest {
   content_language?: ContentLanguage | null
   /** Future-only automatic introductions; false turns it off. */
   auto_introduction_enabled?: boolean
+  /**
+   * The owner's labels for this channel. Normalised on the way in
+   * (`contracts/project-labels.ts`); `[]` clears them. See `ProjectMeta.labels`.
+   */
+  labels?: string[]
 }
 
 /**
@@ -1738,6 +1756,23 @@ export interface ProjectSummary {
   format_id?: string
   /** The project's selected niche, already read with this list row's metadata. */
   niche_id?: string
+  /** The owner's labels for this channel, already read with this row's
+   *  metadata. Undefined = none set. See `ProjectMeta.labels`. */
+  labels?: string[]
+  /** Audience language, already read with this row's metadata. Undefined =
+   *  legacy (no directive), the same meaning it has on `ProjectMeta`. */
+  content_language?: ContentLanguage | null
+  /**
+   * When this channel was last WORKED ON — the newest modification time among
+   * the channel folder's own bookkeeping (`jobs.json`, `config.json`,
+   * `project.json`) and its `episodes/` folder, as an ISO string.
+   *
+   * Read with this row so the start page can sort by it without a second pass
+   * over the Library. `null` means UNKNOWN — the folder could not be read —
+   * which is deliberately not the same answer as "a long time ago" and is
+   * sorted last rather than treated as the oldest.
+   */
+  last_worked_at?: string | null
 }
 
 // ── Config ──────────────────────────────────────────────────────────────────

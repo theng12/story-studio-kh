@@ -75,7 +75,10 @@
       <section v-if="projects.length" aria-labelledby="channels-heading">
         <div class="channel-list-header">
           <h2 id="channels-heading">Channels</h2>
-          <span>{{ projects.length }} {{ projects.length === 1 ? 'channel' : 'channels' }}</span>
+          <!-- The count says "N of M" the moment anything is filtered away. A
+               number that silently means "what you can see" is how someone
+               concludes the app has lost a channel. -->
+          <span>{{ channelCountLine }}</span>
           <!-- Deliberately quiet, and deliberately not a spinner over the list.
                The rows are usable while this is up; the only thing it changes is
                that a slow read is visible instead of invisible. -->
@@ -98,8 +101,83 @@
           </span>
         </p>
 
-        <div class="project-grid">
-          <div v-for="project in projects" :key="String(project.slug || project.name)" class="project-card-wrap">
+        <!-- Finding a channel among two dozen. The search reads the card, not
+             the disk: it matches the name, the labels, the episode prefix and
+             the audience language — the things each card already says, so every
+             result has a visible reason for being in it. -->
+        <div class="channel-tools">
+          <div class="channel-search">
+            <svg class="channel-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.8" />
+              <path d="m15.5 15.5 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+            <input
+              id="channel-search"
+              ref="searchInput"
+              v-model="search"
+              class="channel-search-field"
+              type="search"
+              placeholder="Search channels"
+              aria-label="Search channels by name, label or language"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <!-- The shortcut is advertised on the control it works on, and the
+                 slot changes to a clear button as soon as there is something to
+                 clear — one slot, one job at a time. -->
+            <kbd v-if="!search" class="channel-search-key" aria-hidden="true">/</kbd>
+            <button
+              v-else
+              type="button"
+              class="channel-search-clear"
+              aria-label="Clear the search"
+              @click="search = ''"
+            >&times;</button>
+          </div>
+          <label class="channel-sort" for="channel-sort">
+            <span>Sort</span>
+            <select id="channel-sort" v-model="sort" class="input channel-sort-select">
+              <option v-for="option in CHANNEL_SORTS" :key="option" :value="option">
+                {{ CHANNEL_SORT_LABELS[option] }}
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <!-- Labels, with how many channels each one would leave. The counts are
+             read over the channels the search currently matches, so a chip never
+             promises a number the grid cannot show. Several at once means all of
+             them — that is what makes two labels a narrowing rather than a
+             widening. -->
+        <div v-if="labelChips.length" class="channel-label-filter" role="group" aria-label="Filter channels by label">
+          <button
+            v-for="chip in labelChips"
+            :key="chip.label"
+            type="button"
+            class="label-chip"
+            :class="{ 'is-active': chip.selected }"
+            :aria-pressed="chip.selected"
+            @click="toggleLabel(chip.label)"
+          >
+            {{ chip.label }} <span class="label-chip-count">{{ chip.count }}</span>
+          </button>
+          <button
+            v-if="activeLabels.length > 1"
+            type="button"
+            class="label-chip label-chip-quiet"
+            @click="clearLabels"
+          >Show every label</button>
+        </div>
+
+        <div v-if="!visibleProjects.length" class="channel-no-match">
+          <span class="state-kicker">No match</span>
+          <h3>No channels match</h3>
+          <p>{{ noMatchLine }}</p>
+          <button type="button" class="btn btn-primary" @click="clearFilters">Clear search and labels</button>
+        </div>
+
+        <div v-else class="project-grid">
+          <div v-for="project in visibleProjects" :key="String(project.slug || project.name)" class="project-card-wrap">
             <NuxtLink
               v-if="projectHref(project)"
               :to="projectHref(project)"
@@ -137,6 +215,18 @@
               </span>
               <span class="project-copy">
                 <strong>{{ project.name || project.slug }}</strong>
+                <!-- What the channel IS, as opposed to what it is called: the
+                     owner's labels, and the audience language when it has one.
+                     Both are what the search box reads, so a match always has
+                     something on the card to point at. -->
+                <span v-if="cardTags(project).length" class="project-tags">
+                  <span
+                    v-for="tag in cardTags(project)"
+                    :key="tag.text"
+                    class="project-tag"
+                    :data-kind="tag.kind"
+                  >{{ tag.text }}</span>
+                </span>
                 <span v-if="isFolderUnreadable(project)" class="project-missing-path">
                   This folder did not answer in time. Check that its drive is connected, then reload.
                 </span>
@@ -168,12 +258,21 @@
             </div>
 
             <!-- Outside the card link on purpose: a link inside a link is not a
-                 link, it is a trap for the keyboard and for the screen reader. -->
-            <NuxtLink
-              v-if="projectHref(project)"
-              class="project-edit"
-              :to="`/projects/${projectSlug(project.slug)}/settings#identity`"
-            >Edit profile</NuxtLink>
+                 link, it is a trap for the keyboard and for the screen reader.
+                 Labelling a channel is the one thing worth doing from here
+                 rather than inside it — you label channels in a row, comparing
+                 them, which is exactly what the list is for. -->
+            <div v-if="projectHref(project)" class="project-card-actions">
+              <NuxtLink
+                class="project-edit"
+                :to="`/projects/${projectSlug(project.slug)}/settings#identity`"
+              >Edit profile</NuxtLink>
+              <button
+                type="button"
+                class="project-edit project-label-action"
+                @click="openLabels(project)"
+              >{{ labelActionText(project) }}</button>
+            </div>
           </div>
         </div>
 
@@ -288,16 +387,81 @@
         </div>
       </form>
     </Modal>
+
+    <!-- Labelling, from the list itself. The suggestions are every label already
+         in use in this Library, so a label is spelled one way — the whole point
+         of a label is that clicking its chip finds the same channels twice. -->
+    <Modal
+      :visible="!!labelTarget"
+      size="md"
+      labelledby="channel-labels-title"
+      @close="closeLabels"
+    >
+      <form class="create-form" @submit.prevent="saveLabels">
+        <div class="create-heading">
+          <span class="home-eyebrow">Labels</span>
+          <h2 id="channel-labels-title">Labels for {{ labelTargetName }}</h2>
+          <p>
+            Your own words for what this channel is — “Khmer”, “Sleep”, “History”.
+            They show on the card, the list can be searched by them, and the chips
+            above the list filter by them.
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label>Labels</label>
+          <ChipInput
+            v-model="labelDraft"
+            :suggestions="labelSuggestionList"
+            placeholder="Add a label"
+            allow-custom
+            :max="MAX_PROJECT_LABELS"
+          />
+          <small class="channel-labels-hint">
+            A label can be up to {{ MAX_PROJECT_LABEL_LENGTH }} characters, and a channel can have up to
+            {{ MAX_PROJECT_LABELS }}. Spelling is not case-sensitive: “Sleep” and “sleep” are the same label.
+          </small>
+        </div>
+
+        <p v-if="labelError" class="create-error" role="alert">{{ labelError }}</p>
+
+        <div class="create-actions">
+          <button type="button" class="btn btn-secondary" :disabled="labelSaving" @click="closeLabels">Cancel</button>
+          <button type="submit" class="btn btn-primary" :disabled="labelSaving || !labelsDirty">
+            <LoadingSpinner v-if="labelSaving" size="sm" />
+            {{ labelSaving ? 'Saving…' : 'Save labels' }}
+          </button>
+        </div>
+      </form>
+    </Modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { projectSlug } from '~/utils/project-slug'
 import { readLastKnownList, writeLastKnownList } from '~/utils/last-known-list'
+import {
+  CHANNEL_SORTS,
+  CHANNEL_SORT_LABELS,
+  MAX_PROJECT_LABELS,
+  MAX_PROJECT_LABEL_LENGTH,
+  applyChannelFilters,
+  channelLabels,
+  isTypingTarget,
+  labelCounts,
+  labelSuggestions,
+  languageLabel,
+  normalizeProjectLabels,
+  readChannelViewPrefs,
+  sameLabel,
+  sortChannels,
+  type ChannelSort,
+  writeChannelViewPrefs,
+} from '~/utils/channel-view'
 
 useAppTitle()
 
-const { get, post } = useApi()
+const { get, post, put } = useApi()
 const appSettingsModal = useAppSettingsModal()
 
 /**
@@ -384,6 +548,224 @@ const refreshingChannels = computed(() => loading.value && projects.value.length
 const showingUnconfirmedChannels = computed(() => (
   !loading.value && !!projectsLoadError.value && projects.value.length > 0
 ))
+
+/**
+ * Finding a channel: the search, the label filter and the sort.
+ *
+ * All of it is a pure function of the list in `~/utils/channel-view`, and the
+ * only thing this page owns is the inputs and the order in which they apply.
+ * The result never touches `projects`: filtering is a VIEW of the channel list,
+ * so a filtered screen can never feed a filtered list back to the server or the
+ * painted cache.
+ *
+ * The sort and the label filter are remembered across launches; the SEARCH is
+ * not. A remembered search is how a channel list appears to have lost channels —
+ * you open the page and the list is not the one you expect, with nothing on
+ * screen explaining why.
+ */
+const rememberedView = readChannelViewPrefs()
+const search = ref('')
+const sort = ref<ChannelSort>(rememberedView.sort)
+const activeLabels = ref<string[]>(rememberedView.labels)
+const searchInput = ref<HTMLInputElement | null>(null)
+
+/** What the search alone leaves. The label counts are read from this, so a chip
+ *  never quotes a number the search has already made impossible. */
+const searchMatches = computed(() => (
+  applyChannelFilters(projects.value, { search: search.value, labels: [] })
+))
+
+const visibleProjects = computed(() => (
+  sortChannels(applyChannelFilters(projects.value, { search: search.value, labels: activeLabels.value }), sort.value)
+))
+
+/**
+ * One chip per label in use, selected or not.
+ *
+ * A selected label that the current search cannot match keeps its chip and
+ * reports 0, rather than vanishing: a filter you can no longer see is one you
+ * cannot undo, and the grid underneath would be empty with no explanation.
+ */
+const labelChips = computed(() => {
+  const counted = labelCounts(searchMatches.value)
+  const chips = counted.map(entry => ({
+    label: entry.label,
+    count: entry.count,
+    selected: activeLabels.value.some(active => sameLabel(active, entry.label)),
+  }))
+  for (const active of activeLabels.value) {
+    if (!chips.some(chip => sameLabel(chip.label, active))) {
+      chips.push({ label: active, count: 0, selected: true })
+    }
+  }
+  return chips
+})
+
+/** Every label in this Library — the suggestion source for the label editor. */
+const libraryLabels = computed(() => labelCounts(projects.value).map(entry => entry.label))
+
+const channelCountLine = computed(() => {
+  const total = projects.value.length
+  const shown = visibleProjects.value.length
+  const noun = total === 1 ? 'channel' : 'channels'
+  return shown === total ? `${total} ${noun}` : `${shown} of ${total} ${noun}`
+})
+
+const noMatchLine = computed(() => {
+  const query = search.value.trim()
+  const labels = activeLabels.value
+  const said: string[] = []
+  if (query) said.push(`matches “${query}”`)
+  if (labels.length) said.push(`${said.length ? 'and carries' : 'carries'} ${labels.map(label => `“${label}”`).join(' and ')}`)
+  // The sentence names the filters, because the way out is to remove one of
+  // them — and the header already says how many channels exist.
+  return `No channel ${said.join(' ')}.`
+})
+
+function isLabelActive(label: string): boolean {
+  return activeLabels.value.some(active => sameLabel(active, label))
+}
+
+function toggleLabel(label: string): void {
+  const next = isLabelActive(label)
+    ? activeLabels.value.filter(active => !sameLabel(active, label))
+    : [...activeLabels.value, label]
+  activeLabels.value = normalizeProjectLabels(next)
+}
+
+function clearLabels(): void {
+  activeLabels.value = []
+}
+
+function clearFilters(): void {
+  search.value = ''
+  clearLabels()
+}
+
+// Remembered locally, per Mac, the way the app remembers its other view
+// preferences. Written on change rather than on unload so a crash costs nothing.
+watch([sort, activeLabels], () => {
+  writeChannelViewPrefs({ sort: sort.value, labels: activeLabels.value })
+}, { deep: true })
+
+/**
+ * `/` focuses the search — the shortcut people already have in their fingers.
+ *
+ * Ignored wherever a person is already typing (an input, a textarea, a rich
+ * text host, a select), because there `/` is a character. Modifier keys are left
+ * alone: Cmd+/ is somebody else's shortcut, not this one.
+ */
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return
+  // Two questions, because they are the same question: where the key was aimed,
+  // and where the person actually is. In a real browser those are one element —
+  // a key event is aimed at what has focus — so this is belt and braces; it
+  // also means a synthesised event carrying no target can never lift focus out
+  // of a field someone is typing in.
+  if (isTypingTarget(event.target) || isTypingTarget(document.activeElement)) return
+  event.preventDefault()
+  searchInput.value?.focus()
+  searchInput.value?.select()
+}
+
+onMounted(() => document.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+
+/**
+ * Cards carry the owner's labels first, then the audience language when it has
+ * one.
+ *
+ * The language is dropped when a label already says the same word: the owner's
+ * Khmer channels are labelled "Khmer", and "Khmer Khmer" on one card reads as a
+ * duplicate rather than as two facts. The search still matches the language
+ * either way — this is about what is worth reading, not about what is indexed.
+ */
+function cardTags(project: any): Array<{ text: string; kind: 'label' | 'language' }> {
+  const labels = channelLabels(project)
+  const tags: Array<{ text: string; kind: 'label' | 'language' }> = labels
+    .map(text => ({ text, kind: 'label' as const }))
+  const language = languageLabel(project?.content_language)
+  if (language && !labels.some(label => sameLabel(label, language))) {
+    tags.push({ text: language, kind: 'language' })
+  }
+  return tags
+}
+
+/** "Labels" until it has some, then "Labels · 2" — so the card says whether
+ *  there is anything to look at without opening the dialog. */
+function labelActionText(project: any): string {
+  const count = channelLabels(project).length
+  return count ? `Labels · ${count}` : 'Labels'
+}
+
+// ── the label editor ───────────────────────────────────────────────────────
+
+const labelTarget = ref<any | null>(null)
+const labelDraft = ref<string[]>([])
+const labelSaving = ref(false)
+const labelError = ref('')
+
+const labelTargetName = computed(() => String(labelTarget.value?.name || labelTarget.value?.slug || ''))
+const labelSuggestionList = computed(() => labelSuggestions(libraryLabels.value, labelDraft.value))
+/** Dirty by NORMALISED comparison: adding and removing the same label, or adding
+ *  a second spelling of one that is already there, is not a change. */
+const labelsDirty = computed(() => (
+  JSON.stringify(normalizeProjectLabels(labelDraft.value))
+  !== JSON.stringify(normalizeProjectLabels(labelTarget.value?.labels))
+))
+
+function openLabels(project: any): void {
+  labelTarget.value = project
+  labelDraft.value = channelLabels(project)
+  labelError.value = ''
+}
+
+function closeLabels(): void {
+  if (labelSaving.value) return
+  labelTarget.value = null
+  labelDraft.value = []
+  labelError.value = ''
+}
+
+/**
+ * Fold a saved label list back into the row on screen AND into the painted
+ * cache, so the chips change the moment the save lands and a reload before the
+ * next list read shows what the server just confirmed. The server's own answer
+ * is what is stored — its normalising rules are the authority, not ours.
+ */
+function applySavedLabels(slug: string, labels: string[]): void {
+  const row = projects.value.find(candidate => projectSlug(candidate?.slug) === slug)
+  if (row) row.labels = labels
+  writeLastKnownList(LAST_KNOWN_CHANNELS, projects.value)
+}
+
+async function saveLabels(): Promise<void> {
+  const target = labelTarget.value
+  if (!target || labelSaving.value) return
+  const slug = projectSlug(target.slug)
+  if (!slug) {
+    labelError.value = 'This channel has no valid identifier, so its labels cannot be saved.'
+    return
+  }
+  labelSaving.value = true
+  labelError.value = ''
+  try {
+    const sent = normalizeProjectLabels(labelDraft.value)
+    const saved = await put<any>(`/projects/${slug}`, { labels: sent })
+    // The server's answer is the authority. A reply that carries no label list
+    // at all is not "no labels" — it is a reply we cannot read — so the row keeps
+    // what was just sent rather than being blanked by an absence.
+    applySavedLabels(slug, Array.isArray(saved?.labels) ? saved.labels : sent)
+    labelTarget.value = null
+    labelDraft.value = []
+  } catch (error: any) {
+    // The dialog stays open with what was typed and the server's own words: a
+    // refused label (too long, too many) is fixable in place.
+    labelError.value = errorMessage(error, 'Could not save the labels.')
+  } finally {
+    labelSaving.value = false
+  }
+}
 
 async function loadProjects(): Promise<void> {
   loading.value = true
@@ -860,6 +1242,161 @@ onMounted(async () => {
 .naming-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .create-error { padding: 10px 12px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--error) 11%, transparent); color: var(--error); }
 .create-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
+.channel-labels-hint { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }
+
+/* ── Finding a channel ─────────────────────────────────────────────────────
+   One row, one job per control: the field takes the width because typing is
+   what happens here most, and the sort is a fixed control beside it. Both sit
+   on the app's own input/surface tokens so this reads as the same family as
+   every other filter row in the app. */
+.channel-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.channel-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.channel-search-icon {
+  position: absolute;
+  left: 11px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.channel-search-field {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 40px 8px 33px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-sm);
+}
+.channel-search-field::placeholder { color: var(--text-muted); }
+.channel-search-field:focus { border-color: var(--accent); outline: none; box-shadow: var(--focus-ring); }
+/* The native clear button is replaced by ours, so the two never both appear. */
+.channel-search-field::-webkit-search-cancel-button { display: none; }
+.channel-search-key,
+.channel-search-clear {
+  position: absolute;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-tertiary, var(--bg-primary));
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1;
+}
+.channel-search-clear { cursor: pointer; font-size: 15px; }
+.channel-search-clear:hover { color: var(--text-primary); border-color: var(--accent); }
+.channel-search-clear:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.channel-sort {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+.channel-sort-select { min-height: 38px; width: auto; }
+
+/* Label chips. Small, quiet, and only as loud as the state they are in —
+   the accent fill is reserved for labels that are actually filtering. */
+.channel-label-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--motion-fast), background var(--motion-fast), color var(--motion-fast);
+}
+.label-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--text-primary); }
+.label-chip:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.label-chip.is-active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.label-chip-count { color: var(--text-muted); font-variant-numeric: tabular-nums; font-weight: 650; }
+.label-chip.is-active .label-chip-count { color: color-mix(in srgb, var(--accent) 75%, var(--text-muted)); }
+.label-chip-quiet { border-style: dashed; font-weight: 500; }
+
+/* "No channels match" — a state you leave, not a dead end, so it is a quiet
+   card with the way out on it rather than the full empty-state treatment. */
+.channel-no-match {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 38px 22px;
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  text-align: center;
+}
+.channel-no-match h3 { font-size: var(--font-xl); }
+.channel-no-match p { max-width: 520px; color: var(--text-secondary); font-size: var(--font-sm); }
+.channel-no-match .btn { margin-top: 4px; }
+
+/* Labels and language on a card. The language is the quieter of the two: it is
+   a fact about the channel, not something the owner chose to say about it. */
+.project-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+.project-tag {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-weight: 650;
+  line-height: 1.5;
+}
+.project-tag[data-kind='language'] {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.project-card-actions { display: flex; flex-wrap: wrap; gap: 12px; align-self: flex-start; }
+.project-label-action {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.project-label-action:hover { color: var(--text-primary); }
 
 @media (max-width: 680px) {
   .home-header { align-items: flex-start; }
@@ -870,5 +1407,18 @@ onMounted(async () => {
   .project-grid,
   .naming-grid { grid-template-columns: 1fr; }
   .home-state { min-height: 260px; padding: 26px 18px; }
+  /* The search keeps the width it needs to be usable; the sort drops below it
+     rather than being squeezed into a sliver beside it. */
+  .channel-tools { align-items: stretch; flex-direction: column; gap: 8px; }
+  .channel-sort { justify-content: space-between; }
+  .channel-sort-select { flex: 1 1 auto; }
+  .channel-search-key { display: none; }
+  /* Two rows of chrome must not push the page's own navigation off the screen:
+     at 390px the five nav links did not fit beside the brand and "Trash" and
+     "Settings" were simply out of sight. */
+  .home-header { flex-wrap: wrap; gap: 6px 12px; }
+  .home-brand { flex: 1 1 auto; }
+  .home-brand strong { white-space: nowrap; }
+  .home-actions { flex-wrap: wrap; }
 }
 </style>
