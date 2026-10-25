@@ -30,6 +30,29 @@ export interface FinalRenderEncodeAuthority {
   entries: FinalRenderEncodeEntry[]
 }
 
+interface FinalRenderBoundsCommon {
+  working_fps: number[]
+  max_duration_sec: number
+  max_operations: number
+  max_assets: number
+  max_asset_bytes: number
+  max_total_input_bytes: number
+  max_pixel_frames: number
+}
+
+/** No `bounds_version`: the Gateway publishes an open canvas-pair list (v1). */
+export interface FinalRenderBoundsV1 extends FinalRenderBoundsCommon {
+  canvas_pairs: Array<{ width: number; height: number }>
+}
+
+/** `bounds_version: 2`: an even canvas anywhere inside a published range, instead of named pairs. */
+export interface FinalRenderBoundsV2 extends FinalRenderBoundsCommon {
+  bounds_version: 2
+  canvas_range: { max_edge: number; max_pixels: number }
+}
+
+export type FinalRenderExecutionBounds = FinalRenderBoundsV1 | FinalRenderBoundsV2
+
 export interface FinalRenderCapabilities {
   format: 'studio.render.gateway-capabilities.v1'
   private: true
@@ -46,16 +69,7 @@ export interface FinalRenderCapabilities {
   compiler: DescriptorText
   qualification_provenance?: QualificationProvenance | null
   encode?: FinalRenderEncodeAuthority | null
-  execution_bounds?: {
-    canvas_pairs: Array<{ width: number; height: number }>
-    working_fps: number[]
-    max_duration_sec: number
-    max_operations: number
-    max_assets: number
-    max_asset_bytes: number
-    max_total_input_bytes: number
-    max_pixel_frames: number
-  }
+  execution_bounds?: FinalRenderExecutionBounds
 }
 
 export interface FinalRenderOutputReceipt {
@@ -338,7 +352,7 @@ function parseCompilerDescriptor(raw: string): void {
   ]) sha256(compiler[key], `compiler descriptor.${key}`)
 }
 
-function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest: string): Record<string, any> {
+function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest: string): FinalRenderExecutionBounds {
   const profile = exactRecord(parseJsonText(raw, 'profile descriptor'), [
     'format', 'implementation', 'recipe_namespace', 'compiler_artifact_sha256',
     'tools_artifact_sha256', 'combination_set', 'tier_policy', 'output_policy',
@@ -364,30 +378,54 @@ function parseProfileDescriptor(raw: string, toolsDigest: string, compilerDigest
     if (profile[key] !== null) sha256(profile[key], `profile descriptor.${key}`)
   }
   if (profile.production_eligible !== false) invalid('profile descriptor.production_eligible is unsupported')
-  const bounds = exactRecord(profile.execution_bounds, [
-    'canvas_pairs', 'working_fps', 'max_duration_sec', 'max_operations', 'max_assets',
-    'max_asset_bytes', 'max_total_input_bytes', 'max_pixel_frames', 'scratch_reserve_bytes',
-    'output_limit_bytes', 'process_tree_rss_limit_bytes', 'cumulative_wall_seconds',
-  ], 'profile descriptor.execution_bounds')
-  if (!Array.isArray(bounds.canvas_pairs) || bounds.canvas_pairs.length < 1) {
-    invalid('profile descriptor.execution_bounds.canvas_pairs is invalid')
-  }
-  for (const [index, pairValue] of bounds.canvas_pairs.entries()) {
-    const pair = exactRecord(pairValue, ['width', 'height'], `profile descriptor.execution_bounds.canvas_pairs[${index}]`)
-    positiveSafeInteger(pair.width, `profile descriptor.execution_bounds.canvas_pairs[${index}].width`)
-    positiveSafeInteger(pair.height, `profile descriptor.execution_bounds.canvas_pairs[${index}].height`)
+  return parseExecutionBounds(profile.execution_bounds)
+}
+
+const BOUNDS_COUNTERS = [
+  'max_operations', 'max_assets', 'max_asset_bytes', 'max_total_input_bytes',
+  'max_pixel_frames', 'scratch_reserve_bytes', 'output_limit_bytes',
+  'process_tree_rss_limit_bytes', 'cumulative_wall_seconds',
+] as const
+
+/**
+ * The Gateway states which canvas rule it enforces through `bounds_version`. An absent version is the
+ * v1 pair list; version 2 replaces it with an even canvas inside a published range. A version this
+ * build does not know is refused rather than read as one of them.
+ */
+function parseExecutionBounds(value: unknown): FinalRenderExecutionBounds {
+  const label = 'profile descriptor.execution_bounds'
+  const candidate = record(value, label)
+  const bounds = exactRecord(candidate, [
+    ...(Object.hasOwn(candidate, 'bounds_version')
+      ? ['bounds_version', 'canvas_range']
+      : ['canvas_pairs']),
+    'working_fps', 'max_duration_sec', ...BOUNDS_COUNTERS,
+  ], label)
+  if (Object.hasOwn(candidate, 'bounds_version')) {
+    if (bounds.bounds_version !== 2) {
+      invalid(`profile descriptor.execution_bounds.bounds_version `
+        + `${JSON.stringify(bounds.bounds_version)} is unsupported`)
+    }
+    const range = exactRecord(bounds.canvas_range, ['max_edge', 'max_pixels'], `${label}.canvas_range`)
+    positiveSafeInteger(range.max_edge, `${label}.canvas_range.max_edge`)
+    positiveSafeInteger(range.max_pixels, `${label}.canvas_range.max_pixels`)
+  } else {
+    if (!Array.isArray(bounds.canvas_pairs) || bounds.canvas_pairs.length < 1) {
+      invalid(`${label}.canvas_pairs is invalid`)
+    }
+    for (const [index, pairValue] of bounds.canvas_pairs.entries()) {
+      const pair = exactRecord(pairValue, ['width', 'height'], `${label}.canvas_pairs[${index}]`)
+      positiveSafeInteger(pair.width, `${label}.canvas_pairs[${index}].width`)
+      positiveSafeInteger(pair.height, `${label}.canvas_pairs[${index}].height`)
+    }
   }
   if (!Array.isArray(bounds.working_fps) || bounds.working_fps.length < 1) {
-    invalid('profile descriptor.execution_bounds.working_fps is invalid')
+    invalid(`${label}.working_fps is invalid`)
   }
-  bounds.working_fps.forEach((value, index) => positiveSafeInteger(value, `profile descriptor.execution_bounds.working_fps[${index}]`))
-  positiveFinite(bounds.max_duration_sec, 'profile descriptor.execution_bounds.max_duration_sec')
-  for (const key of [
-    'max_operations', 'max_assets', 'max_asset_bytes', 'max_total_input_bytes',
-    'max_pixel_frames', 'scratch_reserve_bytes', 'output_limit_bytes',
-    'process_tree_rss_limit_bytes', 'cumulative_wall_seconds',
-  ]) positiveSafeInteger(bounds[key], `profile descriptor.execution_bounds.${key}`)
-  return bounds as unknown as Record<string, any>
+  bounds.working_fps.forEach((fps, index) => positiveSafeInteger(fps, `${label}.working_fps[${index}]`))
+  positiveFinite(bounds.max_duration_sec, `${label}.max_duration_sec`)
+  for (const key of BOUNDS_COUNTERS) positiveSafeInteger(bounds[key], `${label}.${key}`)
+  return bounds as unknown as FinalRenderExecutionBounds
 }
 
 async function readBounded(response: Response, limit: number): Promise<Uint8Array> {

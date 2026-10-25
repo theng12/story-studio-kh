@@ -110,7 +110,18 @@ async function privateFinalRenderBoundsViolation(
     return `this video is ${canvas.working_fps} fps and the paired Gateway renders only `
       + `${publishedFps.join(' or ')} fps`
   }
-  if (!bounds.canvas_pairs.some(pair => pair.width === width && pair.height === height)) {
+  // v2 publishes a range instead of named pairs, and the Gateway enforces the same rule it states:
+  // even edges, no longer than `max_edge`, no more than `max_pixels`.
+  if ('canvas_range' in bounds) {
+    const { max_edge: maxEdge, max_pixels: maxPixels } = bounds.canvas_range
+    if (width % 2 !== 0 || height % 2 !== 0) {
+      return `this video is ${width}x${height} and the paired Gateway renders only even width and height`
+    }
+    if (Math.max(width, height) > maxEdge || width * height > maxPixels) {
+      return `this video is ${width}x${height} and the paired Gateway renders canvases up to `
+        + `${maxEdge} px on the long edge and ${maxPixels} pixels`
+    }
+  } else if (!bounds.canvas_pairs.some(pair => pair.width === width && pair.height === height)) {
     return `this video is ${width}x${height} and the paired Gateway renders only `
       + bounds.canvas_pairs.map(pair => `${pair.width}x${pair.height}`).join(' or ')
   }
@@ -149,7 +160,9 @@ async function privateFinalRenderBoundsViolation(
     return `the sources total ${Math.ceil(total / (1024 * 1024))} MB and the paired Gateway accepts at `
       + `most ${Math.floor(bounds.max_total_input_bytes / (1024 * 1024))} MB`
   }
-  const pixelFrames = width * height * canvas.working_fps * duration
+  // Whole frames, exactly as the Gateway counts them: `width * height * ceil(fps * duration)`.
+  const frames = Math.ceil(duration * canvas.working_fps)
+  const pixelFrames = width * height * frames
   if (pixelFrames > bounds.max_pixel_frames) {
     return `this video needs ${Math.ceil(pixelFrames / 1_000_000)}M pixel-frames and the paired Gateway `
       + `allows ${Math.floor(bounds.max_pixel_frames / 1_000_000)}M`
