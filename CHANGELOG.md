@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.357 — 2026-10-25
+
+- Thumbnails: a text layer for headlines, in Khmer or any other script. Turn it on per channel in Settings. Pick a suggested headline or type your own; it fits short and long titles automatically. Choose fill or gradient, outline, shadow and a background box, start from a built-in look, and save your own looks as presets (a preset keeps the look, never the words). Fonts included: Kantumruy Pro, Moul, Battambang, Inter and Anton. If the thumbnail's artwork changes afterwards, the headline version is marked out of date and is not uploaded.
+- Scripts: edit one chapter's text directly. Only that chapter's narration — and the mix, subtitles and timeline made from it — become out of date; the other chapters are untouched. The old text is kept in Trash, and a save is refused if the chapter changed since you opened it.
+- Subtitles: script-timed subtitles now say plainly that they are the script laid on the narration's timing, not a transcription of the audio.
+- Video Assembly: when remote final rendering is switched off, the log now says the video stays on this Mac and why.
+- Scene Plan refuses a music episode straight away and points to Episode Builder, which makes its pictures and prompts, instead of failing three times on a missing subtitle file.
+
 ## v1.4.356 — 2026-10-25
 
 - Jobs: every job row has an "Open" link to the page that made it — Audio, Scene Plan, Video Assembly and so on — not only failed jobs.
