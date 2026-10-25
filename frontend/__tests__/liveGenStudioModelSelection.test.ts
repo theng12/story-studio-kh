@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.ts'
+import { genStudioModelLockReason, resolveAliasedModelId, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.ts'
 
 /** A sentence the gateway can publish when the fleet behind a product is down. */
 const FLEET_OUTAGE_REASON = 'every Mac offering this model is offline'
@@ -169,4 +169,70 @@ test('an empty image/voice/music picker defaults only to a free fleet model, nev
   assert.equal(selectLiveGenStudioModel('', imageRows.slice(0, 1)), null)
   // An explicit paid choice is still the owner's to make.
   assert.equal(selectLiveGenStudioModel('openai-direct::gpt-image', imageRows)?.id, 'openai-direct::gpt-image')
+})
+
+/**
+ * The Audio page's alias step — added 2026-10-25 after a production report that
+ * the VoxCPM2 voice picker stayed blank and a saved audio preset was cleared.
+ *
+ * TWO DEFECTS, ONE RENAME. The Gateway republished a TTS product under a new id
+ * and published the old one as `legacy_ids`. The TTS catalogue parser dropped
+ * that field (see `electron/server/__tests__/tts-model-product-aliases.test.ts`),
+ * so a saved preset holding the superseded id resolved to no row at all: the
+ * page passed `tts-model-id=""` to VoicePicker, which asked for no voice list,
+ * showed "Choose a voice model first.", and stranded the saved voice. And the
+ * page's own alias step discarded the customer's other choices with
+ * `form.voice = null`, so even once the model resolved the preset's voice was
+ * destroyed — the preset looked as though only the model had been restored.
+ *
+ * The tests below pin the rule that fixes the second half: following an alias
+ * moves the MODEL id and nothing else. A migrated id is the same product under a
+ * newer name, so the saved voice is still the right selection (AGENTS.md §1,
+ * §4) — only a genuinely different product would justify dropping it, and that
+ * cannot arise here.
+ */
+test('a superseded model id follows the live row the Gateway republished it as', () => {
+  const ttsRows = [
+    { id: 'voxcpm2-v1', available: true, legacy_ids: ['voxcpm2'] },
+    { id: 'other-model', available: true },
+  ]
+  assert.equal(resolveAliasedModelId('voxcpm2', ttsRows), 'voxcpm2-v1')
+})
+
+test('an id that already names the live row is left exactly as it is', () => {
+  const rows = [{ id: 'voxcpm2-v1', available: true, legacy_ids: ['voxcpm2'] }]
+  // No change is not a migration: returning the same id would make the page
+  // rewrite the form on every catalogue read.
+  assert.equal(resolveAliasedModelId('voxcpm2-v1', rows), null)
+})
+
+test('an id nothing in the catalogue answers to is never swapped for another product', () => {
+  const rows = [{ id: 'voxcpm2-v1', available: true, legacy_ids: ['voxcpm2'] }]
+  assert.equal(resolveAliasedModelId('some-other-vendor-model', rows), null)
+  assert.equal(resolveAliasedModelId('', rows), null)
+  assert.equal(resolveAliasedModelId(null, rows), null)
+})
+
+test('a TTS row publishing generation_enabled counts as available', () => {
+  // TTS publishes `generation_enabled`; chat/image/video publish `available`.
+  // The picker must not treat a live TTS row as unusable just because its
+  // availability arrives under the other name.
+  assert.equal(
+    resolveAliasedModelId('voxcpm2', [{ id: 'voxcpm2-v1', generation_enabled: true, legacy_ids: ['voxcpm2'] }]),
+    'voxcpm2-v1',
+  )
+  assert.equal(
+    resolveAliasedModelId('voxcpm2', [{ id: 'voxcpm2-v1', generation_enabled: false, legacy_ids: ['voxcpm2'] }]),
+    null,
+  )
+})
+
+test('following an alias moves the model id and never the saved voice', () => {
+  const page = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
+  const watcher = page.match(/watch\(\[ttsModels, \(\) => form\.model\][\s\S]*?\n\}\)/)
+  assert.ok(watcher, 'the model-catalogue watcher is present')
+  assert.match(watcher[0], /resolveAliasedModelId\(form\.model, ttsModels\.value\)/)
+  // The defect: this line cleared the voice on every rename.
+  assert.doesNotMatch(watcher[0], /form\.voice\s*=\s*null/)
+  assert.doesNotMatch(watcher[0], /selectLiveGenStudioModel/)
 })

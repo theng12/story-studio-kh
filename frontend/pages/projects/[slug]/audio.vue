@@ -196,6 +196,7 @@
             Pick a voice model above — voices are listed for the model that serves them.
           </template>
         </span>
+        <p v-if="voiceLanguageHint" class="text-muted text-xs hint-line">{{ voiceLanguageHint }}</p>
         <p v-if="selectedVoice" class="text-muted text-xs hint-line">
           <template v-if="selectedVoice.language">{{ selectedVoice.language }} · </template>
           <template v-if="selectedVoiceProviderText">{{ selectedVoiceProviderText }} · </template>
@@ -702,8 +703,7 @@
 import type { GenStudioTtsModel, GenStudioVoice, GenStudioNarrationQuote } from '~/composables/useGenStudioVoices'
 import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { voiceIsGenerable, voiceSourceText } from '~/composables/useGenStudioVoices'
-import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
-import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
+import { genStudioModelLockReason, resolveAliasedModelId } from '~/utils/live-genstudio-model-selection'
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
 import { hasPriceTruth, isFreeToRun } from '~/utils/genstudio-price-usd'
 import { genstudioStaleNote } from '~/utils/genstudio-freshness'
@@ -931,14 +931,15 @@ watch([ttsModels, () => form.model], () => {
   // the exact row or follow only an owner-published alias; a missing product
   // remains named until the customer deliberately replaces it.
   if (!form.model) return
-  const selected = selectLiveGenStudioModel(
-    form.model,
-    ttsModels.value.map(model => ({ ...model, available: model.generation_enabled })),
-  )
-  if (selected && selected.id !== form.model) {
-    form.model = selected.id
-    form.voice = null
-  }
+  // A migrated id is the SAME product under a newer identifier, so the saved
+  // voice still belongs to it and is carried across. Clearing it here (as this
+  // used to) destroyed the voice every time the Gateway renamed a product, and
+  // left a preset holding `{model, voice, speed}` looking as though only the
+  // model had been restored. VoicePicker reconciles the voice against the
+  // renamed model's own voice list once it loads, and announces it if that
+  // model genuinely does not serve it.
+  const migrated = resolveAliasedModelId(form.model, ttsModels.value)
+  if (migrated) form.model = migrated
 })
 
 const discoveredProviderVoices = ref<GenStudioVoice[]>([])
@@ -1016,6 +1017,23 @@ const publishedSpeedBounds = computed<{ minimum: number; maximum: number } | nul
   return { minimum: model.minimum_speed, maximum: model.maximum_speed }
 })
 const supportsSpeed = computed(() => publishedSpeedBounds.value !== null)
+
+/**
+ * The language hint beside the voice picker. It binds to the episode's own
+ * narration language — already read from disk for `modelLanguageMismatch`
+ * (`GET …/narration-language`) — and to nothing else. Story Studio does not
+ * publish a channel-level content language on this config, so none is invented
+ * here (AGENTS.md §1). Empty whenever the script's language is unknown, which
+ * is exactly when the app must not claim to know it.
+ */
+const voiceLanguageHint = computed(() => {
+  const script = narrationScript.value
+  if (!script?.script) return ''
+  const codes = script.codes.filter(Boolean)
+  return codes.length
+    ? `This episode's narration is ${script.script} (${codes.join(', ')}).`
+    : `This episode's narration is ${script.script}.`
+})
 
 /** A remembered value or preset may belong to another model; clamp it as soon
  * as this model's published range is available, before quoting or sending. */

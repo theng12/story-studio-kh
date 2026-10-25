@@ -41,6 +41,32 @@ if (!Number.isInteger(port) || port <= 0 || port > 65535) {
 // The fixture keeps its own ephemeral server; a thin proxy in front of it carries
 // the fixed port and the control routes, so the fixture is never modified.
 const fixture = new MockGenStudioService()
+
+/**
+ * A rename trap for the Audio page's voice picker.
+ *
+ * The product is published under `voxcpm2-v1` and still answers to `voxcpm2`,
+ * so a saved preset or remembered form holding the superseded id exercises the
+ * alias path — the one that used to leave the model unresolved, the picker
+ * blank and the saved voice stranded. Opted in HERE rather than in the fixture's
+ * defaults so the ~840 backend suites that share `MockGenStudioService` are
+ * unaffected.
+ */
+fixture.ttsModels = [...fixture.ttsModels, {
+  id: 'voxcpm2-v1', display_name: 'VoxCPM2', provider_id: 'vox-provider', provider_name: 'VoxProvider',
+  description: 'VoxCPM2 TTS model with Khmer support.', credits_per_1000_characters: 2, minimum_credits: 2,
+  maximum_input_characters: 20_000, supports_speed: true, minimum_speed: 0.5, maximum_speed: 2.0,
+  supports_voice_cloning: true, preview_policy: '', generation_enabled: true,
+  provider_submit_concurrency: null, controls: [], supported_languages: ['km', 'en'],
+  legacy_ids: ['voxcpm2'],
+}]
+fixture.ttsVoicesByModel = {
+  'voxcpm2-v1': [
+    { id: 'yim-mengly', display_name: 'Yim Mengly', language: 'km', provider: 'VoxProvider', engine_id: 'voxcpm2-v1', engine_name: 'VoxCPM2', model_revision_id: 'v1', model_family: 'vox', voice_tier: 'standard', catalog_status: 'published', generation_enabled: true },
+    { id: 'christopher', display_name: 'Christopher', language: 'en', provider: 'VoxProvider', engine_id: 'voxcpm2-v1', engine_name: 'VoxCPM2', model_revision_id: 'v1', model_family: 'vox', voice_tier: 'standard', catalog_status: 'published', generation_enabled: true },
+  ],
+}
+
 await new Promise<void>((resolve, reject) => {
   fixture.server.once('error', reject)
   fixture.server.listen(0, '127.0.0.1', resolve)

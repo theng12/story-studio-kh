@@ -108,6 +108,43 @@ export function selectLiveGenStudioModel<T extends LiveGenStudioModel>(
 }
 
 /**
+ * The live id a saved model id should move to when the Gateway republished the
+ * same product under a newer identifier — or `null` when it already names the
+ * live row, or names nothing this catalogue resolves.
+ *
+ * A row's own availability may be published as `available` (chat/image/video)
+ * or `generation_enabled` (TTS), so both are accepted here rather than making
+ * every caller re-map one onto the other.
+ *
+ * WHY THIS EXISTS. Callers used to inline the alias step and then throw the
+ * customer's other choices away with it (`form.voice = null`). A migrated id is
+ * the SAME product under a new name, not a different one: the saved voice is
+ * still the right selection and must survive the rename (AGENTS.md §1 — persist
+ * the selection; §4 — re-resolve when the new value is derivable, and losing
+ * the customer's selection on every switch is its own defect). Returning only
+ * the id keeps that decision at the call site: it moves the model, and leaves
+ * every other field standing.
+ */
+export type AliasedModelCandidate = Omit<LiveGenStudioModel, 'available'> & {
+  available?: boolean
+  generation_enabled?: boolean
+}
+
+export function resolveAliasedModelId(
+  savedModelId: unknown,
+  models: readonly AliasedModelCandidate[],
+): string | null {
+  const saved = typeof savedModelId === 'string' ? savedModelId.trim() : ''
+  if (!saved) return null
+  const mapped = models.map(model => ({
+    ...model,
+    available: model.available ?? model.generation_enabled === true,
+  }))
+  const selected = selectLiveGenStudioModel(saved, mapped as readonly LiveGenStudioModel[])
+  return selected && selected.id !== saved ? selected.id : null
+}
+
+/**
  * Explains *why* `selectLiveGenStudioModel` returned what it did, so a
  * consuming picker can show the user something more honest than silence
  * when their saved product is gone.

@@ -379,6 +379,14 @@ export class MockGenStudioService {
     preview_policy: '', generation_enabled: true, provider_submit_concurrency: null, controls: [],
   }]
 
+  /**
+   * Extra model-scoped voices for a standalone/acceptance run, keyed by the
+   * `model_id` the caller asks for. Empty by default, so `/v1/voices` answers
+   * exactly as it always did and no existing test changes. `--developer/
+   * serve-mock-genstudio.ts` is the caller that opts in.
+   */
+  ttsVoicesByModel: Record<string, Array<Record<string, unknown>>> = {}
+
   private readonly keys = new Map<string, Set<MockGenStudioScope>>()
   /** Test-only per-credential discovery controls; production contracts see ordinary catalog rows. */
   private readonly transcriptionModelsByKey = new Map<string, Array<Record<string, unknown>>>()
@@ -1907,7 +1915,9 @@ export class MockGenStudioService {
       return true
     }
     if (pathname === '/v1/voices') {
-      json(response, 200, [{
+      const requestedModel = new URL(request.url || '', `http://${request.headers.host}`).searchParams.get('model_id')
+      const scoped = requestedModel ? this.ttsVoicesByModel[requestedModel] : undefined
+      json(response, 200, scoped ?? [{
         id: 'mock-voice', display_name: 'Mock Voice', language: 'en', provider: 'Gateway mock',
         engine_id: 'mock-tts-v1', engine_name: 'Mock TTS', model_revision_id: 'mock-tts-r1',
         model_family: 'mock', voice_tier: 'standard', catalog_status: 'published', generation_enabled: true,
