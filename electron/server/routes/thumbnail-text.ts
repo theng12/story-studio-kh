@@ -6,10 +6,17 @@
  *
  *   GET  /api/thumbnail-text/fonts                                → ThumbnailFont[]
  *   GET  /api/thumbnail-text/presets/builtin                      → ThumbnailTextPreset[]
+ *   GET  /api/projects/:slug/episodes/:code/thumbnail-text/settings   → ThumbnailTextLanguageSettings
+ *   PUT  /api/projects/:slug/episodes/:code/thumbnail-text/settings   → ThumbnailTextLanguageSettings
  *   POST /api/projects/:slug/episodes/:code/thumbnail-text/preview  → image/png | {image_base64, report}
  *   POST /api/projects/:slug/episodes/:code/thumbnail-text/apply    → ThumbnailTextVariant
  *   GET  /api/projects/:slug/episodes/:code/thumbnail-text/variants → ThumbnailTextVariant[]
  *   POST /api/projects/:slug/episodes/:code/thumbnail-text/suggestions → ThumbnailTextSuggestions
+ *
+ * **The headline language.** The default is the channel's own language — read through the one
+ * authority (`lib/content-language.ts`), never a copy in this project's `config.json`. An episode
+ * may override it for its own thumbnail text only (`thumbnail-text-settings.ts`), and doing so never
+ * touches the channel's language.
  *
  * **Preview response shape.** The frontend accepts either, so this route returns
  * `image/png` bytes with the report JSON in the `X-Thumbnail-Text-Report` response header — the
@@ -44,6 +51,12 @@ import {
   writeSidecar,
 } from '../services/thumbnail-text-variants.js'
 import { suggestThumbnailHeadlines } from '../services/thumbnail-text-suggestions.js'
+import {
+  effectiveThumbnailTextLanguage,
+  readThumbnailTextLanguage,
+  writeThumbnailTextLanguage,
+} from '../services/thumbnail-text-settings.js'
+import { getContentLanguage } from '../lib/content-language.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
 import type { ThumbnailTextStyle } from '../contracts/thumbnail-text.js'
 
@@ -184,6 +197,42 @@ router.get('/thumbnail-text/presets/builtin', async (_req, res) => {
   }
 })
 
+// ── Language settings (per episode) ────────────────────────────────────────
+
+const languageSettingsSchema = z.object({
+  /** 'en' | 'km', or null to follow the channel language again. */
+  language: z.union([z.enum(['en', 'km']), z.null()]),
+})
+
+/** The channel's language and this episode's choice, resolved together. */
+async function languageSettings(slug: string, override: 'en' | 'km' | null) {
+  const channel_language = await getContentLanguage(slug)
+  const { language } = effectiveThumbnailTextLanguage(override, channel_language)
+  return { channel_language, override, effective: language }
+}
+
+router.get('/projects/:slug/episodes/:code/thumbnail-text/settings', async (req, res) => {
+  try {
+    const override = await readThumbnailTextLanguage(req.params.slug, req.params.code)
+    res.json(await languageSettings(req.params.slug, override))
+  } catch (error: any) {
+    res.status(400).json({ detail: error?.message || 'Could not read the thumbnail text language' })
+  }
+})
+
+router.put(
+  '/projects/:slug/episodes/:code/thumbnail-text/settings',
+  validateBody(languageSettingsSchema),
+  async (req, res) => {
+    try {
+      await writeThumbnailTextLanguage(req.params.slug, req.params.code, req.body.language)
+      res.json(await languageSettings(req.params.slug, req.body.language))
+    } catch (error: any) {
+      res.status(400).json({ detail: error?.message || 'Could not save the thumbnail text language' })
+    }
+  },
+)
+
 // ── Preview ────────────────────────────────────────────────────────────────
 
 router.post(
@@ -301,9 +350,15 @@ router.post('/projects/:slug/episodes/:code/thumbnail-text/suggestions', async (
     // The narration is the episode's own story text; the script directory is where it lives.
     const script = await readArtifactRawText(resolveReadPath(paths.narration_docx)).catch(() => '')
 
+    // The language comes from the ONE authority (the project's own setting) plus this episode's
+    // own override — never a copy in `config.json`, which is how the channel language could
+    // disagree with what the rest of the app says (AGENTS §1).
+    const overrideLanguage = await readThumbnailTextLanguage(slug, code)
+    const channelLanguage = await getContentLanguage(slug)
+
     const result = await suggestThumbnailHeadlines({
       config,
-      source: { title, script, channelLanguage: (config as any).content_language ?? null },
+      source: { title, script, channelLanguage, overrideLanguage },
       where: THUMBNAIL_MODEL_WHERE,
     })
     res.json(result)

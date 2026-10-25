@@ -49,6 +49,8 @@ const cannedBuiltins = [
   },
 ]
 let cannedVariants: any[] = []
+/** Per-episode thumbnail-text language settings: `${slug}:${episode}` → { channel_language, override }. */
+const languageStore: Record<string, { channel_language: string | null; override: string | null }> = {}
 
 ;(globalThis as any).$fetch = async (url: string, options: any = {}) => {
   const method = options?.method || 'GET'
@@ -58,6 +60,14 @@ let cannedVariants: any[] = []
   if (url === '/api/thumbnail-text/fonts') return cannedFonts
   if (url === '/api/thumbnail-text/presets/builtin') return cannedBuiltins
   if (/\/thumbnail-text\/variants$/.test(url) && method === 'GET') return cannedVariants
+  const languageMatch = url.match(/^\/api\/projects\/([^/]+)\/episodes\/([^/]+)\/thumbnail-text\/settings$/)
+  if (languageMatch) {
+    const key = `${languageMatch[1]}:${decodeURIComponent(languageMatch[2])}`
+    if (!languageStore[key]) languageStore[key] = { channel_language: 'km', override: null }
+    const entry = languageStore[key]
+    if (method === 'PUT') entry.override = body?.language ?? null
+    return { ...entry, effective: entry.override ?? entry.channel_language }
+  }
   if (/\/thumbnail-text\/preview$/.test(url) && method === 'POST') {
     return { image_base64: 'iVBORw0KGgo=', report: { font_px: 120, lines: 1, glyphs_complete: true, missing_characters: [], overflow: false } }
   }
@@ -83,6 +93,7 @@ let cannedVariants: any[] = []
 
 const { useThumbnailText } = await import('../composables/useThumbnailText.js')
 const { fontsForText, thumbnailTextStyleOnly, thumbnailTextEnabled } = await import('../utils/thumbnail-text.js')
+const { CONTENT_LANGUAGE_OPTIONS, contentLanguageLabel } = await import('../utils/content-language.js')
 
 // The exact preview goes through raw `fetch` (it may answer with PNG bytes or
 // JSON), so it is stubbed separately from `$fetch`. This is the JSON branch.
@@ -103,6 +114,7 @@ beforeEach(() => {
   calls.length = 0
   previewCalls.length = 0
   for (const k of Object.keys(configStore)) delete configStore[k]
+  for (const k of Object.keys(languageStore)) delete languageStore[k]
   cannedVariants = []
   previewReport = { font_px: 120, lines: 1, glyphs_complete: true, missing_characters: [], overflow: false }
 })
@@ -393,5 +405,84 @@ describe('the channel switch gates the feature', () => {
     assert.equal(thumbnailTextEnabled(null), false, 'an unloaded config is off, not on')
     // A truthy non-boolean must not open the feature.
     assert.equal(thumbnailTextEnabled({ thumbnail_text_layer_enabled: 'yes' }), false)
+  })
+})
+
+// ── 7. Headline language (owner, 2026-10-25) ───────────────────────────────
+describe('headline language — follows the channel unless overridden', () => {
+  test('the shared option list is the app’s own two languages', () => {
+    assert.deepEqual(CONTENT_LANGUAGE_OPTIONS.map(option => option.value), ['en', 'km'])
+    assert.equal(contentLanguageLabel('km'), 'Khmer')
+    assert.equal(contentLanguageLabel('en'), 'English')
+    assert.equal(contentLanguageLabel('th'), '', 'an unsupported code has no label')
+    assert.equal(contentLanguageLabel(null), '')
+  })
+
+  test('defaults to the channel language and reports that it is following', async () => {
+    const { editor } = makeEditor('proj-lang')
+    await settle()
+    await nextTick()
+    assert.equal(editor.channelLanguage.value, 'km')
+    assert.equal(editor.languageOverride.value, null)
+    assert.equal(editor.followsChannel.value, true)
+    assert.equal(editor.effectiveLanguage.value, 'km')
+  })
+
+  test('a language the episode saved is loaded and used', async () => {
+    languageStore['proj-lang-load:ep-01'] = { channel_language: 'km', override: 'en' }
+    const { editor } = makeEditor('proj-lang-load')
+    await settle()
+    await nextTick()
+    assert.equal(editor.languageOverride.value, 'en')
+    assert.equal(editor.effectiveLanguage.value, 'en')
+    assert.equal(editor.followsChannel.value, false)
+    assert.equal(editor.channelLanguage.value, 'km')
+  })
+
+  test('choosing another language persists it for this episode and never touches the channel', async () => {
+    const slug = 'proj-lang-set'
+    const { editor } = makeEditor(slug)
+    await settle()
+    await nextTick()
+    await editor.setLanguageOverride('en')
+    assert.equal(editor.languageOverride.value, 'en')
+    assert.equal(editor.followsChannel.value, false)
+    assert.equal(editor.effectiveLanguage.value, 'en')
+    assert.equal(editor.channelLanguage.value, 'km', 'the channel language is unchanged')
+    // The choice was PUT to this episode's settings, and the channel's own config was never written.
+    const put = calls.find(call => call.method === 'PUT' && /thumbnail-text\/settings$/.test(call.url))
+    assert.deepEqual(put?.body, { language: 'en' })
+    assert.equal(languageStore[`${slug}:ep-01`].override, 'en', 'the override persisted for the episode')
+    assert.equal(configStore[slug]?.content_language, undefined)
+  })
+
+  test('clearing the override returns to following the channel language', async () => {
+    const { editor } = makeEditor('proj-lang-clear')
+    await settle()
+    await nextTick()
+    await editor.setLanguageOverride('en')
+    assert.equal(editor.followsChannel.value, false)
+    await editor.setLanguageOverride(null)
+    assert.equal(editor.languageOverride.value, null)
+    assert.equal(editor.followsChannel.value, true)
+    assert.equal(editor.effectiveLanguage.value, 'km')
+    const put = calls.filter(call => call.method === 'PUT' && /thumbnail-text\/settings$/.test(call.url)).pop()
+    assert.deepEqual(put?.body, { language: null })
+  })
+
+  test('an episode change drops the previous episode’s language choice', async () => {
+    const { editor, episode } = makeEditor('proj-lang-ep')
+    await settle()
+    await nextTick()
+    await editor.setLanguageOverride('en')
+    // The next episode has no override of its own and a different channel language.
+    languageStore['proj-lang-ep:ep-02'] = { channel_language: 'en', override: null }
+    episode.value = 'ep-02'
+    await nextTick()
+    assert.equal(editor.languageOverride.value, null, 'the previous episode’s override must not survive')
+    await settle()
+    await nextTick()
+    assert.equal(editor.channelLanguage.value, 'en', 'ep-02’s own state is loaded')
+    assert.equal(editor.followsChannel.value, true)
   })
 })

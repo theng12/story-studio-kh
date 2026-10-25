@@ -254,8 +254,7 @@
           <label for="content-language">Audience language</label>
           <select id="content-language" v-model="form.content_language" class="input" :disabled="creating">
             <option value="">Not set (legacy prompts)</option>
-            <option value="en">English</option>
-            <option value="km">Khmer</option>
+            <option v-for="option in CONTENT_LANGUAGE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </div>
 
@@ -294,6 +293,7 @@
 <script setup lang="ts">
 import { projectSlug } from '~/utils/project-slug'
 import { readLastKnownList, writeLastKnownList } from '~/utils/last-known-list'
+import { CONTENT_LANGUAGE_OPTIONS } from '~/utils/content-language'
 
 useAppTitle()
 

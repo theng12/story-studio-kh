@@ -609,8 +609,7 @@
               <label for="settings-content-language">Audience language</label>
               <select id="settings-content-language" v-model="projectForm.content_language" class="input">
                 <option value="">Not set (legacy prompts)</option>
-                <option value="en">English</option>
-                <option value="km">Khmer</option>
+                <option v-for="option in CONTENT_LANGUAGE_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
             </div>
             <div class="form-group">
@@ -1795,6 +1794,7 @@ import { projectSettingsSavePlan, type ProjectSettingsSaveSection } from '~/util
 import { useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import type { AudioQualityMode } from '~/types/audio-quality'
 import { genstudioStaleNote } from '~/utils/genstudio-freshness'
+import { CONTENT_LANGUAGE_OPTIONS } from '~/utils/content-language'
 // Every Settings destination replaces content beneath the same heading. On a
 // cross-page hash arrival there is nothing lower to scroll to, and Nuxt checks
 // the hash before this client-only page mounts. Let same-page hashes use the

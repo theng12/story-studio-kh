@@ -31,6 +31,8 @@ export interface SuggestionSource {
   script: string
   /** The channel's own language setting, when it has one. */
   channelLanguage?: string | null
+  /** The episode's own choice for its thumbnail text; wins over the channel language (§4/§5). */
+  overrideLanguage?: string | null
 }
 
 /**
@@ -57,15 +59,17 @@ export function modelFromThumbnailPromptsPreset(config: Record<string, any> | nu
 /**
  * The language the suggestions should be written in, and why.
  *
- * `channel` when the channel states one, then the script, then the title. A Latin title on a Khmer
- * channel is NOT enough to call it English — hence the order, and the `language_source` the contract
- * carries so the page can say which rule applied.
+ * The episode's own thumbnail-text choice wins, then the channel's language, then the script, then
+ * the title. A Latin title on a Khmer channel is NOT enough to call it English — hence the order,
+ * and the `language_source` the contract carries so the page can say which rule applied.
  */
 export function resolveSuggestionLanguage(source: SuggestionSource): {
   language: string
-  language_source: 'channel' | 'script' | 'title'
+  language_source: 'override' | 'channel' | 'script' | 'title'
 } {
-  const channel = String(source.channelLanguage || '').trim().toLowerCase().split(/[-_]/)[0] || ''
+  const override = baseLanguage(source.overrideLanguage)
+  if (override) return { language: override, language_source: 'override' }
+  const channel = baseLanguage(source.channelLanguage)
   if (channel) return { language: channel, language_source: 'channel' }
   const fromScript = scriptLanguage(source.script)
   if (fromScript) return { language: fromScript, language_source: 'script' }
@@ -74,6 +78,11 @@ export function resolveSuggestionLanguage(source: SuggestionSource): {
   // Nothing distinctive about the writing system: English is the app's default and the honest
   // answer, and `language_source` says the decision came from the title/nothing rather than a rule.
   return { language: 'en', language_source: 'title' }
+}
+
+/** A stated language as its BCP-47 base tag ('en-US' → 'en'); '' when none was stated. */
+function baseLanguage(value: string | null | undefined): string {
+  return String(value || '').trim().toLowerCase().split(/[-_]/)[0] || ''
 }
 
 function scriptLanguage(text: string): string | null {
