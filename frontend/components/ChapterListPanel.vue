@@ -8,11 +8,12 @@
   words_per_chapter, etc.). Other chapters on disk are not touched;
   the unified narration_docx is auto-assembled after the regen.
 
-  The panel also surfaces an `audio_stale` warning per row: when the
-  user regenerates a chapter, the existing audio chunks for that
-  chapter become out of date. We don't auto-delete audio — just hint
-  the user via a pill so they can choose to refresh it from the audio
-  page when ready.
+  The panel also surfaces the backend's narration-freshness answer per row
+  (`audio_staleness`): the chapter's audio is out of date when its current
+  TEXT is not the text the narration was made from. We don't auto-delete
+  audio — just hint the user via a pill, whose tooltip is the backend's own
+  sentence, so it says which rule noticed (changed text, or the legacy mtime
+  fallback for narration that predates the text record).
 
   Visual language matches AudioChapterSelector for consistency.
 -->
@@ -45,7 +46,7 @@
         v-for="ch in chapters"
         :key="ch.number"
         class="chp-item"
-        :class="{ 'has-stale-audio': ch.audio_stale, 'is-expanded': expandedChapters.has(ch.number) }"
+        :class="{ 'has-stale-audio': ch.audio_staleness?.state === 'stale', 'is-expanded': expandedChapters.has(ch.number) }"
       >
         <div class="chp-row">
           <button
@@ -66,7 +67,11 @@
             <span v-if="ch.word_count" class="chp-pill">{{ ch.word_count.toLocaleString() }} words</span>
             <span v-if="ch.character_count" class="chp-pill" title="Character count — TTS providers charge per-character, so this is the closer-to-truth volume signal for cost estimation.">{{ ch.character_count.toLocaleString() }} chars</span>
             <span v-if="ch.modified_at" class="chp-pill">{{ relativeTime(ch.modified_at) }}</span>
-            <span v-if="ch.audio_stale" class="chp-pill pill-stale" :title="staleTooltip">
+            <span
+              v-if="ch.audio_staleness?.state === 'stale'"
+              class="chp-pill pill-stale"
+              :title="ch.audio_staleness?.detail"
+            >
               ⚠ audio stale
             </span>
           </div>
@@ -129,6 +134,7 @@
 </template>
 
 <script setup lang="ts">
+import type { NarrationStaleness } from '@shared/narration-staleness'
 import { useChapterRegenerate, REGENERATE_HINT, REGENERATE_LABEL, REGENERATING_LABEL } from '~/composables/useChapterRegenerate'
 interface ChapterRow {
   number: number
@@ -139,7 +145,8 @@ interface ChapterRow {
    *  for TTS billing previews (providers charge per-character). */
   character_count?: number
   modified_at: string | null
-  audio_stale: boolean
+  /** The shared narration-freshness answer; `state: 'stale'` is what the pill shows. */
+  audio_staleness?: NarrationStaleness
 }
 
 const props = defineProps<{
@@ -227,7 +234,6 @@ async function saveText(num: number) {
 
 
 const noScriptTooltip = 'Generate the script first to unlock per-chapter regenerate.'
-const staleTooltip = 'This chapter\'s source was changed after the audio was generated. Visit the Audio page and regenerate this section to refresh.'
 
 // Per-chapter word floor enforced by the backend (chunked-narration.ts:
 // effectiveWordTarget + computeWordBudget both clamp to 120). Below the
