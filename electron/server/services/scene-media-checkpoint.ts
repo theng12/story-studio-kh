@@ -263,12 +263,12 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
   // The reveal style is compared as the type THIS scene resolves to, so editing a Mix stales only
   // the scenes whose type actually moved. A channel that has never chosen one keeps every clip it
   // has: nothing was asked for, so nothing can be wrong. A clip from before reveal types has no
-  // `reveal_type`, and that is only a disagreement once a choice exists.
+  // `reveal_type`; it IS a line reveal, so choosing Line (the default) never stales it.
   if (settings.reveal) {
     const wanted = context.revealType ?? revealTypeFor(settings.reveal, context, scene.id)
     if (wanted === null) return REVEAL_NEEDS_EPISODE
-    if (receipt.reveal_type === undefined) return 'stale reveal style'
-    if (receipt.reveal_type !== wanted) return `stale reveal style (${receipt.reveal_type} → ${wanted})`
+    const recorded = receipt.reveal_type ?? 'line'
+    if (recorded !== wanted) return `stale reveal style (${recorded} → ${wanted})`
   }
 
   const clipSha = scene.clip_source_image_sha256

@@ -165,8 +165,10 @@ describe('Sketch Draw reveal — freshness', () => {
     const file = await image()
     const chosen = settings({ style: 'line', mix: [] })
     assert.equal(await sceneClipStaleReason(scene(), context(file, chosen)), null, 'line clip, line channel')
-    const missing = await sceneClipStaleReason(scene({ clip_sketch: { ...scene().clip_sketch, reveal_type: undefined } }), context(file, chosen))
-    assert.equal(missing, 'stale reveal style')
+    const legacy = { clip_sketch: { ...scene().clip_sketch, reveal_type: undefined } }
+    assert.equal(await sceneClipStaleReason(scene(legacy), context(file, chosen)), null, 'a pre-v4 clip is a line reveal')
+    const legacyBloom = await sceneClipStaleReason(scene(legacy), context(file, settings({ style: 'bloom', mix: [] })))
+    assert.equal(legacyBloom, 'stale reveal style (line → bloom)')
     const moved = await sceneClipStaleReason(scene({ clip_sketch: { ...scene().clip_sketch, reveal_type: 'bloom' } }), context(file, chosen))
     assert.equal(moved, 'stale reveal style (bloom → line)')
   })
