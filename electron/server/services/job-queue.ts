@@ -14,6 +14,7 @@ import {
   FINAL_RENDER_MAX_REVISION_BYTES,
   FINAL_RENDER_MAX_REVISIONS,
   validateFinalRenderTransportEvidence,
+  finalRenderRefusalMessage,
 } from '../lib/final-render-transport-evidence.js'
 import { deactivateSceneRenderStatus } from './scene-render-status.js'
 import { boundGenStudioRequestPreviews, pendingGenStudioEntryId, type GenStudioRequestPreview } from '../lib/genstudio-request-preview.js'
@@ -606,9 +607,15 @@ function finalRenderCrossProcessTransitionKey(intentId: string): string {
   return path.join(getUserDataDir(), 'private-render', 'locks', `${safeIntent}.transition`)
 }
 
+function isRefusedFinalRender(job: Pick<Job, 'job_id'> & Partial<Pick<Job, 'final_render_remote_wait'>>): boolean {
+  const parsed = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id)
+  return parsed.ok && parsed.receipt.version === 3 && parsed.receipt.phase === 'refused'
+    && parsed.receipt.gateway_job_id === null && parsed.receipt.cancel_requested_at === null
+}
+
 function hasFinalRenderFence(job: Pick<Job, 'job_id' | 'project_slug' | 'type'> & Partial<Pick<Job, 'final_render_remote_wait'>>): boolean {
   return job.type === 'video_assembly'
-    && (hasFinalRenderRemoteWaitMarker(job)
+    && ((hasFinalRenderRemoteWaitMarker(job) && !isRefusedFinalRender(job))
       || finalRenderRecoveryHolds.has(finalRenderStateKey(job.project_slug, job.job_id))
       || finalRenderMonitorTransientHolds.has(finalRenderStateKey(job.project_slug, job.job_id)))
 }
@@ -2847,7 +2854,7 @@ function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
     result.params = structuredClone(previous.params)
     result.content_pack_provenance = previous.content_pack_provenance === undefined
       ? undefined : structuredClone(previous.content_pack_provenance)
-  } else if (pendingForJob || hasFinalRenderRemoteWaitMarker(previous)
+  } else if (pendingForJob || (hasFinalRenderRemoteWaitMarker(previous) && !isRefusedFinalRender(previous))
     || finalRenderRecoveryHolds.has(stateKey)) {
     result.status = 'running'
     result.finished_at = null
@@ -3211,7 +3218,7 @@ function validFinalRenderTransportTransition(
   }
   if (before.phase === 'send_may_start') {
     return (after.phase === 'remote_wait' && after.gateway_job_id !== null)
-      || ((after.phase === 'send_unknown' || after.phase === 'lookup_not_found' || after.phase === 'recovery_hold')
+      || ((after.phase === 'send_unknown' || after.phase === 'lookup_not_found' || after.phase === 'recovery_hold' || after.phase === 'refused')
         && after.gateway_job_id === null)
   }
   if (before.phase === 'send_unknown') {
@@ -3220,7 +3227,7 @@ function validFinalRenderTransportTransition(
   }
   if (before.phase === 'lookup_not_found') {
     return (after.phase === 'remote_wait' && after.gateway_job_id !== null)
-      || (after.phase === 'recovery_hold' && after.gateway_job_id === null)
+      || ((after.phase === 'recovery_hold' || after.phase === 'refused') && after.gateway_job_id === null)
   }
   if (before.phase === 'remote_wait') {
     return (after.phase === 'output_ready' || after.phase === 'recovery_hold')
@@ -3424,6 +3431,68 @@ async function persistVerifiedFinalRenderTerminal(
       return merged
     },
   })
+}
+
+async function readFinalRenderRefusalMessage(receipt: FinalRenderTransportReceiptV3): Promise<string> {
+  const revisionsDir = path.join(getUserDataDir(), 'private-render', 'intents', receipt.intent_id, 'transport', 'revisions')
+  const name = (await fs.readdir(revisionsDir)).find(name => name.endsWith(`-${receipt.transport_revision_sha256}.json`))
+  if (!name) throw finalRenderWaitConflict()
+  const bytes = await readStablePrivateFile(path.join(revisionsDir, name), FINAL_RENDER_MAX_REVISION_BYTES)
+  if (!bytes || createHash('sha256').update(bytes).digest('hex') !== receipt.transport_revision_sha256) throw finalRenderWaitConflict()
+  return finalRenderRefusalMessage(JSON.parse(bytes.toString('utf8')))
+}
+
+/** Rejoin the ordinary local assembly lane only after the independent durable evidence validator agrees. */
+export async function resumeRefusedFinalRenderLocally(
+  projectSlug: string,
+  jobId: string,
+): Promise<void> {
+  const initial = await loadAuthoritativeJob(projectSlug, jobId)
+  if (!initial || !isRefusedFinalRender(initial)) throw finalRenderWaitConflict()
+  const receipt = initial.final_render_remote_wait as FinalRenderTransportReceiptV3
+  await withCrossProcessLock(finalRenderCrossProcessTransitionKey(receipt.intent_id), () => (
+    withLock(finalRenderTransitionLockKey(projectSlug, jobId), async () => {
+      if (activeRunJobIds.has(jobId)) return
+      if (!await hasDurableFinalRenderPrivateSnapshot(receipt)) throw finalRenderWaitConflict()
+      const message = await readFinalRenderRefusalMessage(receipt)
+      await persistProjectMutation(projectSlug, { kind: 'transform', jobId, transform: current => {
+        if (!current || !exactFinalRenderReceipt(current.final_render_remote_wait, receipt, jobId)) throw finalRenderWaitConflict()
+        if (activeRunJobIds.has(jobId) || current.status !== 'running') return current
+        current.status = 'queued'
+        current.started_at = null
+        current.finished_at = null
+        current.error = null
+        current.local_execution_complete = false
+        if (!current.output_lines.includes(message)) current.output_lines.push(message)
+        return current
+      } })
+      const disk = await loadAuthoritativeJob(projectSlug, jobId)
+      if (!disk || !isRefusedFinalRender(disk)) throw finalRenderWaitConflict()
+      if (activeRunJobIds.has(jobId)) return
+      finalRenderRecoveryHolds.delete(finalRenderStateKey(projectSlug, jobId))
+      finalRenderMonitorTransientHolds.delete(finalRenderStateKey(projectSlug, jobId))
+      jobs.set(jobId, disk)
+      if (disk.status === 'queued' && !queues.video_assembly.pending.some(job => job.job_id === jobId)) {
+        queues.video_assembly.pending.push(disk)
+      }
+      emitUpdate(disk)
+    })
+  ))
+  if (queues.video_assembly.executor) pump('video_assembly')
+}
+
+/** The generator rechecks refusal proof on every local attempt; a phase string alone grants nothing. */
+export async function validateRefusedFinalRenderForLocal(job: Job): Promise<boolean> {
+  const disk = await loadAuthoritativeJob(job.project_slug, job.job_id)
+  if (!disk || !isRefusedFinalRender(disk)) {
+    if (isRefusedFinalRender(job)) throw finalRenderWaitConflict()
+    return false
+  }
+  if (!await hasDurableFinalRenderPrivateSnapshot(disk.final_render_remote_wait!)) throw finalRenderWaitConflict()
+  job.final_render_remote_wait = structuredClone(disk.final_render_remote_wait!)
+  const message = await readFinalRenderRefusalMessage(disk.final_render_remote_wait as FinalRenderTransportReceiptV3)
+  if (!job.output_lines.includes(message)) job.output_lines.push(message)
+  return true
 }
 
 /** Consume one durably published importer terminal on the original queue row. */
@@ -4636,7 +4705,8 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
           // mutation so jobs.json and the in-memory queue cannot disagree.
           let mutated = repairedOnLoad.has(j.job_id)
           if (j.type === 'video_assembly' && hasFinalRenderRemoteWaitMarker(j)
-            && !await restoreConsumedFinalRenderTerminal(j)) {
+            && !await restoreConsumedFinalRenderTerminal(j)
+            && !(isRefusedFinalRender(j) && await hasDurableFinalRenderPrivateSnapshot(j.final_render_remote_wait!))) {
             j.status = 'running'
             j.finished_at = null
             j.pause_requested = false
@@ -5032,7 +5102,8 @@ async function bootRecoveryKind(j: Job): Promise<'merge' | 'upload' | 'chat' | '
     && hasReclaimableImageEvidence(j)
   const recoverableVideoAssembly = j.type === 'video_assembly'
     && !!queues.video_assembly.executor
-    && !!(await getValidVideoAssemblyCheckpoint(j, ['running']))
+    && (!!(await getValidVideoAssemblyCheckpoint(j, ['running']))
+      || (isRefusedFinalRender(j) && await hasDurableFinalRenderPrivateSnapshot(j.final_render_remote_wait!)))
   // Audio Assembly is local FFmpeg work with no provider request: re-running it costs
   // nothing and rebuilds the same file. Before, a restart left it "Interrupted by app
   // restart" and the owner had to find it and press Generate again (Dreamlands E2E).
@@ -5063,13 +5134,14 @@ export async function runningJobsThatWouldNotResume(): Promise<Job[]> {
   for (const j of jobs.values()) {
     if (j.status !== 'running') continue
     if (hasFinalRenderFence(j)) {
-      if (finalRenderRecoveryHolds.has(finalRenderStateKey(j.project_slug, j.job_id))) {
-        left.push(j)
-        continue
-      }
       const disk = await loadAuthoritativeJob(j.project_slug, j.job_id).catch(() => null)
       const parsed = parseFinalRenderRemoteWaitReceipt(disk?.final_render_remote_wait, j.job_id)
-      if (!disk || !hasFinalRenderRemoteWaitMarker(disk) || !parsed.ok) left.push(j)
+      // A durable parked row has no local worker and boot reloads it; an unreadable hold cannot prove that.
+      const parked = parsed.ok && parsed.receipt.version === 3 && parsed.receipt.gateway_job_id === null
+        && ['recovery_hold', 'lookup_not_found'].includes(parsed.receipt.phase)
+        && !activeRunJobIds.has(j.job_id)
+      if (!disk || !hasFinalRenderRemoteWaitMarker(disk) || !parsed.ok
+        || (finalRenderRecoveryHolds.has(finalRenderStateKey(j.project_slug, j.job_id)) && !parked)) left.push(j)
       continue
     }
     if (hasCancellationContext(j) || getValidPaidImageWait(j) || hasPaidImageCommitAttempt(j)
@@ -5892,6 +5964,13 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     if (hasFinalRenderFence(job)) {
       await settleFinalRenderRecoveryHoldNeverThrow(job)
       return
+    }
+    if (isRefusedFinalRender(job)) {
+      try { await validateRefusedFinalRenderForLocal(job) }
+      catch (error) {
+        finalRenderRecoveryHolds.add(finalRenderStateKey(job.project_slug, job.job_id))
+        throw error
+      }
     }
     if (cancelled.has(job.job_id)) {
       job.status = 'cancelled'

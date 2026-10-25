@@ -45,7 +45,7 @@ const V3_FIELDS = new Set([
 ])
 const V3_PHASES = new Set([
   'request_persisted', 'send_may_start', 'send_unknown', 'lookup_not_found',
-  'remote_wait', 'output_ready', 'importing', 'imported', 'acknowledged', 'recovery_hold',
+  'remote_wait', 'output_ready', 'importing', 'imported', 'acknowledged', 'recovery_hold', 'refused',
 ])
 const V3_HASH_FIELDS = [...V2_HASH_FIELDS, 'request_body_sha256', 'transport_revision_sha256'] as const
 const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -260,10 +260,10 @@ export function publicFinalRenderWait(job: unknown, inProcessRecoveryHold = fals
   if (!hasFinalRenderRemoteWaitMarker(candidate)) return undefined
   const parsed = parseFinalRenderRemoteWaitReceipt(candidate[FINAL_RENDER_REMOTE_WAIT_FIELD], String(candidate.job_id || ''))
   if (!parsed.ok) return { state: 'recovery_hold', cancellation_requested: false, gateway_id_known: false, committed_at: null }
-  const state = parsed.receipt.version === 2
-    ? 'intent_staged'
-    : parsed.receipt.version === 3
-      ? (parsed.receipt.phase === 'lookup_not_found' ? 'recovery_hold' : parsed.receipt.phase)
+  const receipt = parsed.receipt
+  if (receipt.version === 3 && receipt.phase === 'refused') return undefined
+  const state = receipt.version === 2 ? 'intent_staged'
+    : receipt.version === 3 ? (receipt.phase === 'lookup_not_found' || receipt.phase === 'refused' ? 'recovery_hold' : receipt.phase)
       : 'remote_wait'
   return {
     state,

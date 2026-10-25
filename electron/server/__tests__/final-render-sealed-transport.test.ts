@@ -193,6 +193,7 @@ class FakeGateway {
   readonly blobs = new Map<string, BlobState>()
   acceptedBody: Buffer | null = null
   postMode: 'accepted' | 'throw-after-record' = 'accepted'
+  postError: { status: number; code: string } | null = null
   lookupMode: 'accepted' | 'not-found' | 'malformed' | 'wrong-key' | 'wrong-story' | 'wrong-intent' | 'wrong-attempt' = 'accepted'
   lostPut: 'none' | 'before-commit-once' | 'after-commit-once' = 'none'
   beforeCall?: (call: WireCall) => void | Promise<void>
@@ -205,6 +206,7 @@ class FakeGateway {
     this.blobs.clear()
     this.acceptedBody = null
     this.postMode = 'accepted'
+    this.postError = null
     this.lookupMode = 'accepted'
     this.lostPut = 'none'
     this.lostPutUsed = false
@@ -282,6 +284,7 @@ class FakeGateway {
     if (url.pathname === '/v1/final-renders' && call.method === 'POST') {
       const body = JSON.parse(call.body.toString('utf8'))
       const request = { gateway_attempt_key: call.headers.get('Idempotency-Key'), body, bytes: call.body }
+      if (this.postError) return Response.json({ error: { code: this.postError.code } }, { status: this.postError.status })
       this.acceptedBody = Buffer.from(call.body)
       if (this.postMode === 'throw-after-record') throw new Error('controlled unknown POST outcome')
       return Response.json(this.accepted(request, false), { status: 202 })
@@ -289,7 +292,7 @@ class FakeGateway {
 
     const lookup = /^\/v1\/final-renders\/by-idempotency-key\/([^/]+)$/.exec(url.pathname)
     if (lookup && call.method === 'GET') {
-      if (this.lookupMode === 'not-found') return Response.json({ error: { code: 'NOT_FOUND' } }, { status: 404 })
+      if (this.lookupMode === 'not-found') return Response.json({ error: { code: 'RENDER_NOT_FOUND' } }, { status: 404 })
       if (this.lookupMode === 'malformed') return Response.json({ malformed: true })
       assert.ok(this.acceptedBody, 'lookup fixture has the original accepted request bytes')
       const body = JSON.parse(this.acceptedBody.toString('utf8'))
@@ -1720,4 +1723,301 @@ test('reconciled fresh send CAS acquires the current owner before its one POST',
   await requireAdvance()(prepared.job.project_slug, prepared.job.job_id)
   assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
   await assertExactV3(prepared, { phase: 'remote_wait', revision: 4, gateway_job_id: GATEWAY_JOB_ID })
+})
+
+
+async function validatedChain(prepared: Prepared, values?: Array<Record<string, any>>) {
+  return evidence.validateFinalRenderTransportEvidence({
+    staged: prepared.receipt as any,
+    canonical: (values ? prepared.receipt : await canonicalReceipt(prepared)) as any,
+    manifestBytes: await fs.readFile(path.join(prepared.intentDir, 'manifest.json')),
+    requestBytes: await requestBytes(prepared),
+    submissionBytes: await fs.readFile(path.join(prepared.intentDir, 'transport', 'submission.json')),
+    revisions: values ? encodeRevisionValues(values) : (await revisions(prepared)).map(item => ({
+      name: path.basename(item.path), bytes: item.bytes,
+    })),
+  })
+}
+
+for (const [status, code] of [
+  [400, 'IDEMPOTENCY_KEY_INVALID'], [400, 'RENDER_REQUEST_INVALID'], [401, 'UNAUTHORIZED'],
+  [403, 'FORBIDDEN'], [404, 'RENDER_ASSET_NOT_FOUND'], [413, 'RENDER_REQUEST_INVALID'],
+  [422, 'RENDER_REQUEST_INVALID'], [422, 'IDEMPOTENCY_KEY_REQUIRED'],
+] as const) {
+  test(`definite create refusal ${status}/${code} durably rejoins the same local job without another send`, async () => {
+    const prepared = await prepareCase(`refused-${status}-${code}`)
+    gateway.postError = { status, code }
+    assert.deepEqual(await requireAdvance()(prepared.job.project_slug, prepared.job.job_id), { kind: 'video-assembly-local' })
+    assert.equal((await canonicalReceipt(prepared)).phase, 'refused')
+    const chain = await validatedChain(prepared)
+    const refusal = chain.records.find(item => item.value.event === 'post_refused')!
+    assert.equal(refusal.value.payload.status, status)
+    assert.equal(refusal.value.payload.code, code)
+    assert.equal(gateway.acceptedBody, null)
+    await queue.resumeRefusedFinalRenderLocally(prepared.job.project_slug, prepared.job.job_id)
+    const local = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+    assert.equal(local?.job_id, prepared.job.job_id)
+    assert.equal(local?.status, 'queued')
+    assert.equal(local?.output_lines.filter(line => line ===
+      `Private final render: the paired Gateway refused this render (${code}), so this video renders on this Mac.`).length, 1)
+    await settings.setPrivateFinalRenderSetting({ enabled: false })
+    assert.equal(await transport.preparePrivateFinalRenderDescriptor(prepared.composition), null,
+      'durable refusal grants ordinary local composition even after remote is switched off')
+    await queue.resumeRefusedFinalRenderLocally(prepared.job.project_slug, prepared.job.job_id)
+    assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
+    assert.equal(gateway.calls.filter(call => call.method === 'GET' && call.url.includes('by-idempotency-key')).length, 0)
+  })
+}
+
+for (const [status, code] of [
+  [500, 'INTERNAL_ERROR'], [503, 'RENDER_DESTINATION_UNAVAILABLE'], [409, 'IDEMPOTENCY_KEY_CONFLICT'],
+  [408, 'RENDER_REQUEST_INVALID'], [425, 'RENDER_REQUEST_INVALID'], [429, 'RENDER_REQUEST_INVALID'],
+  [422, 'UNRECOGNISED_CODE'], [403, 'RENDER_REQUEST_INVALID'],
+] as const) {
+  test(`ambiguous create ${status}/${code} keeps original-key lookup and never resends`, async () => {
+    const prepared = await prepareCase(`ambiguous-${status}-${code}`)
+    gateway.postError = { status, code }
+    await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id), /unknown POST outcome/)
+    assert.equal((await canonicalReceipt(prepared)).phase, 'send_unknown')
+    assert.equal((await validatedChain(prepared)).records.find(item => item.value.event === 'post_unknown')?.value.payload.failure_class, 'http')
+    gateway.lookupMode = 'not-found'
+    await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id))
+    assert.equal((await canonicalReceipt(prepared)).phase, 'lookup_not_found')
+    assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
+  })
+}
+
+test('two authoritative 404s ten minutes apart after an HTTP failure recover locally; closer reads do not', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  const prepared = await prepareCase('old-http-absent')
+  gateway.postError = { status: 503, code: 'RENDER_DESTINATION_UNAVAILABLE' }
+  await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id), /unknown POST/)
+  gateway.lookupMode = 'not-found'
+  await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id))
+  t.mock.timers.tick(evidence.FINAL_RENDER_REFUSAL_LOOKUP_GAP_MS - 1)
+  await transport.reconcileSealedPrivateFinalRenderOnce(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal((await canonicalReceipt(prepared)).phase, 'lookup_not_found')
+  t.mock.timers.tick(1)
+  await transport.reconcileSealedPrivateFinalRenderOnce(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal((await canonicalReceipt(prepared)).phase, 'refused')
+  await validatedChain(prepared)
+  const tooClose = (await revisions(prepared)).map(item => structuredClone(item.value))
+  const firstAbsence = tooClose.find(item => item.event === 'lookup_not_found')!
+  tooClose.find(item => item.event === 'lookup_refused')!.recorded_at =
+    new Date(Date.parse(firstAbsence.recorded_at) + evidence.FINAL_RENDER_REFUSAL_LOOKUP_GAP_MS - 1).toISOString()
+  await assert.rejects(validatedChain(prepared, tooClose), /lookup refusal proof/)
+  await queue.resumeRefusedFinalRenderLocally(prepared.job.project_slug, prepared.job.job_id)
+  const local = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(local?.status, 'queued')
+  assert.ok(local?.output_lines.some(line => line.includes('Gateway never accepted this render, so this video renders on this Mac.')))
+  gateway.lookupMode = 'accepted'
+  const calls = gateway.calls.length
+  await transport.reconcileSealedPrivateFinalRenderOnce(prepared.job.project_slug, prepared.job.job_id).catch(() => undefined)
+  assert.equal(gateway.calls.length, calls, 'late remote acceptance cannot reactivate a refused lineage')
+  assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
+})
+
+test('network uncertainty remains held after repeated spaced absence, never local and never resent', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+  const prepared = await prepareCase('network-absent')
+  gateway.postMode = 'throw-after-record'
+  await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id), /unknown POST/)
+  gateway.lookupMode = 'not-found'
+  await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id))
+  t.mock.timers.tick(2 * evidence.FINAL_RENDER_REFUSAL_LOOKUP_GAP_MS)
+  await transport.reconcileSealedPrivateFinalRenderOnce(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal((await canonicalReceipt(prepared)).phase, 'lookup_not_found')
+  await assert.rejects(queue.resumeRefusedFinalRenderLocally(prepared.job.project_slug, prepared.job.job_id))
+  assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
+})
+
+test('refusal validator and independent queue CAS reject missing proof, ambiguous status, and illegal reactivation', async () => {
+  const prepared = await prepareCase('refusal-illegal')
+  gateway.postError = { status: 422, code: 'RENDER_REQUEST_INVALID' }
+  await requireAdvance()(prepared.job.project_slug, prepared.job.job_id)
+  const original = (await revisions(prepared)).map(item => item.value)
+  await validatedChain(prepared)
+  assert.ok(original.some(item => item.event === 'post_refused'))
+  for (const change of [
+    (value: any) => { value.payload.status = 409 },
+    (value: any) => { value.payload.code = 'UNKNOWN' },
+    (value: any) => { value.event = 'lookup_refused' },
+    (value: any) => { value.payload.after.phase = 'remote_wait'; value.payload.after.gateway_job_id = GATEWAY_JOB_ID },
+    (value: any) => { value.payload.after.gateway_job_id = GATEWAY_JOB_ID },
+  ]) {
+    const altered = structuredClone(original)
+    change(altered.find(item => item.event === 'post_refused'))
+    await assert.rejects(validatedChain(prepared, altered), /evidence/)
+  }
+  const before = await canonicalReceipt(prepared)
+  for (const phase of ['send_may_start', 'send_unknown', 'remote_wait', 'lookup_not_found', 'recovery_hold']) {
+    await assert.rejects(requireCommitTransition()(prepared.job.project_slug, prepared.job.job_id, before, {
+      ...before, phase, revision: before.revision + 1, gateway_job_id: phase === 'remote_wait' ? GATEWAY_JOB_ID : null,
+    }))
+  }
+  assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
+})
+
+test('durable ID-null parked recovery holds allow updater drain; invalid or unreadable receipts still block', async () => {
+  const prepared = await prepareCase('drain-parked')
+  gateway.postMode = 'throw-after-record'
+  await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id))
+  gateway.lookupMode = 'not-found'
+  await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id))
+  await queue.getJobs(prepared.job.project_slug, { view: 'full' })
+  const marker = await canonicalReceipt(prepared)
+  // A rejected exact CAS sets the in-process recovery hold without changing the durable parked row.
+  await assert.rejects(requireCommitTransition()(prepared.job.project_slug, prepared.job.job_id,
+    { ...marker, revision: marker.revision + 10 }, { ...marker, phase: 'recovery_hold', revision: marker.revision + 11 }))
+  assert.equal(queue._hasFinalRenderRecoveryHoldForTesting(prepared.job.job_id), true)
+  assert.equal((await queue.runningJobsThatWouldNotResume()).some(job => job.job_id === prepared.job.job_id), false)
+  const disk = (await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id))!
+  const file = path.join(retainedRoot, 'projects', prepared.job.project_slug, 'jobs.json')
+  for (const value of [{ ...disk, final_render_remote_wait: { broken: true } }, null]) {
+    await fs.writeFile(file, value === null ? 'unreadable JSON' : JSON.stringify({ jobs: [value] }))
+    assert.equal((await queue.runningJobsThatWouldNotResume()).some(job => job.job_id === prepared.job.job_id), true)
+  }
+  await fs.writeFile(file, JSON.stringify({ jobs: [{ ...disk, final_render_remote_wait: { ...marker, phase: 'recovery_hold' } }] }))
+  assert.equal((await queue.runningJobsThatWouldNotResume()).some(job => job.job_id === prepared.job.job_id), false)
+  await fs.writeFile(file, JSON.stringify({ jobs: [disk] }))
+})
+
+test('local fallback publication preserves an accepted final and the new candidate', async () => {
+  const { _publishLocalFinalVideoForTesting } = await import('../generators/video.js')
+  const prepared = await prepareCase('local-preserves-final')
+  gateway.postError = { status: 422, code: 'RENDER_REQUEST_INVALID' }
+  await requireAdvance()(prepared.job.project_slug, prepared.job.job_id)
+  const job = (await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id))!
+  const final = path.join(prepared.composition.videoDir, 'EP1_final_video.mp4')
+  const candidate = path.join(prepared.composition.videoDir, 'candidate.mp4')
+  await fs.writeFile(final, 'accepted final')
+  await fs.writeFile(candidate, 'new candidate')
+  let mutations = 0
+  await assert.rejects(_publishLocalFinalVideoForTesting(job, candidate, final, async () => {
+    mutations++
+    await fs.rename(candidate, final)
+  }), /preserved the accepted final/)
+  assert.equal(mutations, 0)
+  assert.equal(await fs.readFile(final, 'utf8'), 'accepted final')
+  assert.equal(await fs.readFile(candidate, 'utf8'), 'new candidate')
+})
+
+
+test('refusal before canonical CAS recovers its one immutable transition without another POST', async t => {
+  const prepared = await prepareCase('refused-cas-crash')
+  gateway.postError = { status: 422, code: 'RENDER_REQUEST_INVALID' }
+  let injected = false
+  const restore = queue._setJobFileLockProbeForTesting(async operation => {
+    if (operation !== 'persist' || injected) return
+    // Read the file directly: the queue's own loader waits on the lock this probe runs inside.
+    const disk = JSON.parse(await fs.readFile(
+      path.join(retainedRoot, 'projects', prepared.job.project_slug, 'jobs.json'), 'utf8',
+    )).jobs[0]
+    if (disk?.final_render_remote_wait?.phase === 'send_may_start') {
+      injected = true
+      throw new Error('controlled refusal CAS interruption')
+    }
+  })
+  t.after(restore)
+  await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id), /controlled refusal CAS interruption/)
+  restore()
+  assert.equal(injected, true)
+  assert.equal((await canonicalReceipt(prepared)).phase, 'send_may_start')
+  assert.deepEqual(await requireAdvance()(prepared.job.project_slug, prepared.job.job_id), { kind: 'video-assembly-local' })
+  assert.equal((await canonicalReceipt(prepared)).phase, 'refused')
+  assert.equal((await revisions(prepared)).filter(item => item.value.event === 'post_refused').length, 1)
+  assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
+})
+
+
+test('a refused job runs the real local encoder and shared final checks without another remote request', async () => {
+  const prepared = await prepareCase('real-local-after-refusal')
+  gateway.postError = { status: 422, code: 'RENDER_REQUEST_INVALID' }
+  await requireAdvance()(prepared.job.project_slug, prepared.job.job_id)
+  await queue.resumeRefusedFinalRenderLocally(prepared.job.project_slug, prepared.job.job_id)
+  const { runFfmpeg } = await import('../lib/ffmpeg-utils.js')
+  const { _runFinalCompositionForTesting, _publishLocalFinalVideoForTesting, verifyImportedFinalVideo } =
+    await import('../generators/video.js')
+  // Real disposable media replaces the filler live inputs; the refused immutable intent stays intact.
+  await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'testsrc2=size=128x96:rate=5', '-t', '2',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', prepared.composition.videoInputPath])
+  await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '2',
+    '-c:a', 'pcm_s16le', prepared.composition.premixedAudioPath])
+  const job = (await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id))!
+  const composition = { ...prepared.composition, job }
+  const calls = gateway.calls.length
+  assert.equal(await _runFinalCompositionForTesting(composition), undefined)
+  assert.ok((await fs.stat(composition.outputFile)).size > 0)
+  const final = path.join(composition.videoDir, 'EP1_final_video.mp4')
+  await _publishLocalFinalVideoForTesting(job, composition.outputFile, final, async () => {
+    assert.fail('fallback uses exclusive publication')
+  })
+  await verifyImportedFinalVideo(job, 'EP1', 'mp4', final, 2, {
+    planned_sec: 2, tail: { sec: 0, from_end_sec: 0 }, closing_music: false,
+    width: 128, height: 96, subtitles_path: null,
+  }, { lufs: -14, true_peak_db: -1, tolerance_pct: 100, check: 'warn' })
+  assert.equal(job.result?.complete, true)
+  assert.ok(job.result?.final_check, 'shared final checks really ran')
+  assert.ok(job.result?.final_loudness, 'shared loudness measurement really ran')
+  assert.equal(gateway.calls.length, calls)
+  assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
+})
+
+
+
+test('lookup refusal proof rejects network, missing first absence, insufficient gap, and cancellation', async () => {
+  for (const kind of ['network', 'missing-absence', 'too-close', 'cancelled'] as const) {
+    const prepared = await prepareCase(`bad-recovery-${kind}`)
+    if (kind === 'network') gateway.postMode = 'throw-after-record'
+    else gateway.postError = { status: 503, code: 'RENDER_DESTINATION_UNAVAILABLE' }
+    await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id))
+    gateway.lookupMode = 'not-found'
+    if (kind !== 'missing-absence') await assert.rejects(requireAdvance()(prepared.job.project_slug, prepared.job.job_id))
+    if (kind === 'cancelled') await queue.requestFinalRenderRemoteWaitCancellation(prepared.job.project_slug, prepared.job.job_id)
+    const current = await canonicalReceipt(prepared)
+    const records = (await revisions(prepared)).map(item => item.value)
+    const owner = records.filter(item => item.event === 'owner_acquired').at(-1)!
+    const { transport_revision_sha256: _digest, ...after } = current
+    records.push({
+      version: 1, sequence: records.length + 1, previous_sha256: '',
+      canonical_before_sha256: evidence.finalRenderCanonicalReceiptHash(current as any),
+      event: 'lookup_refused', recorded_at: new Date(Date.now() + (kind === 'too-close' ? 0 : 2 * evidence.FINAL_RENDER_REFUSAL_LOOKUP_GAP_MS)).toISOString(),
+      owner_token: owner.owner_token, owner_epoch: owner.owner_epoch,
+      payload: { after: { ...after, phase: 'refused', revision: current.revision + 1 }, status: 404, code: 'RENDER_NOT_FOUND' },
+    })
+    await assert.rejects(validatedChain(prepared, records), /refusal|transition|evidence/)
+    assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
+  }
+})
+
+test('concurrent local handoffs execute each refused row once on its original job ID', async t => {
+  const prepared = await prepareCase('local-single-execution')
+  gateway.postError = { status: 422, code: 'RENDER_REQUEST_INVALID' }
+  await requireAdvance()(prepared.job.project_slug, prepared.job.job_id)
+  const counts = new Map<string, number>()
+  const entered = deferred()
+  const release = deferred()
+  const restore = queue._setExecutorForTesting('video_assembly', async job => {
+    counts.set(job.job_id, (counts.get(job.job_id) ?? 0) + 1)
+    if (job.job_id === prepared.job.job_id) {
+      entered.resolve()
+      await release.promise
+    }
+    job.result = { complete: true, completion: { label: 'controlled local fixture', expected: 1, completed: 1, complete: true } }
+  })
+  t.after(() => { release.resolve(); restore() })
+  await queue.resumeRefusedFinalRenderLocally(prepared.job.project_slug, prepared.job.job_id)
+  await entered.promise
+  await Promise.all([
+    queue.resumeRefusedFinalRenderLocally(prepared.job.project_slug, prepared.job.job_id),
+    queue.resumeRefusedFinalRenderLocally(prepared.job.project_slug, prepared.job.job_id),
+  ])
+  release.resolve()
+  await settle()
+  const done = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(done?.status, 'done')
+  assert.equal(done?.final_render_remote_wait?.phase, 'refused', 'durable no-remote proof survives local completion')
+  assert.equal(counts.get(prepared.job.job_id), 1)
+  assert.ok([...counts.values()].every(count => count === 1))
+  assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
 })
