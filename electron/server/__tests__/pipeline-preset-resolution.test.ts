@@ -14,11 +14,21 @@ import assert from 'node:assert/strict'
 import { findActivePreset, resolveStepParams } from '../routes/pipeline.js'
 
 describe('resolveStepParams — Scene Review approval automation', () => {
-  test('old presets keep generated-image approval off', () => {
+  // Owner, 2026-10-25: generated images auto-approve by default; only an explicit false turns it off.
+  test('a preset that never chose approves generated images by default', () => {
     const params = resolveStepParams('scene_review', 'EP0001', 'Episode', {
       id: 'scene-review-old',
       name: 'Old scene review preset',
       data: { model: 'image-model', aspect_ratio: '16:9' },
+    })
+    assert.equal(params.auto_approve_generated, true)
+  })
+
+  test('an explicit off in a preset is still honoured', () => {
+    const params = resolveStepParams('scene_review', 'EP0001', 'Episode', {
+      id: 'scene-review-off',
+      name: 'Approval off preset',
+      data: { model: 'image-model', auto_approve_generated: false },
     })
     assert.equal(params.auto_approve_generated, false)
   })

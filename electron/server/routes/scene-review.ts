@@ -13,6 +13,7 @@
  *      — streams the scene image PNG (kept within episode dir; strict id match)
  */
 
+import { autoApproveOn } from '../services/preset-authority.js'
 import { queueEpisodeAnalysisSoon } from '../services/scene-analysis.js'
 import express, { Router } from 'express'
 import fs from 'fs/promises'
@@ -818,7 +819,7 @@ function finishRequestFingerprint(
     width: typeof body.width === 'number' ? body.width : null,
     height: typeof body.height === 'number' ? body.height : null,
     seed: Number.isInteger(body.seed) ? body.seed : null,
-    auto_approve_generated: body.auto_approve_generated === true,
+    auto_approve_generated: autoApproveOn(body.auto_approve_generated),
   })).digest('hex')
 }
 
@@ -879,7 +880,7 @@ function continuityRenderParams(
     single_scene_id: singleSceneId,
     scene_ids: sceneIds,
     missing_only: body.missing_only === true,
-    auto_approve_generated: body.auto_approve_generated === true,
+    auto_approve_generated: autoApproveOn(body.auto_approve_generated),
     ...(manualFinish ? { manual_image_finish: manualFinish } : {}),
   }
   return operationId ? stampFreshGenerationAction(params, operationId) : params
@@ -906,7 +907,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
     && candidate.params?.width === (typeof body.width === 'number' && body.width > 0 ? body.width : undefined)
     && candidate.params?.height === (typeof body.height === 'number' && body.height > 0 ? body.height : undefined)
     && candidate.params?.seed === (Number.isInteger(body.seed) ? body.seed : undefined)
-    && candidate.params?.auto_approve_generated === (body.auto_approve_generated === true)
+    && candidate.params?.auto_approve_generated === autoApproveOn(body.auto_approve_generated)
 
   try {
     const actionJobs = await jq.findJobs(slug, job =>
@@ -942,7 +943,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
           height: typeof body.height === 'number' && body.height > 0 ? body.height : undefined,
           seed: Number.isInteger(body.seed) ? body.seed : undefined,
           generation_action: { id: operationId, kind: 'fresh' },
-          auto_approve_generated: body.auto_approve_generated === true,
+          auto_approve_generated: autoApproveOn(body.auto_approve_generated),
         },
       })
     } catch (error) {

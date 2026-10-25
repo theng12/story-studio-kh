@@ -35,6 +35,7 @@ import { composeSceneRenderPrompt, loadAnchorCharacters } from '../services/scen
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditSceneImageCompletion, checkpointSceneImage, countScenesAwaitingApproval, liveSceneAutoApprove } from '../services/scene-media-checkpoint.js'
+import { autoApproveOn } from '../services/preset-authority.js'
 import { selectSceneImageBatch } from '../services/scene-image-batch-selection.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
@@ -594,7 +595,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   let planChain: Promise<void> = Promise.resolve()
   const persistImagePath = (sceneId: string, outPath: string, renderedPrompt: string): Promise<void> => {
     const operation = planChain.catch(() => {}).then(async () => {
-      await checkpointSceneImage(planPath, sceneId, outPath, renderedPrompt, params.auto_approve_generated === true, liveSceneAutoApprove(job.project_slug))
+      await checkpointSceneImage(planPath, sceneId, outPath, renderedPrompt, autoApproveOn(params.auto_approve_generated), liveSceneAutoApprove(job.project_slug))
     })
     planChain = operation.catch(() => {})
     return operation

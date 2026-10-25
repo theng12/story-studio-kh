@@ -62,7 +62,7 @@ import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage, unavailableTranscriptionModelMessage } from '../services/genstudio-model-migration.js'
 import { withLock } from '../lib/atomic-store.js'
 import { stampFreshGenerationAction } from '../lib/fresh-generation-action.js'
-import { resolveExactPreset, resolveScenePlanPromptCharCap, scenePlanPresetReceipt, thumbnailPromptPresetCapInputs } from '../services/preset-authority.js'
+import { autoApproveOn, resolveExactPreset, resolveScenePlanPromptCharCap, scenePlanPresetReceipt, thumbnailPromptPresetCapInputs } from '../services/preset-authority.js'
 import { resolveLiveImagePromptCharCap } from '../services/image-prompt-cap.js'
 import { pipelineStepLabel } from '../lib/pipeline-continuation.js'
 import { SAFETY_CHECKS, safetyMode, safetyModeFromConfig } from '../services/safety-checks.js'
@@ -1576,7 +1576,7 @@ export function resolveStepParams(
         ? { aspect_ratio: data.aspect_ratio.trim() }
         : {}),
       seed: Number.isInteger(data.seed) ? data.seed : undefined,
-      auto_approve_generated: data.auto_approve_generated === true,
+      auto_approve_generated: autoApproveOn(data.auto_approve_generated),
     }
   }
   if (step === 'music_build') {

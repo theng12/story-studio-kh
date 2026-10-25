@@ -239,7 +239,7 @@
           <input v-model="autoApproveGenerated" type="checkbox">
           <span>
             <strong>Auto-approve generated images</strong>
-            <small>Default off · saved with this Scene Review preset</small>
+            <small>Default on · saved with this Scene Review preset</small>
           </span>
         </label>
       </div>
@@ -826,8 +826,8 @@ const form = ref({
 // provider, and manual-concurrency settings are not read or migrated.
 useRememberedForm('scene-review-genstudio', slug, form)
 // Safety-sensitive and intentionally separate from remembered form state:
-// this turns on only when the user applies a preset that explicitly saved it.
-const autoApproveGenerated = ref(false)
+// this turns on by default (owner 2026-10-25); a preset that explicitly saved false stays off.
+const autoApproveGenerated = ref(true)
 
 // Scene Review presets contain only current GenStudio render controls.
 // Presets saved by older builds can still carry retired quality, step-count,
@@ -852,7 +852,7 @@ const srPresets = usePresets<{
     if (typeof data.model === 'string') form.value.model = data.model
     if (typeof data.aspect_ratio === 'string') form.value.aspect_ratio = data.aspect_ratio
     if (typeof data.seed === 'string' || typeof data.seed === 'number') form.value.seed = data.seed
-    autoApproveGenerated.value = data.auto_approve_generated === true
+    autoApproveGenerated.value = data.auto_approve_generated !== false
   },
 })
 

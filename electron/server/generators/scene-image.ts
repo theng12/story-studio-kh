@@ -36,6 +36,7 @@ import type { Job, ScenePlan } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { checkpointSceneImage, liveSceneAutoApprove } from '../services/scene-media-checkpoint.js'
+import { autoApproveOn } from '../services/preset-authority.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { buildGenStudioImageIdempotencyKey } from '../lib/genstudio-client.js'
@@ -315,7 +316,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     stagingPath,
     outPath,
     async () => {
-      await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt, params.auto_approve_generated === true, liveSceneAutoApprove(job.project_slug))
+      await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt, autoApproveOn(params.auto_approve_generated), liveSceneAutoApprove(job.project_slug))
     },
   )
   if (!promoted) throw new Error('A newer image request owns this scene; the late result was not applied.')
@@ -331,5 +332,5 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   })
   job.output_lines.push(`Done → ${path.basename(outPath)}`)
   // E2–E4 — an auto-approved picture is analysed in the background (only where the channel has it on).
-  if (params.auto_approve_generated === true) queueEpisodeAnalysisSoon(job.project_slug, episode_id, [scene_id])
+  if (autoApproveOn(params.auto_approve_generated)) queueEpisodeAnalysisSoon(job.project_slug, episode_id, [scene_id])
 }
