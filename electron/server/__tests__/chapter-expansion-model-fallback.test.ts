@@ -178,13 +178,18 @@ describe('expand-chapters still refuses when nothing is left to fall back to', (
 
       const { generateExpandChapters } = await import('../generators/episode.js')
       const job = fakeExpandJob({ model: DEAD_MODEL })
-      // The run overall still fails — a listicle batch failure is logged and
-      // the batch continues (independent chapters), so the outer rejection is
-      // the "not everything landed" completion check, not the raw refusal.
+      // The run overall still fails — a listicle request failure is logged and
+      // the other requests continue (independent chapters), so the outer
+      // rejection is the "not everything landed" completion check, not the raw
+      // refusal. 1.4.359: that check now NAMES the chapters it lost and says
+      // what Retry will do, instead of only saying the pass did not complete.
       // What matters here is that the raw refusal is the reason underneath,
       // recorded verbatim in the job log — never quietly resolved to a
       // fabricated product id, and never overwritten by a false healing claim.
-      await assert.rejects(generateExpandChapters(job), /did not pass its completion check/)
+      await assert.rejects(
+        generateExpandChapters(job),
+        /Chapter expansion did not finish: requested chapter\(s\) 1 are missing/,
+      )
       const log = job.output_lines.join('\n')
       assert.match(
         log,

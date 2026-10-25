@@ -24,28 +24,38 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import {
-  batchOutputBudget,
-  batchOutputTokenEstimate,
-  batchSizeForBudget,
+  EXPANSION_BATCH_WORDS_DEFAULT,
+  EXPANSION_CHAPTERS_MAX,
+  chaptersPerExpansionRequest,
   chunkingOutputBudget,
   chunkingSafetyMarginTokens,
   chunkingTriggerLine,
   chunkThresholdWords,
   CHUNK_THRESHOLD_WORDS,
+  defaultExpansionBatchSetting,
+  expansionOutputTokenCap,
+  expansionRequestOutputBudget,
+  planExpansionGroups,
   shouldChunkByBudget,
   type ChunkingBudget,
+  type ExpansionBatchSetting,
   type OutlineEntry,
 } from '../lib/chunked-narration.js'
-import { resolveOutputTokenBudget } from '../services/output-token-budget.js'
+import { expectedOutputTokensFor, resolveOutputTokenBudget } from '../services/output-token-budget.js'
 
 /** The current default product's published output allowance. */
 const LUNA_OUTPUT_TOKENS = 128_000
 /** The retired streaming-Anthropic cap the old constants were derived from. */
 const LEGACY_OUTPUT_TOKENS = 16_000
 
-function budget(outputTokenCap: number | null, productName: string | null = 'GPT-5.6 Luna'): ChunkingBudget {
+function budget(
+  outputTokenCap: number | null,
+  productName: string | null = 'GPT-5.6 Luna',
+  contextWindowTokens: number | null = null,
+): ChunkingBudget {
   return {
     outputTokenCap,
+    contextWindowTokens,
     thresholdWords: chunkThresholdWords(outputTokenCap),
     productId: productName ? 'gpt-5-6-luna' : null,
     productName,
@@ -123,8 +133,10 @@ test('with no published cap the run still proceeds — chunked, and saying nothi
     true,
     'an unknown budget must take the resumable path, not the one-shot path',
   )
-  assert.equal(batchSizeForBudget('narrative', budget(null, null), 700), 3)
-  assert.equal(batchSizeForBudget('listicle', budget(null, null), 700), 8)
+  // And no request is shrunk from a number nobody published: the cap is
+  // `null`, which means "send no ceiling at all", never a stand-in figure.
+  assert.equal(expansionOutputTokenCap(budget(null, null), 4_000), null)
+  assert.deepEqual(expansionRequestOutputBudget(budget(null, null), 4_000), { outputBudget: 'maximum' })
 })
 
 test('headroom stays proportional instead of being another fixed number', () => {
@@ -178,25 +190,27 @@ test('a genuinely huge run still chunks on the largest product', () => {
 
 // ── Batch behaviour once chunking IS triggered ───────────────────────────
 
-test('narrative stays at 3 and listicle at 8 on every product that can hold them', () => {
-  // Batch size is a coherence / rate-limit choice, not a token-cap one:
-  // narrative's 3 exists to keep a smooth transition into chapter K+1. A
-  // bigger product does not earn bigger batches by arithmetic alone.
-  for (const cap of [LEGACY_OUTPUT_TOKENS, 32_768, LUNA_OUTPUT_TOKENS, 1_000_000]) {
-    assert.equal(batchSizeForBudget('narrative', budget(cap), 700), 3, `narrative changed at ${cap}`)
-    assert.equal(batchSizeForBudget('listicle', budget(cap), 700), 8, `listicle changed at ${cap}`)
+test('with no setting, each mode keeps the exact number it always used', () => {
+  // "Default = today's value" (owner, 2026-10-25). Narrative's 3 is a
+  // transition-coherence choice and listicle's 8 a round-trip one; neither is
+  // derived from any token figure, so no product's cap may change them.
+  const none = defaultExpansionBatchSetting()
+  assert.equal(none.mode, 'count')
+  assert.equal(none.chapters, null, 'unset means "this mode\'s own default", not a number to invent')
+  for (const mode of ['narrative', 'listicle'] as const) {
+    assert.equal(chaptersPerExpansionRequest(none, mode), mode === 'listicle' ? 8 : 3)
   }
 })
 
-test('a product too small for the mode batch shrinks it rather than truncating', () => {
-  // Asking a 4,096-token product for three 700-word chapters in one call is
-  // how a batch comes back cut off mid-chapter. The budget may only ever
-  // SHRINK a batch, and never below one chapter.
-  // 4,692 usable tokens ÷ (700 words × 1.6) = 4 — the same arithmetic, with the
-  // measured tokens-per-word estimate rather than the optimistic one.
-  assert.equal(batchSizeForBudget('listicle', budget(8_192), 700), 4)
-  assert.equal(batchSizeForBudget('narrative', budget(4_096), 700), 1)
-  assert.equal(batchSizeForBudget('narrative', budget(1_024), 5_000), 1)
+test('the chapter count a run asks for is the channel\'s number, clamped to a sane range', () => {
+  const fixed = (chapters: number): ExpansionBatchSetting => ({ ...defaultExpansionBatchSetting(), chapters })
+  assert.equal(chaptersPerExpansionRequest(fixed(1), 'narrative'), 1)
+  assert.equal(chaptersPerExpansionRequest(fixed(5), 'narrative'), 5)
+  assert.equal(chaptersPerExpansionRequest(fixed(5), 'listicle'), 5, 'the setting outranks the mode default')
+  assert.equal(chaptersPerExpansionRequest(fixed(EXPANSION_CHAPTERS_MAX), 'listicle'), EXPANSION_CHAPTERS_MAX)
+  assert.equal(chaptersPerExpansionRequest(fixed(400), 'listicle'), EXPANSION_CHAPTERS_MAX, 'a typo is clamped, not obeyed')
+  assert.equal(chaptersPerExpansionRequest(fixed(0), 'narrative'), 3, '0 means "unset"')
+  assert.equal(chaptersPerExpansionRequest(fixed(-2), 'narrative'), 3)
 })
 
 test('the concurrency and mode mechanics are untouched', () => {
@@ -244,15 +258,21 @@ test('the chunked log states the total, the budget, and whose limit it is', () =
   assert.match(unknown, /measured against no single-call budget/)
 })
 
-// ── The batch reservation is sized from the WORK, not from the product ─────
+// ── One expansion request asks for the model's own published cap ───────────
 //
-// THE PROBLEM THIS SOLVES: an expansion batch declared `outputBudget:
-// 'maximum'`, taking the selected product's entire published ceiling —
-// 128,000 tokens — to generate roughly 8,000. GenStudio settles a language job
-// on tokens actually GENERATED, so that never changed the final charge. What
-// it did change is the up-front RESERVATION, which is held for the requested
-// ceiling for as long as the job runs. A nearly-empty account could therefore
-// be refused for a request that would have been cheap.
+// THE PRODUCTION DEFECT THIS GUARDS (2026-10-25, Komsan, Khmer). Expansion
+// used to size its request with a words→tokens ESTIMATE — 2.5 tokens per word,
+// +2,048 overhead, floored at 8,192 — so a 2-chapter Khmer batch asked for
+// exactly 8,192 tokens even though the selected product publishes 128,000. The
+// provider stopped at 8,192 with `finish_reason: max_tokens`, and jobs
+// 38ca3df6 / 862fed60 / b2bc6196 / ec973e7a came back with zero chapters.
+//
+// Khmer is written without spaces between words, so a "word" is a whole clause
+// and tokenises several times heavier than an English one. No words→tokens
+// ratio can be safe for every script, which is why AGENTS.md §1 forbids turning
+// a token budget into a word limit with one. The request now asks for
+// everything the product publishes, bounded only by the same product's own
+// published context window.
 
 function entries(count: number, wordsPerChapter?: number): OutlineEntry[] {
   return Array.from({ length: count }, (_, i) => ({
@@ -262,93 +282,135 @@ function entries(count: number, wordsPerChapter?: number): OutlineEntry[] {
   }))
 }
 
-test('an 8 × 700-word batch asks for a sane figure, not the whole 128,000', () => {
-  const request = batchOutputBudget(entries(8), 700)
-  assert.equal(request.tier, 'workload')
-  // 8 × 700 = 5,600 words × 2.5 tokens/word = 14,000, + 2,048 overhead,
-  // rounded up to the 256 step.
-  assert.equal(request.minimumTokens, 16_128)
+/** A Khmer 2-chapter batch, as Komsan ran it: ~600-word chapters, ~14k
+ *  characters of prompt (the outline and the style rules are long). */
+const KHMER_BATCH_PROMPT_CHARACTERS = 14_000
 
-  const resolved = resolveOutputTokenBudget(request, LUNA_OUTPUT_TOKENS)
-  assert.equal(resolved, 16_128)
-  // The point of the exercise: the reservation is a small fraction of what the
-  // batch used to hold, while still being far more than it can generate.
-  assert.ok(resolved < LUNA_OUTPUT_TOKENS * 0.15, `${resolved} is still most of the ceiling`)
+test('a Khmer multi-chapter request asks for the model\'s whole published cap', () => {
+  const request = expansionRequestOutputBudget(budget(LUNA_OUTPUT_TOKENS), KHMER_BATCH_PROMPT_CHARACTERS)
+  assert.equal(request.outputBudget, 'maximum')
+  assert.equal(request.maxTokens, LUNA_OUTPUT_TOKENS)
+
+  // The exact failure: the old arithmetic asked for 8,192 (the floor) for
+  // chapters that needed far more. If someone restores a ratio or a floor,
+  // this is the assertion that fails.
+  assert.ok(request.maxTokens! > 8_192, 'the request went back to a ratio-sized stump')
+  assert.notEqual(request.maxTokens, 14_080, 'the 2.5-tokens-per-word figure is back')
 })
 
-test('the estimate is generous — under-requesting is what actually hurts', () => {
-  // An 8 × 700 batch produces ~5,600 words. At the measured 1.3 output tokens
-  // per English word that is ~7,280 tokens; the request is more than double
-  // it, because a truncated batch is a half-written chapter plus a repair
-  // request, and an over-sized reservation costs nothing but headroom.
-  const generated = Math.ceil(8 * 700 * 1.3)
-  const requested = batchOutputTokenEstimate(Array(8).fill(700))
-  assert.ok(requested > generated * 2, `${requested} leaves too little room over ${generated}`)
+test('a SINGLE Khmer chapter is not capped at 8,192 either', () => {
+  // Job 0857b744 (2026-10-25) truncated Chapter 7 of KOM0003 at 8,192 — the
+  // single-chapter repair path had its own fixed ceiling, so it inherited the
+  // same defect. One chapter may need more than 8,192 Khmer tokens.
+  const oneChapter = expansionOutputTokenCap(budget(LUNA_OUTPUT_TOKENS), KHMER_BATCH_PROMPT_CHARACTERS)
+  assert.equal(oneChapter, LUNA_OUTPUT_TOKENS)
+  assert.ok(oneChapter! > 8_192)
 })
 
-test('a product with a small ceiling clamps the request instead of over-asking', () => {
-  const request = batchOutputBudget(entries(8), 700)
-  // The pre-network guard in genstudio-client.ts must stay a backstop, never
-  // the thing that catches an over-sized request.
-  assert.equal(resolveOutputTokenBudget(request, 8_000), 8_000)
-  assert.equal(resolveOutputTokenBudget(request, 4_096), 4_096)
-  for (const ceiling of [1_024, 4_096, 8_000, 32_768, LUNA_OUTPUT_TOKENS]) {
-    assert.ok(
-      (resolveOutputTokenBudget(request, ceiling) ?? 0) <= ceiling,
-      `a ${ceiling}-token product was asked for more than it publishes`,
-    )
-  }
+test('no expansion request is ever sized from words', () => {
+  // 8 × 600 words and 1 × 600 words must ask for the SAME number: the cap comes
+  // from the product, not from the work.
+  const many = expansionOutputTokenCap(budget(LUNA_OUTPUT_TOKENS), KHMER_BATCH_PROMPT_CHARACTERS)
+  const few = expansionOutputTokenCap(budget(LUNA_OUTPUT_TOKENS), KHMER_BATCH_PROMPT_CHARACTERS)
+  assert.equal(many, few)
+  // And the constants the old estimate was built from are gone, not deprecated.
+  const source = readFileSync(fileURLToPath(new URL('../lib/chunked-narration.ts', import.meta.url)), 'utf8')
+  assert.doesNotMatch(source, /BUDGET_TOKENS_PER_WORD/)
+  assert.doesNotMatch(source, /BUDGET_OVERHEAD_TOKENS/)
+  assert.doesNotMatch(source, /BUDGET_FLOOR_TOKENS/)
+  assert.doesNotMatch(source, /SINGLE_CHAPTER_REPAIR_OUTPUT_TOKENS/)
+  // Neither the request nor the group size is computed from a words→tokens
+  // figure any more (this also pins that `batchSizeForBudget`, which divided
+  // the cap by `words × 1.6`, is not back).
+  assert.doesNotMatch(source, /wordsPerChapter \* OUTPUT_TOKENS_PER_WORD/)
+  assert.doesNotMatch(source, /words \* BUDGET/)
 })
 
-test('under-requesting is impossible by construction', () => {
-  // 1. A tiny batch never drops below the long-form floor.
-  assert.equal(batchOutputTokenEstimate([50]), 8_192)
-  assert.equal(batchOutputTokenEstimate([]), 8_192)
-
-  // 2. Rounding only ever adds headroom.
-  for (const words of [1, 99, 701, 1_234, 9_999]) {
-    const raw = Math.ceil(words * 2.5) + 2_048
-    assert.ok(
-      batchOutputTokenEstimate([words]) >= raw,
-      `rounding took tokens away for ${words} words`,
-    )
-  }
-
-  // 3. The estimate rises with the work, monotonically.
-  let previous = 0
-  for (const count of [1, 2, 3, 5, 8, 12, 20]) {
-    const value = batchOutputTokenEstimate(Array(count).fill(700))
-    assert.ok(value >= previous, `${count} chapters asked for less than ${count - 1}`)
-    previous = value
-  }
-
-  // 4. A `workload` request that somehow arrives WITHOUT a number degrades
-  //    upwards to the whole ceiling, never down to a small default.
-  assert.equal(resolveOutputTokenBudget({ tier: 'workload' }, LUNA_OUTPUT_TOKENS), LUNA_OUTPUT_TOKENS)
+test('the product\'s published context window is the only thing that may lower it', () => {
+  // output ≤ min(max_output_tokens, context_window − prompt tokens), using
+  // published figures only. 4,000 characters of prompt ≈ 1,000 tokens.
+  assert.equal(
+    expansionOutputTokenCap(budget(LUNA_OUTPUT_TOKENS, 'Local Writer', 32_768), 4_000),
+    32_768 - 1_000,
+  )
+  // A published window larger than the output cap changes nothing.
+  assert.equal(
+    expansionOutputTokenCap(budget(LUNA_OUTPUT_TOKENS, 'Local Writer', 200_000), 4_000),
+    LUNA_OUTPUT_TOKENS,
+  )
+  // No published window = nothing to subtract, so the cap stands.
+  assert.equal(expansionOutputTokenCap(budget(LUNA_OUTPUT_TOKENS), 4_000), LUNA_OUTPUT_TOKENS)
 })
 
-test('a longer chapter is budgeted for the chapter it actually holds', () => {
-  // words_per_chapter overrides set in outline review must not be averaged
-  // away — a 2,000-word chapter in a batch of 700s needs its own room.
-  const uniform = batchOutputTokenEstimate([700, 700, 700])
-  const mixed = batchOutputTokenEstimate([700, 2_000, 700])
-  assert.ok(mixed > uniform, 'a per-chapter override was ignored')
-  const withOverride: OutlineEntry[] = [
+test('a prompt that cannot fit the published window fails loudly instead of asking for one token', () => {
+  const tiny = budget(LUNA_OUTPUT_TOKENS, 'Tiny Window', 2_000)
+  assert.throws(
+    () => expansionOutputTokenCap(tiny, 40_000),
+    /leaves no room inside Tiny Window's published 2,000-token context window/,
+  )
+  assert.throws(() => expansionOutputTokenCap(tiny, 40_000), /Nothing was requested/)
+})
+
+test('the expansion request states a ceiling, never an expected answer length', () => {
+  // `workload`'s `minimumTokens` is also what Studio Hub sizes a job deadline
+  // from: putting the whole 128,000-token ceiling there would make every
+  // chapter batch a four-hour job. `maximum` says only what MAY be sent.
+  const request = expansionRequestOutputBudget(budget(LUNA_OUTPUT_TOKENS), KHMER_BATCH_PROMPT_CHARACTERS)
+  assert.equal(expectedOutputTokensFor(request.outputBudget), null)
+  // Still a real ceiling: it resolves to a number the product publishes.
+  assert.equal(resolveOutputTokenBudget(request.outputBudget, LUNA_OUTPUT_TOKENS), LUNA_OUTPUT_TOKENS)
+})
+
+// ── Chapters per request: the owner's two grouping modes ──────────────────
+
+test('fixed mode groups by the channel\'s number, consecutively', () => {
+  const setting: ExpansionBatchSetting = { ...defaultExpansionBatchSetting(), chapters: 2 }
+  const groups = planExpansionGroups(entries(5), setting, 600, 'narrative')
+  assert.deepEqual(groups.map(g => g.map(e => e.n)), [[1, 2], [3, 4], [5]])
+  const fives = planExpansionGroups(entries(11), { ...setting, chapters: 5 }, 600, 'narrative')
+  assert.deepEqual(fives.map(g => g.map(e => e.n)), [[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11]])
+})
+
+test('by-length mode groups consecutive chapters up to the word budget', () => {
+  // 600-word chapters, a 1,800-word budget → three of them ride together.
+  const setting: ExpansionBatchSetting = { mode: 'length', chapters: null, words: 1_800 }
+  const groups = planExpansionGroups(entries(7), setting, 600, 'narrative')
+  assert.deepEqual(groups.map(g => g.map(e => e.n)), [[1, 2, 3], [4, 5, 6], [7]])
+})
+
+test('a chapter longer than the whole budget goes alone', () => {
+  const setting: ExpansionBatchSetting = { mode: 'length', chapters: null, words: 1_800 }
+  const outline: OutlineEntry[] = [
     { n: 1, title: 'One' },
-    { n: 2, title: 'Two', words_per_chapter: 2_000 },
+    { n: 2, title: 'Two', words_per_chapter: 2_500 },
     { n: 3, title: 'Three' },
   ]
-  assert.equal(batchOutputBudget(withOverride, 700).minimumTokens, mixed)
-  // The batch falls back to the run-wide target when no override is set.
-  assert.equal(batchOutputBudget(entries(3), 700).minimumTokens, uniform)
+  const groups = planExpansionGroups(outline, setting, 600, 'narrative')
+  // Chapter 2 is past the budget on its own, so it neither shares a request nor
+  // drags chapter 1 or 3 over the budget with it. A chapter is never split.
+  assert.deepEqual(groups.map(g => g.map(e => e.n)), [[1], [2], [3]])
 })
 
-test('the estimate is never turned into a word or character ceiling', () => {
-  // Khmer and mixed-script narration break any fixed ratio, which is exactly
-  // why the 500,000-character cap was removed. This number sizes a REQUEST.
-  const chunked = readFileSync(fileURLToPath(new URL('../lib/chunked-narration.ts', import.meta.url)), 'utf8')
-  assert.doesNotMatch(chunked, /maxCharacters|max_characters|characterCap/)
-  assert.match(chunked, /never a hard limit on\n\/\/ output/)
-  // And the batches no longer take the whole ceiling.
-  assert.doesNotMatch(chunked, /outputBudget: 'maximum' as const/)
+test('by-length mode uses each chapter\'s own target, not the run-wide average', () => {
+  const setting: ExpansionBatchSetting = { mode: 'length', chapters: null, words: 1_000 }
+  const outline: OutlineEntry[] = [
+    { n: 1, title: 'One', words_per_chapter: 700 },
+    { n: 2, title: 'Two', words_per_chapter: 700 },
+    { n: 3, title: 'Three', words_per_chapter: 150 },
+  ]
+  const groups = planExpansionGroups(outline, setting, 600, 'narrative')
+  // 700 + 700 > 1,000, so chapter 2 starts a new request; 150 still fits after it.
+  assert.deepEqual(groups.map(g => g.map(e => e.n)), [[1], [2, 3]])
+})
+
+test('the two modes and their defaults are the owner\'s reusable setting', () => {
+  assert.equal(EXPANSION_BATCH_WORDS_DEFAULT, 1_800)
+  const setting = defaultExpansionBatchSetting()
+  assert.equal(setting.mode, 'count', 'the default grouping is a chapter count')
+  assert.equal(setting.words, EXPANSION_BATCH_WORDS_DEFAULT)
+  // Both modes cover every pending chapter exactly once, in outline order.
+  for (const candidate of [setting, { mode: 'length' as const, chapters: null, words: 900 }]) {
+    const groups = planExpansionGroups(entries(9), candidate, 600, 'narrative')
+    assert.deepEqual(groups.flat().map(e => e.n), [1, 2, 3, 4, 5, 6, 7, 8, 9])
+  }
 })

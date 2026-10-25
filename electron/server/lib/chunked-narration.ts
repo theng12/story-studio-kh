@@ -173,99 +173,99 @@ const OUTPUT_TOKENS_PER_WORD = 1.6
  *  check below uses the REAL prompt sizes instead. */
 const TYPICAL_PROMPT_TOKENS = 2000
 
-// ── Batch output-token estimate (reservation sizing) ───────────────────────
-//
-// WHY: an expansion batch used to declare `outputBudget: 'maximum'`, which
-// takes the selected product's ENTIRE published ceiling — 128,000 tokens on
-// the current default — to generate roughly 8,000. GenStudio settles a
-// language job on tokens actually generated, so that never changed the final
-// charge. What it did change is the up-front RESERVATION: GenStudio holds
-// credits for the requested ceiling while the job runs, so an account near
-// empty could be refused for a request that would have been cheap.
-//
-// So the batch sizes its own request from the work in hand:
-//
-//     ceil(sum(words per chapter in this batch) × tokens-per-word) + overhead
-//
-// clamped by the product's published `max_output_tokens` (done downstream in
-// output-token-budget.ts, so a small product still cannot be over-asked).
-//
-// This is an ESTIMATE used to SIZE A REQUEST. It is never a hard limit on
-// output, and it is never converted back into a character or word ceiling —
-// Khmer and mixed-script narration break any fixed ratio, which is exactly why
-// the 500,000-character cap was removed.
-//
-// GENEROUS BY DESIGN. Under-requesting truncates a chapter mid-sentence and
-// costs another request to repair; over-requesting only holds more of the
-// balance for the minute or two the job runs. Every constant below leans that
-// way: the reservation ratio is 2.5 against a measured 1.6, the overhead is a
-// flat extra 2,048 for JSON scaffolding and chapter titles, and a floor stops a
-// tiny batch from asking for a uselessly small number.
+/** Characters per prompt token, for the context-window bound on one request.
+ *  The same approximation Studio Hub uses for its prompt estimate
+ *  (`chat_deadline.CHARS_PER_TOKEN`) and this app uses for its
+ *  "available input" readout. Deliberately a PROMPT estimate: it never turns a
+ *  token limit into a word limit. */
+const CHARS_PER_TOKEN_ESTIMATE = 4
 
-/** Tokens per output word for RESERVATION sizing. Deliberately ~1.6× the
- *  measured `OUTPUT_TOKENS_PER_WORD` of 1.6: the measurement is an average,
- *  and a batch that runs long must still fit. */
-const BUDGET_TOKENS_PER_WORD = 2.5
-
-/** Flat allowance for the JSON envelope, chapter keys, titles and whatever
- *  formatting the model wraps around the prose. */
-const BUDGET_OVERHEAD_TOKENS = 2_048
-
-/** Never request less than this, however small the batch. Matches the
- *  long-form floor in output-token-budget.ts. */
-const BUDGET_FLOOR_TOKENS = 8_192
-
-/** Rounded UP to this step — up, never down, so rounding can only add
- *  headroom. */
-const BUDGET_ROUNDING_STEP = 256
+// ── One expansion request's output budget ─────────────────────────────────
+//
+// THE SELECTED MODEL'S FULL PUBLISHED `max_output_tokens`, every request.
+// Owner, 2026-10-25: "if Haiku is able to churn out more output, why are we
+// even limiting it? That makes no sense."
+//
+// What used to be here was a words→tokens ESTIMATE (2.5 tokens per word, plus
+// a flat 2,048 of overhead, floored at 8,192) that sized the request from the
+// batch's own word target. That is structurally wrong for Khmer: it is written
+// without spaces between words, so one "word" is a whole clause and tokenises
+// several times heavier than an English one. Komsan's 2-chapter batches asked
+// for exactly 8,192 tokens (the floor won), the provider stopped there with
+// `finish_reason: max_tokens`, and the expansion came back as zero chapters
+// (jobs 38ca3df6, 862fed60, b2bc6196, ec973e7a — 2026-10-25). No ratio can be
+// safe for every script, and AGENTS.md §1 forbids converting a token budget
+// into a word limit with one anyway.
+//
+// So the budget is the product's own published number. The ONLY thing that may
+// reduce it is the product's own published context window, because the answer
+// and the prompt have to fit in the same window. Nothing is estimated, nothing
+// is floored, and when the product publishes no output ceiling the request
+// carries NO ceiling at all (owner decision #6) — never a number we invented.
 
 /**
- * Maximum output reserved for one automatic repair of one unfinished chapter.
- * This is a PER-BATCH ceiling, not a whole-story limit: normal expansion still
- * uses the selected product's live workload budget across as many sequential
- * batches as the outline needs. Keeping the repair allowance bounded prevents
- * a malformed or unusually verbose repair from becoming a runaway request;
- * a chapter that genuinely needs more room stays missing for an explicit
- * resume/manual repair instead of silently losing text.
- */
-const SINGLE_CHAPTER_REPAIR_OUTPUT_TOKENS = 8_192
-
-function singleChapterRepairBudget(): { tier: 'workload'; minimumTokens: number } {
-  return { tier: 'workload', minimumTokens: SINGLE_CHAPTER_REPAIR_OUTPUT_TOKENS }
-}
-
-/**
- * Output tokens to request for one expansion batch.
+ * The output tokens ONE expansion request may ask for, in the selected
+ * product's published figures.
  *
- * `wordTargets` is the per-chapter word target for every chapter in the batch,
- * so a batch carrying a longer chapter (the `words_per_chapter` override set
- * in outline review) is sized for the chapter it actually holds rather than
- * for an average.
- */
-export function batchOutputTokenEstimate(wordTargets: number[]): number {
-  const words = wordTargets.reduce((sum, w) => sum + Math.max(0, Number.isFinite(w) ? w : 0), 0)
-  const wanted = Math.ceil(words * BUDGET_TOKENS_PER_WORD) + BUDGET_OVERHEAD_TOKENS
-  const floored = Math.max(BUDGET_FLOOR_TOKENS, wanted)
-  return Math.ceil(floored / BUDGET_ROUNDING_STEP) * BUDGET_ROUNDING_STEP
-}
-
-/**
- * The output budget one expansion batch declares.
+ * `null` means the product publishes no output ceiling, and the request must
+ * then send no `max_output_tokens` at all rather than substituting one.
  *
- * `workload` rather than `maximum`: the number below is what this batch can
- * plausibly generate, and `resolveOutputTokenBudget` still clamps it to the
- * product's published ceiling.
+ * The context window is the only bound on top of the published output limit:
+ * `min(max_output_tokens, context_window_tokens − prompt tokens)`. The prompt
+ * is measured with the same "characters ÷ 4" approximation every other
+ * prompt-size readout in the app uses; that is an estimate of OUR input, not a
+ * words→tokens conversion of the answer, so it cannot under-request output the
+ * way the old ratio did.
+ *
+ * Throws when the published window cannot hold the prompt at all. Sending a
+ * one-token ceiling and letting the provider cut the answer off is precisely
+ * the silent zero this replaced.
  */
-export function batchOutputBudget(
-  batch: OutlineEntry[],
-  wordsPerChapter: number,
-): { tier: 'workload'; minimumTokens: number } {
-  return {
-    tier: 'workload',
-    minimumTokens: batchOutputTokenEstimate(
-      batch.map(entry => entry.words_per_chapter || wordsPerChapter),
-    ),
+export function expansionOutputTokenCap(
+  budget: ChunkingBudget,
+  promptCharacters: number,
+): number | null {
+  const cap = chunkingOutputBudget(budget.outputTokenCap)
+  if (cap === null) return null
+  const contextWindow = budget.contextWindowTokens
+  if (contextWindow === null) return cap
+  const promptTokens = Math.max(0, Math.ceil(Math.max(0, promptCharacters) / CHARS_PER_TOKEN_ESTIMATE))
+  const available = contextWindow - promptTokens
+  if (available < 1) {
+    throw new Error(
+      `This chapter request's instructions are about ${promptTokens.toLocaleString()} tokens, which leaves no room `
+      + `inside ${budget.productName || 'the selected writing model'}'s published ${contextWindow.toLocaleString()}-token `
+      + 'context window. Shorten the outline or pick a model with a larger window. Nothing was requested.',
+    )
   }
+  return Math.min(cap, available)
+}
+
+/**
+ * The request fields one expansion request carries: the full published output
+ * ceiling, and an explicit cap only when the context window is the tighter of
+ * the two published figures.
+ *
+ * Expressed as `maximum` (not `workload`) on purpose: `workload`'s
+ * `minimumTokens` is also what Studio Hub sizes a job's deadline from, so
+ * putting the whole ceiling there would make every chapter batch a
+ * four-hour job. `maximum` states "what may be sent" and lets the Hub size the
+ * deadline from the fleet's measured answers instead.
+ */
+export function expansionRequestOutputBudget(
+  budget: ChunkingBudget,
+  promptCharacters: number,
+): { outputBudget: 'maximum'; maxTokens?: number } {
+  const cap = expansionOutputTokenCap(budget, promptCharacters)
+  return cap === null ? { outputBudget: 'maximum' } : { outputBudget: 'maximum', maxTokens: cap }
+}
+
+/**
+ * Prompt size for the context-window bound, as characters. Both halves of the
+ * request count: the system prompt and the batch prompt.
+ */
+export function expansionPromptCharacters(systemPrompt: string, batchPrompt: string): number {
+  return systemPrompt.length + batchPrompt.length
 }
 
 export function chunkingSafetyMarginTokens(outputTokenCap: number): number {
@@ -350,17 +350,115 @@ export function shouldChunkByBudget(opts: {
   return (inputTokens + outputTokens + chunkingSafetyMarginTokens(cap)) > cap
 }
 
-/** Sequential batch size for narrative-mode expansion. Larger batches lose
- *  transition coherence; smaller burns more LLM round-trips for the same
- *  content. 3 is the sweet spot — enough context to write a smooth
- *  transition into chapter K+1, small enough to comfortably fit ~2k tokens
- *  output per call. This is a COHERENCE choice, not a token-cap choice, so a
- *  bigger product does not raise it — see `batchSizeForBudget`. */
+/** The DEFAULT chapters per expansion request for each mode — the value every
+ *  run used before the channel could choose one (1.4.359). Narrative keeps 3
+ *  for transition coherence; listicle chapters are independent, so 8 fitting in
+ *  one call is a round-trip saving, not a coherence risk. Both are now the
+ *  DEFAULT of the owner's "Chapters per request" setting rather than the only
+ *  value: see `ExpansionBatchSetting`. */
 const NARRATIVE_BATCH_SIZE = 3
 
-/** Parallel batch size for listicle-mode expansion. Listicle chapters are
- *  independent so we can fit more per call without continuity concerns. */
+/** @see NARRATIVE_BATCH_SIZE */
 const LISTICLE_BATCH_SIZE = 8
+
+/** The most chapters one request may carry. The prompts list every slot it
+ *  asks for, so any count works; this bounds a typo (nobody writes a 400-chapter
+ *  batch on purpose) without capping a real channel — the outline itself is
+ *  capped far lower. */
+export const EXPANSION_CHAPTERS_MAX = 10
+
+/** Default word budget per request for the "by length" grouping mode. Roughly
+ *  one 3-chapter batch of 600-word chapters — today's default grouping — so
+ *  switching to this mode changes nothing until the owner changes the number. */
+export const EXPANSION_BATCH_WORDS_DEFAULT = 1800
+
+/**
+ * The owner's "Chapters per request" setting for script expansion.
+ *
+ * Reusable CONFIGURATION, not episode state — it belongs to the Script
+ * Generator preset and the channel's last choice (AGENTS.md §5). It decides
+ * only how many chapters one request carries; the OUTPUT budget of that request
+ * always comes from the selected product's published cap
+ * (`expansionRequestOutputBudget`), never from this value or from a ratio.
+ */
+export interface ExpansionBatchSetting {
+  /** `count`: a fixed number of chapters per request.
+   *  `length`: consecutive chapters grouped until their own word targets would
+   *  exceed `words`. */
+  mode: 'count' | 'length'
+  /** Chapters per request in `count` mode. `null` = this mode's own default
+   *  (`NARRATIVE_BATCH_SIZE` / `LISTICLE_BATCH_SIZE`). */
+  chapters: number | null
+  /** Word budget per request in `length` mode. A USER-CHOSEN grouping budget:
+   *  the per-chapter word targets come from the outline, and this decides how
+   *  many of them ride together. It is deliberately NOT the model's token limit
+   *  converted into words — AGENTS.md §1 forbids that conversion, which is why
+   *  the request itself is sized from the published cap instead. */
+  words: number
+}
+
+export function defaultExpansionBatchSetting(): ExpansionBatchSetting {
+  return { mode: 'count', chapters: null, words: EXPANSION_BATCH_WORDS_DEFAULT }
+}
+
+/** The fixed-mode chapter count actually used: the chosen number, or this
+ *  mode's default, always inside 1..`EXPANSION_CHAPTERS_MAX`. */
+export function chaptersPerExpansionRequest(
+  setting: ExpansionBatchSetting,
+  mode: ChunkedMode,
+): number {
+  const fallback = mode === 'listicle' ? LISTICLE_BATCH_SIZE : NARRATIVE_BATCH_SIZE
+  const chosen = setting.chapters
+  if (!Number.isInteger(chosen) || (chosen as number) < 1) return fallback
+  return Math.min(EXPANSION_CHAPTERS_MAX, chosen as number)
+}
+
+/**
+ * Split the pending chapters into the groups one request each will carry.
+ *
+ * `count` mode: fixed-size contiguous chunks.
+ * `length` mode: consecutive chapters accumulate until the next one would push
+ * the group past the owner's word budget. A chapter whose own target is already
+ * past the budget goes ALONE — splitting a chapter is not an option, and it must
+ * not drag a neighbour over the budget with it either.
+ *
+ * No ratio arithmetic here: these are the outline's own word targets, not a
+ * conversion of any token figure. Whether one request is actually big enough is
+ * answered by the provider (a truncated answer is split and retried — see
+ * `expandListicleParallel` / `expandNarrativeSequential`), never guessed from
+ * words.
+ */
+export function planExpansionGroups(
+  pending: OutlineEntry[],
+  setting: ExpansionBatchSetting,
+  wordsPerChapter: number,
+  mode: ChunkedMode,
+): OutlineEntry[][] {
+  if (setting.mode !== 'length') {
+    const size = chaptersPerExpansionRequest(setting, mode)
+    const groups: OutlineEntry[][] = []
+    for (let index = 0; index < pending.length; index += size) groups.push(pending.slice(index, index + size))
+    return groups
+  }
+  const budget = Number.isFinite(setting.words) && setting.words >= 1
+    ? Math.floor(setting.words)
+    : EXPANSION_BATCH_WORDS_DEFAULT
+  const groups: OutlineEntry[][] = []
+  let current: OutlineEntry[] = []
+  let words = 0
+  for (const entry of pending) {
+    const target = Math.max(1, Number(entry.words_per_chapter) || Math.max(1, wordsPerChapter))
+    if (current.length && words + target > budget) {
+      groups.push(current)
+      current = []
+      words = 0
+    }
+    current.push(entry)
+    words += target
+  }
+  if (current.length) groups.push(current)
+  return groups
+}
 
 /** Max in-flight expansion calls for listicle mode. 4 is rate-limit-safe
  *  on typical Anthropic / OpenAI tiers. Tunable via env var if needed
@@ -392,6 +490,10 @@ export interface ChunkingBudget {
   /** The product's published `max_output_tokens`. `null` = nothing published
    *  (or the product could not be read at all). Never a stand-in figure. */
   outputTokenCap: number | null
+  /** The product's published `context_window_tokens`. `null` = nothing
+   *  published. Together with `outputTokenCap` it is the only thing that may
+   *  bound one expansion request (see `expansionOutputTokenCap`). */
+  contextWindowTokens: number | null
   /** Words this product can produce in one call, per the same estimate.
    *  `null` whenever `outputTokenCap` is. */
   thresholdWords: number | null
@@ -405,6 +507,7 @@ export interface ChunkingBudget {
 function unresolvedChunkingBudget(): ChunkingBudget {
   return {
     outputTokenCap: null,
+    contextWindowTokens: null,
     thresholdWords: null,
     productId: null,
     productName: null,
@@ -427,6 +530,7 @@ export async function resolveChunkingBudget(model: string): Promise<ChunkingBudg
     if (!product) return unresolvedChunkingBudget()
     return {
       outputTokenCap: chunkingOutputBudget(product.max_output_tokens),
+      contextWindowTokens: chunkingOutputBudget(product.context_window_tokens),
       thresholdWords: chunkThresholdWords(product.max_output_tokens),
       productId: product.id,
       productName: product.display_name || product.id,
@@ -452,19 +556,34 @@ export async function resolveChunkingBudget(model: string): Promise<ChunkingBudg
  * chose for coherence reasons, applied because nothing published a reason to
  * shrink it.
  */
-export function batchSizeForBudget(
+
+/**
+ * One line saying how the pending chapters were grouped into requests, and
+ * whether the channel's own setting decided it or this mode's default did.
+ * The owner asked to be told what happened, not to read code.
+ */
+export function expansionBatchLine(
+  setting: ExpansionBatchSetting,
   mode: ChunkedMode,
-  budget: ChunkingBudget,
-  wordsPerChapter: number,
-): number {
-  const modeSize = mode === 'listicle' ? LISTICLE_BATCH_SIZE : NARRATIVE_BATCH_SIZE
-  if (budget.outputTokenCap === null) return modeSize
-  const perChapterTokens = Math.max(1, Math.ceil(Math.max(1, wordsPerChapter) * OUTPUT_TOKENS_PER_WORD))
-  const usable = budget.outputTokenCap
-    - TYPICAL_PROMPT_TOKENS
-    - chunkingSafetyMarginTokens(budget.outputTokenCap)
-  const fits = Math.floor(usable / perChapterTokens)
-  return Math.max(1, Math.min(modeSize, fits))
+  groups: OutlineEntry[][],
+): string {
+  if (setting.mode === 'length') {
+    const budget = Number.isFinite(setting.words) && setting.words >= 1
+      ? Math.floor(setting.words)
+      : EXPANSION_BATCH_WORDS_DEFAULT
+    const sizes = groups.map(group => group.length)
+    const oversized = groups.filter(group => group.length === 1
+      && Math.max(1, Number(group[0]!.words_per_chapter) || 0) > budget)
+    return `[chunked] Chapters per request: by length — at most ${budget.toLocaleString()} words of chapter targets `
+      + `per request, ${groups.length} request(s) for ${sizes.reduce((a, b) => a + b, 0)} chapter(s).`
+      + (oversized.length
+        ? ` Chapter ${oversized.map(group => group[0]!.n).join(', ')} is longer than that budget on its own, so it goes alone.`
+        : '')
+  }
+  const chosen = chaptersPerExpansionRequest(setting, mode)
+  const isDefault = !(Number.isInteger(setting.chapters) && (setting.chapters as number) >= 1)
+  return `[chunked] Chapters per request: ${chosen}${isDefault ? ` (this format's default)` : ''} — `
+    + `${groups.length} request(s) for ${groups.reduce((sum, group) => sum + group.length, 0)} chapter(s).`
 }
 
 /**
@@ -541,6 +660,71 @@ function validChapterNumbersForOutline(scriptDir: string, sidecar: ChunkedSideca
       return chapterFileLooksValid(file) && chapterBelongsToOutline(sidecar, file)
     })
     .sort((a, b) => a - b)
+}
+
+/**
+ * Which of the chapters THIS run was asked for are still missing.
+ *
+ * The filtered-run completion rule (§8, 1.4.359): a run that was given a
+ * selection may leave the rest of the script unwritten, but it may NOT report
+ * success while a chapter it was asked for is absent. Komsan's scoped
+ * expansions of 2026-10-25 asked for chapters 1-2 and 2, wrote nothing, and
+ * finished `done` because filtered runs skipped the completion rule entirely.
+ */
+export function missingRequestedChapters(
+  requested: readonly number[],
+  missing: readonly number[],
+): number[] {
+  const gaps = new Set(missing)
+  return requested.filter(n => gaps.has(n))
+}
+
+/**
+ * Record a chapter that was just written and verified — the merge that a
+ * scoped chapter-only write was missing (1.4.359).
+ *
+ * KOM3's Chapter 7 was written by a scoped chapter-only run in 1.4.357 and all
+ * eight files were on disk, but the sidecar still read
+ * `chapters_done: [1,2,3,4,5,6,8]`: the regeneration path verified its file and
+ * never told the outline's own progress record. Every reader of that record
+ * (the pending filters, the Pipeline's "finish missing chapters" step, the
+ * Production Board) then believed Chapter 7 was missing.
+ *
+ * ONE authoritative rule, the same one `expandChapters` uses (AGENTS.md §8):
+ * the FILE on disk is the proof. This re-reads the sidecar, re-runs the same
+ * two checks `validChapterNumbersForOutline` runs (non-empty, and written for
+ * THIS outline), and only then merges. A chapter whose file failed either check
+ * is never marked, and the caller is told which thing failed.
+ *
+ * Returns whether the chapter ended up recorded as done.
+ */
+export async function recordVerifiedChapter(
+  job: Job,
+  scriptDir: string,
+  episodeId: string,
+  chapterNumber: number,
+): Promise<{ recorded: boolean; reason?: string }> {
+  const sidecar = await readSidecar(scriptDir, episodeId)
+  // No sidecar (a single-call, non-chunked episode): there is no chapters_done
+  // to merge into, and inventing one would claim an outline that does not exist.
+  if (!sidecar) return { recorded: false, reason: 'this episode has no outline progress record' }
+  if (!sidecar.outline.some(entry => entry.n === chapterNumber)) {
+    return { recorded: false, reason: `chapter ${chapterNumber} is not in this episode's outline` }
+  }
+  const file = resolveReadPath(chapterFilePath(scriptDir, episodeId, chapterNumber))
+  if (!chapterFileLooksValid(file)) {
+    return { recorded: false, reason: 'its file is empty or missing' }
+  }
+  if (!chapterBelongsToOutline(sidecar, file)) {
+    return { recorded: false, reason: 'its file was written before the current outline' }
+  }
+  if (sidecar.chapters_done.includes(chapterNumber)) return { recorded: true }
+  const merged = markDone(sidecar, [chapterNumber])
+  await writeSidecar(scriptDir, merged)
+  job.output_lines.push(
+    `[chunked] Chapter ${chapterNumber} is recorded as written (${merged.chapters_done.length}/${sidecar.total_chapters} on disk).`,
+  )
+  return { recorded: true }
 }
 
 export interface ChunkedScriptCompletion {
@@ -672,6 +856,13 @@ export interface GenerationParams {
    *  later expand-chapters run injects the SAME guidance the outline was
    *  built with — keeps ad-hoc names/settings consistent into the body. */
   manual_guidance?: string
+  /** 1.4.359 — the channel's "Chapters per request" setting as it stood when
+   *  this outline was built. Informational fallback only: an expand run reads
+   *  the setting from its own request first, because it is reusable
+   *  configuration rather than episode state. */
+  chapter_batch_mode?: 'count' | 'length'
+  chapters_per_request?: number
+  chapter_batch_words?: number
   pipeline_model_policy?: AssignedPipelineModelPolicy
 }
 
@@ -751,26 +942,43 @@ export interface ChunkedNarrationParams {
   generationParams?: GenerationParams
   /** Explicit Pipeline policy for this writing stage. */
   pipelineModelPolicy?: AssignedPipelineModelPolicy
+  /** The channel's "Chapters per request" setting for this run. Absent = each
+   *  mode's own default (3 narrative / 8 listicle), which is what every run
+   *  used before the setting existed. Reusable configuration, so it rides the
+   *  Script Generator preset and the run's params — never the outline sidecar
+   *  (AGENTS.md §5), which is why the executor reads it from the request before
+   *  the sidecar snapshot. */
+  expansionBatch?: ExpansionBatchSetting
   /** Durable per-request ledger so a restarted Pipeline request reconnects instead of resubmitting. */
   pipelinePolicyCheckpoint?: PipelinePolicyCheckpointStore
   /** Server-owned preview proving one explicitly authorized not-created retry. */
   genstudioChatRecoveryPreview?: GenStudioRequestPreview
 }
 
-export function policyChapterGroups(job: Job, mode: ChunkedMode, outline: OutlineEntry[], pending: OutlineEntry[], batchSize: number): OutlineEntry[][] | null {
+/**
+ * The Pipeline's saved chapter groups, when this run has a model policy.
+ *
+ * The groups are planned by `planExpansionGroups` from the channel's "Chapters
+ * per request" setting; a Pipeline run then PINS them into the job so a
+ * restarted request reproduces the same prompts and checkpoint keys. What was
+ * planned is passed in rather than recomputed from a batch size, because the
+ * "by length" mode has no batch size.
+ */
+export function policyChapterGroups(job: Job, mode: ChunkedMode, outline: OutlineEntry[], pending: OutlineEntry[], planned: OutlineEntry[][]): OutlineEntry[][] | null {
   if (!job.params?.pipeline_model_policy) return null
   const saved = (job.params as Record<string, unknown>).pipeline_script_chapter_groups
   const byNumber = new Map(outline.map(entry => [entry.n, entry]))
   const pendingNumbers = new Set(pending.map(entry => entry.n))
   const valid = Array.isArray(saved) && saved.every(group => Array.isArray(group)
     && group.every(number => Number.isInteger(number) && byNumber.has(number)))
-  const groups = valid ? saved as number[][] : (() => {
-    const next: number[][] = []
-    for (let index = 0; index < outline.length; index += batchSize) next.push(outline.slice(index, index + batchSize).map(entry => entry.n))
-    ;(job.params as Record<string, unknown>).pipeline_script_chapter_groups = next
-    void import('../services/job-queue.js').then(queue => queue.checkpointJobState(job)).catch(() => {})
-    return next
-  })()
+  const groups = valid
+    ? saved as number[][]
+    : (() => {
+      const next: number[][] = planned.map(group => group.map(entry => entry.n))
+      ;(job.params as Record<string, unknown>).pipeline_script_chapter_groups = next
+      void import('../services/job-queue.js').then(queue => queue.checkpointJobState(job)).catch(() => {})
+      return next
+    })()
   // Preserve each original range in full: an accepted request's prompt and
   // checkpoint key must never shrink just because a sibling chapter reached
   // disk before a restart.
@@ -1023,17 +1231,21 @@ export async function expandChapters(
     }
   }
 
-  // Read the SELECTED product's published output limit once, live, and size
-  // both the chunking verdict and the batch bound from it. Never a constant.
+  // Read the SELECTED product's published limits once, live. The output budget
+  // of every request comes from them; the grouping comes from the channel's
+  // "Chapters per request" setting.
   const budget = await resolveChunkingBudget(params.model)
-  const batchSize = batchSizeForBudget(mode, budget, params.wordsPerChapter)
-  const plannedGroups = policyChapterGroups(job, mode, sidecar.outline, pending, batchSize)
+  const expansionBatch = params.expansionBatch || defaultExpansionBatchSetting()
+  const groups = planExpansionGroups(pending, expansionBatch, params.wordsPerChapter, mode)
+  const plannedGroups = policyChapterGroups(job, mode, sidecar.outline, pending, groups)
+  const finalGroups = plannedGroups || groups
+  job.output_lines.push(expansionBatchLine(expansionBatch, mode, finalGroups))
 
   // Dispatch to mode-specific expansion.
   if (mode === 'listicle') {
-    await expandListicleParallel(job, params, sidecar.outline, pending, sidecar, budget, batchSize, plannedGroups || undefined)
+    await expandListicleParallel(job, params, sidecar.outline, pending, sidecar, budget, finalGroups)
   } else {
-    await expandNarrativeSequential(job, params, sidecar.outline, pending, sidecar, budget, batchSize, plannedGroups || undefined)
+    await expandNarrativeSequential(job, params, sidecar.outline, pending, sidecar, budget, finalGroups)
   }
 
   // Final sidecar sweep.
@@ -1063,7 +1275,7 @@ export async function expandChapters(
 
   return {
     chaptersWritten: written,
-    totalBatches: Math.ceil(pending.length / batchSize),
+    totalBatches: finalGroups.length,
     fromResume: false,
     outlineCompletedThisRun: false,
   }
@@ -1464,16 +1676,17 @@ async function expandNarrativeSequential(
   job: Job, params: ChunkedNarrationParams,
   outline: OutlineEntry[], pending: OutlineEntry[], sidecar: ChunkedSidecar,
   budget: ChunkingBudget = unresolvedChunkingBudget(),
-  batchSize: number = NARRATIVE_BATCH_SIZE,
   plannedGroups?: OutlineEntry[][],
 ): Promise<void> {
   // Group pending into contiguous batches so we can pull a clean transition
   // window (last 200 words of the chapter before the batch's first slot) when
-  // one exists on disk.
-  const batches: OutlineEntry[][] = plannedGroups || []
-  if (!plannedGroups) for (let i = 0; i < pending.length; i += batchSize) batches.push(pending.slice(i, i + batchSize))
+  // one exists on disk. The caller planned these groups from the channel's
+  // "Chapters per request" setting; the fallback is this mode's own default.
+  const batches: OutlineEntry[][] = plannedGroups
+    ? plannedGroups.map(group => [...group])
+    : planExpansionGroups(pending, defaultExpansionBatchSetting(), params.wordsPerChapter, 'narrative')
 
-  job.output_lines.push(`[chunked] Mode: narrative (sequential, batches of ${batchSize}). ${batches.length} batch(es) to run.`)
+  job.output_lines.push(`[chunked] Mode: narrative (sequential). ${batches.length} request(s) to run.`)
   job.output_lines.push(chunkingTriggerLine(params, budget))
 
   let runningSidecar = sidecar
@@ -1493,16 +1706,16 @@ async function expandNarrativeSequential(
     )
 
     job.output_lines.push(`[chunked] Batch ${bi + 1}/${batches.length} — chapters ${firstN}-${lastN}…`)
-    // A batch is several full chapters of narration in one response, and it
-    // must never be cut off — a truncated batch is a half-written chapter and
-    // the repair pass below costs another request. It used to ask for the
-    // product's whole ceiling to guarantee that. It now asks for what THIS
-    // batch can plausibly generate (see batchOutputTokenEstimate), which is
-    // still generous but no longer reserves 128,000 credits' worth of headroom
-    // to write 8,000 tokens.
+    // A batch is several full chapters of narration in one response. It asks
+    // for EVERYTHING the selected product publishes (bounded only by the same
+    // product's published context window) — see expansionRequestOutputBudget.
+    // A truncated answer is split and retried below, never written half.
+    const requestOutput = expansionRequestOutputBudget(
+      budget, expansionPromptCharacters(params.systemPrompt, prompt),
+    )
     const ctx = {
       slug: job.project_slug, jobId: job.job_id, signal: params.signal,
-      outputBudget: batchOutputBudget(batch, params.wordsPerChapter),
+      ...requestOutput,
       // Only queue-level manual Retry can stamp this server-owned scope after
       // a known terminal GenStudio chat job. Normal runs and paused/resumed
       // jobs leave it absent so lost-response recovery replays the same key.
@@ -1598,9 +1811,13 @@ async function expandNarrativeSequential(
           discardFinalParsedChapter: true,
         })
       }
+      const asked = requestOutput.maxTokens !== undefined
+        ? `${requestOutput.maxTokens.toLocaleString()} output tokens`
+        : 'every published output token'
       job.output_lines.push(
-        `[chunked]   → the Gateway reported incomplete output${error.finishReason ? ` (${error.finishReason})` : ''}; ` +
-        `preserved ${wrote.length} parsed chapter(s) and released the original reservation.`,
+        `[chunked]   → the provider stopped this answer early${error.finishReason ? ` (${error.finishReason})` : ''}, and this request `
+        + `had already asked for ${asked} of ${budget.productName || params.model}. `
+        + `Preserved ${wrote.length} complete chapter(s); the unfinished ones are re-requested in smaller pieces below.`,
       )
     }
 
@@ -1609,24 +1826,28 @@ async function expandNarrativeSequential(
     job.output_lines.push(`[chunked]   → wrote ${wrote.length} chapter(s) (${wrote.join(', ')})`)
 
     // A normal provider finish can still omit a requested block. For a
-    // provider-declared truncation, keep every parseable chapter that
-    // completed and repair only the unfinished slots. Each unfinished slot
-    // gets one separate request, capped at SINGLE_CHAPTER_REPAIR_OUTPUT_TOKENS.
+    // provider-declared truncation, keep every chapter that completed and
+    // re-request only the unfinished slots — split in half, so a batch that was
+    // too much for one answer becomes two answers rather than a truncated one.
+    // A single chapter that still truncates is not split (there is nothing to
+    // split) and is reported instead of guessed at.
     // This is one deliberate, bounded repair allowance—not the queue's
     // generic auto-retry policy. A chapter that still fails remains missing so
     // resume/manual repair can handle it without touching completed files.
-    const repairBatches = incomplete
-      ? batch.filter(entry => !wrote.includes(entry.n)).map(entry => [entry])
-      : [batch.filter(entry => !wrote.includes(entry.n))]
-    if (!repairBatches[0]?.length) continue
+    const missingFromBatch = batch.filter(entry => !wrote.includes(entry.n))
+    const repairQueue: OutlineEntry[][] = incomplete
+      ? splitGroupForRetry(missingFromBatch)
+      : (missingFromBatch.length ? [missingFromBatch] : [])
+    if (!repairQueue.length) continue
 
     job.output_lines.push(
-      `[chunked]   → repairing chapters ${repairBatches.flat().map(entry => entry.n).join(', ')} ` +
-      `(one bounded ${incomplete ? 'single-chapter repair' : 'missing-chapter'} pass)…`,
+      `[chunked]   → re-requesting chapters ${missingFromBatch.map(entry => entry.n).join(', ')} ` +
+      `in ${repairQueue.length} smaller request(s)…`,
     )
 
     const allWrote = new Set(wrote)
-    for (const repairBatch of repairBatches) {
+    while (repairQueue.length) {
+      const repairBatch = repairQueue.shift()!
       if (!repairBatch.length) continue
       const repairPrompt = narrativeRepairPrompt(
         params,
@@ -1635,38 +1856,75 @@ async function expandNarrativeSequential(
         await narrativeTransitionWindow(params, repairBatch[0]!.n),
         useTOC,
       )
-      const repairCtx = incomplete
-        ? { ...ctx, outputBudget: singleChapterRepairBudget() }
-        : ctx
+      // The repair asks for the same published cap as the batch it repairs —
+      // a repair is a whole chapter, and 8,192 used to be handed to a Khmer
+      // chapter that needed more (job 0857b744, 2026-10-25).
+      const repairCtx = {
+        ...ctx,
+        ...expansionRequestOutputBudget(budget, expansionPromptCharacters(params.systemPrompt, repairPrompt)),
+      }
       const repairCheckpointKey = `${chapterCheckpointKey}:repair-${repairBatch.map(entry => entry.n).join('-')}`
       const repairInputFingerprint = pipelinePolicyInputFingerprint({
         stage: 'script', kind: 'narrative-repair', episode_id: params.episode_id,
         chapters: repairBatch.map(entry => entry.n), system: params.systemPrompt,
         generation_params: params.generationParams,
       })
-      const repairText = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(
-        model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
-          ...pipelineAttemptContext(repairCtx, recovery, checkpointAccepted, checkpointPrepared),
-        },
-      ), {
-        key: repairCheckpointKey,
-        inputFingerprint: repairInputFingerprint,
-      })
-      const repaired = await parseAndWriteBatch(params, repairBatch, repairText)
+      let repairText = ''
+      let repairTruncated = false
+      try {
+        repairText = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) => callAiWithRetry(
+          model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
+            ...pipelineAttemptContext(repairCtx, recovery, checkpointAccepted, checkpointPrepared),
+          },
+        ), {
+          key: repairCheckpointKey,
+          inputFingerprint: repairInputFingerprint,
+        })
+      } catch (error) {
+        if (!(error instanceof GenStudioChatIncompleteError) || !error.truncated) throw error
+        repairTruncated = true
+        repairText = error.partialText
+      }
+      const repaired = repairText.trim()
+        ? await parseAndWriteBatch(params, repairBatch, repairText, repairTruncated ? { discardFinalParsedChapter: true } : {})
+        : []
       repaired.forEach(n => allWrote.add(n))
       runningSidecar = markDone(runningSidecar, repaired)
       await writeSidecar(params.scriptDir, runningSidecar)
       job.output_lines.push(`[chunked]   → repair wrote ${repaired.length} chapter(s) (${repaired.join(', ')})`)
+      const stillInRepair = repairBatch.filter(entry => !repaired.includes(entry.n))
+      if (stillInRepair.length && repairBatch.length > 1) {
+        job.output_lines.push(
+          `[chunked]   → this answer was still cut off; splitting chapters ${stillInRepair.map(entry => entry.n).join(', ')} further.`,
+        )
+        repairQueue.unshift(...splitGroupForRetry(stillInRepair))
+      }
     }
 
     const stillMissing = batch.filter(entry => !allWrote.has(entry.n)).map(entry => entry.n)
     if (stillMissing.length) {
       await carryOnWithoutChapters(job,
-        `Narrative batch did not pass its one-repair completion check; missing ${stillMissing.join(', ')}. ` +
-        'Resume expansion to repair it.',
+        `Narrative batch did not pass its completion check; missing ${stillMissing.join(', ')} after asking for every output token `
+        + `${budget.productName || params.model} publishes. `
+        + 'Resume expansion to repair it.',
       )
     }
   }
+}
+
+/**
+ * Split a group of chapters in half for a re-request after the provider cut an
+ * answer off at its own output limit.
+ *
+ * Halving beats going straight to one chapter per request: the group that did
+ * not fit becomes two answers instead of N, and an answer that still does not
+ * fit is halved again. A single chapter is returned unchanged — there is
+ * nothing left to split, so the failure is reported rather than guessed at.
+ */
+function splitGroupForRetry(batch: OutlineEntry[]): OutlineEntry[][] {
+  if (batch.length <= 1) return [batch]
+  const middle = Math.ceil(batch.length / 2)
+  return [batch.slice(0, middle), batch.slice(middle)]
 }
 
 async function narrativeTransitionWindow(
@@ -1781,13 +2039,13 @@ async function expandListicleParallel(
   job: Job, params: ChunkedNarrationParams,
   outline: OutlineEntry[], pending: OutlineEntry[], sidecar: ChunkedSidecar,
   budget: ChunkingBudget = unresolvedChunkingBudget(),
-  batchSize: number = LISTICLE_BATCH_SIZE,
   plannedGroups?: OutlineEntry[][],
 ): Promise<void> {
-  const batches: OutlineEntry[][] = plannedGroups || []
-  if (!plannedGroups) for (let i = 0; i < pending.length; i += batchSize) batches.push(pending.slice(i, i + batchSize))
+  const batches: OutlineEntry[][] = plannedGroups
+    ? plannedGroups.map(group => [...group])
+    : planExpansionGroups(pending, defaultExpansionBatchSetting(), params.wordsPerChapter, 'listicle')
   job.output_lines.push(
-    `[chunked] Mode: listicle (parallel, batches of ${batchSize}, concurrency ${LISTICLE_CONCURRENCY}). ${batches.length} batch(es) to run.`,
+    `[chunked] Mode: listicle (parallel, concurrency ${LISTICLE_CONCURRENCY}). ${batches.length} request(s) to run.`,
   )
   job.output_lines.push(chunkingTriggerLine(params, budget))
 
@@ -1796,6 +2054,14 @@ async function expandListicleParallel(
   let completed = 0
   let aborted = false
   let creditFailure: unknown
+  /**
+   * Chapters some request asked for and no answer ever produced, with the
+   * reason. Reported LOUDLY when the workers finish: a provider failure must
+   * never leave a job reading as done with nothing written (AGENTS.md §8 — the
+   * Komsan KOM0003 expansions of 2026-10-25 ended `done` with 0/8 chapters on
+   * disk because this function swallowed every batch error).
+   */
+  const unwritten = new Map<number, string>()
 
   async function worker(workerId: number): Promise<void> {
     while (cursor < batches.length && !aborted && !creditFailure) {
@@ -1805,16 +2071,18 @@ async function expandListicleParallel(
       const batch = batches[idx]!
       const firstN = batch[0]!.n
       const lastN = batch[batch.length - 1]!.n
+      const prompt = listicleBatchPrompt(params, batch)
+      const chapterCheckpointKey = `${job.project_slug}:${params.episode_id}:script:chapters:${firstN}-${lastN}`
 
       try {
-        const prompt = listicleBatchPrompt(params, batch)
-        const chapterCheckpointKey = `${job.project_slug}:${params.episode_id}:script:chapters:${firstN}-${lastN}`
-        // Same as the narrative batch: several complete items per response,
-        // sized from the batch's own word targets rather than from the
-        // product's whole published ceiling.
+        // Same as the narrative request: EVERY output token the selected
+        // product publishes, bounded only by its published context window.
+        const requestOutput = expansionRequestOutputBudget(
+          budget, expansionPromptCharacters(params.systemPrompt, prompt),
+        )
         const ctx = {
           slug: job.project_slug, jobId: job.job_id, signal: params.signal,
-          outputBudget: batchOutputBudget(batch, params.wordsPerChapter),
+          ...requestOutput,
           // See narrative expansion above: this exists only for a deliberate
           // replacement after terminal GenStudio evidence, never for resume.
           requestIdentity: freshGenerationRequestIdentity(job, `chapters-${firstN}-${lastN}`) ?? (job.genstudio_chat_retry_scope
@@ -1823,35 +2091,80 @@ async function expandListicleParallel(
           recoverByIdempotencyKey: job.genstudio_chat_recovery === true,
           allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
         }
-        const text = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) =>
-          callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
-            ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
-          }), {
-            key: chapterCheckpointKey,
-            inputFingerprint: pipelinePolicyInputFingerprint({ system: params.systemPrompt, user: prompt }),
-          })
-        const wrote = await parseAndWriteBatch(params, batch, text)
-        // Sidecar updates need serialisation — atomic write is fine but we
-        // don't want two workers reading-then-writing concurrently and
-        // dropping each other's progress. Read-modify-write under a small
-        // critical section.
+        let wrote: number[] = []
+        let truncated: GenStudioChatIncompleteError | null = null
+        try {
+          const text = await withChosenModel(job, params, (model, recovery, checkpointAccepted, checkpointPrepared) =>
+            callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, {
+              ...pipelineAttemptContext(ctx, recovery, checkpointAccepted, checkpointPrepared),
+            }), {
+              key: chapterCheckpointKey,
+              inputFingerprint: pipelinePolicyInputFingerprint({ system: params.systemPrompt, user: prompt }),
+            })
+          wrote = await parseAndWriteBatch(params, batch, text)
+        } catch (error) {
+          // Only a provider-declared output-token truncation is safe to treat
+          // as "part of this answer is good": everything the provider finished
+          // before the cut is a complete chapter, and the unfinished final
+          // block is not. Every other non-stop finish is a provider/content
+          // failure and stays terminal for an explicit customer Retry.
+          if (!(error instanceof GenStudioChatIncompleteError) || !error.truncated) throw error
+          truncated = error
+          if (error.partialText.trim()) {
+            wrote = await parseAndWriteBatch(params, batch, error.partialText, {
+              discardFinalParsedChapter: true,
+            })
+          }
+        }
+
         runningSidecar = markDone(runningSidecar, wrote)
         await writeSidecar(params.scriptDir, runningSidecar)
+        for (const n of wrote) unwritten.delete(n)
         completed++
         job.output_lines.push(
-          `[chunked]   [w${workerId}] batch ${idx + 1}/${batches.length} — chapters ${firstN}-${lastN}: wrote ${wrote.length} (${completed}/${batches.length} batches done)`,
+          `[chunked]   [w${workerId}] request ${idx + 1}/${batches.length} — chapters ${firstN}-${lastN}: wrote ${wrote.length} (${completed} request(s) done)`,
         )
+
+        const missing = batch.filter(entry => !wrote.includes(entry.n))
+        if (!missing.length) continue
+        if (truncated) {
+          const asked = requestOutput.maxTokens !== undefined
+            ? `${requestOutput.maxTokens.toLocaleString()} output tokens`
+            : 'every published output token'
+          if (batch.length > 1) {
+            // Split rather than write a truncated chapter: the group that did
+            // not fit one answer becomes smaller answers, and the job log says
+            // so. No word→token guess is involved — the provider itself
+            // reported the cut.
+            job.output_lines.push(
+              `[chunked]   [w${workerId}] chapters ${firstN}-${lastN} did not fit one answer even at ${asked}, `
+              + `so chapters ${missing.map(entry => entry.n).join(', ')} are split into smaller requests.`,
+            )
+            batches.push(...splitGroupForRetry(missing))
+            continue
+          }
+          unwritten.set(missing[0]!.n,
+            `the provider stopped the answer early${truncated.finishReason ? ` (${truncated.finishReason})` : ''} even at ${asked}`)
+          job.output_lines.push(
+            `[chunked]   [w${workerId}] chapter ${missing[0]!.n} was cut off at the provider's own output limit and cannot be split further.`,
+          )
+          continue
+        }
+        // A normal finish that simply left a requested slot out.
+        for (const entry of missing) unwritten.set(entry.n, 'the answer did not contain it')
       } catch (e: any) {
         if (isGenStudioInsufficientCredits(e)) {
           creditFailure ||= e
           return
         }
-        // One batch failure shouldn't kill the others — note it and let
-        // the worker continue to the next batch. The unfinished chapters
-        // stay missing on disk so a later resume picks them up.
+        // One request's failure must not abandon the others — the chapters the
+        // other workers write are good and stay on disk. What must NOT happen
+        // is the run then reporting success: the chapters this request asked
+        // for are recorded as unwritten and reported below.
+        for (const entry of batch) unwritten.set(entry.n, e?.message || String(e))
         job.output_lines.push(
-          `[chunked]   [w${workerId}] batch ${idx + 1}/${batches.length} FAILED: ${e?.message || e}. ` +
-          `Chapters ${firstN}-${lastN} will be retried on resume.`,
+          `[chunked]   [w${workerId}] request ${idx + 1}/${batches.length} FAILED: ${e?.message || e}. ` +
+          `Chapters ${batch.map(entry => entry.n).join(', ')} were not written.`,
         )
         if (params.isCancelled?.() || params.signal?.aborted) {
           aborted = true; return
@@ -1861,13 +2174,24 @@ async function expandListicleParallel(
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(LISTICLE_CONCURRENCY, batches.length) }, (_, i) => worker(i + 1)),
+    Array.from({ length: Math.min(LISTICLE_CONCURRENCY, Math.max(1, batches.length)) }, (_, i) => worker(i + 1)),
   )
 
   if (creditFailure) throw creditFailure
 
   if (aborted) {
     throw new Error('Cancelled by user')
+  }
+
+  if (unwritten.size) {
+    const chapters = [...unwritten.keys()].sort((a, b) => a - b)
+    const reasons = [...new Set([...unwritten.values()])].join('; ')
+    const writtenCount = pending.filter(entry => !unwritten.has(entry.n)).length
+    await carryOnWithoutChapters(job,
+      `Chapter expansion did not finish: requested chapter(s) ${chapters.join(', ')} are missing (${reasons}). `
+      + `${writtenCount} of ${pending.length} requested chapter(s) were written and kept. `
+      + 'Resume expansion to write only the missing chapters — the finished ones are not requested again or charged again.',
+    )
   }
 }
 

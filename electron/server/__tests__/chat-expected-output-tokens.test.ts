@@ -126,9 +126,10 @@ const baseRequest = {
 // ── What counts as an expectation ────────────────────────────────────────
 
 test('the workload tier is the expectation, because it is already computed from the work', () => {
-  // `ideaOutputTokenBudget(count)` and `batchOutputTokenEstimate(words)` both feed
-  // `{ tier: 'workload', minimumTokens }`, so that number IS how long the answer is expected to
-  // be — 100 ideas is 100 x 640 + 1,024.
+  // `ideaOutputTokenBudget(count)` feeds `{ tier: 'workload', minimumTokens }`, so that number IS
+  // how long the answer is expected to be — 100 ideas is 100 x 640 + 1,024. Chapter expansion no
+  // longer has an estimate to offer (it asks for the product's whole published cap), so it
+  // deliberately does NOT declare an expectation.
   assert.equal(ideaOutputTokenBudget(100), 65_024)
   assert.equal(expectedOutputTokensFor({ tier: 'workload', minimumTokens: 65_024 }), 65_024)
 })

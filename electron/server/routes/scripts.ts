@@ -446,6 +446,30 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     }
   }
 
+  // 1.4.359 — the channel's "Chapters per request" setting rides this request
+  // so an expand run honours the number set NOW (see resolveExpansionBatchSetting
+  // in generators/episode.ts). Reject nonsense here rather than letting the
+  // executor silently fall back to the format default: a 0 or a typo'd 400 is a
+  // caller bug, not a preference.
+  if (req.body.chapters_per_request !== undefined) {
+    const n = Number(req.body.chapters_per_request)
+    if (!Number.isInteger(n) || n < 0 || n > 10) {
+      return res.status(400).json({
+        detail: '`chapters_per_request` must be an integer 0..10 (0 = this format\'s default).',
+      })
+    }
+  }
+  if (req.body.chapter_batch_mode !== undefined
+    && req.body.chapter_batch_mode !== 'count' && req.body.chapter_batch_mode !== 'length') {
+    return res.status(400).json({ detail: '`chapter_batch_mode` must be "count" or "length".' })
+  }
+  if (req.body.chapter_batch_words !== undefined) {
+    const n = Number(req.body.chapter_batch_words)
+    if (!Number.isInteger(n) || n < 0 || n > 100_000) {
+      return res.status(400).json({ detail: '`chapter_batch_words` must be an integer 0..100000 words.' })
+    }
+  }
+
   // v1.0.786 — the queue job carries the model expansion will ACTUALLY use,
   // which is the caller's current selection. This used to overwrite the body's
   // model with the outline snapshot's, so a stale recorded id reached the

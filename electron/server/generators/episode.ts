@@ -31,6 +31,10 @@ import {
   checkpointScriptDocumentRequest,
   readSidecar,
   producerNotesBlock,
+  recordVerifiedChapter,
+  defaultExpansionBatchSetting,
+  missingRequestedChapters,
+  type ExpansionBatchSetting,
   type ChunkedNarrationParams,
   type ChunkedMode,
   type GenerationParams,
@@ -504,6 +508,25 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
       missing: saved?.size ? [] : [`Chapter ${chapterNumber} file`],
       retry_hint: 'Retry writes the chapter again.',
     })
+    // 1.4.359 — a verified write must also reach the outline's own progress
+    // record, under the same rule that decides completion everywhere else: the
+    // file on disk is the proof and nothing else counts. KOM3's Chapter 7 was
+    // written here and the sidecar still read chapters_done without it, so
+    // every reader of that record believed the chapter was missing.
+    //
+    // An episode with no outline sidecar has no chapters_done to merge into, and
+    // `recordVerifiedChapter` says so without inventing one. A failed PROGRESS
+    // write is reported rather than thrown: the chapter really is on disk and
+    // verified, and the next expansion reconciles chapters_done from disk, so
+    // failing the job here would only make the operator write it again.
+    try {
+      await recordVerifiedChapter(job, paths.script_dir, episode_id, chapterNumber)
+    } catch (error: any) {
+      job.output_lines.push(
+        `Could not record Chapter ${chapterNumber} in the outline's progress list (${error?.message || error}). `
+        + 'Its file is written and verified; the next expansion re-reads it from disk.',
+      )
+    }
   } finally {
     clearInterval(cancelWatcher)
   }
@@ -910,6 +933,13 @@ async function setupChunkedJobContext(
     ? manualGuidanceRaw.trim()
     : undefined
 
+  // 1.4.359 — the channel's "Chapters per request" setting. A LIVE preference,
+  // so the REQUEST outranks the sidecar snapshot that every other field here
+  // prefers: the owner can change how many chapters ride in one request and
+  // re-expand straight away. Absent everywhere = this mode's own default, so a
+  // run with no setting behaves exactly as it did before the setting existed.
+  const expansionBatch = resolveExpansionBatchSetting(req, snapshot)
+
   // v1.0.166 — Pattern fusion removed with the Pattern system.
 
   const characters = characterIds?.length
@@ -953,6 +983,9 @@ ${narratorStyle}`
     character_ids: characterIds,
     custom_style_text: customStyleText,
     manual_guidance: manualGuidance,
+    chapter_batch_mode: expansionBatch.mode,
+    chapters_per_request: expansionBatch.chapters ?? undefined,
+    chapter_batch_words: expansionBatch.words,
     ...(pipelinePolicy
       ? { pipeline_model_policy: pipelinePolicy }
       : {}),
@@ -975,6 +1008,7 @@ ${narratorStyle}`
     force: !!(job.params as any).force,
     manualGuidance,
     generationParams,
+    expansionBatch,
     pipelineModelPolicy: generationParams.pipeline_model_policy,
     pipelinePolicyCheckpoint: pipelinePolicyCheckpointStore(jobParams, () => jq.checkpointJobState(job)),
     genstudioChatRecoveryPreview: job.genstudio_chat_recovery_preview,
@@ -993,6 +1027,32 @@ export async function chapterOnce(job: Job, assembled: { repeated_chapters: numb
   if (!assembled.repeated_chapters.length) return
   await safetyGate(job.project_slug, 'chapter_once', job,
     `Chapter ${assembled.repeated_chapters.join(', ')} is saved more than once (a .md and an older .docx); Story uses it once in the narration.`)
+}
+
+/**
+ * The channel's "Chapters per request" setting, from the run's own params.
+ *
+ * The REQUEST wins over the outline sidecar's snapshot, deliberately and in the
+ * opposite order to every other script field: this is reusable configuration the
+ * owner may change at any time (AGENTS.md §5), not episode state, so an expand
+ * run must honour the number that is set NOW rather than the one the outline
+ * happened to be built with. Nothing set anywhere = this format's own default,
+ * which is exactly what every run used before the setting existed.
+ */
+function resolveExpansionBatchSetting(
+  request: unknown,
+  snapshot: GenerationParams | null | undefined,
+): ExpansionBatchSetting {
+  const req = (request || {}) as Record<string, unknown>
+  const fallback = defaultExpansionBatchSetting()
+  const rawMode = req.chapter_batch_mode ?? snapshot?.chapter_batch_mode
+  const rawChapters = Number(req.chapters_per_request) || Number(snapshot?.chapters_per_request) || 0
+  const rawWords = Number(req.chapter_batch_words) || Number(snapshot?.chapter_batch_words) || 0
+  return {
+    mode: rawMode === 'length' ? 'length' : 'count',
+    chapters: rawChapters > 0 ? Math.floor(rawChapters) : fallback.chapters,
+    words: rawWords > 0 ? Math.floor(rawWords) : fallback.words,
+  }
 }
 
 /**
@@ -1089,6 +1149,36 @@ export async function generateExpandChapters(job: Job): Promise<void> {
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
 
     completion = await inspectChunkedScriptCompletion(paths.script_dir, job.episode_id)
+
+    // 1.4.359 — a run that was ASKED for specific chapters must never report
+    // success while one of them is missing. This is the check that was absent
+    // on 2026-10-25: Komsan's scoped expansions asked for chapters 1-2 and 2,
+    // the provider truncated the batch, and the jobs ended `done` with 0 of 8
+    // chapter files on disk (jobs ec973e7a / 71e2f3c3). Filtered runs used to
+    // skip the completion rule entirely because a selection is ALLOWED to leave
+    // the rest of the script unwritten — but it is not allowed to leave the
+    // selection itself unwritten.
+    //
+    // Hard failure, not the safety-check carry-on: the customer named these
+    // chapters, so "some were written" is not a defensible success. The
+    // chapters that did land stay on disk and chapters_done already records
+    // them, so Retry asks only for the missing ones — no rewrite, no recharge.
+    if (chaptersFilter?.length) {
+      const missingRequested = missingRequestedChapters(chaptersFilter, completion.missing)
+      if (missingRequested.length) {
+        requireJobCompletion(job, {
+          label: 'Chapter expansion',
+          expected: chaptersFilter.length,
+          completed: chaptersFilter.length - missingRequested.length,
+          missing: missingRequested.map(n => `Chapter ${n}`),
+          item_name: 'selected chapter',
+          message: `Chapter expansion incomplete: the selected chapter(s) ${missingRequested.join(', ')} were not written. `
+            + `${chaptersFilter.length - missingRequested.length} of ${chaptersFilter.length} selected chapter(s) finished and were kept. `
+            + 'Retry writes only the missing chapters; the finished ones are not requested again or charged again.',
+        })
+      }
+    }
+
     // A deliberately filtered manual run is allowed to remain partial. The
     // strict whole-script postcondition applies to "expand all" and Pipeline
     // runs, where success must mean the complete approved outline is present.
