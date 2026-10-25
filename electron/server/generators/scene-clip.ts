@@ -506,6 +506,7 @@ export async function generateSketchDrawBatch(job: Job, render = renderSketchDra
       jq.throwIfPauseRequested(job.job_id)
       const scene = plan.scenes.find(item => item.id === sceneId)
       if (scene?.motion_choice === 'still') continue
+      let retried = false
       try {
         if (!scene) throw new Error('missing from Scene Plan')
         job.params = { ...originalParams, scene_id: sceneId, auto_approve_clip: autoApprove }
@@ -513,6 +514,20 @@ export async function generateSketchDrawBatch(job: Job, render = renderSketchDra
       } catch (error) {
         if (jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id) || error instanceof jq.JobPausedError) throw error
         const reason = error instanceof Error ? error.message : String(error)
+        // One retry for a timeout: contention can make a single frame stall; the second attempt usually clears.
+        if (!retried && /timed out after \d+s/i.test(reason)) {
+          retried = true
+          job.output_lines.push(`Scene ${sceneId} timed out — retrying once before giving up.`)
+          try {
+            job.params = { ...originalParams, scene_id: sceneId, auto_approve_clip: autoApprove }
+            await generateSketchDrawSceneClip(job, render)
+          } catch (retryErr) {
+            const retryReason = retryErr instanceof Error ? retryErr.message : String(retryErr)
+            failures.push(`${sceneId}: ${retryReason}`)
+            job.output_lines.push(`Scene ${sceneId} failed on retry: ${retryReason}. Other verified clips are kept.`)
+          }
+          continue
+        }
         failures.push(`${sceneId}: ${reason}`)
         job.output_lines.push(`Scene ${sceneId} failed: ${reason}. Other verified clips are kept.`)
       }

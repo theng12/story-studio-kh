@@ -477,11 +477,19 @@ func renderSketch(_ job: SketchJob) {
     guard writer.startWriting() else { fail(4, "sketch start: \(writer.error?.localizedDescription ?? "?")") }
     writer.startSession(atSourceTime: .zero)
     var index = 0
+    var maxWaitNs: UInt64 = 0
     func emit(_ point: CGPoint?, _ reuse: CVPixelBuffer? = nil) -> CVPixelBuffer {
+        let waitStart = DispatchTime.now().uptimeNanoseconds
         while !input.isReadyForMoreMediaData {
-            if writer.status == .failed { fail(4, "sketch encoder: \(writer.error?.localizedDescription ?? "?")") }
-            usleep(300)
+            if writer.status == .failed || writer.status == .cancelled {
+                fail(4, "sketch encoder \(writer.status == .cancelled ? "cancelled" : "failed"): \(writer.error?.localizedDescription ?? "unknown error") at frame \(index)")
+            }
+            let waited = Double(DispatchTime.now().uptimeNanoseconds - waitStart) / 1e9
+            if waited > 300.0 { fail(4, "sketch encoder stall: waited \(Int(waited))s for isReadyForMoreMediaData at frame \(index); writer status=\(writer.status.rawValue)") }
+            usleep(3000)
         }
+        let waitNs = DispatchTime.now().uptimeNanoseconds - waitStart
+        if waitNs > maxWaitNs { maxWaitNs = waitNs }
         let pb: CVPixelBuffer
         if let reuse = reuse { pb = reuse } else {
             var value: CVPixelBuffer?
@@ -542,8 +550,12 @@ func renderSketch(_ job: SketchJob) {
     input.markAsFinished()
     writer.endSession(atSourceTime: CMTime(value: CMTimeValue(job.frames) * 512, timescale: timescale))
     let sem = DispatchSemaphore(value: 0)
-    writer.finishWriting { sem.signal() }; sem.wait()
-    guard writer.status == .completed else { fail(4, "sketch finish: \(writer.error?.localizedDescription ?? "?")") }
+    writer.finishWriting { sem.signal() }
+    if sem.wait(timeout: .now() + 180) == .timedOut { fail(4, "sketch finish stall: finishWriting did not complete within 180s; writer status=\(writer.status.rawValue)") }
+    guard writer.status == .completed else { fail(4, "sketch finish \(writer.status == .failed ? "failed" : writer.status == .cancelled ? "cancelled" : "incomplete"): \(writer.error?.localizedDescription ?? "unknown error")") }
     let elapsed = Double(DispatchTime.now().uptimeNanoseconds - began) / 1e9
     FileHandle.standardError.write(Data(String(format: "scene-clip sketch: %d regions, %d strokes, %d drawing + %d hold = %d frames, %.3fs\n", regions.count, strokes.count, drawing, hold, job.frames, elapsed).utf8))
+    if ProcessInfo.processInfo.environment["SCENE_CLIP_PROFILE"] != nil {
+        FileHandle.standardError.write(Data(String(format: "scene-clip sketch profile: max isReadyForMoreMediaData wait %.3fs\n", Double(maxWaitNs) / 1e9).utf8))
+    }
 }
