@@ -154,6 +154,59 @@ async function growSetup() {
   return { temp, pm, grow, grownPack, supply, settings, project, set, answer, hash, originalFile, dir: pm.getProjectDir(project.slug)! }
 }
 
+test('idea helpers read live language for grown and covered text; category lookup keys stay English', async () => {
+  const t = await growSetup()
+  try {
+    await t.set({ grow_packs: true })
+    const covered = await import('../services/covered-topics.js')
+    const { languageDirective } = await import('../lib/content-language.js')
+    for (const [index, language] of (['km', 'en', null] as const).entries()) {
+      await t.pm.updateProject(t.project.slug, { content_language: language })
+      let growPrompt = ''
+      const grown = await t.grow.growTopicPack(t.project.slug, {
+        trigger: 'manual', deps: {
+          checkModel: async () => {},
+          callModel: async (_model, prompt) => {
+            growPrompt = prompt
+            return JSON.stringify({ subjects: [{ name: `New subject ${index}`, why_it_fits: 'Fits this channel' }] })
+          },
+        },
+      })
+      assert.equal(grown.added.length, 1)
+      let mapPrompt = ''
+      const result = await covered.updateCoveredMap({
+        slug: t.project.slug, helperModel: 'helper::m', formulaId: 'history-narration',
+        channelName: 'Language channel', history: [{ id: `history-${index}`, title: `Subject ${index}` }],
+        deps: {
+          checkModel: async () => {},
+          callModel: async (_model, prompt) => {
+            mapPrompt = prompt
+            return JSON.stringify({ add: { subjects: [{ name: `Subject ${index}`, count: 1 }] } })
+          },
+        },
+      })
+      assert.equal(result.added, 1)
+      for (const prompt of [growPrompt, mapPrompt]) {
+        if (language) assert.ok(prompt.includes(languageDirective(language)))
+        else assert.doesNotMatch(prompt, /audience-facing text/)
+      }
+      let categoryPrompt = ''
+      const categories = await t.grow.suggestReferenceCategories(t.project.slug, {
+        checkModel: async () => {},
+        callModel: async (_model, prompt) => {
+          categoryPrompt = prompt
+          return JSON.stringify({ categories: ['Category:Spices'] })
+        },
+      })
+      assert.deepEqual(categories, ['Category:Spices'])
+      assert.match(categoryPrompt, /English Wikipedia category names/)
+      assert.doesNotMatch(categoryPrompt, /audience-facing text/)
+    }
+  } finally {
+    await t.temp.cleanup()
+  }
+})
+
 test('grow: add-only into the channel’s own pack; originals untouched; .topic-packs backed up first', async () => {
   const t = await growSetup()
   try {
@@ -211,6 +264,7 @@ test('grow: same-meaning subjects are left out when an embeddings model is set; 
 test('grow with real sources: only Wikipedia candidates are kept, with their category and link', async () => {
   const t = await growSetup()
   try {
+    await t.pm.updateProject(t.project.slug, { content_language: 'km' })
     await t.set({ grow_packs: true, real_sources: true, reference_categories: ['Category:Russian drinks'] })
     const wiki = fakeWikipedia([wikiPage('Kvass'), wikiPage('Sbiten'), wikiPage('Tea')])
     let prompt = ''
@@ -221,6 +275,8 @@ test('grow with real sources: only Wikipedia candidates are kept, with their cat
     }
     const result = await t.grow.growTopicPack(t.project.slug, { trigger: 'manual', deps })
     assert.match(prompt, /CANDIDATES FROM WIKIPEDIA — choose ONLY from these/)
+    assert.match(prompt, /Write ALL audience-facing text in Khmer/)
+    assert.match(prompt, /copy name unchanged; write why_it_fits in the channel language/)
     assert.doesNotMatch(prompt, /- Tea —/, 'an existing subject is not offered as a candidate')
     assert.deepEqual(result.added.map(entry => [entry.subject, entry.source, entry.source_url]), [['Kvass', 'wikipedia:Category:Russian drinks', 'https://en.wikipedia.org/wiki/Kvass']])
     assert.ok(result.notes.some(note => /not on the Wikipedia list/.test(note)))

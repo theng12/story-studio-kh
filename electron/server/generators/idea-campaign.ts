@@ -29,6 +29,7 @@ import {
   resolveFormulaEpisodeProfile,
 } from '../services/formula-production-kit.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { normalizeContentLanguage, projectContentLanguageDirective } from '../lib/content-language.js'
 import { applyEmojiPolicy, NO_EMOJI_DIRECTIVE } from '../lib/emoji-policy.js'
 import { recentCharacterNamesAvoidance } from '../services/recent-character-names.js'
 import { buildFreeformIdeaPrompt, generateFreeformIdeaBatch, renderRealSubjectsBlock, renderVarietyBlock, rewriteLeadingCount, varietySeedLabel, varietySlots, type AvoidItem, type VarietySlot } from '../services/freeform-idea-generation.js'
@@ -97,6 +98,12 @@ function campaignPrompt(options: {
   assignments: IdeaAssignment[]
   avoid: SimilarityCandidate[]
   standards?: string | null
+  /**
+   * The audience-language directive for this campaign, from the channel's live
+   * `content_language`. '' (the default) adds nothing, so an unset language
+   * leaves this prompt byte-identical.
+   */
+  languageDirectiveText?: string
 }): string {
   const { request, format, assignments } = options
   const assignmentBlock = assignments
@@ -131,9 +138,16 @@ function campaignPrompt(options: {
     request.creative_direction?.trim() ? `Creative direction: ${request.creative_direction.trim()}` : '',
   ].filter(Boolean).join('\n')
 
+  // The directive sits with the binding contract, before the reserved assignments the model must
+  // satisfy: the language is read as part of the job, not after the subjects are chosen. '' adds
+  // nothing, so the prompt for a channel with no language is byte-identical.
+  const languageBlock = options.languageDirectiveText
+    ? `\n${options.languageDirectiveText}\nApply this to every returned text value, including title, logline, each theme, mood and suggested_length. Keep JSON keys and idea_key unchanged.`
+    : ''
+
   return `Generate exactly ${assignments.length} distinct episode ideas, one for each RESERVED ASSIGNMENT below.
 The assignments were selected by Story Studio's coverage planner. They are binding.
-Each assignment carries its own Formula role and guidance. Apply only the contract printed beneath that assignment.
+Each assignment carries its own Formula role and guidance. Apply only the contract printed beneath that assignment.${languageBlock}
 
 RESERVED ASSIGNMENTS:
 ${assignmentBlock}
@@ -239,13 +253,23 @@ function fallbackNiche(format: Format, request: IdeaCampaignParams): Niche {
  * object is a truer test of obedience than matching a category noun. Either
  * match counts; a model that mentions neither has genuinely gone elsewhere.
  */
-function mentionsSubject(item: any, assignment: IdeaAssignment): boolean {
+type SubjectCheck = 'match' | 'drift' | 'unmeasurable'
+
+/**
+ * The overlap test reads English tokens, so for a channel writing in another language it can
+ * only say "I cannot tell" (AGENTS.md §6), never "drifted": a Khmer idea shares no token with
+ * an English anchor however faithful it is.
+ */
+function checkSubject(item: any, assignment: IdeaAssignment, contentLanguage: unknown): SubjectCheck {
   const anchors = [assignment.dimensions.subject, assignment.dimensions['episode-object']]
   const anchorTokens = new Set(anchors.flatMap(value => tokenize(value || '')))
   // No anchor to check against is not evidence of drift.
-  if (!anchorTokens.size) return true
+  if (!anchorTokens.size) return 'match'
+  const language = normalizeContentLanguage(contentLanguage)
+  if (language && language !== 'en') return 'unmeasurable'
   const outputTokens = new Set(tokenize(`${item?.title || ''} ${item?.logline || ''}`))
-  return [...anchorTokens].some(token => outputTokens.has(token))
+  if (!outputTokens.size) return 'unmeasurable'
+  return [...anchorTokens].some(token => outputTokens.has(token)) ? 'match' : 'drift'
 }
 
 function normalizeIdea(
@@ -425,6 +449,12 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   // 1.4.285 idea upgrades: read once at job start; a running job never changes behaviour mid-run.
   // All off (the default) leaves every prompt and every saved idea exactly as before.
   const upgrades = readIdeaUpgrades(config)
+  // The channel's audience language, read once at job start beside the upgrades for the same
+  // reason: every batch in this campaign carries one instruction, and a language the owner changes
+  // mid-run is picked up by the NEXT campaign rather than applied half-way through this one. Unset
+  // (the default) is '' and leaves both prompts byte-identical.
+  const languageDirectiveText = projectContentLanguageDirective(project)
+  let subjectCheckSkipNoted = false
   // `on` also rejects by meaning; both modes log every candidate's nearest score.
   const watching = upgrades.semantic_dedupe !== 'off'
   const enforcing = upgrades.semantic_dedupe === 'on' && request.avoid_repeated_ideas !== false
@@ -599,7 +629,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
           : []
         let prompt = replayBatch?.prompt ?? withBlock(withBlock(withBlock(withNamesAvoidance(buildFreeformIdeaPrompt(
           requestForBatch, format, standards, avoid, undefined,
-          request.title_template, undefined,
+          request.title_template, undefined, languageDirectiveText,
         ), namesAvoidance), coveredBlock), renderVarietyBlock(slots)), renderRealSubjectsBlock(realSubjects))
         batchRecord = replayBatch ?? {
           ordinal, count, model: request.model, prompt,
@@ -652,6 +682,7 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         job.output_lines.push((replayBatch ? 'Collecting coverage batch ' : 'Generating coverage batch ') + calls + ': ' + assignments.length + ' reserved idea(s)…')
         const prompt = replayBatch ? replayBatch.prompt : withBlock(withNamesAvoidance(campaignPrompt({
           request, format, niche: plannerNiche, assignments, avoid: similarityPool, standards,
+          languageDirectiveText,
         }), namesAvoidance), coveredBlock)
         batchRecord = replayBatch ?? {
           ordinal, count: assignments.length, model: request.model, prompt,
@@ -695,10 +726,15 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
             reject(assignment.fingerprint)
             continue
           }
-          if (!mentionsSubject(item, assignment)) {
+          const subject = checkSubject(item, assignment, project?.content_language)
+          if (subject === 'drift') {
             job.output_lines.push('  ↻ ' + assignment.idea_key + ': output drifted from assigned subject; replacing slot.')
             reject(assignment.fingerprint)
             continue
+          }
+          if (subject === 'unmeasurable' && !subjectCheckSkipNoted) {
+            subjectCheckSkipNoted = true
+            job.output_lines.push(`Subject check skipped: the ideas are in ${normalizeContentLanguage(project?.content_language) === 'km' ? 'Khmer' : 'a language'} this check cannot compare.`)
           }
           candidates.push(normalizeIdea(
             {
@@ -981,4 +1017,4 @@ export async function watchImportedIdeas(
  * than a copy of it in a test file, which is how a rule and its test quietly
  * stop agreeing.
  */
-export const __ideaCampaignInternals = { campaignPrompt, mentionsSubject }
+export const __ideaCampaignInternals = { campaignPrompt, checkSubject }
