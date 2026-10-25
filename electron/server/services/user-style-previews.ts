@@ -92,6 +92,36 @@ export interface UserStylePreviewStyle {
   negative_prompt?: string
 }
 
+/**
+ * The store key that makes two channels' identical style text share ONE set of
+ * three previews.
+ *
+ * The owner's rule, 2026-10-25: every art style — a signed pack's, one of the
+ * owner's own, or a channel's own custom style — shows exactly three previews
+ * (hero, empty scene, hardest legal case). A channel's custom styles live in
+ * `ProjectConfig.style_presets` as a `description`, so they have no registry id
+ * to key a store by — and on the owner's Mac all 215 channel styles across ~17
+ * channels are only 34 distinct texts, copied channel to channel.
+ *
+ * So a channel style's previews are addressed by THE HASH OF ITS OWN TEXT, and
+ * this key names that entry. Two channels whose style text hashes the same read
+ * and write one entry, so the second channel's render is a SKIP for all three
+ * slots rather than three more paid images.
+ *
+ * The `text:` prefix is what keeps the two kinds of key apart: a user style
+ * pack's registry-qualified id (`kh.art-styles.dreamlands`) never contains a
+ * colon, so a shared entry can never be mistaken for one of the owner's styles,
+ * and vice versa.
+ */
+export function sharedStylePreviewKeyForHash(sourceHash: string): string {
+  return `text:${sourceHash}`
+}
+
+/** The shared store key for one style text. */
+export function sharedStylePreviewKey(style: UserStylePreviewStyle): string {
+  return sharedStylePreviewKeyForHash(hashUserStyleSource(style))
+}
+
 /** Where a stored preview is served from. Content-addressed, so it is immutable. */
 export function userStylePreviewUrl(hash: string): string {
   return `/api/user-style-previews/assets/${hash}`
@@ -230,6 +260,30 @@ export async function publishUserStylePreviews(
     }),
     stale: entry.source_hash !== hashUserStyleSource(style),
   }
+}
+
+/**
+ * The slots stored for one style TEXT, hero first and present ones only.
+ *
+ * This is the read side of the shared key: a channel style has no id to store
+ * an entry under, only its text, so its caller already holds the text hash and
+ * asks for the entry that hash names. Keyed by the hash rather than by a preset
+ * id, the same three images answer for every channel whose style text hashes the
+ * same — and the entry's own `source_hash` is checked, so bytes that describe
+ * some other text are never published as this one's (§6: an empty answer and a
+ * wrong answer must not look alike, so a mismatch returns no slots at all).
+ */
+export async function sharedStylePreviewSlots(
+  sourceHash: string,
+  paths?: ContentPackRuntimePaths,
+): Promise<Array<{ slot: UserStylePreviewSlot; url: string; hash: string }>> {
+  if (!ASSET_HASH.test(sourceHash)) return []
+  const entry = await readUserStylePreviewEntry(sharedStylePreviewKeyForHash(sourceHash), paths)
+  if (!entry || entry.source_hash !== sourceHash) return []
+  return USER_STYLE_PREVIEW_SLOTS.flatMap(slot => {
+    const stored = entry.slots[slot]
+    return stored ? [{ slot, url: userStylePreviewUrl(stored.hash), hash: stored.hash }] : []
+  })
 }
 
 /** The absolute path of one stored preview, or null. Strict: a 64-hex id and nothing else. */

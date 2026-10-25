@@ -54,15 +54,30 @@ describe('scalable Content Pack style library', () => {
     assert.doesNotMatch(projectLibrary, /const\s+styles\s*=\s*\[/)
   })
 
-  test('uses the live Gateway image catalog and one representative style proof', () => {
+  test('uses the live Gateway image catalog and the same three previews for a channel style', () => {
     assert.match(projectLibrary, /<ImageModelPicker/)
     assert.match(projectLibrary, /useGenStudioImageModels/)
-    assert.match(projectLibrary, /Generate Style Proof/)
-    assert.match(projectLibrary, /id: 'style-proof'/)
+    // A channel style renders the three framings, not one representative proof.
+    assert.match(projectLibrary, /Generate Previews/)
+    assert.match(projectLibrary, /STYLE_PREVIEW_SLOTS/)
+    assert.match(projectLibrary, /channel-style-previews/)
+    assert.doesNotMatch(projectLibrary, /id: 'style-proof'/)
     assert.doesNotMatch(projectLibrary, /Generate 5 live samples/)
     assert.doesNotMatch(projectLibrary, /props\.imageModels/)
     assert.match(modal, /<ImageModelPicker/)
     assert.doesNotMatch(modal, /props\.imageModels/)
+  })
+
+  test('the bulk action covers the channel\'s own custom styles as well as the owner\'s', () => {
+    assert.match(modal, /stylePreviewBulkTargets/)
+    assert.match(modal, /channelStyleStates/)
+    assert.match(modal, /channel-style-previews/)
+    // One image at a time, cancellable between images — the shared queue.
+    assert.match(modal, /runPreviewQueue/)
+    assert.match(modal, /cancelBulkPreviews/)
+    // The model that renders those paid images is the customer's own visible
+    // choice, so the picker cannot be hidden behind the broken-preview notice.
+    assert.match(modal, /showPreviewModelPicker/)
   })
 
   test('both preview helpers use the shared locked and Economy-only selection policy', () => {

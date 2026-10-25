@@ -18,11 +18,11 @@
             v-if="!bulkRunning"
             type="button"
             class="btn btn-secondary btn-sm"
-            :disabled="!previewModel || !bulkTargets.length"
+            :disabled="!previewModel || !bulkTargetCount"
             :title="bulkDisabledReason"
             @click="generateAllMissingPreviews"
           >
-            Generate previews for all styles without one<span v-if="bulkTargets.length"> ({{ bulkTargets.length }})</span>
+            Generate previews for all styles without one<span v-if="bulkTargetCount"> ({{ bulkTargetCount }})</span>
           </button>
           <button v-else type="button" class="btn btn-secondary btn-sm" @click="cancelBulkPreviews">Stop</button>
           <p v-if="bulkStatus" class="slm-bulk-status" role="status">{{ bulkStatus }}</p>
@@ -55,8 +55,11 @@
         </div>
       </div>
 
-      <div v-if="hasBrokenPackPreview" class="slm-fallback">
-        <span>One or more Content Pack previews could not load.</span>
+      <div v-if="showPreviewModelPicker" class="slm-fallback" :class="{ 'slm-fallback-warn': hasBrokenPackPreview }">
+        <span v-if="hasBrokenPackPreview">One or more Content Pack previews could not load.</span>
+        <span v-else>
+          The missing previews will be rendered with the image model chosen here{{ bulkTargetCount ? ` (${bulkTargetCount} style${bulkTargetCount === 1 ? '' : 's'} still without one)` : '' }}.
+        </span>
         <ImageModelPicker
           v-model="previewModel"
           :project-slug="projectSlug"
@@ -214,9 +217,14 @@
 import { type VisualStyleCatalogItem, useVisualStyleCatalog } from '~/composables/useVisualStyleCatalog'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import {
+  STYLE_PREVIEW_SLOTS,
+  STYLE_PREVIEW_SLOT_LABELS,
+  channelStylePreviewDisplay,
   runPreviewQueue,
-  userStylesNeedingPreviews,
-  type PreviewQueueEntry,
+  stylePreviewBulkTargets,
+  type ChannelStylePreviewState,
+  type StylePreviewBulkTarget,
+  type StylePreviewSlot,
 } from '~/utils/style-preview-queue'
 
 const props = withDefaults(defineProps<{
@@ -234,7 +242,7 @@ const emit = defineEmits<{
   (e: 'select', style: VisualStyleCatalogItem): void
 }>()
 
-const { post } = useApi()
+const { post, get } = useApi()
 const {
   styles,
   loading: visualStylesLoading,
@@ -254,18 +262,14 @@ const PREVIEW_MODEL_KEY = 'story-studio:style-library:preview-model'
 const categories = computed(() => Array.from(new Set(styles.value.map(style => style.category))).sort())
 
 /** The three previews every style shows, in the order the pager reads them. */
-const PREVIEW_SLOTS = ['hero', 'scene', 'face'] as const
-type PreviewSlot = typeof PREVIEW_SLOTS[number]
+const PREVIEW_SLOTS = STYLE_PREVIEW_SLOTS
+type PreviewSlot = StylePreviewSlot
 /**
  * What each image is, in the owner's own words
  * (`content-packs/PREVIEW-BACKFILL-2026-09-08.md`): the shot the style exists
  * for, a quiet wide scene with no figure in it, and the hardest legal case.
  */
-const PREVIEW_SLOT_LABELS: Record<PreviewSlot, string> = {
-  hero: 'the hero shot',
-  scene: 'the empty scene',
-  face: 'the hardest case',
-}
+const PREVIEW_SLOT_LABELS = STYLE_PREVIEW_SLOT_LABELS
 
 interface PreviewState {
   loading: boolean
@@ -291,10 +295,12 @@ const packPreviewFailed = ref<Record<string, boolean>>({})
 /** Which preview each card shows; the hero (0) until the customer pages. */
 const previewPage = ref<Record<string, number>>({})
 const previewStates = ref<Record<string, PreviewState>>({})
+/** This channel's own custom styles, as the channel-style-previews route resolves them. */
+const channelStyleStates = ref<ChannelStylePreviewState[]>([])
 const previewModel = ref('')
 const previewAspect = ref('16:9')
 const searchInput = ref<HTMLInputElement | null>(null)
-/** The bulk action runs ONE style at a time; a stop is honoured between styles. */
+/** The bulk action runs ONE image at a time; a stop is honoured between images. */
 const bulkRunning = ref(false)
 const bulkCancelled = ref(false)
 const bulkStatus = ref('')
@@ -306,13 +312,33 @@ const selectedImageModel = computed(() =>
 // rather than an invented '16:9' the customer would take for the model's own.
 const aspectOptions = computed<string[]>(() => selectedImageModel.value?.aspect_ratios?.filter(Boolean) || [])
 const hasBrokenPackPreview = computed(() => Object.keys(packPreviewFailed.value).length > 0)
+/**
+ * The model picker is shown whenever there is preview work to do, not only when
+ * a pack preview breaks: every image the bulk action renders is PAID, so the
+ * model that will render them has to be the customer's own visible choice (§1),
+ * never a picker this modal kept off screen.
+ */
+const showPreviewModelPicker = computed(() => hasBrokenPackPreview.value || bulkTargetCount.value > 0)
 const draftStyle = computed(() => styles.value.find(style => style.id === draftStyleId.value) || null)
-/** The owner's own styles with no current previews — what the bulk action is for. */
-const bulkTargets = computed(() => userStylesNeedingPreviews(styles.value))
+/**
+ * Everything the bulk action covers: the owner's own styles AND this channel's
+ * own custom styles, with a channel style asked for ONCE PER DISTINCT TEXT (the
+ * three images are held once per text in the shared store).
+ */
+const bulkEntries = computed(() => stylePreviewBulkTargets({
+  userStyles: styles.value,
+  channelStyles: channelStyleStates.value,
+}))
+const bulkTargetCount = computed(() => bulkEntries.value.length)
 const bulkDisabledReason = computed(() => {
   if (!previewModel.value) return 'Choose an image model first'
-  if (!bulkTargets.value.length) return 'Every one of your own styles already has previews'
-  return `Render the missing previews for ${bulkTargets.value.length} of your own styles, one at a time`
+  if (!bulkTargetCount.value) return 'Every style in this channel already has previews'
+  const parts: string[] = []
+  const userCount = bulkEntries.value.filter(entry => entry.kind === 'user').length
+  const channelCount = bulkEntries.value.filter(entry => entry.kind === 'channel').length
+  if (userCount) parts.push(`${userCount} of your own style${userCount === 1 ? '' : 's'}`)
+  if (channelCount) parts.push(`${channelCount} of this channel's custom style${channelCount === 1 ? '' : 's'}`)
+  return `Render the missing previews for ${parts.join(' and ')}, one image at a time`
 })
 const filters = computed(() => [
   { id: 'all', label: 'All styles', count: styles.value.length },
@@ -349,6 +375,9 @@ watch(() => props.visible, async (visible) => {
   draftStyleId.value = props.selectedStyleId || recentIds.value[0] || ''
   query.value = ''
   activeFilter.value = 'all'
+  // This channel's own styles are previewed from the same store as the owner's,
+  // so the bulk action has to know which of them still need images.
+  void loadChannelStyleStates()
   await nextTick()
   searchInput.value?.focus({ preventScroll: true })
 })
@@ -381,6 +410,9 @@ onMounted(() => {
   previewModel.value = readStoredPreviewModel()
   void refreshGenStudioImageModels()
   void refreshVisualStyles()
+  // The bulk action counts this channel's own styles too, so it must know them
+  // even if the modal is mounted already-open.
+  void loadChannelStyleStates()
 })
 
 function readStoredIds(key: string): string[] {
@@ -491,7 +523,11 @@ async function generateSignedStyleProof(style: VisualStyleCatalogItem): Promise<
  * right now, and reports every failure BY NAME (§8). When a slot fails, retry
  * asks only for that slot.
  */
-async function generateUserStylePreviewsFor(style: VisualStyleCatalogItem, force = false): Promise<void> {
+async function generateUserStylePreviewsFor(
+  style: VisualStyleCatalogItem,
+  force = false,
+  shouldStop: () => boolean = () => false,
+): Promise<void> {
   const currentImages = style.preview_images || []
   // Which slots are missing. An edited style whose previews are stale re-renders
   // all three; an unstale style only renders what has never succeeded.
@@ -510,6 +546,9 @@ async function generateUserStylePreviewsFor(style: VisualStyleCatalogItem, force
 
   const failures: Array<{ slot: string; error: string }> = []
   for (const [position, slot] of targetSlots.entries()) {
+    // A stop is honoured between IMAGES, never in the middle of one: the render
+    // already in flight finishes, and nothing further is spent.
+    if (shouldStop()) break
     const slotNumber = position + 1
     const slotLabel = PREVIEW_SLOT_LABELS[slot]
     previewStates.value[style.id] = {
@@ -563,30 +602,96 @@ async function generateUserStylePreviewsFor(style: VisualStyleCatalogItem, force
 }
 
 /**
- * Bulk action: generate previews for every one of the owner's styles that lacks
- * them, queueing one style at a time, cancellable.
+ * Render the missing previews for one of this channel's own custom styles.
+ *
+ * A channel style has no card in this modal — it is edited on the Settings page —
+ * so its progress goes to the bulk line rather than to a card's own status. The
+ * missing slots come from what the route says the style shows now: a style whose
+ * previews were made from an older text has none for the text it has, so all
+ * three are rendered, and its older images stay on disk.
+ */
+async function generateChannelStylePreviewsFor(
+  target: { style_tag: string; label: string },
+  onProgress?: (text: string) => void,
+  shouldStop: () => boolean = () => false,
+): Promise<void> {
+  const state = channelStyleStates.value.find(candidate => candidate.style_tag === target.style_tag)
+  const missing: PreviewSlot[] = state ? channelStylePreviewDisplay(state).missing : [...PREVIEW_SLOTS]
+  if (!missing.length) return
+
+  const failures: string[] = []
+  for (const [position, slot] of missing.entries()) {
+    // A stop is honoured between IMAGES, never in the middle of one.
+    if (shouldStop()) break
+    const slotLabel = PREVIEW_SLOT_LABELS[slot]
+    onProgress?.(`Rendering ${slotLabel} (${position + 1} of ${missing.length}) · ${target.label}`)
+    try {
+      const response = await post<{ failed: Array<{ slot: string; error: string }> }>(
+        `/projects/${props.projectSlug}/channel-style-previews`,
+        {
+          style_tag: target.style_tag,
+          model: previewModel.value,
+          aspect_ratio: previewAspect.value,
+          slots: [slot],
+        },
+      )
+      for (const failure of response.failed || []) {
+        failures.push(`${PREVIEW_SLOT_LABELS[failure.slot as PreviewSlot] || failure.slot}: ${failure.error}`)
+      }
+    } catch (error: any) {
+      failures.push(`${slotLabel}: ${error?.data?.detail || error?.message || 'Preview failed'}`)
+    }
+  }
+
+  await loadChannelStyleStates()
+  if (failures.length) throw new Error(failures.join('; '))
+}
+
+async function loadChannelStyleStates(): Promise<void> {
+  try {
+    const data = await get<{ styles?: ChannelStylePreviewState[] }>(
+      `/projects/${props.projectSlug}/channel-style-previews`,
+    )
+    channelStyleStates.value = Array.isArray(data?.styles) ? data.styles : []
+  } catch {
+    // A channel whose styles cannot be listed simply contributes no bulk work;
+    // every path that renders previews still works from the style itself.
+    channelStyleStates.value = []
+  }
+}
+
+/** One thing the bulk action renders: one of the owner's styles, or one style text. */
+type BulkQueueEntry = StylePreviewBulkTarget
+
+/**
+ * Bulk action: generate previews for every style in this channel that lacks
+ * them — the owner's own styles AND this channel's custom styles — queueing one
+ * image at a time, cancellable between images.
  */
 async function generateAllMissingPreviews(): Promise<void> {
   if (bulkRunning.value || !previewModel.value) return
-  const targets = [...bulkTargets.value]
-  if (!targets.length) return
+  const entries: BulkQueueEntry[] = [...bulkEntries.value]
+  if (!entries.length) return
 
   bulkRunning.value = true
   bulkCancelled.value = false
-  bulkStatus.value = `Starting previews for ${targets.length} style${targets.length === 1 ? '' : 's'}…`
-
-  const entries: PreviewQueueEntry[] = targets.map(style => ({
-    key: style.id,
-    label: style.name,
-  }))
+  bulkStatus.value = `Starting previews for ${entries.length} style${entries.length === 1 ? '' : 's'}…`
 
   const outcome = await runPreviewQueue({
     entries,
     isCancelled: () => bulkCancelled.value,
     async generate(entry) {
-      const target = styles.value.find(s => s.id === entry.key)
+      if (entry.kind === 'channel') {
+        await generateChannelStylePreviewsFor(
+          { style_tag: entry.styleTag, label: entry.label },
+          (text) => { bulkStatus.value = `${text}…` },
+          () => bulkCancelled.value,
+        )
+        return
+      }
+      const target = styles.value.find(style => style.id === entry.styleId)
       if (!target) return
-      await generateUserStylePreviewsFor(target)
+      await generateUserStylePreviewsFor(target, false, () => bulkCancelled.value)
       const failed = previewStates.value[target.id]?.failures?.length
       if (failed) {
         throw new Error(`${failed} image${failed === 1 ? '' : 's'} could not render`)
@@ -640,7 +745,8 @@ function cancelBulkPreviews(): void {
 .slm-filter span { color: var(--text-muted); font-size: var(--font-xs); }
 .slm-filter:hover, .slm-filter.active { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); color: var(--text-primary); }
 .slm-filter.active { background: var(--accent-dim); color: var(--accent); }
-.slm-fallback { display: grid; grid-template-columns: auto minmax(220px, 1fr) 86px; align-items: center; gap: 10px; padding: 10px; border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--warning) 7%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-xs); }
+.slm-fallback { display: grid; grid-template-columns: auto minmax(220px, 1fr) 86px; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); color: var(--text-secondary); font-size: var(--font-xs); }
+.slm-fallback-warn { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); background: color-mix(in srgb, var(--warning) 7%, var(--bg-secondary)); }
 .slm-preview-model { min-width: 0; }
 .slm-results-head { display: flex; align-items: baseline; gap: 6px; color: var(--text-muted); font-size: var(--font-xs); }
 .slm-results-head strong { color: var(--text-primary); font-size: 12px; }

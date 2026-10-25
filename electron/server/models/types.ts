@@ -2027,6 +2027,23 @@ export interface StylePreset {
    *  can be saved description-only first, then have a preview attached
    *  later). */
   preview_saved_at?: string
+  /**
+   * Owner, 2026-10-25 — the hash of the style TEXT the three previews on screen
+   * were made from.
+   *
+   * A channel style's three previews are not stored here: they live in the
+   * shared content-addressed store, keyed by the hash of the style text, so the
+   * same text in seventeen channels is one set of three images generated once
+   * (`services/channel-style-previews.ts`). This field is only the POINTER that
+   * makes an edit visible: when the hash of `description` no longer matches it,
+   * the previews on screen were made from text this style no longer has, and
+   * they are shown as out of date rather than as current.
+   *
+   * Absent on presets whose previews predate the three framings — their
+   * `preview_files` are shown capped at three and out of date, and are never
+   * deleted.
+   */
+  preview_source_hash?: string
 }
 
 export interface ConfirmationPreferences {
@@ -2433,6 +2450,15 @@ export interface UpdateConfigRequest {
   audio_quality?: AudioQualityProjectConfig
   active_style_preset_id?: string
   thumbnail_template_id?: string
+  /**
+   * Declared rather than cast, for the same reason as the music fields below:
+   * `applyConfigRequest` is a pass-through with an exclude list, so this was
+   * always written correctly — the style-preset routes reached it through
+   * `as any` only because the interface was never widened. Declaring it means a
+   * write of the three previews' source pointer is type-checked instead of
+   * trusted (`services/channel-style-previews.ts`).
+   */
+  style_presets?: StylePreset[]
   /**
    * v1.4.37 — declared rather than cast. `applyConfigRequest` is a pass-through
    * with an exclude list, not an allowlist, so these were always written
