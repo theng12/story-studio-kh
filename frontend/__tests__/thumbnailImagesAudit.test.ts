@@ -261,3 +261,32 @@ test('Thumbnail templates: plain wording, failed load with Retry, unsaved-change
   assert.match(catalogPage, /image model draws each thumbnail's headline[\s\S]{0,80}gallery preview card/)
   assert.match(editor, /Sample title[\s\S]{0,300}Preview only — each episode puts its own title here\./)
 })
+
+test('thumbnail counts come from the ONE shared rule: three options by default, said plainly', () => {
+  const panel = read('../components/ImageGeneratorPanel.vue')
+  const page = read('../pages/projects/[slug]/image-prompts.vue')
+  const contract = read('../../electron/server/contracts/thumbnail-counts.ts')
+
+  // The board — where the candidates are — says plainly how many there are.
+  assert.match(panel, /\{\{ thumbnailOptionsLabel\(prompts\.length\) \}\} to choose from/)
+  assert.match(panel, /from '@shared\/thumbnail-counts'/)
+
+  // The page's default and bounds come from the shared contract, not a second copy.
+  assert.match(page, /thumb_count: DEFAULT_THUMBNAIL_COUNT,/)
+  assert.match(page, /:min="THUMBNAIL_COUNT_MIN"/)
+  assert.match(page, /:max="THUMBNAIL_COUNT_MAX"/)
+  assert.match(page, /from '@shared\/thumbnail-counts'/)
+  assert.equal((page.match(/thumb_count: 3\b/g) || []).length, 0, 'the default is not typed a second time')
+
+  // The number itself, and the words the customer reads.
+  assert.match(contract, /export const DEFAULT_THUMBNAIL_COUNT = 3\b/)
+  assert.match(contract, /return `\$\{count\} option\$\{count === 1 \? '' : 's'\}`/)
+
+  // A preset saved by an older build is normalised ON READ, never rewritten.
+  assert.match(page, /form\.thumbnail\.thumb_count = thumbnailCount\(form\.thumbnail\.thumb_count\)/)
+
+  // The seeded count-only preset must not stop the channel's own look and ratio
+  // from seeding: "supplied" is judged per KEY, not per preset.
+  assert.match(page, /const presetForm = \(thumbnailPresets\.activeData\.value as any\)\?\.form \?\? \{\}/)
+  assert.match(page, /!thumbnailPresets\.activeId\.value \|\| !Object\.prototype\.hasOwnProperty\.call\(presetForm, key\)/)
+})

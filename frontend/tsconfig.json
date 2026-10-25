@@ -16,6 +16,7 @@
       "@shared/narration-staleness": ["../electron/server/contracts/narration-staleness.ts"],
       "@shared/thumbnail-text": ["../electron/server/contracts/thumbnail-text.ts"],
       "@shared/thumbnail-overlay": ["../electron/server/contracts/thumbnail-overlay.ts"],
+      "@shared/thumbnail-counts": ["../electron/server/contracts/thumbnail-counts.ts"],
       "@shared/scene-effects": ["../electron/server/contracts/scene-effects.ts"],
       "@shared/scene-effect-presets": ["../electron/server/contracts/scene-effect-presets.ts"],
       "@shared/effect-loops": ["../electron/server/contracts/effect-loops.ts"],

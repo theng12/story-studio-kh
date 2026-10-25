@@ -15,6 +15,7 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import { readSelectedThumbnail, writeSelectedThumbnail, resolveOverrideEpisodePaths } from '../services/upload-overrides.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { freshActionMatch } from '../lib/fresh-generation-action.js'
+import { noThumbnailModelMessage, resolveThumbnailModel } from '../services/thumbnail-presets.js'
 
 export const router = Router()
 
@@ -107,6 +108,25 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
   if (mode === 'thumbs') {
     jobType = 'thumb_images'
     title = 'Thumbnail Images'
+    /**
+     * WHICH MODEL RENDERS — resolved BEFORE a job row exists (2026-10-25).
+     *
+     * The Thumbnail Generator page's model field starts empty, and a job
+     * admitted that way dies inside `generateImages`
+     * (`requestedImageModelName`) — a failed job instead of the one sentence
+     * that would have helped: choose a model. The channel's own saved preset is
+     * the authority (AGENTS §7 `thumbnail_generator_presets` /
+     * `thumbnail_generator_last_preset`), so a render that named no model uses
+     * the one that preset names, and a render with neither is refused here,
+     * with nothing enqueued, submitted or charged. Story Studio never picks an
+     * image model (§1).
+     *
+     * The resolved model is folded in BEFORE the operation fingerprint is
+     * compared, so a replayed `operation_id` and its original request agree.
+     */
+    const resolved = resolveThumbnailModel(config, 'thumb_images', (imageParams as any).model)
+    if (!resolved) return res.status(400).json({ detail: noThumbnailModelMessage('thumb_images') })
+    ;(imageParams as any).model = resolved
   } else {
     return res.status(410).json({ detail: 'Legacy Scene Images generation is retired. Render planned scenes in Scene Review.' })
   }

@@ -23,6 +23,7 @@ import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { inspectYouTubeFinalizationStatus } from '../services/youtube-metadata-finalizer.js'
 import { safetyMode } from '../services/safety-checks.js'
+import { noThumbnailModelMessage, resolveThumbnailModel } from '../services/thumbnail-presets.js'
 import {
   freshActionMatch,
   readOperationId,
@@ -1620,7 +1621,7 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Config not found' })
 
-  const { episode_id, model, title } = req.body
+  const { episode_id, title } = req.body
   if (typeof episode_id !== 'string' || !episode_id) {
     return res.status(400).json({ detail: 'episode_id is required' })
   }
@@ -1628,9 +1629,29 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
     return res.status(410).json({ detail: 'Legacy Scene Prompts generation is retired. Generate visual prompts in Scene Plan.' })
   }
 
+  /**
+   * WHO WRITES THESE PROMPTS — resolved BEFORE a job row exists (2026-10-25).
+   *
+   * The Thumbnail Prompts page sends `model: ''` until the customer touches the
+   * picker, and four real jobs were admitted that way and failed instantly
+   * inside the generator. The job panel then showed a failure, not the one thing
+   * the operator needed to know: choose a model. The channel's own saved preset
+   * is the authority (AGENTS §7 `thumbnail_prompts_presets` /
+   * `thumbnail_prompts_last_preset`), so a run that named no model uses the one
+   * that preset names; a run with neither the preset nor the request naming one
+   * is refused here, with nothing enqueued and nothing charged (§1: Story Studio
+   * never picks a model).
+   *
+   * The resolved model is folded into the body BEFORE the operation fingerprint
+   * is taken, so a replayed operation_id and its original request still agree.
+   */
+  const model = resolveThumbnailModel(config, 'image_prompts', req.body?.model)
+    || (typeof config.prompt_model === 'string' ? config.prompt_model.trim() : '')
+  if (!model) return res.status(400).json({ detail: noThumbnailModelMessage('image_prompts') })
+
   let action
   try {
-    action = await prepareExplicitScriptAction(slug, { ...req.body, mode: req.body.mode || 'thumbnails' }, req.body.force === true ? 'required' : 'optional')
+    action = await prepareExplicitScriptAction(slug, { ...req.body, model, mode: req.body.mode || 'thumbnails' }, req.body.force === true ? 'required' : 'optional')
   } catch (error) {
     return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }

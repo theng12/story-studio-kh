@@ -47,9 +47,24 @@
           </p>
         </div>
         <div class="form-group">
-          <label>Variations</label>
-          <input v-model.number="form.thumbnail.thumb_count" class="input" type="number" min="1" max="6" />
-          <p class="text-muted text-xs hint-line">Start with three. You can refine or regenerate one prompt later.</p>
+          <label for="thumb-count">Thumbnail options</label>
+          <!-- Owner, 2026-10-25: three thumbnail prompts, "so I have something
+               to choose from". Each one becomes a candidate image on the
+               Thumbnail Generator board; the number comes from THE shared rule,
+               never from a second copy typed here. -->
+          <input
+            id="thumb-count"
+            v-model.number="form.thumbnail.thumb_count"
+            class="input"
+            type="number"
+            :min="THUMBNAIL_COUNT_MIN"
+            :max="THUMBNAIL_COUNT_MAX"
+          />
+          <p class="text-muted text-xs hint-line">
+            {{ thumbnailOptionsLabel(safeThumbCount || DEFAULT_THUMBNAIL_COUNT) }} — one candidate image each on
+            Thumbnail Generator. The default is {{ thumbnailOptionsLabel(DEFAULT_THUMBNAIL_COUNT) }}, so there is
+            something to choose from; change the number here whenever a run needs a different set.
+          </p>
         </div>
       </div>
       <div v-if="form.episode_id && existingThumbNumbers.length" class="replace-prompts-row mt-1">
@@ -311,6 +326,15 @@
 </template>
 
 <script setup lang="ts">
+// THE count rule (electron/server/contracts/thumbnail-counts.ts): the page,
+// the generator and the Pipeline all read this one default and these bounds.
+import {
+  DEFAULT_THUMBNAIL_COUNT,
+  THUMBNAIL_COUNT_MAX,
+  THUMBNAIL_COUNT_MIN,
+  thumbnailCount,
+  thumbnailOptionsLabel,
+} from '@shared/thumbnail-counts'
 import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import {
   normalizePromptCharCapSetting,
@@ -493,7 +517,7 @@ const form = reactive({
     character_ids: [] as string[],
     force: false,
     thumbnail_template_id: '',
-    thumb_count: 3,
+    thumb_count: DEFAULT_THUMBNAIL_COUNT,
     thumb_text_style: 'auto',
     thumb_text_style_custom: '',
     thumb_text_position: 'auto',
@@ -708,7 +732,7 @@ const safeThumbCount = computed(() => {
 // doesn't wedge the form in a submit-blocking state. Default to a sensible
 // minimum, user can still raise after typing again.
 watch(() => form.thumbnail.thumb_count, (v) => {
-  if (!Number.isFinite(v) || v < 1) form.thumbnail.thumb_count = 1
+  if (!Number.isFinite(v) || v < THUMBNAIL_COUNT_MIN) form.thumbnail.thumb_count = THUMBNAIL_COUNT_MIN
 })
 // ── Presets ─────────────────────────────────────────────────────────────
 //
@@ -721,7 +745,15 @@ const thumbnailPresets = usePresets<any>({
   // Object.assign, so the live (current-episode) value survives either way.
   excludeKeys: [...DEFAULT_EXCLUDE_KEYS, 'thumb_creative_direction'],
   snapshot: () => ({ form: { ...form.thumbnail } }),
-  apply: (data) => { if (data?.form) Object.assign(form.thumbnail, data.form) },
+  apply: (data) => {
+    if (!data?.form) return
+    Object.assign(form.thumbnail, data.form)
+    // A preset stored by an older build can carry an unusable count — a string,
+    // a 0, a count from before three was the default. Normalise it ON READ with
+    // THE same rule the generator uses (contracts/thumbnail-counts). The stored
+    // preset is never rewritten (AGENTS §5).
+    form.thumbnail.thumb_count = thumbnailCount(form.thumbnail.thumb_count)
+  },
 })
 // Bound to TopActionBar.
 const promptPresets = computed(() => thumbnailPresets)
@@ -738,7 +770,15 @@ const promptPresets = computed(() => thumbnailPresets)
 async function applyFormatDefaultsIfNoPreset() {
   // A remembered value or an active preset is the customer's choice. Seed only
   // the keys neither supplied.
-  const seedThumb = (key: string) => !thumbnailPresets.activeId.value && !rememberedKeys.thumbnail.has(key)
+  //
+  // "Supplied" is per KEY, not per preset: the seeded "Three thumbnail options"
+  // preset (a new channel's starting count, owner 2026-10-25) carries ONLY the
+  // count, so it must not stop the channel's own look and recommended ratio
+  // from seeding. A preset that does carry a key still wins it exactly as
+  // before — this only lets a key the preset never stored be seeded.
+  const presetForm = (thumbnailPresets.activeData.value as any)?.form ?? {}
+  const seedThumb = (key: string) => !rememberedKeys.thumbnail.has(key)
+    && (!thumbnailPresets.activeId.value || !Object.prototype.hasOwnProperty.call(presetForm, key))
   if (!['style_tag', 'thumb_count', 'aspect_ratio'].some(seedThumb)) return
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)

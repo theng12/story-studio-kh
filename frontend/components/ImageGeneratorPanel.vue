@@ -26,6 +26,10 @@
       <div class="igp-title-row">
         <h3 class="igp-title">Thumbnail board</h3>
         <span class="text-muted text-xs">
+          <!-- Owner, 2026-10-25: "all thumbnail prompts and generation is required
+               to have 3 each, so I have something to choose from." The board is
+               where the candidates are, so it says plainly how many there are. -->
+          <template v-if="prompts.length">{{ thumbnailOptionsLabel(prompts.length) }} to choose from · </template>
           {{ renderedCount }} / {{ prompts.length }} ready
           <template v-if="missingCount"> · {{ missingCount }} missing</template>
         </span>
@@ -97,6 +101,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import ImageGeneratorRow from './ImageGeneratorRow.vue'
+// The ONE count rule (electron/server/contracts/thumbnail-counts.ts): the board
+// and the generator read the same words for the same number.
+import { thumbnailOptionsLabel } from '@shared/thumbnail-counts'
 import { customerSafeJobText, jobRequestIds } from '../utils/job-presentation.js'
 
 interface PromptRow { number: number; title: string; prompt: string }
