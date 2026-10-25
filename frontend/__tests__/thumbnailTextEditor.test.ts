@@ -15,6 +15,16 @@ import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { nextTick, ref } from 'vue'
 
+const POLL_MS = 10
+/** Wait for the debounced exact preview by its effect, not by a guessed delay (no-new-wallclock-sleeps). */
+async function until(condition: () => boolean, deadlineMs = 10_000): Promise<void> {
+  const end = Date.now() + deadlineMs
+  while (!condition()) {
+    if (Date.now() > end) throw new Error('timed out waiting for the exact preview')
+    await new Promise(resolve => setTimeout(resolve, POLL_MS))
+  }
+}
+
 // ── Stubbed $fetch ──────────────────────────────────────────────────────────
 const calls: Array<{ url: string; method: string; body?: any }> = []
 const configStore: Record<string, any> = {}
@@ -333,7 +343,7 @@ describe('apply gate', () => {
 
     // Let the debounced exact preview run. Its report — not the editor's own
     // guess — is what unlocks Apply.
-    await new Promise(resolve => setTimeout(resolve, 620))
+    await until(() => editor.canApply.value)
     assert.ok(previewCalls.some(url => url.includes('/preview')), 'an exact preview was requested')
     assert.equal(editor.report.value?.font_px, 120, 'the report came from the preview response')
     assert.equal(editor.canApply.value, true, 'a clean report unlocks apply')
@@ -354,7 +364,7 @@ describe('apply gate', () => {
     await settle()
     await nextTick()
     editor.text.value = 'headline'
-    await new Promise(resolve => setTimeout(resolve, 620))
+    await until(() => editor.canApply.value)
     assert.equal(editor.canApply.value, true)
     editor.text.value = 'headline with more words'
     await nextTick()
