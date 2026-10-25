@@ -154,8 +154,9 @@ describe('scene media checkpoints', () => {
     assert.equal(sceneReviewAutoApproveOn(config({ auto_approve_generated: true })), true)
     assert.equal(sceneReviewAutoApproveOn(config({ auto_approve_generated: false })), false)
     assert.equal(sceneReviewAutoApproveOn(config({}, 'p2')), true, 'follows the active preset, not the first')
-    assert.equal(sceneReviewAutoApproveOn(config({}, 'gone')), false)
-    assert.equal(sceneReviewAutoApproveOn(null), false)
+    // Owner, 2026-10-25: generated images auto-approve unless a preset explicitly says false.
+    assert.equal(sceneReviewAutoApproveOn(config({}, 'gone')), true, 'no active preset: the default is on')
+    assert.equal(sceneReviewAutoApproveOn(null), true, 'no config at all: the default is on')
   })
 
   it('without an auto-approve render, a filled-in image waits for approval', async () => {
