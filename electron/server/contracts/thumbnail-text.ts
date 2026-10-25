@@ -135,8 +135,32 @@ export interface ThumbnailTextVariant {
 export interface ThumbnailTextSuggestions {
   /** The language the suggestions are written in (BCP-47 base, e.g. 'km'), and why. */
   language: string
-  language_source: 'channel' | 'script' | 'title'
+  /** `override` when this episode's own thumbnail-text language was chosen, else the channel's. */
+  language_source: 'override' | 'channel' | 'script' | 'title'
   suggestions: Array<{ text: string; length: 'short' | 'medium' | 'long' }>
   /** The writing model that made them, as the Gateway published it. */
   model: string | null
+}
+
+/**
+ * The audience languages the thumbnail text layer can be written in.
+ *
+ * Deliberately the SAME two values the app's channel language supports (`ContentLanguage` in
+ * `models/types.ts`) — the override never introduces a language the rest of the app cannot serve.
+ */
+export type ThumbnailTextLanguage = 'en' | 'km'
+
+/**
+ * GET/PUT …/thumbnail-text/settings — which language the thumbnail text is written in.
+ *
+ * The channel's `project.content_language` is the default; an episode may override it for its own
+ * thumbnail text only, and the override never touches the channel's language.
+ */
+export interface ThumbnailTextLanguageSettings {
+  /** The channel's own audience language. Null when the channel states none. */
+  channel_language: ThumbnailTextLanguage | null
+  /** This episode's own choice for its thumbnail text, or null to follow the channel language. */
+  override: ThumbnailTextLanguage | null
+  /** `override ?? channel_language` — what the suggestions (and the layer) actually use. */
+  effective: ThumbnailTextLanguage | null
 }

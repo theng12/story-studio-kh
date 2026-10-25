@@ -1,5 +1,5 @@
 import { ref, computed, watch, onBeforeUnmount, getCurrentInstance, type Ref } from 'vue'
-import type { ThumbnailFont, ThumbnailTextPreset, ThumbnailTextStyle, ThumbnailTextVariant, ThumbnailTextSuggestions, ThumbnailTextRenderRequest, ThumbnailTextRenderReport } from '@shared/thumbnail-text'
+import type { ThumbnailFont, ThumbnailTextPreset, ThumbnailTextStyle, ThumbnailTextVariant, ThumbnailTextSuggestions, ThumbnailTextRenderRequest, ThumbnailTextRenderReport, ThumbnailTextLanguage, ThumbnailTextLanguageSettings } from '@shared/thumbnail-text'
 import { useApi } from './useApi.js'
 import { usePresets, DEFAULT_EXCLUDE_KEYS, type Preset } from './usePresets.js'
 import { fontsForText, thumbnailTextStyleOnly, thumbnailTextReportValid } from '../utils/thumbnail-text.js'
@@ -37,7 +37,7 @@ export function useThumbnailText(scope: {
   /** The file the page pointed the editor at (a pinned or clicked thumbnail). */
   initialSource: Ref<string>
 }) {
-  const { get, post } = useApi()
+  const { get, post, put } = useApi()
   const text = ref('')
   const source = ref('')
   const fonts = ref<ThumbnailFont[]>([])
@@ -46,6 +46,10 @@ export function useThumbnailText(scope: {
   const style = ref<ThumbnailTextStyle | null>(null)
   const variants = ref<ThumbnailTextVariant[]>([])
   const suggestions = ref<ThumbnailTextSuggestions | null>(null)
+  /** The channel's own audience language, read from the backend authority (never a local copy). */
+  const channelLanguage = ref<ThumbnailTextLanguage | null>(null)
+  /** This episode's own choice for its thumbnail text, or null to follow the channel language. */
+  const languageOverride = ref<ThumbnailTextLanguage | null>(null)
   const exactUrl = ref('')
   const report = ref<ThumbnailTextRenderReport | null>(null)
   const error = ref('')
@@ -61,6 +65,10 @@ export function useThumbnailText(scope: {
   let timer: ReturnType<typeof setTimeout> | undefined
   let controller: AbortController | undefined
   const path = computed(() => `/projects/${scope.slug}/episodes/${encodeURIComponent(scope.episode.value)}/thumbnail-text`)
+  /** The language the thumbnail text is actually written in: the override, else the channel's. */
+  const effectiveLanguage = computed<ThumbnailTextLanguage | null>(() => languageOverride.value ?? channelLanguage.value)
+  /** True when this episode has not overridden the language. */
+  const followsChannel = computed(() => languageOverride.value === null)
   /** Ownership is looked up, never parsed out of a filename. */
   const owns = (filename: string) => !!filename && scope.sources.value.some(image => image.filename === filename)
   const availableFonts = computed(() => fontsForText(fonts.value, text.value))
@@ -91,6 +99,33 @@ export function useThumbnailText(scope: {
     const result = await get<ThumbnailTextVariant[]>(`${path.value}/variants`)
     if (current === generation && scope.visible.value) variants.value = result
   }
+  /**
+   * Read the effective language and its source from the backend. The channel's language comes from
+   * the one authority there, so a stale copy can never disagree with the rest of the app (§1).
+   */
+  async function loadLanguageSettings() {
+    const current = generation
+    const settings = await get<ThumbnailTextLanguageSettings>(`${path.value}/settings`)
+    if (current !== generation) return
+    channelLanguage.value = settings.channel_language
+    languageOverride.value = settings.override
+  }
+  /**
+   * Choose a language for THIS episode's thumbnail text, or null to follow the channel again. Never
+   * touches the channel's own language; the backend refuses if the episode folder is missing.
+   */
+  async function setLanguageOverride(language: ThumbnailTextLanguage | null) {
+    const current = generation
+    try {
+      const settings = await put<ThumbnailTextLanguageSettings>(`${path.value}/settings`, { language })
+      if (current !== generation) return
+      channelLanguage.value = settings.channel_language
+      languageOverride.value = settings.override
+      notice.value = settings.override
+        ? `Headline language set to ${settings.override === 'km' ? 'Khmer' : 'English'} for this episode's thumbnail text. The channel language is unchanged.`
+        : 'Headline language follows the channel language again.'
+    } catch (e) { if (current === generation) error.value = detail(e) }
+  }
   async function initialize() {
     const current = generation
     loading.value = true
@@ -105,6 +140,10 @@ export function useThumbnailText(scope: {
       if (!style.value) style.value = looks[0] ? thumbnailTextStyleOnly(looks[0].style) : null
       await presets.load()
       if (current !== generation) return
+      // Not swallowed: a file that cannot be read must show as an error, never as "follows the
+      // channel" — an unknown language and an absent one must not look the same (§6).
+      await loadLanguageSettings()
+      if (current !== generation) return
       await loadVariants()
     } catch (e) { if (current === generation) error.value = detail(e) }
     finally { if (current === generation) loading.value = false }
@@ -113,6 +152,8 @@ export function useThumbnailText(scope: {
     generation++
     clearPreview()
     text.value = ''; source.value = ''; variants.value = []; suggestions.value = null
+    // The language is this episode's own (or the channel's); the previous episode's must not stand.
+    channelLanguage.value = null; languageOverride.value = null
     saved.value = null; error.value = ''; suggestionError.value = ''; applying.value = false; suggesting.value = false
     loading.value = false
     if (old?.[0] && old[0] !== episode) notice.value = 'Episode changed. Cleared the previous headline, source, suggestions, variants and previews. Choose this episode’s artwork to start again.'
@@ -226,5 +267,6 @@ export function useThumbnailText(scope: {
   if (getCurrentInstance()) onBeforeUnmount(() => { generation++; clearPreview() })
   return { text, source, style, fonts, availableFonts, selectedFont, builtins, presets, variants, suggestions, exactUrl, report,
     error, suggestionError, notice, loading, rendering, applying, suggesting, saved, canApply, initialize, renderExact,
-    moreSuggestions, chooseSuggestion, apply, pinVariant, reapply, presetAction }
+    moreSuggestions, chooseSuggestion, apply, pinVariant, reapply, presetAction,
+    channelLanguage, languageOverride, effectiveLanguage, followsChannel, setLanguageOverride }
 }

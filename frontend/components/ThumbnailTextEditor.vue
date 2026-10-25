@@ -16,8 +16,17 @@
               <option v-for="image in sources" :key="image.filename" :value="image.filename">{{ image.filename }}</option>
             </select>
           </label>
+          <!-- Headline language: defaults to the channel's own language and says so. An override
+               applies to THIS episode's thumbnail text only and never changes the channel. -->
+          <label class="form-group">Headline language
+            <select data-testid="thumbnail-text-language" :value="languageOverride ?? ''" class="select" :disabled="applying" @change="onLanguageChange">
+              <option value="">Follow channel language</option>
+              <option v-for="option in languageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+            <span class="text-muted text-xs" data-testid="thumbnail-text-language-status">{{ languageStatus }}</span>
+          </label>
           <div class="tte-suggestions-head"><strong>Headline ideas</strong><button type="button" class="btn btn-sm btn-secondary" :disabled="suggesting || !episodeCode" @click="moreSuggestions">{{ suggesting ? 'Finding ideas…' : suggestions ? 'More suggestions' : 'Get suggestions' }}</button></div>
-          <p class="text-muted text-xs">Suggestions use the writing model in this channel’s Thumbnail Prompts preset.</p>
+          <p class="text-muted text-xs">Suggestions use the writing model in this channel’s Thumbnail Prompts preset, written in the headline language above.</p>
           <p v-if="suggestionError" class="text-danger" role="alert">{{ suggestionError }} Set the writing model in <NuxtLink :to="`/projects/${projectSlug}/image-prompts?tab=thumbnails`">Thumbnail Prompts → preset</NuxtLink>, then try again.</p>
           <div v-if="suggestions" class="tte-chips">
             <button v-for="(idea, i) in suggestions.suggestions" :key="i" type="button" class="btn btn-sm btn-secondary" @click="chooseSuggestion(idea.text)">{{ idea.text }}</button>
@@ -136,14 +145,27 @@
 
 <script setup lang="ts">
 import { computed, ref, toRef, watch, onBeforeUnmount, type CSSProperties } from 'vue'
-import type { TextAnchor, ThumbnailTextVariant } from '@shared/thumbnail-text'
+import type { TextAnchor, ThumbnailTextLanguage, ThumbnailTextVariant } from '@shared/thumbnail-text'
 import { useThumbnailText } from '../composables/useThumbnailText'
 import { textHasCase } from '../utils/thumbnail-text'
+import { CONTENT_LANGUAGE_OPTIONS, contentLanguageLabel } from '../utils/content-language'
 
 const props = defineProps<{ visible: boolean; projectSlug: string; episodeCode: string; initialSource?: string; sources: Array<{ filename: string; url: string }> }>()
 const emit = defineEmits<{ close: []; applied: [variant: ThumbnailTextVariant]; pinned: [variant: ThumbnailTextVariant] }>()
 const editor = useThumbnailText({ slug: props.projectSlug, episode: toRef(props, 'episodeCode'), visible: toRef(props, 'visible'), sources: toRef(props, 'sources'), initialSource: computed(() => props.initialSource || '') })
-const { text, source, style, availableFonts, selectedFont, builtins, presets, variants, suggestions, exactUrl, report, error, suggestionError, notice, loading, rendering, applying, suggesting, saved, canApply, initialize, renderExact, moreSuggestions, chooseSuggestion, reapply, presetAction } = editor
+const { text, source, style, availableFonts, selectedFont, builtins, presets, variants, suggestions, exactUrl, report, error, suggestionError, notice, loading, rendering, applying, suggesting, saved, canApply, initialize, renderExact, moreSuggestions, chooseSuggestion, reapply, presetAction, languageOverride, effectiveLanguage, followsChannel, setLanguageOverride } = editor
+const languageOptions = CONTENT_LANGUAGE_OPTIONS
+/** Which language is in effect and why, so the owner can see whether the channel or this episode decides. */
+const languageStatus = computed(() => {
+  const effective = contentLanguageLabel(effectiveLanguage.value)
+  if (!followsChannel.value) return `${effective} — set for this episode's thumbnail text only. The channel language is unchanged.`
+  if (effective) return `${effective} — follows channel language`
+  return 'Follows the channel language. This channel has none set, so suggestions use the script or the title.'
+})
+function onLanguageChange(event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  void setLanguageOverride(value === '' ? null : (value as ThumbnailTextLanguage))
+}
 const pinOnApply = ref(false)
 watch(() => [props.episodeCode, props.visible], () => { pinOnApply.value = false })
 const sourceImage = computed(() => props.sources.find(image => image.filename === source.value))
