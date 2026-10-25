@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.359 — 2026-10-26
+
+- Series Formula is now a required choice when you create a channel — pick a Formula, or choose "Generic — no Formula" on purpose (for testing). Channels that never chose one show a prompt with a suggested Formula; nothing is assigned until you click. Channels on an older Formula now read the matching current Studio Library Formula; their settings are not rewritten.
+- Formula library refreshed: every Formula now has an opening that suits its channel instead of a sleep-style default, your three own Formulas (Mineepod, Coffee Jazz, A World Before Us) are now Studio Library packs, and there are three new ones — Khmer Folk Horror Anthology, Calm Science for Sleep and Mythology for Sleep. A Formula never decides an episode's scene rhythm.
+- The Content Store is now the Studio Library, at its own page. The shop is gone — no prices, quotes or purchases — while installing, importing .sspack files and managing your packs work as before. "Restore Purchases" is now "Re-check my packs".
+- Thumbnails: three prompts and three candidate images by default, and new channels start with a "Three thumbnail options" preset. A channel or preset with its own count keeps it, and episodes you already accepted are not reopened. A thumbnail step whose preset names no model is left out before it starts, with a plain message.
+- Thumbnail headlines follow the channel's language, and you can override it for one episode.
+- Channels page: search by name, label, episode code or language; give channels your own labels and filter by them; sort by recent work, name, newest or oldest.
+- Channel art styles show exactly three previews (hero, empty scene, hardest case), shared by every channel using the same style text. Retry now really repairs a preview that failed at the Gateway, without paying twice.
+- Audio: a voice model the Gateway renamed keeps your saved voice. A chapter is only marked as needing new narration when its text actually changed, not because its file was saved again.
+- Introduction redesigned: four starting styles, sections with inline samples, length and tone, and writing kept separate from saving. The introduction now sees the episode's own story, and a replaced introduction is kept in Trash.
+- Ideas follow the channel's content language in every idea writer.
+- Saving visual continuity no longer cuts a long style bible or negative prompt short.
+- Remote final rendering accepts the Gateway's wider render profile: 24, 25, 30 and 60 fps and canvases up to 4K.
+- Script chapters are no longer cut off. Each chapter request now asks the selected writing model for its full published output allowance instead of a number worked out from word counts — a calculation that was wrong for Khmer, which is written without spaces between words and uses far more of the model's allowance per word. On 2026-10-25 that cut off Komsan's chapter expansions at exactly 8,192 tokens and returned no chapters at all. The only thing that can lower a request now is the model's own published context window, and the job log says which figure was used.
+- Script chapters: "Chapters per request" is yours to set. Choose a fixed number of chapters per request (the default is what every run used until now — 3 for story chapters, 8 for countdown lists), or group by length in words; a chapter longer than that budget gets its own request. It is saved with the Script Generator preset and reused by Pipeline and one-click runs. If an answer is still cut off, the chapters that finished are kept and the rest are requested in smaller pieces — nothing is written half.
+- A chapter job that loses a chapter now fails and names the missing chapters instead of finishing as "done" with an empty script. The chapters that were written stay put, and Retry asks only for the missing ones, so nothing is generated twice or charged twice.
+- Editing one chapter's text now records that chapter in the episode's outline, so Scene Plan, Pipeline and the Production Board stop treating a chapter you already wrote as missing.
+
 ## v1.4.358 — 2026-10-25
 
 - Remote final rendering: a video the paired Gateway cannot take (for example 30 fps while it renders only 24 fps) now renders on this Mac and the log says why, before anything is sent. A render the Gateway refuses renders locally too, instead of waiting forever, and assemblies already stuck that way finish locally on their own. A local render never replaces a final that was already accepted.
