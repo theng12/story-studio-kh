@@ -137,6 +137,19 @@ describe('a new channel starts on the owner standard tiered rhythm', () => {
     assert.equal(shown.body.exists, false)
     assert.deepEqual(shown.body.config.pacing, TIERED)
   })
+
+  // Komsan KOM0001/2 (2026-10-25): the first save of an episode with no rhythm of its own wrote the
+  // 1–3s default instead of the starting rhythm the panel had just shown.
+  test('the first save of an episode with no rhythm of its own keeps the channel\'s starting rhythm', async () => {
+    const scope = await request(app).put(`/api/projects/${slug}/scene-review/${EP}/motion-scope`).send({ motion_scope: { mode: 'off' } })
+    assert.equal(scope.status, 200, JSON.stringify(scope.body))
+    assert.deepEqual((await readJsonFile(sidecar)).pacing, TIERED, 'a motion-scope save that creates the file')
+
+    await fs.rename(sidecar, `${sidecar}.first-save`)
+    const saved = await request(app).put(`/api/projects/${slug}/continuity/${EP}`).send(wholeConfig())
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    assert.deepEqual((await readJsonFile(sidecar)).pacing, TIERED, 'a whole-config save that omits pacing')
+  })
 })
 
 describe('an existing channel is never rewritten', () => {
