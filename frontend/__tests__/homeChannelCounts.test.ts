@@ -29,7 +29,7 @@ async function loadPage() {
     const vueUrl = await import.meta.resolve('vue')
     const util = (name: string) => JSON.stringify(new URL(`../utils/${name}.ts`, import.meta.url).href)
     const support = `
-      import { computed, nextTick, onMounted, reactive, ref, watch } from ${JSON.stringify(vueUrl)}
+      import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from ${JSON.stringify(vueUrl)}
       const useApi = () => globalThis.__homeHarness.api
       const useAppSettingsModal = () => ({ open() {} })
       const useAppTitle = () => {}
@@ -39,6 +39,7 @@ async function loadPage() {
     const scriptCode = script.content
       .replace("'~/utils/project-slug'", util('project-slug'))
       .replace("'~/utils/last-known-list'", util('last-known-list'))
+      .replace("'~/utils/channel-view'", util('channel-view'))
       .replace('export default', 'const __sfc__ =')
     const code = `${support}\n${scriptCode}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
     const transformed = await transform(code, { loader: 'ts', format: 'esm' })
@@ -86,7 +87,7 @@ async function mountHome(lists: any[][], hiddenSlugs: string[] = []) {
   const host = document.body.appendChild(document.createElement('div'))
   const app = createApp(await loadPage())
   app.component('NuxtLink', NuxtLinkStub)
-  for (const name of ['Modal', 'NichePicker', 'LoadingSpinner']) app.component(name, Passthrough)
+  for (const name of ['Modal', 'NichePicker', 'LoadingSpinner', 'ChipInput']) app.component(name, Passthrough)
   app.mount(host)
   await flush()
   const card = (slug: string) => host.querySelector(`a[href="/projects/${slug}"]`) as HTMLElement

@@ -24,6 +24,11 @@
  */
 
 import { z } from 'zod'
+import {
+  MAX_PROJECT_LABELS,
+  MAX_PROJECT_LABEL_LENGTH,
+  normalizeProjectLabels,
+} from './project-labels.js'
 
 // ── Projects ────────────────────────────────────────────────────────────────
 
@@ -101,6 +106,25 @@ export const UpdateProjectSchema = z.object({
   // Level B (opt-in) external media root — a portable ${NAME} token or absolute
   // path. Empty string clears it (back to everything under the episodes folder).
   media_root: z.string().max(512).optional(),
+  // The owner's own labels for a channel ("Khmer", "Sleep", "History"), so the
+  // start page can search, filter and sort by what a channel is. Trimmed and
+  // case-insensitively de-duplicated at the boundary (first spelling kept) by
+  // the shared normaliser; `[]` clears them.
+  //
+  // A blank entry is DROPPED rather than refused — there is one thing an empty
+  // label can mean, so repairing it silently is not a decision taken on the
+  // owner's behalf. The ceilings REFUSE, because a label that is too long has
+  // more than one reasonable answer (shorten it? split it? drop it?) and none
+  // of them is ours to pick.
+  labels: z.array(
+    z.string().trim().max(
+      MAX_PROJECT_LABEL_LENGTH,
+      `a label can be at most ${MAX_PROJECT_LABEL_LENGTH} characters`,
+    ),
+  ).max(
+    MAX_PROJECT_LABELS,
+    `a channel can have at most ${MAX_PROJECT_LABELS} labels`,
+  ).transform(normalizeProjectLabels).optional(),
 }).strict()
 export type UpdateProjectBody = z.infer<typeof UpdateProjectSchema>
 

@@ -17,6 +17,7 @@ import {
 import { sanitizeVideoCatalog } from '../models/video-catalog.js'
 import { OWNER_STANDARD_SCENE_PACING } from '../contracts/pacing.js'
 import { DEFAULT_THUMBNAIL_COUNT } from '../contracts/thumbnail-counts.js'
+import { normalizeProjectLabels } from '../contracts/project-labels.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import type {
@@ -600,6 +601,45 @@ async function syncManifest(slug: string): Promise<void> {
 // flag is unused. Existing project.json files in the wild may still
 // carry `portable: true` — that's fine, we just ignore it.)
 
+/**
+ * When a channel was last WORKED ON, as an ISO string — or null for unknown.
+ *
+ * The newest modification time among the channel folder's own bookkeeping
+ * (`jobs.json` is rewritten whenever any generation job moves, `config.json`
+ * on any channel setting, `project.json` on any metadata change) and the
+ * `episodes/` folder itself (bumped when an episode folder is created,
+ * renamed or removed).
+ *
+ * ── Why it is four `stat` calls and not a walk ──
+ *
+ * `listProjects` runs on every visit to the start page and reads every channel
+ * in the Library. The one thing it must not start doing is walking episodes:
+ * that is O(episodes) syscalls per channel on the path whose whole design goal
+ * is to paint before the disk answers. These four stats go out in parallel with
+ * the rest of the row, and one of them (`episodes/`) is the folder the row
+ * already touches for `output_root_exists`.
+ *
+ * ── What it therefore cannot see ──
+ *
+ * An edit to a file INSIDE an existing episode folder — a script, an image, a
+ * render — bumps neither the channel folder nor `episodes/`, so a channel whose
+ * episodes are all already on disk moves on this measure only when something
+ * else about the channel changes. It is a recency PROXY, it is only ever used
+ * to order a list on screen, and the sort that uses it is labelled for it.
+ *
+ * A folder that cannot be read yields null: unknown, which the list sorts last
+ * rather than treating as the oldest thing in the Library.
+ */
+async function lastWorkedAt(channelDir: string): Promise<string | null> {
+  const markers = ['jobs.json', 'config.json', 'project.json', 'episodes']
+  let newest = 0
+  await Promise.all(markers.map(async (name) => {
+    const stat = await fs.stat(path.join(channelDir, name)).catch(() => null)
+    if (stat && stat.mtimeMs > newest) newest = stat.mtimeMs
+  }))
+  return newest > 0 ? new Date(newest).toISOString() : null
+}
+
 export async function listProjects(): Promise<ProjectSummary[]> {
   // v1.4.3 — the Library scan, and nothing else.
   //
@@ -720,6 +760,8 @@ export async function listProjects(): Promise<ProjectSummary[]> {
           // Exact even here: project.json is unreadable, but the episodes
           // folder no longer depends on anything inside it.
           output_root: path.join(cand.dir, 'episodes'),
+          // Unknown, not "a long time ago": nothing here was read.
+          last_worked_at: null,
           status: 'downloading',
         }
       }
@@ -755,6 +797,14 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       // format registry, so this stays correct even as formats are renamed.
       format_id: typeof meta.format_id === 'string' ? meta.format_id : undefined,
       niche_id: typeof meta.niche_id === 'string' && meta.niche_id ? meta.niche_id : undefined,
+      // The owner's own labels for this channel, read from the metadata this
+      // row already parsed — the start page needs them for every card, and a
+      // second read per card would be one more thing to wait for.
+      labels: Array.isArray(meta.labels) ? meta.labels : undefined,
+      // Audience language, read the same way. Undefined keeps its ProjectMeta
+      // meaning: legacy, no directive.
+      content_language: meta.content_language ?? undefined,
+      last_worked_at: await lastWorkedAt(cand.dir),
       status: 'ready',
     }
   }))
@@ -1092,6 +1142,13 @@ export async function updateProject(slug: string, req: UpdateProjectRequest): Pr
   await withLock(metaPath, async () => {
     const data = await readJson(metaPath)
     const updates = Object.fromEntries(Object.entries(req).filter(([_, v]) => v !== undefined))
+    // Labels are normalised HERE as well as at the HTTP boundary. This is the
+    // one write path for project.json and not every caller goes through the
+    // schema (Content Pack pin transactions call it directly), so it is the
+    // place that has to guarantee "Sleep" and "sleep" never sit side by side on
+    // one channel. `[]` is a real answer — "this channel has no labels" — and
+    // is stored as such.
+    if ('labels' in updates) updates.labels = normalizeProjectLabels(updates.labels)
     merged = { ...data, ...updates } as ProjectMeta
     // A no-op save must not touch project.json: every episode-status row
     // depends on its mtime, so a rewrite stales the whole Production Board.

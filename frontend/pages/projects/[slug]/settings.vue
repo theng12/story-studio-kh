@@ -575,6 +575,12 @@
                authoritative channel name — so there is no second rename control. -->
           <ChannelProfilePanel :slug="slug" data-setting="project-name" @saved="onChannelProfileSaved" />
 
+          <!-- The owner's labels for what this channel IS. They live on the
+               project next to its name (project.json), not in a store of their
+               own, and the panel writes them through the ordinary project save
+               path — which is also what normalises them. -->
+          <ChannelLabelsPanel :slug="slug" data-setting="channel-labels" @saved="onChannelLabelsSaved" />
+
           <section class="card settings-panel" data-setting="formula">
             <header class="settings-card-head">
               <h3>Series Formula and Topic Packs</h3>
@@ -4433,6 +4439,18 @@ function onChannelProfileSaved(saved: { name?: string }): void {
   if (!name) return
   if (project.value) project.value.name = name
   projectForm.name = name
+}
+
+/**
+ * The labels panel saved through the project path. Fold the server's own answer
+ * back into the project this page is showing, so anything else reading it (the
+ * identity summary, a later save of this section) sees the stored list rather
+ * than the one that was typed.
+ */
+function onChannelLabelsSaved(labels: string[]): void {
+  if (project.value) (project.value as any).labels = labels
+  stampSaved('project_labels')
+  success('Channel labels saved!')
 }
 
 /** True only when the section was saved for the project still on screen. */
