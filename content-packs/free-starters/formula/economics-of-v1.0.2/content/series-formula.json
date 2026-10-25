@@ -1,0 +1,349 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.economics-of",
+  "name": "The Economics of…",
+  "description": "Long-form economics explainers about what it costs, earns, and risks to own or operate a real business.",
+  "channel_promise": "Cost → Constraint",
+  "audience": "Curious viewers, aspiring owners, operators, founders, and business students.",
+  "youtube_tags_hint": [
+    "business economics",
+    "business explained",
+    "how businesses work",
+    "cost of running a business",
+    "startup costs",
+    "profit margins",
+    "business ownership",
+    "unit economics",
+    "company analysis",
+    "entrepreneurship"
+  ],
+  "formula_family": "Evidence & systems",
+  "tagline": "What it really costs to own the business.",
+  "perspective_policy": "Third-person analytical explainer. Address the business, system, or decision — not a generic viewer avatar.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open with the economic tension, cost, constraint, or surprising unit of the chosen business.",
+    "forbidden_patterns": [
+      "Imagine you own",
+      "So you want to own",
+      "Watch what happens next",
+      "This changes everything",
+      "generic entrepreneurial hype"
+    ],
+    "required_habits": [
+      "Name the mechanism behind revenue, costs, risk, and trade-offs.",
+      "Use specific representative numbers or clearly labeled examples.",
+      "Build to an implication instead of repeating the premise."
+    ],
+    "closing_policy": "End with the decisive trade-off or operating insight."
+  },
+  "metadata_profile": {
+    "id": "evidence-youtube",
+    "label": "Evidence-led video package",
+    "description": "A direct episode summary with sources when research exists, a concise CTA, disclosure, and focused hashtags.",
+    "description_section_ids": [
+      "hook",
+      "sources",
+      "cta",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 4000,
+    "title_max_length": 100,
+    "tag_count": 15
+  },
+  "narrative_rules": [
+    "Profile one specific business or operation.",
+    "Keep revenue, gross profit, operating profit, owner compensation, cash flow, and return on capital distinct."
+  ],
+  "title_rules": [
+    "Name one recognizable business.",
+    "Avoid unsupported earnings claims, fake precision, and hype."
+  ],
+  "script_structure": {
+    "default_chapter_count": 10,
+    "chapter_count_range": [
+      8,
+      12
+    ],
+    "default_length_minutes": 22,
+    "length_minutes_range": [
+      20,
+      25
+    ],
+    "duration_presets": [
+      20,
+      22,
+      25
+    ],
+    "default_words_per_minute": 160,
+    "chapters_independent": true,
+    "pacing_arc": [
+      "Chapter 1: Cold open — put the viewer in the owner's position and expose the surprising financial tension",
+      "Chapter 2: The visible business — what customers think they are paying for versus the operation underneath",
+      "Chapter 3: Entry price — startup capital, site, equipment, licenses, financing, and opening runway",
+      "Chapter 4: Revenue engine — products or services, pricing, volume, capacity, utilization, and seasonality",
+      "Chapter 5: Fixed-cost machine — rent, debt, insurance, software, maintenance, and costs that continue when sales stop",
+      "Chapter 6: Variable economics — inventory or inputs, transaction costs, waste, fulfillment, and contribution margin",
+      "Chapter 7: People and operations — staffing, scheduling, expertise, throughput, bottlenecks, and quality control",
+      "Chapter 8: Break-even reality — cash flow, working capital, realistic ranges, and the conditions required to become profitable",
+      "Chapter 9: Failure and scale — competition, regulation, shocks, common failure modes, expansion, and economies or diseconomies of scale",
+      "Chapter 10: Ownership verdict — rewards, demands, decisive success condition, and the hidden trade-off"
+    ],
+    "additional_rules": [
+      "Open with a concrete scenario, price, asset, transaction, or operating constraint; do not open with a dictionary definition.",
+      "State the assumed geography, currency, business size, and time period before presenting material financial figures.",
+      "Use ranges and label representative estimates; never present a model assumption as a universal fact.",
+      "For every major revenue or cost number, explain the operational equation that produces it.",
+      "Separate revenue, gross profit, operating profit, owner compensation, cash flow, and return on invested capital.",
+      "Include at least one counterintuitive cost, one operational bottleneck, one failure mode, and one scaling constraint.",
+      "Give the visual pipeline concrete objects, locations, people, workflows, and transactions to depict instead of abstract finance language alone.",
+      "Do not provide individualized investment, tax, legal, or regulatory advice."
+    ]
+  },
+  "compatible_topic_pack_ids": [
+    "com.storystudio.topic.economics-businesses",
+    "com.storystudio.topic.economics-ancient-civilizations"
+  ],
+  "default_topic_pack_ids": [
+    "com.storystudio.topic.economics-businesses"
+  ],
+  "example_topics": [
+    "The Economics of Owning a Coffee Shop",
+    "The Economics of Owning a Casino",
+    "The Economics of Running an Automobile Workshop",
+    "The Economics of Owning a Clothing Brand",
+    "The Economics of Running a Formula One Team",
+    "The Economics of Owning a Five-Star Hotel",
+    "The Economics of Owning an Automated Car Wash",
+    "The Economics of Owning a Martial Arts Club",
+    "The Economics of Running a Restaurant",
+    "The Economics of Owning a Convenience Store",
+    "The Economics of Running a Dental Practice",
+    "The Economics of Owning a Private School",
+    "The Economics of Running a Funeral Home",
+    "The Economics of Owning a Gym",
+    "The Economics of Running a Construction Company",
+    "The Economics of Owning a Laundromat",
+    "The Economics of Running a Supermarket",
+    "The Economics of Owning a Movie Theater",
+    "The Economics of Running an Airline",
+    "The Economics of Owning a Shipping Company",
+    "The Economics of Running a Data Center",
+    "The Economics of Owning a Solar Farm",
+    "The Economics of Running a Game Studio",
+    "The Economics of Owning a Software Company",
+    "The Economics of Running a Theme Park",
+    "The Economics of Owning a Wedding Venue",
+    "The Economics of Running a Brewery",
+    "The Economics of Owning a Franchise",
+    "The Economics of Running a Warehouse",
+    "The Economics of Owning a Farm"
+  ],
+  "recommended_visual_style_ids": [
+    "com.storystudio.style.hand-drawn-editorial-diagram"
+  ],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.annotated-business-board"
+  ],
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.annotated-business-board",
+  "idea_axes": [
+    {
+      "id": "economic-lens",
+      "label": "Economic lens",
+      "values": [
+        "startup capital",
+        "revenue engine",
+        "unit economics",
+        "labor model",
+        "supply chain",
+        "failure risk",
+        "scaling constraint",
+        "regulation",
+        "ownership trade-off",
+        "technology shift"
+      ]
+    },
+    {
+      "id": "operating-stage",
+      "label": "Operating stage",
+      "values": [
+        "launch",
+        "daily operation",
+        "crisis",
+        "expansion",
+        "maturity",
+        "decline or exit"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "curious",
+      "grounded",
+      "analytical",
+      "practical",
+      "evidence-led",
+      "plainspoken",
+      "measured",
+      "investigative",
+      "financially literate",
+      "operator-minded",
+      "candid",
+      "quietly surprising"
+    ],
+    "theme": [
+      "startup capital",
+      "unit economics",
+      "revenue model",
+      "fixed costs",
+      "variable costs",
+      "labor",
+      "rent",
+      "inventory",
+      "supply chain",
+      "pricing power",
+      "cash flow",
+      "break-even point",
+      "profit margin",
+      "customer acquisition",
+      "seasonality",
+      "regulation",
+      "competition",
+      "scaling",
+      "failure risk",
+      "exit value"
+    ],
+    "genre": [
+      "business explainer",
+      "economics documentary",
+      "company case study",
+      "ownership analysis",
+      "industry breakdown",
+      "operating-model analysis"
+    ],
+    "keyword": [
+      "startup costs",
+      "capital expenditure",
+      "operating expenditure",
+      "gross revenue",
+      "gross margin",
+      "net margin",
+      "contribution margin",
+      "cost of goods sold",
+      "payroll",
+      "rent",
+      "utilities",
+      "insurance",
+      "licenses",
+      "permits",
+      "equipment",
+      "maintenance",
+      "inventory turnover",
+      "customer volume",
+      "average order value",
+      "utilization",
+      "capacity",
+      "break-even",
+      "working capital",
+      "cash conversion cycle",
+      "financing",
+      "debt service",
+      "return on investment",
+      "franchise fees",
+      "royalties",
+      "marketing",
+      "retention",
+      "seasonality",
+      "supply chain",
+      "staffing",
+      "regulation",
+      "competition",
+      "economies of scale"
+    ]
+  },
+  "audience_hint": "Curious viewers, aspiring owners, operators, founders, and business students who want an accessible but financially honest explanation of how a real business makes and loses money.",
+  "idea_system_prompt_role": "You generate episode ideas for a long-form Business Economics channel. Every episode opens the books on ONE recognizable business, company type, venue, or commercial operation and asks what it really costs, earns, and risks to own or run it. Pitch subjects with a concrete operating model, visible assets, hidden cost structure, and a genuinely surprising economic tension. Favor specific ownership questions over generic advice. Do not pitch listicles, motivational entrepreneurship, get-rich-quick schemes, personal finance, or vague industry news.",
+  "idea_guidance_text": "Each idea must support a 20-30 minute evidence-led breakdown covering startup capital, revenue drivers, fixed and variable costs, staffing, supply chain or inventory, break-even economics, risks, and a balanced ownership verdict. Vary the business model across the batch: local service, retail, hospitality, professional practice, industrial operation, digital company, franchise, property-heavy venue, and unusual high-capital operation. Good ideas create a gap between what customers see and what the operator must manage.",
+  "script_context": "Treat each episode as an operating-model case study, not entrepreneurship motivation or personal financial advice. Establish the country, market, business size, currency, and time period behind every important number. Distinguish sourced facts from representative assumptions and show ranges when costs vary. Explain the mechanism behind each number: price multiplied by customer volume, capacity, utilization, labor hours, inventory turns, financing, and seasonality. Never invent a company, quote, regulation, or precise financial result. Avoid promising that a business is easy, passive, guaranteed, or universally profitable.",
+  "script_system_prompt_role": "You are the senior writer for a long-form Business Economics documentary channel. Write like an experienced operator and economics journalist walking a curious viewer through the hidden machine behind a familiar business. Begin with a concrete ownership scenario and a financial tension, then progressively reveal where the money comes from, where it goes, what breaks, and who the model actually rewards. Make financial relationships understandable in spoken language without flattening uncertainty. Use vivid representative objects, locations, people, workflows, and transactions so every abstract economic point can become a clear visual scene. Stay analytical, candid, and non-promotional; never sound like a business coach, investor pitch, or textbook.",
+  "script_closing_hint": "End with a balanced ownership verdict: what the business can reward, what it demands, the condition that determines success, and the hidden trade-off the viewer should remember.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Operator documentary",
+      "description": "Calm, practical, numbers-aware narration from someone who understands how the business actually runs."
+    },
+    {
+      "id": "b",
+      "label": "Curious economics",
+      "description": "Accessible and inquisitive, revealing the mechanism behind familiar prices, costs, and commercial behavior."
+    },
+    {
+      "id": "c",
+      "label": "Dry financial wit",
+      "description": "Measured and evidence-led with restrained humor about expensive assumptions and operational absurdities."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Every title names ONE specific business, company type, venue, or commercial operation.",
+    "Primary title shape: 'The Economics of Owning {Specific Business}' (for an ownership and asset perspective).",
+    "Secondary title shape: 'The Economics of Running {Specific Business or Company}' (for operations-heavy subjects).",
+    "Alternate thumbnail-friendly shape: 'So You Want to Own {Specific Business}' only when ownership is the episode's central question.",
+    "Use familiar concrete terms such as 'Coffee Shop', 'Car Wash', 'Hotel', or 'Airline'; avoid broad abstractions such as 'The Service Economy'.",
+    "Do not use unsupported earnings claims, guaranteed-return language, clickbait numbers, 'secret', 'shocking', 'easy money', or 'passive income'.",
+    "Keep the subject short enough to remain legible as a two-line uppercase thumbnail headline."
+  ],
+  "title_length_range": [
+    5,
+    12
+  ],
+  "structural_variety": "vary-subject-only",
+  "metadata_title_style_hint": "Concrete, sober ownership economics with one recognizable business named in every title. Prefer 'The Economics of Owning…', 'The Economics of Running…', or the shorter 'So You Want to Own…' construction.",
+  "metadata_title_hook_rules": [
+    "Name exactly one business or operation.",
+    "Frame the click around hidden economics, ownership reality, or operating tension.",
+    "Keep the wording compact enough for a two-line uppercase thumbnail.",
+    "No earnings guarantees, vague hype, fake precision, or unsupported dollar claims."
+  ],
+  "metadata_tags_hook_rules": [
+    "Mix the exact business type with business-economics concepts actually covered in the script.",
+    "Include relevant operating terms such as startup costs, profit margins, break-even, staffing, supply chain, or cash flow only when discussed.",
+    "Each tag should be 1-4 words and must not start with '#'."
+  ],
+  "intro_defaults": {
+    "word_target": 140,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open on the money question — what this business actually costs to own, or where the profit really comes from"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "greet and give your name in one line; sound like an operator, never like a coach"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "say what the viewer will be able to see by the end that they cannot see now"
+      },
+      {
+        "id": "episode_roadmap",
+        "custom_text": "name the path — where the revenue comes from, where it goes, what breaks, who the model rewards"
+      },
+      {
+        "id": "not_advice_note",
+        "custom_text": "one plain line that this is how the machine works, not investment advice"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one line, non-promotional"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter by naming the business"
+      }
+    ]
+  }
+}

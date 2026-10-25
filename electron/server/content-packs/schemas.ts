@@ -12,6 +12,7 @@ import {
 } from '../contracts/scene-effects.js'
 import { parseSceneMotionDocument, parseSceneOverlayDocument } from '../contracts/scene-effects-schema.js'
 import { BUILT_IN_METADATA_FORMULA_IDS } from '../contracts/metadata-formulas.js'
+import { EpisodeDefaultsSchema, SceneSettingsSchema, SongFormulaSchema } from '../contracts/song-formula.js'
 import { BUILT_IN_SUBTITLE_PRESETS } from '../contracts/subtitle-presets.js'
 import {
   BUILT_IN_FOOTAGE_MOTIONS,
@@ -225,6 +226,36 @@ const baseDocument = {
   description: safeText(2000),
 }
 
+/**
+ * A music channel's own block (owner ruling, 2026-10-25: the adopted
+ * Coffee Jazz Formula keeps its music format intact).
+ *
+ * The keys stay exactly as the music subsystem already reads them
+ * (`musicFormat.songFormula`, `.episodeDefaults`, `.sceneSettings`), and the
+ * inner shapes are the shared contracts rather than a second copy. The block
+ * is DATA: adding a world or changing a scene needs no code change.
+ */
+const MusicWorldSchema = z.object({
+  id: localSlug,
+  name: safeText(120),
+  register: safeText(60),
+  sight: safeText(1000),
+  scenes: z.array(safeText(120)).min(1).max(40),
+  music: z.array(safeText(120)).min(1).max(40),
+}).strict()
+const MusicFormatSchema = z.object({
+  note: safeText(4000).optional(),
+  registers: z.record(z.string(), z.object({
+    label: safeText(80),
+    camera: safeText(200),
+    feeling: safeText(200),
+  }).strict()).optional(),
+  worlds: z.array(MusicWorldSchema).min(1).max(200).optional(),
+  songFormula: SongFormulaSchema.optional(),
+  episodeDefaults: EpisodeDefaultsSchema.optional(),
+  sceneSettings: SceneSettingsSchema.optional(),
+}).strict()
+
 const SeriesFormulaDocumentSchema = z.object({
   kind: z.literal('series-formula'),
   ...baseDocument,
@@ -246,6 +277,8 @@ const SeriesFormulaDocumentSchema = z.object({
   }).strict().optional(),
   intro_defaults: IntroDefaultsSchema.optional(),
   visual_style_hint: safeText(1000).optional(),
+  /** Present only on a music channel; see MusicFormatSchema. */
+  music_format: MusicFormatSchema.optional(),
   starting_scene_seconds: boundedRange(1, 120).optional(),
   /** Default "Pause between chapters" in Audio Assembly, seconds. */
   chapter_pause_sec: z.number().min(0).max(10).optional(),

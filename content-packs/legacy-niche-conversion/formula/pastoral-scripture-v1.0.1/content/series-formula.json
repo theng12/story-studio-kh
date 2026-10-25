@@ -1,0 +1,712 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.pastoral-scripture",
+  "name": "Pastoral Scripture",
+  "description": "A scripture-anchored pastoral Formula with two explicit modes: a concise daily reflection that teaches one takeaway, and expository teaching that moves from observation through interpretation to application.",
+  "channel_promise": "Scripture → interpretation → lived application",
+  "audience": "Christians who want a 3-7 minute scripture-grounded reflection alongside their morning coffee or before bed. Christians who want short doctrinally-anchored teaching — believers refreshing their walk, seekers exploring the faith.",
+  "formula_family": "Faith",
+  "tagline": "A passage. Its meaning. A faithful response.",
+  "perspective_policy": "Pastoral teacher voice, speaking respectfully and plainly to the listener.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open with the passage, its human situation, or a sincere pastoral concern.",
+    "forbidden_patterns": [
+      "God wants you to hear this",
+      "Stop scrolling",
+      "Watch what happens next",
+      "guaranteed blessing claims"
+    ],
+    "required_habits": [
+      "Keep scripture and interpretation distinct.",
+      "Use warm, modest application.",
+      "Avoid coercive fear or prosperity claims."
+    ],
+    "closing_policy": "End with a grounded reflection or blessing."
+  },
+  "narrative_rules": [
+    "Daily reflection mode — Opening word target: 90 words.",
+    "Daily reflection mode — Opening beat scripture_reading: read the passage aloud first, unhurried, before any greeting.",
+    "Daily reflection mode — Opening beat welcome: a short warm greeting and your name — a few words, not a paragraph.",
+    "Daily reflection mode — Opening beat what_youll_learn: name the one thought from this passage the reflection carries.",
+    "Daily reflection mode — Opening beat transition: hand over to the reflection gently.",
+    "Expository teaching mode — Opening word target: 110 words.",
+    "Expository teaching mode — Opening beat scripture_reading: read the passage aloud first, then let it sit for a beat.",
+    "Expository teaching mode — Opening beat welcome: greet warmly and give your name; pastoral, with teaching authority.",
+    "Expository teaching mode — Opening beat what_youll_learn: name the question this passage answers for the listener today.",
+    "Expository teaching mode — Opening beat episode_roadmap: say the shape: what it meant then, what it means now, what it asks of you.",
+    "Expository teaching mode — Opening beat subscribe_cta: one warm line; never a hype call.",
+    "Expository teaching mode — Opening beat transition: hand over to the first chapter by returning to the text.",
+    "Select exactly one pastoral mode for an episode and keep its teaching movement consistent."
+  ],
+  "title_rules": [
+    "Titles MUST anchor on a SPECIFIC scripture passage OR a SPECIFIC pastoral topic. Direct and teaching-oriented — never poetic.",
+    "Use ONE of these established shapes (vary the passage / topic across the batch):",
+    "  - 'A Thought on {Book, chapter and verse}'         (for example, 'A Thought on Psalm 23', 'A Thought on John 14:27')",
+    "  - 'Today's Verse: {Book, chapter and verse}'        (for example, 'Today's Verse: Philippians 4:6-7')",
+    "  - 'Why {Book, chapter and verse} Still Matters'     (for example, 'Why Joshua 1:9 Still Matters')",
+    "  - '{N} Lessons from {Book, chapter and verse}'      (for example, 'Three Lessons from Proverbs 3:5-6')",
+    "  - 'What {Book / Figure} Teaches Us About X'    (for example, 'What the Beatitudes Teach Us About Quiet Strength', 'What Job Knew About Suffering')",
+    "  - 'Lessons from {Parable / Figure}'            (for example, 'Lessons from the Prodigal Son')",
+    "  - 'A Devotion on X'                            (for example, 'A Devotion on Anxiety', 'A Devotion for Tired Mothers')",
+    "  - 'Trusting When X'                            (for example, 'Trusting When You Can't See the Path')",
+    "FORBIDDEN in titles:",
+    "  - Nature/scenery modifiers ('at Sunset's Edge', 'in the Garden', 'Moonlit Waters')",
+    "  - Atmospheric adjectives ('A Quiet Devotion', 'A Gentle Thought', 'A Reflective…') — keep it instructional, not poetic",
+    "  - Allegorical decoration ('Echoes of…', 'Whispers of…', 'Glimmers of…')",
+    "  - Vague abstractions ('Inner Peace', 'Sacred Moments') without a SPECIFIC passage / topic anchor",
+    "REQUIRED: every title points at a concrete scripture reference OR a concrete pastoral teaching subject. The audience comes here to LEARN something from a passage, not to enjoy poetry.",
+    "Titles MUST anchor on a SPECIFIC passage or biblical figure. Direct, doctrinally-grounded — never poetic.",
+    "Established shapes (vary the passage / figure across the batch):",
+    "  - 'The {Theme} — {Book Chapter}'              (for example, 'The Cost of Discipleship — Luke 14')",
+    "  - 'What {Author} Means by '{Quoted Phrase}''  (for example, 'What James Means by 'Faith Without Works'')",
+    "  - '{N} Truths from {Book Chapter}'             (for example, 'Three Truths from Romans 8')",
+    "  - '{Figure / Book} on {Topic}'                 (for example, 'Paul on Suffering', 'Job on Loss')",
+    "  - 'Why {Theme} Matters Now — {Book Chapter}'   (for example, 'Why Hope Matters Now — Hebrews 6')",
+    "FORBIDDEN: vague abstractions without a passage anchor, atmospheric adjectives ('A Reflective Sermon…'), motivational-style framing.",
+    "Every title must point at a CONCRETE passage, figure, or doctrinal subject. No 'inspiring' / 'powerful' adjectives without a textual anchor."
+  ],
+  "script_structure": {
+    "default_chapter_count": 6,
+    "chapter_count_range": [
+      4,
+      9
+    ],
+    "default_length_minutes": 25,
+    "length_minutes_range": [
+      20,
+      30
+    ],
+    "duration_presets": [
+      20,
+      25,
+      30
+    ],
+    "default_words_per_minute": 125,
+    "chapters_independent": false,
+    "pacing_arc": [
+      "Daily reflection mode: passage spoken aloud → two or three brief reflections → one practical takeaway.",
+      "Expository teaching mode: passage spoken aloud → observation → first-audience interpretation → present application.",
+      "Both modes: close with pastoral warmth and no hype."
+    ],
+    "additional_rules": [
+      "Daily reflection mode uses about 125 words per minute and stays concise.",
+      "Expository teaching mode uses about 145 words per minute and gives interpretation room.",
+      "Anchor every devotional in ONE specific passage. Open with the verse spoken aloud, unpack it in 2-3 short reflections, end with a single takeaway the listener can carry through the day. Avoid theological tangents; stay practical and pastoral.",
+      "Open with the passage spoken aloud. Move through: observation (what does the text say) → interpretation (what did it mean to its first audience) → application (what does it ask of us). Cite real biblical names and contexts. Avoid pop-culture analogies unless they're genuinely illuminating.",
+      "End with a single, clear takeaway the listener can carry through their day — practical, not abstract.",
+      "Close on the application — what the text asks of the listener now — with pastoral warmth, not a hype call."
+    ]
+  },
+  "compatible_topic_pack_ids": [
+    "com.storystudio.topic.pastoral-daily-reflection",
+    "com.storystudio.topic.pastoral-expository-teaching"
+  ],
+  "default_topic_pack_ids": [
+    "com.storystudio.topic.pastoral-daily-reflection"
+  ],
+  "example_topics": [
+    "A Thought on Psalm 23",
+    "Why Joshua 1:9 Still Matters",
+    "Three Lessons from Proverbs 3:5-6",
+    "Today's Verse: Philippians 4:6-7",
+    "The Quiet Power of Romans 8:28",
+    "What the Beatitudes Teach Us About Quiet Strength",
+    "Lessons from the Prodigal Son",
+    "Why We're Told to 'Be Still'",
+    "A Devotion on Anxiety",
+    "Trusting When You Can't See the Path",
+    "A Devotion for Tired Mothers",
+    "What Job Knew About Suffering",
+    "The Cost of Discipleship — Luke 14",
+    "What James Means by 'Faith Without Works'",
+    "Three Truths from Romans 8",
+    "Why Jesus Wept at Lazarus's Tomb",
+    "The Sermon on the Mount — Reframed",
+    "Why God Tested Abraham",
+    "What 'Pick Up Your Cross' Really Means",
+    "Forgiveness According to Matthew 18",
+    "Why the Beatitudes Subvert Everything",
+    "What David's Failures Teach Us",
+    "Why Paul Said 'To Live Is Christ'",
+    "The Anatomy of Repentance",
+    "What It Means to 'Walk by Faith'"
+  ],
+  "youtube_tags_hint": [
+    "devotional",
+    "daily devotional",
+    "christian devotional",
+    "bible verse",
+    "scripture meditation",
+    "morning devotional",
+    "evening devotional",
+    "bible study",
+    "christian reflection",
+    "preaching",
+    "sermon",
+    "bible teaching",
+    "expository preaching",
+    "christian sermon",
+    "gospel preaching",
+    "scripture exposition",
+    "christian sermon shorts"
+  ],
+  "recommended_visual_style_ids": [],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.portrait-block-right"
+  ],
+  "idea_axes": [
+    {
+      "id": "episode-profile",
+      "label": "Pastoral mode",
+      "values": [
+        "daily reflection",
+        "expository teaching"
+      ]
+    },
+    {
+      "id": "scripture-movement",
+      "label": "Scripture movement",
+      "values": [
+        "verse and takeaway",
+        "observation",
+        "first-audience interpretation",
+        "present application",
+        "pastoral blessing"
+      ]
+    }
+  ],
+  "production_kit": {
+    "id": "pastoral-scripture-modes",
+    "label": "Pastoral Scripture modes",
+    "description": "Two durable episode modes preserve the distinct devotional and expository production contracts.",
+    "episode_profiles": [
+      {
+        "id": "daily-reflection",
+        "label": "Daily reflection",
+        "description": "A concise passage-first devotional with one practical takeaway.",
+        "idea_axis_value": "daily reflection",
+        "narrator_style_id": "devotional-a",
+        "intro_defaults": {
+          "word_target": 90,
+          "beats": [
+            {
+              "id": "scripture_reading",
+              "custom_text": "read the passage aloud first, unhurried, before any greeting"
+            },
+            {
+              "id": "welcome",
+              "custom_text": "a short warm greeting and your name — a few words, not a paragraph"
+            },
+            {
+              "id": "what_youll_learn",
+              "custom_text": "name the one thought from this passage the reflection carries"
+            },
+            {
+              "id": "transition",
+              "custom_text": "hand over to the reflection gently"
+            }
+          ]
+        },
+        "script_structure": {
+          "default_chapter_count": 6,
+          "chapter_count_range": [
+            4,
+            9
+          ],
+          "default_length_minutes": 25,
+          "length_minutes_range": [
+            20,
+            30
+          ],
+          "duration_presets": [
+            20,
+            25,
+            30
+          ],
+          "default_words_per_minute": 125,
+          "chapters_independent": false
+        },
+        "recency_avoidance": {
+          "strategy_id": "pastoral-daily-reflection-scripture",
+          "label": "scripture references",
+          "default_lookback": 30,
+          "scopes": [
+            "script",
+            "metadata"
+          ]
+        },
+        "idea_system_prompt_role": "You generate ideas for a daily-devotional channel. Each episode TEACHES the listener something rooted in ONE specific scripture passage — a verse, a thought, a takeaway. Pitch passage-anchored or concrete pastoral-topic devotions, never vague 'inner peace' abstractions.",
+        "script_system_prompt_role": "You are a devotional writer. You teach the listener something rooted in ONE specific passage: open with the verse spoken aloud, unpack it in 2-3 short, practical reflections, and close with a single takeaway they can carry through the day. Warm, studied, and pastoral — instructional but never dry, rooted in the text but never tangential.",
+        "script_context": "Anchor every devotional in ONE specific passage. Open with the verse spoken aloud, unpack it in 2-3 short reflections, end with a single takeaway the listener can carry through the day. Avoid theological tangents; stay practical and pastoral.",
+        "script_closing_hint": "End with a single, clear takeaway the listener can carry through their day — practical, not abstract."
+      },
+      {
+        "id": "expository-teaching",
+        "label": "Expository teaching",
+        "description": "A passage-first sermon moving through observation, interpretation, and application.",
+        "idea_axis_value": "expository teaching",
+        "narrator_style_id": "preaching-a",
+        "intro_defaults": {
+          "word_target": 110,
+          "beats": [
+            {
+              "id": "scripture_reading",
+              "custom_text": "read the passage aloud first, then let it sit for a beat"
+            },
+            {
+              "id": "welcome",
+              "custom_text": "greet warmly and give your name; pastoral, with teaching authority"
+            },
+            {
+              "id": "what_youll_learn",
+              "custom_text": "name the question this passage answers for the listener today"
+            },
+            {
+              "id": "episode_roadmap",
+              "custom_text": "say the shape: what it meant then, what it means now, what it asks of you"
+            },
+            {
+              "id": "subscribe_cta",
+              "custom_text": "one warm line; never a hype call"
+            },
+            {
+              "id": "transition",
+              "custom_text": "hand over to the first chapter by returning to the text"
+            }
+          ]
+        },
+        "script_structure": {
+          "default_chapter_count": 6,
+          "chapter_count_range": [
+            4,
+            9
+          ],
+          "default_length_minutes": 25,
+          "length_minutes_range": [
+            20,
+            30
+          ],
+          "duration_presets": [
+            20,
+            25,
+            30
+          ],
+          "default_words_per_minute": 145,
+          "chapters_independent": false
+        },
+        "recency_avoidance": {
+          "strategy_id": "pastoral-expository-teaching-scripture",
+          "label": "scripture references",
+          "default_lookback": 40,
+          "scopes": [
+            "script",
+            "metadata"
+          ]
+        },
+        "idea_system_prompt_role": "You generate ideas for a sermon / Bible-teaching channel. Each episode expounds a SPECIFIC passage or biblical figure with practical application — observation, interpretation, application. Pitch concrete, passage-anchored teaching subjects, never vague inspirational topics.",
+        "script_system_prompt_role": "You are an expository preacher. You open a specific passage, explain what it meant to its first audience, and apply it to the listener today — pastoral but with teaching authority. Structure: observation → interpretation → application. Cite real biblical names and contexts; stay Christ-centered and text-driven. Warm and convicting, never hype or denominationally narrow.",
+        "script_context": "Open with the passage spoken aloud. Move through: observation (what does the text say) → interpretation (what did it mean to its first audience) → application (what does it ask of us). Cite real biblical names and contexts. Avoid pop-culture analogies unless they're genuinely illuminating.",
+        "script_closing_hint": "Close on the application — what the text asks of the listener now — with pastoral warmth, not a hype call."
+      }
+    ]
+  },
+  "vocabulary": {
+    "mood": [
+      "reflective",
+      "warm",
+      "anchored",
+      "patient",
+      "quiet-confidence",
+      "contemplative",
+      "instructional",
+      "studied",
+      "weighty",
+      "gentle",
+      "deliberate",
+      "rooted",
+      "sober",
+      "encouraging",
+      "exhortative",
+      "thoughtful",
+      "scholarly-pastoral",
+      "earnest",
+      "ruminative",
+      "settled",
+      "honest",
+      "questioning",
+      "open-handed",
+      "yielded",
+      "pastoral",
+      "authoritative",
+      "convicting",
+      "grounded",
+      "tender-with-truth",
+      "expository",
+      "wise",
+      "reverent",
+      "instructive",
+      "personal",
+      "challenging",
+      "compassionate",
+      "called",
+      "humble-but-firm",
+      "fatherly",
+      "shepherding"
+    ],
+    "theme": [
+      "faith",
+      "trust",
+      "discipleship",
+      "obedience",
+      "presence",
+      "humility",
+      "wisdom",
+      "service",
+      "endurance",
+      "hope",
+      "love",
+      "repentance",
+      "stewardship",
+      "covenant",
+      "kingdom",
+      "grace",
+      "redemption",
+      "perseverance",
+      "compassion",
+      "holiness",
+      "righteousness",
+      "sanctification",
+      "calling",
+      "vocation",
+      "suffering",
+      "joy",
+      "lament",
+      "doubt",
+      "assurance",
+      "providence",
+      "salvation",
+      "imitation-of-Christ",
+      "fruit-of-the-Spirit",
+      "atonement",
+      "justification",
+      "regeneration",
+      "adoption",
+      "incarnation",
+      "resurrection",
+      "ascension",
+      "second-coming",
+      "the church",
+      "spiritual warfare",
+      "evangelism",
+      "missions"
+    ],
+    "genre": [
+      "devotional",
+      "bible study",
+      "reflection",
+      "scripture meditation",
+      "exposition",
+      "spiritual reading",
+      "lectio-divina",
+      "topical study",
+      "verse-of-the-day",
+      "biblical theology",
+      "preaching",
+      "sermon",
+      "bible teaching",
+      "homiletics",
+      "topical sermon",
+      "expository sermon",
+      "verse-by-verse",
+      "evangelistic message",
+      "discipleship teaching"
+    ],
+    "keyword": [
+      "scripture",
+      "verse",
+      "passage",
+      "psalm",
+      "proverb",
+      "gospel",
+      "epistle",
+      "parable",
+      "beatitude",
+      "narrative",
+      "law",
+      "prophet",
+      "wisdom-literature",
+      "Christ",
+      "Lord",
+      "Spirit",
+      "Father",
+      "kingdom",
+      "grace",
+      "redemption",
+      "covenant",
+      "discipleship",
+      "obedience",
+      "faith",
+      "hope",
+      "love",
+      "joy",
+      "peace",
+      "patience",
+      "kindness",
+      "goodness",
+      "faithfulness",
+      "gentleness",
+      "self-control",
+      "humility",
+      "Genesis",
+      "Exodus",
+      "Psalms",
+      "Proverbs",
+      "Ecclesiastes",
+      "Isaiah",
+      "Jeremiah",
+      "Matthew",
+      "Mark",
+      "Luke",
+      "John",
+      "Acts",
+      "Romans",
+      "Corinthians",
+      "Galatians",
+      "Ephesians",
+      "Philippians",
+      "Colossians",
+      "Hebrews",
+      "James",
+      "Peter",
+      "Revelation",
+      "Moses",
+      "David",
+      "Solomon",
+      "Job",
+      "Daniel",
+      "Mary",
+      "Paul",
+      "Peter the disciple",
+      "John the beloved",
+      "Abraham",
+      "Sarah",
+      "Ruth",
+      "Esther",
+      "Hannah",
+      "Elijah",
+      "Joshua",
+      "the Beatitudes",
+      "the Sermon on the Mount",
+      "the Lord's Prayer",
+      "the Good Samaritan",
+      "the Prodigal Son",
+      "the Vine and the Branches",
+      "the Shepherd Psalm",
+      "Psalm 23",
+      "Psalm 91",
+      "John 14",
+      "Romans 8",
+      "Philippians 4",
+      "Hebrews 11",
+      "the resurrection",
+      "the cross",
+      "the temple",
+      "the wilderness",
+      "the exile",
+      "the exodus",
+      "morning devotion",
+      "evening devotion",
+      "weekly study",
+      "Sunday school",
+      "prayer journal",
+      "memorisation",
+      "spiritual formation",
+      "quiet time",
+      "discipline of silence",
+      "biblical worldview",
+      "the call",
+      "the new heart",
+      "the narrow way",
+      "the household of faith",
+      "the body of Christ",
+      "the bread of life",
+      "living water",
+      "the lamp unto our feet",
+      "cross",
+      "atonement",
+      "Word",
+      "repentance",
+      "sanctification",
+      "justification",
+      "salvation",
+      "regeneration",
+      "adoption",
+      "imputation",
+      "propitiation",
+      "sin",
+      "righteousness",
+      "holiness",
+      "promise",
+      "election",
+      "calling",
+      "Leviticus",
+      "Deuteronomy",
+      "1 Corinthians",
+      "2 Corinthians",
+      "1 Thessalonians",
+      "1 Peter",
+      "Peter the apostle",
+      "John the apostle",
+      "the prophets",
+      "the apostles",
+      "the disciples",
+      "the early church",
+      "the cross of Christ",
+      "the empty tomb",
+      "the upper room",
+      "the road to Emmaus",
+      "the Great Commission",
+      "Pentecost",
+      "the parable of the sower",
+      "the prodigal son",
+      "the lost sheep",
+      "the good shepherd",
+      "the light of the world",
+      "the narrow gate",
+      "the cost of discipleship",
+      "abiding in Christ",
+      "the fruit of the Spirit",
+      "spiritual gifts",
+      "born again",
+      "eternal life",
+      "the Lord's Supper",
+      "baptism",
+      "communion",
+      "Sunday morning",
+      "weeknight study",
+      "small group",
+      "expository teaching",
+      "verse-by-verse",
+      "outline",
+      "main idea",
+      "application",
+      "doctrinal core",
+      "biblical context",
+      "original audience",
+      "historical-grammatical",
+      "Christ-centered"
+    ]
+  },
+  "audience_hint": "Christians who want a 3-7 minute scripture-grounded reflection alongside their morning coffee or before bed. Christians who want short doctrinally-anchored teaching — believers refreshing their walk, seekers exploring the faith.",
+  "evidence_expectations": [
+    "Anchor every episode in one accurately represented scripture passage.",
+    "Keep the quoted text, historical context, interpretation, and application distinguishable.",
+    "Avoid denominational overclaiming, prosperity promises, fear-based coercion, and invented divine messages."
+  ],
+  "idea_system_prompt_role": "Daily reflection mode: You generate ideas for a daily-devotional channel. Each episode TEACHES the listener something rooted in ONE specific scripture passage — a verse, a thought, a takeaway. Pitch passage-anchored or concrete pastoral-topic devotions, never vague 'inner peace' abstractions.\n\nExpository teaching mode: You generate ideas for a sermon / Bible-teaching channel. Each episode expounds a SPECIFIC passage or biblical figure with practical application — observation, interpretation, application. Pitch concrete, passage-anchored teaching subjects, never vague inspirational topics.",
+  "script_context": "Daily reflection mode: Anchor every devotional in ONE specific passage. Open with the verse spoken aloud, unpack it in 2-3 short reflections, end with a single takeaway the listener can carry through the day. Avoid theological tangents; stay practical and pastoral.\n\nExpository teaching mode: Open with the passage spoken aloud. Move through: observation (what does the text say) → interpretation (what did it mean to its first audience) → application (what does it ask of us). Cite real biblical names and contexts. Avoid pop-culture analogies unless they're genuinely illuminating.",
+  "script_system_prompt_role": "Daily reflection mode: You are a devotional writer. You teach the listener something rooted in ONE specific passage: open with the verse spoken aloud, unpack it in 2-3 short, practical reflections, and close with a single takeaway they can carry through the day. Warm, studied, and pastoral — instructional but never dry, rooted in the text but never tangential.\n\nExpository teaching mode: You are an expository preacher. You open a specific passage, explain what it meant to its first audience, and apply it to the listener today — pastoral but with teaching authority. Structure: observation → interpretation → application. Cite real biblical names and contexts; stay Christ-centered and text-driven. Warm and convicting, never hype or denominationally narrow.",
+  "script_closing_hint": "Daily reflection mode: End with a single, clear takeaway the listener can carry through their day — practical, not abstract.\n\nExpository teaching mode: Close on the application — what the text asks of the listener now — with pastoral warmth, not a hype call.",
+  "narrator_styles": [
+    {
+      "id": "devotional-a",
+      "label": "Warm teacher",
+      "description": "Pastoral and clear, like a trusted small-group leader opening the text with you."
+    },
+    {
+      "id": "devotional-b",
+      "label": "Reflective and quiet",
+      "description": "Contemplative, unhurried — gives each reflection room to settle."
+    },
+    {
+      "id": "devotional-c",
+      "label": "Grounded and studied",
+      "description": "Steady, rooted, quietly confident in the text. Teaching without lecturing."
+    },
+    {
+      "id": "preaching-a",
+      "label": "Pastoral authority",
+      "description": "Warm but with teaching weight — a trusted shepherd opening the Word."
+    },
+    {
+      "id": "preaching-b",
+      "label": "Expository and steady",
+      "description": "Measured, text-first, verse-by-verse clarity. Lets the passage lead."
+    },
+    {
+      "id": "preaching-c",
+      "label": "Earnest and convicting",
+      "description": "Sober and direct, calling the listener to respond — tender with the truth."
+    }
+  ],
+  "default_narrator_style_id": "devotional-a",
+  "title_shape_rules": [
+    "Titles MUST anchor on a SPECIFIC scripture passage OR a SPECIFIC pastoral topic. Direct and teaching-oriented — never poetic.",
+    "Use ONE of these established shapes (vary the passage / topic across the batch):",
+    "  - 'A Thought on {Book, chapter and verse}'         (for example, 'A Thought on Psalm 23', 'A Thought on John 14:27')",
+    "  - 'Today's Verse: {Book, chapter and verse}'        (for example, 'Today's Verse: Philippians 4:6-7')",
+    "  - 'Why {Book, chapter and verse} Still Matters'     (for example, 'Why Joshua 1:9 Still Matters')",
+    "  - '{N} Lessons from {Book, chapter and verse}'      (for example, 'Three Lessons from Proverbs 3:5-6')",
+    "  - 'What {Book / Figure} Teaches Us About X'    (for example, 'What the Beatitudes Teach Us About Quiet Strength', 'What Job Knew About Suffering')",
+    "  - 'Lessons from {Parable / Figure}'            (for example, 'Lessons from the Prodigal Son')",
+    "  - 'A Devotion on X'                            (for example, 'A Devotion on Anxiety', 'A Devotion for Tired Mothers')",
+    "  - 'Trusting When X'                            (for example, 'Trusting When You Can't See the Path')",
+    "FORBIDDEN in titles:",
+    "  - Nature/scenery modifiers ('at Sunset's Edge', 'in the Garden', 'Moonlit Waters')",
+    "  - Atmospheric adjectives ('A Quiet Devotion', 'A Gentle Thought', 'A Reflective…') — keep it instructional, not poetic",
+    "  - Allegorical decoration ('Echoes of…', 'Whispers of…', 'Glimmers of…')",
+    "  - Vague abstractions ('Inner Peace', 'Sacred Moments') without a SPECIFIC passage / topic anchor",
+    "REQUIRED: every title points at a concrete scripture reference OR a concrete pastoral teaching subject. The audience comes here to LEARN something from a passage, not to enjoy poetry.",
+    "Titles MUST anchor on a SPECIFIC passage or biblical figure. Direct, doctrinally-grounded — never poetic.",
+    "Established shapes (vary the passage / figure across the batch):",
+    "  - 'The {Theme} — {Book Chapter}'              (for example, 'The Cost of Discipleship — Luke 14')",
+    "  - 'What {Author} Means by '{Quoted Phrase}''  (for example, 'What James Means by 'Faith Without Works'')",
+    "  - '{N} Truths from {Book Chapter}'             (for example, 'Three Truths from Romans 8')",
+    "  - '{Figure / Book} on {Topic}'                 (for example, 'Paul on Suffering', 'Job on Loss')",
+    "  - 'Why {Theme} Matters Now — {Book Chapter}'   (for example, 'Why Hope Matters Now — Hebrews 6')",
+    "FORBIDDEN: vague abstractions without a passage anchor, atmospheric adjectives ('A Reflective Sermon…'), motivational-style framing.",
+    "Every title must point at a CONCRETE passage, figure, or doctrinal subject. No 'inspiring' / 'powerful' adjectives without a textual anchor."
+  ],
+  "title_length_range": [
+    4,
+    11
+  ],
+  "structural_variety": "vary-subject-only",
+  "metadata_title_style_hint": "Daily reflection mode: Plain and warm — name the passage or the idea the devotional turns on. Reverent, never clickbait. Expository teaching mode: Name the passage and the claim it makes. Teaching authority, not clickbait — the viewer should know what will be taught.",
+  "intro_defaults": {
+    "word_target": 90,
+    "beats": [
+      {
+        "id": "scripture_reading",
+        "custom_text": "read the passage aloud first, unhurried, before any greeting"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "a short warm greeting and your name — a few words, not a paragraph"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "name the one thought from this passage the reflection carries"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the reflection gently"
+      }
+    ]
+  },
+  "metadata_profile": {
+    "id": "pastoral-youtube",
+    "label": "Pastoral video package",
+    "description": "A respectful episode summary and restrained discoverability details, without pressure language.",
+    "description_section_ids": [
+      "hook",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 3000,
+    "title_max_length": 100,
+    "tag_count": 15
+  },
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.portrait-block-right"
+}

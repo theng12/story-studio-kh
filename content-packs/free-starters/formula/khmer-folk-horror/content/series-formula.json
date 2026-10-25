@@ -1,0 +1,341 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.khmer-folk-horror",
+  "name": "Khmer Folk Horror Anthology",
+  "description": "Khmer cautionary tales, local legends and restless spirits, told as independent chapters with atmosphere rather than gore. Each episode gathers tales from one region or one kind of place — a rice field, a river crossing, a pagoda road, a market at dusk — and lets each tale settle on its consequence. Khmer-specific dread: the spirit that was not respected, the promise broken at a shrine, the stranger who was never a stranger. Not western horror.",
+  "channel_promise": "Khmer legends told the way they were told to us — quietly, and with a consequence.",
+  "audience": "Khmer-speaking listeners and diaspora viewers who grew up with these stories, plus anyone who wants Southeast Asian folk horror with cultural specificity instead of western tropes.",
+  "formula_family": "Folk horror",
+  "tagline": "The tale your grandmother warned you about.",
+  "perspective_policy": "Third-person storyteller, respectful of the tradition being told. Never mock the belief, never explain it away as superstition, and never speak for a real living person.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open on a place, an object or an ordinary task in a definite Khmer setting. No jump scare, no western horror framing, no question hook.",
+    "forbidden_patterns": [
+      "jump scare",
+      "zombie",
+      "exorcism",
+      "ouija",
+      "demonic possession",
+      "gore",
+      "blood-soaked",
+      "you will not believe",
+      "Imagine this",
+      "Watch what happens next",
+      "based on a true story",
+      "cursed videotape",
+      "creepy doll",
+      "ancient evil"
+    ],
+    "required_habits": [
+      "Name the specific place or practice: a rice field at planting, a river crossing, a pagoda festival, a spirit house.",
+      "Keep the supernatural in the story’s own terms — khmaoch, preay, areak, neak ta — never a generic ghost.",
+      "End each tale on the consequence or the lesson, not on a scream.",
+      "When the source is oral tradition, say so; never invent a citation, a date or a named witness."
+    ],
+    "closing_policy": "Close the chapter with the consequence the tale exists to carry. End the episode on the quietest tale."
+  },
+  "opening_profile": {
+    "id": "folk-welcome",
+    "label": "Folk welcome",
+    "description": "A quiet welcome and a promise of the night’s tales, with no jump scare."
+  },
+  "intro_defaults": {
+    "word_target": 180,
+    "beats": [
+      {
+        "id": "welcome",
+        "custom_text": "a quiet greeting and the channel name, with no energy in it"
+      },
+      {
+        "id": "story_teaser",
+        "custom_text": "name the region or the kind of place tonight’s tales come from, without a hook or a scare"
+      },
+      {
+        "id": "community_question",
+        "custom_text": "ask which story their family told, and say you will read the answers"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one plain line, then move into the first tale"
+      },
+      {
+        "id": "transition",
+        "custom_text": "name the first place, and begin"
+      }
+    ]
+  },
+  "visual_style_hint": "dark painterly Southeast Asian landscapes — monsoon light, palm shadows, temple stone, one distant figure; no gore and no western horror imagery",
+  "starting_scene_seconds": [
+    8,
+    15
+  ],
+  "metadata_profile": {
+    "id": "folk-horror",
+    "label": "Folk horror package",
+    "description": "A quiet summary naming the region and the tales, with a gentle chapter list and minimal discoverability details; no gore words and no urgency.",
+    "description_section_ids": [
+      "hook",
+      "cta",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 3500,
+    "title_max_length": 100,
+    "tag_count": 15
+  },
+  "narrative_rules": [
+    "Each chapter is one self-contained tale from the same region or the same kind of place; a listener joining mid-video needs no earlier chapter.",
+    "Khmer specificity is the point: name the practice, the offering, the festival, the river, the tree. Never substitute a western monster for a Khmer one.",
+    "Dread comes from atmosphere and consequence, never from gore, shock, or a jump scare.",
+    "Respect the living tradition. Do not invent claims about a real temple, a real monk, or a named living person.",
+    "Do not present a tale as verified history. Oral tradition is oral tradition."
+  ],
+  "title_rules": [
+    "Name the place or the spirit and the consequence; calm, literary, specific.",
+    "Shapes that work: 'The Spirit at the Rice Field', 'Three Khmer Tales of the River', 'The Offering Nobody Made'.",
+    "No all-caps, no “terrifying”, no question marks, no gore words."
+  ],
+  "script_structure": {
+    "default_chapter_count": 6,
+    "chapter_count_range": [
+      4,
+      10
+    ],
+    "default_length_minutes": 45,
+    "length_minutes_range": [
+      30,
+      60
+    ],
+    "duration_presets": [
+      30,
+      45,
+      60
+    ],
+    "default_words_per_minute": 135,
+    "chapters_independent": true,
+    "pacing_arc": [
+      "Tale 1: the most familiar kind of place, told most plainly — it teaches the listener the rhythm of the night.",
+      "Tales 2–{lastButOne}: one tale each, varying region and kind of place between neighbours so the ear travels gently.",
+      "Tale {last}: the quietest tale and the softest telling; the consequence lands, and nothing after it raises its voice."
+    ],
+    "additional_rules": [
+      "Every tale opens by naming its place and one ordinary task or object, then lets the strangeness arrive slowly.",
+      "Explain the local practice or belief in plain language for a listener who did not grow up with it, without turning the tale into a lecture.",
+      "No per-chapter jump scare, no cliffhanger, no shock ending. Close each tale on what it warns against or what it preserves.",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2…) followed by the tale’s plain name.",
+      "Write for the ear: even sentences, gentle rhythm, no lists read aloud."
+    ]
+  },
+  "compatible_topic_pack_ids": [],
+  "example_topics": [
+    "The Spirit at the Rice Field",
+    "Three Khmer Tales of the River",
+    "The Offering Nobody Made",
+    "The Stranger at the Pagoda Road",
+    "What the Grandmother Would Not Say",
+    "The House That Kept Its Promise",
+    "Five Tales from the Market at Dusk",
+    "The Debt That Passed to the Son",
+    "The Tree at the Edge of the Village",
+    "One Night on the Tonle Sap",
+    "The Rite That Was Forgotten",
+    "Tales Told During the Rains"
+  ],
+  "recommended_visual_style_ids": [],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.period-portrait-serif-title"
+  ],
+  "idea_axes": [
+    {
+      "id": "place",
+      "label": "Place",
+      "values": [
+        "a rice field",
+        "a river crossing",
+        "an abandoned house",
+        "a pagoda road",
+        "a market at dusk",
+        "a forest edge",
+        "a village boundary",
+        "a spirit house"
+      ]
+    },
+    {
+      "id": "legend-type",
+      "label": "Kind of tale",
+      "values": [
+        "a broken promise",
+        "an offering refused",
+        "a stranger who was not a stranger",
+        "a spirit owed respect",
+        "a death unavenged",
+        "a place that remembers"
+      ]
+    },
+    {
+      "id": "consequence",
+      "label": "Consequence",
+      "values": [
+        "the lesson is told",
+        "the family moves away",
+        "the rite is restored",
+        "the debt passes on"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "hushed",
+      "monsoon-heavy",
+      "respectful",
+      "patient",
+      "eerie",
+      "lamplit",
+      "river-cool",
+      "candlelit",
+      "watchful",
+      "grounded"
+    ],
+    "theme": [
+      "respect for the dead",
+      "offerings",
+      "broken promises",
+      "village boundaries",
+      "rivers and crossings",
+      "pagoda grounds",
+      "spirit houses",
+      "harvest",
+      "kinship",
+      "exile"
+    ],
+    "genre": [
+      "Khmer folk horror",
+      "folk tale",
+      "anthology",
+      "cautionary tale",
+      "oral tradition"
+    ],
+    "keyword": [
+      "ខ្មោច (khmaoch)",
+      "ព្រាយ (preay)",
+      "អារក្ស (areak)",
+      "អ្នកតា (neak ta)",
+      "ទឹកដី (teukdei)",
+      "ភូមិ (phum)",
+      "វត្ត (wat)",
+      "ស្រែ (srae)",
+      "ទន្លេ (tonle)",
+      "ដើមឈើ (deum chheu)",
+      "ខែភ្លៀង (rainy season)",
+      "យាយ (yeay)",
+      "រឿងព្រេង (roeung preng)",
+      "គ្រឿងសក្ការៈ (offerings)",
+      "monsoon",
+      "incense",
+      "lantern",
+      "riverbank",
+      "palm shadow"
+    ]
+  },
+  "audience_hint": "Khmer-speaking listeners and diaspora viewers, and anyone who wants folk horror rooted in a real tradition rather than a western monster.",
+  "evidence_expectations": [
+    "Treat oral tradition as oral tradition: name it as a story carried in families or villages, not as a documented event.",
+    "Where a practice or term can be explained plainly, do so; never invent a scripture, a date or a named witness.",
+    "Do not make factual claims about a real temple, a real monk, or a named living person."
+  ],
+  "idea_system_prompt_role": "You generate ideas for a Khmer folk-horror anthology. Every idea gathers a few self-contained Khmer tales from one region or one kind of place. Dread is atmosphere and consequence; never gore, jump scares, or western horror monsters.",
+  "idea_guidance_text": "Name the place and the kind of tale; keep the region varied across a batch. The grimmest tale is still told quietly, and every tale carries the lesson it exists for.",
+  "script_context": "This is a Khmer folk-horror anthology. Each chapter stands alone: one tale, one place, one consequence, told with atmosphere and respect for the tradition. Nothing startling should happen for its own sake.",
+  "script_system_prompt_role": "You are a Khmer storyteller writing gentle folk horror for the ear. You name real places, practices and terms, keep the supernatural in Khmer terms, and close every tale on its consequence rather than a scream. You never mock the belief and never pretend the tale is documented history.",
+  "script_closing_hint": "Slow down. End on the consequence the tale carries, and leave the listener with the quiet after it.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Khmer storyteller",
+      "description": "Even and grounded, the voice of someone who grew up with the tales."
+    },
+    {
+      "id": "b",
+      "label": "Quiet grandmother",
+      "description": "Warm, unhurried, letting the warning arrive on its own."
+    },
+    {
+      "id": "c",
+      "label": "Calm folklorist",
+      "description": "Precise and respectful, naming the practice without coldness."
+    },
+    {
+      "id": "d",
+      "label": "Dark river storyteller",
+      "description": "Low, patient, with the sound of water and night behind each line."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Name the place or the spirit and the consequence; calm, literary, specific.",
+    "Shapes that work: 'The Spirit at the Rice Field', 'Three Khmer Tales of the River', 'The Offering Nobody Made'.",
+    "For a Khmer-language title, keep the same shape in Khmer and do not transliterate the whole title.",
+    "FORBIDDEN: all-caps, “terrifying”, question marks, gore words, countdowns."
+  ],
+  "title_length_range": [
+    4,
+    14
+  ],
+  "logline_shape_rules": [
+    "One calm sentence naming the place and the kind of tale, without a scare.",
+    "No promise of terror, no question; the tone suggests a story told after dark."
+  ],
+  "logline_sentence_range": [
+    1,
+    2
+  ],
+  "theme_shape_rules": [
+    "Pick 2–4 cultural or atmospheric keywords (offerings, rain, kinship, river).",
+    "Avoid genre-horror keywords (gore, demon, exorcism)."
+  ],
+  "theme_count_range": [
+    2,
+    4
+  ],
+  "structural_variety": "vary-all",
+  "metadata_title_style_hint": "calm and literary — a place, a spirit and a consequence, never a scare or a countdown",
+  "metadata_title_hook_rules": [
+    "Signal the tradition and the place, not terror.",
+    "No all-caps, no question marks, no “you won’t believe”, no gore."
+  ],
+  "metadata_tags_hook_rules": [
+    "Mix broad Khmer and folk-horror keywords with the episode’s actual places and tale types.",
+    "Include the Khmer-language terms listeners would search for, without “#”."
+  ],
+  "metadata_description": {
+    "voice_guidance": "Quiet and respectful. Name the region, list the tales as a simple chapter index, and say that these are tales carried in families and villages.",
+    "description_shape_rules": [
+      "First line: the region and the kinds of tales in one calm sentence.",
+      "Then a chapter index, one tale per line.",
+      "Then one gentle question about a story their family told.",
+      "Close with the AI disclosure and a few hashtags."
+    ],
+    "cta_shape": "One soft line inviting them to keep the tales for another night."
+  },
+  "youtube_tags_hint": [
+    "khmer folk horror",
+    "khmer stories",
+    "khmer legends",
+    "រឿងខ្មោច",
+    "រឿងព្រេងខ្មែរ",
+    "folk horror anthology",
+    "southeast asian folklore",
+    "bedtime folk tales",
+    "quiet horror",
+    "cambodian ghost stories",
+    "khmaoch",
+    "neak ta"
+  ],
+  "creative_profiles": [
+    "narrative",
+    "balanced"
+  ],
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.period-portrait-serif-title"
+}

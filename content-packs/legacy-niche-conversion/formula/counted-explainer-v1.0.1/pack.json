@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.formula.counted-explainer",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Initial standalone Series Formula release translated explicitly from the approved legacy niche contract.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.formula.counted-explainer",
+    "family": "com.storystudio.family.formula.counted-explainer"
+  },
+  "dependencies": []
+}

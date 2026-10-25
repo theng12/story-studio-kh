@@ -1,5 +1,5 @@
 {
-  "revision": 302,
+  "revision": 326,
   "batches": [
     {
       "revision": 2,
@@ -6008,6 +6008,526 @@
           }
         ]
       }
+    },
+    {
+      "revision": 303,
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "request": {
+        "expected_revision": 302,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "proposal_ref": "Owner ruling 2026-10-25: modernize the store Formulas (opening recipes and shared field set), adopt the three unique owner custom Formulas, and add the three new channel Formulas. Audit: /build/Developer/_orchestra/formula-audit-20261025/PROPOSAL.md; corrections in the task brief override it.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.formula.ancient-humans",
+            "item_id": "com.storystudio.formula.ancient-humans",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/ancient-humans-v1.0.3",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.ancient-humans",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.ancient-humans",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
+            "item_id": "com.storystudio.formula.deep-time-documentary",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/deep-time-documentary-v1.0.3",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.deep-time-documentary",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.deep-time-documentary",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.economics-of",
+            "item_id": "com.storystudio.formula.economics-of",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/economics-of-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.economics-of",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.economics-of",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+            "item_id": "com.storystudio.formula.guided-mindfulness",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/guided-mindfulness-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.guided-mindfulness",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.guided-mindfulness",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.history-explained",
+            "item_id": "com.storystudio.formula.history-explained",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/history-explained-v1.0.3",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.history-explained",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.history-explained",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+            "item_id": "com.storystudio.formula.human-behavior-explained",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.3",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.human-behavior-explained",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.human-behavior-explained",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.natural-world-explained",
+            "item_id": "com.storystudio.formula.natural-world-explained",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/natural-world-explained-v1.0.3",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.natural-world-explained",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.natural-world-explained",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+            "item_id": "com.storystudio.formula.pov-your-life-as",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/pov-your-life-as-v1.0.3",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.pov-your-life-as",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.pov-your-life-as",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.practical-motivation",
+            "item_id": "com.storystudio.formula.practical-motivation",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/practical-motivation-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.practical-motivation",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.practical-motivation",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.sleep-story",
+            "item_id": "com.storystudio.formula.sleep-story",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/sleep-story-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.sleep-story",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.sleep-story",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.counted-explainer",
+            "item_id": "com.storystudio.formula.counted-explainer",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/legacy-niche-conversion/formula/counted-explainer-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.counted-explainer",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.counted-explainer",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.build-under-constraints",
+            "item_id": "com.storystudio.formula.build-under-constraints",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/legacy-niche-conversion/formula/build-under-constraints-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.build-under-constraints",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.build-under-constraints",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
+            "item_id": "com.storystudio.formula.pastoral-scripture",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/legacy-niche-conversion/formula/pastoral-scripture-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.pastoral-scripture",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.pastoral-scripture",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.philosophy-real-problem",
+            "item_id": "com.storystudio.formula.philosophy-real-problem",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/legacy-niche-conversion/formula/philosophy-real-problem-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.philosophy-real-problem",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.philosophy-real-problem",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.prayer",
+            "item_id": "com.storystudio.formula.prayer",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/legacy-niche-conversion/formula/prayer-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.prayer",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.prayer",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.before-after-timeline",
+            "item_id": "com.storystudio.formula.before-after-timeline",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/reusable-primitives/formula/before-after-timeline-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.before-after-timeline",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.before-after-timeline",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.question-ladder",
+            "item_id": "com.storystudio.formula.question-ladder",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/reusable-primitives/formula/question-ladder-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.question-ladder",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.question-ladder",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.wildlife-under-pressure",
+            "item_id": "com.storystudio.formula.wildlife-under-pressure",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/wildlife-under-pressure",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.wildlife-under-pressure",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.wildlife-under-pressure",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.coffee-jazz-ambient",
+            "item_id": "com.storystudio.formula.coffee-jazz-ambient",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/coffee-jazz-ambient",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.coffee-jazz-ambient",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.coffee-jazz-ambient",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.a-world-before-us",
+            "item_id": "com.storystudio.formula.a-world-before-us",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/illustrated-history/formula/a-world-before-us",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.a-world-before-us",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.a-world-before-us",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.khmer-folk-horror",
+            "item_id": "com.storystudio.formula.khmer-folk-horror",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/khmer-folk-horror",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.khmer-folk-horror",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.khmer-folk-horror",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.calm-science-for-sleep",
+            "item_id": "com.storystudio.formula.calm-science-for-sleep",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/calm-science-for-sleep",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.calm-science-for-sleep",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.calm-science-for-sleep",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.mythology-for-sleep",
+            "item_id": "com.storystudio.formula.mythology-for-sleep",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/mythology-for-sleep",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.mythology-for-sleep",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.mythology-for-sleep",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -10301,6 +10821,397 @@
         },
         "receipt_ref": "authoring:1dab10aa83cfc25cccc12ebf6efeb7463c238888e39d520a0083c3665b668d73",
         "pack_id": "com.storystudio.pack.style.cinematic-historical-illustration",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 304,
+      "transition_ref": "lifecycle:3bf145ac7266925b9961fed8880e8ab18bd4ee84aef6756985c063e7a78df219",
+      "request": {
+        "expected_revision": 303,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.ancient-humans",
+        "version": "1.0.3",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 305,
+      "transition_ref": "lifecycle:2de22a53d7776b996408be40435b3ecb8c14f6a0122c4509ce4f93c245bcc333",
+      "request": {
+        "expected_revision": 304,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
+        "version": "1.0.3",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 306,
+      "transition_ref": "lifecycle:6bf70a7fa3890dfce4f877186b1c855a281168abe9e97ecbf1572362192d1d23",
+      "request": {
+        "expected_revision": 305,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.economics-of",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 307,
+      "transition_ref": "lifecycle:54d1b6180f1ec72ea2165f0a8426bd6746cebbb3aa640bb42aeb06ac52254131",
+      "request": {
+        "expected_revision": 306,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 308,
+      "transition_ref": "lifecycle:941b53d1d1daf09c6c9d439882fed04bc7664d0e24033e5b64570f0a4873356c",
+      "request": {
+        "expected_revision": 307,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.history-explained",
+        "version": "1.0.3",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 309,
+      "transition_ref": "lifecycle:58c46971ccd6c0ea6bd771086cf1c93fb77209c6d4a6b7e7440270e72cadc84d",
+      "request": {
+        "expected_revision": 308,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+        "version": "1.0.3",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 310,
+      "transition_ref": "lifecycle:49d1c249bd5e5ac5dc8a23340fae80772a161b336ff1720c3af61cdc3475d657",
+      "request": {
+        "expected_revision": 309,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.natural-world-explained",
+        "version": "1.0.3",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 311,
+      "transition_ref": "lifecycle:93375894a968378f1bb19c78db4455911bc10e885a50542d54ed02ba0bc8a9c1",
+      "request": {
+        "expected_revision": 310,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+        "version": "1.0.3",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 312,
+      "transition_ref": "lifecycle:415d6f748236000d9ba33bf4e85b556bd04cfc34ccec7a14999741d3d1b6d9e9",
+      "request": {
+        "expected_revision": 311,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.practical-motivation",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 313,
+      "transition_ref": "lifecycle:88ecb5e5dfa19e18002f2ee4317b7fa31032b10b6f20018516c1f46a528440d7",
+      "request": {
+        "expected_revision": 312,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.sleep-story",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 314,
+      "transition_ref": "lifecycle:272e65b77b19b3f2b46d8d5d4a82168caa2168aeb15107d038774ec0cf51fe61",
+      "request": {
+        "expected_revision": 313,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.counted-explainer",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 315,
+      "transition_ref": "lifecycle:bfeaec70b9d55c5656c10c535a46a94daab3190fd59843773cce82066657a4de",
+      "request": {
+        "expected_revision": 314,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.build-under-constraints",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 316,
+      "transition_ref": "lifecycle:4a57f4d86b6bb222918db5082a2aaeaf07c2dc8f0c7154b48f0a0d437b7e0eab",
+      "request": {
+        "expected_revision": 315,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 317,
+      "transition_ref": "lifecycle:e9d61fadc7902598ed0e1b871c4b30f7af6c0834a27470242dbe4e0cc6172363",
+      "request": {
+        "expected_revision": 316,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.philosophy-real-problem",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 318,
+      "transition_ref": "lifecycle:d4d80e332338a8dcb0f4f728f696ecc993403162519793a064aa13cfbde8b600",
+      "request": {
+        "expected_revision": 317,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.prayer",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 319,
+      "transition_ref": "lifecycle:a09c63d53078e5ea37f7eaaaab0762d47aa0ced2604ad0625283bfc7128b3573",
+      "request": {
+        "expected_revision": 318,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.before-after-timeline",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 320,
+      "transition_ref": "lifecycle:7771cba5f0efd9c80af7987a2d8c931556e8f0fb6194cb7f5e0278a67f7154c3",
+      "request": {
+        "expected_revision": 319,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.question-ladder",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 321,
+      "transition_ref": "lifecycle:cee96aaf4412a010d83598d44a50b4f621d6e99312872c9d0a4477897c936168",
+      "request": {
+        "expected_revision": 320,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.wildlife-under-pressure",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 322,
+      "transition_ref": "lifecycle:a00ad4b2331ed5f9ba7e755a29305174daacd3e275b30543a016ce5a63069eac",
+      "request": {
+        "expected_revision": 321,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.coffee-jazz-ambient",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 323,
+      "transition_ref": "lifecycle:f16fc243271734d13a894436e46e8c5af2a7c27468be698d22b761e05e6a1ffc",
+      "request": {
+        "expected_revision": 322,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.a-world-before-us",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 324,
+      "transition_ref": "lifecycle:ca2f2e5ca02e84669c3494f29b027985705599de49d012fc521ce12687c4d5a3",
+      "request": {
+        "expected_revision": 323,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.khmer-folk-horror",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 325,
+      "transition_ref": "lifecycle:38cc7810fdc32bd3cf1a31aa9a6273249b46e54d6040bc853106f9eb3727b894",
+      "request": {
+        "expected_revision": 324,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.calm-science-for-sleep",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 326,
+      "transition_ref": "lifecycle:e2ab4d3f0681e075f201e580301889f25217f1698a7dfe124b42f0bfdba9b719",
+      "request": {
+        "expected_revision": 325,
+        "coordinator": {
+          "task": "formula modernization and adoption, owner ruling 2026-10-25",
+          "branch": "content/formula-modernize-20261026"
+        },
+        "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+        "pack_id": "com.storystudio.pack.formula.mythology-for-sleep",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -17356,6 +18267,535 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.cinematic-historical-illustration",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.ancient-humans",
+      "item_id": "com.storystudio.formula.ancient-humans",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/ancient-humans-v1.0.3",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.ancient-humans",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.ancient-humans",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
+      "item_id": "com.storystudio.formula.deep-time-documentary",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/deep-time-documentary-v1.0.3",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.deep-time-documentary",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.deep-time-documentary",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.economics-of",
+      "item_id": "com.storystudio.formula.economics-of",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/economics-of-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.economics-of",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.economics-of",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+      "item_id": "com.storystudio.formula.guided-mindfulness",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/guided-mindfulness-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.guided-mindfulness",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.guided-mindfulness",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.history-explained",
+      "item_id": "com.storystudio.formula.history-explained",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/history-explained-v1.0.3",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.history-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.history-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+      "item_id": "com.storystudio.formula.human-behavior-explained",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.3",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.human-behavior-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.human-behavior-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.natural-world-explained",
+      "item_id": "com.storystudio.formula.natural-world-explained",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/natural-world-explained-v1.0.3",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.natural-world-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.natural-world-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+      "item_id": "com.storystudio.formula.pov-your-life-as",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/pov-your-life-as-v1.0.3",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.pov-your-life-as",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.pov-your-life-as",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.practical-motivation",
+      "item_id": "com.storystudio.formula.practical-motivation",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/practical-motivation-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.practical-motivation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.practical-motivation",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.sleep-story",
+      "item_id": "com.storystudio.formula.sleep-story",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/sleep-story-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.sleep-story",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.sleep-story",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.counted-explainer",
+      "item_id": "com.storystudio.formula.counted-explainer",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/legacy-niche-conversion/formula/counted-explainer-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.counted-explainer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.counted-explainer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.build-under-constraints",
+      "item_id": "com.storystudio.formula.build-under-constraints",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/legacy-niche-conversion/formula/build-under-constraints-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.build-under-constraints",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.build-under-constraints",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
+      "item_id": "com.storystudio.formula.pastoral-scripture",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/legacy-niche-conversion/formula/pastoral-scripture-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.pastoral-scripture",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.pastoral-scripture",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.philosophy-real-problem",
+      "item_id": "com.storystudio.formula.philosophy-real-problem",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/legacy-niche-conversion/formula/philosophy-real-problem-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.philosophy-real-problem",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.philosophy-real-problem",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.prayer",
+      "item_id": "com.storystudio.formula.prayer",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/legacy-niche-conversion/formula/prayer-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.prayer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.prayer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.before-after-timeline",
+      "item_id": "com.storystudio.formula.before-after-timeline",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/reusable-primitives/formula/before-after-timeline-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.before-after-timeline",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.before-after-timeline",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.question-ladder",
+      "item_id": "com.storystudio.formula.question-ladder",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/reusable-primitives/formula/question-ladder-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.question-ladder",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.question-ladder",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.wildlife-under-pressure",
+      "item_id": "com.storystudio.formula.wildlife-under-pressure",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/wildlife-under-pressure",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.wildlife-under-pressure",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.wildlife-under-pressure",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.coffee-jazz-ambient",
+      "item_id": "com.storystudio.formula.coffee-jazz-ambient",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/coffee-jazz-ambient",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.coffee-jazz-ambient",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.coffee-jazz-ambient",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.a-world-before-us",
+      "item_id": "com.storystudio.formula.a-world-before-us",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/illustrated-history/formula/a-world-before-us",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.a-world-before-us",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.a-world-before-us",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.khmer-folk-horror",
+      "item_id": "com.storystudio.formula.khmer-folk-horror",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/khmer-folk-horror",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.khmer-folk-horror",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.khmer-folk-horror",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.calm-science-for-sleep",
+      "item_id": "com.storystudio.formula.calm-science-for-sleep",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/calm-science-for-sleep",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.calm-science-for-sleep",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.calm-science-for-sleep",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ec9032c23c2fe67a3e062a6bdf4ddecd75ed6e5bde6916f9f20e9888cc5e2e37",
+      "pack_id": "com.storystudio.pack.formula.mythology-for-sleep",
+      "item_id": "com.storystudio.formula.mythology-for-sleep",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/mythology-for-sleep",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.mythology-for-sleep",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.mythology-for-sleep",
           "status": "proposed"
         }
       }
