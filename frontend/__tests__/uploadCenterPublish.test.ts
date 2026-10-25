@@ -26,10 +26,12 @@ async function loadPage(): Promise<Component> {
     const useRouter = () => ({ currentRoute: { value: globalThis.__ucRoute }, replace: async (to) => { globalThis.__ucRoute.query = { ...to.query } } })
     const useConfirm = () => ({ ask: async (o) => globalThis.__ucConfirm(o) })
     const useJobs = () => ({ jobs: globalThis.__ucJobsRef, jobsStale: globalThis.__ucJobsStaleRef })
+    const useProject = () => ({ config: ref(globalThis.__projectConfig ?? null) })
   `
   const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =').replace("'~/utils/upload-bulk'", JSON.stringify(new URL('../utils/upload-bulk.ts', import.meta.url).href))
     .replace("'~/utils/publish-view'", JSON.stringify(new URL('../utils/publish-view.ts', import.meta.url).href))
-    .replace("'~/utils/route-query-state'", JSON.stringify(new URL('../utils/route-query-state.ts', import.meta.url).href))}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+    .replace("'~/utils/route-query-state'", JSON.stringify(new URL('../utils/route-query-state.ts', import.meta.url).href))
+    .replace("'~/utils/thumbnail-text'", JSON.stringify(new URL('../utils/thumbnail-text.ts', import.meta.url).href))}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const out = await transform(code, { loader: 'ts', format: 'esm' })
   return (await import(`data:text/javascript;base64,${Buffer.from(
     out.code.replaceAll('"vue"', JSON.stringify(vueUrl)),

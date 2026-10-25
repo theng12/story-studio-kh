@@ -38,10 +38,10 @@ describe('Scene Review image preview', () => {
     assert.doesNotMatch(sceneReviewSource, /isLocalModel|render_scale|imagestudio:/)
   })
 
-  test('generated-image auto approval is opt-in, preset-saved, and sent through every render action', () => {
-    assert.match(sceneReviewSource, /const autoApproveGenerated = ref\(false\)/)
+  test('generated-image auto approval is on by default (owner, 2026-10-25), preset-saved, and sent through every render action', () => {
+    assert.match(sceneReviewSource, /const autoApproveGenerated = ref\(true\)/)
     assert.match(sceneReviewSource, /auto_approve_generated: autoApproveGenerated\.value/)
-    assert.match(sceneReviewSource, /autoApproveGenerated\.value = data\.auto_approve_generated === true/)
+    assert.match(sceneReviewSource, /autoApproveGenerated\.value = data\.auto_approve_generated !== false/)
     assert.match(sceneReviewSource, /Auto-approve generated images/)
     assert.ok(
       (sceneReviewSource.match(/auto_approve_generated: autoApproveGenerated\.value/g) || []).length >= 3,
