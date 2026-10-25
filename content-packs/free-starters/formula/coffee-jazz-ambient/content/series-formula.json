@@ -1,0 +1,1957 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.coffee-jazz-ambient",
+  "name": "Coffee Jazz Ambient",
+  "description": "A long-form music channel. There is no script and no narration: the episode is a mix built from the channel's own music library, under one looping background. Pick ONE world and keep it — the picture is the brand, and a channel that changes worlds is a playlist nobody recognises. Vary the setting, colour and weather instead; every video gets its own background.",
+  "tagline": "One world. Many hours.",
+  "formula_family": "Calm music",
+  "perspective_policy": "There is no narrator. The opening speaks plainly to the listener once, then stops.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open with a few words naming the world and the length. No hook, no urgency, no sales language.",
+    "forbidden_patterns": [
+      "Imagine this",
+      "You will not believe",
+      "Watch what happens next",
+      "subscribe now",
+      "non-stop hits"
+    ],
+    "required_habits": [
+      "Name one world and one length.",
+      "Promise rest or company, never excitement.",
+      "Then stop talking."
+    ],
+    "closing_policy": "There is no close; the mix simply settles into the next piece."
+  },
+  "intro_defaults": {
+    "word_target": 50,
+    "beats": [
+      {
+        "id": "welcome",
+        "custom_text": "a few words and the channel name, and nothing else"
+      },
+      {
+        "id": "listening_note",
+        "custom_text": "say what this mix is for, how long it runs, and that this is the last you will hear a voice"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one line, and then stop talking"
+      }
+    ]
+  },
+  "metadata_profile": {
+    "id": "calm-music",
+    "label": "Calm music package",
+    "description": "A quiet summary naming the world and the length, with minimal discoverability details and no urgency.",
+    "description_section_ids": [
+      "hook",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 2500,
+    "title_max_length": 100,
+    "tag_count": 12
+  },
+  "example_topics": [
+    "Rain on the window — 1 hour to study to",
+    "Slow surf at golden hour — 2 hours",
+    "Snow outside, warm inside — 1 hour",
+    "Deep night, no vocals — 3 hours",
+    "Autumn pond at dusk — 1 hour"
+  ],
+  "recommended_thumbnail_recipe_ids": [],
+  "recommended_visual_style_ids": [],
+  "compatible_topic_pack_ids": [],
+  "channel_promise": "One world, many hours — long instrumental jazz mixes with no narration.",
+  "audience": "People who want hours of instrumental jazz while they work, study, read or fall asleep; the picture is part of the promise.",
+  "narrative_rules": [
+    "There is no script and no narration; the episode is a mix built from the channel's own music library under one looping background.",
+    "Pick ONE world and keep it — the picture is the brand.",
+    "Vary the setting, colour and weather instead of changing worlds; every video gets its own background."
+  ],
+  "title_rules": [
+    "Name the world, the weather or the hour, and the length; keep the grammar calm.",
+    "Shapes that work: 'Rain on the Window — 1 Hour to Study To', 'Slow Surf at Golden Hour — 2 Hours', 'Deep Night, No Vocals — 3 Hours'.",
+    "No hype, all-caps, questions or urgency."
+  ],
+  "script_structure": {
+    "default_chapter_count": 1,
+    "chapter_count_range": [
+      1,
+      1
+    ],
+    "default_length_minutes": 65,
+    "length_minutes_range": [
+      15,
+      180
+    ],
+    "duration_presets": [
+      30,
+      60,
+      65,
+      90,
+      120,
+      180
+    ],
+    "default_words_per_minute": 120,
+    "chapters_independent": true,
+    "pacing_arc": [
+      "The mix runs as one unbroken piece; the opening words are the only speech."
+    ],
+    "additional_rules": [
+      "This Formula drives a music episode through its music_format block; these narrative fields exist for the shared Formula contract and are not read by the music subsystem."
+    ]
+  },
+  "idea_axes": [
+    {
+      "id": "world",
+      "label": "World",
+      "values": [
+        "a rainy café window",
+        "a rooftop at dusk",
+        "a snowbound cabin",
+        "a late-night bookshop",
+        "a Parisian corner bistro",
+        "a Kyoto kissaten",
+        "a seaside terrace",
+        "a lamplit study"
+      ]
+    },
+    {
+      "id": "duration",
+      "label": "Length",
+      "values": [
+        "1 hour",
+        "2 hours",
+        "3 hours"
+      ]
+    }
+  ],
+  "idea_system_prompt_role": "You name long, calm music mixes for a single-world ambient jazz channel. Each idea names one world, a weather or hour, and a length.",
+  "idea_guidance_text": "Every idea promises company or rest, never excitement. The jazz is instrumental; never promise vocals.",
+  "script_context": "This channel's episodes are music, not narration. The mix is built from the channel's own library under one looping background; any spoken words are the short opening only.",
+  "script_system_prompt_role": "You write only the few spoken lines of a music channel's opening — a greeting, what the mix is for, how long it runs, and that the host is now leaving.",
+  "script_closing_hint": "Stop talking. The music carries the rest.",
+  "narrator_styles": [
+    {
+      "id": "quiet",
+      "label": "Quiet continuity",
+      "description": "A few calm words and then silence."
+    },
+    {
+      "id": "none",
+      "label": "No host",
+      "description": "No spoken words at all."
+    }
+  ],
+  "default_narrator_style_id": "none",
+  "vocabulary": {
+    "mood": [
+      "calm",
+      "cozy",
+      "nocturnal",
+      "warm",
+      "rainy",
+      "unhurried",
+      "instrumental"
+    ],
+    "theme": [
+      "rain",
+      "study",
+      "night",
+      "coffee",
+      "windows",
+      "weather",
+      "books"
+    ],
+    "genre": [
+      "jazz",
+      "ambient jazz",
+      "lo-fi jazz",
+      "café jazz"
+    ],
+    "keyword": [
+      "piano",
+      "upright bass",
+      "brushed drums",
+      "rain",
+      "café",
+      "window",
+      "lamplight",
+      "vinyl",
+      "no vocals",
+      "instrumental",
+      "slow",
+      "evening"
+    ]
+  },
+  "audience_hint": "Listeners who leave a mix running for hours while they work, read, or fall asleep.",
+  "title_shape_rules": [
+    "Name the world and the length; the weather or hour carries the mood.",
+    "Never a question, never urgency, never a promise of excitement.",
+    "Spell lengths as words or figures consistently within a batch."
+  ],
+  "title_length_range": [
+    4,
+    12
+  ],
+  "structural_variety": "free",
+  "youtube_tags_hint": [
+    "jazz mix",
+    "coffee jazz",
+    "study jazz",
+    "instrumental jazz",
+    "relaxing jazz",
+    "café music",
+    "no vocals",
+    "long jazz mix"
+  ],
+  "music_format": {
+    "note": "Everything below is DATA. Add a world, edit a scene, change the music styles — no code change is needed, and a new pack of worlds is a product you can sell. The PRESENCE of this object is what marks the formula as a music format; `kind` is reserved by the content-pack system and always reads 'series-formula'.",
+    "registers": {
+      "cute": {
+        "label": "Cute",
+        "camera": "close, low, interior",
+        "feeling": "company"
+      },
+      "calm": {
+        "label": "Calm",
+        "camera": "middle distance, level",
+        "feeling": "stillness"
+      },
+      "massive": {
+        "label": "Massive",
+        "camera": "far, wide, static",
+        "feeling": "awe"
+      },
+      "surreal": {
+        "label": "Surreal",
+        "camera": "still, slightly low",
+        "feeling": "drifting"
+      },
+      "nostalgic": {
+        "label": "Nostalgic",
+        "camera": "close, warm, grainy",
+        "feeling": "memory"
+      },
+      "sleep": {
+        "label": "Sleep",
+        "camera": "very close, still, dim",
+        "feeling": "letting go"
+      },
+      "eastern": {
+        "label": "Eastern Calm",
+        "camera": "level, patient, ink-wash",
+        "feeling": "quiet order"
+      },
+      "meditation": {
+        "label": "Meditation",
+        "camera": "centred, unmoving",
+        "feeling": "attention"
+      },
+      "adventure": {
+        "label": "Calm Adventure",
+        "camera": "slow travelling, open",
+        "feeling": "going somewhere"
+      }
+    },
+    "worlds": [
+      {
+        "id": "rain-window-desk",
+        "name": "Rain Window Desk",
+        "register": "cute",
+        "sight": "A lamp, a cooling cup, stacked books. Rain runs down the glass and the street below is out of focus.",
+        "scenes": [
+          "dawn",
+          "night",
+          "storm",
+          "snow"
+        ],
+        "music": [
+          "lo-fi",
+          "study beats"
+        ]
+      },
+      {
+        "id": "attic-bedroom",
+        "name": "Attic Bedroom",
+        "register": "cute",
+        "sight": "Sloped ceiling, fairy lights along the beam, a record player turning in the corner.",
+        "scenes": [
+          "afternoon",
+          "lamplit",
+          "rain",
+          "first snow"
+        ],
+        "music": [
+          "bedroom pop",
+          "lo-fi"
+        ]
+      },
+      {
+        "id": "cat-on-radiator",
+        "name": "Cat on the Radiator",
+        "register": "cute",
+        "sight": "A cat asleep along a warm radiator under a window. Snow outside, nothing happening at all.",
+        "scenes": [
+          "snow",
+          "grey rain",
+          "low sun",
+          "evening"
+        ],
+        "music": [
+          "lo-fi",
+          "soft piano"
+        ]
+      },
+      {
+        "id": "tiny-bookshop",
+        "name": "Tiny Bookshop",
+        "register": "cute",
+        "sight": "A rolling ladder, shelves to the ceiling, one worn reading chair with the light angled onto it.",
+        "scenes": [
+          "morning",
+          "closing time",
+          "rain",
+          "candlelit"
+        ],
+        "music": [
+          "jazzhop",
+          "acoustic"
+        ]
+      },
+      {
+        "id": "ramen-counter-night",
+        "name": "Ramen Counter at Night",
+        "register": "cute",
+        "sight": "Steam off the pot, paper lanterns, one empty stool at a counter meant for six.",
+        "scenes": [
+          "rain",
+          "snow",
+          "late",
+          "last orders"
+        ],
+        "music": [
+          "lo-fi",
+          "city jazz"
+        ]
+      },
+      {
+        "id": "balcony-above-city",
+        "name": "Balcony Above the City",
+        "register": "cute",
+        "sight": "Potted plants, a string of bulbs, the city out of focus a long way below.",
+        "scenes": [
+          "dusk",
+          "deep night",
+          "summer rain",
+          "dawn"
+        ],
+        "music": [
+          "chillhop",
+          "downtempo"
+        ]
+      },
+      {
+        "id": "train-window-seat",
+        "name": "Train Window Seat",
+        "register": "cute",
+        "sight": "A thermos on the fold-down tray, countryside sliding past, condensation at the corner of the glass.",
+        "scenes": [
+          "morning fog",
+          "golden fields",
+          "tunnel",
+          "night"
+        ],
+        "music": [
+          "lo-fi",
+          "ambient guitar"
+        ]
+      },
+      {
+        "id": "late-night-laundromat",
+        "name": "Late-Night Laundromat",
+        "register": "cute",
+        "sight": "Machines turning behind glass, a strip of neon outside, nobody else in the room.",
+        "scenes": [
+          "rain",
+          "2am",
+          "winter",
+          "near dawn"
+        ],
+        "music": [
+          "lo-fi",
+          "trip-hop"
+        ]
+      },
+      {
+        "id": "greenhouse-corner",
+        "name": "Greenhouse Corner",
+        "register": "cute",
+        "sight": "Condensation on the glass roof, a watering can, plants crowding in from every side.",
+        "scenes": [
+          "morning",
+          "rain on glass",
+          "frost",
+          "dusk"
+        ],
+        "music": [
+          "acoustic lo-fi",
+          "soft folk"
+        ]
+      },
+      {
+        "id": "bakery-before-opening",
+        "name": "Bakery Before Opening",
+        "register": "cute",
+        "sight": "Flour dust in the lamplight, warm ovens, the street still dark through the shutters.",
+        "scenes": [
+          "4am",
+          "first light",
+          "winter",
+          "rain"
+        ],
+        "music": [
+          "warm jazz",
+          "lo-fi"
+        ]
+      },
+      {
+        "id": "still-water-dusk",
+        "name": "Still Water at Dusk",
+        "register": "calm",
+        "sight": "A pond gone glassy, reeds at the edge, mist beginning to sit on the surface.",
+        "scenes": [
+          "summer",
+          "autumn",
+          "moonlit",
+          "frost"
+        ],
+        "music": [
+          "ambient",
+          "solo piano"
+        ]
+      },
+      {
+        "id": "forest-floor-after-rain",
+        "name": "Forest Floor After Rain",
+        "register": "calm",
+        "sight": "Ferns holding water, shafts of light through the canopy, everything saturated and dark green.",
+        "scenes": [
+          "morning",
+          "deep shade",
+          "autumn",
+          "snowmelt"
+        ],
+        "music": [
+          "ambient",
+          "field-recording"
+        ]
+      },
+      {
+        "id": "rice-terraces-dawn",
+        "name": "Rice Terraces at Dawn",
+        "register": "calm",
+        "sight": "Layered green steps down a hillside, low fog caught between them, water holding the sky.",
+        "scenes": [
+          "planting",
+          "full green",
+          "harvest gold",
+          "flooded"
+        ],
+        "music": [
+          "ambient",
+          "bamboo flute"
+        ]
+      },
+      {
+        "id": "birch-grove-snow",
+        "name": "Birch Grove in Snow",
+        "register": "calm",
+        "sight": "Thin pale trunks repeating into flat grey light, snow softening every edge.",
+        "scenes": [
+          "snowfall",
+          "blue hour",
+          "thaw",
+          "low sun"
+        ],
+        "music": [
+          "neoclassical",
+          "ambient"
+        ]
+      },
+      {
+        "id": "lake-cabin-dock",
+        "name": "Lake Cabin Dock",
+        "register": "calm",
+        "sight": "Flat water, one boat tied up, the far shore a soft line of trees.",
+        "scenes": [
+          "mist",
+          "midsummer",
+          "storm coming",
+          "stars"
+        ],
+        "music": [
+          "ambient",
+          "acoustic"
+        ]
+      },
+      {
+        "id": "tea-field-hillside",
+        "name": "Tea Field Hillside",
+        "register": "calm",
+        "sight": "Rows curving with the contour of the hill, morning haze sitting in the folds.",
+        "scenes": [
+          "dawn haze",
+          "bright",
+          "rain",
+          "dusk"
+        ],
+        "music": [
+          "ambient",
+          "guzheng"
+        ]
+      },
+      {
+        "id": "riverbank-willows",
+        "name": "Riverbank Willows",
+        "register": "calm",
+        "sight": "Branches trailing into slow water, light coming through the leaves in pieces.",
+        "scenes": [
+          "spring",
+          "high summer",
+          "yellow leaves",
+          "bare"
+        ],
+        "music": [
+          "solo piano",
+          "ambient"
+        ]
+      },
+      {
+        "id": "desert-bloom-dusk",
+        "name": "Desert Bloom at Dusk",
+        "register": "calm",
+        "sight": "Sparse flowers between stones, shadows running long, the sky doing most of the work.",
+        "scenes": [
+          "golden hour",
+          "after rain",
+          "moonlit",
+          "dust haze"
+        ],
+        "music": [
+          "ambient",
+          "slide guitar"
+        ]
+      },
+      {
+        "id": "moss-stone-stream",
+        "name": "Moss and Stone Stream",
+        "register": "calm",
+        "sight": "A small fall over dark rock, moss over everything, deep green and very close.",
+        "scenes": [
+          "rain",
+          "dappled",
+          "autumn",
+          "iced edges"
+        ],
+        "music": [
+          "ambient",
+          "water field-rec"
+        ]
+      },
+      {
+        "id": "wheat-field-wind",
+        "name": "Wheat Field in Wind",
+        "register": "calm",
+        "sight": "Gold moving in one direction, a low sun behind it, a single distant tree.",
+        "scenes": [
+          "green",
+          "gold",
+          "storm light",
+          "cut stubble"
+        ],
+        "music": [
+          "ambient folk",
+          "strings"
+        ]
+      },
+      {
+        "id": "vast-coast",
+        "name": "Vast Coast",
+        "register": "massive",
+        "sight": "A cliff edge, slow surf a long way below, and an enormous sky doing almost nothing.",
+        "scenes": [
+          "golden hour",
+          "grey",
+          "stars",
+          "storm"
+        ],
+        "music": [
+          "classical adagio",
+          "strings"
+        ]
+      },
+      {
+        "id": "peaks-above-cloud",
+        "name": "Peaks Above Cloud",
+        "register": "massive",
+        "sight": "A range breaking through a flat white sea of cloud, nothing else in frame.",
+        "scenes": [
+          "sunrise",
+          "blue hour",
+          "moonlit",
+          "whiteout"
+        ],
+        "music": [
+          "orchestral",
+          "ambient drone"
+        ]
+      },
+      {
+        "id": "glacier-face",
+        "name": "Glacier Face",
+        "register": "massive",
+        "sight": "Blue ice in vertical fractures, with one small boat or figure for scale and no other reference.",
+        "scenes": [
+          "overcast",
+          "low sun",
+          "fog",
+          "midnight sun"
+        ],
+        "music": [
+          "drone",
+          "cello"
+        ]
+      },
+      {
+        "id": "storm-over-plains",
+        "name": "Storm Over Plains",
+        "register": "massive",
+        "sight": "A wall of weather crossing flat country, lightning far enough away to be silent.",
+        "scenes": [
+          "approaching",
+          "overhead",
+          "clearing",
+          "night"
+        ],
+        "music": [
+          "cinematic",
+          "low strings"
+        ]
+      },
+      {
+        "id": "cathedral-interior",
+        "name": "Cathedral Interior",
+        "register": "massive",
+        "sight": "Light falling in solid columns onto empty stone, the ceiling too high to see properly.",
+        "scenes": [
+          "morning",
+          "candlelit",
+          "rain outside",
+          "dusk"
+        ],
+        "music": [
+          "choral",
+          "organ",
+          "adagio"
+        ]
+      },
+      {
+        "id": "dunes-at-dawn",
+        "name": "Dunes at Dawn",
+        "register": "massive",
+        "sight": "Ridge after ridge to the horizon, one side lit and the other in deep shadow.",
+        "scenes": [
+          "first light",
+          "midday glare",
+          "dust storm",
+          "stars"
+        ],
+        "music": [
+          "ambient",
+          "oud"
+        ]
+      },
+      {
+        "id": "northern-fjord",
+        "name": "Northern Fjord",
+        "register": "massive",
+        "sight": "Sheer walls dropping into black water, the far end lost in weather.",
+        "scenes": [
+          "rain",
+          "snow",
+          "aurora",
+          "low sun"
+        ],
+        "music": [
+          "neoclassical",
+          "drone"
+        ]
+      },
+      {
+        "id": "volcanic-coastline",
+        "name": "Volcanic Coastline",
+        "register": "massive",
+        "sight": "Black rock against white spray, no soft edges anywhere in the frame.",
+        "scenes": [
+          "grey",
+          "sunset",
+          "high surf",
+          "mist"
+        ],
+        "music": [
+          "cinematic",
+          "percussive ambient"
+        ]
+      },
+      {
+        "id": "salt-flat-mirror",
+        "name": "Salt Flat Mirror",
+        "register": "massive",
+        "sight": "A thin film of water turning the whole plain into sky, with no horizon line at all.",
+        "scenes": [
+          "sunset",
+          "cloud reflection",
+          "night sky",
+          "dry cracked"
+        ],
+        "music": [
+          "ambient",
+          "minimal piano"
+        ]
+      },
+      {
+        "id": "redwood-cathedral",
+        "name": "Redwood Cathedral",
+        "register": "massive",
+        "sight": "Looking straight up impossible trunks into green, with fog moving between them.",
+        "scenes": [
+          "fog",
+          "shafts",
+          "rain",
+          "dusk"
+        ],
+        "music": [
+          "ambient",
+          "choral pad"
+        ]
+      },
+      {
+        "id": "floating-islands",
+        "name": "Floating Islands",
+        "register": "surreal",
+        "sight": "Land drifting in open sky, waterfalls pouring off the edges into nothing.",
+        "scenes": [
+          "day",
+          "aurora",
+          "deep night",
+          "sunrise"
+        ],
+        "music": [
+          "sleep ambient",
+          "dreamlike"
+        ]
+      },
+      {
+        "id": "endless-library",
+        "name": "Endless Library",
+        "register": "surreal",
+        "sight": "Stairs and galleries continuing past where they could reasonably go, warm lamps at every level.",
+        "scenes": [
+          "lamplight",
+          "moonlight",
+          "dust motes",
+          "candles"
+        ],
+        "music": [
+          "dark ambient",
+          "soft drone"
+        ]
+      },
+      {
+        "id": "whale-in-the-sky",
+        "name": "Whale in the Sky",
+        "register": "surreal",
+        "sight": "Something enormous moving slowly above a small town, casting a shadow across the roofs.",
+        "scenes": [
+          "dusk",
+          "snow",
+          "stars",
+          "fog"
+        ],
+        "music": [
+          "sleep ambient",
+          "whale-song pad"
+        ]
+      },
+      {
+        "id": "upside-down-ocean",
+        "name": "Upside-Down Ocean",
+        "register": "surreal",
+        "sight": "The sea overhead like a ceiling, light coming down through it, dry ground below.",
+        "scenes": [
+          "noon",
+          "storm above",
+          "moonlit",
+          "shoals"
+        ],
+        "music": [
+          "underwater ambient",
+          "drone"
+        ]
+      },
+      {
+        "id": "city-in-a-bottle",
+        "name": "City in a Bottle",
+        "register": "surreal",
+        "sight": "A whole miniature town lit from within, standing on a table in a dark room.",
+        "scenes": [
+          "night",
+          "snow inside",
+          "rain inside",
+          "dawn"
+        ],
+        "music": [
+          "music box",
+          "ambient"
+        ]
+      },
+      {
+        "id": "stairs-into-cloud",
+        "name": "Stairs into Cloud",
+        "register": "surreal",
+        "sight": "A stone staircase rising out of a field and simply continuing into open sky.",
+        "scenes": [
+          "morning mist",
+          "sunset",
+          "stars",
+          "storm"
+        ],
+        "music": [
+          "ethereal",
+          "sleep"
+        ]
+      },
+      {
+        "id": "giant-moon-rooftops",
+        "name": "Giant Moon Over Rooftops",
+        "register": "surreal",
+        "sight": "The moon far too close and far too large, filling the space above an ordinary street.",
+        "scenes": [
+          "clear",
+          "cloud across",
+          "snow",
+          "eclipse"
+        ],
+        "music": [
+          "sleep ambient",
+          "nocturne"
+        ]
+      },
+      {
+        "id": "underwater-forest",
+        "name": "Underwater Forest",
+        "register": "surreal",
+        "sight": "Full-grown trees standing beneath still water, light coming down between the branches.",
+        "scenes": [
+          "green light",
+          "blue depth",
+          "autumn leaves",
+          "night"
+        ],
+        "music": [
+          "deep ambient",
+          "drone"
+        ]
+      },
+      {
+        "id": "clockwork-sky",
+        "name": "Clockwork Sky",
+        "register": "surreal",
+        "sight": "Brass gears turning slowly among the clouds, half-hidden, clearly meant to be there.",
+        "scenes": [
+          "dawn",
+          "overcast",
+          "sunset",
+          "night"
+        ],
+        "music": [
+          "steampunk ambient",
+          "music box"
+        ]
+      },
+      {
+        "id": "door-in-a-field",
+        "name": "Door in a Field",
+        "register": "surreal",
+        "sight": "A freestanding doorway in open grass, standing open, showing somewhere that isn't the field.",
+        "scenes": [
+          "summer",
+          "snow",
+          "sunset",
+          "fog"
+        ],
+        "music": [
+          "dreamlike",
+          "ambient piano"
+        ]
+      },
+      {
+        "id": "neon-alley-old-hong-kong",
+        "name": "Neon Alley, Old Hong Kong",
+        "register": "nostalgic",
+        "sight": "Stacked signs in every colour, wet ground throwing them all back, sixties shopfronts.",
+        "scenes": [
+          "rain",
+          "after rain",
+          "late",
+          "dawn"
+        ],
+        "music": [
+          "retro vocal",
+          "sixties pop"
+        ]
+      },
+      {
+        "id": "vinyl-listening-room",
+        "name": "Vinyl Listening Room",
+        "register": "nostalgic",
+        "sight": "Seventies wood veneer, a serious hi-fi, one amber lamp and a wall of sleeves.",
+        "scenes": [
+          "evening",
+          "afternoon sun",
+          "rain",
+          "late night"
+        ],
+        "music": [
+          "jazz standards",
+          "soul"
+        ]
+      },
+      {
+        "id": "seaside-motel-dusk",
+        "name": "Seaside Motel at Dusk",
+        "register": "nostalgic",
+        "sight": "A fifties neon VACANCY sign, one car, the sea flat and pink behind the building.",
+        "scenes": [
+          "sunset",
+          "night",
+          "fog",
+          "rain"
+        ],
+        "music": [
+          "doo-wop",
+          "dream pop"
+        ]
+      },
+      {
+        "id": "shanghai-jazz-club",
+        "name": "Shanghai Jazz Club",
+        "register": "nostalgic",
+        "sight": "Art deco lines, red velvet, smoke held in a spotlight over an empty stage.",
+        "scenes": [
+          "full house",
+          "after hours",
+          "rehearsal",
+          "closing"
+        ],
+        "music": [
+          "shidaiqu",
+          "jazz vocal"
+        ]
+      },
+      {
+        "id": "sunset-coastal-drive",
+        "name": "Sunset Coastal Drive",
+        "register": "nostalgic",
+        "sight": "Eighties pastel sky over a coast road, seen from inside the car with the dash lit.",
+        "scenes": [
+          "golden",
+          "purple dusk",
+          "night neon",
+          "rain"
+        ],
+        "music": [
+          "city pop",
+          "synth funk"
+        ]
+      },
+      {
+        "id": "corner-cafe-rain",
+        "name": "Corner Café in the Rain",
+        "register": "nostalgic",
+        "sight": "Striped awnings, wet cobbles, a window table with the chairs still out.",
+        "scenes": [
+          "morning",
+          "downpour",
+          "evening",
+          "autumn"
+        ],
+        "music": [
+          "café jazz",
+          "accordion"
+        ]
+      },
+      {
+        "id": "grandmothers-kitchen",
+        "name": "Grandmother's Kitchen",
+        "register": "nostalgic",
+        "sight": "Patterned tiles, afternoon light across a worn table, a kettle that has just gone quiet.",
+        "scenes": [
+          "afternoon",
+          "rain",
+          "winter",
+          "early morning"
+        ],
+        "music": [
+          "old ballads",
+          "soft vocal"
+        ]
+      },
+      {
+        "id": "drive-in-cinema",
+        "name": "Drive-In Cinema",
+        "register": "nostalgic",
+        "sight": "Rows of cars facing a huge lit screen, dusk still in the sky behind it.",
+        "scenes": [
+          "dusk",
+          "full dark",
+          "summer haze",
+          "rain"
+        ],
+        "music": [
+          "fifties pop",
+          "dream pop"
+        ]
+      },
+      {
+        "id": "ferry-deck-dawn",
+        "name": "Ferry Deck at Dawn",
+        "register": "nostalgic",
+        "sight": "Old painted wood and brass rails, a harbour going past, everything damp.",
+        "scenes": [
+          "mist",
+          "sunrise",
+          "rain",
+          "evening"
+        ],
+        "music": [
+          "bossa nova",
+          "soft jazz"
+        ]
+      },
+      {
+        "id": "record-shop-aisle",
+        "name": "Record Shop Aisle",
+        "register": "nostalgic",
+        "sight": "Crates at browsing height, handwritten dividers, posters curling off the wall.",
+        "scenes": [
+          "daylight",
+          "closing",
+          "rain outside",
+          "empty"
+        ],
+        "music": [
+          "soul",
+          "jazz",
+          "city pop"
+        ]
+      },
+      {
+        "id": "bedside-lamp-low",
+        "name": "Bedside Lamp, Low",
+        "register": "sleep",
+        "sight": "A single warm lamp on a nightstand, a folded blanket, a glass of water going still.",
+        "scenes": [
+          "rain outside",
+          "snowfall",
+          "summer night",
+          "before dawn"
+        ],
+        "music": [
+          "ambient",
+          "soft piano"
+        ]
+      },
+      {
+        "id": "night-train-berth",
+        "name": "Night Train Berth",
+        "register": "sleep",
+        "sight": "A narrow bunk, a coat swaying on its hook, dark country sliding past the window.",
+        "scenes": [
+          "first hour",
+          "deep night",
+          "passing station",
+          "first light"
+        ],
+        "music": [
+          "ambient",
+          "slow strings"
+        ]
+      },
+      {
+        "id": "harbour-fog-lights",
+        "name": "Harbour Fog Lights",
+        "register": "sleep",
+        "sight": "Moored boats barely moving, mooring lights blurred into the fog, water flat and black.",
+        "scenes": [
+          "dusk",
+          "midnight",
+          "drizzle",
+          "grey dawn"
+        ],
+        "music": [
+          "ambient",
+          "low drone"
+        ]
+      },
+      {
+        "id": "snow-cabin-embers",
+        "name": "Snow Cabin Embers",
+        "register": "sleep",
+        "sight": "A dying fire behind glass, a heavy quilt, snow packed against the window frame.",
+        "scenes": [
+          "blizzard",
+          "clear cold",
+          "moonlight",
+          "thaw drip"
+        ],
+        "music": [
+          "ambient",
+          "fireplace field-rec"
+        ]
+      },
+      {
+        "id": "rainforest-canopy-night",
+        "name": "Rainforest Canopy at Night",
+        "register": "sleep",
+        "sight": "Wet leaves stacked layer on layer, a slow drip through the dark, no sky visible.",
+        "scenes": [
+          "light rain",
+          "downpour",
+          "after rain",
+          "mist"
+        ],
+        "music": [
+          "ambient",
+          "rain field-rec"
+        ]
+      },
+      {
+        "id": "library-after-hours",
+        "name": "Library After Hours",
+        "register": "sleep",
+        "sight": "Long shelves in half-light, one lamp left burning, dust settling through the beam.",
+        "scenes": [
+          "closing time",
+          "deep night",
+          "storm outside",
+          "first light"
+        ],
+        "music": [
+          "ambient",
+          "soft piano"
+        ]
+      },
+      {
+        "id": "tide-pool-moonlight",
+        "name": "Tide Pool by Moonlight",
+        "register": "sleep",
+        "sight": "Still water held in dark rock, moonlight broken across it, the sea a long way out.",
+        "scenes": [
+          "low tide",
+          "rising tide",
+          "fog",
+          "clear stars"
+        ],
+        "music": [
+          "ambient",
+          "ocean field-rec"
+        ]
+      },
+      {
+        "id": "greenhouse-winter-night",
+        "name": "Greenhouse, Winter Night",
+        "register": "sleep",
+        "sight": "Condensation on old glass, leaves pressed against it from inside, frost forming outside.",
+        "scenes": [
+          "snowfall",
+          "clear frost",
+          "rain",
+          "before dawn"
+        ],
+        "music": [
+          "ambient",
+          "neoclassical"
+        ]
+      },
+      {
+        "id": "observatory-dome-quiet",
+        "name": "Observatory Dome, Quiet",
+        "register": "sleep",
+        "sight": "A dark dome open to a slot of stars, instruments still, one small red light.",
+        "scenes": [
+          "clear night",
+          "cloud passing",
+          "meteor night",
+          "dawn closing"
+        ],
+        "music": [
+          "ambient",
+          "low drone"
+        ]
+      },
+      {
+        "id": "canal-boat-mooring",
+        "name": "Canal Boat at Mooring",
+        "register": "sleep",
+        "sight": "A low cabin roof, a rope slack in dark water, reeds unmoving on the far bank.",
+        "scenes": [
+          "evening",
+          "night rain",
+          "mist",
+          "early light"
+        ],
+        "music": [
+          "ambient",
+          "water field-rec"
+        ]
+      },
+      {
+        "id": "mountain-temple-steps",
+        "name": "Mountain Temple Steps",
+        "register": "eastern",
+        "sight": "Worn stone steps climbing into cloud, a red gate above, pine branches over the path.",
+        "scenes": [
+          "morning mist",
+          "clear",
+          "rain",
+          "snow"
+        ],
+        "music": [
+          "guqin",
+          "ambient"
+        ]
+      },
+      {
+        "id": "ink-wash-peaks",
+        "name": "Ink-Wash Peaks",
+        "register": "eastern",
+        "sight": "Layered ridges fading pale into distance, one crooked pine on the near cliff.",
+        "scenes": [
+          "dawn haze",
+          "full daylight",
+          "storm clearing",
+          "moonlit"
+        ],
+        "music": [
+          "guzheng",
+          "ambient"
+        ]
+      },
+      {
+        "id": "bamboo-grove-path",
+        "name": "Bamboo Grove Path",
+        "register": "eastern",
+        "sight": "Green stems close on both sides, light cut into stripes across the path floor.",
+        "scenes": [
+          "morning",
+          "wind",
+          "rain",
+          "late sun"
+        ],
+        "music": [
+          "bamboo flute",
+          "ambient"
+        ]
+      },
+      {
+        "id": "koi-pond-courtyard",
+        "name": "Koi Pond Courtyard",
+        "register": "eastern",
+        "sight": "Still water inside a walled garden, one stone lantern, slow shapes under the surface.",
+        "scenes": [
+          "spring blossom",
+          "summer green",
+          "autumn leaves",
+          "first snow"
+        ],
+        "music": [
+          "guzheng",
+          "solo piano"
+        ]
+      },
+      {
+        "id": "tea-house-window",
+        "name": "Tea House Window",
+        "register": "eastern",
+        "sight": "A low table, a warm cup, paper screens half open onto a grey garden.",
+        "scenes": [
+          "morning",
+          "rain",
+          "dusk",
+          "snowlight"
+        ],
+        "music": [
+          "guqin",
+          "ambient"
+        ]
+      },
+      {
+        "id": "terraced-fields-mist",
+        "name": "Terraced Fields in Mist",
+        "register": "eastern",
+        "sight": "Curved water steps down a hillside, each holding a flat sheet of white sky.",
+        "scenes": [
+          "flooded",
+          "planting",
+          "full green",
+          "harvest"
+        ],
+        "music": [
+          "bamboo flute",
+          "ambient"
+        ]
+      },
+      {
+        "id": "stone-bridge-stream",
+        "name": "Stone Bridge and Stream",
+        "register": "eastern",
+        "sight": "An arched bridge over shallow water, moss on the stone, willow trailing at the edge.",
+        "scenes": [
+          "spring",
+          "summer rain",
+          "autumn",
+          "iced"
+        ],
+        "music": [
+          "guzheng",
+          "water field-rec"
+        ]
+      },
+      {
+        "id": "monastery-courtyard-dawn",
+        "name": "Monastery Courtyard at Dawn",
+        "register": "eastern",
+        "sight": "Swept flagstones, a bronze bell under its roof, incense smoke going straight up.",
+        "scenes": [
+          "first light",
+          "full morning",
+          "rain",
+          "snow"
+        ],
+        "music": [
+          "singing bowls",
+          "ambient"
+        ]
+      },
+      {
+        "id": "pine-cliff-hermitage",
+        "name": "Pine Cliff Hermitage",
+        "register": "eastern",
+        "sight": "A small wooden hut on a ledge, cloud below it, twisted pines holding the rock.",
+        "scenes": [
+          "cloud sea",
+          "clear",
+          "storm",
+          "moonlit"
+        ],
+        "music": [
+          "guqin",
+          "low drone"
+        ]
+      },
+      {
+        "id": "lotus-lake-morning",
+        "name": "Lotus Lake in Morning",
+        "register": "eastern",
+        "sight": "Broad flat leaves across still water, pale flowers standing above them, far shore hidden.",
+        "scenes": [
+          "mist",
+          "open sun",
+          "rain",
+          "dusk"
+        ],
+        "music": [
+          "guzheng",
+          "ambient"
+        ]
+      },
+      {
+        "id": "salt-flat-horizon",
+        "name": "Salt Flat Horizon",
+        "register": "meditation",
+        "sight": "A white plain meeting the sky with no feature between, thin water skimming the surface.",
+        "scenes": [
+          "dawn",
+          "noon glare",
+          "dusk",
+          "star reflection"
+        ],
+        "music": [
+          "low drone",
+          "ambient"
+        ]
+      },
+      {
+        "id": "stone-circle-plain",
+        "name": "Stone Circle on the Plain",
+        "register": "meditation",
+        "sight": "Standing stones in open grass, long shadows, nothing else to the horizon.",
+        "scenes": [
+          "sunrise",
+          "overcast",
+          "mist",
+          "moonlit"
+        ],
+        "music": [
+          "singing bowls",
+          "low drone"
+        ]
+      },
+      {
+        "id": "sand-garden-raked",
+        "name": "Raked Sand Garden",
+        "register": "meditation",
+        "sight": "Combed gravel around three set stones, a plain wall behind, no plants at all.",
+        "scenes": [
+          "morning",
+          "flat light",
+          "rain",
+          "snow dust"
+        ],
+        "music": [
+          "singing bowls",
+          "ambient"
+        ]
+      },
+      {
+        "id": "cave-mouth-light",
+        "name": "Cave Mouth Light",
+        "register": "meditation",
+        "sight": "A wide dark opening, one shaft of daylight on the floor, water somewhere out of sight.",
+        "scenes": [
+          "morning shaft",
+          "noon",
+          "rain curtain",
+          "dusk"
+        ],
+        "music": [
+          "low drone",
+          "reverb field-rec"
+        ]
+      },
+      {
+        "id": "high-desert-mesa",
+        "name": "High Desert Mesa",
+        "register": "meditation",
+        "sight": "A flat red table of rock above empty country, heat shimmer at the rim.",
+        "scenes": [
+          "dawn",
+          "harsh noon",
+          "storm distance",
+          "night sky"
+        ],
+        "music": [
+          "ambient",
+          "low drone"
+        ]
+      },
+      {
+        "id": "frozen-lake-centre",
+        "name": "Centre of a Frozen Lake",
+        "register": "meditation",
+        "sight": "Clear black ice under a dusting of snow, the shore an even line all the way round.",
+        "scenes": [
+          "clear cold",
+          "snow",
+          "fog",
+          "low sun"
+        ],
+        "music": [
+          "low drone",
+          "ambient"
+        ]
+      },
+      {
+        "id": "empty-chapel-nave",
+        "name": "Empty Chapel Nave",
+        "register": "meditation",
+        "sight": "Bare stone columns, one window high up, a long floor with nothing on it.",
+        "scenes": [
+          "morning light",
+          "overcast",
+          "candlelit",
+          "dusk"
+        ],
+        "music": [
+          "choral drone",
+          "ambient"
+        ]
+      },
+      {
+        "id": "dune-crest-still",
+        "name": "Dune Crest, Still",
+        "register": "meditation",
+        "sight": "A clean sand ridge dividing light from shadow, no track anywhere on it.",
+        "scenes": [
+          "dawn",
+          "full sun",
+          "wind",
+          "moonlit"
+        ],
+        "music": [
+          "ambient",
+          "low drone"
+        ]
+      },
+      {
+        "id": "kelp-forest-column",
+        "name": "Kelp Forest Column",
+        "register": "meditation",
+        "sight": "Long green stems rising through clear water, light coming down in slow bars.",
+        "scenes": [
+          "bright",
+          "deep",
+          "current",
+          "dusk"
+        ],
+        "music": [
+          "ambient",
+          "water field-rec"
+        ]
+      },
+      {
+        "id": "volcanic-plateau-steam",
+        "name": "Volcanic Plateau Steam",
+        "register": "meditation",
+        "sight": "Grey ground with vents breathing white, pools holding an unnatural blue.",
+        "scenes": [
+          "cold morning",
+          "overcast",
+          "rain",
+          "night glow"
+        ],
+        "music": [
+          "low drone",
+          "field-recording"
+        ]
+      },
+      {
+        "id": "coast-road-morning",
+        "name": "Coast Road, Morning",
+        "register": "adventure",
+        "sight": "An empty two-lane road along a cliff edge, sea flat and bright to the left.",
+        "scenes": [
+          "sunrise",
+          "full day",
+          "sea fog",
+          "golden hour"
+        ],
+        "music": [
+          "ambient folk",
+          "acoustic"
+        ]
+      },
+      {
+        "id": "mountain-pass-switchbacks",
+        "name": "Mountain Pass Switchbacks",
+        "register": "adventure",
+        "sight": "A thin road folding up a bare slope, snow still in the gullies, valley far below.",
+        "scenes": [
+          "clear",
+          "cloud",
+          "late snow",
+          "dusk"
+        ],
+        "music": [
+          "strings",
+          "ambient"
+        ]
+      },
+      {
+        "id": "river-canoe-bend",
+        "name": "River Canoe Bend",
+        "register": "adventure",
+        "sight": "Slow brown water rounding a wooded point, a paddle resting across the gunwale.",
+        "scenes": [
+          "mist",
+          "full sun",
+          "rain",
+          "evening"
+        ],
+        "music": [
+          "acoustic",
+          "water field-rec"
+        ]
+      },
+      {
+        "id": "desert-highway-dusk",
+        "name": "Desert Highway at Dusk",
+        "register": "adventure",
+        "sight": "Straight tarmac to the horizon, telephone poles counting down, sky going orange.",
+        "scenes": [
+          "late afternoon",
+          "sunset",
+          "blue hour",
+          "stars"
+        ],
+        "music": [
+          "slide guitar",
+          "ambient"
+        ]
+      },
+      {
+        "id": "island-ferry-deck",
+        "name": "Island Ferry Deck",
+        "register": "adventure",
+        "sight": "A wet steel deck, low islands passing on both sides, wake spreading behind.",
+        "scenes": [
+          "morning",
+          "bright",
+          "squall",
+          "sunset"
+        ],
+        "music": [
+          "ambient",
+          "strings"
+        ]
+      },
+      {
+        "id": "pine-trail-ridgeline",
+        "name": "Pine Trail Ridgeline",
+        "register": "adventure",
+        "sight": "A packed-earth path along a wooded spine, the country opening on either side.",
+        "scenes": [
+          "morning",
+          "full green",
+          "autumn",
+          "first snow"
+        ],
+        "music": [
+          "ambient folk",
+          "acoustic"
+        ]
+      },
+      {
+        "id": "steppe-track-open",
+        "name": "Open Steppe Track",
+        "register": "adventure",
+        "sight": "Two wheel ruts through endless grass, weather visible a whole day away.",
+        "scenes": [
+          "dawn",
+          "wind",
+          "storm distance",
+          "dusk"
+        ],
+        "music": [
+          "ambient",
+          "strings"
+        ]
+      },
+      {
+        "id": "lighthouse-headland-walk",
+        "name": "Lighthouse Headland Walk",
+        "register": "adventure",
+        "sight": "A cropped grass path to a white tower, sea on three sides, gulls held on the wind.",
+        "scenes": [
+          "clear",
+          "gale",
+          "fog",
+          "sunset"
+        ],
+        "music": [
+          "ambient",
+          "acoustic"
+        ]
+      },
+      {
+        "id": "alpine-hut-approach",
+        "name": "Alpine Hut Approach",
+        "register": "adventure",
+        "sight": "A stone refuge on a shoulder of rock, one lit window, snowfield in front of it.",
+        "scenes": [
+          "clear morning",
+          "cloud rolling",
+          "late light",
+          "moonlit"
+        ],
+        "music": [
+          "neoclassical",
+          "ambient"
+        ]
+      },
+      {
+        "id": "delta-boardwalk-reeds",
+        "name": "Delta Boardwalk Through Reeds",
+        "register": "adventure",
+        "sight": "Weathered planks on stilts winding through tall reeds, water glinting between them.",
+        "scenes": [
+          "dawn",
+          "high summer",
+          "rain",
+          "autumn gold"
+        ],
+        "music": [
+          "ambient",
+          "field-recording"
+        ]
+      }
+    ],
+    "songFormula": {
+      "ensembles": [
+        {
+          "value": "Café jazz piano trio: piano, upright bass, brushed drums",
+          "weight": 30
+        },
+        {
+          "value": "Solo jazz piano, soft touch",
+          "weight": 10
+        },
+        {
+          "value": "Jazz guitar trio: hollow-body guitar, upright bass, brushed drums",
+          "weight": 15
+        },
+        {
+          "value": "Bossa nova quartet: nylon guitar, piano, upright bass, light percussion",
+          "weight": 15
+        },
+        {
+          "value": "Piano trio with mellow tenor saxophone",
+          "weight": 15
+        },
+        {
+          "value": "Piano trio with soft flugelhorn",
+          "weight": 10
+        },
+        {
+          "value": "Vibraphone, piano, upright bass and brushes",
+          "weight": 5
+        }
+      ],
+      "moods": [
+        {
+          "value": "Warm",
+          "weight": 1
+        },
+        {
+          "value": "Relaxed",
+          "weight": 1
+        },
+        {
+          "value": "Cosy",
+          "weight": 1
+        },
+        {
+          "value": "Mellow",
+          "weight": 1
+        },
+        {
+          "value": "Gently uplifting",
+          "weight": 1
+        },
+        {
+          "value": "Wistful",
+          "weight": 1
+        },
+        {
+          "value": "Dreamy",
+          "weight": 1
+        },
+        {
+          "value": "Sunny",
+          "weight": 1
+        }
+      ],
+      "tempo_bands": [
+        {
+          "id": "ballad",
+          "label": "Slow ballad",
+          "min_bpm": 60,
+          "max_bpm": 74,
+          "weight": 30
+        },
+        {
+          "id": "easy",
+          "label": "Easy",
+          "min_bpm": 75,
+          "max_bpm": 92,
+          "weight": 40
+        },
+        {
+          "id": "medium",
+          "label": "Medium relaxed",
+          "min_bpm": 93,
+          "max_bpm": 108,
+          "weight": 30
+        }
+      ],
+      "keys": [
+        "C major",
+        "F major",
+        "B♭ major",
+        "E♭ major",
+        "A♭ major",
+        "G major",
+        "D major",
+        "A minor",
+        "D minor",
+        "G minor",
+        "C minor",
+        "F minor"
+      ],
+      "textures": [
+        {
+          "value": "Warm café room sound",
+          "weight": 1
+        },
+        {
+          "value": "Close-mic intimate",
+          "weight": 1
+        },
+        {
+          "value": "Soft vintage tape warmth",
+          "weight": 1
+        },
+        {
+          "value": "Gentle vinyl warmth",
+          "weight": 1
+        },
+        {
+          "value": "Airy small jazz club",
+          "weight": 1
+        },
+        {
+          "value": "Clean warm studio",
+          "weight": 1
+        }
+      ],
+      "structures": [
+        {
+          "value": "Bossa nova feel",
+          "weight": 1
+        },
+        {
+          "value": "Gentle swing feel",
+          "weight": 1
+        },
+        {
+          "value": "Jazz waltz in 3/4",
+          "weight": 1
+        },
+        {
+          "value": "Head, gentle solo, head",
+          "weight": 1
+        },
+        {
+          "value": "Soft Latin jazz groove",
+          "weight": 1
+        },
+        {
+          "value": "Rubato intro into a relaxed groove",
+          "weight": 1
+        }
+      ],
+      "length_s": {
+        "min": 210,
+        "max": 360
+      },
+      "never": [
+        "vocals",
+        "vocal",
+        "singing",
+        "singer",
+        "voice",
+        "lyrics",
+        "choir",
+        "humming",
+        "scat",
+        "spoken word",
+        "rap",
+        "distorted",
+        "heavy metal",
+        "harsh",
+        "aggressive",
+        "EDM",
+        "dubstep"
+      ],
+      "variety": {
+        "unique_combos": true,
+        "spread_least_filled": true,
+        "max_title_word_share": 0.03,
+        "max_similarity": 0.5,
+        "trim_silence": true,
+        "flag_gap_s": 5
+      }
+    },
+    "episodeDefaults": {
+      "target_length_s": 3900,
+      "no_repeat_episodes": 30,
+      "loudness_lufs": -14,
+      "true_peak_db": -1,
+      "join": {
+        "style": "crossfade",
+        "seconds": 3
+      },
+      "scenes": {
+        "mode": "per-song",
+        "title_on_scene": true
+      },
+      "scene_themes": [
+        "Morning Coffee",
+        "Rainy Day Café",
+        "Sunday Brunch",
+        "Late Night Café",
+        "Autumn Café",
+        "Winter Café",
+        "Bookshop Café",
+        "Café Terrace in Summer"
+      ],
+      "scene_change": {
+        "transition": "crossfade",
+        "seconds": 4
+      },
+      "effects_look": [],
+      "frame_rate": 24,
+      "resolution": "720p",
+      "upscale_sharpen": "light",
+      "still_no_repeat_episodes": 0,
+      "pools": []
+    },
+    "sceneSettings": [
+      "Rainy window booth",
+      "Rooftop café at dusk",
+      "Parisian corner bistro",
+      "Kyoto kissaten",
+      "Bookshop café",
+      "Snowy alpine chalet café",
+      "Seaside café terrace at sunset",
+      "Vienna coffee house with marble tables",
+      "Greenhouse café full of plants",
+      "Lisbon tiled café on a tram street",
+      "Candlelit cellar jazz café",
+      "Lakeside wooden café in autumn",
+      "Brick warehouse roastery",
+      "Train station café at night",
+      "Old library reading-room café",
+      "Cobblestone alley café with string lights",
+      "Mountain cabin café with a fireplace",
+      "Sunlit Scandinavian minimalist café",
+      "Istanbul café overlooking the Bosphorus",
+      "New York diner corner booth at midnight",
+      "Cosy attic café under a skylight",
+      "Riverside barge café",
+      "Vintage record-shop café",
+      "Orchard café in spring blossom",
+      "Harbour café on a foggy morning",
+      "Desert oasis café at golden hour",
+      "Tea-and-coffee house in a bamboo garden",
+      "Art deco hotel lobby café",
+      "Lantern-lit night-market coffee stall",
+      "Countryside cottage café after rain"
+    ]
+  }
+}

@@ -1,0 +1,373 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.guided-mindfulness",
+  "name": "Guided Mindfulness",
+  "description": "Guided meditation, breathing exercises, body-scan, present-moment awareness. Tone is slow, present, breath-paced. Pair with B-Roll of breathing landscapes — rolling fog, slow water, candle flame, forest canopy, sunrise breath. Best for short morning resets, anxiety relief, sleep wind-down.",
+  "channel_promise": "Pause → Presence",
+  "audience": "Listeners looking for a short, non-medical moment of attention in an ordinary day.",
+  "youtube_tags_hint": [
+    "mindfulness",
+    "meditation",
+    "guided meditation",
+    "breathing exercise",
+    "box breathing",
+    "body scan",
+    "anxiety meditation",
+    "morning meditation",
+    "sleep meditation",
+    "5 minute meditation"
+  ],
+  "formula_family": "Mind & ideas",
+  "tagline": "Notice. Breathe. Begin again.",
+  "perspective_policy": "Gentle second-person guidance with calm, unforced language.",
+  "narrative_quality_contract": {
+    "opening_policy": "Begin with a simple grounded invitation, not a dramatic hook.",
+    "forbidden_patterns": [
+      "Imagine this",
+      "Transform your life today",
+      "Watch what happens next",
+      "spiritual grandiosity"
+    ],
+    "required_habits": [
+      "Use spacious, sensory, concrete guidance.",
+      "Avoid diagnostic or therapeutic claims.",
+      "Leave room for silence and choice."
+    ],
+    "closing_policy": "Close softly without a CTA or cliffhanger."
+  },
+  "metadata_profile": {
+    "id": "reflective-youtube",
+    "label": "Reflective video package",
+    "description": "A clear, non-hyped summary with a modest CTA, disclosure, and focused hashtags.",
+    "description_section_ids": [
+      "hook",
+      "cta",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 3500,
+    "title_max_length": 100,
+    "tag_count": 15
+  },
+  "narrative_rules": [
+    "Name the practice, its everyday context, and a gentle option for adapting it."
+  ],
+  "title_rules": [
+    "Name a specific ordinary context and practice.",
+    "Avoid promises, guru language, and medical framing."
+  ],
+  "script_structure": {
+    "default_chapter_count": 5,
+    "chapter_count_range": [
+      3,
+      8
+    ],
+    "default_length_minutes": 25,
+    "length_minutes_range": [
+      20,
+      30
+    ],
+    "duration_presets": [
+      20,
+      25,
+      30
+    ],
+    "default_words_per_minute": 115,
+    "chapters_independent": true,
+    "pacing_arc": [
+      "Arrive in one concrete everyday setting.",
+      "Offer a few optional noticing cues, then return gently."
+    ],
+    "additional_rules": [
+      "Use short, breathable sentences and leave room for silence."
+    ]
+  },
+  "compatible_topic_pack_ids": [
+    "com.storystudio.topic.everyday-calm"
+  ],
+  "default_topic_pack_ids": [
+    "com.storystudio.topic.everyday-calm"
+  ],
+  "recommended_visual_style_ids": [
+    "com.storystudio.style.watercolor-storybook"
+  ],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.centered-hero-headline"
+  ],
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.centered-hero-headline",
+  "idea_axes": [
+    {
+      "id": "practice-mode",
+      "label": "Practice mode",
+      "values": [
+        "breath",
+        "senses",
+        "posture",
+        "walking",
+        "small task",
+        "quiet transition"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "present",
+      "slow",
+      "spacious",
+      "tender",
+      "grounded",
+      "patient",
+      "breath-paced",
+      "non-judgmental",
+      "quiet",
+      "soft",
+      "warm",
+      "matter-of-fact",
+      "still",
+      "settled",
+      "embodied",
+      "humane",
+      "compassionate",
+      "unhurried",
+      "kind",
+      "gentle-but-direct",
+      "anchored",
+      "open",
+      "receptive",
+      "attuned",
+      "calm"
+    ],
+    "theme": [
+      "presence",
+      "breath",
+      "acceptance",
+      "letting go",
+      "awareness",
+      "body",
+      "stillness",
+      "compassion",
+      "non-striving",
+      "noticing",
+      "rest",
+      "sleep",
+      "anxiety",
+      "stress",
+      "overwhelm",
+      "rumination",
+      "focus",
+      "attention",
+      "patience",
+      "self-kindness",
+      "boundaries",
+      "regulation",
+      "co-regulation",
+      "grounding",
+      "intention",
+      "ease",
+      "spaciousness",
+      "release",
+      "softening",
+      "befriending-the-body",
+      "befriending-the-mind"
+    ],
+    "genre": [
+      "mindfulness",
+      "meditation",
+      "breathwork",
+      "body awareness",
+      "guided practice",
+      "yoga nidra",
+      "loving-kindness practice",
+      "compassion meditation",
+      "MBSR",
+      "MBCT",
+      "somatic practice",
+      "grounding practice"
+    ],
+    "keyword": [
+      "breath",
+      "inhale",
+      "exhale",
+      "in-breath",
+      "out-breath",
+      "body scan",
+      "5-4-3-2-1",
+      "grounding",
+      "five senses",
+      "box breath",
+      "4-7-8 breath",
+      "physiological sigh",
+      "alternate nostril",
+      "diaphragmatic breath",
+      "belly breath",
+      "ujjayi breath",
+      "coherent breathing",
+      "resonance breathing",
+      "diaphragm",
+      "ribcage",
+      "shoulders",
+      "jaw",
+      "tongue",
+      "eyes",
+      "feet on the floor",
+      "seat of the chair",
+      "soles of the feet",
+      "palms",
+      "back of the head",
+      "crown",
+      "throat",
+      "chest",
+      "belly",
+      "pelvis",
+      "hips",
+      "knees",
+      "ankles",
+      "spine",
+      "present moment",
+      "this breath",
+      "this sound",
+      "this sensation",
+      "anchor",
+      "noticing",
+      "labelling",
+      "naming",
+      "letting go",
+      "softening",
+      "releasing",
+      "settling",
+      "arriving",
+      "landing",
+      "checking in",
+      "tuning in",
+      "befriending",
+      "welcoming",
+      "the inner critic",
+      "the wandering mind",
+      "monkey mind",
+      "default mode",
+      "automatic pilot",
+      "stress response",
+      "rest-and-digest",
+      "ventral vagal",
+      "window of tolerance",
+      "interoception",
+      "proprioception",
+      "co-regulation",
+      "loving-kindness",
+      "metta",
+      "compassion",
+      "self-compassion",
+      "tonglen",
+      "RAIN",
+      "STOP practice",
+      "noting practice",
+      "open awareness",
+      "focused attention",
+      "walking meditation",
+      "eating meditation",
+      "shower meditation",
+      "morning practice",
+      "evening practice",
+      "midday reset",
+      "pre-sleep wind-down",
+      "anxiety reset",
+      "panic ladder",
+      "3-minute breathing space",
+      "yoga nidra",
+      "savasana",
+      "constructive rest",
+      "legs-up-the-wall",
+      "child's pose",
+      "the hum",
+      "the buzz",
+      "soft gaze",
+      "Jon Kabat-Zinn",
+      "Tara Brach",
+      "Pema Chödrön",
+      "Thich Nhat Hanh",
+      "Sharon Salzberg"
+    ]
+  },
+  "audience_hint": "Stressed listeners reaching for a short reset — typically commute / desk-break / bedtime moments.",
+  "idea_system_prompt_role": "You generate ideas for a guided-meditation / mindfulness channel. Each episode is a SPECIFIC practice the listener can do — a duration, a technique, a context (box breathing for anxious mornings, a body scan before sleep). Plain and useful, never mystical guru-speak.",
+  "idea_guidance_text": "Stay plain, calm, and useful. Do not present the practice as treatment, a cure, or a personal transformation.",
+  "script_context": "Speak slowly. Use the second person ('You're sitting...', 'You feel...'). Pace the inhale and exhale cadence into the writing itself — short sentences, soft pauses, no rush. End by guiding the listener back into their day or into sleep, never with applause or 'thanks for listening' chatter.",
+  "script_system_prompt_role": "You are a guided-meditation writer. You lead the listener through a specific practice in a slow, present, breath-paced voice — second person, short sentences, soft pauses written into the cadence itself. Matter-of-fact and kind: this is a practice, this is how long, here's when to use it. End by guiding the listener back into their day or into sleep, never with applause or sign-off chatter.",
+  "script_closing_hint": "Close by gently guiding the listener back into their day or down into sleep — a soft return, never a sign-off.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Calm and present",
+      "description": "Slow, grounded, second-person guidance. The default mindfulness voice."
+    },
+    {
+      "id": "b",
+      "label": "Breath-paced",
+      "description": "Deliberate, with built-in pauses — each cue given room to land."
+    },
+    {
+      "id": "c",
+      "label": "Soft and reassuring",
+      "description": "Warm, kind, gently-direct. Good for anxiety resets and pre-sleep wind-downs."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Titles describe a SPECIFIC PRACTICE the listener can do — duration + technique + context.",
+    "Established shapes (vary across the batch):",
+    "  - 'A {Duration} {Practice Name}'                  (e.g. 'A 3-Minute Morning Reset', 'A 10-Minute Body Scan')",
+    "  - '{Technique} for {Specific Situation}'           (e.g. 'Box Breathing for Anxious Mornings', '4-7-8 Breathing for Insomnia')",
+    "  - '{Practice} Before {Time / Event}'               (e.g. 'Body Scan Before Sleep', 'A Pause Before a Hard Meeting')",
+    "  - 'How to {Calm / Settle} {Specific Feeling}'      (e.g. 'How to Settle Pre-Sleep Racing Thoughts')",
+    "FORBIDDEN: mystical / new-age framing ('Awaken Your Inner Light'), guru-speak ('I want to teach you…'), promises of transformation, exclamation points.",
+    "Voice is matter-of-fact: this is a practice, this is how long, here's when to use it. Plain, calm, useful."
+  ],
+  "title_length_range": [
+    3,
+    9
+  ],
+  "structural_variety": "vary-subject-only",
+  "metadata_title_style_hint": "Calm and literal — say what the session does and roughly how long it takes. No urgency, no superlatives.",
+  "metadata_title_hook_rules": [
+    "Name the practice and ordinary context without promising an outcome."
+  ],
+  "metadata_tags_hook_rules": [
+    "Use only the practice, setting, and sensory anchors present in the episode."
+  ],
+  "example_topics": [
+    "A 3-Minute Morning Reset",
+    "Box Breathing for Anxious Mornings",
+    "Body Scan Before Sleep",
+    "Letting Go of the Day",
+    "Five-Senses Grounding (When Your Mind Won't Stop)",
+    "A Breath for the Long Inhale",
+    "Mindful Walking on Your Commute",
+    "Soft Belly Breath — 5 Minutes",
+    "Quiet the Inner Critic — A Guided Practice",
+    "Finding Stillness Between Tasks",
+    "A Gentle Return to the Body"
+  ],
+  "intro_defaults": {
+    "word_target": 90,
+    "beats": [
+      {
+        "id": "practice_frame",
+        "custom_text": "name the practice and how long it takes, and say it works sitting or lying down"
+      },
+      {
+        "id": "settle_in",
+        "custom_text": "invite them to get comfortable and let their surroundings stop mattering"
+      },
+      {
+        "id": "relaxation",
+        "custom_text": "two or three unhurried breaths, paced by the length of the sentences themselves"
+      },
+      {
+        "id": "transition",
+        "custom_text": "begin the practice without announcing that you are beginning it"
+      }
+    ]
+  }
+}

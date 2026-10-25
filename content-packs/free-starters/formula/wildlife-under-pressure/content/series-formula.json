@@ -1,0 +1,379 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.wildlife-under-pressure",
+  "name": "Wildlife Under Pressure",
+  "description": "Wildlife subjects from across the whole animal kingdom, vertebrates and invertebrates alike — mammals, birds, reptiles, amphibians, fish, insects, spiders and other arachnids, cephalopods, crustaceans, molluscs, worms, corals and jellyfish. Insects and the other invertebrates are fully in scope, not a separate subject area. Built for explainers that profile one creature at a time and the specific biological pressure it lives under.",
+  "tagline": "Born hunted, hungry, or weirdly built.",
+  "formula_family": "Living world",
+  "perspective_policy": "Third-person natural-history narration; never invent animal thoughts or dialogue.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open with one observable biological behavior, adaptation, or environmental pressure.",
+    "forbidden_patterns": [
+      "Imagine being this animal",
+      "This animal does not want you to know",
+      "Watch what happens next",
+      "fake animal motives"
+    ],
+    "required_habits": [
+      "Put biology before jokes.",
+      "Describe behavior as observation, not human intention.",
+      "Use ecological cause and effect."
+    ],
+    "closing_policy": "End with the adaptation’s real consequence in its ecosystem."
+  },
+  "intro_defaults": {
+    "word_target": 100,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open deadpan on the single worst fact about being born as this animal"
+      },
+      {
+        "id": "premise_setup",
+        "custom_text": "name the species and frame it as a bad draw in the genetic lottery"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "promise the specifics — anatomy, lifecycle, and how the thing survives anyway"
+      },
+      {
+        "id": "evidence_note",
+        "custom_text": "one line that the grim parts are real zoology, not exaggeration for the joke"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one dry line; no enthusiasm"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to chapter one without a drumroll"
+      }
+    ]
+  },
+  "metadata_profile": {
+    "id": "evidence-youtube",
+    "label": "Evidence-led video package",
+    "description": "A direct episode summary with sources when research exists, a concise CTA, disclosure, and focused hashtags.",
+    "description_section_ids": [
+      "hook",
+      "sources",
+      "cta",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 4000,
+    "title_max_length": 100,
+    "tag_count": 15
+  },
+  "example_topics": [
+    "Komodo Dragon",
+    "Japanese Sawshark",
+    "Golden Takin",
+    "Liger",
+    "Raccoon",
+    "Vampire Finch",
+    "Balloon Frog",
+    "King Penguin",
+    "Blue Whale",
+    "Camel",
+    "Pelican",
+    "Naked Mole Rat",
+    "Star-Nosed Mole",
+    "Pangolin",
+    "Aye-Aye",
+    "Sloth",
+    "Pistol Shrimp",
+    "Mantis Shrimp",
+    "Tarsier",
+    "Honey Badger",
+    "Bombardier Beetle",
+    "Tarantula Hawk Wasp",
+    "Antlion",
+    "Portia Spider"
+  ],
+  "default_topic_pack_ids": [
+    "com.storystudio.topic.natural-world-animals"
+  ],
+  "compatible_topic_pack_ids": [
+    "com.storystudio.topic.natural-world-animals",
+    "com.storystudio.topic.natural-world-fungi",
+    "com.storystudio.topic.natural-world-insects",
+    "com.storystudio.topic.natural-world-plants"
+  ],
+  "vocabulary": {
+    "mood": [
+      "scrappy",
+      "brutal",
+      "wry",
+      "underdog",
+      "miserable-and-thriving",
+      "darkly funny",
+      "matter-of-fact-grim",
+      "deadpan",
+      "punchy",
+      "evidence-based-bleak",
+      "field-naturalist",
+      "ecological-realist",
+      "comedic-pessimist",
+      "viscerally-specific",
+      "anatomy-forward",
+      "behaviour-forward",
+      "wonder-tinged",
+      "absurdist-but-true",
+      "gallows-humour",
+      "patient-observer",
+      "blue-collar-nature",
+      "lab-notes",
+      "post-mortem",
+      "evolutionarily-resigned"
+    ],
+    "theme": [
+      "predator pressure",
+      "parasitism",
+      "extreme cold / heat",
+      "weird reproduction",
+      "anatomical handicaps",
+      "evolutionary trade-offs",
+      "human-caused threats",
+      "ridiculous defense mechanisms",
+      "energetic deficit",
+      "starvation cycles",
+      "extreme migration",
+      "social hierarchy",
+      "intraspecific aggression",
+      "mating-cost extremes",
+      "sensory mismatch",
+      "habitat collapse",
+      "co-evolution",
+      "convergent evolution",
+      "vestigial structures",
+      "endocrine bizarrery",
+      "sleep-deprivation strategies",
+      "altitude / depth extremes",
+      "self-amputation",
+      "kin recognition failure",
+      "interspecies bullying",
+      "endemic isolation"
+    ],
+    "genre": [
+      "zoology",
+      "wildlife biology",
+      "ethology",
+      "comparative anatomy",
+      "natural history",
+      "nature documentary",
+      "ecology",
+      "evolutionary biology",
+      "marine biology",
+      "ornithology",
+      "herpetology",
+      "mammalogy",
+      "field biology",
+      "conservation biology"
+    ],
+    "keyword": [
+      "predator",
+      "prey",
+      "habitat",
+      "niche",
+      "breeding",
+      "mating",
+      "migration",
+      "metabolism",
+      "thermoregulation",
+      "torpor",
+      "hibernation",
+      "estivation",
+      "camouflage",
+      "mimicry",
+      "venom",
+      "neurotoxin",
+      "haemotoxin",
+      "claws",
+      "talons",
+      "fangs",
+      "tusks",
+      "horns",
+      "antlers",
+      "feathers",
+      "down",
+      "scales",
+      "fur",
+      "blubber",
+      "skeleton",
+      "exoskeleton",
+      "endoskeleton",
+      "endangered species",
+      "invasive species",
+      "endemic species",
+      "trophic level",
+      "apex predator",
+      "mesopredator",
+      "the savanna",
+      "the tundra",
+      "the deep ocean",
+      "the rainforest",
+      "the desert",
+      "the alpine zone",
+      "the abyssal plain",
+      "the kelp forest",
+      "estuary",
+      "wetland",
+      "coral reef",
+      "naked mole rat",
+      "platypus",
+      "echidna",
+      "hagfish",
+      "hammerhead shark",
+      "sloth",
+      "anglerfish",
+      "tarsier",
+      "axolotl",
+      "kakapo",
+      "dugong",
+      "narwhal",
+      "tuatara",
+      "tardigrade",
+      "okapi",
+      "fossa",
+      "tapir",
+      "musk ox",
+      "pronghorn",
+      "snow leopard",
+      "Galapagos tortoise",
+      "blue-footed booby",
+      "marabou stork",
+      "saiga antelope",
+      "Tasmanian devil",
+      "leatherback turtle",
+      "manatee",
+      "aye-aye",
+      "binturong",
+      "frigatebird",
+      "shoebill",
+      "vampire bat",
+      "Komodo dragon",
+      "sloth bear",
+      "hoatzin",
+      "amplexus",
+      "lekking",
+      "pair bonding",
+      "filial cannibalism",
+      "infanticide",
+      "obligate parasite",
+      "facultative parasite",
+      "kleptoparasitism",
+      "siblicide",
+      "thanatosis (playing dead)",
+      "regurgitation feeding",
+      "altricial young",
+      "precocial young",
+      "delayed implantation",
+      "diapause",
+      "monestrous",
+      "polyestrous",
+      "viviparous",
+      "oviparous",
+      "ovoviviparous"
+    ]
+  },
+  "youtube_tags_hint": [
+    "animals",
+    "animal facts",
+    "wildlife",
+    "zoology",
+    "weird animals",
+    "nature explainer",
+    "evolution",
+    "ecology"
+  ],
+  "audience_hint": "viewers who like nature trivia, wildlife documentaries, and the dark-humor side of animal biology",
+  "script_context": "This is a video about a specific animal species. Narration can use light anthropomorphism for humor ('it spends every breeding season regretting its choices') but must always ground claims in real biology — cite specific anatomy, behavior, lifecycle stages, or known field-study findings.",
+  "idea_system_prompt_role": "You generate ideas for a 'Why It Sucks To Be Born As X' style wildlife-explainer channel. Each episode profiles ONE specific animal species and the brutal, weird, or absurd realities of its biology. Pitch a single fascinating creature per idea — the grimmer, stranger, or more improbable its survival, the better.",
+  "script_system_prompt_role": "You are a wry wildlife-explainer writer in the 'Why It Sucks To Be Born As X' tradition. You profile one species and its brutal, bizarre, or absurd biology — darkly funny and lightly anthropomorphic for laughs, but every claim grounded in real zoology (anatomy, behaviour, lifecycle, field findings). Deadpan, punchy, viscerally specific.",
+  "script_closing_hint": "End on a final wry, grounded beat about the creature's improbable survival — funny, but true.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Deadpan naturalist",
+      "description": "Dry, matter-of-fact-grim, lets the brutal facts land without mugging for the laugh."
+    },
+    {
+      "id": "b",
+      "label": "Wry and punchy",
+      "description": "Faster, comedic-pessimist energy — gallows humour over real biology."
+    },
+    {
+      "id": "c",
+      "label": "Wonder-tinged",
+      "description": "Finds genuine awe in the weirdness, with a darkly funny edge."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Titles name ONE specific species and frame its grim / weird / absurd existence. The species is the variable; the framing is the channel signature.",
+    "Established shapes (vary the species across the batch):",
+    "  - 'Why It Sucks To Be Born As {a / an} {Species}'   (e.g. 'Why It Sucks To Be Born As a Komodo Dragon')",
+    "  - 'The {Species} Has the Worst {Trait / Life Stage} in Nature'",
+    "  - 'Being a {Species} Is a Nightmare — Here's Why'",
+    "FORBIDDEN: bare species names with no framing; sensational all-caps; made-up biology.",
+    "Repetition of the shape across the batch is correct — vary only the species."
+  ],
+  "title_length_range": [
+    4,
+    12
+  ],
+  "structural_variety": "vary-subject-only",
+  "script_structure": {
+    "default_chapter_count": 8,
+    "chapter_count_range": [
+      5,
+      12
+    ],
+    "default_length_minutes": 150,
+    "length_minutes_range": [
+      120,
+      180
+    ],
+    "duration_presets": [
+      120,
+      150,
+      180
+    ],
+    "default_words_per_minute": 150,
+    "chapters_independent": false,
+    "pacing_arc": [
+      "Opening: name the species and the specific biological pressure it lives under.",
+      "Then walk its life in order — anatomy, feeding, breeding, defence — and let each adaptation show the cost it carries.",
+      "Closing: the creature surviving anyway, on its own absurd terms."
+    ],
+    "additional_rules": [
+      "Every chapter stays with the SAME species; do not drift into a round-up of other animals.",
+      "Ground every claim in real anatomy, behaviour, lifecycle or field findings; the joke may be dry, never invented.",
+      "No fake animal motives and no dialogue for animals.",
+      "Write for the ear: punchy sentences, but vary their length so the rhythm does not become a bit."
+    ]
+  },
+  "metadata_title_style_hint": "Documentary and specific: name the animal and the observed behaviour, adaptation, habitat, or ecological relationship. Use clear, compelling language grounded in evidence; avoid clickbait, exaggerated superlatives, grim framing, and invented animal motives.",
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.curiosity-question-cartoon",
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.curiosity-question-cartoon"
+  ],
+  "recommended_visual_style_ids": [],
+  "channel_promise": "One creature at a time, and the absurd, brutal biology it survives.",
+  "audience": "Viewers who like wildlife documentaries, weird-animal trivia and dark humour — and who want every joke grounded in real zoology.",
+  "narrative_rules": [
+    "Each episode profiles ONE species, never a family or a round-up.",
+    "Every grim or absurd claim must be real anatomy, behaviour, lifecycle or field finding — never biology invented for a joke.",
+    "Light anthropomorphism is for humour only; never present an animal motive as fact.",
+    "Where the evidence is uncertain, say so instead of resolving it with a punchline."
+  ],
+  "title_rules": [
+    "Name ONE specific species and frame its grim, weird or absurd existence; vary only the species across a batch.",
+    "Shapes that work: 'Why It Sucks To Be Born As {a / an} {Species}', 'The {Species} Has the Worst {Trait} in Nature', 'Being a {Species} Is a Nightmare — Here's Why'.",
+    "No bare species names, no all-caps, no made-up biology."
+  ],
+  "idea_guidance_text": "Pitch a single species per idea and the specific biological pressure it lives under. The grimmer, stranger or more improbable its survival, the better — but every idea must be true zoology."
+}

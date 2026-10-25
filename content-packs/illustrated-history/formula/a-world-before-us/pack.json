@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.formula.a-world-before-us",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "entitlement": {
+    "sku": "com.storystudio.sku.formula.a-world-before-us",
+    "family": "com.storystudio.family.formula.a-world-before-us"
+  },
+  "dependencies": []
+}

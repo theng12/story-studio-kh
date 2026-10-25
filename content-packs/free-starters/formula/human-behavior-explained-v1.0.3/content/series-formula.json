@@ -1,0 +1,392 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.human-behavior-explained",
+  "name": "Human Behavior, Explained",
+  "description": "Pop-psychology narration — habits, cognitive biases, relationships, mental health, focus, anxiety, ADHD, stoicism-as-CBT. Tone is curious and practical, grounded in research without being academic. Pair with B-Roll of people in everyday moments (commute, coffee, gym, phone, mirror) or abstract footage (waves, candles, ink dropping in water).",
+  "channel_promise": "Signal → Choice",
+  "audience": "Adults curious about why people think, feel, and act as they do.",
+  "youtube_tags_hint": [
+    "psychology",
+    "mental health",
+    "self improvement",
+    "habits",
+    "cognitive bias",
+    "anxiety relief",
+    "behavioral psychology",
+    "pop psychology",
+    "psychology facts",
+    "mindset"
+  ],
+  "formula_family": "Mind & ideas",
+  "tagline": "Why your brain does that — and what to do about it.",
+  "perspective_policy": "Warm third-person explainer with sparing “we” only where genuinely shared.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open with a recognizable behavior or tension, not a diagnosis or bait question.",
+    "forbidden_patterns": [
+      "Have you ever wondered why",
+      "This is why you do",
+      "Watch what happens next",
+      "pseudo-clinical certainty"
+    ],
+    "required_habits": [
+      "Separate research from speculation.",
+      "Use examples without diagnosing the viewer.",
+      "Offer nuance and agency."
+    ],
+    "closing_policy": "Close with a practical reflection, not a manipulation tactic."
+  },
+  "narrative_rules": [
+    "Be warm, evidence-aware, and non-judgmental."
+  ],
+  "title_rules": [
+    "Name a specific behavior or phenomenon.",
+    "Avoid clinical jargon and sensational claims."
+  ],
+  "script_structure": {
+    "default_chapter_count": 8,
+    "chapter_count_range": [
+      5,
+      12
+    ],
+    "default_length_minutes": 25,
+    "length_minutes_range": [
+      20,
+      30
+    ],
+    "duration_presets": [
+      20,
+      25,
+      30
+    ],
+    "default_words_per_minute": 160,
+    "chapters_independent": true,
+    "pacing_arc": [
+      "Observable signal.",
+      "Mechanism, context, trade-off, and healthy choice."
+    ],
+    "additional_rules": [
+      "Do not substitute internet labels for evidence."
+    ]
+  },
+  "compatible_topic_pack_ids": [
+    "com.storystudio.topic.human-behavior-social-dynamics"
+  ],
+  "default_topic_pack_ids": [
+    "com.storystudio.topic.human-behavior-social-dynamics"
+  ],
+  "recommended_visual_style_ids": [
+    "com.storystudio.style.minimal-stick-figure-explainer"
+  ],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.centered-hero-headline"
+  ],
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.centered-hero-headline",
+  "idea_axes": [
+    {
+      "id": "human-stakes",
+      "label": "Human stakes",
+      "values": [
+        "belonging",
+        "autonomy",
+        "trust",
+        "self-protection",
+        "repair",
+        "status"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "curious",
+      "grounded",
+      "warm",
+      "investigative",
+      "calm",
+      "practical",
+      "non-judgmental",
+      "evidence-based",
+      "compassionate",
+      "matter-of-fact",
+      "exploratory",
+      "thoughtful",
+      "honest",
+      "research-informed",
+      "patient",
+      "open",
+      "inquisitive",
+      "sober",
+      "rigorous",
+      "humane",
+      "non-diagnostic-and-warm",
+      "accessible",
+      "level-headed",
+      "kind",
+      "neutral"
+    ],
+    "theme": [
+      "habits",
+      "cognition",
+      "anxiety",
+      "relationships",
+      "self-awareness",
+      "focus",
+      "mental health",
+      "growth",
+      "behavior change",
+      "boundaries",
+      "attachment",
+      "trauma",
+      "memory",
+      "emotion regulation",
+      "stress",
+      "burnout",
+      "sleep",
+      "motivation",
+      "procrastination",
+      "addiction",
+      "depression",
+      "loneliness",
+      "shame",
+      "self-worth",
+      "comparison",
+      "envy",
+      "anger",
+      "grief",
+      "joy",
+      "meaning",
+      "purpose",
+      "decision-making",
+      "perception",
+      "identity"
+    ],
+    "genre": [
+      "psychology",
+      "behavioral science",
+      "self-help",
+      "cognitive science",
+      "mental health",
+      "neuroscience-explainer",
+      "social-psychology",
+      "developmental-psychology",
+      "therapy-adjacent",
+      "evidence-based-self-help"
+    ],
+    "keyword": [
+      "habit loop",
+      "cue-routine-reward",
+      "cognitive bias",
+      "confirmation bias",
+      "negativity bias",
+      "availability heuristic",
+      "anchoring",
+      "framing",
+      "loss aversion",
+      "attachment",
+      "secure attachment",
+      "anxious attachment",
+      "avoidant attachment",
+      "disorganized attachment",
+      "trauma response",
+      "ACEs",
+      "PTSD",
+      "fight-flight-freeze-fawn",
+      "amygdala",
+      "prefrontal cortex",
+      "hippocampus",
+      "default mode network",
+      "vagus nerve",
+      "polyvagal theory",
+      "dopamine",
+      "serotonin",
+      "cortisol",
+      "oxytocin",
+      "anxiety",
+      "panic",
+      "generalized anxiety",
+      "social anxiety",
+      "depression",
+      "dysthymia",
+      "burnout",
+      "boundary",
+      "people-pleasing",
+      "imposter syndrome",
+      "rumination",
+      "intrusive thoughts",
+      "self-compassion",
+      "growth mindset",
+      "fixed mindset",
+      "self-efficacy",
+      "locus of control",
+      "learned helplessness",
+      "self-determination theory",
+      "intrinsic motivation",
+      "extrinsic motivation",
+      "flow state",
+      "deliberate practice",
+      "cognitive load",
+      "working memory",
+      "decision fatigue",
+      "ego depletion",
+      "choice overload",
+      "the hedonic treadmill",
+      "set-point theory",
+      "Pareto attention",
+      "deep work",
+      "shallow work",
+      "context switching",
+      "monkey mind",
+      "CBT",
+      "DBT",
+      "ACT",
+      "exposure therapy",
+      "EMDR",
+      "somatic experiencing",
+      "IFS parts work",
+      "schema therapy",
+      "reframing",
+      "thought record",
+      "behavioral activation",
+      "habit stacking",
+      "implementation intentions",
+      "if-then planning",
+      "WOOP",
+      "values clarification",
+      "psychological flexibility",
+      "mindfulness",
+      "metacognition",
+      "interoception",
+      "co-regulation",
+      "social baseline",
+      "loneliness epidemic",
+      "attachment wounds",
+      "inner critic",
+      "self-talk",
+      "negative self-talk",
+      "rumination loop",
+      "doom-scrolling",
+      "comparison trap",
+      "FOMO",
+      "scarcity mindset",
+      "abundance mindset",
+      "self-worth gap",
+      "shame spiral",
+      "guilt vs shame",
+      "anger as signal",
+      "grief stages-myth",
+      "complicated grief",
+      "post-traumatic growth",
+      "vulnerability research",
+      "Brené Brown",
+      "Daniel Kahneman",
+      "Carol Dweck",
+      "Viktor Frankl",
+      "Gabor Maté",
+      "Bessel van der Kolk"
+    ]
+  },
+  "audience_hint": "20-40 year olds curious about why they think and feel the way they do — therapy-adjacent listeners, self-improvement readers, anxious high-achievers.",
+  "idea_system_prompt_role": "You generate ideas for a therapy-adjacent psychology channel. Each episode explains a SPECIFIC mental pattern or behavior the listener recognises in themselves (procrastination, comparison, burnout, doom-scrolling). Pitch concrete, relatable behavior hooks grounded in real research — never clinical jargon or diagnostic clickbait.",
+  "script_context": "Lead with the observable behavior, not the diagnosis. Cite real research mechanisms (amygdala / dopamine / attachment theory / CBT loops) but stay accessible — never use jargon without unpacking it. End with one practical move the listener can try this week.",
+  "script_system_prompt_role": "You are a psychology writer in the therapy-adjacent, evidence-grounded register. Lead with the observable behavior, not the diagnosis. Explain the real mechanism (amygdala, dopamine, attachment theory, CBT loops) but stay accessible — never use jargon without unpacking it. Curious and warm, never sensational, never diagnosing the viewer.",
+  "script_closing_hint": "End with one concrete, practical move the listener can try this week.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Warm and curious",
+      "description": "Therapy-adjacent, approachable, genuinely interested in why we do what we do."
+    },
+    {
+      "id": "b",
+      "label": "Calm and clear",
+      "description": "Measured, unpacks mechanisms plainly; reassuring without being soft."
+    },
+    {
+      "id": "c",
+      "label": "Grounded explainer",
+      "description": "Evidence-forward and steady, makes the research feel personal and useful."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Titles describe a SPECIFIC mental pattern or behavior the listener recognises in themselves.",
+    "Established shapes (vary X across the batch):",
+    "  - 'The Real Reason You {Behavior}'        (e.g. 'The Real Reason You Procrastinate', 'The Real Reason You Can't Sleep')",
+    "  - 'What {Phenomenon} Actually Is'          (e.g. 'What Anxiety Actually Is', 'What Burnout Actually Is')",
+    "  - 'Why You Can't Stop {Behavior}'          (e.g. 'Why You Can't Stop Comparing Yourself', 'Why You Can't Stop Scrolling')",
+    "  - 'How {Mechanism} {Verbs} Your {Y}'        (e.g. 'How Dopamine Hijacks Your Attention', 'How Trauma Reshapes Memory')",
+    "  - 'The {N}-{Time-Unit} Rule for {X}'        (e.g. 'The Two-Minute Rule for Anxiety')",
+    "FORBIDDEN: clinical jargon in the title (DSM codes, 'pathology'), self-help platitudes ('UNLOCK YOUR…'), diagnostic claims ('Are You a Narcissist?').",
+    "Voice is therapy-adjacent: curious about behavior, evidence-grounded, accessible. Never sensational."
+  ],
+  "title_length_range": [
+    4,
+    10
+  ],
+  "structural_variety": "vary-subject-only",
+  "example_topics": [
+    "The Real Reason You Procrastinate",
+    "What Anxiety Actually Is",
+    "Why You Can't Stop Comparing Yourself",
+    "The Sunk Cost Trap",
+    "Why High Performers Are Often Sad",
+    "How to Break a Loop You Keep Falling Into",
+    "Why Boundaries Feel Mean (and Aren't)",
+    "The Psychology of Why You Avoid Important Tasks",
+    "Why Rest Feels Wrong (and Why You Need It Anyway)",
+    "The 5 Love Languages — What Researchers Actually Say",
+    "Why You Pick the Same Kind of Partner Every Time",
+    "How to Spot Manipulation in Conversation",
+    "The Truth About Imposter Syndrome",
+    "Why Hard Conversations Get Easier"
+  ],
+  "metadata_profile": {
+    "id": "reflective-youtube",
+    "label": "Reflective video package",
+    "description": "A clear, non-hyped summary with a modest CTA, disclosure, and focused hashtags.",
+    "description_section_ids": [
+      "hook",
+      "cta",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 3500,
+    "title_max_length": 100,
+    "tag_count": 15
+  },
+  "metadata_title_style_hint": "A question, or a behaviour the viewer recognises in themselves. Plain language, evidence-led, never 'the shocking truth about'.",
+  "intro_defaults": {
+    "word_target": 120,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open on the behaviour itself, described precisely enough that they recognise doing it"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "greet warmly and give your name"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "name the mechanism the episode explains, and the one thing they can try afterwards"
+      },
+      {
+        "id": "not_advice_note",
+        "custom_text": "one plain line that this explains, and does not diagnose anybody"
+      },
+      {
+        "id": "community_question",
+        "custom_text": "ask when they last caught themselves doing it"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one warm line"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter"
+      }
+    ]
+  }
+}

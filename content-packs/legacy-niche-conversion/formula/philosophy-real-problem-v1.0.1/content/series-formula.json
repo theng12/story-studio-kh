@@ -1,0 +1,405 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.philosophy-real-problem",
+  "name": "Philosophy for a Real Problem",
+  "description": "Short philosophical reflections — Stoicism, Taoism, Buddhism, existentialism, ethics. Tone is thoughtful and unhurried; voice asks more than it tells. Pair with B-Roll of solitary landscapes (mountain paths, foggy harbors, candlelit interiors, fields at dawn) or abstract / classical-statue imagery for ancient-philosophy channels.",
+  "channel_promise": "Real problem → philosophical lens → open question",
+  "audience": "Listeners reading Daily Stoic, Tao Te Ching, Meditations, etc. Often 25-50, often professionals reaching for grounding outside religion.",
+  "formula_family": "Mind & ideas",
+  "tagline": "Old questions. Plain answers. Quiet voice.",
+  "perspective_policy": "Conversational guide voice: thoughtful “we” and “you” only when earned by the argument.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open with a real tension, decision, or paradox rather than a quote-card cliché.",
+    "forbidden_patterns": [
+      "Imagine this",
+      "Ancient wisdom says",
+      "Watch what happens next",
+      "fake profundity"
+    ],
+    "required_habits": [
+      "Define terms before leaning on them.",
+      "Develop one argument at a time.",
+      "Use a genuine unresolved question only when it belongs to the topic."
+    ],
+    "closing_policy": "End with a question or implication that follows from the argument."
+  },
+  "intro_defaults": {
+    "word_target": 120,
+    "beats": [
+      {
+        "id": "question_to_sit_with",
+        "custom_text": "pose the human problem this episode is about, as a question, and leave it standing"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "greet quietly and give your name — a conversation, not a lecture"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "name the thinker or school the episode brings to it, and the text you will actually quote"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one quiet line that does not break the register"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter by returning to the question"
+      }
+    ]
+  },
+  "narrative_rules": [
+    "Opening word target: 120 words.",
+    "Opening beat question_to_sit_with: pose the human problem this episode is about, as a question, and leave it standing.",
+    "Opening beat welcome: greet quietly and give your name — a conversation, not a lecture.",
+    "Opening beat what_youll_learn: name the thinker or school the episode brings to it, and the text you will actually quote.",
+    "Opening beat subscribe_cta: one quiet line that does not break the register.",
+    "Opening beat transition: hand over to the first chapter by returning to the question."
+  ],
+  "title_rules": [
+    "Titles MUST name a SPECIFIC philosopher or school + the topic they spoke to. Old-thinker-on-modern-problem framing.",
+    "Established shapes (vary the philosopher / topic across the batch):",
+    "  - '{Philosopher} on {Topic}'                       (e.g. 'Marcus Aurelius on Things You Can't Control', 'Confucius on Family Duty')",
+    "  - 'The {School} View of {Topic}'                   (e.g. 'The Stoic View of Anger', 'The Taoist View of Effort')",
+    "  - 'What {Philosopher} Taught About {Topic}'        (e.g. 'What Seneca Taught About Time', 'What Epictetus Taught About Loss')",
+    "  - 'Why {Philosopher} Was Right About {Topic}'      (e.g. 'Why Epicurus Was Right About Friendship')",
+    "FORBIDDEN: vague abstractions without a thinker / school anchor, motivational reframings ('UNLOCK Stoic Power'), shallow life-hack framings.",
+    "Voice is the friend-who's-been-reading-these-books. Never lecturing. The title implies a quiet conversation, not a TED talk."
+  ],
+  "script_structure": {
+    "default_chapter_count": 6,
+    "chapter_count_range": [
+      4,
+      9
+    ],
+    "default_length_minutes": 25,
+    "length_minutes_range": [
+      20,
+      30
+    ],
+    "duration_presets": [
+      20,
+      25,
+      30
+    ],
+    "default_words_per_minute": 145,
+    "chapters_independent": false,
+    "pacing_arc": [
+      "Opening: establish the concrete question, tension, or need.",
+      "Development: move through distinct claims, actions, or reflections with clear transitions.",
+      "Closing: resolve the promised movement without an artificial teaser."
+    ],
+    "additional_rules": [
+      "Speak like a friend who's been reading these books for years — never lecture. Quote primary sources accurately when you cite them. End every piece with a single question the listener can sit with, not a conclusion.",
+      "End with a single question the listener can sit with — not a tidy conclusion."
+    ]
+  },
+  "compatible_topic_pack_ids": [],
+  "example_topics": [
+    "Marcus Aurelius on Things You Can't Control",
+    "The Stoic View of Anger",
+    "What Seneca Taught About Time",
+    "The Tao of Doing Less",
+    "Why Epictetus Said Suffering Is a Choice",
+    "Buddhist Mindfulness in Three Minutes",
+    "Memento Mori — Why Remembering Death Helps You Live",
+    "Amor Fati — Loving What Happens to You",
+    "The Examined Life According to Socrates",
+    "Why Boredom Is a Doorway, Not a Wall",
+    "Nietzsche on Becoming Who You Are",
+    "Camus on the Absurd — and How to Live With It"
+  ],
+  "youtube_tags_hint": [
+    "philosophy",
+    "stoicism",
+    "stoic",
+    "marcus aurelius",
+    "seneca",
+    "epictetus",
+    "buddhist philosophy",
+    "tao",
+    "existentialism",
+    "philosophy explained",
+    "ancient wisdom"
+  ],
+  "recommended_visual_style_ids": [],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.centered-hero-headline"
+  ],
+  "idea_axes": [
+    {
+      "id": "philosophical-lens",
+      "label": "Philosophical lens",
+      "values": [
+        "Stoicism",
+        "Taoism",
+        "Buddhism",
+        "existentialism",
+        "virtue ethics",
+        "ethics of care"
+      ]
+    },
+    {
+      "id": "real-problem",
+      "label": "Real problem",
+      "values": [
+        "control",
+        "anger",
+        "time",
+        "loss",
+        "friendship",
+        "meaning",
+        "responsibility",
+        "uncertainty"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "thoughtful",
+      "unhurried",
+      "wry",
+      "tender",
+      "patient",
+      "reflective",
+      "spacious",
+      "questioning",
+      "skeptical",
+      "serene",
+      "contemplative",
+      "humane",
+      "literary",
+      "warm-but-rigorous",
+      "honest",
+      "open-handed",
+      "quiet",
+      "intellectually-humble",
+      "philosophical-friend",
+      "elder-voice",
+      "kindly-skeptical",
+      "anchored",
+      "considered",
+      "wise",
+      "unhurried-curious"
+    ],
+    "theme": [
+      "impermanence",
+      "acceptance",
+      "virtue",
+      "discipline",
+      "freedom",
+      "meaning",
+      "self-knowledge",
+      "death",
+      "time",
+      "letting go",
+      "duty",
+      "friendship",
+      "love",
+      "loss",
+      "courage",
+      "fear",
+      "happiness",
+      "suffering",
+      "anger",
+      "patience",
+      "judgement",
+      "perception",
+      "identity",
+      "the self",
+      "the good life",
+      "truth",
+      "wisdom",
+      "moderation",
+      "justice",
+      "fate"
+    ],
+    "genre": [
+      "philosophy",
+      "stoicism",
+      "eastern philosophy",
+      "existentialism",
+      "ethics",
+      "wisdom literature",
+      "Taoism",
+      "Buddhism",
+      "ancient Greek philosophy",
+      "Roman philosophy",
+      "Confucian thought",
+      "phenomenology",
+      "absurdism"
+    ],
+    "keyword": [
+      "Stoic",
+      "Stoicism",
+      "Marcus Aurelius",
+      "Seneca",
+      "Epictetus",
+      "Musonius Rufus",
+      "Cato",
+      "Tao",
+      "Taoism",
+      "Lao Tzu",
+      "Chuang Tzu",
+      "Tao Te Ching",
+      "Buddha",
+      "Buddhism",
+      "the Buddha",
+      "Four Noble Truths",
+      "the Eightfold Path",
+      "dhamma",
+      "dharma",
+      "anatta",
+      "anicca",
+      "dukkha",
+      "metta",
+      "Socrates",
+      "Plato",
+      "Aristotle",
+      "the Republic",
+      "the Nicomachean Ethics",
+      "eudaimonia",
+      "phronesis",
+      "Nietzsche",
+      "Schopenhauer",
+      "Kierkegaard",
+      "Camus",
+      "Sartre",
+      "absurdism",
+      "the absurd",
+      "Sisyphus",
+      "Kafka",
+      "Confucius",
+      "ren",
+      "li (ritual)",
+      "Mencius",
+      "Heraclitus",
+      "Diogenes the Cynic",
+      "Pyrrho",
+      "skepticism",
+      "virtue",
+      "vice",
+      "courage",
+      "temperance",
+      "wisdom",
+      "justice",
+      "logos",
+      "pathos",
+      "ethos",
+      "the dichotomy of control",
+      "amor fati",
+      "memento mori",
+      "premeditatio malorum",
+      "view from above",
+      "the inner citadel",
+      "the discipline of assent",
+      "the discipline of desire",
+      "the discipline of action",
+      "wu wei",
+      "the uncarved block",
+      "the watercourse way",
+      "yin and yang",
+      "the middle way",
+      "right speech",
+      "right action",
+      "right livelihood",
+      "impermanence",
+      "non-attachment",
+      "the self",
+      "no-self",
+      "egolessness",
+      "shadow",
+      "individuation",
+      "Jung",
+      "the unexamined life",
+      "the cave",
+      "anamnesis",
+      "phronesis",
+      "akrasia",
+      "eudaimonia",
+      "ataraxia",
+      "apatheia",
+      "Stoa Poikile",
+      "the Lyceum",
+      "the Academy",
+      "ancient Athens",
+      "Roman Empire",
+      "letters",
+      "Meditations",
+      "Discourses",
+      "Enchiridion",
+      "On the Shortness of Life",
+      "Letters to Lucilius",
+      "Tao Te Ching chapter 11",
+      "Dhammapada",
+      "the Analects",
+      "rational thought",
+      "passion",
+      "the human condition",
+      "freedom",
+      "responsibility",
+      "authenticity"
+    ]
+  },
+  "audience_hint": "Listeners reading Daily Stoic, Tao Te Ching, Meditations, etc. Often 25-50, often professionals reaching for grounding outside religion.",
+  "evidence_expectations": [
+    "Quote or paraphrase primary sources accurately and identify the thinker or school.",
+    "Separate historical doctrine from the writer’s modern application.",
+    "Do not turn philosophical traditions into clinical treatment or universal life advice."
+  ],
+  "idea_system_prompt_role": "You generate ideas for a philosophy channel that brings old thinkers to bear on modern problems. Each episode pairs a SPECIFIC philosopher or school with a topic the listener actually wrestles with (control, anger, time, loss, friendship). Pitch concrete thinker-on-problem angles, never vague 'find inner peace' abstractions.",
+  "script_context": "Speak like a friend who's been reading these books for years — never lecture. Quote primary sources accurately when you cite them. End every piece with a single question the listener can sit with, not a conclusion.",
+  "script_system_prompt_role": "You are a philosophy writer who reads the primary sources and speaks like a friend who's been with these books for years — never lecturing, never life-hacking. You bring a specific thinker or school to bear on a real human problem, quoting primary sources accurately. Calm, thoughtful, a quiet conversation rather than a TED talk.",
+  "script_closing_hint": "End with a single question the listener can sit with — not a tidy conclusion.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Thoughtful friend",
+      "description": "Warm, conversational, unhurried — like discussing a book over coffee."
+    },
+    {
+      "id": "b",
+      "label": "Quiet and reflective",
+      "description": "Contemplative, gives each idea room; lets the question linger."
+    },
+    {
+      "id": "c",
+      "label": "Grounded and clear",
+      "description": "Plain-spoken and precise, makes a dense idea feel approachable."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Titles MUST name a SPECIFIC philosopher or school + the topic they spoke to. Old-thinker-on-modern-problem framing.",
+    "Established shapes (vary the philosopher / topic across the batch):",
+    "  - '{Philosopher} on {Topic}'                       (e.g. 'Marcus Aurelius on Things You Can't Control', 'Confucius on Family Duty')",
+    "  - 'The {School} View of {Topic}'                   (e.g. 'The Stoic View of Anger', 'The Taoist View of Effort')",
+    "  - 'What {Philosopher} Taught About {Topic}'        (e.g. 'What Seneca Taught About Time', 'What Epictetus Taught About Loss')",
+    "  - 'Why {Philosopher} Was Right About {Topic}'      (e.g. 'Why Epicurus Was Right About Friendship')",
+    "FORBIDDEN: vague abstractions without a thinker / school anchor, motivational reframings ('UNLOCK Stoic Power'), shallow life-hack framings.",
+    "Voice is the friend-who's-been-reading-these-books. Never lecturing. The title implies a quiet conversation, not a TED talk."
+  ],
+  "title_length_range": [
+    4,
+    11
+  ],
+  "structural_variety": "vary-subject-only",
+  "metadata_title_style_hint": "A question the viewer has genuinely asked themselves, in plain words. No jargon, no 'the shocking truth about'.",
+  "metadata_profile": {
+    "id": "reflective-youtube",
+    "label": "Reflective video package",
+    "description": "A clear, non-hyped summary with a modest CTA, disclosure, and focused hashtags.",
+    "description_section_ids": [
+      "hook",
+      "cta",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 3500,
+    "title_max_length": 100,
+    "tag_count": 15
+  },
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.centered-hero-headline"
+}

@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.formula.pastoral-scripture",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Initial standalone Series Formula release translated explicitly from the approved legacy niche contract.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.formula.pastoral-scripture",
+    "family": "com.storystudio.family.formula.pastoral-scripture"
+  },
+  "dependencies": []
+}

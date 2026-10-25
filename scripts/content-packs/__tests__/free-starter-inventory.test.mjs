@@ -203,9 +203,13 @@ test('declared preview redirects cannot cross a Style or Recipe provenance ident
 
 // Owner ruling 2026-09-08 discontinued Channel Kits: the ten `kit/` coordinator
 // lineages and their thirteen versioned successor directories are gone, and the
-// 47 lineages this test used to count are the 37 creative ones that remain. The
-// four components each Kit used to coordinate are all still here and still sold.
-test('free Starter sources preserve 37 lineages and every versioned successor', async () => {
+// 47 lineages this test used to count are the 37 creative ones that remained.
+// Owner ruling 2026-10-25 added five free Formula lineages — the three adopted
+// owner Formulas (Wildlife Under Pressure, Coffee Jazz Ambient) and the three
+// new channel Formulas (Khmer Folk Horror, Calm Science for Sleep, Mythology
+// for Sleep) — so the floor is 42. The four components each Kit used to
+// coordinate are all still here and still sold.
+test('free Starter sources preserve 42 lineages and every versioned successor', async () => {
   const sourceRoots = ['formula', 'topic', 'style', 'thumbnail']
   const packSources = []
   for (const root of sourceRoots) {
@@ -217,7 +221,7 @@ test('free Starter sources preserve 37 lineages and every versioned successor', 
       packSources.push({ relative, source })
     }
   }
-  assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 37)
+  assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 42)
   assert.equal(
     new Set(packSources.map(row => `${row.source.pack_id}@${row.source.version}`)).size,
     packSources.length,
@@ -269,15 +273,20 @@ test('free Starter sources preserve 37 lineages and every versioned successor', 
   // packs were already past 1.0.0, so their scrubbed successor is 1.0.2. History
   // Explained 1.0.2 is the separate free compatibility successor. The two Style
   // 1.0.2 roots are the 2026-09-08 preview backfill landing on the two Styles
-  // that were already past 1.0.0 when it ran.
+  // that were already past 1.0.0 when it ran. The four 2026-10-25 Formula 1.0.2
+  // roots are the opening-recipe modernization on packs that were already 1.0.1.
   const secondSuccessors = packSources.filter(({ relative }) => /-v1\.0\.2\/pack\.json$/.test(relative))
   assert.deepEqual(secondSuccessors.map(({ relative }) => relative).sort(), [
     'content-packs/free-starters/formula/ancient-humans-v1.0.2/pack.json',
     'content-packs/free-starters/formula/deep-time-documentary-v1.0.2/pack.json',
+    'content-packs/free-starters/formula/economics-of-v1.0.2/pack.json',
+    'content-packs/free-starters/formula/guided-mindfulness-v1.0.2/pack.json',
     'content-packs/free-starters/formula/history-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/human-behavior-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/natural-world-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/pov-your-life-as-v1.0.2/pack.json',
+    'content-packs/free-starters/formula/practical-motivation-v1.0.2/pack.json',
+    'content-packs/free-starters/formula/sleep-story-v1.0.2/pack.json',
     'content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.2/pack.json',
     'content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.2/pack.json',
     'content-packs/free-starters/topic/habits-momentum-v1.0.2/pack.json',

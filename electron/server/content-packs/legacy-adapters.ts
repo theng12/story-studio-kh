@@ -124,7 +124,7 @@ function mapRecencyAvoidance(recency: FormulaDocument['recency_avoidance']) {
 
 /** Explicit snake_case → current Niche mapping. No unknown field is spread. */
 export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
-  return {
+  const niche: Niche = {
     id: document.id,
     name: document.name,
     description: document.description,
@@ -225,6 +225,14 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
     recencyAvoidance: mapRecencyAvoidance(document.recency_avoidance),
     defaultThumbnailTemplateId: document.default_thumbnail_template_id ?? document.default_thumbnail_recipe_id,
   }
+  // A music channel carries its music block as camelCase `musicFormat`, which
+  // is what the music subsystem already reads on a Niche. The Niche type does
+  // not model it, so it is attached explicitly rather than through a spread of
+  // unknown fields.
+  if (document.music_format) {
+    (niche as Niche & { musicFormat?: unknown }).musicFormat = structuredClone(document.music_format)
+  }
+  return niche
 }
 
 /** Explicit snake_case → current TopicPack mapping. Planner-only fields stay in registry metadata. */
