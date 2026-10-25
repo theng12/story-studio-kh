@@ -62,6 +62,10 @@ export const CreateProjectSchema = z.object({
   // format the project picks. Unset = no niche, format defaults
   // apply unchanged. Same length cap as niche route's id validator.
   niche_id: z.string().max(80).optional(),
+  // The wizard's explicit Formula choice (owner ruling, 2026-10-25). Sending
+  // nothing keeps the pre-ruling behaviour for old clients; the wizard always
+  // sends one of the two so "chose generic" and "never chose" stay distinct.
+  formula_choice: z.enum(['selected', 'generic']).optional(),
   topic_pack_ids: z.array(z.string().min(1).max(80)).max(24).optional(),
   // Audience-facing language. Absent keeps legacy prompts byte-identical;
   // the two-value catalogue is deliberate (extend when a third language is
@@ -349,6 +353,9 @@ export type TopicPackBody = z.infer<typeof TopicPackSchema>
 /** Body for PUT /projects/:slug/niche. `null` clears the association. */
 export const SetProjectNicheSchema = z.object({
   niche_id: z.string().max(80).nullable(),
+  // `'generic'` records a deliberate "Generic — no Formula" choice, which is
+  // what stops the in-app prompt. A selected id records `'selected'` itself.
+  formula_choice: z.enum(['selected', 'generic']).optional(),
   topic_pack_ids: z.array(z.string().min(1).max(80)).max(24).optional(),
 }).strict()
 export type SetProjectNicheBody = z.infer<typeof SetProjectNicheSchema>
@@ -385,6 +392,8 @@ export interface ProjectMetaResponse {
   project_id?: string
   format_id?: string
   niche_id?: string
+  /** 'selected' / 'generic' once the customer chose; absent = never chose. */
+  formula_choice?: 'selected' | 'generic'
   topic_pack_ids?: string[]
   content_pack_versions?: Record<string, string>
   content_pack_items?: Record<string, {

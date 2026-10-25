@@ -331,7 +331,7 @@
         <div class="create-heading">
           <span class="home-eyebrow">New workspace</span>
           <h2 id="create-channel-title">Create channel</h2>
-          <p>Name the series and optionally choose its repeatable formula. Everything else can be set inside the channel.</p>
+          <p>Name the series and choose its repeatable promise. Everything else can be set inside the channel.</p>
         </div>
 
         <div class="form-group">
@@ -347,7 +347,60 @@
           />
         </div>
 
-        <NichePicker v-model="form.niche_id" :disabled="creating" />
+        <!-- Owner ruling, 2026-10-25: the Formula is a required step, with an
+             explicit Generic choice so "no Formula" is never accidental. The
+             Generic option records a deliberate choice (§6) rather than leaving
+             the same blank a channel that never chose has. -->
+        <fieldset class="formula-choice" :disabled="creating">
+          <legend>Series Formula <span class="formula-required-badge">required</span></legend>
+          <p class="formula-choice-hint">
+            The repeatable promise every episode follows — its hook, title grammar, script structure and narrator voice.
+            A channel's scene rhythm is never decided here; it stays an episode choice in Scene Plan.
+          </p>
+
+          <label class="formula-choice-card" :class="{ selected: form.formula_choice === 'formula' }">
+            <input
+              v-model="form.formula_choice"
+              type="radio"
+              value="formula"
+              name="formula-choice"
+            />
+            <span>
+              <strong>Choose a Series Formula</strong>
+              <small>Pick from the installed Formulas below. Recommended for every real channel.</small>
+            </span>
+          </label>
+
+          <label class="formula-choice-card" :class="{ selected: form.formula_choice === 'generic' }">
+            <input
+              v-model="form.formula_choice"
+              type="radio"
+              value="generic"
+              name="formula-choice"
+              @change="chooseGeneric"
+            />
+            <span>
+              <strong>Generic — no Formula</strong>
+              <small>
+                For testing only. The channel gets no repeatable hook or title grammar; each episode's
+                rhythm is still chosen in Scene Plan. This is a deliberate choice, and it is remembered.
+              </small>
+            </span>
+          </label>
+        </fieldset>
+
+        <div v-if="form.formula_choice === 'formula'" class="formula-picker">
+          <NichePicker v-model="form.niche_id" :allow-empty="false" :disabled="creating" />
+          <p v-if="!form.niche_id" class="formula-required-note">
+            Pick a Formula to continue, or switch to Generic above.
+          </p>
+        </div>
+        <p v-else-if="form.formula_choice === 'generic'" class="formula-generic-note" role="status">
+          This channel will be created without a Series Formula. You can add one later in Settings → Channel.
+        </p>
+        <p v-else class="formula-required-note">
+          Choose a Series Formula or Generic to continue.
+        </p>
 
         <div class="form-group">
           <label for="content-language">Audience language</label>
@@ -379,7 +432,7 @@
 
         <div class="create-actions">
           <button type="button" class="btn btn-secondary" :disabled="creating" @click="closeCreate">Cancel</button>
-          <button type="submit" class="btn btn-primary" :disabled="!form.name.trim() || creating">
+          <button type="submit" class="btn btn-primary" :disabled="!form.name.trim() || !formulaChoiceMade || creating">
             <LoadingSpinner v-if="creating" size="sm" />
             {{ creating ? 'Creating…' : 'Create channel' }}
           </button>
@@ -527,8 +580,22 @@ const form = reactive({
   season_prefix: 'Season',
   season_size: 20,
   niche_id: '',
+  /** '' = not chosen yet; 'formula' = a Formula must be picked; 'generic' = deliberate no-Formula. */
+  formula_choice: '' as '' | 'formula' | 'generic',
   content_language: '',
 })
+
+/** The choice is made only when it has an answer behind it, not merely a tab. */
+const formulaChoiceMade = computed(() => (
+  form.formula_choice === 'generic'
+  || (form.formula_choice === 'formula' && !!form.niche_id)
+))
+
+function chooseGeneric(): void {
+  // A deliberate Generic choice replaces any half-picked Formula, so the
+  // payload cannot carry both (AGENTS §4: replace, never leave the old value).
+  form.niche_id = ''
+}
 
 function errorMessage(error: any, fallback: string): string {
   return error?.data?.detail || error?.message || fallback
@@ -943,6 +1010,7 @@ function resetForm(): void {
     season_prefix: 'Season',
     season_size: 20,
     niche_id: '',
+    formula_choice: '',
     content_language: '',
   })
   createError.value = ''
@@ -962,7 +1030,7 @@ function closeCreate(): void {
 
 async function createProject(): Promise<void> {
   const name = form.name.trim()
-  if (!name || creating.value) return
+  if (!name || !formulaChoiceMade.value || creating.value) return
   creating.value = true
   createError.value = ''
   try {
@@ -971,7 +1039,10 @@ async function createProject(): Promise<void> {
       episode_prefix: form.episode_prefix.trim() || 'EP',
       season_prefix: form.season_prefix.trim() || 'Season',
       season_size: Math.max(1, Number(form.season_size) || 20),
-      niche_id: form.niche_id || undefined,
+      niche_id: form.formula_choice === 'formula' ? form.niche_id || undefined : undefined,
+      // Sent on every create the wizard makes: 'selected' when a Formula is
+      // behind the choice, 'generic' when the customer deliberately chose none.
+      formula_choice: form.formula_choice === 'generic' ? 'generic' : 'selected',
       content_language: form.content_language || undefined,
     })
     const href = projectHref(project)
@@ -1236,6 +1307,60 @@ onMounted(async () => {
 .create-form { display: grid; gap: 22px; }
 .create-heading h2 { font-size: 28px; }
 .create-heading p { font-size: var(--font-md); }
+.formula-choice {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.formula-choice legend {
+  padding: 0;
+  color: var(--text-primary);
+  font-weight: 650;
+}
+.formula-required-badge {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.formula-choice-hint { margin: 2px 0 4px; color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.5; }
+.formula-choice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+.formula-choice-card.selected {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: var(--focus-ring);
+}
+.formula-choice-card input { margin-top: 3px; accent-color: var(--accent); }
+.formula-choice-card span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.formula-choice-card strong { font-size: var(--font-md); }
+.formula-choice-card small { color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.5; }
+.formula-picker { display: grid; gap: 8px; }
+.formula-required-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--warning, #d8a23c);
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--warning, #d8a23c) 8%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
+.formula-generic-note { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
 .naming-options { border-top: 1px solid var(--border); padding-top: 16px; }
 .naming-options summary { color: var(--text-secondary); cursor: pointer; font-weight: 650; }
 .naming-options[open] summary { margin-bottom: 14px; color: var(--text-primary); }

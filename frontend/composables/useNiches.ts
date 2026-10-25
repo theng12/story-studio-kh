@@ -241,8 +241,14 @@ export function useNiches() {
     slug: string,
     niche_id: string | null,
     topic_pack_ids?: string[],
+    /** `'generic'` records a deliberate "Generic — no Formula" choice. */
+    formula_choice?: 'generic',
   ): Promise<void> {
-    await put(`/projects/${slug}/niche`, { niche_id, topic_pack_ids })
+    await put(`/projects/${slug}/niche`, {
+      niche_id,
+      topic_pack_ids,
+      ...(formula_choice ? { formula_choice } : {}),
+    })
   }
 
   /** Create a brand-new user-custom niche. */

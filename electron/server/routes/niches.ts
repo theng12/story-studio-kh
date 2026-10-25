@@ -523,7 +523,12 @@ router.put('/projects/:slug/niche', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ detail: parsed.error.issues.map(i => i.message).join('; ') })
     }
-    const { niche_id, topic_pack_ids } = parsed.data
+    const { niche_id, topic_pack_ids, formula_choice } = parsed.data
+    // A formula selection is itself the choice; clearing it returns the channel
+    // to the honest "never chose" state (formula_choice absent) unless the
+    // caller — the in-app prompt — explicitly says Generic. Deleting the marker
+    // is what makes the prompt reappear after a formula is removed in Settings.
+    const chosenGeneric = !niche_id && formula_choice === 'generic'
     if (niche_id) {
       const options = packOptionsFor(req)
       const niche = await nl.loadNiche(niche_id, options)
@@ -549,8 +554,11 @@ router.put('/projects/:slug/niche', async (req, res) => {
           delete (data as any).niche_id
           delete (data as any).niche_overrides
           delete (data as any).topic_pack_ids
+          if (chosenGeneric) data.formula_choice = 'generic'
+          else delete (data as any).formula_choice
         } else {
           data.niche_id = niche_id
+          data.formula_choice = 'selected'
           if (topic_pack_ids === undefined) delete (data as any).topic_pack_ids
           else if (topic_pack_ids.length) data.topic_pack_ids = [...new Set(topic_pack_ids)]
           else data.topic_pack_ids = []
@@ -562,6 +570,7 @@ router.put('/projects/:slug/niche', async (req, res) => {
       ok: true,
       slug: req.params.slug,
       niche_id: finalNicheId,
+      formula_choice: updated.formula_choice ?? null,
       topic_pack_ids: updated.topic_pack_ids || [],
       content_pack_versions: updated.content_pack_versions || {},
     })
