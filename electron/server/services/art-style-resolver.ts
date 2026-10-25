@@ -21,6 +21,11 @@
  *   1. Active `style_presets` entry (`active_style_preset_id`).
  *   2. null → callers fall back to the format+niche merged tag.
  *
+ * Step 1 has one extra rung since 2026-10-25: when the active id is one of the
+ * owner's hand-written presets and `style-aliases.ts` maps it to a Store style,
+ * that Store style's bible and negative prompt are used instead of the preset's
+ * stored prose — provided the style is installed. Nothing on disk is rewritten.
+ *
  * This resolver deliberately does NOT know about per-run overrides (a
  * free-text `style_tag` typed into the Image Prompts page). Callers apply
  * that override first and only consult the resolver when no override is
@@ -32,6 +37,7 @@ import { existsSync } from 'fs'
 import * as pm from './project-manager.js'
 import type { StylePreset } from '../models/types.js'
 import { resolveProjectContentPinsForKinds } from '../content-packs/project-pins.js'
+import { aliasedVisualStyleId } from '../content-packs/style-aliases.js'
 import { loadVisualStyle } from './visual-style-loader.js'
 import type { ContentPackRegistryOptions } from '../content-packs/registry.js'
 
@@ -104,6 +110,27 @@ export async function resolveProjectArtStyle(
             ? signed.data.negative_prompt.split(',').map(value => value.trim()).filter(Boolean)
             : [],
           referenceImagePaths: [],
+        }
+      }
+      // 2. The owner's own hand-written presets, resolved to the Store style that
+      // now owns that look. Read-time only: the preset in the project config is
+      // never rewritten, and when the Store style is not installed this falls
+      // through to the preset's own stored prose below, exactly as before.
+      const aliasedId = aliasedVisualStyleId(activeId)
+      if (aliasedId) {
+        const adopted = await loadVisualStyle(aliasedId, { ...registryOptions, pins })
+        if (adopted) {
+          return {
+            source: 'preset',
+            // The customer's selection did not change — only where its text comes from.
+            presetId: activeId,
+            name: adopted.name,
+            description: adopted.data.style_bible.trim(),
+            negatives: adopted.data.negative_prompt
+              ? adopted.data.negative_prompt.split(',').map(value => value.trim()).filter(Boolean)
+              : [],
+            referenceImagePaths: [],
+          }
         }
       }
     }
