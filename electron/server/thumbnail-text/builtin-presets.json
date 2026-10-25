@@ -1,0 +1,245 @@
+{
+  "_comment": "Built-in thumbnail-text looks. Each style is valid for the fonts bundled in bundled/fonts (see fonts.json): scripts are 'khmr'+'latn' on the Khmer faces and 'latn' on Inter/Anton. Weights listed here must appear in the font's own `weights`. AGENTS §5 — a preset carries the LOOK only; the headline words and the chosen artwork are never part of it.",
+  "presets": [
+    {
+      "id": "khmer-bold-yellow-outline",
+      "name": "Khmer — bold yellow, black outline",
+      "style": {
+        "font_id": "kantumruy-pro",
+        "weight": 700,
+        "size": { "mode": "fit", "min_px": 28, "max_px": 116 },
+        "max_lines": 2,
+        "align": "left",
+        "line_height": 1.12,
+        "letter_spacing": 0,
+        "uppercase": false,
+        "fill": { "type": "solid", "color": "#FFD60A" },
+        "opacity": 1,
+        "outline": { "enabled": true, "color": "#000000", "width_px": 7 },
+        "shadow": { "enabled": true, "color": "#000000", "opacity": 0.45, "dx": 3, "dy": 5, "blur_px": 8 },
+        "background": { "enabled": false, "color": "#000000", "opacity": 0.55, "padding_px": 26, "radius_px": 18 },
+        "placement": { "anchor": "bottom-left", "x_pct": 5, "y_pct": 93, "width_pct": 72, "height_pct": 32 }
+      }
+    },
+    {
+      "id": "khmer-white-on-dark-box",
+      "name": "Khmer — white on a dark rounded box",
+      "style": {
+        "font_id": "kantumruy-pro",
+        "weight": 600,
+        "size": { "mode": "fit", "min_px": 26, "max_px": 84 },
+        "max_lines": 2,
+        "align": "center",
+        "line_height": 1.2,
+        "letter_spacing": 0,
+        "uppercase": false,
+        "fill": { "type": "solid", "color": "#FFFFFF" },
+        "opacity": 1,
+        "outline": { "enabled": false, "color": "#000000", "width_px": 0 },
+        "shadow": { "enabled": false, "color": "#000000", "opacity": 0.4, "dx": 0, "dy": 2, "blur_px": 6 },
+        "background": { "enabled": true, "color": "#0B132B", "opacity": 0.78, "padding_px": 30, "radius_px": 22 },
+        "placement": { "anchor": "bottom", "x_pct": 50, "y_pct": 94, "width_pct": 84, "height_pct": 30 }
+      }
+    },
+    {
+      "id": "khmer-red-banner-top",
+      "name": "Khmer — red banner across the top",
+      "style": {
+        "font_id": "kantumruy-pro",
+        "weight": 700,
+        "size": { "mode": "fit", "min_px": 26, "max_px": 78 },
+        "max_lines": 1,
+        "align": "center",
+        "line_height": 1.05,
+        "letter_spacing": 0,
+        "uppercase": false,
+        "fill": { "type": "solid", "color": "#FFFFFF" },
+        "opacity": 1,
+        "outline": { "enabled": false, "color": "#000000", "width_px": 0 },
+        "shadow": { "enabled": false, "color": "#000000", "opacity": 0.35, "dx": 0, "dy": 3, "blur_px": 6 },
+        "background": { "enabled": true, "color": "#C1121F", "opacity": 1, "padding_px": 22, "radius_px": 4 },
+        "placement": { "anchor": "top", "x_pct": 50, "y_pct": 8, "width_pct": 90, "height_pct": 20 }
+      }
+    },
+    {
+      "id": "khmer-moul-display-gold",
+      "name": "Khmer — Moul display, gradient gold",
+      "style": {
+        "font_id": "moul",
+        "weight": 400,
+        "size": { "mode": "fit", "min_px": 30, "max_px": 104 },
+        "max_lines": 2,
+        "align": "center",
+        "line_height": 1.24,
+        "letter_spacing": 0,
+        "uppercase": false,
+        "fill": { "type": "gradient", "color": "#FFE066", "color2": "#FF8800", "angle": 90 },
+        "opacity": 1,
+        "outline": { "enabled": true, "color": "#20160A", "width_px": 5 },
+        "shadow": { "enabled": true, "color": "#000000", "opacity": 0.5, "dx": 0, "dy": 6, "blur_px": 12 },
+        "background": { "enabled": false, "color": "#000000", "opacity": 0.5, "padding_px": 24, "radius_px": 14 },
+        "placement": { "anchor": "bottom", "x_pct": 50, "y_pct": 95, "width_pct": 88, "height_pct": 36 }
+      }
+    },
+    {
+      "id": "khmer-moul-centered-shadow",
+      "name": "Khmer — Moul centred with a soft shadow",
+      "style": {
+        "font_id": "moul",
+        "weight": 400,
+        "size": { "mode": "fit", "min_px": 26, "max_px": 88 },
+        "max_lines": 2,
+        "align": "center",
+        "line_height": 1.28,
+        "letter_spacing": 0,
+        "uppercase": false,
+        "fill": { "type": "solid", "color": "#FFFFFF" },
+        "opacity": 1,
+        "outline": { "enabled": false, "color": "#000000", "width_px": 0 },
+        "shadow": { "enabled": true, "color": "#000000", "opacity": 0.72, "dx": 2, "dy": 4, "blur_px": 18 },
+        "background": { "enabled": false, "color": "#000000", "opacity": 0.5, "padding_px": 24, "radius_px": 14 },
+        "placement": { "anchor": "center", "x_pct": 50, "y_pct": 50, "width_pct": 84, "height_pct": 42 }
+      }
+    },
+    {
+      "id": "khmer-battambang-bold-box",
+      "name": "Khmer — Battambang bold on a navy box",
+      "style": {
+        "font_id": "battambang",
+        "weight": 700,
+        "size": { "mode": "fit", "min_px": 26, "max_px": 80 },
+        "max_lines": 2,
+        "align": "left",
+        "line_height": 1.18,
+        "letter_spacing": 0,
+        "uppercase": false,
+        "fill": { "type": "solid", "color": "#F8F9FA" },
+        "opacity": 1,
+        "outline": { "enabled": true, "color": "#1D3557", "width_px": 3 },
+        "shadow": { "enabled": false, "color": "#000000", "opacity": 0.4, "dx": 0, "dy": 2, "blur_px": 6 },
+        "background": { "enabled": true, "color": "#3A0CA3", "opacity": 0.82, "padding_px": 28, "radius_px": 20 },
+        "placement": { "anchor": "bottom-left", "x_pct": 4, "y_pct": 94, "width_pct": 66, "height_pct": 30 }
+      }
+    },
+    {
+      "id": "latin-bold-yellow-outline",
+      "name": "Latin — bold yellow, black outline",
+      "style": {
+        "font_id": "inter",
+        "weight": 800,
+        "size": { "mode": "fit", "min_px": 28, "max_px": 120 },
+        "max_lines": 2,
+        "align": "left",
+        "line_height": 1.08,
+        "letter_spacing": 0,
+        "uppercase": true,
+        "fill": { "type": "solid", "color": "#FFDD00" },
+        "opacity": 1,
+        "outline": { "enabled": true, "color": "#000000", "width_px": 7 },
+        "shadow": { "enabled": true, "color": "#000000", "opacity": 0.5, "dx": 3, "dy": 6, "blur_px": 10 },
+        "background": { "enabled": false, "color": "#000000", "opacity": 0.55, "padding_px": 26, "radius_px": 18 },
+        "placement": { "anchor": "bottom-left", "x_pct": 5, "y_pct": 93, "width_pct": 72, "height_pct": 32 }
+      }
+    },
+    {
+      "id": "latin-display-anton-shadow",
+      "name": "Latin — Anton display, soft shadow",
+      "style": {
+        "font_id": "anton",
+        "weight": 400,
+        "size": { "mode": "fit", "min_px": 32, "max_px": 150 },
+        "max_lines": 2,
+        "align": "center",
+        "line_height": 1.02,
+        "letter_spacing": 0,
+        "uppercase": true,
+        "fill": { "type": "solid", "color": "#FFFFFF" },
+        "opacity": 1,
+        "outline": { "enabled": false, "color": "#000000", "width_px": 0 },
+        "shadow": { "enabled": true, "color": "#000000", "opacity": 0.66, "dx": 0, "dy": 8, "blur_px": 20 },
+        "background": { "enabled": false, "color": "#000000", "opacity": 0.5, "padding_px": 24, "radius_px": 14 },
+        "placement": { "anchor": "bottom", "x_pct": 50, "y_pct": 95, "width_pct": 90, "height_pct": 40 }
+      }
+    },
+    {
+      "id": "latin-white-on-dark-box",
+      "name": "Latin — white on a dark rounded box",
+      "style": {
+        "font_id": "inter",
+        "weight": 600,
+        "size": { "mode": "fit", "min_px": 24, "max_px": 78 },
+        "max_lines": 3,
+        "align": "center",
+        "line_height": 1.2,
+        "letter_spacing": 0,
+        "uppercase": false,
+        "fill": { "type": "solid", "color": "#FFFFFF" },
+        "opacity": 1,
+        "outline": { "enabled": false, "color": "#000000", "width_px": 0 },
+        "shadow": { "enabled": false, "color": "#000000", "opacity": 0.4, "dx": 0, "dy": 2, "blur_px": 6 },
+        "background": { "enabled": true, "color": "#101820", "opacity": 0.8, "padding_px": 30, "radius_px": 24 },
+        "placement": { "anchor": "bottom", "x_pct": 50, "y_pct": 95, "width_pct": 84, "height_pct": 32 }
+      }
+    },
+    {
+      "id": "latin-red-banner-top",
+      "name": "Latin — red banner across the top",
+      "style": {
+        "font_id": "anton",
+        "weight": 400,
+        "size": { "mode": "fit", "min_px": 26, "max_px": 96 },
+        "max_lines": 1,
+        "align": "center",
+        "line_height": 1.04,
+        "letter_spacing": 0,
+        "uppercase": true,
+        "fill": { "type": "solid", "color": "#FFFFFF" },
+        "opacity": 1,
+        "outline": { "enabled": false, "color": "#000000", "width_px": 0 },
+        "shadow": { "enabled": false, "color": "#000000", "opacity": 0.3, "dx": 0, "dy": 3, "blur_px": 6 },
+        "background": { "enabled": true, "color": "#D00000", "opacity": 1, "padding_px": 20, "radius_px": 4 },
+        "placement": { "anchor": "top", "x_pct": 50, "y_pct": 8, "width_pct": 92, "height_pct": 20 }
+      }
+    },
+    {
+      "id": "latin-inter-light-caption",
+      "name": "Latin — Inter light caption, lower third",
+      "style": {
+        "font_id": "inter",
+        "weight": 300,
+        "size": { "mode": "fit", "min_px": 20, "max_px": 58 },
+        "max_lines": 3,
+        "align": "left",
+        "line_height": 1.32,
+        "letter_spacing": 0,
+        "uppercase": false,
+        "fill": { "type": "solid", "color": "#F1F3F5" },
+        "opacity": 0.96,
+        "outline": { "enabled": false, "color": "#000000", "width_px": 0 },
+        "shadow": { "enabled": true, "color": "#000000", "opacity": 0.55, "dx": 0, "dy": 2, "blur_px": 8 },
+        "background": { "enabled": true, "color": "#000000", "opacity": 0.42, "padding_px": 22, "radius_px": 12 },
+        "placement": { "anchor": "bottom-left", "x_pct": 4, "y_pct": 95, "width_pct": 56, "height_pct": 26 }
+      }
+    },
+    {
+      "id": "latin-gradient-gold",
+      "name": "Latin — gradient gold hero",
+      "style": {
+        "font_id": "anton",
+        "weight": 400,
+        "size": { "mode": "fit", "min_px": 30, "max_px": 132 },
+        "max_lines": 2,
+        "align": "center",
+        "line_height": 1.06,
+        "letter_spacing": 0,
+        "uppercase": true,
+        "fill": { "type": "gradient", "color": "#FFF3B0", "color2": "#E09F3E", "angle": 90 },
+        "opacity": 1,
+        "outline": { "enabled": true, "color": "#2B2118", "width_px": 4 },
+        "shadow": { "enabled": true, "color": "#000000", "opacity": 0.55, "dx": 0, "dy": 7, "blur_px": 16 },
+        "background": { "enabled": false, "color": "#000000", "opacity": 0.5, "padding_px": 24, "radius_px": 14 },
+        "placement": { "anchor": "bottom", "x_pct": 50, "y_pct": 94, "width_pct": 90, "height_pct": 38 }
+      }
+    }
+  ]
+}

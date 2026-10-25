@@ -260,9 +260,27 @@
       :prompt-char-cap="thumbnailModelInfo.cap"
       :model-label="thumbnailModelInfo.label"
       :pinned-filename="pinnedThumbnailFilename"
+      :show-text-layer="thumbnailTextEnabled"
       @open-preview="openLightboxAt"
       @refresh="onPanelRefresh"
       @pin-toggle="toggleThumbnailPin"
+      @add-text="openTextEditor"
+    />
+
+    <!-- ── Thumbnail text editor ──────────────────────────────────────────
+         Owner-approved 2026-10-24. Only reachable when this channel has the
+         text layer switched on (Settings → Writing & style). Launched from a
+         row's own Add text button, so the source is the exact rendered file
+         the customer pointed at — never a guess. -->
+    <ThumbnailTextEditor
+      :visible="textEditorOpen"
+      :project-slug="slug"
+      :episode-code="form.episode_id"
+      :initial-source="textEditorSource"
+      :sources="textEditorSources"
+      @close="textEditorOpen = false"
+      @applied="onTextApplied"
+      @pinned="onTextApplied"
     />
 
     <!-- Recovery is scoped to the active artwork pool. It only reclaims an
@@ -392,6 +410,7 @@
 import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, storyDefaultAspectRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
 import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentation.js'
+import { thumbnailTextEnabled as thumbnailTextEnabledFor } from '../../../utils/thumbnail-text.js'
 
 definePageMeta({ layout: 'dashboard' })
 
@@ -1040,6 +1059,43 @@ watch([slug, () => form.episode_id], ([, v], old) => {
     void loadEditScan()
   }
 }, { immediate: true })
+
+// ── Thumbnail text layer (owner-approved 2026-10-24) ─────────────────────
+// Off unless THIS channel switched it on (config.thumbnail_text_layer_enabled,
+// default false). The switch lives in Settings → Writing & style beside Art
+// style, and the backend refuses the endpoints too — this only decides whether
+// the button is worth showing.
+const thumbnailTextEnabled = computed(() => thumbnailTextEnabledFor(config.value))
+const textEditorOpen = ref(false)
+// The exact rendered file the customer pointed at. Kept beside the open flag
+// and blanked when the editor closes, so a reopened editor can never restore
+// the previous episode's artwork (AGENTS §4).
+const textEditorSource = ref('')
+// This episode's own rendered thumbnails, as the editor's source list. Built
+// from the disk scan the page already holds — ownership is a fact looked up in
+// this episode's file list, never a filename parsed into a guess.
+const textEditorSources = computed(() => editThumbs.value.map(thumb => ({
+  filename: thumb.filename,
+  url: `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(thumb.path)}&k=${igPanelRefreshKey.value}`,
+})))
+
+function openTextEditor(filename: string | null) {
+  if (!thumbnailTextEnabled.value || !form.episode_id || !filename) return
+  textEditorSource.value = filename
+  textEditorOpen.value = true
+}
+
+/** A written variant changes what upload would pin, so re-read both the disk
+ *  scan and the pin state rather than trusting the editor's own report. */
+function onTextApplied() {
+  void loadEditScan()
+}
+
+watch(() => form.episode_id, () => {
+  // Anything the editor was holding belonged to the previous episode.
+  textEditorOpen.value = false
+  textEditorSource.value = ''
+})
 
 // ── The ASSEMBLED prompt length (measured by the server) ──────────────────
 //

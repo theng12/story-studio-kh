@@ -35,7 +35,7 @@ import { useApi } from './useApi.js'
 // (`script-style` was a 2026 experiment that lived in the Script Generator's
 // "Reference Styles" panel — removed in favour of the more general Format
 // system, which covers the same need at a better scope.)
-export type PresetType = 'script' | 'introduction' | 'research' | 'art-style' | 'prompt-style' | 'broll' | 'scene-plan' | 'style-bible' | 'scene-review' | 'motion-review' | 'continuity-page' | 'contextual-cues' | 'sound-design' | 'effect-stack' | 'all'
+export type PresetType = 'script' | 'introduction' | 'research' | 'art-style' | 'prompt-style' | 'broll' | 'scene-plan' | 'style-bible' | 'scene-review' | 'motion-review' | 'continuity-page' | 'contextual-cues' | 'sound-design' | 'effect-stack' | 'thumbnail-text' | 'all'
 export interface Preset {
   id: string
   name: string
@@ -59,6 +59,8 @@ export interface UsePresetsOptions<T> {
    * Omit to share a single untyped preset pool with the legacy behaviour.
    */
   presetType?: PresetType
+  /** Explicit pointer for features whose public config key is independent of its type tag. */
+  lastPresetKey?: string
   /**
    * Keys to strip (recursively) from snapshot bodies on save AND from
    * stored preset data before apply. Defaults to per-episode identifiers
@@ -176,9 +178,9 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
   const presetsKey = `${opts.configKey}_presets`
   // Active preset tracking is per-type so each section can remember its
   // own choice independently.
-  const activeKey = opts.presetType
+  const activeKey = opts.lastPresetKey ?? (opts.presetType
     ? `${opts.configKey}_last_preset_${opts.presetType}`
-    : `${opts.configKey}_last_preset`
+    : `${opts.configKey}_last_preset`)
 
   // One local list, optionally sliced by feature type. Untyped legacy
   // presets remain visible so this migration never loses user data.

@@ -1,0 +1,74 @@
+{
+  "fonts": [
+    {
+      "id": "kantumruy-pro",
+      "label": "Kantumruy Pro",
+      "scripts": ["khmr", "latn"],
+      "weights": [100, 200, 300, 400, 500, 600, 700, 800, 900],
+      "role": "text",
+      "license": "OFL-1.1",
+      "source": "bundled",
+      "file": "KantumruyPro[wght].ttf",
+      "sha256": "613bc1b1ca4e26f5f8ac98d223b76f5ed0cb79e7c3fa6558c2bd6929efe043ae",
+      "family": "Kantumruy Pro",
+      "license_file": "OFL.txt",
+      "source_url": "https://github.com/google/fonts/tree/main/ofl/kantumruypro"
+    },
+    {
+      "id": "moul",
+      "label": "Moul",
+      "scripts": ["khmr", "latn"],
+      "weights": [400],
+      "role": "display",
+      "license": "OFL-1.1",
+      "source": "bundled",
+      "file": "Moul-Regular.ttf",
+      "sha256": "c0445e86767edf1bfb08a6fe65bd38f350b588c641af7e2e88a59d72ccecd9c3",
+      "family": "Moul",
+      "license_file": "OFL.txt",
+      "source_url": "https://github.com/google/fonts/tree/main/ofl/moul"
+    },
+    {
+      "id": "battambang",
+      "label": "Battambang",
+      "scripts": ["khmr", "latn"],
+      "weights": [700],
+      "role": "text",
+      "license": "OFL-1.1",
+      "source": "bundled",
+      "file": "Battambang-Bold.ttf",
+      "sha256": "4cd10f7a56a7d9d1fb4184b2219821f8ad6f425be290243ef73c4ef3a80c86ff",
+      "family": "Battambang",
+      "license_file": "OFL.txt",
+      "source_url": "https://github.com/google/fonts/tree/main/ofl/battambang"
+    },
+    {
+      "id": "inter",
+      "label": "Inter",
+      "scripts": ["latn", "cyrl"],
+      "weights": [100, 200, 300, 400, 500, 600, 700, 800, 900],
+      "role": "text",
+      "license": "OFL-1.1",
+      "source": "bundled",
+      "file": "Inter[opsz,wght].ttf",
+      "sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+      "family": "Inter",
+      "license_file": "OFL.txt",
+      "source_url": "https://github.com/google/fonts/tree/main/ofl/inter"
+    },
+    {
+      "id": "anton",
+      "label": "Anton",
+      "scripts": ["latn"],
+      "weights": [400],
+      "role": "display",
+      "license": "OFL-1.1",
+      "source": "bundled",
+      "file": "Anton-Regular.ttf",
+      "sha256": "a4ba3a92350ebb031da0cb47630ac49eb265082ca1bc0450442f4a83ab947cab",
+      "family": "Anton",
+      "license_file": "OFL.txt",
+      "source_url": "https://github.com/google/fonts/tree/main/ofl/anton"
+    }
+  ]
+}

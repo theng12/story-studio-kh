@@ -1449,6 +1449,13 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     visual_opening_mode: typeof (config as any).visual_opening_mode === 'string'
       ? (config as any).visual_opening_mode
       : undefined,
+    // Thumbnail text layer (owner, 2026-10-24). Off unless a channel opts in, so every existing
+    // channel is untouched. Echoed here for the same reason as the toggles above: this response is
+    // an allow-list, so without an entry the saved value would be invisible on the next read and the
+    // page would re-render its default.
+    thumbnail_text_layer_enabled: typeof (config as any).thumbnail_text_layer_enabled === 'boolean'
+      ? (config as any).thumbnail_text_layer_enabled
+      : undefined,
     branded_opening_duration_sec: typeof (config as any).branded_opening_duration_sec === 'number'
       ? (config as any).branded_opening_duration_sec
       : undefined,

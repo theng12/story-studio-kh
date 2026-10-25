@@ -79,6 +79,8 @@
     { "from": "electron/server/effects-gallery", "to": "effects-gallery" },
     { "from": "electron/server/content-packs/recovery", "to": "content-packs/recovery" },
     { "from": "bundled/ffmpeg",             "to": "ffmpeg" },
+    { "from": "bundled/fonts",              "to": "fonts" },
+    { "from": "electron/server/thumbnail-text", "to": "thumbnail-text" },
     { "from": "bundled/scene-clip",         "to": "scene-clip", "filter": ["scene-clip"] },
     { "from": "bundled/LICENSE-FFMPEG.txt", "to": "LICENSE-FFMPEG.txt" },
     { "from": "bundled/LICENSE-SKETCH-DRAW.txt", "to": "LICENSE-SKETCH-DRAW.txt" },
