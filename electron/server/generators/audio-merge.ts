@@ -44,6 +44,7 @@ import { recordSubtitleSourceEvidence } from '../services/subtitle-recovery.js'
 import { ensureStitchedSubtitle } from '../lib/subtitle-autostitch.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
+import { rejectedTakeFileSet } from '../services/audio-take-rejection.js'
 import {
   buildMergedAudioOpeningRecord,
   type MergedAudioIntroRecord,
@@ -723,6 +724,15 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     }
 
     const candidate = activeFiles.map(file => path.join(paths.audio_dir, file))
+    // A rejected take is never assembled, whatever the sidecar still names: the
+    // rejection outranks the selection (owner, 2026-10-26). Failing loudly names
+    // the files and the way out instead of mixing audio nobody approved (§8).
+    const rejected = await rejectedTakeFileSet(paths.episode_dir)
+    const rejectedHere = candidate.map(file => path.basename(file)).filter(file => rejected.has(file))
+    if (rejectedHere.length) {
+      throw new Error(`Audio Assembly cannot use its authoritative selected audio map: ${rejectedHere.join(', ')} `
+        + `${rejectedHere.length === 1 ? 'was' : 'were'} rejected. Choose another version of that chapter or generate it again.`)
+    }
     const missing = candidate.filter(file => !existsSync(file))
     if (missing.length) {
       const message = `selected audio file(s) are missing: ${missing.map(file => path.basename(file)).join(', ')}`
@@ -1089,6 +1099,17 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     }
 
     // 5. Mix with music and/or noise
+    // The bed's level under the narration. An UNSET value is the owner's default
+    // (6%, 2026-10-26, after DM0018/PR0039 were mixed too loud at 8%); a stated
+    // one — the page, a saved preset — is the customer's choice and is never
+    // rewritten (AGENTS.md §5).
+    if (req.music) {
+      const level = resolveBackgroundMusicVolume(req.music.volume)
+      if (level.defaulted) {
+        req.music.volume = level.volume
+        job.output_lines.push(`Background music level was not set; using ${Math.round(level.volume * 100)}% under the narration.`)
+      }
+    }
     const musicEnabled = req.music?.enabled && (req.music.files?.length ?? 0) > 0
     const noiseEnabled = req.background_noise?.enabled
 
@@ -1410,6 +1431,30 @@ export function resolveClosingTailParams(opts: {
 /** The duck release when nothing is set: long enough to hear as a rise, short
  *  enough that the tail is at its level almost immediately. */
 export const DEFAULT_DUCK_RELEASE_SEC = 1.5
+/**
+ * The background music level under the narration, as 0–1.
+ *
+ * Owner, 2026-10-26 (after DM0018's Khmer narration was buried and PR0039's bed
+ * was too loud at the old 8%): 6% is the starting level, about 24 dB under the
+ * voice. It applies to a request that states NO level and to nothing else — a
+ * page value and a saved preset are the customer's own choice (AGENTS.md §5),
+ * so they pass through untouched.
+ */
+export const DEFAULT_BACKGROUND_MUSIC_VOLUME = 0.06
+
+export function resolveBackgroundMusicVolume(value: unknown): { volume: number; defaulted: boolean } {
+  // Only a real number (or a non-empty numeric string) states a level. An empty
+  // string or a blank is UNSET — `Number('')` is 0, which would silently mute
+  // the bed instead of using the default.
+  const numeric = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim() ? Number(value) : Number.NaN
+  if (Number.isFinite(numeric) && numeric >= 0) {
+    return { volume: Math.min(1, numeric), defaulted: false }
+  }
+  return { volume: DEFAULT_BACKGROUND_MUSIC_VOLUME, defaulted: true }
+}
+
 /** The tail's fade-out when neither the tail block nor the music sets one. */
 export const DEFAULT_TAIL_FADE_OUT_SEC = 5
 
@@ -1760,9 +1805,13 @@ export async function scanEpisodeAudioAssets(
     const { resolveActiveSubtitleChapterSources } = await import('./subtitles.js')
     const activeSources = await resolveActiveSubtitleChapterSources(episodeDir, audioDir).catch(() => null)
     const activeBySlug = new Map((activeSources || []).map(source => [source.slug.toLowerCase(), new Set(source.files)]))
+    // A rejected take's files stay on disk for the restore window; they are never
+    // chapters, even while a map-less episode would otherwise scan them.
+    const rejected = await rejectedTakeFileSet(episodeDir)
     for (const file of files) {
       // Hidden files (a join in progress) are never chapters.
       if (!/\.mp3$/i.test(file) || file.startsWith('.')) continue
+      if (rejected.has(file)) continue
 
       // Skip files that look like full/merged narration and explicit alternates.
       if (/full|merged|narration_only/i.test(file) || !isActiveChapterAudioFilename(file)) continue

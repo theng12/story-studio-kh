@@ -225,14 +225,48 @@ async function due(last: RetentionRunStatus | null, memory: number, now: number,
 
 let lastHandoffAttempt = 0
 let lastCleanupAttempt = 0
+let lastRejectedTakeSweep = 0
 let ticking = false
+
+/**
+ * Rejected narration takes whose 3-day restore window has passed move into
+ * Story's one Trash (owner, 2026-10-26). Runs on this same daily boot-timer
+ * schedule, through `lib/trash-move.ts` like every other removal.
+ */
+export async function sweepRejectedNarrationTakes(now = Date.now()): Promise<{
+  channels: number
+  episodes: number
+  swept: number
+  deferred: number
+  lines: string[]
+}> {
+  const pm = await import('./project-manager.js')
+  const { sweepChannelRejectedTakes } = await import('./audio-take-rejection.js')
+  const lines: string[] = []
+  let channels = 0
+  let episodes = 0
+  let swept = 0
+  let deferred = 0
+  for (const project of await pm.listProjects()) {
+    const projectDir = pm.getProjectDir(project.slug)
+    if (!projectDir) continue
+    const result = await sweepChannelRejectedTakes({
+      projectDir, now, log: line => { lines.push(`${project.slug}: ${line}`) },
+    })
+    channels += 1
+    episodes += result.episodes
+    swept += result.swept.length
+    deferred += result.deferred
+  }
+  return { channels, episodes, swept, deferred, lines }
+}
 
 /**
  * One scheduler tick: the Trash handoff, then the automatic cleanup, each at
  * most once per day. Returns what each decided, for tests and the log.
  */
-export async function retentionTick(now = Date.now()): Promise<{ handoff: string; cleanup: string }> {
-  if (ticking) return { handoff: 'busy', cleanup: 'busy' }
+export async function retentionTick(now = Date.now()): Promise<{ handoff: string; cleanup: string; rejected_takes: string }> {
+  if (ticking) return { handoff: 'busy', cleanup: 'busy', rejected_takes: 'busy' }
   ticking = true
   try {
     const settings = await getRetentionSettings()
@@ -269,7 +303,23 @@ export async function retentionTick(now = Date.now()): Promise<{ handoff: string
       if (run.status === 'skipped') lastCleanupAttempt = 0
       cleanup = statusOf('last_auto_cleanup', run)
     } else if (!settings.auto_cleanup_enabled) cleanup = 'off'
-    return { handoff, cleanup }
+    // Rejected narration takes outlive their restore window: once a day (and
+    // once at boot), move them to Story's Trash and say what happened.
+    let rejected_takes = 'recent'
+    if (now - lastRejectedTakeSweep >= DAY_MS) {
+      lastRejectedTakeSweep = now
+      try {
+        const result = await sweepRejectedNarrationTakes(now)
+        result.lines.forEach(line => console.log(`[rejected-takes] ${line}`))
+        rejected_takes = result.swept
+          ? `moved ${result.swept} take${result.swept === 1 ? '' : 's'} to Story's Trash`
+          : result.deferred ? `${result.deferred} could not be moved` : 'none'
+      } catch (error: any) {
+        rejected_takes = `failed: ${error?.message || error}`
+        console.log(`[rejected-takes] sweep failed: ${error?.message || error}`)
+      }
+    }
+    return { handoff, cleanup, rejected_takes }
   } finally {
     ticking = false
   }

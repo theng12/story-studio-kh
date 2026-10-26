@@ -157,11 +157,12 @@
           <p class="cs-versions-hint">The take marked “In use” is the one Audio Assembly and the video use. “Use This Version” switches to another take; the replaced one moves to the project’s _trash folder.</p>
           <p v-if="versionsLoading" class="cs-versions-hint">Loading versions…</p>
           <ul v-else>
-            <li v-for="take in versions" :key="take.files.join('|')" class="cs-version-row">
+            <li v-for="take in versions" :key="take.files.join('|')" class="cs-version-row" :class="{ 'cs-version-rejected': take.rejected }">
               <span class="cs-version-name">{{ takeLabel(take) }}</span>
               <span class="cs-version-meta">{{ take.files.length === 1 ? '1 file' : `${take.files.length} parts` }} · {{ formatTakeTime(take.modified_at) }}</span>
               <button type="button" class="cs-play" :class="{ playing: playingTake === take.files[0] }" @click="playTake(s, take)">{{ playingTake === take.files[0] ? '⏸' : '▶' }}</button>
-              <span v-if="take.active" class="cs-pill pill-generated">In use</span>
+              <span v-if="take.rejected" class="cs-pill pill-stale">Rejected</span>
+              <span v-else-if="take.active" class="cs-pill pill-generated">In use</span>
               <button
                 v-else
                 type="button"
@@ -170,12 +171,54 @@
                 :title="isLiveStatus(runtimeStatus(s)) ? 'Wait for narration of this chapter to finish.' : 'Makes this take the chapter’s narration. Audio Assembly and subtitles then need to run again for this chapter.'"
                 @click="useTake(s, take)"
               >Use This Version</button>
+              <template v-if="take.rejected">
+                <button
+                  v-if="take.can_restore"
+                  type="button"
+                  class="btn btn-sm"
+                  :disabled="switchingTake"
+                  :title="`Restore this take before ${formatTakeTime(take.restore_until || null)}. After that its files move to Story’s Trash.`"
+                  @click="restoreTakeFromUi(s, take)"
+                >Restore</button>
+                <small class="cs-version-note">Rejected {{ formatTakeTime(take.rejected_at || null) }}: {{ take.rejection_reason }}. Restorable until {{ formatTakeTime(take.restore_until || null) }}.</small>
+              </template>
+              <template v-else>
+                <button
+                  v-if="rejectingTake !== take.files.join('|')"
+                  type="button"
+                  class="btn btn-sm"
+                  :disabled="switchingTake || isLiveStatus(runtimeStatus(s))"
+                  title="Reject this take: it can never be used or merged again, and can be restored for 3 days."
+                  @click="startReject(take)"
+                >Reject…</button>
+                <span v-else class="cs-reject-form">
+                  <input
+                    v-model="rejectReason"
+                    type="text"
+                    class="input input-sm"
+                    maxlength="200"
+                    placeholder="Why? e.g. Khmer narration is gibberish"
+                    :aria-label="`Why ${takeLabel(take).toLowerCase()} of ${prettyLabel(s.label)} is rejected`"
+                    @keyup.enter="rejectTakeFromUi(s, take)"
+                  >
+                  <button type="button" class="btn btn-sm btn-danger" :disabled="!rejectReason.trim() || switchingTake" @click="rejectTakeFromUi(s, take)">Reject take</button>
+                  <button type="button" class="btn btn-sm btn-ghost" @click="cancelReject">Cancel</button>
+                </span>
+              </template>
+              <small v-if="take.provenance?.recorded" class="cs-version-provenance">{{ describeProvenance(take.provenance) }}</small>
+              <small v-else class="cs-version-provenance text-muted">Producer not recorded for this take.</small>
             </li>
           </ul>
+          <p v-if="sweptNotice" class="cs-versions-hint">{{ sweptNotice }}</p>
         </div>
+        <p v-if="s.needs_narration" class="cs-needs-narration">
+          Needs narration — {{ rejectedReason(s) }}. Restore it in Versions, or generate this chapter again.
+        </p>
         <p v-if="sectionChecks[s.slug]" class="cs-section-check" :class="{ failed: !!sectionChecks[s.slug]!.failed }">
           {{ describeChapterSectionQuality(sectionChecks[s.slug]!) }}
         </p>
+        <!-- Read-only: who actually produced this chapter's take, from what was recorded. -->
+        <small v-if="s.provenance?.recorded" class="cs-provenance" data-testid="take-provenance">{{ describeProvenance(s.provenance) }}</small>
         <details
           v-if="qualityMode !== 'off' && s.quality && (s.quality.state !== 'not_checked' || s.quality.reason_code || s.quality.repair)"
           class="cs-quality-review"
@@ -335,6 +378,37 @@ interface SectionRow {
   quality?: AudioQualityEvidence
   /** Narration takes of this chapter on disk; more than one offers "Use This Version". */
   takes_count?: number
+  /** Every usable take was rejected: this chapter has to be narrated again (owner, 2026-10-26). */
+  needs_narration?: boolean
+  /** Rejected takes recorded for this chapter, newest first. */
+  rejected_takes?: RejectedTake[]
+  /** Read-only producer facts for the take this chapter would use. */
+  provenance?: TakeProvenance
+}
+
+interface RejectedTake {
+  files: string[]
+  rejected_at: string
+  reason: string
+  restore_until: string
+  can_restore: boolean
+}
+
+/** What the backend recorded about who made a take. Absent fields were never recorded. */
+interface TakeProvenance {
+  recorded: boolean
+  model_id?: string
+  model_display_name?: string
+  voice_id?: string
+  voice_display_name?: string
+  provider?: string
+  voice_provider?: string
+  engine_id?: string
+  engine_name?: string
+  model_revision_id?: string
+  model_family?: string
+  voice_revision?: string
+  sources?: string[]
 }
 
 interface SectionAction {
@@ -415,12 +489,29 @@ function stopPlay() {
 }
 
 // ── Narration takes ("Create Another Version") and "Use This Version" ──
-interface ChapterTake { files: string[]; version: number; active: boolean; bytes: number; modified_at: string | null }
+interface ChapterTake {
+  files: string[]
+  version: number
+  active: boolean
+  rejected?: boolean
+  rejected_at?: string
+  rejection_reason?: string
+  restore_until?: string
+  can_restore?: boolean
+  provenance?: TakeProvenance
+  bytes: number
+  modified_at: string | null
+}
 const versionsSlug = ref<string | null>(null)
 const versions = ref<ChapterTake[]>([])
 const versionsLoading = ref(false)
 const switchingTake = ref(false)
 const playingTake = ref<string | null>(null)
+// Rejecting a take needs a reason: it is kept with the take so nobody has to
+// guess later why the audio was thrown away (owner, 2026-10-26).
+const rejectingTake = ref<string | null>(null)
+const rejectReason = ref('')
+const sweptNotice = ref('')
 function takeLabel(take: ChapterTake): string {
   return take.version === 1 ? (take.files.length > 1 ? 'Original take (parts)' : 'Original take') : `Version ${take.version}`
 }
@@ -430,8 +521,16 @@ function formatTakeTime(iso: string | null): string {
 async function loadVersions(slug: string): Promise<void> {
   versionsLoading.value = true
   try {
-    const r = await get<{ takes: ChapterTake[] }>(`/projects/${props.projectSlug}/episodes/${encodeURIComponent(props.episodeId)}/audio-sections/${encodeURIComponent(slug)}/versions`)
-    if (versionsSlug.value === slug) versions.value = r.takes || []
+    const r = await get<{ takes: ChapterTake[]; swept?: Array<{ files: string[]; reason: string; trashed_at: string }> }>(`/projects/${props.projectSlug}/episodes/${encodeURIComponent(props.episodeId)}/audio-sections/${encodeURIComponent(slug)}/versions`)
+    if (versionsSlug.value === slug) {
+      versions.value = r.takes || []
+      const last = (r.swept || []).at(-1)
+      // The 3-day sweep runs in the background: say what it did, so a take that
+      // disappears is never a mystery (owner, 2026-10-26).
+      sweptNotice.value = last
+        ? `A rejected take was moved to Story’s Trash on ${formatTakeTime(last.trashed_at)} after its 3-day restore window (${last.reason}).`
+        : ''
+    }
   } catch (e: any) {
     showError(e?.data?.detail || 'Could not list this chapter’s versions.')
   } finally {
@@ -471,6 +570,69 @@ async function useTake(s: SectionRow, take: ChapterTake): Promise<void> {
   } finally {
     switchingTake.value = false
   }
+}
+
+// ── Rejecting a take (owner, 2026-10-26) ────────────────────────────────
+function startReject(take: ChapterTake): void {
+  rejectingTake.value = take.files.join('|')
+  rejectReason.value = ''
+}
+function cancelReject(): void {
+  rejectingTake.value = null
+  rejectReason.value = ''
+}
+async function rejectTakeFromUi(s: SectionRow, take: ChapterTake): Promise<void> {
+  const reason = rejectReason.value.trim()
+  if (!reason) return
+  switchingTake.value = true
+  try {
+    const r = await post<{ message: string }>(
+      `/projects/${props.projectSlug}/episodes/${encodeURIComponent(props.episodeId)}/audio-sections/${encodeURIComponent(s.slug)}/reject-take`,
+      { files: take.files, reason },
+    )
+    showSuccess(r.message)
+    cancelReject()
+    await loadVersions(s.slug)
+    await refresh()
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Could not reject that take.')
+  } finally {
+    switchingTake.value = false
+  }
+}
+async function restoreTakeFromUi(s: SectionRow, take: ChapterTake): Promise<void> {
+  switchingTake.value = true
+  try {
+    const r = await post<{ message: string }>(
+      `/projects/${props.projectSlug}/episodes/${encodeURIComponent(props.episodeId)}/audio-sections/${encodeURIComponent(s.slug)}/restore-take`,
+      { files: take.files },
+    )
+    showSuccess(r.message)
+    await loadVersions(s.slug)
+    await refresh()
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Could not restore that take.')
+  } finally {
+    switchingTake.value = false
+  }
+}
+/** Plain-words producer line: only what was recorded, nothing reconstructed from a name. */
+function describeProvenance(provenance?: TakeProvenance): string {
+  if (!provenance?.recorded) return ''
+  const engine = provenance.engine_name || provenance.engine_id || provenance.model_family
+  const model = provenance.model_display_name || provenance.model_id
+  const voice = provenance.voice_display_name || provenance.voice_id
+  const parts = [
+    engine ? `Engine: ${engine}` : '',
+    model ? `Model: ${model}` : '',
+    voice ? `Voice: ${voice}` : '',
+    provenance.provider ? `Provider: ${provenance.provider}` : '',
+  ].filter(Boolean)
+  return parts.join(' · ')
+}
+function rejectedReason(s: SectionRow): string {
+  const rejected = (s.rejected_takes || []).at(-1)
+  return rejected?.reason ? `its take was rejected (${rejected.reason})` : 'its take was rejected'
 }
 
 function togglePlay(s: SectionRow, startSeconds?: number) {
@@ -1051,6 +1213,14 @@ watch(
 .cs-versions ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
 .cs-versions-hint { margin: 0; font-size: var(--font-xs); color: var(--text-secondary); }
 .cs-version-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* A rejected take is visibly out of use, and its reason/window is spelled out. */
+.cs-version-rejected .cs-version-name { text-decoration: line-through; color: var(--text-secondary); }
+.cs-version-note { flex-basis: 100%; font-size: var(--font-xs); color: var(--text-secondary); }
+.cs-version-provenance { flex-basis: 100%; font-size: var(--font-xs); color: var(--text-secondary); }
+.cs-reject-form { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cs-reject-form .input { min-width: 220px; }
+.cs-needs-narration { font-size: var(--font-xs); color: var(--danger, #b42318); }
+.cs-provenance { display: block; font-size: var(--font-xs); color: var(--text-secondary); }
 .cs-version-name { font-weight: 600; font-size: var(--font-sm); }
 .cs-version-meta { color: var(--text-secondary); font-size: var(--font-xs); flex: 1; }
 .cs-play.playing { background: var(--accent-dim); border-color: var(--accent); }

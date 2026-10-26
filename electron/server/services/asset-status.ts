@@ -642,9 +642,10 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
  *   missing                 no usable merged file (or the pinned file is gone)
  *   completion-mismatch     the completion record does not describe this file
  *   chapter-changed:<file>  an active chapter is newer than the merge (or gone)
+ *   chapter-rejected:<file> the merge was built from a take the owner rejected (owner, 2026-10-26)
  *   chapter-record-unreadable  audio_chapters.json cannot say which chapters the merge used
  */
-export type AudioMergeReason = 'missing' | 'completion-mismatch' | 'chapter-record-unreadable' | `chapter-changed:${string}` | `script-changed:${string}`
+export type AudioMergeReason = 'missing' | 'completion-mismatch' | 'chapter-record-unreadable' | `chapter-changed:${string}` | `chapter-rejected:${string}` | `script-changed:${string}`
 
 /** The refusal Video Assembly shows for a merged track the freshness rule rejects, naming why and the repair. */
 export function staleMergedAudioMessage(episodeId: string, file: string | null | undefined, reason: AudioMergeReason): string {
@@ -653,6 +654,10 @@ export function staleMergedAudioMessage(episodeId: string, file: string | null |
   if (reason.startsWith('script-changed:')) {
     return `Video Assembly is blocked: ${code}'s ${track} uses old chapter text for ${reason.slice('script-changed:'.length)}. `
       + 'Regenerate that chapter’s narration, then re-run Audio Assembly, transcription and subtitle stitching before retrying.'
+  }
+  if (reason.startsWith('chapter-rejected:')) {
+    return `Video Assembly is blocked: ${code}'s ${track} was assembled from a narration take that was rejected `
+      + `("${reason.slice('chapter-rejected:'.length)}"). Restore it or use another version on the Audio page, then re-run Audio Assembly.`
   }
   const why = reason === 'completion-mismatch'
     ? 'its completion record does not match the file (the merge may be unfinished or replaced)'
@@ -714,6 +719,13 @@ async function mergedAudioSourcesStaleReason(
         : []
     })
     if (!names.length) return 'chapter-record-unreadable'
+    // A merge built from a take the owner has since rejected is not current,
+    // even though its bytes are untouched: Video Assembly must never render it
+    // (owner, 2026-10-26). Checked before the mtime rule, which cannot see it.
+    const { rejectedTakeFileSet } = await import('./audio-take-rejection.js')
+    const rejected = await rejectedTakeFileSet(episodeDir)
+    const rejectedSource = names.find(name => rejected.has(name))
+    if (rejectedSource) return `chapter-rejected:${rejectedSource}`
     const [merged, sources] = await Promise.all([
       fs.stat(mergedPath),
       Promise.all(names.map(name => fs.stat(path.join(audioDir, name)).catch(() => null))),

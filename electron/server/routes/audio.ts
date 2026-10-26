@@ -577,9 +577,95 @@ router.get('/projects/:slug/episodes/:code/audio-sections/:section/versions', as
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const paths = await resolveEpisodePathsByCodeWithSidecar(req.params.slug, req.params.code, 'audio_chapters.json')
     const { listChapterTakes } = await import('../services/audio-versions.js')
-    res.json({ takes: await listChapterTakes(paths.episode_dir, paths.audio_dir, req.params.code.toUpperCase(), req.params.section) })
+    const { readTakeRejections, rejectionsForSection, canRestore, restoreWindowEnds } = await import('../services/audio-take-rejection.js')
+    const { takeProvenance } = await import('../services/audio-take-provenance.js')
+    const code = req.params.code.toUpperCase()
+    const takes = await listChapterTakes(paths.episode_dir, paths.audio_dir, code, req.params.section)
+    const store = await readTakeRejections(paths.episode_dir)
+    const rejections = rejectionsForSection(store, req.params.section)
+    const takesWithFacts = await Promise.all(takes.map(async take => {
+      const rejection = take.rejected
+        ? rejections.find(row => row.files.length === take.files.length && row.files.every((file, index) => file === take.files[index]))
+        : undefined
+      return {
+        ...take,
+        ...(rejection
+          ? {
+            rejected_at: rejection.rejected_at,
+            rejection_reason: rejection.reason,
+            restore_until: restoreWindowEnds(rejection.rejected_at),
+            can_restore: canRestore(rejection),
+          }
+          : {}),
+        // Read-only producer facts, from what was recorded for these exact
+        // files — never reconstructed from a name (AGENTS.md §2).
+        provenance: await takeProvenance({
+          episodeDir: paths.episode_dir, audioDir: paths.audio_dir,
+          section: req.params.section, files: take.files, active: take.active,
+        }),
+      }
+    }))
+    res.json({ takes: takesWithFacts, swept: store.swept ?? [] })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not list this chapter\'s narration versions'))
+  }
+})
+
+// Reject one narration take (owner, 2026-10-26). Durable record with the reason,
+// excluded from selection/assembly from now on, restorable for three days.
+router.post('/projects/:slug/episodes/:code/audio-sections/:section/reject-take', async (req, res) => {
+  const { slug, code, section } = req.params
+  try {
+    const projectDir = pm.getProjectDir(slug)
+    if (!projectDir || !await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const files = Array.isArray(req.body?.files) ? req.body.files : null
+    if (!files?.length || files.some((f: unknown) => typeof f !== 'string' || path.basename(f) !== f)) {
+      return res.status(400).json({ detail: 'Pick one version of this chapter.' })
+    }
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''
+    if (!reason) return res.status(400).json({ detail: 'Say why this take is being rejected. The reason is kept with the take.' })
+    const busy = [...jq.activeJobsOfType('audio'), ...jq.activeJobsOfType('audio_merge')]
+      .some(job => job.project_slug === slug && job.episode_id?.toUpperCase() === code.toUpperCase())
+    if (busy) {
+      return res.status(409).json({ detail: `Narration or Audio Assembly is running for ${code.toUpperCase()}. Reject a take when it finishes.` })
+    }
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
+    const { rejectTake } = await import('../services/audio-take-rejection.js')
+    const result = await rejectTake({
+      projectDir, episodeDir: paths.episode_dir, audioDir: paths.audio_dir,
+      code: code.toUpperCase(), section, files, reason,
+    })
+    try {
+      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+      episodeStatusCache.invalidate(slug, code)
+    } catch { /* cache is best-effort */ }
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    const status = e?.statusCode === 400 ? 400 : e?.statusCode === 404 ? 404 : e?.statusCode === 409 ? 409 : 500
+    res.status(status).json(humanizeBackendError(e, 'Could not reject that take'))
+  }
+})
+
+// Undo a rejection inside its three-day window.
+router.post('/projects/:slug/episodes/:code/audio-sections/:section/restore-take', async (req, res) => {
+  const { slug, code, section } = req.params
+  try {
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const files = Array.isArray(req.body?.files) ? req.body.files : null
+    if (!files?.length || files.some((f: unknown) => typeof f !== 'string' || path.basename(f) !== f)) {
+      return res.status(400).json({ detail: 'Pick the version to restore.' })
+    }
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
+    const { restoreTake } = await import('../services/audio-take-rejection.js')
+    const result = await restoreTake({ episodeDir: paths.episode_dir, section, files })
+    try {
+      const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+      episodeStatusCache.invalidate(slug, code)
+    } catch { /* cache is best-effort */ }
+    res.json({ ok: true, ...result })
+  } catch (e: any) {
+    const status = e?.statusCode === 400 ? 400 : e?.statusCode === 404 ? 404 : e?.statusCode === 409 ? 409 : 500
+    res.status(status).json(humanizeBackendError(e, 'Could not restore that take'))
   }
 })
 
@@ -609,7 +695,8 @@ router.post('/projects/:slug/episodes/:code/audio-sections/:section/use-version'
     } catch { /* cache is best-effort */ }
     res.json({ ok: true, ...result })
   } catch (e: any) {
-    res.status(e?.statusCode === 404 ? 404 : 500).json(humanizeBackendError(e, 'Could not switch to that version'))
+    const status = e?.statusCode === 404 ? 404 : e?.statusCode === 409 ? 409 : 500
+    res.status(status).json(humanizeBackendError(e, 'Could not switch to that version'))
   }
 })
 
@@ -635,6 +722,8 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
       present_chunks: number
       word_count: number
       character_count: number
+      /** The take's files, as the active selection (or the predicted base) names them. */
+      files: string[]
     }>()
     for (const ec of status.expected) {
       // Derive slug from the filename — section.slug maps 1:1 to the prefix
@@ -650,8 +739,10 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
         present_chunks: 0,
         word_count: ec.sectionWordCount,
         character_count: ec.sectionCharacterCount,
+        files: [],
       }
       entry.total_chunks += 1
+      entry.files.push(ec.filename)
       if (status.present.includes(ec.filename)) entry.present_chunks += 1
       bySlug.set(slug, entry)
     }
@@ -816,36 +907,68 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
     // How many narration takes each chapter has on disk (>1 offers "Use This Version").
     const { groupChapterTakes } = await import('../services/audio-versions.js')
     const audioEntries = await fs.readdir(status.audio_dir).catch(() => [] as string[])
+    // Rejected takes (owner, 2026-10-26): read once, outside the quality block,
+    // so an unreadable record surfaces as a real error instead of being
+    // swallowed into "no rejections" (§6).
+    const { readTakeRejections, rejectionsForSection, canRestore, restoreWindowEnds } = await import('../services/audio-take-rejection.js')
+    const { takeProvenance } = await import('../services/audio-take-provenance.js')
+    const takeRejections = episodeDir ? await readTakeRejections(episodeDir) : null
     const sections = await Promise.all(
-      Array.from(bySlug.values()).map(async s => ({
-        ...s,
-        takes_count: groupChapterTakes(code.toUpperCase(), s.slug, audioEntries).length,
-        // 'generated' = every chunk is on disk; 'partial' = some chunks
-        // exist but the section isn't whole (or every part is here but the
-        // chapter was never joined — Generate missing joins it, buying nothing);
-        // 'not_generated' = nothing yet.
-        status: s.present_chunks === 0 ? 'not_generated'
-          : s.present_chunks < s.total_chunks || status.awaiting_join.includes(s.slug) ? 'partial'
-          : 'generated',
-        // Purely informational. Front-end shows a "⚠ stale" pill so the
-        // user can choose to regenerate; we do NOT auto-delete. The answer
-        // carries its basis, so the UI never claims "the script changed"
-        // when the legacy mtime fallback is what noticed (AGENTS.md §6).
-        audio_staleness: await sectionStaleness(s.slug),
-        subtitles_stale: staleSubtitleSections.has(s.slug.toLowerCase()),
-        ...(qualityBySection.has(s.slug.toLowerCase())
-          ? { quality: {
-            ...qualityBySection.get(s.slug.toLowerCase()),
-            ...(qualityRepairBySection.has(s.slug.toLowerCase())
-              ? { repair: qualityRepairBySection.get(s.slug.toLowerCase()) } : {}),
-            ...(activeChecksBySection.has(s.slug.toLowerCase())
-              ? { active_check: activeChecksBySection.get(s.slug.toLowerCase()) } : {}),
-          } }
-          : {}),
-      })),
+      Array.from(bySlug.values()).map(async s => {
+        const rejected = takeRejections ? rejectionsForSection(takeRejections, s.slug) : []
+        const { files, ...rest } = s
+        return {
+          ...rest,
+          takes_count: groupChapterTakes(code.toUpperCase(), s.slug, audioEntries).length,
+          // 'generated' = every chunk is on disk; 'partial' = some chunks
+          // exist but the section isn't whole (or every part is here but the
+          // chapter was never joined — Generate missing joins it, buying nothing);
+          // 'not_generated' = nothing yet.
+          status: s.present_chunks === 0 ? 'not_generated'
+            : s.present_chunks < s.total_chunks || status.awaiting_join.includes(s.slug) ? 'partial'
+            : 'generated',
+          // A section whose only take was rejected is honestly incomplete: the
+          // page says so instead of showing an unexplained empty chapter.
+          needs_narration: s.present_chunks === 0 && rejected.length > 0,
+          rejected_takes: rejected.map(row => ({
+            files: row.files,
+            rejected_at: row.rejected_at,
+            reason: row.reason,
+            restore_until: restoreWindowEnds(row.rejected_at),
+            can_restore: canRestore(row),
+          })),
+          // Read-only producer facts for the take this section would use.
+          provenance: episodeDir
+            ? await takeProvenance({
+              episodeDir, audioDir: status.audio_dir, section: s.slug, files, active: true,
+            })
+            : { recorded: false, sources: [] },
+          // Purely informational. Front-end shows a "⚠ stale" pill so the
+          // user can choose to regenerate; we do NOT auto-delete. The answer
+          // carries its basis, so the UI never claims "the script changed"
+          // when the legacy mtime fallback is what noticed (AGENTS.md §6).
+          audio_staleness: await sectionStaleness(s.slug),
+          subtitles_stale: staleSubtitleSections.has(s.slug.toLowerCase()),
+          ...(qualityBySection.has(s.slug.toLowerCase())
+            ? { quality: {
+              ...qualityBySection.get(s.slug.toLowerCase()),
+              ...(qualityRepairBySection.has(s.slug.toLowerCase())
+                ? { repair: qualityRepairBySection.get(s.slug.toLowerCase()) } : {}),
+              ...(activeChecksBySection.has(s.slug.toLowerCase())
+                ? { active_check: activeChecksBySection.get(s.slug.toLowerCase()) } : {}),
+            } }
+            : {}),
+        }
+      }),
     )
 
-    res.json({ audio_dir: status.audio_dir, sections })
+    res.json({
+      audio_dir: status.audio_dir,
+      sections,
+      // Takes the 3-day sweep has already moved to Story's Trash, so the page
+      // can say what happened to them (owner, 2026-10-26).
+      swept_rejections: takeRejections?.swept ?? [],
+    })
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Could not compute audio sections'))
   }

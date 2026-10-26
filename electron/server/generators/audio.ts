@@ -62,6 +62,7 @@ import { correctChapterCues } from '../lib/srt-correction.js'
 import { resolveOutputFormat } from '../services/generation-compression.js'
 import { AudioQualityVerificationCreditCeilingError, verifyAudioQualityCandidateRawTranscript } from '../services/audio-quality-transcription.js'
 import { promoteAudioQualityCandidate, readAudioQualityProvenance, updateAudioQualityProvenance } from '../services/audio-quality-store.js'
+import { forgetTakeRejections } from '../services/audio-take-rejection.js'
 import { readAudioTtsModelRecord, writeAudioTtsModelRecord, type AudioTtsModelRecord } from '../services/audio-tts-model-record.js'
 import { recordNarrationSource } from '../services/narration-staleness.js'
 import { consolidateChapterParts, keptPartPath, measurePart, partsDir, seamPauseRule } from '../services/chapter-parts.js'
@@ -628,6 +629,29 @@ export async function generateAudio(job: Job): Promise<void> {
     genStudioMaximumSpeed,
   )
   const genStudioProviderLabel = ttsModel.provider_name || 'this voice provider'
+  // PROVENANCE (owner, 2026-10-26): keep what the catalogue published about the
+  // model and voice that actually make these bytes, so the Audio page can show
+  // each take's engine, model and voice without re-deriving any of it from a
+  // name (§2). Only published fields are kept, and a Gateway read that fails
+  // records nothing rather than a guess (§1).
+  const voiceRecord = req.voice
+    ? await listGenStudioVoices(apiKey, { modelId: genStudioModelId })
+      .then(rows => rows.find(row => row.id === req.voice) ?? null)
+      .catch(() => null)
+    : null
+  const ttsProvenance = {
+    model_id: genStudioModelId,
+    voice_id: req.voice,
+    ...(ttsModel.display_name ? { model_display_name: ttsModel.display_name } : {}),
+    ...(ttsModel.provider_name ? { provider: ttsModel.provider_name } : {}),
+    ...(voiceRecord?.display_name ? { voice_display_name: voiceRecord.display_name } : {}),
+    ...(voiceRecord?.provider ? { voice_provider: voiceRecord.provider } : {}),
+    ...(voiceRecord?.engine_id ? { engine_id: voiceRecord.engine_id } : {}),
+    ...(voiceRecord?.engine_name ? { engine_name: voiceRecord.engine_name } : {}),
+    ...(voiceRecord?.model_revision_id ? { model_revision_id: voiceRecord.model_revision_id } : {}),
+    ...(voiceRecord?.model_family ? { model_family: voiceRecord.model_family } : {}),
+    ...(voiceRecord?.voice_revision ? { voice_revision: voiceRecord.voice_revision } : {}),
+  }
   const admission = await refreshGenStudioAdmission(apiKey)
   const requestBudget = resolveTtsRequestBudget(ttsModel)
   // The control values this run submits, resolved against THIS model's
@@ -1050,6 +1074,9 @@ export async function generateAudio(job: Job): Promise<void> {
         idempotency_key: idempotencyKey,
         operation: 'tts',
         model_id: genStudioModelId,
+        // What made this exact part: model, voice and the published engine
+        // facts. Read back by the Audio page per take (audio-take-provenance.ts).
+        tts: ttsProvenance,
         last_state: recoveryEntry?.last_state || 'prepared',
       })
       await checkpointGenStudioAsset(job, chunkFilename, {
@@ -1105,6 +1132,7 @@ export async function generateAudio(job: Job): Promise<void> {
             idempotency_key: acceptedIdempotencyKey,
             operation: 'tts',
             model_id: genStudioModelId,
+            tts: ttsProvenance,
             last_state: 'accepted',
           })
           await checkpointGenStudioAsset(job, chunkFilename, {
@@ -1124,6 +1152,7 @@ export async function generateAudio(job: Job): Promise<void> {
             idempotency_key: acceptedKey,
             operation: 'tts',
             model_id: genStudioModelId,
+            tts: ttsProvenance,
             last_state: state,
           })
           await checkpointGenStudioAsset(job, chunkFilename, {
@@ -1657,9 +1686,7 @@ export async function generateAudio(job: Job): Promise<void> {
             source_files: update.sourceFiles,
             recorded_at: new Date().toISOString(),
             tts: {
-              model_id: genStudioModelId,
-              voice_id: req.voice,
-              ...(ttsModel.provider_name ? { provider: ttsModel.provider_name } : {}),
+              ...ttsProvenance,
               ...(Object.keys(update.taskIds).length ? { task_ids: update.taskIds } : {}),
               ...(Object.keys(update.idempotencyKeys).length ? { idempotency_keys: update.idempotencyKeys } : {}),
             },
@@ -1681,6 +1708,10 @@ export async function generateAudio(job: Job): Promise<void> {
       const commitActivation = async () => {
         await commitProvenance()
         await commitNarrationSource()
+        // These names now carry new audio: any rejection recorded against the
+        // bytes that used to hold them no longer describes what is on disk
+        // (owner, 2026-10-26 — a rejection is about a take, not a filename).
+        await forgetTakeRejections(episodeDir, pendingUpdates.flatMap(update => update.sourceFiles)).catch(() => {})
       }
 
       let selectedSources: number | null
