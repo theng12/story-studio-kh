@@ -783,6 +783,35 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       .map((c, i) => tryResolve(c, `chapters[${i}]`) || '')
       .filter(Boolean)
   }
+
+  // Does each chapter last about as long as its script should? Warn — never block.
+  // A take far outside this voice's own accepted rate is the one measurement that
+  // catches gibberish narration without hearing it (DM0018, owner 2026-10-26), but
+  // an unusual reading is still a reading the owner may want: this is evidence, and
+  // the job log is where the Pipeline step shows it. See
+  // services/narration-plausibility.ts.
+  try {
+    const episodeDir = await findEpisodeDir(project_slug, outputRoot, code)
+    if (episodeDir) {
+      const { findNarrationFile } = await import('./audio.js')
+      const narration = await findNarrationFile(project_slug, code)
+      const { inspectNarrationPlausibility } = await import('../services/narration-plausibility.js')
+      const evidence = await inspectNarrationPlausibility({
+        projectSlug: project_slug,
+        projectDir: pm.getProjectDir(project_slug) || '',
+        episodeCode: code,
+        episodeDir,
+        audioDir: path.dirname(req.chapters[0] || validChapters[0]!),
+        scriptDir: path.dirname(narration),
+      })
+      const flagged = Object.entries(evidence).filter(([, row]) => row.state === 'flagged')
+      for (const [slug, row] of flagged) job.output_lines.push(`⚠ ${slug}: reading rate looks wrong. ${row.detail}`)
+      if (flagged.length) {
+        job.output_lines.push(`Audio Assembly continues: ${flagged.length} chapter(s) read far outside this voice's usual rate. Listen to them before publishing.`)
+      }
+    }
+  } catch { /* advisory only — a failed rate check never fails the merge */ }
+
   // Music Pool without a named track (a Pipeline batch): the same pick the page shows, recorded after a good merge.
   if (req.music?.enabled && !req.music_pool_track) {
     const { pickPoolMusic } = await import('../services/music-pool.js')
@@ -1275,7 +1304,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     // timeline that downstream scene/video work reads.
     await refreshAudioQualityTimeline({
       job, projectSlug: project_slug, episodeId: code, episodeDir,
-      audioDir: path.dirname(validChapters[0]!), mergedAudioDir: mergedDir,
+      audioDir: path.dirname(req.chapters[0] || validChapters[0]!), mergedAudioDir: mergedDir,
       scriptDir: path.join(episodeDir, (await resolveSubfolderNames(project_slug, code)).script),
     })
 
