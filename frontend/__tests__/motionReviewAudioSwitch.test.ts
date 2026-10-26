@@ -21,6 +21,9 @@ import { transform } from 'esbuild'
 
 const pagePath = fileURLToPath(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url))
 const pageSource = readFileSync(pagePath, 'utf8')
+// The page uses Nuxt's auto-imported list; this harness compiles the SFC outside Nuxt, so it is
+// injected from the real module rather than restated here.
+const { DEFAULT_EXCLUDE_KEYS } = await import('../composables/usePresets.js')
 
 async function loadPage(): Promise<Component> {
   const { descriptor } = parse(pageSource, { filename: pagePath })
@@ -42,7 +45,8 @@ async function loadPage(): Promise<Component> {
     const useConfirm = () => ({ ask: async () => true })
     const useJobs = () => ({ isJobActiveFor: () => false, jobs: { value: [] } })
     const useGenStudioMediaModels = () => ({ videoModels: globalThis.__mrModels, refresh: async () => {} })
-    const usePresets = options => { globalThis.__mrPreset = options; return {} }
+    const usePresets = options => { globalThis.__mrPreset = options; return { load: async () => undefined } }
+    const DEFAULT_EXCLUDE_KEYS = ${JSON.stringify(DEFAULT_EXCLUDE_KEYS)}
   `
   const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const out = await transform(code, { loader: 'ts', format: 'esm' })

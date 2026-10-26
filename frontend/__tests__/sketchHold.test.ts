@@ -129,8 +129,9 @@ test('an episode change blanks the hold, disables the control until the new answ
 })
 
 test('generation waits for a loaded, readable, applied hold, and says why it is waiting', () => {
-  assert.match(source, /loaded: presentationLoaded\.value && penLoaded\.value && !penUnreadable\.value && holdLoaded\.value && !holdUnreadable\.value && !holdPending\.value/)
-  assert.match(source, /saving: presentationSaving\.value \|\| penSaving\.value \|\| holdSaving\.value/)
+  assert.match(source, /holdLoaded\.value && !holdUnreadable\.value && !holdPending\.value/)
+  assert.match(source, /&& revealLoaded\.value && !revealUnreadable\.value && !revealPending\.value/)
+  assert.match(source, /saving: presentationSaving\.value \|\| penSaving\.value \|\| holdSaving\.value \|\| revealSaving\.value/)
   assert.match(source, /if \(!holdLoaded\.value\) return presentationError\.value \|\| 'Loading Sketch Draw settings'/)
   assert.match(source, /if \(holdUnreadable\.value\) return 'Choose a closing hold'/)
   assert.match(source, /if \(holdPending\.value\) return 'Apply the closing hold, or pick another option'/)

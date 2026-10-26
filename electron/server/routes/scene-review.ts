@@ -54,9 +54,10 @@ import { allowedSubtitleCueGapSec } from '../services/scene-plan-pacing.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
 import { isEpisodeCode, isSketchPenMode, writeEpisodeSketchPen } from '../services/episode-sketch-pen.js'
 import { writeEpisodeSketchHold } from '../services/episode-sketch-hold.js'
+import { writeEpisodeSketchReveal } from '../services/episode-sketch-reveal.js'
 import { parseSketchHold, sketchHoldSelection } from '../lib/sketch-hold.js'
 import { DEFAULT_SKETCH_REVEAL, parseSketchReveal, sketchRevealChoice, type SketchRevealType } from '../lib/sketch-reveal.js'
-import { checkpointSceneClip, invalidateEpisodesFollowingChannelSketch, motionPresentationSelection, resolveEpisodeHold, resolveEpisodePen, resolveSketchDrawSettings, revealTypeFor, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
+import { checkpointSceneClip, invalidateEpisodesFollowingChannelSketch, motionPresentationSelection, resolveEpisodeHold, resolveEpisodePen, resolveEpisodeReveal, resolveSketchDrawSettings, revealTypeFor, sceneClipStaleReason, sceneWindowSeconds, isSceneClipFresh } from '../services/scene-media-checkpoint.js'
 import { readChannelProfileAsset } from '../services/channel-profile.js'
 import { resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
@@ -364,7 +365,8 @@ router.put('/projects/:slug/motion-presentation', async (req, res) => {
       hold = parsed.hold
     }
     // The reveal style rides here too, and `null` is a real value: it means the channel has never
-    // chosen one, which is what keeps clips rendered before the control existed fresh.
+    // chosen one, which is what keeps clips rendered before the control existed fresh. It is only
+    // the STARTING default for an episode that has none of its own.
     let reveal = config.motion_presentation?.reveal
     if (req.body?.reveal !== undefined) {
       if (req.body.reveal === null) reveal = undefined
@@ -377,8 +379,8 @@ router.put('/projects/:slug/motion-presentation', async (req, res) => {
     if (!await pm.updateConfig(req.params.slug, { motion_presentation: { renderer, pen, ...(hold ? { hold } : {}), ...(reveal ? { reveal } : {}) } } as any)) {
       return res.status(404).json({ detail: 'Channel not found' })
     }
-    // Episodes without their own pen or hold follow these defaults, and their cached status does not
-    // see config.json move. The reveal style has no per-episode override, so every episode is touched.
+    // Episodes without their own pen, hold or reveal follow these defaults, and their cached status
+    // does not see config.json move. Each one touches only the episodes that follow it.
     await invalidateEpisodesFollowingChannelSketch(req.params.slug, {
       pen: pen !== motionPresentationSelection(config.motion_presentation).pen,
       hold: JSON.stringify(hold ?? null) !== JSON.stringify(config.motion_presentation?.hold ?? null),
@@ -448,6 +450,40 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-hold', async (req, re
     await writeEpisodeSketchHold(slug, episodeId, hold)
     await invalidateEpisodeStatus(slug, episodeId)
     res.json(await resolveEpisodeHold(slug, episodeId))
+  } catch (error: any) { res.status(409).json({ detail: error.message }) }
+})
+
+// An episode's own reveal style, beside its pen and hold. `reveal: null` returns the episode to
+// the channel default. Only this episode's clips whose resolved type moves go stale.
+router.get('/projects/:slug/scene-review/:episodeId/motion-reveal', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!isEpisodeCode(episodeId)) return res.status(400).json({ detail: 'Choose a valid episode.' })
+  try {
+    res.json(await resolveEpisodeReveal(slug, episodeId))
+  } catch (error: any) {
+    // As for the pen and hold: an unreadable file must not lock the control. The effective reveal is
+    // unknown, never "not chosen".
+    const config = await pm.getConfig(slug).catch(() => null)
+    if (!config) return res.status(409).json({ detail: error.message })
+    let channel_reveal: ReturnType<typeof sketchRevealChoice>
+    try { channel_reveal = sketchRevealChoice(config.motion_presentation?.reveal) }
+    catch { return res.status(409).json({ detail: error.message }) }
+    res.json({ reveal: null, reveal_source: 'unreadable', episode_reveal: null, channel_reveal, error: error.message })
+  }
+})
+router.put('/projects/:slug/scene-review/:episodeId/motion-reveal', async (req, res) => {
+  try {
+    const { slug, episodeId } = req.params
+    if (!isEpisodeCode(episodeId)) return res.status(400).json({ detail: 'Choose a valid episode.' })
+    const reveal = req.body?.reveal
+    if (reveal === undefined) return res.status(400).json({ detail: 'Choose a reveal style, or null to use the channel default.' })
+    if (reveal !== null) {
+      const parsed = parseSketchReveal(reveal)
+      if (!parsed.ok) return res.status(400).json({ detail: parsed.error })
+    }
+    await writeEpisodeSketchReveal(slug, episodeId, reveal)
+    await invalidateEpisodeStatus(slug, episodeId)
+    res.json(await resolveEpisodeReveal(slug, episodeId))
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
 

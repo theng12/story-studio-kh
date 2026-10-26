@@ -2199,9 +2199,10 @@ export interface MotionPresentationSettings {
   /** The channel DEFAULT closing hold; an episode may carry its own (`sketch_hold.json`). Absent means auto. */
   hold?: SketchHoldSetting
   /**
-   * How the finished drawing arrives — one style, or a Mix resolved per scene. Channel-wide
-   * reusable configuration, never episode state. ABSENT means the channel has never chosen one,
-   * which is what keeps every clip rendered before this control existed fresh.
+   * How the finished drawing arrives — one style, or a Mix resolved per scene. This is the
+   * CHANNEL DEFAULT only: an episode that has chosen its own reveal (in its own
+   * `sketch_reveal.json`) ignores it. ABSENT means the channel has never chosen one, which is what
+   * keeps every clip rendered before this control existed fresh.
    */
   reveal?: SketchRevealSetting
 }

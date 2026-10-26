@@ -181,12 +181,14 @@ test('skip reasons are named and the per-scene Generate action respects the anim
   assert.match(source, /function sceneTooShort\(scene: MotionScene\)/)
 })
 
-test('the reveal style control is channel-wide, has a not-chosen option, and a Mix waits for Apply', () => {
-  // The select is scoped to Sketch Draw and is channel-wide (no per-episode override).
-  assert.match(source, /<span>Reveal style<\/span>/)
-  assert.match(source, /<select v-model="revealChoice"[^>]*aria-label="Sketch Draw reveal style"/)
-  // "Not chosen" means every existing clip keeps its recorded reveal — distinct from a saved style.
-  assert.match(source, /<option value="">Not chosen \(clips keep the reveal they have\)<\/option>/)
+test('the reveal style control edits THIS episode, offers the channel default, and a Mix waits for Apply', () => {
+  // The select is scoped to Sketch Draw and labelled as this episode's own setting.
+  assert.match(source, /<span>Reveal style for \{\{ episodeId \}\}<\/span>/)
+  assert.match(source, /<select v-model="revealChoice"[^>]*aria-label="Sketch Draw reveal style for this episode"/)
+  // Following the channel again is its own option, as for the pen and hold. There is no separate
+  // "not chosen" episode value: an episode with no style of its own IS following the channel.
+  assert.match(source, /<option value="channel">Channel default \(\{\{ revealLabel\(channelReveal\) \}\}\)<\/option>/)
+  assert.doesNotMatch(source, /<option value="none">Not chosen/)
   // Each of the five styles is offered by name through a v-for loop.
   assert.match(source, /<option v-for="type in REVEAL_TYPES" :key="type" :value="type">\{\{ REVEAL_LABELS\[type\] \}\}<\/option>/)
   assert.match(source, /<option value="mix">Mix — a different style per scene<\/option>/)
@@ -195,27 +197,57 @@ test('the reveal style control is channel-wide, has a not-chosen option, and a M
   assert.match(source, /<label v-for="type in REVEAL_TYPES"[^>]*class="reveal-mix-item">/)
   assert.match(source, /<input v-model="revealMixDraft" type="checkbox" :value="type"/)
   assert.match(source, /@click="applyReveal">Apply mix<\/button>/)
-  // A single style and "not chosen" save at once; a Mix waits for Apply.
+  // A single style and "follow the channel" save at once; a Mix waits for Apply.
   const onChoice = fn('onRevealChoice')
   assert.match(onChoice, /if \(revealChoice\.value === 'mix'\)/)
+  assert.match(onChoice, /if \(revealChoice\.value === 'channel'\) \{ void saveReveal\(null\); return \}/)
   assert.match(onChoice, /const parsed = revealFromDraft\(revealChoice\.value, \[\]\)/)
   assert.match(onChoice, /if \(parsed\.ok\) void saveReveal\(parsed\.reveal\)/)
   const apply = fn('applyReveal')
   assert.match(apply, /const parsed = revealFromDraft\('mix', revealMixDraft\.value\)/)
-  assert.match(apply, /void saveReveal\(parsed\.reveal\)/)
-  // The save carries the renderer (required by the route) and sends the reveal value.
+  assert.match(apply, /void saveReveal\(/)
+  // A Mix edit keeps this episode's own per-scene pins.
+  assert.match(apply, /const overrides = episodeReveal\.value\?\.overrides/)
+  // The save is THIS episode's, never the channel's.
   const save = fn('saveReveal')
-  assert.match(save, /await put\(`\/projects\/\$\{slug\.value\}\/motion-presentation`, \{ renderer: clipRenderer\.value, reveal: next \}\)/)
-  assert.match(save, /revealSetting\.value = next/)
-  assert.match(save, /revealChoice\.value = revealChoiceOf\(next\)/)
-  // The state is channel-wide: it never blanks on an episode change.
+  assert.match(save, /const ep = episodeId\.value/)
+  assert.match(save, /scene-review\/\$\{encodeURIComponent\(ep\)\}\/motion-reveal`, \{ reveal: next \}/)
+  assert.match(save, /if \(ep !== episodeId\.value\) return/, 'a late answer never lands on the next episode')
+  assert.match(save, /episodeReveal\.value = next/)
+  assert.match(save, /revealChoice\.value = acceptedRevealChoice\(\)/)
+  // The state is episode-scoped: an episode change blanks it.
   const reset = fn('resetEpisodeScopedMotionState')
-  assert.doesNotMatch(reset, /revealSetting\.value =/)
-  assert.doesNotMatch(reset, /revealChoice\.value =/)
-  assert.doesNotMatch(reset, /revealMixDraft\.value =/)
-  // Each scene row shows the style it actually drew with.
-  assert.match(source, /<p v-if="isSketchDraw && scene\.reveal_type" class="reveal-note">Reveal: \{\{ REVEAL_LABELS\[scene\.reveal_type\] \}\}<\/p>/)
-  // The help line names the current channel setting and the stale-clip rule.
+  assert.match(reset, /episodeReveal\.value = null/)
+  assert.match(reset, /revealChoice\.value = 'channel'/)
+  assert.match(reset, /revealMixDraft\.value = revealMixFor\(null\)/)
+  assert.match(reset, /revealLoaded\.value = false/)
+  assert.match(reset, /revealSaving\.value = false/)
+  assert.match(reset, /revealUnreadable\.value = ''/)
+  assert.match(source, /watch\(episodeId, \(\) => \{[\s\S]*resetEpisodeScopedMotionState\(\)[\s\S]*void loadEpisodeReveal\(\)/)
+  const load = fn('loadEpisodeReveal')
+  assert.match(load, /if \(ep !== episodeId\.value\) return/)
+  assert.match(load, /scene-review\/\$\{encodeURIComponent\(ep\)\}\/motion-reveal`/)
+  assert.match(load, /episodeReveal\.value = result\.episode_reveal/)
+  assert.match(load, /channelReveal\.value = result\.channel_reveal/)
+  assert.match(load, /revealUnreadable\.value = result\.error \|\| ''/)
+  // It says whose reveal is in force, in both directions.
+  assert.match(source, /\{\{ episodeId \}\} uses its own reveal: \{\{ revealLabel\(episodeReveal\) \}\}\. Other episodes are not affected\./)
+  assert.match(source, /\{\{ episodeId \}\} follows the channel default reveal: \{\{ revealLabel\(channelReveal\) \}\}/)
   assert.match(source, /No reveal style chosen, so clips keep the reveal they were made with\./)
   assert.match(source, /Clips made before this setting keep their reveal until you re-generate them\./)
+  // Each scene row shows the style it actually drew with.
+  assert.match(source, /<p v-if="isSketchDraw && scene\.reveal_type" class="reveal-note">Reveal: \{\{ REVEAL_LABELS\[scene\.reveal_type\] \}\}<\/p>/)
+})
+
+test('the reveal look travels in the preset and the per-scene pins never do', () => {
+  const start = source.indexOf('const motionPresets = usePresets(')
+  const snapshot = source.slice(start, source.indexOf('\n  apply:', start))
+  // `overrides` holds this episode's per-scene pins; the default identity keys are spread back in
+  // because `excludeKeys` REPLACES the default list rather than extending it.
+  assert.match(source, /excludeKeys: \[\.\.\.DEFAULT_EXCLUDE_KEYS, 'overrides'\]/)
+  assert.ok(snapshot.includes('revealForPreset(episodeReveal.value)'), 'the look is captured')
+  const apply = source.slice(source.indexOf('\n  apply:', start))
+  // The live pins are carried across the apply explicitly, and only once this episode is known.
+  assert.match(apply, /if \(revealLoaded\.value\) \{[\s\S]*applyRevealPreset\(data\?\.reveal, episodeReveal\.value\)/)
+  assert.match(apply, /void saveReveal\(nextReveal\)/)
 })

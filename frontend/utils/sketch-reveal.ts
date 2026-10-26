@@ -4,8 +4,9 @@
  * the same resolver); this only turns what the customer picked into a setting, or a plain sentence
  * saying what to fix, before anything is sent.
  *
- * The style is channel-wide reusable configuration with NO episode-level override, so unlike the
- * pen and the hold there is nothing here about "this episode's own" value.
+ * The style is THIS EPISODE's, stored beside its pen and hold; the channel value is only the
+ * starting default for an episode that has none. Per-scene pins are keyed by scene id, so they are
+ * episode state and are excluded from presets (AGENTS.md §5).
  */
 export const REVEAL_TYPES = ['line', 'buildup', 'swipes', 'patches', 'bloom'] as const
 export type SketchRevealType = (typeof REVEAL_TYPES)[number]
@@ -15,7 +16,7 @@ export interface SketchReveal {
   style: SketchRevealStyle
   /** Read only when `style` is `mix`: 2–5 distinct types. */
   mix: SketchRevealType[]
-  /** Optional per-scene pins, keyed by scene id. Editable only through the API today. */
+  /** Optional per-scene pins, keyed by scene id. Episode-specific, so never saved into a preset. */
   overrides?: Record<string, SketchRevealType>
 }
 
@@ -54,4 +55,30 @@ export function revealMixDraft(reveal: SketchReveal | null): SketchRevealType[] 
 /** Which select option a stored setting shows. */
 export function revealChoiceOf(reveal: SketchReveal | null): RevealChoice {
   return reveal ? reveal.style : ''
+}
+
+/**
+ * The look a Motion Review preset may carry: the style and the mix set, never the per-scene pins.
+ * A pin names one episode's scene ids, so a preset that stored them would hand them to whichever
+ * episode is open next (AGENTS.md §4/§5).
+ */
+export function revealForPreset(reveal: SketchReveal | null): { style: SketchRevealStyle; mix: SketchRevealType[] } | null {
+  return reveal ? { style: reveal.style, mix: [...reveal.mix] } : null
+}
+
+/**
+ * Apply a preset's stored look to THIS episode's live reveal, keeping the episode's own pins.
+ *
+ * `usePresets` strips excluded keys on READ as well as write, so the pins are already gone from
+ * `data` — which is why they are carried across explicitly from the live value rather than trusted
+ * to survive the merge. A preset with no stored style leaves the live reveal alone.
+ */
+export function applyRevealPreset(data: unknown, live: SketchReveal | null): SketchReveal | null {
+  const stored = (data ?? null) as Partial<SketchReveal> | null
+  // A style that is not one of ours is a corrupt preset, not a value to send: the server would
+  // refuse it and the page would sit in an error state over a look nobody chose.
+  if (!stored || typeof stored.style !== 'string' || ![...REVEAL_TYPES, 'mix'].includes(stored.style)) return live
+  const parsed = revealFromDraft(stored.style, Array.isArray(stored.mix) ? stored.mix : [])
+  if (!parsed.ok || !parsed.reveal) return live
+  return live?.overrides ? { ...parsed.reveal, overrides: { ...live.overrides } } : parsed.reveal
 }

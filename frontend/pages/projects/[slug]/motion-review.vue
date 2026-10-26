@@ -144,9 +144,10 @@
             Make this the channel default hold
           </button>
           <label v-if="isSketchDraw" class="model-field renderer-field">
-            <span>Reveal style</span>
-            <select v-model="revealChoice" class="select" :disabled="!revealLoaded || revealSaving" aria-label="Sketch Draw reveal style" aria-describedby="sketch-reveal-help" @change="onRevealChoice">
-              <option value="">Not chosen (clips keep the reveal they have)</option>
+            <span>Reveal style for {{ episodeId }}</span>
+            <select v-model="revealChoice" class="select" :disabled="!revealLoaded || revealSaving" aria-label="Sketch Draw reveal style for this episode" aria-describedby="sketch-reveal-help" @change="onRevealChoice">
+              <option v-if="revealUnreadable" value="" disabled>Choose a reveal style…</option>
+              <option value="channel">Channel default ({{ revealLabel(channelReveal) }})</option>
               <option v-for="type in REVEAL_TYPES" :key="type" :value="type">{{ REVEAL_LABELS[type] }}</option>
               <option value="mix">Mix — a different style per scene</option>
             </select>
@@ -158,11 +159,16 @@
             </label>
             <button type="button" class="btn btn-sm" :disabled="revealSaving || !revealPending" @click="applyReveal">Apply mix</button>
           </div>
+          <button v-if="isSketchDraw && revealLoaded && episodeReveal && JSON.stringify(episodeReveal) !== JSON.stringify(channelReveal)" type="button" class="btn btn-sm btn-ghost" :disabled="revealSaving || presentationSaving" @click="setChannelRevealDefault">
+            Make this the channel default reveal
+          </button>
           <p v-if="isSketchDraw" id="sketch-reveal-help" class="renderer-help" role="status">
-            How each scene's finished drawing arrives. This is the channel's setting, so every episode uses it; each scene records the style it actually drew with, so changing it re-generates only the scenes whose style moved.
-            <span v-if="!revealLoaded">Loading this channel's reveal style.</span>
-            <span v-else-if="!revealSetting">No reveal style chosen, so clips keep the reveal they were made with.</span>
-            <span v-else>This channel draws with {{ revealLabel(revealSetting) }}.</span>
+            How each scene's finished drawing arrives. This is {{ episodeId }}'s setting; other episodes are not affected. Each scene records the style it actually drew with, so changing it re-generates only the scenes whose style moved.
+            <span v-if="!revealLoaded">Loading this episode's reveal style.</span>
+            <span v-else-if="revealUnreadable">{{ revealUnreadable }} Choose a reveal style to replace it; Sketch Draw waits until you do.</span>
+            <span v-else-if="episodeReveal">{{ episodeId }} uses its own reveal: {{ revealLabel(episodeReveal) }}. Other episodes are not affected.</span>
+            <span v-else-if="channelReveal">{{ episodeId }} follows the channel default reveal: {{ revealLabel(channelReveal) }}. Choosing a reveal here changes only {{ episodeId }}.</span>
+            <span v-else>No reveal style chosen, so clips keep the reveal they were made with.</span>
             <span v-if="revealChoice === 'mix'">Each scene gets one of the picked styles, the same every time it is re-generated, and never the same style as the scene before it.</span>
             <span v-if="revealPending">Not applied yet. Apply the mix, or pick another option.</span>
             <span v-if="revealError" class="stale-note" role="alert">{{ revealError }}</span>
@@ -446,7 +452,7 @@ import { variantsForVideoOperation } from '~/utils/genstudio-video-variants'
 import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModels'
 import { motionBatchEligible, sketchSelectionReady } from '~/utils/motion-review-sketch'
 import { HOLD_MAX_SECONDS, holdDrafts, holdFromDraft, holdLabel, type HoldChoice, type HoldDrafts, type SketchHold } from '~/utils/sketch-hold'
-import { REVEAL_LABELS, REVEAL_TYPES, revealChoiceOf, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, type RevealChoice, type SketchReveal, type SketchRevealType } from '~/utils/sketch-reveal'
+import { REVEAL_LABELS, REVEAL_TYPES, applyRevealPreset, revealChoiceOf, revealForPreset, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, type SketchReveal, type SketchRevealStyle, type SketchRevealType } from '~/utils/sketch-reveal'
 
 // usePresets captures the project slug at setup. Recreate this page for a
 // project navigation so controls and scene state cannot carry into another project.
@@ -566,20 +572,28 @@ const holdPending = computed(() => {
   const parsed = holdFromDraft(holdChoice.value, holdDraft.value)
   return !parsed.ok || JSON.stringify(parsed.hold) !== JSON.stringify(episodeHold.value)
 })
-// The reveal style is the channel's, not this episode's: there is no per-episode override to load,
-// so it never blanks on an episode change and one choice covers every episode.
-const revealSetting = ref<SketchReveal | null>(null)
-const revealChoice = ref<RevealChoice>('')
+// The reveal follows the pen's and hold's pattern: a channel default, and this episode's own when
+// it has one. The reveal that renders is the episode's, else the channel's; the server resolves it
+// the same way for freshness, generation and Assembly.
+const channelReveal = ref<SketchReveal | null>(null)
+const episodeReveal = ref<SketchReveal | null>(null)
+// `'channel'` follows the channel default; a style (or `'mix'`) is this episode's own; `''` is the
+// placeholder shown while the saved file is unreadable.
+const revealChoice = ref<'' | 'channel' | SketchRevealStyle>('channel')
 const revealMixDraft = ref<SketchRevealType[]>(revealMixFor(null))
 const revealLoaded = ref(false)
 const revealSaving = ref(false)
+// Set when this episode's saved reveal file cannot be read: the effective reveal is then unknown,
+// never "not chosen".
+const revealUnreadable = ref('')
 const revealError = ref('')
-const acceptedRevealChoice = (): RevealChoice => revealChoiceOf(revealSetting.value)
+const acceptedRevealChoice = (): typeof revealChoice.value =>
+  revealUnreadable.value ? '' : episodeReveal.value ? revealChoiceOf(episodeReveal.value) : 'channel'
 // A Mix waits for Apply; this is true while what is shown is not what is saved.
 const revealPending = computed(() => {
   if (revealChoice.value !== 'mix') return false
   const parsed = revealFromDraft('mix', revealMixDraft.value)
-  return !parsed.ok || JSON.stringify(parsed.reveal) !== JSON.stringify(revealSetting.value)
+  return !parsed.ok || JSON.stringify(parsed.reveal) !== JSON.stringify(episodeReveal.value)
 })
 const channelName = ref('')
 const channelHasLogo = ref(false)
@@ -594,10 +608,7 @@ async function loadMotionPresentation() {
     channelPen.value = result.pen
     if (result.hold) channelHold.value = result.hold
     // Absent and null both mean "never chosen"; a stored value that cannot be read is a server error.
-    revealSetting.value = result.reveal ?? null
-    revealChoice.value = revealChoiceOf(revealSetting.value)
-    revealMixDraft.value = revealMixFor(revealSetting.value)
-    revealLoaded.value = true
+    channelReveal.value = result.reveal ?? null
     channelName.value = result.channel_name
     channelHasLogo.value = result.has_logo
     acceptedRenderer = result.renderer
@@ -689,35 +700,58 @@ function applyHold() {
   holdError.value = ''
   void saveEpisodeHold(parsed.hold)
 }
-// One save for the whole channel; `null` clears it, which is what keeps existing clips fresh.
+// AGENTS.md §4: the reveal belongs to one episode. A late answer for the previous episode is dropped.
+async function loadEpisodeReveal() {
+  const ep = episodeId.value
+  if (!ep) return
+  try {
+    const result = await get<{ episode_reveal: SketchReveal | null; channel_reveal: SketchReveal | null; error?: string }>(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-reveal`)
+    if (ep !== episodeId.value) return
+    episodeReveal.value = result.episode_reveal
+    channelReveal.value = result.channel_reveal
+    revealUnreadable.value = result.error || ''
+    revealChoice.value = acceptedRevealChoice()
+    revealMixDraft.value = revealMixFor(result.episode_reveal)
+    revealLoaded.value = true
+  } catch (error: any) {
+    if (ep === episodeId.value) presentationError.value = error?.data?.detail || error?.message || `Could not load the reveal style for ${ep}. Switch episodes and back to retry.`
+  }
+}
+// This episode's reveal, or null to follow the channel default again.
 async function saveReveal(next: SketchReveal | null) {
+  const ep = episodeId.value
   revealSaving.value = true
   revealError.value = ''
   presentationError.value = ''
   try {
-    // The renderer is required by the route and must not move, so the reveal save carries the current one.
-    await put(`/projects/${slug.value}/motion-presentation`, { renderer: clipRenderer.value, reveal: next })
-    revealSetting.value = next
-    revealChoice.value = revealChoiceOf(next)
+    await put(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-reveal`, { reveal: next })
+    if (ep !== episodeId.value) return
+    episodeReveal.value = next
+    revealUnreadable.value = ''
+    revealChoice.value = acceptedRevealChoice()
     revealMixDraft.value = revealMixFor(next)
     success(next
-      ? `Sketch Draw reveal is now ${revealLabel(next)}. Scenes whose style changed need re-generating; the rest are kept.`
-      : 'Sketch Draw reveal is not chosen. Every clip keeps the reveal it was made with.')
+      ? `Sketch Draw reveal for ${ep} is now ${revealLabel(next)}. Scenes whose style changed need re-generating; the rest are kept.`
+      : `${ep} follows the channel default reveal again. Its clips keep the reveal they were made with until you re-generate them.`)
     await loadReview()
   } catch (error: any) {
+    if (ep !== episodeId.value) return
     revealChoice.value = acceptedRevealChoice()
-    revealMixDraft.value = revealMixFor(revealSetting.value)
-    revealError.value = error?.data?.detail || error?.message || 'Could not save the reveal style. Try again.'
+    revealMixDraft.value = revealMixFor(episodeReveal.value)
+    revealError.value = error?.data?.detail || error?.message || `Could not save the reveal style for ${ep}. Try again.`
     showError(revealError.value)
-  } finally { revealSaving.value = false }
+  } finally { if (ep === episodeId.value) revealSaving.value = false }
 }
-// A single style and "not chosen" need no picking, so they save at once; a Mix waits for Apply.
+// A single style and "follow the channel" need no picking, so they save at once; a Mix waits for Apply.
 function onRevealChoice() {
+  // The unreadable-file placeholder is not a choice; nothing to save until a real style is picked.
+  if (!revealChoice.value) return
   revealError.value = ''
   if (revealChoice.value === 'mix') {
-    revealMixDraft.value = revealMixFor(revealSetting.value)
+    revealMixDraft.value = revealMixFor(episodeReveal.value)
     return
   }
+  if (revealChoice.value === 'channel') { void saveReveal(null); return }
   const parsed = revealFromDraft(revealChoice.value, [])
   if (parsed.ok) void saveReveal(parsed.reveal)
 }
@@ -725,7 +759,33 @@ function applyReveal() {
   const parsed = revealFromDraft('mix', revealMixDraft.value)
   if ('error' in parsed) { revealError.value = parsed.error; return }
   revealError.value = ''
-  void saveReveal(parsed.reveal)
+  // The episode's own pins are editorial choices about THIS episode; a Mix edit must not drop them.
+  const overrides = episodeReveal.value?.overrides
+  void saveReveal(parsed.reveal && overrides ? { ...parsed.reveal, overrides: { ...overrides } } : parsed.reveal)
+}
+// Deliberate: moves the channel default, so episodes without a reveal of their own follow it.
+async function setChannelRevealDefault() {
+  const ep = episodeId.value
+  const reveal = episodeReveal.value
+  if (!reveal) return
+  if (!await ask({
+    title: 'Make this the channel default reveal?',
+    message: `Episodes without their own reveal will use ${revealLabel(reveal)}; their Sketch Draw clips whose style changes will need re-generating. ${ep} and episodes with their own reveal are not affected.`,
+    confirmLabel: 'Make channel default',
+  })) return
+  presentationSaving.value = true
+  presentationError.value = ''
+  try {
+    // Per-scene pins name this episode's scenes, so they never become a channel default.
+    const look = revealForPreset(reveal)!
+    await put(`/projects/${slug.value}/motion-presentation`, { renderer: clipRenderer.value, reveal: look })
+    channelReveal.value = look
+    success(`Channel default reveal is now ${revealLabel(reveal)}. Episodes without their own reveal follow it.`)
+    if (ep === episodeId.value) await loadReview()
+  } catch (error: any) {
+    presentationError.value = error?.data?.detail || error?.message || 'Could not save the channel default reveal. Try again.'
+    showError(presentationError.value)
+  } finally { presentationSaving.value = false }
 }
 // Deliberate: moves the channel default, so episodes without a hold of their own re-render under it.
 async function setChannelHoldDefault() {
@@ -812,6 +872,13 @@ const motionPresets = usePresets({
   slug: slug.value,
   configKey: 'motion_review',
   presetType: 'motion-review',
+  // Applying a preset moves THIS episode's reveal, so it is never applied by arriving on the page:
+  // that is the 2026-08-03 shape (a stored look silently replacing the one the owner chose). The
+  // preset is applied only when the owner clicks Apply.
+  autoApplyOnLoad: false,
+  // `overrides` holds this episode's per-scene pins, keyed by scene id: a preset must not carry
+  // them onto another episode (AGENTS.md §4/§5). The style and mix DO travel — they are the look.
+  excludeKeys: [...DEFAULT_EXCLUDE_KEYS, 'overrides'],
   snapshot: () => ({
     model: videoModel.value,
     aspect_ratio: selectedAspectRatio.value || undefined,
@@ -823,6 +890,8 @@ const motionPresets = usePresets({
     // published name, and the pipeline resolves it against the model that will run: a
     // preset applied to a model without that switch simply carries nothing.
     ...(Object.keys(switchChoices.value).length ? { switches: { ...switchChoices.value } } : {}),
+    // The reveal look (style + mix) travels; `revealForPreset` drops the pins explicitly.
+    ...(revealForPreset(episodeReveal.value) ? { reveal: revealForPreset(episodeReveal.value) } : {}),
   }),
   apply: (data: any) => {
     // A retired model is never restored: the field is emptied and the picker offers a live model, if any.
@@ -843,6 +912,13 @@ const motionPresets = usePresets({
     manualDurationSeconds.value = Number.isFinite(Number(data?.duration_seconds)) ? Number(data.duration_seconds) : null
     manualDurationDraft.value = manualDurationSeconds.value === null ? '' : String(manualDurationSeconds.value)
     durationMode.value = data?.duration_mode === 'follow_narration' ? 'follow_narration' : 'manual'
+    // The reveal look is applied to THIS episode: its own pins are carried across the apply
+    // explicitly, because `excludeKeys` strips them from `data` on the way in as well as out.
+    // Only once this episode's own reveal is known, so an apply never races its load and blanks it.
+    if (revealLoaded.value) {
+      const nextReveal = applyRevealPreset(data?.reveal, episodeReveal.value)
+      if (JSON.stringify(nextReveal) !== JSON.stringify(episodeReveal.value)) void saveReveal(nextReveal)
+    }
   },
 })
 
@@ -1252,8 +1328,9 @@ const scenePlanMotionLink = computed(() => `/projects/${slug.value}/scene-plan?e
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))
 const selectionReady = computed(() => isSketchDraw.value
-  ? sketchSelectionReady({ loaded: presentationLoaded.value && penLoaded.value && !penUnreadable.value && holdLoaded.value && !holdUnreadable.value && !holdPending.value,
-      saving: presentationSaving.value || penSaving.value || holdSaving.value,
+  ? sketchSelectionReady({ loaded: presentationLoaded.value && penLoaded.value && !penUnreadable.value && holdLoaded.value && !holdUnreadable.value && !holdPending.value
+      && revealLoaded.value && !revealUnreadable.value && !revealPending.value,
+      saving: presentationSaving.value || penSaving.value || holdSaving.value || revealSaving.value,
       pen: sketchPen.value, hasLogo: channelHasLogo.value })
   : !!selectedResolution.value
   && availableAspectRatios.value.includes(selectedAspectRatio.value)
@@ -1270,6 +1347,9 @@ const generateStatus = computed(() => {
     if (!holdLoaded.value) return presentationError.value || 'Loading Sketch Draw settings'
     if (holdUnreadable.value) return 'Choose a closing hold'
     if (holdPending.value) return 'Apply the closing hold, or pick another option'
+    if (!revealLoaded.value) return presentationError.value || 'Loading Sketch Draw settings'
+    if (revealUnreadable.value) return 'Choose a reveal style'
+    if (revealPending.value) return 'Apply the reveal mix, or pick another option'
     if (!selectionReady.value) return 'Choose an available pen'
     return eligibleClipCount.value ? `${eligibleClipCount.value} missing or stale clips ready for Sketch Draw on this Mac` : 'No approved missing or stale clips are waiting for Sketch Draw'
   }
@@ -1557,6 +1637,9 @@ function scrollToTop(): void {
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
   void loadMotionPresentation()
+  // The preset list and last-used choice; `autoApplyOnLoad: false` above means this never re-applies
+  // a stored look over the one this episode already has.
+  void motionPresets.load()
   void refreshGenStudioMediaModels()
   refreshTimer = setInterval(() => {
     if (clipJobsActive.value && !loading.value) void loadReview()
@@ -1634,6 +1717,14 @@ function resetEpisodeScopedMotionState() {
   holdSaving.value = false
   holdUnreadable.value = ''
   holdError.value = ''
+  // Likewise the reveal, whose per-scene pins belong to one episode too.
+  episodeReveal.value = null
+  revealChoice.value = 'channel'
+  revealMixDraft.value = revealMixFor(null)
+  revealLoaded.value = false
+  revealSaving.value = false
+  revealUnreadable.value = ''
+  revealError.value = ''
 }
 
 watch(episodeId, () => {
@@ -1642,6 +1733,7 @@ watch(episodeId, () => {
   void loadReview()
   void loadEpisodePen()
   void loadEpisodeHold()
+  void loadEpisodeReveal()
 }, { immediate: true })
 </script>
 

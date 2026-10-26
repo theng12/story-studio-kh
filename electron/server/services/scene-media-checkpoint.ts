@@ -17,6 +17,7 @@ import { readChannelProfileAsset } from './channel-profile.js'
 import type { MotionPresentationSettings, ProjectConfig, ScenePlan, ScenePlanEntry, SketchDrawPenMode } from '../models/types.js'
 import { EpisodeSettingFileUnreadable, readEpisodeSketchPen } from './episode-sketch-pen.js'
 import { readEpisodeSketchHold } from './episode-sketch-hold.js'
+import { readEpisodeSketchReveal } from './episode-sketch-reveal.js'
 import { sceneReviewAutoApproveOn } from './preset-authority.js'
 import * as pm from './project-manager.js'
 
@@ -50,10 +51,11 @@ export interface SketchDrawSettings {
   hold: SketchHoldSetting
   holdFingerprint: string
   /**
-   * The channel's reveal style, or null when it has never been chosen. Null is not "use the default":
-   * a channel that has asked for nothing cannot disagree with the reveal its clips already have, so
-   * clips rendered before this control existed stay fresh. What is PERSISTED is the choice; the
-   * type each scene resolves to is derived, per scene, from the episode's own ordered scene ids.
+   * The reveal style this episode renders with: its own, else the channel's, or null when neither
+   * has ever been chosen. Null is not "use the default": a channel and an episode that have asked
+   * for nothing cannot disagree with the reveal its clips already have, so clips rendered before
+   * this control existed stay fresh. What is PERSISTED is the choice; the type each scene resolves
+   * to is derived, per scene, from the episode's own ordered scene ids.
    */
   reveal: SketchRevealSetting | null
   revealFingerprint: string
@@ -93,18 +95,36 @@ export async function resolveEpisodeHold(slug: string, episodeId: string, loaded
   return { hold: episode_hold ?? channel_hold, hold_source: episode_hold ? 'episode' : 'channel', episode_hold, channel_hold }
 }
 
+export interface EpisodeRevealChoice {
+  /** The reveal this episode renders with: its own when it has one, else the channel's, else null (never chosen). */
+  reveal: SketchRevealSetting | null
+  reveal_source: 'episode' | 'channel' | 'none'
+  episode_reveal: SketchRevealSetting | null
+  channel_reveal: SketchRevealSetting | null
+}
+
+/** The one place an episode's effective reveal style is decided, as `resolveEpisodePen` is for the pen. */
+export async function resolveEpisodeReveal(slug: string, episodeId: string, loaded?: ProjectConfig | null): Promise<EpisodeRevealChoice> {
+  const config = loaded ?? await pm.getConfig(slug)
+  if (!config) throw new Error('Channel configuration is unavailable.')
+  const channel_reveal = sketchRevealChoice(config.motion_presentation?.reveal)
+  const episode_reveal = await readEpisodeSketchReveal(slug, episodeId)
+  const reveal = episode_reveal ?? channel_reveal
+  return { reveal, reveal_source: episode_reveal ? 'episode' : channel_reveal ? 'channel' : 'none', episode_reveal, channel_reveal }
+}
+
 /**
  * A channel default for the pen, hold or reveal just changed: drop the cached status of every
- * episode whose readiness it can move, so Motion Review reads it again. An episode with its own pen
- * or hold is untouched by a pen or hold change, as are its clips. A reveal style is channel-wide
- * reusable configuration with no episode-level override, so changing it touches EVERY episode.
+ * episode whose readiness it can move, so Motion Review reads it again. An episode with its own pen,
+ * hold or reveal is untouched by a change to that setting, as are its clips.
  */
 export async function invalidateEpisodesFollowingChannelSketch(slug: string, changed: { pen: boolean; hold: boolean; reveal?: boolean }): Promise<void> {
   if (!changed.pen && !changed.hold && !changed.reveal) return
   const { episodeStatusCache } = await import('./episode-status-cache.js')
   await episodeStatusCache.invalidateWhere(slug, async code =>
-    changed.reveal === true || (changed.pen && await readEpisodeSketchPen(slug, code) === null)
-    || (changed.hold && await readEpisodeSketchHold(slug, code) === null))
+    (changed.pen && await readEpisodeSketchPen(slug, code) === null)
+    || (changed.hold && await readEpisodeSketchHold(slug, code) === null)
+    || (changed.reveal === true && await readEpisodeSketchReveal(slug, code) === null))
 }
 
 /** Frames of closing hold for one scene of an episode under these settings; the freshness rule and the generator share it. */
@@ -118,7 +138,7 @@ export async function resolveSketchDrawSettings(slug: string, episodeId: string)
   if (!config) throw new Error('Channel configuration is unavailable.')
   const mode = (await resolveEpisodePen(slug, episodeId, config)).pen
   const { hold } = await resolveEpisodeHold(slug, episodeId, config)
-  const reveal = sketchRevealChoice(config.motion_presentation?.reveal)
+  const { reveal } = await resolveEpisodeReveal(slug, episodeId, config)
   if (!['none', 'plain', 'name', 'logo'].includes(mode)) throw new Error('Choose a valid Sketch Draw pen.')
   const store = config.video_assembly_last_used
   const own = store?.episodes?.[episodeId.trim().toUpperCase()]?.settings
@@ -261,9 +281,9 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
     || receipt.hold_frames !== sketchHoldFramesFor(settings, context.episodeId, scene.id, receipt.frames)) return 'stale closing hold'
 
   // The reveal style is compared as the type THIS scene resolves to, so editing a Mix stales only
-  // the scenes whose type actually moved. A channel that has never chosen one keeps every clip it
-  // has: nothing was asked for, so nothing can be wrong. A clip from before reveal types has no
-  // `reveal_type`; it IS a line reveal, so choosing Line (the default) never stales it.
+  // the scenes whose type actually moved. An episode (and channel) that has never chosen one keeps
+  // every clip it has: nothing was asked for, so nothing can be wrong. A clip from before reveal
+  // types has no `reveal_type`; it IS a line reveal, so choosing Line (the default) never stales it.
   if (settings.reveal) {
     const wanted = context.revealType ?? revealTypeFor(settings.reveal, context, scene.id)
     if (wanted === null) return REVEAL_NEEDS_EPISODE
