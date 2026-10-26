@@ -1038,9 +1038,21 @@ export function assertSummaryAgrees(transcript, exitCode) {
  * killed child prints no summary, and `assertSummaryAgrees` already fails a
  * run that produced no summary. The limit is env-overridable rather than a
  * constant: a number a future reader would want different is data, not code.
+ *
+ * THE DEFAULT IS 180 MINUTES BECAUSE 90 MINUTES WAS BELOW THE REAL RUNTIME.
+ * Measured on this Mac: a serial backend lane takes 5,268–6,189 s (88–103 min),
+ * the 1.4.359 gate's accepted run reported duration_ms 5,249,875 ms, and one
+ * earlier 1.4.359 run took 7,534 s. The old 90-minute default sat UNDER the
+ * ordinary case, so the watchdog became a second, silent failure mode: the
+ * 1.4.359 gate A run was killed at 850 of 854 files with zero failing tests and
+ * no summary, which reads as a product defect and is not one. 180 minutes clears
+ * the slowest measured serial run by ~50 % and still bounds a genuinely hung
+ * child. The lane now runs across worker processes, so each invocation gets its
+ * own limit (expected ~30 min of work against it), and the serial list runs
+ * under the same one.
  */
 function startSuiteWatchdog(child) {
-  const limitMs = Number(process.env.STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS ?? 90 * 60_000)
+  const limitMs = Number(process.env.STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS ?? 180 * 60_000)
   if (!Number.isFinite(limitMs) || limitMs <= 0) return undefined
   return setTimeout(() => {
     console.error(`[test-harness] the backend suite ran past ${limitMs}ms and was killed. `

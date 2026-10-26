@@ -316,6 +316,10 @@ results — **if you see that banner, the release gate did not run**, and never 
 as a green suite. An `--only` that matches nothing fails, and so does a run whose summary reports
 zero tests. Read-only agents stay off the suite entirely. For every suite you cite, report the actual exit status, the completion line, and
 the test count — a wrapper's exit code is not the suite's, and "completed" is not "passed".
+The lane's hang watchdog defaults to 180 minutes (`STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS`): the old
+90-minute default was below the measured serial runtime (5,268–6,189 s) and killed a green 1.4.359
+run at 850/854 files. If a run is killed by it, that is a machine setting, not a product defect —
+raise the number, do not narrow the lane.
 
 **Parallel tests — owner, 2026-10-24: "do that whenever possible."** This replaces the earlier
 "one test suite at a time across all workers". Serial is now the exception, kept only where running
