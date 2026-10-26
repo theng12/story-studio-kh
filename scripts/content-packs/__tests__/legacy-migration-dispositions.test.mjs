@@ -236,8 +236,8 @@ test('legacy migration ledger closes every real inventory key exactly once witho
     // Library built-ins added for the music format (atmosphere, weather, light),
     // plus Living Picture (1.4.284), plus E1's twelve (1.4.287), plus E4's twelve that follow the
     // picture (1.4.288). Scene effects gain E1's two handheld floats and E2–E3's fifteen
-    // picture-aware moves.
-    [35, 5, 16, 48, 54],
+    // picture-aware moves. Subtitles gain Quote Shorts' two vertical styles (1.4.361).
+    [35, 5, 18, 48, 54],
   )
 
   exactSet(
