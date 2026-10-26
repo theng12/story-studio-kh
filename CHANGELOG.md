@@ -12,6 +12,7 @@ What's new in each release. Newest first.
 - Thumbnails: three prompts and three candidate images by default, and new channels start with a "Three thumbnail options" preset. A channel or preset with its own count keeps it, and episodes you already accepted are not reopened. A thumbnail step whose preset names no model is left out before it starts, with a plain message.
 - Thumbnail headlines follow the channel's language, and you can override it for one episode.
 - Channels page: search by name, label, episode code or language; give channels your own labels and filter by them; sort by recent work, name, newest or oldest.
+- Your own art styles now use their Studio Library versions when those packs are installed: a channel keeps the style it chose, and only where the style's wording comes from changes. Nothing in your channel settings is rewritten, and without the pack the style works exactly as before.
 - Channel art styles show exactly three previews (hero, empty scene, hardest case), shared by every channel using the same style text. Retry now really repairs a preview that failed at the Gateway, without paying twice.
 - Audio: a voice model the Gateway renamed keeps your saved voice. A chapter is only marked as needing new narration when its text actually changed, not because its file was saved again.
 - Introduction redesigned: four starting styles, sections with inline samples, length and tone, and writing kept separate from saving. The introduction now sees the episode's own story, and a replaced introduction is kept in Trash.
