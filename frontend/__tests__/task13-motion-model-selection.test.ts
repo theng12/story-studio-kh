@@ -34,6 +34,12 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     const holdDrafts = () => ({ fixed: '2.5', min: '2', max: '3' })
     const holdFromDraft = () => ({ ok: true, hold: null })
     const holdLabel = () => ''
+    const REVEAL_TYPES = ['line', 'buildup', 'swipes', 'patches', 'bloom']
+    const REVEAL_LABELS = { line: 'Line', buildup: 'Build-up', swipes: 'Swipes', patches: 'Patches', bloom: 'Bloom' }
+    const revealFromDraft = () => ({ ok: true, reveal: null })
+    const revealLabel = () => ''
+    const revealMixFor = () => []
+    const revealChoiceOf = () => ''
   `
   const stripped = script.content.replace(/^import[\s\S]*?from ['"][^'"]+['"]\n/gm, '')
   const code = `${support}\n${stripped.replace('export default', 'const __sfc__ =')}\nexport default __sfc__`
