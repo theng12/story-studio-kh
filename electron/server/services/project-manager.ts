@@ -622,7 +622,27 @@ async function lastWorkedAt(
   return channelLastWorkedAt({ slug, channelDir, subfolderNames })
 }
 
-export async function listProjects(): Promise<ProjectSummary[]> {
+export interface ListProjectsOptions {
+  /**
+   * Compute `last_worked_at` — the bounded walk of the channel's work files and
+   * episode tree in `channel-recency.ts`.
+   *
+   * OFF by default, because it is a FIELD, not a fact about the channel: the
+   * only caller that renders it is the channel-list route (the start page's
+   * "Recently worked on" sort). Every other `listProjects()` caller — the
+   * Publishing Overview, boot recovery, the job routes, the digest builder —
+   * reads slug/name and would be paying for a walk whose answer it discards.
+   *
+   * The walk is not free and it is not private: it lists `episodes/`, every
+   * season folder and every episode folder. A caller that ALSO reads those
+   * folders (the Publishing Overview resolves every accepted episode) then
+   * lists each season twice in one request. Asking for the field only where it
+   * is shown is what keeps that from happening.
+   */
+  recency?: boolean
+}
+
+export async function listProjects(options: ListProjectsOptions = {}): Promise<ProjectSummary[]> {
   // v1.4.3 — the Library scan, and nothing else.
   //
   // This used to merge two sources: the folder scan plus a per-Mac
@@ -791,7 +811,10 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       // Audience language, read the same way. Undefined keeps its ProjectMeta
       // meaning: legacy, no directive.
       content_language: meta.content_language ?? undefined,
-      last_worked_at: await lastWorkedAt(slug, cand.dir, meta.subfolder_names),
+      // Omitted — not null — when the caller did not ask: `null` already means
+      // UNKNOWN (the folder could not be read), and "nobody asked" must not
+      // wear that name (AGENTS §6).
+      ...(options.recency ? { last_worked_at: await lastWorkedAt(slug, cand.dir, meta.subfolder_names) } : {}),
       status: 'ready',
     }
   }))

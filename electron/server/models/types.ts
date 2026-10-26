@@ -1812,7 +1812,10 @@ export interface ProjectSummary {
    * Read with this row so the start page can sort by it without a second pass
    * over the Library. `null` means UNKNOWN — the folder could not be read —
    * which is deliberately not the same answer as "a long time ago" and is
-   * sorted last rather than treated as the oldest.
+   * sorted last rather than treated as the oldest. The field is omitted (not
+   * null) when the caller did not ask for it: only the channel-list route does
+   * (`listProjects({ recency: true })`), because it is the only screen that
+   * renders the sort and the walk is not free.
    */
   last_worked_at?: string | null
 }

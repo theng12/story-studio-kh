@@ -51,8 +51,11 @@ router.get('/projects', async (_req, res) => {
   // The Formula NAME is resolved here rather than in `listProjects`, in one
   // catalogue lookup shared by every row: the card must show the name of the
   // Formula this machine has, and `listProjects` is called by routes that do
-  // not render a card.
-  res.json(await withFormulaLabels(await pm.listProjects()))
+  // not render a card. `last_worked_at` is asked for here for the same reason:
+  // this is the ONE route whose screen sorts by it (the start page's "Recently
+  // worked on"), and computing it for every other caller only re-walked the
+  // episode tree on top of whatever that caller already read.
+  res.json(await withFormulaLabels(await pm.listProjects({ recency: true })))
 })
 
 //
