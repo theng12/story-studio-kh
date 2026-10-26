@@ -663,9 +663,14 @@ test('a split run proves each invocation and sums them into one aggregate the ga
   assert.equal(exitCode, 0, stderr || stdout)
 
   const coverageLines = [...stdout.matchAll(/suite coverage: (\d+)\/(\d+) file\(s\) completed, (\d+) test\(s\) \+ (\d+) suite\(s\) = (\d+) marks/g)]
-  assert.equal(coverageLines.length, 2, `one coverage line per invocation, got ${coverageLines.length}`)
   const aggregate = stdout.match(/aggregate suite coverage: (\d+)\/(\d+) file\(s\) completed; inputs=\[([^\]]*)\]/)
   assert.ok(aggregate, 'a split run prints the aggregate the gate reads')
+  // The filters match more than three files as the suite grows, so the number of
+  // pool workers is not fixed here: the aggregate names its invocations, and each
+  // must print exactly one coverage line (at least one pool worker plus serial).
+  const invocations = (aggregate[3] ?? '').split(',').filter(Boolean)
+  assert.ok(invocations.length >= 2, `a pool and a serial invocation, got ${invocations}`)
+  assert.equal(coverageLines.length, invocations.length, `one coverage line per invocation, got ${coverageLines.length}`)
   assert.equal(aggregate[1], aggregate[2], 'the aggregate is at its discovered floor')
   assert.equal(Number(aggregate[1]), coverageLines.reduce((total, line) => total + Number(line[1]), 0),
     'the invocations add up to the aggregate')
@@ -673,11 +678,13 @@ test('a split run proves each invocation and sums them into one aggregate the ga
     'including what was discovered')
   assert.match(aggregate[3] ?? '', /serial/, 'the serial invocation is named in the aggregate')
   // A filtered split run is still unmistakably filtered, before and after.
-  assert.equal([...stdout.matchAll(/PARTIAL RUN/g)].length, 2, 'the banner still brackets a filtered run')
+  assert.equal([...stdout.matchAll(/=+ PARTIAL RUN =+/g)].length, 2, 'the banner still brackets a filtered run')
+  assert.match(stdout, /END PARTIAL RUN \(about to run\)/, 'before the run')
+  assert.match(stdout, /END PARTIAL RUN \(finished\)/, 'and after it')
 
   // One raw node summary per invocation, and they are what the gate sums.
   const summaries = [...stdout.matchAll(/^[#ℹ]\s+tests\s+(\d+)\s*$/gm)]
-  assert.equal(summaries.length, 2, 'each invocation keeps one contiguous summary block')
+  assert.equal(summaries.length, invocations.length, 'each invocation keeps one contiguous summary block')
   const counted = coverageLines.reduce((total, line) => total + Number(line[3]), 0)
   assert.equal(summaries.reduce((total, match) => total + Number(match[1]), 0), counted,
     'the summaries and the coverage lines agree on how many tests ran')
