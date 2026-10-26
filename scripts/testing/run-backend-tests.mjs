@@ -690,20 +690,29 @@ async function runInvocation(invocation, ctx) {
     .finally(() => clearTimeout(watchdog))
   stdout.flush()
   stderr.flush()
-  return { invocation, exitCode, transcript, coveragePath, summaryLines: [...stdout.held, ...stderr.held] }
+  return { invocation, exitCode, transcript, coveragePath, snapshotRoot: ctx.snapshotRoot, summaryLines: [...stdout.held, ...stderr.held] }
 }
 
 /**
- * One invocation's own sandbox: its HOME, its config directories and its TMPDIR.
+ * One invocation's own sandbox: its HOME, its config directories, its TMPDIR and
+ * its retained-filesystem snapshot root.
  *
  * Workers run at the same time, so a shared HOME is a shared file — two suites
  * writing `app-settings.json` at once is the cross-talk this pool must not
- * introduce. The configured projects root is NOT duplicated: it is the one
- * directory the runner promises never to touch, and every worker pointing at the
- * same read-only sentinel is what makes one byte-identical check enough.
+ * introduce. The SNAPSHOT ROOT is separated for a harder reason:
+ * `retained-fixture-fs.mjs` takes a lock file inside it around every `rename`,
+ * `unlink`, `rm` and `rmdir`, and its synchronous path treats "already locked"
+ * as a hard failure. One lock per process is what the serial runner had by
+ * construction; four workers sharing one would fail each other on ordinary
+ * atomic writes, so each worker gets its own.
+ *
+ * The configured projects root is NOT duplicated: it is the one directory the
+ * runner promises never to touch, and every worker pointing at the same
+ * read-only sentinel is what makes one byte-identical check enough.
  */
 async function prepareInvocationSandbox(workContainer, label, configuredProjectsRoot) {
   const sandbox = path.join(workContainer, label ? `sandbox-${label}` : 'sandbox')
+  const snapshots = path.join(workContainer, label ? `snapshots-${label}` : 'snapshots')
   const home = path.join(sandbox, 'home')
   const profile = path.join(sandbox, 'profile')
   const appData = path.join(sandbox, 'appdata')
@@ -714,18 +723,19 @@ async function prepareInvocationSandbox(workContainer, label, configuredProjects
   // first `writeJson` would be 0o755 under the default umask.
   await fs.mkdir(sandbox, { recursive: true, mode: 0o700 })
   await fs.chmod(sandbox, 0o700)
+  await fs.mkdir(snapshots, { recursive: true, mode: 0o700 })
+  await fs.chmod(snapshots, 0o700)
   await Promise.all([
     writeJson(path.join(home, 'Library', 'Application Support', 'Story Studio KH', 'app-settings.json'), settings),
     writeJson(path.join(appData, 'Story Studio KH', 'app-settings.json'), settings),
     writeJson(path.join(xdgConfig, 'Story Studio KH', 'app-settings.json'), settings),
   ])
-  return { sandbox, home, profile, appData, xdgConfig }
+  return { sandbox, snapshots, home, profile, appData, xdgConfig }
 }
 
 async function run(options) {
   let workContainer
   let sandbox
-  let snapshotRoot
   let retainedFixtures
   try {
     const workRoot = await resolveWorkRoot()
@@ -737,9 +747,9 @@ async function run(options) {
     workContainer = await fs.realpath(workContainer)
     await fs.chmod(workContainer, 0o700)
     sandbox = path.join(workContainer, 'sandbox')
-    snapshotRoot = path.join(workContainer, 'snapshots')
+    const baseSnapshots = path.join(workContainer, 'snapshots')
     await fs.mkdir(sandbox, { mode: 0o700 })
-    await fs.mkdir(snapshotRoot, { mode: 0o700 })
+    await fs.mkdir(baseSnapshots, { mode: 0o700 })
     // Preflight checks that the retained root is on the same device, so the
     // end-of-run move stays a rename. If the retained root is missing, we
     // create it here; if it disappears mid-run, the run continues unaffected.
@@ -750,6 +760,17 @@ async function run(options) {
     await fs.mkdir(sentinelProject, { recursive: true })
     await fs.writeFile(path.join(sentinelProject, 'jobs.json'), '{"jobs":[{"job_id":"owner-record","status":"done"}]}\n')
     await fs.writeFile(path.join(sentinelProject, 'owner-marker.txt'), 'must remain byte-identical\n')
+    // The BASE sandbox gets the same three settings files the invocations later
+    // (re)write for themselves — this is the one a failed setup retains, and the
+    // harness's own self-test reads it back from the retained container.
+    await Promise.all([
+      writeJson(path.join(sandbox, 'home', 'Library', 'Application Support', 'Story Studio KH', 'app-settings.json'),
+        { projects_root_override: configuredProjectsRoot }),
+      writeJson(path.join(sandbox, 'appdata', 'Story Studio KH', 'app-settings.json'),
+        { projects_root_override: configuredProjectsRoot }),
+      writeJson(path.join(sandbox, 'xdg-config', 'Story Studio KH', 'app-settings.json'),
+        { projects_root_override: configuredProjectsRoot }),
+    ])
     if (options.failAfterSetup) {
       console.log(`[test-harness] sandbox: ${sandbox}`)
       throw new Error('intentional backend test harness setup failure')
@@ -803,7 +824,7 @@ async function run(options) {
         TEMP: own.sandbox,
         STORY_STUDIO_TEST_HARNESS_ROOT: own.sandbox,
         STORY_STUDIO_TEST_WORK_ROOT: workRoot,
-        STORY_STUDIO_RETAINED_SNAPSHOT_ROOT: snapshotRoot,
+        STORY_STUDIO_RETAINED_SNAPSHOT_ROOT: own.snapshots,
         STORY_STUDIO_DISABLE_LISTEN: '1',
         // NEW-03 — see BUNDLED_FFMPEG_DIR. Prepended, so a caller's own PATH still
         // takes precedence for anything else it needed.
@@ -820,7 +841,7 @@ async function run(options) {
       }
       delete env.STORY_STUDIO_DATA_DIR
       delete env.NODE_TEST_CONTEXT
-      return { env, sandbox: own.sandbox, workRoot, workContainer, snapshotRoot, tsxImport }
+      return { env, sandbox: own.sandbox, snapshotRoot: own.snapshots, workRoot, workContainer, tsxImport }
     }
 
     // The pool runs at the same time; the serial list runs afterwards, on its own,
@@ -839,9 +860,19 @@ async function run(options) {
       if (result.exitCode !== 0) exitCode = result.exitCode
     }
 
-    const retainedFsFailure = await retainedFsEvidenceFailure(snapshotRoot)
-    if (retainedFsFailure) {
-      console.error(`[test-harness] ${retainedFsFailure}`)
+    // Each worker snapshotted into its own root (see prepareInvocationSandbox), so
+    // every root is reconciled and its result is attributed to the worker that
+    // produced it — an unattributed "evidence incomplete" is a diagnosis nobody
+    // can act on.
+    const evidenceFailures = []
+    for (const result of results) {
+      const failure = await retainedFsEvidenceFailure(result.snapshotRoot)
+      if (failure) {
+        evidenceFailures.push(`${result.invocation.label ? `${result.invocation.label}: ` : ''}${failure}`)
+      }
+    }
+    if (evidenceFailures.length > 0) {
+      for (const failure of evidenceFailures) console.error(`[test-harness] ${failure}`)
       exitCode = 1
     } else {
       console.log('[test-harness] retained filesystem evidence: complete')
