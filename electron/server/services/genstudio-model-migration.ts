@@ -1,8 +1,15 @@
 /** GenStudio catalog identifiers are the only executable model identifiers. */
 
-import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
-
 export type GenStudioModality = 'chat' | 'image' | 'voice' | 'transcription' | 'video'
+
+/**
+ * The one sentence a saved video model the live catalogue does not publish gets.
+ *
+ * There is no retired-id list any more (owner, 2026-10-26): which old model it
+ * was is not something the app remembers or explains, and every path says the
+ * same plain thing.
+ */
+export const VIDEO_MODEL_UNAVAILABLE_MESSAGE = 'This model is no longer available — choose another.'
 
 const CHAT_PREFIX = 'genstudio-chat:'
 const VIDEO_PREFIX = 'genstudio-video:'
@@ -31,7 +38,6 @@ const RETIRED_IMAGE_IDS: Record<string, string> = {
 export function resolveGenStudioModelId(modality: GenStudioModality, modelId: string): string | null {
   let value = stripGenStudioModelPrefix(modality, modelId)
   if (modality === 'image') value = RETIRED_IMAGE_IDS[value.toLowerCase()] || value
-  if (modality === 'video' && isRetiredVideoModelId(value)) return null
   return value && value.length <= 128 ? value : null
 }
 

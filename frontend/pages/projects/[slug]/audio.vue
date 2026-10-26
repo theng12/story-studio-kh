@@ -134,6 +134,7 @@
             placeholder="Pick a voice model…"
             search-placeholder="Search voice models…"
             aria-label="Gateway TTS model options"
+            :catalogue-error="ttsModelsError"
           />
           <p v-if="ttsModelsError" class="text-muted text-xs hint-line">{{ ttsModelsError }}</p>
           <p v-else-if="ttsModelsLoading && !audioModelOptions.length" class="text-muted text-xs hint-line">
@@ -807,8 +808,7 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
       ...(model.locked ? [{ label: 'Locked', tone: 'warning' as const }] : []),
       ...(!model.generation_enabled ? [{ label: 'Unavailable', tone: 'paid' as const }] : []),
     ],
-    costTier: model.cost_tier,
-  }
+      }
 }))
 
 /** The one model every published figure on this page is read from. */

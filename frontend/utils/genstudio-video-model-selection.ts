@@ -1,4 +1,3 @@
-export { isRetiredVideoModelId } from '../../electron/server/contracts/retired-video-models'
 import { selectLiveGenStudioModel, type LiveGenStudioModel } from './live-genstudio-model-selection.js'
 
 interface LiveImageToVideoModel extends LiveGenStudioModel {

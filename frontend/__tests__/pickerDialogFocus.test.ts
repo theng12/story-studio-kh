@@ -70,31 +70,40 @@ function loadModelMenu(): Promise<Component> {
 }
 
 const PickerDialogStub = defineComponent({
-  setup(_, { slots }) {
-    return () => h('div', { class: 'picker-dialog-stub' }, slots.default?.())
+  props: { count: String },
+  setup(props, { slots }) {
+    return () => h('div', { class: 'picker-dialog-stub' }, [
+      h('span', { class: 'pd-count-stub' }, props.count),
+      slots.default?.(),
+    ])
   },
 })
 
 const defaultModelMenuOptions = [
-  { id: 'fast', label: 'Fast', costTier: 'economy' },
+  { id: 'fast', label: 'Fast' },
   {
     id: 'steady',
     label: 'Steady',
-    costTier: 'balanced',
     description: 'A balanced model for routine work.',
     price: '12 credits / 1M input tokens · 24 credits / 1M output tokens',
     priceTitle: 'The Gateway publishes this token rate. The final charge depends on actual usage.',
   },
-  { id: 'flagship', label: 'Flagship', costTier: 'premium' },
+  { id: 'flagship', label: 'Flagship' },
 ]
 
-async function mountModelMenu(options = defaultModelMenuOptions, modelValue = 'steady', mediaType: 'llm' | 'image' = 'llm') {
+async function mountModelMenu(
+  options = defaultModelMenuOptions,
+  modelValue = 'steady',
+  mediaType: 'llm' | 'image' = 'llm',
+  extra: Record<string, unknown> = {},
+) {
   document.body.innerHTML = ''
   const host = document.body.appendChild(document.createElement('div'))
   const app = createApp(await loadModelMenu(), {
     modelValue,
     options,
     mediaType,
+    ...extra,
   })
   app.component('PickerDialog', PickerDialogStub)
   app.component('NuxtLink', PickerDialogStub)
@@ -191,46 +200,39 @@ describe('picker dialog opening focus', () => {
     }
   })
 
-  for (const { mediaType, tiers } of [
-    { mediaType: 'llm', tiers: ['promotional', 'value', 'economy', 'premium'] },
-    { mediaType: 'image', tiers: ['economy', 'balanced', 'premium'] },
-  ] as const) {
-    test(`ModelMenu ${mediaType} keeps tab focus, selection, and roving tabindex synchronized`, async () => {
-      // Exercise both published category profiles through the actual event handlers.
-      const options = tiers.map(costTier => ({ id: costTier, label: costTier, costTier }))
-      const { host, unmount } = await mountModelMenu(options, tiers[1], mediaType)
-      try {
-        const tab = (tier: string) => host.querySelector<HTMLButtonElement>(`#model-menu-tier-${tier}`)!
-        assert.deepEqual(
-          [...host.querySelectorAll('[role="tab"]')].map(element => element.id),
-          tiers.map(tier => `model-menu-tier-${tier}`),
-        )
-        const assertActiveTier = (tier: string) => {
-          for (const candidate of tiers) {
-            assert.equal(tab(candidate).getAttribute('aria-selected'), String(candidate === tier))
-            assert.equal(tab(candidate).getAttribute('tabindex'), candidate === tier ? '0' : '-1')
-          }
-          assert.equal((document.activeElement as HTMLElement | null)?.id, tab(tier).id)
-        }
+  test('the header counts the whole catalogue, never the search results', async () => {
+    const { host, unmount } = await mountModelMenu()
+    try {
+      assert.equal(host.querySelector('.pd-count-stub')?.textContent, '3 available')
+      const search = host.querySelector<HTMLInputElement>('.model-menu-search')!
+      search.value = 'flagship'
+      search.dispatchEvent(new Event('input'))
+      await nextTick()
+      assert.equal(host.querySelectorAll('.model-menu-option').length, 1)
+      assert.equal(host.querySelector('.pd-count-stub')?.textContent, '3 available',
+        'the figure answers "how many models are there", not "how many matched"')
+    } finally {
+      unmount()
+    }
+  })
 
-        tab('premium').focus()
-        tab('premium').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
-        await nextTick()
-        assertActiveTier(tiers[0])
+  test('an empty catalogue shows no count, and names a failed read honestly', async () => {
+    const empty = await mountModelMenu([], '')
+    try {
+      assert.equal(empty.host.querySelector('.model-menu-empty')?.textContent?.trim(), 'No models are currently available.')
+      assert.equal(empty.host.querySelector('.pd-count-stub')?.textContent, '', 'no zero that claims the Gateway publishes nothing')
+    } finally {
+      empty.unmount()
+    }
 
-        tab(tiers[1]).focus()
-        tab(tiers[1]).dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
-        await nextTick()
-        assertActiveTier('premium')
-
-        tab('premium').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-        await nextTick()
-        assertActiveTier(tiers[0])
-      } finally {
-        unmount()
-      }
-    })
-  }
+    const failed = await mountModelMenu([], '', 'llm', { catalogueError: 'Gateway catalog unavailable.' })
+    try {
+      assert.equal(failed.host.querySelector('.model-menu-empty')?.textContent?.trim(), 'Gateway catalog unavailable.',
+        'a failed read is not reported as an empty catalogue (§6)')
+    } finally {
+      failed.unmount()
+    }
+  })
 
   test('ModelMenu retains the two-tick dialog focus handshake', () => {
     // Catches reducing ModelMenu to one tick, letting the shared focus trap steal search focus.

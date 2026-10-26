@@ -9,6 +9,7 @@
       :placeholder="defaultLabel"
       search-placeholder="Search image models…"
       aria-label="Image model options"
+      :catalogue-error="error"
       @update:model-value="select"
     />
     <!-- Price of the CURRENT selection, in the Gateway's published terms. A
@@ -80,7 +81,6 @@ const options = computed(() => {
           ? 'This model is currently unavailable in the Gateway.'
           : ''),
       badges: !isUsable.value ? [{ label: 'last known', tone: 'warning' as const }] : [],
-      costTier: model.cost_tier,
     }
   })
   return rows

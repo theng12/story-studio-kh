@@ -29,7 +29,7 @@
       :visible="expanded"
       :kind="kindLabel"
       :title="title"
-      :count="`${selectableOptionCount} available`"
+      :count="catalogueCountLabel"
       :close-label="`Close ${ariaLabel.toLowerCase()}`"
       size="lg"
       @close="close"
@@ -46,41 +46,12 @@
         />
       </div>
 
-      <div
-        v-if="tierMode"
-        ref="tierTabsEl"
-        class="model-menu-tier-tabs"
-        role="tablist"
-        aria-label="Browse models by cost tier"
-      >
-        <button
-          v-for="tier in tierCatalog"
-          :id="tierTabId(tier.id)"
-          :key="tier.id"
-          type="button"
-          class="model-menu-tier-tab"
-          :class="{ active: tier.id === activeTier }"
-          role="tab"
-          :aria-selected="tier.id === activeTier"
-          :aria-controls="tierPanelId"
-          :tabindex="tier.id === activeTier ? 0 : -1"
-          :title="tier.description"
-          @click="setTier(tier.id)"
-          @keydown="onTierKeydown"
-        >{{ tier.label }}</button>
-      </div>
-
       <div v-if="catalogNotice" class="model-menu-catalog-notice">
         <span>{{ catalogNotice }}</span>
         <NuxtLink v-if="catalogNoticeHref" :to="catalogNoticeHref">Plan status →</NuxtLink>
       </div>
 
-      <div
-        class="model-menu-results"
-        :id="tierMode ? tierPanelId : undefined"
-        :role="tierMode ? 'tabpanel' : undefined"
-        :aria-labelledby="tierMode ? activeTierTabId : undefined"
-      >
+      <div class="model-menu-results">
         <div
         ref="listEl"
         class="model-menu-list"
@@ -124,10 +95,6 @@
               </span>
               <span class="model-menu-option-side">
                 <span
-                  v-if="searching && option.costTier"
-                  class="model-menu-tier-badge"
-                >{{ tierLabel(option.costTier) }}</span>
-                <span
                   v-for="badge in option.badges || []"
                   :key="`${option.id}-${badge.label}`"
                   class="model-menu-badge"
@@ -140,7 +107,7 @@
           </section>
 
           <div v-if="!groupedOptions.length" class="model-menu-empty">
-            {{ emptyCatalogLabel || emptyResultLabel }}
+            {{ emptyResultLabel }}
           </div>
         </div>
       </div>
@@ -149,22 +116,6 @@
 </template>
 
 <script setup lang="ts">
-import {
-  GENSTUDIO_COST_TIERS,
-  GENSTUDIO_LLM_COST_TIERS,
-  costTierLabel,
-  isCompleteLlmTierCatalog,
-  isCompleteTierCatalog,
-  llmCostTierLabel,
-  llmTierForKeyboard,
-  llmTierForOpening,
-  tierForKeyboard,
-  tierForOpening,
-  visibleLlmTierOptions,
-  visibleTierOptions,
-  type GenStudioCostTier,
-  type GenStudioLlmCostTier,
-} from '../utils/genstudio-cost-tier'
 import { groupMenuOptions } from '../utils/genstudio-relaxed-queue'
 import { pickerTriggerLabel } from '../utils/picker-trigger-label'
 
@@ -194,7 +145,6 @@ interface ModelMenuOption {
   disabled?: boolean
   disabledReason?: string
   badges?: ModelMenuBadge[]
-  costTier?: GenStudioCostTier | GenStudioLlmCostTier
 }
 
 const props = withDefaults(defineProps<{
@@ -212,6 +162,12 @@ const props = withDefaults(defineProps<{
   catalogNoticeHref?: string
   /** An owner-confirmed empty catalogue state. Search misses keep the shared default. */
   emptyCatalogLabel?: string
+  /**
+   * The catalogue read failed, in the host's own words. An empty list means two
+   * different things — "the Gateway publishes none" and "we could not read it"
+   * — and this is the only way the dialog can tell them apart (§6).
+   */
+  catalogueError?: string
   /**
    * What to show on the trigger when `modelValue` names a product this menu's
    * options no longer contain.
@@ -250,6 +206,7 @@ const props = withDefaults(defineProps<{
   catalogNotice: '',
   catalogNoticeHref: '',
   emptyCatalogLabel: '',
+  catalogueError: '',
   missingSelectionLabel: '',
   unverifiedSelectionLabel: '',
 })
@@ -259,9 +216,6 @@ const expanded = ref(false)
 const query = ref('')
 const searchEl = ref<HTMLInputElement | null>(null)
 const listEl = ref<HTMLElement | null>(null)
-const tierTabsEl = ref<HTMLElement | null>(null)
-type ModelMenuCostTier = GenStudioCostTier | GenStudioLlmCostTier
-const activeTier = ref<ModelMenuCostTier>('economy')
 
 const kindLabel = computed(() => ({
   llm: 'AI',
@@ -305,18 +259,13 @@ const triggerLabel = computed(() => pickerTriggerLabel({
 const selectedAccessBadges = computed(() => (
   selectedOption.value?.badges?.filter(badge => badge.label.startsWith('∞')) || []
 ))
-const tierCatalog = computed(() => props.mediaType === 'llm' ? GENSTUDIO_LLM_COST_TIERS : GENSTUDIO_COST_TIERS)
-const tierMode = computed(() => props.mediaType === 'llm'
-  ? isCompleteLlmTierCatalog(props.options)
-  : isCompleteTierCatalog(props.options))
 const searching = computed(() => query.value.trim().length > 0)
-const tierPanelId = 'model-menu-tier-results'
-const activeTierTabId = computed(() => tierTabId(activeTier.value))
 const emptyResultLabel = computed(() => {
-  if (tierMode.value && !searching.value) {
-    return `No ${tierLabel(activeTier.value)} models are currently available.`
-  }
-  return `No models match “${query.value.trim()}”.`
+  if (searching.value) return `No models match “${query.value.trim()}”.`
+  // An empty line must not claim the Gateway publishes nothing when the read
+  // failed: the host names the failure, then its own empty-catalogue wording,
+  // and only a plain "none published" fallback comes from here.
+  return props.catalogueError || props.emptyCatalogLabel || 'No models are currently available.'
 })
 /**
  * The line under the selected model on the closed trigger.
@@ -334,32 +283,33 @@ const selectedSummary = computed(() => {
   if (!option) return ''
   return [option.provider, option.meta].filter(Boolean).join(' · ')
 })
-function tierLabel(costTier: ModelMenuCostTier): string {
-  if (props.mediaType === 'llm' && (costTier === 'promotional' || costTier === 'value' || costTier === 'economy' || costTier === 'premium')) {
-    return llmCostTierLabel(costTier)
-  }
-  if (costTier === 'economy' || costTier === 'balanced' || costTier === 'premium') {
-    return costTierLabel(costTier)
-  }
-  return costTier
-}
-function tierTabId(costTier: ModelMenuCostTier): string {
-  return `model-menu-tier-${costTier}`
-}
 const filteredOptions = computed(() => {
   const terms = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
-  const matching = !terms.length ? props.options : props.options.filter((option) => {
-    const haystack = [option.label, option.id, option.group, option.provider, option.price, option.meta, option.description, option.costTier && tierLabel(option.costTier)]
+  if (!terms.length) return props.options
+  return props.options.filter((option) => {
+    const haystack = [option.label, option.id, option.group, option.provider, option.price, option.meta, option.description]
       .filter(Boolean)
       .join(' ')
       .toLowerCase()
     return terms.every(term => haystack.includes(term))
   })
-  return props.mediaType === 'llm'
-    ? visibleLlmTierOptions(matching, activeTier.value as GenStudioLlmCostTier, searching.value)
-    : visibleTierOptions(matching, activeTier.value as GenStudioCostTier, searching.value)
 })
-const selectableOptionCount = computed(() => filteredOptions.value.filter(option => !option.disabled).length)
+/**
+ * How many rows this menu can actually be turned into a choice. Counted over
+ * the WHOLE catalogue, never the search results or any view of it — the header
+ * answers "how many models are there", and a figure that changed as a tab or a
+ * query narrowed the list was the "0 available" that sent the owner hunting.
+ */
+const selectableOptionCount = computed(() => props.options.filter(option => !option.disabled).length)
+/**
+ * The header figure, or nothing at all.
+ *
+ * An empty catalogue hides the count rather than printing "0 available":
+ * GenStudio publishing no models and this app failing to read them are
+ * different answers, and the body's empty state names which one happened
+ * (§6). A non-empty catalogue where every row is disabled is honestly zero.
+ */
+const catalogueCountLabel = computed(() => (props.options.length ? `${selectableOptionCount.value} available` : ''))
 // Sectioning — including the rule that the relaxed shelf always comes last and
 // that its note is said once — lives in a pure function so it can be tested
 // against a catalogue rather than only inspected in a template.
@@ -372,9 +322,6 @@ async function toggle() {
     return
   }
   query.value = ''
-  activeTier.value = props.mediaType === 'llm'
-    ? llmTierForOpening(props.modelValue, props.options)
-    : tierForOpening(props.modelValue, props.options)
   expanded.value = true
   // Two ticks: the shared focus trap moves focus to the dialog's first control
   // on the first tick, so the search field claims it on the one after.
@@ -391,23 +338,6 @@ function select(option: ModelMenuOption) {
   if (option.disabled) return
   emit('update:modelValue', option.id)
   close()
-}
-function setTier(tier: ModelMenuCostTier) {
-  activeTier.value = tier
-}
-function moveTier(key: string) {
-  const tier = props.mediaType === 'llm'
-    ? llmTierForKeyboard(activeTier.value as GenStudioLlmCostTier, key)
-    : tierForKeyboard(activeTier.value as GenStudioCostTier, key)
-  if (!tier) return
-  setTier(tier)
-  tierTabsEl.value?.querySelector<HTMLButtonElement>(`#${tierTabId(tier)}`)?.focus()
-}
-function onTierKeydown(event: KeyboardEvent) {
-  if (event.key === 'ArrowRight') { event.preventDefault(); moveTier('ArrowRight') }
-  else if (event.key === 'ArrowLeft') { event.preventDefault(); moveTier('ArrowLeft') }
-  else if (event.key === 'Home') { event.preventDefault(); moveTier('Home') }
-  else if (event.key === 'End') { event.preventDefault(); moveTier('End') }
 }
 
 /**
@@ -499,11 +429,6 @@ function onListKeydown(event: KeyboardEvent) {
 
 .model-menu-search-wrap { flex: 0 0 auto; padding: 12px 14px 9px; }
 .model-menu-search { width: 100%; min-height: 38px; }
-.model-menu-tier-tabs { display: flex; flex: 0 0 auto; gap: 5px; margin: 0 14px 10px; padding: 4px; border-radius: 9px; background: var(--bg-tertiary); }
-.model-menu-tier-tab { flex: 1; min-width: 0; min-height: 44px; padding: 7px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-xs); font-weight: 700; cursor: pointer; }
-.model-menu-tier-tab:hover { color: var(--text-primary); }
-.model-menu-tier-tab.active { background: var(--bg-secondary); box-shadow: 0 1px 3px color-mix(in srgb, var(--text-primary) 16%, transparent); color: var(--text-primary); }
-.model-menu-tier-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .model-menu-catalog-notice {
   display: flex;
   flex: 0 0 auto;
@@ -570,7 +495,6 @@ function onListKeydown(event: KeyboardEvent) {
   .model-menu-trigger-badge { display: none; }
   .model-menu-option-side .model-menu-badge:nth-child(n+2) { display: none; }
   .model-menu-search-wrap { padding-inline: 12px; }
-  .model-menu-tier-tabs { margin-inline: 12px; }
   .model-menu-catalog-notice { margin-inline: 12px; }
 }
 </style>

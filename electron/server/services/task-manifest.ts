@@ -55,15 +55,10 @@ export interface TaskManifestEntry {
   // optional → existing entries (audio prior to image/video recovery)
   // remain valid.
   //
-  // poll_path  — kie.ai videos use a non-default sub-path per model
-  //              (`/veo/record-info`, `/runway/record-info`, …). Storing
-  //              it here means the reconciler doesn't have to re-derive
-  //              the right path from the model id at recovery time.
   // result_url — fal.ai's queue API hands back a direct `response_url`
   //              at submit time; storing it lets the reconciler GET the
   //              result without re-resolving a status URL chain. Also
   //              useful as a debugging breadcrumb for any provider.
-  poll_path?: string
   result_url?: string
   /** Stable Story-to-provider identity used to replay an ambiguous submit
    * without creating a second provider task. */

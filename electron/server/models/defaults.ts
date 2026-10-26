@@ -6,9 +6,8 @@
  * provider ids, prices, or routing metadata from an old local installation.
  */
 
-import type { AudioModelConfig, ImageModelConfig, VideoModelConfig, VoicePreset } from './types.js'
+import type { AudioModelConfig, ImageModelConfig, VoicePreset } from './types.js'
 
 export const DEFAULT_IMAGE_MODELS: Record<string, ImageModelConfig> = {}
 export const DEFAULT_AUDIO_MODELS: Record<string, AudioModelConfig> = {}
-export const DEFAULT_VIDEO_MODELS: Record<string, VideoModelConfig> = {}
 export const DEFAULT_VOICE_PRESETS: VoicePreset[] = []

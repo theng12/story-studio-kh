@@ -227,10 +227,6 @@ test('neither the catalogue nor the selectors infer anything from a model name',
   // And no duration/resolution ladder survives in the parse.
   assert.doesNotMatch(videoParse, /=== 5 \|\| |'720p' \|\| /)
 
-  const catalog = readSource('../models/video-catalog.ts')
-  // The retirement is enforced by contract now; no name pattern remains.
-  assert.doesNotMatch(catalog, /RETIRED_MODEL_PATTERN/)
-  assert.match(catalog, /model\.available !== true/)
 })
 
 // ── 3. Capacity reason codes ────────────────────────────────────────────

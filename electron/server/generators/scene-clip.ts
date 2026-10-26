@@ -58,8 +58,7 @@ import {
   type GenStudioVideoRequest,
   isGenStudioInsufficientCredits,
 } from '../lib/genstudio-client.js'
-import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
-import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
+import { resolveGenStudioModelId, VIDEO_MODEL_UNAVAILABLE_MESSAGE } from '../services/genstudio-model-migration.js'
 import { fleetBusyRetryPlan, freeMacWaitLine, isFleetBusyFailure, isFreeMacPlan } from '../lib/genstudio-fleet-busy.js'
 
 /**
@@ -168,8 +167,7 @@ interface SceneClipGenerateParams {
   /** Stable id of the scene to animate. Must exist in scene_plan.json with a
    *  non-empty image_path (the still to animate) + motion_prompt. */
   scene_id: string
-  /** Image-to-video model id — a key in config.video_models whose `modes`
-   *  include 'frames'. */
+  /** Image-to-video model id exactly as GenStudio publishes it. */
   model: string
   /** Exact GenStudio-published output aspect ratio. */
   aspect_ratio?: string
@@ -204,57 +202,22 @@ interface SceneClipGenerateParams {
   auto_approve_clip?: boolean
 }
 
-// One-way migration aid only — NEVER a source of execution authority for
-// new work. `resolveSceneClipCatalogModel` is called exclusively with an
-// already-selected/saved `model` id (every caller — generateSceneClipJob
-// and the three routes/scene-review.ts endpoints — throws before this point
-// if no model was supplied; there is no "pick a default" path through these
-// hints). A legacy id only resolves when it fuzzy-matches EXACTLY ONE live,
-// `available` GenStudio image-to-video product; any other outcome (zero or
-// multiple matches) returns null and the caller surfaces a clear error
-// instead of guessing. Keep this list from ever being consulted for a
-// model that wasn't explicitly chosen by the user in the past.
-// model-drift-allow: retired direct-provider ids, kept only so a saved legacy
-// selection can be fuzzy-matched onto a live GenStudio product. They are never
-// consulted for new work and can never select their former provider.
-const LEGACY_VIDEO_NAME_HINTS: Readonly<Record<string, readonly string[]>> = {
-  'fal-veo-3.1-i2v': ['veo', '3.1'],
-  'fal-hailuo-02-i2v': ['hailuo', '02'],
-  'fal-wan-i2v': ['wan'],
-  'kie-kling-3': ['kling', '3'],
-  'kie-veo3-fast': ['veo', '3', 'fast'],
-  'kie-veo3': ['veo', '3'],
-  'kie-veo3-lite': ['veo', '3', 'lite'],
-}
-
-function searchableModelName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9.]+/g, ' ').trim()
-}
-
 /**
- * Resolve a saved selection only against GenStudio's live, account-visible
- * image-to-video catalog. Legacy fal/Kie ids are migration hints only: they
- * can never select their former direct provider.
+ * Resolve a saved selection against GenStudio's live, account-visible
+ * image-to-video catalogue. Nothing here guesses: an exact live id (or its
+ * owner-published alias) is the only thing that resolves.
  */
 export function resolveSceneClipCatalogModel(
   selectedModel: string,
   catalog: readonly GenStudioVideoModel[],
 ): string | null {
   const raw = selectedModel.trim().replace(/^genstudio-video:/, '')
-  if (!raw || isRetiredVideoModelId(raw)) return null
+  if (!raw) return null
   // The image-to-video restriction is applied HERE, at the selection call
   // site, rather than by discarding other published modes during the parse.
   const available = catalog.filter(model => model.available && model.locked !== true && supportsGenStudioVideoMode(model))
   const canonical = resolveGenStudioModelId('video', raw)
-  const exact = available.find(model => model.id === canonical || model.id === raw)
-  if (exact) return exact.id
-  const hints = LEGACY_VIDEO_NAME_HINTS[raw]
-  if (!hints) return null
-  const matches = available.filter(model => {
-    const name = searchableModelName(`${model.id} ${model.display_name}`)
-    return hints.every(hint => name.includes(searchableModelName(hint)))
-  })
-  return matches.length === 1 ? matches[0]!.id : null
+  return available.find(model => model.id === canonical || model.id === raw)?.id || null
 }
 
 /**
@@ -343,15 +306,7 @@ export async function requireSceneClipGenStudioCatalogModel(
   }
   const catalog = await listGenStudioVideoModels(apiKey)
   const modelId = resolveSceneClipCatalogModel(selectedModel, catalog)
-  if (!modelId) {
-    throw new Error(
-      isRetiredVideoModelId(selectedModel)
-        ? `Saved video model "${selectedModel}" has been retired and was not requested. `
-          + 'Choose an available Gateway image-to-video model, or leave the scene still.'
-        : `Saved video model "${selectedModel}" is not available through the Gateway. `
-          + 'Choose an available Gateway image-to-video model; no other route was attempted.',
-    )
-  }
+  if (!modelId) throw new Error(VIDEO_MODEL_UNAVAILABLE_MESSAGE)
   return { apiKey, modelId, model: catalog.find(model => model.id === modelId)! }
 }
 

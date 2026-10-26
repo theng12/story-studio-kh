@@ -65,7 +65,6 @@ import {
 } from './genstudio-request-preview.js'
 import type { JobRemoteOperation, ResearchEvidenceLevel } from '../models/types.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
-import { isRetiredVideoModel } from '../contracts/retired-video-models.js'
 import { nextTtsRouteRetryIdentity } from '../services/tts-capacity-retry.js'
 
 /**
@@ -5805,10 +5804,7 @@ export async function listVideoModelsSnapshot(
   apiKey: string,
   options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioVideoModel[]>> {
-  const snapshot = await loadVideoModelsSnapshot(apiKey, options)
-  // Retired models (the local LTX lane) are dropped here, after the cache, so a
-  // stale or last-good copy written before the retirement cannot bring one back.
-  return { ...snapshot, value: snapshot.value.filter(model => !isRetiredVideoModel(model)) }
+  return loadVideoModelsSnapshot(apiKey, options)
 }
 
 async function loadVideoModelsSnapshot(

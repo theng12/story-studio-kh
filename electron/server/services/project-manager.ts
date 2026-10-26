@@ -12,9 +12,8 @@ import {
   DEFAULT_SUBFOLDER_NAMES,
 } from '../models/types.js'
 import {
-  DEFAULT_IMAGE_MODELS, DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS, DEFAULT_VIDEO_MODELS,
+  DEFAULT_IMAGE_MODELS, DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS,
 } from '../models/defaults.js'
-import { sanitizeVideoCatalog } from '../models/video-catalog.js'
 import { OWNER_STANDARD_SCENE_PACING } from '../contracts/pacing.js'
 import { DEFAULT_THUMBNAIL_COUNT } from '../contracts/thumbnail-counts.js'
 import { normalizeProjectLabels } from '../contracts/project-labels.js'
@@ -1071,8 +1070,7 @@ export async function createProject(
       image_models: { ...DEFAULT_IMAGE_MODELS },
       voice_presets: [...DEFAULT_VOICE_PRESETS],
       audio_models: { ...DEFAULT_AUDIO_MODELS },
-      video_models: { ...DEFAULT_VIDEO_MODELS },
-      image_pricing_last_updated: '', audio_pricing_last_updated: '', video_pricing_last_updated: '',
+      image_pricing_last_updated: '', audio_pricing_last_updated: '',
       // Operational audio-quality work is opt-in for every new channel.
       audio_quality: { mode: 'off' },
       // v1.4.20 — the channel's publishing rhythm, chosen at creation. Only
@@ -1371,7 +1369,6 @@ export async function getConfig(slug: string): Promise<ProjectConfig | null> {
   raw.image_models = mergeCatalog(DEFAULT_IMAGE_MODELS, raw.image_models)
   const savedAudioModels = raw.audio_models
   raw.audio_models = genStudioOnlyAudioModels(savedAudioModels)
-  raw.video_models = sanitizeVideoCatalog(mergeCatalog(DEFAULT_VIDEO_MODELS, raw.video_models))
   if (!raw.voice_presets || !raw.voice_presets.length) {
     raw.voice_presets = [...DEFAULT_VOICE_PRESETS]
   }
@@ -1575,10 +1572,6 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     audio_models: (config.audio_models && Object.keys(config.audio_models).length)
       ? config.audio_models
       : { ...DEFAULT_AUDIO_MODELS },
-    video_models: ((config as any).video_models && Object.keys((config as any).video_models).length)
-      ? (config as any).video_models
-      : { ...DEFAULT_VIDEO_MODELS },
-    video_pricing_last_updated: (config as any).video_pricing_last_updated || '',
     audio_pricing_last_updated: config.audio_pricing_last_updated || '',
     // Multi-account listing (Delivery 2). Masked keys only; raw apiKey
     // values never leave the server.
@@ -1695,10 +1688,6 @@ function applyConfigRequest(data: Record<string, any>, req: UpdateConfigRequest)
         : (req as any)[key]
       ;(data as any)[key] = migratePresetField(key, requested)
     }
-  }
-  if ((req as any).video_models) {
-    data.video_models = sanitizeVideoCatalog((req as any).video_models)
-    data.video_pricing_last_updated = new Date().toISOString().split('T')[0]
   }
 }
 

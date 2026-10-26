@@ -453,7 +453,7 @@ export interface ScriptFormat {
     /** Default transition duration in seconds. */
     transitionDurationSec?: number
     /**
-     * Default video-generator aspect ratio (passed to Veo / Sora / fal-video).
+     * Default video-generator aspect ratio, passed to the Gateway video model.
      * 'landscape' covers 16:9 channels (sleep-story, listicle); 'portrait'
      * is for vertical / Shorts-format channels; 'square' for 1:1 social
      * formats. Optional — formats that omit it fall back to 'landscape'.
@@ -2027,24 +2027,6 @@ export interface AudioModelConfig {
   provider?: 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'genstudio' | 'macos' | 'fishaudio' | 'kie'
 }
 
-export interface VideoModelConfig {
-  label: string
-  credits_per_video: number
-  provider: string  // 'kie-video' | 'fal-video'
-  /** Story Studio supports image-to-video only. */
-  modes: Array<'frames'>
-  /** Max duration in seconds, if known */
-  max_duration?: number
-  /**
-   * Whether this compatibility entry is still a usable model.
-   *
-   * Absent means "never published as available" and the entry is dropped —
-   * see `sanitizeVideoCatalog`. This replaced a regex over the entry's LABEL,
-   * which decided a model's fate from a display string.
-   */
-  available?: boolean
-}
-
 /** One exact duration/resolution pair published by GenStudio for a motion clip. */
 export interface SceneClipVariantSelection {
   operation: string
@@ -2266,8 +2248,6 @@ export interface ProjectConfig {
   active_style_preset_id?: string
   audio_models: Record<string, AudioModelConfig>
   audio_pricing_last_updated: string
-  video_models?: Record<string, VideoModelConfig>
-  video_pricing_last_updated?: string
   confirmation_preferences?: ConfirmationPreferences
   /** Optional narration inspection/repair workflow. Missing means Off. */
   audio_quality?: AudioQualityProjectConfig
@@ -2504,8 +2484,6 @@ export interface SafeProjectConfig {
   style_presets?: StylePreset[]
   audio_models: Record<string, AudioModelConfig>
   audio_pricing_last_updated: string
-  video_models?: Record<string, VideoModelConfig>
-  video_pricing_last_updated?: string
   confirmation_preferences?: ConfirmationPreferences
   audio_quality?: AudioQualityProjectConfig
   broll_pool_id?: string
@@ -2535,7 +2513,6 @@ export interface UpdateConfigRequest {
   voice_presets?: VoicePreset[]
   voice_favourites?: string[]
   audio_models?: Record<string, AudioModelConfig>
-  video_models?: Record<string, VideoModelConfig>
   confirmation_preferences?: ConfirmationPreferences
   audio_quality?: AudioQualityProjectConfig
   active_style_preset_id?: string
@@ -4229,7 +4206,7 @@ export interface GenerateVideoRequest {
 export type VideoGenerationMode = 'frames'
 
 /**
- * The AI Video Generator's request (Veo / Sora / fal-video via GenStudio).
+ * The AI Video Generator's request, resolved through the GenStudio video catalogue.
  *
  * Renamed from `GenerateVideoRequest` in v1.4.15. It shared that name with the
  * local FFmpeg assembly request above, IN THE SAME MODULE, so TypeScript

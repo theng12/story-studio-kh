@@ -31,7 +31,7 @@ import { tryRecoverVideoFromManifest } from '../lib/manifest-recovery.js'
 import { fileExistsWithContent } from '../lib/http-retry.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import { resolveGenStudioModelId, VIDEO_MODEL_UNAVAILABLE_MESSAGE } from '../services/genstudio-model-migration.js'
 import { isGenStudioInsufficientCredits, refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import type { GenerateAiVideoRequest, Job } from '../models/types.js'
 
@@ -163,7 +163,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
 
   const selectedModelId = req.model || ''
   const resolvedModelId = resolveGenStudioModelId('video', selectedModelId)
-  if (!resolvedModelId) throw new Error(unavailableLegacyModelMessage('video', selectedModelId || '(none)'))
+  if (!resolvedModelId) throw new Error(VIDEO_MODEL_UNAVAILABLE_MESSAGE)
   const modelId = `genstudio-video:${resolvedModelId}`
   const modelConfig = {
     modes: ['frames'],

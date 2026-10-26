@@ -462,7 +462,6 @@ export const UpdateConfigSchema = z.object({
   voice_presets: z.array(z.any()).optional(),
   style_presets: z.array(z.any()).optional(),
   active_style_preset_id: z.string().max(200).optional(),
-  video_models: z.record(z.string(), z.any()).optional(),
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check (services/safety-checks.ts). */
   safety_checks: z.record(z.string().max(80), z.enum(['off', 'warn', 'block'])).optional(),
@@ -539,10 +538,8 @@ export interface SafeProjectConfigResponse {
   /** v1.0.518 — id of the active art style (see ProjectConfig.active_style_preset_id). */
   active_style_preset_id?: string
   audio_models: Record<string, any>
-  video_models?: Record<string, any>
   image_pricing_last_updated: string
   audio_pricing_last_updated: string
-  video_pricing_last_updated?: string
   confirmation_preferences?: Record<string, boolean>
   /**
    * v1.4.1 — per-EPISODE overlay windows, keyed by episode code then layer id.

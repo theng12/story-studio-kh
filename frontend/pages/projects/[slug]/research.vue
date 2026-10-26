@@ -859,8 +859,7 @@ const webModelMenuOptions = computed(() => webModels.value.map((model) => {
         ? [{ label: 'Retiring', tone: 'warning' as const, title: describeModelRetirement(retirement) }]
         : []),
     ],
-    costTier: model.cost_tier,
-  }
+      }
 }))
 /** The depth control exists ONLY when the selected web model publishes an
  *  enforceable cap. A null cap hides it: GenStudio cannot enforce a

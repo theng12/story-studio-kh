@@ -277,6 +277,7 @@
               placeholder="Pick a transcription model…"
               search-placeholder="Search transcription models…"
               aria-label="Transcription model options"
+              :catalogue-error="genstudioModelsError"
             />
           </div>
           <!-- Language choices come only from the selected live model. -->
