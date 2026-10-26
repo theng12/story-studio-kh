@@ -400,13 +400,16 @@ nothing a customer already installed. The seeded **"Owner standard pacing"** pre
 a Formula's starting pacing — it is still the 2026-10-19 standard, and the timing panel is where an
 episode's rhythm is actually chosen.
 
-**The Store floor moved with it, because the schema is strict.** A series-formula document is
-validated with a strict schema, so an older build does not silently ignore `starting_scene_pacing` —
-it rejects the pack. `content-packs/release-floor.json` is therefore 1.4.361, the release that
-introduces the field, and the five successors are only offered to builds that can read them. The
-previously published versions stay installed and untouched on every build. This is why the change is
-an **application release**, not content-only: a pack version is content-only only when the released
-runtime already supports its kind *and schema*.
+**The five successor packs carry their own floor, because the schema is strict.** A series-formula
+document is validated with a strict schema, so an older build does not silently ignore
+`starting_scene_pacing` — it rejects the pack. Each successor therefore declares an explicit
+`min_app_version: "1.4.361"` in `pack.json` and `min_app_version_status: "fixed"` in its registry
+record (`validate` refuses the two disagreeing), which is how a single pack states a floor without
+moving everyone's: `content-packs/release-floor.json` is substituted into EVERY pack, so raising it
+would hide 50+ Formulas and the Custom Looks from 1.4.359/1.4.360 for no reason (coordinator,
+2026-10-26). The previously published versions stay installed and untouched on every build. This is
+why the change is an **application release**, not content-only: a pack version is content-only only
+when the released runtime already supports its kind *and schema*.
 
 **Tests.** `electron/server/__tests__/formula-starting-defaults.test.ts` now pins the tiers on the
 built-in niche and on all five pack sources, and keeps the precedence checks (tiers over band, band

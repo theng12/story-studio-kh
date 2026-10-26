@@ -4,7 +4,7 @@
   "publisher_id": "com.storystudio",
   "key_id": "{{KEY_ID}}",
   "version": "1.0.1",
-  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version": "1.4.361",
   "lifecycle": "active",
   "entitlement": {
     "sku": "com.storystudio.sku.formula.calm-science-for-sleep",

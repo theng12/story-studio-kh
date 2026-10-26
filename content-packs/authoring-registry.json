@@ -6531,22 +6531,22 @@
     },
     {
       "revision": 327,
-      "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+      "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
       "request": {
         "expected_revision": 326,
         "coordinator": {
           "task": "sleep-tiered-starting-pacing-2026-10-26",
           "branch": "content/sleep-tiered-pacing-20261026"
         },
-        "proposal_ref": "Owner decision 2026-10-26 (product answers, item 1): every Sleep channel starts episodes on the tiered Sleep rhythm — 5-10 s scenes for 0-3 min, 10-20 s for 3-5 min, 20-30 s for 5-10 min, 50-60 s from 10 min on — as its Formula's starting rhythm, changeable per episode and never rewriting stored data. Successors of the five Sleep-family Formulas.",
+        "proposal_ref": "Owner decision 2026-10-26 (product answers, item 1): every Sleep channel starts episodes on the tiered Sleep rhythm — 5-10 s scenes for 0-3 min, 10-20 s for 3-5 min, 20-30 s for 5-10 min, 50-60 s from 10 min on — as its Formula starting rhythm. Successors of the five Sleep-family Formulas, each pinned to the app release that reads the new field.",
         "records": [
           {
             "pack_id": "com.storystudio.pack.formula.sleep-story",
             "item_id": "com.storystudio.formula.sleep-story",
             "version": "1.0.3",
             "publisher_id": "com.storystudio",
-            "min_app_version": "{{MIN_APP_VERSION}}",
-            "min_app_version_status": "release-bound",
+            "min_app_version": "1.4.361",
+            "min_app_version_status": "fixed",
             "kind": "series-formula",
             "source_path": "content-packs/free-starters/formula/sleep-story-v1.0.3",
             "status": "reserved",
@@ -6567,8 +6567,8 @@
             "item_id": "com.storystudio.formula.sleep-history-compilation",
             "version": "1.0.2",
             "publisher_id": "com.storystudio",
-            "min_app_version": "{{MIN_APP_VERSION}}",
-            "min_app_version_status": "release-bound",
+            "min_app_version": "1.4.361",
+            "min_app_version_status": "fixed",
             "kind": "series-formula",
             "source_path": "content-packs/sleep-history/formula/sleep-history-compilation-v1.0.2",
             "status": "reserved",
@@ -6589,8 +6589,8 @@
             "item_id": "com.storystudio.formula.calm-science-for-sleep",
             "version": "1.0.1",
             "publisher_id": "com.storystudio",
-            "min_app_version": "{{MIN_APP_VERSION}}",
-            "min_app_version_status": "release-bound",
+            "min_app_version": "1.4.361",
+            "min_app_version_status": "fixed",
             "kind": "series-formula",
             "source_path": "content-packs/free-starters/formula/calm-science-for-sleep-v1.0.1",
             "status": "reserved",
@@ -6611,8 +6611,8 @@
             "item_id": "com.storystudio.formula.mythology-for-sleep",
             "version": "1.0.1",
             "publisher_id": "com.storystudio",
-            "min_app_version": "{{MIN_APP_VERSION}}",
-            "min_app_version_status": "release-bound",
+            "min_app_version": "1.4.361",
+            "min_app_version_status": "fixed",
             "kind": "series-formula",
             "source_path": "content-packs/free-starters/formula/mythology-for-sleep-v1.0.1",
             "status": "reserved",
@@ -6633,8 +6633,8 @@
             "item_id": "com.storystudio.formula.illustrated-history-for-sleep",
             "version": "1.0.1",
             "publisher_id": "com.storystudio",
-            "min_app_version": "{{MIN_APP_VERSION}}",
-            "min_app_version_status": "release-bound",
+            "min_app_version": "1.4.361",
+            "min_app_version_status": "fixed",
             "kind": "series-formula",
             "source_path": "content-packs/illustrated-history/formula/illustrated-history-for-sleep-v1.0.1",
             "status": "reserved",
@@ -11344,14 +11344,14 @@
     },
     {
       "revision": 328,
-      "transition_ref": "lifecycle:0a2fd0c2a6409b88ba866646e2cddccec97a588271f41ee4b4c6d80002b7ec3c",
+      "transition_ref": "lifecycle:c9bd8ff6597a339cbb6b41f9a8a38276cd0a27e9c7b2d60b35ca18a5b13b9f33",
       "request": {
         "expected_revision": 327,
         "coordinator": {
           "task": "sleep-tiered-starting-pacing-2026-10-26",
           "branch": "content/sleep-tiered-pacing-20261026"
         },
-        "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+        "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
         "pack_id": "com.storystudio.pack.formula.sleep-story",
         "version": "1.0.3",
         "changes": {
@@ -11361,14 +11361,14 @@
     },
     {
       "revision": 329,
-      "transition_ref": "lifecycle:801f48963ddb4b83081a932360a3ce35c5dcc6a72b4e77b423153a6947386600",
+      "transition_ref": "lifecycle:066edd930877ada845956b7d73e129263d85e1bf7bce00113beadd0bb62a75e0",
       "request": {
         "expected_revision": 328,
         "coordinator": {
           "task": "sleep-tiered-starting-pacing-2026-10-26",
           "branch": "content/sleep-tiered-pacing-20261026"
         },
-        "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+        "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
         "pack_id": "com.storystudio.pack.formula.sleep-history-compilation",
         "version": "1.0.2",
         "changes": {
@@ -11378,14 +11378,14 @@
     },
     {
       "revision": 330,
-      "transition_ref": "lifecycle:baa1edea20c3f3b40d2ef52f4fad901e7aeee17bd7b62570072d094b79f93c0a",
+      "transition_ref": "lifecycle:07c23acf8a11c273d4324dc789a8fd70dc8fa7bf97bff4bc702783bc7ede4b7c",
       "request": {
         "expected_revision": 329,
         "coordinator": {
           "task": "sleep-tiered-starting-pacing-2026-10-26",
           "branch": "content/sleep-tiered-pacing-20261026"
         },
-        "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+        "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
         "pack_id": "com.storystudio.pack.formula.calm-science-for-sleep",
         "version": "1.0.1",
         "changes": {
@@ -11395,14 +11395,14 @@
     },
     {
       "revision": 331,
-      "transition_ref": "lifecycle:629f86c9ecb092024bf5e6a01b488792876b9dfc6d0471166ad2543d05993675",
+      "transition_ref": "lifecycle:ba70d7a013ee6a9736299602e3792de7c60b9ac7f09b9e49ca6d92690baabaf8",
       "request": {
         "expected_revision": 330,
         "coordinator": {
           "task": "sleep-tiered-starting-pacing-2026-10-26",
           "branch": "content/sleep-tiered-pacing-20261026"
         },
-        "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+        "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
         "pack_id": "com.storystudio.pack.formula.mythology-for-sleep",
         "version": "1.0.1",
         "changes": {
@@ -11412,14 +11412,14 @@
     },
     {
       "revision": 332,
-      "transition_ref": "lifecycle:858bfff6124d5700c42e8c60a50cecfefa362a8146e8465ed4593ca539b9cf44",
+      "transition_ref": "lifecycle:778356ddd191e078df131b8b7c26f3ebbaf48a1704d9656f54eb4c164d1b0ebb",
       "request": {
         "expected_revision": 331,
         "coordinator": {
           "task": "sleep-tiered-starting-pacing-2026-10-26",
           "branch": "content/sleep-tiered-pacing-20261026"
         },
-        "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+        "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
         "pack_id": "com.storystudio.pack.formula.illustrated-history-for-sleep",
         "version": "1.0.1",
         "changes": {
@@ -19010,13 +19010,13 @@
       }
     },
     {
-      "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+      "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
       "pack_id": "com.storystudio.pack.formula.sleep-story",
       "item_id": "com.storystudio.formula.sleep-story",
       "version": "1.0.3",
       "publisher_id": "com.storystudio",
-      "min_app_version": "{{MIN_APP_VERSION}}",
-      "min_app_version_status": "release-bound",
+      "min_app_version": "1.4.361",
+      "min_app_version_status": "fixed",
       "kind": "series-formula",
       "source_path": "content-packs/free-starters/formula/sleep-story-v1.0.3",
       "status": "authored",
@@ -19033,13 +19033,13 @@
       }
     },
     {
-      "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+      "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
       "pack_id": "com.storystudio.pack.formula.sleep-history-compilation",
       "item_id": "com.storystudio.formula.sleep-history-compilation",
       "version": "1.0.2",
       "publisher_id": "com.storystudio",
-      "min_app_version": "{{MIN_APP_VERSION}}",
-      "min_app_version_status": "release-bound",
+      "min_app_version": "1.4.361",
+      "min_app_version_status": "fixed",
       "kind": "series-formula",
       "source_path": "content-packs/sleep-history/formula/sleep-history-compilation-v1.0.2",
       "status": "authored",
@@ -19056,13 +19056,13 @@
       }
     },
     {
-      "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+      "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
       "pack_id": "com.storystudio.pack.formula.calm-science-for-sleep",
       "item_id": "com.storystudio.formula.calm-science-for-sleep",
       "version": "1.0.1",
       "publisher_id": "com.storystudio",
-      "min_app_version": "{{MIN_APP_VERSION}}",
-      "min_app_version_status": "release-bound",
+      "min_app_version": "1.4.361",
+      "min_app_version_status": "fixed",
       "kind": "series-formula",
       "source_path": "content-packs/free-starters/formula/calm-science-for-sleep-v1.0.1",
       "status": "authored",
@@ -19079,13 +19079,13 @@
       }
     },
     {
-      "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+      "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
       "pack_id": "com.storystudio.pack.formula.mythology-for-sleep",
       "item_id": "com.storystudio.formula.mythology-for-sleep",
       "version": "1.0.1",
       "publisher_id": "com.storystudio",
-      "min_app_version": "{{MIN_APP_VERSION}}",
-      "min_app_version_status": "release-bound",
+      "min_app_version": "1.4.361",
+      "min_app_version_status": "fixed",
       "kind": "series-formula",
       "source_path": "content-packs/free-starters/formula/mythology-for-sleep-v1.0.1",
       "status": "authored",
@@ -19102,13 +19102,13 @@
       }
     },
     {
-      "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+      "receipt_ref": "authoring:556fcb5cc1d5eb72d263f47cca1f8c822061647766748d12de415719286f7543",
       "pack_id": "com.storystudio.pack.formula.illustrated-history-for-sleep",
       "item_id": "com.storystudio.formula.illustrated-history-for-sleep",
       "version": "1.0.1",
       "publisher_id": "com.storystudio",
-      "min_app_version": "{{MIN_APP_VERSION}}",
-      "min_app_version_status": "release-bound",
+      "min_app_version": "1.4.361",
+      "min_app_version_status": "fixed",
       "kind": "series-formula",
       "source_path": "content-packs/illustrated-history/formula/illustrated-history-for-sleep-v1.0.1",
       "status": "authored",
