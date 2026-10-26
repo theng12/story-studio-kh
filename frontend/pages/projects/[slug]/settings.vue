@@ -39,6 +39,11 @@
           <div class="card settings-panel settings-panel-embedded" data-setting="youtube-accounts">
             <YouTubeConnectionSettings :slug="slug" scope="connections" />
           </div>
+          <!-- Facebook / Instagram / TikTok accounts. Opt-in by construction:
+               a channel that never opens this posts nowhere. -->
+          <div class="card settings-panel settings-panel-embedded" data-setting="social-accounts">
+            <SocialPublishingSettings :slug="slug" scope="connections" />
+          </div>
           <div class="card settings-panel settings-panel-embedded" data-setting="scene-analysis"><SceneAnalysisSettings /></div>
           <AdvancedDisclosure label="Advanced: Gateway model catalog" data-setting="gateway-catalog">
             <div class="card settings-panel settings-panel-embedded"><GenStudioCatalogSettings /></div>
@@ -1204,6 +1209,12 @@
               YouTube accounts are shared by this Mac.
               <a href="#connections" @click="activeTab = 'connections'">Manage connected accounts</a>
             </p>
+          </div>
+
+          <!-- Opt-in, per channel. Every upload still asks; this only decides
+               what is pre-ticked there. -->
+          <div class="card settings-panel settings-panel-embedded" data-setting="social-platforms">
+            <SocialPublishingSettings :slug="slug" scope="channel" @open-connections="activeTab = 'connections'" />
           </div>
 
           <section class="card settings-panel">

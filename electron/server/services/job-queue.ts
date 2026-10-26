@@ -1583,6 +1583,9 @@ const queues: Record<JobType, QueueState> = {
   // It gets its own queue slot rather
   // than blocking behind the heavier upload queue.
   youtube_playlist_update: { pending: [], running: false, executor: null },
+  // Facebook / Instagram / TikTok posting. One slot: each platform posts from
+  // the same local file and the receipts are written under one sidecar lock.
+  social_publish: { pending: [], running: false, executor: null },
   // Backfill thumbnails onto already-uploaded videos (thumbnails.set only,
   // no re-upload). Quota-paced + resumable — own slot so it doesn't block
   // real uploads.

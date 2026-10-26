@@ -641,6 +641,47 @@
           <span v-else-if="!draftSaved" class="hint">Save your title and description changes before uploading.</span>
           <span v-else class="hint">Uploads {{ previewedEpisode }} to the assigned YouTube channel.</span>
         </div>
+
+        <!--
+          Facebook / Instagram / TikTok — strictly OPT-IN. The channel's saved
+          choices pre-tick these boxes; nothing is posted unless a box is
+          ticked HERE, on this upload. The YouTube upload above is unaffected
+          either way, which is why this sits beside it rather than inside it.
+        -->
+        <section v-if="socialPlatforms.length && !alreadyPublished && reviewIntent !== 'schedule'" class="social-publish" aria-labelledby="social-publish-title">
+          <div>
+            <p class="section-kicker">Also post to</p>
+            <h3 id="social-publish-title">Facebook, Instagram and TikTok</h3>
+            <p class="hint">
+              Nothing posts unless you tick it. These are separate posts with their own captions; the YouTube upload above happens either way.
+            </p>
+          </div>
+          <ul class="social-platform-list">
+            <li v-for="platform in socialPlatforms" :key="platform.platform" class="social-platform-row">
+              <label class="social-platform-choice">
+                <input
+                  type="checkbox" :checked="socialChosen.includes(platform.platform)"
+                  :disabled="busy !== '' || !socialReady[platform.platform]"
+                  @change="toggleSocialPlatform(platform.platform)"
+                />
+                <span>
+                  <strong>{{ platform.label }}</strong>
+                  <small v-if="socialReady[platform.platform]">{{ socialReady[platform.platform] }}</small>
+                  <small v-else class="tone-warn">No account connected. <NuxtLink :to="`/projects/${slug}/settings#connections`" class="inline-action">Connect one</NuxtLink></small>
+                </span>
+              </label>
+            </li>
+          </ul>
+          <p v-if="socialChosen.length && socialNote" class="hint" role="status">{{ socialNote }}</p>
+          <p v-if="socialChosen.length && socialState?.receipts.length" class="hint">
+            Already posted:
+            <span v-for="receipt in socialState.receipts" :key="receipt.platform" class="social-receipt">
+              {{ platformLabelFor(receipt.platform) }}
+              <a v-if="receipt.permalink" :href="receipt.permalink" target="_blank" rel="noopener noreferrer">{{ receipt.post_id }}</a>
+              <code v-else>{{ receipt.post_id }}</code>
+            </span>
+          </p>
+        </section>
         <p v-if="rowResults[previewedEpisode]" :class="['row-result', rowResults[previewedEpisode].kind]" role="status">
           {{ rowResults[previewedEpisode].message }}
         </p>
@@ -1040,6 +1081,96 @@ const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, post } = useApi()
 const { config } = useProject()
+
+// ── Facebook / Instagram / TikTok — strictly opt-in ─────────────────────────
+//
+// The channel's saved platforms PRE-TICK these boxes; they never post by
+// themselves. `socialChosen` is the only thing that decides, and it is reset
+// every time the review opens, so an earlier upload's ticks cannot leak into
+// this one (AGENTS §4: an episode change replaces the field or blanks it).
+interface SocialPlatformEntry { platform: 'facebook' | 'instagram' | 'tiktok'; label: string }
+const socialPlatforms = ref<SocialPlatformEntry[]>([])
+const socialReady = ref<Record<string, string>>({})
+const socialChosen = ref<Array<SocialPlatformEntry['platform']>>([])
+const socialNote = ref('')
+const socialState = ref<{ receipts: Array<{ platform: string; post_id: string; permalink?: string }> } | null>(null)
+
+function platformLabelFor(platform: string): string {
+  return socialPlatforms.value.find(entry => entry.platform === platform)?.label || platform
+}
+
+function toggleSocialPlatform(platform: SocialPlatformEntry['platform']): void {
+  socialChosen.value = socialChosen.value.includes(platform)
+    ? socialChosen.value.filter(entry => entry !== platform)
+    : [...socialChosen.value, platform]
+  socialNote.value = socialChosen.value.length
+    ? `Will also post to ${socialChosen.value.map(platformLabelFor).join(', ')}.`
+    : ''
+}
+
+/**
+ * Load this channel's connected social accounts and saved platform choice.
+ * Runs once per page load; a failure leaves the section empty rather than
+ * offering a tick box that cannot post.
+ */
+async function loadSocialChoices(): Promise<void> {
+  try {
+    const [connections, settings] = await Promise.all([
+      get<{ accounts: Array<{ platform: string; remote_name: string; status: string }>; platforms: SocialPlatformEntry[] }>('/social/connections'),
+      get<{ platforms: Array<SocialPlatformEntry['platform']> }>(`/projects/${slug.value}/social/settings`),
+    ])
+    socialPlatforms.value = connections.platforms
+    const ready: Record<string, string> = {}
+    for (const account of connections.accounts) {
+      if (account.status === 'connected') ready[account.platform] = account.remote_name
+    }
+    socialReady.value = ready
+    // Only platforms this channel actually has an account for are pre-ticked:
+    // a saved choice for a disconnected platform would be a tick box that
+    // cannot post.
+    socialChosen.value = settings.platforms.filter(platform => !!ready[platform])
+  } catch {
+    socialPlatforms.value = []
+    socialReady.value = {}
+    socialChosen.value = []
+  }
+}
+
+async function loadSocialState(episodeCode: string): Promise<void> {
+  socialState.value = null
+  try {
+    socialState.value = await get<{ receipts: Array<{ platform: string; post_id: string; permalink?: string }> }>(
+      `/projects/${slug.value}/social/episodes/${encodeURIComponent(episodeCode)}`,
+    )
+  } catch {
+    socialState.value = null
+  }
+}
+
+/**
+ * Post this episode to the ticked platforms. Deliberately NOT part of the
+ * YouTube upload: a social failure must never make the YouTube upload look
+ * failed, and vice versa.
+ */
+async function postToSocial(episodeCode: string): Promise<void> {
+  if (!socialChosen.value.length) return
+  try {
+    const result = await post<{ job_id: string; platforms: string[] }>(
+      `/projects/${slug.value}/social/episodes/${encodeURIComponent(episodeCode)}/publish`,
+      { platforms: socialChosen.value },
+    )
+    rowResults[episodeCode] = {
+      kind: 'ok',
+      message: `Posting to ${result.platforms.map(platformLabelFor).join(', ')}. Progress appears in Jobs.`,
+    }
+    void loadSocialState(episodeCode)
+  } catch (error: any) {
+    rowResults[episodeCode] = {
+      kind: 'err',
+      message: error?.data?.detail || error?.message || 'Could not start posting to Facebook, Instagram or TikTok.',
+    }
+  }
+}
 /** This channel's thumbnail text layer switch (default false). The backend
  *  refuses the endpoints too — this only decides whether to show the button. */
 const thumbnailTextEnabled = computed(() => thumbnailTextEnabledFor(config.value))
@@ -1351,6 +1482,10 @@ function syncFinalCheckPoll(): void {
 watch(finalChecksStillRunning, syncFinalCheckPoll)
 
 onMounted(() => {
+  // The channel's connected social accounts and saved platform choice. Read
+  // once; a failure leaves the section empty rather than offering a tick that
+  // cannot post.
+  void loadSocialChoices()
   planClockTimer = setInterval(refreshPlanClock, 60_000)
   window.addEventListener('focus', refreshPlanClock)
   syncFinalCheckPoll()
@@ -1462,6 +1597,10 @@ function closeReview(restoreFocus = true): void {
   draftEverSaved.value = false
   draftSuggestion.value = null
   draftError.value = ''
+  // Social state belongs to the episode being reviewed. Clearing it here is
+  // what stops one episode's receipts appearing under another's name.
+  socialState.value = null
+  socialNote.value = ''
   if (restoreFocus && opener) {
     void nextTick(() => {
       if (opener.isConnected && !(opener as HTMLButtonElement).disabled) opener.focus()
@@ -2424,11 +2563,18 @@ async function upload(episodeCode: string): Promise<void> {
   const timingConfirmation = expectedPublishAt
     ? `Scheduled for ${formatZonedWhen(expectedPublishAt, timingTimezone.value)} (${expectedPublishAt}). `
     : 'This video will stay private until you schedule or publish it. '
+  // The social posts are part of the SAME confirmation, because the owner
+  // ticked them in the same dialog. Leaving them out of this sentence would
+  // make the last thing they read before pressing Upload incomplete.
+  const socialConfirmation = socialChosen.value.length
+    ? `It will also post to ${socialChosen.value.map(platformLabelFor).join(', ')}. `
+    : ''
   const confirmationAction = beginAction('confirm-upload')
   const confirmed = await ask({
     title: `Upload ${episodeCode} to YouTube?`,
     message: `This uploads ${episodeCode} to ${expectedChannelTitle || 'the assigned channel'} (${expectedChannelId || 'unknown'}). `
       + timingConfirmation
+      + socialConfirmation
       + `Thumbnail: ${expectedThumbnailFilename || 'none selected'}. `
       + 'A video cannot be replaced once uploaded — only deleted and uploaded again under a new link.',
     confirmLabel: 'Upload',
@@ -2460,8 +2606,13 @@ async function upload(episodeCode: string): Promise<void> {
     if (!actionIsCurrent(action)) return
     rowResults[episodeCode] = {
       kind: 'ok',
-      message: `Uploading ${episodeCode} to ${res.channel_id}. Progress appears in Jobs.`,
+      message: `Uploading ${episodeCode} to ${res.channel_id}. Progress appears in Jobs.`
+        + (socialChosen.value.length ? ' Posting to social platforms too.' : ''),
     }
+    // Separate job, separate receipts, and it starts only after YouTube
+    // accepted the upload — so a social failure can never be read as a
+    // failed YouTube upload, or the other way round.
+    void postToSocial(episodeCode)
     // The job is queued the moment the route answers. The list reload that
     // follows is bookkeeping, and the dialog waited on it — with a large
     // project that was seconds of "Uploading…" after the upload had started.
@@ -2918,6 +3069,9 @@ async function preview(episodeCode: string, event?: Event, intent: ReviewIntent 
     draftError.value = ''
     timingTimezone.value = initialMode === 'planned' ? episode?.plan?.timezone || deviceTimezone : deviceTimezone
     timingDirty.value = false
+    // Receipts belong to THIS episode, so they are read after the payload it
+    // belongs to is on screen, not before.
+    void loadSocialState(episodeCode)
     await nextTick()
     previewHeading.value?.focus()
   } catch (error: any) {
@@ -3312,6 +3466,20 @@ watch(slug, () => {
 .changes, .warnings { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: var(--font-xs); }
 .warnings { color: var(--warning, #d97706); }
 .publishing-review { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+.social-publish { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+.social-publish h3 { margin: 2px 0 0; font-size: 15px; }
+.social-platform-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.social-platform-choice {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: start; padding: 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); cursor: pointer;
+}
+.social-platform-choice:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.social-platform-choice input { margin-top: 2px; accent-color: var(--accent); }
+.social-platform-choice span { display: grid; gap: 3px; min-width: 0; }
+.social-platform-choice strong { color: var(--text-primary); font-size: 12px; }
+.social-platform-choice small { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; overflow-wrap: anywhere; }
+.social-receipt { display: inline-flex; gap: 4px; margin-right: 10px; }
+@container (max-width: 720px) { .social-platform-list { grid-template-columns: 1fr; } }
 .publishing-review h3 { margin: 2px 0 0; font-size: 15px; }
 .timing-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .timing-option {

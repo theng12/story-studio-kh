@@ -129,6 +129,17 @@ export const UpdateProjectSchema = z.object({
     MAX_PROJECT_LABELS,
     `a channel can have at most ${MAX_PROJECT_LABELS} labels`,
   ).transform(normalizeProjectLabels).optional(),
+  // The Facebook / Instagram / TikTok accounts this channel posts with. The ids
+  // are platform identities, validated against the connection registry by the
+  // social route — this schema only refuses shapes the registry can never hold.
+  social_accounts: z.object({
+    facebook: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
+    instagram: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
+    tiktok: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
+  }).optional(),
+  // The platforms this channel posts to by default. `[]` is a real answer: post
+  // nowhere. Absent means the owner has not chosen yet, which posts nowhere too.
+  social_platforms: z.array(z.enum(['facebook', 'instagram', 'tiktok'])).max(3).optional(),
 }).strict()
 export type UpdateProjectBody = z.infer<typeof UpdateProjectSchema>
 
