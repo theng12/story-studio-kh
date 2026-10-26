@@ -72,6 +72,5 @@ export function thumbnailVisionModelMenuOption(
         ? [{ label: 'Retiring', tone: 'warning' as const, title: describeModelRetirement(retirement, now) }]
         : []),
     ],
-    costTier: model.cost_tier,
-  }
+      }
 }

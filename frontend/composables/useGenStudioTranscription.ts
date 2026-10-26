@@ -167,8 +167,7 @@ export function useGenStudioTranscriptionModels() {
           ? [{ label: 'qualification', tone: 'info' as const }]
           : []),
       ],
-      costTier: model.cost_tier,
-    }
+          }
   }))
 
   async function load(): Promise<void> {

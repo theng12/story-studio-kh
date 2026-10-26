@@ -433,6 +433,7 @@
             media-type="transcription"
             title="Choose a transcription model"
             search-placeholder="Search transcription models…"
+            :catalogue-error="brollGenstudioModelsError"
           />
         </div>
         <div v-if="brollLanguageControl.options.length" class="form-group mt-2">

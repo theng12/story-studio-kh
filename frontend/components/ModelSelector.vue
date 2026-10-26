@@ -15,6 +15,7 @@
       aria-label="LLM model options"
       :catalog-notice="selectionGap"
       :empty-catalog-label="emptyCatalogLabel"
+      :catalogue-error="loadError"
       :missing-selection-label="selectionGap ? 'No longer offered' : ''"
       :unverified-selection-label="unverifiedSelectionLabel"
       @update:model-value="selectModel"
@@ -176,6 +177,9 @@ const emptyCatalogState = ref<EmptyCatalogState>('')
 const appSettingsModal = useAppSettingsModal()
 const emptyCatalogNeedsSetup = computed(() => emptyCatalogState.value === 'setup')
 const emptyCatalogLabel = computed(() => {
+  // An empty list from a failed read is not "no models are published" — the
+  // dialog must not claim the Gateway offers none when nobody managed to ask.
+  if (loadError.value) return ''
   if (emptyCatalogState.value === 'setup') return 'Add a Gateway API Key in Settings to load LLM models.'
   return allModels.value.length === 0 && !loading.value ? 'No LLM models are currently available.' : ''
 })
@@ -291,7 +295,6 @@ const menuOptions = computed(() => {
           ? [{ label: 'Retiring', tone: 'warning' as const, title: describeModelRetirement(model) }]
           : []),
       ],
-      costTier: model.cost_tier,
     }
   })
   return rows

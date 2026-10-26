@@ -58,26 +58,17 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /\{\{ catalogNotice \}\}/)
   })
 
-  test('the shared model dialog owns accessible published-cost tier tabs', () => {
-    // Catches moving the tabs into a modality picker, where catalog policy would diverge.
-    assert.match(modelMenu, /role="tablist"/)
-    // Catches replacing real tab buttons with non-interactive labels.
-    assert.match(modelMenu, /role="tab"/)
-    // Catches assistive technology losing the active-tab state.
-    assert.match(modelMenu, /:aria-selected="tier\.id === activeTier"/)
-    // Catches removing the semantic connection between the selected tab and results.
-    assert.match(modelMenu, /:aria-controls="tierPanelId"/)
-    assert.match(modelMenu, /:role="tierMode \? 'tabpanel' : undefined"/)
-    assert.match(modelMenu, /:aria-labelledby="tierMode \? activeTierTabId : undefined"/)
-    // Catches a keyboard-only user being unable to move tiers without a pointer.
-    assert.match(modelMenu, /event\.key === 'ArrowRight'/)
-    assert.match(modelMenu, /event\.key === 'ArrowLeft'/)
-    assert.match(modelMenu, /event\.key === 'Home'/)
-    assert.match(modelMenu, /event\.key === 'End'/)
-    // Catches a visually compact tab regressing below the app's 44px target.
-    assert.match(modelMenu, /\.model-menu-tier-tab\s*{[^}]*min-height:\s*44px/)
-    // Catches an empty tier being described as a nonsensical empty search.
-    assert.match(modelMenu, /No \$\{tierLabel\(activeTier\.value\)\} models are currently available\./)
+  test('every model picker is one searchable list, with no cost-tier tabs', () => {
+    // Owner, 2026-10-26: the Promotional / Value / Economy / Premium tabs split
+    // one catalogue into four lists and the first opened on an empty one. One
+    // list now, and the header counts the whole catalogue rather than a tab.
+    assert.doesNotMatch(modelMenu, /role="tablist"|model-menu-tier-tab|activeTier|tierMode|visibleTierOptions/)
+    assert.match(modelMenu, /:count="catalogueCountLabel"/)
+    // Catches counting the filtered view again, which is what printed "0 available".
+    assert.match(modelMenu, /const selectableOptionCount = computed\(\(\) => props\.options\.filter\(option => !option\.disabled\)\.length\)/)
+    // An empty or unread catalogue shows no count instead of a zero that claims
+    // the Gateway publishes nothing (§6).
+    assert.match(modelMenu, /props\.options\.length \? `\$\{selectableOptionCount\.value\} available` : ''/)
   })
 
   test('account-locked teaser models remain visible with price but cannot be selected', () => {
@@ -275,18 +266,16 @@ describe('shared model menus', () => {
     assert.match(modelSurfaces.channelCharacters, /title="Character vision model"/)
   })
 
-  test('every customer model menu maps the Gateway published cost tiers', () => {
-    assert.match(modelSelector, /costTier:\s*model\.cost_tier/)
-    assert.match(imagePicker, /costTier:\s*model\.cost_tier/)
-    assert.match(modelSurfaces.audio, /costTier:\s*model\.cost_tier/)
-    assert.match(modelSurfaces.motion, /costTier:\s*model\.cost_tier/)
-    assert.match(transcriptionCatalog, /costTier:\s*model\.cost_tier/)
-    assert.match(modelSurfaces.thumbnailVisionMenu, /costTier:\s*model\.cost_tier/)
-    assert.match(modelSurfaces.research || '', /costTier:\s*model\.cost_tier/)
-
+  test('no picker row carries a cost tier into the list any more', () => {
+    // The published `cost_tier` stays catalogue data (Settings shows it as a
+    // diagnostic); the menu no longer draws it or filters on it.
+    for (const picker of [modelSelector, imagePicker, modelSurfaces.audio, modelSurfaces.motion, transcriptionCatalog, modelSurfaces.thumbnailVisionMenu, modelSurfaces.research || '']) {
+      assert.doesNotMatch(picker, /costTier:\s*model\.cost_tier/)
+    }
     for (const catalog of [imageCatalog, mediaCatalog, voiceCatalog, transcriptionCatalog]) {
       assert.match(catalog, /cost_tier\?: GenStudioCostTier/)
     }
+    assert.doesNotMatch(source('../utils/genstudio-cost-tier.ts'), /GENSTUDIO_LLM_COST_TIERS|visibleTierOptions|tierForOpening/)
   })
 
   test('Music preserves the published tier for diagnostics without inventing a picker', () => {

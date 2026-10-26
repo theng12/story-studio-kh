@@ -178,10 +178,14 @@
               placeholder="Pick an image-to-video model…"
               search-placeholder="Search video model or provider…"
               aria-label="Image-to-video model options"
+              :catalogue-error="mediaModelsError"
             />
             <!-- Charged capability the assembled episode will not contain.
                  Shown at the point of choosing, next to the model that bills
                  for it, so a customer can pick a picture-only model instead. -->
+            <span v-if="videoModelNotice" class="model-unavailable-notice" role="alert">
+              {{ videoModelNotice }}
+            </span>
             <span v-if="selectedVideoModelAudioNotice" class="model-audio-notice">
               {{ selectedVideoModelAudioNotice }}
             </span>
@@ -412,7 +416,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { isRetiredVideoModelId, selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
+import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-cost'
 import { hasPriceTruth } from '~/utils/genstudio-price-usd'
@@ -719,7 +723,12 @@ const selectedResolution = ref('')
 const durationMode = ref<DurationMode>('manual')
 const manualDurationSeconds = ref<number | null>(null)
 const manualDurationDraft = ref('')
-const { videoModels: genStudioVideoModels, refresh: refreshGenStudioMediaModels } = useGenStudioMediaModels()
+const {
+  videoModels: genStudioVideoModels,
+  loaded: mediaModelsLoaded,
+  error: mediaModelsError,
+  refresh: refreshGenStudioMediaModels,
+} = useGenStudioMediaModels()
 const cacheBuster = ref(Date.now())
 const motionPresets = usePresets({
   slug: slug.value,
@@ -738,9 +747,10 @@ const motionPresets = usePresets({
     ...(Object.keys(switchChoices.value).length ? { switches: { ...switchChoices.value } } : {}),
   }),
   apply: (data: any) => {
-    // A retired model is never restored: the field is emptied and the picker offers a live model, if any.
+    // A model the live catalogue does not have is never restored: the picker
+    // drops it below and says the one sentence it can honestly say.
     if (typeof data?.model === 'string') {
-      videoModel.value = isRetiredVideoModelId(data.model) ? '' : data.model
+      videoModel.value = data.model
       selectLiveVideoModel()
     }
     // Restored whole rather than merged: a preset that stored no switches must not inherit the
@@ -861,8 +871,7 @@ const i2vModels = computed(() => {
             ? 'The Gateway publishes no priced length or resolution for this model.'
             : undefined),
         badges: generatesAudio ? [{ label: 'Generates audio', tone: 'warning' as const }] : [],
-        costTier: model.cost_tier,
-      }
+              }
     })
   return discovered
 })
@@ -1036,15 +1045,35 @@ watch(selectedVideoVariants, (variants) => {
   syncPublishedSelection(variants)
 }, { immediate: true })
 watch(availableAspectRatios, normalizeSelectedAspectRatio, { immediate: true })
+/** Said when a saved selection names nothing the live catalogue publishes. */
+const VIDEO_MODEL_UNAVAILABLE_MESSAGE = 'This model is no longer available — choose another.'
+const videoModelNotice = ref('')
 function selectLiveVideoModel(): void {
-  // A saved retired model is dropped even when the catalogue lists nothing, so it can never be requested.
-  if (isRetiredVideoModelId(videoModel.value)) videoModel.value = ''
-  if (!i2vModels.value.length) return
   const raw = videoModel.value.startsWith('genstudio-video:') ? videoModel.value.slice('genstudio-video:'.length) : videoModel.value
+  if (!i2vModels.value.length) {
+    // A read that finished with nothing offered does not have the saved model
+    // either. One that has not finished yet is not evidence of anything, so the
+    // value waits rather than being dropped on a slow network.
+    if (mediaModelsLoaded.value && videoModel.value) {
+      videoModel.value = ''
+      videoModelNotice.value = VIDEO_MODEL_UNAVAILABLE_MESSAGE
+    }
+    return
+  }
   const selected = selectLiveImageToVideoModel(raw, genStudioVideoModels.value)
-  if (selected) videoModel.value = `genstudio-video:${selected.id}`
+  if (selected) {
+    videoModel.value = `genstudio-video:${selected.id}`
+    videoModelNotice.value = ''
+    return
+  }
+  // Gone from the catalogue entirely: unselect it rather than leave a dead id
+  // in the form to fail after the customer has queued paid work.
+  if (!genStudioVideoModels.value.some(model => model.id === raw)) {
+    videoModel.value = ''
+    videoModelNotice.value = VIDEO_MODEL_UNAVAILABLE_MESSAGE
+  }
 }
-watch(i2vModels, selectLiveVideoModel, { immediate: true })
+watch([i2vModels, mediaModelsLoaded], selectLiveVideoModel, { immediate: true })
 
 function chooseResolution(event: Event): void {
   const requested = manualDurationSeconds.value
@@ -1655,7 +1684,8 @@ watch(episodeId, () => {
 .motion-tools > .btn:last-child { grid-column: 5; }
 input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-visible) { outline: 2px solid var(--motion-blue); outline-offset: 2px; }
 /* Prose, not a field label — override the uppercase caption styling above. */
-.model-field > span.model-audio-notice {
+.model-field > span.model-audio-notice,
+.model-field > span.model-unavailable-notice {
   margin: 6px 0 0; max-width: 46ch;
   color: var(--warning, #d97706); font-size: var(--font-xs); font-weight: 500;
   letter-spacing: normal; text-transform: none; line-height: 1.45;

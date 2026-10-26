@@ -935,6 +935,7 @@
             placeholder="Choose a published model…"
             search-placeholder="Search transcription models…"
             aria-label="Alternate transcription model"
+            :catalogue-error="audioQualityCatalogError"
           />
           <p class="text-muted text-xs mt-1">
             You choose the alternate. It must have a different published model ID from the first transcript; a different provider name alone does not make it a distinct model.

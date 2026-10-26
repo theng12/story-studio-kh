@@ -14,8 +14,8 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
   const vueUrl = await import.meta.resolve('vue')
   const support = `
     import { computed, defineComponent as _defineComponent, onBeforeUnmount, onMounted, ref, watch } from ${JSON.stringify(vueUrl)}
-    const selectLiveImageToVideoModel = (id, rows) => rows.find(row => row.id === id) || rows[0] || null
-    const isRetiredVideoModelId = id => /ltx/i.test(String(id))
+    // Mirrors the real policy: empty takes the first usable row, a name must match.
+    const selectLiveImageToVideoModel = (id, rows) => (id ? rows.find(row => row.id === id) || null : rows[0] || null)
     const genStudioModelLockReason = () => ''
     const describeVideoModelRate = () => ''
     const formatCredits = value => String(value)
@@ -77,4 +77,18 @@ test('Motion Review submits only a ratio selected from the current model catalog
   await nextTick()
   assert.equal(state.selectedAspectRatio.value, '')
   assert.equal(state.generationPayload(), null, 'a ratio invalidated by a model switch requires a new choice')
+})
+
+test('a saved video model the live catalogue does not have is unselected, with one honest sentence', async () => {
+  const models = ref([{
+    id: 'portrait-video', display_name: 'Portrait', available: true, modes: ['image-to-video'], aspect_ratios: ['9:16'],
+    variants: [{ operation: 'image-to-video', resolution: '720p', duration_seconds: 5, credits_per_video: 1, minimum_credits: 1, price_version: 'fixture' }],
+  }])
+  const state: any = await setupWith(models)
+
+  state.motionPresets.apply({ model: 'genstudio-video:gone-model', aspect_ratio: '9:16', resolution: '720p', duration_seconds: 5 })
+
+  assert.equal(state.videoModel.value, '', 'a model the catalogue does not publish is not left in the form')
+  assert.equal(state.videoModelNotice.value, 'This model is no longer available — choose another.')
+  assert.equal(state.generationPayload(), null, 'nothing can be queued against the dropped model')
 })

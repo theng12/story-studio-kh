@@ -184,6 +184,7 @@
                 title="Thumbnail reference analysis model"
                 search-placeholder="Search vision models…"
                 :disabled="extractingThumbRef"
+                :catalogue-error="thumbnailVisionLoadError"
               />
               <p v-if="selectedThumbnailVisionModel" class="text-muted text-xs hint-line">
                 Reads {{ selectedThumbnailVisionModel.max_input_images }} image · {{ selectedThumbnailVisionModel.accepted_image_mime_types.map(type => type.replace(/^image\//, '').toUpperCase()).join(', ') }} files · up to {{ Math.round(selectedThumbnailVisionModel.max_image_bytes / 1024 / 1024) }} MB and {{ selectedThumbnailVisionModel.max_image_dimension }}px on the longest side

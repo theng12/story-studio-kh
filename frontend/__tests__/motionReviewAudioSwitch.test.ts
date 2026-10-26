@@ -41,7 +41,7 @@ async function loadPage(): Promise<Component> {
     const useToast = () => ({ success: () => {}, error: error => { throw error }, info: () => {} })
     const useConfirm = () => ({ ask: async () => true })
     const useJobs = () => ({ isJobActiveFor: () => false, jobs: { value: [] } })
-    const useGenStudioMediaModels = () => ({ videoModels: globalThis.__mrModels, refresh: async () => {} })
+    const useGenStudioMediaModels = () => ({ videoModels: globalThis.__mrModels, loaded: ref(true), refresh: async () => {} })
     const usePresets = options => { globalThis.__mrPreset = options; return {} }
   `
   const code = `${support}\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
@@ -253,24 +253,24 @@ describe('Motion Review audio switch', () => {
   })
 })
 
-describe('Motion Review with the retired local video model', () => {
-  const RETIRED = 'genstudio-video:baa-ai/LTX-2.3-22B-RAM-12GB-MLX'
+describe('Motion Review with a saved model the live catalogue does not have', () => {
+  const GONE = 'genstudio-video:baa-ai/LTX-2.3-22B-RAM-12GB-MLX'
 
-  test('a saved retired model is dropped and a listed cloud model is offered instead', async () => {
+  test('the saved model is unselected and the one honest sentence is shown', async () => {
     const mounted = await mount([model('cloud-video')])
-    mounted.preset().apply({ model: RETIRED, aspect_ratio: '16:9' })
+    mounted.preset().apply({ model: GONE, aspect_ratio: '16:9' })
     await settle()
-    const saved = mounted.preset().snapshot().model
-    assert.ok(!/ltx/i.test(saved), `the retired id is never kept (got ${saved})`)
-    assert.equal(saved, 'genstudio-video:cloud-video', 'the live cloud model is what the picker selects')
+    assert.equal(mounted.preset().snapshot().model, '', 'the form does not keep a model the catalogue does not publish')
+    assert.match(mounted.text(), /This model is no longer available — choose another\./)
     mounted.destroy()
   })
 
   test('with no video model listed the page stays calm, says so plainly, and cannot generate', async () => {
     const mounted = await mount([])
-    mounted.preset().apply({ model: RETIRED, aspect_ratio: '16:9' })
+    mounted.preset().apply({ model: GONE, aspect_ratio: '16:9' })
     await settle()
-    assert.equal(mounted.preset().snapshot().model, '', 'nothing retired is carried in the preset')
+    assert.equal(mounted.preset().snapshot().model, '', 'a finished empty catalogue does not keep the saved id either')
+    assert.match(mounted.text(), /This model is no longer available — choose another\./)
     assert.match(mounted.text(), /No image-to-video model is available right now\. Scenes stay still\./)
     assert.equal(mounted.el.querySelector<HTMLButtonElement>('button')!.disabled, true)
     assert.equal(mounted.calls.length, 0, 'no request was made')

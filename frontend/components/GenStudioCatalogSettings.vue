@@ -109,7 +109,7 @@
 import { formatGenStudioAge, normalizeGenStudioLoadedAt } from '~/utils/genstudio-freshness'
 import { createGenStudioCatalogCache, GENSTUDIO_CATALOG_FRESH_MS, GENSTUDIO_CATALOG_STALE_CEILING_MS } from '../composables/useGenStudioCatalogCache.js'
 import { useGenStudioTranscriptionCatalog } from '../composables/useGenStudioTranscription.js'
-import { costTierLabel, llmCostTierLabel, type GenStudioCostTier, type GenStudioLlmCostTier } from '../utils/genstudio-cost-tier.js'
+import type { GenStudioCostTier, GenStudioLlmCostTier } from '../utils/genstudio-cost-tier.js'
 import { genStudioModelLockReason } from '../utils/live-genstudio-model-selection.js'
 
 const { get } = useApi()
@@ -315,7 +315,9 @@ const connectionState = computed(() => {
 })
 
 function tierLabel(tier: GenStudioCostTier | GenStudioLlmCostTier): string {
-  return `${tier === 'promotional' || tier === 'value' ? llmCostTierLabel(tier) : costTierLabel(tier)} cost tier`
+  // The row's published tier, shown as diagnostics beside its id — never a
+  // picker group (the owner removed the tier tabs, 2026-10-26).
+  return `${tier[0].toUpperCase()}${tier.slice(1)} cost tier`
 }
 
 const lastRefreshLabel = computed(() =>
