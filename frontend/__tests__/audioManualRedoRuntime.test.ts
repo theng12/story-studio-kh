@@ -66,6 +66,7 @@ async function loadAudioPage(): Promise<Component> {
     const voiceSourceText = () => ''
     const selectLiveGenStudioModel = (value, models) => models.find(model => model.id === value) || null
     const genStudioModelLockReason = () => ''
+    const resolveAliasedModelId = () => null
     const CREDIT_BASIS_LABEL = { exact: 'Exact quote' }
     const describeVoiceRate = model => ({ text: model?.rate || 'No current rate', title: '', notice: '' })
     const describeQuotedTotal = () => ({ text: '2.00 credits', title: '', notice: '', basis: 'exact' })

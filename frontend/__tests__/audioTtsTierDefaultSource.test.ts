@@ -18,8 +18,10 @@ test('Audio Generator seeds no TTS model id of its own', () => {
 test('a remembered named model is preserved unless the Gateway publishes an explicit alias', () => {
   const source = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   assert.match(source, /watch\(\[ttsModels, \(\) => form\.model\]/)
-  assert.match(source, /selectLiveGenStudioModel\(/)
-  assert.match(source, /if \(selected && selected\.id !== form\.model\)/)
+  // Only an owner-published alias moves the saved model, and the saved voice
+  // travels with it: a renamed product is the same product (1.4.359).
+  assert.match(source, /const migrated = resolveAliasedModelId\(form\.model, ttsModels\.value\)/)
+  assert.match(source, /if \(migrated\) form\.model = migrated\n\}\)/)
   assert.doesNotMatch(source, /no longer in your Gateway catalogue/)
 })
 
