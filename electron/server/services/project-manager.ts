@@ -25,6 +25,7 @@ import type {
   SafeProjectConfig, UpdateApiKeysRequest, UpdateConfigRequest, UpdateProjectRequest,
 } from '../models/types.js'
 import { resolveGenStudioModelId } from './genstudio-model-migration.js'
+import { channelLastWorkedAt } from './channel-recency.js'
 import { buildManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
 import { getSoftDeletedSlugSet, forgetSoftDeletedProject } from './soft-delete.js'
@@ -602,42 +603,23 @@ async function syncManifest(slug: string): Promise<void> {
 // carry `portable: true` — that's fine, we just ignore it.)
 
 /**
- * When a channel was last WORKED ON, as an ISO string — or null for unknown.
+ * When a channel was last WORKED ON — including inside its episodes — as an
+ * ISO string, or null for unknown.
  *
- * The newest modification time among the channel folder's own bookkeeping
- * (`jobs.json` is rewritten whenever any generation job moves, `config.json`
- * on any channel setting, `project.json` on any metadata change) and the
- * `episodes/` folder itself (bumped when an episode folder is created,
- * renamed or removed).
- *
- * ── Why it is four `stat` calls and not a walk ──
- *
- * `listProjects` runs on every visit to the start page and reads every channel
- * in the Library. The one thing it must not start doing is walking episodes:
- * that is O(episodes) syscalls per channel on the path whose whole design goal
- * is to paint before the disk answers. These four stats go out in parallel with
- * the rest of the row, and one of them (`episodes/`) is the folder the row
- * already touches for `output_root_exists`.
- *
- * ── What it therefore cannot see ──
- *
- * An edit to a file INSIDE an existing episode folder — a script, an image, a
- * render — bumps neither the channel folder nor `episodes/`, so a channel whose
- * episodes are all already on disk moves on this measure only when something
- * else about the channel changes. It is a recency PROXY, it is only ever used
- * to order a list on screen, and the sort that uses it is labelled for it.
+ * The measure itself lives in `channel-recency.ts`: it walks the channel's own
+ * work files and its episodes (bounded, cached) because a script or scene plan
+ * saved inside an episode moves nothing at the channel's top level. Read that
+ * module for what counts, what is ignored, and why.
  *
  * A folder that cannot be read yields null: unknown, which the list sorts last
  * rather than treating as the oldest thing in the Library.
  */
-async function lastWorkedAt(channelDir: string): Promise<string | null> {
-  const markers = ['jobs.json', 'config.json', 'project.json', 'episodes']
-  let newest = 0
-  await Promise.all(markers.map(async (name) => {
-    const stat = await fs.stat(path.join(channelDir, name)).catch(() => null)
-    if (stat && stat.mtimeMs > newest) newest = stat.mtimeMs
-  }))
-  return newest > 0 ? new Date(newest).toISOString() : null
+async function lastWorkedAt(
+  slug: string,
+  channelDir: string,
+  subfolderNames?: ProjectMeta['subfolder_names'],
+): Promise<string | null> {
+  return channelLastWorkedAt({ slug, channelDir, subfolderNames })
 }
 
 export async function listProjects(): Promise<ProjectSummary[]> {
@@ -797,6 +779,11 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       // format registry, so this stays correct even as formats are renamed.
       format_id: typeof meta.format_id === 'string' ? meta.format_id : undefined,
       niche_id: typeof meta.niche_id === 'string' && meta.niche_id ? meta.niche_id : undefined,
+      // The deliberate-choice marker, read with the same metadata. Its name is
+      // resolved by the route in one catalogue lookup, not one per row.
+      formula_choice: meta.formula_choice === 'selected' || meta.formula_choice === 'generic'
+        ? meta.formula_choice
+        : undefined,
       // The owner's own labels for this channel, read from the metadata this
       // row already parsed — the start page needs them for every card, and a
       // second read per card would be one more thing to wait for.
@@ -804,7 +791,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       // Audience language, read the same way. Undefined keeps its ProjectMeta
       // meaning: legacy, no directive.
       content_language: meta.content_language ?? undefined,
-      last_worked_at: await lastWorkedAt(cand.dir),
+      last_worked_at: await lastWorkedAt(slug, cand.dir, meta.subfolder_names),
       status: 'ready',
     }
   }))

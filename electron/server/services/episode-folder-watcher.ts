@@ -32,6 +32,7 @@
 import fs from 'fs'
 import path from 'path'
 import * as pm from './project-manager.js'
+import { forgetChannelRecency } from './channel-recency.js'
 
 const COALESCE_MS = 250
 
@@ -221,6 +222,11 @@ async function startWatcherInner(slug: string): Promise<void> {
     try {
       if (typeof rawName !== 'string' || !rawName) return
       if (!watchedTops.has(rawName.split(/[\\/]/)[0] || '')) return
+      // "Recently worked on" is measured across the episode tree, so ANY change
+      // in it — including one inside a subfolder whose episode code cannot be
+      // parsed out of the path — drops the channel's cached recency. The next
+      // list read then re-walks, which is exactly once per change.
+      forgetChannelRecency(slug)
       const code = extractEpisodeCode(rawName)
       if (!code) return
       scheduleInvalidate(state, slug, code)

@@ -183,6 +183,56 @@ async function mountHome(
   }
 }
 
+/** A channel list where each card carries the Formula the backend resolved. */
+const FORMULA_CHANNELS = [
+  { slug: 'daily-devotional', name: 'Daily Devotional', episode_prefix: 'DD', has_api_keys: true, output_root_exists: true,
+    labels: [], created_at: '2026-01-01T00:00:00Z', last_worked_at: '2026-05-01T00:00:00Z',
+    niche_id: 'devotional', formula_id: 'com.storystudio.formula.pastoral-scripture', formula_name: 'Pastoral Scripture' },
+  { slug: 'quiet-rain', name: 'Quiet Rain', episode_prefix: 'QR', has_api_keys: true, output_root_exists: true,
+    labels: [], created_at: '2026-01-02T00:00:00Z', last_worked_at: '2026-04-01T00:00:00Z',
+    formula_choice: 'generic', formula_name: 'Generic — no Formula' },
+  { slug: 'brand-new', name: 'Brand New', episode_prefix: 'BN', has_api_keys: true, output_root_exists: true,
+    labels: [], created_at: '2026-01-03T00:00:00Z', last_worked_at: '2026-03-01T00:00:00Z',
+    formula_name: 'No Formula chosen' },
+  { slug: 'old-cache-row', name: 'Old Cache Row', episode_prefix: 'OC', has_api_keys: true, output_root_exists: true,
+    labels: [], created_at: '2026-01-04T00:00:00Z', last_worked_at: '2026-02-01T00:00:00Z' },
+]
+
+describe('the Series Formula on a card, and what "recent" measures', () => {
+  beforeEach(() => { localStorage.clear() })
+
+  test('each card shows its Formula by name, and the two no-Formula answers stay distinct', async () => {
+    const h = await mountHome(FORMULA_CHANNELS)
+    const formulaTags = () => [...h.host.querySelectorAll('.project-tag[data-kind="formula"]')].map(node => node.textContent)
+    assert.deepEqual(formulaTags(), ['Pastoral Scripture', 'Generic — no Formula', 'No Formula chosen'])
+
+    // A row painted from an older cache carries no Formula name. Unknown is not
+    // "No Formula chosen", so that card says nothing rather than guessing.
+    const cached = [...h.host.querySelectorAll('.project-card-wrap')]
+      .find(node => node.querySelector('strong')!.textContent === 'Old Cache Row')!
+    assert.equal(cached.querySelector('.project-tag[data-kind="formula"]'), null)
+  })
+
+  test('typing the Formula name finds the channels that use it', async () => {
+    const h = await mountHome(FORMULA_CHANNELS)
+    await h.type('pastoral')
+    assert.deepEqual(h.titles(), ['Daily Devotional'])
+
+    await h.type('no formula')
+    assert.deepEqual(h.titles(), ['Quiet Rain', 'Brand New'], 'both honest no-Formula states are findable by what they say')
+  })
+
+  test('the sort control says what "recently worked on" actually measures', async () => {
+    const h = await mountHome(FORMULA_CHANNELS)
+    assert.match(h.sortSelect().getAttribute('title') || '', /inside episodes/i,
+      'the tooltip names the episode tree, because the label alone cannot say it')
+
+    await h.chooseSort('newest')
+    assert.match(h.sortSelect().getAttribute('title') || '', /created/i,
+      'and it follows the chosen sort, so it is never describing the wrong one')
+  })
+})
+
 describe('the channel list can be searched, filtered and sorted', () => {
   beforeEach(() => { localStorage.clear() })
 

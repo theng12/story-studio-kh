@@ -1778,6 +1778,24 @@ export interface ProjectSummary {
   format_id?: string
   /** The project's selected niche, already read with this list row's metadata. */
   niche_id?: string
+  /**
+   * Whether the Formula was a deliberate choice — the same three states as
+   * `ProjectMeta.formula_choice`. Absent is "never chose", which the card must
+   * not render as Generic. Read with this row's metadata.
+   */
+  formula_choice?: 'selected' | 'generic'
+  /**
+   * The Formula's display name, resolved ONCE per list by the `/projects`
+   * route from the Formulas installed on this machine: the alias-resolved
+   * store Formula's name, the stored id when that Formula is not installed,
+   * `Generic — no Formula` for a deliberate Generic choice, `No Formula chosen`
+   * when no choice was ever recorded. Not set by `listProjects` itself — the
+   * route adds it, because the catalogue is a heavier read than a channel row.
+   */
+  formula_name?: string
+  /** The qualified Formula id the stored `niche_id` reads as (alias-resolved).
+   *  The card's search matches it; nothing dispatches on it. */
+  formula_id?: string
   /** The owner's labels for this channel, already read with this row's
    *  metadata. Undefined = none set. See `ProjectMeta.labels`. */
   labels?: string[]
@@ -1785,9 +1803,10 @@ export interface ProjectSummary {
    *  legacy (no directive), the same meaning it has on `ProjectMeta`. */
   content_language?: ContentLanguage | null
   /**
-   * When this channel was last WORKED ON — the newest modification time among
-   * the channel folder's own bookkeeping (`jobs.json`, `config.json`,
-   * `project.json`) and its `episodes/` folder, as an ISO string.
+   * When this channel was last WORKED ON — the newest modification time of its
+   * own work files and its episodes (scripts, sidecars, text artifacts,
+   * media/generation activity), as an ISO string. See
+   * `services/channel-recency.ts` for the exact definition and what it ignores.
    *
    * Read with this row so the start page can sort by it without a second pass
    * over the Library. `null` means UNKNOWN — the folder could not be read —

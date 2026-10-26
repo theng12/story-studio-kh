@@ -412,6 +412,98 @@ export async function listNiches(registryOptions: ContentPackRegistryOptions = {
   return (await listNicheCatalogEntries(registryOptions)).map(entry => entry.value)
 }
 
+// ── what a channel's Formula is called on its card ──────────────────────────
+
+/** A deliberate Generic choice — a real answer, not a missing one. */
+export const GENERIC_FORMULA_LABEL = 'Generic — no Formula'
+/** No choice was ever recorded (channels made before the choice was required). */
+export const NO_FORMULA_LABEL = 'No Formula chosen'
+
+export interface FormulaChoiceRow {
+  niche_id?: string
+  formula_choice?: 'selected' | 'generic'
+  /** A row the list could not read (`status !== 'ready'`) knows nothing about
+   *  its Formula either; it must not be labelled from an absent field. */
+  status?: string
+}
+
+/**
+ * id → the name a card shows, for every Formula installed on this machine.
+ *
+ * ONE read for a whole channel list: the start page renders a card per channel
+ * and the catalogue is the expensive half, so resolving per card would read it
+ * n times. Names follow the Settings page's own precedence
+ * (`catalogName || name`), so the card and the channel's settings agree.
+ *
+ * A catalogue that cannot be read yields an empty map rather than an error: a
+ * display label must never take the channel list down with it.
+ */
+export async function formulaDisplayNames(
+  registryOptions: ContentPackRegistryOptions = {},
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>()
+  try {
+    for (const entry of await listNicheCatalogEntries(registryOptions)) {
+      names.set(entry.value.id, entry.value.catalogName || entry.value.name)
+    }
+  } catch (e: any) {
+    console.warn(`[niche-loader] Formula names unavailable for the channel list: ${e?.message || e}`)
+  }
+  return names
+}
+
+/** The qualified id a stored `niche_id` reads as, or undefined for no Formula. */
+export function formulaResolvedId(row: FormulaChoiceRow | null | undefined): string | undefined {
+  if (row?.formula_choice === 'generic') return undefined
+  const storedId = typeof row?.niche_id === 'string' ? row.niche_id.trim() : ''
+  return storedId ? resolveFormulaAlias(storedId) : undefined
+}
+
+/**
+ * What the channel card says about its Formula — never a guess.
+ *
+ *   - a Formula          → the installed Formula's display name;
+ *   - one that is not
+ *     installed here     → the STORED id, plainly (the app will not invent a
+ *                          name for a pack this Mac does not have);
+ *   - deliberate Generic → `Generic — no Formula`;
+ *   - never chose        → `No Formula chosen`.
+ */
+export function formulaCardLabel(
+  row: FormulaChoiceRow | null | undefined,
+  names: ReadonlyMap<string, string>,
+): string {
+  const resolved = formulaResolvedId(row)
+  if (resolved) return names.get(resolved) || String(row?.niche_id || '').trim() || NO_FORMULA_LABEL
+  return row?.formula_choice === 'generic' ? GENERIC_FORMULA_LABEL : NO_FORMULA_LABEL
+}
+
+/**
+ * Stamp `formula_name` (and the resolved `formula_id`) onto a channel list, in
+ * one catalogue lookup for the whole list. Used by `GET /projects` — the row
+ * itself carries only the stored choice, because `listProjects` is also called
+ * by routes that have no use for Formula names.
+ */
+export async function withFormulaLabels<T extends FormulaChoiceRow>(
+  rows: readonly T[],
+  registryOptions: ContentPackRegistryOptions = {},
+): Promise<Array<T & { formula_name?: string; formula_id?: string }>> {
+  // Nothing to resolve: skip the catalogue read entirely.
+  if (!rows.length) return []
+  const names = await formulaDisplayNames(registryOptions)
+  return rows.map(row => {
+    // A row whose metadata could not be read (a timed-out folder) says NOTHING
+    // about its Formula: "No Formula chosen" would be an answer invented from an
+    // absence (AGENTS §6).
+    if (row.status && row.status !== 'ready') return { ...row }
+    return {
+      ...row,
+      formula_name: formulaCardLabel(row, names),
+      formula_id: formulaResolvedId(row),
+    }
+  })
+}
+
 /**
  * Deep-merge `overrides` onto `base`. Arrays in overrides REPLACE the base
  * array — matches format-loader's merge semantics so the user mental model
