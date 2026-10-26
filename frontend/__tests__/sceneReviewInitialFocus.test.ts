@@ -43,6 +43,17 @@ async function loadPage(): Promise<Component> {
     const useEpisodes = () => ({ updateEpisode: () => undefined, revalidateAfterMutation: async () => undefined })
     const useRememberedForm = () => undefined
     const usePresets = () => ({ load: async () => undefined })
+    // The page reads this episode's own characters and the live published
+    // reference limits; this harness owns no characters and supplies no model.
+    const useCharacters = () => ({ listForEpisode: async () => [] })
+    const sceneReferenceLimits = () => null
+    const sceneReferenceNotice = () => ''
+    const reconcileSceneReferenceCharacters = (selected) => ({ kept: selected, dropped: [] })
+    const describeSceneReferenceDrops = () => ''
+    const sceneReferencePortrait = () => ''
+    const sceneTakesCharacterReferences = () => true
+    const sceneReviewPresetApply = (base, _data) => base
+    const sceneReviewPresetSnapshot = (data) => data
     const useGenStudioImageModels = () => ({ models: ref([]), refresh: async () => undefined })
     const useJobs = () => ({ jobs: ref([]), isJobActiveFor: () => false })
   `
