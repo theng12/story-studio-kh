@@ -122,7 +122,7 @@ describe('default models — the settings index', () => {
 
 describe('default models — not persisted as a remembered choice', () => {
   test('a defaulted model is dropped from what a page remembers, so a later default change reaches it', async () => {
-    const { applyDefaults, useDefaultModels, peekDefaultModels } = await import('../composables/useDefaultModels.ts')
+    const { applyDefaults, peekDefaultModels } = await import('../composables/useDefaultModels.ts')
     const { useRememberedForm } = await import('../composables/useRememberedForm.ts')
     const { reactive } = await import('vue')
 
@@ -149,7 +149,5 @@ describe('default models — not persisted as a remembered choice', () => {
     remembered.persist()
     const after = JSON.parse((globalThis as any).window.localStorage.getItem('ssk:form:demo:default-models-test:v1')!)
     assert.equal(after.model, 'owner-picked-model')
-
-    void useDefaultModels
   })
 })
