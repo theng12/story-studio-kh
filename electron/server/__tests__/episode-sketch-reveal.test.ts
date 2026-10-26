@@ -65,6 +65,18 @@ async function episode(slug: string, code: string) {
   return { code, dir: found.episode_dir, image }
 }
 
+/** Real scenes in the plan, so the review read can resolve a Mix per scene before anything is rendered. */
+async function planEpisode(slug: string, code: string) {
+  const ep = await episode(slug, code)
+  const resolved = await paths.resolveEpisodePathsByCode(slug, code)
+  const scenes = SCENES.map((id, i) => ({
+    id, scene_index: i + 1, start_sec: i * 4, end_sec: (i + 1) * 4,
+    transcript_segment: `words ${i + 1}`, visual_prompt: `Prompt ${i + 1}`, approved: false,
+  }))
+  await fs.writeFile(path.join(resolved.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({ scenes }))
+  return ep
+}
+
 /** A sketch clip of one scene rendered under whatever reveal `slug`/`code` resolve to right now. */
 async function renderedUnderCurrentReveal(slug: string, code: string, sceneId = 'scene-1') {
   resetSketchRevealPlanCache()
@@ -242,6 +254,27 @@ describe('per-episode Sketch Draw reveal', () => {
 })
 
 describe('episode reveal routes', () => {
+  test('the review read shows what a Mix resolves each scene to BEFORE rendering, and which are pinned', async () => {
+    const slug = await channel('Review read')
+    const ep = await planEpisode(slug, 'EP001')
+    // The channel renders Sketch Draw — the owner is judging the look while every scene is a still.
+    await pm.updateConfig(slug, { motion_presentation: { renderer: 'sketch_draw', pen: 'none', reveal: { style: 'mix', mix: ['line', 'buildup', 'swipes'] } } } as any)
+    await revealStore.writeEpisodeSketchReveal(slug, 'EP001', { style: 'mix', mix: ['line', 'buildup', 'swipes'], overrides: { 'scene-3': 'bloom' } })
+
+    const read = await request(app).get(`/api/projects/${slug}/scene-review/EP001`).expect(200)
+    const byId = new Map<string, any>(read.body.scenes.map((scene: any) => [scene.id as string, scene]))
+    const plan = resolveSketchRevealPlan('EP001', SCENES, (await revealStore.readEpisodeSketchReveal(slug, 'EP001'))!)
+    for (const id of SCENES) {
+      assert.equal(byId.get(id).reveal_type, plan.get(id), `${id} shows the style it will draw with`)
+    }
+    assert.equal(byId.get('scene-3').reveal_pin, 'bloom')
+    assert.equal(byId.get('scene-1').reveal_pin, null, 'an unpinned scene says so')
+    assert.equal(byId.get('scene-3').reveal_type, 'bloom', 'the pin is what the scene resolves to')
+    // Every scene still has no clip: this is the variety, not a render.
+    assert.equal(byId.get('scene-1').clip_exists, false)
+    assert.ok(ep)
+  })
+
   test('GET reports the channel default and the episode reveal; PUT sets, validates and clears', async () => {
     const slug = await channel('Routes', { style: 'bloom', mix: [] })
     await episode(slug, 'EP001')

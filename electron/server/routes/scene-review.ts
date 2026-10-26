@@ -291,6 +291,8 @@ interface ReviewSceneAugmented {
   visual_prompt: string
   /** The reveal style this Sketch Draw scene resolves to, or null for other renderers. */
   reveal_type?: SketchRevealType | null
+  /** The style this scene is pinned to, or null when it follows the episode's reveal. */
+  reveal_pin?: SketchRevealType | null
   /** v1.0.468 — image-to-video motion instruction (read-only in Scene Review). */
   motion_prompt?: string
   approved: boolean
@@ -631,8 +633,11 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const legacyNumberedPattern = new RegExp(`^${episodeId.toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_Scene\\d+_v\\d+\\.(?:png|jpe?g|webp)$`, 'i')
     // One readdir per folder; a name not listed is missing without a stat (S6: the page polls every
     // 3.5 s and a 300-scene plan cost ~600 probes per poll).
-    // Resolved once per review read: every scene's freshness uses the same live channel selection.
-    const reviewSketchSettings = plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
+    // Resolved once per review read: every scene's freshness uses the same live episode selection.
+    // The channel RENDERER also asks for it, so Motion Review can show what a Mix resolves each scene
+    // to before anything is rendered — the owner's whole reason for picking a Mix.
+    const sketchRenderer = motionPresentationSelection(cfg?.motion_presentation).renderer === 'sketch_draw'
+    const reviewSketchSettings = sketchRenderer || plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
       ? await resolveSketchDrawSettings(slug, episodeId).catch(() => undefined)
       : undefined
     const reviewContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: reviewSketchSettings, revealScenes: plan.scenes.map(item => item.id) }
@@ -730,11 +735,16 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         clip_renderer: s.clip_renderer,
         motion_choice: s.motion_choice,
         // Which reveal style THIS scene resolves to, from the same resolver the generator and the
-        // freshness rule call. Null for a channel that has never chosen one, and for everything
-        // that is not a Sketch Draw scene.
-        reveal_type: s.clip_renderer === 'sketch_draw' && reviewSketchSettings?.reveal
+        // freshness rule call. Shown before rendering as well as after, so a Mix can be judged for
+        // variety while every scene is still a still. Null when nothing has been chosen, and for
+        // everything that is not a Sketch Draw scene.
+        // A scene with no clip yet is shown under the Sketch Draw renderer's plan, so the variety
+        // can be judged before rendering; a provider clip is not drawn with a reveal at all.
+        reveal_type: (s.clip_renderer === 'sketch_draw' || (sketchRenderer && !s.clip_renderer)) && reviewSketchSettings?.reveal
           ? revealTypeFor(reviewSketchSettings.reveal, reviewContext, s.id)
           : null,
+        /** The style this scene is PINNED to; the pin wins over the episode's Mix or single style. */
+        reveal_pin: reviewSketchSettings?.reveal?.overrides?.[s.id] ?? null,
       })
     }
 

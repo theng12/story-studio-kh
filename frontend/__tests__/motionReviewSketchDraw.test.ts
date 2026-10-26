@@ -235,8 +235,10 @@ test('the reveal style control edits THIS episode, offers the channel default, a
   assert.match(source, /\{\{ episodeId \}\} follows the channel default reveal: \{\{ revealLabel\(channelReveal\) \}\}/)
   assert.match(source, /No reveal style chosen, so clips keep the reveal they were made with\./)
   assert.match(source, /Clips made before this setting keep their reveal until you re-generate them\./)
-  // Each scene row shows the style it actually drew with.
-  assert.match(source, /<p v-if="isSketchDraw && scene\.reveal_type" class="reveal-note">Reveal: \{\{ REVEAL_LABELS\[scene\.reveal_type\] \}\}<\/p>/)
+  // Each scene row shows the style it will draw with, and offers a pin of its own.
+  assert.match(source, /<span>Reveal for this scene<\/span>/)
+  assert.match(source, /:aria-label="`Reveal style for scene \$\{scene\.scene_index\}`"/)
+  assert.match(source, /@change="setScenePin\(scene, \(\$event\.target as HTMLSelectElement\)\.value\)"/)
 })
 
 test('the reveal look travels in the preset and the per-scene pins never do', () => {

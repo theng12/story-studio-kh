@@ -393,7 +393,31 @@
             <p class="motion-prompt">{{ scene.motion_prompt || 'No motion prompt. Add one in Scene Plan, or keep this scene as a still.' }}</p>
           </details>
           <p v-if="!clipWork(scene) && !scene.clip_exists && generateBlocked(scene)" class="blocked-note">Generate Clip is off: {{ generateBlocked(scene) }}.</p>
-          <p v-if="isSketchDraw && scene.reveal_type" class="reveal-note">Reveal: {{ REVEAL_LABELS[scene.reveal_type] }}</p>
+          <div v-if="isSketchDraw" class="scene-reveal">
+            <label class="model-field reveal-pin-field">
+              <span>Reveal for this scene</span>
+              <select
+                class="select"
+                :value="scenePinOf(scene)"
+                :disabled="!revealLoaded || !!revealUnreadable || revealSaving || pinSavingId === scene.id"
+                :aria-label="`Reveal style for scene ${scene.scene_index}`"
+                :aria-describedby="`scene-reveal-help-${scene.id}`"
+                @change="setScenePin(scene, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">Follow the episode ({{ revealLabel(episodeReveal ?? channelReveal) }})</option>
+                <option v-for="type in REVEAL_TYPES" :key="type" :value="type">{{ REVEAL_LABELS[type] }}</option>
+              </select>
+            </label>
+            <p v-if="scene.reveal_type" :id="`scene-reveal-help-${scene.id}`" class="reveal-note">
+              {{ scenePinOf(scene) ? 'Pinned' : 'Draws' }}: {{ REVEAL_LABELS[scene.reveal_type] }}<template
+                v-if="revealIsMix"
+              >{{ scenePinOf(scene) ? ' — this pin wins over the Mix' : ' — picked by the Mix for this scene' }}</template>
+              <span v-if="pinSavingId === scene.id"> Saving…</span>
+            </p>
+            <p v-else :id="`scene-reveal-help-${scene.id}`" class="reveal-note">
+              {{ sceneRevealHelp() }}
+            </p>
+          </div>
           <p v-if="scene.clip_stale" class="stale-note">This clip needs to be generated again: {{ scene.clip_stale_reason || 'its source or scene window changed' }}. Re-generate before approval.</p>
         </div>
 
@@ -480,6 +504,8 @@ interface MotionScene {
   clip_renderer?: 'sketch_draw' | 'image_to_video' | 'external'
   /** The reveal style this Sketch Draw scene resolves to, or null for other renderers. */
   reveal_type?: SketchRevealType | null
+  /** The style this scene is pinned to, or null when it follows the episode's reveal. */
+  reveal_pin?: SketchRevealType | null
   motion_choice?: MotionChoice
 }
 interface MotionStats {
@@ -589,6 +615,19 @@ const revealUnreadable = ref('')
 const revealError = ref('')
 const acceptedRevealChoice = (): typeof revealChoice.value =>
   revealUnreadable.value ? '' : episodeReveal.value ? revealChoiceOf(episodeReveal.value) : 'channel'
+// True while the reveal in force is a Mix, so a scene row can say whether its style was picked or pinned.
+const revealIsMix = computed(() => (episodeReveal.value ?? channelReveal.value)?.style === 'mix')
+// The pin on a scene: the episode's own (or, until it has one, the channel default's), else none.
+function scenePinOf(scene: MotionScene): SketchRevealType | '' {
+  return episodeReveal.value?.overrides?.[scene.id] ?? scene.reveal_pin ?? ''
+}
+/** Why a scene shows no resolved style: nothing chosen yet, or this scene is a provider clip. */
+function sceneRevealHelp(): string {
+  if (revealUnreadable.value) return 'Choose a reveal style above to pin this scene.'
+  if (!(episodeReveal.value ?? channelReveal.value)) return 'Choose a reveal style for this episode, or pin one here.'
+  return 'This scene is not a Sketch Draw clip, so it has no reveal to show.'
+}
+const pinSavingId = ref<string | null>(null)
 // A Mix waits for Apply; this is true while what is shown is not what is saved.
 const revealPending = computed(() => {
   if (revealChoice.value !== 'mix') return false
@@ -762,6 +801,49 @@ function applyReveal() {
   // The episode's own pins are editorial choices about THIS episode; a Mix edit must not drop them.
   const overrides = episodeReveal.value?.overrides
   void saveReveal(parsed.reveal && overrides ? { ...parsed.reveal, overrides: { ...overrides } } : parsed.reveal)
+}
+/**
+ * Pin ONE scene to a reveal style, or clear the pin so it follows the episode again.
+ *
+ * A pin is this episode's, so it lives in the episode's reveal. An episode that was following the
+ * channel gets its own copy of the channel's look (or Line, the engine's own style, when nobody has
+ * chosen) before the pin is added — a pin cannot exist without a reveal to belong to. That is the
+ * same detach the pen and hold do, and it is announced: the episode stops following the channel.
+ */
+async function setScenePin(scene: MotionScene, type: string) {
+  const ep = episodeId.value
+  if (!ep) return
+  const base = episodeReveal.value ?? channelReveal.value ?? { style: 'line' as const, mix: [] }
+  const overrides = { ...(base.overrides ?? {}) }
+  if (type) overrides[scene.id] = type as SketchRevealType
+  else delete overrides[scene.id]
+  let next: SketchReveal | null = { style: base.style, mix: [...base.mix], ...(Object.keys(overrides).length ? { overrides } : {}) }
+  // Clearing the last pin from a look that is exactly the channel's leaves nothing of its own:
+  // hand the episode back to the channel rather than freezing a copy of today's default.
+  if (!type && Object.keys(overrides).length === 0 && channelReveal.value && JSON.stringify(next) === JSON.stringify(channelReveal.value)) next = null
+  const detached = !episodeReveal.value
+  pinSavingId.value = scene.id
+  revealError.value = ''
+  presentationError.value = ''
+  try {
+    await put(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-reveal`, { reveal: next })
+    if (ep !== episodeId.value) return
+    episodeReveal.value = next
+    revealUnreadable.value = ''
+    revealChoice.value = acceptedRevealChoice()
+    revealMixDraft.value = revealMixFor(next)
+    const label = REVEAL_LABELS[scene.reveal_type ?? 'line']
+    success(type
+      ? `Scene ${scene.scene_index} is pinned to ${REVEAL_LABELS[type as SketchRevealType]}, which wins over the Mix.${detached ? ` ${ep} now has its own reveal (${revealLabel(next)}); other episodes are not affected.` : ''} Re-generate this scene to apply it.`
+      : next
+        ? `Scene ${scene.scene_index} follows ${ep}'s reveal again (${label} here). Re-generate this scene to apply it.`
+        : `Scene ${scene.scene_index} follows ${ep}'s reveal again, and ${ep} follows the channel default again. Re-generate this scene to apply it.`)
+    await loadReview()
+  } catch (error: any) {
+    if (ep !== episodeId.value) return
+    revealError.value = error?.data?.detail || error?.message || `Could not save the pin for scene ${scene.scene_index}. Try again.`
+    showError(revealError.value)
+  } finally { if (ep === episodeId.value) pinSavingId.value = null }
 }
 // Deliberate: moves the channel default, so episodes without a reveal of their own follow it.
 async function setChannelRevealDefault() {
@@ -1725,6 +1807,7 @@ function resetEpisodeScopedMotionState() {
   revealSaving.value = false
   revealUnreadable.value = ''
   revealError.value = ''
+  pinSavingId.value = null
 }
 
 watch(episodeId, () => {
@@ -1876,6 +1959,10 @@ input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-
 .stale-note { color: #d99558; font-weight: 650; }
 .reveal-mix-item { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; }
 .reveal-note { color: #8fa0b5; font-size: 0.85rem; }
+/* The per-scene pin: the same model-field label + select as the controls above, sized for a row. */
+.scene-reveal { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 10px; }
+.scene-reveal .reveal-pin-field { min-width: 220px; flex: 0 1 240px; }
+.scene-reveal .reveal-note { margin: 0 0 7px; }
 .motion-actions { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border); }
 .motion-actions .btn { min-height: 33px; border-radius: 8px; }
 .load-error-detail { font-size: var(--font-xs); opacity: .75; }
