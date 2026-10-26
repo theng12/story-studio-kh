@@ -946,9 +946,12 @@ test('F1 freezes the real ordered rich final-composition child argv and validate
   assert.ok((await fs.stat(shapedLogo)).size > 0, 'the rounded logo staged in the work folder is the logo input')
 
   const identity = await workFolderIdentity(actual, workDir, output)
-  // The bundled caption faces (1.4.361) are an install path, not part of the composition.
+  // The bundled caption faces (1.4.361) are an install path, not part of the composition:
+  // the frozen golden predates them (its bytes are pinned by final-render-compiler), so the
+  // fragment is checked here and then removed before the comparison.
   const fonts = bundledFontsFilterOption()
-  const argv = identity.argv.map(arg => fonts ? arg.split(fonts).join(':fontsdir=<bundled-fonts>') : arg)
+  if (fonts) assert.ok(identity.argv.some(arg => arg.includes(fonts)), 'the subtitle burn names the bundled caption faces')
+  const argv = identity.argv.map(arg => fonts ? arg.split(fonts).join('') : arg)
   const threadFlag = argv.indexOf('-threads')
   assert.ok(threadFlag > 0, 'the actual rich libx264 child receives the runtime thread cap')
   assert.equal(argv[threadFlag - 1], 'libx264')
@@ -976,8 +979,7 @@ test('F1 freezes the real ordered rich final-composition child argv and validate
     '[logo]overlay=4:4',
     'null[vout]',
   ])
-  // The bundled caption faces travel as `fontsdir` (1.4.361, Quote Shorts); still no enable expression.
-  assert.match(graph, /ass=filename=<work>\/subtitles-burn\.ass(?::fontsdir=<bundled-fonts>)?\[v\d+\]/, 'libass has no unsupported enable expression')
+  assert.match(graph, /ass=filename=<work>\/subtitles-burn\.ass\[v\d+\]/, 'libass has no unsupported enable expression')
   assert.ok(graph.includes("enable=between(t\\,0.550\\,1.150)"), 'the contextual cue receives the scene-clock offset')
   assert.ok(graph.includes("Archive\\\\\\'s turn\\, 40%\nLine two"), 'cue punctuation and line break are escaped in the child graph')
   assert.ok((graph.match(/:enable='between\(t,0\.25,1\.75\)'/g) || []).length >= 8, 'dual intro/tail gate reaches supported effects')
