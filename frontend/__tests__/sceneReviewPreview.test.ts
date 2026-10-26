@@ -41,7 +41,8 @@ describe('Scene Review image preview', () => {
   test('generated-image auto approval is on by default (owner, 2026-10-25), preset-saved, and sent through every render action', () => {
     assert.match(sceneReviewSource, /const autoApproveGenerated = ref\(true\)/)
     assert.match(sceneReviewSource, /auto_approve_generated: autoApproveGenerated\.value/)
-    assert.match(sceneReviewSource, /autoApproveGenerated\.value = data\.auto_approve_generated !== false/)
+    assert.match(sceneReviewSource, /const next = sceneReviewPresetApply\(/,
+      'the preset boundary is the shared util (utils/scene-review-preset.ts), where absent means default-on')
     assert.match(sceneReviewSource, /Auto-approve generated images/)
     assert.ok(
       (sceneReviewSource.match(/auto_approve_generated: autoApproveGenerated\.value/g) || []).length >= 3,

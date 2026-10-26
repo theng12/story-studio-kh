@@ -29,6 +29,18 @@ import { describe, test } from 'node:test'
 
 import { DEFAULT_EXCLUDE_KEYS, usePresets } from '../composables/usePresets.js'
 import { CONTINUITY_PRESET_EXCLUDE_KEYS } from '../composables/useContinuityConfig.js'
+import {
+  SCENE_REVIEW_PRESET_KEYS,
+  sceneReviewPresetApply,
+  sceneReviewPresetSnapshot,
+  type SceneReviewPresetData,
+  type SceneReviewPresetForm,
+} from '../utils/scene-review-preset.js'
+
+const sceneReviewSource = readFileSync(
+  fileURLToPath(new URL('../pages/projects/[slug]/scene-review.vue', import.meta.url)),
+  'utf8',
+)
 
 const IDENTITY_KEYS = ['episode_id', 'episodeId', 'episode', 'title']
 
@@ -291,5 +303,96 @@ describe('the scene plan preset', () => {
       'this episode\'s own guidance',
       'the live episode\'s guidance must be neither replaced nor blanked',
     )
+  })
+})
+
+// ── The Scene Review preset (plan §4.4, decision 2026-10-26) ─────────────────
+//
+// The "Reference to Image" character selection is episode state: it names
+// specific characters of one episode, which AGENTS.md §5 excludes. It is never
+// SNAPSHOTTED and never APPLIED — not even by a preset body hand-edited to
+// carry it. The page's real snapshot/apply functions live in
+// `utils/scene-review-preset.ts` and are driven through the real composable
+// here, so this asserts what lands on disk and what reaches the live form.
+
+interface SceneReviewLiveState {
+  form: SceneReviewPresetForm
+  auto_approve_generated: boolean
+  referenceCharacterIds: string[]
+}
+
+function sceneReviewController(slug: string, live: SceneReviewLiveState) {
+  return usePresets<SceneReviewPresetData>({
+    slug,
+    configKey: 'scene_review_genstudio',
+    presetType: 'scene-review',
+    snapshot: () => sceneReviewPresetSnapshot({
+      ...live.form,
+      auto_approve_generated: live.auto_approve_generated,
+    }),
+    apply: data => {
+      const next = sceneReviewPresetApply(live.form, data as Record<string, unknown>)
+      live.form = { model: next.model, aspect_ratio: next.aspect_ratio, seed: next.seed }
+      live.auto_approve_generated = next.auto_approve_generated
+    },
+  })
+}
+
+describe('the scene review preset', () => {
+  test('the page uses the shared four-field boundary', () => {
+    // The page must not carry its own snapshot/apply: that is how an episode
+    // field would come back without touching this test.
+    assert.match(sceneReviewSource, /snapshot: \(\) => sceneReviewPresetSnapshot\(\{/)
+    assert.match(sceneReviewSource, /const next = sceneReviewPresetApply\(/)
+    assert.deepEqual([...SCENE_REVIEW_PRESET_KEYS], ['model', 'aspect_ratio', 'seed', 'auto_approve_generated'])
+  })
+
+  test('a round trip carries exactly the reusable settings — no character id, no reference path', async () => {
+    const live: SceneReviewLiveState = {
+      form: { model: 'reference-model', aspect_ratio: '16:9', seed: 42 },
+      auto_approve_generated: true,
+      referenceCharacterIds: ['mara', 'kiri'],
+    }
+    const presets = sceneReviewController('scene-review-reference-save', live)
+    await presets.saveAs('With references')
+    const stored = configStore['scene-review-reference-save'].scene_review_genstudio_presets[0].data
+
+    assert.deepEqual(Object.keys(stored).sort(), [...SCENE_REVIEW_PRESET_KEYS].sort(),
+      'the preset body holds exactly the four reusable settings')
+    assert.equal(JSON.stringify(stored).includes('mara'), false, 'no character id may ride along')
+    assert.equal('reference_character_ids' in stored, false, 'no reference selection may ride along')
+    assert.equal('reference_paths' in stored, false, 'no reference path may ride along')
+  })
+
+  test('applying a hand-edited preset naming a reference model leaves the selection untouched', async () => {
+    const live: SceneReviewLiveState = {
+      form: { model: 'text-model', aspect_ratio: '1:1', seed: '' },
+      auto_approve_generated: true,
+      referenceCharacterIds: ['mara'],
+    }
+    configStore['scene-review-reference-apply'] = {
+      scene_review_genstudio_presets: [{
+        id: 'sneaky-preset',
+        name: 'Hand-edited',
+        type: 'scene-review',
+        data: {
+          model: 'reference-model',
+          aspect_ratio: '16:9',
+          // Written by hand into project config: neither may be applied.
+          reference_character_ids: ['kiri'],
+          reference_paths: ['/Users/owner/elsewhere/portrait.png'],
+        },
+      }],
+      'scene_review_genstudio_last_preset_scene-review': 'sneaky-preset',
+    }
+
+    await sceneReviewController('scene-review-reference-apply', live).load()
+
+    assert.equal(live.form.model, 'reference-model', 'the reusable model choice is restored')
+    assert.equal(live.form.aspect_ratio, '16:9')
+    assert.deepEqual(live.referenceCharacterIds, ['mara'],
+      'the episode\'s own selection is neither replaced nor blanked by a preset')
+    assert.equal(Object.keys(live.form).includes('reference_character_ids' as never), false)
+    assert.equal(Object.keys(live.form).includes('reference_paths' as never), false)
   })
 })

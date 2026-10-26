@@ -39,6 +39,11 @@ import { checkpointSceneImage, liveSceneAutoApprove } from '../services/scene-me
 import { autoApproveOn } from '../services/preset-authority.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
+import {
+  resolveSceneReferences,
+  sceneReferenceIds,
+  sceneTakesCharacterReferences,
+} from '../services/scene-reference-characters.js'
 import { buildGenStudioImageIdempotencyKey } from '../lib/genstudio-client.js'
 import {
   compareAndRecordImageTaskStrict,
@@ -123,6 +128,10 @@ interface SceneImageGenerateParams {
   /** Server-stamped deliberate re-roll identity; survives queue Retry. */
   generation_action?: { id?: string; kind?: string }
   auto_approve_generated?: boolean
+  /** Scene Review "Reference to Image": ids of THIS episode's characters whose
+   *  portraits are attached as references. Resolved to files here, by
+   *  ownership lookup — the client never sends a path (AGENTS.md §4). */
+  reference_character_ids?: string[]
 }
 
 export async function generateSceneImageJob(job: Job): Promise<void> {
@@ -193,10 +202,58 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
   const outPath = path.join(outDir, `${scene_id}.png`)
+
+  // Character references, resolved against THIS episode's own character list
+  // and the model's LIVE published limits. The scene's OWN list wins; the
+  // request-level selection is only the default for scenes that name none.
+  // Any problem throws here, before the manifest is touched and before
+  // anything is uploaded or charged.
+  const referenceIds = sceneReferenceIds(scene, params.reference_character_ids || [])
+  if (!referenceIds.length && (modelConfig.min_reference_images ?? 0) > 0) {
+    throw new Error(
+      `Scene ${scene.scene_index} has no reference characters, but ${modelConfig.label} needs at least ` +
+      `${modelConfig.min_reference_images}. Add one to that scene in Scene Plan, or choose a model that renders ` +
+      'from text alone. No image was requested.',
+    )
+  }
+  if (referenceIds.length && !sceneTakesCharacterReferences(scene)) {
+    throw new Error(
+      `Scene ${scene.scene_index} is a ${scene.scene_type} scene, so it cannot use character references. ` +
+      'Clear them in Scene Plan and retry. No image was requested.',
+    )
+  }
+  const references = await resolveSceneReferences({
+    slug: job.project_slug,
+    episodeCode: episode_id,
+    characterIds: referenceIds,
+    modelName: modelConfig.label,
+    supportsReferences: modelConfig.supports_reference_images === true,
+    maxReferences: modelConfig.max_reference_images ?? 0,
+    maxDimension: modelConfig.reference_image_max_dimension,
+    episodeDir: paths.episode_dir,
+    sceneLabel: `Scene ${scene.scene_index}`,
+  })
+  if (references.paths.length) {
+    job.output_lines.push(
+      `Character references: ${references.names.join(', ')} ` +
+      `(${references.paths.length} of ${modelConfig.max_reference_images} published slot(s)).`,
+    )
+    for (const fit of references.fitted) {
+      job.output_lines.push(
+        `Reference fitted: ${fit.name} ${fit.from.width}x${fit.from.height} → ${fit.to.width}x${fit.to.height} ` +
+        `to meet ${model}'s published ${modelConfig.reference_image_max_dimension}px reference limit.`,
+      )
+    }
+  }
+
   const actionId = params.generation_action?.kind === 'fresh' ? params.generation_action.id : ''
+  // The SOURCE portraits' digests — a fitted copy is re-derived every run and
+  // must not be able to move the identity (that would buy a second render).
+  const referenceIdentity = references.digests.join('-')
   const requestIdentity = `${job.project_slug}:${episode_id}:scene:${scene_id}:image${actionId ? `:fresh:${actionId}` : ''}`
+    + (referenceIdentity ? `:ref:${referenceIdentity}` : '')
   const submittedAt = new Date().toISOString()
-  const inputHash = hashInput(scene.visual_prompt)
+  const inputHash = hashInput(referenceIdentity ? `${scene.visual_prompt}\nref:${referenceIdentity}` : scene.visual_prompt)
   const seed = modelConfig.supports_seed === false ? undefined : params.seed
   // "Smaller files" for scene images (Settings, per-project override); undefined = native PNG.
   const outputFormat = await resolveOutputFormat(job.project_slug, 'scene_images')
@@ -251,6 +308,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
       : { width: renderWidth, height: renderHeight }),
     seed,
     ...(outputFormat ? { outputFormat } : {}),
+    ...(references.paths.length ? { referenceImagePaths: references.paths } : {}),
     idempotencyIdentity: requestIdentity,
     idempotencyKey,
     priority: 'background',

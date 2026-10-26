@@ -10,6 +10,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { isDeepStrictEqual } from 'node:util'
+import { proposeSceneReferencesForEpisode } from '../services/scene-reference-characters.js'
 import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes, COVERAGE_FAIL_SEC, styleLeadOverhead, buildEpisodePromptContext, episodePromptContextBlock } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { compareMergedAudio, comparePlanStamp, planNarrationShortfallSec, readNarrationRecord, stampFromCues } from '../lib/scene-plan-timeline.js'
@@ -2736,7 +2737,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const freshIdx = fresh.scenes.findIndex(item => item.id === params.replan_scene_id)
       if (freshIdx < 0) throw new Error(`Scene ${params.replan_scene_id} was removed while it was being re-planned.`)
       // Splice in place of the target; renumber; everything else (incl image_path) is preserved.
-      fresh.scenes.splice(freshIdx, 1, ...newScenes)
+      //
+      // A re-planned prompt does not change WHO is in the scene, so the
+      // customer's per-scene reference characters carry across instead of
+      // being silently dropped by the rewrite (AGENTS.md §4).
+      const previousReferences = fresh.scenes[freshIdx]!.reference_character_ids
+      const replannedScenes = newScenes.map(scene => ({
+        ...scene,
+        ...(previousReferences ? { reference_character_ids: [...previousReferences] } : {}),
+      }))
+      fresh.scenes.splice(freshIdx, 1, ...replannedScenes)
       fresh.scenes.forEach((s, i) => { s.scene_index = i + 1 })
       fresh.generated_at = new Date().toISOString()
       await writeJsonAtomic(outPath, fresh)
@@ -2849,6 +2859,15 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     },
     callAi: scenePlanPolicyCall,
   })
+
+  // Scene Review "Reference to Image" — propose each scene's references from
+  // the episode's own cast: character scenes only, and only for characters the
+  // scene actually names. Editable per scene afterwards; never a preset value.
+  try {
+    await proposeSceneReferencesForEpisode(job.project_slug, episode_id, paths.episode_dir, plan.scenes)
+  } catch (e: any) {
+    job.output_lines.push(`Scene references were not proposed (${e?.message || e}) — set them per scene in Scene Plan.`)
+  }
 
   // Record what this plan did with its opening, the way the deterministic
   // timeline builder already does.

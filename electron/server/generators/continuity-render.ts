@@ -8,9 +8,14 @@
 
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
-import { createHash } from 'crypto'
 import path from 'path'
 import { FITTED_REFERENCE_DIRNAME, fitReferenceImage } from '../lib/reference-image-fit.js'
+import {
+  referenceContentDigest,
+  resolveSceneReferences,
+  sceneReferenceIds,
+  type ResolvedSceneReferences,
+} from '../services/scene-reference-characters.js'
 import { registry } from '../providers/registry.js'
 import { stageGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { resolveOutputFormat } from '../services/generation-compression.js'
@@ -110,6 +115,10 @@ interface ContinuityRenderParams {
   }
   /** One upfront Pipeline repair authority, propagated unchanged through its chain. */
   pipeline_repair?: { action_id: string }
+  /** Scene Review "Reference to Image": ids of THIS episode's characters whose
+   *  portraits are attached before the episode template. Resolved to files by
+   *  ownership lookup in the generator — the client never sends a path. */
+  reference_character_ids?: string[]
 }
 
 export function shouldPauseContinuityForStall(state: {
@@ -434,24 +443,28 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     )
   }
   /**
-   * A stable identity for WHICH reference is on this request.
+   * A stable identity for WHICH references are on this request.
    *
    * The local task manifest reconnects to a saved GenStudio job when the
    * scope + prompt hash match, and neither of those moves when the customer
-   * switches the episode anchor on. Without this, flipping the switch and
-   * re-rendering would reclaim the previous TEXT-ONLY job "for free" and hand
-   * back the old image while the log claimed a reference had been applied.
+   * switches the episode anchor on or changes a scene's characters. Without
+   * this, flipping the switch and re-rendering would reclaim the previous
+   * TEXT-ONLY job "for free" and hand back the old image while the log claimed
+   * a reference had been applied.
    *
-   * Derived from the submitted file's CONTENT, so a regenerated composition
-   * template is correctly a different render, while re-running the same batch
-   * twice still reconnects instead of paying twice. Empty when nothing is
-   * attached — which keeps the hash and the idempotency identity byte-identical
-   * to what every already-rendered episode recorded, so this change cannot
-   * invalidate a single existing manifest entry.
+   * Derived from every submitted file's CONTENT, in order, so a regenerated
+   * composition template or a changed character selection is correctly a
+   * different render, while re-running the same batch twice still reconnects
+   * instead of paying twice. Empty when nothing is attached — which keeps the
+   * hash and the idempotency identity byte-identical to what every
+   * already-rendered episode recorded, so this cannot invalidate an existing
+   * manifest entry.
+   *
+   * The character digests come from the SOURCE portraits (a fitted copy is
+   * re-derived every run); the episode template keeps hashing the file it has
+   * always hashed, so no existing episode's recorded identity moves.
    */
-  const referenceIdentity = episodeReferencePaths.length
-    ? createHash('sha256').update(await fs.readFile(episodeReferencePaths[0]!)).digest('hex').slice(0, 16)
-    : ''
+  const templateDigest = episodeReferencePaths.length ? await referenceContentDigest(episodeReferencePaths[0]!) : ''
 
   // Anchor character descriptions reinforce identity as text. The reader is
   // shared with Scene Plan's budget, so the text it counts as overhead is the
@@ -615,33 +628,40 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
    * as `event` was rendered with every person banned from the frame. Dropping
    * the reference stack is the part that was doing the real work.
    */
+  /** Per-scene references for THIS batch, filled once the render set is known. */
+  const sceneReferences = new Map<string, ResolvedSceneReferences>()
+  const EMPTY_REFERENCES: ResolvedSceneReferences = { paths: [], digests: [], names: [], fitted: [] }
+  const referencesFor = (scene: ScenePlanEntry): ResolvedSceneReferences =>
+    sceneReferences.get(scene.id) || EMPTY_REFERENCES
+
   const buildScenePromptContext = (scene: ScenePlanEntry): {
     params: typeof providerParams
     includeCharacter: boolean
     referenceImagePaths: string[]
-  } => ({
-    params: providerParams,
-    includeCharacter: isCharacterScene(scene),
-    // "Drops the guide's descriptors AND its reference images" is the whole
-    // rule, so the episode reference obeys it too. The composition template is
-    // a layout with the guide character standing in it; attaching it to a
-    // cutaway would put that character back into the very frames v1.0.336
-    // exists to keep them out of.
-    //
-    // `isCharacterScene` is deliberately called twice rather than hoisted into
-    // a local. It is a pure two-comparison predicate, and the literal spelling
-    // `includeCharacter: isCharacterScene(scene)` is what the tripwire in
-    // __tests__/no-negative-prompts.test.ts matches on. That guard is the only
-    // thing keeping the anchored character out of cutaways; tidying the line
-    // and then widening the guard's regex to suit would quietly retire it.
-    referenceImagePaths: isCharacterScene(scene) ? episodeReferencePaths : [],
-  })
-  if (episodeReferencePaths.length) {
-    const cutaways = scenes.filter(scene => !isCharacterScene(scene)).length
-    if (cutaways) {
-      job.output_lines.push(
-        `${cutaways} non-character scene(s) render without the episode reference, as they do without the character text.`,
-      )
+    referenceIdentity: string
+  } => {
+    const ownReferences = referencesFor(scene)
+    return {
+      params: providerParams,
+      includeCharacter: isCharacterScene(scene),
+      // "Drops the guide's descriptors AND its reference images" is the whole
+      // rule, so the episode reference obeys it too, and a cutaway may never
+      // carry a scene's characters either. The composition template is a layout
+      // with the guide character standing in it; attaching it to a cutaway
+      // would put that character back into the very frames v1.0.336 exists to
+      // keep them out of.
+      //
+      // `isCharacterScene` is deliberately called twice rather than hoisted
+      // into a local. It is a pure two-comparison predicate, and the literal
+      // spelling `includeCharacter: isCharacterScene(scene)` is what the
+      // tripwire in __tests__/no-negative-prompts.test.ts matches on. That
+      // guard is the only thing keeping the anchored character out of
+      // cutaways; tidying the line and then widening the guard's regex to suit
+      // would quietly retire it.
+      referenceImagePaths: isCharacterScene(scene) ? [...ownReferences.paths, ...episodeReferencePaths] : [],
+      referenceIdentity: isCharacterScene(scene)
+        ? [...ownReferences.digests, templateDigest].filter(Boolean).join('-')
+        : '',
     }
   }
 
@@ -667,6 +687,82 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       `${toRender.length}/${scenes.length} scene(s) · ${mode}. ` +
       'Gateway controls account concurrency and execution.',
     )
+
+    // ── Per-scene references, resolved BEFORE the first submit ──────────────
+    //
+    // Each scene uses its OWN list from the plan; a scene that chose none falls
+    // back to the episode-level selection, and a scene that deliberately names
+    // nobody renders from its prompt alone (intended, not a fallback). Every
+    // refusal here is a preflight refusal naming the scene, so a bad selection
+    // fails the batch once instead of scene by scene.
+    const defaultReferenceIds = params.reference_character_ids || []
+    const minReferences = modelConfig.min_reference_images ?? 0
+    // One resolution per distinct id-set, however many scenes share it: a
+    // 300-scene batch with one cast must not re-read the portraits 300 times.
+    const resolvedBySelection = new Map<string, ResolvedSceneReferences>()
+    for (const scene of toRender) {
+      const ids = sceneReferenceIds(scene, defaultReferenceIds)
+      if (!ids.length) {
+        if (minReferences > 0) {
+          throw new Error(
+            `Scene ${scene.scene_index} has no reference characters, but ${modelConfig.label} needs at least ` +
+            `${minReferences}. Add one to that scene in Scene Plan, or choose a model that renders from text alone. ` +
+            'No image was requested.',
+          )
+        }
+        continue
+      }
+      if (!isCharacterScene(scene)) {
+        throw new Error(
+          `Scene ${scene.scene_index} is a ${scene.scene_type} scene, so it cannot use character references. ` +
+          'Clear them in Scene Plan and retry. No image was requested.',
+        )
+      }
+      const selectionKey = ids.join(',')
+      let resolved = resolvedBySelection.get(selectionKey)
+      if (!resolved) {
+        resolved = await resolveSceneReferences({
+          slug: job.project_slug,
+          episodeCode: episode_id,
+          characterIds: ids,
+          modelName: modelConfig.label,
+          supportsReferences,
+          maxReferences,
+          maxDimension: modelConfig.reference_image_max_dimension,
+          episodeDir: paths.episode_dir,
+          sceneLabel: `Scene ${scene.scene_index}`,
+        })
+        resolvedBySelection.set(selectionKey, resolved)
+      }
+      const total = resolved.paths.length + episodeReferencePaths.length
+      if (total > maxReferences) {
+        throw new Error(
+          `Scene ${scene.scene_index} needs ${resolved.paths.length} character reference(s) plus the episode template, ` +
+          `but ${modelConfig.label} accepts at most ${maxReferences}. Remove a character from that scene or switch the ` +
+          'episode anchor off. No image was requested.',
+        )
+      }
+      sceneReferences.set(scene.id, resolved)
+      job.output_lines.push(
+        `Scene ${scene.scene_index} references: ${resolved.names.join(', ')}` +
+        (episodeReferencePaths.length ? ` + episode template ${path.basename(referencePlan.sourcePath)}` : '') +
+        ` (${total} of ${maxReferences} published slot(s)).`,
+      )
+      for (const fit of resolved.fitted) {
+        job.output_lines.push(
+          `Reference fitted: ${fit.name} ${fit.from.width}x${fit.from.height} → ${fit.to.width}x${fit.to.height} ` +
+          `to meet ${model}'s published ${modelConfig.reference_image_max_dimension}px reference limit.`,
+        )
+      }
+    }
+    if (episodeReferencePaths.length || sceneReferences.size) {
+      const cutaways = toRender.filter(scene => !isCharacterScene(scene)).length
+      if (cutaways) {
+        job.output_lines.push(
+          `${cutaways} non-character scene(s) render without the references, as they do without the character text.`,
+        )
+      }
+    }
 
     const inFlight = new Map<number, string>()
     // Scenes deliberately sitting out a busy-fleet wait. Nothing is happening
@@ -770,7 +866,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
           // Empty for a text-only scene, which is what keeps this scene's
           // recorded hash and idempotency identity identical to the ones every
           // already-rendered episode holds on disk.
-          const sceneReferenceTag = sref.referenceImagePaths.length ? referenceIdentity : ''
+          const sceneReferenceTag = sref.referenceIdentity
           const hashRequest = (scope: string): string =>
             hashInput(sceneReferenceTag ? `${scope}\n${finalPrompt}\nref:${sceneReferenceTag}` : `${scope}\n${finalPrompt}`)
           const filename = `${scene.id}.png`

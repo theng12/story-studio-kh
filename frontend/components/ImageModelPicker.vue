@@ -50,10 +50,19 @@ const props = withDefaults(defineProps<{
   modelValue: string
   projectSlug: string
   imageMode?: 'text2img' | 'img2img'
+  /**
+   * Scene Review "Reference to Image": references are attached to a model the
+   * picker would otherwise treat as text-to-image. Turns ON the published
+   * dimension/count notices and the reference-guided rate — and deliberately
+   * leaves the `img2img` MODEL FILTER alone, because reference capability is a
+   * mode of the same model, not a separate model list.
+   */
+  referenceActive?: boolean
   defaultLabel?: string
   preserveAutomaticSelection?: boolean
 }>(), {
   imageMode: 'text2img',
+  referenceActive: false,
   defaultLabel: 'Pick an image model…',
   preserveAutomaticSelection: false,
 })
@@ -65,13 +74,15 @@ const emit = defineEmits<{
 const { models, loading, error, isStale, isUsable, lastFetchedAt, refresh } = useGenStudioImageModels()
 const { get } = useApi()
 const catalogStaleNote = computed(() => genstudioStaleNote(isStale.value, lastFetchedAt.value))
+/** Reference mode without changing which models are offered. */
+const referenceMode = computed(() => props.imageMode === 'img2img' || props.referenceActive)
 
 const options = computed(() => {
   const visibleModels = props.imageMode === 'img2img'
     ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1)
     : models.value
   const rows = visibleModels.map((model) => {
-    const rate = describeImageModelRate(model, { referenceGuided: props.imageMode === 'img2img' })
+    const rate = describeImageModelRate(model, { referenceGuided: referenceMode.value })
     return {
       id: model.id,
       label: model.display_name,
@@ -111,10 +122,13 @@ const selectedModel = computed(() => models.value.find(model => model.id === pro
 const unitCost = computed(() => describeImageUnitCost(
   selectedModel.value,
   defaultOutputOption(selectedModel.value),
-  { referenceGuided: props.imageMode === 'img2img' },
+  { referenceGuided: referenceMode.value },
 ))
 
 const referenceDimensionNotice = computed(() => {
+  // Deliberately NOT reference-active: that flow (Scene Review) fits oversized
+  // portraits itself, so the img2img advice to "resize them first" would be
+  // wrong there. The block states the ceiling in its own words instead.
   if (props.imageMode !== 'img2img') return ''
   const selected = selectedModel.value
   const limit = selected?.reference_image_max_dimension
@@ -129,7 +143,7 @@ const referenceDimensionNotice = computed(() => {
  * into a mystery error. Only figures GenStudio published are stated.
  */
 const referenceCountNotice = computed(() => {
-  if (props.imageMode !== 'img2img') return ''
+  if (!referenceMode.value) return ''
   const selected = selectedModel.value
   if (!selected?.supports_reference_images) return ''
   const max = typeof selected.max_reference_images === 'number' && selected.max_reference_images > 0

@@ -1016,6 +1016,37 @@
                 limit, or render it as-is.
               </p>
             </div>
+            <!-- Scene Review "Reference to Image": which of THIS episode's
+                 characters appear in this scene. Episode state, saved with the
+                 plan — never a preset value. Cutaways get none. -->
+            <div v-if="referenceCandidates.length && sceneTakesCharacterReferences(scene)" class="form-group mt-1 scene-references">
+              <label class="text-xs text-muted">
+                Reference characters in this scene
+                <span class="text-muted">— portraits go only to this scene's image</span>
+              </label>
+              <div class="scene-reference-chips">
+                <label
+                  v-for="character in referenceCandidates"
+                  :key="character.id"
+                  class="scene-reference-chip"
+                  :class="{
+                    'is-on': (scene.reference_character_ids || []).includes(character.id),
+                    'is-disabled': !characterHasPortrait(character),
+                  }"
+                  :title="characterHasPortrait(character)
+                    ? character.name
+                    : `${character.name} has no reference image — add one on the Character Sheet.`"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="(scene.reference_character_ids || []).includes(character.id)"
+                    :disabled="planBusy || !characterHasPortrait(character)"
+                    @change="toggleSceneReference(scene, character.id)"
+                  >
+                  {{ character.name }}
+                </label>
+              </div>
+            </div>
             <!-- v1.0.468 — per-scene motion prompt (image-to-video instruction).
                  Editable inline; saved via set-motion-prompt; regen via the LLM. -->
             <div class="form-group mt-1">
@@ -1520,6 +1551,8 @@ interface ScenePlanEntry {
   scene_type?: SceneType
   scene_type_locked?: boolean
   creative_strategy?: CreativeStrategy
+  /** Which of this episode's characters appear here (Scene Review references). */
+  reference_character_ids?: string[]
 }
 type SceneType = 'character' | 'event' | 'environment' | 'map' | 'artifact'
 type CreativeProfile = 'narrative' | 'balanced' | 'editorial' | 'spiritual' | 'abstract' | 'custom'
@@ -1857,8 +1890,49 @@ async function loadContinuity(): Promise<void> {
 function setSceneType(scene: ScenePlanEntry, value: string): void {
   scene.scene_type = value as SceneType
   scene.scene_type_locked = true
+  // A cutaway cannot carry character references — the renderer refuses them,
+  // so clear them here where the customer made the choice, and say so.
+  if (!sceneTakesCharacterReferences(scene) && scene.reference_character_ids?.length) {
+    scene.reference_character_ids = []
+    showError('That scene type renders without the cast, so its reference characters were cleared.')
+  }
   markPlanDirty()
 }
+
+// ── Scene references (Scene Review "Reference to Image") ────────────────
+// The episode's own characters, exactly as the picker lists them; membership
+// is the backend's answer, never a remembered list (§4).
+const sceneReferenceLibrary = useCharacters(() => slug.value)
+const referenceCandidates = ref<Array<{ id: string; name: string; references?: { images?: string[] } }>>([])
+
+function characterHasPortrait(character: { references?: { images?: string[] } }): boolean {
+  return !!character.references?.images?.length
+}
+
+function toggleSceneReference(scene: ScenePlanEntry, characterId: string): void {
+  const current = scene.reference_character_ids || []
+  scene.reference_character_ids = current.includes(characterId)
+    ? current.filter(id => id !== characterId)
+    : [...current, characterId]
+  markPlanDirty()
+}
+
+async function loadReferenceCandidates(): Promise<void> {
+  const episode = episodeId.value
+  if (!episode) { referenceCandidates.value = []; return }
+  try {
+    const list = await sceneReferenceLibrary.listForEpisode(episode)
+    if (episode !== episodeId.value) return
+    referenceCandidates.value = list.map(character => ({
+      id: character.id,
+      name: character.name,
+      references: character.references,
+    }))
+  } catch {
+    if (episode === episodeId.value) referenceCandidates.value = []
+  }
+}
+watch(episodeId, () => { void loadReferenceCandidates() }, { immediate: true })
 
 type PromptPackSetting = 'auto' | number
 /** 'auto' = this product's published maximum. A number is an explicit
@@ -4157,4 +4231,18 @@ watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
   color: #e25c5c;
 }
 .scene-row-actions .btn-icon:disabled { opacity: 0.4; cursor: default; }
+.scene-reference-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.scene-reference-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.scene-reference-chip.is-on { border-color: var(--accent, #6c8fff); background: rgba(108, 143, 255, 0.12); }
+.scene-reference-chip.is-disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

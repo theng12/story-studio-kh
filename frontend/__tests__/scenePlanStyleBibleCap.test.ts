@@ -75,6 +75,10 @@ async function loadScenePlan(): Promise<Component> {
     const useConfirm = () => ({ ask: async () => false })
     const useUnsavedGuard = () => undefined
     const useEpisodes = () => ({ episodes: globalThis.__scenePlanEpisodes, revalidate: async () => undefined })
+    // The page lists this episode's own characters for the reference picker; these tests own no characters.
+    const useCharacters = () => ({ listForEpisode: async () => [] })
+    // The page's per-scene reference chips render only for character scenes; these plans own no characters.
+    const sceneTakesCharacterReferences = () => true
     const useProject = () => ({ config: ref({}) })
     const useRememberedForm = () => undefined
     const usePresets = () => ({ load: async () => undefined, presets: ref([]), activeId: ref(''), activeData: ref(null), isDirty: ref(false) })

@@ -681,6 +681,86 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-prompt', async (req, res)
   }
 })
 
+// ── POST /scene-plan/:ep/set-reference-characters ─────────────────────
+// Scene Review "Reference to Image": set WHICH of this episode's characters
+// appear in a scene (or in every character scene, for the page's "apply to
+// all" action). Ids only — ownership is checked here and again at generation
+// (AGENTS.md §4). Changing the cast of a scene makes its rendered image stale,
+// so approval is cleared exactly as a prompt edit does.
+router.post('/projects/:slug/scene-plan/:episodeId/set-reference-characters', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const body = req.body || {}
+  const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
+  const allCharacterScenes = body.all_character_scenes === true
+  const raw = body.reference_character_ids
+  if (!Array.isArray(raw) || raw.some(id => typeof id !== 'string' || !id.trim())) {
+    return res.status(400).json({ detail: 'reference_character_ids must be an array of character ids.' })
+  }
+  const ids = [...new Set(raw.map((id: string) => id.trim()))]
+  if (!sceneId && !allCharacterScenes) {
+    return res.status(400).json({ detail: 'scene_id (or all_character_scenes) is required' })
+  }
+
+  try {
+    // Membership in this episode's own list is the ownership statement.
+    const { listCharacters } = await import('../services/character-manager.js')
+    const owned = new Set((await listCharacters(slug, { episodeCode: episodeId })).map(character => character.id))
+    const foreign = ids.filter(id => !owned.has(id))
+    if (foreign.length) {
+      return res.status(400).json({
+        detail: `${foreign.map(id => `'${id}'`).join(', ')} ${foreign.length === 1 ? 'is' : 'are'} not part of ${episodeId}. Choose characters of this episode.`,
+      })
+    }
+
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+
+    let changed = 0
+    let skippedNonCharacter = 0
+    await withLock(sidecarPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const targets = allCharacterScenes
+        ? fresh.scenes.filter(scene => !scene.scene_type || scene.scene_type === 'character')
+        : fresh.scenes.filter(scene => scene.id === sceneId)
+      if (!targets.length) throw Object.assign(new Error(allCharacterScenes
+        ? 'This plan has no character scenes to apply references to.'
+        : `Scene ${sceneId} not found in scene_plan.json`), { statusCode: 404 })
+      if (!allCharacterScenes && ids.length) {
+        const only = targets[0]!
+        if (only.scene_type && only.scene_type !== 'character') {
+          throw Object.assign(new Error(
+            `Scene ${only.scene_index} is a ${only.scene_type} scene, so it cannot use character references.`,
+          ), { statusCode: 400 })
+        }
+      }
+      for (const scene of targets) {
+        const wasEmpty = !scene.reference_character_ids?.length && !ids.length
+        const same = wasEmpty || (scene.reference_character_ids || []).join(',') === ids.join(',')
+        scene.reference_character_ids = [...ids]
+        if (!same) {
+          // The picture no longer shows the cast this scene now names.
+          scene.approved = false
+          changed++
+        }
+      }
+      skippedNonCharacter = allCharacterScenes
+        ? fresh.scenes.length - targets.length
+        : 0
+      await writeJsonAtomic(sidecarPath, fresh)
+    })
+    await invalidateScenePlanStatus(slug, episodeId)
+    res.json({ ok: true, scene_id: sceneId || null, all_character_scenes: allCharacterScenes, reference_character_ids: ids, changed, skipped_non_character: skippedNonCharacter })
+  } catch (e: any) {
+    res.status(typeof e?.statusCode === 'number' ? e.statusCode : 500)
+      .json(humanizeBackendError(e, 'Failed to save scene references'))
+  }
+})
+
 // ── POST /scene-plan/:ep/repair-coverage ──────────────────────────────
 // Heal an existing plan to FULL audio coverage. Small silent gaps may hold the
 // preceding image, but narrated ranges are restored as cue-aligned scenes so a
@@ -1238,6 +1318,17 @@ router.put('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   }
   if (!Array.isArray(body.scenes)) {
     return res.status(400).json({ detail: 'Invalid scene plan payload (scenes must be an array)' })
+  }
+  // Scene Review "Reference to Image": a scene's cast is ids only, so a
+  // hand-edited body cannot store a path or a non-string. Ownership is checked
+  // again at generation.
+  for (const scene of body.scenes as unknown as Array<Record<string, unknown>>) {
+    const ids = scene.reference_character_ids
+    if (ids === undefined) continue
+    if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !id.trim())) {
+      return res.status(400).json({ detail: 'reference_character_ids must be an array of character ids.' })
+    }
+    scene.reference_character_ids = [...new Set(ids.map(id => (id as string).trim()))]
   }
 
   try {
