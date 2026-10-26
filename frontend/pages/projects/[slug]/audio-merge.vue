@@ -69,7 +69,7 @@
         <button
           type="button"
           class="btn btn-primary"
-          :disabled="!chapterAudioCanMerge || mergeStatus.loading || !!mergeStatus.error || generating || mergeJobActiveForEpisode || musicChoiceMissing"
+          :disabled="!chapterAudioCanMerge || mergeStatus.loading || !!mergeStatus.error || generating || mergeJobActiveForEpisode"
           @click="onGenerateClick"
         >{{ generating || mergeJobActiveForEpisode ? 'Merging…' : generateLabel }}</button>
       </div>
@@ -85,8 +85,8 @@
         <template v-else-if="generating || mergeJobActiveForEpisode">
           Merging audio for {{ selectedEpisode?.title || episodeId }}…
         </template>
-        <template v-else-if="musicChoiceMissing">
-          Background Music is on, but no track is chosen for this episode. Pick a file under Background Music,
+        <template v-else-if="musicNotChosen">
+          No music chosen for this episode; assembling narration only. Pick a file under Background Music,
           switch to Music Pool, or turn music off.
         </template>
         <template v-else-if="!chapterAudioReady">
@@ -150,10 +150,12 @@
       </div>
     </div>
 
-    <!-- Apply-time path-check banner. Missing linked files are shown in a
-         red actionable list with the form's existing Browse handlers.
-         Cleared automatically when every invalid path has been replaced
-         (or when the user picks a different preset). -->
+    <!-- Path-check banner for THIS episode's own audio. Since 2026-10-27 a
+         preset carries no paths (they are episode state, §5), so what is
+         checked is the episode's live selection — which can still be missing
+         on this Mac after a move or a rename. Shown in a red actionable list
+         with the form's existing Browse handlers, and cleared when every
+         invalid path has been replaced. -->
     <div
       v-if="presetInvalidPaths.length > 0"
       class="card mt-2 preset-path-check"
@@ -801,6 +803,10 @@
 </template>
 
 <script setup lang="ts">
+// `excludeKeys` REPLACES the composable's default list rather than extending it,
+// so the shared per-episode identifiers must be spread in explicitly.
+import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
+
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Assembly')
 
@@ -1137,9 +1143,29 @@ function moveAmbientTrack(id: string, dir: -1 | 1) {
 // itself stores everything in the `{id, name, data}` shape that the
 // composable owns end-to-end. No legacy flat-shape format ever shipped to
 // users for this preset type, so no one-time migration is needed.
+//
+// 2026-10-27 (owner: *"it was an outdated approach … let's just modernize it
+// right now"*) — a preset carries the music SETTINGS and never a FILE.
+//
+// Every path in this page names one episode's own audio: `music.files` is the
+// playlist picked for this episode, `intro.file` and `background_noise.custom_file`
+// are files uploaded for it, and an ambient track's `source_path` is a clip
+// chosen for it. A preset that stored them restored EP0048's bed onto EP0047 —
+// AGENTS.md §4's most expensive defect class, arriving by the preset route.
+// `AUDIO_MERGE_PATH_KEYS` is stripped on BOTH sides by the composable: on save,
+// and on read before `apply` ever sees a preset written while this was allowed.
+// Stored presets are never rewritten (§5, trap 2).
+//
+// The episode's files therefore stay exactly where they already lived — in this
+// page's state for the open episode — and `apply` carries the LIVE selection
+// across explicitly rather than leaving it to a merge. Losing the customer's
+// choice on every preset apply is its own defect (§4).
+const AUDIO_MERGE_PATH_KEYS = ['files', 'file', 'custom_file', 'source_path']
+
 const mergePresets = usePresets<any>({
   slug: slug.value,
   configKey: 'audio_merge',
+  excludeKeys: [...DEFAULT_EXCLUDE_KEYS, ...AUDIO_MERGE_PATH_KEYS],
   snapshot: () => ({
     intro: JSON.parse(JSON.stringify(intro)),
     music: JSON.parse(JSON.stringify(music)),
@@ -1152,20 +1178,36 @@ const mergePresets = usePresets<any>({
   }),
   apply: (data) => {
     if (!data) return
+    // Read the episode's own selection BEFORE anything is written: afterwards
+    // "the preset set it" and "it was already like that" are indistinguishable.
+    // `usePresets` has already stripped the path keys from `data`, so these are
+    // the live values and nothing else.
+    const liveFiles = [...music.files]
+    const liveIntroFile = intro.file
+    const liveNoiseFile = backgroundNoise.custom_file
+    const liveAmbientPaths = ambientTracks.map(track => track.source_path)
+
     if (data.intro) Object.assign(intro, data.intro)
     if (data.music) {
       Object.assign(music, data.music, {
-        // Older presets had no source. A saved file list is clearly an
-        // episode playlist; an empty list can safely use the channel pool.
+        // Older presets had no source. `files` is gone from the preset now, so
+        // the source is the preset's own declared choice, or — for a preset
+        // saved before the field existed — manual when THIS episode has files
+        // and the pool otherwise.
         source: data.music.source === 'pool' || data.music.source === 'manual'
           ? data.music.source
-          : data.music.files?.length ? 'manual' : 'pool',
-        files: [...(data.music.files || [])],
+          : liveFiles.length ? 'manual' : 'pool',
       })
     }
     if (data.background_noise) Object.assign(backgroundNoise, data.background_noise)
     if (Array.isArray(data.ambient_tracks)) {
+      // Replaced whole, then each row's own clip put back by position — the
+      // preset owns the layer's settings, the episode owns its audio.
       ambientTracks.splice(0, ambientTracks.length, ...data.ambient_tracks.map((t: any) => ({ ...t })))
+      ambientTracks.forEach((track, index) => {
+        const path = liveAmbientPaths[index]
+        if (path) track.source_path = path
+      })
     }
     if (typeof data.gap_duration === 'number') gapDuration.value = data.gap_duration
     if (typeof data.chunk_silence_sec === 'number' && data.chunk_silence_sec >= 0) {
@@ -1173,6 +1215,17 @@ const mergePresets = usePresets<any>({
     }
     if (typeof data.normalize_volume === 'boolean') normalizeVolume.value = data.normalize_volume
     if (typeof data.narration_volume === 'number') narrationVolume.value = data.narration_volume
+
+    // Restore the episode's own files. ASSIGNED, not merged: a preset that
+    // stored an empty list must leave the episode's files in place, never blank
+    // them — the value is the customer's and the preset has no opinion on it.
+    music.files = liveFiles
+    intro.file = liveIntroFile
+    backgroundNoise.custom_file = liveNoiseFile
+    ambientTracks.forEach((track, index) => {
+      const path = liveAmbientPaths[index]
+      if (path) track.source_path = path
+    })
   },
 })
 
@@ -1233,10 +1286,13 @@ const selectedMusicFiles = computed(() => {
 })
 
 const hasSelectedMusic = computed(() => selectedMusicFiles.value.length > 0)
-// Music on with nothing chosen used to merge silently WITHOUT a bed. "Choose for this episode"
-// is remembered per Mac but its files are per episode, so returning to an episode showed
-// Music on, "No music files added yet", and an enabled Replace button (Dreamlands E2E).
-const musicChoiceMissing = computed(() => music.enabled && !hasSelectedMusic.value
+// Music is OPTIONAL (owner, 2026-10-27): an episode with no track chosen
+// assembles narration-only, exactly as it always has. This used to BLOCK the
+// merge — a fix for a Dreamlands E2E where Music on + no files merged silently
+// without a bed. The owner's call is that the honest state is a quiet note, not
+// a refusal: turning music on is a channel preference, and an episode that has
+// not had a bed picked yet must still be assemblable.
+const musicNotChosen = computed(() => music.enabled && !hasSelectedMusic.value
   && !(music.source === 'pool' && poolPeekLoading.value))
 
 const existingMergedAudio = computed(() => {
@@ -1399,11 +1455,17 @@ function onPresetSaved() {
   void runPresetPathCheck()
 }
 
-// ── Local preset path-check wiring ───────────────────────────────────────
+// ── Path-check wiring ────────────────────────────────────────────────────
 //
-// Every path field we want to validate at apply-time. Kept declarative so
-// the validator can walk it; changing the merge form's path fields means
-// adding a row here, not threading new state through.
+// Every path field this page renders. Kept declarative so the validator can
+// walk it; changing the merge form's path fields means adding a row here, not
+// threading new state through.
+//
+// Since 2026-10-27 these are the EPISODE's files, not a preset's: a preset
+// carries none of them (§5). The check still earns its place — an episode's
+// own selection names files that can be missing on this Mac after a move —
+// so it runs after an apply and after a save, when the form is most likely to
+// have just changed.
 const AUDIO_MERGE_PATH_FIELDS: Array<{ key: string }> = [
   { key: 'intro.file' },
   { key: 'music.files[]' },
@@ -1444,9 +1506,11 @@ async function runPresetPathCheck() {
   }
 }
 
-/** Run after every Apply. The `applyActive()` synchronous emit happens
- *  inside TopActionBar; the page only sees the @preset-applied event, so
- *  the form state IS already updated when this fires. */
+/** Run after every Apply. The `applyActive()` synchronous emit happens inside
+ *  TopActionBar; the page only sees the @preset-applied event, so the form
+ *  state IS already updated when this fires. An apply no longer changes the
+ *  file list — `apply` carries the episode's own selection across — so this
+ *  is really "the settings just moved; re-check the files they point at". */
 function onPresetApplied() {
   void (async () => {
     await normalizeAudioMergePathsInState()
@@ -1703,10 +1767,6 @@ function onGenerateClick() {
 
 async function generateMergedAudio(writeMode: 'overwrite' | 'new' = 'overwrite') {
   if (!episodeId.value || generating.value || scanning.value || !chapters.value.length) return
-  if (musicChoiceMissing.value) {
-    showError('Background Music is on, but no track is chosen for this episode. Pick a file, switch to Music Pool, or turn music off.')
-    return
-  }
   const scope = audioScopeSequence
   const submit = ++mergeSubmitSequence
   generating.value = true

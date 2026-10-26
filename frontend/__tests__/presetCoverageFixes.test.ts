@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, test } from 'node:test'
 
-import { usePresets } from '../composables/usePresets.js'
+import { DEFAULT_EXCLUDE_KEYS, usePresets } from '../composables/usePresets.js'
 
 const configStore: Record<string, any> = {}
 
@@ -191,5 +191,164 @@ describe('the Video Assembly Timeline slot restores the reveal look', () => {
       'the apply must restore the reveal block the snapshot stores')
     assert.match(controller[0], /scene_reveal: revealBundleSnapshot\(\)/,
       'and it must still store it — the batch flattener reads it from here')
+  })
+})
+
+// ── 4. Audio Assembly: settings travel, files never do ──────────────────────
+//
+// Owner, 2026-10-27: *"it was an outdated approach … let's just modernize it
+// right now."* A preset keeps the music SETTINGS; every path is the episode's.
+// Driven through the REAL composable, because the strip has to happen at the
+// read boundary — before `apply` ever sees a preset written while file paths
+// were still allowed.
+
+describe('the Audio Assembly preset carries settings and never a file', () => {
+  const PATH_KEYS = ['files', 'file', 'custom_file', 'source_path']
+
+  interface MergeLive {
+    music: Record<string, any>
+    intro: Record<string, any>
+    backgroundNoise: Record<string, any>
+    ambient: Array<Record<string, any>>
+  }
+
+  function controller(slug: string, live: MergeLive) {
+    // Mirrors the page's controller, including its explicit carry of the
+    // episode's own selection across the apply (AGENTS.md §5, trap 1).
+    return usePresets<any>({
+      slug,
+      configKey: 'audio_merge',
+      excludeKeys: [...DEFAULT_EXCLUDE_KEYS, ...PATH_KEYS],
+      snapshot: () => ({
+        intro: JSON.parse(JSON.stringify(live.intro)),
+        music: JSON.parse(JSON.stringify(live.music)),
+        background_noise: JSON.parse(JSON.stringify(live.backgroundNoise)),
+        ambient_tracks: live.ambient.map(t => ({ ...t })),
+      }),
+      apply: (data) => {
+        if (!data) return
+        const liveFiles = [...live.music.files]
+        const liveIntroFile = live.intro.file
+        const liveNoiseFile = live.backgroundNoise.custom_file
+        const liveAmbientPaths = live.ambient.map(t => t.source_path)
+
+        if (data.intro) Object.assign(live.intro, data.intro)
+        if (data.music) {
+          Object.assign(live.music, data.music, {
+            source: data.music.source === 'pool' || data.music.source === 'manual'
+              ? data.music.source
+              : liveFiles.length ? 'manual' : 'pool',
+          })
+        }
+        if (data.background_noise) Object.assign(live.backgroundNoise, data.background_noise)
+        if (Array.isArray(data.ambient_tracks)) {
+          live.ambient.splice(0, live.ambient.length, ...data.ambient_tracks.map((t: any) => ({ ...t })))
+          live.ambient.forEach((track, index) => {
+            const path = liveAmbientPaths[index]
+            if (path) track.source_path = path
+          })
+        }
+        live.music.files = liveFiles
+        live.intro.file = liveIntroFile
+        live.backgroundNoise.custom_file = liveNoiseFile
+        live.ambient.forEach((track, index) => {
+          const path = liveAmbientPaths[index]
+          if (path) track.source_path = path
+        })
+      },
+    })
+  }
+
+  const liveState = (files: string[] = []): MergeLive => ({
+    music: { enabled: true, source: 'manual', files: [...files], volume: 6, post_narration_volume: 40, fade_in: 3, fade_out: 5, lead_in_enabled: false, lead_in_seconds: 8 },
+    intro: { enabled: true, file: '/episode/intro.mp3', volume: 100, gap_after: 2 },
+    backgroundNoise: { enabled: false, mode: 'preset', preset: 'brown-noise', custom_file: '/episode/rain.mp3', volume: 15, fade_in: 3, fade_out: 5 },
+    ambient: [{ id: 'amb_1', enabled: true, source_path: '/episode/wind.mp3', source_filename: 'wind.mp3', volume: 20, fade_in: 2, fade_out: 3, loop: true }],
+  })
+
+  test('saving writes every setting and no path at any depth', async () => {
+    const presets = controller('audio-merge-save', liveState(['/episode/bed-a.mp3']))
+    await presets.saveAs('Quiet bed')
+
+    const stored = configStore['audio-merge-save'].audio_merge_presets[0].data
+    assert.equal(stored.music.volume, 6, 'the level is a setting and travels')
+    assert.equal(stored.music.post_narration_volume, 40)
+    assert.equal(stored.music.fade_in, 3)
+    assert.equal(stored.intro.volume, 100, 'the intro level travels')
+    assert.equal(stored.intro.gap_after, 2)
+    assert.equal(stored.background_noise.volume, 15)
+    assert.equal(stored.ambient_tracks[0].volume, 20, 'the layer settings travel')
+
+    const json = JSON.stringify(stored)
+    assert.equal(json.includes('/episode/'), false, `no episode path may ride along: ${json}`)
+    assert.equal('files' in stored.music, false)
+    assert.equal('file' in stored.intro, false)
+    assert.equal('custom_file' in stored.background_noise, false)
+    assert.equal('source_path' in stored.ambient_tracks[0], false)
+  })
+
+  test('a preset written while paths were allowed stops restoring them on read', async () => {
+    // Exactly what is on disk in projects saved before 2026-10-27.
+    configStore['audio-merge-legacy'] = {
+      audio_merge_presets: [{
+        id: 'legacy-paths',
+        name: 'Old bed',
+        data: {
+          music: { enabled: true, source: 'manual', files: ['/other-episode/bed.mp3'], volume: 12 },
+          intro: { enabled: true, file: '/other-episode/intro.mp3', volume: 80, gap_after: 1 },
+          background_noise: { enabled: true, custom_file: '/other-episode/rain.mp3', volume: 9 },
+          ambient_tracks: [{ id: 'amb_x', enabled: true, source_path: '/other-episode/wind.mp3', volume: 30 }],
+        },
+      }],
+      audio_merge_last_preset: 'legacy-paths',
+    }
+
+    const live = liveState(['/this-episode/bed.mp3'])
+    live.intro.file = '/this-episode/intro.mp3'
+    live.backgroundNoise.custom_file = '/this-episode/rain.mp3'
+    live.ambient = [{ id: 'amb_1', enabled: false, source_path: '/this-episode/wind.mp3', volume: 10, fade_in: 1, fade_out: 1 }]
+
+    await controller('audio-merge-legacy', live).load()
+
+    // Settings still restore.
+    assert.equal(live.music.volume, 12)
+    assert.equal(live.intro.volume, 80)
+    assert.equal(live.backgroundNoise.volume, 9)
+    // The other episode's files are gone; this episode's own are intact.
+    assert.deepEqual(live.music.files, ['/this-episode/bed.mp3'], 'the live playlist is neither replaced nor blanked')
+    assert.equal(live.intro.file, '/this-episode/intro.mp3')
+    assert.equal(live.backgroundNoise.custom_file, '/this-episode/rain.mp3')
+    assert.equal(live.ambient[0]!.source_path, '/this-episode/wind.mp3')
+    assert.equal(JSON.stringify(live).includes('/other-episode/'), false, 'no foreign path survives the apply')
+  })
+
+  test('the stored preset on disk is never rewritten by the strip', async () => {
+    const original = {
+      id: 'legacy-untouched',
+      name: 'Old bed',
+      data: { music: { enabled: true, source: 'manual', files: ['/other-episode/bed.mp3'], volume: 12 } },
+    }
+    configStore['audio-merge-untouched'] = {
+      audio_merge_presets: [JSON.parse(JSON.stringify(original))],
+      audio_merge_last_preset: 'legacy-untouched',
+    }
+
+    await controller('audio-merge-untouched', liveState()).load()
+
+    assert.deepEqual(
+      configStore['audio-merge-untouched'].audio_merge_presets[0], original,
+      'AGENTS.md §5 trap 2: the exclusion is a read-boundary rule, not a migration',
+    )
+  })
+
+  test('an episode switch never carries the previous episode’s files', () => {
+    // The page clears its per-episode state on every episode change. This pins
+    // the rule the preset work depends on: files live with the episode.
+    const page = source('audio-merge.vue')
+    const watcher = page.slice(page.indexOf('watch([slug, episodeId]'), page.indexOf('// A completed merge may advance'))
+    assert.match(watcher, /poolPickedPath\.value = ''/, 'the previous episode’s pool pick is cleared')
+    assert.match(watcher, /scannedAssets\.value = null/, 'the previous episode’s asset scan is cleared')
+    assert.match(page, /const liveFiles = \[\.\.\.music\.files\]/, 'apply reads the live selection before writing')
+    assert.match(page, /music\.files = liveFiles/, 'and puts it back after')
   })
 })

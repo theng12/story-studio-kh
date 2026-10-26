@@ -63,8 +63,12 @@ import { CONTINUITY_PRESET_EXCLUDE_KEYS } from '../composables/useContinuityConf
  * - `saved-by-preset` the preset DOES carry it, through an alias or helper the
  *                     checker cannot follow. `via` names the path that must appear
  *                     in the preset code — that is what makes the claim checkable.
+ * - `excluded`        the page's own `excludeKeys` names it. The entry exists to
+ *                     record WHY, because the list itself cannot say; the honesty
+ *                     check then proves the page really does exclude it, so a
+ *                     reason cannot outlive the exclusion it describes.
  */
-type Verdict = 'episode' | 'run-only' | 'transient' | 'saved-elsewhere' | 'saved-by-preset'
+type Verdict = 'episode' | 'run-only' | 'transient' | 'saved-elsewhere' | 'saved-by-preset' | 'excluded'
 
 interface Classification {
   verdict: Verdict
@@ -114,7 +118,19 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
   },
   'audio-merge.vue': {
     writeMode: { verdict: 'run-only', reason: 'overwrite vs. save-as-new for THIS merge; restoring it could silently replace an accepted mix' },
-    newMusicPath: { verdict: 'transient', reason: 'the file-picker scratch input; the chosen file lands in `music.files`, which IS saved' },
+    newMusicPath: { verdict: 'transient', reason: 'the file-picker scratch input; the chosen file is added to the episode\'s own `music.files`' },
+    // Owner, 2026-10-27: a preset carries the music SETTINGS and never a FILE.
+    // Every path here names one episode's own audio; a preset that stored them
+    // restored EP0048's bed onto EP0047 (§4). Stripped on save AND on read, so a
+    // preset written while this was allowed stops restoring them without a
+    // single stored file being rewritten (§5 trap 2).
+    'music.files': { verdict: 'excluded', reason: 'the episode\'s own music playlist — a file list, not a setting (§4/§5)' },
+    'intro.file': { verdict: 'excluded', reason: 'the intro audio uploaded for one episode (§4/§5)' },
+    'backgroundNoise.custom_file': { verdict: 'excluded', reason: 'the ambience file chosen for one episode (§4/§5)' },
+    // `track.source_path` is not template-bound (a layer's clip is set by the
+    // ambient picker), so it has no entry here — but it is still excluded by the
+    // page, which is what keeps a stored preset from restoring it.
+
     'track.enabled': { verdict: 'saved-by-preset', reason: 'one ambient layer row', via: 'ambient_tracks' },
     'track.volume': { verdict: 'saved-by-preset', reason: 'one ambient layer row', via: 'ambient_tracks' },
     'track.fade_in': { verdict: 'saved-by-preset', reason: 'one ambient layer row', via: 'ambient_tracks' },
@@ -339,6 +355,18 @@ function templateFields(source: string): string[] {
         if (prop.name === 'model' && prop.exp) add(prop.exp.content)
         else if (prop.name === 'on' && EDIT_HANDLERS.has(prop.arg?.content || '') && prop.exp) {
           for (const match of prop.exp.content.matchAll(/(?:^|[^.\w$])([a-zA-Z_$][\w$]*(?:\.[\w$]+)+)\s*=(?!=)/g)) add(match[1]!)
+          // A handler that MUTATES a bound list (`music.files.splice(i, 1)`)
+          // edits a form value exactly as an assignment does. Only a list the
+          // template already binds counts: a local array's own `.sort()` in a
+          // handler is not a form field.
+          for (const match of prop.exp.content.matchAll(/([a-zA-Z_$][\w$]*(?:\.[\w$]+)*)\.(?:splice|push|pop|shift|unshift|sort|reverse)\s*\(/g)) {
+            const target = match[1]!
+            const root = target.split('.')[0]!
+            // The ROOT must be a form object the template already binds
+            // (`music.enabled` is bound, so `music.files.splice(...)` is a form
+            // edit). A local array's own `.sort()` is not.
+            if ([...fields].some(bound => bound === root || bound.startsWith(`${root}.`))) add(target)
+          }
         }
       }
     }
@@ -422,13 +450,35 @@ function presetRegion(script: string): { calls: string; helpers: string } {
   return { calls: normalise(calls.join('\n')), helpers: normalise(helperBodies.join('\n')) }
 }
 
-/** The page's own exclusion list, evaluated exactly as the composable reads it. */
+/**
+ * The page's own exclusion list, evaluated exactly as the composable reads it.
+ *
+ * A page may name its extra keys through a local constant (`AUDIO_MERGE_PATH_KEYS`)
+ * rather than inline. Those are resolved from the page's own source, so the list
+ * driven here is the list the page really passes — not a re-typed copy that could
+ * disagree with it.
+ */
 function excludeKeysOf(source: string): string[] {
   const script = scriptOf(source)
   if (/CONTINUITY_PRESET_EXCLUDE_KEYS/.test(script)) return [...CONTINUITY_PRESET_EXCLUDE_KEYS]
   const declared = script.match(/excludeKeys:\s*(\[[^\]]*\])/)
   if (!declared) return [...DEFAULT_EXCLUDE_KEYS]
-  return new Function('DEFAULT_EXCLUDE_KEYS', `return ${declared[1]}`)(DEFAULT_EXCLUDE_KEYS) as string[]
+
+  // Local `const NAME = [...]` arrays the expression references.
+  const locals: string[] = []
+  // A page-local constant named in the expression: `...AUDIO_MERGE_PATH_KEYS` or
+  // a bare `AUDIO_MERGE_PATH_KEYS` item. String literals are skipped.
+  const referenced = new Set(
+    [...declared[1]!.matchAll(/\.\.\.\s*([A-Za-z_$][\w$]*)|(?:^|[[,])\s*([A-Za-z_$][\w$]*)\s*(?=[,\]])/g)]
+      .map(m => (m[1] ?? m[2])!)
+      .filter(name => name !== 'DEFAULT_EXCLUDE_KEYS'),
+  )
+  for (const name of referenced) {
+    const local = script.match(new RegExp(`const\\s+${escapeRegex(name)}\\s*=\\s*(\\[[^\\]]*\\])`))
+    if (local) locals.push(`const ${name} = ${local[1]};`)
+  }
+  return new Function('DEFAULT_EXCLUDE_KEYS', `${locals.join('\n')}
+    return ${declared[1]}`)(DEFAULT_EXCLUDE_KEYS) as string[]
 }
 
 /**
@@ -500,12 +550,19 @@ describe('every field on a preset page is classified', () => {
   }
 })
 
+/** An `excluded` entry is only true when the page's own list really names it. */
+function excludedVerdictHolds(source: string, path: string): boolean {
+  const excluded = excludeKeysOf(source)
+  return excluded.includes(path.split('.').pop()!) || excluded.includes(path)
+}
+
 describe('the classification cannot lie or outlive its field', () => {
   for (const name of PRESET_PAGES) {
     test(`${name}: entries name real fields and their claims hold`, () => {
       const source = pageSource(name)
       const fields = new Set(templateFields(source))
       const region = presetRegion(scriptOf(source))
+      const excluded = excludeKeysOf(source)
       const table = CLASSIFIED[name] ?? {}
 
       const stale = Object.keys(table).filter(path => !fields.has(path))
@@ -513,6 +570,15 @@ describe('the classification cannot lie or outlive its field', () => {
 
       for (const [path, entry] of Object.entries(table)) {
         assert.ok(entry.reason.trim().length > 20, `${name}:${path} needs a real reason, not a bare verdict`)
+
+        if (entry.verdict === 'excluded') {
+          assert.ok(
+            excludedVerdictHolds(source, path),
+            `${name}:${path} is classified excluded, but the page's own excludeKeys does not name it. `
+            + 'Add it to the page\'s excludeKeys — a reason here does not exclude anything.',
+          )
+          continue
+        }
 
         if (entry.verdict === 'saved-by-preset') {
           // The claim is checkable: the alias target must really be in the payload.
@@ -592,6 +658,34 @@ describe('the checker fails the shapes it exists for', () => {
       `const presets = usePresets({ snapshot: () => ({}), apply: () => {} })`,
     )
     assert.deepEqual(classify(source, {}).map(row => row.verdict), ['excluded'])
+  })
+
+  test('a handler that mutates a bound list is a field too', () => {
+    const source = PAGE(
+      '<input v-model="music.enabled" /><button @click="music.files.splice(i, 1)">Remove</button>',
+      `const presets = usePresets({ snapshot: () => ({ music: { enabled: music.enabled } }), apply: () => {} })`,
+    )
+    assert.deepEqual(classify(source, {}).map(row => row.path).sort(), ['music.enabled', 'music.files'])
+  })
+
+  test('an `excluded` claim is checked against the page\'s own excludeKeys', () => {
+    const template = '<input v-model="form.model" /><input v-model="form.episode_file" />'
+    const withExclusion = PAGE(template,
+      `const presets = usePresets({ excludeKeys: ['episode_file'], snapshot: () => ({ model: form.model }), apply: () => {} })`)
+    const without = PAGE(template,
+      `const presets = usePresets({ snapshot: () => ({ model: form.model }), apply: () => {} })`)
+
+    // With the page's exclusion in place the field reads as excluded; the table
+    // entry only supplies the REASON.
+    const classified = { 'form.episode_file': { verdict: 'excluded' as const, reason: 'one episode\'s own file' } }
+    assert.deepEqual(classify(withExclusion, classified).map(row => row.verdict), ['excluded', 'saved'])
+    // Without the page's own exclusion the claim is empty, and the honesty check
+    // is what refuses it — that is the half this control exists for.
+    assert.equal(
+      excludedVerdictHolds(without, 'form.episode_file'),
+      false,
+      'a reason in the table must not stand in for an actual exclusion',
+    )
   })
 
   test('a click-handler assignment is a field too', () => {
