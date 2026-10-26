@@ -118,7 +118,7 @@ describe('resolving a hold to frames (pure)', () => {
   test('every resolved hold is a hold the native helper accepts, for every mode and scene length', () => {
     const settings: SketchHoldSetting[] = [{ mode: 'off' }, { mode: 'auto' }, { mode: 'fixed', seconds: 2.5 },
       { mode: 'fixed', seconds: 60 }, { mode: 'range', min_seconds: 0.5, max_seconds: 60 }]
-    const base = { kind: 'sketch' as const, input: '/in/a.png', output: '/out/a.mp4', width: 1920, height: 1080, paper: '#ffffff', pen: { mode: 'none' as const } }
+    const base = { kind: 'sketch' as const, input: '/in/a.png', output: '/out/a.mp4', width: 1920, height: 1080, paper: '#ffffff', pen: { mode: 'none' as const }, reveal: 'line' as const }
     for (const hold of settings) for (const fps of [24, 25, 30, 60]) for (const n of [1, 2, 3, 4, 5, 7, 12, 40, 151, 1800]) {
       const hold_frames = resolveSketchHoldFrames(hold, { episodeId: 'EP001', sceneId: `s${n}`, frames: n, fps })
       assert.doesNotThrow(() => native.validateSketchDrawJob({ ...base, fps, frames: n, hold_frames }), `${hold.mode} ${n}f@${fps} -> ${hold_frames}`)
@@ -273,7 +273,7 @@ describe('the hold in settings and freshness', () => {
   })
 
   test('version-2 clips (old 15% hold) stay fresh under every hold setting until they are regenerated', async () => {
-    assert.deepEqual([...version.SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3])
+    assert.deepEqual([...version.SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4])
     const slug = await channel('Legacy v2')
     const ep = await episode(slug, 'EP001')
     const legacy = await renderedNow(slug, 'EP001', 8)
@@ -288,7 +288,7 @@ describe('the hold in settings and freshness', () => {
     assert.equal(await reason(slug, ep, noHold), 'stale closing hold')
     // Versions outside the compatible list are still a stale renderer.
     assert.match((await reason(slug, ep, { ...legacy, clip_sketch: { ...legacy.clip_sketch, helper_version: 1 } }))!, /renderer/)
-    assert.match((await reason(slug, ep, { ...legacy, clip_sketch: { ...legacy.clip_sketch, helper_version: 4 } }))!, /renderer/)
+    assert.match((await reason(slug, ep, { ...legacy, clip_sketch: { ...legacy.clip_sketch, helper_version: 5 } }))!, /renderer/)
   })
 
   test("an episode's own hold overrides the channel default, and each stales only itself", async () => {
@@ -427,8 +427,9 @@ describe('closing hold routes', () => {
 
     const fixed = { mode: 'fixed', seconds: 2 }
     assert.deepEqual((await request(app).put(presentation).send({ renderer: 'sketch_draw', hold: fixed }).expect(200)).body,
-      { renderer: 'sketch_draw', pen: 'plain', hold: fixed }, 'setting the hold keeps the pen')
+      { renderer: 'sketch_draw', pen: 'plain', hold: fixed, reveal: null }, 'setting the hold keeps the pen')
     assert.deepEqual((await pm.getConfig(slug))?.motion_presentation, { renderer: 'sketch_draw', pen: 'plain', hold: fixed })
+    assert.equal((await request(app).get(presentation).expect(200)).body.reveal, null, 'a new channel has chosen no reveal style')
 
     // The renderer control and the pen control never send a hold, and neither drops it.
     await request(app).put(presentation).send({ renderer: 'image_to_video' }).expect(200)
@@ -442,6 +443,25 @@ describe('closing hold routes', () => {
     assert.deepEqual((await request(app).get(presentation).expect(200)).body.hold, fixed, 'a refused PUT changes nothing')
     await request(app).put(presentation).send({ renderer: 'sketch_draw', hold: { mode: 'off' } }).expect(200)
     assert.deepEqual((await request(app).get(presentation).expect(200)).body.hold, { mode: 'off' })
+
+    // The reveal style rides in the same object, and null is a real value: it means the channel has
+    // never chosen, which is what keeps clips rendered before the control existed fresh.
+    const mix = { style: 'mix', mix: ['line', 'buildup', 'swipes'] }
+    // The renderer is required on every save, exactly as the pen and hold controls already send it.
+    assert.deepEqual((await request(app).put(presentation).send({ renderer: 'sketch_draw', reveal: mix }).expect(200)).body.reveal, mix)
+    assert.deepEqual((await pm.getConfig(slug))?.motion_presentation?.reveal, mix)
+    assert.deepEqual((await request(app).get(presentation).expect(200)).body.hold, { mode: 'off' }, 'setting the reveal keeps the hold')
+    // Neither the renderer nor the pen control sends a reveal, and neither drops it.
+    await request(app).put(presentation).send({ renderer: 'image_to_video' }).expect(200)
+    await request(app).put(presentation).send({ renderer: 'sketch_draw', pen: 'plain' }).expect(200)
+    assert.deepEqual((await request(app).get(presentation).expect(200)).body.reveal, mix)
+    for (const bad of [{ style: 'sparkle' }, { style: 'mix', mix: ['line'] }, 'line', 3]) {
+      assert.equal((await request(app).put(presentation).send({ renderer: 'sketch_draw', reveal: bad })).status, 400, JSON.stringify(bad))
+    }
+    assert.deepEqual((await request(app).get(presentation).expect(200)).body.reveal, mix, 'a refused PUT changes nothing')
+    assert.equal((await request(app).put(presentation).send({ renderer: 'sketch_draw', reveal: null }).expect(200)).body.reveal, null)
+    assert.equal((await request(app).get(presentation).expect(200)).body.reveal, null)
+    assert.equal((await pm.getConfig(slug))?.motion_presentation?.reveal, undefined)
   })
 })
 
@@ -541,6 +561,6 @@ describe('the generator', () => {
     assert.equal(seen[2]!.hold_frames, 1)
     // The helper's own validation accepts every job the generator built.
     for (const item of seen) assert.doesNotThrow(() => native.validateSketchDrawJob({ kind: 'sketch', input: '/in/a.png', output: '/out/a.mp4',
-      width: 1920, height: 1080, paper: '#ffffff', pen: { mode: 'none' }, ...item }))
+      width: 1920, height: 1080, paper: '#ffffff', pen: { mode: 'none' }, reveal: 'line', ...item }))
   })
 })

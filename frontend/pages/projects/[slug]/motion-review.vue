@@ -143,6 +143,31 @@
           <button v-if="isSketchDraw && holdLoaded && episodeHold && JSON.stringify(episodeHold) !== JSON.stringify(channelHold)" type="button" class="btn btn-sm btn-ghost" :disabled="holdSaving || presentationSaving" @click="setChannelHoldDefault">
             Make this the channel default hold
           </button>
+          <label v-if="isSketchDraw" class="model-field renderer-field">
+            <span>Reveal style</span>
+            <select v-model="revealChoice" class="select" :disabled="!revealLoaded || revealSaving" aria-label="Sketch Draw reveal style" aria-describedby="sketch-reveal-help" @change="onRevealChoice">
+              <option value="">Not chosen (clips keep the reveal they have)</option>
+              <option v-for="type in REVEAL_TYPES" :key="type" :value="type">{{ REVEAL_LABELS[type] }}</option>
+              <option value="mix">Mix — a different style per scene</option>
+            </select>
+          </label>
+          <div v-if="isSketchDraw && revealChoice === 'mix'" class="hold-inputs">
+            <label v-for="type in REVEAL_TYPES" :key="type" class="reveal-mix-item">
+              <input v-model="revealMixDraft" type="checkbox" :value="type" :aria-label="REVEAL_LABELS[type]">
+              <span>{{ REVEAL_LABELS[type] }}</span>
+            </label>
+            <button type="button" class="btn btn-sm" :disabled="revealSaving || !revealPending" @click="applyReveal">Apply mix</button>
+          </div>
+          <p v-if="isSketchDraw" id="sketch-reveal-help" class="renderer-help" role="status">
+            How each scene's finished drawing arrives. This is the channel's setting, so every episode uses it; each scene records the style it actually drew with, so changing it re-generates only the scenes whose style moved.
+            <span v-if="!revealLoaded">Loading this channel's reveal style.</span>
+            <span v-else-if="!revealSetting">No reveal style chosen, so clips keep the reveal they were made with.</span>
+            <span v-else>This channel draws with {{ revealLabel(revealSetting) }}.</span>
+            <span v-if="revealChoice === 'mix'">Each scene gets one of the picked styles, the same every time it is re-generated, and never the same style as the scene before it.</span>
+            <span v-if="revealPending">Not applied yet. Apply the mix, or pick another option.</span>
+            <span v-if="revealError" class="stale-note" role="alert">{{ revealError }}</span>
+            <span>Clips made before this setting keep their reveal until you re-generate them.</span>
+          </p>
           <p v-if="isSketchDraw" id="sketch-hold-help" class="renderer-help" role="status">
             The drawing finishes, then the complete image holds for the closing hold. A hold never takes more than half a scene, so the drawing always has time; scene length and narration do not change.
             <span v-if="!holdLoaded">Loading this episode's closing hold.</span>
@@ -362,6 +387,7 @@
             <p class="motion-prompt">{{ scene.motion_prompt || 'No motion prompt. Add one in Scene Plan, or keep this scene as a still.' }}</p>
           </details>
           <p v-if="!clipWork(scene) && !scene.clip_exists && generateBlocked(scene)" class="blocked-note">Generate Clip is off: {{ generateBlocked(scene) }}.</p>
+          <p v-if="isSketchDraw && scene.reveal_type" class="reveal-note">Reveal: {{ REVEAL_LABELS[scene.reveal_type] }}</p>
           <p v-if="scene.clip_stale" class="stale-note">This clip needs to be generated again: {{ scene.clip_stale_reason || 'its source or scene window changed' }}. Re-generate before approval.</p>
         </div>
 
@@ -420,6 +446,7 @@ import { variantsForVideoOperation } from '~/utils/genstudio-video-variants'
 import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModels'
 import { motionBatchEligible, sketchSelectionReady } from '~/utils/motion-review-sketch'
 import { HOLD_MAX_SECONDS, holdDrafts, holdFromDraft, holdLabel, type HoldChoice, type HoldDrafts, type SketchHold } from '~/utils/sketch-hold'
+import { REVEAL_LABELS, REVEAL_TYPES, revealChoiceOf, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, type RevealChoice, type SketchReveal, type SketchRevealType } from '~/utils/sketch-reveal'
 
 // usePresets captures the project slug at setup. Recreate this page for a
 // project navigation so controls and scene state cannot carry into another project.
@@ -445,6 +472,8 @@ interface MotionScene {
   clip_stale?: boolean
   clip_stale_reason?: string
   clip_renderer?: 'sketch_draw' | 'image_to_video' | 'external'
+  /** The reveal style this Sketch Draw scene resolves to, or null for other renderers. */
+  reveal_type?: SketchRevealType | null
   motion_choice?: MotionChoice
 }
 interface MotionStats {
@@ -537,6 +566,21 @@ const holdPending = computed(() => {
   const parsed = holdFromDraft(holdChoice.value, holdDraft.value)
   return !parsed.ok || JSON.stringify(parsed.hold) !== JSON.stringify(episodeHold.value)
 })
+// The reveal style is the channel's, not this episode's: there is no per-episode override to load,
+// so it never blanks on an episode change and one choice covers every episode.
+const revealSetting = ref<SketchReveal | null>(null)
+const revealChoice = ref<RevealChoice>('')
+const revealMixDraft = ref<SketchRevealType[]>(revealMixFor(null))
+const revealLoaded = ref(false)
+const revealSaving = ref(false)
+const revealError = ref('')
+const acceptedRevealChoice = (): RevealChoice => revealChoiceOf(revealSetting.value)
+// A Mix waits for Apply; this is true while what is shown is not what is saved.
+const revealPending = computed(() => {
+  if (revealChoice.value !== 'mix') return false
+  const parsed = revealFromDraft('mix', revealMixDraft.value)
+  return !parsed.ok || JSON.stringify(parsed.reveal) !== JSON.stringify(revealSetting.value)
+})
 const channelName = ref('')
 const channelHasLogo = ref(false)
 const presentationLoaded = ref(false)
@@ -545,10 +589,15 @@ const presentationError = ref('')
 let acceptedRenderer: 'image_to_video' | 'sketch_draw' = 'image_to_video'
 async function loadMotionPresentation() {
   try {
-    const result = await get<{ renderer: typeof clipRenderer.value; pen: PenMode; hold?: SketchHold; channel_name: string; has_logo: boolean }>(`/projects/${slug.value}/motion-presentation`)
+    const result = await get<{ renderer: typeof clipRenderer.value; pen: PenMode; hold?: SketchHold; reveal?: SketchReveal | null; channel_name: string; has_logo: boolean }>(`/projects/${slug.value}/motion-presentation`)
     clipRenderer.value = result.renderer
     channelPen.value = result.pen
     if (result.hold) channelHold.value = result.hold
+    // Absent and null both mean "never chosen"; a stored value that cannot be read is a server error.
+    revealSetting.value = result.reveal ?? null
+    revealChoice.value = revealChoiceOf(revealSetting.value)
+    revealMixDraft.value = revealMixFor(revealSetting.value)
+    revealLoaded.value = true
     channelName.value = result.channel_name
     channelHasLogo.value = result.has_logo
     acceptedRenderer = result.renderer
@@ -639,6 +688,44 @@ function applyHold() {
   if ('error' in parsed) { holdError.value = parsed.error; return }
   holdError.value = ''
   void saveEpisodeHold(parsed.hold)
+}
+// One save for the whole channel; `null` clears it, which is what keeps existing clips fresh.
+async function saveReveal(next: SketchReveal | null) {
+  revealSaving.value = true
+  revealError.value = ''
+  presentationError.value = ''
+  try {
+    // The renderer is required by the route and must not move, so the reveal save carries the current one.
+    await put(`/projects/${slug.value}/motion-presentation`, { renderer: clipRenderer.value, reveal: next })
+    revealSetting.value = next
+    revealChoice.value = revealChoiceOf(next)
+    revealMixDraft.value = revealMixFor(next)
+    success(next
+      ? `Sketch Draw reveal is now ${revealLabel(next)}. Scenes whose style changed need re-generating; the rest are kept.`
+      : 'Sketch Draw reveal is not chosen. Every clip keeps the reveal it was made with.')
+    await loadReview()
+  } catch (error: any) {
+    revealChoice.value = acceptedRevealChoice()
+    revealMixDraft.value = revealMixFor(revealSetting.value)
+    revealError.value = error?.data?.detail || error?.message || 'Could not save the reveal style. Try again.'
+    showError(revealError.value)
+  } finally { revealSaving.value = false }
+}
+// A single style and "not chosen" need no picking, so they save at once; a Mix waits for Apply.
+function onRevealChoice() {
+  revealError.value = ''
+  if (revealChoice.value === 'mix') {
+    revealMixDraft.value = revealMixFor(revealSetting.value)
+    return
+  }
+  const parsed = revealFromDraft(revealChoice.value, [])
+  if (parsed.ok) void saveReveal(parsed.reveal)
+}
+function applyReveal() {
+  const parsed = revealFromDraft('mix', revealMixDraft.value)
+  if ('error' in parsed) { revealError.value = parsed.error; return }
+  revealError.value = ''
+  void saveReveal(parsed.reveal)
 }
 // Deliberate: moves the channel default, so episodes without a hold of their own re-render under it.
 async function setChannelHoldDefault() {
@@ -1695,6 +1782,8 @@ input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-
 .transcript { margin: 10px 0; color: var(--text-secondary); line-height: 1.55; }
 .motion-prompt { margin: 7px 0; color: var(--text-muted); line-height: 1.5; }
 .stale-note { color: #d99558; font-weight: 650; }
+.reveal-mix-item { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; }
+.reveal-note { color: #8fa0b5; font-size: 0.85rem; }
 .motion-actions { grid-column: 1 / -1; justify-content: flex-end; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border); }
 .motion-actions .btn { min-height: 33px; border-radius: 8px; }
 .load-error-detail { font-size: var(--font-xs); opacity: .75; }

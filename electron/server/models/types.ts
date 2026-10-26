@@ -9,6 +9,7 @@ import type { MotionScope } from '../contracts/motion-scope.js'
 import type { ScenePacing, ScenePacingPeriod } from '../contracts/pacing.js'
 import type { ContextualCueCorner } from '../contracts/contextual-cue-position.js'
 import type { SketchHoldSetting } from '../lib/sketch-hold.js'
+import type { SketchRevealSetting, SketchRevealType } from '../lib/sketch-reveal.js'
 import type { AssignedPipelineModelPolicy, PipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 
 // ── Project ─────────────────────────────────────────────────────────────────
@@ -2175,6 +2176,12 @@ export interface MotionPresentationSettings {
   pen: SketchDrawPenMode
   /** The channel DEFAULT closing hold; an episode may carry its own (`sketch_hold.json`). Absent means auto. */
   hold?: SketchHoldSetting
+  /**
+   * How the finished drawing arrives — one style, or a Mix resolved per scene. Channel-wide
+   * reusable configuration, never episode state. ABSENT means the channel has never chosen one,
+   * which is what keeps every clip rendered before this control existed fresh.
+   */
+  reveal?: SketchRevealSetting
 }
 
 export interface ProjectConfig {
@@ -4775,6 +4782,8 @@ export interface ScenePlanEntry {
     hold_frames?: number
     /** Identity of the hold setting it was resolved from; evidence only, freshness compares the frames. */
     hold_fingerprint?: string
+    /** The reveal type this clip actually resolved to. Absent on clips rendered before reveal styles. */
+    reveal_type?: SketchRevealType
   }
   /** The exact paid clip duration accepted for this scene. External clips clear
    * this provider receipt; it is not a catalogue limit or preset value. */

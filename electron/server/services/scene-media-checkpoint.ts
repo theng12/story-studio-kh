@@ -8,6 +8,10 @@ import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
 import { getMediaInfo } from '../lib/ffmpeg-validation.js'
 import { SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS } from '../lib/native-scene-clip-version.js'
 import { resolveSketchHoldFrames, sketchHoldFingerprint, sketchHoldSelection, type SketchHoldSetting } from '../lib/sketch-hold.js'
+import {
+  DEFAULT_SKETCH_REVEAL, resolveSketchRevealPlan, sketchRevealChoice, sketchRevealFingerprint,
+  sketchRevealForSingleScene, sketchRevealNeedsScenes, type SketchRevealSetting, type SketchRevealType,
+} from '../lib/sketch-reveal.js'
 import { resolveRenderCanvas } from '../lib/render-canvas.js'
 import { readChannelProfileAsset } from './channel-profile.js'
 import type { MotionPresentationSettings, ProjectConfig, ScenePlan, ScenePlanEntry, SketchDrawPenMode } from '../models/types.js'
@@ -45,6 +49,14 @@ export interface SketchDrawSettings {
   /** The closing hold this episode renders under: its own, else the channel's. Resolved to frames per scene. */
   hold: SketchHoldSetting
   holdFingerprint: string
+  /**
+   * The channel's reveal style, or null when it has never been chosen. Null is not "use the default":
+   * a channel that has asked for nothing cannot disagree with the reveal its clips already have, so
+   * clips rendered before this control existed stay fresh. What is PERSISTED is the choice; the
+   * type each scene resolves to is derived, per scene, from the episode's own ordered scene ids.
+   */
+  reveal: SketchRevealSetting | null
+  revealFingerprint: string
 }
 
 export interface EpisodePenChoice {
@@ -82,15 +94,17 @@ export async function resolveEpisodeHold(slug: string, episodeId: string, loaded
 }
 
 /**
- * A channel default for the pen or hold just changed: drop the cached status of every episode that follows it
- * (no override of its own), so Motion Review readiness there is read again. An episode with its own pen or hold
- * is untouched, as are its clips.
+ * A channel default for the pen, hold or reveal just changed: drop the cached status of every
+ * episode whose readiness it can move, so Motion Review reads it again. An episode with its own pen
+ * or hold is untouched by a pen or hold change, as are its clips. A reveal style is channel-wide
+ * reusable configuration with no episode-level override, so changing it touches EVERY episode.
  */
-export async function invalidateEpisodesFollowingChannelSketch(slug: string, changed: { pen: boolean; hold: boolean }): Promise<void> {
-  if (!changed.pen && !changed.hold) return
+export async function invalidateEpisodesFollowingChannelSketch(slug: string, changed: { pen: boolean; hold: boolean; reveal?: boolean }): Promise<void> {
+  if (!changed.pen && !changed.hold && !changed.reveal) return
   const { episodeStatusCache } = await import('./episode-status-cache.js')
   await episodeStatusCache.invalidateWhere(slug, async code =>
-    (changed.pen && await readEpisodeSketchPen(slug, code) === null) || (changed.hold && await readEpisodeSketchHold(slug, code) === null))
+    changed.reveal === true || (changed.pen && await readEpisodeSketchPen(slug, code) === null)
+    || (changed.hold && await readEpisodeSketchHold(slug, code) === null))
 }
 
 /** Frames of closing hold for one scene of an episode under these settings; the freshness rule and the generator share it. */
@@ -104,6 +118,7 @@ export async function resolveSketchDrawSettings(slug: string, episodeId: string)
   if (!config) throw new Error('Channel configuration is unavailable.')
   const mode = (await resolveEpisodePen(slug, episodeId, config)).pen
   const { hold } = await resolveEpisodeHold(slug, episodeId, config)
+  const reveal = sketchRevealChoice(config.motion_presentation?.reveal)
   if (!['none', 'plain', 'name', 'logo'].includes(mode)) throw new Error('Choose a valid Sketch Draw pen.')
   const store = config.video_assembly_last_used
   const own = store?.episodes?.[episodeId.trim().toUpperCase()]?.settings
@@ -130,7 +145,8 @@ export async function resolveSketchDrawSettings(slug: string, episodeId: string)
   }
   return { fps, width: canvas.w, height: canvas.h, pen, logoBytes,
     penFingerprint: createHash('sha256').update(JSON.stringify(identity)).digest('hex'),
-    hold, holdFingerprint: sketchHoldFingerprint(hold) }
+    hold, holdFingerprint: sketchHoldFingerprint(hold),
+    reveal, revealFingerprint: sketchRevealFingerprint(reveal ?? DEFAULT_SKETCH_REVEAL) }
 }
 
 export interface SceneClipFreshnessContext {
@@ -143,6 +159,14 @@ export interface SceneClipFreshnessContext {
   stillIds?: string[]
   /** False when the run produces clips for review without choosing them (Motion Review's Generate). */
   requireSelected?: boolean
+  /**
+   * Every scene id of this episode, in plan order. A Mix resolves per scene and never two
+   * consecutive scenes to the same type, so resolving one scene needs the ones before it. Only a
+   * real Mix reads it; a single style is answered by the scene's own id.
+   */
+  revealScenes?: readonly string[]
+  /** Resolved reveal type for the scene being checked, when the caller already has the plan. */
+  revealType?: SketchRevealType
 }
 
 export function sceneWindowSeconds(scene: Pick<ScenePlanEntry, 'start_sec' | 'end_sec'>): number {
@@ -168,7 +192,17 @@ async function currentImageSha256(filePath: string): Promise<string | null> {
 }
 
 const CANNOT_VERIFY_SOURCE = 'Sketch Draw cannot verify its source image here. Open Motion Review and Retry.'
-const SETTINGS_UNAVAILABLE = 'Sketch Draw settings could not be checked. Choose the pen and Video Assembly frame rate again.'
+const SETTINGS_UNAVAILABLE = 'Sketch Draw settings could not be checked. Choose the pen, reveal style and Video Assembly frame rate again.'
+/** Only reachable if a caller omits the episode's scene order from a Mix check; it never guesses. */
+const REVEAL_NEEDS_EPISODE = 'Sketch Draw cannot check its reveal style here. Open Motion Review and Retry.'
+
+/** The reveal type one scene resolves to, or null when a Mix needs the episode's scene order and
+ *  the caller did not supply it. Never guesses: a wrong answer here silently stales a good clip. */
+export function revealTypeFor(reveal: SketchRevealSetting, context: SceneClipFreshnessContext, sceneId: string): SketchRevealType | null {
+  if (sketchRevealNeedsScenes(reveal) && !context.revealScenes) return null
+  const plan = resolveSketchRevealPlan(context.episodeId, context.revealScenes ?? [sceneId], reveal)
+  return plan.get(sceneId) ?? sketchRevealForSingleScene(reveal, sceneId)
+}
 
 /** The single freshness rule used by review, approval, completion, status, retry and assembly. */
 export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: SceneClipFreshnessContext): Promise<string | null> {
@@ -225,6 +259,17 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
     if (receipt.helper_version >= 3) return 'stale closing hold'
   } else if (!Number.isSafeInteger(receipt.hold_frames)
     || receipt.hold_frames !== sketchHoldFramesFor(settings, context.episodeId, scene.id, receipt.frames)) return 'stale closing hold'
+
+  // The reveal style is compared as the type THIS scene resolves to, so editing a Mix stales only
+  // the scenes whose type actually moved. A channel that has never chosen one keeps every clip it
+  // has: nothing was asked for, so nothing can be wrong. A clip from before reveal types has no
+  // `reveal_type`; it IS a line reveal, so choosing Line (the default) never stales it.
+  if (settings.reveal) {
+    const wanted = context.revealType ?? revealTypeFor(settings.reveal, context, scene.id)
+    if (wanted === null) return REVEAL_NEEDS_EPISODE
+    const recorded = receipt.reveal_type ?? 'line'
+    if (recorded !== wanted) return `stale reveal style (${recorded} → ${wanted})`
+  }
 
   const clipSha = scene.clip_source_image_sha256
   if (!clipSha) return CANNOT_VERIFY_SOURCE
