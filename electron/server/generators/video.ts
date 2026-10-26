@@ -17,6 +17,7 @@ import { spawn } from 'child_process'
 import * as pm from '../services/project-manager.js'
 import { checkpointJobProgress, checkpointJobState, isCancelled, trackChild } from '../services/job-queue.js'
 import { withFinalVideoPathLock } from '../services/final-video-lock.js'
+import { publishOverPreviousFinal } from '../services/final-video-retention.js'
 import { preparePrivateFinalRenderDescriptor } from '../services/final-render-transport.js'
 import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 // v1.0.338 — episode-dir + subfolder lookups consolidated into the shared
@@ -645,51 +646,76 @@ async function finishFinalVideo(ctx: {
     job.output_lines.push(`External path resolve failed (${e?.message || e}); using project tree`)
   }
 
-  let resolvedOutputPath = outputFile
-  try {
-    await publishLocalFinalVideo(job, outputFile, finalPath, () => fs.rename(outputFile, finalPath))
-    resolvedOutputPath = finalPath
-    job.output_lines.push(`Renamed to: ${finalName}`)
-  } catch (e: any) {
-    if (e?.name === 'FinalRenderFallbackConflict') throw e
-    // First failure mode: external path is on a different filesystem
-    // (EXDEV). Fall back to copy + remove so the user still gets a
-    // final at their chosen location.
-    if (e?.code === 'EXDEV' && finalPath !== projectTreeFinalPath) {
+  // A re-assembly must never silently drop the final it replaces (owner, 2026-10-27): the new
+  // render passes this render's own checks FIRST, the previous final and the sidecars that belong to
+  // it are then kept for three days beside it, and only then does the new file take the name. A
+  // failed render leaves the accepted final exactly where it was.
+  const replacement = await publishOverPreviousFinal({
+    job,
+    project_slug,
+    projectDir: pm.getProjectDir(project_slug) || '',
+    code,
+    finalPath,
+    newRenderPath: outputFile,
+    finalName,
+    verify: staged => verifyFinalVideo(job, staged, finalName, totalRenderDuration, ctx.loudness, true),
+    publish: async () => {
+      let landed = outputFile
       try {
-        await publishLocalFinalVideo(job, outputFile, finalPath, async () => {
-          await fs.copyFile(outputFile, finalPath)
-          await fs.rm(outputFile, { force: true })
-        })
-        resolvedOutputPath = finalPath
-        job.output_lines.push(`Copied to external (cross-device): ${finalName}`)
-      } catch (copyErr: any) {
-        if (copyErr?.name === 'FinalRenderFallbackConflict') throw copyErr
-        // External-copy failure → fall back to project-tree rename so
-        // we don't lose the file the user just spent compute on.
-        job.output_lines.push(`Warning: external copy failed (${copyErr.message || copyErr}); falling back to project tree`)
-        try {
-          await publishLocalFinalVideo(job, outputFile, projectTreeFinalPath, () => fs.rename(outputFile, projectTreeFinalPath))
-          resolvedOutputPath = projectTreeFinalPath
-          job.output_lines.push(`Renamed to: ${finalName} (project tree fallback)`)
-        } catch (fallbackErr: any) {
-          if (fallbackErr?.name === 'FinalRenderFallbackConflict') throw fallbackErr
-          job.output_lines.push(`Warning: final rename skipped (${fallbackErr.message || 'unknown error'})`)
+        await publishLocalFinalVideo(job, outputFile, finalPath, () => fs.rename(outputFile, finalPath))
+        landed = finalPath
+        job.output_lines.push(`Renamed to: ${finalName}`)
+      } catch (e: any) {
+        if (e?.name === 'FinalRenderFallbackConflict') throw e
+        // First failure mode: external path is on a different filesystem
+        // (EXDEV). Fall back to copy + remove so the user still gets a
+        // final at their chosen location.
+        if (e?.code === 'EXDEV' && finalPath !== projectTreeFinalPath) {
+          try {
+            await publishLocalFinalVideo(job, outputFile, finalPath, async () => {
+              await fs.copyFile(outputFile, finalPath)
+              await fs.rm(outputFile, { force: true })
+            })
+            landed = finalPath
+            job.output_lines.push(`Copied to external (cross-device): ${finalName}`)
+          } catch (copyErr: any) {
+            if (copyErr?.name === 'FinalRenderFallbackConflict') throw copyErr
+            // External-copy failure → fall back to project-tree rename so
+            // we don't lose the file the user just spent compute on.
+            job.output_lines.push(`Warning: external copy failed (${copyErr.message || copyErr}); falling back to project tree`)
+            try {
+              await publishLocalFinalVideo(job, outputFile, projectTreeFinalPath, () => fs.rename(outputFile, projectTreeFinalPath))
+              landed = projectTreeFinalPath
+              job.output_lines.push(`Renamed to: ${finalName} (project tree fallback)`)
+            } catch (fallbackErr: any) {
+              if (fallbackErr?.name === 'FinalRenderFallbackConflict') throw fallbackErr
+              job.output_lines.push(`Warning: final rename skipped (${fallbackErr.message || 'unknown error'})`)
+            }
+          }
+        } else {
+          // Cloud-synced filesystems (iCloud, Dropbox) sometimes reject rename
+          // with EPERM. Keep the timestamped file as the canonical output in
+          // that case — the render is still usable.
+          job.output_lines.push(`Warning: final rename skipped (${e.message || 'unknown error'})`)
         }
       }
-    } else {
-      // Cloud-synced filesystems (iCloud, Dropbox) sometimes reject rename
-      // with EPERM. Keep the timestamped file as the canonical output in
-      // that case — the render is still usable.
-      job.output_lines.push(`Warning: final rename skipped (${e.message || 'unknown error'})`)
-    }
+      return landed
+    },
+  })
+  let resolvedOutputPath = replacement.resolved
+  // A publication that did not land put the previous final back; promoting the
+  // new file over it now would undo exactly that.
+  if (!replacement.restored) {
+    resolvedOutputPath = await selfHealFinalPromotion(resolvedOutputPath, projectTreeFinalPath, finalName, job)
   }
-
-  resolvedOutputPath = await selfHealFinalPromotion(resolvedOutputPath, projectTreeFinalPath, finalName, job)
   // The final check runs FIRST, so the file carries a verdict even when the check below stops the
   // job — a stopped render is exactly the one somebody wants to look at and override (AGENTS.md §8).
   await finalCheckFinalVideo(job, resolvedOutputPath, expected)
-  await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration, ctx.loudness)
+  // A replacement was verified before the previous final moved; a first render keeps the historical
+  // order (checks after publication).
+  if (!replacement.previousExisted) {
+    await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration, ctx.loudness)
+  }
   await deleteFinalSegments(tempDir, job)
   await finishImportedFinalVideo(job, code, resolvedOutputPath, visualSource, imagePool)
 }
@@ -3303,41 +3329,61 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
       } catch (e: any) {
         job.output_lines.push(`External path resolve failed (${e?.message || e}); using project tree`)
       }
-      let compResolvedPath = compOutputFile
-      try {
-        await publishLocalFinalVideo(job, compOutputFile, compFinalPath, () => fs.rename(compOutputFile, compFinalPath))
-        compResolvedPath = compFinalPath
-        job.output_lines.push(`Renamed to: ${compFinalName}`)
-      } catch (e: any) {
-        if (e?.name === 'FinalRenderFallbackConflict') throw e
-        if (e?.code === 'EXDEV' && compFinalPath !== compProjectTreeFinalPath) {
+      // Same rule as the standard flow: the new render passes its checks before the previous final
+      // moves aside, and a failed render leaves that final in place (owner, 2026-10-27).
+      const compReplacement = await publishOverPreviousFinal({
+        job,
+        project_slug,
+        projectDir: pm.getProjectDir(project_slug) || '',
+        code,
+        finalPath: compFinalPath,
+        newRenderPath: compOutputFile,
+        finalName: compFinalName,
+        verify: staged => verifyFinalVideo(job, staged, compFinalName, totalRenderDuration, loudness, true),
+        publish: async () => {
+          let landed = compOutputFile
           try {
-            await publishLocalFinalVideo(job, compOutputFile, compFinalPath, async () => {
-              await fs.copyFile(compOutputFile, compFinalPath)
-              await fs.rm(compOutputFile, { force: true })
-            })
-            compResolvedPath = compFinalPath
-            job.output_lines.push(`Copied to external (cross-device): ${compFinalName}`)
-          } catch (copyErr: any) {
-            if (copyErr?.name === 'FinalRenderFallbackConflict') throw copyErr
-            job.output_lines.push(`Warning: external copy failed (${copyErr.message || copyErr}); falling back to project tree`)
-            try {
-              await publishLocalFinalVideo(job, compOutputFile, compProjectTreeFinalPath, () => fs.rename(compOutputFile, compProjectTreeFinalPath))
-              compResolvedPath = compProjectTreeFinalPath
-              job.output_lines.push(`Renamed to: ${compFinalName} (project tree fallback)`)
-            } catch (fallbackErr: any) {
-              if (fallbackErr?.name === 'FinalRenderFallbackConflict') throw fallbackErr
-              job.output_lines.push(`Warning: final rename skipped (${fallbackErr.message || 'unknown'})`)
+            await publishLocalFinalVideo(job, compOutputFile, compFinalPath, () => fs.rename(compOutputFile, compFinalPath))
+            landed = compFinalPath
+            job.output_lines.push(`Renamed to: ${compFinalName}`)
+          } catch (e: any) {
+            if (e?.name === 'FinalRenderFallbackConflict') throw e
+            if (e?.code === 'EXDEV' && compFinalPath !== compProjectTreeFinalPath) {
+              try {
+                await publishLocalFinalVideo(job, compOutputFile, compFinalPath, async () => {
+                  await fs.copyFile(compOutputFile, compFinalPath)
+                  await fs.rm(compOutputFile, { force: true })
+                })
+                landed = compFinalPath
+                job.output_lines.push(`Copied to external (cross-device): ${compFinalName}`)
+              } catch (copyErr: any) {
+                if (copyErr?.name === 'FinalRenderFallbackConflict') throw copyErr
+                job.output_lines.push(`Warning: external copy failed (${copyErr.message || copyErr}); falling back to project tree`)
+                try {
+                  await publishLocalFinalVideo(job, compOutputFile, compProjectTreeFinalPath, () => fs.rename(compOutputFile, compProjectTreeFinalPath))
+                  landed = compProjectTreeFinalPath
+                  job.output_lines.push(`Renamed to: ${compFinalName} (project tree fallback)`)
+                } catch (fallbackErr: any) {
+                  if (fallbackErr?.name === 'FinalRenderFallbackConflict') throw fallbackErr
+                  job.output_lines.push(`Warning: final rename skipped (${fallbackErr.message || 'unknown'})`)
+                }
+              }
+            } else {
+              job.output_lines.push(`Warning: final rename skipped (${e.message || 'unknown error'})`)
             }
           }
-        } else {
-          job.output_lines.push(`Warning: final rename skipped (${e.message || 'unknown error'})`)
-        }
-      }
+          return landed
+        },
+      })
 
-      compResolvedPath = await selfHealFinalPromotion(compResolvedPath, compProjectTreeFinalPath, compFinalName, job)
+      let compResolvedPath = compReplacement.resolved
+      if (!compReplacement.restored) {
+        compResolvedPath = await selfHealFinalPromotion(compResolvedPath, compProjectTreeFinalPath, compFinalName, job)
+      }
       await finalCheckFinalVideo(job, compResolvedPath, compExpected)
-      await verifyFinalVideo(job, compResolvedPath, compFinalName, totalRenderDuration, loudness)
+      if (!compReplacement.previousExisted) {
+        await verifyFinalVideo(job, compResolvedPath, compFinalName, totalRenderDuration, loudness)
+      }
       await finishImportedFinalVideo(
         job, code, compResolvedPath, authoritativeAssets.visual_source || 'scene_plan', authoritativeAssets.image_pool,
       )
