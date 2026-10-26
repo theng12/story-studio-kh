@@ -24,6 +24,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import { createHash } from 'crypto'
 import { withCrossProcessLock, writeJsonAtomic } from '../lib/atomic-store.js'
+import type { TtsProvenanceFacts } from '../contracts/tts-provenance.js'
 import { clearImageValidationCache, isDecodableImage } from '../lib/image-validation.js'
 
 const FILENAME = '.task-manifest.json'
@@ -76,6 +77,14 @@ export interface TaskManifestEntry {
   operation?: 'tts' | 'transcription' | 'image' | 'video'
   /** Exact provider model used for durable audio/image replay. */
   model_id?: string
+  /**
+   * What actually made this TTS part, as the live catalogue published it when
+   * the request was submitted (owner, 2026-10-26). Recorded per part so the
+   * Audio page can answer "which engine and voice produced THIS take?" even for
+   * a take that is not the active one. Absent on parts made before 1.4.360 —
+   * absent means "not recorded", never a guess.
+   */
+  tts?: TtsProvenanceFacts
   /** Exact image seed prepared for submission; null means the request omitted a seed. */
   image_seed?: number | null
   /** Exact GenStudio operation selected for a video task. */

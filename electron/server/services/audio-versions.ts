@@ -19,6 +19,7 @@ import path from 'path'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { moveToTrashSync } from '../lib/trash-move.js'
 import { trashTargetFor } from './chapter-parts.js'
+import { forgetTakeRejections, rejectedTakeFileSet } from './audio-take-rejection.js'
 import { updateAudioQualityProvenance } from './audio-quality-store.js'
 import { hashSubtitleAudioSources } from './subtitle-completion.js'
 
@@ -28,6 +29,8 @@ export interface ChapterTake {
   /** 1 = the base names, 2+ = a `_vN` take. */
   version: number
   active: boolean
+  /** Rejected by the owner: never selected, never merged (see audio-take-rejection.ts). */
+  rejected: boolean
   bytes: number
   modified_at: string | null
 }
@@ -78,6 +81,7 @@ export async function listChapterTakes(episodeDir: string, audioDir: string, cod
   const groups = groupChapterTakes(code, slug, entries)
   const selector = await readSelector(episodeDir)
   const selected = selectedFiles(selector, slug)
+  const rejected = await rejectedTakeFileSet(episodeDir)
   // No selector yet: the base take is implicitly active (single file first, as the generator joins into it).
   const active = selected ?? groups.find(g => g.version === 1)?.files ?? null
   const takes: ChapterTake[] = []
@@ -88,6 +92,9 @@ export async function listChapterTakes(episodeDir: string, audioDir: string, cod
       files: group.files,
       version: group.version,
       active: !!active && sameFiles(active, group.files),
+      // A rejected take is never "in use": the selection may still name it, but
+      // nothing may act on it (AGENTS.md §8 — the take is excluded everywhere).
+      rejected: group.files.some(file => rejected.has(file)),
       bytes: stats.reduce((sum, stat) => sum + (stat?.size || 0), 0),
       modified_at: new Date(Math.max(...stats.map(stat => stat!.mtimeMs))).toISOString(),
     })
@@ -103,6 +110,12 @@ export async function useChapterTake(input: {
   code: string
   slug: string
   files: string[]
+  /**
+   * Move the replaced take's files to Story's Trash (the historical behaviour).
+   * `false` moves the selection only: the rejection path needs the rejected
+   * bytes to stay exactly where they are for the whole restore window.
+   */
+  trashPrevious?: boolean
 }): Promise<{ active: string[]; trashed: string[] }> {
   const { projectDir, episodeDir, audioDir, code, slug } = input
   const sidecarPath = path.join(episodeDir, 'audio_chapters.json')
@@ -110,6 +123,9 @@ export async function useChapterTake(input: {
     const takes = await listChapterTakes(episodeDir, audioDir, code, slug)
     const chosen = takes.find(take => sameFiles(take.files, input.files))
     if (!chosen) throw Object.assign(new Error('That version is no longer in the audio folder. Refresh and pick again.'), { statusCode: 404 })
+    if (chosen.rejected) {
+      throw Object.assign(new Error('That take was rejected. Restore it first, or pick another version.'), { statusCode: 409 })
+    }
     const previous = takes.find(take => take.active)
     if (chosen.active) return { active: chosen.files, trashed: [] as string[] }
     const outgoing = (previous?.files || []).filter(file => !chosen.files.includes(file))
@@ -124,9 +140,14 @@ export async function useChapterTake(input: {
       await writeJsonAtomic(sidecarPath, selector)
     }
     const trashed: string[] = []
-    for (const file of outgoing) {
-      moveToTrashSync(path.join(audioDir, file), trashTargetFor(projectDir, path.join(audioDir, file)), 'audio')
-      trashed.push(file)
+    if (input.trashPrevious !== false) {
+      for (const file of outgoing) {
+        moveToTrashSync(path.join(audioDir, file), trashTargetFor(projectDir, path.join(audioDir, file)), 'audio')
+        trashed.push(file)
+      }
+      // Files that left the audio folder no longer carry a rejection: there is
+      // nothing left to keep out of use (the dismissal record goes with them).
+      await forgetTakeRejections(episodeDir, outgoing).catch(() => {})
     }
     if (!selector && chosen.version > 1) {
       // No selector: the base names are what is active, so the chosen take takes them over.

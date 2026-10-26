@@ -25,6 +25,7 @@ import { readManifest, recordTask } from './task-manifest.js'
 import { readAudioTtsModelRecord } from './audio-tts-model-record.js'
 import { readAudioQualityProvenance } from './audio-quality-store.js'
 import { listChapterTakes } from './audio-versions.js'
+import { rejectedTakeFileSet } from './audio-take-rejection.js'
 import { hashSubtitleAudioSources } from './subtitle-completion.js'
 import {
   recoverTtsToFile as recoverGenStudioTtsToFile,
@@ -507,8 +508,16 @@ export async function getAudioStatus(
   // (e.g. `tn0001_chapter_01.mp3`) still counts as present even on a
   // case-sensitive filesystem where `existsSync` on the uppercase-
   // prefix expected name would miss.
+  //
+  // A REJECTED take is never present, even while its bytes are still on disk
+  // for the owner to restore (AGENTS.md §8, owner 2026-10-26). Generation, Audio
+  // Assembly, Pipeline and the Production Board all read presence from here, so
+  // a section whose only take was rejected is honestly incomplete everywhere
+  // instead of being merged into a master nobody can listen to.
+  const rejectedFiles = await rejectedTakeFileSet(episodeDirForNarration(narrationPath))
   const present: string[] = []
   for (const ec of expected) {
+    if (rejectedFiles.has(ec.filename)) continue
     try {
       const actual = await findFileCaseInsensitive(audioDir, ec.filename, options)
       if (!actual) continue

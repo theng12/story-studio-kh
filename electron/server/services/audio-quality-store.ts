@@ -15,10 +15,19 @@ export interface AudioQualityChapterProvenance {
   recorded_at: string
   tts?: {
     model_id?: string
+    /** Catalogue display name at the time (owner, 2026-10-26). */
+    model_display_name?: string
     model_revision_id?: string
     voice_id?: string
+    /** Catalogue display name of the voice at the time. */
+    voice_display_name?: string
     voice_revision?: string
+    /** The model row's serving provider, as published. */
     provider?: string
+    voice_provider?: string
+    engine_id?: string
+    engine_name?: string
+    model_family?: string
     /** Durable GenStudio facts for the part files, never request text. */
     task_ids?: Record<string, string>
     idempotency_keys?: Record<string, string>
@@ -118,10 +127,16 @@ function chapter(value: unknown): AudioQualityChapterProvenance | null {
   const rawTts = row.tts && typeof row.tts === 'object' ? row.tts as Record<string, unknown> : null
   const tts = rawTts ? Object.fromEntries(Object.entries({
     model_id: text(rawTts.model_id),
+    model_display_name: text(rawTts.model_display_name),
     model_revision_id: text(rawTts.model_revision_id),
     voice_id: text(rawTts.voice_id),
+    voice_display_name: text(rawTts.voice_display_name),
     voice_revision: text(rawTts.voice_revision),
     provider: text(rawTts.provider),
+    voice_provider: text(rawTts.voice_provider),
+    engine_id: text(rawTts.engine_id),
+    engine_name: text(rawTts.engine_name),
+    model_family: text(rawTts.model_family),
     task_ids: rawTts.task_ids && typeof rawTts.task_ids === 'object'
       ? Object.fromEntries(Object.entries(rawTts.task_ids as Record<string, unknown>)
         .filter(([file, id]) => path.basename(file) === file && !!text(id))

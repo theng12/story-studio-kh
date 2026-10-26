@@ -298,7 +298,8 @@ const props = defineProps<{
 }>()
 
 const defaultVolumes = computed(() => props.defaultVolumes || {
-  volume: 8,
+  // Owner, 2026-10-26: an unset bed starts at 6% (about 24 dB under the voice).
+  volume: 6,
   post_narration_volume: 40,
   fade_in: 3,
   fade_out: 5,

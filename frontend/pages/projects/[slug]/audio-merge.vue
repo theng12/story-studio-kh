@@ -493,7 +493,7 @@
         <p class="text-muted text-sm" data-testid="music-level-hint">
           Every music track is first brought to one steady level, so the percentage is the music's level next to the
           voice: 100% is as loud as the narration, {{ music.volume }}% is about
-          {{ music.volume > 0 ? Math.round(-20 * Math.log10(music.volume / 100)) : '∞' }} dB under it. 8% (about 22 dB under) keeps a
+          {{ music.volume > 0 ? Math.round(-20 * Math.log10(music.volume / 100)) : '∞' }} dB under it. 6% (about 24 dB under) keeps a
           sleep or documentary bed clearly beneath the voice. Tracks join with crossfades and the music fades in and out.
         </p>
         <div class="grid-2 mt-1">
@@ -996,8 +996,11 @@ const music = reactive({
   // sources. Keeping the choice in the preset prevents accidental mixing.
   source: 'pool' as 'pool' | 'manual',
   files: [] as string[],
-  // 1.4.270 — music is levelled and this is its level relative to the narration: 8% ≈ 22 dB under the voice.
-  volume: 8,
+  // 1.4.270 — music is levelled and this is its level relative to the narration.
+  // Owner, 2026-10-26: 6% (about 24 dB under the voice) is the starting level,
+  // after DM0018/PR0039 were mixed too loud at 8%. A saved preset or a remembered
+  // value still wins; this only decides what a NEW/unset form starts at.
+  volume: 6,
   post_narration_volume: 40,
   fade_in: 3,
   fade_out: 5,
