@@ -2978,6 +2978,9 @@ import {
   snapshotClosingMusic,
   snapshotTitleImagePreset,
 } from '~/utils/video-assembly-presets'
+// `excludeKeys` REPLACES the composable's default list rather than extending it,
+// so the shared per-episode identifiers must be spread in explicitly.
+import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { describeOpeningSync } from '~/utils/opening-sync'
 import { estimateRender, formatEstimateGb, formatEstimateTime } from '~/utils/render-estimate'
@@ -5193,22 +5196,51 @@ function applyMusicEpisodeSettings() {
 function snapshotExportData() { return { ...exportSettings } }
 function applyExportData(data: any) { if (data) Object.assign(exportSettings, { video_bitrate_kbps: 0, upscale_sharpen: 'off', loudness_lufs: -14, true_peak_db: -1, loudness_tolerance_pct: 20 }, data) }
 
+/**
+ * The bundle carries a full copy of every slot's state, so it inherits every
+ * slot's episode-specific paths — and on disk it really does: 45 such keys were
+ * found across the production bundles on 2026-10-27, including another
+ * episode's `title_image.image_path` and one episode's `subtitles.srt_path`.
+ *
+ * A bundle may keep the CHANNEL's own assets — the intro/outro clip, the logo,
+ * the overlay files — because every episode shares them and the batch flattener
+ * needs them to render at all. It may not keep a file that names ONE episode.
+ *
+ * `excludeKeys` strips by KEY NAME AT ANY DEPTH, so it cannot express "this
+ * `image_path` but not that one" — listing `image_path` would take the logo with
+ * it, and the logo is exactly the channel asset a batch must keep. The bundle's
+ * episode paths are therefore removed by POSITION, in the snapshot and again
+ * before `apply` sees a stored bundle, which is the same read-boundary rule the
+ * slot presets already follow: nothing on disk is rewritten (§5 trap 2).
+ */
+function withoutEpisodeFiles<T extends Record<string, any>>(fallback: T | null | undefined): T | undefined {
+  if (!fallback || typeof fallback !== 'object') return fallback ?? undefined
+  const copy = JSON.parse(JSON.stringify(fallback))
+  // The title image is chosen per episode (the Timeline preset has excluded it
+  // since the 2026-08-03 incident), and the caption file is resolved per
+  // episode by the renderer — a stored one is one episode's transcript.
+  if (copy.timeline?.title_image) delete copy.timeline.title_image.image_path
+  if (copy.subtitles) delete copy.subtitles.srt_path
+  return copy
+}
+
 const videoBundlePresets = usePresets({
   slug: slug.value,
   configKey: 'video_bundle',
+  excludeKeys: [...DEFAULT_EXCLUDE_KEYS],
   snapshot: () => ({
     intro_preset_id: introPresets.activeId.value,
     timeline_preset_id: timelinePresets.activeId.value,
     effects_preset_id: effectsPresets.activeId.value,
     subtitles_preset_id: subtitlesPresets.activeId.value,
     export_preset_id: exportPresets.activeId.value,
-    fallback: {
+    fallback: withoutEpisodeFiles({
       intro: snapshotIntroData(),
       timeline: snapshotTimelineData(),
       effects: snapshotEffectsData(),
       subtitles: snapshotSubtitlesData(),
       export: snapshotExportData(),
-    },
+    }),
   }),
   apply: (data: any) => {
     if (!data) return
@@ -5232,7 +5264,10 @@ const videoBundlePresets = usePresets({
         // Fallback: apply the snapshot bundled with the bundle. Clear the
         // slot's activeId so the UI doesn't show a stale preset name that
         // no longer matches the form state.
-        const fb = data.fallback?.[s.fallbackKey]
+        // Stripped again here, for a bundle stored before the snapshot learned
+        // to drop them. `usePresets` cannot do it: its exclusion is by key name
+        // at any depth, and `image_path` is also the logo's.
+        const fb = withoutEpisodeFiles(data.fallback?.[s.fallbackKey])
         if (fb) {
           s.applyFallback(fb)
           if (s.ref.activeId.value) {

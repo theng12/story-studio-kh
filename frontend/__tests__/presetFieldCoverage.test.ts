@@ -461,24 +461,30 @@ function presetRegion(script: string): { calls: string; helpers: string } {
 function excludeKeysOf(source: string): string[] {
   const script = scriptOf(source)
   if (/CONTINUITY_PRESET_EXCLUDE_KEYS/.test(script)) return [...CONTINUITY_PRESET_EXCLUDE_KEYS]
-  const declared = script.match(/excludeKeys:\s*(\[[^\]]*\])/)
-  if (!declared) return [...DEFAULT_EXCLUDE_KEYS]
+  // EVERY controller on the page, not just the first: Video Assembly mounts nine
+  // of them, and a key one of them excludes is a key this page never stores.
+  const declared = [...script.matchAll(/excludeKeys:\s*(\[[^\]]*\])/g)].map(match => match[1]!)
+  if (!declared.length) return [...DEFAULT_EXCLUDE_KEYS]
 
-  // Local `const NAME = [...]` arrays the expression references.
   const locals: string[] = []
-  // A page-local constant named in the expression: `...AUDIO_MERGE_PATH_KEYS` or
-  // a bare `AUDIO_MERGE_PATH_KEYS` item. String literals are skipped.
-  const referenced = new Set(
-    [...declared[1]!.matchAll(/\.\.\.\s*([A-Za-z_$][\w$]*)|(?:^|[[,])\s*([A-Za-z_$][\w$]*)\s*(?=[,\]])/g)]
-      .map(m => (m[1] ?? m[2])!)
-      .filter(name => name !== 'DEFAULT_EXCLUDE_KEYS'),
-  )
-  for (const name of referenced) {
-    const local = script.match(new RegExp(`const\\s+${escapeRegex(name)}\\s*=\\s*(\\[[^\\]]*\\])`))
-    if (local) locals.push(`const ${name} = ${local[1]};`)
+  const keys = new Set<string>()
+  for (const expression of declared) {
+    // A page-local constant named in the expression: `...AUDIO_MERGE_PATH_KEYS`
+    // or a bare `AUDIO_MERGE_PATH_KEYS` item. String literals are skipped.
+    const referenced = new Set(
+      [...expression.matchAll(/\.\.\.\s*([A-Za-z_$][\w$]*)|(?:^|[[,])\s*([A-Za-z_$][\w$]*)\s*(?=[,\]])/g)]
+        .map(m => (m[1] ?? m[2])!)
+        .filter(name => name !== 'DEFAULT_EXCLUDE_KEYS'),
+    )
+    for (const name of referenced) {
+      const local = script.match(new RegExp(`const\\s+${escapeRegex(name)}\\s*=\\s*(\\[[^\\]]*\\])`))
+      if (local && !locals.includes(`const ${name} = ${local[1]};`)) locals.push(`const ${name} = ${local[1]};`)
+    }
+    const resolved = new Function('DEFAULT_EXCLUDE_KEYS', `${locals.join('\n')}
+      return ${expression}`)(DEFAULT_EXCLUDE_KEYS) as string[]
+    for (const key of resolved) keys.add(key)
   }
-  return new Function('DEFAULT_EXCLUDE_KEYS', `${locals.join('\n')}
-    return ${declared[1]}`)(DEFAULT_EXCLUDE_KEYS) as string[]
+  return [...keys]
 }
 
 /**
@@ -666,6 +672,17 @@ describe('the checker fails the shapes it exists for', () => {
       `const presets = usePresets({ snapshot: () => ({ music: { enabled: music.enabled } }), apply: () => {} })`,
     )
     assert.deepEqual(classify(source, {}).map(row => row.path).sort(), ['music.enabled', 'music.files'])
+  })
+
+  test('every controller\'s excludeKeys counts, not just the first', () => {
+    // Video Assembly mounts nine controllers over five config keys; a key one of
+    // them excludes is a key the page never stores.
+    const source = PAGE(
+      '<input v-model="form.episode_picture" /><input v-model="form.model" />',
+      `const first = usePresets({ snapshot: () => ({ model: form.model }), apply: () => {} })
+       const second = usePresets({ excludeKeys: ['episode_picture'], snapshot: () => ({}), apply: () => {} })`,
+    )
+    assert.deepEqual(classify(source, {}).map(row => row.verdict), ['excluded', 'saved'])
   })
 
   test('an `excluded` claim is checked against the page\'s own excludeKeys', () => {

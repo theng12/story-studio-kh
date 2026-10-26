@@ -352,3 +352,106 @@ describe('the Audio Assembly preset carries settings and never a file', () => {
     assert.match(page, /music\.files = liveFiles/, 'and puts it back after')
   })
 })
+
+// ── 5. Video Assembly: the bundle cannot carry one episode's files ──────────
+//
+// Found in the real production presets (read-only, 2026-10-27): 45 path-valued
+// keys across the stored bundles, including another episode's
+// `title_image.image_path` and one episode's `subtitles.srt_path`. The bundle
+// carries a full copy of every slot, so it inherits every slot's episode paths —
+// and its own controller had no exclusion list at all.
+
+describe('the Video Assembly bundle carries the channel’s assets, not an episode’s', () => {
+
+  interface BundleLive {
+    fallback: Record<string, any>
+  }
+
+  /** The page's own rule: episode files removed BY POSITION, not by key name. */
+  function withoutEpisodeFiles<T extends Record<string, any>>(fallback: T | null | undefined): T | undefined {
+    if (!fallback || typeof fallback !== 'object') return fallback ?? undefined
+    const copy = JSON.parse(JSON.stringify(fallback))
+    if (copy.timeline?.title_image) delete copy.timeline.title_image.image_path
+    if (copy.subtitles) delete copy.subtitles.srt_path
+    return copy
+  }
+
+  function controller(slug: string, live: BundleLive) {
+    return usePresets<any>({
+      slug,
+      configKey: 'video_bundle',
+      excludeKeys: [...DEFAULT_EXCLUDE_KEYS],
+      snapshot: () => ({ fallback: withoutEpisodeFiles(live.fallback) }),
+      apply: (data) => {
+        if (data?.fallback) live.fallback = JSON.parse(JSON.stringify(withoutEpisodeFiles(data.fallback)))
+      },
+    })
+  }
+
+  /** One bundle shaped exactly like the stored ones. */
+  const storedBundle = () => ({
+    intro: { enabled: true, video_path: '${CHANNEL}/assets/intro.mp4' },
+    timeline: {
+      title_image: { enabled: true, image_path: '${PROJECT}/Season 001/EP0019 - title.png', duration: 5 },
+      scene_recycling: { seconds_per_scene: 10 },
+    },
+    effects: { logo: { enabled: true, image_path: '${CHANNEL}/assets/logo.png' }, overlays: { enabled: false, layers: [] } },
+    subtitles: { enabled: true, srt_path: '${PROJECT}/Season 002/EP0021 - captions.srt', style: { schema_version: 2 } },
+    export: { resolution: '1080p' },
+  })
+
+  test('an episode’s title image and caption file are stripped at any depth', async () => {
+    const live: BundleLive = { fallback: storedBundle() }
+    await controller('bundle-save', live).saveAs('Channel bundle')
+
+    const stored = configStore['bundle-save'].video_bundle_presets[0].data
+    const json = JSON.stringify(stored)
+    assert.equal(json.includes('EP0019'), false, 'another episode’s title image must not ride along')
+    assert.equal(json.includes('EP0021'), false, 'one episode’s caption file must not ride along')
+
+    // The channel's own assets DO travel: a batch cannot render without them.
+    assert.equal(stored.fallback.intro.video_path, '${CHANNEL}/assets/intro.mp4')
+    assert.equal(stored.fallback.effects.logo.image_path, '${CHANNEL}/assets/logo.png')
+    assert.equal(stored.fallback.timeline.title_image.duration, 5, 'the reusable timing still travels')
+    assert.equal(stored.fallback.export.resolution, '1080p')
+  })
+
+  test('a bundle already on disk stops restoring them, and is not rewritten', async () => {
+    const original = {
+      id: 'legacy-bundle',
+      name: 'BW - No Intro',
+      data: { fallback: storedBundle() },
+    }
+    configStore['bundle-legacy'] = {
+      video_bundle_presets: [JSON.parse(JSON.stringify(original))],
+      video_bundle_last_preset: 'legacy-bundle',
+    }
+
+    const live: BundleLive = { fallback: {} }
+    await controller('bundle-legacy', live).load()
+
+    assert.equal(JSON.stringify(live.fallback).includes('EP0019'), false,
+      'the previous episode’s title image is gone')
+    assert.equal(JSON.stringify(live.fallback).includes('EP0021'), false,
+      'the previous episode’s caption file is gone')
+    assert.equal(live.fallback.effects.logo.image_path, '${CHANNEL}/assets/logo.png',
+      'the channel’s logo still applies')
+    assert.deepEqual(
+      configStore['bundle-legacy'].video_bundle_presets[0], original,
+      'AGENTS.md §5 trap 2: the exclusion is a read-boundary rule, not a migration',
+    )
+  })
+
+  test('the page strips them by position, on write AND on read', () => {
+    const page = source('video-assembly.vue')
+    assert.ok(page.includes('function withoutEpisodeFiles'), 'the strip helper must exist')
+    assert.ok(page.includes('fallback: withoutEpisodeFiles({'), 'the snapshot must strip on write')
+    assert.ok(page.includes('const fb = withoutEpisodeFiles(data.fallback?.[s.fallbackKey])'),
+      'a bundle stored before this must be cleaned on read too')
+    // The logo's own image_path is a CHANNEL asset and must survive — which is
+    // why this cannot be an `excludeKeys` entry.
+    const bundleController = page.slice(page.indexOf("configKey: 'video_bundle'"), page.indexOf("configKey: 'video_bundle'") + 400)
+    assert.equal(bundleController.includes("'image_path'"), false,
+      'listing image_path in the bundle excludeKeys would strip the logo too')
+  })
+})
