@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.painterly-prehistoric-life",
+  "name": "Painterly Prehistoric Life",
+  "description": "Earthy painterly scenes of early human life: warm cave and firelight, ochre and umber earth, textured hand-painted brushwork and realistic proportions — grounded and educational, never cartoonish.",
+  "category": "Illustration",
+  "tags": [
+    "prehistoric",
+    "early humans",
+    "firelight",
+    "ochre",
+    "umber",
+    "earthy",
+    "hand-painted",
+    "textured brush",
+    "realistic proportions",
+    "educational"
+  ],
+  "style_bible": "A hand-painted illustration of early human life, made with visible, textured brushwork. Medium and surface: loaded, dry and scumbled strokes that show the bristle and the tooth underneath, with the paint left visibly handled rather than blended away; edges are painterly and soft, with a few firm passages where a fire catches a face or a tool. Palette: ochre, umber, warm earth red, bone and charcoal, with cool notes reserved for shadow and distance so the fire keeps the temperature of the picture. Lighting: one low, warm, localised source — a fire, a torch, a cave mouth, a low sun — pooling on the figures and the ground around them and letting the rest of the place fall into deep but legible shade. Figures: early humans drawn with realistic adult proportions, believable posture and period-appropriate simple dress and tools; faces are shaped and individual, never caricatured, and they are shown doing something — working stone, tending a fire, carrying, cooking, resting, watching. Setting: natural prehistoric shelter and landscape — rock, earth, grass, water, timber — painted convincingly as a place rather than decoratively as a backdrop. Mood: grounded and educational, calm in composition, with one clear human activity as the focal subject, layered depth and room around it. Animals appear only where the narration names them, painted with the same realism. Not cartoonish, no fantasy creatures, no invented technology. Content-independent: no fixed person, era, place or copied composition.",
+  "negative_prompt": "photoreal, photograph, photorealistic, 3D render, CGI, glossy, cartoon, cartoonish, anime, manga, chibi, caricature, exaggerated proportions, mascot, sticker art, flat vector, cel shading, thick ink outline, comic contour, neon, saturated colour, pastel candy palette, cool teal colour lock, misty monochrome, white background, empty landscape with no people, dinosaur park, fantasy creature, dragon, magic, invented machinery, modern clothing, modern object, weapons used in violence, gore, blood, lettering, captions, signature, watermark, logo, border, frame, copied reference composition",
+  "preview_assets": [
+    "assets/painterly-prehistoric-life.webp",
+    "assets/painterly-prehistoric-life-scene.webp",
+    "assets/painterly-prehistoric-life-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

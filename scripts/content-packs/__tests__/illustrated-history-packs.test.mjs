@@ -26,7 +26,26 @@ import { SLOTS } from '../../../content-packs/illustrated-history/prepare-previe
 
 const ROOT = join(process.cwd(), 'content-packs/illustrated-history')
 const REGISTRY = join(process.cwd(), 'content-packs/authoring-registry.json')
-const RECEIPT = 'authoring:da3b99cbbeefdefe142c705b60d240e871ef4ba110c1984738a00e83efbca371'
+// Re-minted 2026-10-27 (`remint-registry.mjs repair --batch 293`): two of these
+// three packs stopped being release-bound, so their identities — and therefore
+// this receipt and the transitions bound to it — were derived again. The pack
+// ids, versions and previews did not move.
+const RECEIPT = 'authoring:9d07bac952f05effefc3674b1051f59356c084d6ede1cbe23963e4b8e9c2c118'
+/**
+ * The floor each pack declares, and why it is not the shared release floor.
+ *
+ * The document schemas are `.strict()`, so an older build REFUSES a document
+ * carrying a field it does not know rather than ignoring it. Measured by
+ * parsing each pack's own document with the schema from the release below:
+ *   - formula: `starting_scene_seconds` arrives in 1.4.250 (1.4.249 rejects it)
+ *   - thumbnail: `headline_mode: 'short-hook'` arrives in 1.4.347
+ *   - style: accepted at the shared floor, so it stays release-bound
+ */
+const FLOORS = {
+  'formula/illustrated-history-for-sleep': ['1.4.250', 'fixed'],
+  'style/bold-illustrated-history': ['{{MIN_APP_VERSION}}', 'release-bound'],
+  'thumbnail/illustrated-subject-sleep-badge': ['1.4.347', 'fixed'],
+}
 const FORMULA_ID = 'com.storystudio.formula.illustrated-history-for-sleep'
 const STYLE_ID = 'com.storystudio.style.bold-illustrated-history'
 const RECIPE_ID = 'com.storystudio.thumbnail.illustrated-subject-sleep-badge'
@@ -105,8 +124,9 @@ test('all three packs share one receipt-bound batch and are authored by recorded
     assert.equal(record.item_id, pack.itemId)
     assert.equal(record.kind, pack.kind)
     assert.equal(record.source_path, `content-packs/illustrated-history/${pack.seg}/${pack.slug}`)
-    assert.equal(record.min_app_version, '{{MIN_APP_VERSION}}', 'the floor binds at build time')
-    assert.equal(record.min_app_version_status, 'release-bound')
+    const [floor, floorStatus] = FLOORS[`${pack.seg}/${pack.slug}`]
+    assert.equal(record.min_app_version, floor, 'the pack declares the release that can install it')
+    assert.equal(record.min_app_version_status, floorStatus)
     assert.deepEqual(record.dependencies, [])
     assert.equal(record.bundle_id, undefined, 'no Channel Kit membership')
 
@@ -116,7 +136,7 @@ test('all three packs share one receipt-bound batch and are authored by recorded
     assert.equal(manifest.publisher_id, 'com.storystudio')
     assert.equal(manifest.key_id, '{{KEY_ID}}')
     assert.equal(manifest.version, '1.0.0')
-    assert.equal(manifest.min_app_version, '{{MIN_APP_VERSION}}')
+    assert.equal(manifest.min_app_version, floor, 'pack.json and the registry record must agree')
     assert.equal(manifest.lifecycle, 'active')
     assert.ok(manifest.changelog.length > 0)
     assert.deepEqual(manifest.entitlement, {

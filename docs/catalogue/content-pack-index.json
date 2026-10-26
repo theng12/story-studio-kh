@@ -1,6 +1,6 @@
 {
-  "generated": "2026-10-26T16:31:57.205Z",
-  "count": 214,
+  "generated": "2026-10-26T20:07:37.214Z",
+  "count": 229,
   "items": [
     {
       "kind": "lettering-style",
@@ -1774,6 +1774,16 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.carved-woodcut-print",
+      "name": "Carved Woodcut Print",
+      "collection_dir": "custom-looks/style/carved-woodcut-print",
+      "axis": "Illustration",
+      "description": "A hand-pulled relief print: gouged white-line carving, two or three muted inks on off-white handmade paper, and a calm…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.chinese-ink-wash-storytelling",
       "name": "Chinese Ink-Wash Storytelling",
       "collection_dir": "storytelling-looks/style/chinese-ink-wash-storytelling-v1.0.1",
@@ -1804,11 +1814,51 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.clean-editorial-illustration",
+      "name": "Clean Editorial Illustration",
+      "collection_dir": "custom-looks/style/clean-editorial-illustration",
+      "axis": "Editorial",
+      "description": "Modern editorial illustration: flat shapes carrying a soft grain and subtle shading, confident simple linework and a mu…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.comic-pulp-mystery",
       "name": "Comic Pulp Mystery",
       "collection_dir": "sleep-theories/style/comic-pulp-mystery",
       "axis": "Illustration",
       "description": "Graphic-novel cel shading with heavy black outlines and one object glowing at the centre of the frame — saturated teal…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.cosy-night-pixel-art",
+      "name": "Cosy Night Pixel Art",
+      "collection_dir": "custom-looks/style/cosy-night-pixel-art",
+      "axis": "Digital",
+      "description": "Soft cosy bedtime pixel art: crisp visible square pixels in a gentle limited palette of night blues, lavender and warm…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.dark-folk-horror-gouache",
+      "name": "Dark Folk-Horror Gouache",
+      "collection_dir": "custom-looks/style/dark-folk-horror-gouache",
+      "axis": "Illustration",
+      "description": "Non-photoreal dark folk-horror illustration: textured gouache and dry-brush scumbling over rough ink wash on visible pa…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.dark-moody-painterly",
+      "name": "Dark Moody Painterly",
+      "collection_dir": "custom-looks/style/dark-moody-painterly",
+      "axis": "Illustration",
+      "description": "Low-key painterly illustration in shadowy oil texture — desaturated charcoal, slate and umber with one restrained accen…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1974,11 +2024,31 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.lush-painterly-scenery",
+      "name": "Lush Painterly Scenery",
+      "collection_dir": "custom-looks/style/lush-painterly-scenery",
+      "axis": "Illustration",
+      "description": "Hand-painted scenery in the register of a painted animation background: richly detailed foliage and land, soft cinemati…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.maritime-oil-painting",
       "name": "Maritime Oil Painting",
       "collection_dir": "lost-voyage/style/maritime-oil-painting",
       "axis": "Illustration",
       "description": "Nineteenth-century marine oil painting for covers and hero scenes — loose visible brushwork, a pale ivory sky left open…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.matte-gouache-storybook",
+      "name": "Matte Gouache Storybook",
+      "collection_dir": "custom-looks/style/matte-gouache-storybook",
+      "axis": "Illustration",
+      "description": "Opaque matte gouache storybook painting: chalky flat paint with dry-brush edges in dusty blues, sage greens and warm oc…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1994,11 +2064,41 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.museum-diorama",
+      "name": "Museum Diorama",
+      "collection_dir": "custom-looks/style/museum-diorama",
+      "axis": "Realistic",
+      "description": "A natural-history museum diorama: sculpted and painted specimens set in front of a curved painted backdrop, warm exhibi…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.muted-isometric-infographic",
+      "name": "Muted Isometric Infographic",
+      "collection_dir": "custom-looks/style/muted-isometric-infographic",
+      "axis": "Explainer",
+      "description": "Clean thirty-degree isometric objects and buildings in soft teal, sand and slate, arranged as a tidy modular diagram on…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.naturalist-sketchbook",
       "name": "Naturalist Sketchbook",
       "collection_dir": "backyard-naturalist/style/naturalist-sketchbook",
       "axis": "Illustration",
       "description": "A field guide's page: one creature or plant drawn in fine cross-hatched pen and ink under a light warm tint, sitting on…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.naturalist-watercolour-plate",
+      "name": "Naturalist Watercolour Plate",
+      "collection_dir": "custom-looks/style/naturalist-watercolour-plate",
+      "axis": "Illustration",
+      "description": "A finished nineteenth-century naturalist plate: precise watercolour and gouache over fine ink detail on aged paper, spe…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -2020,6 +2120,16 @@
       "axis": "Illustration",
       "description": "Object-led old-master oil still life — one hero object on a worn wooden table under a single cool window light, dark um…",
       "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.painterly-prehistoric-life",
+      "name": "Painterly Prehistoric Life",
+      "collection_dir": "custom-looks/style/painterly-prehistoric-life",
+      "axis": "Illustration",
+      "description": "Earthy painterly scenes of early human life: warm cave and firelight, ochre and umber earth, textured hand-painted brus…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {
@@ -2104,12 +2214,52 @@
     },
     {
       "kind": "visual-style",
+      "id": "com.storystudio.style.stained-glass-panel-illustration",
+      "name": "Stained-Glass Panel Illustration",
+      "collection_dir": "custom-looks/style/stained-glass-panel-illustration",
+      "axis": "Illustration",
+      "description": "A leaded stained-glass panel: luminous jewel-tone glass in deep blue, ruby, gold and emerald, separated by dark leading…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.storybook-stick-figure-cartoon",
+      "name": "Storybook Stick-Figure Cartoon",
+      "collection_dir": "custom-looks/style/storybook-stick-figure-cartoon",
+      "axis": "Illustration",
+      "description": "Stick-figure characters with large round heads over softly painted watercolour environments: clean black outlines, a wa…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
       "id": "com.storystudio.style.studio-catalog-realism",
       "name": "Studio Catalog Realism",
       "collection_dir": "production-looks/style/studio-catalog-realism-v1.0.1",
       "axis": "Realistic",
       "description": "Crisp tabletop realism with neutral surfaces, honest materials, soft studio light, and carefully staged miniature scene…",
       "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.vintage-copperplate-engraving",
+      "name": "Vintage Copperplate Engraving",
+      "collection_dir": "custom-looks/style/vintage-copperplate-engraving",
+      "axis": "Illustration",
+      "description": "A nineteenth-century copperplate engraving plate: fine cross-hatched linework and stipple on aged cream paper, restrain…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.warm-cosy-interior-illustration",
+      "name": "Warm Cosy Interior Illustration",
+      "collection_dir": "custom-looks/style/warm-cosy-interior-illustration",
+      "axis": "Illustration",
+      "description": "A warm painted interior at lamplight — soft digital brushwork in browns, cream and amber with muted greens, inviting an…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {

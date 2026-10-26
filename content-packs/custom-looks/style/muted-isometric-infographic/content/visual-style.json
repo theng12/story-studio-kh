@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.muted-isometric-infographic",
+  "name": "Muted Isometric Infographic",
+  "description": "Clean thirty-degree isometric objects and buildings in soft teal, sand and slate, arranged as a tidy modular diagram on a plain light ground with gentle soft shadows.",
+  "category": "Explainer",
+  "tags": [
+    "isometric",
+    "infographic",
+    "30 degree",
+    "modular",
+    "soft teal",
+    "sand and slate",
+    "explainer",
+    "tidy",
+    "low contrast",
+    "vector clean"
+  ],
+  "style_bible": "A flat isometric explanatory illustration: objects arranged in a tidy modular diagram rather than a scene. Projection: true thirty-degree axonometric — every vertical stays vertical, the two ground axes rise at thirty degrees, and there is no perspective convergence, no vanishing point and no lens look. Forms: simple extruded blocks and simple solids with crisp clean edges, built from a few straight planes and simple curves; detail is reduced to what identifies the object, and nothing is modelled with micro-texture. Palette: soft teal, sand, slate and warm grey, muted and close in value so the arrangement reads as one calm diagram rather than a set of competing objects. Shading: gentle soft shadow pooled beneath each object and one soft tone on a single side plane; surfaces themselves stay flat, with no gradient running across a face, no specular highlight and no reflective gloss. Composition: objects spaced evenly on a plain light neutral background, aligned to the isometric grid, arranged with deliberate modular order and clear groupings; explanatory and calm, precise but friendly. Keep the contract content-independent and free of labels: no lettering, no numbers, no captions, no icons that carry words.",
+  "negative_prompt": "photoreal, photograph, photorealistic, perspective projection, vanishing point, one-point perspective, fisheye, camera lens, 3D render, glossy plastic, specular highlight, reflective metal, emissive glow, neon, drop shadow with blur, gradient across a surface, textured material, wood grain photograph, dark background, cluttered pile, many unaligned objects, organic painterly, watercolour, oil paint, ink outline, cartoon mascot, anime, lettering, numbers, labels, captions, arrows with words, UI panels, signature, watermark, logo, copied reference composition",
+  "preview_assets": [
+    "assets/muted-isometric-infographic.webp",
+    "assets/muted-isometric-infographic-scene.webp",
+    "assets/muted-isometric-infographic-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

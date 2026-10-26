@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.carved-woodcut-print",
+  "name": "Carved Woodcut Print",
+  "description": "A hand-pulled relief print: gouged white-line carving, two or three muted inks on off-white handmade paper, and a calm graphic composition built from flat ink shapes rather than from shading.",
+  "category": "Illustration",
+  "tags": [
+    "woodcut",
+    "linocut",
+    "relief print",
+    "carved line",
+    "two inks",
+    "indigo and ochre",
+    "handmade paper",
+    "graphic",
+    "calm",
+    "hand-pulled print"
+  ],
+  "style_bible": "A relief print pulled by hand from a carved block, in the register of a woodcut or linocut rather than a drawing or a painting. Medium and surface: two or three muted inks only, printed on warm off-white handmade paper whose faint grain and slight fibre texture show through the lighter areas. Every mark in the picture is a mark the gouge made: cuts are confident, of visibly varying width, and they either hold ink or do not. There is no wash, no pencil, no brush and no airbrush anywhere in the frame. Line and mass: shapes are built as solid flats of ink surrounded by carved negative space, with the paper itself supplying the light. Shading is carved, not painted — parallel cut marks and hatching that follow the form, opening into wider cuts where a surface turns into the light and closing into narrow hard lines where it turns away — plus small stippled or nicked passages for texture on stone, water and foliage. Contours carry a carved wobble: a cut edge is never a smooth machine curve. Palette: deep indigo-black as the key colour, warm ochre as the mid, and soft slate grey as the third, in two or three inks in total, with the paper's own warmth standing in for white. Ink coverage is that of a hand-pulled print — slightly uneven, thinner where the block was cut shallow, with occasional small skips and a fine bead of ink at some edges, never a perfect digital flat. Lighting: graphic light only, expressed as flat shapes and carved highlights rather than as gradients — a quiet dusk, a lamplit evening, a pale sky mass left as bare paper. No glow, no bloom, no soft modelling. Composition: calm, balanced and uncluttered, with clear silhouettes and generous negative space, and a clean rectangular image that fills the frame edge to edge. Keep the contract content-independent: no fixed subject, place, era, symbol or copied composition, and no stamp marks, corner seals, printed borders or frames.",
+  "negative_prompt": "photoreal, photograph, photorealistic, 3D render, CGI, glossy, smooth digital gradient, airbrush, soft shading, glow, bloom, watercolour wash, ink wash, oil paint, visible brush strokes, pencil, charcoal sketch, canvas texture, paper photograph, halftone dot, fine engraving cross-hatch, digital flat vector, cel shading, anime, cartoon mascot, chibi, saturated neon, rainbow palette, more than three inks, gradient sky, blurred depth of field, bokeh, stamp mark, corner seal, printed border, drawn frame, lettering, caption, signature, watermark, logo, copied reference composition",
+  "preview_assets": [
+    "assets/carved-woodcut-print.webp",
+    "assets/carved-woodcut-print-scene.webp",
+    "assets/carved-woodcut-print-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

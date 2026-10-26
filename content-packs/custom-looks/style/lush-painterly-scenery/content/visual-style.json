@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.lush-painterly-scenery",
+  "name": "Lush Painterly Scenery",
+  "description": "Hand-painted scenery in the register of a painted animation background: richly detailed foliage and land, soft cinematic light at golden or blue hour, and layered foreground-to-distance depth, with every surface reading as visible paint.",
+  "category": "Illustration",
+  "tags": [
+    "painterly",
+    "landscape",
+    "painted background",
+    "foliage",
+    "golden hour",
+    "blue hour",
+    "cinematic light",
+    "layered depth",
+    "greens and olives",
+    "scenic"
+  ],
+  "style_bible": "Hand-painted landscape scenery, made the way a painted animation background is made: rich, fully furnished places painted in visible brush, with no photographic surface anywhere. Medium and surface: opaque and translucent paint layered over one another — broad translucent washes for sky, water and haze, then smaller opaque strokes for foliage clusters, stone, cloth and timber — with brush texture staying visible in the near ground and simplifying as it recedes. No canvas weave, no impasto ridge, no craquelure, no paper tooth: this is a clean painted panel, not an oil sketch. Palette: rich natural greens and mossy olives held together with warm earth browns and soft sky blues, harmonised and gently desaturated so the picture stays comfortable to watch at night. Golden hour warms the greens toward honey and amber; blue hour cools them toward slate and teal. A single scene sits at one end of that range and never mixes the two lights. Lighting: one soft cinematic source with atmosphere — a low sun casting long gentle light through glowing haze, or a cool evening sky with a rim of warm light along the horizon. Light pools on the planes and falls off into the distance, and distance is dissolved by painted haze rather than by blur. Composition: calm, wide scenic views with a legible foreground, middle distance and background, built from overlapping painted shapes with simplified distant edges, and breathing room across the top of the frame. The place is the subject; anything in it stays small and secondary. Keep the contract content-independent: no fixed landmark, region, era, building or copied composition.",
+  "negative_prompt": "photoreal, photograph, photorealistic, camera render, film still, 3D render, CGI, lens flare, depth of field blur, bokeh, HDR, oversharpened, canvas weave, craquelure, heavy impasto ridge, torn paper, distressed texture, grunge, neon, oversaturated, black ink contour, comic outline, flat vector, cel shading, hard shadow step, anime, cartoon mascot, chibi, single centred subject on an empty ground, minimal blank landscape, lettering, captions, signature, watermark, logo, border, frame, copied reference composition",
+  "preview_assets": [
+    "assets/lush-painterly-scenery.webp",
+    "assets/lush-painterly-scenery-scene.webp",
+    "assets/lush-painterly-scenery-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

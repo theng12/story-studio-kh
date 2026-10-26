@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.warm-cosy-interior-illustration",
+  "name": "Warm Cosy Interior Illustration",
+  "description": "A warm painted interior at lamplight — soft digital brushwork in browns, cream and amber with muted greens, inviting and quiet, detailed enough to sit in and never photographic.",
+  "category": "Illustration",
+  "tags": [
+    "cosy",
+    "interior",
+    "lamplight",
+    "painterly digital",
+    "warm browns",
+    "amber",
+    "muted greens",
+    "inviting",
+    "calm",
+    "inhabited"
+  ],
+  "style_bible": "A warm, inhabited interior painted in soft digital brush, in the register of an illustrated magazine plate rather than a photograph. Medium and surface: soft painterly digital art with visible brush groupings — broad blended planes for walls, floors and ceilings, looser scumbled strokes for textiles, timber and foliage, and a few crisper marks reserved for the nearest object. There is no photographic texture, no lens blur and no three-dimensional gloss. Palette: warm browns, cream and amber across the lit surfaces, held against muted greens that come from plants, upholstery or a view through a window. Warm colours dominate; the greens stay quiet and slightly grey rather than forming a competing scheme. Lighting: gentle lamplight — one or two warm practical sources inside the room, each with a soft halo and a gentle falloff that lets the corners settle into a warm half-dark. Cool daylight may enter through a window as a clearly weaker secondary note. Never an even flood of light and never a harsh key. Composition: a furnished interior with real depth — a near surface such as a table edge or a counter in the foreground, a middle plane of seating, shelving or a serving counter, and a further opening onto a terrace, a window or a street beyond. Clean and uncluttered enough to read at card size, inviting and calm, with no drama and no crowd. Furnishing stays generic to the register: timber, earthenware, cloth, hanging lamps and potted plants. No recognisable brand, no legible signage and no menu lettering. Keep the contract content-independent: no fixed shopfront, city, era or copied composition.",
+  "negative_prompt": "photoreal, photograph, photorealistic, camera render, 3D render, CGI, glossy plastic, lens blur, depth of field bokeh, HDR, harsh key light, even studio lighting, white background, empty bare room, flat vector, cel shading, thick ink outline, anime, cartoon mascot, chibi, neon, oversaturated, cluttered crowd, dramatic event, violence, legible signage, brand logo, menu lettering, captions, signature, watermark, border, frame, copied reference composition",
+  "preview_assets": [
+    "assets/warm-cosy-interior-illustration.webp",
+    "assets/warm-cosy-interior-illustration-scene.webp",
+    "assets/warm-cosy-interior-illustration-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

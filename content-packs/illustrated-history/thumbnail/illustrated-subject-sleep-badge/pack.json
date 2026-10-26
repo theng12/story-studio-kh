@@ -4,7 +4,7 @@
   "publisher_id": "com.storystudio",
   "key_id": "{{KEY_ID}}",
   "version": "1.0.0",
-  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version": "1.4.347",
   "lifecycle": "active",
   "changelog": "First release of the Illustrated Subject with Sleep Badge recipe: one bold illustrated historical scene filling the frame, a large short subject line across the top, and one small consistent FOR SLEEP badge pinned in the bottom-left corner on every episode.",
   "entitlement": {

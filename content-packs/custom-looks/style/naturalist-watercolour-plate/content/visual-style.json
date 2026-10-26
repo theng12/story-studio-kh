@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.naturalist-watercolour-plate",
+  "name": "Naturalist Watercolour Plate",
+  "description": "A finished nineteenth-century naturalist plate: precise watercolour and gouache over fine ink detail on aged paper, specimen clarity in a soft muted earth and sea-green palette, painted edge to edge.",
+  "category": "Illustration",
+  "tags": [
+    "naturalist",
+    "scientific illustration",
+    "watercolour",
+    "gouache",
+    "fine ink",
+    "specimen",
+    "aged paper",
+    "sea green",
+    "precise",
+    "full frame plate"
+  ],
+  "style_bible": "A finished nineteenth-century natural-history plate, reproduced from a hand-painted original on aged paper. Medium and surface: precise watercolour and gouache laid over a fine ink drawing. The ink establishes structure and small detail — veins, scales, fibres, joints, the exact edge of a shell — and is drawn finely and deliberately, never as a heavy contour; the paint then builds form in controlled layers that move from translucent in the lights to opaque in the solids. Nothing is loose: there is no wet-in-wet accident, no granulation left as a gesture, and no uncovered sketch. Palette: soft muted earths and sea-greens — ochre, olive, umber, slate green, bone — at low saturation and in harmonious values, with a small saturated note allowed only where the subject itself would show one. Lighting: even, diffuse and observational, describing form with subtle modelled washes rather than with a dramatic key; the light exists to make the specimen legible, not to make a picture. Composition: the subject is painted as a finished plate that fills the frame edge to edge. There is no border, no margin and no ring of blank paper around the subject; the ground behind it is a soft neutral within the same palette, painted rather than left bare. Aged paper: a light even tone and a faint fibrous texture are welcome. Absolutely no labels, plate numbers, captions, handwriting, arrows, scale bars or signatures anywhere in the frame. Content-independent: no fixed species, era, institution or copied plate.",
+  "negative_prompt": "photoreal, photograph, photorealistic, 3D render, CGI, glossy, loose sketch, field-notes page, sketchbook, white paper margin, blank border, unpainted paper edge, pencil underdrawing, construction lines, heavy ink contour, wet-in-wet watercolour accident, watercolour bloom, drips, splatter, granulated wash, palette knife, impasto, canvas weave, airbrush, soft gradient, neon, saturated colour, cartoon, anime, cel shading, vector flat, labels, plate number, caption, handwriting, arrows, scale bar, numbers, lettering, signature, watermark, logo, frame, border, copied reference plate",
+  "preview_assets": [
+    "assets/naturalist-watercolour-plate.webp",
+    "assets/naturalist-watercolour-plate-scene.webp",
+    "assets/naturalist-watercolour-plate-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

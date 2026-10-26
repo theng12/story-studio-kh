@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.vintage-copperplate-engraving",
+  "name": "Vintage Copperplate Engraving",
+  "description": "A nineteenth-century copperplate engraving plate: fine cross-hatched linework and stipple on aged cream paper, restrained two-tone ink with a muted deep-green wash, clearing around one central subject.",
+  "category": "Illustration",
+  "tags": [
+    "engraving",
+    "copperplate",
+    "cross-hatching",
+    "stipple",
+    "antique print",
+    "two-tone ink",
+    "aged paper",
+    "green wash",
+    "scholarly",
+    "fine line"
+  ],
+  "style_bible": "An antique intaglio plate reproduced on paper, in the manner of a nineteenth-century copperplate engraving as it appeared in a journal or a learned volume. Medium and surface: the whole picture is built from line — fine, even, closely spaced cut lines that swell and taper with the form, crossed into a lattice where a tone deepens, and resolved into stipple where a surface needs grain rather than direction. There is no brush rendering, no wash modelling and no photographic texture anywhere. Colour: restrained two-tone ink — a warm black-brown key printed over aged cream paper — plus a single muted deep-green wash laid flat and a little unevenly behind the light passages, the way a plate was hand-coloured. The palette never extends beyond those two inks and the paper. Tone: value comes from line density alone. A half tone is one hatching layer, a deep tone is a second crossing layer, and only the darkest recesses take a third; the brightest highlights are bare paper. Light is clear and calm rather than theatrical, bright enough to keep every form legible. Ornament: the fine decorative rules, cartouches and plate numbers of the period are deliberately absent — no caption block, no plate number, no ruled margin. One clear central subject carries the picture in a calm, authoritative arrangement with room around it. Aged paper: a light, even foxing tone and a faint plate-mark impression are welcome; a torn, burnt or heavily stained sheet is not. Keep the contract content-independent: no fixed subject, place, era, wording or copied composition.",
+  "negative_prompt": "photoreal, photograph, photorealistic, 3D render, CGI, glossy, oil paint, watercolour, gouache, visible brush strokes, airbrush, soft shading, smooth gradient, glow, bloom, colour photograph of paper, halftone photo, saturated colour, neon, cartoon, anime, cel shading, flat vector, thick outline, chalk, crayon, marker, plate number, caption block, ruled margin, cartouche, lettering, handwriting, signature, watermark, logo, border, frame, torn paper, burnt edge, coffee stain, copied reference composition",
+  "preview_assets": [
+    "assets/vintage-copperplate-engraving.webp",
+    "assets/vintage-copperplate-engraving-scene.webp",
+    "assets/vintage-copperplate-engraving-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}
