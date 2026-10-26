@@ -2223,6 +2223,18 @@ export interface ProjectConfig {
   channel_profile?: ChannelProfileConfig
   /** Channel presentation selections only; images, duration and branding resolve live. */
   motion_presentation?: MotionPresentationSettings
+  /**
+   * The Facebook / Instagram / TikTok accounts this channel posts with, keyed by
+   * platform. Absent = the channel has not connected that platform. The account
+   * ids are opaque platform identities; the credentials stay in app-secrets.
+   */
+  social_accounts?: Partial<Record<'facebook' | 'instagram' | 'tiktok', string>>
+  /**
+   * The platforms this channel posts to by default, pre-ticked on every upload.
+   * Absent or `[]` = post nowhere. This is only a DEFAULT: the per-upload tick
+   * decides, and a cleared tick never posts.
+   */
+  social_platforms?: Array<'facebook' | 'instagram' | 'tiktok'>
   llm_lineup_migration?: LlmLineupMigration
   /** Historical project files may contain retired fields; Story ignores them. */
   [key: string]: any
@@ -2583,6 +2595,8 @@ export const JOB_TYPES = [
   'metadata', 'video', 'video_assembly',
   'subtitles_transcribe', 'youtube_upload', 'youtube_playlist_update',
   'youtube_thumbnail_refresh', 'broll_normalize', 'broll_assemble',
+  /** Post one finished episode to the Facebook / Instagram / TikTok accounts the owner ticked. */
+  'social_publish',
   'research_run', 'scene_plan_run',
   'scene_image_generate', 'scene_clip_generate',
   'scene_clips_batch', 'continuity_render',

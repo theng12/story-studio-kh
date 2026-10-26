@@ -490,6 +490,12 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('subtitles_transcribe', generateSubtitlesTranscribe)
   registerExecutor('youtube_upload', generateYoutubeUpload)
   registerExecutor('youtube_playlist_update', generateYoutubePlaylistUpdate)
+  // Posts a finished episode to the Facebook / Instagram / TikTok accounts the
+  // owner ticked for that upload. Opt-in: an empty tick list posts nothing.
+  registerExecutor('social_publish', async (job) => {
+    const { generateSocialPublish } = await import('../generators/social-publish.js')
+    await generateSocialPublish(job)
+  })
   registerExecutor('youtube_thumbnail_refresh', generateThumbnailRefresh)
   // v1.0.89+: B-Roll pipeline. Re-encodes one stock clip to 1080p at the
   // pool's target fps (24 or 30) so Video Assembly can concat-demux for

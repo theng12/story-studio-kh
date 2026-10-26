@@ -59,6 +59,8 @@ export interface AppSecretsV3 {
   providers: Partial<Record<ProviderId, { apiKey: string; userSet?: boolean; generation?: string }>>
   /** Server-only YouTube credentials; never returned by public routes. */
   youtube?: YouTubeSecretBucket
+  /** Server-only Facebook / Instagram / TikTok credentials; never returned by public routes. */
+  social?: SocialSecretBucket
 }
 
 export interface ContentStoreKeyAnchor {
@@ -93,6 +95,36 @@ export interface YouTubeSecretBucket {
   oauth_client?: YouTubeOAuthClientSecret
   channel_tokens?: Record<string, YouTubeChannelTokenSecret>
   pending_registry?: YouTubePendingRegistryTransaction
+}
+
+export interface SocialOAuthClientSecret {
+  application_id: string
+  client_secret: string
+}
+
+export interface SocialAccountTokenSecret extends OAuthTokenBundle {
+  application_id: string
+  /**
+   * The Facebook Page access token for Facebook and Instagram posts. A Page
+   * token is a DIFFERENT credential from the user token in the fields above:
+   * it is what authorizes `POST /{page-id}/video_reels`. Absent for TikTok,
+   * which posts with the user token itself.
+   */
+  page_token?: string
+  /** When the Page token stops being usable, when the provider published one. */
+  page_token_expires_at?: number
+}
+
+/**
+ * Facebook, Instagram and TikTok credentials. Same rule as YouTube: the whole
+ * bucket is server-only, lives in the OS-protected envelope, and every secret
+ * in it is registered for log redaction on read.
+ */
+export interface SocialSecretBucket {
+  /** Keyed by OAuth provider: one Meta app serves Facebook and Instagram. */
+  applications?: Partial<Record<'meta' | 'tiktok', SocialOAuthClientSecret>>
+  /** Keyed by `${platform}:${remote_id}`. */
+  account_tokens?: Record<string, SocialAccountTokenSecret>
 }
 
 interface EncryptedEnvelope {
@@ -211,6 +243,84 @@ function registerYouTubeSecrets(bucket: YouTubeSecretBucket | undefined): void {
 }
 
 /**
+ * Same discipline as the YouTube bucket: strict, and a field this build does
+ * not know about makes the whole bucket invalid rather than silently dropped.
+ * The alternative is a later rewrite that erases a credential the owner
+ * connected.
+ */
+function parseSocialSecretBucket(raw: unknown): SocialSecretBucket | null {
+  if (!isRecord(raw)) return null
+  const source = raw as Record<string, unknown>
+  if (!hasOnlyKeys(source, ['applications', 'account_tokens'])) return null
+  const result: SocialSecretBucket = {}
+  if (Object.hasOwn(source, 'applications')) {
+    const applications = source.applications
+    if (!isRecord(applications)) return null
+    const parsed: NonNullable<SocialSecretBucket['applications']> = {}
+    for (const [provider, rawClient] of Object.entries(applications)) {
+      if (provider !== 'meta' && provider !== 'tiktok') return null
+      if (!isRecord(rawClient) || !hasOnlyKeys(rawClient, ['application_id', 'client_secret'])) return null
+      if (typeof rawClient.application_id !== 'string' || !rawClient.application_id
+        || typeof rawClient.client_secret !== 'string' || !rawClient.client_secret) return null
+      parsed[provider] = { application_id: rawClient.application_id, client_secret: rawClient.client_secret }
+    }
+    result.applications = parsed
+  }
+  if (Object.hasOwn(source, 'account_tokens')) {
+    const tokens = source.account_tokens
+    if (!isRecord(tokens)) return null
+    const entries: Array<[string, SocialAccountTokenSecret]> = []
+    for (const [key, rawToken] of Object.entries(tokens)) {
+      if (!/^(facebook|instagram|tiktok):[A-Za-z0-9_-]{1,128}$/.test(key)
+        || !isRecord(rawToken)
+        || !hasOnlyKeys(rawToken, [
+          'application_id', 'access_token', 'refresh_token', 'expires_at', 'scope',
+          'page_token', 'page_token_expires_at',
+        ])) return null
+      if (typeof rawToken.application_id !== 'string' || !rawToken.application_id
+        || typeof rawToken.access_token !== 'string' || !rawToken.access_token
+        || typeof rawToken.refresh_token !== 'string'
+        || typeof rawToken.expires_at !== 'number' || !Number.isFinite(rawToken.expires_at)) return null
+      const token: SocialAccountTokenSecret = {
+        application_id: rawToken.application_id,
+        access_token: rawToken.access_token,
+        refresh_token: rawToken.refresh_token,
+        expires_at: rawToken.expires_at,
+      }
+      if (Object.hasOwn(rawToken, 'scope')) {
+        if (typeof rawToken.scope !== 'string') return null
+        token.scope = rawToken.scope
+      }
+      if (Object.hasOwn(rawToken, 'page_token')) {
+        if (typeof rawToken.page_token !== 'string' || !rawToken.page_token) return null
+        token.page_token = rawToken.page_token
+      }
+      if (Object.hasOwn(rawToken, 'page_token_expires_at')) {
+        if (typeof rawToken.page_token_expires_at !== 'number'
+          || !Number.isFinite(rawToken.page_token_expires_at)) return null
+        token.page_token_expires_at = rawToken.page_token_expires_at
+      }
+      entries.push([key, token])
+    }
+    result.account_tokens = Object.fromEntries(entries)
+  }
+  registerSocialSecrets(result)
+  return result
+}
+
+function registerSocialSecrets(bucket: SocialSecretBucket | undefined): void {
+  if (!bucket) return
+  for (const client of Object.values(bucket.applications ?? {})) {
+    registerSecretForRedaction(client?.client_secret)
+  }
+  for (const token of Object.values(bucket.account_tokens ?? {})) {
+    registerSecretForRedaction(token.access_token)
+    registerSecretForRedaction(token.refresh_token)
+    registerSecretForRedaction(token.page_token)
+  }
+}
+
+/**
  * Path is `<userData>/app-secrets.json`. Honours STORY_STUDIO_DATA_DIR for
  * tests via `getUserDataDir()`.
  */
@@ -265,7 +375,7 @@ function parseV3Base(raw: unknown): AppSecretsV3 | null {
   return out
 }
 
-function parseV3(raw: unknown, allowYouTube = false): AppSecretsV3 | null {
+function parseV3(raw: unknown, allowSecretBuckets = false): AppSecretsV3 | null {
   const out = parseV3Base(raw)
   if (!out) return null
   const record = raw as Record<string, unknown>
@@ -275,7 +385,15 @@ function parseV3(raw: unknown, allowYouTube = false): AppSecretsV3 | null {
   if (Object.hasOwn(record, 'youtube')) {
     const youtube = parseYouTubeSecretBucket(record.youtube)
     if (!youtube) return null
-    if (allowYouTube) out.youtube = youtube
+    if (allowSecretBuckets) out.youtube = youtube
+  }
+  // Same rule for social credentials: the bucket is accepted only from an
+  // OS-protected envelope, but a malformed one in a plaintext file still
+  // invalidates the read rather than being silently discarded by a rewrite.
+  if (Object.hasOwn(record, 'social')) {
+    const social = parseSocialSecretBucket(record.social)
+    if (!social) return null
+    if (allowSecretBuckets) out.social = social
   }
   return out
 }
@@ -471,8 +589,12 @@ export async function writeAppSecrets(
       if (!v3) throw new Error('App secrets payload is invalid')
       await mutate(v3)
       registerYouTubeSecrets(v3.youtube)
+      registerSocialSecrets(v3.social)
       if (v3.youtube && !isEncryptionAvailable()) {
         throw new Error('YouTube secrets require encrypted safeStorage')
+      }
+      if (v3.social && !isEncryptionAvailable()) {
+        throw new Error('Facebook, Instagram and TikTok secrets require encrypted safeStorage')
       }
       // Drop providers with empty keys.
       for (const pid of SECRET_PROVIDERS) {

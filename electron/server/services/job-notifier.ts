@@ -214,6 +214,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   // Retired job types: kept so old rows in Jobs still read plainly.
   expression_markup: 'Expression markup',
   youtube_upload: 'YouTube upload', youtube_playlist_update: 'YouTube playlist',
+  social_publish: 'Social posting',
   youtube_thumbnail_refresh: 'Thumbnail backfill',
 }
 export function labelForJobType(type: string): string {

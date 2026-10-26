@@ -30,7 +30,7 @@ export const SETTINGS_ZONES: SettingsZoneDef[] = [
     title: 'This Mac',
     scope: 'Every channel on this Mac',
     sections: [
-      { id: 'connections', label: 'Connections', description: 'Gateway and YouTube accounts' },
+      { id: 'connections', label: 'Connections', description: 'Gateway, YouTube, Facebook, Instagram and TikTok accounts' },
       { id: 'default-models', label: 'Default models', description: 'The model each kind of work uses when nothing else picks one' },
       { id: 'performance', label: 'Performance & recovery', description: 'How much runs at once, paid replacements' },
       { id: 'appearance', label: 'Appearance & notifications', description: 'Light or dark, alerts, daily brief' },
@@ -46,7 +46,7 @@ export const SETTINGS_ZONES: SettingsZoneDef[] = [
       { id: 'identity', label: 'Channel identity', description: 'Name, Series Formula and Topic Packs' },
       { id: 'production', label: 'Production defaults', description: 'Continuity, episode shape, narration checks' },
       { id: 'writing', label: 'Writing & style', description: 'Art style and writing instructions' },
-      { id: 'publishing', label: 'Publishing', description: 'Upload schedule, YouTube channel, category' },
+      { id: 'publishing', label: 'Publishing', description: 'Upload schedule, YouTube channel, social platforms, category' },
       { id: 'files', label: 'Project files & behavior', description: 'Numbering, storage, confirmations' },
       { id: 'safety', label: 'Safety checks', description: 'Off, Warn or Block for every check that can stop an episode' },
     ],
@@ -56,6 +56,7 @@ export const SETTINGS_ZONES: SettingsZoneDef[] = [
 export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'connections', anchor: 'gateway', label: 'Gateway address and key', keywords: 'gateway gatewaykh url key api connection connect test genstudio' },
   { section: 'connections', anchor: 'youtube-accounts', label: 'YouTube accounts', keywords: 'youtube google oauth connect account channel sign in' },
+  { section: 'connections', anchor: 'social-accounts', label: 'Facebook, Instagram and TikTok accounts', keywords: 'facebook instagram tiktok meta reels social posting oauth connect account page professional' },
   { section: 'connections', anchor: 'gateway-catalog', label: 'Gateway model catalog', keywords: 'models catalog chat music available refresh' },
   { section: 'default-models', anchor: 'default-models', label: 'Default models', keywords: 'default model writing image video voice audio tts transcription subtitles music fallback last used choose' },
   { section: 'connections', anchor: 'scene-analysis', label: 'Scene analysis models', keywords: 'scene analysis depth vision florence subject outline sky water 3d photo rack focus models' },
@@ -103,6 +104,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 
   { section: 'publishing', anchor: 'upload-schedule', label: 'Upload schedule', keywords: 'upload plan schedule cadence publishing days time zone timezone weekly when publish' },
   { section: 'publishing', anchor: 'youtube-channel', label: 'YouTube channel for this project', keywords: 'youtube channel assign account' },
+  { section: 'publishing', anchor: 'social-platforms', label: 'Where this channel posts', keywords: 'facebook instagram tiktok reels social post crosspost platforms opt in' },
   { section: 'publishing', anchor: 'publishing-profile', label: 'Publishing profile (links, credits, disclosures)', keywords: 'publishing profile description links credits cta disclosure tags metadata template' },
   { section: 'publishing', anchor: 'category', label: 'YouTube category', keywords: 'youtube category entertainment' },
   { section: 'publishing', anchor: 'ai-disclosure', label: 'AI content disclosure', keywords: 'ai synthetic altered content disclosure label' },

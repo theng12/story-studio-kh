@@ -1,5 +1,66 @@
 # HANDOFF — Story Studio KH
 
+## Unreleased — Facebook, Instagram and TikTok posting, strictly opt-in (feat/social-posting-20261027, from main fdf821f9)
+
+Owner decision 2026-10-27: build posting to Facebook (Page video), Instagram (Reels) and TikTok (Direct Post).
+**Strictly opt-in.** A channel connects accounts and ticks which platforms it posts to; every upload shows those
+ticked and posts to nothing unticked. The owner has no accounts yet, so the feature is built, tested against
+recorded responses only, and deliberately unused.
+
+**Shape.** `contracts/social-publishing.ts` (platforms, error codes, receipt types) ·
+`services/social-connection-store.ts` (applications + accounts registry, mirroring the YouTube one) ·
+`services/app-secrets-store.ts` `social` bucket (encrypted, redacted, strict parse; a plaintext bucket is
+refused rather than rewritten) · `lib/social-oauth.ts` (loopback flow per provider) ·
+`services/social-connect.ts` (connect + credential resolution, TikTok refresh with rotation persisted) ·
+`lib/social-publish/{types,meta,tiktok}.ts` (one adapter per platform behind a single fetch seam) ·
+`services/social-publish-sidecar.ts` (`social_publish.json`, one receipt per platform) ·
+`generators/social-publish.ts` (the job) · `routes/social-publishing.ts` ·
+`components/SocialPublishingSettings.vue` + the review dialog's tick box on `upload/publish.vue`.
+Job type `social_publish`, one queue lane. Channel keys `social_accounts` and `social_platforms` live in
+**config.json** (publishing settings, beside the YouTube category), not project.json.
+
+**Completion contract (§8).** Done means every ticked platform has a receipt with the platform's own post id.
+A partial run fails loudly, names the platforms, keeps the receipts that exist, and says Retry posts only the
+missing ones. A platform answering without an id is a failure. Specs (aspect, duration, size) are checked
+BEFORE any byte is sent, so a 16:9 render is refused in words rather than failing at the provider.
+**Never double-posts:** the receipt names the exact source revision (`sha256:…`); a retry skips a platform
+whose receipt matches the file. A re-rendered episode is a different file, so it posts again — that is a new
+post the owner asked for, not a duplicate.
+
+**Owner setup checklist (nothing works until this is done, and nothing posts until he ticks it):**
+1. **Meta app** — developers.facebook.com → Create app → add **Facebook Login** and the **Instagram Graph API**.
+   In Facebook Login → Settings add the Valid OAuth Redirect URI `http://127.0.0.1:41234/callback` (exact
+   match; Meta requires HTTPS for most apps and may refuse this loopback URI — if so, register the HTTPS URI
+   of a small relay and change the saved redirect URI here; the app does not assume loopback is accepted).
+   Permissions to request: `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`,
+   `instagram_basic`, `instagram_content_publish`. Paste the client ID and secret into Settings → Connections →
+   Facebook/Instagram.
+2. **Instagram account type** — must be a **professional (Business or Creator)** account linked to a Facebook
+   Page. A personal account cannot publish via the API.
+3. **Meta App Review** — `pages_manage_posts` and `instagram_content_publish` need Advanced Access for accounts
+   that are not the app's own testers. Until then only accounts with a role on the app can post.
+4. **TikTok app** — developers.tiktok.com → Create app → add **Login Kit** and the **Content Posting API**, turn
+   on **Direct Post**, and request the **`video.publish`** scope. Register the redirect URI
+   `http://127.0.0.1:*/callback` (TikTok's desktop Login Kit allows a wildcard port on loopback). Paste the
+   client key and secret into Settings → Connections → TikTok.
+5. **TikTok audit** — until the client passes TikTok's audit, every post is restricted to **private viewing**
+   (`SELF_ONLY`). The job says so in its log when the creator-info call offers only that level.
+6. **Per channel** — Settings → Connections: connect the accounts. Settings → Publishing → *Where this channel
+   posts*: tick the platforms. Then each upload's review dialog pre-ticks them and you can still untick.
+
+**Rate limits the owner will meet (published by the providers, not invented here):** Facebook 30 API-published
+Reels per Page per rolling 24 h; Instagram 100 API-published posts per 24 h; TikTok 30 status polls per minute
+per token.
+
+**Not done / open.** No real network call has ever been made to any of these platforms; every test uses
+`__tests__/fixtures/fake-social.ts`, which FAILS on an unqueued request rather than falling through to `fetch`.
+Nothing has been verified against a live account, so the first real connection is the first real test — expect
+one round of provider-specific corrections. The `social_publish.json` sidecar is not yet in the backup
+classifier's special cases (it is not media, so it lands in `records` — correct, but unasserted). Per-platform
+caption editing is carried by the API (`captions` in the publish body) but the page does not yet expose fields
+for it; the episode's YouTube title and description are the default. Facebook Pages also need the `CREATE_CONTENT`
+task on the Page, which the account list does not verify.
+
 ## 1.4.360 — Sketch Draw v2, channel Formula/search/recency, refused-render restart and Cancel (2026-10-26, prepared on release/1.4.360 from main 16648a51)
 
 Three merges, no squash: `feat/sketch-draw-v2-20261026` (b0c9f74d + 33b1e98a; owner approved it as-is — "perfect, i love it"; five reveal types, deterministic Mix, channel-wide setting with per-scene override, staleness compares the type this scene resolves to so older clips stay fresh), `feat/channel-search-formula-recent-20261026` (307d6ab8; `formula_name`/`formula_id` stamped on GET /projects from ONE catalogue lookup, search folds the name/ids Khmer-safe, `services/channel-recency.ts` walks episodes with a 10 s UNKNOWN bound and a 60 s cache), and `fix/refused-render-restart-20261026` (14dc367f; a refused render that finished locally is done across a restart). `feat/render-display-20261026` and `feat/ref-to-image-20261026` are deliberately NOT in this release.
