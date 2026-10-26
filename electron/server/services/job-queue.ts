@@ -2845,7 +2845,19 @@ function mergeDurableJobEvidence(previous: Job | null, incoming: Job): Job {
     && typeof previous.result?.final_render_terminal_sha256 === 'string'
     && ((previous.status === 'done' && previous.local_execution_complete === true)
       || (previous.status === 'cancelled' && previous.local_execution_complete === false))
-  if (verifiedTerminalWasPersisted) {
+  // A refused remote render finishes on the SAME row, and its refused receipt is kept as
+  // permanent proof, so a locally-completed row has no remote terminal digest to pin it.
+  // Without this, any later non-terminal copy — the recovery-hold merge below, a stale
+  // project snapshot, a late observation — reopens a finished video and hands it back to
+  // the local lane through `resumeRefusedFinalRenderLocally` (the 2026-10-25 Wonder rows).
+  // `mergeDurableJobEvidence` therefore treats the deferred refusal's own verified completion
+  // exactly like a remote terminal (AGENTS.md §8: done is proven by the audited result, never
+  // by a status string someone happened to write last).
+  const verifiedRefusedLocalTerminalWasPersisted = previous.status === 'done'
+    && previous.local_execution_complete === true
+    && previous.result?.complete === true
+    && isRefusedFinalRender(previous)
+  if (verifiedTerminalWasPersisted || verifiedRefusedLocalTerminalWasPersisted) {
     result.status = previous.status
     result.finished_at = previous.finished_at
     result.local_execution_complete = previous.local_execution_complete
@@ -3948,6 +3960,31 @@ export function _forgetProjectPersistenceForTesting(projectSlug: string): void {
 }
 
 /**
+ * Test-only process restart for one project: drop every in-memory trace of it, so the next
+ * read runs the REAL boot scan (`readPersistedJobs`) against what is on disk. Nothing on disk
+ * changes. `_forgetProjectPersistenceForTesting` alone re-reads the baseline but keeps the
+ * in-memory rows and the loaded-project flag, so it cannot exercise boot recovery.
+ */
+export function _restartProjectForTesting(projectSlug: string): void {
+  _forgetProjectPersistenceForTesting(projectSlug)
+  loadedProjects.delete(projectSlug)
+  for (const [id, job] of [...jobs]) {
+    if (job.project_slug !== projectSlug) continue
+    jobs.delete(id)
+    cancelled.delete(id)
+    activeRunJobIds.delete(id)
+    activeRunJobRecords.delete(id)
+    lastPublicJobStatuses.delete(id)
+  }
+  for (const lane of Object.values(queues)) {
+    lane.pending = lane.pending.filter(job => job.project_slug !== projectSlug)
+  }
+  for (const key of [...finalRenderRecoveryHolds]) if (key.startsWith(`${projectSlug}\0`)) finalRenderRecoveryHolds.delete(key)
+  for (const key of [...finalRenderMonitorTransientHolds]) if (key.startsWith(`${projectSlug}\0`)) finalRenderMonitorTransientHolds.delete(key)
+  for (const key of [...pendingFinalRenderTransitions.keys()]) if (key.startsWith(`${projectSlug}\0`)) pendingFinalRenderTransitions.delete(key)
+}
+
+/**
  * Atomic paid-attempt mutation. It shares the normal queue's jobs.json lock,
  * so a checkpoint cannot interleave between a paid read and its durable write.
  */
@@ -4666,6 +4703,41 @@ async function retryInterruptedJob(jobId: string): Promise<void> {
 
 // ── Lazy load persisted jobs on first access ────────────────────────────────
 
+const LOCAL_REFUSED_COMPLETED_LINE = '✔ This video already finished on this Mac after the Gateway refused the remote render.'
+
+/**
+ * Prove from the row itself that a refused remote render ALREADY finished locally.
+ *
+ * A refusal sends the same `video_assembly` row back to the local lane with its refused receipt
+ * kept as permanent proof, so a restart sees a row the ordinary remote-terminal recovery cannot
+ * classify. The completion declaration on the row was written by the shared final checks after the
+ * file was measured (`requireJobCompletion`, `finalCheckFinalVideo`), and `finishImportedFinalVideo`
+ * records the folder it published into — so this reads the same evidence the run itself audited,
+ * never a status string or a directory's existence (AGENTS.md §8).
+ */
+async function locallyCompletedRefusedFinalRender(job: Job): Promise<boolean> {
+  if (job.type !== 'video_assembly' || !isRefusedFinalRender(job)) return false
+  // A remote terminal digest belongs to the importer's own consumption path; leave it there.
+  if (typeof job.result?.final_render_terminal_sha256 === 'string') return false
+  // The shared completion contract (`requireJobCompletion`), written only after the final was
+  // published and measured. `final_check` is a separate, informational upload-time verdict and is
+  // deliberately not required: a check that failed still leaves a finished video the owner keeps.
+  if (job.result?.complete !== true || job.result.completion?.complete !== true) return false
+  if (typeof job.output_dir !== 'string' || !path.isAbsolute(job.output_dir) || !job.episode_id) return false
+  const code = String(job.episode_id).toUpperCase()
+  const prefix = `${code}_final_video.`
+  try {
+    for (const name of await fs.readdir(job.output_dir)) {
+      // The exact final name and one extension — never a sidecar beside it (AGENTS.md §6).
+      const extension = name.slice(prefix.length)
+      if (!name.startsWith(prefix) || !extension || extension.includes('.')) continue
+      const stat = await fs.lstat(path.join(job.output_dir, name))
+      if (stat.isFile() && !stat.isSymbolicLink() && stat.size > 0) return true
+    }
+  } catch { /* an unreadable folder proves nothing; the row keeps its normal recovery */ }
+  return false
+}
+
 /** Returns the jobs a restart still left interrupted, so their independent Pipeline steps can start. */
 async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
   const interrupted: Job[] = []
@@ -4704,8 +4776,35 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
           // otherwise they become a loud interrupted error. Persist every
           // mutation so jobs.json and the in-memory queue cannot disagree.
           let mutated = repairedOnLoad.has(j.job_id)
+          // The refused remote render finished on this row before the app stopped, but jobs.json
+          // kept an in-flight copy: the resume transform writes `queued` (started_at/finished_at
+          // null, local_execution_complete false) and the terminal write never landed. Rejoining
+          // the lane would render the whole episode again and then collide with its own accepted
+          // final, so settle the row from its verified completion instead (2026-10-25 Wonder rows;
+          // AGENTS.md §4 — say what was recovered, never change the row under the customer
+          // silently, and §8 — done is proven by audited artifacts). This is deliberately before
+          // the remote-evidence branch: the local final does not depend on the private snapshot.
+          if ((j.status === 'queued' || j.status === 'running')
+            && await locallyCompletedRefusedFinalRender(j)) {
+            j.status = 'done'
+            j.local_execution_complete = true
+            j.finished_at ||= new Date().toISOString()
+            j.error = null
+            j.pause_requested = false
+            j.resume_after_pause = false
+            j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+            if (!j.output_lines.some((line: string) => line.startsWith(LOCAL_REFUSED_COMPLETED_LINE))) {
+              j.output_lines.push(`${LOCAL_REFUSED_COMPLETED_LINE} Story Studio checked the saved result and the published final, then marked this video done instead of rendering it again.`)
+            }
+            jobs.set(j.job_id, j)
+            try { await persistJob(j) } catch (e: any) {
+              console.warn('[job-queue] failed to persist a completed refused local render', { job_id: j.job_id, error: e?.message })
+            }
+            continue
+          }
           if (j.type === 'video_assembly' && hasFinalRenderRemoteWaitMarker(j)
             && !await restoreConsumedFinalRenderTerminal(j)
+            && !TERMINAL_JOB_STATUSES.has(j.status)
             && !(isRefusedFinalRender(j) && await hasDurableFinalRenderPrivateSnapshot(j.final_render_remote_wait!))) {
             j.status = 'running'
             j.finished_at = null

@@ -2021,3 +2021,120 @@ test('concurrent local handoffs execute each refused row once on its original jo
   assert.ok([...counts.values()].every(count => count === 1))
   assert.equal(gateway.calls.filter(call => call.method === 'POST').length, 1)
 })
+
+// ── A refused render that finished locally survives a restart as done ───────
+//
+// 2026-10-25, Wonder-in-ink WI0005/7/8/9/10/11/12: eight remote renders the Gateway never
+// accepted went local, seven rendered to completion, and after the next restart every one of
+// them read `queued` with a complete result and was about to render the whole episode again.
+// A refused row keeps its receipt as proof, so its local completion has no remote terminal
+// digest to pin it; these tests pin the two boundaries that must decide from the row's own
+// verified completion instead (AGENTS.md §8).
+
+async function runRefusedRenderToCompletion(t: { after: (fn: () => void) => void }, label: string): Promise<{
+  prepared: Prepared
+  outputDir: string
+  runs: () => number
+}> {
+  const prepared = await prepareCase(label)
+  const outputDir = path.join(retainedRoot, 'work', prepared.job.project_slug, 'Exports')
+  await fs.mkdir(outputDir, { recursive: true, mode: 0o700 })
+  gateway.postError = { status: 422, code: 'RENDER_REQUEST_INVALID' }
+  await requireAdvance()(prepared.job.project_slug, prepared.job.job_id)
+  let runs = 0
+  const restore = queue._setExecutorForTesting('video_assembly', async job => {
+    runs += 1
+    // The published final and the audited completion declaration the real final checks write.
+    await fs.writeFile(path.join(outputDir, `${String(job.episode_id).toUpperCase()}_final_video.mp4`), 'verified final video')
+    job.progress = 100
+    job.output_dir = outputDir
+    job.result = {
+      complete: true,
+      completion: { label: 'Final video assembly', expected: 1, completed: 1, complete: true },
+      final_check: { passed: true, issues: [] },
+      final_loudness: { lufs: -14, true_peak_db: -1 },
+    }
+  })
+  t.after(restore)
+  await queue.resumeRefusedFinalRenderLocally(prepared.job.project_slug, prepared.job.job_id)
+  await settle()
+  const done = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(done?.status, 'done', 'the controlled local render completed on its own row')
+  assert.equal(done?.local_execution_complete, true)
+  assert.equal(done?.final_render_remote_wait?.phase, 'refused', 'the refusal proof is kept')
+  assert.equal(runs, 1)
+  return { prepared, outputDir, runs: () => runs }
+}
+
+/** The exact shape jobs.json kept after the 2026-10-25 restart: resume's queued copy plus the finished result. */
+function interruptedLocalCopy(done: Job): Job {
+  return {
+    ...structuredClone(done),
+    status: 'queued',
+    started_at: null,
+    finished_at: null,
+    local_execution_complete: false,
+    error: null,
+  }
+}
+
+test('a refused render that already finished locally is read as done on restart, never rendered again', async t => {
+  const { prepared, runs } = await runRefusedRenderToCompletion(t, 'refused-restart-done')
+  const done = (await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id))!
+  await writeJob(interruptedLocalCopy(done))
+  // A real boot scan, not the persistence reset alone: drop every in-memory trace and reload.
+  queue._restartProjectForTesting(prepared.job.project_slug)
+  await queue.getJobs(prepared.job.project_slug, { view: 'full' })
+  await settle()
+  const reloaded = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(runs(), 1, 'the finished video is not rendered a second time')
+  assert.equal(reloaded?.status, 'done', 'the completed local render is not put back in the lane')
+  assert.equal(reloaded?.local_execution_complete, true)
+  assert.equal(reloaded?.finished_at !== null, true)
+  assert.equal(reloaded?.final_render_remote_wait?.phase, 'refused', 'the refusal proof still stands')
+  assert.ok(reloaded?.output_lines.some(line => line.startsWith('✔ This video already finished on this Mac')),
+    'the recovery is announced, not silent (AGENTS.md §4)')
+  assert.equal(queue._isJobWorkerActiveForTesting(prepared.job.job_id), false)
+})
+
+test('a late non-terminal copy cannot reopen a refused row that finished locally', async t => {
+  const { prepared, runs } = await runRefusedRenderToCompletion(t, 'refused-terminal-sticky')
+  const slug = prepared.job.project_slug
+  const jobId = prepared.job.job_id
+  // Exactly what the recovery-hold merge and a stale project snapshot write: a non-terminal copy.
+  await queue.mutateAuthoritativeJob(slug, jobId, job => ({
+    ...job, status: 'running', finished_at: null, local_execution_complete: false,
+  }))
+  const sticky = await queue.loadAuthoritativeJob(slug, jobId)
+  assert.equal(sticky?.status, 'done', 'a verified local completion is a terminal, not a status to overwrite')
+  assert.equal(sticky?.local_execution_complete, true)
+  // What final-render-reconciler.reconcileOne does for a refused receipt. On a done row it must do nothing.
+  await queue.resumeRefusedFinalRenderLocally(slug, jobId)
+  const after = await queue.loadAuthoritativeJob(slug, jobId)
+  assert.equal(after?.status, 'done')
+  assert.equal(after?.local_execution_complete, true)
+  assert.equal(runs(), 1, 'no second render')
+})
+
+test('a refused row with an incomplete result still renders locally on restart', async t => {
+  const { prepared, runs } = await runRefusedRenderToCompletion(t, 'refused-restart-incomplete')
+  const done = (await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id))!
+  const interrupted = interruptedLocalCopy(done)
+  interrupted.result = { ...done.result, complete: false }
+  await writeJob(interrupted)
+  queue._restartProjectForTesting(prepared.job.project_slug)
+  await queue.getJobs(prepared.job.project_slug, { view: 'full' })
+  await settle()
+  assert.equal(runs(), 2, 'an unproven completion must keep its normal local recovery')
+})
+
+test('a refused row whose published final is missing still renders locally on restart', async t => {
+  const { prepared, outputDir, runs } = await runRefusedRenderToCompletion(t, 'refused-restart-stale')
+  const done = (await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id))!
+  await fs.rm(path.join(outputDir, `${String(done.episode_id).toUpperCase()}_final_video.mp4`))
+  await writeJob(interruptedLocalCopy(done))
+  queue._restartProjectForTesting(prepared.job.project_slug)
+  await queue.getJobs(prepared.job.project_slug, { view: 'full' })
+  await settle()
+  assert.equal(runs(), 2, 'a completion declaration without its published file is not proof')
+})
