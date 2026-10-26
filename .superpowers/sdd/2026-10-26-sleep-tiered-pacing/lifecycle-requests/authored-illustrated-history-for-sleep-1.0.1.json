@@ -1,0 +1,13 @@
+{
+  "expected_revision": 331,
+  "coordinator": {
+    "task": "sleep-tiered-starting-pacing-2026-10-26",
+    "branch": "content/sleep-tiered-pacing-20261026"
+  },
+  "receipt_ref": "authoring:f25b61d2e95597f7cfe878295a19f01365cddeb5d439cbc71e0c780448aeee4c",
+  "pack_id": "com.storystudio.pack.formula.illustrated-history-for-sleep",
+  "version": "1.0.1",
+  "changes": {
+    "status": "authored"
+  }
+}
