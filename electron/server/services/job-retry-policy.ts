@@ -22,11 +22,34 @@ const LOCAL_RETRY_DELAYS_MS = [2_000, 8_000]
 /** A fleet hiccup (a Mac restarting, a model reloading) lasts minutes, not seconds. */
 const FREE_FLEET_RETRY_DELAYS_MS = [60_000, 300_000]
 
+/**
+ * Test-only compression of the retry SCHEDULE — never of the retry POLICY.
+ *
+ * A backend test that drives a job to its second attempt otherwise sits through
+ * the real wait: 60 s then 300 s for free-fleet work, 2 s then 8 s locally. The
+ * assertion is about what the second attempt DOES (which parts it submits, what
+ * the log says), never about how long the customer waited first, so the wait is
+ * the one part of the scenario with no product property behind it.
+ *
+ * The override replaces each delay's VALUE and keeps the list's LENGTH, so
+ * `max_attempts`, eligibility and the reason are untouched: a test still proves
+ * the same number of attempts happen for the same reasons. Production leaves
+ * this null and gets the published schedule.
+ */
+let retryDelaysOverrideMs: number | null = null
+export function _setJobAutoRetryDelaysForTesting(ms: number | null): void {
+  retryDelaysOverrideMs = typeof ms === 'number' && Number.isFinite(ms) && ms >= 0
+    ? Math.floor(ms)
+    : null
+}
+
 function localPolicy(reason: string, delays = LOCAL_RETRY_DELAYS_MS): JobAutoRetryPolicy {
   return {
     eligible: true,
     max_attempts: delays.length + 1,
-    delays_ms: [...delays],
+    delays_ms: retryDelaysOverrideMs === null
+      ? [...delays]
+      : delays.map(() => retryDelaysOverrideMs as number),
     reason,
   }
 }

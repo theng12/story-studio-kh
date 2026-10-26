@@ -603,3 +603,82 @@ test('a file killed mid-run leaves node green — and leaves no summary of its o
     await retainSandbox(dir, undefined, 'coverage-contract')
   }
 })
+
+test('the pool deals every file to exactly one worker, and one worker is the old serial run', async () => {
+  const { planInvocations, partitionTestFiles, backendTestWorkers, SLOW_FILE_HINT_MS } = await import(
+    pathToFileURL(path.join(ROOT, 'scripts', 'testing', 'run-backend-tests.mjs')).href
+  )
+  // Distinct basenames, one of them the heaviest file the hint table knows about,
+  // and one that must stay alone.
+  const files = [
+    '/s/__tests__/a.test.ts',
+    '/s/__tests__/youtube-upload-center-route.test.ts',
+    '/s/__tests__/app-update.test.ts',
+    ...Array.from({ length: 20 }, (_, index) => `/s/__tests__/z${String(index).padStart(2, '0')}.test.ts`),
+  ]
+  const serialNames = ['app-update.test.ts']
+
+  const single = planInvocations(files, { workers: 1, serialNames })
+  assert.equal(single.length, 1, 'one worker is one invocation')
+  assert.equal(single[0].label, '', 'and it carries no label, so its log reads as the old runner did')
+  assert.equal(single[0].files.length, files.length)
+  assert.equal(single[0].concurrency, 1)
+
+  const pool = planInvocations(files, { workers: 3, serialNames })
+  assert.equal(pool.length, 4, 'three workers plus the serial list')
+  assert.equal(pool.at(-1).label, 'serial')
+  assert.deepEqual(pool.at(-1).files.map(file => path.basename(file)), serialNames)
+
+  const scheduled = pool.flatMap(invocation => invocation.files)
+  assert.equal(scheduled.length, files.length, 'no file is dropped')
+  assert.equal(new Set(scheduled).size, files.length, 'and none is run twice')
+
+  // Longest first: the heaviest file must not share a worker with the next heaviest
+  // when there are workers to spare — that is the whole point of the hint table.
+  const heaviest = pool.find(invocation => invocation.files.some(file => path.basename(file) === 'youtube-upload-center-route.test.ts'))
+  assert.ok(heaviest, 'the heaviest file is scheduled')
+  assert.ok(SLOW_FILE_HINT_MS['youtube-upload-center-route.test.ts'] > 0, 'the table names it')
+  const { parallel } = partitionTestFiles(files, serialNames)
+  assert.equal(parallel.length, files.length - serialNames.length, 'the serial file is not in the pool')
+
+  // The count is a number the operator can set, and a small machine gets fewer.
+  assert.equal(backendTestWorkers({}, 12), 4)
+  assert.equal(backendTestWorkers({}, 4), 2)
+  assert.equal(backendTestWorkers({ STORY_STUDIO_BACKEND_TEST_WORKERS: '2' }, 12), 2)
+})
+
+test('a split run proves each invocation and sums them into one aggregate the gate can read', async () => {
+  // The gate certifies a partitioned lane from one aggregate line plus one whole
+  // coverage line per invocation (story_gate_proof.py `_check_suite`). This runs
+  // the real runner over three tiny files, one of them forced onto the serial
+  // list through the operator override, and checks the shape it produces.
+  const { exitCode, stdout, stderr } = await runHarness(
+    ['--only', 'animation-filters', '--only', 'image-episode-concurrency', '--only', 'helpers-loopback-supertest'],
+    {
+      ...process.env,
+      STORY_STUDIO_BACKEND_TEST_WORKERS: '4',
+      STORY_STUDIO_BACKEND_SERIAL_TESTS: 'helpers-loopback-supertest.test.ts',
+    },
+  )
+  assert.equal(exitCode, 0, stderr || stdout)
+
+  const coverageLines = [...stdout.matchAll(/suite coverage: (\d+)\/(\d+) file\(s\) completed, (\d+) test\(s\) \+ (\d+) suite\(s\) = (\d+) marks/g)]
+  assert.equal(coverageLines.length, 2, `one coverage line per invocation, got ${coverageLines.length}`)
+  const aggregate = stdout.match(/aggregate suite coverage: (\d+)\/(\d+) file\(s\) completed; inputs=\[([^\]]*)\]/)
+  assert.ok(aggregate, 'a split run prints the aggregate the gate reads')
+  assert.equal(aggregate[1], aggregate[2], 'the aggregate is at its discovered floor')
+  assert.equal(Number(aggregate[1]), coverageLines.reduce((total, line) => total + Number(line[1]), 0),
+    'the invocations add up to the aggregate')
+  assert.equal(Number(aggregate[2]), coverageLines.reduce((total, line) => total + Number(line[2]), 0),
+    'including what was discovered')
+  assert.match(aggregate[3] ?? '', /serial/, 'the serial invocation is named in the aggregate')
+  // A filtered split run is still unmistakably filtered, before and after.
+  assert.equal([...stdout.matchAll(/PARTIAL RUN/g)].length, 2, 'the banner still brackets a filtered run')
+
+  // One raw node summary per invocation, and they are what the gate sums.
+  const summaries = [...stdout.matchAll(/^[#ℹ]\s+tests\s+(\d+)\s*$/gm)]
+  assert.equal(summaries.length, 2, 'each invocation keeps one contiguous summary block')
+  const counted = coverageLines.reduce((total, line) => total + Number(line[3]), 0)
+  assert.equal(summaries.reduce((total, match) => total + Number(match[1]), 0), counted,
+    'the summaries and the coverage lines agree on how many tests ran')
+})

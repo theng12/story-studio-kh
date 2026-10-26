@@ -1,5 +1,49 @@
 # HANDOFF — Story Studio KH
 
+## Unreleased — faster backend gate: worker pool + measured slow-file waits (2026-10-26)
+
+Owner decision, 2026-10-26: "do all 4 if possible so it's faster." The 1.4.359 gate took ~2.5 h
+(backend 5,250 s of the 5,400 s watchdog, frontend ~510 s, content-packs ~600–900 s). This branch
+(1) runs the backend lane across a bounded pool of worker processes and (2) shortens the waits in
+the slowest files through seams the code already had — no assertion removed, no fixture shrunk.
+
+**Where the backend time actually was.** Per-file durations recovered from the 1.4.359 gate log
+(`_orchestra/app-closeout-20261021/story-359-main-gate-c-20261026/gate/07-test-backend.log`) by
+segmenting the spec output at file boundaries and summing each file's top-level entries; the sums
+add to 4,668 s + 854 × ~0.7 s of process boot = the 5,250 s the run reported, so the ranking is
+sound. Top files: `youtube-upload-center-route` 649 s, `final-render-import` 210 s,
+`episode-media-cleanup` 200 s, `paid-image-replacement-integration` 167 s, `closing-tail-remix`
+155 s, `subtitle-recovery-engine` 148 s, `final-render-monitor` 123 s,
+`final-render-sealed-transport` 117 s, `audio-dead-result-fresh-request` 97 s,
+`genstudio-client-boundary` 68 s. Nothing was 100 % idle: the biggest single cause is REAL waits
+inside jobs — the free-fleet auto-retry schedule (60 s then 300 s), the GenStudio poll ladder's
+1 s floor, and the 15 s TTS/image route retry base — paid once per attempt by tests that only care
+what the second attempt does.
+
+New test-only seams (production defaults untouched):
+`_setJobAutoRetryDelaysForTesting(ms)` in `services/job-retry-policy.ts` replaces each delay's
+VALUE and keeps the list's LENGTH, so `max_attempts` and eligibility still prove the same thing, and
+`_setGenStudioPollLadderForTesting(ladder)` in `lib/genstudio-client.ts` moves only the wait between
+polls (cap, jitter, server-hint floor, cancellation and deadline clamp all still apply). The
+existing `STORY_STUDIO_TTS_RETRY_BASE_MS` / `STORY_STUDIO_IMAGE_RETRY_BASE_MS` overrides stay as
+they were. Files that ASSERT the schedule (`job-retry-policy.test.ts`,
+`paid-image-replacement-integration.test.ts`'s "waits about a minute", `genstudio-poll-backoff.test.ts`)
+are deliberately left on the real numbers.
+
+Measured so far: `audio-dead-result-fresh-request.test.ts` 105.8 s → 25.6 s (5/5 passing, same
+tests), from the retry schedule (105.8 → 48.9 s) and then the poll cadence (48.9 → 25.6 s).
+
+**The pool.** `run-backend-tests.mjs` now plans one node invocation per worker
+(`min(4, cores/2)`, `STORY_STUDIO_BACKEND_TEST_WORKERS`), deals files longest-first by a measured
+hint table, gives each worker its own HOME/TMPDIR sandbox and coverage file, holds each worker's
+summary lines back so they stay one contiguous block, and runs `SERIAL_TEST_FILES` alone
+afterwards. Every invocation is still judged by `assertSummaryAgrees` and its own coverage floor;
+a split run additionally prints `aggregate suite coverage: C/D file(s) completed; inputs=[...]`,
+which `story_gate_proof.py` already accepts (it is the release lane's partitioned shape). One
+worker is byte-compatible with the old serial runner.
+
+Status: proof runs pending (serial 1× and parallel 3× on this Mac, no other suite running).
+
 ## 1.4.359 — extension requests take the model's published cap; chapters-per-request setting; expansion failures are loud (2026-10-26)
 
 Production (Komsan, Khmer, 2026-10-25): expansion jobs 38ca3df6 / 862fed60 / b2bc6196 / ec973e7a / 71e2f3c3 and the single-chapter 0857b744 all ended `finish_reason: max_tokens`. Root cause 1: `batchOutputTokenEstimate` sized every expansion request from `words × 2.5 + 2,048`, floored at 8,192 — a 2-chapter Khmer batch asked for exactly 8,192 against a product publishing 128,000. Khmer is written without spaces, so a "word" is a clause and tokenises several times heavier than English; no words→tokens ratio can be safe, and AGENTS §1 forbids one. Root cause 2: `expandListicleParallel` swallowed every per-batch error as an output line and `generateExpandChapters` skipped the completion rule entirely for a `chapters_to_expand` run, so a provider failure ended `done` with 0/8 chapter files (AGENTS §8). Fix: `expansionOutputTokenCap` / `expansionRequestOutputBudget` ask for the product's WHOLE published `max_output_tokens` on every expansion request, **including the single-chapter repair**, bounded only by `min(max_output, context_window_tokens − prompt tokens)` from published figures (chars/4 prompt estimate; a prompt that cannot fit throws and says so). Owner, 2026-10-25: "if Haiku is able to churn out more output, why are we even limiting it?" Deleting the estimate also deleted `BUDGET_TOKENS_PER_WORD` / `BUDGET_OVERHEAD_TOKENS` / `BUDGET_FLOOR_TOKENS` / `BUDGET_ROUNDING_STEP` / `SINGLE_CHAPTER_REPAIR_OUTPUT_TOKENS` / `batchSizeForBudget` — grep shows no other callers. The request uses tier `maximum`, never `workload`, because `workload.minimumTokens` is what Studio Hub sizes a job deadline from (a 128k expectation would make every batch a four-hour job). Truncation now splits: finished chapters are kept (the unproven final block never reaches disk), the unfinished ones are halved and re-requested and the log says so; a single chapter that still truncates is named in a failure. The listicle path collects every unwritten chapter and throws through `carryOnWithoutChapters` (default `block`) naming them, with the count written and the "Retry writes only the missing" sentence. `generateExpandChapters` now hard-fails a FILTERED run that lost a chapter it was asked for (`missingRequestedChapters` + `requireJobCompletion`, so `result.complete = false` feeds the queue backstop) while still allowing the unfiltered whole-script rule to stay behind its safety check.

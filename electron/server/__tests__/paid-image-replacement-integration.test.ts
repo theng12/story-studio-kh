@@ -8,6 +8,15 @@ import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import { waitFor } from './_timing.js'
 
+const { _setGenStudioPollLadderForTesting } = await import('../lib/genstudio-client.js')
+// Every case here drives a job against the in-process mock, which answers in
+// milliseconds — the real one-second floor between polls is dead time, and each
+// case pays it several times. Only the WAIT between polls moves: the ladder's
+// shape, cap, jitter, server hints, cancellation and the deadline clamp still
+// apply, and the retry SCHEDULE asserted below (`next_retry_at` about a minute
+// out) is a different mechanism, untouched.
+_setGenStudioPollLadderForTesting([10])
+
 const FREE_FLEET_IMAGE_MODEL = 'studio-hub::mock-image-v1'
 
 function imageCatalogRow(id: string, chargeable: boolean) {
