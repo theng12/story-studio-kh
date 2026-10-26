@@ -45,6 +45,11 @@
           </AdvancedDisclosure>
         </template>
 
+        <!-- ═══ This Mac → Default models ═══ -->
+        <div v-if="activeTab === 'default-models'" class="settings-plain">
+          <DefaultModelsSettings />
+        </div>
+
         <!-- ═══ This Mac → Performance & recovery ═══ -->
         <div v-if="activeTab === 'performance'" class="settings-plain">
           <ThisMacSettings section="performance" embedded />

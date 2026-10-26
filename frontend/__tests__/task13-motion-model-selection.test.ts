@@ -29,6 +29,9 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     const useConfirm = () => ({ ask: async () => true })
     const useJobs = () => ({ isJobActiveFor: () => false, jobs: { value: [] } })
     const useGenStudioMediaModels = () => ({ videoModels: globalThis.__task13VideoModels, refresh: async () => undefined })
+    const emptyDefaultModels = () => ({ writing: null, image: null, video: null, audio: null, transcription: null, music: null })
+    const normalizeDefaultModels = () => emptyDefaultModels()
+    const resolveEffectiveModel = (_family, selected) => ({ model: selected || '', defaultModel: '', goneNotice: '' })
     const usePresets = options => ({ apply: options.apply })
     const HOLD_MAX_SECONDS = 60
     const holdDrafts = () => ({ fixed: '2.5', min: '2', max: '3' })

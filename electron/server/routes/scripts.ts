@@ -24,6 +24,7 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { inspectYouTubeFinalizationStatus } from '../services/youtube-metadata-finalizer.js'
 import { safetyMode } from '../services/safety-checks.js'
 import { noThumbnailModelMessage, resolveThumbnailModel } from '../services/thumbnail-presets.js'
+import { getDefaultModels } from '../services/app-settings.js'
 import {
   freshActionMatch,
   readOperationId,
@@ -1669,7 +1670,7 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
    * The resolved model is folded into the body BEFORE the operation fingerprint
    * is taken, so a replayed operation_id and its original request still agree.
    */
-  const model = resolveThumbnailModel(config, 'image_prompts', req.body?.model)
+  const model = resolveThumbnailModel(config, 'image_prompts', req.body?.model, (await getDefaultModels()).writing)
     || (typeof config.prompt_model === 'string' ? config.prompt_model.trim() : '')
   if (!model) return res.status(400).json({ detail: noThumbnailModelMessage('image_prompts') })
 

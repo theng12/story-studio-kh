@@ -136,6 +136,7 @@
             aria-label="Gateway TTS model options"
           />
           <p v-if="ttsModelsError" class="text-muted text-xs hint-line">{{ ttsModelsError }}</p>
+          <p v-else-if="appDefaultVoiceGone" class="text-muted text-xs hint-line" role="status">{{ appDefaultVoiceGone }}</p>
           <p v-else-if="ttsModelsLoading && !audioModelOptions.length" class="text-muted text-xs hint-line">
             Loading voice models from the Gateway…
           </p>
@@ -707,6 +708,7 @@ import { genStudioModelLockReason, resolveAliasedModelId } from '~/utils/live-ge
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
 import { hasPriceTruth, isFreeToRun } from '~/utils/genstudio-price-usd'
 import { genstudioStaleNote } from '~/utils/genstudio-freshness'
+import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } from '~/utils/live-genstudio-model-selection'
 import type { ChapterSectionQuality } from '@shared/section-quality'
 import { subtitleChapterLabel } from '@shared/subtitle-gaps'
 import {
@@ -940,6 +942,39 @@ watch([ttsModels, () => form.model], () => {
   // model genuinely does not serve it.
   const migrated = resolveAliasedModelId(form.model, ttsModels.value)
   if (migrated) form.model = migrated
+})
+
+/**
+ * Last of all, the app-wide default voice model (Settings → Default models).
+ *
+ * A remembered model and a preset's model both come first — this runs only when the page has none,
+ * so it can never overwrite the customer's own choice. Read only: it is not written back into the
+ * remembered form, so changing the default later still reaches this page. A default that has left
+ * the catalogue fills nothing and says so.
+ */
+const appDefaults = ref(emptyDefaultModels())
+const appDefaultVoice = computed(() => resolveEffectiveModel(
+  'audio',
+  form.model,
+  ttsModels.value.map(model => model.id),
+  appDefaults.value,
+))
+const appDefaultVoiceGone = computed(() => appDefaultVoice.value.goneNotice)
+watch([ttsModels, () => form.model], () => {
+  if (form.model || !ttsModels.value.length) return
+  const fallback = appDefaultVoice.value.model
+  if (!fallback) return
+  const row = ttsModels.value.find(model => model.id === fallback)
+  if (!row || row.generation_enabled === false || row.locked === true) return
+  form.model = fallback
+})
+onMounted(async () => {
+  try {
+    appDefaults.value = normalizeDefaultModels(await get('/app-settings/default-models', { cache: 'no-store' }))
+  } catch {
+    // An unreadable setting is "no default"; the page asks for a choice as usual.
+    appDefaults.value = emptyDefaultModels()
+  }
 })
 
 const discoveredProviderVoices = ref<GenStudioVoice[]>([])

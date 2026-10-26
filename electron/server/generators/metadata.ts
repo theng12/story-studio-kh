@@ -140,6 +140,8 @@ async function resolveDefaultMetadataModel(config: any): Promise<string> {
     throw new Error('No Gateway API Key configured. Add it in Settings → This Mac before generating metadata.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
+  // `resolveChosenChatModel` falls through to this Mac's app-wide writing default (Settings →
+  // Default models) when the channel saved none. Read only — never written into the config.
   return resolveChosenChatModel(apiKey, saved, 'the Metadata page (or in the Metadata preset for batch runs)')
 }
 

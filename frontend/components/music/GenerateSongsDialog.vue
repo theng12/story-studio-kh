@@ -140,6 +140,7 @@
 import { computed, ref, watch } from 'vue'
 import { describeMusicUnitCost, type PricedMusicModel } from '../../utils/genstudio-credit-cost.js'
 import { UNCONFIRMED_SUBMISSION } from '../../composables/useFreshGenerationAction'
+import { normalizeDefaultModels } from '../../utils/live-genstudio-model-selection.js'
 
 interface SongModel extends PricedMusicModel { id: string; display_name: string; max_duration_seconds?: number; supports_vocals?: boolean | null }
 interface PlanCell { combo_key: string; ensemble: string; mood: string; tempo_bpm: number; key: string; structure: string; texture: string; tempo_band: string }
@@ -262,8 +263,18 @@ async function loadModels() {
     checkModelId.value = checkModels.value.some(m => m.id === lastCheck) ? lastCheck : ''
   }
   const last = recall('music-model')
-  musicModelId.value = songModels.value.some(m => m.id === last) ? last
-    : (songModels.value.find(m => m.price_source === 'local')?.id || '')
+  // Order: the model this dialog last used → the app-wide default (Settings → Default models) →
+  // the first free fleet model. The default is READ, never written back, so changing it later
+  // still reaches this dialog.
+  // Settings → Default models, read here rather than from a composable: this dialog already holds
+  // the live song catalogue, so one settings read is cheaper than a second cache to keep fresh.
+  const appDefault = normalizeDefaultModels(
+    await get('/app-settings/default-models', { cache: 'no-store' }).catch(() => null),
+  ).music
+  const usable = (id: string | null | undefined): boolean => !!id && songModels.value.some(m => m.id === id)
+  musicModelId.value = usable(last) ? last!
+    : usable(appDefault) ? appDefault!
+      : (songModels.value.find(m => m.price_source === 'local')?.id || '')
   try {
     const a = await get<any>('/app-settings/genstudio/admission')
     const cap = Number(a?.max_queued_jobs ?? a?.value?.max_queued_jobs)

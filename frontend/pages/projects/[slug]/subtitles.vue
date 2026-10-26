@@ -267,6 +267,7 @@
             <NuxtLink :to="`/projects/${slug}/settings#connections`" class="inline-link">Open transcription settings</NuxtLink>
             or <a href="#" class="inline-link" @click.prevent="loadGenstudioModels">retry</a>.
           </p>
+          <p v-else-if="appDefaultTranscriptionGone" class="validation-msg text-sm" role="status">{{ appDefaultTranscriptionGone }}</p>
           <div v-else class="form-group">
             <label>Transcription model</label>
             <ModelMenu
@@ -485,6 +486,7 @@ import {
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 import { UNCONFIRMED_SUBMISSION } from '~/composables/useFreshGenerationAction'
 import { isFreeToRun } from '~/utils/genstudio-price-usd'
+import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } from '~/utils/live-genstudio-model-selection'
 import { gapAudioSentence, renarrateLink, subtitleChapterLabel } from '@shared/subtitle-gaps'
 import { hasQualityFindings } from '~/types/subtitle-quality'
 import { audioQualityLabel, audioQualityTone, type AudioQualityEvidence } from '~/types/audio-quality'
@@ -637,6 +639,38 @@ const {
 } = useGenStudioTranscriptionModels()
 
 const languageControl = computed(() => transcriptionLanguageControl(genstudioSelectedModel.value))
+
+/**
+ * Last of all, the app-wide default transcription model (Settings → Default models).
+ *
+ * A remembered or preset model always wins — this fills only an empty field. Read only: it is never
+ * written into the page's remembered form, so changing the default later still reaches this page. A
+ * default that has left the catalogue fills nothing and says so.
+ */
+const appDefaults = ref(emptyDefaultModels())
+const appDefaultTranscription = computed(() => resolveEffectiveModel(
+  'transcription',
+  genstudioModel.value,
+  genstudioModelOptions.value.map(option => option.id),
+  appDefaults.value,
+))
+const appDefaultTranscriptionGone = computed(() => appDefaultTranscription.value.goneNotice)
+watch([genstudioModel, genstudioModelOptions, genstudioModelReady], () => {
+  if (genstudioModel.value || !genstudioModelReady.value) return
+  const fallback = appDefaultTranscription.value.model
+  if (!fallback) return
+  const option = genstudioModelOptions.value.find(entry => entry.id === fallback)
+  if (!option || option.disabled) return
+  genstudioModel.value = fallback
+}, { immediate: true })
+onMounted(async () => {
+  try {
+    appDefaults.value = normalizeDefaultModels(await get('/app-settings/default-models', { cache: 'no-store' }))
+  } catch {
+    // An unreadable setting is "no default"; the page asks for a choice as usual.
+    appDefaults.value = emptyDefaultModels()
+  }
+})
 
 // A remembered choice is accepted only while the selected live model still
 // publishes it. A stale auto-detect preset becomes a clear blocked state.

@@ -27,6 +27,9 @@
     <p v-if="seedNotice" class="notice notice-limit">{{ seedNotice }}</p>
     <!-- A model the picker replaced on its own is announced, never swapped silently. -->
     <p v-if="switchNotice" class="notice" role="status">{{ switchNotice }}</p>
+    <!-- The app-wide default is gone from the catalogue: said plainly, and the field stays empty
+         rather than filled with a product the owner did not choose. -->
+    <p v-if="appDefaultGone" class="notice notice-limit" role="status">{{ appDefaultGone }}</p>
     <p v-if="catalogStaleNote" class="notice notice-stale" role="status">
       {{ catalogStaleNote }} · display only. Refresh before starting new image work.
       <button type="button" class="btn btn-sm btn-ghost" :disabled="loading" @click="refresh(true)">Retry</button>
@@ -40,6 +43,7 @@ import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/liv
 import { CREDIT_BASIS_LABEL, describeImageModelRate, describeImageUnitCost } from '../utils/genstudio-credit-cost.js'
 import { defaultOutputOption } from '../utils/genstudio-output-options.js'
 import { genstudioStaleNote } from '../utils/genstudio-freshness.js'
+import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } from '../utils/live-genstudio-model-selection.js'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -58,6 +62,7 @@ const emit = defineEmits<{
   selected: [modelId: string]
 }>()
 const { models, loading, error, isStale, isUsable, lastFetchedAt, refresh } = useGenStudioImageModels()
+const { get } = useApi()
 const catalogStaleNote = computed(() => genstudioStaleNote(isStale.value, lastFetchedAt.value))
 
 const options = computed(() => {
@@ -193,8 +198,48 @@ function syncLiveSelection(): void {
 
 watch([models, () => props.modelValue, () => props.imageMode, () => props.preserveAutomaticSelection], syncLiveSelection, { deep: true, immediate: true })
 
-onMounted(() => {
-  void refresh(true)
+/**
+ * Last of all, the app-wide default image model (Settings → Default models).
+ *
+ * The page's own selection wins; `useRememberedForm` has already restored it before this runs. This
+ * is READ only and never written back, so changing the default later reaches every page. Only a
+ * usable, live row is filled — a default that has left the catalogue fills nothing and says so.
+ */
+/** Settings → Default models, read once per mount. See `resolveEffectiveModel` for the decision. */
+const appDefaults = ref(emptyDefaultModels())
+const resolvedDefault = computed(() => resolveEffectiveModel(
+  'image',
+  props.modelValue,
+  models.value.map(model => model.id),
+  appDefaults.value,
+))
+const appDefaultGone = computed(() => resolvedDefault.value.goneNotice)
+
+function fillAppDefault(): void {
+  if (props.modelValue.trim() || !isUsable.value || !models.value.length) return
+  const fallback = resolvedDefault.value.model
+  if (!fallback) return
+  const row = models.value.find(model => model.id === fallback)
+  if (!row || !isUsableModelRow(row)) return
+  emit('update:modelValue', fallback)
+  emit('selected', fallback)
+}
+
+function isUsableModelRow(model: { available: boolean; supports_reference_images?: boolean; max_reference_images?: number }): boolean {
+  if (!model.available) return false
+  return props.imageMode !== 'img2img'
+    || (model.supports_reference_images === true && (model.max_reference_images || 0) >= 1)
+}
+
+onMounted(async () => {
+  await refresh(true)
+  try {
+    appDefaults.value = normalizeDefaultModels(await get('/app-settings/default-models', { cache: 'no-store' }))
+  } catch {
+    // An unreadable setting is "no default"; the page asks for a choice as usual.
+    appDefaults.value = emptyDefaultModels()
+  }
+  fillAppDefault()
 })
 </script>
 

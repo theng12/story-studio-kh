@@ -121,6 +121,7 @@ export const PAID_AUDIO_REPLACEMENT_KEY = 'paid_audio_replacement'
 export const PAID_WRITING_REPLACEMENT_KEY = 'paid_writing_replacement'
 export const MANUAL_GENERATION_REDO_KEY = 'manual_generation_redo'
 export const PRIVATE_FINAL_RENDER_KEY = 'private_final_render'
+export const DEFAULT_MODELS_KEY = 'default_models'
 
 export interface ManualGenerationRedoSetting {
   enabled: boolean
@@ -457,6 +458,72 @@ export async function getPaidReplacementSettings(): Promise<Record<'image' | 'su
 export async function paidFallbacksWarning(): Promise<{ paid_fallbacks_enabled?: string[] }> {
   const on = Object.entries(await getPaidReplacementSettings()).filter(([, setting]) => setting.enabled).map(([kind]) => kind)
   return on.length ? { paid_fallbacks_enabled: on } : {}
+}
+
+// ── Default models (owner, 2026-10-27) ─────────────────────────────────────
+//
+// One model per generation family, for this Mac. This is the LAST of three
+// places a model can come from, and it is read at USE time only:
+//
+//   the preset's saved model → the page's remembered last choice → this default
+//
+// Nothing writes it into a preset, a channel config or a remembered form. A
+// default that has left the catalogue is reported and leaves the field empty —
+// never replaced by another product (2026-10-03: Story Studio never picks a
+// writing model for the owner). GenStudio publishes the families, so the key
+// list here is a shape, not a catalogue: every value is a model id checked
+// against the live catalogue on every read.
+export const DEFAULT_MODEL_FAMILIES = ['writing', 'image', 'video', 'audio', 'transcription', 'music'] as const
+export type DefaultModelFamily = typeof DEFAULT_MODEL_FAMILIES[number]
+export type DefaultModels = Record<DefaultModelFamily, string | null>
+
+const DEFAULT_MODELS_EMPTY: DefaultModels = {
+  writing: null, image: null, video: null, audio: null, transcription: null, music: null,
+}
+
+function invalidDefaultModels(): never {
+  throw Object.assign(
+    new Error('Default models requires only the families ' + DEFAULT_MODEL_FAMILIES.join(', ')
+      + ', each a model id or null.'),
+    { statusCode: 400, expose: true },
+  )
+}
+
+function parseDefaultModels(value: unknown, invalid: 'default' | 'throw'): DefaultModels {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    if (invalid === 'throw') return invalidDefaultModels()
+    return { ...DEFAULT_MODELS_EMPTY }
+  }
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record)) {
+    if (!(DEFAULT_MODEL_FAMILIES as readonly string[]).includes(key)) {
+      if (invalid === 'throw') return invalidDefaultModels()
+      return { ...DEFAULT_MODELS_EMPTY }
+    }
+    const entry = record[key]
+    if (entry !== null && (typeof entry !== 'string' || !entry.trim())) {
+      if (invalid === 'throw') return invalidDefaultModels()
+      return { ...DEFAULT_MODELS_EMPTY }
+    }
+  }
+  const parsed = { ...DEFAULT_MODELS_EMPTY }
+  for (const family of DEFAULT_MODEL_FAMILIES) {
+    const entry = record[family]
+    parsed[family] = typeof entry === 'string' ? entry.trim() : null
+  }
+  return parsed
+}
+
+/** The default model per family, or every family unset. Hand-edited storage fails closed. */
+export async function getDefaultModels(): Promise<DefaultModels> {
+  return parseDefaultModels(await getAppSetting(DEFAULT_MODELS_KEY), 'default')
+}
+
+/** Validate the whole setting before replacing the last admitted value. */
+export async function setDefaultModels(value: unknown): Promise<DefaultModels> {
+  const setting = parseDefaultModels(value, 'throw')
+  await setAppSetting(DEFAULT_MODELS_KEY, setting)
+  return setting
 }
 
 // ── Voice presets + favourites (global, not per-project) ──────────────────

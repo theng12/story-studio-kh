@@ -8,7 +8,7 @@
 
 import { getApiKey } from '../app-secrets-store.js'
 import { callAiWithModelPolicy, callAiWithRetry } from '../../lib/ai-client.js'
-import { noWritingModelChosenMessage } from '../genstudio-default-model.js'
+import { noWritingModelChosenMessage, resolveDefaultModel } from '../genstudio-default-model.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../../lib/json-output-contract.js'
 import type { ResearchAdapter } from './types.js'
 import type { ResearchOutput, ResearchRunOptions } from '../../models/types.js'
@@ -33,12 +33,15 @@ class GenStudioResearchAdapter implements ResearchAdapter {
     // a retired/renamed literal must never be submitted blind.
     // The page's choice, or the one the Pipeline run chose for this step.
     const model = requestedModel || opts.pipeline_model_policy?.assigned_model || ''
-    if (!model) throw new Error(noWritingModelChosenMessage('the Research page'))
+    // Last of all, this Mac's app-wide writing default (Settings → Default models). Read only —
+    // never written into a preset or the research record.
+    const effectiveModel = model || await resolveDefaultModel(await getApiKey('genstudio'), 'writing')
+    if (!effectiveModel) throw new Error(noWritingModelChosenMessage('the Research page'))
     const { system, user } = buildResearchPrompt(opts, 'llm-only')
     // Long-form: a research pass returns a summary, a claims list, a citation
     // list and an episode outline in one JSON object. The 2,048-token
     // short-form default truncated it, which GenStudio then refused to settle.
-    let actualModel = model
+    let actualModel = effectiveModel
     const policy = opts.pipeline_model_policy
     const raw = await (policy
       ? callAiWithModelPolicy(policy, system, user, {}, false, {
@@ -49,7 +52,7 @@ class GenStudioResearchAdapter implements ResearchAdapter {
           pipelinePolicyCheckpoint: opts.pipeline_policy_checkpoint,
           pipelinePolicyCheckpointKey: opts.pipeline_policy_checkpoint_key,
         })
-      : callAiWithRetry(model, system, user, {}, false, {
+      : callAiWithRetry(effectiveModel, system, user, {}, false, {
       // A research pass IS one JSON object — `assembleOutput` parses it. Asking
       // for prose and hoping left the model free to wrap that object in
       // commentary, and a prose-wrapped response is discarded after it has

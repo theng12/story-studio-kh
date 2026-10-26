@@ -29,6 +29,7 @@
          thing telling the user why the field no longer names a model, and it
          asks them to do something about it. -->
     <p v-if="selectionGap" class="selection-gap">{{ selectionGap }}</p>
+    <p v-else-if="appDefaultWritingGone" class="selection-gap" role="status">{{ appDefaultWritingGone }}</p>
     <p v-else-if="!modelValue.trim() && allModels.length && !loading" class="selection-gap">
       Choose a writing model. Story Studio does not pick one for you.
     </p>
@@ -56,6 +57,7 @@ import {
   genStudioSelectionGapMessage,
 } from '../utils/live-genstudio-model-selection.js'
 import { invalidateModelCatalogCache } from '../composables/useApi.js'
+import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } from '../utils/live-genstudio-model-selection.js'
 import type { GenStudioLlmCostTier } from '../utils/genstudio-cost-tier.js'
 import { describeChatRate } from '../utils/genstudio-credit-cost.js'
 import {
@@ -384,6 +386,48 @@ async function fillRetiredLineupChoice(): Promise<void> {
   } catch { /* nothing kept; the page asks for a choice as usual */ }
 }
 
+/**
+ * Last of all, the app-wide default from Settings → Default models.
+ *
+ * Order is the one the setting promises: the page's own saved model (restored by
+ * `useRememberedForm` before this runs, or the preset's) wins, then the project's
+ * kept lineup choice above, then this. It is READ only — the default is never
+ * written into the page's remembered form, so changing it later still reaches
+ * every page. A default that has left the catalogue fills nothing and says so.
+ */
+/**
+ * Settings → Default models, read once per mount.
+ *
+ * Deliberately NOT through the composable: every picker test compiles this SFC in isolation, and a
+ * module the harness does not inline fails to resolve. The decision itself is a pure function in
+ * `utils/live-genstudio-model-selection.ts` — the same one every other page calls — so this picker
+ * and the pages agree by construction.
+ */
+const appDefaults = ref(emptyDefaultModels())
+const appDefaultModel = computed(() => resolveEffectiveModel(
+  'writing',
+  props.modelValue,
+  allModels.value.map(model => model.id),
+  appDefaults.value,
+))
+const appDefaultWritingGone = computed(() => appDefaultModel.value.goneNotice)
+
+async function fillAppDefault(): Promise<void> {
+  if (!props.writingStep || props.modelValue.trim()) return
+  try {
+    appDefaults.value = normalizeDefaultModels(await get('/app-settings/default-models', { cache: 'no-store' }))
+  } catch {
+    // An unreadable setting is "no default"; the page asks for a choice as usual.
+    appDefaults.value = emptyDefaultModels()
+  }
+  const fallback = appDefaultModel.value.model
+  if (!fallback || props.modelValue.trim()) return
+  const row = allModels.value.find(model => model.id === fallback)
+  if (!row || isDisabled(row)) return
+  emit('update:modelValue', fallback)
+  emit('model-meta', row)
+}
+
 async function identifyEmptyCatalog(): Promise<void> {
   emptyCatalogState.value = ''
   try {
@@ -417,6 +461,7 @@ async function loadModels(force = false): Promise<void> {
     rememberedNames.remember(models)
     syncModelSelection()
     await fillRetiredLineupChoice()
+    await fillAppDefault()
   } catch (error: any) {
     allModels.value = []
     loadError.value = error?.data?.detail || error?.message || 'Gateway catalog unavailable.'

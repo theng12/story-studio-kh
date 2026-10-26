@@ -110,19 +110,22 @@ export function modelFromThumbnailGeneratorPreset(config: Record<string, any> | 
 
 /**
  * The model a thumbnail run should use: what the request named, else what the
- * channel's saved preset names. '' when neither has one — the caller refuses
+ * channel's saved preset names, else this Mac's app-wide default for that family
+ * (Settings → Default models). '' when none of them has one — the caller refuses
  * with `noThumbnailModelMessage` rather than substituting a model.
  */
 export function resolveThumbnailModel(
   config: Record<string, any> | null | undefined,
   step: ThumbnailStep,
   requested?: unknown,
+  appDefault?: string | null,
 ): string {
   const asked = typeof requested === 'string' ? requested.trim() : ''
   if (asked) return asked
-  return step === 'image_prompts'
+  const fromPreset = step === 'image_prompts'
     ? modelFromThumbnailPromptsPreset(config)
     : modelFromThumbnailGeneratorPreset(config)
+  return fromPreset || (appDefault || '').trim()
 }
 
 /** The page a caller must send the customer to for each step. */

@@ -36,6 +36,10 @@ async function loadPageScript(): Promise<Component> {
       error: ref(''), ready: ref(false), load: async () => undefined,
     })
     const usePresets = () => ({ load: async () => undefined })
+    // Settings → Default models: the util's own pure decision, so this harness needs no module.
+    const emptyDefaultModels = () => ({ writing: null, image: null, video: null, audio: null, transcription: null, music: null })
+    const normalizeDefaultModels = () => emptyDefaultModels()
+    const resolveEffectiveModel = (_family, selected) => ({ model: selected || '', defaultModel: '', goneNotice: '' })
   `
   const content = script.content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm, '')

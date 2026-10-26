@@ -200,3 +200,81 @@ export function genStudioSelectionGapMessage(gap: GenStudioSelectionGap): string
       return `"${gap.savedModelId}" was retired — choose a replacement. Story Studio did not swap in another model.`
   }
 }
+
+// ── The app-wide default model (owner, 2026-10-27) ─────────────────────────
+//
+// Settings → Default models keeps one model per generation family for this Mac. It is the LAST link
+// of one precedence chain, and this is the single place that decides it:
+//
+//   the preset's saved model → the page's remembered last choice → this default
+//
+// Read at USE time only. Nothing here writes: a default that changed later must reach every page
+// immediately, and a value baked into a preset or a remembered form would stop doing that
+// (AGENTS §1 — persist the selection; §5 — an app-level setting is not a preset field).
+
+export const DEFAULT_MODEL_FAMILIES = ['writing', 'image', 'video', 'audio', 'transcription', 'music'] as const
+export type DefaultModelFamily = typeof DEFAULT_MODEL_FAMILIES[number]
+export type DefaultModels = Record<DefaultModelFamily, string | null>
+
+/** Every family unset — a fresh install, or a setting that could not be read. */
+export function emptyDefaultModels(): DefaultModels {
+  return { writing: null, image: null, video: null, audio: null, transcription: null, music: null }
+}
+
+/** Fold one settings response into a complete record, dropping anything that is not a model id. */
+export function normalizeDefaultModels(response: unknown): DefaultModels {
+  const record = response && typeof response === 'object' && !Array.isArray(response)
+    ? response as Record<string, unknown>
+    : {}
+  const next = emptyDefaultModels()
+  for (const family of DEFAULT_MODEL_FAMILIES) {
+    const value = record[family]
+    next[family] = typeof value === 'string' && value.trim() ? value.trim() : null
+  }
+  return next
+}
+
+/** The sentence a default that has left the catalogue is reported with — the same words the server refuses with. */
+export function goneDefaultMessage(family: DefaultModelFamily, modelId: string): string {
+  const noun = family === 'audio' ? 'voice' : family
+  return `Your default ${noun} model "${modelId}" is no longer available — choose another. `
+    + 'Story Studio did not switch to a different model.'
+}
+
+export interface EffectiveModel {
+  /** The id this page should submit: the page's own choice, else the app default. */
+  model: string
+  /** The app default in force right now, or ''. */
+  defaultModel: string
+  /**
+   * The sentence for a default that has left the catalogue, or ''.
+   *
+   * Empty while `liveIds` is empty: "gone" cannot be claimed from a catalogue nobody has read
+   * (AGENTS §6 — a zero that means two things is a defect).
+   */
+  goneNotice: string
+}
+
+/**
+ * What one page submits, given its own selection and the live ids it already holds.
+ *
+ * A default that has left the catalogue contributes NOTHING — the field stays empty and `goneNotice`
+ * says why. No other product is substituted (2026-10-03: Story Studio never picks a model).
+ */
+export function resolveEffectiveModel(
+  family: DefaultModelFamily,
+  selected: unknown,
+  liveIds: readonly string[],
+  defaults: DefaultModels,
+): EffectiveModel {
+  const chosen = typeof selected === 'string' ? selected.trim() : ''
+  const defaultModel = defaults[family] || ''
+  if (chosen) return { model: chosen, defaultModel, goneNotice: '' }
+  if (!defaultModel) return { model: '', defaultModel: '', goneNotice: '' }
+  // An unloaded catalogue (no ids yet) claims nothing either way; the server checks the id before
+  // any job runs.
+  if (liveIds.length && !liveIds.includes(defaultModel)) {
+    return { model: '', defaultModel, goneNotice: goneDefaultMessage(family, defaultModel) }
+  }
+  return { model: defaultModel, defaultModel, goneNotice: '' }
+}

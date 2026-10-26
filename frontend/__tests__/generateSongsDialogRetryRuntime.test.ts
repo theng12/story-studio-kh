@@ -21,6 +21,9 @@ async function loadDialog(): Promise<Component> {
     const useApi = () => globalThis.__songDialogApi
     const useFreshGenerationAction = () => globalThis.__songDialogFresh
     const useToast = () => globalThis.__songDialogToast
+    const emptyDefaultModels = () => ({ writing: null, image: null, video: null, audio: null, transcription: null, music: null })
+    const normalizeDefaultModels = () => emptyDefaultModels()
+    const resolveEffectiveModel = (_family, selected) => ({ model: selected || '', defaultModel: '', goneNotice: '' })
   `
   const content = script.content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm, '')

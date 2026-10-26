@@ -16,6 +16,7 @@ import { readSelectedThumbnail, writeSelectedThumbnail, resolveOverrideEpisodePa
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { freshActionMatch } from '../lib/fresh-generation-action.js'
 import { noThumbnailModelMessage, resolveThumbnailModel } from '../services/thumbnail-presets.js'
+import { getDefaultModels } from '../services/app-settings.js'
 
 export const router = Router()
 
@@ -124,7 +125,7 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
      * The resolved model is folded in BEFORE the operation fingerprint is
      * compared, so a replayed `operation_id` and its original request agree.
      */
-    const resolved = resolveThumbnailModel(config, 'thumb_images', (imageParams as any).model)
+    const resolved = resolveThumbnailModel(config, 'thumb_images', (imageParams as any).model, (await getDefaultModels()).image)
     if (!resolved) return res.status(400).json({ detail: noThumbnailModelMessage('thumb_images') })
     ;(imageParams as any).model = resolved
   } else {
