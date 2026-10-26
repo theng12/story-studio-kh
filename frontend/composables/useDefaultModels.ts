@@ -65,6 +65,16 @@ export function useDefaultModels() {
 }
 
 /**
+ * The defaults as they stand right now, WITHOUT triggering a read.
+ *
+ * For a caller that must decide synchronously (removing a defaulted value from a remembered form)
+ * and must not start a fetch of its own.
+ */
+export function peekDefaultModels(): Readonly<Ref<DefaultModels>> {
+  return state
+}
+
+/**
  * Resolve the model one page submits.
  *
  * `selected` is the page's own value (its preset's, or the one `useRememberedForm` restored).

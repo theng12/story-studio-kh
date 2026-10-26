@@ -119,3 +119,37 @@ describe('default models — the settings index', () => {
     assert.deepEqual(normalizeDefaultModels({ writing: 'chat-a', bogus: 'x' }), { ...emptyDefaultModels(), writing: 'chat-a' })
   })
 })
+
+describe('default models — not persisted as a remembered choice', () => {
+  test('a defaulted model is dropped from what a page remembers, so a later default change reaches it', async () => {
+    const { applyDefaults, useDefaultModels, peekDefaultModels } = await import('../composables/useDefaultModels.ts')
+    const { useRememberedForm } = await import('../composables/useRememberedForm.ts')
+    const { reactive } = await import('vue')
+
+    applyDefaults({ writing: 'app-default-writing', image: 'app-default-image' })
+    assert.equal(peekDefaultModels().value.writing, 'app-default-writing')
+
+    ;(globalThis as any).window.localStorage.clear()
+    const form = reactive({
+      model: 'app-default-writing',
+      style: 'calm',
+      thumbnail: { model: 'app-default-image', ratio: '16:9' },
+    })
+    const remembered = useRememberedForm('default-models-test', 'demo', form)
+    remembered.persist()
+
+    const stored = JSON.parse((globalThis as any).window.localStorage.getItem('ssk:form:demo:default-models-test:v1')!)
+    assert.equal(stored.model, undefined, 'the default is not the page\'s remembered choice')
+    assert.equal(stored.thumbnail?.model, undefined, 'and neither is a nested one')
+    assert.equal(stored.style, 'calm', 'every real setting is still remembered')
+    assert.equal(stored.thumbnail?.ratio, '16:9')
+
+    // A model the owner actually picked is remembered as usual.
+    form.model = 'owner-picked-model'
+    remembered.persist()
+    const after = JSON.parse((globalThis as any).window.localStorage.getItem('ssk:form:demo:default-models-test:v1')!)
+    assert.equal(after.model, 'owner-picked-model')
+
+    void useDefaultModels
+  })
+})

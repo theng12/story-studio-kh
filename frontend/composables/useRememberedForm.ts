@@ -19,6 +19,7 @@
  */
 import { watch, isRef } from 'vue'
 import type { Ref } from 'vue'
+import { peekDefaultModels } from './useDefaultModels.js'
 
 const ALWAYS_EXCLUDE = ['episode_id', 'episodeId', 'episode', 'title']
 
@@ -107,8 +108,44 @@ export function useRememberedForm(
         if (!wanted(k)) continue
         out[k] = v
       }
+      dropAppDefaults(out)
       window.localStorage.setItem(storageKey(), JSON.stringify(out))
     } catch { /* quota / serialization — ignore */ }
+  }
+
+  /**
+   * A page's settings are remembered; the app-wide default model is NOT.
+   *
+   * Settings → Default models is the LAST link of the precedence chain
+   * (`precedence: the preset's model → this page's remembered choice → the default`), so a page
+   * that opened with the default filled in must not save that value as though the owner had chosen
+   * it. If it did, the remembered choice would outrank the default from then on and changing the
+   * default would never reach this page again — AGENTS §1, a value cached past the moment the
+   * selection changes.
+   *
+   * Matched by VALUE at the top level and one level down (the thumbnail sub-form), because the
+   * stored form does not know which family each key belongs to. Model ids are unique across
+   * families, so comparing against all six is unambiguous.
+   *
+   * KNOWN LIMIT: this cannot tell "the default filled it" from "the owner picked exactly the
+   * default by hand". Both are dropped, so after the default changes this page follows the new one.
+   * That is the behaviour the setting promises, and the alternative — the page silently pinning a
+   * default forever — is the defect this exists to prevent.
+   */
+  function dropAppDefaults(target: Record<string, any>): void {
+    const defaults = new Set(
+      Object.values(peekDefaultModels().value).filter((id): id is string => typeof id === 'string' && !!id),
+    )
+    if (!defaults.size) return
+    const isDefault = (value: unknown): boolean => typeof value === 'string' && defaults.has(value)
+    for (const [k, v] of Object.entries(target)) {
+      if (isDefault(v)) { delete target[k]; continue }
+      if (isPlain(v)) {
+        for (const [ck, cv] of Object.entries(v as Record<string, any>)) {
+          if (isDefault(cv)) delete (v as Record<string, any>)[ck]
+        }
+      }
+    }
   }
 
   function clear(): void {
