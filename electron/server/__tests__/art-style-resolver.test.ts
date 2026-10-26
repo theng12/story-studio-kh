@@ -6,6 +6,7 @@
  *   - preset preview image resolves to an absolute path when the file exists
  *   - null when the project has no active preset
  *   - active_style_preset_id pointing at a missing preset → falls through
+ *   - an aliased preset with its Store style uninstalled keeps its own prose
  *
  * IMPORTANT — module-load ordering: STORY_STUDIO_DATA_DIR must be set (via
  * useTempDataDir) before project-manager import, so PROJECTS_ROOT points at
@@ -107,6 +108,35 @@ describe('art-style-resolver', () => {
     assert.match(warnings[0]!, /art-style-resolver/)
     assert.match(warnings[0]!, /com\.storystudio\.style\.uninstalled/)
     assert.match(warnings[0]!, new RegExp(proj.slug))
+  })
+
+  test('a preset the Store now owns keeps its own prose when that style is not installed', async () => {
+    // Read-time aliasing must never empty a style. On a Mac where the adopting
+    // Store pack is not installed, the preset's own stored prose is what runs —
+    // the same text it ran before this table existed.
+    const proj = await pm.createProject({ name: 'ArtAliasedUninstalled' })
+    const ownProse = 'Woodcut and linocut print, bold carved lines, two or three muted inks on handmade paper.'
+    await pm.updateConfig(proj.slug, {
+      style_presets: [{
+        id: 'night-atlas-woodcut',
+        name: 'Night Atlas — Woodcut',
+        description: ownProse,
+        created_at: '2026-10-10T04:25:43.619Z',
+      }],
+      active_style_preset_id: 'night-atlas-woodcut',
+    } as any)
+
+    const art = await resolver.resolveProjectArtStyle(proj.slug)
+    assert.ok(art, 'an aliased preset with no installed style still resolves')
+    assert.equal(art!.description, ownProse)
+    assert.equal(art!.name, 'Night Atlas — Woodcut')
+    assert.deepEqual(art!.negatives, [], 'the alias contributes no negatives when it cannot load')
+
+    // And the preset on disk is untouched by having been resolved.
+    const config = await pm.getConfig(proj.slug)
+    const preset = (config!.style_presets || []).find(p => p.id === 'night-atlas-woodcut')
+    assert.equal(preset!.description, ownProse)
+    assert.equal(config!.active_style_preset_id, 'night-atlas-woodcut')
   })
 
   test('a project with no style at all stays quiet — nothing is wrong with it', async () => {
