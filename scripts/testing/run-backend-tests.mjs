@@ -408,21 +408,36 @@ async function snapshotConfiguredProjects(root) {
  * Files that run ALONE, at concurrency 1, whatever the pool size.
  *
  * Owner decision, 2026-10-26: the backend gate may run its files in parallel
- * ("do all 4 if possible so it's faster"). A file belongs here when its result
- * depends on how much of the machine it has — a real observation window, a
- * wall-clock deadline, a child process it expects to start within a fixed time.
- * Those are the tests that produced the 2026-10-24 gate A run with zero failing
- * tests, and no amount of queueing makes them safe neighbours.
+ * ("do all 4 if possible so it's faster"). A file belongs here for one of two
+ * reasons, and its entry says which:
  *
- * The bar for adding one: it FAILED while others ran, and passed when rerun
- * alone. A name here is a measured fact, not a guess — every entry says what it
- * waits for.
+ *   • MEASURED — it failed while other files were running and passed when rerun
+ *     alone. That is the 2026-10-24 gate A run with zero failing tests.
+ *   • DECLARED — the file asserts a WALL-CLOCK ceiling or an exact number of
+ *     interval fires. Such an assertion is load-sensitive by construction: four
+ *     workers on one machine is exactly the condition it was not written for, so
+ *     running it in the pool would turn a product assertion into a bet on the
+ *     machine. They are cheap (the whole declared list is under 15 s), so the
+ *     pool loses nothing worth having.
+ *
+ * Anything that flakes in a proof run joins this list, and the run is repeated.
  */
 export const SERIAL_TEST_FILES = [
-  // "download aborted part way" holds a real child process and a real timer open.
+  // MEASURED — "download aborted part way" holds a real child process and a real timer open.
   'app-update.test.ts',
-  // Bulk evidence writes are timed against wall clock, not a mocked one.
+  // MEASURED — bulk evidence is timed against wall clock, not a mocked one.
   'publishing-overview-bulk-evidence.test.ts',
+  // MEASURED, 2026-08-28 — "Cannot read properties of undefined (reading 'watchedMtimes')" under load.
+  'episode-status-warm-list.test.ts',
+  // DECLARED — "expected <10s, took Nms" around real ffmpeg work.
+  'ffmpeg-manager.test.ts',
+  // DECLARED — a 600 ms ceiling on the pause guard interrupting a retry-after.
+  'genstudio-image-admission-permit.test.ts',
+  // DECLARED — a cancelled wait must be noticed inside 1.5 s.
+  'genstudio-poll-backoff.test.ts',
+  // DECLARED — a warm read must answer inside 2 s (jobs-read-latency, jobs-history).
+  'jobs-read-latency.test.ts',
+  'jobs-history.test.ts',
 ]
 
 /**

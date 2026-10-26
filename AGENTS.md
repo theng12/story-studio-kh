@@ -335,11 +335,12 @@ side by side has actually broken a result.
   summary, its own coverage floor — and a split run also prints
   `aggregate suite coverage: C/D file(s) completed; inputs=[...]`, which
   `story_gate_proof.py` requires the per-invocation lines to add up to exactly.
-- **The serial list is measured, never guessed.** A file joins `SERIAL_TEST_FILES` only after it
-  FAILED while other files ran and passed when rerun alone, and its entry says what it waits for
-  (a real observation window, a wall-clock deadline, a child process it expects within a fixed
-  time). `STORY_STUDIO_BACKEND_SERIAL_TESTS` adds names for one run; it can never remove one.
-  Anything that flakes in a proof run moves to the list and the run is repeated.
+- **The serial list is measured, never guessed.** A file joins `SERIAL_TEST_FILES` for one of two
+  reasons, and its entry says which: it FAILED while other files ran and passed when rerun alone
+  (the 2026-10-24 shape), or it asserts a WALL-CLOCK ceiling or an exact interval-fire count, which
+  is load-sensitive by construction. A guess, a hunch or a slow stopwatch is neither.
+  `STORY_STUDIO_BACKEND_SERIAL_TESTS` adds names for one run; it can never remove one. Anything
+  that flakes in a proof run moves to the list and the run is repeated.
 - **A slow file is fixed at its cause, not by deleting its assertion.** The waiting comes out
   through a seam the code already has — `_setJobAutoRetryDelaysForTesting` (the 60 s/300 s free-fleet
   retry schedule), `_setGenStudioPollLadderForTesting` (the 1 s poll floor), the existing
