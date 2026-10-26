@@ -1177,6 +1177,7 @@ import {
   type PromptCharCapSetting,
 } from '../../../utils/prompt-char-cap.js'
 import { readRememberedImageModelId } from '../../../utils/project-image-model.js'
+import { resolveRetiredImageModelId, resolveSavedImageModelId } from '../../../utils/genstudio-image-model-selection.js'
 import { composeScenePlanGuidance } from '../../../utils/scene-plan-guidance.js'
 import { customerSafeJobText } from '../../../utils/job-presentation.js'
 import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
@@ -3411,6 +3412,15 @@ function scenePlanPromptDefaults() {
   }
 }
 
+/**
+ * What the last apply had to drop, if anything.
+ *
+ * Recorded here rather than shown here: this function also runs on mount (to
+ * restore the active preset's settings), and a page that has just loaded is not
+ * a customer who clicked Apply. The explicit Apply path reads it and shows it.
+ */
+let promptPresetModelNotice = ''
+
 function applyPromptPreset(data: any): void {
   // Retired presets may contain a per-plan style. Ignore it so Character
   // Sheet remains the single authoritative style source.
@@ -3432,8 +3442,28 @@ function applyPromptPreset(data: any): void {
   const defaults = scenePlanPromptDefaults()
   form.value.model = typeof activeData.model === 'string' ? activeData.model : defaults.model
   form.value.use_research = activeData.use_research === false ? false : defaults.use_research
-  form.value.intended_image_model = typeof activeData.intended_image_model === 'string'
+  // A saved id the live catalogue no longer answers to is NOT selected. Applying
+  // the preset still restores every other field — the model is one choice among
+  // many, and refusing the whole apply over it would make the preset unusable.
+  // What must never happen is carrying the dead id forward: the prompt-cap
+  // resolver refuses an unknown intended model, and that refusal used to arrive
+  // as a 409 from a generation the customer had already committed to
+  // (terranash-sleep-stories' four presets still name `flux-2-klein`).
+  const savedIntended = typeof activeData.intended_image_model === 'string'
     ? activeData.intended_image_model : defaults.intended_image_model
+  const resolvedIntended = resolveSavedImageModelId(
+    savedIntended,
+    id => findGenStudioImageModel(id),
+    resolveRetiredImageModelId,
+  )
+  form.value.intended_image_model = resolvedIntended
+  // Said once, plainly, and only when a REAL choice was dropped — a preset that
+  // never named a model is not a loss to report. The prompt cap then follows
+  // whatever is chosen, because it is derived from the selection.
+  promptPresetModelNotice = resolvedIntended || !savedIntended
+    ? ''
+    : 'This preset names an image model the Gateway no longer offers, so none is selected. '
+      + 'Choose another image model below.'
   form.value.avoid_legible_text = typeof activeData.avoid_legible_text === 'boolean'
     ? activeData.avoid_legible_text : defaults.avoid_legible_text
   form.value.reusable_guidance = typeof activeData.reusable_guidance === 'string'
@@ -3527,9 +3557,13 @@ const planPresets = usePresets<any>({
       throw new Error('Visual timing is still loading. Wait for the panel, then apply the preset.')
     }
     applyPromptPreset(data)
-    visualPresetNotice.value = visualTimingMotion.value
-      ? ''
-      : 'Prompt settings applied. Select a Scene Plan episode and click Apply to use this preset’s timing and motion.'
+    // A dropped model outranks the timing hint: it is the one thing the
+    // customer has to act on. The prompt cap follows the selection, so nothing
+    // downstream has to be told about it.
+    visualPresetNotice.value = promptPresetModelNotice
+      || (visualTimingMotion.value
+        ? ''
+        : 'Prompt settings applied. Select a Scene Plan episode and click Apply to use this preset’s timing and motion.')
   },
 })
 

@@ -129,15 +129,26 @@ export function composeScenePlanGuidance(episodeGuidance: unknown, reusableGuida
  * catalogue, never from a list kept here, so a model that changes its ceiling
  * changes it on the next admission.
  *
- * The label names the surface in the refusal, because this resolver is shared
- * by the Scene Plan step and the Thumbnail Prompts step.
+ * Shared by the Scene Plan step and the Thumbnail Prompts step.
+ */
+/**
+ * The ceiling to enforce, never a refusal.
+ *
+ * An intended model the catalogue does not publish yields the preset's OWN
+ * choice, unclamped. That is not a silent repair: the customer's selected cap is
+ * a real setting and the only thing missing is a published figure to clamp it
+ * against, so nothing is invented and nothing is refused. The page drops the
+ * dead model on apply (see `resolveSavedImageModelId`); this is the server's
+ * half, for a queued job or a preset applied while the catalogue was cold.
  */
 export function resolveScenePlanPromptCharCap(
   data: Record<string, any>,
   catalog: ReadonlyArray<GenStudioProductIdentity & { max_prompt_characters?: number }>,
-  label = 'The Scene Plan preset',
+  // Retained for callers that name the preset; the detail no longer phrases a
+  // refusal, so nothing in it is used today.
+  _label = 'The Scene Plan preset',
 ): number | undefined {
-  return resolveScenePlanPromptCharCapDetail(data, catalog, label).cap
+  return resolveScenePlanPromptCharCapDetail(data, catalog, _label).cap
 }
 
 export interface ScenePlanPromptCharCapDetail {
@@ -145,6 +156,12 @@ export interface ScenePlanPromptCharCapDetail {
   cap?: number
   /** The model's published figure, when the intended model was resolved. */
   publishedCap?: number
+  /**
+   * The intended model id the live catalogue did not answer to, when there was
+   * one. Present means `cap` is the preset's own choice, unclamped — a caller
+   * that wants to mention it can, and one that only needs the number need not.
+   */
+  unresolved?: string
 }
 
 /**
@@ -159,12 +176,22 @@ export interface ScenePlanPromptCharCapDetail {
 export function resolveScenePlanPromptCharCapDetail(
   data: Record<string, any>,
   catalog: ReadonlyArray<GenStudioProductIdentity & { max_prompt_characters?: number }>,
-  label = 'The Scene Plan preset',
+  // Kept in the signature for the callers that pass it; no longer used to phrase
+  // a refusal, because an unresolved model is no longer a refusal.
+  _label = 'The Scene Plan preset',
 ): ScenePlanPromptCharCapDetail {
   const intended = typeof data.intended_image_model === 'string' ? data.intended_image_model.trim() : ''
   if (!intended) return { cap: parsePromptCharCap(data.prompt_char_cap) }
+  // An id the catalogue does not publish is "no figure to clamp against", NOT a
+  // refusal. This used to throw, and the caller turned that into a 409 on a
+  // generation the customer had already committed to — the failure arrived from
+  // the prompt-cap resolver rather than from anything they could act on.
+  //
+  // It stays honest about WHICH case it is: `unresolved` is reported so a caller
+  // that needs to say something can, and `publishedCap` stays undefined because
+  // nothing was published. No figure is ever invented for an unknown model.
   const model = findGenStudioProduct(catalog, intended)
-  if (!model) throw new Error(`${label}'s intended image model is not in the current image catalogue.`)
+  if (!model) return { cap: parsePromptCharCap(data.prompt_char_cap), unresolved: intended }
   const published = parsePromptCharCap(model.max_prompt_characters)
   if (data.prompt_char_cap === 'auto') return { cap: published, publishedCap: published }
   if (data.prompt_char_cap === 'none') return { cap: undefined, publishedCap: published }

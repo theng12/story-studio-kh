@@ -1,6 +1,7 @@
 /** GenStudio catalog identifiers are the only executable model identifiers. */
 
 import { isRetiredVideoModelId } from '../contracts/retired-video-models.js'
+import { resolveRetiredImageModelId } from '../contracts/retired-image-models.js'
 
 export type GenStudioModality = 'chat' | 'image' | 'voice' | 'transcription' | 'video'
 
@@ -19,18 +20,11 @@ export function stripGenStudioModelPrefix(modality: GenStudioModality, modelId: 
  * handles are owner-defined and are not required to start with "genstudio-".
  * Known transport prefixes remain readable for saved pre-product selections.
  */
-/**
- * 1.4.288 — retired image ids still saved in old presets and job chains, and the product that
- * replaced each. BW EP0049's July chain asked for `flux-2-klein` and its recovery failed with
- * "Unknown image model"; it now renders on the fleet FLUX.2 Klein.
- */
-const RETIRED_IMAGE_IDS: Record<string, string> = {
-  'flux-2-klein': 'studio-hub::AITRADER/FLUX2-klein-4B-mlx-4bit',
-}
-
 export function resolveGenStudioModelId(modality: GenStudioModality, modelId: string): string | null {
   let value = stripGenStudioModelPrefix(modality, modelId)
-  if (modality === 'image') value = RETIRED_IMAGE_IDS[value.toLowerCase()] || value
+  // The table lives in `contracts/retired-image-models.ts` so the renderer reads the
+  // same one — a preset applied on the page heals the same way a queued job does.
+  if (modality === 'image') value = resolveRetiredImageModelId(value) || value
   if (modality === 'video' && isRetiredVideoModelId(value)) return null
   return value && value.length <= 128 ? value : null
 }
