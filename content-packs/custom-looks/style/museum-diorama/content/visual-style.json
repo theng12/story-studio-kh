@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.museum-diorama",
+  "name": "Museum Diorama",
+  "description": "A natural-history museum diorama: sculpted and painted specimens set in front of a curved painted backdrop, warm exhibit lighting falling off into a dim room, seen from the visitor's side of the glass.",
+  "category": "Realistic",
+  "tags": [
+    "museum",
+    "diorama",
+    "natural history",
+    "painted backdrop",
+    "exhibit lighting",
+    "handmade models",
+    "warm display light",
+    "educational",
+    "awe",
+    "calm"
+  ],
+  "style_bible": "A photographed natural-history museum exhibit — the objects in the frame are hand-built, and the picture is honest about that. Medium and surface: everything in front of the backdrop is a physical model, sculpted and painted by hand. Fur, feather and foliage read as shaped and painted material rather than as living tissue; a sculpted tool mark, a slightly matte patch, a wired stem or a painted eye is part of the look and is welcome rather than hidden. Palette: warm exhibit light — amber, ochre, warm brown — on the modelled group, the painted backdrop carrying a softer, hazier version of the same colours so distance reads as paint rather than as blur, and the room beyond the case falling into cool dim shadow. Lighting: warm display light from above and in front of the group, with a gentle falloff that lets the outer edges of the case go dark; the space outside the diorama stays dim and cool. There is no studio softbox and no neutral sweep. Composition: a wide visitor's-eye view — a modelled foreground of painted ground or a plinth edge, the group in the middle plane, and the curved painted backdrop filling the upper and rear field, with the seam where the modelled floor meets the backdrop often visible. The framing is calm, full and educational, carrying a sense of awe rather than drama. No people in the frame, no crowd, no glass reflection, no label boards and no lettering anywhere. Keep the contract content-independent: no fixed species, era, museum or copied exhibit composition.",
+  "negative_prompt": "photograph of a living animal, living creature in a natural habitat, wildlife photograph, photoreal skin, wet nose, individual hair strands, glossy fabric, studio catalog photography, neutral grey sweep, product photography, softbox lighting, white background, flat even light, film still, 3D render, CGI, digital painting, watercolour, oil painting, cartoon, anime, cel shading, thick ink outline, children's sticker art, glass reflection, glare, vignetting, people, visitors, crowd, hands, label board, museum placard, lettering, numbers, captions, signature, watermark, logo, border, frame, copied reference composition",
+  "preview_assets": [
+    "assets/museum-diorama.webp",
+    "assets/museum-diorama-scene.webp",
+    "assets/museum-diorama-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

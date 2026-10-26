@@ -4,7 +4,7 @@
   "publisher_id": "com.storystudio",
   "key_id": "{{KEY_ID}}",
   "version": "1.0.0",
-  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version": "1.4.250",
   "lifecycle": "active",
   "changelog": "First release of the Illustrated History for Sleep series formula: long illustrated histories of places, peoples and turning points, two to three hours in independent chapters, calm in the telling and bold in the pictures, with no exact date ranges, no runtime claims and no promise of a complete history.",
   "entitlement": {

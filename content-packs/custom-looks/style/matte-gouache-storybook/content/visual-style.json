@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.matte-gouache-storybook",
+  "name": "Matte Gouache Storybook",
+  "description": "Opaque matte gouache storybook painting: chalky flat paint with dry-brush edges in dusty blues, sage greens and warm ochres, calm evening light, and simple rounded picture-book shapes.",
+  "category": "Illustration",
+  "tags": [
+    "gouache",
+    "matte",
+    "opaque paint",
+    "dry brush",
+    "chalky edges",
+    "dusty blue",
+    "sage green",
+    "warm ochre",
+    "picture book",
+    "low saturation"
+  ],
+  "style_bible": "A picture-book painting in opaque gouache, where the paint is chalky and matte and never transparent. Medium and surface: gouache laid thickly enough to cover completely, so every shape is an opaque flat of colour with the gentle unevenness of hand-applied paint. There are no transparent washes, no colour bleeding beyond a shape's edge, no wet-in-wet blooms, no granulation and no visible pencil underdrawing. Brushwork: dry-brush strokes carry a visible tooth, and shape edges are soft and slightly ragged from the chalkiness of the medium — a hand-cut edge, never a hard vector line. Forms are built from a few broad simple strokes, with rounded, simplified shapes and only light hand-drawn detail inside them. Palette: gentle and muted — dusty blue, sage green, warm ochre and a soft warm off-white — held at low saturation with harmonious values so no single colour jumps forward. Lighting: soft, calm evening light, with gentle warm highlights and quiet shadows; contrast stays low and nothing is lit by a hard key. Composition: clear and simple picture-book staging with one readable focal point and calm space around it, built to be read at small size. A fine chalky paper tooth is visible in the dry passages. Content-independent: no fixed character, story, place or copied composition.",
+  "negative_prompt": "photoreal, photograph, photorealistic, 3D render, CGI, glossy, transparent watercolour, wet-in-wet wash, watercolour bloom, colour bleeding outside shapes, pigment granulation, pencil underdrawing, visible sketch lines, ink outline, thick contour, hard vector edge, smooth digital gradient, airbrush, oil paint impasto, canvas weave, high contrast, saturated colour, neon, candy colour, dramatic key light, anime, manga, cel shading, detailed realistic anatomy, lettering, captions, signature, watermark, logo, border, frame, copied reference composition",
+  "preview_assets": [
+    "assets/matte-gouache-storybook.webp",
+    "assets/matte-gouache-storybook-scene.webp",
+    "assets/matte-gouache-storybook-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

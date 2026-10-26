@@ -1,0 +1,340 @@
+{
+  "expected_revision": 332,
+  "coordinator": {
+    "task": "custom-style-adoption-20261025",
+    "branch": "content/ship-20261027-rechained"
+  },
+  "proposal_ref": "Owner triage accepted in full 2026-10-25: 15 custom art styles from the owner's own channels adopted as standalone store styles (TRIAGE.md in _orchestra/custom-styles-audit-20261025)",
+  "records": [
+    {
+      "pack_id": "com.storystudio.pack.style.carved-woodcut-print",
+      "item_id": "com.storystudio.style.carved-woodcut-print",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/carved-woodcut-print",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.carved-woodcut-print",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.carved-woodcut-print",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.lush-painterly-scenery",
+      "item_id": "com.storystudio.style.lush-painterly-scenery",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/lush-painterly-scenery",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.lush-painterly-scenery",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.lush-painterly-scenery",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.dark-moody-painterly",
+      "item_id": "com.storystudio.style.dark-moody-painterly",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/dark-moody-painterly",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.dark-moody-painterly",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.dark-moody-painterly",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.vintage-copperplate-engraving",
+      "item_id": "com.storystudio.style.vintage-copperplate-engraving",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/vintage-copperplate-engraving",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.vintage-copperplate-engraving",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.vintage-copperplate-engraving",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.warm-cosy-interior-illustration",
+      "item_id": "com.storystudio.style.warm-cosy-interior-illustration",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/warm-cosy-interior-illustration",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.warm-cosy-interior-illustration",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.warm-cosy-interior-illustration",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.storybook-stick-figure-cartoon",
+      "item_id": "com.storystudio.style.storybook-stick-figure-cartoon",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/storybook-stick-figure-cartoon",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.storybook-stick-figure-cartoon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.storybook-stick-figure-cartoon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.muted-isometric-infographic",
+      "item_id": "com.storystudio.style.muted-isometric-infographic",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/muted-isometric-infographic",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.muted-isometric-infographic",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.muted-isometric-infographic",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.dark-folk-horror-gouache",
+      "item_id": "com.storystudio.style.dark-folk-horror-gouache",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/dark-folk-horror-gouache",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.dark-folk-horror-gouache",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.dark-folk-horror-gouache",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.stained-glass-panel-illustration",
+      "item_id": "com.storystudio.style.stained-glass-panel-illustration",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/stained-glass-panel-illustration",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.stained-glass-panel-illustration",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.stained-glass-panel-illustration",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.clean-editorial-illustration",
+      "item_id": "com.storystudio.style.clean-editorial-illustration",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/clean-editorial-illustration",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.clean-editorial-illustration",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.clean-editorial-illustration",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.museum-diorama",
+      "item_id": "com.storystudio.style.museum-diorama",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/museum-diorama",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.museum-diorama",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.museum-diorama",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.cosy-night-pixel-art",
+      "item_id": "com.storystudio.style.cosy-night-pixel-art",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/cosy-night-pixel-art",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.cosy-night-pixel-art",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.cosy-night-pixel-art",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.matte-gouache-storybook",
+      "item_id": "com.storystudio.style.matte-gouache-storybook",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/matte-gouache-storybook",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.matte-gouache-storybook",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.matte-gouache-storybook",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.naturalist-watercolour-plate",
+      "item_id": "com.storystudio.style.naturalist-watercolour-plate",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/naturalist-watercolour-plate",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.naturalist-watercolour-plate",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.naturalist-watercolour-plate",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.painterly-prehistoric-life",
+      "item_id": "com.storystudio.style.painterly-prehistoric-life",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/custom-looks/style/painterly-prehistoric-life",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.painterly-prehistoric-life",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.painterly-prehistoric-life",
+          "status": "proposed"
+        }
+      }
+    }
+  ]
+}

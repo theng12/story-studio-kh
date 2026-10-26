@@ -193,10 +193,15 @@ test('all six new packs build reproducibly and validate with an ephemeral key', 
 
   for (const [dir] of NEW_PACKS) {
     const source = decodeURIComponent(new URL(`../../../content-packs/${dir}`, import.meta.url).pathname)
+    // Only a release-parameterized source ({{MIN_APP_VERSION}}) accepts the
+    // override; the builder refuses it for anything else, so a pack that
+    // declares its own floor must be built without one.
+    const declared = JSON.parse(await readFile(join(source, 'pack.json'), 'utf8')).min_app_version
+    const build = { keyId: release.keyId, ...(declared === '{{MIN_APP_VERSION}}' ? { minAppVersion: release.minAppVersion } : {}) }
     const first = join(temporary, `${dir.replaceAll('/', '-')}-1.sspack`)
     const second = join(temporary, `${dir.replaceAll('/', '-')}-2.sspack`)
-    await buildContentPack({ sourceDirectory: source, privateKeyPath, outputPath: first, ...release })
-    await buildContentPack({ sourceDirectory: source, privateKeyPath, outputPath: second, ...release })
+    await buildContentPack({ sourceDirectory: source, privateKeyPath, outputPath: first, ...build })
+    await buildContentPack({ sourceDirectory: source, privateKeyPath, outputPath: second, ...build })
     const [a, b] = await Promise.all([readFile(first), readFile(second)])
     assert.deepEqual(a, b, `${dir} must build reproducibly`)
     await validateContentPack({ archivePath: first, keyId: release.keyId, publisherId: 'com.storystudio', publicKeyPath })

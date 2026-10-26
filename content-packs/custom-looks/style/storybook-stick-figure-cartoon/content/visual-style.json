@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.storybook-stick-figure-cartoon",
+  "name": "Storybook Stick-Figure Cartoon",
+  "description": "Stick-figure characters with large round heads over softly painted watercolour environments: clean black outlines, a warm earthy palette, and the friendly, readable register of a children's educational storybook.",
+  "category": "Illustration",
+  "tags": [
+    "stick figure",
+    "storybook",
+    "children's book",
+    "watercolour background",
+    "clean outline",
+    "warm earthy",
+    "friendly",
+    "readable silhouettes",
+    "educational",
+    "2D cartoon"
+  ],
+  "style_bible": "A drawn storybook cartoon where simple stick-figure characters stand inside softly painted places. Medium and surface: two clearly different materials in one picture. The characters and the props they hold are clean flat 2D digital drawing; the environment behind and around them is soft watercolour painting with visible wash variation, softened edges and a little paper texture. The seam between the two is deliberate — drawn figures on a painted world — and never blurred into one rendering style. Line: every character and prop is closed by a clean black outline of even, confident weight; the head is a large circle, the limbs are simple stick strokes with rounded ends, and the face carries only tiny dot eyes, a few sketchy black strokes for hair and at most a small curved mouth. Line weight does not vary much within a form, and nothing is cross-hatched. Fill: characters and props are flat colour or one soft cel step of shading; environments are painted in translucent watercolour with lighter and darker passages inside the same hue. Palette: warm and earthy — ochre, terracotta, sage, warm brown and cream for the figures and their clothing — against watercolour greens, dusty blues and warm neutrals in the places they stand. Lighting: soft and diffused throughout, with only a single gentle shading step on the drawn characters and no dramatic light anywhere. Composition: clean and uncluttered, one clear action per frame, highly readable silhouettes, generous space around the subject, and a rough, imperfect hand-drawn white border framing the picture. Content-independent: no fixed character, story, place or copied composition.",
+  "negative_prompt": "photoreal, photograph, photorealistic, 3D render, CGI, glossy, plastic, airbrush, smooth gradient, oil paint, heavy ink cross-hatching, scratchy pen texture, gritty charcoal, neon, oversaturated, cluttered scene, dense background, many figures, anime, manga, chibi, detailed realistic anatomy, realistic faces, sharp photographic environment, lettering, captions, speech bubbles, signature, watermark, logo, copied reference composition",
+  "preview_assets": [
+    "assets/storybook-stick-figure-cartoon.webp",
+    "assets/storybook-stick-figure-cartoon-scene.webp",
+    "assets/storybook-stick-figure-cartoon-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

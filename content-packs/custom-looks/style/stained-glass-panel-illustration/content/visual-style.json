@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.stained-glass-panel-illustration",
+  "name": "Stained-Glass Panel Illustration",
+  "description": "A leaded stained-glass panel: luminous jewel-tone glass in deep blue, ruby, gold and emerald, separated by dark leading and lit from behind, in simple graceful shapes with a calm sacred stillness.",
+  "category": "Illustration",
+  "tags": [
+    "stained glass",
+    "leaded glass",
+    "jewel tones",
+    "backlit",
+    "luminous",
+    "ruby and gold",
+    "emerald",
+    "panel",
+    "sacred",
+    "calm"
+  ],
+  "style_bible": "A painted stained-glass panel, seen as the object itself rather than as a photograph of a church interior. Medium and surface: the picture is made of glass in lead. Every area of colour is a pane of translucent glass, and every boundary is a strip of dark lead came — thick, dark, slightly irregular in width, and never perfectly straight. Line: the leading is the only linework in the picture, and it closes every shape into a cell; there are no drawn contours inside a pane. Fill: each pane is one jewel hue, or the same hue with a subtle streaked marbling inside the colour, and never a photographic texture. Palette: deep blue, ruby, gold and emerald are the working colours, with a few pale or near-white panes to carry the brightest passages; the palette stays saturated and luminous rather than muted. Lighting: light comes through the panel from behind, so the colours glow from within. The palest and warmest panes are the brightest, the deep blues and emeralds sit darker, and the leading reads as the darkest element. There are no cast shadows lying across the glass and no bloom spilling outside it. Composition: simple, graceful, broad shapes that read as one panel — leading follows the form of what is depicted rather than a grid of small equal squares, and the arrangement stays balanced and calm, close to symmetry without being rigid. A plain stone reveal may frame the panel edge; a full architectural surround, window furniture or a room interior may not. Keep the contract content-independent: no fixed sacred figure, saint, emblem, wording or copied window.",
+  "negative_prompt": "photograph, photorealistic, camera render, 3D render, CGI, glossy, glass reflection, glare, specular highlight, transparent window, room interior, church architecture, window frame, stone tracery wall, grid of many small equal panes, geometric honeycomb, cartoon, anime, cel shading, thick outer outline, ink contour, flat vector, watercolour, oil paint, neon, rainbow palette, muted palette, cast shadow across the glass, bloom, lettering, numbers, captions, signature, watermark, logo, copied reference window",
+  "preview_assets": [
+    "assets/stained-glass-panel-illustration.webp",
+    "assets/stained-glass-panel-illustration-scene.webp",
+    "assets/stained-glass-panel-illustration-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}

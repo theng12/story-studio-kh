@@ -1,0 +1,28 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.dark-moody-painterly",
+  "name": "Dark Moody Painterly",
+  "description": "Low-key painterly illustration in shadowy oil texture — desaturated charcoal, slate and umber with one restrained accent colour — contemplative, slightly unsettling, and calm in its composition.",
+  "category": "Illustration",
+  "tags": [
+    "dark",
+    "painterly",
+    "low-key light",
+    "chiaroscuro",
+    "charcoal and slate",
+    "oil texture",
+    "contemplative",
+    "uneasy",
+    "muted",
+    "calm composition"
+  ],
+  "style_bible": "A dark, low-key painterly illustration worked in oil rather than rendered by a camera. Medium and surface: shadowy oil-paint texture throughout — thin scumbled darks that let a fine paint tooth show, softer blended passages where the light falls, and a little loaded paint only on the planes the light actually strikes. Edges stay soft in the shadow and firm where the single light meets a form. Nothing in the frame is glossy, plastic or photographic. Palette: desaturated charcoal, cold slate and warm umber, held close together in value, with exactly one restrained accent colour allowed to carry the eye — a dull crimson, a dim amber. There is no second accent and no saturated fill anywhere in the picture. Lighting: deep low-key light with soft pools of shadow. One source inside the frame, falling off quickly into darkness, so that a large part of the picture sits in the shadow range — but the midtones are kept open enough that silhouettes, hands and faces still read at small size instead of crushing to black. Composition: calm and quiet, with a strong focal subject, layered depth, and generous dark negative space around it and no clutter competing for the eye. The unease comes from what the darkness withholds, never from violence: nothing in the frame is wounded, bloody, monstrous or cruel. Keep the contract content-independent: no fixed subject, place, era, recurring motif or copied composition; the light and the restraint carry the style.",
+  "negative_prompt": "photoreal, photograph, photorealistic, camera render, film still, 3D render, CGI, glossy, plastic, high-key, bright even lighting, white background, flat lighting, airbrush, smooth digital gradient, neon, saturated colour, rainbow palette, candy colour, two competing accent colours, gore, blood, wounds, viscera, horror monster, corpse, skull pile, suffering, torture, lettering, captions, signature, watermark, logo, border, frame, copied reference composition",
+  "preview_assets": [
+    "assets/dark-moody-painterly.webp",
+    "assets/dark-moody-painterly-scene.webp",
+    "assets/dark-moody-painterly-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}
