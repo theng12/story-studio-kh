@@ -54,6 +54,7 @@ import {
   scenePlanPresetReceipt,
 } from '../services/preset-authority.js'
 import { getApiKey } from '../services/app-secrets-store.js'
+import { getDefaultModels } from '../services/app-settings.js'
 import { listImageModels } from '../lib/genstudio-client.js'
 import { normalizeCreativeDirection } from '../services/scene-creative-direction.js'
 import { clearLegacyPlannerFallbackReasons } from '../services/scene-prompt-integrity.js'
@@ -289,6 +290,9 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   try { await assertScenePlanVisualSource(slug, episodeId) }
   catch (error: any) { return res.status(409).json({ detail: error.message }) }
   let model = typeof presetData.model === 'string' ? presetData.model.trim() : ''
+  // Last of all, this Mac's app-wide writing default (Settings → Default models). Read only — never
+  // written back into the preset or the plan.
+  if (!model && stage !== 'timeline') model = (await getDefaultModels()).writing || ''
   if (!model && stage !== 'timeline') return res.status(400).json({ detail: 'model is required' })
   if (stage !== 'timeline') {
     try {
@@ -455,7 +459,8 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
   const target = sceneIds
     ? { regenerate_prompt_scene_ids: sceneIds }
     : { regenerate_prompt_scene_id: sceneId }
-  const requestedModel = typeof body.model === 'string' ? body.model.trim() : ''
+  const requestedModel = (typeof body.model === 'string' ? body.model.trim() : '')
+    || (await getDefaultModels()).writing || ''
 
   const detailLevel = typeof body.detail_level === 'number'
     ? Math.min(4, Math.max(1, Math.round(body.detail_level)))
@@ -570,7 +575,8 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
   let visualSnapshot
   try { visualSnapshot = await scenePlanVisualSnapshot(slug, episodeId, 'visual') }
   catch (error: any) { return res.status(409).json({ detail: error.message }) }
-  let model = typeof body.model === 'string' ? body.model.trim() : ''
+  let model = (typeof body.model === 'string' ? body.model.trim() : '')
+    || (await getDefaultModels()).writing || ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
   // Scene planning/rewrite is an LLM task — reject IMAGE models up front.
   if (/^(imagestudio|kie|fal|runware|replicate):/i.test(model)) {
@@ -970,7 +976,8 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
   try { operationId = readOperationId(body, true)! } catch (error) {
     return res.status(400).json({ detail: error instanceof Error ? error.message : 'Invalid operation_id.' })
   }
-  const requestedModel = typeof body.model === 'string' ? body.model.trim() : ''
+  const requestedModel = (typeof body.model === 'string' ? body.model.trim() : '')
+    || (await getDefaultModels()).writing || ''
   return withLock(`fresh-motion-prompt:${slug}:${operationId}`, async () => {
     const previous = (await jq.findJobs(slug, freshActionMatch(operationId)))[0]
     if (previous) {

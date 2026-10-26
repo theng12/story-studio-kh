@@ -34,6 +34,8 @@ async function loadPicker(path: string, id: string): Promise<Component> {
   const support = `
     import { computed, onMounted, ref, watch } from ${JSON.stringify(vueUrl)}
     const useGenStudioImageModels = () => globalThis.__mountedImagePickerCatalog
+    // The picker reads Settings → Default models on mount; this harness supplies its own.
+    const useApi = () => ({ get: async () => ({}) })
   `
   const built = await transform(`${support}\n${content}`, { loader: 'ts', format: 'esm' })
   return (await import(`data:text/javascript;base64,${Buffer.from(

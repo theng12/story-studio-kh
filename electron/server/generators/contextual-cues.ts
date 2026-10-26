@@ -49,6 +49,7 @@ import { resolveGenStudioModelId } from '../services/genstudio-model-migration.j
 import { truncateChars } from '../lib/well-formed-text.js'
 import { applyEmojiPolicy, noEmojiDirective } from '../lib/emoji-policy.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
+import { resolveDefaultModel } from '../services/genstudio-default-model.js'
 
 interface CueCandidate {
   scene_id: string
@@ -362,6 +363,9 @@ export async function generateContextualCues(job: Job): Promise<void> {
   if (!config.enabled) throw new Error('Contextual Cues are disabled for this project. Enable them first.')
   const settings = normalizeContextualCueProposalSettings(job.params)
   let model = settings.model
+  // Last of all, this Mac's app-wide writing default (Settings → Default models). Read only: it is
+  // not written into the preset or the channel.
+  if (!model) model = await resolveDefaultModel(await getApiKey('genstudio').catch(() => ''), 'writing') || ''
   if (!model) throw new Error('Choose a live Gateway model in Contextual Cues before proposing cues.')
 
   const apiKey = await getApiKey('genstudio').catch(() => '')

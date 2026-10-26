@@ -214,6 +214,7 @@
             <span v-if="selectedVideoModelAudioNotice" class="model-audio-notice">
               {{ selectedVideoModelAudioNotice }}
             </span>
+            <span v-if="appDefaultVideoGone" class="model-audio-notice" role="status">{{ appDefaultVideoGone }}</span>
           </label>
           <!-- The lane's own switches, rendered from what it publishes and nothing else.
                A model that publishes no switch shows no control here, so this page never
@@ -448,6 +449,7 @@ import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-
 import { hasPriceTruth } from '~/utils/genstudio-price-usd'
 import { variantsForVideoOperation } from '~/utils/genstudio-video-variants'
 import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModels'
+import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } from '~/utils/live-genstudio-model-selection'
 import { motionBatchEligible, sketchSelectionReady } from '~/utils/motion-review-sketch'
 import { HOLD_MAX_SECONDS, holdDrafts, holdFromDraft, holdLabel, type HoldChoice, type HoldDrafts, type SketchHold } from '~/utils/sketch-hold'
 import { REVEAL_LABELS, REVEAL_TYPES, revealChoiceOf, revealFromDraft, revealLabel, revealMixDraft as revealMixFor, type RevealChoice, type SketchReveal, type SketchRevealType } from '~/utils/sketch-reveal'
@@ -1161,6 +1163,31 @@ function selectLiveVideoModel(): void {
   }
 }
 watch([i2vModels, mediaModelsLoaded], selectLiveVideoModel, { immediate: true })
+
+/**
+ * Last of all, the app-wide default video model (Settings → Default models).
+ *
+ * A model this episode saved, or the page's remembered choice, always wins — this fills only an empty
+ * field. Read only: it is never written into the episode or a preset. A default that has left the
+ * catalogue fills nothing and says so.
+ */
+const appDefaults = ref(emptyDefaultModels())
+const appDefaultVideo = computed(() => resolveEffectiveModel(
+  'video',
+  videoModel.value.replace(/^genstudio-video:/, ''),
+  i2vModels.value.map(option => option.id.replace(/^genstudio-video:/, '')),
+  appDefaults.value,
+))
+const appDefaultVideoGone = computed(() => appDefaultVideo.value.goneNotice)
+function fillAppDefaultVideoModel(): void {
+  if (videoModel.value || isSketchDraw.value || !i2vModels.value.length) return
+  const fallback = appDefaultVideo.value.model
+  if (!fallback) return
+  const option = i2vModels.value.find(entry => entry.id === `genstudio-video:${fallback}`)
+  if (!option || option.disabled) return
+  videoModel.value = option.id
+}
+watch(i2vModels, fillAppDefaultVideoModel, { immediate: true })
 
 function chooseResolution(event: Event): void {
   const requested = manualDurationSeconds.value

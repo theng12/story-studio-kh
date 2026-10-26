@@ -81,6 +81,10 @@ async function loadAudioPage(): Promise<Component> {
     const useConfirmation = () => globalThis.__audioManualConfirmation
     const useJobs = () => ({ jobs: globalThis.__audioManualJobs })
     const useRememberedForm = () => undefined
+    // Settings → Default models: the util's own pure decision, so this harness needs no module.
+    const emptyDefaultModels = () => ({ writing: null, image: null, video: null, audio: null, transcription: null, music: null })
+    const normalizeDefaultModels = () => emptyDefaultModels()
+    const resolveEffectiveModel = (_family, selected) => ({ model: selected || '', defaultModel: '', goneNotice: '' })
     const useEpisodeStatus = () => ({ selectedEpisode: ref(null), scriptReady: ref(true), statusKnown: ref(true), refetch: async () => undefined })
     const usePresets = () => ({ load: async () => undefined })
     const subtitleChapterLabel = value => value

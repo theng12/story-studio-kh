@@ -31,6 +31,7 @@ export const SETTINGS_ZONES: SettingsZoneDef[] = [
     scope: 'Every channel on this Mac',
     sections: [
       { id: 'connections', label: 'Connections', description: 'Gateway and YouTube accounts' },
+      { id: 'default-models', label: 'Default models', description: 'The model each kind of work uses when nothing else picks one' },
       { id: 'performance', label: 'Performance & recovery', description: 'How much runs at once, paid replacements' },
       { id: 'appearance', label: 'Appearance & notifications', description: 'Light or dark, alerts, daily brief' },
       { id: 'maintenance', label: 'Files & maintenance', description: 'Where your files are, free up space, FFmpeg' },
@@ -56,6 +57,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { section: 'connections', anchor: 'gateway', label: 'Gateway address and key', keywords: 'gateway gatewaykh url key api connection connect test genstudio' },
   { section: 'connections', anchor: 'youtube-accounts', label: 'YouTube accounts', keywords: 'youtube google oauth connect account channel sign in' },
   { section: 'connections', anchor: 'gateway-catalog', label: 'Gateway model catalog', keywords: 'models catalog chat music available refresh' },
+  { section: 'default-models', anchor: 'default-models', label: 'Default models', keywords: 'default model writing image video voice audio tts transcription subtitles music fallback last used choose' },
   { section: 'connections', anchor: 'scene-analysis', label: 'Scene analysis models', keywords: 'scene analysis depth vision florence subject outline sky water 3d photo rack focus models' },
 
   { section: 'performance', anchor: 'throughput', label: 'How much runs at once', keywords: 'concurrency throughput parallel jobs at once writing images thumbnails transcribing subtitles episodes speed' },

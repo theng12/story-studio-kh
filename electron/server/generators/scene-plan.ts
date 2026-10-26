@@ -31,6 +31,7 @@ import { parseSrt, type SrtCue } from '../lib/subtitle-builder.js'
 import { imagePromptGuidanceBlock, legibleTextGuidanceBlock, resolveAvoidLegibleText, sceneSubjectGuidanceBlock } from '../lib/image-content-guidance.js'
 import { resolveStyleBible } from '../lib/style-bible.js'
 import { callAi, callAiWithModelPolicy, sanitizeJsonControlChars } from '../lib/ai-client.js'
+import { resolveDefaultModel } from '../services/genstudio-default-model.js'
 import type { TextGenerationDiagnostics } from '../providers/types.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 import {
@@ -838,6 +839,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     || params.regenerate_motion_prompt_scene_id || params.regenerate_empty_motion_prompts
     || params.replan_scene_id
   )
+  if (!model && needsModel) {
+    // Last of all, this Mac's app-wide writing default (Settings → Default models). Read only — the
+    // preset and the plan are never rewritten with it.
+    model = await resolveDefaultModel(await getApiKey('genstudio').catch(() => ''), 'writing') || ''
+  }
   if (!model && needsModel) throw new Error('model is required')
   if (!model) model = 'deterministic-timeline'
   // A retry keeps the shape of the requests it already prepared. These are

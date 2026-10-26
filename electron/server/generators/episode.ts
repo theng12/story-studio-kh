@@ -56,6 +56,7 @@ import { pipelinePolicyForJob, pipelinePolicyCheckpointStore } from '../lib/pipe
 import { MAX_NARRATION_SENTENCE_CHARS } from '../lib/tts-text.js'
 import { auditNarrationSection } from '../lib/narration-section-audit.js'
 import { withLock } from '../lib/atomic-store.js'
+import { resolveDefaultModel } from '../services/genstudio-default-model.js'
 
 // v1.0.166 — fuseFormatWithPattern() removed with the Pattern system.
 // Title shaping happens at idea-time via the Ideas page's title_template
@@ -994,12 +995,15 @@ async function setupChunkedJobContext(
   const snapshotModel = typeof snapshot?.model === 'string' && snapshot.model.trim()
     ? snapshot.model.trim()
     : undefined
-  const model = requestedModel || snapshotModel
   // Without a model the downstream callAi → provider dispatch crashes inside
   // `modelId.startsWith(...)` and every batch fails with the cryptic
   // "Cannot read properties of undefined (reading 'startsWith')". Surface a
-  // clear, actionable error here instead.
-  if (typeof model !== 'string' || !model.trim()) {
+  // clear, actionable error here instead. Before refusing, this Mac's app-wide
+  // writing default (Settings → Default models) gets its turn — READ only, so it
+  // is never written into the request, the preset or the project config.
+  const model = requestedModel || snapshotModel
+    || (await resolveDefaultModel(await getApiKey('genstudio').catch(() => ''), 'writing') || '')
+  if (!model.trim()) {
     throw new Error('No model selected — pick a model in the script form before expanding.')
   }
   // Say it out loud when the run will not use the model the outline was built

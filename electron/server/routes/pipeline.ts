@@ -8,7 +8,7 @@
  * hand-off between steps on successful completion.
  */
 
-import { paidFallbacksWarning } from '../services/app-settings.js'
+import { paidFallbacksWarning, getDefaultModels, type DefaultModelFamily } from '../services/app-settings.js'
 import { Router, type Request, type Response } from 'express'
 import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
@@ -334,6 +334,14 @@ interface BatchPreflight {
   stepsAdded: Array<{ episode_id: string; steps: BatchStep[] }>
   /** Cleaned-up media still stops an episode at dispatch (not Force, retired_media on Block). */
   retiredMediaBlocks: boolean
+  /**
+   * The app-wide default models, read once per preflight (Settings → Default models).
+   *
+   * A step whose preset names no model uses one of these when it is set, instead of being left out.
+   * It is only ever READ — never written into a preset or the job params — so changing a default
+   * later still reaches the next run (AGENTS §1, §5).
+   */
+  defaultModels: Awaited<ReturnType<typeof getDefaultModels>>
 }
 
 const SAFETY_CHECK_NAME = new Map(SAFETY_CHECKS.map(check => [check.id, check.name]))
@@ -683,6 +691,7 @@ async function preflightBatch(
   }
   projectFacts.ideas = Promise.resolve(ideas as unknown as Array<Record<string, unknown>>)
   const startingPacing = await readProjectStartingPacing(slug)
+  const defaults = await getDefaultModels()
   const effectiveFormat = await getEffectiveFormat(slug)
   const musicChannel = await isMusicChannel(slug)
   const foreignSteps = requestedSteps.filter(step => musicChannel ? !MUSIC_STEPS.includes(step) : step === 'music_build')
@@ -808,7 +817,14 @@ async function preflightBatch(
     // PRESET_MODEL_READERS. Said here rather than letting the step enqueue and
     // die inside its generator, and handled through the SAME `step_preset`
     // switch as a missing preset, because to the operator it is the same fact.
-    if (presetHasNoWritingModel(step, result.preset)) {
+    //
+    // EXCEPT when this Mac has an app-wide default for that family (Settings →
+    // Default models, owner 2026-10-27): the default is then the model this run
+    // uses, exactly as a page uses it at read time. Only a default that is SET
+    // counts — a default that has left the catalogue is not checked here, and
+    // the generator refuses it by name when the step runs, because availability
+    // is a live fact this preflight must not freeze.
+    if (presetHasNoWritingModel(step, result.preset) && !defaultAdmitsModelLessPreset(step, defaults)) {
       const message = presetModelMissingMessage(step)
       if (ticked && mode('step_preset') === 'block') addMissingPresetIssue(issues, visualSettingsByEpisode, step, message)
       else if (ticked) leaveOut(step, 'step_preset', message)
@@ -1020,6 +1036,7 @@ async function preflightBatch(
     ok: issues.length === 0, issues, warnings, presetByStep, ideaByCode,
     effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel, introductionChatModel,
     visualSettingsByEpisode, projectFacts, startingPacing, musicChannel,
+    defaultModels: defaults,
     videoEffects: requiredSteps.has('video_assembly') ? withCaptionGaps(videoEffectsAnswer(config, presetByStep.video_assembly, musicChannel), captionGaps) : null,
     // Drop an opening that no eligible episode will run. Explicit manual
     // generation uses its own route and is unaffected. Read live, so the set the
@@ -1223,6 +1240,52 @@ export function presetHasNoWritingModel(step: BatchStep, preset: StoredPreset | 
 
 /** The two thumbnail steps, for the places that phrase their refusal differently. */
 const THUMBNAIL_MODEL_STEPS: readonly BatchStep[] = ['image_prompts', 'thumb_images']
+
+/**
+ * Which app-wide default (Settings → Default models) a step's JOB PARAMS fall back to when its
+ * preset names no model.
+ *
+ * Every step that submits a model is here. This one table feeds the fold-in at enqueue time.
+ */
+const STEP_DEFAULT_MODEL_FAMILY: Partial<Record<BatchStep, DefaultModelFamily>> = {
+  'script-only': 'writing',
+  scene_plan: 'writing',
+  image_prompts: 'writing',
+  contextual_cues: 'writing',
+  metadata: 'writing',
+  thumb_images: 'image',
+  scene_review: 'image',
+  motion_review: 'video',
+  audio: 'audio',
+  subtitles: 'transcription',
+}
+
+function defaultModelFamilyForStep(step: BatchStep): DefaultModelFamily | null {
+  return STEP_DEFAULT_MODEL_FAMILY[step] || null
+}
+
+/** The app-wide default this step would use, or '' when it has none. Read-only. */
+function defaultModelForStep(
+  step: BatchStep,
+  defaults: Awaited<ReturnType<typeof getDefaultModels>>,
+): string {
+  const family = defaultModelFamilyForStep(step)
+  return family ? (defaults[family] || '') : ''
+}
+
+/**
+ * Whether a model-less preset is ADMITTED because this Mac has a default for that step.
+ *
+ * Narrower than the table above on purpose: admission is only relaxed for the steps
+ * `PRESET_MODEL_READERS` already classifies, so the `step_preset` safety check keeps its exact
+ * previous reach. Every other step's model comes from its own preset and its own guard.
+ */
+function defaultAdmitsModelLessPreset(
+  step: BatchStep,
+  defaults: Awaited<ReturnType<typeof getDefaultModels>>,
+): boolean {
+  return PRESET_MODEL_READERS[step] ? !!defaultModelForStep(step, defaults) : false
+}
 
 function isThumbnailModelStep(step: BatchStep): step is ThumbnailStep {
   return THUMBNAIL_MODEL_STEPS.includes(step)
@@ -1676,7 +1739,10 @@ async function resolvePipelineTranscriptionParams(
   } catch {
     throw new Error('Could not load transcription models. Check the Gateway app is running, then try again.')
   }
-  const requestedModel = typeof params.model === 'string' ? params.model.trim() : ''
+  const requestedModel = (typeof params.model === 'string' ? params.model.trim() : '')
+    // Last of all, this Mac's app-wide default transcription model (Settings → Default models).
+    // Read only — the preset is never rewritten.
+    || ((await getDefaultModels()).transcription || '')
   const modelId = resolveGenStudioModelId('transcription', requestedModel)
   if (!modelId) throw new Error(unavailableLegacyModelMessage('transcription', requestedModel || '(none)'))
   const selected = models.find(model => model.id === modelId)
@@ -1694,7 +1760,9 @@ async function resolvePipelineMotionParams(
   preset: StoredPreset,
 ): Promise<{ model: string; operation: string; duration_seconds: number; resolution: string; audio?: boolean }> {
   const params = resolveStepParams('motion_review', '', '', preset)
-  const model = typeof params.model === 'string' ? params.model.trim() : ''
+  const model = (typeof params.model === 'string' ? params.model.trim() : '')
+    // Last of all, this Mac's app-wide default video model (Settings → Default models).
+    || ((await getDefaultModels()).video || '')
   const operation = typeof params.operation === 'string' ? params.operation.trim() : ''
   const duration_seconds = Number(params.duration_seconds)
   const resolution = typeof params.resolution === 'string' ? params.resolution.trim() : ''
@@ -2553,6 +2621,8 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
   const presetByStep = preflight.presetByStep as Record<BatchStep, StoredPreset>
   const ideaByCode = preflight.ideaByCode
   const effectiveFormat = preflight.effectiveFormat
+  // This Mac's app-wide defaults (Settings → Default models), read once with the preflight.
+  const defaults = preflight.defaultModels
 
   // A `metadata` preset can omit a saved model (legacy presets, or ones that never set one). Story
   // Studio never picks one on the owner's behalf (2026-10-03): such a step is skipped below with a
@@ -2841,6 +2911,10 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       if (step === 'character_sheet') continue
       if (step === 'script-only') {
         const outlineParams = resolveStepParams('script-only', episodeId, idea.title || '', presetByStep['script-only'], effectiveFormat)
+        // A Script preset that names no model runs on this Mac's app-wide writing default. Read,
+        // never written back into the preset.
+        const scriptDefault = defaultModelForStep('script-only', defaults)
+        if (scriptDefault && !String(outlineParams.model || '').trim()) outlineParams.model = scriptDefault
         const episodePaths = await resolveEpisodePathsByCode(slug, episodeId)
         const completion = await inspectChunkedScriptCompletion(episodePaths.script_dir, episodeId)
         // 1.4.359 — the channel's "Chapters per request" setting is reusable
@@ -2888,6 +2962,12 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
           params.prompt_char_cap = thumbnailCapInputs.prompt_char_cap
           params.intended_image_model = thumbnailCapInputs.intended_image_model
         }
+        // A preset that named no model runs on this Mac's app-wide default for that family
+        // (Settings → Default models). The default is folded into the JOB's own params, not into
+        // the preset or the channel: a job already queued keeps the model it was admitted with,
+        // and the next run re-reads the setting.
+        const appDefaultModel = defaultModelForStep(step, defaults)
+        if (appDefaultModel && !String(params.model || '').trim()) params.model = appDefaultModel
         // 1.4.282 — readable on the job: exactly what this render bakes in. Never read by the render.
         if (step === 'video_assembly') {
           // 1.4.312 — every key this step's resolution produced, and the preset the batch chose for

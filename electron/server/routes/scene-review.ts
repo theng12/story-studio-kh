@@ -67,10 +67,30 @@ import { revalidatePreview, streamTo } from '../lib/stream-file.js'
 import { ensureThumbnail } from '../lib/thumbnail-cache.js'
 import { safetyModeFromConfig } from '../services/safety-checks.js'
 import { inspectExistingTranscriptSource } from '../services/subtitle-correction.js'
+import { getDefaultModels } from '../services/app-settings.js'
 
 export const router = Router()
 
 const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+/**
+ * The image model a Scene Review request renders with: what the request named, else this Mac's
+ * app-wide default image model (Settings → Default models).
+ *
+ * Read at REQUEST time and never written back into the episode, a preset or the plan, so changing
+ * the default later reaches the next render (AGENTS §1, §5). Returns '' when neither names one; the
+ * caller then refuses with its own sentence, exactly as before.
+ */
+async function requestedSceneImageModel(body: any): Promise<string> {
+  const named = typeof body?.model === 'string' ? body.model.trim() : ''
+  return named || ((await getDefaultModels()).image || '')
+}
+
+/** The same rule for the image-to-video clip routes: the request's model, else the video default. */
+async function requestedSceneClipModel(body: any): Promise<string> {
+  const named = typeof body?.model === 'string' ? body.model.trim() : ''
+  return named || ((await getDefaultModels()).video || '')
+}
 
 /**
  * v1.4.82 — drop this episode's cached status so the next episode-list read
@@ -855,7 +875,7 @@ async function enqueueContinuityRender(
     manualFinish?: ManualFinishMarker
   } = {},
 ) {
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  const model = await requestedSceneImageModel(body)
   if (!model) throw new Error('model is required')
   const singleSceneId = opts.singleSceneId || (typeof body.single_scene_id === 'string' ? body.single_scene_id : undefined)
   const dedupeParams = singleSceneId
@@ -914,7 +934,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
   const { slug, episodeId } = req.params
   const body = req.body || {}
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  const model = await requestedSceneImageModel(body)
   const operationId = typeof body.operation_id === 'string' ? body.operation_id.trim() : ''
   const aspectRatio = normalizedAspectRatio(body.aspect_ratio)
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
@@ -1001,7 +1021,7 @@ async function enqueueMissingScenes(
   const slug = String(req.params.slug)
   const episodeId = String(req.params.episodeId)
   const body = req.body || {}
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  const model = await requestedSceneImageModel(body)
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
   try {
@@ -1168,7 +1188,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
   const body = req.body || {}
   if (body.renderer === 'sketch_draw') return enqueueSketchDraw(req, res, true)
   const sceneId = typeof body.scene_id === 'string' ? body.scene_id.trim() : ''
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  const model = await requestedSceneClipModel(body)
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
   if (!model) return res.status(400).json({ detail: 'model is required' })
   let durationMode: SceneClipDurationMode
@@ -1243,7 +1263,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
   const { slug, episodeId } = req.params
   const body = req.body || {}
   if (body.renderer === 'sketch_draw') return enqueueSketchDraw(req, res, false)
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  const model = await requestedSceneClipModel(body)
   if (!model) return res.status(400).json({ detail: 'model is required' })
   let durationMode: SceneClipDurationMode
   try { durationMode = requestedSceneClipDurationMode(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
@@ -1314,7 +1334,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
   const { slug, episodeId } = req.params
   const body = req.body || {}
   if (body.renderer === 'sketch_draw') return enqueueSketchDraw(req, res, false)
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  const model = await requestedSceneClipModel(body)
   if (!model) return res.status(400).json({ detail: 'model is required' })
   let durationMode: SceneClipDurationMode
   try { durationMode = requestedSceneClipDurationMode(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
@@ -1418,7 +1438,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
 router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = req.body || {}
-  const model = typeof body.model === 'string' ? body.model.trim() : ''
+  const model = await requestedSceneImageModel(body)
   if (!model) return res.status(400).json({ detail: 'model is required' })
 
   const singleSceneId = typeof body.single_scene_id === 'string' ? body.single_scene_id : undefined

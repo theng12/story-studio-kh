@@ -82,6 +82,9 @@ async function loadAudioPage(): Promise<Component> {
     const useRememberedForm = () => undefined
     const useEpisodeStatus = () => ({ selectedEpisode: ref(null), scriptReady: ref(true), statusKnown: ref(true), refetch: async () => undefined })
     const usePresets = () => ({ load: async () => undefined })
+    const emptyDefaultModels = () => ({ writing: null, image: null, video: null, audio: null, transcription: null, music: null })
+    const normalizeDefaultModels = () => emptyDefaultModels()
+    const resolveEffectiveModel = (_family, selected) => ({ model: selected || '', defaultModel: '', goneNotice: '' })
   `
   const content = script.content
     .replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm, '')

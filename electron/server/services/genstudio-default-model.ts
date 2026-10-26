@@ -15,8 +15,16 @@
  * it is usable. This module is the single place that check lives.
  */
 
-import { listChatModels } from '../lib/genstudio-client.js'
+import {
+  listChatModels,
+  listImageModels,
+  listMusicModels,
+  listTranscriptionModels,
+  listTtsModels,
+  listVideoModels,
+} from '../lib/genstudio-client.js'
 import type { GenStudioChatModel } from '../lib/genstudio-client.js'
+import { getDefaultModels, type DefaultModelFamily } from './app-settings.js'
 
 /**
  * "Choose a writing model on <where>" — the one sentence every writing step shows when nothing was
@@ -29,6 +37,13 @@ export function noWritingModelChosenMessage(where: string): string {
     + 'Story Studio does not pick a writing model for you.'
 }
 
+/** The sentence for a default that has left the catalogue. Never a substitute model. */
+export function defaultModelGoneMessage(family: DefaultModelFamily, modelId: string): string {
+  const noun = family === 'audio' ? 'voice' : family
+  return `Your default ${noun} model "${modelId}" is no longer available — choose another. `
+    + 'Story Studio did not switch to a different model.'
+}
+
 /** A product is selectable when GenStudio marks it available, unlocked, and
  *  not qualification-gated. Never infer usability from the product's name. */
 function isUsableChatModel(model: GenStudioChatModel): boolean {
@@ -38,10 +53,15 @@ function isUsableChatModel(model: GenStudioChatModel): boolean {
 /**
  * The writing model the owner chose, confirmed against the live catalogue — or a plain error.
  *
- *  - Nothing chosen → error naming where to choose one. Nothing is picked on his behalf.
+ *  - Nothing chosen → this Mac's app-wide writing default (Settings → Default models) when it is
+ *    set and live; otherwise an error naming where to choose one. Nothing is picked on his behalf.
  *  - Chosen but removed, unavailable, qualification-only or locked → error naming the model.
  *    No other model is substituted, ever.
  *  - Catalogue unreachable → error; no literal id is guessed.
+ *
+ * The default is the LAST link: a preset's model, or the id a page already resolved from its own
+ * remembered choice, always wins because it arrives here as `chosenModelId`. It is read, never
+ * written back into a preset or a channel.
  */
 export async function resolveChosenChatModel(
   apiKey: string,
@@ -49,7 +69,12 @@ export async function resolveChosenChatModel(
   where: string,
 ): Promise<string> {
   const chosen = chosenModelId?.trim() || ''
-  if (!chosen) throw new Error(noWritingModelChosenMessage(where))
+  if (!chosen) {
+    // An unset default resolves to null; a set-but-gone one throws naming it.
+    const fallback = await resolveDefaultModel(apiKey, 'writing')
+    if (fallback) return fallback
+    throw new Error(noWritingModelChosenMessage(where))
+  }
 
   let catalog: GenStudioChatModel[]
   try {
@@ -68,4 +93,70 @@ export async function resolveChosenChatModel(
     `The writing model "${chosen}" isn't available right now.${paid} Pick another one on ${where}, or try again later. `
     + 'Story Studio did not switch to a different model.',
   )
+}
+
+/**
+ * The app-wide default model for one generation family, confirmed against the live catalogue — or
+ * `null` when this Mac has no default for it.
+ *
+ * This is the LAST step of the one precedence chain, read at USE time only:
+ *
+ *   the preset's saved model → the page's remembered last choice → this default
+ *
+ * Nothing is ever written back into a preset, a channel config or a remembered form: a default that
+ * changed later would otherwise be baked into the owner's saved work.
+ *
+ *  - No default set → `null`, and the caller shows its own "choose a model" sentence.
+ *  - Default set and live → its id.
+ *  - Default set but gone, unavailable, locked or qualification-gated → an error NAMING it. No other
+ *    product is substituted (2026-10-03: Story Studio never picks a model for the owner), and the
+ *    field is left empty rather than filled with something he did not choose.
+ *  - Catalogue unreachable → error; no literal id is guessed.
+ */
+export async function resolveDefaultModel(
+  apiKey: string,
+  family: DefaultModelFamily,
+): Promise<string | null> {
+  const chosen = (await getDefaultModels())[family]?.trim() || ''
+  if (!chosen) return null
+
+  let usable: Set<string>
+  try {
+    usable = await usableModelIds(apiKey, family)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `Could not check your default ${family} model "${chosen}": the model list is unreachable (${message}). `
+      + 'Check the connection in Settings → This Mac, then try again.',
+    )
+  }
+  if (usable.has(chosen)) return chosen
+  throw new Error(defaultModelGoneMessage(family, chosen))
+}
+
+/** Which published ids may be submitted for one family, decided from that family's own catalogue. */
+async function usableModelIds(apiKey: string, family: DefaultModelFamily): Promise<Set<string>> {
+  const usable = (rows: ReadonlyArray<{
+    id: string
+    available?: boolean
+    locked?: boolean
+    qualification_only?: boolean
+    coming_soon?: boolean
+    generation_enabled?: boolean
+  }>): Set<string> => new Set(rows
+    .filter(row => row.available !== false
+      && row.locked !== true
+      && row.qualification_only !== true
+      && row.coming_soon !== true
+      && row.generation_enabled !== false)
+    .map(row => row.id))
+
+  switch (family) {
+    case 'writing': return usable(await listChatModels(apiKey))
+    case 'image': return usable(await listImageModels(apiKey))
+    case 'video': return usable(await listVideoModels(apiKey))
+    case 'audio': return usable(await listTtsModels(apiKey))
+    case 'transcription': return usable(await listTranscriptionModels(apiKey))
+    case 'music': return usable(await listMusicModels(apiKey))
+  }
 }

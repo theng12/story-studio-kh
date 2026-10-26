@@ -30,6 +30,7 @@ import {
   getPaidReplacementSettings,
   getManualGenerationRedoSetting, setManualGenerationRedoSetting,
   getPrivateFinalRenderSetting, setPrivateFinalRenderSetting,
+  getDefaultModels, setDefaultModels,
   recordAutomationKeyUse,
   setAppSetting,
 } from '../services/app-settings.js'
@@ -195,6 +196,23 @@ router.put('/app-settings/paid-writing-replacement', async (req, res) => {
     res.json(await setPaidWritingReplacementSetting(req.body))
   } catch (e: any) {
     res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save paid writing replacement setting'))
+  }
+})
+
+// Default models per generation family — one per Mac, read at use time only.
+router.get('/app-settings/default-models', async (_req, res) => {
+  try {
+    res.json(await getDefaultModels())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load default models'))
+  }
+})
+
+router.put('/app-settings/default-models', async (req, res) => {
+  try {
+    res.json(await setDefaultModels(req.body))
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save default models'))
   }
 })
 
