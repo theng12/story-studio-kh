@@ -1,6 +1,42 @@
 # HANDOFF — Story Studio KH
 
-## Unreleased — Facebook, Instagram and TikTok posting, strictly opt-in (feat/social-posting-20261027, from main fdf821f9)
+## 1.4.361 — integration of the 2026-10-26/27 batch (release/1.4.361 from main fdf821f9, 2026-10-27)
+
+Merged: sleep tiered pacing · narration Reject + provenance + 6% music default · one-list model pickers
+(legacy video readers removed) · Khmer narration plausibility · Default models · Sketch Draw reveal per
+episode (+ pins) · Quote Shorts · social posting (opt-in, unused) · rules refresh + Sora/Runway scrub ·
+Reference to Image (Story side; hidden until a live row publishes reference support) · gain unit +
+keep replaced final 3 days · preset coverage audit · fast backend gate · content ship (registry re-chained
+to revision 348 via the repo's tools).
+
+Learned at integration:
+- The DM0018/PR0039 loud beds came from Production's own direct-API trial driver forwarding preset
+  percents, not from the app. Pipeline already divided once; 1.4.361 only centralises that conversion
+  and stops a non-numeric level being forwarded raw. Direct API callers must send LINEAR gain.
+- The model-drift guard caught `max_reference_images ?? 0` / `|| 0` (R2I) and the Formula aspect enum
+  (Quote Shorts). An unpublished reference limit now refuses; the enum is annotated as canvas vocabulary.
+- The worker-pool backend lane is merged but NOT yet proven: the gate of record runs
+  `STORY_STUDIO_BACKEND_TEST_WORKERS=1` until a serial and a pooled run agree on one commit (AGENTS §10).
+- Open: the remote-render import still hands a replaced final straight to Story's Trash (no 3-day
+  window); `illustrated-history-for-sleep` 1.0.0's 1.4.250 floor cites a field its document never
+  carried (likely over-pinned; left as authored); the dead `align_visuals_to_chapters` preset key is left
+  (harmless, §5 forbids rewriting).
+
+## 1.4.361 — the Sleep starting rhythm is four tiers, carried by the Sleep Formulas (2026-10-26)
+
+Owner, 2026-10-26 (product answers, item 1): *"Sleep pacing, for ALL sleep channels from now on: 0–3 min a scene every 5–10 s; 3–5 min every 10–20 s; 5–10 min every 20–30 s; after 10 min every 50–60 s. Applies whether the motion is stills or Sketch Draw. Delivered as the Sleep Formula's starting rhythm, so every episode can still change it in Scene Plan. Never rewrite stored episode or project data."*
+
+New optional series-formula field `starting_scene_pacing` — the existing `variable` periods shape (`contracts/pacing.ts`), validated by `StartingScenePacingSchema` in `content-packs/schemas.ts` (first period at 0, contiguous, only the last open, 1–60 s), mapped in `content-packs/legacy-adapters.ts` onto `Niche.startingScenePacing` (`models/types.ts`), and copied at creation by `services/formula-starting-defaults.ts` into a NEW channel's `config.json` `default_scene_pacing` through `parseScenePacing`. Tiers supersede `starting_scene_seconds` when a Formula declares both; the band stays valid everywhere else. The 2026-10-19 owner standard seed is untouched, the seeded "Owner standard pacing" preset is untouched, an episode's own `continuity.json` pacing still wins through `claim_pacing`, and no stored channel or episode is rewritten.
+
+Tiers ship in `electron/server/niches/sleep.json` (the alias fallback) and in five successor pack sources — Sleep Story `sleep-story-v1.0.3`, Sleep History Compilation `sleep-history-compilation-v1.0.2`, Calm Science for Sleep `calm-science-for-sleep-v1.0.1`, Mythology for Sleep `mythology-for-sleep-v1.0.1`, Illustrated History for Sleep `illustrated-history-for-sleep-v1.0.1`. Each replaced `starting_scene_seconds` with `starting_scene_pacing` so it states one rhythm. Registry: reserved at revision 327, authored at 328–332; `legacy-migration-dispositions.json` `niche:sleep` follows 1.0.3; `docs/catalogue` regenerated (its 2026-10-24 drift came with it).
+
+**Release classification: application, not content-only** — the currently released runtime does not support the new schema field. Consequences handled here: `package.json`/`package-lock.json` 1.4.361 and this CHANGELOG entry. The five successor packs carry an **explicit `min_app_version: "1.4.361"`** in `pack.json` and in their registry records (`min_app_version_status: "fixed"`, which `validate` requires to match the manifest), because the series-formula schema is `.strict()` and an older build rejects a document carrying `starting_scene_pacing` rather than ignoring it. **`content-packs/release-floor.json` stays at 1.0.843** — it is substituted into every other pack, so raising it would hide 50+ Formulas and the Custom Looks from 1.4.359/1.4.360 for no reason (coordinator, 2026-10-26). The previously published versions of these five stay installable on every build.
+
+Tests: `formula-starting-defaults.test.ts` now pins the tiers on the niche and all five sources (and the precedence chain); new `sleep-tiered-starting-pacing.test.ts` pins each boundary (≤179.9 s 5–10, 180 s 10–20, ≤299.9 s 10–20, 300 s 20–30, ≤599.9 s 20–30, 600 s+ 50–60), contiguity, the open final tier and the never-faster-as-it-lengthens direction; `free-starter-inventory.test.mjs` pins the seven `-v1.0.3` roots (six were the 2026-10-25 modernization's, previously unpinned); `formula-chapter-pause` / `narration-paragraph-pause` read the current Sleep Story source. Content-pack lane files run individually here: registry 41/41, publisher-tools 24/24, inventory 3/3, dispositions 1/1, illustrated-history 6/6, sleep-history 5/5. Not run in this worktree: the full gate, the DMG, the land-to-main flow, and any store ship — a Story gate was running on this Mac. The five successor packs must not be shipped to the Library before 1.4.361 is out.
+
+Open: the seeded "Owner standard pacing" preset still carries the 2026-10-19 tiers on a Sleep channel while its `default_scene_pacing` now carries the Sleep tiers — the preset is what the timing panel shows as "last used", so a Sleep channel's panel can display the standard tiers until the customer saves a rhythm. Not changed here because that preset is the owner's known artefact, not a Formula output.
+
+## 1.4.361 (part) — Facebook, Instagram and TikTok posting, strictly opt-in (feat/social-posting-20261027, from main fdf821f9)
 
 Owner decision 2026-10-27: build posting to Facebook (Page video), Instagram (Reels) and TikTok (Direct Post).
 **Strictly opt-in.** A channel connects accounts and ticks which platforms it posts to; every upload shows those
@@ -131,7 +167,7 @@ here:** after every build, fail loudly if `package.json` has lost `scripts` or `
 ---
 
 **Release history — the three latest entries, in full:**
-## Unreleased — faster backend gate: worker pool + measured slow-file waits (2026-10-26)
+## 1.4.361 (part) — faster backend gate: worker pool + measured slow-file waits (2026-10-26)
 
 Owner decision, 2026-10-26: "do all 4 if possible so it's faster." The 1.4.359 gate took ~2.5 h
 (backend 5,250 s of the 5,400 s watchdog, frontend ~510 s, content-packs ~600–900 s). This branch

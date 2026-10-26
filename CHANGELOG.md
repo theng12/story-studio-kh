@@ -4,6 +4,25 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.361 — 2026-10-27
+
+- Sleep channels start on their own scene rhythm: a new scene every 5–10 seconds for the first 3 minutes, 10–20 seconds from 3 to 5 minutes, 20–30 seconds from 5 to 10 minutes, then 50–60 seconds from 10 minutes on. It is the starting rhythm of Sleep Story, Sleep History Compilation, Calm Science for Sleep, Mythology for Sleep and Illustrated History for Sleep, and of a plain sleep channel created without a Formula. Every episode can still change it in Scene Plan's Visual timing & motion panel, and channels and episodes you already have keep the rhythm they already have — nothing stored is rewritten.
+- Five Studio Library Sleep Formulas have new versions for that rhythm: Sleep Story 1.0.3, Sleep History Compilation 1.0.2, and 1.0.1 for Calm Science for Sleep, Mythology for Sleep and Illustrated History for Sleep. They need this release or later; the versions you have already installed keep working exactly as before.
+- Every other channel is unchanged: a channel whose Formula names no rhythm still starts on the owner standard tiers, and a channel whose Formula names one still uses it.
+- Narration: a take can be rejected with a reason. It is never used or merged again, can be restored for 3 days, and then moves to Story's Trash. Each take now shows which voice engine, model and voice made it, when that was recorded.
+- Khmer narration gets a reading-rate check: a take that reads far faster or slower than this voice usually does is flagged as "Reading rate looks wrong". It warns and never blocks.
+- Background music starts at 6% for a new episode, or one that never set a level. Music in Audio Assembly is now optional: with none chosen, the episode is assembled with narration only.
+- Model pickers are one searchable list everywhere. The tier tabs are gone.
+- Settings → This Mac → Default models: one model per kind of work (writing, image, video, voice, transcription, music), used only when no preset and no remembered choice names one. A default the Gateway no longer offers is named, never swapped for another.
+- Sketch Draw's reveal style and Mix belong to each episode, and the Motion Review preset carries them. A scene can be pinned to a style or set back to follow the episode.
+- Reference to Image (Scene Review): when the selected image model says it accepts reference images, a scene can carry this episode's own character portraits. It appears only for such models.
+- Quote Shorts: a new built-in Formula for vertical quote videos, with vertical subtitle styles and captions sized to fit a 9:16 frame.
+- Facebook, Instagram and TikTok posting is built and strictly opt-in: nothing posts until accounts are connected and a channel ticks the platforms.
+- A re-assembled final video keeps the one it replaced for 3 days, then moves it to Story's Trash. A failed re-assembly leaves the previous final in place.
+- Presets: Audio Assembly presets keep the music settings but never a file. Video Assembly presets stop carrying one episode's files into another. A Scene Plan preset naming a retired image model applies, uses that model's current name, and says so. Scene Review presets remember the output size.
+- Audio levels: a preset's percent level is converted to the mixer's level in one place, and a malformed value is no longer passed through unconverted.
+- Content: the Studio Library gains the adopted custom art styles and refreshed Formula floors.
+
 ## v1.4.360 — 2026-10-26
 
 - Sketch Draw v2: five reveal styles — Line, Build-up, Swipes, Patches and Bloom — plus Mix, which spreads two to five of them through an episode without repeating one on consecutive scenes. Pick a reveal for the whole channel in Motion Review, or set one scene's own. Clips made before reveal styles still count as finished, and a scene renders in a second or two.
