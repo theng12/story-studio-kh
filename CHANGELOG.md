@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.360 — 2026-10-26
+
+- Sketch Draw v2: five reveal styles — Line, Build-up, Swipes, Patches and Bloom — plus Mix, which spreads two to five of them through an episode without repeating one on consecutive scenes. Pick a reveal for the whole channel in Motion Review, or set one scene's own. Clips made before reveal styles still count as finished, and a scene renders in a second or two.
+- Channels page: every card shows its Series Formula by name, search finds a channel by its Formula too, and "Recently worked on" now notices a script, scene plan or chapter saved inside an episode — not only files at the channel's top level.
+- A remote render the Gateway refused and that then finished on this Mac stays done after a restart, instead of queueing the whole episode again.
+- Cancel on such a refused render now really cancels. It stops the render on this Mac and leaves the accepted final video, its folder and the refusal record exactly as they are; before, the row went back to running and rendered the episode again.
+- A refused render whose new render could not replace an accepted final — because the video already existed — no longer shows as a failed job. It settles as done from the saved result and the published final, and the job log says so. The newer render stays in the work folder, untouched.
+
 ## v1.4.359 — 2026-10-26
 
 - Series Formula is now a required choice when you create a channel — pick a Formula, or choose "Generic — no Formula" on purpose (for testing). Channels that never chose one show a prompt with a suggested Formula; nothing is assigned until you click. Channels on an older Formula now read the matching current Studio Library Formula; their settings are not rewritten.
