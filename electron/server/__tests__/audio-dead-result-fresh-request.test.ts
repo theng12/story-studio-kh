@@ -24,6 +24,8 @@ const { setApiKey } = await import('../services/app-secrets-store.js')
 const { setGenStudioUrl } = await import('../services/app-settings.js')
 const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
 const { readManifest } = await import('../services/task-manifest.js')
+const { _setJobAutoRetryDelaysForTesting } = await import('../services/job-retry-policy.js')
+const { _setGenStudioPollLadderForTesting } = await import('../lib/genstudio-client.js')
 const { probeAudioSignature } = await import('../lib/audio-concat.js')
 
 const FLEET = 'studio-hub::tiny-model'
@@ -40,6 +42,15 @@ const model = (id: string) => ({
 service.ttsModels = [model(FLEET), model(PAID)]
 clearGenStudioCatalogCache()
 jq.registerExecutor('audio', job => generateAudio(job))
+
+// Every case here drives a job into its SECOND attempt on purpose, and free-fleet work waits the
+// real 60 s before it. What each test proves is which work that attempt asks for and what it says,
+// not how long the customer waited first, so the schedule is compressed to milliseconds. The number
+// of attempts and the reasons for them are unchanged (job-retry-policy.ts keeps the list's length).
+_setJobAutoRetryDelaysForTesting(5)
+// The same for the poll cadence: the mock answers in milliseconds, so every wait between polls is
+// one second of nothing. Polling more often shows the same sequence of states and the same requests.
+_setGenStudioPollLadderForTesting([10])
 
 test.after(async () => {
   assert.equal(await jq.drainJobPersistenceForShutdown(2_000), true)

@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { lstatSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { availableParallelism } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -403,10 +404,338 @@ async function snapshotConfiguredProjects(root) {
   }
 }
 
+/**
+ * Files that run ALONE, at concurrency 1, whatever the pool size.
+ *
+ * Owner decision, 2026-10-26: the backend gate may run its files in parallel
+ * ("do all 4 if possible so it's faster"). A file belongs here for one of two
+ * reasons, and its entry says which:
+ *
+ *   • MEASURED — it failed while other files were running and passed when rerun
+ *     alone. That is the 2026-10-24 gate A run with zero failing tests.
+ *   • DECLARED — the file asserts a WALL-CLOCK ceiling or an exact number of
+ *     interval fires. Such an assertion is load-sensitive by construction: four
+ *     workers on one machine is exactly the condition it was not written for, so
+ *     running it in the pool would turn a product assertion into a bet on the
+ *     machine. They are cheap (the whole declared list is under 15 s), so the
+ *     pool loses nothing worth having.
+ *
+ * Anything that flakes in a proof run joins this list, and the run is repeated.
+ */
+export const SERIAL_TEST_FILES = [
+  // MEASURED — "download aborted part way" holds a real child process and a real timer open.
+  'app-update.test.ts',
+  // MEASURED — bulk evidence is timed against wall clock, not a mocked one.
+  'publishing-overview-bulk-evidence.test.ts',
+  // MEASURED, 2026-08-28 — "Cannot read properties of undefined (reading 'watchedMtimes')" under load.
+  'episode-status-warm-list.test.ts',
+  // DECLARED — "expected <10s, took Nms" around real ffmpeg work.
+  'ffmpeg-manager.test.ts',
+  // DECLARED — a 600 ms ceiling on the pause guard interrupting a retry-after.
+  'genstudio-image-admission-permit.test.ts',
+  // DECLARED — a cancelled wait must be noticed inside 1.5 s.
+  'genstudio-poll-backoff.test.ts',
+  // DECLARED — a warm read must answer inside 2 s (jobs-read-latency, jobs-history).
+  'jobs-read-latency.test.ts',
+  'jobs-history.test.ts',
+]
+
+/**
+ * Extra names for the serial list, comma separated, for an operator who needs a
+ * file alone without editing this script.
+ *
+ * ADDITIVE ONLY, on purpose: the environment can make the run more cautious and
+ * can never make it less. A variable that could empty this list would be a way
+ * to quietly undo a measured decision, which is exactly what the list exists to
+ * prevent — and it is also how the harness proves the split path without paying
+ * for `app-update.test.ts`.
+ */
+export const SERIAL_TEST_FILES_ENV = 'STORY_STUDIO_BACKEND_SERIAL_TESTS'
+export function serialTestFileNames(env = process.env) {
+  const extra = (env[SERIAL_TEST_FILES_ENV] ?? '')
+    .split(',')
+    .map(name => name.trim())
+    .filter(Boolean)
+  return [...new Set([...SERIAL_TEST_FILES, ...extra])]
+}
+
+/**
+ * How many test processes run at once — the POOL size, which is not the same
+ * thing as a single runner's `--test-concurrency`.
+ *
+ * Owner asked for "all 4 if possible". The default is four on any machine with
+ * cores to spare, two on a small one, and never more than half the cores: the
+ * files that stay in the pool still need a processor to land on, and a machine
+ * running four suites plus its own apps is exactly the machine that produced the
+ * 2026-10-24 gate A run with zero failing tests.
+ */
+export const BACKEND_TEST_WORKERS_ENV = 'STORY_STUDIO_BACKEND_TEST_WORKERS'
+export function backendTestWorkers(env = process.env, cores = availableParallelism()) {
+  const configured = Math.floor(Number(env[BACKEND_TEST_WORKERS_ENV]))
+  if (Number.isFinite(configured) && configured > 0) return Math.min(configured, 32)
+  return Math.max(1, Math.min(4, Math.floor(cores / 2) || 1))
+}
+
+/**
+ * Scheduling hints, in milliseconds, measured in the 1.4.359 full gate.
+ *
+ * These decide WHICH worker a file starts on and nothing else. They are not a
+ * threshold, a budget or an assertion: a file that gets slower, faster or
+ * disappears changes the balance and nothing else, and no run can fail because
+ * one of these numbers went stale. They exist because an alphabetical split puts
+ * the 650 s YouTube route beside three light files and the pool then finishes at
+ * the speed of its unluckiest worker.
+ */
+export const SLOW_FILE_HINT_MS = {
+  'youtube-upload-center-route.test.ts': 649_500,
+  'final-render-import.test.ts': 209_600,
+  'episode-media-cleanup.test.ts': 199_700,
+  'paid-image-replacement-integration.test.ts': 167_100,
+  'closing-tail-remix.test.ts': 154_900,
+  'subtitle-recovery-engine.test.ts': 148_300,
+  'final-render-monitor.test.ts': 123_400,
+  'final-render-sealed-transport.test.ts': 116_600,
+  'audio-dead-result-fresh-request.test.ts': 96_500,
+  'genstudio-client-boundary.test.ts': 67_900,
+  'youtube-upload-generator.test.ts': 60_200,
+  'scene-effect-preview-render.test.ts': 58_800,
+  'youtube-publication-cache.test.ts': 55_400,
+  'app-update.test.ts': 51_600,
+  'music-episode-routes.test.ts': 48_800,
+  'content-pack-project-pins.test.ts': 40_400,
+  'genstudio-image-retry-identity.test.ts': 39_300,
+  'youtube-analytics-cache.test.ts': 39_200,
+  'content-store-commerce-state.test.ts': 36_800,
+  'youtube-publication-status.test.ts': 34_100,
+}
+/** What an unlisted file is assumed to cost when balancing, from that same gate. */
+const BASELINE_FILE_MS = 5_500
+
+/**
+ * Split the discovered files into the pool and the serial list.
+ *
+ * A serial file the caller did not select (an `--only` run) is simply absent
+ * from both groups.
+ */
+export function partitionTestFiles(files, serialNames = serialTestFileNames()) {
+  const serial = new Set(serialNames)
+  const parallel = []
+  const alone = []
+  for (const file of files) {
+    if (serial.has(path.basename(file))) alone.push(file)
+    else parallel.push(file)
+  }
+  return { parallel, alone }
+}
+
+/**
+ * Deal the files out to `workers` chunks, longest first, each going to whichever
+ * chunk is currently lightest.
+ *
+ * Longest-processing-time first: the four heaviest files land on four different
+ * workers instead of one, which is the whole reason the hint table exists. Order
+ * inside a chunk is alphabetical so a chunk's log still reads predictably.
+ */
+export function balanceChunks(files, workers) {
+  const cost = file => SLOW_FILE_HINT_MS[path.basename(file)] ?? BASELINE_FILE_MS
+  const ordered = [...files].sort((a, b) => {
+    const difference = cost(b) - cost(a)
+    return difference !== 0 ? difference : a.localeCompare(b)
+  })
+  const chunks = Array.from({ length: Math.max(1, workers) }, () => [])
+  const loads = chunks.map(() => 0)
+  for (const file of ordered) {
+    const lightest = loads.indexOf(Math.min(...loads))
+    chunks[lightest].push(file)
+    loads[lightest] += cost(file)
+  }
+  return chunks.filter(chunk => chunk.length > 0).map(chunk => chunk.sort((a, b) => a.localeCompare(b)))
+}
+
+/**
+ * The invocations this run will make: one process per worker, then the serial
+ * list on its own afterwards.
+ *
+ * ONE CHUNK IS THE OLD RUNNER. With a single worker (a `--only` run, a small
+ * machine, an explicit `STORY_STUDIO_BACKEND_TEST_WORKERS=1`) there is one
+ * invocation with no label, no aggregate line and byte-identical output to the
+ * pre-2026-10-26 serial runner.
+ */
+export function planInvocations(files, options = {}) {
+  const workers = options.workers ?? backendTestWorkers()
+  const { parallel, alone } = partitionTestFiles(files, options.serialNames)
+  const chunks = parallel.length > 0
+    ? balanceChunks(parallel, Math.max(1, Math.min(workers, parallel.length)))
+    : []
+  const invocations = chunks.map((chunk, index) => ({
+    label: chunks.length > 1 ? `worker-${index + 1}` : '',
+    files: chunk,
+    concurrency: 1,
+  }))
+  if (alone.length > 0) {
+    if (invocations.length === 0) {
+      invocations.push({ label: '', files: alone, concurrency: 1 })
+    } else if (invocations.length === 1) {
+      // One worker is a serial run: the serial list is already alone, so folding it
+      // into the same invocation keeps `STORY_STUDIO_BACKEND_TEST_WORKERS=1` the
+      // exact single-invocation shape the pre-2026-10-26 runner produced.
+      invocations[0].files = [...invocations[0].files, ...alone].sort((a, b) => a.localeCompare(b))
+    } else {
+      invocations.push({ label: 'serial', files: alone, concurrency: 1 })
+    }
+  }
+  return invocations
+}
+
+function announceInvocations(invocations) {
+  if (invocations.length <= 1) return
+  console.log(`[test-harness] running ${invocations.length} invocation(s):`)
+  for (const invocation of invocations) {
+    console.log(`[test-harness]   • ${invocation.label}: ${invocation.files.length} file(s)`)
+  }
+}
+
+function reportCoverageFailure(coverage) {
+  console.error('[test-harness] ============== SUITE COVERAGE BELOW FLOOR ==============')
+  console.error(`[test-harness] ${coverage.message}`)
+  for (const name of coverage.missing) console.error(`[test-harness]   ✗ ${path.basename(name)}`)
+  console.error('[test-harness] A file that never finished cannot have passed. Treating this run as a failure.')
+  console.error('[test-harness] ========================================================')
+}
+
+/**
+ * The summary lines the spec reporter prints, one contiguous block per run.
+ *
+ * They are HELD BACK and replayed once, together, when the invocation ends. Four
+ * workers stream their tests into one log at the same time, so a summary printed
+ * where it arrives would be interleaved with another worker's test lines and
+ * would stop being a recognisable block — and `story_gate_proof.verify` reads
+ * those blocks to certify the lane. Holding them back is the difference between
+ * "four runs, each proven" and "four runs, none provable".
+ */
+const SUMMARY_LINE = /^[#ℹ]\s+(?:tests|suites|pass|fail|cancelled|skipped|todo)\s+\d+\s*$/
+
+function forwarder(sink, onChunk) {
+  let buffer = ''
+  const held = []
+  return {
+    held,
+    push(chunk) {
+      onChunk?.(chunk)
+      buffer += chunk
+      let index
+      while ((index = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, index)
+        buffer = buffer.slice(index + 1)
+        if (SUMMARY_LINE.test(line)) held.push(line)
+        else sink.write(`${line}\n`)
+      }
+    },
+    flush() {
+      if (!buffer) return
+      if (SUMMARY_LINE.test(buffer)) held.push(buffer)
+      else sink.write(buffer)
+      buffer = ''
+    },
+  }
+}
+
+/**
+ * One node test-runner invocation: spawn it, stream it, judge it.
+ *
+ * Everything about a single invocation is unchanged from the serial runner — the
+ * reporters, the piped transcript, the watchdog, the identifier checks around the
+ * live work directories. Only the file list differs between invocations, which is
+ * why the pool needs no second implementation of any of the proofs.
+ *
+ * `--test-concurrency=1` INSIDE an invocation on purpose: files are spread across
+ * worker PROCESSES instead, so each worker owns one processor, one set of temp
+ * directories and one log block. A worker that runs four files at once would
+ * reintroduce exactly the load the serial list is quarrelling with.
+ */
+async function runInvocation(invocation, ctx) {
+  const coveragePath = path.join(ctx.sandbox, `suite-coverage${invocation.label ? `-${invocation.label}` : ''}.jsonl`)
+  const child = spawn(process.execPath, [
+    '--import',
+    ctx.tsxImport,
+    '--test',
+    `--test-concurrency=${invocation.concurrency}`,
+    // NO `--test-force-exit`. See `startSuiteWatchdog` for what it was doing.
+    // `spec` is already Node's default on this runtime; naming it explicitly
+    // only makes room for the second reporter, and keeps the human output
+    // identical if that default ever moves.
+    '--test-reporter=spec',
+    '--test-reporter-destination=stdout',
+    `--test-reporter=${COVERAGE_REPORTER}`,
+    `--test-reporter-destination=${coveragePath}`,
+    ...invocation.files,
+  ], {
+    cwd: ELECTRON_ROOT,
+    env: ctx.env,
+    // v1.4.44 — piped rather than inherited so the summary can be READ.
+    // See `assertSummaryAgrees` below for why the exit code alone is not
+    // enough to know whether the suite passed.
+    stdio: ['inherit', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
+  })
+  let transcript = ''
+  const stdout = forwarder(process.stdout, chunk => { transcript += chunk })
+  const stderr = forwarder(process.stderr, chunk => { transcript += chunk })
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+  child.stdout.on('data', chunk => stdout.push(chunk))
+  child.stderr.on('data', chunk => stderr.push(chunk))
+  const watchdog = startSuiteWatchdog(child)
+  const exitCode = await waitForSuiteChild(child, [ctx.workRoot, ctx.workContainer, ctx.sandbox, ctx.snapshotRoot])
+    .finally(() => clearTimeout(watchdog))
+  stdout.flush()
+  stderr.flush()
+  return { invocation, exitCode, transcript, coveragePath, snapshotRoot: ctx.snapshotRoot, summaryLines: [...stdout.held, ...stderr.held] }
+}
+
+/**
+ * One invocation's own sandbox: its HOME, its config directories, its TMPDIR and
+ * its retained-filesystem snapshot root.
+ *
+ * Workers run at the same time, so a shared HOME is a shared file — two suites
+ * writing `app-settings.json` at once is the cross-talk this pool must not
+ * introduce. The SNAPSHOT ROOT is separated for a harder reason:
+ * `retained-fixture-fs.mjs` takes a lock file inside it around every `rename`,
+ * `unlink`, `rm` and `rmdir`, and its synchronous path treats "already locked"
+ * as a hard failure. One lock per process is what the serial runner had by
+ * construction; four workers sharing one would fail each other on ordinary
+ * atomic writes, so each worker gets its own.
+ *
+ * The configured projects root is NOT duplicated: it is the one directory the
+ * runner promises never to touch, and every worker pointing at the same
+ * read-only sentinel is what makes one byte-identical check enough.
+ */
+async function prepareInvocationSandbox(workContainer, label, configuredProjectsRoot) {
+  const sandbox = path.join(workContainer, label ? `sandbox-${label}` : 'sandbox')
+  const snapshots = path.join(workContainer, label ? `snapshots-${label}` : 'snapshots')
+  const home = path.join(sandbox, 'home')
+  const profile = path.join(sandbox, 'profile')
+  const appData = path.join(sandbox, 'appdata')
+  const xdgConfig = path.join(sandbox, 'xdg-config')
+  const settings = { projects_root_override: configuredProjectsRoot }
+  // 0o700 BEFORE anything is written into it: the retained-fixture guard refuses a
+  // harness root that any other user could reach, and a directory created by the
+  // first `writeJson` would be 0o755 under the default umask.
+  await fs.mkdir(sandbox, { recursive: true, mode: 0o700 })
+  await fs.chmod(sandbox, 0o700)
+  await fs.mkdir(snapshots, { recursive: true, mode: 0o700 })
+  await fs.chmod(snapshots, 0o700)
+  await Promise.all([
+    writeJson(path.join(home, 'Library', 'Application Support', 'Story Studio KH', 'app-settings.json'), settings),
+    writeJson(path.join(appData, 'Story Studio KH', 'app-settings.json'), settings),
+    writeJson(path.join(xdgConfig, 'Story Studio KH', 'app-settings.json'), settings),
+  ])
+  return { sandbox, snapshots, home, profile, appData, xdgConfig }
+}
+
 async function run(options) {
   let workContainer
   let sandbox
-  let snapshotRoot
   let retainedFixtures
   try {
     const workRoot = await resolveWorkRoot()
@@ -418,28 +747,29 @@ async function run(options) {
     workContainer = await fs.realpath(workContainer)
     await fs.chmod(workContainer, 0o700)
     sandbox = path.join(workContainer, 'sandbox')
-    snapshotRoot = path.join(workContainer, 'snapshots')
+    const baseSnapshots = path.join(workContainer, 'snapshots')
     await fs.mkdir(sandbox, { mode: 0o700 })
-    await fs.mkdir(snapshotRoot, { mode: 0o700 })
+    await fs.mkdir(baseSnapshots, { mode: 0o700 })
     // Preflight checks that the retained root is on the same device, so the
     // end-of-run move stays a rename. If the retained root is missing, we
     // create it here; if it disappears mid-run, the run continues unaffected.
     await preflightSandboxRetention(sandbox, retainedFixtures)
-    const fakeHome = path.join(sandbox, 'home')
-    const fakeProfile = path.join(sandbox, 'profile')
-    const fakeAppData = path.join(sandbox, 'appdata')
-    const fakeXdgConfig = path.join(sandbox, 'xdg-config')
     const configuredProjectsRoot = path.join(sandbox, 'configured-projects')
     const sentinelProject = path.join(configuredProjectsRoot, 'owner-sentinel')
-    const settings = { projects_root_override: configuredProjectsRoot }
 
     await fs.mkdir(sentinelProject, { recursive: true })
     await fs.writeFile(path.join(sentinelProject, 'jobs.json'), '{"jobs":[{"job_id":"owner-record","status":"done"}]}\n')
     await fs.writeFile(path.join(sentinelProject, 'owner-marker.txt'), 'must remain byte-identical\n')
+    // The BASE sandbox gets the same three settings files the invocations later
+    // (re)write for themselves — this is the one a failed setup retains, and the
+    // harness's own self-test reads it back from the retained container.
     await Promise.all([
-      writeJson(path.join(fakeHome, 'Library', 'Application Support', 'Story Studio KH', 'app-settings.json'), settings),
-      writeJson(path.join(fakeAppData, 'Story Studio KH', 'app-settings.json'), settings),
-      writeJson(path.join(fakeXdgConfig, 'Story Studio KH', 'app-settings.json'), settings),
+      writeJson(path.join(sandbox, 'home', 'Library', 'Application Support', 'Story Studio KH', 'app-settings.json'),
+        { projects_root_override: configuredProjectsRoot }),
+      writeJson(path.join(sandbox, 'appdata', 'Story Studio KH', 'app-settings.json'),
+        { projects_root_override: configuredProjectsRoot }),
+      writeJson(path.join(sandbox, 'xdg-config', 'Story Studio KH', 'app-settings.json'),
+        { projects_root_override: configuredProjectsRoot }),
     ])
     if (options.failAfterSetup) {
       console.log(`[test-harness] sandbox: ${sandbox}`)
@@ -470,93 +800,127 @@ async function run(options) {
     }
     const skippedCount = allTests.length - tests.length
     if (onlyNeedles.length > 0) announcePartialRun(onlyNeedles, tests, skippedCount, 'about to run')
-    const childEnv = {
-      ...process.env,
-      HOME: fakeHome,
-      USERPROFILE: fakeProfile,
-      APPDATA: fakeAppData,
-      XDG_CONFIG_HOME: fakeXdgConfig,
-      TMPDIR: sandbox,
-      TMP: sandbox,
-      TEMP: sandbox,
-      STORY_STUDIO_TEST_HARNESS_ROOT: sandbox,
-      STORY_STUDIO_TEST_WORK_ROOT: workRoot,
-      STORY_STUDIO_RETAINED_SNAPSHOT_ROOT: snapshotRoot,
-      STORY_STUDIO_DISABLE_LISTEN: '1',
-      // NEW-03 — see BUNDLED_FFMPEG_DIR. Prepended, so a caller's own PATH still
-      // takes precedence for anything else it needed.
-      PATH: bundledFfmpegDir
-        ? [bundledFfmpegDir, process.env.PATH].filter(Boolean).join(path.delimiter)
-        : process.env.PATH,
-      // NODE_OPTIONS carries the fixed preloads into node's test workers.
-      NODE_OPTIONS: [
-        process.env.NODE_OPTIONS,
-        `--import ${pathToFileURL(LOOPBACK_PRELOAD).href}`,
-        `--import ${pathToFileURL(RETAINED_FS_PRELOAD).href}`,
-      ]
-        .filter(Boolean).join(' '),
-    }
-    delete childEnv.STORY_STUDIO_DATA_DIR
-    delete childEnv.NODE_TEST_CONTEXT
+    const invocations = planInvocations(tests)
+    announceInvocations(invocations)
 
-    const coveragePath = path.join(sandbox, 'suite-coverage.jsonl')
-    const child = spawn(process.execPath, [
-      '--import',
-      tsxImport,
-      '--test',
-      '--test-concurrency=1',
-      // NO `--test-force-exit`. See `startSuiteWatchdog` for what it was doing.
-      // `spec` is already Node's default on this runtime; naming it explicitly
-      // only makes room for the second reporter, and keeps the human output
-      // identical if that default ever moves.
-      '--test-reporter=spec',
-      '--test-reporter-destination=stdout',
-      `--test-reporter=${COVERAGE_REPORTER}`,
-      `--test-reporter-destination=${coveragePath}`,
-      ...tests,
-    ], {
-      cwd: ELECTRON_ROOT,
-      env: childEnv,
-      // v1.4.44 — piped rather than inherited so the summary can be READ.
-      // See `assertSummaryAgrees` below for why the exit code alone is not
-      // enough to know whether the suite passed.
-      stdio: ['inherit', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32',
-    })
-    let transcript = ''
-    for (const [stream, sink] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
-      stream.setEncoding('utf8')
-      stream.on('data', chunk => { transcript += chunk; sink.write(chunk) })
+    /**
+     * One invocation's complete environment. Everything shared by the whole run
+     * (the configured projects root, the retained snapshot root, the bundled
+     * ffmpeg, preloads) comes from `process.env` plus the overrides below;
+     * everything that must NOT be shared (HOME, TMPDIR, the app data dir, the
+     * coverage file) comes from the invocation's own sandbox.
+     */
+    const invocationContext = async invocation => {
+      const own = await prepareInvocationSandbox(workContainer, invocation.label, configuredProjectsRoot)
+      await preflightSandboxRetention(own.sandbox, retainedFixtures)
+      const env = {
+        ...process.env,
+        HOME: own.home,
+        USERPROFILE: own.profile,
+        APPDATA: own.appData,
+        XDG_CONFIG_HOME: own.xdgConfig,
+        TMPDIR: own.sandbox,
+        TMP: own.sandbox,
+        TEMP: own.sandbox,
+        STORY_STUDIO_TEST_HARNESS_ROOT: own.sandbox,
+        STORY_STUDIO_TEST_WORK_ROOT: workRoot,
+        STORY_STUDIO_RETAINED_SNAPSHOT_ROOT: own.snapshots,
+        STORY_STUDIO_DISABLE_LISTEN: '1',
+        // NEW-03 — see BUNDLED_FFMPEG_DIR. Prepended, so a caller's own PATH still
+        // takes precedence for anything else it needed.
+        PATH: bundledFfmpegDir
+          ? [bundledFfmpegDir, process.env.PATH].filter(Boolean).join(path.delimiter)
+          : process.env.PATH,
+        // NODE_OPTIONS carries the fixed preloads into node's test workers.
+        NODE_OPTIONS: [
+          process.env.NODE_OPTIONS,
+          `--import ${pathToFileURL(LOOPBACK_PRELOAD).href}`,
+          `--import ${pathToFileURL(RETAINED_FS_PRELOAD).href}`,
+        ]
+          .filter(Boolean).join(' '),
+      }
+      delete env.STORY_STUDIO_DATA_DIR
+      delete env.NODE_TEST_CONTEXT
+      return { env, sandbox: own.sandbox, snapshotRoot: own.snapshots, workRoot, workContainer, tsxImport }
     }
-    const watchdog = startSuiteWatchdog(child)
-    let exitCode = await waitForSuiteChild(child, [workRoot, workContainer, sandbox, snapshotRoot])
-      .finally(() => clearTimeout(watchdog))
 
-    const retainedFsFailure = await retainedFsEvidenceFailure(snapshotRoot)
-    if (retainedFsFailure) {
-      console.error(`[test-harness] ${retainedFsFailure}`)
+    // The pool runs at the same time; the serial list runs afterwards, on its own,
+    // exactly the reason it is on the list.
+    const pooled = invocations.filter(invocation => invocation.label !== 'serial')
+    const alone = invocations.filter(invocation => invocation.label === 'serial')
+    const contexts = new Map()
+    for (const invocation of invocations) contexts.set(invocation, await invocationContext(invocation))
+
+    let exitCode = 0
+    const results = await Promise.all(pooled.map(invocation => runInvocation(invocation, contexts.get(invocation))))
+    for (const invocation of alone) {
+      results.push(await runInvocation(invocation, contexts.get(invocation)))
+    }
+    for (const result of results) {
+      if (result.exitCode !== 0) exitCode = result.exitCode
+    }
+
+    // Each worker snapshotted into its own root (see prepareInvocationSandbox), so
+    // every root is reconciled and its result is attributed to the worker that
+    // produced it — an unattributed "evidence incomplete" is a diagnosis nobody
+    // can act on.
+    const evidenceFailures = []
+    for (const result of results) {
+      const failure = await retainedFsEvidenceFailure(result.snapshotRoot)
+      if (failure) {
+        evidenceFailures.push(`${result.invocation.label ? `${result.invocation.label}: ` : ''}${failure}`)
+      }
+    }
+    if (evidenceFailures.length > 0) {
+      for (const failure of evidenceFailures) console.error(`[test-harness] ${failure}`)
       exitCode = 1
     } else {
       console.log('[test-harness] retained filesystem evidence: complete')
     }
 
-    const summary = assertSummaryAgrees(transcript, exitCode)
-    if (summary) {
-      console.error(`[test-harness] ${summary}`)
-      exitCode = 1
+    for (const result of results) {
+      // Replayed together so each invocation's summary stays one contiguous block.
+      if (result.summaryLines.length > 0) process.stdout.write(`${result.summaryLines.join('\n')}\n`)
+    }
+    // Every invocation is judged on its own transcript and exit code, exactly as
+    // the single invocation always was. A pool is not licence to trust one green
+    // summary for four batches.
+    for (const result of results) {
+      const summary = assertSummaryAgrees(result.transcript, result.exitCode)
+      if (summary) {
+        console.error(`[test-harness] ${result.invocation.label}${result.invocation.label ? ': ' : ''}${summary}`)
+        exitCode = 1
+      }
     }
 
-    // The coverage floor. Checked even when the summary looked clean — a
-    // vanished file is INVISIBLE to the summary, which is the whole point.
-    const coverage = assertEverySuiteCompleted(tests, await readCoverageRecords(coveragePath))
-    console.log(`[test-harness] suite coverage: ${coverage.completed}/${coverage.discovered} file(s) completed`
-      + `, ${coverage.tests} test(s) + ${coverage.suites} suite(s) = ${coverage.tests + coverage.suites} marks`)
+    // The coverage floor, per invocation and then over everything discovered.
+    // Checked even when the summary looked clean — a vanished file is INVISIBLE
+    // to the summary, which is the whole point.
+    const records = []
+    let coverage = null
+    for (const result of results) {
+      const own = await readCoverageRecords(result.coveragePath)
+      const lane = assertEverySuiteCompleted(result.invocation.files, own)
+      console.log(`[test-harness] ${result.invocation.label ? `${result.invocation.label} ` : ''}suite coverage: `
+        + `${lane.completed}/${lane.discovered} file(s) completed`
+        + `, ${lane.tests} test(s) + ${lane.suites} suite(s) = ${lane.tests + lane.suites} marks`)
+      if (lane.message) {
+        reportCoverageFailure(lane)
+        exitCode = 1
+      }
+      if (own) records.push(...own)
+    }
+    coverage = assertEverySuiteCompleted(tests, records)
+    if (invocations.length > 1) {
+      // The line the gate reads for a partitioned lane (see summarize-step.mjs and
+      // story_gate_proof.py): the aggregated floor, which the per-invocation lines
+      // above must add up to exactly. Without it a partition could hide behind the
+      // last lane's line and still look whole.
+      console.log(`[test-harness] aggregate suite coverage: ${coverage.completed}/${coverage.discovered} file(s) completed`
+        + `; inputs=[${invocations.map(invocation => invocation.label).join(',')}]`)
+    }
     if (coverage.message) {
-      console.error('[test-harness] ============== SUITE COVERAGE BELOW FLOOR ==============')
-      console.error(`[test-harness] ${coverage.message}`)
-      for (const name of coverage.missing) console.error(`[test-harness]   ✗ ${path.basename(name)}`)
-      console.error('[test-harness] A file that never finished cannot have passed. Treating this run as a failure.')
-      console.error('[test-harness] ========================================================')
+      reportCoverageFailure(coverage)
       exitCode = 1
     }
 
@@ -674,9 +1038,21 @@ export function assertSummaryAgrees(transcript, exitCode) {
  * killed child prints no summary, and `assertSummaryAgrees` already fails a
  * run that produced no summary. The limit is env-overridable rather than a
  * constant: a number a future reader would want different is data, not code.
+ *
+ * THE DEFAULT IS 180 MINUTES BECAUSE 90 MINUTES WAS BELOW THE REAL RUNTIME.
+ * Measured on this Mac: a serial backend lane takes 5,268–6,189 s (88–103 min),
+ * the 1.4.359 gate's accepted run reported duration_ms 5,249,875 ms, and one
+ * earlier 1.4.359 run took 7,534 s. The old 90-minute default sat UNDER the
+ * ordinary case, so the watchdog became a second, silent failure mode: the
+ * 1.4.359 gate A run was killed at 850 of 854 files with zero failing tests and
+ * no summary, which reads as a product defect and is not one. 180 minutes clears
+ * the slowest measured serial run by ~50 % and still bounds a genuinely hung
+ * child. The lane now runs across worker processes, so each invocation gets its
+ * own limit (expected ~30 min of work against it), and the serial list runs
+ * under the same one.
  */
 function startSuiteWatchdog(child) {
-  const limitMs = Number(process.env.STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS ?? 90 * 60_000)
+  const limitMs = Number(process.env.STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS ?? 180 * 60_000)
   if (!Number.isFinite(limitMs) || limitMs <= 0) return undefined
   return setTimeout(() => {
     console.error(`[test-harness] the backend suite ran past ${limitMs}ms and was killed. `

@@ -348,15 +348,43 @@ zero tests. **A read-only agent may run a focused `--only` run in its OWN worktr
 worktree. For every suite you cite, report the
 actual exit status, the completion line, and the test count — a wrapper's exit code is not the
 suite's, and "completed" is not "passed".
+The lane's hang watchdog defaults to 180 minutes (`STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS`): the old
+90-minute default was below the measured serial runtime (5,268–6,189 s) and killed a green 1.4.359
+run at 850/854 files. If a run is killed by it, that is a machine setting, not a product defect —
+raise the number, do not narrow the lane.
 
 **Parallel tests — owner, 2026-10-24: "do that whenever possible."** This replaces the earlier
 "one test suite at a time across all workers". Serial is now the exception, kept only where running
 side by side has actually broken a result.
 
 - **The Story release gate runs alone among Story suites.** While `npm run test:backend` or the
-  full gate runs, start no other Story backend or frontend suite and no second Story DMG build. The
-  gate runs its files one by one on purpose: timing-sensitive tests flake under load, and on
-  2026-10-24 a busy Mac failed gate A with zero failing tests.
+  full gate runs, start no other Story backend or frontend suite and no second Story DMG build.
+  Timing-sensitive tests flake under load, and on 2026-10-24 a busy Mac failed gate A with zero
+  failing tests. This is about OTHER suites: the backend lane now runs its own files in parallel,
+  below, and that is the one concurrency it is built for.
+- **The backend lane runs a bounded worker pool — owner, 2026-10-26: "do all 4 if possible so it's
+  faster."** `run-backend-tests.mjs` deals the files across `min(4, cores/2)` worker processes
+  (`STORY_STUDIO_BACKEND_TEST_WORKERS` overrides), each worker one file at a time with its own
+  process, its own HOME/TMPDIR sandbox and its own coverage file, then runs a named **serial list**
+  alone at the end. The pool replaces "the gate runs its files one by one"; the gate still runs
+  alone among Story suites. Every invocation is judged by the same proofs as before — its own node
+  summary, its own coverage floor — and a split run also prints
+  `aggregate suite coverage: C/D file(s) completed; inputs=[...]`, which
+  `story_gate_proof.py` requires the per-invocation lines to add up to exactly.
+  **Not yet proven (2026-10-27):** until one serial run (`STORY_STUDIO_BACKEND_TEST_WORKERS=1`) and
+  one pooled run on the SAME commit agree, the release gate of record runs with
+  `STORY_STUDIO_BACKEND_TEST_WORKERS=1`; delete this sentence when they do.
+- **The serial list is measured, never guessed.** A file joins `SERIAL_TEST_FILES` for one of two
+  reasons, and its entry says which: it FAILED while other files ran and passed when rerun alone
+  (the 2026-10-24 shape), or it asserts a WALL-CLOCK ceiling or an exact interval-fire count, which
+  is load-sensitive by construction. A guess, a hunch or a slow stopwatch is neither.
+  `STORY_STUDIO_BACKEND_SERIAL_TESTS` adds names for one run; it can never remove one. Anything
+  that flakes in a proof run moves to the list and the run is repeated.
+- **A slow file is fixed at its cause, not by deleting its assertion.** The waiting comes out
+  through a seam the code already has — `_setJobAutoRetryDelaysForTesting` (the 60 s/300 s free-fleet
+  retry schedule), `_setGenStudioPollLadderForTesting` (the 1 s poll floor), the existing
+  `STORY_STUDIO_*_RETRY_BASE_MS` overrides — or a shared fixture, never by shrinking a fixture until
+  a test stops proving what it was written to prove.
 - **Alongside a Story gate, these are allowed:** Studio Hub and GatewayKH test modules, static
   checks (typecheck, lint, `py_compile`, `git diff --check`), and builds of other repos.
 - **With no gate running:** up to two focused (`--only`) Story runs at once, in different

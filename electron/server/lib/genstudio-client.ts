@@ -108,6 +108,23 @@ export const GENSTUDIO_POLL_MIN_HINT_MS = 1_000
  *  sleep from making the Cancel button feel dead. */
 const POLL_CANCEL_CHECK_MS = 250
 
+/**
+ * Test-only poll cadence, in milliseconds per attempt (the last entry repeats).
+ *
+ * Only the WAIT between polls moves: the ladder's shape, the cap, the jitter, the
+ * server-hint floor, cancellation and the deadline clamp all still apply, so a
+ * test that shortens this observes the same sequence of polls and the same
+ * terminal state — one second sooner per attempt. Tests that assert the cadence
+ * itself use the pure function with this left null, so they read the published
+ * ladder exactly as before.
+ */
+let pollLadderOverrideMs: readonly number[] | null = null
+export function _setGenStudioPollLadderForTesting(ladderMs: readonly number[] | null): void {
+  const valid = Array.isArray(ladderMs) && ladderMs.length > 0
+    && ladderMs.every(ms => Number.isFinite(ms) && ms >= 0)
+  pollLadderOverrideMs = valid ? [...ladderMs] : null
+}
+
 const NETWORK_RETRY_ATTEMPTS = 4
 /**
  * Attempts for a READ of an accepted job (every wait-loop poll and every reconnect read).
@@ -4295,9 +4312,9 @@ export function genStudioPollDelayMs(options: {
     ? options.hintMs
     : null
   const attempt = Math.max(0, Math.floor(options.attempt))
-  const base = attempt < POLL_LADDER_MS.length
-    ? POLL_LADDER_MS[attempt]!
-    : GENSTUDIO_POLL_MAX_INTERVAL_MS
+  const base = pollLadderOverrideMs
+    ? pollLadderOverrideMs[Math.min(attempt, pollLadderOverrideMs.length - 1)]!
+    : (attempt < POLL_LADDER_MS.length ? POLL_LADDER_MS[attempt]! : GENSTUDIO_POLL_MAX_INTERVAL_MS)
   const spread = 1 + GENSTUDIO_POLL_JITTER_FRACTION * (random() * 2 - 1)
   let delay = Math.round(base * spread)
   if (hint != null) {

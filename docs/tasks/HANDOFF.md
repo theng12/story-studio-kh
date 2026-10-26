@@ -131,6 +131,58 @@ here:** after every build, fail loudly if `package.json` has lost `scripts` or `
 ---
 
 **Release history — the three latest entries, in full:**
+## Unreleased — faster backend gate: worker pool + measured slow-file waits (2026-10-26)
+
+Owner decision, 2026-10-26: "do all 4 if possible so it's faster." The 1.4.359 gate took ~2.5 h
+(backend 5,250 s of the 5,400 s watchdog, frontend ~510 s, content-packs ~600–900 s). This branch
+(1) runs the backend lane across a bounded pool of worker processes and (2) shortens the waits in
+the slowest files through seams the code already had — no assertion removed, no fixture shrunk.
+
+**Where the backend time actually was.** Per-file durations recovered from the 1.4.359 gate log
+(`_orchestra/app-closeout-20261021/story-359-main-gate-c-20261026/gate/07-test-backend.log`) by
+segmenting the spec output at file boundaries and summing each file's top-level entries; the sums
+add to 4,668 s + 854 × ~0.7 s of process boot = the 5,250 s the run reported, so the ranking is
+sound. Top files: `youtube-upload-center-route` 649 s, `final-render-import` 210 s,
+`episode-media-cleanup` 200 s, `paid-image-replacement-integration` 167 s, `closing-tail-remix`
+155 s, `subtitle-recovery-engine` 148 s, `final-render-monitor` 123 s,
+`final-render-sealed-transport` 117 s, `audio-dead-result-fresh-request` 97 s,
+`genstudio-client-boundary` 68 s. Nothing was 100 % idle: the biggest single cause is REAL waits
+inside jobs — the free-fleet auto-retry schedule (60 s then 300 s), the GenStudio poll ladder's
+1 s floor, and the 15 s TTS/image route retry base — paid once per attempt by tests that only care
+what the second attempt does.
+
+New test-only seams (production defaults untouched):
+`_setJobAutoRetryDelaysForTesting(ms)` in `services/job-retry-policy.ts` replaces each delay's
+VALUE and keeps the list's LENGTH, so `max_attempts` and eligibility still prove the same thing, and
+`_setGenStudioPollLadderForTesting(ladder)` in `lib/genstudio-client.ts` moves only the wait between
+polls (cap, jitter, server-hint floor, cancellation and deadline clamp all still apply). The
+existing `STORY_STUDIO_TTS_RETRY_BASE_MS` / `STORY_STUDIO_IMAGE_RETRY_BASE_MS` overrides stay as
+they were. Files that ASSERT the schedule (`job-retry-policy.test.ts`,
+`paid-image-replacement-integration.test.ts`'s "waits about a minute", `genstudio-poll-backoff.test.ts`)
+are deliberately left on the real numbers.
+
+Measured so far: `audio-dead-result-fresh-request.test.ts` 105.8 s → 25.6 s (5/5 passing, same
+tests), from the retry schedule (105.8 → 48.9 s) and then the poll cadence (48.9 → 25.6 s).
+
+**The pool.** `run-backend-tests.mjs` now plans one node invocation per worker
+(`min(4, cores/2)`, `STORY_STUDIO_BACKEND_TEST_WORKERS`), deals files longest-first by a measured
+hint table, gives each worker its own HOME/TMPDIR sandbox and coverage file, holds each worker's
+summary lines back so they stay one contiguous block, and runs `SERIAL_TEST_FILES` alone
+afterwards. Every invocation is still judged by `assertSummaryAgrees` and its own coverage floor;
+a split run additionally prints `aggregate suite coverage: C/D file(s) completed; inputs=[...]`,
+which `story_gate_proof.py` already accepts (it is the release lane's partitioned shape). One
+worker is byte-compatible with the old serial runner.
+
+Status: proof runs pending (serial 1× and parallel 3× on this Mac, no other suite running).
+
+**Watchdog default raised to 180 minutes.** The old 90-minute
+`STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS` default sat BELOW the ordinary serial runtime — measured
+5,268–6,189 s (88–103 min), the 1.4.359 accepted run's `duration_ms` 5,249,875, and one earlier
+1.4.359 run at 7,534 s — so the 1.4.359 gate A run was killed at 850/854 files with zero failing
+tests and no summary: a machine setting reading as a product defect. The default is now 180 min
+with those figures in the comment. The kill is unchanged and a killed child still prints no
+summary, which `assertSummaryAgrees` already treats as a failure. Each invocation of the pool gets
+its own limit (expected ~30 min of work against it).
 
 ## 1.4.359 — extension requests take the model's published cap; chapters-per-request setting; expansion failures are loud (2026-10-26)
 

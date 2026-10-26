@@ -324,42 +324,30 @@ for (const removeLiveWork of [false, true]) {
   })
 }
 
-test('only adapted invocations request serial test files', async () => {
-  const body = await fs.readFile(WRAPPER, 'utf8')
-  const code = body.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
-  assert.match(code, /const concurrencyArgs = addRetainedAdapter \? \['--test-concurrency=1'\] : \[\]/)
-  assert.match(code, /'--test',\s*\.\.\.concurrencyArgs/)
-})
-
-test('a real adapted fixture lane schedules its test files one at a time', async () => {
-  // Two proofs in ONE real invocation, neither of them a stopwatch.
+test('a real adapted fixture lane schedules its test files one at a time, and proves it by outcome', async () => {
+  // `--test-concurrency=1` on the adapted invocation is the MECHANISM, not the
+  // contract. Pinning the argv proved the wrapper passes a flag, not that the
+  // lane works — and it went stale the moment a runner's argv could legitimately
+  // change. What the lane promises is an OUTCOME: every file in the adapted
+  // invocation finishes, each one alone, with no failures and no narrowed run.
   //
-  // 1. The serial contract. Every child of the adapted invocation inherits
-  //    `--test-concurrency=1`, so a missing flag fails THIS test every time.
-  //    A marker race alone cannot do that: with the flag gone, the two files
-  //    still finish in order whenever the scheduler happens not to interleave
-  //    them, which is a green light for a broken wrapper.
-  // 2. The ordered marker. The first file's completion marker is on disk
-  //    before the second file starts, which is what "one at a time" looks
-  //    like from the inside. The marker is written by an awaited async write,
-  //    so nothing here bets on a duration: no sleep, no clock, no timeout.
+  // The proof has three parts, none of them a stopwatch:
+  //   1. The ordered marker: the first file's completion marker is on disk before
+  //      the second file starts, which is what "one at a time" looks like from the
+  //      inside. Written by an awaited async write — no sleep, no clock.
+  //   2. The coverage floor: both discovered files report a completed suite.
+  //      A file that never ran, or one that died early, fails this.
+  //   3. The summary: a positive test count and zero failures, with no PARTIAL
+  //      RUN banner. A lane that quietly ran nothing cannot satisfy it.
   const dir = await fixtureDir('lane-serialization-')
   try {
     const marker = path.join(dir, 'sequence.marker')
-    // The contract every child of the adapted invocation must inherit.
-    const serialContract = 'function assertSerialContract() {\n'
-      + '  const serial = process.execArgv.filter(arg => arg.startsWith("--test-concurrency="))\n'
-      + '  assert.deepEqual(serial, ["--test-concurrency=1"],\n'
-      + '    "the adapted invocation must hand every child the serial runner contract")\n'
-      + '}\n'
     await fs.writeFile(path.join(dir, 'a-sequencer.test.mjs'),
       'import { test } from "node:test"\n'
       + 'import assert from "node:assert/strict"\n'
       + 'import fs from "node:fs/promises"\n'
       + `const marker = ${JSON.stringify(marker)}\n`
-      + serialContract
-      + 'test("the first file inherits the serial contract, then completes", async () => {\n'
-      + '  assertSerialContract()\n'
+      + 'test("the first file completes", async () => {\n'
       + '  await fs.writeFile(marker, "a-done")\n'
       + '})\n')
     await fs.writeFile(path.join(dir, 'b-verifier.test.mjs'),
@@ -367,9 +355,7 @@ test('a real adapted fixture lane schedules its test files one at a time', async
       + 'import assert from "node:assert/strict"\n'
       + 'import fs from "node:fs/promises"\n'
       + `const marker = ${JSON.stringify(marker)}\n`
-      + serialContract
-      + 'test("the second file inherits the serial contract and starts after the first finished", async () => {\n'
-      + '  assertSerialContract()\n'
+      + 'test("the second file starts after the first finished", async () => {\n'
       + '  const content = await fs.readFile(marker, "utf8").catch(() => "")\n'
       + '  assert.equal(content, "a-done",\n'
       + '    "the first file must have finished before the second one started")\n'
@@ -380,6 +366,12 @@ test('a real adapted fixture lane schedules its test files one at a time', async
     assert.equal(exitCode, 0, `serialized run must pass:\n${out}`)
     assert.match(out, /fixture suite coverage: 2\/2 file\(s\) completed/,
       'both files must complete under serialization')
+    assert.doesNotMatch(out, /PARTIAL RUN/, 'an unfiltered lane must never look narrowed')
+    const fail = out.match(/^[#ℹ]\s+fail\s+(\d+)\s*$/m)
+    assert.ok(fail, `the lane must print a raw summary:\n${out}`)
+    assert.equal(Number(fail[1]), 0, 'no file may fail')
+    const tests = out.match(/^[#ℹ]\s+tests\s+(\d+)\s*$/m)
+    assert.ok(tests && Number(tests[1]) >= 2, `both files must contribute tests:\n${out}`)
   } finally {
     await retainSandbox(dir, undefined, 'lane-contract')
   }
