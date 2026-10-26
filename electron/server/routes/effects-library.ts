@@ -487,7 +487,7 @@ router.get('/projects/:slug/effects-library/:episodeId/gallery/:kind/:id', async
     res.set('Content-Type', file.endsWith('.mp4') ? 'video/mp4' : 'video/webm')
     // The URL carries the effect's version, so a browser copy is safe to keep.
     res.set('Cache-Control', 'private, max-age=86400')
-    res.sendFile(file)
+    res.sendFile(file, { dotfiles: 'allow' })
   } catch (error: any) {
     if (error instanceof SceneEffectValidationError) return res.status(400).json({ detail: error.message })
     res.status(500).json(humanizeBackendError(error, 'The effect preview could not be rendered'))

@@ -131,7 +131,7 @@ router.get('/projects/:slug/characters/:id/reference-image/:filename', async (re
     }
     const abs = cm.referenceImagePath(slug, id, filename)
     if (!existsSync(abs)) return res.status(404).json({ detail: `Reference image file missing on disk: ${filename}` })
-    res.sendFile(abs)
+    res.sendFile(abs, { dotfiles: 'allow' })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not serve reference image'))
   }

@@ -192,7 +192,7 @@ router.get('/projects/:slug/song-pool/songs/:id/audio', async (req, res) => {
     const dir = sp.poolDir(slug)!
     const file = s && s.file === path.basename(s.file) ? path.join(dir, s.file) : ''
     if (!file || !existsSync(file)) return res.status(404).json({ detail: 'The audio file for this song is not in the folder.' })
-    res.sendFile(file)
+    res.sendFile(file, { dotfiles: 'allow' })
   } catch (e) { fail(res, e, 'Could not play the song') }
 })
 

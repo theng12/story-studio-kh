@@ -306,7 +306,15 @@ describe('the prose call sites are left alone', () => {
     for (const ctx of contexts) {
       assert.ok(!ctx.includes('outputContract'), 'chapter expansion output is markdown, never JSON')
     }
-    assert.ok(!callRegion('lib/chunked-narration.ts', 'const repairText = await withChosenModel(').includes('outputContract'))
+    // v1.4.359 — the narrative repair became two call sites: a saved-identity
+    // recovery repair and the truncation repair. Both are prose, so both are
+    // checked; the old single anchor matched neither.
+    for (const anchor of [
+      'const recoveredRepairText = await withChosenModel(',
+      'repairText = await withChosenModel(',
+    ]) {
+      assert.ok(!callRegion('lib/chunked-narration.ts', anchor).includes('outputContract'), anchor)
+    }
     // The one JSON call expansion depends on keeps its contract, passed as its
     // own argument rather than on the shared ctx above.
     //

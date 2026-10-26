@@ -207,3 +207,23 @@ test('image-preview-cache serves the provider format, not a hardcoded image/png 
     'the cached bytes are JPEG, so the declared type must be JPEG even though the file is named .png')
   assert.ok(Buffer.from(response.body).equals(jpeg), 'the cached bytes are unchanged')
 })
+
+test('image-preview-cache serves a cache folder whose path has a dot component', async () => {
+  // Found on the 1.4.359 gate: `res.sendFile` defaults to `dotfiles: 'ignore'`,
+  // so every cached preview 404'd once the test sandbox moved under `.test-work`
+  // — a real user can have a data folder with a dot in its name just as easily.
+  const { savePreview } = await import('../services/image-preview-cache.js')
+  const jpeg = await imageBytes('jpeg')
+  const previous = process.env.STORY_STUDIO_DATA_DIR
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'ss-dot-cache-'))
+  process.env.STORY_STUDIO_DATA_DIR = path.join(base, '.dotted-data')
+  try {
+    const saved = await savePreview({ prompt: 'dotted folder', modelId: 'm', aspectRatio: '1:1', imageBytes: jpeg })
+    const response = await request(app as any).get(`/api/image-preview-cache/${saved.hash}`)
+    assert.equal(response.status, 200, JSON.stringify(response.body))
+    assert.ok(Buffer.from(response.body).equals(jpeg), 'the cached bytes are served from the dotted folder')
+  } finally {
+    process.env.STORY_STUDIO_DATA_DIR = previous
+    await fs.rm(base, { recursive: true, force: true }).catch(() => {})
+  }
+})

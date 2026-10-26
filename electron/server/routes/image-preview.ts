@@ -311,5 +311,8 @@ router.get('/image-preview-cache/:hash', async (req, res) => {
   // already-set Content-Type over the extension (send 1.2.1 `type()` returns
   // early when the header is present), so the sniffed type wins over `.png`.
   res.setHeader('Content-Type', await imageMediaTypeForFile(abs))
-  res.sendFile(path.resolve(abs))
+  // `dotfiles: 'allow'`: the path comes from the cache index under a hex hash,
+  // and send's default policy would 404 it when the data folder has a dot
+  // component — the file is ours, the dot is not a secret.
+  res.sendFile(path.resolve(abs), { dotfiles: 'allow' })
 })

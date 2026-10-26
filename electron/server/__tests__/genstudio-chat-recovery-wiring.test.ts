@@ -308,7 +308,13 @@ void test('multiple listicle recovery keys match by exact membership, not reques
       project_slug: 'listicle-project', type: 'expand_chapters', episode_id: params.episode_id,
       title: params.title, params: { episode_id: params.episode_id, title: params.title },
     })
-    await expandChapters(original, params, { auto_approve: true })
+    // Every recorded answer for these batches is a failure, so since 1.4.359 the
+    // listicle path NAMES the unwritten chapters and fails the run instead of
+    // returning as if it had finished (AGENTS.md §8). What this test pins is
+    // unchanged: the Retry below looks up the recorded keys and submits no
+    // replacement provider work. Both calls therefore end in that same loud failure.
+    const unwritten = /Chapter expansion did not finish: requested chapter\(s\) 1, 2, 3, 4, 5, 6, 7, 8, 9 are missing[\s\S]*0 of 9 requested chapter\(s\) were written and kept/
+    await assert.rejects(expandChapters(original, params, { auto_approve: true }), unwritten)
     const historicKeys = service.submissions
       .filter(submission => submission.operation === 'chat' && !submission.idempotencyKey.startsWith('story-chat-resend-'))
       .slice(1)
@@ -323,7 +329,7 @@ void test('multiple listicle recovery keys match by exact membership, not reques
       genstudio_chat_recovery: true as const,
       genstudio_chat_recovery_keys: [...historicKeys].reverse(),
     })
-    await expandChapters(retry, params, { auto_approve: true })
+    await assert.rejects(expandChapters(retry, params, { auto_approve: true }), unwritten)
 
     // A re-POST of an already-sent resend key is answered by replay; no new provider work.
     assert.equal(service.providerSubmissionCount('chat'), submissionsBeforeRetry,

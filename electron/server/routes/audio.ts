@@ -1408,7 +1408,10 @@ router.get('/projects/:slug/episodes/:code/audio-file', async (req, res) => {
         await fh.close()
       }
     } catch { /* unreadable → let sendFile fail below with a 404 */ }
-    res.sendFile(abs, { headers: { 'Content-Type': contentType } }, (err: any) => {
+    // `dotfiles: 'allow'` — this path is resolved and containment-checked above.
+    // send's default (`ignore`) answers 404 for any path with a dot component,
+    // which a real library folder (`~/.library`, or the test sandbox) can have.
+    res.sendFile(abs, { dotfiles: 'allow', headers: { 'Content-Type': contentType } }, (err: any) => {
       if (err && !res.headersSent) res.status(404).json({ detail: 'Audio file not found on disk' })
     })
   } catch (e: any) {

@@ -247,7 +247,12 @@ test('free Starter sources claim and restore; historical Kits install and remain
   // source appearing without anyone noticing is a pricing change nobody made.
   // Channel Kits were retired in PR82 and are represented below only as
   // already-owned historical delivery records.
-  assert.equal(sources.length, 37)
+  //
+  // 42 since 1.4.359: the Formula library gained five free starter Formulas —
+  // calm-science-for-sleep, coffee-jazz-ambient, khmer-folk-horror,
+  // mythology-for-sleep and wildlife-under-pressure — which were added on purpose
+  // when the owner's own Formulas were adopted. Any SIXTH is still a question to ask.
+  assert.equal(sources.length, 42)
   const legacyKits = legacyStarterKits()
   const products = [
     ...sources.map(source => sourceProduct(source)),

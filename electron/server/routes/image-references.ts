@@ -314,7 +314,7 @@ router.get('/projects/:slug/episodes/:episodeId/img2img-references/file/:filenam
     if (!existsSync(abs)) return res.status(404).json({ detail: 'Reference not found' })
     res.setHeader('Cache-Control', 'private, max-age=60')
     res.setHeader('Content-Type', 'image/png')
-    res.sendFile(path.resolve(abs))
+    res.sendFile(path.resolve(abs), { dotfiles: 'allow' })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to load reference' })
   }
