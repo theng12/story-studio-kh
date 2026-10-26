@@ -7,6 +7,9 @@ import { transform } from 'esbuild'
 
 const pagePath = new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url)
 const source = readFileSync(pagePath, 'utf8')
+// The page uses Nuxt's auto-imported list; this harness compiles the SFC outside Nuxt, so it is
+// injected from the real module rather than restated here.
+const { DEFAULT_EXCLUDE_KEYS } = await import('../composables/usePresets.js')
 
 async function setupWith(models: ReturnType<typeof ref<any[]>>) {
   const { descriptor } = parse(source, { filename: pagePath.pathname })
@@ -33,6 +36,7 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     const normalizeDefaultModels = () => emptyDefaultModels()
     const resolveEffectiveModel = (_family, selected) => ({ model: selected || '', defaultModel: '', goneNotice: '' })
     const usePresets = options => ({ apply: options.apply })
+    const DEFAULT_EXCLUDE_KEYS = ${JSON.stringify(DEFAULT_EXCLUDE_KEYS)}
     const HOLD_MAX_SECONDS = 60
     const holdDrafts = () => ({ fixed: '2.5', min: '2', max: '3' })
     const holdFromDraft = () => ({ ok: true, hold: null })
@@ -43,6 +47,8 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     const revealLabel = () => ''
     const revealMixFor = () => []
     const revealChoiceOf = () => ''
+    const revealForPreset = () => null
+    const applyRevealPreset = live => live
   `
   const stripped = script.content.replace(/^import[\s\S]*?from ['"][^'"]+['"]\n/gm, '')
   const code = `${support}\n${stripped.replace('export default', 'const __sfc__ =')}\nexport default __sfc__`
