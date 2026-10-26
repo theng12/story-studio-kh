@@ -231,7 +231,12 @@ library is consistent (owner, 2026-10-24) — never copy composition or depend o
 
 **Generator model defaults.** Restore the user's last explicit choice before the picker mounts;
 never hardcode a paid model as the form default. If the remembered model is gone, let the live
-inventory choose a usable fallback and persist that healed choice.
+inventory choose a usable fallback and persist that healed choice. **Owner, 2026-10-27 — Settings →
+Default models** keeps one model per generation family for this Mac, and it is the LAST link of one
+chain read at use time only: the preset's saved model → the page's remembered choice → this default.
+Never write the default into a preset, channel config or remembered form, and never remember a
+defaulted value as the customer's choice. A default that has left the catalogue is reported by name
+and leaves the field empty — never swapped for another product.
 
 **Retired — do not restore.** The Co-writer feature (page, navigation, API routes, local-storage
 stores, completion dependencies) · the shared Brand profile system (`/brands`, `brand_id`, Brand
