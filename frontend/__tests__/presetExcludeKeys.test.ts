@@ -319,6 +319,7 @@ interface SceneReviewLiveState {
   form: SceneReviewPresetForm
   auto_approve_generated: boolean
   referenceCharacterIds: string[]
+  output_option?: { resolution: string; aspect_ratio: string }
 }
 
 function sceneReviewController(slug: string, live: SceneReviewLiveState) {
@@ -328,23 +329,35 @@ function sceneReviewController(slug: string, live: SceneReviewLiveState) {
     presetType: 'scene-review',
     snapshot: () => sceneReviewPresetSnapshot({
       ...live.form,
+      ...(live.output_option ? { output_option: live.output_option } : {}),
       auto_approve_generated: live.auto_approve_generated,
     }),
     apply: data => {
       const next = sceneReviewPresetApply(live.form, data as Record<string, unknown>)
       live.form = { model: next.model, aspect_ratio: next.aspect_ratio, seed: next.seed }
       live.auto_approve_generated = next.auto_approve_generated
+      if (next.output_option) live.output_option = next.output_option
     },
   })
 }
 
 describe('the scene review preset', () => {
-  test('the page uses the shared four-field boundary', () => {
+  test('the page uses the shared preset boundary', () => {
     // The page must not carry its own snapshot/apply: that is how an episode
     // field would come back without touching this test.
     assert.match(sceneReviewSource, /snapshot: \(\) => sceneReviewPresetSnapshot\(\{/)
     assert.match(sceneReviewSource, /const next = sceneReviewPresetApply\(/)
-    assert.deepEqual([...SCENE_REVIEW_PRESET_KEYS], ['model', 'aspect_ratio', 'seed', 'auto_approve_generated'])
+    assert.deepEqual([...SCENE_REVIEW_PRESET_KEYS], ['model', 'aspect_ratio', 'output_option', 'seed', 'auto_approve_generated'])
+  })
+
+  test('the published output size travels as a whole pair, and an older preset keeps the live one', () => {
+    const form = { model: 'm', aspect_ratio: '16:9', seed: '' }
+    assert.deepEqual(
+      sceneReviewPresetApply(form, { output_option: { resolution: '2K', aspect_ratio: '16:9' } }).output_option,
+      { resolution: '2K', aspect_ratio: '16:9' })
+    assert.equal('output_option' in sceneReviewPresetApply(form, { model: 'm' }), false, 'absent: picker default stays')
+    assert.equal('output_option' in sceneReviewPresetApply(form, { output_option: { resolution: '2K' } }), false,
+      'a half pair is not a published row')
   })
 
   test('a round trip carries exactly the reusable settings — no character id, no reference path', async () => {
@@ -352,13 +365,14 @@ describe('the scene review preset', () => {
       form: { model: 'reference-model', aspect_ratio: '16:9', seed: 42 },
       auto_approve_generated: true,
       referenceCharacterIds: ['mara', 'kiri'],
+      output_option: { resolution: '2K', aspect_ratio: '16:9' },
     }
     const presets = sceneReviewController('scene-review-reference-save', live)
     await presets.saveAs('With references')
     const stored = configStore['scene-review-reference-save'].scene_review_genstudio_presets[0].data
 
     assert.deepEqual(Object.keys(stored).sort(), [...SCENE_REVIEW_PRESET_KEYS].sort(),
-      'the preset body holds exactly the four reusable settings')
+      'the preset body holds exactly the five reusable settings')
     assert.equal(JSON.stringify(stored).includes('mara'), false, 'no character id may ride along')
     assert.equal('reference_character_ids' in stored, false, 'no reference selection may ride along')
     assert.equal('reference_paths' in stored, false, 'no reference path may ride along')

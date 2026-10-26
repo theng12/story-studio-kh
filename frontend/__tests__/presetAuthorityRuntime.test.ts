@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { createApp, defineComponent, h, nextTick, onMounted, reactive, ref, shallowRef, type Component } from 'vue'
 import { compileScript, compileTemplate, parse } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
+import { resolveSavedImageModelId } from '../utils/genstudio-image-model-selection.js'
 import ts from 'typescript'
 
 const configStore: Record<string, any> = {}
@@ -101,7 +102,10 @@ function scenePlanPresetFormHarness() {
   })
   const projectConfig = ref({ avoid_legible_text_in_scenes: true })
   const api = new Function('ctx', `
-    const { form, projectConfig } = ctx;
+    const { form, projectConfig, resolveSavedImageModelId } = ctx;
+    let promptPresetModelNotice = '';
+    const findGenStudioImageModel = () => undefined;
+    const resolveRetiredImageModelId = () => null;
     const CREATIVE_PROFILES = [{ id: 'narrative' }, { id: 'custom' }];
     const CREATIVE_STRATEGIES = [
       { id: 'literal-narrative' }, { id: 'editorial-metaphor' },
@@ -114,7 +118,7 @@ function scenePlanPresetFormHarness() {
     const clampOutputAllowance = value => value;
     const publishedMaxOutput = { value: undefined };
     ${compiled}
-  `)({ form, projectConfig }) as { applyPromptPreset(data: any): void }
+  `)({ form, projectConfig, resolveSavedImageModelId }) as { applyPromptPreset(data: any): void }
   return { ...api, form }
 }
 

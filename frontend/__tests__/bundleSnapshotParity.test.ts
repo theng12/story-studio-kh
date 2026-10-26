@@ -18,7 +18,7 @@ test('Effects, Intro and Subtitles presets use the same snapshot and apply as th
   assert.match(page, /configKey: 'effects',\s*snapshot: \(\) => snapshotEffectsData\(\),\s*apply: \(raw: any\) => applyEffectsData\(raw\),/)
   assert.match(page, /configKey: 'intro',[\s\S]{0,600}?snapshot: \(\) => snapshotIntroData\(\),\s*apply: \(data: any\) => applyIntroData\(data\),/)
   assert.match(page, /configKey: 'subtitles',\s*snapshot: \(\) => snapshotSubtitlesData\(\),\s*apply: \(data: any\) => applySubtitlesData\(data\),/)
-  assert.match(page, /fallback: \{\s*intro: snapshotIntroData\(\),\s*timeline: snapshotTimelineData\(\),\s*effects: snapshotEffectsData\(\),\s*subtitles: snapshotSubtitlesData\(\),/)
+  assert.match(page, /fallback: (?:withoutEpisodeFiles\()?\{\s*intro: snapshotIntroData\(\),\s*timeline: snapshotTimelineData\(\),\s*effects: snapshotEffectsData\(\),\s*subtitles: snapshotSubtitlesData\(\),/)
 })
 
 test('the bundle copy keeps the frame, the live outro and timeline clips, and the captions-intro choice', () => {

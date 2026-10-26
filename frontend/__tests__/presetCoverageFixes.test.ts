@@ -154,7 +154,7 @@ describe('the published output size travels with the preset', () => {
     test(`${page} wires both halves`, () => {
       const pageSource = source(page)
       assert.match(pageSource, /output_option: \{ \.\.\.outputOption\.value \}/, 'the snapshot must capture the row')
-      assert.match(pageSource, /outputOption\.value = \{ resolution: stored\.resolution/, 'the apply must restore it')
+      assert.match(pageSource, /outputOption\.value = (?:\{ resolution: stored\.resolution|next\.output_option)/, 'the apply must restore it')
     })
   }
 

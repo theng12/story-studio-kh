@@ -38,7 +38,7 @@ async function loadPage(): Promise<Component> {
     const useToast = () => globalThis.__mrToast
     const useConfirm = () => ({ ask: async () => true })
     const useJobs = () => ({ isJobActiveFor: () => false, jobs: { value: [] } })
-    const useGenStudioMediaModels = () => ({ videoModels: globalThis.__mrModels, refresh: async () => {} })
+    const useGenStudioMediaModels = () => ({ videoModels: globalThis.__mrModels, loaded: ref(true), refresh: async () => {} })
     const usePresets = options => ({ load: async () => undefined, presets: { value: [] }, activeId: { value: '' }, isDirty: { value: false } })
     const DEFAULT_EXCLUDE_KEYS = ${JSON.stringify(DEFAULT_EXCLUDE_KEYS)}
   `

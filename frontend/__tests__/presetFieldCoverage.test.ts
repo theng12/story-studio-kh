@@ -251,8 +251,6 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
   },
   'motion-review.vue': {
     clipRenderer: { verdict: 'saved-elsewhere', reason: 'a channel choice persisted at /motion-presentation, which outlives every preset' },
-    revealChoice: { verdict: 'saved-elsewhere', reason: 'a channel choice persisted at /motion-presentation, not a preset value' },
-    revealMixDraft: { verdict: 'saved-elsewhere', reason: 'the channel reveal Mix draft, written on Apply' },
     penChoice: { verdict: 'episode', reason: 'the pen is per episode (channel default, episode override) — AGENTS.md §4' },
     holdChoice: { verdict: 'episode', reason: 'the closing hold is per episode (channel default, episode override)' },
     'holdDraft.fixed': { verdict: 'episode', reason: 'a draft of this episode\'s hold, written on Apply' },
