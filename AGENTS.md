@@ -195,16 +195,16 @@ continuity-chain and narrated-scenes must run thumbnail prompts only (`mode: "th
 because their scene prompts come from Scene Plan.
 
 **Video.** Image-to-video only — never restore text-to-video modes, models, UI controls, preset
-values, or fallbacks. Sora 2 and Runway Gen-3 are retired. New provider discovery is deferred until
-`videostudio-mac` exposes a stable provider inventory and dispatch API; do not half-wire or
-duplicate new catalogues meanwhile. Every request uses the exact scene image for its stable scene
-number, and a missing image is a **blocking error**, never permission to reuse a different one.
+values, or fallbacks. (Owner, 2026-10-26: text-to-video may become a future feature, but he has not
+decided; changing this is his call, not an implementation task.) Sora 2 and Runway Gen-3 are
+retired. Video models resolve through the one paired Gateway's live catalogue — do not half-wire or
+duplicate a second catalogue. Every request uses the exact scene image for its stable scene number,
+and a missing image is a **blocking error**, never permission to reuse a different one.
 
-**Model inventory.** Settings → Models may edit built-in pricing and operational limits only; do
-not restore the Add Custom Model form, a project-level `models` catalog, `is_custom` entries, or a
-unified catalog write path. Inventory and dispatch belong to GenStudio; do not restore direct
-Studio Hub or sibling-Studio routing. Story Studio talks to **exactly one** endpoint and must never
-be handed a second address. **Named exception (owner, 2026-10-11, plan Q4):** the idea
+**Model inventory.** Do not restore the Add Custom Model form, a project-level `models` catalog,
+`is_custom` entries, or a unified catalog write path. Inventory and dispatch belong to GenStudio; do
+not restore direct Studio Hub or sibling-Studio routing. Story Studio talks to **exactly one**
+endpoint and must never be handed a second address. **Named exception (owner, 2026-10-11, plan Q4):** the idea
 generator's real-source lists (`services/reference-pool.ts`) make free, read-only GETs to
 `en.wikipedia.org` — no key, no model, at most one request a second, a User-Agent with nothing
 personal in it, cached, and failing soft. It is not a model endpoint; never route generation there.
@@ -221,10 +221,11 @@ use goes to an episode with no accepted final.
 **Visual style packs.** Use the `story-studio-visual-style-adoption` skill and author exactly one
 standalone pack. `frontend/composables/useVisualStyleCatalog.ts` is the only frontend consumer —
 no static style list, no offline fallback. Each style needs a registry-issued qualified id,
-searchable metadata, a render-ready `style_bible`, a `negative_prompt`, and **at least three
-distinct verified 1672x941 WebP previews** inside its own pack `assets/`, in this order: the hero
-(the card image, `preview_assets[0]`), a quiet wide scene with no figure, and the hardest legal case
-for the style (owner, 2026-09-08 and again 2026-10-24; `content-packs/PREVIEW-BACKFILL-2026-09-08.md`).
+searchable metadata, a render-ready `style_bible`, a `negative_prompt`, and **exactly three
+distinct verified 1672x941 WebP previews — no more, no fewer (owner, 2026-10-25)** — inside its own
+pack `assets/`, in this order: the hero (the card image, `preview_assets[0]`), a quiet wide scene
+with no figure, and the hardest legal case for the style (owner, 2026-09-08 and again 2026-10-24;
+`content-packs/PREVIEW-BACKFILL-2026-09-08.md`).
 The Style Library shows them all. Generate original previews — with Qwen Image 2.1 turbo, so the
 library is consistent (owner, 2026-10-24) — never copy composition or depend on generated captions. Legacy `builtin-*` ids may remain only inside existing project-local
 `style_presets` and historical migration evidence.
@@ -297,25 +298,39 @@ Production Board completion, or `all_done` — no project gate, no `research_req
 **Delegation — owner ruling, 2026-09-20.** Act as the orchestrator: own planning,
 architecture, independent review, verification, and integration. Delegate
 bounded implementation work with a base commit, owned files, deliverable, and
-proving checks. Prefer Luna for straightforward tasks, Terra for involved
-cross-file work, and Sol at no more than high reasoning for data-integrity,
-security, and lifecycle work. Run independent tasks concurrently without
-overlapping edits. Use Ponytail and Graphify, verify findings against current
-source, reproduce uncertain bugs before fixing them, and choose the smallest
-complete solution. Keep updates concise and distinguish verified results from
-remaining limitations. This supersedes earlier Luna-only or unrestricted
-model-selection guidance. Workers must not recursively delegate, commit, push,
-merge, publish, deploy, or make paid calls unless specifically assigned that
-authority. Fan tests out whenever it is safe — see **Parallel tests** below.
+proving checks. In the Codex runner, prefer Luna for straightforward tasks, Terra
+for involved cross-file work, and Sol at no more than high reasoning for
+data-integrity, security, and lifecycle work; other runners use their own model
+menu. Run independent tasks concurrently without overlapping edits. Use Ponytail and Graphify,
+verify findings against current source, reproduce uncertain bugs before fixing
+them, and choose the smallest complete solution. Keep updates concise and
+distinguish verified results from remaining limitations. This supersedes earlier
+Luna-only or unrestricted model-selection guidance. Workers must not recursively
+delegate, commit, push, merge, publish, deploy, or make paid calls unless
+specifically assigned that authority. Fan tests out whenever it is safe — see
+**Parallel tests** below.
 
-**Tests.** `npm run test:backend` runs every backend file and **is the release gate** — do not
-narrow it when verifying a release. While iterating, run only what you are working on:
+**Tests.** `npm run test:backend` runs every backend file and is the **backend lane** — one step of
+the release gate, not the gate itself. **The release gate is the ten-step `story-final-gate`**:
+`lint`, `check:changelog`, `check:typography`, `check:security`, `check:model-drift`, `typecheck`,
+`test:backend`, `test:frontend`, `test:release`, `test:content-packs`, all run on one exact
+source. The runner lives at
+`_orchestra/app-closeout-20261021/story-final-gate-tools/run-gate.sh <worktree> <evidence-dir>`;
+`ship-story` (and `story_gate_proof.verify`) **refuses to publish or ask the mini to update**
+without a proof for the exact HEAD/tree/diff: all ten steps exit 0, every log hash re-derived,
+every suite lane at its discovered coverage floor, and no `PARTIAL RUN`. Do not narrow a step when
+verifying a release.
+
+While iterating, run only what you are working on:
 `node scripts/testing/run-backend-tests.mjs --only <substring>` (repeatable; the substring matches
 the test file's name). A filtered run prints a loud `PARTIAL RUN` banner before and after the
 results — **if you see that banner, the release gate did not run**, and never quote a filtered run
 as a green suite. An `--only` that matches nothing fails, and so does a run whose summary reports
-zero tests. Read-only agents stay off the suite entirely. For every suite you cite, report the actual exit status, the completion line, and
-the test count — a wrapper's exit code is not the suite's, and "completed" is not "passed".
+zero tests. **A read-only agent may run a focused `--only` run in its OWN worktree** (within the
+**Parallel tests** limits below) — never the full gate, and never a competing lane in a shared
+worktree. For every suite you cite, report the
+actual exit status, the completion line, and the test count — a wrapper's exit code is not the
+suite's, and "completed" is not "passed".
 
 **Parallel tests — owner, 2026-10-24: "do that whenever possible."** This replaces the earlier
 "one test suite at a time across all workers". Serial is now the exception, kept only where running
@@ -335,11 +350,12 @@ side by side has actually broken a result.
   empty evidence manifest, a killed child): rerun that file alone before treating it as a defect,
   and say in the report that it ran alongside other work.
 
-**Installer tests must isolate trash as well as the install target.** Copy the real installer into
-a private temporary project, and keep source, target, and default/overridden trash there. Never
-run a test that removes or rearranges the checkout's `_trash/app`; a temporary
-`STORY_STUDIO_INSTALL_TARGET` alone does not protect that archive. The release lane's read-only
-built-bundle existence check runs after the main DMG build.
+**Installer tests never touch the real install.** Every installer test copies the real script into a
+private temporary project with its own source, target and trash, so it cannot read, move or remove
+the owner's `_trash/app` or replace the app in `/Applications`. Keep that property in any new
+installer test: never point one at the real `/Applications` or the owner's `_trash/app`. The release
+lane's `install-local` case needs `dist/mac-arm64/Story Studio KH.app`, which is why the prebuild
+happens before the gate (see Releases).
 
 **Live test work never sits inside `_trash`.** Backend, frontend, release and retained-filesystem
 contract fixtures use `.test-work/` (gitignored). Content-pack staging needs a path outside the
@@ -363,12 +379,20 @@ run loudly and stops its owned test process group. Do not use Trash for a test's
 
 Add the matching newest-first `## vX.Y.Z` entry to `CHANGELOG.md` — the source shown by the in-app
 **What's New** — and run `npm run check:changelog`; the release is incomplete if the runtime
-version, newest changelog entry, and What's New details differ. After verified application/desktop
-work is integrated into `main`, build the final DMG from the **main** checkout with
-`npm run dist:smoke` (unsigned smoke check) or `npm run dist:public` (signed/notarized candidate).
-The artifact belongs in the repository-root `dist/`; verify its versioned `arm64` filename and the
-bundled `app.asar` version against `main`, and never copy a worktree-built DMG into `main`'s
-`dist/` before its source is integrated.
+version, newest changelog entry, and What's New details differ.
+
+The order is **prebuild → ten-step gate → rebuild from `main`**, and it is not optional:
+
+1. **Prebuild in the release worktree:** `npm run dist:smoke` (unsigned smoke check) or
+   `npm run dist:public` (signed/notarized candidate). The release lane's `install-local` test
+   needs `dist/mac-arm64/Story Studio KH.app`, so the gate fails without this build.
+2. **Run the ten-step gate** on that exact source (see **Tests** above for the runner and what its
+   proof enforces).
+3. **Integrate, then rebuild from `main`.** After verified application/desktop work is on `main`,
+   build the final DMG from the **main** checkout. The artifact belongs in the repository-root
+   `dist/`; verify its versioned `arm64` filename and the bundled `app.asar` version against
+   `main`, and never copy a worktree-built DMG into `main`'s `dist/` before its source is
+   integrated.
 
 ## Working rules
 
@@ -382,10 +406,14 @@ bundled `app.asar` version against `main`, and never copy a worktree-built DMG i
 
 - **Every change is merged, committed, pushed, and built into a DMG — and the previous DMG moves
   to `_trash/dist/` automatically.** The owner's rule, 2026-09-26: **the whole cycle every time**,
-  not only for something you would call a release. Bump `package.json` **and** `package-lock.json`,
-  add the newest-first `CHANGELOG.md` entry, run `npm run check:changelog` and the full gate, build
-  with `npm run dist:smoke`, land it on `main` through the `land/<version>-into-main` flow, push.
-  **A change is not finished while any of those is missing.**
+  not only for something you would call a release — nothing ships un-gated, un-built or un-pushed.
+  Bump `package.json` **and** `package-lock.json`, add the newest-first `CHANGELOG.md` entry, run
+  `npm run check:changelog`, prebuild with `npm run dist:smoke`, run the ten-step gate on that
+  source, land it on `main` through the `land/<version>-into-main` flow, rebuild the DMG from
+  `main`, and push. **A change is not finished while any of those is missing.**
+  **Batch, do not dribble — owner, 2026-10-26: "do all 4 if possible so it's faster."** Put related
+  changes into one release and run **one full gate per release batch** (focused runs first for every
+  area the batch touches). Batching never excuses narrowing the gate.
   `scripts/release/build-unsigned-dmg.mjs` moves the previous DMG aside itself — that line used to be
   `fs.rmSync(dmgOutputPath)`, so a rebuild of the same version destroyed the previous artefact — which
   means `dist/` holds exactly the build you just made and `_trash/dist/` holds the history, with no

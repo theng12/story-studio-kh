@@ -6,7 +6,9 @@
  * a quiet wide scene with no figure in it, and the hardest case the style can
  * legally be asked for. Twenty-three Styles across eight collections were
  * brought up to it by rendering forty-six new previews and bumping each pack
- * into a new `<slug>-v<version>` sibling directory.
+ * into a new `<slug>-v<version>` sibling directory. On 2026-10-25 the owner
+ * tightened the number to exactly three — no more, no fewer — so the assertion
+ * below is equality, not a floor.
  *
  * WHY THIS FILE EXISTS RATHER THAN TWENTY-THREE EDITS. Each collection already
  * has a test that pins its own packs, and every one of them was written against
@@ -242,7 +244,7 @@ function compareSemver(a, b) {
   return 0
 }
 
-test('every live visual style on the shelf carries at least three distinct verified previews, hero first', async () => {
+test('every live visual style on the shelf carries exactly three distinct verified previews, hero first', async () => {
   const registry = await readJson(REGISTRY)
   const byPackId = new Map()
   for (const record of registry.records) {
@@ -260,8 +262,8 @@ test('every live visual style on the shelf carries at least three distinct verif
     const slug = packId.replace('com.storystudio.pack.style.', '')
     const style = await readJson(inRepo(join(record.source_path, 'content', 'visual-style.json')))
     assert.equal(style.id, `com.storystudio.style.${slug}`, `${packId} item id must match its pack`)
-    assert.ok(Array.isArray(style.preview_assets) && style.preview_assets.length >= 3,
-      `${packId}@${record.version} must declare at least three preview_assets (owner rule 2026-09-08, reinforced 2026-10-24)`)
+    assert.equal(style.preview_assets?.length, 3,
+      `${packId}@${record.version} must declare exactly three preview_assets — no more, no fewer (owner 2026-09-08, reinforced 2026-10-24, tightened 2026-10-25)`)
 
     const seen = new Set()
     for (const preview of style.preview_assets) {
