@@ -330,8 +330,10 @@ channel that predates the seed and sets no rhythm still gets the one app-wide 1�
 Series Formula names its own starting scene length overwrites `default_scene_pacing` afterwards
 (`seedFormulaStartingDefaults`, called by `POST /projects` after creation). The Formula is the more
 specific, owner-chosen answer — it is the 2026-10-02 Dreamlands fix, where a Sleep channel had
-opened on 1–3 s and needed 20–30 s — so it wins. Today only `electron/server/niches/sleep.json` sets
-one. The preset is seeded either way, and is available by name on every channel.
+opened on 1–3 s and needed 20–30 s — so it wins. Since 2026-10-26 that Sleep Formula declares
+four tiers rather than one band (below); every other built-in niche still declares nothing, so the
+seeded standard tiers are what they start on. The preset is seeded either way, and is available by
+name on every channel.
 
 **The trap this seeds around.** The `if (!existsSync(configPath))` block in `createProject` never
 ran: the blank template already ships `electron/templates/blank/config.json`, so the copy placed one
@@ -348,6 +350,72 @@ explicitly; its subject is the partial-success behaviour, not the absence of a p
 covers the model-less case end to end: the seeded channel's Scene Plan step is left out of the run
 with the plain message and is **not** enqueued, while its sibling step still runs.
 
+
+### A SLEEP channel's starting rhythm is four tiers — owner decision, 2026-10-26
+
+> *"Sleep pacing, for ALL sleep channels from now on: 0–3 min a scene every 5–10 s; 3–5 min every
+> 10–20 s; 5–10 min every 20–30 s; after 10 min every 50–60 s. Applies whether the motion is stills
+> or Sketch Draw. Delivered as the Sleep Formula's starting rhythm, so every episode can still
+> change it in Scene Plan (AGENTS §5). Never rewrite stored episode or project data."*
+
+| episode time | a new scene every |
+| --- | --- |
+| 0–180 s | 5–10 s |
+| 180–300 s | 10–20 s |
+| 300–600 s | 20–30 s |
+| after 600 s | 50–60 s |
+
+The fourth tier is what the 2026-10-19 standard did not have. A sleep episode runs 90–180 minutes,
+so past ten minutes a 20–30 s cadence is still thousands of stills for a scene that is deliberately
+not changing much; holding one picture for nearly a minute costs fewer generations and is what the
+owner actually wants on screen for the long tail of a mix.
+
+**The shape is the existing one.** `starting_scene_pacing` is a series-formula document field whose
+value is the `VariableScenePacing` shape from `electron/server/contracts/pacing.ts` — ordered periods
+over the narration timeline, the same shape Scene Plan's **Visual timing & motion** panel writes into
+`continuity.json` and the planner reads through `pacingBandAt`. Nothing new was invented for the
+tiers: `StartingScenePacingSchema` (`electron/server/content-packs/schemas.ts`) validates the same
+rules `parseScenePacing` enforces (first period at zero, contiguous, only the last open, 1–60 s per
+scene), `contentPackDocumentToNiche` (`electron/server/content-packs/legacy-adapters.ts`) maps it onto
+`Niche.startingScenePacing` (`electron/server/models/types.ts`), and
+`startingDefaultsFromFormula` (`electron/server/services/formula-starting-defaults.ts`) copies it
+once into a NEW channel's `config.json` `default_scene_pacing` — the key `readProjectStartingPacing`
+already read. When a Formula declares both `starting_scene_pacing` and `starting_scene_seconds`, the
+tiers win; the band stays valid for every other Formula.
+
+**Who carries it.** The five Sleep-family Formulas, each shipped as a successor because published
+bytes are frozen: Sleep Story 1.0.3, Sleep History Compilation 1.0.2, Calm Science for Sleep 1.0.1,
+Mythology for Sleep 1.0.1, Illustrated History for Sleep 1.0.1 (registry reserved at revision 327,
+authored at 328–332). Each replaced `starting_scene_seconds` with `starting_scene_pacing`, so the
+document states one starting rhythm rather than two. The built-in
+`electron/server/niches/sleep.json` carries the same tiers, because it is what an alias answers when
+the Store Formula is not installed, and the answer must not depend on which pack a Mac has.
+
+**What did not change, on purpose.** The 2026-10-19 owner standard tiers stay exactly as they were
+for a channel whose Formula names no rhythm — Sleep is the more specific choice and wins, it does not
+become the app-wide default. An episode's saved `continuity.json` pacing still beats both, through the
+same `claim_pacing` boundary. No stored channel or episode is rewritten: `createProject` seeds only a
+NEW channel, `POST /projects` overwrites only that new channel's key, and the successor packs change
+nothing a customer already installed. The seeded **"Owner standard pacing"** preset is not touched by
+a Formula's starting pacing — it is still the 2026-10-19 standard, and the timing panel is where an
+episode's rhythm is actually chosen.
+
+**The Store floor moved with it, because the schema is strict.** A series-formula document is
+validated with a strict schema, so an older build does not silently ignore `starting_scene_pacing` —
+it rejects the pack. `content-packs/release-floor.json` is therefore 1.4.361, the release that
+introduces the field, and the five successors are only offered to builds that can read them. The
+previously published versions stay installed and untouched on every build. This is why the change is
+an **application release**, not content-only: a pack version is content-only only when the released
+runtime already supports its kind *and schema*.
+
+**Tests.** `electron/server/__tests__/formula-starting-defaults.test.ts` now pins the tiers on the
+built-in niche and on all five pack sources, and keeps the precedence checks (tiers over band, band
+over the seeded standard, an episode's own pacing over everything).
+`electron/server/__tests__/sleep-tiered-starting-pacing.test.ts` pins each boundary — 179.9 s is
+still 5–10 s, 180 s is 10–20 s, 299.9 s is 10–20 s, 300 s is 20–30 s, 599.9 s is 20–30 s, 600 s and
+every later moment are 50–60 s — plus contiguity, the open final tier and the "never cuts faster as
+it lengthens" direction. `scripts/content-packs/__tests__/free-starter-inventory.test.mjs` pins the
+seven 1.0.3 roots (six of them the 2026-10-25 modernization's, previously unpinned).
 
 ### `auto_approve` is preset data on Contextual Cues — decided 2026-08-17
 

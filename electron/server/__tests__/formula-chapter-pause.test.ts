@@ -29,7 +29,7 @@ void test('3 s between chapters by default and in the Sleep formula (owner 2026-
 })
 
 void test('a signed formula can carry chapter_pause_sec through to the niche', async () => {
-  const doc = JSON.parse(await fs.readFile(path.join(root, 'content-packs/free-starters/formula/sleep-story-v1.0.1/content/series-formula.json'), 'utf8'))
+  const doc = JSON.parse(await fs.readFile(path.join(root, 'content-packs/free-starters/formula/sleep-story-v1.0.3/content/series-formula.json'), 'utf8'))
   const niche = contentPackDocumentToNiche(parseContentPackDocument('series-formula', { ...doc, chapter_pause_sec: 3 }) as any)
   assert.equal(niche.chapterPauseSec, 3)
   assert.throws(() => parseContentPackDocument('series-formula', { ...doc, chapter_pause_sec: 60 }))

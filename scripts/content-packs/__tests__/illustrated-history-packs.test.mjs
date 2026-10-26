@@ -139,6 +139,9 @@ test('the three documents parse against the current shared contract and keep the
   }
 })
 
+// This pins the 1.0.0 source. The owner's 2026-10-26 tiered Sleep rhythm ships
+// as the 1.0.1 successor (`illustrated-history-for-sleep-v1.0.1`), which names a
+// starting rhythm; the published 1.0.0 bytes are untouched.
 test('the formula keeps the approved personal length, honesty rules and absent scene rhythm', async () => {
   const formula = await json(join(ROOT, 'formula/illustrated-history-for-sleep/content/series-formula.json'))
   const personal = await json(join(ROOT, 'personal/series-formula.json'))

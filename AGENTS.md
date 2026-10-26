@@ -166,6 +166,19 @@ preset with no writing model as **no usable preset** and leaves the step out wit
 (`PRESET_MODEL_READERS` in `routes/pipeline.ts`), rather than enqueuing it to fail inside its
 generator.
 
+**A SLEEP channel starts on its own four tiers — owner, 2026-10-26.** Every sleep channel begins an
+episode on: 0–3 min a new scene every 5–10 s · 3–5 min every 10–20 s · 5–10 min every 20–30 s · from
+10 min every 50–60 s. The Sleep-family Formulas carry it — Sleep Story, Sleep History Compilation,
+Calm Science for Sleep, Mythology for Sleep and Illustrated History for Sleep — as
+`starting_scene_pacing` (the same `variable` shape as above, now a pack field), and the built-in
+`electron/server/niches/sleep.json` carries it too, so the answer does not depend on which Formula
+is installed. When a Formula declares both, `starting_scene_pacing` supersedes
+`starting_scene_seconds`. It is **still a starting value only**: a new channel copies it once,
+Scene Plan's **Visual timing & motion** panel still owns each episode's rhythm, an episode that
+saved its own keeps it, and **no stored channel or episode is rewritten**. The 2026-10-19 owner
+standard tiers are unchanged for a channel whose Formula names no rhythm — a Formula that names one
+still wins. These tiers do **not** decide anything for a non-sleep channel.
+
 ## 6. A zero that means two things is a defect
 
 **Never let "the answer is none" and "I could not work out the answer" produce the same value.**

@@ -239,10 +239,12 @@ test('free Starter sources preserve 42 lineages and every versioned successor', 
   assert.ok(historicalFormulas.every(({ source }) => source.version === '1.0.0'))
   const successors = packSources.filter(({ relative }) => /-v1\.0\.1\/pack\.json$/.test(relative))
   assert.deepEqual(successors.map(({ relative }) => relative).sort(), [
+    'content-packs/free-starters/formula/calm-science-for-sleep-v1.0.1/pack.json',
     'content-packs/free-starters/formula/economics-of-v1.0.1/pack.json',
     'content-packs/free-starters/formula/guided-mindfulness-v1.0.1/pack.json',
     'content-packs/free-starters/formula/history-explained-v1.0.1/pack.json',
     'content-packs/free-starters/formula/human-behavior-explained-v1.0.1/pack.json',
+    'content-packs/free-starters/formula/mythology-for-sleep-v1.0.1/pack.json',
     'content-packs/free-starters/formula/practical-motivation-v1.0.1/pack.json',
     'content-packs/free-starters/formula/sleep-story-v1.0.1/pack.json',
     'content-packs/free-starters/style/cinematic-photoreal-v1.0.1/pack.json',
@@ -293,4 +295,20 @@ test('free Starter sources preserve 42 lineages and every versioned successor', 
     'content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.2/pack.json',
   ])
   assert.ok(secondSuccessors.every(({ source }) => source.version === '1.0.2'))
+  // The 1.0.3 roots, likewise unpinned until now. Six are the 2026-10-25
+  // Formula modernization on packs that were already 1.0.2 (their opening
+  // recipe, so `-v1.0.3`); Sleep Story 1.0.3 is the 2026-10-26 tiered Sleep
+  // rhythm (owner decision), shipped as a successor rather than edited into the
+  // published 1.0.2 bytes.
+  const thirdSuccessors = packSources.filter(({ relative }) => /-v1\.0\.3\/pack\.json$/.test(relative))
+  assert.deepEqual(thirdSuccessors.map(({ relative }) => relative).sort(), [
+    'content-packs/free-starters/formula/ancient-humans-v1.0.3/pack.json',
+    'content-packs/free-starters/formula/deep-time-documentary-v1.0.3/pack.json',
+    'content-packs/free-starters/formula/history-explained-v1.0.3/pack.json',
+    'content-packs/free-starters/formula/human-behavior-explained-v1.0.3/pack.json',
+    'content-packs/free-starters/formula/natural-world-explained-v1.0.3/pack.json',
+    'content-packs/free-starters/formula/pov-your-life-as-v1.0.3/pack.json',
+    'content-packs/free-starters/formula/sleep-story-v1.0.3/pack.json',
+  ])
+  assert.ok(thirdSuccessors.every(({ source }) => source.version === '1.0.3'))
 })

@@ -4,6 +4,7 @@ import type {
   TopicPack,
 } from '../models/types.js'
 import type { ContentOrigin } from '../contracts/content-origin.js'
+import { parseScenePacing } from '../contracts/pacing.js'
 import { parseSubtitleStyleDocument } from '../contracts/subtitle-style-schema.js'
 import { parseSceneMotionDocument, parseSceneOverlayDocument } from '../contracts/scene-effects-schema.js'
 import type { BuiltInSubtitlePreset } from '../contracts/subtitle-presets.js'
@@ -203,6 +204,11 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
     metadataTagsHookRules: document.metadata_tags_hook_rules ? [...document.metadata_tags_hook_rules] : undefined,
     visualStyleHint: document.visual_style_hint,
     startingSceneSeconds: document.starting_scene_seconds ? [...document.starting_scene_seconds] : undefined,
+    // Normalized through the pacing contract so the top-level band is the first
+    // period's, exactly as Scene Plan reads a saved rhythm.
+    startingScenePacing: document.starting_scene_pacing
+      ? parseScenePacing(document.starting_scene_pacing)
+      : undefined,
     chapterPauseSec: document.chapter_pause_sec,
     paragraphPauseSec: document.paragraph_pause_sec,
     sentencePauseSec: document.sentence_pause_sec,

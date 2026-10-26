@@ -1,0 +1,459 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.sleep-story",
+  "name": "Sleep Story",
+  "description": "Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories with a slow, literary, lulling voice — no tension, no jump scares, no cliffhangers. Topics span cosy villages, lighthouse keepers, quiet crafts, slow journeys, first snow, the old house. Pair with soft, dreamlike scene imagery or calming B-Roll. Best for sleep / relaxation / bedtime channels.",
+  "channel_promise": "Setting → Rest",
+  "audience": "Adults listening in bed who want a calm story to drift alongside, not an attention-grabbing plot.",
+  "youtube_tags_hint": [
+    "sleep story",
+    "bedtime story",
+    "sleep stories for adults",
+    "relaxing story",
+    "story to fall asleep to",
+    "calm narration",
+    "sleep meditation story",
+    "cozy bedtime story",
+    "asmr story",
+    "long sleep story"
+  ],
+  "formula_family": "Calm stories",
+  "tagline": "A quiet story to drift off to.",
+  "perspective_policy": "Use the Formula-selected sleep narrator; never a high-energy host.",
+  "narrative_quality_contract": {
+    "opening_policy": "Begin gently and directly; no hook, challenge, teaser, or urgency.",
+    "forbidden_patterns": [
+      "Imagine this",
+      "Watch what happens next",
+      "cliffhanger",
+      "subscribe reminder",
+      "sudden danger bait"
+    ],
+    "required_habits": [
+      "Keep sensory detail soft and low-stakes.",
+      "Use long, settled transitions.",
+      "Let scenes resolve rather than escalate."
+    ],
+    "closing_policy": "Drift toward rest with no final reveal or CTA."
+  },
+  "metadata_profile": {
+    "id": "calm-youtube",
+    "label": "Calm story package",
+    "description": "A quiet story summary and minimal discoverability details; no urgency or sales language.",
+    "description_section_ids": [
+      "hook",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 2500,
+    "title_max_length": 100,
+    "tag_count": 12
+  },
+  "opening_profile": {
+    "id": "sleep-landing",
+    "label": "Sleep landing",
+    "description": "A gentle branded welcome and settling ritual before the story begins."
+  },
+  "narrative_rules": [
+    "Keep the plot low-arousal, sensory, and complete.",
+    "Use a single quiet character and one small task or journey."
+  ],
+  "title_rules": [
+    "Use literary, concrete, and calm noun phrases.",
+    "Avoid hype, urgency, questions, and plot danger."
+  ],
+  "script_structure": {
+    "default_chapter_count": 15,
+    "chapter_count_range": [
+      10,
+      24
+    ],
+    "default_length_minutes": 135,
+    "length_minutes_range": [
+      120,
+      150
+    ],
+    "duration_presets": [
+      120,
+      135,
+      150
+    ],
+    "default_words_per_minute": 115,
+    "chapters_independent": false,
+    "motion_profile_id": "ambient-documentary",
+    "pacing_arc": [
+      "Chapters 1-3: Settle the listener into the place and the character — establish the cosy world, the soft light, the small task ahead. Nothing urgent.",
+      "Chapters 4-6: The gentle middle — the character moves slowly through the task or journey, noticing sensory detail. Calm, unhurried, repetitive in a soothing way.",
+      "Chapters 7-{lastButOne}: Deepen the quiet — a small, warm turn (a memory, a kindness, a returning light), never a complication or threat.",
+      "Chapter {last}: A soft, complete resolution. The world settles; the listener should already be half-asleep. End on stillness, not a flourish."
+    ],
+    "additional_rules": [
+      "Write prose that feels like a skilled, kindly human author reading aloud at bedtime — literary, warm, and slow.",
+      "No tension, no peril, no cliffhangers, no jump scares, no loud or sudden events. Calm is the whole point.",
+      "No robotic pronoun chains. Never start more than 2 consecutive sentences with the same pronoun.",
+      "Use the character's name or a descriptive noun at least once every 3-4 sentences.",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2…), never Roman numerals, and each includes a gentle descriptive title.",
+      "Favour long, soft, flowing sentences with gentle rhythm — but vary length so it never feels mechanical."
+    ]
+  },
+  "compatible_topic_pack_ids": [
+    "com.storystudio.topic.night-journeys"
+  ],
+  "default_topic_pack_ids": [
+    "com.storystudio.topic.night-journeys"
+  ],
+  "visual_style_hint": "soft, dreamlike, warm and luminous — gentle illustration that lulls rather than dazzles",
+  "starting_scene_pacing": {
+    "mode": "variable",
+    "periods": [
+      {
+        "start_sec": 0,
+        "end_sec": 180,
+        "min_sec": 5,
+        "max_sec": 10
+      },
+      {
+        "start_sec": 180,
+        "end_sec": 300,
+        "min_sec": 10,
+        "max_sec": 20
+      },
+      {
+        "start_sec": 300,
+        "end_sec": 600,
+        "min_sec": 20,
+        "max_sec": 30
+      },
+      {
+        "start_sec": 600,
+        "end_sec": null,
+        "min_sec": 50,
+        "max_sec": 60
+      }
+    ]
+  },
+  "recommended_visual_style_ids": [
+    "com.storystudio.style.watercolor-storybook"
+  ],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.dreamscape-story-window"
+  ],
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.dreamscape-story-window",
+  "idea_axes": [
+    {
+      "id": "story-rhythm",
+      "label": "Story rhythm",
+      "values": [
+        "tending",
+        "walking",
+        "mending",
+        "cataloging",
+        "watching weather",
+        "returning home"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "gentle",
+      "calm",
+      "soothing",
+      "tender",
+      "wistful",
+      "tranquil",
+      "peaceful",
+      "hushed wonder",
+      "tender patience",
+      "gentle nostalgia",
+      "quiet resolve",
+      "dreamlike",
+      "lulling",
+      "hushed",
+      "muted",
+      "embered",
+      "soft-spoken",
+      "fireside",
+      "candle-lit",
+      "drifting",
+      "amber-toned",
+      "moonlit",
+      "sun-dappled",
+      "lake-still",
+      "cottage-warm",
+      "slow-burning",
+      "snow-quieted",
+      "tide-rocked",
+      "starlit",
+      "wool-blanket",
+      "library-hushed"
+    ],
+    "theme": [
+      "solitude",
+      "memory",
+      "rekindling",
+      "craftsmanship",
+      "time",
+      "loss",
+      "patience",
+      "wonder",
+      "nature",
+      "heritage",
+      "reflection",
+      "homecoming",
+      "letting-go",
+      "gentle-discovery",
+      "quiet-courage",
+      "tending",
+      "stewardship",
+      "small-mercies",
+      "first-snow",
+      "lost-and-found-objects",
+      "intergenerational-quiet",
+      "rural-rhythm",
+      "the-long-walk",
+      "the-slow-task",
+      "kindness-among-strangers",
+      "watching-weather",
+      "tending-the-fire",
+      "writing-a-letter",
+      "the-old-house",
+      "the-found-map",
+      "the-returning-light"
+    ],
+    "genre": [
+      "fairy-tale",
+      "folklore",
+      "slice-of-life",
+      "pastoral",
+      "bedtime-story",
+      "cozy-mystery",
+      "anthology",
+      "watercolour-fable",
+      "old-world-tale",
+      "lakeside-memoir",
+      "village-chronicle",
+      "winter-tale",
+      "river-tale",
+      "harbour-tale",
+      "garden-tale"
+    ],
+    "keyword": [
+      "forest",
+      "ocean",
+      "mountain",
+      "valley",
+      "village",
+      "hamlet",
+      "island",
+      "twilight",
+      "dawn",
+      "dusk",
+      "starlight",
+      "moonlit",
+      "lantern",
+      "candle",
+      "whisper",
+      "river",
+      "stream",
+      "brook",
+      "meadow",
+      "field",
+      "garden",
+      "orchard",
+      "snow",
+      "frost",
+      "cabin",
+      "cottage",
+      "lighthouse",
+      "tower",
+      "windmill",
+      "bridge",
+      "library",
+      "observatory",
+      "loom",
+      "kiln",
+      "forge",
+      "compass",
+      "locket",
+      "clock",
+      "pocket watch",
+      "owl",
+      "stag",
+      "fox",
+      "hare",
+      "swan",
+      "heron",
+      "kingfisher",
+      "moth",
+      "firefly",
+      "grandmother",
+      "grandfather",
+      "wanderer",
+      "scholar",
+      "sailor",
+      "innkeeper",
+      "ferryman",
+      "weaver",
+      "miller",
+      "cartographer",
+      "bookbinder",
+      "watchmaker",
+      "lighthouse keeper",
+      "hearth",
+      "embers",
+      "kettle",
+      "ancient map",
+      "tide chart",
+      "diary",
+      "the long autumn",
+      "the first thaw",
+      "the candle in the window",
+      "the kettle's whistle"
+    ]
+  },
+  "audience_hint": "Adults listening in bed with the lights off — they want to drift away, not be gripped. Mobile, headphones, eyes closed.",
+  "idea_system_prompt_role": "You generate ideas for a SLEEP-STORY channel. Every episode is a quiet, low-stakes bedtime narrative with a single gentle character and one small, soothing task or journey. The point is to lull the listener to sleep — never to grip them. Favour cosy, sensory, slow-living premises (a lighthouse keeper restoring a beacon, a tailor mending something impossible-but-calm) over plot, conflict, or stakes.",
+  "idea_guidance_text": "Sleep-friendly above all. Low stakes, no violence, no cliffhangers, no jump scares, no loud reveals. The premise should suggest a slow, repetitive, comforting activity the listener can sink into. Concrete sensory anchors (twilight, lantern, snow, a kettle, a garden) beat abstract concepts.",
+  "script_context": "This is a sleep story — its job is to ease the listener toward sleep. Keep the pace unhurried and the stakes near zero. Lean into sensory, repetitive, soothing detail. Nothing startling, loud, or tense should ever happen.",
+  "script_system_prompt_role": "You are a world-class sleep-story author. You write long, gentle, literary bedtime narratives for listeners drifting off to sleep. Your prose is slow, warm, and lulling — rich sensory detail, soft cadence, gentle repetition, no tension or sudden turns. A single quiet character moves through one small, soothing task or journey across the chapters.",
+  "script_closing_hint": "Slow the pace and soften the language as the story closes. End on a still, peaceful image — the listener should already be drifting off.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Warm and intimate",
+      "description": "First-person narrator, very close to the character's inner world. Feels like a whispered confidence."
+    },
+    {
+      "id": "b",
+      "label": "Gentle third-person observer",
+      "description": "Lyrical, slightly poetic, like watching from a warm window."
+    },
+    {
+      "id": "c",
+      "label": "Classic quiet storyteller",
+      "description": "Traditional \"once there was\" tone, timeless and cosy, like a fireside tale."
+    },
+    {
+      "id": "d",
+      "label": "Poetic and lyrical",
+      "description": "Rich metaphors, flowing sentences, language that sounds like music."
+    },
+    {
+      "id": "e",
+      "label": "Whimsical and playful",
+      "description": "Light-hearted, a little cheeky, with gentle humour. Good for softer, lighter tales."
+    },
+    {
+      "id": "f",
+      "label": "Mysterious and atmospheric",
+      "description": "Fog-shrouded prose, building gentle intrigue slowly — but never tension. The world feels ancient and soft."
+    },
+    {
+      "id": "g",
+      "label": "Grandparent bedtime voice",
+      "description": "Warm, unhurried, with the cadence of someone who has told a thousand stories and loves every one."
+    },
+    {
+      "id": "h",
+      "label": "Nature documentary calm",
+      "description": "Patient, reverent, finding wonder in small details of the natural world."
+    },
+    {
+      "id": "i",
+      "label": "Meditative and mindful",
+      "description": "Present-tense awareness, grounding the listener in each sensory moment. Breath-paced prose."
+    },
+    {
+      "id": "j",
+      "label": "Fairy tale narrator",
+      "description": "Storybook formality with a wink. \"Once upon a time\" energy, gentle moral arcs, soft endings."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Titles are LITERARY and EVOCATIVE — one concrete noun phrase that hints at a quiet story.",
+    "Pattern shapes that work (mix across the batch — never repeat the same shape twice in one batch):",
+    "  - '{The} {Noun}'s {Noun}'      (e.g. 'The Lantern Keeper's Last Light')",
+    "  - '{The} {Subject Who} {Did X}' (e.g. 'The Tailor Who Stitched The Snow')",
+    "  - '{The} {Adjective} {Place}'   (e.g. 'The Quiet Observatory')",
+    "  - '{A Verb}ing the {Noun}'      (e.g. 'Tending the Moonlit Garden')",
+    "FORBIDDEN: hype words (BEST, MUST, NOW), all-caps, urgency, question marks. Sleep listeners come for calm.",
+    "Sensory imagery is encouraged — twilight, lantern, snow, river, garden — drawn from the keyword pool."
+  ],
+  "title_length_range": [
+    4,
+    9
+  ],
+  "logline_shape_rules": [
+    "One literary sentence (or two short ones) introducing a SPECIFIC gentle character and a SPECIFIC quiet task or journey.",
+    "Concrete sensory image — name an object, place, or time of year. No generic premise descriptions.",
+    "Tone is gentle, unhurried, suggestive of slowing down."
+  ],
+  "logline_sentence_range": [
+    1,
+    2
+  ],
+  "theme_shape_rules": [
+    "Pick 2-4 EMOTIONAL or ATMOSPHERIC keywords (solitude, memory, rekindling, craftsmanship, patience).",
+    "Avoid plot keywords (revenge, war, betrayal) — sleep themes lean inward and calm."
+  ],
+  "theme_count_range": [
+    2,
+    4
+  ],
+  "structural_variety": "vary-all",
+  "metadata_title_style_hint": "calm and literary — a quiet, evocative noun phrase that signals a relaxing bedtime story, never clickbait",
+  "metadata_title_hook_rules": [
+    "Signal the calm up front — words like 'sleep story', 'bedtime', 'relaxing', or the gentle subject itself.",
+    "No urgency, all-caps, or hype. The promise is rest, not a thrill.",
+    "Long-form is fine ('A Long, Gentle Sleep Story About…') — sleep audiences search for length and calm."
+  ],
+  "metadata_tags_hook_rules": [
+    "Mix broad sleep keywords (sleep story, bedtime story, relaxing narration) with episode-specific imagery from the script.",
+    "Each tag 1-4 words, no '#' prefix."
+  ],
+  "example_topics": [
+    "The Lantern Keeper's Last Light",
+    "The Tailor Who Stitched The Snow",
+    "The Quiet Observatory",
+    "Tending the Moonlit Garden",
+    "The Cartographer of Forgotten Rivers",
+    "The Cottage at the Edge of Winter",
+    "The Bookbinder's Slow Afternoon",
+    "Mapping the Sleeping Coast",
+    "The Last Train Through the Pines",
+    "The Keeper of the Cliffside Bees",
+    "A Letter Found in the Lighthouse",
+    "The Long Walk Home Through First Snow"
+  ],
+  "intro_defaults": {
+    "word_target": 350,
+    "beats": [
+      {
+        "id": "welcome",
+        "custom_text": "a gentle greeting and your name, slowly — no energy in it at all"
+      },
+      {
+        "id": "story_teaser",
+        "custom_text": "one or two soft sentences about where tonight goes; never a hook, never a spoiler"
+      },
+      {
+        "id": "community_question",
+        "custom_text": "a gentle question they can answer in the comments before they drift"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one soft line, said now rather than later — after the breathing it would only wake them"
+      },
+      {
+        "id": "relaxation",
+        "custom_text": "lead three slow breaths, paced by the length of the sentences themselves"
+      },
+      {
+        "id": "transition",
+        "custom_text": "invite them to close their eyes as the story begins"
+      }
+    ]
+  }
+}

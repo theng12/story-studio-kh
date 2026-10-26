@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.formula.sleep-story",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.3",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "A new channel starts with this Formula's soft, dreamlike look and the Sleep scene rhythm: a new scene every 5-10 seconds for the first 3 minutes, 10-20 seconds from 3 to 5 minutes, 20-30 seconds from 5 to 10 minutes, and 50-60 seconds from 10 minutes on. Both stay editable in the channel's settings; existing channels are unchanged.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.formula.sleep-story",
+    "family": "com.storystudio.family.formula.sleep-story"
+  }
+}

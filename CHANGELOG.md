@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.361 — 2026-10-26
+
+- Sleep channels start on their own scene rhythm: a new scene every 5–10 seconds for the first 3 minutes, 10–20 seconds from 3 to 5 minutes, 20–30 seconds from 5 to 10 minutes, then 50–60 seconds from 10 minutes on. It is the starting rhythm of Sleep Story, Sleep History Compilation, Calm Science for Sleep, Mythology for Sleep and Illustrated History for Sleep, and of a plain sleep channel created without a Formula. Every episode can still change it in Scene Plan's Visual timing & motion panel, and channels and episodes you already have keep the rhythm they already have — nothing stored is rewritten.
+- Five Studio Library Sleep Formulas have new versions for that rhythm: Sleep Story 1.0.3, Sleep History Compilation 1.0.2, and 1.0.1 for Calm Science for Sleep, Mythology for Sleep and Illustrated History for Sleep. They need this release or later; the versions you have already installed keep working exactly as before.
+- Every other channel is unchanged: a channel whose Formula names no rhythm still starts on the owner standard tiers, and a channel whose Formula names one still uses it.
+
 ## v1.4.359 — 2026-10-26
 
 - Series Formula is now a required choice when you create a channel — pick a Formula, or choose "Generic — no Formula" on purpose (for testing). Channels that never chose one show a prompt with a suggested Formula; nothing is assigned until you click. Channels on an older Formula now read the matching current Studio Library Formula; their settings are not rewritten.

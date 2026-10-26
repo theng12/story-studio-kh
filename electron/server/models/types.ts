@@ -1082,6 +1082,10 @@ export interface Niche {
   /** Scene length (seconds, [min, max]) a NEW channel of this type starts with
    *  — copied into the channel's own editable settings at creation. */
   startingSceneSeconds?: [number, number]
+  /** A tiered starting rhythm (the existing `variable` shape); when present it
+   *  supersedes `startingSceneSeconds` for a NEW channel. Copied into the
+   *  channel's own editable settings once, never read at generation time. */
+  startingScenePacing?: ScenePacing
   /** Default "Pause between chapters" in Audio Assembly (seconds). Sleep
    *  formulas want a longer, calm gap; the customer can still change it. */
   chapterPauseSec?: number
