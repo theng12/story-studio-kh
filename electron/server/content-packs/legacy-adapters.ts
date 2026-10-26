@@ -203,6 +203,9 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
     metadataTagsHookRules: document.metadata_tags_hook_rules ? [...document.metadata_tags_hook_rules] : undefined,
     visualStyleHint: document.visual_style_hint,
     startingSceneSeconds: document.starting_scene_seconds ? [...document.starting_scene_seconds] : undefined,
+    // The channel's frame shape (owner, 2026-10-27). Reaches the same three
+    // surfaces a built-in Format's `recommendedAspect` already drives.
+    aspectRatio: document.aspect_ratio,
     chapterPauseSec: document.chapter_pause_sec,
     paragraphPauseSec: document.paragraph_pause_sec,
     sentencePauseSec: document.sentence_pause_sec,

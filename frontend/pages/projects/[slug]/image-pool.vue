@@ -757,8 +757,32 @@ watch(() => jobs.value.map(job => [job.job_id, job.status, job.force_abandoned])
   void loadManualRedoSources()
 })
 
+/**
+ * Seed the generation ratio from the channel's Formula (owner, 2026-10-27).
+ *
+ * This page started every pool on `'16:9'`, so a vertical channel's pool
+ * pictures were drawn landscape and then cropped to the Short's frame. The
+ * Formula's shape is the same `recommendedAspect` the built-in Formats carry,
+ * so this reads the one field and keeps no second list.
+ *
+ * Seeding only: the model watcher below still repairs a ratio the chosen model
+ * does not publish, and the customer can change it before generating.
+ */
+async function seedAspectFromFormat(): Promise<void> {
+  try {
+    const fmt = await get<{ imagePrompts?: { recommendedAspect?: unknown } }>(`/projects/${slug.value}/effective-format`)
+    const recommended = fmt?.imagePrompts?.recommendedAspect
+    if (typeof recommended !== 'string' || !recommended) return
+    if (genAspectRatio.value === recommended) return
+    genAspectRatio.value = recommended
+  } catch {
+    // Format endpoint unavailable — keep the legacy 16:9 default. Non-fatal.
+  }
+}
+
 onMounted(async () => {
   void refreshGenStudioModels()
+  void seedAspectFromFormat()
   void manualRedoPreference.load(slug.value)
   await loadPools()
   await loadPoolCount()

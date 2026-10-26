@@ -12,6 +12,7 @@ import {
   buildAssStyle,
   hasPreciseSubtitlePlacement,
   resolveSubtitlePlacement,
+  subtitlePixelScale,
 } from '../lib/subtitle-builder.js'
 
 const baseStyle: any = {
@@ -143,5 +144,38 @@ describe('"px at 1080" scaling contract (v1.0.517)', () => {
     assert.match(at1080, /Style: Default,Avenir Next,32,/, '1080p keeps px values as-is')
     const at720 = srtToAss(cues, baseStyle, { width: 1280, height: 720, animation: 'none' })
     assert.match(at720, /Style: Default,Avenir Next,21\.33,/, '720p scales by 720/1080')
+  })
+
+  /**
+   * 2026-10-27 — a vertical Short is the shape this contract used to get wrong.
+   *
+   * Scaling by the frame's HEIGHT is correct only while the height is the
+   * short edge. In portrait it is the long edge, so a caption that fits a
+   * 1920-wide frame came out ~1.78× too large on a 1080-wide one: measured
+   * with the bundled FFmpeg, the default style's 42-character line drew about
+   * 1045px of type inside a 907px safe area and ran off both sides of the
+   * frame. A caption is sized against the width it must fit inside, so the
+   * basis is the SHORT edge — which leaves every landscape canvas untouched.
+   */
+  describe('the scale basis is the frame short edge, not its height', () => {
+    test('landscape canvases keep the values they shipped with', () => {
+      assert.equal(subtitlePixelScale(1920, 1080), 1)
+      assert.equal(subtitlePixelScale(1280, 720), 720 / 1080)
+      assert.equal(subtitlePixelScale(2560, 1440), 1440 / 1080)
+      assert.equal(subtitlePixelScale(3840, 2160), 2)
+    })
+
+    test('a portrait canvas is sized by its WIDTH, so it matches a square one', () => {
+      assert.equal(subtitlePixelScale(1080, 1920), 1, 'portrait 1080p uses the 1080 short edge')
+      assert.equal(subtitlePixelScale(1080, 1920), subtitlePixelScale(1080, 1080))
+      // A 42-character line at the default style must fit the 8% safe area.
+      const style = { ...baseStyle, font_size_px: 28 }
+      const ass = srtToAss(cues, style, { width: 1080, height: 1920, animation: 'none' })
+      assert.match(ass, /Style: Default,Avenir Next,28,/, 'portrait keeps the 28px figure')
+      // The line is roughly half an em per character; at 28px that is ~588px,
+      // comfortably inside 1080 - 2·8% = 907px. At the old 49.78px it was not.
+      const approxLineWidth = 28 * 0.5 * 42
+      assert.ok(approxLineWidth < 1080 * (1 - 2 * 0.08), `${approxLineWidth}px must fit the safe area`)
+    })
   })
 })

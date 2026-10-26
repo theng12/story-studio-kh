@@ -26,6 +26,7 @@ import {
   type WordTimingPrecision,
   type WordTimingSource,
 } from './subtitle-word-timing.js'
+import { frameTextUnit } from './render-canvas.js'
 
 export interface Chapter {
   title: string
@@ -274,9 +275,19 @@ export function resolveSubtitlePlacement(
  * ── The scale contract ─────────────────────────────────────────────────────
  *
  * PlayResX/Y are the real output size and every `_px` field is multiplied by
- * `height / 1080`, so a 640x360 preview and a 1920x1080 burn describe the same
- * caption at different resolutions. `subtitle-ass.test.ts` asserts that
- * equality directly — it is the property that makes the preview trustworthy.
+ * `frameTextUnit(w, h) / 1080` — the frame's SHORT edge, the same unit the
+ * contextual cues and title cards size against. So a 640x360 preview and a
+ * 1920x1080 burn describe the same caption at different resolutions, and
+ * `subtitle-ass.test.ts` asserts that equality directly; it is the property
+ * that makes the preview trustworthy.
+ *
+ * The short edge, not `height`: on every landscape canvas the height IS the
+ * short edge, so nothing already delivered moves. In PORTRAIT it is the long
+ * edge, and scaling by it drew a 42-character caption at 49.8px on a
+ * 1080-wide frame — about 1045px of type inside a 907px safe area, running off
+ * both sides (measured 2026-10-27 with the bundled FFmpeg). A caption is sized
+ * against the width it has to fit inside, so the short edge is the honest
+ * basis in either orientation.
  */
 
 /** ASS timestamp: `H:MM:SS.cc` (centiseconds). */
@@ -383,6 +394,24 @@ interface ResolvedStyleNumbers {
   scale: number
 }
 
+/**
+ * How much to multiply a "px at 1080" value by for a frame of this shape.
+ *
+ * ONE definition, because the document's style line, its per-cue override tags
+ * and the legacy `force_style` fallback must all agree — a caption whose stroke
+ * scaled differently from its type would look bold in the wrong places.
+ *
+ * The basis is `frameTextUnit`, the renderer's existing "unit every piece of
+ * text on the frame is sized against" (the SHORT edge). This module was the
+ * last surface still using the height directly; see the scale contract at the
+ * top of this file for the measured portrait failure that made it matter.
+ */
+export function subtitlePixelScale(width: number, height: number): number {
+  const w = Number(width) > 0 ? Number(width) : 1920
+  const h = Number(height) > 0 ? Number(height) : 1080
+  return frameTextUnit(w, h) / SUBTITLE_REFERENCE_HEIGHT
+}
+
 function resolveStyleNumbers(
   style: SubtitleStyleDocument,
   scale: number,
@@ -440,8 +469,7 @@ function cueOverrideFragments(style: SubtitleStyleDocument, w: number, h: number
   const fragments: string[] = []
 
   if (a.type === 'slide-up' || a.type === 'slide-down') {
-    const scale = h / SUBTITLE_REFERENCE_HEIGHT
-    const travel = Math.round(a.travel_px * scale)
+    const travel = Math.round(a.travel_px * subtitlePixelScale(w, h))
     const x = anchor.x
     const yEnd = anchor.y
     const safeTop = anchor.safeMarginPx
@@ -468,12 +496,12 @@ function cueOverrideFragments(style: SubtitleStyleDocument, w: number, h: number
 
   // Everything below is new in v1.1.0 and silent at its default, which is what
   // keeps a legacy style byte-identical to the v1 output.
-  if (style.edge.blur_px > 0) fragments.push(`\\blur${round2(style.edge.blur_px * (h / SUBTITLE_REFERENCE_HEIGHT))}`)
+  if (style.edge.blur_px > 0) fragments.push(`\\blur${round2(style.edge.blur_px * subtitlePixelScale(w, h))}`)
   if (style.edge.shadow_offset_x_px !== 0) {
-    fragments.push(`\\xshad${round2(style.edge.shadow_offset_x_px * (h / SUBTITLE_REFERENCE_HEIGHT))}`)
+    fragments.push(`\\xshad${round2(style.edge.shadow_offset_x_px * subtitlePixelScale(w, h))}`)
   }
   if (style.edge.shadow_offset_y_px !== 0) {
-    fragments.push(`\\yshad${round2(style.edge.shadow_offset_y_px * (h / SUBTITLE_REFERENCE_HEIGHT))}`)
+    fragments.push(`\\yshad${round2(style.edge.shadow_offset_y_px * subtitlePixelScale(w, h))}`)
   }
   return fragments
 }
@@ -618,7 +646,7 @@ export function buildSubtitleAssDocument(
 ): SubtitleAssResult {
   const w = Math.max(2, Math.round(opts.width || 1920))
   const h = Math.max(2, Math.round(opts.height || 1080))
-  const scale = h / SUBTITLE_REFERENCE_HEIGHT
+  const scale = subtitlePixelScale(w, h)
   const anchor = resolveSubtitleAnchor(style, w, h)
   const vBase = style.placement.position === 'top' ? 7 : style.placement.position === 'center' ? 4 : 1
   const hOffset = style.placement.align === 'center' ? 1 : style.placement.align === 'right' ? 2 : 0

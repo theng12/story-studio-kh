@@ -190,4 +190,46 @@ export const BUILT_IN_SUBTITLE_PRESETS: BuiltInSubtitlePreset[] = [
       edge: { outline_px: 2, shadow_px: 2 },
       animation: { type: 'fade' },
     }),
+
+  /**
+   * A vertical Short (owner, 2026-10-27).
+   *
+   * YouTube draws its own furniture over the bottom-right of a Short — the
+   * like / comment / share stack, the channel handle and the description
+   * button — and over the bottom band with the title. A caption centred at the
+   * default 92% sits UNDER that chrome on a phone, which is where these are
+   * watched. So the resting place is 62% down the frame: high enough to clear
+   * the whole stack, low enough to read as a caption rather than a title.
+   *
+   * `safe_margin_pct` is raised to 10 because the protected band is measured
+   * against the frame's HEIGHT, which on a 9:16 frame is the long edge: 10% of
+   * 1920 is 192px of protected edge top and bottom, the honest amount for a
+   * vertical player.
+   *
+   * The type is bigger than the broadcast default on purpose — a phone screen
+   * at arm's length — and the face is the app's bundled Kantumruy Pro, which
+   * covers Khmer and Latin in one file. It reaches the burn through
+   * `lib/subtitle-font-dir.ts`, which is what makes a bundled face actually
+   * resolve instead of silently falling back to Helvetica.
+   */
+  preset('shorts-vertical', 'Shorts Vertical',
+    'Vertical captions placed clear of YouTube\'s Shorts buttons and title. Khmer and Latin.', {
+      typography: { font_family: 'Kantumruy Pro', font_size_px: 40, bold: true, max_chars_per_line: 22, max_lines: 3 },
+      edge: { outline_px: 4 },
+      placement: { position: 'bottom', align: 'center', position_x_pct: 50, position_y_pct: 62, safe_margin_pct: 10 },
+      animation: { type: 'fade', in_ms: 140, out_ms: 140 },
+    }),
+
+  /**
+   * The same Short, with the spoken word emphasised — the reading rhythm a
+   * quote Short wants: one sentence at a time, each word landing as it is
+   * spoken. Same placement rule as above, so it clears the same chrome.
+   */
+  preset('shorts-vertical-word-pop', 'Shorts Vertical — Word Pop',
+    'Vertical word-by-word captions, clear of the Shorts buttons. Khmer and Latin.', {
+      typography: { font_family: 'Kantumruy Pro', font_size_px: 40, bold: true, max_chars_per_line: 22, max_lines: 3 },
+      word: { mode: 'pop', active_color_hex: '#FFD9A0', inactive_color_hex: '#FFFFFF', active_scale_pct: 120, transition_ms: 90 },
+      edge: { outline_px: 4 },
+      placement: { position: 'bottom', align: 'center', position_x_pct: 50, position_y_pct: 62, safe_margin_pct: 10 },
+    }),
 ]
