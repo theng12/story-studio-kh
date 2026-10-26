@@ -256,6 +256,45 @@ const MusicFormatSchema = z.object({
   sceneSettings: SceneSettingsSchema.optional(),
 }).strict()
 
+/**
+ * A tiered starting rhythm: the same `variable` shape Scene Plan's Visual timing
+ * & motion panel edits (contracts/pacing.ts), authored as data so a Formula can
+ * start an episode slower as it lengthens — e.g. the Sleep tiers (owner,
+ * 2026-10-26). It is a STARTING value only: copied into a new channel's own
+ * settings once, editable from then on, never read at generation time.
+ */
+const StartingScenePacingSchema = z.object({
+  mode: z.literal('variable'),
+  periods: z.array(z.object({
+    start_sec: z.number().min(0).max(86_400),
+    end_sec: z.number().positive().max(86_400).nullable(),
+    min_sec: z.number().min(1).max(60),
+    max_sec: z.number().min(1).max(60),
+  }).strict()).min(1).max(12),
+}).strict().superRefine((pacing, ctx) => {
+  // Mirrors contracts/pacing.ts `periods()`: ordered, contiguous, first at 0,
+  // only the last open. Authoring mistakes are refused here rather than found
+  // by a generator mid-run.
+  const bad = (index: number, message: string) => ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ['periods', index],
+    message,
+  })
+  pacing.periods.forEach((period, index) => {
+    if (period.min_sec > period.max_sec) bad(index, 'max_sec must be greater than or equal to min_sec')
+    if (period.end_sec !== null && period.end_sec <= period.start_sec) bad(index, 'end_sec must be greater than start_sec')
+    if (index === 0 && period.start_sec !== 0) bad(index, 'the first period must start at 0')
+    if (index < pacing.periods.length - 1 && period.end_sec === null) bad(index, 'only the final period may be open')
+  })
+  const last = pacing.periods.at(-1)!
+  if (last.end_sec !== null) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['periods', pacing.periods.length - 1], message: 'the final period must be open (end_sec: null)' })
+  for (let index = 1; index < pacing.periods.length; index++) {
+    if (pacing.periods[index]!.start_sec !== pacing.periods[index - 1]!.end_sec) {
+      bad(index, 'each period must start where the previous one ended')
+    }
+  }
+})
+
 const SeriesFormulaDocumentSchema = z.object({
   kind: z.literal('series-formula'),
   ...baseDocument,
@@ -280,6 +319,9 @@ const SeriesFormulaDocumentSchema = z.object({
   /** Present only on a music channel; see MusicFormatSchema. */
   music_format: MusicFormatSchema.optional(),
   starting_scene_seconds: boundedRange(1, 120).optional(),
+  /** Tiered starting rhythm; when present it supersedes `starting_scene_seconds`
+   *  for a NEW channel (services/formula-starting-defaults.ts). */
+  starting_scene_pacing: StartingScenePacingSchema.optional(),
   /** Default "Pause between chapters" in Audio Assembly, seconds. */
   chapter_pause_sec: z.number().min(0).max(10).optional(),
   /** Default "Pause at a paragraph break" / "after a sentence" inside a chapter, seconds. */

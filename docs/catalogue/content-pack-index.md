@@ -1,13 +1,13 @@
 # Content pack index
 
 Regenerate: `npm run content-pack:index` (runs `node scripts/content-packs/index.mjs`)
-Generated: 2026-10-24
+Generated: 2026-10-26
 
 One line per pack item, deduped to the highest version per `pack_id`. Format:
 
 `- <id> | <name> | <collection dir> | <category/tags or axis> | <description> | v<version> <lifecycle>`
 
-Totals — 208 items. Visual styles: 43, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 20, Metadata formulas: 13, Topic packs: 45.
+Totals — 214 items. Visual styles: 43, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 26, Metadata formulas: 13, Topic packs: 45.
 
 ## Visual styles (43)
 
@@ -148,28 +148,34 @@ Totals — 208 items. Visual styles: 43, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.thumbnail.two-option-criteria-split | Two-Option Criteria Split | thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split | Explainer | A balanced present-time comparison of two alternatives under shared visible criteria. | v1.0.0 active
 - com.storystudio.thumbnail.two-tone-hook-portrait-right | Two-Tone Hook, Portrait Right | royal-history/thumbnail/two-tone-hook-portrait-right | History | A two-word hook sits bottom-left in two colours — the first word white, the second gold — while a portrait cut at the c… | v1.0.0 active
 
-## Series formulas (20)
+## Series formulas (26)
 
-- com.storystudio.formula.ancient-humans | How Did Ancient Humans…? | free-starters/formula/ancient-humans-v1.0.2 | Evidence & systems | Long-form prehistoric and early-human survival explainers. Each episode asks one concrete question about how ancient hu… | v1.0.2 active
+- com.storystudio.formula.a-world-before-us | A World Before Us | illustrated-history/formula/a-world-before-us | Calm documentary | Illustrated histories of one subject at a time — a city, a region, a people, an empire, a war or a route — told slowly… | v1.0.0 active
+- com.storystudio.formula.ancient-humans | How Did Ancient Humans…? | free-starters/formula/ancient-humans-v1.0.3 | Evidence & systems | Long-form prehistoric and early-human survival explainers. Each episode asks one concrete question about how ancient hu… | v1.0.3 active
 - com.storystudio.formula.archival-ledger | Archival Ledger | paid/archival-ledger/formula/archival-ledger | Evidence & systems | Long-form historical documentaries that reconstruct how major outcomes came about: the institutions, material pressures… | v1.0.1 active
-- com.storystudio.formula.before-after-timeline | Before/After Timeline | reusable-primitives/formula/before-after-timeline | Evidence-aware timelines | A reusable evidence-aware Formula that establishes a baseline, names one change and its time window, follows measuremen… | v1.0.0 active
-- com.storystudio.formula.build-under-constraints | Build Under Constraints | legacy-niche-conversion/formula/build-under-constraints | Immersive paths | First-person, point-of-view creator content where ONE on-screen character walks the viewer through an aspirational, act… | v1.0.0 active
-- com.storystudio.formula.counted-explainer | Counted Explainer | legacy-niche-conversion/formula/counted-explainer | Evidence & systems | The curious-explainer voice for multi-topic explainer and 'Top N' videos: confident, evidence-based, occasionally wry,… | v1.0.0 active
-- com.storystudio.formula.deep-time-documentary | Deep Time Documentary | free-starters/formula/deep-time-documentary-v1.0.2 | Evidence & systems | Feature-length, evidence-led documentaries about the changing Earth: prehistoric life, ancient oceans, climates, landfo… | v1.0.2 active
-- com.storystudio.formula.economics-of | The Economics of… | free-starters/formula/economics-of-v1.0.1 | Evidence & systems | Long-form economics explainers about what it costs, earns, and risks to own or operate a real business. | v1.0.1 active
-- com.storystudio.formula.guided-mindfulness | Guided Mindfulness | free-starters/formula/guided-mindfulness-v1.0.1 | Mind & ideas | Guided meditation, breathing exercises, body-scan, present-moment awareness. Tone is slow, present, breath-paced. Pair… | v1.0.1 active
-- com.storystudio.formula.history-explained | History, Explained | free-starters/formula/history-explained-v1.0.2 | Evidence & systems | Short narrated history facts — events, people, oddities. Tone is curious and grounded; voice is the friend who reads a… | v1.0.2 active
-- com.storystudio.formula.human-behavior-explained | Human Behavior, Explained | free-starters/formula/human-behavior-explained-v1.0.2 | Mind & ideas | Pop-psychology narration — habits, cognitive biases, relationships, mental health, focus, anxiety, ADHD, stoicism-as-CB… | v1.0.2 active
-- com.storystudio.formula.illustrated-history-for-sleep | Illustrated History for Sleep | illustrated-history/formula/illustrated-history-for-sleep | Calm documentary | Illustrated histories of one subject at a time — a city, a region, a people, an empire, a war or a route — told slowly… | v1.0.0 active
-- com.storystudio.formula.natural-world-explained | Natural World, Explained | free-starters/formula/natural-world-explained-v1.0.2 | Living world | Wildlife subjects from across the whole animal kingdom, vertebrates and invertebrates alike — mammals, birds, reptiles,… | v1.0.2 active
-- com.storystudio.formula.pastoral-scripture | Pastoral Scripture | legacy-niche-conversion/formula/pastoral-scripture | Faith | A scripture-anchored pastoral Formula with two explicit modes: a concise daily reflection that teaches one takeaway, an… | v1.0.0 active
-- com.storystudio.formula.philosophy-real-problem | Philosophy for a Real Problem | legacy-niche-conversion/formula/philosophy-real-problem | Mind & ideas | Short philosophical reflections — Stoicism, Taoism, Buddhism, existentialism, ethics. Tone is thoughtful and unhurried;… | v1.0.0 active
-- com.storystudio.formula.pov-your-life-as | POV: Your Life As… | free-starters/formula/pov-your-life-as-v1.0.2 | Immersive paths | Second-person life-path explainers that place the viewer inside a role, rank, or occupation and carry them through recr… | v1.0.2 active
-- com.storystudio.formula.practical-motivation | Practical Motivation | free-starters/formula/practical-motivation-v1.0.1 | Mind & ideas | Spoken-word motivational narration — discipline, mindset, hard work, resilience. Pair with cinematic B-Roll (runners, s… | v1.0.1 active
-- com.storystudio.formula.prayer | Prayer | legacy-niche-conversion/formula/prayer | Faith | Spoken-word Christian prayer paired with calm, reverent B-Roll. Topics span morning / evening / mealtime / family / anx… | v1.0.0 active
-- com.storystudio.formula.question-ladder | Question Ladder | reusable-primitives/formula/question-ladder | Evidence-aware explainers | A reusable explanatory Formula that starts with one concrete audience question, defines its scope, explains the mechani… | v1.0.0 active
-- com.storystudio.formula.sleep-history-compilation | Sleep History Compilation | sleep-history/formula/sleep-history-compilation-v1.0.1 | Calm documentary | Long, calm compilations of true histories — ten to twenty independent chapters per video, each the slow story of one fo… | v1.0.1 active
-- com.storystudio.formula.sleep-story | Sleep Story | free-starters/formula/sleep-story-v1.0.1 | Calm stories | Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories wit… | v1.0.1 active
+- com.storystudio.formula.before-after-timeline | Before/After Timeline | reusable-primitives/formula/before-after-timeline-v1.0.1 | Evidence-aware timelines | A reusable evidence-aware Formula that establishes a baseline, names one change and its time window, follows measuremen… | v1.0.1 active
+- com.storystudio.formula.build-under-constraints | Build Under Constraints | legacy-niche-conversion/formula/build-under-constraints-v1.0.1 | Immersive paths | First-person, point-of-view creator content where ONE on-screen character walks the viewer through an aspirational, act… | v1.0.1 active
+- com.storystudio.formula.calm-science-for-sleep | Calm Science for Sleep | free-starters/formula/calm-science-for-sleep-v1.0.1 | Calm documentary | The slow mechanics of the universe, told quietly enough to fall asleep to. Each episode takes one field or one scale —… | v1.0.1 active
+- com.storystudio.formula.coffee-jazz-ambient | Coffee Jazz Ambient | free-starters/formula/coffee-jazz-ambient | Calm music | A long-form music channel. There is no script and no narration: the episode is a mix built from the channel's own music… | v1.0.0 active
+- com.storystudio.formula.counted-explainer | Counted Explainer | legacy-niche-conversion/formula/counted-explainer-v1.0.1 | Evidence & systems | The curious-explainer voice for multi-topic explainer and 'Top N' videos: confident, evidence-based, occasionally wry,… | v1.0.1 active
+- com.storystudio.formula.deep-time-documentary | Deep Time Documentary | free-starters/formula/deep-time-documentary-v1.0.3 | Evidence & systems | Feature-length, evidence-led documentaries about the changing Earth: prehistoric life, ancient oceans, climates, landfo… | v1.0.3 active
+- com.storystudio.formula.economics-of | The Economics of… | free-starters/formula/economics-of-v1.0.2 | Evidence & systems | Long-form economics explainers about what it costs, earns, and risks to own or operate a real business. | v1.0.2 active
+- com.storystudio.formula.guided-mindfulness | Guided Mindfulness | free-starters/formula/guided-mindfulness-v1.0.2 | Mind & ideas | Guided meditation, breathing exercises, body-scan, present-moment awareness. Tone is slow, present, breath-paced. Pair… | v1.0.2 active
+- com.storystudio.formula.history-explained | History, Explained | free-starters/formula/history-explained-v1.0.3 | Evidence & systems | Short narrated history facts — events, people, oddities. Tone is curious and grounded; voice is the friend who reads a… | v1.0.3 active
+- com.storystudio.formula.human-behavior-explained | Human Behavior, Explained | free-starters/formula/human-behavior-explained-v1.0.3 | Mind & ideas | Pop-psychology narration — habits, cognitive biases, relationships, mental health, focus, anxiety, ADHD, stoicism-as-CB… | v1.0.3 active
+- com.storystudio.formula.illustrated-history-for-sleep | Illustrated History for Sleep | illustrated-history/formula/illustrated-history-for-sleep-v1.0.1 | Calm documentary | Illustrated histories of one subject at a time — a city, a region, a people, an empire, a war or a route — told slowly… | v1.0.1 active
+- com.storystudio.formula.khmer-folk-horror | Khmer Folk Horror Anthology | free-starters/formula/khmer-folk-horror | Folk horror | Khmer cautionary tales, local legends and restless spirits, told as independent chapters with atmosphere rather than go… | v1.0.0 active
+- com.storystudio.formula.mythology-for-sleep | Mythology for Sleep | free-starters/formula/mythology-for-sleep-v1.0.1 | Calm documentary | Pantheons and epic cycles told as slow, settling stories rather than dramatic action. Each chapter takes one figure, on… | v1.0.1 active
+- com.storystudio.formula.natural-world-explained | Natural World, Explained | free-starters/formula/natural-world-explained-v1.0.3 | Living world | Wildlife subjects from across the whole animal kingdom, vertebrates and invertebrates alike — mammals, birds, reptiles,… | v1.0.3 active
+- com.storystudio.formula.pastoral-scripture | Pastoral Scripture | legacy-niche-conversion/formula/pastoral-scripture-v1.0.1 | Faith | A scripture-anchored pastoral Formula with two explicit modes: a concise daily reflection that teaches one takeaway, an… | v1.0.1 active
+- com.storystudio.formula.philosophy-real-problem | Philosophy for a Real Problem | legacy-niche-conversion/formula/philosophy-real-problem-v1.0.1 | Mind & ideas | Short philosophical reflections — Stoicism, Taoism, Buddhism, existentialism, ethics. Tone is thoughtful and unhurried;… | v1.0.1 active
+- com.storystudio.formula.pov-your-life-as | POV: Your Life As… | free-starters/formula/pov-your-life-as-v1.0.3 | Immersive paths | Second-person life-path explainers that place the viewer inside a role, rank, or occupation and carry them through recr… | v1.0.3 active
+- com.storystudio.formula.practical-motivation | Practical Motivation | free-starters/formula/practical-motivation-v1.0.2 | Mind & ideas | Spoken-word motivational narration — discipline, mindset, hard work, resilience. Pair with cinematic B-Roll (runners, s… | v1.0.2 active
+- com.storystudio.formula.prayer | Prayer | legacy-niche-conversion/formula/prayer-v1.0.1 | Faith | Spoken-word Christian prayer paired with calm, reverent B-Roll. Topics span morning / evening / mealtime / family / anx… | v1.0.1 active
+- com.storystudio.formula.question-ladder | Question Ladder | reusable-primitives/formula/question-ladder-v1.0.1 | Evidence-aware explainers | A reusable explanatory Formula that starts with one concrete audience question, defines its scope, explains the mechani… | v1.0.1 active
+- com.storystudio.formula.sleep-history-compilation | Sleep History Compilation | sleep-history/formula/sleep-history-compilation-v1.0.2 | Calm documentary | Long, calm compilations of true histories — ten to twenty independent chapters per video, each the slow story of one fo… | v1.0.2 active
+- com.storystudio.formula.sleep-story | Sleep Story | free-starters/formula/sleep-story-v1.0.3 | Calm stories | Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories wit… | v1.0.3 active
+- com.storystudio.formula.wildlife-under-pressure | Wildlife Under Pressure | free-starters/formula/wildlife-under-pressure | Living world | Wildlife subjects from across the whole animal kingdom, vertebrates and invertebrates alike — mammals, birds, reptiles,… | v1.0.0 active
 
 ## Metadata formulas (13)
 

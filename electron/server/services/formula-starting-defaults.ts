@@ -12,20 +12,27 @@
  *   visualStyleHint     → config.json `default_style_bible` (Scene Plan's
  *                         "Channel default style"; Thumbnail Prompts seeds
  *                         its style text from it)
- *   startingSceneSeconds → config.json `default_scene_pacing` (the pacing an
- *                         episode starts with until it saves its own)
+ *   startingScenePacing → config.json `default_scene_pacing`, when the Formula
+ *                         declares a tiered rhythm (the Sleep tiers, owner
+ *                         2026-10-26): slow down as the episode lengthens
+ *   startingSceneSeconds → config.json `default_scene_pacing`, when it declares
+ *                         only one band; ignored when tiers are present
  */
 
 import * as pm from './project-manager.js'
 import { parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
 import type { Niche } from '../models/types.js'
 
-export function startingDefaultsFromFormula(niche: Pick<Niche, 'visualStyleHint' | 'startingSceneSeconds'> | null | undefined): Record<string, unknown> {
+export function startingDefaultsFromFormula(niche: Pick<Niche, 'visualStyleHint' | 'startingSceneSeconds' | 'startingScenePacing'> | null | undefined): Record<string, unknown> {
   const defaults: Record<string, unknown> = {}
   const look = niche?.visualStyleHint?.trim()
   if (look) defaults.default_style_bible = look
-  const seconds = niche?.startingSceneSeconds
-  if (Array.isArray(seconds) && seconds.length === 2) {
+  if (niche?.startingScenePacing) {
+    // Tiers describe the whole episode, so they are the more specific choice;
+    // a Formula that declares both starts on its tiers, not its first band.
+    defaults.default_scene_pacing = structuredClone(parseScenePacing(niche.startingScenePacing))
+  } else if (Array.isArray(niche?.startingSceneSeconds) && niche.startingSceneSeconds.length === 2) {
+    const seconds = niche.startingSceneSeconds
     defaults.default_scene_pacing = { min_sec: seconds[0], max_sec: seconds[1] }
   }
   return defaults

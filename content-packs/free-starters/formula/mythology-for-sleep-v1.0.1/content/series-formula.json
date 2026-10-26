@@ -1,0 +1,366 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.mythology-for-sleep",
+  "name": "Mythology for Sleep",
+  "description": "Pantheons and epic cycles told as slow, settling stories rather than dramatic action. Each chapter takes one figure, one myth or one long journey from a named tradition and tells it plainly, keeping the culture’s own frame. No battle spectacle, no ranking of gods, no cliffhangers — just the old stories, told until the listener drifts off.",
+  "channel_promise": "The old stories, told slowly enough to sleep to.",
+  "audience": "Sleep listeners who love myth and folklore, and anyone who wants the stories told with respect for the tradition rather than as a battle recap.",
+  "formula_family": "Calm documentary",
+  "tagline": "The old stories, told until you drift off.",
+  "perspective_policy": "Third-person storyteller, naming the tradition each story comes from. Never flatten different traditions into one pantheon, and never present myth as documented history.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open by naming the tradition and the figure or cycle. No epic framing, no teaser, no promise of a showdown.",
+    "forbidden_patterns": [
+      "epic showdown",
+      "you will not believe",
+      "Watch what happens next",
+      "the gods were furious",
+      "cliffhanger",
+      "countdown",
+      "Imagine this",
+      "the truth about",
+      "based on a true story"
+    ],
+    "required_habits": [
+      "Name the tradition and the region before the story begins.",
+      "Keep violence at a distance; describe consequence rather than spectacle.",
+      "Do not rank gods or cultures, and do not merge traditions into one pantheon.",
+      "Present myth as myth. Never claim it happened, and never use it as evidence for a real event."
+    ],
+    "closing_policy": "Let the story settle into its own image — a river, a hall, a long road — with no moralising and no tease for the next episode."
+  },
+  "opening_profile": {
+    "id": "sleep-landing",
+    "label": "Sleep landing",
+    "description": "A gentle branded welcome and settling ritual before the story begins."
+  },
+  "intro_defaults": {
+    "word_target": 320,
+    "beats": [
+      {
+        "id": "welcome",
+        "custom_text": "a gentle greeting and the channel name, slowly, with no energy in it"
+      },
+      {
+        "id": "story_teaser",
+        "custom_text": "name tonight’s tradition and the figure or cycle as things, never as promises or hooks"
+      },
+      {
+        "id": "community_question",
+        "custom_text": "one gentle question they can answer in the comments before they drift, about a story their family told"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one soft line, said now rather than later — after the breathing it would only wake them"
+      },
+      {
+        "id": "relaxation",
+        "custom_text": "lead three slow breaths, paced by the length of the sentences themselves"
+      },
+      {
+        "id": "transition",
+        "custom_text": "invite them to close their eyes as the story begins"
+      }
+    ]
+  },
+  "visual_style_hint": "quiet mythic imagery — a river at dusk, a stone hall, a distant figure on a long road; soft and spacious, never a battle scene",
+  "starting_scene_pacing": {
+    "mode": "variable",
+    "periods": [
+      {
+        "start_sec": 0,
+        "end_sec": 180,
+        "min_sec": 5,
+        "max_sec": 10
+      },
+      {
+        "start_sec": 180,
+        "end_sec": 300,
+        "min_sec": 10,
+        "max_sec": 20
+      },
+      {
+        "start_sec": 300,
+        "end_sec": 600,
+        "min_sec": 20,
+        "max_sec": 30
+      },
+      {
+        "start_sec": 600,
+        "end_sec": null,
+        "min_sec": 50,
+        "max_sec": 60
+      }
+    ]
+  },
+  "metadata_profile": {
+    "id": "sleep-mythology",
+    "label": "Sleep mythology package",
+    "description": "A quiet summary naming what the episode explains, a gentle chapter list, and minimal discoverability details; no urgency or sales language.",
+    "description_section_ids": [
+      "hook",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 3000,
+    "title_max_length": 100,
+    "tag_count": 14
+  },
+  "narrative_rules": [
+    "Each chapter is one self-contained myth, figure or journey from a named tradition; a listener joining mid-video needs no earlier chapter.",
+    "Name the tradition and the region. Never blend Greek, Norse, Egyptian, Mesopotamian, Hindu, Yoruba, Japanese or Khmer material into one pantheon.",
+    "Keep violence at a distance: the consequence matters more than the blow.",
+    "Present myth as myth, never as documented history or as evidence for a real event.",
+    "No ranking of gods, no “the most powerful”, no claim that one tradition is older or truer than another."
+  ],
+  "title_rules": [
+    "Name the tradition and the figure or story; calm, literary and specific.",
+    "Shapes that work: 'The Long Road of Odysseus', 'Three Egyptian Stories of the Dead', 'What the Norse Gods Feared'.",
+    "No all-caps, no question marks, no “epic”, no battle words."
+  ],
+  "script_structure": {
+    "default_chapter_count": 12,
+    "chapter_count_range": [
+      8,
+      16
+    ],
+    "default_length_minutes": 120,
+    "length_minutes_range": [
+      90,
+      150
+    ],
+    "duration_presets": [
+      90,
+      120,
+      150
+    ],
+    "default_words_per_minute": 120,
+    "chapters_independent": true,
+    "pacing_arc": [
+      "Chapter 1: the most familiar story, told most simply — it teaches the listener the rhythm of the night.",
+      "Chapters 2–{lastButOne}: one myth or figure each, varying tradition and mood between neighbours so the ear travels gently.",
+      "Chapter {last}: the quietest story and the softest telling; nothing here should wake them."
+    ],
+    "additional_rules": [
+      "Each chapter opens by naming its tradition, region and figure, then tells the story in order without hurry.",
+      "Explain an unfamiliar name or practice once, plainly, and then trust the listener.",
+      "No per-chapter hook, no “and then everything changed”, no cliffhanger. Close each chapter on a still image.",
+      "Write for the ear: long, even sentences, no lists read aloud.",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2…) followed by the story’s plain name."
+    ]
+  },
+  "compatible_topic_pack_ids": [],
+  "example_topics": [
+    "The Long Road of Odysseus",
+    "Three Egyptian Stories of the Dead",
+    "What the Norse Gods Feared",
+    "The Descent of Inanna",
+    "A Night in the Hall of the Greek Gods",
+    "The River That Remembers",
+    "Yoruba Tales of the Trickster",
+    "The Slow Journey of the Sun",
+    "What the Japanese Gods Left Behind",
+    "Khmer Stories of the Neak Ta",
+    "The Mesopotamian Sky at Night",
+    "Twelve Quiet Stories of the Underworld"
+  ],
+  "recommended_visual_style_ids": [],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.medallion-portrait"
+  ],
+  "idea_axes": [
+    {
+      "id": "tradition",
+      "label": "Tradition",
+      "values": [
+        "Greek",
+        "Norse",
+        "Egyptian",
+        "Mesopotamian",
+        "Hindu",
+        "Yoruba",
+        "Japanese",
+        "Khmer"
+      ]
+    },
+    {
+      "id": "story-shape",
+      "label": "Story shape",
+      "values": [
+        "a single god",
+        "a hero",
+        "a trickster",
+        "a creation story",
+        "a descent",
+        "a long journey"
+      ]
+    },
+    {
+      "id": "theme",
+      "label": "Theme",
+      "values": [
+        "hospitality",
+        "fate",
+        "kinship",
+        "the underworld",
+        "the harvest",
+        "the sea"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "calm",
+      "mythic",
+      "patient",
+      "reverent",
+      "storybook",
+      "nocturnal",
+      "hushed",
+      "ancient",
+      "spacious",
+      "grounded"
+    ],
+    "theme": [
+      "fate",
+      "hospitality",
+      "descent",
+      "creation",
+      "kinship",
+      "seasons",
+      "the sea",
+      "the underworld",
+      "the long road",
+      "memory"
+    ],
+    "genre": [
+      "mythology",
+      "sleep story",
+      "folklore",
+      "epic cycle",
+      "bedtime story"
+    ],
+    "keyword": [
+      "river",
+      "hall",
+      "oracle",
+      "temple",
+      "underworld",
+      "harvest",
+      "sea",
+      "trickster",
+      "hero",
+      "goddess",
+      "god",
+      "creation",
+      "journey",
+      "moon",
+      "star",
+      "ancestor",
+      "offering",
+      "legend",
+      "cycle",
+      "night"
+    ]
+  },
+  "audience_hint": "Sleep listeners who love myth and folklore, and anyone who wants the stories told with respect for the tradition rather than as a battle recap.",
+  "evidence_expectations": [
+    "Name the tradition and the kind of source (epic, hymn, oral tradition) in plain language.",
+    "Where versions differ, say so calmly; never resolve a disagreement by invention.",
+    "Never treat a myth as a historical record or as proof of a real event."
+  ],
+  "idea_system_prompt_role": "You generate ideas for a mythology channel made for sleep. Each idea takes one figure, myth or journey from a named tradition and tells it as a slow, settling story. Never a battle recap, never a showdown.",
+  "idea_guidance_text": "Name the tradition and the story shape; vary tradition and mood across a batch. The point is to settle, not to impress.",
+  "script_context": "This is a sleep-mythology documentary. Each chapter tells one myth from one named tradition, slowly and in order, for a listener drifting toward sleep. Violence stays at a distance and the story is always presented as myth.",
+  "script_system_prompt_role": "You are a calm storyteller of myths writing bedtime documentaries. You name the tradition, tell the story in order, keep violence at a distance, and never present myth as history. You never hook, tease, rank gods, or merge traditions.",
+  "script_closing_hint": "Slow the pace and soften the language as each chapter closes. End on a still image from the story — a river, a hall, a road — with no moralising and no tease.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Calm storyteller",
+      "description": "Even and warm, letting the story settle at its own pace."
+    },
+    {
+      "id": "b",
+      "label": "Museum guide",
+      "description": "Precise and respectful, naming the tradition and its source."
+    },
+    {
+      "id": "c",
+      "label": "Fireside myth-teller",
+      "description": "Unhurried and companionable, the cadence of a long story by lamplight."
+    },
+    {
+      "id": "d",
+      "label": "Scholar of the old stories",
+      "description": "Quiet and measured, never lecturing, never ranking."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Name the tradition and the figure or story; calm, literary and specific.",
+    "Shapes that work: 'The Long Road of Odysseus', 'Three Egyptian Stories of the Dead', 'What the Norse Gods Feared'.",
+    "No question marks, no all-caps, no “epic”, no battle words."
+  ],
+  "title_length_range": [
+    5,
+    13
+  ],
+  "logline_shape_rules": [
+    "One calm sentence naming the tradition and the story’s quiet centre.",
+    "No stakes, no promise, no question."
+  ],
+  "logline_sentence_range": [
+    1,
+    2
+  ],
+  "theme_shape_rules": [
+    "Pick 2–4 mythic or atmospheric keywords (fate, river, descent).",
+    "Avoid battle keywords (war, vengeance, slaughter)."
+  ],
+  "theme_count_range": [
+    2,
+    4
+  ],
+  "structural_variety": "vary-all",
+  "metadata_title_style_hint": "calm and literary — a tradition and a story, signalling rest and length, never clickbait",
+  "metadata_title_hook_rules": [
+    "Signal the tradition and the calm up front; sleep audiences search for length and quiet.",
+    "No urgency, all-caps, questions, or hype."
+  ],
+  "metadata_tags_hook_rules": [
+    "Mix broad mythology and sleep keywords with the episode’s actual tradition and figures.",
+    "Each tag 1–4 words, no “#” prefix."
+  ],
+  "metadata_description": {
+    "voice_guidance": "Quiet and plain. List the chapters as a simple timestamped index; no exclamation marks, no sales language.",
+    "description_shape_rules": [
+      "First line: which tradition and which stories tonight, in one calm sentence.",
+      "Then a chapter index, one story per line.",
+      "Then one gentle line inviting a comment about a story they grew up with.",
+      "Close with the calm disclosure and a few hashtags."
+    ],
+    "cta_shape": "One soft line inviting them to keep the video for another night; never “like and subscribe now”."
+  },
+  "youtube_tags_hint": [
+    "mythology for sleep",
+    "myths to fall asleep to",
+    "sleep mythology",
+    "greek mythology",
+    "norse mythology",
+    "egyptian mythology",
+    "world mythology",
+    "bedtime stories for adults",
+    "relaxing mythology",
+    "long sleep video",
+    "quiet narration",
+    "folklore"
+  ],
+  "creative_profiles": [
+    "narrative",
+    "balanced"
+  ],
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.medallion-portrait"
+}

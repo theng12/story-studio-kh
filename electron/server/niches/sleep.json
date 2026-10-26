@@ -347,10 +347,15 @@
   ],
   "structuralVariety": "vary-all",
   "visualStyleHint": "soft, dreamlike, warm and luminous — gentle illustration that lulls rather than dazzles",
-  "startingSceneSeconds": [
-    20,
-    30
-  ],
+  "startingScenePacing": {
+    "mode": "variable",
+    "periods": [
+      { "start_sec": 0, "end_sec": 180, "min_sec": 5, "max_sec": 10 },
+      { "start_sec": 180, "end_sec": 300, "min_sec": 10, "max_sec": 20 },
+      { "start_sec": 300, "end_sec": 600, "min_sec": 20, "max_sec": 30 },
+      { "start_sec": 600, "end_sec": null, "min_sec": 50, "max_sec": 60 }
+    ]
+  },
   "chapterPauseSec": 3,
   "metadataTitleStyleHint": "calm and literary — a quiet, evocative noun phrase that signals a relaxing bedtime story, never clickbait",
   "metadataTitleHookRules": [

@@ -4,6 +4,13 @@
  * at 1–3 s = thousands of images for a 2-hour episode). The values are copied
  * into the channel's own settings once; an existing channel is never touched.
  *
+ * Owner decision 2026-10-26: a Sleep channel starts on the tiered Sleep rhythm
+ * instead of one 20–30 s band — 5–10 s for the first 3 minutes, 10–20 s from 3
+ * to 5 minutes, 20–30 s from 5 to 10 minutes, 50–60 s from 10 minutes on. A
+ * Formula declares it as `starting_scene_pacing`, the same `variable` shape
+ * Scene Plan's Visual timing & motion panel writes; an episode that saves its
+ * own rhythm still keeps it.
+ *
  * STORY_STUDIO_DATA_DIR must be set (useTempDataDir) before project-manager is
  * imported, same as style-bible-project-default.test.ts.
  */
@@ -20,6 +27,28 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const readJson = async (rel: string) => JSON.parse(await fs.readFile(path.join(root, rel), 'utf-8'))
 const flatFormat = { visualSource: 'continuity-chain', script: {} } as any
 
+/** The Sleep tiers, exactly as a Sleep Formula declares and a channel stores them. */
+const SLEEP_TIERS = {
+  mode: 'variable',
+  min_sec: 5,
+  max_sec: 10,
+  periods: [
+    { start_sec: 0, end_sec: 180, min_sec: 5, max_sec: 10 },
+    { start_sec: 180, end_sec: 300, min_sec: 10, max_sec: 20 },
+    { start_sec: 300, end_sec: 600, min_sec: 20, max_sec: 30 },
+    { start_sec: 600, end_sec: null, min_sec: 50, max_sec: 60 },
+  ],
+}
+
+/** Every Sleep-family Formula source, pinned to the version a channel reads. */
+const SLEEP_FORMULAS = [
+  'content-packs/free-starters/formula/sleep-story-v1.0.3/content/series-formula.json',
+  'content-packs/sleep-history/formula/sleep-history-compilation-v1.0.2/content/series-formula.json',
+  'content-packs/free-starters/formula/calm-science-for-sleep-v1.0.1/content/series-formula.json',
+  'content-packs/free-starters/formula/mythology-for-sleep-v1.0.1/content/series-formula.json',
+  'content-packs/illustrated-history/formula/illustrated-history-for-sleep-v1.0.1/content/series-formula.json',
+]
+
 let tmp: { dir: string; cleanup: () => Promise<void> }
 let pm: typeof import('../services/project-manager.js')
 let defaults: typeof import('../services/formula-starting-defaults.js')
@@ -32,16 +61,21 @@ describe('formula starting defaults', () => {
   })
   after(async () => { await tmp.cleanup() })
 
-  test('the Sleep formulas carry a soft look and 20–30 s scenes', async () => {
+  test('the Sleep formulas carry a soft look and the tiered Sleep rhythm', async () => {
     const legacy = await readJson('electron/server/niches/sleep.json')
-    assert.deepEqual(legacy.startingSceneSeconds, [20, 30])
+    assert.deepEqual(legacy.startingScenePacing, {
+      mode: 'variable',
+      periods: SLEEP_TIERS.periods,
+    })
     assert.match(legacy.visualStyleHint, /soft, dreamlike/)
-    for (const rel of [
-      'content-packs/free-starters/formula/sleep-story-v1.0.1/content/series-formula.json',
-      'content-packs/sleep-history/formula/sleep-history-compilation-v1.0.1/content/series-formula.json',
-    ]) {
+    const { ContentPackDocumentSchema } = await import('../content-packs/schemas.js')
+    for (const rel of SLEEP_FORMULAS) {
       const doc = await readJson(rel)
-      assert.deepEqual(doc.starting_scene_seconds, [20, 30], rel)
+      assert.doesNotThrow(() => ContentPackDocumentSchema.parse(doc), rel)
+      assert.deepEqual(doc.starting_scene_pacing, {
+        mode: 'variable',
+        periods: SLEEP_TIERS.periods,
+      }, rel)
       assert.ok(doc.visual_style_hint, rel)
     }
   })
@@ -51,7 +85,19 @@ describe('formula starting defaults', () => {
     assert.deepEqual(defaults.startingDefaultsFromFormula({} as any), {})
     const sleep = defaults.startingDefaultsFromFormula(await readJson('electron/server/niches/sleep.json'))
     assert.match(String(sleep.default_style_bible), /soft, dreamlike/)
-    assert.deepEqual(sleep.default_scene_pacing, { min_sec: 20, max_sec: 30 })
+    assert.deepEqual(sleep.default_scene_pacing, SLEEP_TIERS)
+    // A one-band Formula keeps its band; tiers, when declared, win.
+    assert.deepEqual(
+      defaults.startingDefaultsFromFormula({ startingSceneSeconds: [20, 30] } as any).default_scene_pacing,
+      { min_sec: 20, max_sec: 30 },
+    )
+    assert.deepEqual(
+      defaults.startingDefaultsFromFormula({
+        startingSceneSeconds: [20, 30],
+        startingScenePacing: SLEEP_TIERS,
+      } as any).default_scene_pacing,
+      SLEEP_TIERS,
+    )
   })
 
   test('a new channel gets its Formula\'s pacing, or the owner standard tiers without one', async () => {
@@ -63,7 +109,7 @@ describe('formula starting defaults', () => {
     const old = await pm.createProject({ name: 'Old Channel' } as any)
 
     const startingPacing = await defaults.readProjectStartingPacing(fresh.slug)
-    assert.deepEqual(startingPacing, { min_sec: 20, max_sec: 30 })
+    assert.deepEqual(startingPacing, SLEEP_TIERS)
     assert.equal((await pm.getConfig(fresh.slug) as any).default_style_bible.startsWith('soft, dreamlike'), true)
     // A channel with NO Formula is not left on the app-wide default any more:
     // since 2026-10-19 a new channel starts on the owner's standard tiers
@@ -82,12 +128,12 @@ describe('formula starting defaults', () => {
     assert.equal((await pm.getConfig(old.slug) as any).default_style_bible, undefined)
 
     // What the Scene Plan page shows ("Next build") and what the planner uses.
-    assert.deepEqual(defaultContinuityConfig('independent-stills', startingPacing).pacing, { min_sec: 20, max_sec: 30 })
+    assert.deepEqual(defaultContinuityConfig('independent-stills', startingPacing).pacing, SLEEP_TIERS)
     // An episode with nothing at all still gets the one app-wide default.
     assert.deepEqual(defaultContinuityConfig('independent-stills').pacing, { min_sec: 1, max_sec: 3 })
     const ep = path.join(tmp.dir, 'ep')
     await fs.mkdir(ep, { recursive: true })
-    assert.deepEqual((await resolveScenePlanPacing(fresh.slug, ep, flatFormat)).pacing, { min_sec: 20, max_sec: 30, mode: 'live' })
+    assert.deepEqual((await resolveScenePlanPacing(fresh.slug, ep, flatFormat)).pacing, SLEEP_TIERS)
     assert.deepEqual((await resolveScenePlanPacing(old.slug, ep, flatFormat)).pacing, {
       min_sec: 5,
       max_sec: 10,
@@ -112,7 +158,7 @@ describe('formula starting defaults', () => {
     const made = (await request(app).post('/api/projects').send({ name: 'Dreamlands Route', niche_id: 'sleep' }).expect(201)).body
     const config = await pm.getConfig(made.slug) as any
     assert.match(config.default_style_bible, /soft, dreamlike/)
-    assert.deepEqual(config.default_scene_pacing, { min_sec: 20, max_sec: 30 })
+    assert.deepEqual(config.default_scene_pacing, SLEEP_TIERS)
     // No Formula at all: the owner's standard tiers (2026-10-19), not 1–3 s.
     const plain = (await request(app).post('/api/projects').send({ name: 'No Formula Route' }).expect(201)).body
     assert.deepEqual((await pm.getConfig(plain.slug) as any).default_scene_pacing, {
@@ -127,10 +173,29 @@ describe('formula starting defaults', () => {
     })
   })
 
-  test('the content-pack schema accepts the range and rejects a backwards one', async () => {
+  test('the content-pack schema accepts the bands and rejects a broken tier set', async () => {
     const { ContentPackDocumentSchema } = await import('../content-packs/schemas.js')
-    const doc = await readJson('content-packs/free-starters/formula/sleep-story-v1.0.1/content/series-formula.json')
+    const doc = await readJson('content-packs/free-starters/formula/sleep-story-v1.0.3/content/series-formula.json')
     assert.doesNotThrow(() => ContentPackDocumentSchema.parse(doc))
     assert.throws(() => ContentPackDocumentSchema.parse({ ...doc, starting_scene_seconds: [30, 20] }))
+    const withPacing = (periods: unknown[]) => ({
+      ...doc,
+      starting_scene_pacing: { mode: 'variable', periods },
+    })
+    // A gap between periods, a closed final period, and one that does not start
+    // at zero are all authoring mistakes, refused before a channel sees them.
+    assert.throws(() => ContentPackDocumentSchema.parse(withPacing([
+      { start_sec: 0, end_sec: 180, min_sec: 5, max_sec: 10 },
+      { start_sec: 200, end_sec: null, min_sec: 10, max_sec: 20 },
+    ])))
+    assert.throws(() => ContentPackDocumentSchema.parse(withPacing([
+      { start_sec: 0, end_sec: 180, min_sec: 5, max_sec: 10 },
+    ])))
+    assert.throws(() => ContentPackDocumentSchema.parse(withPacing([
+      { start_sec: 60, end_sec: null, min_sec: 5, max_sec: 10 },
+    ])))
+    assert.throws(() => ContentPackDocumentSchema.parse(withPacing([
+      { start_sec: 0, end_sec: null, min_sec: 10, max_sec: 5 },
+    ])))
   })
 })

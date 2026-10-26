@@ -1,0 +1,120 @@
+{
+  "expected_revision": 326,
+  "coordinator": {
+    "task": "sleep-tiered-starting-pacing-2026-10-26",
+    "branch": "content/sleep-tiered-pacing-20261026"
+  },
+  "proposal_ref": "Owner decision 2026-10-26 (product answers, item 1): every Sleep channel starts episodes on the tiered Sleep rhythm — 5-10 s scenes for 0-3 min, 10-20 s for 3-5 min, 20-30 s for 5-10 min, 50-60 s from 10 min on — as its Formula starting rhythm. Successors of the five Sleep-family Formulas, each pinned to the app release that reads the new field.",
+  "records": [
+    {
+      "pack_id": "com.storystudio.pack.formula.sleep-story",
+      "item_id": "com.storystudio.formula.sleep-story",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "1.4.361",
+      "min_app_version_status": "fixed",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/sleep-story-v1.0.3",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.sleep-story",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.sleep-story",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.sleep-history-compilation",
+      "item_id": "com.storystudio.formula.sleep-history-compilation",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "1.4.361",
+      "min_app_version_status": "fixed",
+      "kind": "series-formula",
+      "source_path": "content-packs/sleep-history/formula/sleep-history-compilation-v1.0.2",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.sleep-history-compilation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.sleep-history-compilation",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.calm-science-for-sleep",
+      "item_id": "com.storystudio.formula.calm-science-for-sleep",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "1.4.361",
+      "min_app_version_status": "fixed",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/calm-science-for-sleep-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.calm-science-for-sleep",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.calm-science-for-sleep",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.mythology-for-sleep",
+      "item_id": "com.storystudio.formula.mythology-for-sleep",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "1.4.361",
+      "min_app_version_status": "fixed",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/mythology-for-sleep-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.mythology-for-sleep",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.mythology-for-sleep",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.illustrated-history-for-sleep",
+      "item_id": "com.storystudio.formula.illustrated-history-for-sleep",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "1.4.361",
+      "min_app_version_status": "fixed",
+      "kind": "series-formula",
+      "source_path": "content-packs/illustrated-history/formula/illustrated-history-for-sleep-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.illustrated-history-for-sleep",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.illustrated-history-for-sleep",
+          "status": "proposed"
+        }
+      }
+    }
+  ]
+}

@@ -36,7 +36,7 @@ void test('no built-in formula overrides the uniform pauses (Sleep included); a 
 })
 
 void test('a signed formula carries paragraph_pause_sec / sentence_pause_sec (0-3 s) to the niche', async () => {
-  const doc = JSON.parse(await fs.readFile(path.join(root, 'content-packs/free-starters/formula/sleep-story-v1.0.1/content/series-formula.json'), 'utf8'))
+  const doc = JSON.parse(await fs.readFile(path.join(root, 'content-packs/free-starters/formula/sleep-story-v1.0.3/content/series-formula.json'), 'utf8'))
   const niche = contentPackDocumentToNiche(parseContentPackDocument('series-formula', { ...doc, paragraph_pause_sec: 1.2, sentence_pause_sec: 0.4 }) as any)
   assert.equal(niche.paragraphPauseSec, 1.2)
   assert.equal(niche.sentencePauseSec, 0.4)

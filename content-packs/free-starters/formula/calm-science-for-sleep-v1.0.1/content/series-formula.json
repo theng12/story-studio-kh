@@ -1,0 +1,364 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.calm-science-for-sleep",
+  "name": "Calm Science for Sleep",
+  "description": "The slow mechanics of the universe, told quietly enough to fall asleep to. Each episode takes one field or one scale — a planet, a physical law, a deep current, the life of a star — and explains it without urgency, without a hook and without jeopardy. Evidence-led, low-arousal, generous with the long view.",
+  "channel_promise": "How things work, told slowly enough to stop keeping you awake.",
+  "audience": "Sleep and relaxation listeners who are curious about science — people who want the long view explained calmly, with the lights off.",
+  "formula_family": "Calm documentary",
+  "tagline": "The universe, explained until you drift off.",
+  "perspective_policy": "Third-person, unhurried science narration. No host energy, no urgency, and no second-person jeopardy.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open by naming the phenomenon and the scale it lives at. No question hook, no teaser, no claim that it will blow the listener’s mind.",
+    "forbidden_patterns": [
+      "Imagine this",
+      "You will not believe",
+      "Watch what happens next",
+      "mind-blowing",
+      "scientists are baffled",
+      "shocking",
+      "could destroy us all",
+      "cliffhanger",
+      "countdown",
+      "the truth about"
+    ],
+    "required_habits": [
+      "Explain one mechanism at a time, in plain language.",
+      "Separate what is measured from what is inferred and what is speculative.",
+      "Prefer the long view to doomsday framing.",
+      "Keep the stakes intellectual, never personal or urgent."
+    ],
+    "closing_policy": "Let the explanation settle into a quiet image of scale, with no call to action and no tease for the next episode."
+  },
+  "opening_profile": {
+    "id": "sleep-landing",
+    "label": "Sleep landing",
+    "description": "A gentle branded welcome and settling ritual before the science begins."
+  },
+  "intro_defaults": {
+    "word_target": 320,
+    "beats": [
+      {
+        "id": "welcome",
+        "custom_text": "a gentle greeting and the channel name, slowly, with no energy in it"
+      },
+      {
+        "id": "story_teaser",
+        "custom_text": "name tonight’s phenomenon and its scale as things, never as promises or hooks"
+      },
+      {
+        "id": "community_question",
+        "custom_text": "one gentle question they can answer in the comments before they drift, about something they have noticed in the sky or the sea"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one soft line, said now rather than later — after the breathing it would only wake them"
+      },
+      {
+        "id": "relaxation",
+        "custom_text": "lead three slow breaths, paced by the length of the sentences themselves"
+      },
+      {
+        "id": "transition",
+        "custom_text": "invite them to close their eyes as the explanation begins"
+      }
+    ]
+  },
+  "visual_style_hint": "quiet scientific imagery — distant planets, slow currents, laboratory glass in low light; calm and spacious, never spectacular",
+  "starting_scene_pacing": {
+    "mode": "variable",
+    "periods": [
+      {
+        "start_sec": 0,
+        "end_sec": 180,
+        "min_sec": 5,
+        "max_sec": 10
+      },
+      {
+        "start_sec": 180,
+        "end_sec": 300,
+        "min_sec": 10,
+        "max_sec": 20
+      },
+      {
+        "start_sec": 300,
+        "end_sec": 600,
+        "min_sec": 20,
+        "max_sec": 30
+      },
+      {
+        "start_sec": 600,
+        "end_sec": null,
+        "min_sec": 50,
+        "max_sec": 60
+      }
+    ]
+  },
+  "metadata_profile": {
+    "id": "calm-science",
+    "label": "Calm science package",
+    "description": "A quiet summary naming what the episode explains, a gentle chapter list, and minimal discoverability details; no urgency or sales language.",
+    "description_section_ids": [
+      "hook",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 2800,
+    "title_max_length": 100,
+    "tag_count": 12
+  },
+  "narrative_rules": [
+    "Each chapter explains one phenomenon at one scale; a listener joining mid-video needs no earlier chapter.",
+    "Scale and mechanism come before wonder: describe how it works, then let the size of it land quietly.",
+    "Never frame the science as a threat to the listener, and never use doomsday language for effect.",
+    "Say plainly when something is measured, inferred, or still speculative.",
+    "No brand names, no institution names used as endorsement, no invented quotations."
+  ],
+  "title_rules": [
+    "Name the phenomenon and the scale; calm, plain and specific.",
+    "Shapes that work: 'How a Star Dies, Slowly', 'The Long Life of a Drop of Water', 'What Gravity Is Doing Right Now'.",
+    "No question marks, no all-caps, no “mind-blowing”, no doomsday words."
+  ],
+  "script_structure": {
+    "default_chapter_count": 12,
+    "chapter_count_range": [
+      8,
+      16
+    ],
+    "default_length_minutes": 120,
+    "length_minutes_range": [
+      90,
+      150
+    ],
+    "duration_presets": [
+      90,
+      120,
+      150
+    ],
+    "default_words_per_minute": 120,
+    "chapters_independent": true,
+    "pacing_arc": [
+      "Chapter 1: the most familiar phenomenon, told most simply — it teaches the listener the rhythm of the night.",
+      "Chapters 2–{lastButOne}: one phenomenon each, varying scale between neighbours so the mind travels gently.",
+      "Chapter {last}: the largest, quietest scale and the softest telling; nothing here should wake them."
+    ],
+    "additional_rules": [
+      "Each chapter opens by naming its phenomenon and the scale it lives at, then explains one mechanism at a time.",
+      "Use concrete comparisons, but never a comparison that turns into a threat.",
+      "No per-chapter hook, no micro-payoff line, no rhetorical question. Close each chapter on a still image of scale.",
+      "Write for the ear: long, even sentences, no lists read aloud.",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2…) followed by the phenomenon’s plain name."
+    ]
+  },
+  "compatible_topic_pack_ids": [],
+  "example_topics": [
+    "How a Star Dies, Slowly",
+    "The Long Life of a Drop of Water",
+    "What Gravity Is Doing Right Now",
+    "The Slow Turning of the Moon",
+    "Why the Deep Ocean Is Still",
+    "A Billion Years in One Rock",
+    "The Quiet Chemistry of the Air",
+    "How Light Travels Through Nothing",
+    "The Tides and Their Patience",
+    "What a Planet Remembers",
+    "The Heat Beneath Everything",
+    "Twelve Small Facts About the Night Sky"
+  ],
+  "recommended_visual_style_ids": [],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.scale-journey"
+  ],
+  "idea_axes": [
+    {
+      "id": "field",
+      "label": "Field",
+      "values": [
+        "astronomy",
+        "physics",
+        "geology",
+        "oceanography",
+        "chemistry",
+        "biology at scale"
+      ]
+    },
+    {
+      "id": "scale",
+      "label": "Scale",
+      "values": [
+        "a grain of dust",
+        "a drop of water",
+        "a planet",
+        "a star",
+        "a galaxy",
+        "a billion years"
+      ]
+    },
+    {
+      "id": "mechanism",
+      "label": "Mechanism",
+      "values": [
+        "gravity",
+        "heat",
+        "light",
+        "pressure",
+        "chemistry",
+        "time"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "calm",
+      "curious",
+      "patient",
+      "vast",
+      "quiet",
+      "measured",
+      "nocturnal",
+      "grounded",
+      "unhurried",
+      "wonder-tinged"
+    ],
+    "theme": [
+      "deep time",
+      "scale",
+      "light",
+      "tides",
+      "orbits",
+      "matter",
+      "energy",
+      "the long view",
+      "slow change",
+      "distance"
+    ],
+    "genre": [
+      "calm science",
+      "sleep documentary",
+      "science explainer",
+      "cosmic documentary"
+    ],
+    "keyword": [
+      "star",
+      "planet",
+      "ocean",
+      "gravity",
+      "light",
+      "orbit",
+      "tide",
+      "rock",
+      "atom",
+      "heat",
+      "moon",
+      "galaxy",
+      "dust",
+      "water",
+      "pressure",
+      "time",
+      "night sky",
+      "deep sea",
+      "nebula",
+      "current"
+    ]
+  },
+  "audience_hint": "Sleep listeners who like science — the people who leave a long documentary playing with the lights off.",
+  "evidence_expectations": [
+    "Prefer what is measured and replicated; name the kind of evidence in plain language.",
+    "Where a figure is an estimate, say so; never present a speculative number as settled.",
+    "Describe the consensus without pretending there is no uncertainty."
+  ],
+  "idea_system_prompt_role": "You generate ideas for a calm science channel made for sleep. Each idea takes one phenomenon at one scale and explains it without jeopardy. The point is to explain quietly, never to alarm or excite.",
+  "idea_guidance_text": "Choose a concrete phenomenon and a definite scale. Vary the field and the scale across a batch so no two ideas share the same shape.",
+  "script_context": "This is a sleep-science documentary. Its job is to explain how something works, slowly and honestly, for a listener drifting toward sleep. Nothing startling should happen, and nothing is framed as a threat.",
+  "script_system_prompt_role": "You are a calm science narrator writing bedtime documentaries. You explain one mechanism at a time, distinguish measurement from inference, and keep the stakes intellectual. You never hook, tease, alarm, or promise that the listener’s mind will be blown.",
+  "script_closing_hint": "Slow the pace and soften the language as each chapter closes. End on a quiet image of scale — a planet turning, a current settling, a light still travelling.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Calm documentary",
+      "description": "Even and grounded, explaining without raising its voice."
+    },
+    {
+      "id": "b",
+      "label": "Patient physicist",
+      "description": "Precise and unhurried, finding the simple mechanism underneath."
+    },
+    {
+      "id": "c",
+      "label": "Night-sky guide",
+      "description": "Warm and spacious, letting the scale do the work."
+    },
+    {
+      "id": "d",
+      "label": "Field naturalist",
+      "description": "Observant and concrete, starting from the thing itself."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Name the phenomenon and the scale; calm, plain and specific.",
+    "Shapes that work: 'How a Star Dies, Slowly', 'The Long Life of a Drop of Water', 'What Gravity Is Doing Right Now'.",
+    "No question marks, no all-caps, no threat framing."
+  ],
+  "title_length_range": [
+    5,
+    12
+  ],
+  "logline_shape_rules": [
+    "One calm sentence naming the phenomenon, the scale, and the quiet fact at its centre.",
+    "No stakes, no promise, no question."
+  ],
+  "logline_sentence_range": [
+    1,
+    2
+  ],
+  "theme_shape_rules": [
+    "Pick 2–4 scientific or atmospheric keywords (gravity, tides, deep time).",
+    "Avoid threat keywords (collapse, disaster, extinction)."
+  ],
+  "theme_count_range": [
+    2,
+    4
+  ],
+  "structural_variety": "vary-all",
+  "metadata_title_style_hint": "calm and plain — a phenomenon and a scale, signalling rest and slow explanation, never clickbait",
+  "metadata_title_hook_rules": [
+    "Signal the calm and the scale up front; sleep audiences search for length and quiet.",
+    "No urgency, all-caps, questions, or hype."
+  ],
+  "metadata_tags_hook_rules": [
+    "Mix broad sleep-science keywords (science to fall asleep to, calm documentary) with the episode’s actual phenomenon.",
+    "Each tag 1–4 words, no “#” prefix."
+  ],
+  "metadata_description": {
+    "voice_guidance": "Quiet and plain. List the chapters as a simple timestamped index so a listener can find a phenomenon without scrolling; no exclamation marks, no sales language.",
+    "description_shape_rules": [
+      "First line: what tonight’s explanation is, in one calm sentence.",
+      "Then a chapter index, one phenomenon per line.",
+      "Then one gentle line inviting a comment on something they have noticed.",
+      "Close with the calm disclosure and a few hashtags."
+    ],
+    "cta_shape": "One soft line inviting them to keep the video for another night; never “like and subscribe now”."
+  },
+  "youtube_tags_hint": [
+    "sleep science",
+    "science to fall asleep to",
+    "calm documentary",
+    "sleep documentary",
+    "astronomy for sleep",
+    "physics explained",
+    "deep ocean",
+    "deep time",
+    "relaxing science",
+    "long sleep video",
+    "quiet narration",
+    "cosmos"
+  ],
+  "creative_profiles": [
+    "narrative",
+    "balanced"
+  ],
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.scale-journey"
+}
