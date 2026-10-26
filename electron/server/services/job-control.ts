@@ -11,7 +11,7 @@ import {
   holdsUnknownMusicResult,
 } from '../contracts/provider-task-state.js'
 import { isProvenLocalStopCapableJob as isSafelyStoppableLocalJob } from './job-retry-policy.js'
-import { hasFinalRenderRemoteWaitMarker, parseFinalRenderRemoteWaitReceipt } from '../lib/final-render-remote-wait.js'
+import { hasFinalRenderRemoteWaitMarker, isRefusedFinalRenderReceipt, parseFinalRenderRemoteWaitReceipt } from '../lib/final-render-remote-wait.js'
 
 export { isSafelyStoppableLocalJob as isProvenLocalStopCapableJob }
 export type { JobControl, JobControlCapabilities }
@@ -246,14 +246,28 @@ function classifyProviderJobControl(
     & Partial<Pick<Job, 'job_id' | 'final_render_remote_wait'>>,
   capabilities: JobControlCapabilities,
 ): JobControl {
+  const evidence = job.genstudio_jobs || []
   if (job.type === 'video_assembly' && hasFinalRenderRemoteWaitMarker(job)) {
     const parsed = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id || '')
-    if (parsed.ok && parsed.receipt.cancel_requested_at === null) {
-      return control('request-remote-cancel', true, 'Cancel', 'Records your cancellation request while Story Studio waits for the remote render.', 'READY', 'remote-result-required')
+    // A refused render never became a remote job: the Gateway published `gateway_job_id: null` when
+    // it turned the remote lane down, so this row is this Mac's own render. Offering it the
+    // remote-wait Cancel recorded no remote target, left the row `running`, and the reconciler then
+    // resumed it and rendered the episode again (2026-10-26). It takes the ordinary local controls
+    // below instead: Stop while it waits or runs, and the finished rules once it ends.
+    if (!(parsed.ok && isRefusedFinalRenderReceipt(parsed.receipt))) {
+      if (parsed.ok && parsed.receipt.cancel_requested_at === null) {
+        return control('request-remote-cancel', true, 'Cancel', 'Records your cancellation request while Story Studio waits for the remote render.', 'READY', 'remote-result-required')
+      }
+      return control('return-later', false, 'Return later', 'Story Studio is preserving this remote render record until it can be reconciled safely.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
     }
-    return control('return-later', false, 'Return later', 'Story Studio is preserving this remote render record until it can be reconciled safely.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+    if (!isFinishedJob(job.status) && !evidence.length) {
+      return control(
+        'stop-local', true, 'Cancel',
+        'Stops this video on this Mac now. The Gateway refused the remote render, so nothing is running remotely. The accepted final video, its folder and the refusal record are left exactly as they are.',
+        'READY', 'local-only',
+      )
+    }
   }
-  const evidence = job.genstudio_jobs || []
   // An abandoned job is one the owner told Story Studio to stop tracking. The
   // unsettled-evidence gate below would immediately re-trap it in exactly the
   // dead end he just escaped, so it does not apply here. Nothing is discarded:

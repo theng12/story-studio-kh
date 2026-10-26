@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import '../../../scripts/testing/loopback-supertest.mjs'
 import type { CompositionOpts } from '../generators/video.js'
 import type { FinalRenderCapabilities } from '../lib/final-render-gateway-client.js'
-import { parseFinalRenderRemoteWaitReceipt } from '../lib/final-render-remote-wait.js'
+import { FINAL_RENDER_ACCEPTED_FINAL_CONFLICT, parseFinalRenderRemoteWaitReceipt } from '../lib/final-render-remote-wait.js'
 import type { Job } from '../models/types.js'
 
 const ORIGIN = 'https://gateway.private.example'
@@ -2137,4 +2137,150 @@ test('a refused row whose published final is missing still renders locally on re
   await queue.getJobs(prepared.job.project_slug, { view: 'full' })
   await settle()
   assert.equal(runs(), 2, 'a completion declaration without its published file is not proof')
+})
+
+// ── Cancel on a refused render really cancels it ────────────────────────────
+//
+// 2026-10-26: a refused row has no remote job at all (`gateway_job_id` stays null), but Cancel was
+// classified as a remote wait. `requestJobCancellation` skipped the final-render branch, queued an
+// EMPTY remote-cancellation set, and wrote the row `running` with nothing recorded; the private
+// final-render monitor then read it as a running refused row, resumed it, and rendered the episode
+// again. Cancel must stop this Mac's own render and leave the refusal receipt, the accepted final
+// and its folders exactly as they were.
+
+test('Cancel stops a refused render on this Mac, leaves the receipt and accepted final untouched, and never renders', async t => {
+  const prepared = await prepareCase('refused-cancel')
+  gateway.postError = { status: 422, code: 'RENDER_REQUEST_INVALID' }
+  await requireAdvance()(prepared.job.project_slug, prepared.job.job_id)
+  const slug = prepared.job.project_slug
+  const jobId = prepared.job.job_id
+  const before = (await queue.loadAuthoritativeJob(slug, jobId))!
+  assert.equal(before.final_render_remote_wait?.phase, 'refused')
+  const receipt = structuredClone(before.final_render_remote_wait)
+  const finalPath = path.join(prepared.composition.videoDir, 'EP1_final_video.mp4')
+  const candidatePath = path.join(prepared.composition.videoDir, 'candidate.mp4')
+  await fs.writeFile(finalPath, 'accepted final the owner keeps')
+  await fs.writeFile(candidatePath, 'new render still in the work folder')
+  let runs = 0
+  const restore = queue._setExecutorForTesting('video_assembly', async () => { runs += 1 })
+  t.after(restore)
+
+  const cancelled = await queue.requestJobCancellation(slug, jobId)
+  assert.equal(cancelled.status, 'cancelled', 'Cancel cancels; it does not put a refused row back in the lane')
+  assert.equal(cancelled.finished_at !== null, true)
+  await settle()
+
+  // What the private final-render monitor does for a refused receipt: it must not resume a cancelled row.
+  await queue.resumeRefusedFinalRenderLocally(slug, jobId)
+  await settle()
+
+  const after = (await queue.loadAuthoritativeJob(slug, jobId))!
+  assert.equal(after.status, 'cancelled')
+  assert.equal(runs, 0, 'no render ever started')
+  assert.deepEqual(after.final_render_remote_wait, receipt, 'the refusal record is untouched')
+  assert.equal(await fs.readFile(finalPath, 'utf8'), 'accepted final the owner keeps')
+  assert.equal(await fs.readFile(candidatePath, 'utf8'), 'new render still in the work folder')
+  assert.deepEqual((await fs.readdir(prepared.composition.videoDir)).sort(),
+    ['EP1_final_video.mp4', 'candidate.mp4'], 'the render folder is untouched')
+  assert.ok(after.output_lines.some(line => typeof line === 'string'
+    && line.startsWith('Stopped on this Mac. The Gateway refused the remote render')),
+  'the stop is announced, not silent (AGENTS.md §4)')
+})
+
+// ── A re-render that could not replace an accepted final ────────────────────
+//
+// 2026-10-26, production (seven Wonder-in-ink rows + MANU0001): a refused row was reopened and
+// rendered again; `publishLocalFinalVideo` publishes exclusively, so the redundant attempt stopped
+// non-retryable with FINAL_RENDER_ACCEPTED_FINAL_CONFLICT and the row ended `error` even though the
+// accepted final and the audited completion declaration were already on the row. The row's own
+// evidence decides (AGENTS.md §8): done only when the completion declaration AND the exact
+// `<CODE>_final_video.<ext>` are both present. Anything less stays error, and no file is touched.
+
+async function refusedRowEndingInAcceptedFinalConflict(
+  t: { after: (fn: () => void) => void },
+  label: string,
+): Promise<{ prepared: Prepared; outputDir: string; extraRender: string; failed: Job; done: Job; runs: () => number }> {
+  const { prepared, outputDir, runs } = await runRefusedRenderToCompletion(t, label)
+  const done = (await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id))!
+  const extraRender = path.join(prepared.composition.videoDir, 'candidate.mp4')
+  await fs.writeFile(extraRender, 'the new render that could not replace the accepted final')
+  const failed: Job = {
+    ...structuredClone(done),
+    status: 'error',
+    error: FINAL_RENDER_ACCEPTED_FINAL_CONFLICT,
+    finished_at: new Date().toISOString(),
+    local_execution_complete: true,
+    output_lines: [...(done.output_lines || []), `Error: ${FINAL_RENDER_ACCEPTED_FINAL_CONFLICT}`],
+  }
+  return { prepared, outputDir, extraRender, failed, done, runs }
+}
+
+test('a refused row whose re-render could not replace its accepted final settles done on restart', async t => {
+  const { prepared, outputDir, extraRender, failed, done, runs } = await refusedRowEndingInAcceptedFinalConflict(t, 'refused-conflict-done')
+  const receipt = structuredClone(done.final_render_remote_wait)
+  await writeJob(failed)
+  queue._restartProjectForTesting(prepared.job.project_slug)
+  await queue.getJobs(prepared.job.project_slug, { view: 'full' })
+  await settle()
+  const reloaded = (await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id))!
+  assert.equal(reloaded.status, 'done', 'the accepted final is the one true answer, not a failed render')
+  assert.equal(reloaded.error, null)
+  assert.equal(reloaded.local_execution_complete, true)
+  assert.equal(reloaded.finished_at !== null, true)
+  assert.equal(runs(), 1, 'settling the row starts no render')
+  assert.deepEqual(reloaded.final_render_remote_wait, receipt, 'the refusal record is untouched')
+  assert.ok(reloaded.output_lines.some(line => typeof line === 'string'
+    && line.startsWith('✔ This video already finished on this Mac')
+    && line.includes('could not replace that accepted final')),
+  'the settle is announced, not silent (AGENTS.md §4)')
+  assert.equal(await fs.readFile(path.join(outputDir, 'EP1_final_video.mp4'), 'utf8'), 'verified final video')
+  assert.equal(await fs.readFile(extraRender, 'utf8'), 'the new render that could not replace the accepted final',
+    'the extra render in the work folder is never touched')
+})
+
+test('a refused error row without exactly one answer keeps its error and every file', async t => {
+  const cases: Array<{
+    label: string
+    mutate: (row: Job, finalPath: string) => Promise<void> | void
+    expectedError: string
+  }> = [
+    {
+      label: 'incomplete-result',
+      mutate: row => { row.result = { ...row.result, complete: false } },
+      expectedError: FINAL_RENDER_ACCEPTED_FINAL_CONFLICT,
+    },
+    {
+      label: 'missing-published-final',
+      mutate: async (_row, finalPath) => { await fs.rm(finalPath) },
+      expectedError: FINAL_RENDER_ACCEPTED_FINAL_CONFLICT,
+    },
+    {
+      label: 'unreadable-output-folder',
+      mutate: row => { row.output_dir = `${row.output_dir}-absent` },
+      expectedError: FINAL_RENDER_ACCEPTED_FINAL_CONFLICT,
+    },
+    {
+      label: 'different-failure',
+      mutate: row => { row.error = 'Local assembly failed: a scene image is missing.' },
+      expectedError: 'Local assembly failed: a scene image is missing.',
+    },
+  ]
+  for (const value of cases) {
+    const { prepared, outputDir, extraRender, failed } = await refusedRowEndingInAcceptedFinalConflict(t, `refused-conflict-${value.label}`)
+    const finalPath = path.join(outputDir, 'EP1_final_video.mp4')
+    const acceptedFinal = await fs.readFile(finalPath, 'utf8')
+    await value.mutate(failed, finalPath)
+    await writeJob(failed)
+    queue._restartProjectForTesting(prepared.job.project_slug)
+    await queue.getJobs(prepared.job.project_slug, { view: 'full' })
+    await settle()
+    const reloaded = (await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id))!
+    assert.equal(reloaded.status, 'error', `${value.label}: an unproven answer is never guessed`)
+    assert.equal(reloaded.error, value.expectedError, `${value.label}: the row keeps its own error`)
+    if (value.label !== 'missing-published-final') {
+      assert.equal(await fs.readFile(finalPath, 'utf8'), acceptedFinal, `${value.label}: the published final is untouched`)
+    }
+    assert.equal(await fs.readFile(extraRender, 'utf8'), 'the new render that could not replace the accepted final',
+      `${value.label}: the extra render in the work folder is never touched`)
+  }
 })

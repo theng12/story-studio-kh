@@ -83,8 +83,10 @@ import { withSavedPromptCollection, withSiblingPromptCollection } from '../lib/s
 import { SKIPPED_STEP_LINE_PREFIX, disabledOptionalStepReason, disabledStepReasonForJob, unusableLinkSkipReason } from '../lib/optional-steps.js'
 import { safetyGate, safetyMode } from './safety-checks.js'
 import {
+  FINAL_RENDER_ACCEPTED_FINAL_CONFLICT,
   FINAL_RENDER_ATTENTION_PREFIX,
   hasFinalRenderRemoteWaitMarker,
+  isRefusedFinalRenderReceipt,
   parseFinalRenderRemoteWaitReceipt,
   publicFinalRenderWait,
   sameFinalRenderRemoteWaitIdentity,
@@ -609,8 +611,7 @@ function finalRenderCrossProcessTransitionKey(intentId: string): string {
 
 function isRefusedFinalRender(job: Pick<Job, 'job_id'> & Partial<Pick<Job, 'final_render_remote_wait'>>): boolean {
   const parsed = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id)
-  return parsed.ok && parsed.receipt.version === 3 && parsed.receipt.phase === 'refused'
-    && parsed.receipt.gateway_job_id === null && parsed.receipt.cancel_requested_at === null
+  return parsed.ok && isRefusedFinalRenderReceipt(parsed.receipt)
 }
 
 function hasFinalRenderFence(job: Pick<Job, 'job_id' | 'project_slug' | 'type'> & Partial<Pick<Job, 'final_render_remote_wait'>>): boolean {
@@ -4738,6 +4739,36 @@ async function locallyCompletedRefusedFinalRender(job: Job): Promise<boolean> {
   return false
 }
 
+/** One announcement, so a settled row reads the same however it was reached (AGENTS.md §4). */
+function settleRefusedFinalRenderAsDone(job: Job, conflict: boolean): void {
+  job.status = 'done'
+  job.local_execution_complete = true
+  job.finished_at ||= new Date().toISOString()
+  job.error = null
+  job.pause_requested = false
+  job.resume_after_pause = false
+  job.output_lines = Array.isArray(job.output_lines) ? job.output_lines : []
+  if (!job.output_lines.some((line: string) => typeof line === 'string' && line.startsWith(LOCAL_REFUSED_COMPLETED_LINE))) {
+    job.output_lines.push(`${LOCAL_REFUSED_COMPLETED_LINE} ${conflict
+      ? 'A re-render could not replace that accepted final, so Story Studio settled this row as done from its saved result and the published final, and left the new render in the work folder untouched.'
+      : 'Story Studio checked the saved result and the published final, then marked this video done instead of rendering it again.'}`)
+  }
+}
+
+/**
+ * A refused render that ran again cannot replace the accepted final it already published
+ * (`publishLocalFinalVideo` publishes exclusively), so that attempt ends non-retryable with
+ * `FINAL_RENDER_ACCEPTED_FINAL_CONFLICT`. The earlier local completion is the one true answer, so
+ * the row settles `done` — but only from the same audited evidence the restart boundary uses
+ * (completion declaration plus the published `<CODE>_final_video.<ext>` on disk). Anything less is
+ * ambiguous and stays `error`.
+ */
+async function settlesOnPreservedAcceptedFinal(job: Job, error: unknown): Promise<boolean> {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+  if (message !== FINAL_RENDER_ACCEPTED_FINAL_CONFLICT) return false
+  return locallyCompletedRefusedFinalRender(job)
+}
+
 /** Returns the jobs a restart still left interrupted, so their independent Pipeline steps can start. */
 async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
   const interrupted: Job[] = []
@@ -4784,18 +4815,14 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
           // AGENTS.md §4 — say what was recovered, never change the row under the customer
           // silently, and §8 — done is proven by audited artifacts). This is deliberately before
           // the remote-evidence branch: the local final does not depend on the private snapshot.
-          if ((j.status === 'queued' || j.status === 'running')
+          // The same row can already have ended `error` on that collision (2026-10-26: seven Wonder
+          // rows and MANU0001), so that exact refusal is repaired here too — an accepted final the
+          // owner keeps is never reported as a failed render.
+          const preservedAcceptedFinalConflict = j.status === 'error'
+            && j.error === FINAL_RENDER_ACCEPTED_FINAL_CONFLICT
+          if ((j.status === 'queued' || j.status === 'running' || preservedAcceptedFinalConflict)
             && await locallyCompletedRefusedFinalRender(j)) {
-            j.status = 'done'
-            j.local_execution_complete = true
-            j.finished_at ||= new Date().toISOString()
-            j.error = null
-            j.pause_requested = false
-            j.resume_after_pause = false
-            j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-            if (!j.output_lines.some((line: string) => line.startsWith(LOCAL_REFUSED_COMPLETED_LINE))) {
-              j.output_lines.push(`${LOCAL_REFUSED_COMPLETED_LINE} Story Studio checked the saved result and the published final, then marked this video done instead of rendering it again.`)
-            }
+            settleRefusedFinalRenderAsDone(j, preservedAcceptedFinalConflict)
             jobs.set(j.job_id, j)
             try { await persistJob(j) } catch (e: any) {
               console.warn('[job-queue] failed to persist a completed refused local render', { job_id: j.job_id, error: e?.message })
@@ -6351,6 +6378,12 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         job.error = null
         job.output_lines.push('Paused safely. Accepted provider work was allowed to finish and save; Resume will submit only work still missing on disk.')
         pauseRequested.delete(job.job_id)
+      } else if (await settlesOnPreservedAcceptedFinal(job, e)) {
+        // The re-render could not replace the accepted final that already exists, and the row's own
+        // audited evidence says that earlier completion is the truth. Reporting a failure for a video
+        // the owner keeps would be the §8 defect, so the row settles done and the new render stays in
+        // the work folder untouched.
+        settleRefusedFinalRenderAsDone(job, true)
       } else {
         job.status = 'error'
         job.error = e.message
@@ -9310,17 +9343,30 @@ async function stopLocalJobUnlocked(job: Job): Promise<Job> {
   clearPaidImageWaitTimer(job.job_id)
   clearQuotaWaitTimer(job.job_id)
   cancelled.add(job.job_id)
+  // A refused render can be cancelled while it still waits in the local lane; stop it reaching the
+  // pump so the row never flips back to `running` on its way to `cancelled`.
+  if (job.status === 'queued') {
+    queues[job.type].pending = queues[job.type].pending.filter(candidate => candidate.job_id !== job.job_id)
+  }
+  const refusedRender = isRefusedFinalRender(job)
+  if (refusedRender) {
+    // Nothing remote exists to preserve, and a cancelled row must not stay fenced by a stale hold.
+    finalRenderRecoveryHolds.delete(finalRenderStateKey(job.project_slug, job.job_id))
+    finalRenderMonitorTransientHolds.delete(finalRenderStateKey(job.project_slug, job.job_id))
+  }
   job.status = 'cancelled'
   job.finished_at = new Date().toISOString()
   // A stop offered while a provider request is already submitted must not claim nothing was sent.
   // The batch keeps its idempotency key, so a later retry collects the same answer without a second
   // POST; the copy says exactly that instead of promising a charge that may already exist.
   const evidence = job.genstudio_jobs || []
-  job.output_lines.push(!evidence.length
-    ? 'Local processing stopped. This operation sent no provider generation request.'
-    : evidence.some(isUnsettledProviderEntry)
-      ? 'Stopped on this Mac. No further provider requests will be sent. A request already sent may still finish and be charged; its result stays collectable when you retry.'
-      : 'Stopped on this Mac. No further provider requests will be sent. Every recorded provider task has finished.')
+  job.output_lines.push(refusedRender
+    ? 'Stopped on this Mac. The Gateway refused the remote render, so nothing was running remotely and no render will start. The accepted final video, its folder and the refusal record are left exactly as they are.'
+    : !evidence.length
+      ? 'Local processing stopped. This operation sent no provider generation request.'
+      : evidence.some(isUnsettledProviderEntry)
+        ? 'Stopped on this Mac. No further provider requests will be sent. A request already sent may still finish and be charged; its result stays collectable when you retry.'
+        : 'Stopped on this Mac. No further provider requests will be sent. Every recorded provider task has finished.')
   killChildrenFor(job.job_id)
   await persistJob(job)
   emitUpdate(job)
@@ -9399,7 +9445,10 @@ export async function requestJobCancellation(projectSlug: string, jobId: string)
   if (!job || job.project_slug !== projectSlug) {
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
   }
-  if (hasFinalRenderFence(job)) {
+  // A refused render has no remote job at all (the Gateway accepted nothing), so it must never take
+  // the receipt-writing remote path: that path would record a remote cancellation on a row whose
+  // only work is this Mac's own render. It is cancelled locally instead (2026-10-26).
+  if (hasFinalRenderFence(job) && !isRefusedFinalRender(job)) {
     if (!hasFinalRenderRemoteWaitMarker(job)) throw finalRenderWaitConflict()
     const parsed = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id)
     if (!parsed.ok) throw finalRenderWaitConflict()

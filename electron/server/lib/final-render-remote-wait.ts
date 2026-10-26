@@ -11,6 +11,25 @@ export const FINAL_RENDER_REMOTE_WAIT_FIELD = 'final_render_remote_wait'
 /** The one line the reconciler writes when a remote render needs the customer's attention. */
 export const FINAL_RENDER_ATTENTION_PREFIX = 'Final render needs attention: '
 
+/**
+ * The one refusal a local fallback raises when the episode already has an accepted final.
+ * Shared with the queue, which settles such a row from its own audited evidence instead of
+ * reporting a failure for a video the owner keeps (AGENTS.md §8).
+ */
+export const FINAL_RENDER_ACCEPTED_FINAL_CONFLICT = 'Local fallback preserved the accepted final video; its new render remains in the work folder.'
+
+/**
+ * A refused render never became a remote job: the Gateway published `gateway_job_id: null` when it
+ * turned the remote lane down. Such a row is this Mac's own render — there is nothing remote to
+ * cancel, look up or import — so every boundary must classify it as local, never as a remote wait.
+ */
+export function isRefusedFinalRenderReceipt(
+  receipt: FinalRenderRemoteWaitReceipt,
+): receipt is FinalRenderTransportReceiptV3 {
+  return receipt.version === 3 && receipt.phase === 'refused'
+    && receipt.gateway_job_id === null && receipt.cancel_requested_at === null
+}
+
 export type FinalRenderRemoteWaitInvalidReason =
   | 'not-object' | 'unknown-fields' | 'invalid-version' | 'invalid-phase' | 'invalid-revision'
   | 'invalid-job-id' | 'job-id-mismatch' | 'invalid-opaque-id' | 'invalid-story-attempt'

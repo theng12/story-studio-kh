@@ -115,6 +115,7 @@ import { readSceneAnalysis, resolveVisionMotion, sceneAnalysisSwitches, visionFr
 import { OUTLINE_MASK_DIR, outlineMaskPath } from '../services/outline-masks.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import { nonRetryable } from '../services/job-retry-policy.js'
+import { FINAL_RENDER_ACCEPTED_FINAL_CONFLICT } from '../lib/final-render-remote-wait.js'
 import { EBUR128_FILTER, measureLoudness, parseEbur128Summary, type LoudnessMeasurement } from './music-episode-build.js'
 import { finalLoudnessIssue, loudnessTarget, withinToleranceNote, type LevelPlan, type LoudnessTarget } from '../lib/final-loudness.js'
 import {
@@ -199,7 +200,7 @@ async function publishLocalFinalVideo(job: Job, source: string, destination: str
       }
     } catch (error: any) {
       if (error?.code !== 'EEXIST') throw error
-      throw nonRetryable(Object.assign(new Error('Local fallback preserved the accepted final video; its new render remains in the work folder.'), {
+      throw nonRetryable(Object.assign(new Error(FINAL_RENDER_ACCEPTED_FINAL_CONFLICT), {
         name: 'FinalRenderFallbackConflict',
       }))
     }
