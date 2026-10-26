@@ -15,19 +15,24 @@ export interface SceneReviewPresetForm {
   seed: string | number
 }
 
+/** The published `(resolution, aspect_ratio)` row the model offers (§1). */
+export interface SceneReviewOutputOption { resolution: string; aspect_ratio: string }
+
 export interface SceneReviewPresetData extends SceneReviewPresetForm {
   auto_approve_generated: boolean
+  output_option?: SceneReviewOutputOption
 }
 
 /** Exactly the fields a Scene Review preset may carry. Nothing else, ever. */
-export const SCENE_REVIEW_PRESET_KEYS = ['model', 'aspect_ratio', 'seed', 'auto_approve_generated'] as const
+export const SCENE_REVIEW_PRESET_KEYS = ['model', 'aspect_ratio', 'output_option', 'seed', 'auto_approve_generated'] as const
 
 export function sceneReviewPresetSnapshot(
-  state: SceneReviewPresetForm & { auto_approve_generated: boolean },
+  state: SceneReviewPresetForm & { auto_approve_generated: boolean; output_option?: SceneReviewOutputOption },
 ): SceneReviewPresetData {
   return {
     model: state.model,
     aspect_ratio: state.aspect_ratio,
+    ...(state.output_option ? { output_option: { ...state.output_option } } : {}),
     seed: state.seed,
     auto_approve_generated: state.auto_approve_generated,
   }
@@ -37,13 +42,18 @@ export function sceneReviewPresetSnapshot(
  * Apply a stored preset — possibly one hand-edited to carry an episode field —
  * to the live form. Only the four reusable keys are read; anything else in the
  * body is ignored, so a preset can never move the reference selection or any
- * other episode-owned state.
+ * other episode-owned state. `output_option` is returned only when the preset
+ * stored a whole pair; a preset saved before that key leaves the picker's own
+ * default, and the picker re-reconciles a pair the model no longer publishes.
  */
 export function sceneReviewPresetApply(
   current: SceneReviewPresetForm,
   data: Record<string, unknown> | null | undefined,
-): SceneReviewPresetForm & { auto_approve_generated: boolean } {
+): SceneReviewPresetForm & { auto_approve_generated: boolean; output_option?: SceneReviewOutputOption } {
+  const stored = data?.output_option as Partial<SceneReviewOutputOption> | undefined
   return {
+    ...(stored && typeof stored.resolution === 'string' && typeof stored.aspect_ratio === 'string'
+      ? { output_option: { resolution: stored.resolution, aspect_ratio: stored.aspect_ratio } } : {}),
     model: typeof data?.model === 'string' ? data.model : current.model,
     aspect_ratio: typeof data?.aspect_ratio === 'string' ? data.aspect_ratio : current.aspect_ratio,
     seed: typeof data?.seed === 'string' || typeof data?.seed === 'number' ? data.seed : current.seed,

@@ -39,7 +39,7 @@ async function loadSubmit() {
     backgroundNoise: reactive({ enabled: false, mode: 'preset', preset: '', custom_file: '', volume: 0, fade_in: 0, fade_out: 0 }),
     ambientTracks: reactive<any[]>([]), audioMergeGenerating: ref(false), ffmpegStatus: ref({ installed: true }),
     normalizeAudioMergePathsInState: async () => undefined, success: () => undefined, showError: () => undefined,
-    musicChoiceMissing: ref(false),
+    musicNotChosen: ref(false),
   }
   const posts: Array<ReturnType<typeof deferred<any>>> = []
   const post = () => { const request = deferred<any>(); posts.push(request); return request.promise }
@@ -96,31 +96,54 @@ test('a stale failed merge submission cannot clear a newer submission pulse', as
   assert.equal(state.audioMergeGenerating.value, false)
 })
 
-test('Background Music on with no track chosen is refused instead of merging without a bed', async () => {
+// Owner, 2026-10-27: music is OPTIONAL. This used to be a refusal — Music on
+// with no track chosen blocked the merge — which turned a channel preference
+// into an episode that could not be assembled at all. The rule is now a quiet
+// NOTE, and the merge proceeds narration-only.
+test('Background Music on with no track chosen is a note, not a block', async () => {
   // The page's own rule, evaluated against its real inputs.
-  const start = page.indexOf('const musicChoiceMissing = computed(')
+  const start = page.indexOf('const musicNotChosen = computed(')
   const end = page.indexOf('\n\n', start)
   const rule = (await transform(page.slice(start, end), { loader: 'ts', format: 'esm' })).code
   const music = reactive({ enabled: true, source: 'manual' })
   const hasSelectedMusic = ref(false)
   const poolPeekLoading = ref(false)
-  const missing = new Function('computed', 'music', 'hasSelectedMusic', 'poolPeekLoading', `${rule}; return musicChoiceMissing`)(
+  const note = new Function('computed', 'music', 'hasSelectedMusic', 'poolPeekLoading', `${rule}; return musicNotChosen`)(
     computed, music, hasSelectedMusic, poolPeekLoading)
-  assert.equal(missing.value, true, '"Choose for this episode" with an empty playlist')
+  assert.equal(note.value, true, '"Choose for this episode" with an empty playlist')
   hasSelectedMusic.value = true
-  assert.equal(missing.value, false)
+  assert.equal(note.value, false)
   hasSelectedMusic.value = false
   music.source = 'pool'
   poolPeekLoading.value = true
-  assert.equal(missing.value, false, 'a pool pick still loading is not a missing choice')
+  assert.equal(note.value, false, 'a pool pick still loading is not "no music chosen"')
   poolPeekLoading.value = false
-  assert.equal(missing.value, true, 'a pool with nothing eligible is a missing choice too')
+  assert.equal(note.value, true, 'a pool with nothing eligible is "no music chosen" too')
   music.enabled = false
-  assert.equal(missing.value, false, 'music off is a deliberate choice')
+  assert.equal(note.value, false, 'music off is a deliberate choice')
 
+  // The merge is NOT gated on it: with music on and nothing chosen, the queue
+  // request still goes out — narration-only, exactly as today.
   const { state, posts, generateMergedAudio } = await loadSubmit()
   state.music.enabled = true
-  state.musicChoiceMissing.value = true
-  await generateMergedAudio()
-  assert.equal(posts.length, 0, 'nothing is merged')
+  const merging = generateMergedAudio()
+  // The submit path awaits path normalisation before queueing, so let the
+  // microtasks run before looking for the request.
+  for (let tick = 0; tick < 5 && !posts.length; tick++) await Promise.resolve()
+  assert.equal(posts.length, 1, 'narration-only assembly is queued')
+  posts[0]!.resolve({ ok: true })
+  await merging
+  assert.equal(state.audioMergeGenerating.value, true, 'the job was accepted')
+})
+
+test('the page never renders the old refusal and never disables Generate for music', () => {
+  // The exact regression the owner asked to drop.
+  assert.doesNotMatch(page, /musicChoiceMissing/, 'the blocking rule must be gone')
+  assert.doesNotMatch(page, /Background Music is on, but no track is chosen/,
+    'the refusal sentence must be gone')
+  assert.match(page, /No music chosen for this episode; assembling narration only/,
+    'the quiet note replaces it')
+  const generateButton = page.slice(page.indexOf('@click="onGenerateClick"') - 400, page.indexOf('@click="onGenerateClick"'))
+  assert.doesNotMatch(generateButton, /musicNotChosen/,
+    'Generate must not be disabled by a missing music choice')
 })

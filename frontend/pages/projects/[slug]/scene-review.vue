@@ -927,6 +927,9 @@ const autoApproveGenerated = ref(true)
 // Presets saved by older builds can still carry retired quality, step-count,
 // and pixel-size keys. They are simply not read — a saved project keeps
 // loading, and nothing revives a control GenStudio never published.
+//
+// 2026-10-27 — the published OUTPUT SIZE travels too, stored as the
+// `(resolution, aspect_ratio)` PAIR GenStudio published (§1).
 const srPresets = usePresets<SceneReviewPresetData>({
   slug: slug.value,
   configKey: 'scene_review_genstudio',
@@ -936,6 +939,7 @@ const srPresets = usePresets<SceneReviewPresetData>({
   snapshot: () => sceneReviewPresetSnapshot({
     model: form.value.model,
     aspect_ratio: form.value.aspect_ratio,
+    ...(outputOption.value ? { output_option: { ...outputOption.value } } : {}),
     seed: form.value.seed,
     auto_approve_generated: autoApproveGenerated.value,
   }),
@@ -948,6 +952,7 @@ const srPresets = usePresets<SceneReviewPresetData>({
     form.value.aspect_ratio = next.aspect_ratio
     form.value.seed = next.seed
     autoApproveGenerated.value = next.auto_approve_generated
+    if (next.output_option) outputOption.value = next.output_option
   },
 })
 

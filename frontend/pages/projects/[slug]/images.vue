@@ -605,8 +605,26 @@ function applyImageGeneratorPreset(target: ImagesSubForm, data: any): void {
 const thumbnailGeneratorPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'thumbnail_generator',
-  snapshot: () => ({ form: imageGeneratorPresetForm(form.thumbnail) }),
-  apply: (data) => applyImageGeneratorPreset(form.thumbnail, data),
+  // 2026-10-27 — the published OUTPUT SIZE travels with the preset. It is a
+  // reusable render choice (each row is priced differently), and it was the one
+  // control on this page a preset did not carry: the ratio was saved, the size
+  // beside it was not, so a channel that renders at 2K re-picked it every
+  // episode and Pipeline's batch used the live default instead. Stored as the
+  // `(resolution, aspect_ratio)` PAIR — the pair is the row GenStudio published
+  // (§1), never a resolution copied out of a catalogue.
+  snapshot: () => ({
+    form: imageGeneratorPresetForm(form.thumbnail),
+    ...(outputOption.value ? { output_option: { ...outputOption.value } } : {}),
+  }),
+  apply: (data) => {
+    applyImageGeneratorPreset(form.thumbnail, data)
+    // A stored pair the model no longer publishes is not forced: the picker
+    // re-reconciles against the live catalogue and says what it moved to.
+    const stored = data?.output_option
+    if (stored && typeof stored.resolution === 'string' && typeof stored.aspect_ratio === 'string') {
+      outputOption.value = { resolution: stored.resolution, aspect_ratio: stored.aspect_ratio }
+    }
+  },
 })
 // Bound to TopActionBar.
 const imgPresets = computed(() => thumbnailGeneratorPresets)

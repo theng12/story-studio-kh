@@ -20,7 +20,7 @@ import {
   findFreshActionJob,
   stampFreshGenerationAction,
 } from '../lib/fresh-generation-action.js'
-import { resolveScenePlanPromptCharCap, sanitizeScenePlanPresetData } from '../services/preset-authority.js'
+import { resolveScenePlanPromptCharCap, resolveScenePlanPromptCharCapDetail, sanitizeScenePlanPresetData } from '../services/preset-authority.js'
 
 const pipelineSource = readFileSync(fileURLToPath(new URL('../routes/pipeline.ts', import.meta.url)), 'utf8')
 const scenePlanRouteSource = readFileSync(fileURLToPath(new URL('../routes/scene-plan.ts', import.meta.url)), 'utf8')
@@ -187,9 +187,21 @@ test('new Scene Plan admission resolves the saved selection against the live ima
   assert.equal(resolveScenePlanPromptCharCap({
     intended_image_model: 'studio-hub::approved-image', prompt_char_cap: 8_000,
   }, catalog), 4_800, 'a saved custom value cannot exceed the current published capability')
-  assert.throws(() => resolveScenePlanPromptCharCap({
+  // Owner, 2026-10-27 — an id the catalogue no longer publishes is NOT a refusal.
+  // `terranash-sleep-stories` still carries four presets naming `flux-2-klein`,
+  // and selecting one ended in a 409 from THIS resolver on a generation the
+  // customer had already committed to. The page drops the dead model on apply;
+  // here the preset's own selection simply goes unclamped, and `unresolved`
+  // records which id could not be resolved so a caller can say so.
+  const unresolved = resolveScenePlanPromptCharCapDetail({
+    intended_image_model: 'deleted-image-product', prompt_char_cap: 2_000,
+  }, catalog)
+  assert.equal(unresolved.cap, 2_000, 'the preset\'s own ceiling is kept, not refused')
+  assert.equal(unresolved.publishedCap, undefined, 'nothing was published, so nothing is claimed as published')
+  assert.equal(unresolved.unresolved, 'deleted-image-product')
+  assert.equal(resolveScenePlanPromptCharCap({
     intended_image_model: 'deleted-image-product', prompt_char_cap: 'auto',
-  }, catalog), /current image catalogue/i)
+  }, catalog), undefined, 'auto follows a model that does not exist — no ceiling, no crash')
 })
 
 test('the active Scene Plan preset outranks old episode pacing while episode-owned selections stay separate', () => {

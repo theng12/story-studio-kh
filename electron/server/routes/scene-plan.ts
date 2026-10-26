@@ -353,8 +353,11 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   if (stage === 'visual' && presetData.intended_image_model) {
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (!apiKey) return res.status(409).json({ detail: 'Add the Gateway API Key in Settings before generating visual prompts.' })
-    try { promptCharCap = resolveScenePlanPromptCharCap(presetData, await listImageModels(apiKey)) }
-    catch (error: any) { return res.status(409).json({ detail: error.message }) }
+    // Never a 409. An intended model the catalogue no longer publishes leaves the
+    // preset's own cap unclamped; the page is where a dead model is dropped and
+    // where "choose another" is said. Refusing here turned a stale saved id into
+    // a failed generation the customer had already committed to.
+    promptCharCap = resolveScenePlanPromptCharCap(presetData, await listImageModels(apiKey))
   }
   const creativeDirection = parseCreativeDirection(presetData.creative_direction)
   // v1.0.794 — SCENE prompts only; the frontend sends the current state of
