@@ -182,8 +182,8 @@ const genstudioVideoProvider: VideoProvider = {
    * safe here for a reason that does NOT hold for images: `genstudio-video:` is
    * a transport NAMESPACE that Story Studio itself prepends to whatever product
    * id it resolved (see `generators/ai-video.ts`), not a fragment of the
-   * product's own name. `genstudio-video:veo-3-1` still matches, so renaming a
-   * product to a customer handle cannot break video selection.
+   * product's own name. Any resolved product id still matches once prefixed, so
+   * renaming a product to a customer handle cannot break video selection.
    */
   supportsModel(modelId: string, providerParams?: Record<string, any>): boolean {
     return modelId.startsWith(PREFIX) || providerParams?.provider === 'genstudio-video'

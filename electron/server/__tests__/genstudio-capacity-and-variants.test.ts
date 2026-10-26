@@ -223,7 +223,10 @@ test('scene clips resolve operation before duration/resolution and reject absent
 test('neither the catalogue nor the selectors infer anything from a model name', () => {
   const source = readSource('../lib/genstudio-client.ts')
   const videoParse = source.slice(source.indexOf('/v1/videos/models'), source.indexOf('videoSourceMediaType'))
-  assert.doesNotMatch(videoParse, /sora|runway|veo|kling|hailuo/i)
+  // No name-pattern branch survives in the parse: not one `.test()` or `.match()`,
+  // so nothing is classified, dropped or renamed by what a model is called. A
+  // vendor list here would be a list of today's names, not a rule.
+  assert.doesNotMatch(videoParse, /\.(?:test|match)\(|new RegExp/)
   // And no duration/resolution ladder survives in the parse.
   assert.doesNotMatch(videoParse, /=== 5 \|\| |'720p' \|\| /)
 

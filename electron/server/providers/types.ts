@@ -25,8 +25,8 @@ export interface ProviderMeta {
   /**
    * Canonical provider id in `secrets.json` — defaults to the slice of
    * `apiKeyField` before `_api_key`. Declare explicitly when the provider's
-   * registry id differs from its secrets bucket (e.g. `kie-video` and
-   * `fal-video` share secrets with their audio/image counterparts).
+   * registry id differs from its secrets bucket (e.g. a studio lane whose
+   * provider id shares secrets with its audio/image counterparts).
    */
   providerId?: string
   /** Local Studio wrappers own their credentials and do not need an app key. */

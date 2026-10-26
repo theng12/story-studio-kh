@@ -547,7 +547,7 @@ export async function getImageStatus(
   return result
 }
 
-// ── Video (Veo / fal / kie-video) ──────────────────────────────────────────
+// ── Video (clips animated from scene images) ───────────────────────────────
 
 export interface VideoStatus {
   total: number

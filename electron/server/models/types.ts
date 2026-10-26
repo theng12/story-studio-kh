@@ -4246,7 +4246,7 @@ export type VideoGenerationMode = 'frames'
  */
 export interface GenerateAiVideoRequest {
   episode_id: string
-  model: string            // video model ID (e.g. 'kie-veo3-fast')
+  model: string            // video model ID, resolved from the live GenStudio catalogue
   mode: VideoGenerationMode
   aspect_ratio: 'landscape' | 'portrait'
   number_of_videos_per_prompt: number  // 1-4
