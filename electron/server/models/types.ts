@@ -4797,6 +4797,17 @@ export interface ScenePlanEntry {
   /** v1.0.336 — true when the user hand-set `scene_type` in Scene Review; a
    *  re-plan / re-classify keeps their choice instead of overwriting it. */
   scene_type_locked?: boolean
+  /**
+   * Scene Review "Reference to Image" — ids of THIS episode's characters that
+   * appear in this scene (AGENTS.md §4). Episode state, never preset state.
+   *
+   * Absent = the episode-level default from the render request applies.
+   * An empty array = this scene renders from the prompt alone, which is the
+   * intended answer for a scene nobody is in — not a silent fallback. The
+   * renderer refuses ids on a non-character scene and never drops a scene's
+   * references without saying so.
+   */
+  reference_character_ids?: string[]
   /** Creative interpretation assigned before the visual-prompt pass. This is
    * independent of scene_type and is retained by missing-prompt repairs. */
   creative_strategy?: SceneCreativeStrategy

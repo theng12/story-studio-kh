@@ -184,8 +184,62 @@
               :project-slug="slug"
               :image-models="config?.image_models || {}"
               image-mode="text2img"
+              :reference-active="!!referenceLimits"
               default-label="Pick an image model…"
             />
+            <!-- Reference to Image — shown ONLY when the selected model itself
+                 publishes reference support and at least one slot (§1). Every
+                 figure below is the live catalogue's, re-derived on each model
+                 change; nothing here is remembered between episodes (§4/§5). -->
+            <div v-if="referenceLimits" class="sr-reference-block">
+              <div class="sr-field-heading">
+                <label class="sr-ratio-label">Reference to Image</label>
+                <small>Attach this episode's characters' portraits as references</small>
+              </div>
+              <p class="sr-reference-window">{{ referenceWindowNotice }}</p>
+              <div v-if="referenceCharactersLoading" class="sr-reference-empty">Loading characters…</div>
+              <div v-else-if="!referenceCharacters.length" class="sr-reference-empty">
+                This episode has no characters yet. Add one on the Character Sheet to render from a reference.
+              </div>
+              <div v-else class="sr-reference-list">
+                <label
+                  v-for="character in referenceCharacters"
+                  :key="character.id"
+                  class="sr-reference-row"
+                  :class="{ 'is-disabled': !sceneReferencePortrait(character) }"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="referenceCharacterIds.includes(character.id)"
+                    :disabled="!sceneReferencePortrait(character)"
+                    @change="toggleReferenceCharacter(character)"
+                  >
+                  <img
+                    v-if="sceneReferencePortrait(character)"
+                    :src="characterPortraitUrl(character)"
+                    :alt="`${character.name} reference`"
+                    class="sr-reference-thumb"
+                  >
+                  <span class="sr-reference-name">{{ character.name }}</span>
+                  <small v-if="!sceneReferencePortrait(character)" class="sr-reference-reason">
+                    No reference image — add one on the Character Sheet
+                  </small>
+                </label>
+              </div>
+              <p class="sr-reference-default">
+                These are the default for every character scene. A scene with its own cast in
+                Scene Plan keeps that cast instead — edit it in the image preview.
+              </p>
+              <button
+                v-if="referenceCharacterIds.length"
+                type="button"
+                class="btn btn-sm btn-secondary"
+                :disabled="referenceApplying || reviewJobActive"
+                title="Write this selection onto every character scene, replacing their own lists."
+                @click="applyReferencesToAllScenes"
+              >{{ referenceApplying ? 'Applying…' : 'Apply to all character scenes' }}</button>
+              <p v-if="referenceSelectionNotice" class="sr-reference-notice" role="status">{{ referenceSelectionNotice }}</p>
+            </div>
           </div>
         </div>
 
@@ -605,6 +659,31 @@
               @keydown.stop
             />
           </div>
+          <!-- Scene Review "Reference to Image": this scene's own cast. Saved
+               with the scene, so the next render of THIS scene uses it. -->
+          <div v-if="referenceLimits && sceneTakesCharacterReferences(previewScene) && referenceCharacters.length" class="sr-lb-references">
+            <label class="sr-lb-prompt-label">
+              Reference characters
+              <span class="text-muted">— for this scene only{{ previewScene.reference_character_ids ? '' : ' (currently the default)' }}</span>
+            </label>
+            <div class="sr-reference-list is-inline">
+              <label
+                v-for="character in referenceCharacters"
+                :key="`lb-${character.id}`"
+                class="sr-reference-row"
+                :class="{ 'is-disabled': !sceneReferencePortrait(character) }"
+              >
+                <input
+                  type="checkbox"
+                  :checked="(previewScene.reference_character_ids ?? referenceCharacterIds).includes(character.id)"
+                  :disabled="!sceneReferencePortrait(character) || referenceSavingScene === previewScene.id || reviewJobActive"
+                  @change="togglePreviewSceneReference(character.id)"
+                >
+                <img v-if="sceneReferencePortrait(character)" :src="characterPortraitUrl(character)" :alt="`${character.name} reference`" class="sr-reference-thumb">
+                <span class="sr-reference-name">{{ character.name }}</span>
+              </label>
+            </div>
+          </div>
           <span class="sr-lb-actions">
             <button class="btn btn-sm btn-ghost" @click.stop="seekTo(previewScene.start_sec)" title="Jump the audio player to this scene">▶ Play from Here</button>
             <button
@@ -668,6 +747,17 @@ import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentat
 import { findOutputOption, isPublishedAspectRatio, outputOptionsForRatio, publishedOutputOptions, storyDefaultAspectRatio, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
 import { isFreeToRun } from '../../../utils/genstudio-price-usd.js'
+import {
+  describeSceneReferenceDrops,
+  reconcileSceneReferenceCharacters,
+  sceneReferenceLimits,
+  sceneReferenceNotice,
+  sceneReferencePortrait,
+  sceneTakesCharacterReferences,
+  type SceneReferenceCharacter,
+  type SceneReferenceDrop,
+} from '../../../utils/scene-reference-characters.js'
+import { sceneReviewPresetApply, sceneReviewPresetSnapshot, type SceneReviewPresetData } from '../../../utils/scene-review-preset.js'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
 import { secureOperationId } from '~/composables/useFreshGenerationAction'
@@ -726,6 +816,10 @@ interface ReviewScene {
   clip_exists?: boolean
   /** v1.0.470 — clip exists but its motion prompt changed since it was rendered. */
   clip_stale?: boolean
+  /** What this scene depicts — a cutaway may not carry character references. */
+  scene_type?: 'character' | 'event' | 'environment' | 'map' | 'artifact'
+  /** This scene's OWN reference characters; absent = the render default applies. */
+  reference_character_ids?: string[]
 }
 interface ReviewStats {
   total_scenes: number
@@ -833,26 +927,27 @@ const autoApproveGenerated = ref(true)
 // Presets saved by older builds can still carry retired quality, step-count,
 // and pixel-size keys. They are simply not read — a saved project keeps
 // loading, and nothing revives a control GenStudio never published.
-const srPresets = usePresets<{
-  model: string
-  aspect_ratio: string
-  seed?: string | number
-  auto_approve_generated?: boolean
-}>({
+const srPresets = usePresets<SceneReviewPresetData>({
   slug: slug.value,
   configKey: 'scene_review_genstudio',
   presetType: 'scene-review',
-  snapshot: () => ({
+  // The reusable render settings ONLY. The "Reference to Image" character
+  // selection is episode state and is never captured or applied (§5).
+  snapshot: () => sceneReviewPresetSnapshot({
     model: form.value.model,
     aspect_ratio: form.value.aspect_ratio,
     seed: form.value.seed,
     auto_approve_generated: autoApproveGenerated.value,
   }),
   apply: (data) => {
-    if (typeof data.model === 'string') form.value.model = data.model
-    if (typeof data.aspect_ratio === 'string') form.value.aspect_ratio = data.aspect_ratio
-    if (typeof data.seed === 'string' || typeof data.seed === 'number') form.value.seed = data.seed
-    autoApproveGenerated.value = data.auto_approve_generated !== false
+    const next = sceneReviewPresetApply(
+      { model: form.value.model, aspect_ratio: form.value.aspect_ratio, seed: form.value.seed },
+      data as unknown as Record<string, unknown>,
+    )
+    form.value.model = next.model
+    form.value.aspect_ratio = next.aspect_ratio
+    form.value.seed = next.seed
+    autoApproveGenerated.value = next.auto_approve_generated
   },
 })
 
@@ -904,7 +999,192 @@ watch(() => form.value.aspect_ratio, (ratio) => {
 const sceneImageCost = computed(() => describeImageUnitCost(
   selectedGenStudioModel.value,
   findOutputOption(selectedGenStudioModel.value, outputOption.value),
+  // A reference render is priced from the row the Gateway publishes for one.
+  { referenceGuided: referenceCharacterIds.value.length > 0 },
 ))
+
+// ── Reference to Image ──────────────────────────────────────────────────
+// The option exists only where the model's LIVE row publishes reference
+// support (§1). `referenceLimits` is a computed, so a model switch re-derives
+// the window, the pixel ceiling and the slot clamp immediately.
+const characterLibrary = useCharacters(() => slug.value)
+const referenceCharacters = ref<SceneReferenceCharacter[]>([])
+const referenceCharactersLoading = ref(false)
+const referenceCharacterIds = ref<string[]>([])
+/** Selection carried across an episode switch, until the new list arrives. */
+const referenceCarriedIds = ref<string[]>([])
+const referenceSelectionNotice = ref('')
+let referenceEpisodeSequence = 0
+
+const referenceLimits = computed(() => sceneReferenceLimits(selectedGenStudioModel.value))
+const referenceWindowNotice = computed(() => {
+  const limits = referenceLimits.value
+  return limits ? sceneReferenceNotice(limits) : ''
+})
+
+function characterPortraitUrl(character: SceneReferenceCharacter): string {
+  const filename = sceneReferencePortrait(character)
+  if (!filename) return ''
+  // Channel Characters live in the shared library; legacy ones sit in the
+  // project's own characters folder. Each has its own read route.
+  const base = character.source === 'library'
+    ? '/api/character-library'
+    : `/api/projects/${slug.value}/characters`
+  return `${base}/${encodeURIComponent(character.id)}/reference-image/${encodeURIComponent(filename)}`
+}
+
+function announceReferenceDrops(dropped: SceneReferenceDrop[]): void {
+  referenceSelectionNotice.value = describeSceneReferenceDrops(dropped)
+}
+
+/**
+ * Re-resolve the selection against THIS episode's own character list.
+ * Called when the list arrives after an episode switch and when a model change
+ * lowers the ceiling — never a silent retention of an id this episode does not
+ * own, and never a silent drop (§4).
+ */
+function reconcileReferenceSelection(): void {
+  const carried = referenceCarriedIds.value.length ? referenceCarriedIds.value : referenceCharacterIds.value
+  referenceCarriedIds.value = []
+  if (!carried.length) { referenceCharacterIds.value = []; return }
+  if (!referenceCharacters.value.length) {
+    referenceCharacterIds.value = []
+    referenceSelectionNotice.value = `None of the ${carried.length} selected reference character(s) belong to `
+      + `${episodeId.value}; the selection was cleared.`
+    return
+  }
+  const max = referenceLimits.value?.max ?? carried.length
+  const { kept, dropped } = reconcileSceneReferenceCharacters(carried, referenceCharacters.value, max)
+  referenceCharacterIds.value = kept
+  if (dropped.length) announceReferenceDrops(dropped)
+}
+
+async function loadReferenceCharacters(): Promise<void> {
+  const episode = episodeId.value
+  const sequence = ++referenceEpisodeSequence
+  if (!episode) {
+    referenceCharacters.value = []
+    referenceCharacterIds.value = []
+    return
+  }
+  referenceCharactersLoading.value = true
+  try {
+    const list = await characterLibrary.listForEpisode(episode)
+    if (sequence !== referenceEpisodeSequence || episode !== episodeId.value) return
+    referenceCharacters.value = list.map(character => ({
+      id: character.id,
+      name: character.name,
+      references: character.references,
+      source: character.source,
+    }))
+    reconcileReferenceSelection()
+  } catch (e: any) {
+    if (sequence === referenceEpisodeSequence) {
+      showError(`Could not load this episode's characters for references: ${e?.data?.detail || e?.message || e}`)
+    }
+  } finally {
+    if (sequence === referenceEpisodeSequence) referenceCharactersLoading.value = false
+  }
+}
+
+function toggleReferenceCharacter(character: SceneReferenceCharacter): void {
+  const limits = referenceLimits.value
+  if (!limits || !sceneReferencePortrait(character)) return
+  if (referenceCharacterIds.value.includes(character.id)) {
+    referenceCharacterIds.value = referenceCharacterIds.value.filter(id => id !== character.id)
+  } else if (referenceCharacterIds.value.length >= limits.max) {
+    showError(`${selectedGenStudioModel.value?.display_name || 'This model'} accepts at most ${limits.max} `
+      + `reference image${limits.max === 1 ? '' : 's'}. Remove one first.`)
+    return
+  } else {
+    referenceCharacterIds.value = [...referenceCharacterIds.value, character.id]
+  }
+  referenceSelectionNotice.value = ''
+}
+
+// A model switch re-reads the published window: above the new ceiling the tail
+// is dropped and named; a model that takes no references clears the selection
+// out loud rather than sending references the model cannot use.
+watch(referenceLimits, (limits) => {
+  if (!selectedGenStudioModel.value) return
+  const selected = referenceCharacterIds.value
+  if (!limits) {
+    if (!selected.length) return
+    referenceCharacterIds.value = []
+    referenceSelectionNotice.value = `The selected model accepts no reference images, so `
+      + `${selected.length} reference character${selected.length === 1 ? '' : 's'} were cleared.`
+    showError(referenceSelectionNotice.value)
+    return
+  }
+  if (selected.length > limits.max) {
+    const { kept, dropped } = reconcileSceneReferenceCharacters(selected, referenceCharacters.value, limits.max)
+    referenceCharacterIds.value = kept
+    announceReferenceDrops(dropped)
+  }
+})
+
+const referenceApplying = ref(false)
+const referenceSavingScene = ref<string | null>(null)
+
+/** The characters a scene actually renders with: its own list, else the default. */
+function sceneReferenceList(scene: ReviewScene): string[] {
+  return Array.isArray(scene.reference_character_ids) ? scene.reference_character_ids : referenceCharacterIds.value
+}
+
+async function saveSceneReferences(scene: ReviewScene, ids: string[]): Promise<void> {
+  const episode = episodeId.value
+  referenceSavingScene.value = scene.id
+  try {
+    const result = await post<{ changed?: number }>(
+      `/projects/${slug.value}/scene-plan/${episode}/set-reference-characters`,
+      { scene_id: scene.id, reference_character_ids: ids },
+    )
+    scene.reference_character_ids = [...ids]
+    // A new cast means the image no longer shows what this scene now asks for.
+    if (result?.changed) scene.approved = false
+    success(ids.length
+      ? `Scene ${scene.scene_index} uses ${ids.length} reference character${ids.length === 1 ? '' : 's'}.`
+      : `Scene ${scene.scene_index} renders from its prompt alone.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not save this scene\'s reference characters')
+  } finally {
+    if (referenceSavingScene.value === scene.id) referenceSavingScene.value = null
+  }
+}
+
+function togglePreviewSceneReference(characterId: string): void {
+  const scene = previewScene.value
+  if (!scene) return
+  const current = sceneReferenceList(scene)
+  const next = current.includes(characterId)
+    ? current.filter(id => id !== characterId)
+    : [...current, characterId]
+  void saveSceneReferences(scene, next)
+}
+
+/** Write the block's selection onto every character scene, replacing their own lists. */
+async function applyReferencesToAllScenes(): Promise<void> {
+  if (!referenceCharacterIds.value.length || referenceApplying.value) return
+  referenceApplying.value = true
+  try {
+    const result = await post<{ changed?: number; skipped_non_character?: number }>(
+      `/projects/${slug.value}/scene-plan/${episodeId.value}/set-reference-characters`,
+      { all_character_scenes: true, reference_character_ids: referenceCharacterIds.value },
+    )
+    success(`Reference characters applied to every character scene — ${result?.changed ?? 0} scene(s) updated`
+      + (result?.skipped_non_character ? `, ${result.skipped_non_character} cutaway(s) left alone.` : '.'))
+    await loadReview()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not apply the reference characters')
+  } finally {
+    referenceApplying.value = false
+  }
+}
+
+/** `reference_character_ids` for every render request, when a selection exists. */
+const referenceCharacterBody = computed(() => referenceCharacterIds.value.length
+  ? { reference_character_ids: [...referenceCharacterIds.value] }
+  : {})
 // Resolution and seed are the render request Story Studio owns beyond the
 // ratio. Resolution travels only as a published row, and a seed only when the
 // model publishes support for one.
@@ -1289,6 +1569,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         single_scene_id: scene.id,
         force: !!scene.image_filename,
         auto_approve_generated: autoApproveGenerated.value,
+        ...referenceCharacterBody.value,
         ...genStudioImageBody.value,
       }
       const operationId = payload.force ? freshSceneImageAction.begin(payload, `continuity:${scene.id}`) : null
@@ -1304,6 +1585,7 @@ async function generateOne(scene: ReviewScene): Promise<void> {
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
         auto_approve_generated: autoApproveGenerated.value,
+        ...referenceCharacterBody.value,
         ...genStudioImageBody.value,
       }
       const operationId = freshSceneImageAction.begin(payload)
@@ -1445,6 +1727,7 @@ async function finishMissingImages(): Promise<void> {
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
         auto_approve_generated: autoApproveGenerated.value,
+        ...referenceCharacterBody.value,
         ...genStudioImageBody.value,
       },
     )
@@ -1496,6 +1779,7 @@ async function renderContinuity(opts: { sceneIds?: string[] } = {}): Promise<voi
       force: true,
       scene_ids: selection,
       auto_approve_generated: autoApproveGenerated.value,
+      ...referenceCharacterBody.value,
       ...genStudioImageBody.value,
     })
     success(`Rendering ${selection.length} scene(s) — each image appears here as it finishes.`)
@@ -1665,6 +1949,7 @@ async function replaceUncertainImages(): Promise<void> {
         model: form.value.model,
         aspect_ratio: form.value.aspect_ratio,
         auto_approve_generated: autoApproveGenerated.value,
+        ...referenceCharacterBody.value,
         ...genStudioImageBody.value,
       },
     )
@@ -1965,6 +2250,14 @@ watch([slug, episodeId], () => {
   // scenes that do not belong to the open episode (AGENTS.md §4).
   previewScene.value = null
   selectedIds.value = new Set()
+  // Reference characters are episode state. Blank now, carry the ids across the
+  // load, and restore only those the new episode's own list returns — a foreign
+  // id is never kept and a drop is never silent (AGENTS.md §4).
+  referenceCarriedIds.value = referenceCharacterIds.value
+  referenceCharacterIds.value = []
+  referenceCharacters.value = []
+  referenceSelectionNotice.value = ''
+  void loadReferenceCharacters()
   // Blank the previous episode's review so nothing from it (scenes, counts,
   // "Greenlit" links, render banner) shows while — or if — this one fails to load.
   plan.value = null
@@ -2118,6 +2411,44 @@ watch(() => replaceableUncertainJob.value?.job_id || '', (sourceJobId, previousS
   margin-bottom: 14px;
 }
 .sr-model-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+.sr-reference-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.sr-reference-window { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
+.sr-reference-empty, .sr-reference-reason { color: var(--text-muted); font-size: var(--font-xs); }
+.sr-reference-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.sr-reference-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sr-reference-row:hover { background: var(--bg-tertiary); }
+.sr-reference-row.is-disabled { cursor: not-allowed; opacity: 0.7; }
+.sr-reference-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex: none;
+}
+.sr-reference-name { font-size: 12px; color: var(--text-primary); }
+.sr-reference-notice { margin: 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
+.sr-reference-default { margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
+.sr-reference-list.is-inline { flex-direction: row; flex-wrap: wrap; max-height: none; }
+.sr-lb-references { display: flex; flex-direction: column; gap: 4px; }
 .sr-model-field {
   display: flex;
   min-width: 0;

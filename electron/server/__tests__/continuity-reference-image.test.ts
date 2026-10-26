@@ -347,7 +347,7 @@ async function writeScenePrerequisites(
   await fs.writeFile(`${stitched}.json`, JSON.stringify({ complete: true, sections: [] }))
 }
 
-function renderJob(projectSlug: string, episodeId: string, renderAttemptId?: string): any {
+function renderJob(projectSlug: string, episodeId: string, renderAttemptId?: string, referenceIds: string[] = []): any {
   return {
     job_id: `continuity-reference-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     project_slug: projectSlug,
@@ -363,6 +363,7 @@ function renderJob(projectSlug: string, episodeId: string, renderAttemptId?: str
     params: {
       episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K', force: true,
       ...(renderAttemptId ? { render_attempt_id: renderAttemptId } : {}),
+      ...(referenceIds.length ? { reference_character_ids: referenceIds } : {}),
     },
   }
 }
@@ -399,6 +400,14 @@ async function render(options: {
   references?: Array<{ name: string; width: number; height: number }>
   scenes?: Array<Record<string, unknown>>
   catalogOverrides?: Record<string, unknown>
+  /** Characters of THIS episode, each with a portrait, in selection order. */
+  characters?: Array<{ id: string; name: string; width?: number; height?: number }>
+  /** Characters owned by another episode, to prove they are refused. */
+  foreignCharacters?: Array<{ id: string; name: string }>
+  /** Explicit selection. Defaults to every character above, in order. */
+  referenceCharacterIds?: string[]
+  /** Queue a provider answer before the render, to script a failure. */
+  scenario?: { states: string[]; failureCode?: string }
 }) {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
@@ -420,12 +429,42 @@ async function render(options: {
     )
     const refsDir = path.join(paths.episode_dir, 'img2img-references')
     for (const ref of options.references ?? []) await png(refsDir, ref.name, ref.width, ref.height)
+    if (options.scenario) service.queueScenario('image', options.scenario as any)
 
-    const job = renderJob(project.slug, episodeId)
-    await runContinuityRenderJob(job)
+    const referenceIds: string[] = []
+    for (const character of options.characters ?? []) {
+      const cm = await import('../services/character-manager.js')
+      const projectDir = (await import('../services/project-manager.js')).getProjectDir(project.slug) || ''
+      await cm.createCharacter(project.slug, {
+        id: character.id, name: character.name, description: `${character.name} — reference.`,
+        scope: 'episode', episode_codes: [episodeId],
+      })
+      await png(path.join(projectDir, 'characters', character.id), 'portrait.png', character.width ?? 800, character.height ?? 800)
+      await cm.updateCharacter(project.slug, character.id, { references: { images: ['portrait.png'] } })
+      referenceIds.push(character.id)
+    }
+    for (const character of options.foreignCharacters ?? []) {
+      const cm = await import('../services/character-manager.js')
+      const projectDir = (await import('../services/project-manager.js')).getProjectDir(project.slug) || ''
+      await cm.createCharacter(project.slug, {
+        id: character.id, name: character.name, description: `${character.name} — another episode's.`,
+        scope: 'episode', episode_codes: ['EP-OTHER'],
+      })
+      await png(path.join(projectDir, 'characters', character.id), 'portrait.png', 800, 800)
+      await cm.updateCharacter(project.slug, character.id, { references: { images: ['portrait.png'] } })
+    }
+
+    const job = renderJob(project.slug, episodeId, undefined, options.referenceCharacterIds ?? referenceIds)
+    const outcome = await runContinuityRenderJob(job).then(
+      result => ({ result, error: null as Error | null }),
+      (error: Error) => ({ result: null, error }),
+    )
     return {
       job,
+      error: outcome.error,
       refsDir,
+      // Read before the temp episode is removed; proves what survived a partial batch.
+      saved: job.output_dir ? await fs.readdir(job.output_dir).catch(() => [] as string[]) : [],
       uploads: uploadCount(service),
       bodies: generationBodies(service),
       keys: generationKeys(service),
@@ -675,7 +714,7 @@ test('a non-character scene drops the episode reference exactly as it drops the 
   assert.equal(withReference.length, 1, 'only the character scene carries the reference')
   assert.match(withReference[0].prompt, /guide beside the artifact/)
   assert.equal(result.uploads, 1)
-  assert.match(result.lines, /1 non-character scene\(s\) render without the episode reference/)
+  assert.match(result.lines, /1 non-character scene\(s\) render without the references/)
 })
 
 test('turning the switch on changes the saved request identity, so a retry cannot reclaim the text-only image', async () => {
@@ -754,6 +793,304 @@ test('the generator submits the reference through the guarded provider seam', ()
     'the stale "not yet published" claim must not come back',
   )
   assert.doesNotMatch(source, /max_reference_images: \d/, 'the ceiling is published, never hardcoded')
+})
+
+// ── Reference to Image: the episode's own characters ─────────────────────
+//
+// The customer's selection travels as character IDS; this generator resolves
+// them against the episode's own list and the model's LIVE published ceiling
+// (AGENTS.md §1, §4). Every refusal below happens BEFORE an upload, so a
+// reference render can never quietly become a text-only one (§8).
+
+const REFERENCE_CAPABLE_TWO = { ...REFERENCE_CAPABLE, max_reference_images: 2, min_reference_images: 1 }
+/** Two slots, references optional — a model that still renders from text alone. */
+const REFERENCE_OPTIONAL_TWO = { ...REFERENCE_CAPABLE_TWO, min_reference_images: 0 }
+
+test('the episode\'s own characters are attached, and the log names what went', async () => {
+  const result = await render({
+    name: 'Character refs plus template',
+    continuity: { use_episode_sheet: true, references: { sheet: true } },
+    references: [{ name: 'composition.png', width: 800, height: 450 }],
+    characters: [{ id: 'mara', name: 'Mara' }],
+    catalogOverrides: REFERENCE_CAPABLE_TWO,
+  })
+  assert.equal(result.error, null)
+  assert.equal(result.uploads, 2, 'one upload per reference: the character and the template')
+  assert.equal(result.bodies.length, 1)
+  assert.equal(result.bodies[0].reference_asset_ids?.length, 2)
+  assert.match(result.lines, /Scene 1 references: Mara \+ episode template composition\.png \(2 of 2 published slot\(s\)\)/)
+})
+
+test('characters plus the episode template over the published ceiling are refused before submit', async () => {
+  const result = await render({
+    name: 'Reference over ceiling',
+    continuity: { use_episode_sheet: true, references: { sheet: true } },
+    references: [{ name: 'composition.png', width: 800, height: 450 }],
+    characters: [{ id: 'mara', name: 'Mara' }, { id: 'kiri', name: 'Kiri' }],
+    // Two characters plus the template is three references on a two-slot model.
+    catalogOverrides: REFERENCE_CAPABLE_TWO,
+  })
+  assert.match(result.error?.message || '',
+    /Scene 1 needs 2 character reference\(s\) plus the episode template, but .* accepts at most 2/)
+  assert.equal(result.uploads, 0, 'nothing is uploaded for a request that cannot be sent whole')
+  assert.equal(result.bodies.length, 0, 'and no text-only render is quietly substituted')
+})
+
+test('a text-only model with a character selection fails loudly instead of rendering text-only', async () => {
+  // The stock mock catalogue publishes `max_reference_images: 0` — FLUX.2
+  // Klein's own live shape before the edit lane shipped.
+  const result = await render({
+    name: 'Character refs on a zero model',
+    continuity: {},
+    characters: [{ id: 'mara', name: 'Mara' }],
+  })
+  assert.match(result.error?.message || '', /accepts no reference images, so the 1 selected character reference/)
+  assert.equal(result.uploads, 0)
+  assert.equal(result.bodies.length, 0, 'not even a text-only render may go out')
+})
+
+test('a character from another episode is refused before anything is sent', async () => {
+  const result = await render({
+    name: 'Foreign character reference',
+    continuity: {},
+    foreignCharacters: [{ id: 'elsewhere', name: 'Elsewhere' }],
+    referenceCharacterIds: ['elsewhere'],
+    catalogOverrides: REFERENCE_CAPABLE_TWO,
+  })
+  assert.match(result.error?.message || '', /Character 'elsewhere' is not part of EP\d+/)
+  assert.equal(result.uploads, 0)
+  assert.equal(result.bodies.length, 0)
+})
+
+test('a character whose portrait is too large is fitted, not refused after the upload', async () => {
+  const result = await render({
+    name: 'Character reference fitted',
+    continuity: {},
+    characters: [{ id: 'mara', name: 'Mara', width: 1600, height: 1600 }],
+    catalogOverrides: REFERENCE_CAPABLE_TWO,
+  })
+  assert.equal(result.error, null)
+  assert.equal(result.uploads, 1)
+  assert.match(result.lines, /Reference fitted: Mara 1600x1600 → 1024x1024/)
+})
+
+test('character references are ordered before the episode template', () => {
+  // The worker attaches the images it receives in order, so the composition
+  // the code builds IS the order the render sees. The mock's asset ids are
+  // generated per upload and uploads run concurrently, so the order cannot be
+  // read back from an id — this is the one place it is pinned.
+  const source = readSource('../generators/continuity-render.ts')
+  assert.match(source, /referenceImagePaths: isCharacterScene\(scene\) \? \[\.\.\.ownReferences\.paths, \.\.\.episodeReferencePaths\] : \[\]/)
+})
+
+test('each scene uses its OWN cast: own list wins, empty means text-only, absent uses the default', async () => {
+  const result = await render({
+    name: 'Per-scene references',
+    continuity: {},
+    characters: [
+      { id: 'mara', name: 'Mara' },
+      { id: 'kiri', name: 'Kiri' },
+    ],
+    // The episode-level default is Kiri; scene 1 overrides with Mara, scene 2
+    // deliberately names nobody, scene 3 never chose.
+    referenceCharacterIds: ['kiri'],
+    scenes: [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'Mara waits in the archive.', reference_character_ids: ['mara'] },
+      { id: 'scene-002', scene_index: 2, visual_prompt: 'The archive doors close.', reference_character_ids: [] },
+      { id: 'scene-003', scene_index: 3, visual_prompt: 'Kiri crosses the market.' },
+    ],
+    catalogOverrides: REFERENCE_OPTIONAL_TWO,
+  })
+  assert.equal(result.error, null)
+  assert.equal(result.uploads, 2, 'only the two referenced scenes upload anything')
+  const counts = result.bodies.map(body => body.reference_asset_ids?.length || 0).sort()
+  assert.deepEqual(counts, [0, 1, 1], 'one scene renders from its prompt alone, and nothing is substituted')
+  assert.match(result.lines, /Scene 1 references: Mara/)
+  assert.doesNotMatch(result.lines, /Scene 2 references:/, 'a scene that named nobody is not given the default')
+  assert.match(result.lines, /Scene 3 references: Kiri/, 'a scene that never chose follows the default')
+})
+
+test('a scene with no characters on a model that requires one is refused, naming the scene', async () => {
+  const result = await render({
+    name: 'Scene without references on a min-one model',
+    continuity: {},
+    characters: [{ id: 'mara', name: 'Mara' }],
+    referenceCharacterIds: [],
+    scenes: [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'Mara waits.', reference_character_ids: ['mara'] },
+      { id: 'scene-002', scene_index: 2, visual_prompt: 'The archive doors close.', reference_character_ids: [] },
+    ],
+    catalogOverrides: REFERENCE_CAPABLE_TWO,
+  })
+  assert.match(result.error?.message || '', /Scene 2 has no reference characters, but .* needs at least 1/)
+  assert.equal(result.bodies.length, 0, 'the batch is refused before the first submit')
+})
+
+test('a cutaway that names characters is refused before submit, naming the scene', async () => {
+  const result = await render({
+    name: 'Cutaway with references',
+    continuity: {},
+    characters: [{ id: 'mara', name: 'Mara' }],
+    scenes: [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'A map of the trade routes.', scene_type: 'map', reference_character_ids: ['mara'] },
+    ],
+    catalogOverrides: REFERENCE_CAPABLE_TWO,
+  })
+  assert.match(result.error?.message || '', /Scene 1 is a map scene, so it cannot use character references/)
+  assert.equal(result.uploads, 0, 'nothing is uploaded for a scene the renderer will refuse')
+  assert.equal(result.bodies.length, 0)
+})
+
+test('a per-scene selection over the model\'s ceiling is refused in preflight, naming the scene', async () => {
+  const result = await render({
+    name: 'Per-scene over ceiling',
+    continuity: {},
+    characters: [{ id: 'mara', name: 'Mara' }, { id: 'kiri', name: 'Kiri' }],
+    referenceCharacterIds: [],
+    scenes: [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'Mara and Kiri at the gate.', reference_character_ids: ['mara', 'kiri'] },
+    ],
+    // This catalogue row publishes ONE reference slot.
+    catalogOverrides: REFERENCE_CAPABLE,
+  })
+  assert.match(result.error?.message || '', /Scene 1: 2 character reference\(s\) were selected but .* accepts at most 1/)
+  assert.equal(result.uploads, 0)
+  assert.equal(result.bodies.length, 0)
+})
+
+test('a Gateway refusal of the reference lane is clear and never retried as text-to-image', async () => {
+  // Gateway §1.2 (2026-10-26): a request with references that resolves to a
+  // lane that cannot carry them answers 400 INVALID_PARAMS. Story must show
+  // that answer and must not ask again — least of all without the references.
+  const originalFetch = globalThis.fetch
+  const refused: any[] = []
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+    const method = init?.method || (input instanceof Request ? input.method : 'GET')
+    if (method === 'POST' && url.pathname === '/v1/images/generations') {
+      refused.push(JSON.parse(String(init?.body || '{}')))
+      return new Response(JSON.stringify({
+        detail: 'This gateway cannot send reference images to the selected lane.',
+        code: 'INVALID_PARAMS',
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+    }
+    return originalFetch(input, init)
+  }
+  try {
+    const result = await render({
+      name: 'Reference lane refused',
+      continuity: {},
+      characters: [{ id: 'mara', name: 'Mara' }],
+      catalogOverrides: REFERENCE_CAPABLE_TWO,
+    })
+
+    assert.match(String(result.error?.message || ''), /cannot send reference images to the selected lane/,
+      'the Gateway\'s own words reach the job, not a generic failure')
+    assert.equal(refused.length, 1, 'exactly one attempt — a permanent refusal is not retried')
+    assert.equal(refused[0].reference_asset_ids?.length, 1,
+      'the one request that failed carried the reference; nothing was re-asked as text-to-image')
+    assert.equal(result.saved.includes('scene-001.png'), false, 'no image is written for a refused request')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('a changed character set is a different request; the same set reconnects', async () => {
+  // ONE episode rendered three times: two episodes would differ in their
+  // project slug, which is already part of the identity, and the test would
+  // pass without the references being in it at all.
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreCatalog: (() => Promise<void>) | null = null
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    await import('../providers/image/genstudio.js')
+    restoreCatalog = await withReferenceCapableCatalog(service.baseUrl, REFERENCE_CAPABLE_TWO)
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    const cm = await import('../services/character-manager.js')
+    const pm = await import('../services/project-manager.js')
+    const { project, episodeId, paths } = await createEpisode('Character reference identity')
+    await writeScenePrerequisites(paths, episodeId, [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'Two travellers in a quiet archive.' },
+    ])
+    await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({ schema_version: 1 }))
+    const projectDir = pm.getProjectDir(project.slug) || ''
+    for (const [id, name] of [['mara', 'Mara'], ['kiri', 'Kiri']]) {
+      await cm.createCharacter(project.slug, { id: id!, name: name!, description: 'x', scope: 'episode', episode_codes: [episodeId] })
+      await png(path.join(projectDir, 'characters', id!), 'portrait.png', 640, 640)
+      await cm.updateCharacter(project.slug, id!, { references: { images: ['portrait.png'] } })
+    }
+
+    const renderWith = async (ids: string[]) => {
+      const job = renderJob(project.slug, episodeId, 'fixed-character-attempt', ids)
+      await runContinuityRenderJob(job)
+      return generationKeys(service).at(-1)!
+    }
+
+    const mara = await renderWith(['mara'])
+    const maraAgain = await renderWith(['mara'])
+    const kiri = await renderWith(['kiri'])
+
+    assert.equal(maraAgain, mara, 'the same selection keeps its replay identity')
+    assert.notEqual(kiri, mara, 'a different character is a different request')
+    // One Gateway request per distinct selection: the unchanged selection either
+    // reconnected to the saved job or replayed it, never bought a second one.
+    const fresh = service.submissions
+      .filter(submission => submission.operation === 'image' && !submission.replay)
+      .map(submission => submission.idempotencyKey)
+    assert.deepEqual([...new Set(fresh)], [mara, kiri])
+  } finally {
+    if (restoreCatalog) await restoreCatalog()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a provider failure keeps the finished scene and names the failed one', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreCatalog: (() => Promise<void>) | null = null
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    await import('../providers/image/genstudio.js')
+    restoreCatalog = await withReferenceCapableCatalog(service.baseUrl, REFERENCE_CAPABLE_TWO)
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const cm = await import('../services/character-manager.js')
+    const pm = await import('../services/project-manager.js')
+    const { project, episodeId, paths } = await createEpisode('Character reference partial')
+    await writeScenePrerequisites(paths, episodeId, [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'Mara waits in a lantern-lit archive.' },
+      { id: 'scene-002', scene_index: 2, visual_prompt: 'Mara crosses the night market.' },
+    ])
+    await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({ schema_version: 1 }))
+    const projectDir = pm.getProjectDir(project.slug) || ''
+    await cm.createCharacter(project.slug, { id: 'mara', name: 'Mara', description: 'x', scope: 'episode', episode_codes: [episodeId] })
+    await png(path.join(projectDir, 'characters', 'mara'), 'portrait.png', 640, 640)
+    await cm.updateCharacter(project.slug, 'mara', { references: { images: ['portrait.png'] } })
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+
+    // Scene 1 with a reference succeeds.
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+    const one = renderJob(project.slug, episodeId, 'fixed-partial-attempt', ['mara'])
+    one.params.scene_ids = ['scene-001']
+    await runContinuityRenderJob(one)
+    assert.ok(await fs.stat(path.join(outDir, 'scene-001.png')), 'the finished scene is saved')
+
+    // Scene 2 with the same reference fails at the provider.
+    service.queueScenario('image', { states: ['failed'], failureCode: 'PROVIDER_ERROR' })
+    const two = renderJob(project.slug, episodeId, 'fixed-partial-attempt', ['mara'])
+    two.params.scene_ids = ['scene-002']
+    const failure = await runContinuityRenderJob(two).then(() => null, (error: unknown) => error as Error)
+    assert.ok(failure, 'an incomplete batch fails loudly (§8)')
+    assert.match(String(failure!.message), /Scene 2/)
+    assert.ok(await fs.stat(path.join(outDir, 'scene-001.png')), 'the finished neighbour is preserved')
+    assert.equal(await fs.stat(path.join(outDir, 'scene-002.png')).then(() => true, () => false), false)
+  } finally {
+    if (restoreCatalog) await restoreCatalog()
+    await service.close()
+    await temp.cleanup()
+  }
 })
 
 function readSource(relativePath: string): string {

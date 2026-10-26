@@ -42,6 +42,17 @@ async function loadSceneReview(): Promise<Component> {
       cancel: () => globalThis.__sceneReviewConfirm.cancel(),
     })
     const useEpisodes = () => ({ updateEpisode: () => undefined, revalidateAfterMutation: () => undefined })
+    // The page lists this episode's own characters for the reference picker; these tests own no characters.
+    const useCharacters = () => ({ listForEpisode: async () => [] })
+// The page imports these for the reference picker and preset boundary; the harnesses own no characters or presets.
+const sceneReferenceLimits = () => null
+const sceneReferenceNotice = () => ''
+const reconcileSceneReferenceCharacters = (selected) => ({ kept: selected, dropped: [] })
+const describeSceneReferenceDrops = () => ''
+const sceneReferencePortrait = () => ''
+const sceneTakesCharacterReferences = () => true
+const sceneReviewPresetApply = (base, _data) => base
+const sceneReviewPresetSnapshot = (data) => data
     const useRememberedForm = () => undefined
     const usePresets = () => ({ load: async () => undefined })
     const useGenStudioImageModels = () => ({ models: globalThis.__sceneReviewModels, refresh: async () => undefined })

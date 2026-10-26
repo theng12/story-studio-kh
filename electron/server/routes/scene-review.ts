@@ -314,6 +314,10 @@ interface ReviewSceneAugmented {
   motion_choice?: 'pending' | 'clip' | 'still'
   clip_stale_reason?: string | null
   clip_renderer?: ScenePlanEntry['clip_renderer']
+  /** What this scene depicts — a cutaway may never carry character references. */
+  scene_type?: ScenePlanEntry['scene_type']
+  /** This scene's OWN character references; absent = the page's default applies. */
+  reference_character_ids?: string[]
 }
 
 /** Guard failures raised from inside a `withLock` body, where an Express
@@ -676,6 +680,11 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         clip_stale_reason: clipStaleReason,
         clip_renderer: s.clip_renderer,
         motion_choice: s.motion_choice,
+        // Scene Review "Reference to Image" — this scene's own character
+        // references (absent = the page's default applies) and the type that
+        // decides whether it may carry any at all.
+        scene_type: s.scene_type,
+        reference_character_ids: Array.isArray(s.reference_character_ids) ? s.reference_character_ids : undefined,
       })
     }
 
@@ -799,6 +808,23 @@ function normalizedAspectRatio(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
+/**
+ * Scene Review "Reference to Image": the customer's character selection.
+ *
+ * IDS ONLY. The generator resolves each one against THIS episode's own
+ * character list (AGENTS.md §4), so a path can never travel from the client —
+ * and this route does not need the catalogue to answer: the model's published
+ * ceiling is enforced where the model is resolved, before the first upload.
+ */
+function referenceCharacterIds(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined
+  if (!Array.isArray(value)) throw new Error('reference_character_ids must be an array of character ids.')
+  const ids = value.map(id => typeof id === 'string' ? id.trim() : '')
+  if (ids.some(id => !id)) throw new Error('reference_character_ids must contain character ids only.')
+  const unique = [...new Set(ids)]
+  return unique.length ? unique : undefined
+}
+
 function finishRequestFingerprint(
   slug: string,
   episodeId: string,
@@ -820,6 +846,8 @@ function finishRequestFingerprint(
     height: typeof body.height === 'number' ? body.height : null,
     seed: Number.isInteger(body.seed) ? body.seed : null,
     auto_approve_generated: autoApproveOn(body.auto_approve_generated),
+    // A changed character selection is a different request for the same action id.
+    reference_character_ids: referenceCharacterIds(body.reference_character_ids) || [],
   })).digest('hex')
 }
 
@@ -863,6 +891,7 @@ function continuityRenderParams(
   // queue semantics.
   const operationId = singleSceneId && body.force === true ? readOperationId(body, true) : null
   const aspectRatio = normalizedAspectRatio(body.aspect_ratio)
+  const referenceIds = referenceCharacterIds(body.reference_character_ids)
   const params = {
     episode_id: episodeId,
     title: typeof body.title === 'string' ? body.title : '',
@@ -881,6 +910,7 @@ function continuityRenderParams(
     scene_ids: sceneIds,
     missing_only: body.missing_only === true,
     auto_approve_generated: autoApproveOn(body.auto_approve_generated),
+    ...(referenceIds ? { reference_character_ids: referenceIds } : {}),
     ...(manualFinish ? { manual_image_finish: manualFinish } : {}),
   }
   return operationId ? stampFreshGenerationAction(params, operationId) : params
@@ -897,6 +927,12 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
   if (!model) return res.status(400).json({ detail: 'model is required' })
   if (!OPERATION_ID.test(operationId)) return res.status(400).json({ detail: 'operation_id must be a UUID for an explicit image re-roll.' })
+  let referenceIds: string[] | undefined
+  try {
+    referenceIds = referenceCharacterIds(body.reference_character_ids)
+  } catch (e: any) {
+    return res.status(400).json({ detail: e?.message || 'reference_character_ids is invalid.' })
+  }
   const sameActionRequest = (candidate: any) => candidate.type === 'scene_image_generate'
     && candidate.episode_id === episodeId
     && candidate.params?.generation_action?.id === operationId
@@ -907,6 +943,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
     && candidate.params?.width === (typeof body.width === 'number' && body.width > 0 ? body.width : undefined)
     && candidate.params?.height === (typeof body.height === 'number' && body.height > 0 ? body.height : undefined)
     && candidate.params?.seed === (Number.isInteger(body.seed) ? body.seed : undefined)
+    && (candidate.params?.reference_character_ids || []).join(',') === (referenceIds || []).join(',')
     && candidate.params?.auto_approve_generated === autoApproveOn(body.auto_approve_generated)
 
   try {
@@ -944,6 +981,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
           seed: Number.isInteger(body.seed) ? body.seed : undefined,
           generation_action: { id: operationId, kind: 'fresh' },
           auto_approve_generated: autoApproveOn(body.auto_approve_generated),
+          ...(referenceIds ? { reference_character_ids: referenceIds } : {}),
         },
       })
     } catch (error) {
