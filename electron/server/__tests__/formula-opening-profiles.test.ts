@@ -69,9 +69,14 @@ async function shellFormat() {
 }
 
 /** Every built-in Formula id, read off disk rather than listed here. */
+// A Short has no introduction by design: Quote Shorts' rules say "no introduction", the
+// first line IS the hook, and automatic introductions are opt-in per channel anyway.
+const FORMULAS_WITHOUT_AN_OPENING = new Set(['quote-shorts'])
+
 async function builtInFormulaIds(): Promise<string[]> {
   const files = await readdir(NICHE_DIR)
-  return files.filter(f => f.endsWith('.json')).map(f => f.replace(/\.json$/, '')).sort()
+  return files.filter(f => f.endsWith('.json')).map(f => f.replace(/\.json$/, ''))
+    .filter(id => !FORMULAS_WITHOUT_AN_OPENING.has(id)).sort()
 }
 
 /**
@@ -121,6 +126,11 @@ describe('all twenty-two built-in Formulas ship an opening', () => {
   test('every one of them, with beats the catalogue can explain', async () => {
     const ids = await builtInFormulaIds()
     assert.equal(ids.length, 22, `expected 22 built-in Formulas, found ${ids.length}`)
+    // The exemption names a real Formula that really declares none, so it cannot hide a regression.
+    for (const id of FORMULAS_WITHOUT_AN_OPENING) {
+      const raw = JSON.parse(await readFile(resolve(NICHE_DIR, `${id}.json`), 'utf8'))
+      assert.equal(raw.introDefaults, undefined, `${id} now declares an opening; take it off the exemption`)
+    }
     for (const id of ids) {
       const raw = JSON.parse(await readFile(resolve(NICHE_DIR, `${id}.json`), 'utf8'))
       const intro = raw.introDefaults

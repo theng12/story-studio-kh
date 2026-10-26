@@ -20,6 +20,7 @@ import {
 import { twoSecondVideoBytes } from './fixtures/tiny-video.js'
 import { escapeFilterArgValue } from '../lib/ffmpeg-utils.js'
 import { workFolderIdentity } from '../lib/segmented-render.js'
+import { bundledFontsFilterOption } from '../lib/subtitle-font-dir.js'
 import type { ContextualCue, Job } from '../models/types.js'
 import { getAppSetting, setAppSetting } from '../services/app-settings.js'
 import { clearFFmpegCache } from '../services/ffmpeg-manager.js'
@@ -945,7 +946,9 @@ test('F1 freezes the real ordered rich final-composition child argv and validate
   assert.ok((await fs.stat(shapedLogo)).size > 0, 'the rounded logo staged in the work folder is the logo input')
 
   const identity = await workFolderIdentity(actual, workDir, output)
-  const argv = [...identity.argv]
+  // The bundled caption faces (1.4.361) are an install path, not part of the composition.
+  const fonts = bundledFontsFilterOption()
+  const argv = identity.argv.map(arg => fonts ? arg.split(fonts).join(':fontsdir=<bundled-fonts>') : arg)
   const threadFlag = argv.indexOf('-threads')
   assert.ok(threadFlag > 0, 'the actual rich libx264 child receives the runtime thread cap')
   assert.equal(argv[threadFlag - 1], 'libx264')
@@ -973,7 +976,8 @@ test('F1 freezes the real ordered rich final-composition child argv and validate
     '[logo]overlay=4:4',
     'null[vout]',
   ])
-  assert.match(graph, /ass=filename=<work>\/subtitles-burn\.ass\[v\d+\]/, 'libass has no unsupported enable expression')
+  // The bundled caption faces travel as `fontsdir` (1.4.361, Quote Shorts); still no enable expression.
+  assert.match(graph, /ass=filename=<work>\/subtitles-burn\.ass(?::fontsdir=<bundled-fonts>)?\[v\d+\]/, 'libass has no unsupported enable expression')
   assert.ok(graph.includes("enable=between(t\\,0.550\\,1.150)"), 'the contextual cue receives the scene-clock offset')
   assert.ok(graph.includes("Archive\\\\\\'s turn\\, 40%\nLine two"), 'cue punctuation and line break are escaped in the child graph')
   assert.ok((graph.match(/:enable='between\(t,0\.25,1\.75\)'/g) || []).length >= 8, 'dual intro/tail gate reaches supported effects')
