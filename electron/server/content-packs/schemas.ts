@@ -330,6 +330,7 @@ const SeriesFormulaDocumentSchema = z.object({
    * `aspect_ratio` is deliberately the same three shapes the built-in Format
    * field allows, so no new vocabulary enters the system.
    */
+  // model-drift-allow: the Formula's canvas shape (the Format vocabulary), not a model option; each page reconciles it against the selected model's published list
   aspect_ratio: z.enum(['16:9', '9:16', '1:1']).optional(),
   /** Present only on a music channel; see MusicFormatSchema. */
   music_format: MusicFormatSchema.optional(),

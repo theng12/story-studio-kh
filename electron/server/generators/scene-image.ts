@@ -228,7 +228,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     characterIds: referenceIds,
     modelName: modelConfig.label,
     supportsReferences: modelConfig.supports_reference_images === true,
-    maxReferences: modelConfig.max_reference_images ?? 0,
+    maxReferences: modelConfig.max_reference_images,
     maxDimension: modelConfig.reference_image_max_dimension,
     episodeDir: paths.episode_dir,
     sceneLabel: `Scene ${scene.scene_index}`,

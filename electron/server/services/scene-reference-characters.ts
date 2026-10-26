@@ -45,8 +45,8 @@ export interface ResolveSceneReferencesInput {
   modelName: string
   /** `publishedSupportsReferenceImages` on the live catalogue entry. */
   supportsReferences: boolean
-  /** The model's published `max_reference_images`. 0 = takes none. */
-  maxReferences: number
+  /** The model's published `max_reference_images`; unpublished (undefined) takes none. */
+  maxReferences: number | undefined
   /** The model's published pixel ceiling, when it publishes one. */
   maxDimension?: number
   /** The episode directory; fitted copies live under it, never beside a portrait. */
@@ -62,7 +62,9 @@ export async function resolveSceneReferences(
   if (!ids.length) return { paths: [], digests: [], names: [], fitted: [] }
   const where = input.sceneLabel ? `${input.sceneLabel}: ` : ''
 
-  if (!input.supportsReferences || input.maxReferences < 1) {
+  // An unpublished limit is not a number to guess (§1): NaN >= 1 is false, so it refuses.
+  const maxReferences = Number(input.maxReferences)
+  if (!input.supportsReferences || !(maxReferences >= 1)) {
     throw new Error(
       `${where}${input.modelName} accepts no reference images, so the ${ids.length} selected character reference(s) cannot be attached. ` +
       'Choose a reference-capable model or clear the selection. No image was requested.',
@@ -101,10 +103,10 @@ export async function resolveSceneReferences(
 
   // The ceiling is the model's live published figure — re-read on every job,
   // so a model switch always enforces the new model's number (§1).
-  if (chosen.length > input.maxReferences) {
+  if (chosen.length > maxReferences) {
     throw new Error(
       `${where}${chosen.length} character reference(s) were selected but ${input.modelName} accepts at most ` +
-      `${input.maxReferences}. Remove ${chosen.length - input.maxReferences} and retry. No image was requested.`,
+      `${maxReferences}. Remove ${chosen.length - maxReferences} and retry. No image was requested.`,
     )
   }
 

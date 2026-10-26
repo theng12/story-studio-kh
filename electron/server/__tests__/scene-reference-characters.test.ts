@@ -175,6 +175,15 @@ test('a model publishing no reference support refuses the selection — never a 
       }),
       /Klein text-only accepts no reference images/,
     )
+    // A reference-capable model that publishes no limit is refused too: the count is
+    // never guessed (AGENTS.md §1).
+    await assert.rejects(
+      resolveSceneReferences({
+        slug: project.slug, episodeCode: episodeId, characterIds: [id],
+        episodeDir: paths.episode_dir, supportsReferences: true, maxReferences: undefined, modelName: 'Klein unpublished',
+      }),
+      /Klein unpublished accepts no reference images/,
+    )
   } finally {
     await temp.cleanup()
   }

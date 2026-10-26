@@ -242,7 +242,7 @@ function fillAppDefault(): void {
 function isUsableModelRow(model: { available: boolean; supports_reference_images?: boolean; max_reference_images?: number }): boolean {
   if (!model.available) return false
   return props.imageMode !== 'img2img'
-    || (model.supports_reference_images === true && (model.max_reference_images || 0) >= 1)
+    || (model.supports_reference_images === true && typeof model.max_reference_images === 'number' && model.max_reference_images >= 1)
 }
 
 onMounted(async () => {
