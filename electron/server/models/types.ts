@@ -1087,6 +1087,19 @@ export interface Niche {
    *  supersedes `startingSceneSeconds` for a NEW channel. Copied into the
    *  channel's own editable settings once, never read at generation time. */
   startingScenePacing?: ScenePacing
+  /**
+   * The frame shape this Formula makes (owner, 2026-10-27).
+   *
+   * A vertical Quote Shorts channel and a landscape documentary need
+   * different canvases, and until now only a built-in `Format` could say so.
+   * This reaches `format.imagePrompts.recommendedAspect` in the loader, which
+   * is the one field Scene Review, the Image Pool and Video Assembly already
+   * read — so there is no second aspect control to keep in step.
+   *
+   * A STARTING value, exactly like `startingSceneSeconds`: a saved preset
+   * still wins, and every page can change it.
+   */
+  aspectRatio?: '16:9' | '9:16' | '1:1'
   /** Default "Pause between chapters" in Audio Assembly (seconds). Sleep
    *  formulas want a longer, calm gap; the customer can still change it. */
   chapterPauseSec?: number

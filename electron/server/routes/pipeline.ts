@@ -1686,14 +1686,21 @@ export function resolveStepParams(
   if (step === 'scene_review') {
     // Scene Review is GenStudio-owned text-to-image generation. Story Studio
     // supplies the durable item list; GenStudio owns admission and execution.
+    // The preset's own ratio wins. A preset that names none inherits the
+    // channel's shape from the Formula (owner, 2026-10-27) — the same
+    // `recommendedAspect` Video Assembly and the Thumbnail Prompts step read —
+    // because a vertical channel whose preset predates this step rendering
+    // portrait would otherwise have every scene drawn landscape. With neither,
+    // the image resolver applies the shared Story default against the live
+    // catalogue, exactly as before.
+    const presetAspect = typeof data.aspect_ratio === 'string' ? data.aspect_ratio.trim() : ''
+    const formatAspect = format?.imagePrompts?.recommendedAspect
     return {
       episode_id: episodeId,
       title: title || '',
       model: data.model,
-      // No ratio in the preset is MISSING, not 16:9: the image resolver
-      // applies the shared Story default against the live catalogue.
-      ...(typeof data.aspect_ratio === 'string' && data.aspect_ratio.trim()
-        ? { aspect_ratio: data.aspect_ratio.trim() }
+      ...(presetAspect || formatAspect
+        ? { aspect_ratio: presetAspect || formatAspect }
         : {}),
       seed: Number.isInteger(data.seed) ? data.seed : undefined,
       auto_approve_generated: autoApproveOn(data.auto_approve_generated),

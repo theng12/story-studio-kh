@@ -766,6 +766,11 @@ export function applyNicheToFormat(
     defaultStyleTag: stylePieces.join('\n\n'),
     // v1.0.280+ — niche owns the human-facing one-liner too when it sets it.
     visualStyleHint: niche.visualStyleHint || format.imagePrompts.visualStyleHint,
+    // Owner, 2026-10-27 — a Formula may state the frame it makes. This is the
+    // SAME field the built-in Formats already carry, so Scene Review, the Image
+    // Pool and Video Assembly keep reading one source for the canvas and no
+    // second aspect control has to be kept in step with this one.
+    ...(niche.aspectRatio ? { recommendedAspect: niche.aspectRatio } : {}),
     ...(thumbnail ? { thumbnail } : {}),
   }
 

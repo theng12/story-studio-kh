@@ -1,0 +1,222 @@
+{
+  "id": "quote-shorts",
+  "name": "Quote Shorts",
+  "description": "A vertical reading: one short, reflective passage narrated over a picture per sentence, with captions burned in and music underneath. Each Short is a single thought followed to its end — not a quotation card. Written in a human, unhurried voice that finds the feeling in an ordinary thing, never in a slogan.",
+  "tagline": "One thought. Held for a moment.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "aspectRatio": "9:16",
+  "formulaFamily": "Short-form readings",
+  "catalogStatus": "active",
+  "catalogName": "Quote Shorts",
+  "perspectivePolicy": "Second person, quietly — the listener is being spoken to, not instructed. Never a crowd, never an audience; one person, at the end of a day.",
+  "narrativeQualityContract": {
+    "openingPolicy": "The FIRST line is the hook and it must earn the next eight seconds on its own. Open inside the feeling or inside a concrete image, never with a definition, a greeting, a rhetorical question, or a promise about what the Short will cover. It should be short enough to read in one breath and specific enough that the listener cannot predict the second line from it.",
+    "forbiddenPatterns": [
+      "In today's world",
+      "In a world where",
+      "Have you ever",
+      "Let's talk about",
+      "Here's the thing",
+      "At the end of the day",
+      "Everything happens for a reason",
+      "You've got this",
+      "Believe in yourself",
+      "Chase your dreams",
+      "Live, laugh, love",
+      "Manifest",
+      "Your vibe attracts your tribe",
+      "Stay positive",
+      "Good vibes only",
+      "Level up",
+      "Unlock your potential",
+      "Journey",
+      "In conclusion",
+      "Remember, you are enough"
+    ],
+    "requiredHabits": [
+      "Name one concrete thing — an object, a time of day, a small action — before naming the feeling. The object carries the emotion; the emotion does not announce itself.",
+      "Prefer the plainest verb available. If a sentence could end one word earlier, end it there.",
+      "Leave one thing unsaid. The last line should open a door, not close one.",
+      "Write for the ear: short sentences, spoken punctuation, no lists and no markdown.",
+      "Every line must be able to stand alone as a caption, because each one is on screen by itself."
+    ],
+    "closingPolicy": "The last line is written to loop: it should lead back into the first line so a second viewing feels deliberate rather than repetitive. Do not summarise, do not moralise, and do not add a call to action."
+  },
+  "exampleTopics": [
+    "The light you leave on for someone who isn't coming",
+    "Learning to be the person who stays",
+    "The quiet after you stop explaining yourself",
+    "What your hands remember about someone",
+    "Sitting with a feeling instead of fixing it",
+    "The courage of an ordinary Tuesday",
+    "Loving someone in the small, boring way",
+    "The room you haven't walked into yet",
+    "Being homesick for a version of yourself",
+    "Why the second cup of tea goes cold",
+    "The kind of tired that sleep doesn't fix",
+    "Saying less and meaning more of it"
+  ],
+  "ideaSystemPromptRole": "You write ideas for a vertical short-form channel of quiet, reflective readings. Each idea names ONE feeling or human moment — heartbreak, motivation, calm, grief, tenderness, resolve — and finds it in a small, concrete, ordinary thing rather than in an abstraction. Pitch moments a person recognises from their own week, never advice, never a lesson, never a motivational slogan.",
+  "ideaGuidanceText": "Every idea should be specific enough to picture: a room, an hour, a habit, a thing left on a table. Never 'how to be happier' or 'the power of letting go' — instead the kitchen at 2am, the coat still on the hook. Vary the mood across a batch; do not pitch the same heartbreak twelve times.",
+  "scriptContext": "This channel makes vertical Shorts, not episodes. A Short is 15 to 45 seconds of speech: eight to fourteen short sentences, each one its own picture and its own caption. Write a single thought followed all the way to its end. No introduction, no chapter structure, no recap, no closing call to action.",
+  "scriptSystemPromptRole": "You write short, reflective readings that are spoken aloud over a quiet picture. The voice is human, unhurried, and specific — someone telling you one true thing they noticed, not a narrator performing wisdom. You bring the emotion out of an ordinary object or moment instead of naming it, and you trust the listener to finish the thought. You never write inspirational-poster phrasing, never rhyme for its own sake, and never tell anyone what they should feel.",
+  "scriptClosingHint": "End on the line that leads back to the first one. The listener should want to watch it again, not be told to.",
+  "narratorStyles": [
+    {
+      "id": "A",
+      "label": "Quiet and close",
+      "description": "Unhurried, low, spoken almost to one person. The default for a reading."
+    },
+    {
+      "id": "B",
+      "label": "Warm and steady",
+      "description": "A little more presence and warmth, still never performed."
+    },
+    {
+      "id": "C",
+      "label": "Barely above a whisper",
+      "description": "Very soft and intimate, with long pauses. Suits heartbreak and calm."
+    }
+  ],
+  "defaultNarratorStyleId": "A",
+  "titleShapeRules": [
+    "A Short's title is a fragment of the thought, not a label for it.",
+    "Established shapes (vary across the batch):",
+    "  - the object alone: 'The Coat on the Hook'",
+    "  - the small admission: 'I Kept the Receipt'",
+    "  - the quiet turn: 'It Was Never About the Tea'",
+    "  - the time and the place: 'The Kitchen at 2am'",
+    "Never a question, never a colon-and-list, never 'How to', never a promise of a transformation."
+  ],
+  "titleLengthRange": [
+    2,
+    8
+  ],
+  "structuralVariety": "vary-subject-only",
+  "vocabulary": {
+    "mood": [
+      "quiet",
+      "tender",
+      "heartbroken",
+      "steady",
+      "wistful",
+      "resolved",
+      "homesick",
+      "gentle",
+      "aching",
+      "calm",
+      "brave",
+      "lonely",
+      "warm",
+      "unhurried",
+      "honest",
+      "bittersweet",
+      "hopeful-without-promising",
+      "grounded",
+      "raw",
+      "still"
+    ],
+    "theme": [
+      "heartbreak",
+      "motivation",
+      "calm",
+      "grief",
+      "longing",
+      "self-respect",
+      "letting go",
+      "staying",
+      "ordinary courage",
+      "home",
+      "memory",
+      "time",
+      "solitude",
+      "forgiveness",
+      "starting again",
+      "the body remembering",
+      "small kindnesses",
+      "silence",
+      "waiting",
+      "the end of a day"
+    ],
+    "genre": [
+      "short-form reading",
+      "reflective essay",
+      "spoken word",
+      "prose poem"
+    ],
+    "keyword": [
+      "reading",
+      "shorts",
+      "reflective",
+      "spoken word",
+      "quiet",
+      "calm",
+      "heartbreak",
+      "motivation",
+      "prose poem",
+      "short video",
+      "vertical"
+    ]
+  },
+  "audienceHint": "People scrolling late at night for something that names a feeling they have not put into words. They stop for a line that is specific and true, and they leave when they are sold to.",
+  "youtubeTagsHint": [
+    "shorts",
+    "spoken word",
+    "short poem",
+    "reflective",
+    "quiet thoughts",
+    "heartbreak quotes",
+    "motivation",
+    "calm",
+    "late night thoughts",
+    "prose poem"
+  ],
+  "metadataTitleStyleHint": "A fragment of the thought itself. Lower-case where it feels right, no clickbait, no question marks.",
+  "startingSceneSeconds": [
+    3,
+    6
+  ],
+  "scriptStructure": {
+    "defaultChapterCount": 1,
+    "chapterCountRange": [
+      1,
+      1
+    ],
+    "defaultLengthMinutes": 1,
+    "lengthMinutesRange": [
+      1,
+      1
+    ],
+    "durationPresets": [
+      1
+    ],
+    "defaultWordsPerMinute": 120,
+    "chaptersIndependent": true,
+    "visualPacingProfile": {
+      "opening_duration_sec": 6,
+      "opening": {
+        "min_sec": 2,
+        "max_sec": 4
+      },
+      "settled": {
+        "min_sec": 3,
+        "max_sec": 6
+      }
+    },
+    "pacingArc": [
+      "One unbroken thought: the hook, the turn, and the line that loops back."
+    ],
+    "additionalRules": [
+      "This Formula makes a SHORT, not an episode. Write ONE reading of 8 to 14 short sentences — roughly 40 to 90 words in total — with no introduction, no chapter headings, and no recap.",
+      "The first sentence is the hook: concrete, short, and impossible to predict the second line from. It is the only sentence allowed to be a fragment.",
+      "One sentence becomes one picture and one caption. Keep every sentence short enough to read on a phone in a single glance, and never let a sentence depend on the one before it for its meaning.",
+      "Name the object before the feeling. 'The second cup of tea went cold' carries more than 'I was lonely'.",
+      "The final sentence must lead back into the first, so the Short can loop without a seam. Do not close the thought with a summary or a lesson.",
+      "No hashtags, no emoji, no quotes attributed to a famous person unless the episode is specifically about that quotation."
+    ]
+  },
+  "recommended_visual_style_ids": [],
+  "recommended_thumbnail_recipe_ids": [],
+  "compatibleTopicPackIds": []
+}

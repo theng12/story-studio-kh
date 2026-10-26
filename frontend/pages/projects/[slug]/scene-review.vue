@@ -1464,6 +1464,26 @@ async function finishMissingImages(): Promise<void> {
 const isContinuity = ref(false)
 const renderingEpisode = ref<string | null>(null)
 const continuityRendering = computed(() => renderingEpisode.value === episodeId.value)
+/** The shape this channel's Formula asks for, when it asks for one. */
+const formulaAspectRatio = ref('')
+
+/**
+ * Seed the ratio from the channel's Formula, exactly as Video Assembly seeds
+ * its export canvas.
+ *
+ * Owner, 2026-10-27: a vertical channel was generating 16:9 scene images,
+ * because this page's form starts on `'16:9'` and nothing ever told it
+ * otherwise — the same "recommended aspect exists and is ignored" defect
+ * Video Assembly had fixed for itself. Seeding, not forcing: a saved Scene
+ * Review preset still wins, because `srPresets.load()` runs after the first
+ * format read resolves.
+ */
+function seedAspectFromFormat(recommended: unknown): void {
+  if (typeof recommended !== 'string' || !recommended) return
+  formulaAspectRatio.value = recommended
+  if (form.value.aspect_ratio === recommended) return
+  form.value.aspect_ratio = recommended
+}
 
 async function loadContinuityFlag(): Promise<void> {
   const ep = episodeId.value
@@ -1471,9 +1491,10 @@ async function loadContinuityFlag(): Promise<void> {
   const scope = reviewScopeSequence
   const current = () => scope === reviewScopeSequence && project === slug.value && ep === episodeId.value
   try {
-    const fmt = await get<{ visualSource?: string }>(`/projects/${project}/effective-format`)
+    const fmt = await get<{ visualSource?: string; imagePrompts?: { recommendedAspect?: unknown } }>(`/projects/${project}/effective-format`)
     if (!current()) return
     isContinuity.value = fmt?.visualSource === 'continuity-chain'
+    seedAspectFromFormat(fmt?.imagePrompts?.recommendedAspect)
   } catch {
     if (current()) isContinuity.value = false
   }

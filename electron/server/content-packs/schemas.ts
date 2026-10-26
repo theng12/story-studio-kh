@@ -316,6 +316,21 @@ const SeriesFormulaDocumentSchema = z.object({
   }).strict().optional(),
   intro_defaults: IntroDefaultsSchema.optional(),
   visual_style_hint: safeText(1000).optional(),
+  /**
+   * The frame shape this channel makes. Owner, 2026-10-27: a Quote Shorts
+   * channel is vertical, and until now a Formula could not say so — only a
+   * built-in `Format` carried `imagePrompts.recommendedAspect`, so every pack
+   * Formula was stuck on 16:9 whatever it was for.
+   *
+   * It reaches the same three surfaces the built-in Formats already drive:
+   * Scene Review's ratio, the Image Pool's ratio, and Video Assembly's export
+   * canvas. It is a STARTING value — a saved preset still wins, and the
+   * customer can change it on any page.
+   *
+   * `aspect_ratio` is deliberately the same three shapes the built-in Format
+   * field allows, so no new vocabulary enters the system.
+   */
+  aspect_ratio: z.enum(['16:9', '9:16', '1:1']).optional(),
   /** Present only on a music channel; see MusicFormatSchema. */
   music_format: MusicFormatSchema.optional(),
   starting_scene_seconds: boundedRange(1, 120).optional(),

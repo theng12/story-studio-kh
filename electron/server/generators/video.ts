@@ -38,6 +38,7 @@ import { mulberry32 } from '../lib/seeded-random.js'
 import { MERGED_AUDIO_FILENAME } from '../lib/merged-audio-selection.js'
 import { assertDecodableImage, isDecodableImage } from '../lib/image-validation.js'
 import { getFFmpegPath } from '../services/ffmpeg-manager.js'
+import { bundledFontsFilterOption } from '../lib/subtitle-font-dir.js'
 import { assertValidMedia, getMediaInfo, summarizeMedia, fileExistsNonEmpty } from '../lib/ffmpeg-validation.js'
 import { planTransitions, buildXfadeFilterComplex, buildVariableXfadeFilterComplex, buildEngineTransitionFilterComplex, fallbackXfadeKeywords, hasTransitionEngine } from '../lib/transition-filters.js'
 import { getTransition } from '../models/transitions.js'
@@ -7219,7 +7220,13 @@ async function runFinalComposition(
           // do — see `sceneTimelineOffsetSec`. Suppressing captions during a
           // spoken intro is a separate, deliberate feature:
           // `subtitles.hide_during_intro`, applied by trimming the burn copy.
-          filterParts.push(`${vLabel}ass=filename=${escapeFilterPath(assPath)}${st}`)
+          // `:fontsdir` makes the app's bundled faces resolvable by THIS burn.
+          // Without it a CoreText libass resolves families against macOS's
+          // installed fonts only, so a caption in a bundled face that is not
+          // also installed system-wide was silently drawn in Helvetica. See
+          // `lib/subtitle-font-dir.ts`; empty when the folder is absent, which
+          // leaves the filter exactly as it was.
+          filterParts.push(`${vLabel}ass=filename=${escapeFilterPath(assPath)}${bundledFontsFilterOption()}${st}`)
           const notes = [
             style.word.mode !== 'off' ? `word mode ${style.word.mode} (${rendered.wordPrecision} timing)` : null,
             style.animation.type !== 'none' ? `animation ${style.animation.type}` : null,
@@ -7252,7 +7259,7 @@ async function runFinalComposition(
       // 1920x1080. It corrects libass's aspect-ratio distortion, so pinning it
       // to 16:9 skewed every caption this fallback drew onto a portrait or
       // square frame.
-      filterParts.push(`${vLabel}subtitles=filename=${escapeFilterPath(subtitles.srt_path)}:original_size=${w}x${h}:force_style='${ass}'${st}`)
+      filterParts.push(`${vLabel}subtitles=filename=${escapeFilterPath(subtitles.srt_path)}:original_size=${w}x${h}${bundledFontsFilterOption()}:force_style='${ass}'${st}`)
       job.output_lines.push(`Burning in subtitles: ${path.basename(subtitles.srt_path)}`)
       // `force_style` can express none of the style's word modes, animation,
       // precise placement or line wrapping, so this fallback is a genuine
