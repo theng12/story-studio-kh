@@ -10,8 +10,8 @@
  *   - Side effect: records `clip_path` + `rendered_motion_prompt` back onto the
  *     scene in scene_plan.json (re-read-before-write, like the image path)
  *
- * The image-to-video providers (fal-video / kie-video) already exist — this
- * just wires the per-scene image + motion prompt into them. The clip lives in
+ * The per-scene image + motion prompt goes to the Gateway's image-to-video
+ * lane. The clip lives in
  * the dedicated "11 Video Assets" folder (heavy media → migrates to media_root).
  */
 

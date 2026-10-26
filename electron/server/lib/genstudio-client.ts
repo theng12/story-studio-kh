@@ -5806,8 +5806,8 @@ export async function listVideoModelsSnapshot(
   options: { displayFallback?: boolean } = {},
 ): Promise<GenStudioCatalogSnapshot<GenStudioVideoModel[]>> {
   const snapshot = await loadVideoModelsSnapshot(apiKey, options)
-  // Retired models (the local LTX lane) are dropped here, after the cache, so a
-  // stale or last-good copy written before the retirement cannot bring one back.
+  // Retired models are dropped here, after the cache, so a stale or last-good
+  // copy written before the retirement cannot bring one back.
   return { ...snapshot, value: snapshot.value.filter(model => !isRetiredVideoModel(model)) }
 }
 

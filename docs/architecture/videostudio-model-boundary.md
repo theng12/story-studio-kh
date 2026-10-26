@@ -8,8 +8,8 @@ missing scene image is a **blocking error** — never permission to reuse a diff
 
 Video models resolve through **the one paired Gateway's live catalogue**, the same endpoint every
 other modality uses. Story Studio reads inventory, capability and pricing live on every selection
-change (AGENTS §1) and ships no provider-specific list or second catalogue of its own. Sora 2,
-Runway Gen-3, and text-only endpoints are retired.
+change (AGENTS §1) and ships no provider-specific list or second catalogue of its own. Text-only
+endpoints and the retired direct-provider video lanes are not part of it.
 
 ## Owner note — 2026-10-26
 

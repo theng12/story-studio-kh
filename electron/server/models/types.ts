@@ -452,7 +452,7 @@ export interface ScriptFormat {
     /** Default transition duration in seconds. */
     transitionDurationSec?: number
     /**
-     * Default video-generator aspect ratio (passed to Veo / Sora / fal-video).
+     * Default video-generator aspect ratio (passed to the selected video model).
      * 'landscape' covers 16:9 channels (sleep-story, listicle); 'portrait'
      * is for vertical / Shorts-format channels; 'square' for 1:1 social
      * formats. Optional — formats that omit it fall back to 'landscape'.
@@ -2003,7 +2003,7 @@ export interface AudioModelConfig {
 export interface VideoModelConfig {
   label: string
   credits_per_video: number
-  provider: string  // 'kie-video' | 'fal-video'
+  provider: string  // the provider id the saved entry names
   /** Story Studio supports image-to-video only. */
   modes: Array<'frames'>
   /** Max duration in seconds, if known */
@@ -4196,7 +4196,7 @@ export interface GenerateVideoRequest {
 export type VideoGenerationMode = 'frames'
 
 /**
- * The AI Video Generator's request (Veo / Sora / fal-video via GenStudio).
+ * The AI Video Generator's request (image-to-video via GenStudio).
  *
  * Renamed from `GenerateVideoRequest` in v1.4.15. It shared that name with the
  * local FFmpeg assembly request above, IN THE SAME MODULE, so TypeScript
@@ -4208,7 +4208,7 @@ export type VideoGenerationMode = 'frames'
  */
 export interface GenerateAiVideoRequest {
   episode_id: string
-  model: string            // video model ID (e.g. 'kie-veo3-fast')
+  model: string            // video model ID, resolved from the live GenStudio catalogue
   mode: VideoGenerationMode
   aspect_ratio: 'landscape' | 'portrait'
   number_of_videos_per_prompt: number  // 1-4

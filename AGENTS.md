@@ -196,9 +196,8 @@ because their scene prompts come from Scene Plan.
 
 **Video.** Image-to-video only — never restore text-to-video modes, models, UI controls, preset
 values, or fallbacks. (Owner, 2026-10-26: text-to-video may become a future feature, but he has not
-decided; changing this is his call, not an implementation task.) Sora 2 and Runway Gen-3 are
-retired. Video models resolve through the one paired Gateway's live catalogue — do not half-wire or
-duplicate a second catalogue. Every request uses the exact scene image for its stable scene number,
+decided; changing this is his call, not an implementation task.) Video models resolve through the
+one paired Gateway's live catalogue — do not half-wire or duplicate a second catalogue. Every request uses the exact scene image for its stable scene number,
 and a missing image is a **blocking error**, never permission to reuse a different one.
 
 **Model inventory.** Do not restore the Add Custom Model form, a project-level `models` catalog,
