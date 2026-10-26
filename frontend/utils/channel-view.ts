@@ -13,11 +13,13 @@
  *
  * ── What search matches ──
  *
- * The channel's NAME, its LABELS, its episode prefix and its audience language
- * — the things the card actually shows. Deliberately not the slug, the stored
- * Formula id or anything else the card does not name: a channel that appears in
- * the results with no visible reason for it reads as a bug, and this app has
- * been bitten before by a value nobody could see deciding what someone got.
+ * The channel's NAME, its LABELS, its episode prefix, its audience language and
+ * its Series Formula (name and id) — the things the card actually shows.
+ * Deliberately not the slug or anything else the card does not name: a channel
+ * that appears in the results with no visible reason for it reads as a bug, and
+ * this app has been bitten before by a value nobody could see deciding what
+ * someone got. The Formula's ID is matched even though the card shows its name,
+ * because that is the id the customer sees in Settings and may well paste.
  *
  * ── What is remembered ──
  *
@@ -47,6 +49,12 @@ export interface ChannelRow {
   labels?: unknown
   content_language?: unknown
   last_worked_at?: unknown
+  /** The Formula's resolved display name, resolved server-side per list. */
+  formula_name?: unknown
+  /** The qualified Formula id the stored `niche_id` reads as. */
+  formula_id?: unknown
+  /** The stored (possibly legacy) Formula id. */
+  niche_id?: unknown
 }
 
 // ── sorting ─────────────────────────────────────────────────────────────────
@@ -62,6 +70,19 @@ export const CHANNEL_SORT_LABELS: Readonly<Record<ChannelSort, string>> = {
   oldest: 'Oldest',
 }
 export const DEFAULT_CHANNEL_SORT: ChannelSort = 'recent'
+
+/**
+ * What each sort orders by, in the owner's words — shown as the control's
+ * tooltip. "Recently worked on" is the one that needs saying: it is measured
+ * through the episode tree, not by when the channel folder changed, and a
+ * person cannot see that from the label alone.
+ */
+export const CHANNEL_SORT_HINTS: Readonly<Record<ChannelSort, string>> = {
+  recent: 'Newest work anywhere in the channel — inside episodes too: scripts, scene plans, audio, images, renders and their sidecars. Caches, _trash and lock files do not count.',
+  name: 'Alphabetical by channel name.',
+  newest: 'Channels created most recently first.',
+  oldest: 'Channels created longest ago first.',
+}
 
 export function isChannelSort(value: unknown): value is ChannelSort {
   return typeof value === 'string' && (CHANNEL_SORTS as readonly string[]).includes(value)
@@ -139,8 +160,26 @@ export function channelSearchText(row: ChannelRow | null | undefined): string {
     row?.episode_prefix,
     language,
     row?.content_language,
+    formulaLabel(row),
+    // The id as stored and as resolved: a legacy channel stores `sleep`, which
+    // reads as the store Formula, and both spellings are worth finding it by.
+    row?.niche_id,
+    row?.formula_id,
     ...labels,
   ].filter(Boolean).join(' '))
+}
+
+/**
+ * The Formula line on a card, or '' when the row carries no name.
+ *
+ * The name is resolved server-side (`formula_name`), because only the backend
+ * can read which Formulas are installed without shipping a catalogue to the
+ * page. A row without it — one painted from the last-known list by a build that
+ * did not read it, or an answer that could not be resolved — says NOTHING:
+ * that is unknown, and it must not be shown as "No Formula chosen" (AGENTS §6).
+ */
+export function formulaLabel(row: ChannelRow | null | undefined): string {
+  return typeof row?.formula_name === 'string' ? row.formula_name.trim() : ''
 }
 
 export function matchesChannelSearch(row: ChannelRow | null | undefined, query: string): boolean {

@@ -30,6 +30,7 @@ import {
   channelSearchText,
   filterChannelsByLabels,
   filtersAreActive,
+  formulaLabel,
   isChannelSort,
   isTypingTarget,
   labelCounts,
@@ -50,6 +51,9 @@ type Row = {
   labels?: string[]
   content_language?: string
   last_worked_at?: string | null
+  formula_name?: string
+  formula_id?: string
+  niche_id?: string
 }
 
 function row(name: string, extra: Partial<Row> = {}): Row {
@@ -114,6 +118,46 @@ describe('channel search', () => {
     assert.equal(languageLabel(''), '', 'an unset language shows nothing rather than an invented name')
     assert.equal(languageLabel(undefined), '')
     assert.equal(languageLabel('fr'), '', 'an unknown code is not guessed at')
+  })
+})
+
+describe('the Series Formula on a card', () => {
+  const formulaChannels: Row[] = [
+    row('Sleep Stories', { formula_name: 'Sleep Story', formula_id: 'com.storystudio.formula.sleep-story', niche_id: 'sleep' }),
+    row('Quiet Rain', { formula_name: 'Generic — no Formula' }),
+    row('Ancient Empires', { formula_name: 'History, Explained', formula_id: 'com.storystudio.formula.history-explained', niche_id: 'history-narration' }),
+    row('Brand New', { formula_name: 'No Formula chosen' }),
+  ]
+
+  test('searching the Formula NAME finds the channels that use it', () => {
+    assert.deepEqual(names(formulaChannels.filter(r => matchesChannelSearch(r, 'sleep story'))), ['Sleep Stories'])
+    assert.deepEqual(names(formulaChannels.filter(r => matchesChannelSearch(r, 'history, explained'))), ['Ancient Empires'])
+  })
+
+  test('the Formula ID is searchable too — the id the customer sees in Settings', () => {
+    assert.deepEqual(
+      names(formulaChannels.filter(r => matchesChannelSearch(r, 'com.storystudio.formula.history-explained'))),
+      ['Ancient Empires'],
+    )
+    // The legacy id a channel still stores reads as the store Formula, and both
+    // spellings find it.
+    assert.deepEqual(names(formulaChannels.filter(r => matchesChannelSearch(r, 'sleep'))), ['Sleep Stories'])
+  })
+
+  test('the two "no Formula" answers are findable as what they say', () => {
+    assert.deepEqual(names(formulaChannels.filter(r => matchesChannelSearch(r, 'generic'))), ['Quiet Rain'])
+  })
+
+  test('formulaLabel is the resolved name, and says NOTHING when the row carries none', () => {
+    assert.equal(formulaLabel(formulaChannels[0]), 'Sleep Story')
+    assert.equal(formulaLabel(row('Old cached row')), '', 'an unknown Formula is not "No Formula chosen"')
+    assert.equal(formulaLabel(null), '')
+    assert.equal(formulaLabel({ formula_name: '  ' }), '')
+  })
+
+  test('a Khmer Formula name is found by Khmer text (the same folding as every other fact)', () => {
+    const khmer = row('រឿងព្រេង', { formula_name: 'រឿងនិទាន​ខ្មែរ' })
+    assert.equal(matchesChannelSearch(khmer, 'រឿងនិទានខ្មែរ'), true)
   })
 })
 

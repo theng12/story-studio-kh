@@ -13,7 +13,7 @@ import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-
 import type { ProjectMeta } from '../models/types.js'
 import type { JobType } from '../models/types.js'
 import { createProjectWithContentSelections } from '../content-packs/project-pins.js'
-import { loadNiche } from '../services/niche-loader.js'
+import { loadNiche, withFormulaLabels } from '../services/niche-loader.js'
 import { seedFormulaStartingDefaults } from '../services/formula-starting-defaults.js'
 import { getIdeas } from '../services/idea-manager.js'
 import { readYouTubeProjectPublishingState } from '../services/youtube-project-publishing-store.js'
@@ -48,7 +48,11 @@ router.get('/projects', async (_req, res) => {
         + 'If you moved it, point Story Studio at the new place in Settings → Storage.',
     })
   }
-  res.json(await pm.listProjects())
+  // The Formula NAME is resolved here rather than in `listProjects`, in one
+  // catalogue lookup shared by every row: the card must show the name of the
+  // Formula this machine has, and `listProjects` is called by routes that do
+  // not render a card.
+  res.json(await withFormulaLabels(await pm.listProjects()))
 })
 
 //

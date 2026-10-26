@@ -102,9 +102,9 @@
         </p>
 
         <!-- Finding a channel among two dozen. The search reads the card, not
-             the disk: it matches the name, the labels, the episode prefix and
-             the audience language — the things each card already says, so every
-             result has a visible reason for being in it. -->
+             the disk: it matches the name, the labels, the Series Formula, the
+             episode prefix and the audience language — the things each card
+             already says, so every result has a visible reason for being in it. -->
         <div class="channel-tools">
           <div class="channel-search">
             <svg class="channel-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -118,7 +118,7 @@
               class="channel-search-field"
               type="search"
               placeholder="Search channels"
-              aria-label="Search channels by name, label or language"
+              aria-label="Search channels by name, label, Formula or language"
               autocomplete="off"
               spellcheck="false"
             />
@@ -134,9 +134,13 @@
               @click="search = ''"
             >&times;</button>
           </div>
-          <label class="channel-sort" for="channel-sort">
+          <!-- The tooltip says what the chosen sort actually measures. "Recently
+               worked on" is measured through the episode tree, not by the
+               channel folder's own timestamp, and a person cannot see that from
+               the label alone. -->
+          <label class="channel-sort" for="channel-sort" :title="CHANNEL_SORT_HINTS[sort]">
             <span>Sort</span>
-            <select id="channel-sort" v-model="sort" class="input channel-sort-select">
+            <select id="channel-sort" v-model="sort" class="input channel-sort-select" :title="CHANNEL_SORT_HINTS[sort]">
               <option v-for="option in CHANNEL_SORTS" :key="option" :value="option">
                 {{ CHANNEL_SORT_LABELS[option] }}
               </option>
@@ -496,10 +500,12 @@ import { CONTENT_LANGUAGE_OPTIONS } from '~/utils/content-language'
 import {
   CHANNEL_SORTS,
   CHANNEL_SORT_LABELS,
+  CHANNEL_SORT_HINTS,
   MAX_PROJECT_LABELS,
   MAX_PROJECT_LABEL_LENGTH,
   applyChannelFilters,
   channelLabels,
+  formulaLabel,
   isTypingTarget,
   labelCounts,
   labelSuggestions,
@@ -739,18 +745,25 @@ onMounted(() => document.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 /**
- * Cards carry the owner's labels first, then the audience language when it has
- * one.
+ * Cards carry the Series Formula first, then the owner's labels, then the
+ * audience language when it has one.
+ *
+ * The Formula is what most of the card's other choices follow from, so it leads.
+ * Its name is resolved server-side (`formula_name`); a row without one — the
+ * last-known-list cache from an older build — shows no Formula tag rather than
+ * claiming "No Formula chosen".
  *
  * The language is dropped when a label already says the same word: the owner's
  * Khmer channels are labelled "Khmer", and "Khmer Khmer" on one card reads as a
  * duplicate rather than as two facts. The search still matches the language
  * either way — this is about what is worth reading, not about what is indexed.
  */
-function cardTags(project: any): Array<{ text: string; kind: 'label' | 'language' }> {
+function cardTags(project: any): Array<{ text: string; kind: 'formula' | 'label' | 'language' }> {
+  const tags: Array<{ text: string; kind: 'formula' | 'label' | 'language' }> = []
+  const formula = formulaLabel(project)
+  if (formula) tags.push({ text: formula, kind: 'formula' })
   const labels = channelLabels(project)
-  const tags: Array<{ text: string; kind: 'label' | 'language' }> = labels
-    .map(text => ({ text, kind: 'label' as const }))
+  tags.push(...labels.map(text => ({ text, kind: 'label' as const })))
   const language = languageLabel(project?.content_language)
   if (language && !labels.some(label => sameLabel(label, language))) {
     tags.push({ text: language, kind: 'language' })
@@ -1504,6 +1517,15 @@ onMounted(async () => {
   font-size: var(--font-xs);
   font-weight: 650;
   line-height: 1.5;
+}
+/* The Series Formula is a fact about the channel, not one of the owner's own
+   labels: a neutral outline rather than the accent-filled label pill, so a card
+   never reads "Khmer" and "Pastoral Scripture" as the same kind of word. */
+.project-tag[data-kind='formula'] {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+  font-weight: 600;
 }
 .project-tag[data-kind='language'] {
   border-color: var(--border);
