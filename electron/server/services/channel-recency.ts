@@ -59,6 +59,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 
+import { TRASH_DIRNAME } from '../lib/trash-move.js'
 import { DEFAULT_SUBFOLDER_NAMES, type SubfolderNames } from '../models/types.js'
 
 /** Channel-level files a person or a generator edits. */
@@ -83,7 +84,7 @@ const CHANNEL_WORK_FILES = [
 const TEXT_SUBFOLDER_KEYS = ['script', 'metadata', 'scene_prompts', 'thumb_prompts', 'subtitles'] as const
 
 /** Housekeeping, never work. Dot-entries are covered by `skipEntry`. */
-const IGNORED_NAMES = new Set(['_trash', '_backups', 'node_modules'])
+const IGNORED_NAMES = new Set([TRASH_DIRNAME, '_backups', 'node_modules'])
 
 /**
  * An episode folder is named `<CODE> - <title>`, with the code at the front.

@@ -4829,9 +4829,15 @@ async function readPersistedJobs(projectSlug: string): Promise<Job[]> {
             }
             continue
           }
+          // Only a WELL-FORMED refused receipt may keep a terminal status here (14dc367f: a refused
+          // render that finished, or was stopped, on this Mac is not put back in the lane). A
+          // malformed, unknown-version, non-refused or snapshot-missing marker row keeps 1.4.359's
+          // recovery fence whatever its saved status says — those rows have no local completion
+          // to honour, and dropping the fence let them be removed, cleared, retried or abandoned.
+          const refusedReceiptKeepsTerminal = isRefusedFinalRender(j) && TERMINAL_JOB_STATUSES.has(j.status)
           if (j.type === 'video_assembly' && hasFinalRenderRemoteWaitMarker(j)
             && !await restoreConsumedFinalRenderTerminal(j)
-            && !TERMINAL_JOB_STATUSES.has(j.status)
+            && !refusedReceiptKeepsTerminal
             && !(isRefusedFinalRender(j) && await hasDurableFinalRenderPrivateSnapshot(j.final_render_remote_wait!))) {
             j.status = 'running'
             j.finished_at = null
