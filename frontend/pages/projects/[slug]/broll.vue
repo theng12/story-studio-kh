@@ -657,15 +657,31 @@ const form = reactive({
 // stay OUTSIDE the snapshot — pool subscription is a per-project setting
 // stored in config.json (not a preset concept), and manual-mode picks
 // are per-episode by definition. Presets here capture the *tuning*
-// (selection mode, tags, pacing, motion, transitions, volume, lookback)
-// that a user wants to reuse across episodes or channels.
+// (selection mode, tags, pacing, motion, transitions, volume, lookback,
+// spoken language) that a user wants to reuse across episodes or channels.
+//
+// 2026-10-27 — `brollGenstudioModel` joins the snapshot. It is a reusable
+// CHOICE (which transcription model this channel uses), not episode state, and
+// it had no durable home at all: this page remembered it nowhere, so every
+// visit started on whatever the live catalogue picked. Subtitles has always
+// saved the same field in its preset (`subtitles_generator`), and Pipeline
+// reads `subtitles_generator_presets` for exactly that reason — a channel that
+// standardises on one model could not say so here. The live value is applied
+// only when the preset stores one, so a preset saved before this key existed
+// leaves the catalogue's pick standing rather than blanking it (AGENTS.md §5,
+// trap 1).
 const brollPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'broll',
   presetType: 'broll',
-  snapshot: () => ({ form: { ...form } }),
+  snapshot: () => ({ form: { ...form }, transcription_model: brollGenstudioModel.value }),
   apply: (data) => {
     if (data?.form) Object.assign(form, data.form)
+    // A retired or renamed model is not restored blind: the catalogue heal in
+    // `useGenStudioTranscriptionModels.load()` replaces it with a live one.
+    if (typeof data?.transcription_model === 'string' && data.transcription_model) {
+      brollGenstudioModel.value = data.transcription_model
+    }
   },
 })
 

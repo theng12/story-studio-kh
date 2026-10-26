@@ -833,9 +833,17 @@ const autoApproveGenerated = ref(true)
 // Presets saved by older builds can still carry retired quality, step-count,
 // and pixel-size keys. They are simply not read — a saved project keeps
 // loading, and nothing revives a control GenStudio never published.
+//
+// 2026-10-27 — the published OUTPUT SIZE travels too. It is a reusable render
+// choice like the ratio beside it, each row is priced differently, and until now
+// no preset carried it: a channel that renders at 2K re-picked 2K on every
+// episode, and Pipeline's batch used whatever the live default resolved to.
+// Stored as the `(resolution, aspect_ratio)` PAIR, because the pair is the row
+// GenStudio published (§1) — never a resolution copied out of a catalogue.
 const srPresets = usePresets<{
   model: string
   aspect_ratio: string
+  output_option?: OutputOptionChoice
   seed?: string | number
   auto_approve_generated?: boolean
 }>({
@@ -845,12 +853,20 @@ const srPresets = usePresets<{
   snapshot: () => ({
     model: form.value.model,
     aspect_ratio: form.value.aspect_ratio,
+    ...(outputOption.value ? { output_option: { ...outputOption.value } } : {}),
     seed: form.value.seed,
     auto_approve_generated: autoApproveGenerated.value,
   }),
   apply: (data) => {
     if (typeof data.model === 'string') form.value.model = data.model
     if (typeof data.aspect_ratio === 'string') form.value.aspect_ratio = data.aspect_ratio
+    // A stored pair that the model no longer publishes is not forced: the picker
+    // re-reconciles against the live catalogue and says what it moved to. A
+    // preset saved before this key existed leaves the picker's own default.
+    const stored = (data as { output_option?: OutputOptionChoice }).output_option
+    if (stored && typeof stored.resolution === 'string' && typeof stored.aspect_ratio === 'string') {
+      outputOption.value = { resolution: stored.resolution, aspect_ratio: stored.aspect_ratio }
+    }
     if (typeof data.seed === 'string' || typeof data.seed === 'number') form.value.seed = data.seed
     autoApproveGenerated.value = data.auto_approve_generated !== false
   },

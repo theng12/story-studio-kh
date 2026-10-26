@@ -4861,6 +4861,13 @@ const timelinePresets = usePresets({
   }),
   apply: (data: any) => {
     if (!data) return
+    // The reveal look is SAVED above, so it must be RESTORED here too. Until
+    // 2026-10-27 this branch had no call: the Timeline preset stored
+    // `scene_reveal` and applying the preset left whatever was on screen, so the
+    // page showed one look, the saved preset held another, and the batch
+    // flattener rendered the preset's. The bundle path already went through
+    // `applyTimelineData`, which is why only this slot was wrong.
+    applyRevealBundle(data)
     applyTitleImagePreset(titleImage, data.title_image)
     if (data.scene_recycling) Object.assign(sceneRecycling, data.scene_recycling)
     if (data.post_audio) applyPostAudioPreset(data.post_audio)

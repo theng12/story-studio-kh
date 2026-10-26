@@ -766,7 +766,7 @@ async function useStill(filename: string, usedBy?: string | null) {
 }
 
 // Pictures preset: the image model Pipeline's Scene Pictures step uses (shared with Scene Review's presets).
-const picturePresets = usePresets<{ model: string; aspect_ratio?: string; auto_approve_generated?: boolean }>({
+const picturePresets = usePresets<{ model: string; aspect_ratio?: string; output_option?: OutputOptionChoice; auto_approve_generated?: boolean }>({
   slug: slug.value,
   configKey: 'scene_review_genstudio',
   presetType: 'scene-review',
@@ -775,9 +775,22 @@ const picturePresets = usePresets<{ model: string; aspect_ratio?: string; auto_a
     // Omitted when no row is chosen — a missing ratio is resolved by the
     // backend's shared Story default, never stored as a local 16:9.
     ...(outputOption.value?.aspect_ratio ? { aspect_ratio: outputOption.value.aspect_ratio } : {}),
+    // 2026-10-27 — the published row travels too, so a channel that renders at
+    // 2K keeps rendering at 2K. It was stored nowhere before: this page's apply
+    // restored only the model, and Scene Review's preset (the same pool) did not
+    // carry the size either. The pair IS the published row (§1).
+    ...(outputOption.value ? { output_option: { ...outputOption.value } } : {}),
     auto_approve_generated: true,
   }),
-  apply: (data) => { if (typeof data?.model === 'string') imageForm.value.model = data.model },
+  apply: (data) => {
+    if (typeof data?.model === 'string') imageForm.value.model = data.model
+    // A pair the model no longer publishes is left to the picker's reconcile,
+    // which moves it to a live row and says so.
+    const stored = data?.output_option
+    if (stored && typeof stored.resolution === 'string' && typeof stored.aspect_ratio === 'string') {
+      outputOption.value = { resolution: stored.resolution, aspect_ratio: stored.aspect_ratio }
+    }
+  },
 })
 async function finishPreset(work: Promise<unknown> | unknown, message: string) {
   try { await work; success(message) } catch (e: any) { showError(e?.data?.detail || e?.message || 'Could not save the preset') }
