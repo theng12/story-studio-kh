@@ -173,13 +173,15 @@ test('Khmer and English takes are judged against their own language\'s history',
   service._clearNarrationPlausibilityPool()
   const slug = await newProject('Mixed languages', 'MX')
   // Khmer reads 6 characters/s here, English 10 — pooled, both would look normal.
-  for (let index = 0; index < 3; index++) {
+  // Two episodes each: the walk reads the newest RATE_POLICY.history_episodes (4),
+  // so both languages must fit inside it with min_samples (6) takes apiece.
+  for (let index = 0; index < 2; index++) {
     const episode = await addEpisode(slug, `Khmer ${index + 1}`)
     await writeTakes(episode, [1, 2, 3, 4].map(number => ({
       slug: `Chapter_0${number}`, text: KHMER(1200), cps: 6,
     })))
   }
-  for (let index = 0; index < 3; index++) {
+  for (let index = 0; index < 2; index++) {
     const episode = await addEpisode(slug, `English ${index + 1}`)
     await writeTakes(episode, [1, 2, 3, 4].map(number => ({
       slug: `Chapter_0${number}`, text: ENGLISH(1200), cps: 10,

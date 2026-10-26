@@ -58,7 +58,7 @@ describe('user-facing errors name the gateway or nobody', () => {
   test('the unavailable-video-model error does not list the retired fallbacks', () => {
     const source = read('../generators/scene-clip.ts')
     assert.equal(/no fal\.ai, Kie\.ai, or Studio Hub fallback/.test(source), false)
-    assert.match(source, /no other route was attempted/)
+    assert.match(source, /VIDEO_MODEL_UNAVAILABLE_MESSAGE/)
   })
 })
 

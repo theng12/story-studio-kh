@@ -25,7 +25,8 @@ test('scene motion resolves only available Gateway video catalog entries', () =>
     resolveSceneClipCatalogModel('genstudio-video:genstudio-video-veo-31-v1', catalog),
     'genstudio-video-veo-31-v1',
   )
-  assert.equal(resolveSceneClipCatalogModel('fal-veo-3.1-i2v', catalog), 'genstudio-video-veo-31-v1')
+  // Retired direct-provider ids no longer map to a live row (owner, 2026-10-26).
+  assert.equal(resolveSceneClipCatalogModel('fal-veo-3.1-i2v', catalog), null)
   assert.equal(resolveSceneClipCatalogModel('kie-kling-3', catalog), null)
   assert.equal(resolveSceneClipCatalogModel('unmapped-direct-provider-model', catalog), null)
 })
@@ -71,9 +72,8 @@ test('scene motion and planning source contain no executable direct provider or 
   assert.doesNotMatch(plan, /studiohub-client|hubSubmitChatPacks|hubPollChatPacks|getApiKey\(['"](?:openai|anthropic|kie)['"]\)/)
   assert.match(reviewRoute, /requireSceneClipGenStudioModel\(model,\s*requestedVariant\)/)
   assert.match(planRoute, /requireScenePlanGenStudioModel\(model\)/)
-  // The error still states that nothing else was tried; it no longer names the
-  // retired upstreams, which was private routing detail on the customer's screen.
-  assert.match(clip, /no other route was attempted/)
+  // An unavailable model gets the one generic sentence and names no retired upstream.
+  assert.match(clip, /VIDEO_MODEL_UNAVAILABLE_MESSAGE/)
   assert.doesNotMatch(clip, /fal\.ai|Kie\.ai/)
   assert.match(plan, /Scene planning did not call any fallback route/)
 })
