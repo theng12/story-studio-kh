@@ -58,7 +58,7 @@ function normalizeSlug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-async function activeChapters(episodeDir: string): Promise<AudioChapter[]> {
+export async function activeAudioChapters(episodeDir: string): Promise<AudioChapter[]> {
   try {
     const parsed = JSON.parse(await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf8')) as {
       sections?: Array<{ slug?: unknown; source_file?: unknown; source_files?: unknown }>
@@ -87,7 +87,7 @@ async function activeChapters(episodeDir: string): Promise<AudioChapter[]> {
  * the run (expression and pause tags, since removed), so such a run learned at
  * quality-check time that "the script changed" when the customer had changed nothing.
  *
- * The recomputation trims before normalizing (`currentScript()` returns a
+ * The recomputation trims before normalizing (`readCurrentChapterScript()` returns a
  * trimmed string), so this does too: the two must be byte-identical inputs.
  */
 export function chapterScriptFingerprint(rawSectionText: string): string {
@@ -100,11 +100,11 @@ async function currentScriptHash(scriptDir: string, episodeCode: string, slug: s
 
 /** Shared with the local post-promotion refresh before it records active provenance. */
 export async function currentChapterScriptHash(scriptDir: string, episodeCode: string, slug: string): Promise<string | null> {
-  const current = await currentScript(scriptDir, episodeCode, slug)
+  const current = await readCurrentChapterScript(scriptDir, episodeCode, slug)
   return current ? chapterScriptFingerprint(current) : null
 }
 
-async function currentScript(scriptDir: string, episodeCode: string, slug: string): Promise<string | null> {
+export async function readCurrentChapterScript(scriptDir: string, episodeCode: string, slug: string): Promise<string | null> {
   const code = episodeCode.toUpperCase()
   const entries = await fs.readdir(scriptDir).catch(() => [] as string[])
   const exact = entries.find(file => file.toLowerCase() === `${code}_${slug}.md`.toLowerCase()
@@ -180,7 +180,7 @@ function row(
 export async function inspectChapterAudioQuality(input: InspectChapterAudioQualityInput): Promise<ChapterAudioQualityReport> {
   const code = input.episodeCode.toUpperCase()
   const [chapters, provenance, freshness, completion] = await Promise.all([
-    activeChapters(input.episodeDir),
+    activeAudioChapters(input.episodeDir),
     readAudioQualityProvenance(input.episodeDir),
     inspectSubtitleSourceFreshness(input.episodeDir, input.audioDir, input.subtitlesDir, code, input.scriptDir),
     inspectSubtitleCompletion(input.episodeDir, input.subtitlesDir, code, { require_per_section: true }),
@@ -225,7 +225,7 @@ export async function inspectChapterAudioQuality(input: InspectChapterAudioQuali
     if (!correction?.accepted) {
       const [review, script] = await Promise.all([
         currentRawEvidence(input.subtitlesDir, code, chapter.slug),
-        currentScript(input.scriptDir, code, chapter.slug),
+        readCurrentChapterScript(input.scriptDir, code, chapter.slug),
       ])
       result.push(reviewRow(
         chapter.slug,
@@ -260,7 +260,7 @@ export async function inspectAudioQualityActionScope(
     .filter(Boolean))]
   if (!requested.length) throw new Error('Select one or more generated audio chapters to check.')
 
-  const chapters = await activeChapters(input.episodeDir)
+  const chapters = await activeAudioChapters(input.episodeDir)
   const byNormalizedSlug = new Map(chapters.map(chapter => [normalizeSlug(chapter.slug), chapter]))
   const selected = requested.map(section => byNormalizedSlug.get(normalizeSlug(section))).filter((chapter): chapter is AudioChapter => !!chapter)
   if (selected.length !== requested.length) {

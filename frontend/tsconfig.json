@@ -15,6 +15,7 @@
       "@shared/subtitle-gaps": ["../electron/server/contracts/subtitle-gaps.ts"],
       "@shared/section-quality": ["../electron/server/contracts/section-quality.ts"],
       "@shared/narration-staleness": ["../electron/server/contracts/narration-staleness.ts"],
+      "@shared/narration-plausibility": ["../electron/server/contracts/narration-plausibility.ts"],
       "@shared/thumbnail-text": ["../electron/server/contracts/thumbnail-text.ts"],
       "@shared/thumbnail-overlay": ["../electron/server/contracts/thumbnail-overlay.ts"],
       "@shared/thumbnail-counts": ["../electron/server/contracts/thumbnail-counts.ts"],

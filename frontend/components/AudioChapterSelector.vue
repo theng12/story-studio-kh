@@ -214,6 +214,11 @@
         <p v-if="s.needs_narration" class="cs-needs-narration">
           Needs narration — {{ rejectedReason(s) }}. Restore it in Versions, or generate this chapter again.
         </p>
+        <p
+          v-if="s.narration_plausibility?.state === 'flagged'"
+          class="cs-rate-warning"
+          role="status"
+        >⚠ Reading rate looks wrong. {{ s.narration_plausibility.detail }}</p>
         <p v-if="sectionChecks[s.slug]" class="cs-section-check" :class="{ failed: !!sectionChecks[s.slug]!.failed }">
           {{ describeChapterSectionQuality(sectionChecks[s.slug]!) }}
         </p>
@@ -347,6 +352,7 @@
 <script setup lang="ts">
 import { FREE_MAC_WAIT_REASON } from '@shared/provider-task-state'
 import type { NarrationStaleness } from '@shared/narration-staleness'
+import type { NarrationPlausibilityEvidence } from '@shared/narration-plausibility'
 import { describeChapterSectionQuality, type ChapterSectionQuality } from '@shared/section-quality'
 import type { Job } from '~/composables/useJobs'
 import {
@@ -376,6 +382,13 @@ interface SectionRow {
   subtitles_stale?: boolean
   /** Optional project-scoped quality evidence for the active audio mapping. */
   quality?: AudioQualityEvidence
+  /**
+   * Script length against the active take's length, compared with this voice's
+   * own accepted history (services/narration-plausibility.ts). `flagged` means
+   * the take reads far outside the usual rate — the measurement that catches
+   * gibberish narration without a transcript. It warns; it never blocks.
+   */
+  narration_plausibility?: NarrationPlausibilityEvidence
   /** Narration takes of this chapter on disk; more than one offers "Use This Version". */
   takes_count?: number
   /** Every usable take was rejected: this chapter has to be narrated again (owner, 2026-10-26). */
@@ -1113,6 +1126,16 @@ watch(
 .cs-quality-pill[data-tone="info"] { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); color: var(--accent); }
 .cs-quality-pill[data-tone="success"] { border-color: rgba(34, 197, 94, .35); color: rgb(22, 163, 74); }
 .cs-quality-pill[data-tone="warning"] { border-color: rgba(234, 179, 8, .4); color: rgb(202, 138, 4); }
+/* A take whose length does not match its script at this voice's usual rate. */
+.cs-rate-warning {
+  margin: 4px 0 0 28px;
+  padding: 6px 10px;
+  border-left: 3px solid rgba(234, 179, 8, .7);
+  border-radius: 4px;
+  background: rgba(234, 179, 8, .08);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+}
 /* What the Mac's section check found for this chapter (Hub 0.6.137+). */
 .cs-section-check {
   margin: 4px 0 0 28px;

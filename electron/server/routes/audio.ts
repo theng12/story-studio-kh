@@ -793,6 +793,7 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
 
     let staleSubtitleSections = new Set<string>()
     let qualityBySection = new Map<string, any>()
+    let plausibilityBySection = new Map<string, any>()
     let qualityRepairBySection = new Map<string, any>()
     const activeChecksBySection = new Map<string, any>()
     try {
@@ -818,6 +819,30 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
           episodeCode: req.params.code,
         })
         qualityBySection = new Map(quality.chapters.map(row => [row.slug.toLowerCase(), row]))
+      }
+      // Speaking-rate plausibility (owner, 2026-10-26): the script's length against
+      // the active take's length, compared with this voice's own accepted history.
+      // No speech recognition (Khmer is script-timed by design). It is NOT gated by
+      // `audio_quality.mode` — that switch governs the transcript check, and the
+      // channels this exists for have it off. It warns; it never blocks narration or
+      // Audio Assembly, so a failed scan must not fail the page either.
+      {
+        try {
+          const projectDir = pm.getProjectDir(req.params.slug)
+          if (projectDir) {
+            const { inspectNarrationPlausibility } = await import('../services/narration-plausibility.js')
+            const plausibility = await inspectNarrationPlausibility({
+              projectSlug: req.params.slug,
+              projectDir,
+              episodeCode: req.params.code,
+              episodeDir: paths.episode_dir,
+              audioDir: paths.audio_dir,
+              scriptDir: paths.script_dir,
+            })
+            plausibilityBySection = new Map(Object.entries(plausibility)
+              .map(([slug, evidence]) => [slug.toLowerCase(), evidence]))
+          }
+        } catch { /* the rate check is advisory; the section list must still load */ }
       }
       const qualityActions = qualityEnabled ? await readAudioQualityProvenance(paths.episode_dir) : null
       const newestActions = Object.values(qualityActions?.actions || {})
@@ -916,6 +941,8 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
     const sections = await Promise.all(
       Array.from(bySlug.values()).map(async s => {
         const rejected = takeRejections ? rejectionsForSection(takeRejections, s.slug) : []
+        const audioStaleness = await sectionStaleness(s.slug)
+        const plausibility = plausibilityBySection.get(s.slug.toLowerCase())
         const { files, ...rest } = s
         return {
           ...rest,
@@ -947,8 +974,11 @@ router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => 
           // user can choose to regenerate; we do NOT auto-delete. The answer
           // carries its basis, so the UI never claims "the script changed"
           // when the legacy mtime fallback is what noticed (AGENTS.md §6).
-          audio_staleness: await sectionStaleness(s.slug),
+          audio_staleness: audioStaleness,
           subtitles_stale: staleSubtitleSections.has(s.slug.toLowerCase()),
+          // A rate measured against text the take was not made from is not
+          // evidence about the take: the "stale" pill already says to re-narrate.
+          ...(plausibility && audioStaleness.state !== 'stale' ? { narration_plausibility: plausibility } : {}),
           ...(qualityBySection.has(s.slug.toLowerCase())
             ? { quality: {
               ...qualityBySection.get(s.slug.toLowerCase()),
