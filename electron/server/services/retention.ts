@@ -226,6 +226,7 @@ async function due(last: RetentionRunStatus | null, memory: number, now: number,
 let lastHandoffAttempt = 0
 let lastCleanupAttempt = 0
 let lastRejectedTakeSweep = 0
+let lastReplacedFinalSweep = 0
 let ticking = false
 
 /**
@@ -265,8 +266,8 @@ export async function sweepRejectedNarrationTakes(now = Date.now()): Promise<{
  * One scheduler tick: the Trash handoff, then the automatic cleanup, each at
  * most once per day. Returns what each decided, for tests and the log.
  */
-export async function retentionTick(now = Date.now()): Promise<{ handoff: string; cleanup: string; rejected_takes: string }> {
-  if (ticking) return { handoff: 'busy', cleanup: 'busy', rejected_takes: 'busy' }
+export async function retentionTick(now = Date.now()): Promise<{ handoff: string; cleanup: string; rejected_takes: string; replaced_finals: string }> {
+  if (ticking) return { handoff: 'busy', cleanup: 'busy', rejected_takes: 'busy', replaced_finals: 'busy' }
   ticking = true
   try {
     const settings = await getRetentionSettings()
@@ -319,7 +320,25 @@ export async function retentionTick(now = Date.now()): Promise<{ handoff: string
         console.log(`[rejected-takes] sweep failed: ${error?.message || error}`)
       }
     }
-    return { handoff, cleanup, rejected_takes }
+    // A final video a re-assembly replaced is kept for three days and then
+    // handed to Story's one Trash (owner, 2026-10-27). Same daily schedule, and
+    // it runs whether or not the cleanup ran: the two decide different files.
+    let replaced_finals = 'recent'
+    if (now - lastReplacedFinalSweep >= DAY_MS) {
+      lastReplacedFinalSweep = now
+      try {
+        const { sweepRetainedFinalVideos } = await import('./final-video-retention.js')
+        const result = await sweepRetainedFinalVideos(now)
+        result.lines.forEach(line => console.log(`[replaced-finals] ${line}`))
+        replaced_finals = result.swept
+          ? `moved ${result.swept} replaced final${result.swept === 1 ? '' : 's'} to Story's Trash`
+          : result.deferred ? `${result.deferred} could not be moved` : 'none'
+      } catch (error: any) {
+        replaced_finals = `failed: ${error?.message || error}`
+        console.log(`[replaced-finals] ${replaced_finals}`)
+      }
+    }
+    return { handoff, cleanup, rejected_takes, replaced_finals }
   } finally {
     ticking = false
   }
@@ -333,5 +352,5 @@ export function startRetentionScheduler(log: (error: unknown) => void): void {
 }
 
 export const _forTesting = {
-  reset(): void { lastHandoffAttempt = 0; lastCleanupAttempt = 0; ticking = false },
+  reset(): void { lastHandoffAttempt = 0; lastCleanupAttempt = 0; lastReplacedFinalSweep = 0; ticking = false },
 }

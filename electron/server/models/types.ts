@@ -3716,8 +3716,16 @@ export interface VideoMusicConfig {
   /** Audio Assembly presets: 'pool' = the project's Music Pool picks one track per episode. */
   source?: 'pool' | 'manual'
   files: string[]              // multiple .mp3 paths
-  volume: number               // 0-1 during narration
-  post_narration_volume: number // 0-1 after narration ends
+  /**
+   * LINEAR GAIN — the bed's level under the voice. 1 = as loud as the
+   * narration, 0.08 = 8% of it. NOT a percentage: `Audio Assembly presets`,
+   * the form and the Music Pool panel all store percent (0–100), and that
+   * value is converted exactly once, where the preset is merged into this
+   * request (`lib/audio-gain.ts`). Never convert at the generator boundary.
+   */
+  volume: number               // linear gain (0–1 typical)
+  /** LINEAR GAIN after the narration ends — same unit and same boundary as `volume`. */
+  post_narration_volume: number // linear gain
   fade_in: number
   fade_out: number
   /**
@@ -3810,7 +3818,8 @@ export interface VideoBackgroundNoise {
   mode: 'preset' | 'custom'
   preset: 'white-noise' | 'pink-noise' | 'brown-noise'
   custom_file?: string    // path to custom ambience .mp3
-  volume: number          // 0-1, default 0.15
+  /** LINEAR GAIN (1 = unchanged) — a preset's percent is converted when it is merged. */
+  volume: number          // linear gain, default 0.15
   fade_in: number
   fade_out: number
 }
@@ -3877,7 +3886,8 @@ export interface AmbientTrack {
   id: string
   enabled: boolean
   source_path: string     // absolute path; portable schemes resolve via resolveAssetPath
-  volume: number          // 0-1
+  /** LINEAR GAIN (1 = unchanged) — a preset's percent is converted when it is merged. */
+  volume: number          // linear gain
   fade_in: number         // seconds
   fade_out: number        // seconds
   /** When true (default), short clips repeat to fill the timeline. */
@@ -4162,7 +4172,8 @@ export interface GenerateVideoRequest {
   audio_gap?: number                // seconds of silence between narration chapters, default 5
   narration_chapters?: string[]     // individual chapter audio file paths (for gap insertion)
   merged_audio_path?: string        // path to pre-merged audio from audio-merge step (skips chapter concat)
-  narration_volume?: number         // 0-1, default 1.0
+  /** LINEAR GAIN (1 = the recorded level), never a percentage — a preset's percent is converted before this request is built. */
+  narration_volume?: number         // linear gain, default 1.0
   background_noise?: VideoBackgroundNoise
   color_grading?: VideoColorGrading
   vignette?: VideoVignetteConfig
@@ -4262,7 +4273,13 @@ export interface GenerateAiVideoRequest {
 export interface AudioMergeIntro {
   enabled: boolean
   file: string                 // absolute path to intro audio
-  volume: number               // 0-1, default 1.0
+  /**
+   * LINEAR GAIN, not a percentage: 1 = unchanged, 0.5 = half. A preset/form
+   * stores percent (0–100) and `routes/pipeline.ts` converts exactly once when
+   * it merges that preset into this request (`lib/audio-gain.ts`). Never divide
+   * at the generator boundary and never infer the unit from the value.
+   */
+  volume: number               // linear gain, default 1.0
   gap_after: number            // seconds of silence between intro and first chapter, default 2
 }
 
@@ -4287,7 +4304,8 @@ export interface AudioMergeRequest {
    *  parallel — drop in rain + fire + distant thunder simultaneously.
    *  Mixed alongside narration/music/background_noise via FFmpeg amix. */
   ambient_tracks?: AmbientTrack[]
-  narration_volume?: number    // 0-1, default 1.0
+  /** LINEAR GAIN, not a percentage (1 = the recorded level). A preset's percent is converted before this request is built. */
+  narration_volume?: number    // linear gain, default 1.0
   write_mode?: 'overwrite' | 'new'  // how to handle an existing merged output; default 'overwrite'
   /** Server-only: bake at most this long a closing tail, whatever the saved Video Assembly preset asks for (a re-mix for one render). */
   closing_tail_sec_cap?: number

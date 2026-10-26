@@ -9,6 +9,7 @@
  */
 
 import { paidFallbacksWarning, getDefaultModels, type DefaultModelFamily } from '../services/app-settings.js'
+import { percentGainToLinear, percentGainToUnitLinear } from '../lib/audio-gain.js'
 import { Router, type Request, type Response } from 'express'
 import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
@@ -1486,52 +1487,35 @@ export function resolveStepParams(
   // missing, so we deliberately OMIT chapters here — they'll be scanned
   // after the preceding audio step finishes.
   //
-  // Volume normalisation: the audio-merge form stores volumes as
-  // percentages (0–100, matching its sliders), and the standalone
-  // page converts to 0–1 decimals before POSTing — see
-  // `audio-merge.vue` (`volume: music.volume / 100`). The backend
-  // generator passes those decimals straight to FFmpeg's `volume=`
-  // filter, which treats values >1 as amplification. Without the
-  // conversion below, a preset saying "music at 30%" reached FFmpeg
-  // as `volume=30.00` (30× amplification → clipping → audio sounded
-  // like 100%), and a preset at 100% reached as `volume=100.00`.
-  // This block mirrors the conversion so batch runs respect presets
-  // identically to single-episode runs.
+  // Unit: the audio-merge form and its presets store every level as a
+  // PERCENTAGE (0–100, matching the sliders), while the generator's request is
+  // LINEAR GAIN (`1` = unchanged, `0.08` = 8%). The page converts before it
+  // POSTs — see `audio-merge.vue` (`volume: music.volume / 100`) — so a batch
+  // must convert at the same boundary or it hands FFmpeg `volume=8.00`
+  // (8× the voice) where the customer chose 8%. A preset is the ONLY percent
+  // source here, which is why the conversion lives here and nowhere else: the
+  // generator must never divide (a linear `1` and a percent `1` are different
+  // levels), and nothing may guess the unit from a value's size.
   if (step === 'audio_merge') {
-    const pct = (v: unknown): number | undefined =>
-      typeof v === 'number' && Number.isFinite(v) ? v / 100 : undefined
+    // A stated level is converted; junk states no level and is OMITTED so the
+    // generator's own default applies. Forwarding it raw was the bug: `'8'`
+    // reached a linear field and played 8× too loud.
+    const gain = (v: unknown): number | undefined => percentGainToLinear(v)
+    // The raw percent key is DROPPED before the converted one is written, so a
+    // level the preset states badly cannot ride along unconverted.
+    const withGain = <T extends Record<string, any>>(block: T | undefined, key: 'volume' | 'post_narration_volume') => {
+      if (!block) return undefined
+      const { [key]: raw, ...rest } = block
+      const level = gain(raw)
+      return { ...rest, ...(level !== undefined ? { [key]: level } : {}) }
+    }
 
-    const normIntro = data.intro ? {
-      ...data.intro,
-      ...(data.intro.volume !== undefined ? { volume: pct(data.intro.volume) ?? data.intro.volume } : {}),
-    } : undefined
-    const normMusic = data.music ? {
-      ...data.music,
-      ...(data.music.volume !== undefined ? { volume: pct(data.music.volume) ?? data.music.volume } : {}),
-      ...(data.music.post_narration_volume !== undefined
-        ? { post_narration_volume: pct(data.music.post_narration_volume) ?? data.music.post_narration_volume }
-        : {}),
-    } : undefined
-    const normNoise = data.background_noise ? {
-      ...data.background_noise,
-      ...(data.background_noise.volume !== undefined
-        ? { volume: pct(data.background_noise.volume) ?? data.background_noise.volume }
-        : {}),
-    } : undefined
+    const normIntro = withGain(data.intro, 'volume')
+    const normMusic = withGain(withGain(data.music, 'volume'), 'post_narration_volume')
+    const normNoise = withGain(data.background_noise, 'volume')
 
-    // Multi-track ambient (v1.0.55). The page UI stores volume on a
-    // 0-100 scale and divides by 100 before POSTing — the bundle
-    // snapshot saves the 0-100 form, so we apply the same conversion
-    // here. Filter out empty / disabled rows so half-configured
-    // layers don't waste an FFmpeg input slot.
-    //
-    // v1.0.71+: dropped a defensive `t.volume > 1 ? /100 : t.volume`
-    // heuristic that was ambiguous at exactly 1.0 (couldn't tell
-    // "100% on 0-1 scale" from "1% on 0-100 scale"). ambient_tracks
-    // were always 0-100 in the bundle from v1.0.55 inception — no
-    // legacy 0-1 saves to protect — so we now match the unconditional
-    // divide-by-100 used by intro / music / background_noise above.
-    // Closes the audit's #7 footgun.
+    // Multi-track ambient (v1.0.55). Same percent-on-disk shape as the blocks
+    // above; a row that names no level stays at unity rather than being muted.
     const liveAmbient = Array.isArray(data.ambient_tracks)
       ? (data.ambient_tracks as any[])
         .filter(t => t && t.enabled && t.source_path)
@@ -1539,9 +1523,7 @@ export function resolveStepParams(
           id: t.id,
           enabled: true,
           source_path: t.source_path,
-          volume: typeof t.volume === 'number' && Number.isFinite(t.volume)
-            ? Math.max(0, Math.min(1, t.volume / 100))
-            : 1,
+          volume: percentGainToUnitLinear(t.volume) ?? 1,
           fade_in: Math.max(0, Number(t.fade_in) || 0),
           fade_out: Math.max(0, Number(t.fade_out) || 0),
           loop: t.loop !== false,
@@ -1564,7 +1546,7 @@ export function resolveStepParams(
       gap_duration: data.gap_duration ?? fmtMerge?.gapDurationSec,
       normalize_volume: data.normalize_volume ?? fmtMerge?.normalizeVolume,
       // 1.4.270 — the page sends these too; a batch merge used to drop them (voice volume back to 100%).
-      ...(pct(data.narration_volume) !== undefined ? { narration_volume: pct(data.narration_volume) } : {}),
+      ...(gain(data.narration_volume) !== undefined ? { narration_volume: gain(data.narration_volume) } : {}),
       ...(typeof data.chunk_silence_sec === 'number' && data.chunk_silence_sec > 0 ? { chunk_silence_sec: data.chunk_silence_sec } : {}),
     }
   }

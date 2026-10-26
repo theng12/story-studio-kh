@@ -2,6 +2,15 @@
  * Audio merge generator — merges narration chapter audio files with silence gaps,
  * optionally normalizes volume, and mixes in background music and ambient noise.
  *
+ * LEVELS ARE LINEAR GAIN. Every level in `AudioMergeRequest`
+ * (`intro.volume`, `music.volume`, `music.post_narration_volume`,
+ * `background_noise.volume`, `ambient_tracks[].volume`, `narration_volume`) is
+ * linear gain: `1` leaves the source alone, `0.08` is 8% of it. The page
+ * converts its sliders before POSTing, and a preset's percentage is converted
+ * once where the preset is merged into the request (`lib/audio-gain.ts`). This
+ * generator therefore does NOT divide by 100 and never guesses a unit from a
+ * value's size — `1` from a preset means 1%, `1` here means unity.
+ *
  * Pipeline:
  *   1. Validate chapter files exist
  *   2. Resolve output directory (merged_audio subfolder)

@@ -31,6 +31,7 @@ import { createHash } from 'crypto'
 import path from 'path'
 import * as pm from './project-manager.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
+import { percentGainToLinear } from '../lib/audio-gain.js'
 import type {
   VideoMusicConfig,
   MusicPoolTrack,
@@ -247,14 +248,23 @@ export async function pickPoolMusic(
   return { track: picked.track, reason: picked.reason, music: musicWithTrack(music, picked.track) }
 }
 
-/** `music` laid over a pool track: the track's file and its own levels. */
+/**
+ * `music` laid over a pool track: the track's file and its own levels.
+ *
+ * TWO UNITS MEET HERE, and each is named so neither is guessed. `music` is a
+ * generator request: LINEAR GAIN (a preset's percent was converted where it was
+ * merged into the request). A pool track's override is stored in the pool's own
+ * PERCENT shape (`MusicPoolTrack.volume`, 0–100, the panel's slider), so only
+ * that side converts. A track with no override leaves the request's level alone.
+ */
 export function musicWithTrack(music: VideoMusicConfig, track: PoolTrack): VideoMusicConfig {
-  const pct = (v: number | undefined, fallback: number) => typeof v === 'number' ? v / 100 : fallback
+  const percent = (v: number | undefined): number | undefined =>
+    v === undefined ? undefined : percentGainToLinear(v)
   return {
     ...music,
     files: [track.path],
-    volume: pct(track.volume, music.volume),
-    post_narration_volume: pct(track.post_narration_volume, music.post_narration_volume),
+    volume: percent(track.volume) ?? music.volume,
+    post_narration_volume: percent(track.post_narration_volume) ?? music.post_narration_volume,
     fade_in: track.fade_in ?? music.fade_in,
     fade_out: track.fade_out ?? music.fade_out,
   }
