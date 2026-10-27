@@ -6,6 +6,9 @@
     </header>
 
     <PerformanceSettings v-if="section === 'all' || section === 'performance'" />
+    <!-- Optional, in-app duplicate screening (owner 2026-10-27). Lives with the
+         other "this Mac" knobs because the model is installed once per Mac. -->
+    <DuplicateScreeningSettings v-if="section === 'all' || section === 'performance'" />
     <CostSettings v-if="section === 'all' || section === 'performance'" />
 
     <section v-if="section === 'all' || section === 'appearance'" class="panel appearance" data-setting="theme">

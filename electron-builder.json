@@ -50,7 +50,8 @@
   "asarUnpack": [
     "**/node_modules/sharp/**",
     "**/node_modules/@img/**",
-    "**/*.node"
+    "**/*.node",
+    "electron/dist/server/services/local-embedding-worker.js"
   ],
   "extraResources": [
     {

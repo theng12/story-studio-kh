@@ -2248,6 +2248,29 @@ function openEditIdea(idea: any) {
   editorOpen.value = true
 }
 
+/**
+ * Optional local duplicate screening (owner 2026-10-27).
+ *
+ * Asks this Mac whether the title looks like one the channel already has, and
+ * returns one sentence to append to the success message — or null when there
+ * is nothing to say. It NEVER refuses: the idea is already saved by the time
+ * this runs, and every failure (off, not downloaded, a broken model) is silent
+ * so adding an idea behaves exactly as it did before the feature existed.
+ */
+async function checkTitleLocally(title: string): Promise<string | null> {
+  if (!title.trim()) return null
+  try {
+    const response = await post<{ state: string; messages?: string[] }>(
+      `/projects/${slug.value}/local-screening/title`,
+      { title },
+    )
+    if (response.state !== 'checked') return null
+    return response.messages?.[0] || null
+  } catch {
+    return null
+  }
+}
+
 async function saveEditor() {
   editorSaving.value = true
   const payload = {
@@ -2262,7 +2285,11 @@ async function saveEditor() {
     if (editorMode.value === 'add') {
       const created = await post<any>(`/projects/${slug.value}/ideas`, payload)
       allIdeas.value.push(created)
-      success('Idea added')
+      // Optional local duplicate screening (owner 2026-10-27): a WARNING the
+      // idea was saved anyway. It runs after the save so a slow or absent
+      // model can never delay or block adding an idea.
+      const similar = await checkTitleLocally(payload.title)
+      success(similar ? `Idea added. ${similar}` : 'Idea added')
     } else if (editorIdea.value) {
       const { folder_sync: folderSync, ...updated } = await patch<any>(`/projects/${slug.value}/ideas/${editorIdea.value.id}`, payload)
       const i = allIdeas.value.findIndex(x => x.id === updated.id)

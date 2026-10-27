@@ -67,7 +67,7 @@ describe('Settings section navigation', () => {
     assert.equal(sections.length, 12)
     for (const entry of SETTINGS_INDEX) assert.ok(sections.includes(entry.section), `${entry.label} → ${entry.section}`)
     // Every anchor the index names is present in the page or one of its components.
-    const sources = ['../pages/projects/[slug]/settings.vue', '../components/ThisMacSettings.vue', '../components/PerformanceSettings.vue', '../components/BackupPanel.vue', '../components/DefaultModelsSettings.vue']
+    const sources = ['../pages/projects/[slug]/settings.vue', '../components/ThisMacSettings.vue', '../components/PerformanceSettings.vue', '../components/BackupPanel.vue', '../components/DefaultModelsSettings.vue', '../components/DuplicateScreeningSettings.vue']
       .map(rel => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')).join('\n')
     for (const entry of SETTINGS_INDEX) {
       assert.match(sources, new RegExp(`data-setting="${entry.anchor}"`), `anchor ${entry.anchor} exists`)
