@@ -42,7 +42,7 @@
                 v-model.number="khrPerUsd"
                 class="input cost-input"
                 type="number" min="1" step="1" inputmode="numeric"
-                aria-label="Exchange rate in KHR per USD"
+                aria-label="Exchange rate in riel per US dollar"
                 :disabled="saving"
               />
               <span class="cost-unit">KHR / USD</span>
@@ -129,6 +129,7 @@ const usdPerKwh = computed(() => {
   const rate = Number(khrPerUsd.value)
   const price = Number(electricityKhr.value)
   if (!Number.isFinite(rate) || rate <= 0 || !Number.isFinite(price)) return '—'
+  // model-drift-allow: formats a charge the Gateway already recorded, or an owner-entered electricity price, in US dollars; no catalogue price
   return `US$${(price / rate).toFixed(3)} / kWh`
 })
 

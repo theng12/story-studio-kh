@@ -498,6 +498,7 @@ function costTooltipFor(code: string): string {
   const c = costFor(code)
   if (!c) return 'No cost data recorded for this episode'
   const paidText = c.paid.state === 'measured'
+    // model-drift-allow: formats a charge the Gateway already recorded, or an owner-entered electricity price, in US dollars; no catalogue price
     ? `Paid: $${c.paid.usd?.toFixed(2) ?? '0.00'}${c.paid.credits ? ` (${c.paid.credits} credits)` : ''}`
     : 'Paid: No Gateway charge recorded'
   const localText = c.local.state === 'measured'

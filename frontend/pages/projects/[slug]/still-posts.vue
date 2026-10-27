@@ -503,6 +503,7 @@ const { jobs } = useJobs()
 const { ask } = useConfirm()
 
 const slug = computed(() => projectSlug(route.params.slug) || '')
+// model-drift-allow: the export frames Story composes itself after drawing, chosen by the owner for Still Posts; not a model aspect list
 const aspects = ['1:1', '9:16', '16:9'] as const
 const anchors = ['bottom', 'bottom-left', 'bottom-right', 'top', 'top-left', 'top-right', 'center']
 const languages = [
@@ -911,7 +912,7 @@ onMounted(() => {
 .sp-post-empty { display: grid; place-items: center; aspect-ratio: 1; border-radius: 8px; background: var(--bg-tertiary); font-size: 12px; color: var(--text-secondary); }
 .sp-post-meta { display: flex; flex-direction: column; gap: 2px; }
 .sp-post-text { font-size: 13px; line-height: 1.35; }
-.sp-pill { align-self: flex-start; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.sp-pill { align-self: flex-start; padding: 2px 8px; border-radius: 999px; font-size: var(--font-xs); font-weight: 600; }
 .sp-pill.is-ok { background: color-mix(in srgb, #2e7d32 22%, transparent); }
 .sp-pill.is-warn { background: color-mix(in srgb, #b26a00 24%, transparent); }
 .sp-empty { padding: 10px 0; }

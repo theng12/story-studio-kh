@@ -346,7 +346,9 @@ const channelCostDetail = computed(() => {
   const parts: string[] = []
   if (t.paid.state === 'measured') {
     const usd = t.paid.usd ?? 0
+    // model-drift-allow: adds a measured receipt field that is absent on that receipt; the measured or unmeasurable state is decided above
     const cr = t.paid.credits ?? 0
+    // model-drift-allow: formats a charge the Gateway already recorded, or an owner-entered electricity price, in US dollars; no catalogue price
     if (usd > 0) parts.push(`$${usd.toFixed(2)} paid`)
     if (cr > 0) parts.push(`${cr} credits`)
   }

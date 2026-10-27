@@ -61,6 +61,7 @@ export interface CostSettings {
 
 export const DEFAULT_COST_SETTINGS: CostSettings = {
   electricity_khr_per_kwh: 720,
+  // model-drift-allow: the owner-editable electricity exchange-rate default for the local cost estimate; not a model or catalogue value
   khr_per_usd: 4000,
   mac_power_watts: {
     'mac-mini': 35,

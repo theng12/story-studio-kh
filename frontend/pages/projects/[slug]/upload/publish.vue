@@ -3584,11 +3584,11 @@ watch(slug, () => {
 .candidate-thumb-card { display: grid; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); }
 .candidate-thumb-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: calc(var(--radius-sm) - 2px); background: var(--bg-secondary); }
 .candidate-header { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-.candidate-tag { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.candidate-tag { font-size: var(--font-xs); color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .candidate-tag.chosen-tag { color: var(--accent); }
 .candidate-copy { display: grid; gap: 2px; }
 .candidate-copy strong { font-size: var(--font-xs); overflow-wrap: anywhere; }
-.candidate-copy small, .pinned-tag { color: var(--text-muted); font-size: 11px; }
+.candidate-copy small, .pinned-tag { color: var(--text-muted); font-size: var(--font-xs); }
 .thumbnail-test-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-primary); border: 1px solid var(--border); }
 .selected-thumbnail > img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--radius-sm); background: var(--bg-primary); }
 .selected-thumbnail-copy { display: grid; gap: 5px; min-width: 0; }

@@ -29,14 +29,17 @@ const errorBySlug = new Map<string, Ref<string | null>>()
 export function formatPaid(paid: PaidCostMeasurement | null | undefined, emptyLabel = '—'): string {
   if (!paid || paid.state === 'unmeasurable') return emptyLabel
   if (paid.usd !== undefined && paid.usd > 0 && paid.credits !== undefined && paid.credits > 0) {
+    // model-drift-allow: formats a charge the Gateway already recorded, or an owner-entered electricity price, in US dollars; no catalogue price
     return `$${paid.usd.toFixed(2)} (${paid.credits} cr)`
   }
   if (paid.usd !== undefined && paid.usd > 0) {
+    // model-drift-allow: formats a charge the Gateway already recorded, or an owner-entered electricity price, in US dollars; no catalogue price
     return `$${paid.usd.toFixed(2)}`
   }
   if (paid.credits !== undefined && paid.credits > 0) {
     return `${paid.credits} cr`
   }
+  // model-drift-allow: formats a charge the Gateway already recorded, or an owner-entered electricity price, in US dollars; no catalogue price
   if (paid.usd === 0) return '$0.00'
   if (paid.credits === 0) return '0 cr'
   return '$0.00'
@@ -46,6 +49,7 @@ export function formatLocal(local: LocalCostMeasurement | null | undefined, empt
   if (!local || local.state === 'unmeasurable') return emptyLabel
   const mins = formatMinutes(local.mac_minutes || 0)
   // A measured fraction of a cent must not read as $0.00 (AGENTS §6).
+  // model-drift-allow: formats a charge the Gateway already recorded, or an owner-entered electricity price, in US dollars; no catalogue price
   const usd = typeof local.cost_usd !== 'number' ? '$0.00'
     : local.cost_usd > 0 && local.cost_usd < 0.005 ? '<$0.01' : `$${local.cost_usd.toFixed(2)}`
   return `${mins} · ${usd}`

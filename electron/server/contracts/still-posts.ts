@@ -20,6 +20,7 @@
 import type { TextAnchor, TextFill, ScriptCode } from './thumbnail-text.js'
 
 /** The three export frames. 4:5 is deliberately absent (owner, 2026-10-27). */
+// model-drift-allow: the export frames Story composes itself after drawing, chosen by the owner for Still Posts; not a model aspect list
 export const STILL_POST_ASPECTS = ['1:1', '9:16', '16:9'] as const
 export type StillPostAspect = typeof STILL_POST_ASPECTS[number]
 

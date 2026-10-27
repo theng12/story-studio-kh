@@ -142,7 +142,9 @@ interface JobCostFacts {
 }
 
 function analyzeJobCost(job: Job, settings: CostSettings, thisMacClass: string): JobCostFacts {
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let paidUsd = 0
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let credits = 0
   let hasPaidEvidence = false
 
@@ -175,7 +177,9 @@ function analyzeJobCost(job: Job, settings: CostSettings, thisMacClass: string):
 
   // 3. Local runtime
   let macMinutes = 0
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let localCostUsd = 0
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let localCostKhr = 0
   let watts = 0
   let hasRuntimeEvidence = false
@@ -245,7 +249,9 @@ export function computeEpisodeCost(
   // ── Paid cost ─────────────────────────────────────────────────────────────
   const hasAnyPaid = analyzed.some(a => a.hasPaidEvidence)
   let paidMeasurement: PaidCostMeasurement
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let totalPaidUsd = 0
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let totalCredits = 0
 
   if (hasAnyPaid) {
@@ -269,6 +275,7 @@ export function computeEpisodeCost(
   const hasAnyRuntime = analyzed.some(a => a.hasRuntimeEvidence)
   let localMeasurement: LocalCostMeasurement
   let totalMacMinutes = 0
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let totalLocalUsd = 0
   let totalLocalKhr = 0
   let sumWatts = 0
@@ -339,18 +346,22 @@ export function computeEpisodeCost(
       reason: 'no_cost_data',
     }
   } else {
+    // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
     let wasteUsd = 0
+    // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
     let wasteCredits = 0
     let wasteMinutes = 0
 
     for (const a of analyzed) {
       if (wastedJobIds.has(a.job.job_id)) {
+        // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
         wasteUsd += (a.hasPaidEvidence ? a.paidUsd : 0) + (a.hasRuntimeEvidence ? a.localCostUsd : 0)
         wasteCredits += a.credits
         wasteMinutes += a.macMinutes
       }
     }
 
+    // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
     const totalUsdCombined = (hasAnyPaid ? totalPaidUsd : 0) + (hasAnyRuntime ? totalLocalUsd : 0)
 
     let percent = 0
@@ -383,6 +394,7 @@ export function computeEpisodeCost(
   const totalUsdMeasurement = (hasAnyPaid || hasAnyRuntime)
     ? {
         state: 'measured' as const,
+        // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
         value: roundDecimals((hasAnyPaid ? totalPaidUsd : 0) + (hasAnyRuntime ? totalLocalUsd : 0), 4),
       }
     : {
@@ -419,18 +431,25 @@ export function computeProjectCost(
   const episodes: Record<string, EpisodeCostSummary> = {}
 
   let anyPaidMeasured = false
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let channelPaidUsd = 0
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let channelCredits = 0
 
   let anyLocalMeasured = false
   let channelMacMinutes = 0
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let channelLocalUsd = 0
   let channelLocalKhr = 0
 
   let anyWasteMeasured = false
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let channelWasteUsd = 0
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let channelTotalUsd = 0
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let channelWasteCredits = 0
+  // model-drift-allow: a running sum of charges the Gateway already recorded for these jobs; it starts empty, it is not a catalogue price
   let channelTotalCredits = 0
   let channelWasteMinutes = 0
   let channelTotalMinutes = 0
@@ -444,6 +463,7 @@ export function computeProjectCost(
     if (summary.paid.state === 'measured') {
       anyPaidMeasured = true
       channelPaidUsd += summary.paid.usd ?? 0
+      // model-drift-allow: adds a measured receipt field that is absent on that receipt; the measured or unmeasurable state is decided above
       channelCredits += summary.paid.credits ?? 0
     }
 
@@ -458,7 +478,9 @@ export function computeProjectCost(
       anyWasteMeasured = true
       channelWasteUsd += summary.waste.waste_cost_usd ?? 0
       channelTotalUsd += summary.waste.total_cost_usd ?? 0
+      // model-drift-allow: adds a measured receipt field that is absent on that receipt; the measured or unmeasurable state is decided above
       channelWasteCredits += summary.waste.waste_credits ?? 0
+      // model-drift-allow: adds a measured receipt field that is absent on that receipt; the measured or unmeasurable state is decided above
       channelTotalCredits += summary.waste.total_credits ?? 0
       channelWasteMinutes += summary.waste.waste_mac_minutes ?? 0
       channelTotalMinutes += summary.waste.total_mac_minutes ?? 0

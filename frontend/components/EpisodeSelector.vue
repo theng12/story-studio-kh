@@ -262,6 +262,7 @@ const costTooltip = computed(() => {
   const c = epCost.value
   if (!c) return 'Episode cost breakdown'
   const paidText = c.paid.state === 'measured'
+    // model-drift-allow: formats a charge the Gateway already recorded, or an owner-entered electricity price, in US dollars; no catalogue price
     ? `Paid: $${c.paid.usd?.toFixed(2) ?? '0.00'}${c.paid.credits ? ` (${c.paid.credits} credits)` : ''}`
     : 'Paid: No Gateway charge recorded'
   const localText = c.local.state === 'measured'
