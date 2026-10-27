@@ -8,7 +8,7 @@ import { CIRCULAR_MARKER, repairCircularParams, type RepairableJob } from '../li
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import * as jq from './job-queue.js'
 import { getProjectDir, listProjects } from './project-manager.js'
-import { computeEpisodeStatus } from './asset-status.js'
+import { computeEpisodeStatus, hasAcceptedFinalVideo } from './asset-status.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from './utils.js'
 import { inspectAudioAssemblyReadiness, isScopedChapterTranscription } from './audio-workflow-readiness.js'
 import { readStitchPlan } from './subtitle-stitcher.js'
@@ -642,6 +642,9 @@ export function scenePlanBlockerMessage(
 
 interface RecoveryStore { version: 1; plans: Record<string, EpisodeRecoveryPlan>; retired_plans?: Record<string, EpisodeRecoveryPlan> }
 
+const ACCEPTED_FINAL_GUARD_MESSAGE = 'This episode already has an accepted final video, so automatic recovery left it alone. '
+  + 'Use Retry to redo a step on purpose.'
+
 export async function dispatchEpisodeRecoveryStep(
   plan: EpisodeRecoveryPlan,
   facts: { verified: Record<EpisodeRecoveryStep, boolean>; message: string; missing?: string[] },
@@ -1037,8 +1040,16 @@ export async function recoverEpisode(projectSlug: string, episodeId: string, cre
       // while it waits cannot advance it; completion triggers the next audit.
       return { ...plan, ...current }
     }
+    // Owner, 2026-10-27: an accepted final is never re-done by automatic recovery — not even for an
+    // episode whose pre-render artifacts look stale, and not decided by an artifact audit. Retry /
+    // Recover still does whatever it is asked to (`ownerRequest`, and the plan records it), including
+    // the steps it goes on to release. A step already queued or running was left to finish by the
+    // return above, so nothing is cancelled here. The plan is not deleted: Retry reuses it.
+    const leftAlone = !ownerRequest && !plan.owner_requested_at && !!plan.project_slug && !!plan.episode_id
+      && await hasAcceptedFinalVideo(plan.project_slug, plan.episode_id)
+    if (leftAlone) plan.message = ACCEPTED_FINAL_GUARD_MESSAGE
     let auditFailed = false
-    try {
+    if (!leftAlone) try {
       const facts = await inspectRecovery(plan, jobs)
       jobs = await currentJobs()
       await dispatchEpisodeRecoveryStep(plan, facts, jobs, sourceJobIds)

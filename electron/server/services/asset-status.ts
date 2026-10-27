@@ -1245,6 +1245,29 @@ export async function hasFinalVideoFast(
   }
 }
 
+/**
+ * Does this episode already have an accepted final video ON DISK?
+ *
+ * The same two layouts `computeEpisodeStatus` counts as a finished Video Assembly (Path A in the
+ * episode's video folder, Path E at the external root), through the same matcher and the same
+ * non-zero-byte rule — so this cannot disagree with the Production Board about a file it can see.
+ * Deliberately not cached: the guard that calls it (episode-recovery) must see a final the moment
+ * it lands, and a sibling file written beside a final does not move its folder's mtime.
+ *
+ * Used by automatic episode recovery (owner, 2026-10-27): an episode with an accepted final is
+ * never re-done without an owner request. Remote-only evidence is left out on purpose — it is
+ * weaker proof than a file, and it would block recovery with nothing on disk to point at.
+ */
+export async function hasAcceptedFinalVideo(slug: string, code: string, title = ''): Promise<boolean> {
+  const paths = await resolveEpisodePaths(slug, code, title)
+  if (await findCanonicalFinal(paths.video_dir, code)) return true
+  try {
+    const { resolveExternalFinalVideoDir } = await import('./external-video-store.js')
+    const externalDir = await resolveExternalFinalVideoDir(slug, code, title)
+    return externalDir ? !!(await findCanonicalFinal(externalDir, code)) : false
+  } catch { return false }
+}
+
 export async function computeEpisodeStatus(
   slug: string,
   code: string,
