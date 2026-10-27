@@ -1631,6 +1631,11 @@ const queues: Record<JobType, QueueState> = {
   continuity_render: { pending: [], running: false, executor: null },
   // v1.0.260: generate the composition LAYOUT template image from a prompt.
   composition_generate: { pending: [], running: false, executor: null },
+  // Still Posts (2026-10-27). Writing gets its own slot: one request per batch, so serialising it
+  // costs nothing. Drawing gets its own too, so a paid image batch never queues behind a long
+  // narration job and can be cancelled on its own.
+  still_post_write: { pending: [], running: false, executor: null },
+  still_post_render: { pending: [], running: false, executor: null },
 }
 
 /**
@@ -1662,6 +1667,9 @@ const MAX_QUEUE_TIMER_DELAY_MS = 0x7fffffff
 const WRITING_JOB_TYPES = new Set<string>([
   'idea_campaign', 'outline_only', 'expand_chapters', 'chapter-only', 'introduction-only',
   'research_run', 'metadata', 'image_prompts', 'scene_plan_run', 'contextual_cues',
+  // Still Posts writing: one chat request per batch, so an uncharged quota stop is handled the same
+  // way as every other writing step instead of failing the batch outright.
+  'still_post_write',
 ])
 
 function writingModelOf(job: Job): string {

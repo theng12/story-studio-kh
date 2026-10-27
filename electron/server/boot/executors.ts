@@ -518,6 +518,16 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('continuity_render', runContinuityRenderJob)
   // v1.0.260 — generate the composition LAYOUT template image from a prompt.
   registerExecutor('composition_generate', generateCompositionTemplateJob)
+  // Still Posts (2026-10-27) — one writing request per batch; the picture job is separate so a
+  // Retry of one never repeats the other.
+  registerExecutor('still_post_write', async (job) => {
+    const { generateStillPostsWrite } = await import('../generators/still-posts.js')
+    await generateStillPostsWrite(job)
+  })
+  registerExecutor('still_post_render', guardMedia(async (job) => {
+    const { generateStillPostsRender } = await import('../generators/still-posts.js')
+    await generateStillPostsRender(job)
+  }))
 
   const missingExecutors = unregisteredJobTypes()
   if (missingExecutors.length) {

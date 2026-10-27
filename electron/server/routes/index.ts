@@ -64,6 +64,7 @@ import { router as effectsLibraryRouter } from './effects-library.js'
 import { router as soundDesignRouter } from './sound-design.js'
 import { router as episodeSegmentsRouter } from './episode-segments.js'
 import { router as continuityRouter } from './continuity.js'
+import { router as stillPostsRouter } from './still-posts.js'
 import { router as publishingOverviewRouter } from './publishing-overview.js'
 import { requireProject } from './middleware.js'
 
@@ -132,6 +133,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', contextualCuesRouter)
   app.use('/api', effectsLibraryRouter)
   app.use('/api', continuityRouter)
+  app.use('/api', stillPostsRouter)
   // Global, cross-channel read — deliberately not under /projects/:slug.
   app.use('/api', publishingOverviewRouter)
 }

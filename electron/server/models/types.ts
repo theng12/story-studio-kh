@@ -2585,6 +2585,14 @@ export interface UpdateConfigRequest {
    * and outlines (sky, water, flames…). The models are picked app-wide.
    */
   scene_analysis?: { depth?: boolean; vision?: boolean }
+  /**
+   * Still Posts (owner, 2026-10-27) — the channel's cast, handle override and logo file. Declared
+   * rather than cast for the same reason as the music fields above: `applyConfigRequest` is a
+   * pass-through, and declaring the write makes it type-checked instead of trusted.
+   */
+  still_posts?: Record<string, any>
+  still_post_presets?: Array<Record<string, any>>
+  still_post_last_preset?: string
 }
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
@@ -2610,6 +2618,10 @@ export const JOB_TYPES = [
   'music_episode_build',
   /** Episode Builder: rewrite scene prompts with the writing model the owner picked at the click. */
   'music_scene_polish',
+  /** Still Posts (2026-10-27): write a batch of posts from one brief. Spends writing tokens only. */
+  'still_post_write',
+  /** Still Posts: draw the missing artwork with reference to image, then burn in text/handle/logo. */
+  'still_post_render',
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]
