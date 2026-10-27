@@ -55,6 +55,10 @@ async function loadEpisodeSelector(): Promise<Component> {
     const useToast = () => ({ success: () => undefined, error: () => undefined, info: () => undefined })
     const useJobs = () => ({ jobs: ref([]) })
     const useConfirm = () => ({ ask: async () => true })
+    const useProjectCost = () => ({ costFor: () => null, load: async () => undefined })
+    const formatPaid = () => ''
+    const formatLocal = () => ''
+    const formatWaste = () => ''
     const isNavigationFailure = () => false
     const NavigationFailureType = { aborted: 4 }
     const STEP_STATUS_FIELD = { research: 'research', script: 'script', introduction: 'introduction', metadata: 'metadata', 'thumb-prompts': 'thumb_prompts', thumbnails: 'thumbnails', audio: 'audio', 'audio-merge': 'merged_audio', subtitles: 'subtitles', 'character-sheet': 'character_sheet', 'scene-plan': 'scene_plan', 'scene-review': 'scene_review', 'motion-review': 'motion_review', 'video-assembly': 'video_assembly' }

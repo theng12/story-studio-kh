@@ -1566,7 +1566,7 @@ async function fillFlaggedScenes(fillMode: 'chain' | 'hold') {
 
 // ── Estimates shown before anything is spent ─────────────────────────────────
 // Paid: published price per second × chosen duration. Sketch Draw: measured frames/s on this Mac.
-// Local fleet: free. Every number is labelled an estimate, because none is a receipt.
+// Fleet Macs: free. Every number is labelled an estimate, because none is a receipt.
 const batchDurationSeconds = computed(() => batchPlans.value
   .reduce((total, plan) => total + plan.requested_seconds, 0))
 const videoPricePerSecond = computed(() => {

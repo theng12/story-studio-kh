@@ -257,6 +257,8 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     'holdDraft.min': { verdict: 'episode', reason: 'a draft of this episode\'s hold range' },
     'holdDraft.max': { verdict: 'episode', reason: 'a draft of this episode\'s hold range' },
     openingSeconds: { verdict: 'episode', reason: 'the length of THIS episode\'s opening motion window' },
+    sharePercent: { verdict: 'episode', reason: 'THIS episode\'s video share, saved with its motion scope (channel default fills an unsaved episode)' },
+    shareFormula: { verdict: 'episode', reason: 'how THIS episode\'s video share is filled, saved with its motion scope' },
   },
   'research.vue': {
     autoApproveClaims: { verdict: 'saved-elsewhere', reason: 'a project setting in config.research_auto_approve_claims, not a preset value' },
@@ -272,6 +274,7 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     'scene.transcript_segment': { verdict: 'episode', reason: 'one scene of this episode\'s plan' },
     'scene.visual_prompt': { verdict: 'episode', reason: 'one scene of this episode\'s plan' },
     'scene.motion_prompt': { verdict: 'episode', reason: 'one scene of this episode\'s plan' },
+    'scene.video_prompt': { verdict: 'episode', reason: 'one scene of this episode\'s plan' },
   },
   'scene-review.vue': {
     editPrompt: { verdict: 'episode', reason: 'the prompt being edited for one scene of this episode' },
@@ -284,6 +287,7 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     manualOutlineSourceId: { verdict: 'episode', reason: 'which outline of this episode is being replaced' },
     newStyleName: { verdict: 'transient', reason: 'the save-style dialog\'s name field' },
     recencyLookbackInput: { verdict: 'saved-elsewhere', reason: 'a project-level recency setting at /recency/lookback, not a preset value' },
+    translateTargetSlug: { verdict: 'run-only', reason: 'the target channel for ONE translation job; the job, not a preset, records it' },
     useCharacters: { verdict: 'transient', reason: 'a disclosure toggle over `character_ids`, which IS saved' },
   },
   'sound-design.vue': {

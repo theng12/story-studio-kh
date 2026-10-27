@@ -36,7 +36,10 @@ async function loadPage(): Promise<Component> {
     const useAppTitle = () => undefined
     const useRoute = () => ({ params: { slug: 'task15-fixture' }, query: { episode_id: 'EP0081', scene_id: 'ep0081-scene-0392' } })
     const useRouter = () => ({ replace: async location => globalThis.__sceneReviewInitialRouterReplace(location) })
-    const useProject = () => ({ config: ref({}) })
+    const useProject = () => ({ config: ref({}), refreshConfig: async () => undefined })
+    // The free image check's shadow window; this harness never reaches its switches.
+    const SCENE_IMAGE_CHECK_SHADOW_UNTIL = '2026-11-30'
+    const sceneImageCheckShadowOver = () => false
     const useApi = () => globalThis.__sceneReviewInitialApi
     const useToast = () => ({ success: () => undefined, error: () => undefined })
     const useConfirm = () => ({ ask: async () => false })
