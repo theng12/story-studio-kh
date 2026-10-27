@@ -21,6 +21,7 @@ import {
   type SimilarityCandidate,
 } from '../services/idea-similarity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
+import { composeChannelTitle } from '../lib/title-wrapping.js'
 import { ideaBatchForPublishedCeiling, ideaOutputTokenBudget } from '../services/idea-output-budget.js'
 import { ideaBatchOutputContract, ideaCampaignOutputContract } from '../lib/story-output-contracts.js'
 import {
@@ -285,7 +286,7 @@ function normalizeIdea(
     niche,
     assignment.dimensions,
   )
-  const title = `${request.title_prefix || ''}${rawTitle}${request.title_suffix || ''}`.trim()
+  const title = composeChannelTitle(rawTitle, request.title_prefix || '', request.title_suffix || '')
   const chapters = request.items_per_listicle && request.items_per_listicle > 0
     ? Math.round(request.items_per_listicle)
     : Math.max(1, Math.round(Number(item?.suggested_chapters) || 10))
@@ -319,9 +320,9 @@ function normalizeFreeformIdea(
   const countAdjustedTitle = pinnedChapters === null
     ? rawTitle
     : rewriteLeadingCount(rawTitle, pinnedChapters)
-  const title = (request.title_prefix || '') + countAdjustedTitle + (request.title_suffix || '')
+  const title = composeChannelTitle(countAdjustedTitle, request.title_prefix || '', request.title_suffix || '')
   return {
-    title: title.trim(),
+    title,
     logline: String(item?.logline || '').trim(),
     themes: Array.isArray(item?.themes)
       ? item.themes.map((value: unknown) => String(value).trim()).filter(Boolean).slice(0, 4)

@@ -931,9 +931,21 @@ export async function updateVideoMetadata(opts: {
   status?: Partial<VideoStatus>
   /** Require the live visibility before an update that schedules publication. */
   requirePrivacyStatus?: PrivacyStatus
+  /**
+   * An already-fresh `videos.list part=snippet,status` view of THIS video,
+   * taken by the caller.
+   *
+   * When supplied, the read inside this function is skipped and the update is
+   * built from — and preconditioned on (`If-Match`) — the SAME observation the
+   * caller validated. A second read would widen the window between the
+   * caller's baseline check and the write, and could preserve fields from a
+   * state the caller never saw. The caller is responsible for passing the view
+   * of the exact `videoId` it names.
+   */
+  baseline?: VideoBackfillView
 }): Promise<UploadedVideo> {
   if (!opts.snippet && !opts.status) throw new Error('Name at least one YouTube metadata part to update.')
-  const live = (await listVideoSnippetStatus(opts.slug, opts.accountId, [opts.videoId]))[opts.videoId]
+  const live = opts.baseline ?? (await listVideoSnippetStatus(opts.slug, opts.accountId, [opts.videoId]))[opts.videoId]
   if (!live) throw new Error('YouTube did not return the exact video requested for metadata update.')
   if (!live.etag) throw new Error('YouTube did not return an ETag; refusing to overwrite metadata without concurrency protection.')
   if (opts.requirePrivacyStatus && live.privacyStatus !== opts.requirePrivacyStatus) {

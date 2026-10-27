@@ -24,6 +24,7 @@ import { truncateChars, toWellFormedText } from './well-formed-text.js'
 import { fitYouTubeDescription } from './youtube-description-limit.js'
 import { stripInternalSectionLabels } from './metadata-label-leak.js'
 import { isScaffoldTitleLine, stripMarkdownScaffold, stripTitleScaffold } from './metadata-scaffold.js'
+import { YOUTUBE_TITLE_MAX_CHARACTERS } from './title-wrapping.js'
 
 export interface EpisodeMetadataForUpload {
   title: string
@@ -387,6 +388,39 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
   }
 }
 
+/**
+ * Refuse an upload whose details are only a title.
+ *
+ * `resolveUploadMetadata` deliberately keeps working when an episode has no
+ * metadata file: it falls back to the idea's title, and used to return an empty
+ * description rather than refusing. The upload then went out — publicly — with
+ * a title, nothing else, and no word that anything was missing, which is the
+ * exact "title-only fallback" shape this project recorded. A published video
+ * with no description cannot be fixed by a later upload; it needs a second
+ * provider write.
+ *
+ * So the check is a preflight on the upload path (`generators/youtube-upload`),
+ * not inside the resolver: `resolveUploadMetadata` feeds previews and thumbnail
+ * pickers too, and those must be able to SHOW an empty description. The message
+ * names the episode and the missing field, and the job fails loudly (§8) rather
+ * than skipping the step.
+ */
+export function assertUploadMetadataComplete(
+  meta: Pick<EpisodeMetadataForUpload, 'title' | 'description'>,
+  episodeCode: string,
+): void {
+  const missing: string[] = []
+  if (!meta.title || !meta.title.trim()) missing.push('title')
+  if (!meta.description || !meta.description.trim()) missing.push('description')
+  if (!missing.length) return
+  const fields = missing.length === 2 ? 'title and description' : missing[0]!
+  throw new Error(
+    `${episodeCode} has no ${fields} to publish, so nothing was uploaded. `
+    + `Open the Metadata page for ${episodeCode}, generate or write its ${fields}, then publish again. `
+    + 'Story Studio will not publish a video whose details are only part of what YouTube needs.',
+  )
+}
+
 function pickFirstNonEmpty(candidates: string[]): string {
   for (const c of candidates) {
     if (typeof c === 'string' && c.trim()) return c.trim()
@@ -425,9 +459,10 @@ function versionOf(filename: string): number {
 // YouTube Data API v3 hard limits (as of 2026). Verify against
 // https://developers.google.com/youtube/v3/docs/videos if updating.
 // Exported so the Upload Center's own validation quotes the SAME figure
-// rather than a copy of it that can drift.
-export const YT_TITLE_MAX = 100
-const YT_TAGS_TOTAL_MAX = 500
+// rather than a copy of it that can drift. The number itself lives once, in
+// the shared title helper that also refuses an over-limit composed title.
+export const YT_TITLE_MAX = YOUTUBE_TITLE_MAX_CHARACTERS
+export const YT_TAGS_TOTAL_MAX = 500
 const PER_TAG_MAX = 30
 const MAX_TAGS = 15
 

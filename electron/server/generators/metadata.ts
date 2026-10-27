@@ -25,6 +25,7 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { buildDescriptionPrompt, repairGeneratedDescription, stripChapterHeadingsFromContext } from '../lib/metadata-prompt.js'
 import { getContentLanguage, languageDirective } from '../lib/content-language.js'
+import { composeChannelTitle } from '../lib/title-wrapping.js'
 import { inspectMusicStitch, musicMetadataContext } from '../services/music-episode-store.js'
 import {
   metadataFormulaPlan,
@@ -536,7 +537,10 @@ export async function generateMetadata(job: Job): Promise<void> {
     const title_prefix = typeof req.title_prefix === 'string' ? req.title_prefix : ''
     const title_suffix = typeof req.title_suffix === 'string' ? req.title_suffix : ''
     const manual_title = typeof req.manual_title === 'string' ? req.manual_title.trim() : ''
-    const wrapTitle = (s: string): string => `${title_prefix}${s}${title_suffix}`
+    // The shared helper applies the channel prefix/suffix IDEMPOTENTLY and
+    // refuses an over-limit result; three call sites used to spell this
+    // themselves and each doubled a suffix or let a title past YouTube's limit.
+    const wrapTitle = (s: string): string => composeChannelTitle(s, title_prefix, title_suffix, { context: episode_id })
 
     let titles: string[]
     if (preserveExistingPackage) {

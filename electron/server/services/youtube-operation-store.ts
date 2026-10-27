@@ -79,7 +79,7 @@ const IMMUTABLE_KEYS = [
   'final_payload', 'video_id', 'accepted_at',
 ] as const
 const OPTIONAL_OPERATION_KEYS = [
-  'resumable', 'processing', 'remote_snapshot',
+  'resumable', 'processing', 'remote_snapshot', 'metadata_updates',
 ] as const
 const LIFECYCLE_ORDER: Record<string, number> = {
   preparing: 0,
@@ -492,6 +492,27 @@ function assertActionsAppendOnly(before: YouTubeOperationRecordV1, after: YouTub
   }
 }
 
+/**
+ * Metadata-update receipts are evidence, so they are append-only too.
+ *
+ * A receipt says "Story Studio changed this live video, here is the snippet it
+ * was built from, and here is what YouTube said afterwards". Rewriting one
+ * would rewrite the history of a change to someone's public video, which is
+ * exactly what this store refuses everywhere else.
+ */
+function assertMetadataUpdatesAppendOnly(before: YouTubeOperationRecordV1, after: YouTubeOperationRecordV1): void {
+  const beforeReceipts = before.metadata_updates ?? []
+  const afterReceipts = after.metadata_updates ?? []
+  if (afterReceipts.length < beforeReceipts.length
+    || beforeReceipts.some((receipt, index) => !isDeepStrictEqual(receipt, afterReceipts[index]))) {
+    throw foundationError('YOUTUBE_RECORD_REVISION_CONFLICT', 'Existing YouTube metadata update receipts are immutable and append-only.')
+  }
+  const existingIds = new Set(beforeReceipts.map(receipt => receipt.receipt_id))
+  if (afterReceipts.slice(beforeReceipts.length).some(receipt => existingIds.has(receipt.receipt_id))) {
+    throw foundationError('YOUTUBE_RECORD_REVISION_CONFLICT', 'A YouTube metadata update receipt ID cannot be reused.')
+  }
+}
+
 function assertProcessingEvidencePreserved(before: YouTubeOperationRecordV1, after: YouTubeOperationRecordV1): void {
   const beforeProcessing = before.processing as unknown as Record<string, unknown> | undefined
   if (!beforeProcessing) return
@@ -805,6 +826,7 @@ async function updateOperation(
       input.mutate(next)
       assertImmutable(current, next)
       assertActionsAppendOnly(current, next)
+      assertMetadataUpdatesAppendOnly(current, next)
       assertProcessingEvidencePreserved(current, next)
       mergeOperationalSections(current, next)
       assertLifecycleAdvance(current, next)

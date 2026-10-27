@@ -22,7 +22,7 @@ import { resolveEpisodePaths } from '../services/utils.js'
 import * as im from '../services/idea-manager.js'
 import { isCancelled } from '../services/job-queue.js'
 import { probeForUpload } from '../lib/ffprobe-check.js'
-import { resolveUploadMetadata } from '../lib/upload-metadata.js'
+import { resolveUploadMetadata, assertUploadMetadataComplete } from '../lib/upload-metadata.js'
 import { resolveYouTubeUploadSettings, buildYouTubeMetadataPackage, metadataPackageFromFinalPayload } from '../services/youtube-metadata-package.js'
 import { uploadVideo, setThumbnail, type PrivacyStatus } from '../lib/youtube-client.js'
 import {
@@ -248,6 +248,11 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     platform: 'youtube',
     thumbnail_filename: params.thumbnail_filename,
   })
+  // Refuse BEFORE any quota is spent: a video with no description is the
+  // "title-only fallback" upload that went out publicly and silent. The job
+  // fails loudly, so Pipeline and one-click runs show it too (§8), rather
+  // than upload a shell of a video.
+  assertUploadMetadataComplete(meta, episodeId)
   // The thumbnail is REQUIRED (owner decision 2026-10-07). Refuse before any
   // quota is spent rather than publish a video with YouTube's frame grab.
   // 1.4.300: the "thumbnail present" safety check — Off/Warn upload without one.

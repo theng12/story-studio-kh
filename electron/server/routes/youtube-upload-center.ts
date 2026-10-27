@@ -8,8 +8,11 @@
  * Two rules shape every handler here:
  *
  *   1. Ordinary page loads are cache-first and cost no YouTube quota
- *      (spec section 7). Exactly ONE route talks to the provider, and its name
- *      says so.
+ *      (spec section 7). Exactly THREE routes here contact the provider, and
+ *      each says so: the deliberate analytics refresh, the comments refresh,
+ *      and the read-only video audit (`GET .../videos/snippets`), which reports
+ *      the quota units it spent and reads nothing it already has a current
+ *      observation for.
  *   2. An empty answer must say WHY it is empty. "No channel assigned" and
  *      "nothing has been uploaded yet" are different facts, and a screen that
  *      renders them identically is the defect this project keeps finding.
@@ -17,7 +20,7 @@
  * Nothing here returns a token, secret, or resumable session URL.
  */
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
@@ -148,9 +151,24 @@ import { cursorKey } from '../services/youtube-page-cursor.js'
 import { metricNotFetched } from '../services/youtube-analytics-value.js'
 import {
   addVideoToPlaylist,
+  listRecentUploads,
+  listVideoSnippetStatus,
   setCommentModerationStatus,
   updateVideoMetadata,
+  type VideoBackfillView,
 } from '../lib/youtube-client.js'
+import {
+  updateYouTubeVideoMetadata,
+  type MetadataUpdateFields,
+} from '../services/youtube-metadata-update.js'
+import {
+  noteStoryMetadataWrite,
+  readChannelVideoAudit,
+  recordVideoAuditEntries,
+  videoAuditEntryIsCurrent,
+  type VideoAuditEntry,
+  type VideoAuditFinding,
+} from '../services/youtube-video-audit-store.js'
 export const router = Router()
 
 function fail(res: import('express').Response, error: unknown, fallback: string): void {
@@ -1017,6 +1035,379 @@ router.post('/projects/:slug/youtube/library/:operation_id/thumbnail', async (re
     })
   } catch (error) {
     fail(res, error, 'Failed to start that thumbnail update.')
+  }
+})
+
+/**
+ * Change the TITLE, DESCRIPTION and TAGS of a video that is ALREADY on YouTube.
+ *
+ * This is the one supported way to change what a published video shows without
+ * re-uploading it — no new video, no second public copy. It is deliberately its
+ * own operation rather than a branch of Upload: the upload path must never
+ * decide for itself to PATCH a live video (the defect `716b4a0b` reversed).
+ *
+ * Identity comes from Story Studio's OWN upload records. Send `operation_id`
+ * (the episode's record) or `video_id`; a video id that no record maps to this
+ * project's assigned channel is refused. The provider does not decide ownership.
+ *
+ * The update is built from a fresh `videos.list` read, changes only the fields
+ * supplied, sends `videos.update part=snippet` only (never `part=status`), and
+ * verifies the result by reading it back. `expected_baseline_hash` (the hash a
+ * caller got from a previous snippet listing) makes it refuse rather than
+ * overwrite a video that changed since the change was prepared.
+ */
+router.post('/projects/:slug/youtube/videos/metadata', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (req.body?.confirm !== true) {
+      res.status(400).json({
+        code: 'YOUTUBE_CONFIRMATION_REQUIRED',
+        detail: 'Confirm this metadata change before sending it to YouTube.',
+      })
+      return
+    }
+
+    const operationId = typeof req.body?.operation_id === 'string' ? req.body.operation_id.trim() : ''
+    const videoIdInput = typeof req.body?.video_id === 'string' ? req.body.video_id.trim() : ''
+
+    let record: YouTubeOperationRecordV1
+    if (operationId) {
+      record = await assertYouTubeOperationAuthorized(slug, operationId)
+      if (videoIdInput && record.video_id !== videoIdInput) {
+        res.status(404).json({
+          code: 'YOUTUBE_VIDEO_NOT_FOUND',
+          detail: `Video ${videoIdInput} is not the one ${record.episode_code} uploaded `
+            + `(${record.video_id || 'no video recorded'}). Nothing was changed.`,
+        })
+        return
+      }
+    } else if (videoIdInput) {
+      const current = await currentChannelId(slug)
+      if (!current) {
+        res.status(409).json({
+          code: 'YOUTUBE_CHANNEL_NOT_ASSIGNED',
+          detail: 'Assign a YouTube channel to this project first.',
+        })
+        return
+      }
+      const matches = (await listYouTubeOperations(slug))
+        .filter(candidate => candidate.video_id?.trim() === videoIdInput && candidate.channel_id === current)
+      if (matches.length === 0) {
+        res.status(404).json({
+          code: 'YOUTUBE_VIDEO_NOT_FOUND',
+          detail: `No upload record in this project maps ${videoIdInput} to the assigned channel. `
+            + 'Story Studio only changes videos it recorded uploading. Nothing was changed.',
+        })
+        return
+      }
+      if (matches.length > 1) {
+        res.status(409).json({
+          code: 'YOUTUBE_VIDEO_ID_CONFLICT',
+          detail: `More than one episode records ${videoIdInput} on this channel `
+            + `(${matches.map(candidate => candidate.episode_code).join(', ')}). Send operation_id instead.`,
+        })
+        return
+      }
+      record = await assertYouTubeOperationAuthorized(slug, matches[0]!.operation_id)
+    } else {
+      res.status(400).json({
+        code: 'YOUTUBE_VIDEO_NOT_FOUND',
+        detail: 'Name the video to update: send operation_id or video_id.',
+      })
+      return
+    }
+
+    if (!record.video_id) {
+      res.status(404).json({
+        code: 'YOUTUBE_OPERATION_NOT_FOUND',
+        detail: `That operation has no accepted YouTube video (${record.episode_code}). Nothing was changed.`,
+      })
+      return
+    }
+
+    const fields: MetadataUpdateFields = {
+      ...(typeof req.body?.title === 'string' ? { title: req.body.title } : {}),
+      ...(typeof req.body?.description === 'string' ? { description: req.body.description } : {}),
+      ...(Array.isArray(req.body?.tags) ? { tags: req.body.tags } : {}),
+    }
+    if (!('title' in fields) && !('description' in fields) && !('tags' in fields)) {
+      res.status(400).json({
+        code: 'YOUTUBE_METADATA_FIELDS_MISSING',
+        detail: 'Send at least one of title, description or tags.',
+      })
+      return
+    }
+    const expectedBaselineHash = typeof req.body?.expected_baseline_hash === 'string'
+      && req.body.expected_baseline_hash.trim()
+      ? req.body.expected_baseline_hash.trim()
+      : undefined
+
+    const outcome = await updateYouTubeVideoMetadata({
+      slug,
+      accountId: registryCredentialFor(record.channel_id),
+      videoId: record.video_id,
+      fields,
+      ...(expectedBaselineHash ? { expected_baseline_hash: expectedBaselineHash } : {}),
+    })
+
+    // A no-op retry is answered first and writes nothing: the fresh read
+    // already matched, so the durable record has nothing to add.
+    if (!outcome.changed) {
+      res.json({
+        video_id: outcome.video_id,
+        channel_id: record.channel_id,
+        episode_code: record.episode_code,
+        changed: false,
+        applied_fields: [],
+        verified: true,
+        baseline_snippet_sha256: outcome.baseline_snippet_sha256,
+        title: outcome.after_snippet.title,
+        detail: `${record.episode_code} already says that on YouTube; nothing was sent again.`,
+      })
+      return
+    }
+
+    const appliedAt = new Date().toISOString()
+    const receiptId = `receipt_${randomUUID()}`
+    // Pinned to the operation's immutable channel: the provider already
+    // answered, so a concurrent reassignment must not discard the receipt.
+    await updatePinnedYouTubeOperation({
+      project_slug: slug,
+      operation_id: record.operation_id,
+      expected_revision: record.revision,
+      expected_channel_id: record.channel_id,
+      mutate(current) {
+        const receipts = current.metadata_updates ?? []
+        receipts.push({
+          receipt_id: receiptId,
+          video_id: outcome.video_id,
+          applied_at: appliedAt,
+          applied_fields: outcome.applied_fields,
+          baseline_snippet_sha256: outcome.baseline_snippet_sha256,
+          after_snippet: outcome.after_snippet,
+          baseline_status: outcome.baseline_status,
+          after_status: outcome.after_status,
+          verified: outcome.verified,
+          ...(outcome.mismatches.length ? { mismatches: outcome.mismatches } : {}),
+        })
+        current.metadata_updates = receipts
+        // Keep the app's own record of what YouTube says in step with the
+        // read-back, so Library shows the applied title as "YouTube now".
+        // `previous_remote_snapshot` is the snippet THIS change was built from,
+        // not whatever was last synced — so the before/after the app shows is
+        // the before/after this operation produced. `final_payload` is
+        // immutable by design and is never rewritten here.
+        current.previous_remote_snapshot = {
+          fetched_at: appliedAt,
+          title: outcome.baseline_snippet.title,
+          description: outcome.baseline_snippet.description,
+          tags: outcome.baseline_snippet.tags,
+          privacy_status: outcome.baseline_status.privacy_status,
+          scheduled_for: outcome.baseline_status.publish_at,
+        }
+        current.remote_snapshot = {
+          fetched_at: appliedAt,
+          title: outcome.after_snippet.title,
+          description: outcome.after_snippet.description,
+          tags: outcome.after_snippet.tags,
+          privacy_status: outcome.after_status.privacy_status,
+          scheduled_for: outcome.after_status.publish_at,
+        }
+      },
+    })
+
+    // The audit ledger's observation of this video predates our write, so it is
+    // no longer current: the next audit re-reads exactly this video.
+    await noteStoryMetadataWrite({
+      project_slug: slug, channel_id: record.channel_id, video_id: outcome.video_id, at: appliedAt,
+    }).catch(() => { /* rebuildable cache; invalidation must not fail the update */ })
+
+    invalidatePublishingOverviewCache()
+
+    if (!outcome.verified) {
+      // Loudly: the write reached YouTube, the read-back does not match.
+      res.status(502).json({
+        code: 'YOUTUBE_METADATA_VERIFICATION_FAILED',
+        detail: `YouTube accepted the change to ${outcome.video_id}, but reading it back did not match what was sent. `
+          + `${outcome.mismatches.join('; ')}. Reload the video (Sync) before trying again.`,
+        video_id: outcome.video_id,
+        mismatches: outcome.mismatches,
+        receipt_id: receiptId,
+      })
+      return
+    }
+
+    res.json({
+      video_id: outcome.video_id,
+      channel_id: record.channel_id,
+      episode_code: record.episode_code,
+      changed: true,
+      applied_fields: outcome.applied_fields,
+      verified: true,
+      baseline_snippet_sha256: outcome.baseline_snippet_sha256,
+      previous_title: outcome.baseline_snippet.title,
+      title: outcome.after_snippet.title,
+      receipt_id: receiptId,
+    })
+  } catch (error) {
+    fail(res, error, 'Failed to update that video on YouTube.')
+  }
+})
+
+/** The findings an audit read can raise, computed from what YouTube returned. */
+function auditFindingsFor(view: VideoBackfillView): VideoAuditFinding[] {
+  const findings: VideoAuditFinding[] = []
+  if (!view.title.trim()) findings.push('title_empty')
+  if ([...view.title].length > YT_TITLE_MAX) findings.push('title_over_limit')
+  if (/[<>]/.test(view.title)) findings.push('title_has_angle_brackets')
+  if (!view.description.trim()) findings.push('empty_description')
+  if (utf8Bytes(view.description) > YOUTUBE_DESCRIPTION_MAX_BYTES_PUBLISHED) findings.push('description_over_limit_bytes')
+  if (!view.tags.length) findings.push('no_tags')
+  return findings
+}
+
+function videoAuditEntryFrom(
+  view: VideoBackfillView,
+  videoId: string,
+  channelId: string,
+  episodeCode: string | undefined,
+  checkedAt: string,
+): VideoAuditEntry {
+  return {
+    video_id: videoId,
+    channel_id: channelId,
+    checked_at: checkedAt,
+    title: view.title,
+    description_length: [...view.description].length,
+    description_empty: !view.description.trim(),
+    tag_count: view.tags.length,
+    // The whole snippet's identity, so a later audit can tell WHAT changed
+    // without re-reading the video or storing its full text a second time.
+    snippet_sha256: createHash('sha256').update(JSON.stringify({
+      title: view.title, description: view.description, tags: view.tags,
+    })).digest('hex'),
+    privacy_status: view.privacyStatus,
+    publish_at: view.publishAt,
+    findings: auditFindingsFor(view),
+    ...(episodeCode ? { episode_code: episodeCode } : {}),
+  }
+}
+
+/**
+ * READ-ONLY audit of the snippets of an owned channel's videos.
+ *
+ * Answers Production's "what do all my videos say?" without any write. It
+ * re-reads a video only when Story Studio has no current observation for it, so
+ * a second audit of an unchanged channel spends no `videos.list` quota at all.
+ * `force=1` re-reads every known video; `include_uploads=1` also lists the
+ * channel's uploads playlist first, so videos with no Story Studio record are
+ * audited too (that listing costs its own quota and is reported separately).
+ *
+ * Returns, per video: id, channel, when it was checked, the title, description
+ * length, tag count, a hash of title+description+tags, the privacy and publishAt
+ * seen, and findings (empty description, missing tags, title rule). Never calls
+ * a publishing-schedule endpoint and never writes to YouTube.
+ */
+router.get('/projects/:slug/youtube/videos/snippets', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const flag = (value: unknown): boolean => value === '1' || value === 'true'
+    const force = flag(req.query.force)
+    const includeUploads = flag(req.query.include_uploads)
+    // The account whose token signs in to the ASSIGNED channel; refuses an
+    // unassigned project and an account that signs in elsewhere.
+    const { accountId, channelId } = await accountForCurrentChannel(slug)
+
+    // Every id Story Studio's OWN records know for this channel. Operations
+    // are the upload records; reconcile links are independent records of the
+    // same fact, and a video either one names is ours to audit.
+    const episodeByVideo = new Map<string, string>()
+    for (const record of await listYouTubeOperations(slug)) {
+      const videoId = record.video_id?.trim()
+      if (record.channel_id === channelId && videoId) episodeByVideo.set(videoId, record.episode_code)
+    }
+    const linkState = await readYouTubeProjectPublishingState(slug)
+    for (const [episodeCode, link] of Object.entries(linkState.episode_video_links)) {
+      const videoId = link.video_id?.trim()
+      if (link.channel_id === channelId && videoId && !episodeByVideo.has(videoId)) {
+        episodeByVideo.set(videoId, episodeCode)
+      }
+    }
+
+    // The channel's uploads playlist, when asked for. Its cost is its OWN: a
+    // channels.list (1 unit) to find the playlist, then one unit per page of
+    // 50. It is reported separately rather than folded into the videos.list
+    // figure, because the two are different charges.
+    let uploadsListing: {
+      used: boolean
+      videos: number
+      truncated: boolean
+      quota_units: number
+    } = { used: false, videos: 0, truncated: false, quota_units: 0 }
+    if (includeUploads) {
+      const listed = await listRecentUploads(slug, accountId)
+      for (const video of listed.videos) {
+        if (!episodeByVideo.has(video.videoId)) episodeByVideo.set(video.videoId, '')
+      }
+      uploadsListing = {
+        used: true,
+        videos: listed.videos.length,
+        truncated: listed.truncated,
+        // channels.list + one playlistItems.list page per 50 videos read. A
+        // TRUNCATED listing used every page its budget allowed, which is the
+        // number of videos it returned rounded up to pages.
+        quota_units: 1 + Math.max(1, Math.ceil(listed.videos.length / 50)),
+      }
+    }
+
+    const knownIds = [...episodeByVideo.keys()]
+    const ledger = await readChannelVideoAudit(slug, channelId)
+    const toRead = force ? knownIds : knownIds.filter(videoId => !videoAuditEntryIsCurrent(ledger[videoId]))
+    const skippedCached = knownIds.length - toRead.length
+
+    // videos.list costs ONE unit per request of up to 50 ids. Zero ids means
+    // zero requests, which is the whole point of the ledger.
+    const quotaUnits = Math.ceil(toRead.length / 50)
+    const views = toRead.length
+      ? await listVideoSnippetStatus(slug, accountId, toRead)
+      : {}
+
+    const checkedAt = new Date().toISOString()
+    const fresh: VideoAuditEntry[] = []
+    for (const videoId of toRead) {
+      const view = views[videoId]
+      if (!view) continue
+      const episodeCode = episodeByVideo.get(videoId)
+      fresh.push(videoAuditEntryFrom(view, videoId, channelId, episodeCode || undefined, checkedAt))
+    }
+    if (fresh.length) {
+      await recordVideoAuditEntries({ project_slug: slug, channel_id: channelId, entries: fresh })
+    }
+
+    const merged: Record<string, VideoAuditEntry> = { ...ledger }
+    for (const entry of fresh) merged[entry.video_id] = entry
+
+    res.json({
+      channel_id: channelId,
+      checked_at: checkedAt,
+      force,
+      known_ids: knownIds.length,
+      read_now: fresh.length,
+      skipped_cached: skippedCached,
+      // An id YouTube did not answer about is NOT "nothing wrong" — it is
+      // unobserved, and it is named rather than folded into the results.
+      not_returned: toRead.filter(videoId => !views[videoId]),
+      // videos.list: one unit per request of up to 50 ids.
+      quota_units: quotaUnits,
+      uploads_listing: uploadsListing.used ? uploadsListing : null,
+      // Everything this run charged, so an audit's cost is one number.
+      total_quota_units: quotaUnits + uploadsListing.quota_units,
+      videos: knownIds
+        .map(videoId => merged[videoId])
+        .filter((entry): entry is VideoAuditEntry => !!entry),
+    })
+  } catch (error) {
+    fail(res, error, 'Failed to read video snippets from YouTube.')
   }
 })
 
