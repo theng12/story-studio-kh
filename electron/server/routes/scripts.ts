@@ -14,7 +14,8 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { resolveSubfolderNames } from '../services/utils.js'
 import { parseMetadataTxt } from '../services/metadata-format.js'
 import { validateBody } from '../lib/validate.js'
-import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema } from '../schemas/index.js'
+import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema, TranslateEpisodeSchema } from '../schemas/index.js'
+import { translateEpisodeScript } from '../services/translation.js'
 import { metadataFormulaCatalogue } from '../services/metadata-formula-catalogue.js'
 import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -2019,6 +2020,26 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
     res.json({ versions })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to list metadata versions'))
+  }
+})
+
+router.post('/projects/:slug/episodes/:episodeId/translate', validateBody(TranslateEpisodeSchema), async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    const result = await translateEpisodeScript({
+      sourceSlug: slug,
+      sourceEpisodeId: episodeId,
+      targetSlug: req.body.target_slug,
+      model: req.body.model,
+      targetEpisodeId: req.body.target_episode_id,
+      targetTitle: req.body.target_title,
+      reuseVisuals: req.body.reuse_visuals,
+      chapters: req.body.chapters,
+    })
+    res.status(200).json(result)
+  } catch (e: any) {
+    const status = e?.statusCode || e?.status || 500
+    res.status(status).json(humanizeBackendError(e, 'Failed to translate episode'))
   }
 })
 

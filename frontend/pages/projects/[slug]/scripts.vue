@@ -80,6 +80,44 @@
       </div>
     </section>
 
+    <!-- Translated version (English ↔ Khmer, owner 2026-10-26): write the SAME
+         episode in the other language, keeping chapter structure. The translated
+         episode lives in the target channel, so narration/subtitles/assembly run
+         there in its own language; stills and the scene plan are reused where
+         the timing allows. -->
+    <section v-if="form.episode_id && sourceLanguage" class="card workspace-section translation-card">
+      <button class="translation-head" @click="onTranslationToggle">
+        <span><strong><span class="ds-chevron" :class="{ 'is-open': translateOpen }" aria-hidden="true" /> 🌐 Translate this episode</strong> — write the same episode in {{ oppositeLanguageName }}</span>
+        <span class="text-muted text-xs">same chapters; stills and scene plan reused</span>
+      </button>
+      <div v-if="translateOpen" class="translation-body mt-2">
+        <div v-if="!form.model" class="text-muted text-xs">
+          Choose a writing model above first — that model does the translation.
+        </div>
+        <template v-else>
+          <div class="form-group">
+            <label for="translation-target">Target channel ({{ oppositeLanguageName }})</label>
+            <select id="translation-target" v-model="translateTargetSlug" class="input input-sm">
+              <option value="">Choose a channel…</option>
+              <option v-for="p in translateTargets" :key="p.slug" :value="p.slug">{{ p.name }}</option>
+            </select>
+            <span class="text-muted text-xs">
+              A new episode is created there with every chapter translated. Narration, subtitles and
+              assembly then run in that channel's language.
+              <template v-if="translateTargets.length === 0"> No {{ oppositeLanguageName }} channel exists yet — create one first.</template>
+            </span>
+          </div>
+          <button class="btn btn-primary btn-sm" :disabled="translateRunning || !translateTargetSlug" @click="translateEpisode">
+            {{ translateRunning ? 'Translating…' : 'Translate' }}
+          </button>
+          <p v-if="translateResult" class="text-xs mt-2">
+            Translated into <strong>{{ translateResult.targetEpisodeId }}</strong> — {{ translateResult.targetTitle }}.
+            Open that channel to run narration → subtitles → assembly.
+          </p>
+        </template>
+      </div>
+    </section>
+
     <!-- v1.4.73 — the writing flow here is Outline → Script, and only that.
          The channel opening is its own optional stage in the sidebar; the
          comment that used to sit here claimed the opposite. -->
@@ -831,6 +869,59 @@ async function importContent(): Promise<void> {
     showError(e?.data?.detail || e?.message || 'Import failed')
   } finally {
     byoImporting.value = false
+  }
+}
+
+// Translated versions (English ↔ Khmer, owner 2026-10-26). The target channel
+// must speak the OTHER language; the translation runs on the writing model this
+// page already selected (§1: never hardcoded). It writes chapter files in the
+// target episode and proves every one of them complete before it reports done.
+const translateOpen = ref(false)
+const translateChannels = ref<Array<{ slug: string; name: string; content_language?: string | null }>>([])
+const translateTargetSlug = ref('')
+const translateRunning = ref(false)
+const translateResult = ref<{ targetSlug: string; targetEpisodeId: string; targetTitle: string } | null>(null)
+
+const sourceLanguage = computed<'en' | 'km' | null>(() => {
+  const lang = project.value?.content_language
+  return lang === 'en' || lang === 'km' ? lang : null
+})
+const oppositeLanguageName = computed(() => sourceLanguage.value === 'en' ? 'Khmer' : 'English')
+const translateTargets = computed(() => translateChannels.value.filter(c => (
+  c.content_language === (sourceLanguage.value === 'en' ? 'km' : 'en')
+)))
+
+async function onTranslationToggle(): Promise<void> {
+  translateOpen.value = !translateOpen.value
+  if (!translateOpen.value) return
+  const { get } = useApi()
+  try {
+    const list = await get<Array<{ slug: string; name: string; content_language?: string | null }>>(
+      '/projects', { cache: 'no-store' },
+    )
+    translateChannels.value = Array.isArray(list) ? list : []
+  } catch {
+    translateChannels.value = []
+  }
+}
+
+async function translateEpisode(): Promise<void> {
+  if (!form.episode_id || !form.model || !translateTargetSlug.value) return
+  const ep = form.episode_id
+  translateRunning.value = true
+  translateResult.value = null
+  try {
+    const r = await post<{ targetSlug: string; targetEpisodeId: string; targetTitle: string }>(
+      `/projects/${slug.value}/episodes/${ep}/translate`,
+      { target_slug: translateTargetSlug.value, model: form.model },
+    )
+    if (form.episode_id !== ep) return
+    translateResult.value = r
+    success(`Translated into ${r.targetEpisodeId} — ${r.targetTitle}. Open that channel to run narration, subtitles and assembly.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Translation failed')
+  } finally {
+    translateRunning.value = false
   }
 }
 
