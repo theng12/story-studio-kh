@@ -595,6 +595,39 @@ describe('Content Pack v1 contracts', () => {
     }), /must each change episode object and mechanism/i)
   })
 
+  test('pins the Topic Pack tuple array ceilings at 4000 and rejects 4001', () => {
+    const topic = {
+      ...documents['topic-pack'],
+      subjects: ['Ledger'],
+      episode_objects: Array.from({ length: 4000 }, (_, i) => `object ${i}`),
+      time_place_scopes: Array.from({ length: 4000 }, (_, i) => `scope ${i}`),
+      mechanisms: Array.from({ length: 4000 }, (_, i) => `mechanism ${i}`),
+      evidence_lenses: Array.from({ length: 4000 }, (_, i) => `lens ${i}`),
+      coverage_profiles: [
+        {
+          subject: 'Ledger',
+          tuples: [
+            { episode_object: 'object 0', time_place_scope: 'scope 0', mechanism: 'mechanism 0', evidence_lens: 'lens 0' },
+            { episode_object: 'object 1', time_place_scope: 'scope 1', mechanism: 'mechanism 1', evidence_lens: 'lens 1' },
+          ],
+        },
+      ],
+    }
+    assert.equal(parseContentPackDocument('topic-pack', topic).kind, 'topic-pack')
+
+    for (const key of ['episode_objects', 'time_place_scopes', 'mechanisms', 'evidence_lenses'] as const) {
+      const overCeiling = {
+        ...topic,
+        [key]: Array.from({ length: 4001 }, (_, i) => `item ${i}`),
+      }
+      assert.throws(
+        () => parseContentPackDocument('topic-pack', overCeiling),
+        /Array must contain at most 4000 element\(s\)/,
+        `expected 4001 ${key} to be rejected`,
+      )
+    }
+  })
+
   test('treats a channel kit as a manifest bundle reference rather than a content document', () => {
     assert.equal(ContentPackBundleSchema.parse(manifest.bundles[0]).kind, 'channel-kit')
     assert.throws(() => ContentPackDocumentSchema.parse({ ...manifest.bundles[0], schema_version: 1 }), /kind/i)

@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.362 — 2026-10-27
+
+- Topic Packs: raised array ceilings from 2,000 to 4,000 for episode objects, time-place scopes, mechanisms, and evidence lenses in the Content Pack document schema, admitting expanded consolidated packs without content loss.
+
+---
+
 ## v1.4.361 — 2026-10-27
 
 - Sleep channels start on their own scene rhythm: a new scene every 5–10 seconds for the first 3 minutes, 10–20 seconds from 3 to 5 minutes, 20–30 seconds from 5 to 10 minutes, then 50–60 seconds from 10 minutes on. It is the starting rhythm of Sleep Story, Sleep History Compilation, Calm Science for Sleep, Mythology for Sleep and Illustrated History for Sleep, and of a plain sleep channel created without a Formula. Every episode can still change it in Scene Plan's Visual timing & motion panel, and channels and episodes you already have keep the rhythm they already have — nothing stored is rewritten.
