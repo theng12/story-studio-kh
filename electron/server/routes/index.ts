@@ -62,6 +62,7 @@ import { router as sceneReviewRouter } from './scene-review.js'
 import { router as contextualCuesRouter } from './contextual-cues.js'
 import { router as effectsLibraryRouter } from './effects-library.js'
 import { router as soundDesignRouter } from './sound-design.js'
+import { router as soundAndLabelsRouter } from './sound-and-labels.js'
 import { router as episodeSegmentsRouter } from './episode-segments.js'
 import { router as continuityRouter } from './continuity.js'
 import { router as stillPostsRouter } from './still-posts.js'
@@ -87,6 +88,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', audioRouter)
   app.use('/api', videoAssemblyRouter)
   app.use('/api', soundDesignRouter)
+  app.use('/api', soundAndLabelsRouter)
   app.use('/api', episodeSegmentsRouter)
   app.use('/api', audioMergeRouter)
   app.use('/api', ideasRouter)

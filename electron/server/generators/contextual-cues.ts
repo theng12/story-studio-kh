@@ -31,8 +31,20 @@ import {
   writeContextualCueTimeline,
   type ContextualCueProgress,
 } from '../services/contextual-cues.js'
+import {
+  DEFAULT_SOUND_DESIGN_SETTINGS,
+  normalizeSoundDesignConfig,
+  readSoundDesignTimeline,
+  validateSoundDesignTimeline,
+  writeSoundDesignTimeline,
+} from '../services/sound-design.js'
+import { anchorPhraseAt } from '../contracts/cue-anchor.js'
+import { applySound, selectSound, type SoundCandidate } from '../services/sound-resolver.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
-import type { ContextualCue, ContextualCueAutoApprovalHold, ContextualCueKind, ContextualCueProposalSettings, ContextualCueTemplate, ContextualCueTimeline, Job, ScenePlan } from '../models/types.js'
+import type {
+  ContextualCue, ContextualCueAutoApprovalHold, ContextualCueKind, ContextualCueProposalSettings,
+  ContextualCueTemplate, ContextualCueTimeline, Job, ScenePlan, SoundDesignCue, SoundDesignCueKind,
+} from '../models/types.js'
 import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.js'
 import {
   GenStudioChatCapabilityUnavailableError,
@@ -57,8 +69,41 @@ interface CueCandidate {
   subtitle?: string
   kind?: ContextualCueKind
   template?: ContextualCueTemplate
+  /** v1.4.365 — the words the narration says as this label appears. */
+  anchor_word?: string
   anchor_offset_sec?: number
+  /** v1.4.365 — the sound this moment wants, chosen for the same moment. */
+  sound?: { kind: SoundDesignCueKind; description: string; with_label?: boolean }
 }
+
+/**
+ * What the model is told, for BOTH halves (v1.4.365).
+ *
+ * The sound is asked for in the same answer as the label on purpose. The label
+ * says what the moment IS; a sound is then chosen for that moment. Asking a
+ * second, separate request for "a sound for scene 37" loses that context and
+ * costs a second paid batch to guess at what the first answer already knew.
+ *
+ * `anchor_word` is the phrase the narration speaks as the label appears. It is
+ * what puts the label where the words are instead of on a fixed pad, and what
+ * lets a Scene Plan re-run carry it along.
+ */
+const SYSTEM_PROMPT = 'You are a restrained documentary editor. Return strict JSON only: '
+  + '{"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line",'
+  + '"kind":"location_date|historical_context|person|chapter",'
+  + '"template":"documentary-label|map-pin|archival-caption|chapter-plate",'
+  + '"anchor_word":"the exact 2-5 words the narration says as this label appears",'
+  + '"anchor_offset_sec":0.2,'
+  + '"sound":{"kind":"bed|spot","description":"what we would hear, e.g. wind across dry grass"}}]}. '
+  + 'Propose only genuinely useful on-screen context: location/date, historical event or era, '
+  + 'important institution/person, or a short explanatory label. Use map-pin only for a real place, '
+  + 'archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, '
+  + 'and documentary-label otherwise. '
+  + 'anchor_word must appear VERBATIM in that scene\u2019s narration \u2014 copy it, do not paraphrase. '
+  + 'sound is optional: give one only when a specific sound genuinely serves the moment, name a '
+  + '`bed` for continuous ambience that should sit under the scene or a `spot` for one brief effect. '
+  + 'Do not repeat narration, do not label every scene, never use more than one cue per scene, '
+  + 'and prefer no cue when uncertain.'
 
 function chunk<T>(items: T[], size: number): T[][] {
   const result: T[][] = []
@@ -239,6 +284,16 @@ function safeCandidate(
   if (!title) return null
   const sceneDuration = scene.end_sec - scene.start_sec
   if (sceneDuration < CUE_MIN_DURATION_SEC) return null
+  // A cue now hangs on the words being spoken, not on a fixed 0.15s pad
+  // (v1.4.365). The model names the phrase; `contracts/cue-anchor.ts` finds it
+  // in this episode's own subtitle cues and the absolute seconds follow. The
+  // offset is a fallback for a phrase that normalisation made unfindable, and
+  // it is what a v1 proposal always used.
+  const anchorWord = truncateChars(
+    (candidate.anchor_word || '').replace(/\s+/g, ' ').trim()
+      || anchorPhraseAt(String(candidate.subtitle || candidate.title || '')),
+    80,
+  ) || undefined
   // An editorial default for a freshly proposed cue, not a limit. The
   // validator's own ceiling is advisory and far higher; a reviewer is free to
   // stretch any of these afterwards.
@@ -250,7 +305,7 @@ function safeCandidate(
     ? candidate.kind : 'historical_context'
   // The model may propose a treatment, but a missing or invalid answer gets a
   // predictable editorial default. Every choice remains proposed until a
-  // human reviews it in the Contextual Cues workspace.
+  // human reviews it in the Sound & Labels workspace.
   const inferredTemplate: ContextualCueTemplate = kind === 'location_date'
     ? 'map-pin'
     : kind === 'chapter'
@@ -262,6 +317,8 @@ function safeCandidate(
   return {
     id: `cue-${scene.id}`,
     scene_id: scene.id,
+    ...(anchorWord ? { anchor_word: anchorWord } : {}),
+    anchor_offset_sec: Number(offset.toFixed(3)),
     start_sec: start,
     end_sec: end,
     title,
@@ -482,7 +539,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
       try {
         lastSubmissionAt = Date.now()
         const raw = await (cuesPolicy ? callAiWithModelPolicy(cuesPolicy,
-          'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.' + await noEmojiDirective(),
+          SYSTEM_PROMPT + await noEmojiDirective(),
           cueUserPrompt, {}, false,
           {
             slug: job.project_slug,
@@ -503,7 +560,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
           },
         ) : callAi(
           model,
-          'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.' + await noEmojiDirective(),
+          SYSTEM_PROMPT + await noEmojiDirective(),
           cueUserPrompt,
           {}, false,
           { slug: job.project_slug, jobId: job.job_id, requestIdentity: cueRequestIdentity, outputBudget: 'standard', outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
@@ -605,18 +662,18 @@ export async function generateContextualCues(job: Job): Promise<void> {
     await checkpointJobState(job)
   }
   const now = new Date().toISOString()
-  // v1.0.796 — project-level "Approve cues automatically" (config.auto_approve_cues,
-  // default OFF). This is a SEPARATE, persisted mode from the per-run/preset
-  // `settings.auto_approve` checkbox below it: when the project default is on,
-  // it takes over entirely and runs the safe, per-cue approval pass instead —
-  // a cue only becomes 'approved' if it clears every structural rule
+  // v1.4.365 — the PRESET's `auto_approve` is the only auto-approve there is
+  // (owner, 2026-10-28). The project-level `config.auto_approve_cues` switch was
+  // deleted: there were two switches, the page offered both, and one disabled
+  // the other. The preset wins because it travels with the model and density it
+  // shares a preset with, and AGENTS.md §5 already settled that it is preset
+  // data and is announced when a preset sets it. A channel config that still
+  // stores the old key is read safely and ignored — nothing rewrites the file.
+  //
+  // Either way a cue only becomes 'approved' if it clears every structural rule
   // validateContextualCueTimeline enforces for a human reviewer; anything that
   // doesn't stays 'proposed' and is recorded in auto_approval_holds, never
   // silently dropped.
-  //
-  // The preset's `settings.auto_approve` now runs the SAME per-cue pass. It used
-  // to approve every cue unchecked, so one crowding cue failed the whole run
-  // below; now that cue is held for review like any other.
   //
   // The timeline is re-read HERE, not at the start: a run takes minutes, and
   // approvals or edits made on the review page meanwhile must survive it.
@@ -627,13 +684,15 @@ export async function generateContextualCues(job: Job): Promise<void> {
   let proposed = accounted.proposed
   const dropped = accounted.dropped
   let autoApprovalHolds: ContextualCueAutoApprovalHold[] = []
-  if (config.auto_approve_cues || settings.auto_approve) {
+  if (settings.auto_approve) {
     const result = autoApproveEligibleCues(proposed, protectedCues, plan)
     proposed = result.cues
     autoApprovalHolds = result.holds
   }
   const timeline: ContextualCueTimeline = {
-    schema_version: 1 as const,
+    // v2: cues carry `scene_id` + a spoken `anchor_word`, and their absolute
+    // seconds follow the narration. A v1 file still reads unchanged.
+    schema_version: 2 as const,
     generated_at: now,
     source_scene_plan_generated_at: plan.generated_at,
     cues: [...protectedCues, ...proposed],
@@ -666,11 +725,115 @@ export async function generateContextualCues(job: Job): Promise<void> {
     job.output_lines.push(`  dropped: scene ${drop.scene_id}${drop.title ? ` "${drop.title}"` : ''} — ${drop.reason}`)
   }
   if (dropped.length > 20) job.output_lines.push(`  …and ${dropped.length - 20} more dropped (listed in the job result).`)
-  job.output_lines.push(config.auto_approve_cues
-    ? `Saved ${proposed.length} contextual cue(s): ${approvedNow} auto-approved, ${autoApprovalHolds.length} held back for review (failed a structural check — see the timeline for why).`
-    : settings.auto_approve
-      ? `Saved ${proposed.length} contextual cue(s) using this trusted preset: ${approvedNow} auto-approved, ${autoApprovalHolds.length} held back for review (failed a structural check — see the timeline for why).`
-      : `Saved ${proposed.length} proposed contextual cue(s). Review and approve or disable every cue before Video Assembly.`)
+  job.output_lines.push(settings.auto_approve
+    ? `Saved ${proposed.length} contextual cue(s) using this trusted preset: ${approvedNow} auto-approved, ${autoApprovalHolds.length} held back for review (failed a structural check — see the timeline for why).`
+    : `Saved ${proposed.length} proposed contextual cue(s). Approved labels render; anything left unreviewed is simply not drawn.`)
+  // ── The SOUND half (v1.4.365) ──────────────────────────────────────────────
+  //
+  // Same pass, same paid batch: a candidate's `sound` names the moment the
+  // label describes, and this picks a clip for it. Two rules:
+  //
+  //   * A sound is only proposed when Sound is switched on for the channel.
+  //     Proposing sounds for a channel that does not use them would fill a
+  //     review list with rows nobody asked for.
+  //   * A proposed sound is ALWAYS `proposed`. Auto-approving a label is an
+  //     editorial judgement about words; auto-approving a CLIP would put a file
+  //     the customer has never heard into the final mix, and the licence/credit
+  //     for it into the publish record. That is not a judgement the app makes.
+  const soundConfig = normalizeSoundDesignConfig((await getConfig(job.project_slug))?.sound_design)
+  let proposedSounds: SoundDesignCue[] = []
+  let soundCandidatesSeen = 0
+  if (soundConfig.enabled) {
+    const candidatesForSounds = await loadSoundCandidates()
+    const latestSounds = await readSoundDesignTimeline(planPath)
+    // EVERY existing cue is kept except the ones this pass is about to replace:
+    // a reviewed cue is the customer's decision, and a v1 cue has no `scene_id`
+    // at all and must not vanish from the file just because it predates the
+    // anchor (AGENTS.md §5, trap 2 — nothing rewrites stored data).
+    const existingSounds = latestSounds?.cues || []
+    const resolvedSoundIds = new Set(existingSounds.filter(cue => cue.status !== 'proposed').map(cue => cue.id))
+    for (const candidate of candidates) {
+      if (!candidate.sound?.description) continue
+      soundCandidatesSeen++
+      const cue = safeCandidate(candidate, plan, settings.density, settings, now)
+      if (!cue) continue
+      const id = `sound-${cue.scene_id}`
+      if (resolvedSoundIds.has(id) || proposedSounds.some(row => row.id === id)) continue
+      const chosen = selectSound(candidate.sound.description, candidate.sound.kind === 'bed' ? 'bed' : 'spot', candidatesForSounds)
+      const base: SoundDesignCue = {
+        id,
+        kind: candidate.sound.kind === 'bed' ? 'bed' : 'spot',
+        label: truncateChars(candidate.sound.description.replace(/\s+/g, ' ').trim(), 120),
+        scene_id: cue.scene_id,
+        ...(cue.anchor_word ? { anchor_word: cue.anchor_word } : {}),
+        anchor_offset_sec: cue.anchor_offset_sec,
+        start_sec: cue.start_sec,
+        ...(candidate.sound.kind === 'bed' ? { end_sec: Number((cue.start_sec + Math.min(20, Math.max(0, cue.end_sec - cue.start_sec))).toFixed(3)) } : {}),
+        source: 'pool',
+        clip: '',
+        gain_db: candidate.sound.kind === 'bed'
+          ? latestSounds?.settings.default_bed_gain_db ?? DEFAULT_SOUND_DESIGN_SETTINGS.default_bed_gain_db
+          : latestSounds?.settings.default_spot_gain_db ?? DEFAULT_SOUND_DESIGN_SETTINGS.default_spot_gain_db,
+        status: 'proposed',
+        created_at: now,
+        updated_at: now,
+      }
+      proposedSounds.push(chosen ? applySound(base, chosen.candidate) : base)
+    }
+    for (const row of proposedSounds) {
+      const credit = row.credit ? ` (${row.credit.licence.toUpperCase()}${row.credit.author ? `, ${row.credit.author}` : ''})` : ''
+      job.output_lines.push(row.clip
+        ? `  sound for scene ${row.scene_id}: "${row.label}" → ${row.clip}${credit}`
+        : `  sound for scene ${row.scene_id}: "${row.label}" → no matching clip; left for you to choose.`)
+    }
+    if (proposedSounds.length || existingSounds.length) {
+      const soundTimeline: import('../models/types.js').SoundDesignTimeline = {
+        schema_version: 2 as const,
+        generated_at: now,
+        source_scene_plan_generated_at: plan.generated_at,
+        settings: latestSounds?.settings || DEFAULT_SOUND_DESIGN_SETTINGS,
+        // Filled below, after anything the mixing rules refuse is removed.
+        cues: [],
+      }
+      // A generated sound that would break the mix is dropped WITH ITS REASON
+      // rather than failing a run whose labels are already paid for. Sounds are
+      // optional (AGENTS.md §9's shape): silence plus a stated note, never a
+      // lost batch of work.
+      const refused = new Map<string, string[]>()
+      // Validate against the WHOLE result, so a new sound that overlaps an
+      // existing approved bed is caught — not just the new rows against each
+      // other.
+      soundTimeline.cues = [...existingSounds.filter(cue => !proposedSounds.some(row => row.id === cue.id)), ...proposedSounds]
+      for (const issue of validateSoundDesignTimeline(soundTimeline, plan, soundTimeline.settings)) {
+        if (!issue.cue_id || issue.severity === 'warning') continue
+        refused.set(issue.cue_id, [...(refused.get(issue.cue_id) || []), issue.detail])
+      }
+      if (refused.size) {
+        for (const [id, reasons] of refused) {
+          const row = proposedSounds.find(cue => cue.id === id)
+          job.output_lines.push(`  not placed: scene ${row?.scene_id || id} "${row?.label || ''}" — ${reasons.join(' ')}`)
+        }
+        proposedSounds = proposedSounds.filter(cue => !refused.has(cue.id))
+      }
+      soundTimeline.cues = [...existingSounds.filter(cue => !proposedSounds.some(row => row.id === cue.id)), ...proposedSounds]
+      await writeSoundDesignTimeline(planPath, soundTimeline)
+      job.output_lines.push(`Saved ${proposedSounds.length} proposed sound(s); ${existingSounds.length} already on this episode and left untouched.`)
+    }
+    // Say plainly when nothing could be picked, because silence where a sound
+    // was asked for is exactly the state the customer needs to know about.
+    const unplaced = proposedSounds.filter(row => !row.clip).length
+    if (unplaced) {
+      job.output_lines.push(`${unplaced} sound(s) got no automatic match. They stay proposed with no clip — choose one in Sound & Labels.`)
+    }
+    job.result = {
+      ...(job.result || {}),
+      sounds_proposed: proposedSounds.length,
+      sounds_unplaced: unplaced,
+      sounds_preserved: Math.max(0, existingSounds.length - proposedSounds.length),
+      sound_candidates: soundCandidatesSeen,
+    }
+  }
+
   // Real counts: every scene batch must have returned an answer. (Dropped
   // candidates are editorial — reported above, not a failure.)
   requireJobCompletion(job, {
@@ -680,4 +843,44 @@ export async function generateContextualCues(job: Job): Promise<void> {
     missing: batches.map((_, index) => index).filter(index => !completed.has(index)).map(index => `batch ${index + 1}`),
     retry_hint: 'Retry asks again only for the missing batches.',
   })
+}
+
+/**
+ * Everything a sound could be picked from, right now.
+ *
+ * Local pools first (they are the customer's own files and cost nothing), then
+ * the Gateway library — read soft, because a Gateway that cannot answer must
+ * not fail a proposal that already paid for its labels.
+ */
+async function loadSoundCandidates(): Promise<SoundCandidate[]> {
+  const out: SoundCandidate[] = []
+  try {
+    const pools = await import('../services/broll-pool-manager.js')
+    for (const pool of await pools.listPools()) {
+      if (pools.poolMedia(pool) !== 'audio') continue
+      if (!(await pools.isPoolOnline(pool.id))) continue
+      for (const clip of await pools.listClips(pool.id, { includeMissing: false })) {
+        out.push({
+          source: 'pool', key: pool.id, label: clip.filename,
+          description: [clip.filename, ...(clip.tags || [])].join(' '),
+        })
+      }
+    }
+  } catch {
+    // A pool registry that cannot be read is not a reason to lose the labels.
+  }
+  try {
+    const { listKeptSounds } = await import('../lib/gateway-sound-library.js')
+    for (const clip of await listKeptSounds()) {
+      out.push({
+        source: 'gateway', key: clip.sha256, label: clip.credit.title || clip.sha256.slice(0, 12),
+        description: [clip.credit.title, clip.credit.author, clip.credit.source].filter(Boolean).join(' '),
+        duration_sec: clip.duration_sec,
+        credit: clip.credit,
+      })
+    }
+  } catch {
+    // The Gateway library being unreachable leaves the local pools usable.
+  }
+  return out
 }

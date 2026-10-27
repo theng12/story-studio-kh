@@ -7,7 +7,7 @@ function source(relative: string): string {
   return fs.readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
 }
 
-describe('stock and Sound Design boundary UI', () => {
+describe('stock and Sound & Labels boundary UI', () => {
   test('assets library presents manual import without provider submission controls', () => {
     const library = source('../pages/broll-library.vue')
     assert.match(library, /via Finder and click/)
@@ -15,31 +15,33 @@ describe('stock and Sound Design boundary UI', () => {
     assert.doesNotMatch(library, /\/broll-fetch\/search|queueSelectedFetches|runFetchSearch/)
   })
 
-  test('Sound Design retains local review but hides unavailable provider controls', () => {
-    const sound = source('../pages/projects/[slug]/sound-design.vue')
-    assert.match(sound, /definePageMeta\(\{\s*layout: 'dashboard'/)
-    assert.match(sound, /useAppTitle\('Sound Design'\)/)
-    assert.match(sound, /choose a sound/)
-    // Plain words, not catalogue jargon: say generation isn't available and where sounds come from.
-    assert.match(sound, /Making new sounds/)
-    assert.match(sound, /SFX pool in the <NuxtLink to="\/broll-library">B-Roll Library/)
-    assert.doesNotMatch(sound, /qualified live Gateway capability|Phase 1 uses/)
-    assert.doesNotMatch(sound, /ModelSelector|Freesound|ElevenLabs|Suno/)
+  test('Sound & Labels retains local review but hides unavailable provider controls', () => {
+    const page = source('../pages/projects/[slug]/sound-and-labels.vue')
+    assert.match(page, /definePageMeta\(\{\s*layout: 'dashboard'/)
+    assert.match(page, /useAppTitle\('Sound & Labels'\)/)
+    assert.match(page, /choose a sound/)
+    // Plain words: sounds come from the customer's own folders and the Gateway
+    // library — and a failed Gateway search says so, rather than showing an
+    // empty picker as if the customer had no sounds.
+    assert.match(page, /Search Gateway library/)
+    assert.match(page, /Your sound folders/)
+    assert.match(page, /is unavailable/)
+    assert.doesNotMatch(page, /qualified live Gateway capability|Phase 1 uses/)
+    assert.doesNotMatch(page, /Freesound|ElevenLabs|Suno/)
   })
 
-  test('Sound Design explains the purpose and audible effect of every mix control', () => {
-    const sound = source('../pages/projects/[slug]/sound-design.vue')
-    assert.match(sound, /Sound density/)
-    assert.match(sound, /How often ambience and effects appear/)
-    assert.match(sound, /Maximum spots per minute/)
-    assert.match(sound, /Start at 2–4 to avoid distracting from speech/)
-    assert.match(sound, /Ambient bed level/)
-    assert.match(sound, /More negative is quieter; −20 dB/)
-    assert.match(sound, /Spot effect level/)
-    assert.match(sound, /More negative is quieter; −12 dB/)
-    assert.match(sound, /Bed ducking/)
-    assert.match(sound, /Gentle preserves atmosphere; Strong prioritizes voice clarity/)
-    assert.match(sound, /aria-describedby="sound-density-help"/)
-    assert.match(sound, /title="Controls how frequently Sound Design suggests ambience/)
+  test('Sound & Labels explains the purpose and audible effect of every mix control', () => {
+    const page = source('../pages/projects/[slug]/sound-and-labels.vue')
+    // v1.4.365 — "Sound density" is GONE: nothing read it. Every remaining
+    // control below is one the mixer or the resolver actually honours, and the
+    // test names each by the promise it makes to the customer.
+    assert.doesNotMatch(page, /Sound density|settings\.density/, 'a control nothing reads must not survive')
+    assert.match(page, /Maximum spots per minute/)
+    assert.match(page, /Over this, the extra spots are left out of the mix and said so on the row/)
+    assert.match(page, /Ambient bed level \(dB\)/)
+    assert.match(page, /Spot effect level \(dB\)/)
+    assert.match(page, /Bed ducking/)
+    assert.match(page, /Gentle — light narration protection/)
+    assert.match(page, /Sound mix settings/)
   })
 })

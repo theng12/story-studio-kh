@@ -58,10 +58,14 @@ test('stale B-Roll, Breadcrumb and import-button text is gone', () => {
   assert.doesNotMatch(read('../components/EpisodeImportButton.vue'), /Scene Generator/)
 })
 
-test('Sound Design keeps one Add Spot Effect button, in the top bar', () => {
-  const page = read('../pages/projects/[slug]/sound-design.vue')
-  assert.match(page, /generate-label="Add Spot Effect"/)
-  assert.equal((page.match(/@click="addSpot"/g) || []).length, 0)
-  assert.match(page, /@generate="addSpot"/)
-  assert.match(page, /@click="addBed">\+ Ambient Bed/)
+test('Sound & Labels keeps ONE proposal action, in the top bar', () => {
+  // v1.4.365 — the two pages are one. What this pinned is unchanged in spirit:
+  // a single primary action in the bar, never a second identical button in the
+  // body. The retired density control is gone from the page entirely, which the
+  // second half now pins (it was a setting nothing read).
+  const page = read('../pages/projects/[slug]/sound-and-labels.vue')
+  assert.match(page, /generate-label="Propose labels & sounds"/)
+  assert.equal((page.match(/@click="propose"/g) || []).length, 0, 'the bar owns the only proposal action')
+  assert.match(page, /@generate="propose"/)
+  assert.doesNotMatch(page, /settings\.density|Sound density/, 'the density control nothing read is gone')
 })

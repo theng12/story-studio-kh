@@ -48,7 +48,9 @@ test('dirty edits are protected on leave, project switch, episode switch and unl
 
 test('the manually-saved pages use the guard, and the selector honours a refused navigation', () => {
   const at = (rel: string) => readFileSync(join(import.meta.dirname, '..', rel), 'utf8')
-  for (const page of ['scene-plan', 'introduction', 'sound-design', 'research', 'metadata-template']) {
+  // v1.4.365 — `sound-design.vue` is now a redirect; the merged page carries
+  // its unsaved-work guard, so both halves still refuse to lose an edit.
+  for (const page of ['scene-plan', 'introduction', 'sound-and-labels', 'research', 'metadata-template']) {
     assert.match(at(`pages/projects/[slug]/${page}.vue`), /useUnsavedGuard\(dirty,/, page)
   }
   // Research's claim decisions are lost on an episode switch, so it guards that too.

@@ -64,8 +64,23 @@ import { planMergedAudioDrift, planNarrationShortfallSec, readNarrationRecord } 
 import { selectMergedAudioFilename } from '../lib/intro-lead-in.js'
 import { isEpisodeMergedAudioFilename, resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
-import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
-import { DEFAULT_SOUND_DESIGN_SETTINGS, normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
+import { normalizeContextualCueConfig, readContextualCueTimeline, resolveRenderableContextualCues } from './contextual-cues.js'
+import { normalizeSoundDesignConfig, readSoundDesignTimeline, resolveRenderableSoundCues } from './sound-design.js'
+
+/**
+ * Does this optional layer have anything the renderer would REFUSE over?
+ *
+ * v1.4.365 — shared by the Production Board and the Sound & Labels cell so a
+ * board can never say "pending" while the renderer would happily assemble, or
+ * the other way round. `resolveRenderable*` throws for exactly the defects the
+ * renderer throws for — and, by design, for nothing else: an unreviewed row is
+ * skipped and reported, not blocked.
+ */
+export function refusesToRender(
+  resolve: () => { cues: unknown[]; skipped: unknown[] },
+): boolean {
+  try { resolve(); return false } catch { return true }
+}
 import {
   inspectBrollAssemblyOutput,
   readVideoVisualSource,
@@ -948,16 +963,15 @@ export interface EpisodeStatus {
   /** Scenes whose image is ready but nobody approved yet: Scene Review waits on the owner. */
   scene_review_awaiting_approval?: number
   /**
-   * Contextual Cues has NOTHING OUTSTANDING on this episode: the feature is
-   * off, or no cue was ever proposed, or every proposed cue is resolved. It is
-   * the readiness question every gate asks — Video Assembly, Pipeline
-   * prerequisites, pending filters — and all of them get it from the one
-   * `validateContextualCueTimeline` rule so they can never disagree.
+   * On-screen text has NOTHING OUTSTANDING on this episode: the switch is off,
+   * or no label was ever proposed, or every proposal is resolved.
    *
-   * It is deliberately NOT "output exists": an optional feature that nobody
-   * used has nothing to wait for. `contextual_cues_generated` answers that
-   * separate question; conflating the two is what made an episode with no cues
-   * both unrenderable and unrunnable.
+   * v1.4.365 — the RULE changed, matching the renderer. An unreviewed label no
+   * longer blocks assembly: approved labels render and the rest are reported.
+   * So "outstanding" here means something the renderer would refuse over — a
+   * label that overlaps another or escapes its scene — and never merely "a row
+   * is still waiting on a person". `contextual_cues_generated` answers the
+   * separate "was anything ever proposed" question.
    */
   contextual_cues?: boolean
   /** A cue timeline file exists for this plan — i.e. cues were actually
@@ -965,9 +979,8 @@ export interface EpisodeStatus {
    *  explicitly selected Contextual Cues step must still RUN on an episode
    *  that has nothing outstanding precisely because it has nothing at all. */
   contextual_cues_generated?: boolean
-  /** Sound Design has nothing outstanding on this episode — same rule as
-   *  `contextual_cues` above. Sound Design is not a Pipeline step, so it needs
-   *  no separate "was it generated" signal. */
+  /** Sound has nothing outstanding — the same rule, from the same resolver the
+   *  mixer uses. A cue waiting on review is silence plus a note, not a block. */
   sound_design?: boolean
   // Motion Review is complete when every planned scene has either an approved,
   // fresh image-to-video clip or an explicit "use still" decision.
@@ -1408,23 +1421,18 @@ export async function computeEpisodeStatus(
             path.join(byCode.subtitles_dir, `${code.toUpperCase()}_stitched.srt.json`),
             mergedFilename,
           )) <= COVERAGE_FAIL_SEC)
-        // Both are OPTIONAL features. An episode that never proposed a cue has
-        // nothing outstanding, so it is not pending — the same rule Video
-        // Assembly now applies, kept identical here so the Production Board and
-        // the renderer can never disagree about whether an episode is ready.
-        // A timeline that DOES exist with unresolved cues still reports
-        // incomplete, because there really is something waiting on a reviewer.
+        // Both are OPTIONAL features whose blockers are now the same ones the
+        // renderer refuses over (v1.4.365): a label that cannot be drawn or a
+        // sound that cannot be mixed. A row still waiting on a reviewer is
+        // SILENCE and a note, never a pending episode — otherwise the board
+        // would hold an episode the renderer would happily assemble.
         const contextualCueTimeline = await readContextualCueTimeline(planPath)
-        status.contextual_cues = !cueConfig.enabled
-          || validateContextualCueTimeline(contextualCueTimeline, plan, { requireResolved: true }).length === 0
+        status.contextual_cues = !cueConfig.enabled || !contextualCueTimeline
+          || !refusesToRender(() => resolveRenderableContextualCues(cueConfig, contextualCueTimeline, plan))
         status.contextual_cues_generated = !!contextualCueTimeline
         const soundDesignTimeline = await readSoundDesignTimeline(planPath)
-        status.sound_design = !soundConfig.enabled
-          || validateSoundDesignTimeline(
-            soundDesignTimeline, plan,
-            soundDesignTimeline?.settings || DEFAULT_SOUND_DESIGN_SETTINGS,
-            { requireResolved: true },
-          ).length === 0
+        status.sound_design = !soundConfig.enabled || !soundDesignTimeline
+          || !refusesToRender(() => resolveRenderableSoundCues(soundConfig, soundDesignTimeline, plan))
         // Scene Review done = the plan is complete, every scene has a generated
         // image ON DISK, AND every scene is explicitly approved. Rendering is
         // not approval: even one unapproved scene must remain in Pending.

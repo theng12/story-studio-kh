@@ -81,27 +81,48 @@ describe('final duration check', () => {
   })
 })
 
-describe('Contextual Cues and Sound Design follow their switch at render time', () => {
+describe('Sound & Labels follows its switches at render time', () => {
+  /**
+   * v1.4.365 — owner, 2026-10-28: "nothing optional ever blocks Video Assembly:
+   * a missing/unapproved optional sound = silence and a stated note".
+   *
+   * Every case below used to return a `stop` that refused the whole render.
+   * They now return a note, and the case that matters most is pinned last: a
+   * gate that always returned `{}` would pass a test written only against
+   * "approved cues say nothing", so the note cases must assert a note EXISTS.
+   */
   test('off: nothing runs and nothing is expected', () => {
-    assert.deepEqual(switchedOnCueGate('Contextual Cues', 'EP1', { enabled: false, timeline: null, approved: 0 }), {})
+    assert.deepEqual(switchedOnCueGate('On-screen text', 'EP1', { enabled: false, timeline: null, approved: 0 }), {})
+    assert.deepEqual(switchedOnCueGate('Sound', 'EP1', { enabled: false, timeline: null, approved: 0 }), {})
   })
-  test('on and never made: stop with what to press (it used to render without them)', () => {
-    assert.match(String(switchedOnCueGate('Contextual Cues', 'EP1', { enabled: true, timeline: null, approved: 0 }).stop),
-      /Contextual Cues are switched on but nothing was ever proposed .*press Propose cues/)
-    assert.match(String(switchedOnCueGate('Sound Design', 'EP1', { enabled: true, timeline: null, approved: 0 }).stop),
-      /Sound Design is switched on but nothing was ever added/)
+
+  test('on and never made: a NOTE says the episode plays without it, never a stop', () => {
+    const labels = switchedOnCueGate('On-screen text', 'EP1', { enabled: true, timeline: null, approved: 0 })
+    assert.equal(labels.stop, undefined, 'an optional layer must never refuse the render')
+    assert.match(String(labels.note), /nothing was ever proposed/)
+    assert.match(String(labels.note), /Open Sound & Labels/)
+
+    const sound = switchedOnCueGate('Sound', 'EP1', { enabled: true, timeline: null, approved: 0 })
+    assert.equal(sound.stop, undefined)
+    assert.match(String(sound.note), /switched on for this project, but nothing was ever placed/)
   })
-  test('on with proposals still waiting: stop', () => {
-    assert.match(String(switchedOnCueGate('Contextual Cues', 'EP1', {
+
+  test('on with proposals still waiting: a note names the count and the page', () => {
+    const gate = switchedOnCueGate('On-screen text', 'EP1', {
       enabled: true, timeline: { cues: [{ status: 'proposed' }, { status: 'disabled' }] }, approved: 0,
-    }).stop), /1 still await review/)
+    })
+    assert.equal(gate.stop, undefined)
+    assert.match(String(gate.note), /1 item is still awaiting review/)
+    assert.match(String(gate.note), /The rest of the episode renders normally/)
   })
-  test('every cue turned down in review: render, with a note for the job result', () => {
-    const gate = switchedOnCueGate('Contextual Cues', 'EP1', { enabled: true, timeline: { cues: [{ status: 'disabled' }] }, approved: 0 })
+
+  test('every item turned down in review: render, with a note for the job result', () => {
+    const gate = switchedOnCueGate('On-screen text', 'EP1', { enabled: true, timeline: { cues: [{ status: 'disabled' }] }, approved: 0 })
     assert.equal(gate.stop, undefined)
     assert.match(String(gate.note), /turned down in review/)
   })
-  test('approved cues: nothing to say', () => {
-    assert.deepEqual(switchedOnCueGate('Sound Design', 'EP1', { enabled: true, timeline: { cues: [{ status: 'approved' }] }, approved: 1 }), {})
+
+  test('something approved: nothing to say', () => {
+    assert.deepEqual(switchedOnCueGate('Sound', 'EP1', { enabled: true, timeline: { cues: [{ status: 'approved' }] }, approved: 1 }), {})
   })
 })

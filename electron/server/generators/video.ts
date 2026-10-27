@@ -140,16 +140,17 @@ import { isStaticImagePath as isFinalRenderStaticImagePath } from '../lib/final-
 import { levelAndCheck, mergedAudioMaster } from '../lib/level-audio.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import {
-  assertContextualCueReadiness,
   normalizeContextualCueConfig,
-  readContextualCueTimeline,
+  resolveRenderableContextualCues,
 } from '../services/contextual-cues.js'
 import {
-  assertSoundDesignReadiness,
   DEFAULT_SOUND_DESIGN_SETTINGS,
   normalizeSoundDesignConfig,
-  readSoundDesignTimeline,
+  resolveRenderableSoundCues,
 } from '../services/sound-design.js'
+import { describeAnchorMoves, hasAnchorMoves, readAnchoredEpisodeCues } from '../services/sound-cue-anchors.js'
+import { stitchedSrtPath } from '../services/subtitle-correction.js'
+import { formatSoundCredits } from '../services/sound-resolver.js'
 import { approvedSoundDesignMixCues } from '../services/sound-design-resolver.js'
 import { mixSoundDesignIntoAudio } from '../lib/sound-design-mixer.js'
 import {
@@ -2600,10 +2601,27 @@ async function hydrateEpisodeRenderCues(
     return
   }
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
-  const cueTimeline = await readContextualCueTimeline(planPath)
+  // v1.4.365 — ONE read re-anchors BOTH halves against this plan and this
+  // episode's own captions, so a label and a sound in the same scene can never
+  // disagree about where that scene starts. The stored seconds are kept for a
+  // cue with no anchor (every v1 file) and are overridden for one that has.
+  const anchored = await readAnchoredEpisodeCues(planPath, plan, stitchedSrtPath(cuePaths.subtitles_dir, episodeId))
+  const cueTimeline = anchored.labels
+  const soundTimeline = anchored.sounds
+  if (hasAnchorMoves(anchored.moves)) {
+    for (const line of describeAnchorMoves(anchored.moves)) job?.output_lines.push(`Sound & Labels: ${line}`)
+  }
+  // An editorial gap never blocks assembly any more (owner, 2026-10-28): an
+  // approved label draws, an unapproved one is reported, and the episode still
+  // renders. Only a genuine drawing defect reaches `safetyGate` below, because
+  // `resolveRenderable*` throws for exactly those.
   let cueFailure = false
   try {
-    req.contextual_cues = assertContextualCueReadiness(cueConfig, cueTimeline, plan, req.subtitles).map(onAudioClock)
+    const renderable = resolveRenderableContextualCues(cueConfig, cueTimeline, plan, req.subtitles)
+    req.contextual_cues = renderable.cues.map(onAudioClock)
+    for (const skip of renderable.skipped) {
+      job?.output_lines.push(`Sound & Labels: label "${labelOf(cueTimeline, skip.cue_id)}" ${skip.detail}`)
+    }
   } catch (error: any) {
     cueFailure = true
     await safetyGate(slug, 'cues_approved', job, `${error?.message || error} Rendering without Contextual Cues.`)
@@ -2612,29 +2630,40 @@ async function hydrateEpisodeRenderCues(
   // Rendering with none is allowed, but never silent: an optional feature that
   // is switched on and contributes nothing has to say so, or its absence in the
   // finished video reads as a bug.
-  // 2026-10-07 — switched on means expected. Never proposed, or proposals
-  // still waiting, stops the render; every cue switched off by the reviewer is
-  // his decision and is reported in the job result.
-  const cueGate = switchedOnCueGate('Contextual Cues', episodeId, {
+  const cueGate = switchedOnCueGate('On-screen text', episodeId, {
     enabled: cueConfig.enabled, timeline: cueTimeline, approved: req.contextual_cues.length,
   })
   if (cueGate.stop && !cueFailure) await safetyGate(slug, 'cues_approved', job, cueGate.stop)
   if (cueGate.note && job) noteRender(job, cueGate.note)
   const soundConfig = normalizeSoundDesignConfig((await pm.getConfig(slug))?.sound_design)
-  const soundTimeline = await readSoundDesignTimeline(planPath)
   let approvedSoundCues: SoundDesignCue[] = []
   let soundFailure = false
   try {
-    approvedSoundCues = assertSoundDesignReadiness(soundConfig, soundTimeline, plan).map(onAudioClock)
+    const renderable = resolveRenderableSoundCues(soundConfig, soundTimeline, plan)
+    approvedSoundCues = renderable.cues.map(onAudioClock)
+    for (const skip of renderable.skipped) {
+      job?.output_lines.push(`Sound & Labels: sound "${soundLabelOf(soundTimeline, skip.cue_id)}" ${skip.detail}`)
+    }
   } catch (error: any) {
     soundFailure = true
-    await safetyGate(slug, 'cues_approved', job, `${error?.message || error} Rendering without Sound Design.`)
+    await safetyGate(slug, 'cues_approved', job, `${error?.message || error} Rendering without Sound.`)
   }
-  const soundGate = switchedOnCueGate('Sound Design', episodeId, {
-    enabled: soundConfig.enabled, timeline: soundTimeline, approved: approvedSoundCues.length,
-  })
-  if (soundGate.stop && !soundFailure) await safetyGate(slug, 'cues_approved', job, soundGate.stop)
-  if (soundGate.note && job) noteRender(job, soundGate.note)
+  // A missing or unapproved sound is SILENCE plus a stated note, never a stop.
+  // The only sound that stops a render is one the mixer genuinely cannot make.
+  if (soundConfig.enabled && !soundFailure && !approvedSoundCues.length && job) {
+    noteRender(job, 'Sound: every sound on this episode was turned off, unreviewed or could not be placed — this render is narration-only. Open Sound & Labels to place or approve one.')
+  } else if (soundConfig.enabled && !soundFailure && job) {
+    job.output_lines.push(`Sound: mixing ${approvedSoundCues.length} approved sound${approvedSoundCues.length === 1 ? '' : 's'}.`)
+  }
+  // Per-clip credits for the Gateway library's licences. Recorded on the job
+  // result so the credits survive into the publish record, and printed here so
+  // an episode that used one says so where the render is reviewed.
+  const credits = formatSoundCredits(approvedSoundCues)
+  if (credits.length) {
+    job?.output_lines.push(`Sound credits (${credits.length} clip${credits.length === 1 ? '' : 's'}):`)
+    for (const line of credits) job?.output_lines.push(`  ${line}`)
+    if (job) job.result = { ...(job.result || {}), sound_credits: credits }
+  }
   // `soundTimeline` is null exactly when nothing was ever added, which now
   // reaches here instead of throwing — so the ducking profile falls back to the
   // shipped default rather than dereferencing null. With no approved cues the
@@ -2645,6 +2674,17 @@ async function hydrateEpisodeRenderCues(
         ducking_profile: soundTimeline?.settings.ducking_profile ?? DEFAULT_SOUND_DESIGN_SETTINGS.ducking_profile,
       }
     : undefined
+}
+
+/** A label named the way the page lists it — never by its internal id. */
+function labelOf(timeline: { cues: Array<{ id: string; title: string }> } | null, id?: string): string {
+  const cue = id ? timeline?.cues.find(row => row.id === id) : undefined
+  return cue?.title?.trim() || 'A label'
+}
+
+function soundLabelOf(timeline: { cues: Array<{ id: string; label: string }> } | null, id?: string): string {
+  const cue = id ? timeline?.cues.find(row => row.id === id) : undefined
+  return cue?.label?.trim() || 'A sound'
 }
 
 // ── Generate Video (multi-pass pipeline) ──────────────────────────────────

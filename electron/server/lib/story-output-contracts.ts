@@ -201,7 +201,25 @@ export const CONTEXTUAL_CUES_OUTPUT_CONTRACT: TextOutputContract = {
                 type: 'string',
                 enum: ['documentary-label', 'map-pin', 'archival-caption', 'chapter-plate'],
               },
+              /** v1.4.365 — the words the narration says as this label appears. */
+              anchor_word: { type: 'string', maxLength: 80 },
               anchor_offset_sec: { type: 'number', minimum: 0 },
+              /**
+               * v1.4.365 — the sound this label wants, if any. Proposing the
+               * two together is the whole point of the merge: the label says
+               * what the moment IS, and the sound is chosen for that same
+               * moment rather than guessed from a scene number afterwards.
+               */
+              sound: {
+                type: 'object',
+                properties: {
+                  kind: { type: 'string', enum: ['bed', 'spot'] },
+                  description: { type: 'string', minLength: 1, maxLength: 120 },
+                  with_label: { type: 'boolean' },
+                },
+                required: ['kind', 'description'],
+                additionalProperties: false,
+              },
             },
             required: ['scene_id', 'title'],
             additionalProperties: false,

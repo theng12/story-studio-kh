@@ -4995,6 +4995,20 @@ export type ContextualCueTemplate = 'documentary-label' | 'map-pin' | 'archival-
 export interface ContextualCue {
   id: string
   scene_id: string
+  /**
+   * v1.4.365 — the words the narration says as this label appears.
+   *
+   * Replaces the drift that made every label "scene start + 0.15s" regardless
+   * of what the viewer is hearing. Resolved against the episode's own subtitle
+   * cues by `contracts/cue-anchor.ts` on every read; the stored `start_sec` is
+   * kept for v1 readers and for a plan that cannot supply caption timing, but
+   * a cue carrying an anchor is re-timed from it. Absent on every cue written
+   * before this shipped, which is exactly why reading a v1 file still renders
+   * it where it was.
+   */
+  anchor_word?: string
+  /** Seconds into the scene, used only when `anchor_word` finds no caption. */
+  anchor_offset_sec?: number
   start_sec: number
   end_sec: number
   title: string
@@ -5034,15 +5048,21 @@ export interface ContextualCueAutoApprovalHold {
 }
 
 export interface ContextualCueTimeline {
-  schema_version: 1
+  /**
+   * 1 for every file written before v1.4.365, and still readable byte for byte.
+   * 2 is written by every save from then on: cues carry `scene_id` + a spoken
+   * `anchor_word`, and their absolute seconds are derived rather than trusted.
+   * Nothing rewrites a stored v1 file to compensate (AGENTS.md §5, trap 2).
+   */
+  schema_version: 1 | 2
   generated_at: string
   source_scene_plan_generated_at: string
   cues: ContextualCue[]
   /**
-   * Set only by an automatic proposal pass (project config `auto_approve_cues`)
-   * that held one or more cues back from approval. Replaced on every new
-   * proposal; a manual timeline save (PUT /contextual-cues/:episodeId) drops
-   * it, since a human has taken over review at that point.
+   * Set only by an automatic proposal pass (a preset's `auto_approve`) that
+   * held one or more cues back from approval. Replaced on every new proposal;
+   * a manual timeline save (PUT /contextual-cues/:episodeId) drops it, since a
+   * human has taken over review at that point.
    */
   auto_approval_holds?: ContextualCueAutoApprovalHold[]
 }
@@ -5050,19 +5070,19 @@ export interface ContextualCueTimeline {
 export interface ContextualCueProjectConfig {
   enabled: boolean
   /**
-   * Default OFF — manual review stays the default until a project earns
-   * trust. When true, a proposal pass auto-approves any cue that clears
-   * every structural rule `validateContextualCueTimeline` already enforces
-   * (in-scene timing, at least `CUE_MIN_DURATION_SEC` on screen,
-   * title/subtitle length, valid template/placement, no crowding within 0.5s
-   * of another approved cue). A cue held only by a WARNING — a long hold, or
-   * sitting in caption territory — is approved, because a warning is a note
-   * about taste, never a structural failure.
-   * A cue that fails any of those stays `proposed` instead of being silently
-   * dropped; see `auto_approval_holds`. This never weakens a structural
-   * rule — see `autoApproveEligibleCues` and `assertContextualCueReadiness`.
+   * READ-ONLY COMPATIBILITY. Ignored: nothing in the app reads it any more.
+   *
+   * v1.4.365 — owner decision 2026-10-28. There were TWO auto-approve
+   * switches: this project-level one and the preset's `auto_approve`, and the
+   * page offered both, one of them disabled depending on the other. The preset
+   * is the one that survives, because it travels with the model and density it
+   * shares a preset with, and because AGENTS.md §5 already settled that
+   * `auto_approve` is preset data and is announced when a preset sets it.
+   *
+   * A channel config on disk still carries this key. It is read safely (the
+   * normaliser tolerates it) and has no effect; nothing rewrites the file.
    */
-  auto_approve_cues: boolean
+  auto_approve_cues?: boolean
 }
 
 /**
@@ -5097,7 +5117,12 @@ export interface ContextualCueProposalSettings {
 // Assembly only consumes approved, locally available cues at final mix time.
 export type SoundDesignCueKind = 'bed' | 'spot'
 export type SoundDesignCueStatus = 'proposed' | 'matched' | 'approved' | 'excluded'
-export type SoundDesignDensity = 'minimal' | 'balanced' | 'rich'
+/**
+ * `minimal | balanced | rich` used to live here. v1.4.365 deleted it: nothing
+ * read it. A control that changes no output is worse than no control, because
+ * the customer sets it and expects a difference.
+ */
+export type SoundDesignDensity = never
 
 export interface SoundDesignProjectConfig {
   enabled: boolean
@@ -5105,22 +5130,59 @@ export interface SoundDesignProjectConfig {
 
 /** Saved setup for the dedicated Sound Design workspace. */
 export interface SoundDesignSettings {
-  density: SoundDesignDensity
   max_spots_per_minute: number
   default_bed_gain_db: number
   default_spot_gain_db: number
   ducking_profile: 'gentle' | 'standard' | 'strong'
 }
 
+/**
+ * Where a cue's audio comes from.
+ *
+ * `pool` is the channel's own SFX folder (3D B-Roll pools). `gateway` is the
+ * Gateway's shared sound library — Openverse, CC0-first — whose entries carry
+ * the licence and author that a per-clip credit line needs. v1 cues have
+ * neither field and are read as `pool`, which is what they always were.
+ */
+export type SoundDesignCueSource = 'pool' | 'gateway'
+
+/** The credit facts a Gateway-library clip carries. Never invented for a pool clip. */
+export interface SoundDesignCredit {
+  /** e.g. `cc0`, `by`, `by-sa`. */
+  licence: string
+  licence_version?: string
+  author?: string
+  /** The upstream landing page, so the credit is checkable. */
+  source_url?: string
+  source?: string
+  title?: string
+}
+
 export interface SoundDesignCue {
   id: string
   kind: SoundDesignCueKind
   label: string
+  /**
+   * v1.4.365 — the Scene Plan scene this cue belongs to, and the spoken words
+   * its window is anchored to. Same rule and same resolver as a contextual
+   * cue: the absolute seconds below are derived from these, so a Scene Plan
+   * re-run moves the sound with its scene instead of leaving it on a stale
+   * clock. Absent on every v1 cue.
+   */
+  scene_id?: string
+  anchor_word?: string
+  anchor_offset_sec?: number
   start_sec: number
   /** Required for beds; optional spots are one-shots anchored at start_sec. */
   end_sec?: number
+  /** Defaults to `pool` when absent — the v1 shape. */
+  source?: SoundDesignCueSource
+  /** Pool id, for a `pool` cue. */
   pool_id?: string
+  /** The clip's filename in a pool, or its sha256 in the Gateway library. */
   clip: string
+  /** Set only for a `gateway` cue; never guessed for a pool clip. */
+  credit?: SoundDesignCredit
   gain_db: number
   status: SoundDesignCueStatus
   created_at: string
@@ -5128,7 +5190,8 @@ export interface SoundDesignCue {
 }
 
 export interface SoundDesignTimeline {
-  schema_version: 1
+  /** 1 = every file written before v1.4.365. 1 and 2 both read; 2 is written. */
+  schema_version: 1 | 2
   generated_at: string
   source_scene_plan_generated_at: string
   /** Snapshot of the approved mix policy; presets remain reusable separately. */

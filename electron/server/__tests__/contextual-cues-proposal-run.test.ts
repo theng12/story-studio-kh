@@ -175,14 +175,31 @@ describe('Contextual Cues proposal runs', () => {
     assert.equal(saved.auto_approval_holds?.[0]?.cue_id, 'cue-scene-2')
   })
 
-  test('saving a cue edit while nothing runs keeps a partial proposal’s progress (owner decision 2026-10-03)', async () => {
+  test('saving a label edit while nothing runs keeps a partial proposal’s progress (owner decision 2026-10-03)', async () => {
     await reset()
     await savePartialRunFromActionA()
     process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
     const { app } = await import('../app.js')
     const { default: request } = await import('supertest')
-    const res = await request(app).put(`/api/projects/${slug}/contextual-cues/${episode}`).send({ cues: [] })
+    // v1.4.365 — the page's save moved to the merged Sound & Labels route. The
+    // promise under test is unchanged: a manual save never discards batches the
+    // customer already paid for.
+    const res = await request(app).put(`/api/projects/${slug}/sound-and-labels/${episode}/labels`).send({ cues: [] })
     assert.equal(res.status, 200, JSON.stringify(res.body))
-    assert.ok(await cues.readContextualCueProgress(planPath), 'the paid batches stay for the next Propose cues')
+    assert.ok(await cues.readContextualCueProgress(planPath), 'the paid batches stay for the next proposal')
+  })
+
+  test('the old page routes answer 410 with the new address, not a bare 404', async () => {
+    // A 404 reads like the feature was deleted. The merge has to say where it
+    // went, or every bookmark and every older link dead-ends in silence.
+    process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
+    const { app } = await import('../app.js')
+    const { default: request } = await import('supertest')
+    for (const path of ['contextual-cues', 'sound-design']) {
+      const res = await request(app).get(`/api/projects/${slug}/${path}/${episode}`)
+      assert.equal(res.status, 410, `${path} must answer 410`)
+      assert.match(String(res.body?.detail || ''), /Sound & Labels/)
+      assert.equal(res.body?.moved_to, '/sound-and-labels')
+    }
   })
 })

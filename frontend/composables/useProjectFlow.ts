@@ -127,8 +127,12 @@ const STEP = {
   subtitles:    { key: 'subtitles',    label: 'Subtitles',      icon: '🔤', path: '/subtitles', phase: 'media' },
   characterSheet: { key: 'character-sheet', label: 'Character Sheet', icon: '🎭', path: '/character-sheet', phase: 'video' },
   scenePlan:    { key: 'scene-plan',   label: 'Scene Plan',     icon: '📚', path: '/scene-plan', phase: 'video' },
-  contextualCues: { key: 'contextual-cues', label: 'Contextual Cues', icon: '🏷️', path: '/contextual-cues', phase: 'video', optional: true },
-  soundDesign: { key: 'sound-design', label: 'Sound Design', icon: '🎵', path: '/sound-design', phase: 'video', optional: true },
+  // v1.4.365 — one PAGE for both optional layers. The two steps stay, with
+  // their own keys, because a key is what a flow spec and its tests address a
+  // step by and two steps sharing one key breaks that contract. Both now point
+  // at the merged page, and each says which half it stands for.
+  contextualCues: { key: 'contextual-cues', label: 'Labels', icon: '🏷️', path: '/sound-and-labels', phase: 'video', optional: true },
+  soundDesign: { key: 'sound-design', label: 'Sound', icon: '🎵', path: '/sound-and-labels', phase: 'video', optional: true },
   // v1.4.37 — the music library. `optional` because a scripted channel never
   // touches it, and a music channel touches almost nothing else.
   musicLibrary: { key: 'music', label: 'Music Library', icon: '🎼', path: '/music', phase: 'media', optional: true },

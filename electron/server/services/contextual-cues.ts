@@ -20,16 +20,16 @@ export const CONTEXTUAL_CUES_FILENAME = 'contextual_cues.json'
 export const CONTEXTUAL_CUES_PROGRESS_FILENAME = 'contextual_cues.progress.json'
 export const DEFAULT_CONTEXTUAL_CUE_CONFIG: ContextualCueProjectConfig = {
   enabled: false,
-  auto_approve_cues: false,
 }
 
 export function normalizeContextualCueConfig(value: unknown): ContextualCueProjectConfig {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  return {
-    enabled: raw.enabled === true,
-    // Default OFF — see ContextualCueProjectConfig.auto_approve_cues.
-    auto_approve_cues: raw.auto_approve_cues === true,
-  }
+  // `auto_approve_cues` is deliberately NOT carried through. v1.4.365 removed
+  // the project-level switch (owner, 2026-10-28): the preset's `auto_approve`
+  // is the only one, and a stale channel config must not be able to keep
+  // approving cues nobody asked to auto-approve. The key is tolerated on read
+  // and simply has no effect; nothing rewrites the stored file.
+  return { enabled: raw.enabled === true }
 }
 
 /**
@@ -219,12 +219,16 @@ export function isReleasedContextualCueBackpressure(error: {
 export async function readContextualCueTimeline(scenePlanPath: string): Promise<ContextualCueTimeline | null> {
   try {
     const raw = JSON.parse(await fs.readFile(contextualCuePath(scenePlanPath), 'utf8'))
-    if (!raw || raw.schema_version !== 1 || !Array.isArray(raw.cues)) return null
+    // v1 and v2 both read. A v1 file's cues carry no anchor, which is exactly
+    // why they keep their stored seconds — nothing rewrites them (AGENTS.md §5,
+    // trap 2). A v2 file's cues carry `scene_id` + `anchor_word` and are
+    // re-timed from those on every read.
+    if (!raw || (raw.schema_version !== 1 && raw.schema_version !== 2) || !Array.isArray(raw.cues)) return null
     return {
-      schema_version: 1,
+      schema_version: raw.schema_version,
       generated_at: typeof raw.generated_at === 'string' ? raw.generated_at : '',
       source_scene_plan_generated_at: typeof raw.source_scene_plan_generated_at === 'string' ? raw.source_scene_plan_generated_at : '',
-      cues: raw.cues.filter(isCue),
+      cues: raw.cues.filter(isCue).map(normalizeCueAnchors),
       // Why a cue was held back from auto-approval. Dropped here before, so the
       // review page never saw a single hold reason it was built to show.
       ...(Array.isArray(raw.auto_approval_holds) && raw.auto_approval_holds.length
@@ -233,6 +237,25 @@ export async function readContextualCueTimeline(scenePlanPath: string): Promise<
   } catch {
     return null
   }
+}
+
+/**
+ * Keep only anchors that are real.
+ *
+ * `typeof value === 'number'` rather than `Number(value)`, for the same reason
+ * `normalizePositionPct` does it: `Number(null)` is 0, which would turn a
+ * CLEARED anchor into a deliberate one at the very start of the scene.
+ */
+function normalizeCueAnchors(cue: ContextualCue): ContextualCue {
+  const word = typeof cue.anchor_word === 'string' ? cue.anchor_word.trim() : ''
+  const offset = cue.anchor_offset_sec
+  return {
+    ...cue,
+    ...(word ? { anchor_word: word } : { anchor_word: undefined }),
+    ...(typeof offset === 'number' && Number.isFinite(offset) && offset >= 0
+      ? { anchor_offset_sec: offset }
+      : { anchor_offset_sec: undefined }),
+  } as ContextualCue
 }
 
 export async function writeContextualCueTimeline(scenePlanPath: string, timeline: ContextualCueTimeline): Promise<void> {
@@ -245,7 +268,7 @@ export interface ContextualCueIssue {
   /**
    * `'warning'` entries are shown and never block. Anything without a severity
    * is an error, so every rule written before this field existed keeps its
-   * exact force. See `assertContextualCueReadiness`.
+   * exact force. See `resolveRenderableContextualCues`.
    */
   severity?: 'error' | 'warning'
 }
@@ -430,32 +453,101 @@ export function assertContextualCueReadiness(
   plan: ScenePlan,
   subtitles?: VideoSubtitleConfig,
 ): ContextualCue[] {
-  if (!config.enabled) return []
-  // Manual review requires every cue resolved (approved or disabled) before
-  // Video Assembly. Once a project trusts `auto_approve_cues`, a cue held
-  // back by the automatic pass can never resolve itself — requiring
-  // resolution here would just re-introduce the manual review this setting
-  // exists to remove. Every other structural rule below still applies
-  // unconditionally; only this one check differs between the two modes.
-  const issues = validateContextualCueTimeline(timeline, plan, { subtitles, requireResolved: !config.auto_approve_cues })
-  // Only errors stop a render. Warnings are shown on the review screen, where
-  // the person who can judge them is; refusing to assemble an episode over a
-  // matter of taste is how a 4.5s ceiling nobody chose came to block real work.
-  const blocking = issues.filter(issue => issue.severity !== 'warning')
-  if (blocking.length) {
-    // Name each cue the way the Contextual Cues page lists it (position, title,
-    // time) — the owner has never seen a cue's internal id.
-    const cueName = (id: string) => {
-      const index = timeline?.cues.findIndex(cue => cue.id === id) ?? -1
-      const cue = index >= 0 ? timeline!.cues[index]! : null
-      if (!cue) return 'A cue'
-      const at = `${Math.floor(cue.start_sec / 60)}:${String(Math.floor(cue.start_sec % 60)).padStart(2, '0')}`
-      return `Cue ${index + 1}${cue.title?.trim() ? ` "${cue.title.trim()}"` : ''} (${at})`
-    }
-    throw new Error(`Contextual Cues need review: ${blocking.slice(0, 5).map(issue => issue.cue_id ? `${cueName(issue.cue_id)} — ${issue.detail}` : issue.detail).join('; ')} Open Contextual Cues, resolve every proposal, then retry.`)
-  }
+  return resolveRenderableContextualCues(config, timeline, plan, subtitles).cues
+}
+
+/**
+ * What Video Assembly will actually render, and what it must SAY about the rest.
+ *
+ * v1.4.365 — owner decision 2026-10-28. This used to THROW: one unreviewed cue
+ * refused the whole episode. An optional editorial layer that is allowed to be
+ * empty is not allowed to be a hard gate either — a label nobody has got round
+ * to approving is a reason to render ONE FEWER LABEL, not a reason to refuse
+ * to assemble an otherwise finished episode. The owner's rule: "render approved
+ * ones, report the rest".
+ *
+ * So this returns two lists and never throws for an editorial gap:
+ *
+ *   `cues`    — approved cues that passed every structural rule. Rendered.
+ *   `skipped` — cues that exist but will not render, each with the reason, so
+ *               the job log and the Production Board can say what is missing
+ *               instead of the video quietly coming back shorter than expected.
+ *
+ * What still refuses, because these are DEFECTS in the output rather than a
+ * pending decision, and no amount of approving fixes them:
+ *
+ *   - a cue whose timing is invalid or that escapes its scene,
+ *   - a cue shorter than `CUE_MIN_DURATION_SEC` (it flashes past unread),
+ *   - two approved cues crowding within 0.5s (they overlap on screen).
+ *
+ * A cue with broken text or an invalid template is skipped with its reason
+ * rather than refusing everything, because that IS something a reviewer fixes
+ * by editing one row.
+ */
+export interface RenderableContextualCues {
+  cues: ContextualCue[]
+  skipped: ContextualCueIssue[]
+}
+
+export function resolveRenderableContextualCues(
+  config: ContextualCueProjectConfig,
+  timeline: ContextualCueTimeline | null,
+  plan: ScenePlan,
+  subtitles?: VideoSubtitleConfig,
+): RenderableContextualCues {
+  if (!config.enabled) return { cues: [], skipped: [] }
   // No timeline is no cues, not a failure — see `validateContextualCueTimeline`.
-  return timeline ? timeline.cues.filter(cue => cue.status === 'approved') : []
+  if (!timeline) return { cues: [], skipped: [] }
+  const issues = validateContextualCueTimeline(timeline, plan, { subtitles })
+  const byCue = new Map<string, ContextualCueIssue[]>()
+  for (const issue of issues) {
+    if (!issue.cue_id) continue
+    byCue.set(issue.cue_id, [...(byCue.get(issue.cue_id) || []), issue])
+  }
+  // A defect that cannot be fixed by approving the cue refuses the render,
+  // because rendering anyway would draw something visibly wrong. Everything
+  // else — a cue still waiting on a person, broken text, an invalid treatment —
+  // is that ONE cue's problem and is skipped below with its reason.
+  const unfixable = (issue: ContextualCueIssue) => issue.severity !== 'warning'
+    && (/timing is invalid|inside its scene timing|readable for at least|overlaps or crowds/.test(issue.detail))
+  const hard = issues.filter(issue => !issue.cue_id && issue.severity !== 'warning')
+    .concat(issues.filter(issue => !!issue.cue_id && unfixable(issue)))
+  if (hard.length) {
+    throw new Error(`Contextual Cues cannot be rendered: ${hard.slice(0, 5).map(issue => issue.cue_id ? `${cueName(timeline, issue.cue_id)} — ${issue.detail}` : issue.detail).join('; ')} Open Sound & Labels and fix the cue${hard.length === 1 ? '' : 's'} marked.`)
+  }
+  const cues: ContextualCue[] = []
+  const skipped: ContextualCueIssue[] = []
+  for (const cue of timeline.cues) {
+    if (cue.status !== 'approved') {
+      skipped.push({
+        cue_id: cue.id,
+        severity: 'warning',
+        detail: cue.status === 'disabled'
+          ? 'turned off in review, so it is not drawn.'
+          : 'still awaiting review, so it is not drawn.',
+      })
+      continue
+    }
+    const mine = (byCue.get(cue.id) || []).filter(issue => issue.severity !== 'warning')
+    if (mine.length) {
+      for (const issue of mine) skipped.push({ cue_id: cue.id, severity: 'warning', detail: issue.detail })
+      continue
+    }
+    cues.push(cue)
+  }
+  return { cues, skipped }
+}
+
+/** Name a cue the way the page lists it — position, title, time. Never its id. */
+function cueName(timeline: ContextualCueTimeline, id: string): string {
+  const index = timeline.cues.findIndex(cue => cue.id === id)
+  const cue = index >= 0 ? timeline.cues[index]! : null
+  if (!cue) return 'A cue'
+  return `Cue ${index + 1}${cue.title?.trim() ? ` "${cue.title.trim()}"` : ''} (${clock(cue.start_sec)})`
+}
+
+function clock(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
 }
 
 const isPlacement = isContextualCueCorner

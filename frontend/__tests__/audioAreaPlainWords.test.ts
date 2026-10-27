@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 const audio = read('../pages/projects/[slug]/audio.vue')
 const merge = read('../pages/projects/[slug]/audio-merge.vue')
-const sound = read('../pages/projects/[slug]/sound-design.vue')
+const sound = read('../pages/projects/[slug]/sound-and-labels.vue')
 const subtitles = read('../pages/projects/[slug]/subtitles.vue')
 const music = read('../pages/projects/[slug]/music.vue')
 const missingAssets = read('../components/MissingAssetsDialog.vue')
@@ -27,18 +27,26 @@ test('Audio Assembly gives the intro clip path the full row', () => {
   assert.match(merge, /\.audio-mix-section--intro > \.mt-2 \{ grid-column: 1 \/ -1;/)
 })
 
-test('Sound Design cue fields wrap instead of covering Approve / Exclude / Remove', () => {
-  assert.match(sound, /\.sound-cue \{ display:grid; grid-template-columns:6\.5rem 2\.2rem minmax\(0,1fr\) auto;/)
-  assert.match(sound, /\.cue-fields \{ display:flex; flex-wrap:wrap;/)
-  assert.doesNotMatch(sound, /minmax\(30rem,1fr\)/)
+test('Sound & Labels rows wrap instead of covering their actions', () => {
+  // v1.4.365 — one timeline row for both halves. The promise this pins is
+  // unchanged: a long row wraps into a stack at narrow widths instead of
+  // sliding its buttons off the edge, and the fields inside a row wrap too.
+  assert.match(sound, /\.sl-row \{ display: grid; grid-template-columns:/)
+  assert.match(sound, /@media \(max-width: 1100px\) \{[\s\S]{0,200}?\.sl-row \{ grid-template-columns: 1fr; display: grid; \}/)
+  assert.match(sound, /\.sl-editor-main \{ display: flex; flex-wrap: wrap;/)
 })
 
-test('Sound Design names every problem, on the cue it belongs to', () => {
-  assert.match(sound, /v-for="\(issue, i\) in validation"/)
-  assert.match(sound, /cueIssues\(cue\.id\)/)
-  assert.match(sound, /if \(issues\.length\) validation\.value = issues/)
-  assert.match(sound, /No sound files found\. Add a folder of sound effects as an SFX pool/)
-  assert.match(sound, /timeline\.value = data\.timeline \|\| blankTimeline\(\)/)
+test('Sound & Labels names every problem, on the row it belongs to', () => {
+  // The audit's defect was a warning with no row to sit on. Every note the
+  // backend returns is drawn against the cue it names.
+  assert.match(sound, /function rowNotes\(row: Row\): string\[\]/)
+  assert.match(sound, /v-for="\(issue, i\) in rowNotes\(row\)"/)
+  assert.match(sound, /if \(issues\.length\) \{[\s\S]{0,300}?validation\.value = \{ \.\.\.validation\.value, \[side\]: issues \}/)
+  // An unavailable folder is REPORTED, not silently filtered into an empty picker.
+  assert.match(sound, /unavailablePools/)
+  assert.match(sound, /Its clips are not listed; nothing was removed/)
+  // An episode with nothing on it renders an honest empty state, not a blank.
+  assert.match(sound, /Nothing here yet\. That is valid/)
 })
 
 test('an unconfirmed request says what Retry does in plain words', () => {

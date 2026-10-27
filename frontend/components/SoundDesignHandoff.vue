@@ -1,17 +1,24 @@
 <template>
+  <!-- v1.4.365 — the two optional layers are one page now, so this hand-off
+       reports both and never claims a render is blocked: what you approved is
+       mixed or drawn, and everything else is reported. -->
   <section class="sound-handoff">
     <div class="sound-handoff-copy">
-      <span class="sound-kicker">Optional assembly layer</span>
-      <h4>Sound Design</h4>
-      <p v-if="loading">Checking reviewed sound cues…</p>
-      <p v-else-if="!config.enabled">Off — this video will use its original assembled audio.</p>
-      <p v-else-if="loadError">Sound Design needs attention before Final Video can render.</p>
-      <p v-else-if="validation.length">{{ validation[0]?.detail }}</p>
-      <p v-else>{{ approved }} approved cue{{ approved === 1 ? '' : 's' }} will be mixed beneath narration with the saved ducking profile.</p>
+      <span class="sound-kicker">Optional assembly layers</span>
+      <h4>Sound &amp; Labels</h4>
+      <p v-if="loading">Checking reviewed labels and sounds…</p>
+      <p v-else-if="!labelsOn && !soundOn">Both are off — this video uses its original audio and no labels.</p>
+      <p v-else-if="loadError">Could not read this episode's labels and sounds.</p>
+      <p v-else>
+        <template v-if="labelsOn">{{ labelsApproved }} label{{ labelsApproved === 1 ? '' : 's' }} will be drawn</template>
+        <template v-if="labelsOn && soundOn"> · </template>
+        <template v-if="soundOn">{{ soundsApproved }} sound{{ soundsApproved === 1 ? '' : 's' }} will be mixed</template>
+        <template v-if="waiting"> · {{ waiting }} still awaiting review, not used</template>
+      </p>
     </div>
     <div class="sound-handoff-actions">
-      <span v-if="config.enabled" :class="['sound-state', validation.length || loadError ? 'is-warning' : 'is-ready']">{{ validation.length || loadError ? 'Review required' : 'Ready' }}</span>
-      <NuxtLink :to="`/projects/${slug}/sound-design`" class="btn btn-secondary btn-sm">{{ config.enabled ? 'Review Sound Design' : 'Open Sound Design' }}</NuxtLink>
+      <span v-if="labelsOn || soundOn" :class="['sound-state', waiting ? 'is-warning' : 'is-ready']">{{ waiting ? 'Some awaiting review' : 'Ready' }}</span>
+      <NuxtLink :to="`/projects/${slug}/sound-and-labels`" class="btn btn-secondary btn-sm">Open Sound &amp; Labels</NuxtLink>
     </div>
   </section>
 </template>
@@ -22,17 +29,24 @@ import { useApi } from '../composables/useApi.js'
 
 const props = defineProps<{ slug: string; episodeCode: string }>()
 const { get } = useApi()
-const loading = ref(false); const loadError = ref(''); const config = ref({ enabled: false }); const validation = ref<Array<{ detail: string }>>([]); const approved = ref(0)
+const loading = ref(false); const loadError = ref('')
+const labelsOn = ref(false); const soundOn = ref(false)
+const labelsApproved = ref(0); const soundsApproved = ref(0); const waiting = ref(0)
 async function load(): Promise<void> {
-  loadError.value = ''; validation.value = []; approved.value = 0
+  loadError.value = ''; labelsApproved.value = 0; soundsApproved.value = 0; waiting.value = 0
   if (!props.episodeCode) return
   loading.value = true
   try {
-    const data = await get<any>(`/projects/${props.slug}/sound-design/${props.episodeCode}`)
-    config.value = data.config || { enabled: false }
-    validation.value = data.validation || []
-    approved.value = data.timeline?.cues?.filter((cue: any) => cue.status === 'approved').length || 0
-  } catch (error: any) { loadError.value = error?.data?.detail || 'Could not check Sound Design.' }
+    const data = await get<any>(`/projects/${props.slug}/sound-and-labels/${props.episodeCode}`)
+    labelsOn.value = data.config?.on_screen_text === true
+    soundOn.value = data.config?.sound === true
+    labelsApproved.value = data.readiness?.labels?.will_render || 0
+    soundsApproved.value = data.readiness?.sound?.will_mix || 0
+    // Everything the renderer will NOT use, kept as one count so the line says
+    // what the episode will actually be rather than implying completeness.
+    waiting.value = (data.labels?.cues || []).filter((cue: any) => cue.status === 'proposed').length
+      + (data.sounds?.cues || []).filter((cue: any) => cue.status === 'proposed' || cue.status === 'matched').length
+  } catch (error: any) { loadError.value = error?.data?.detail || 'Could not check Sound & Labels.' }
   finally { loading.value = false }
 }
 watch(() => props.episodeCode, load, { immediate: true })

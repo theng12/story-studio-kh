@@ -2305,7 +2305,7 @@ const filterTabs = computed(() => {
     { type: 'metadata',             label: 'YouTube Finalizer' },
     { type: 'image_prompts',        label: 'Prompts' },
     { type: 'scene_plan_run',       label: 'Scene Plan' },
-    { type: 'contextual_cues',       label: 'Contextual Cues' },
+    { type: 'contextual_cues',       label: 'Sound & Labels' },
     { type: 'continuity_render',    label: 'Scene Review' },
     { type: 'thumb_images',         label: 'Thumb Images' },
     { type: 'images_repair',        label: 'Image Repair' },

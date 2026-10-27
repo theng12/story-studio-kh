@@ -946,12 +946,13 @@ type ChainEntry = ({ kind: 'step' } & StepMeta) | ExternalNode
 
 // Character Sheet, Scene Plan, Scene Review, and Video Assembly
 // were promoted from read-only external nodes to real batchable steps.
-const EXTERNAL_NODES: Record<string, ExternalNode> = {
-  sound_design: {
-    kind: 'external', key: 'sound_design', label: 'Sound Design (review)', icon: '🎵', link: '/sound-design',
-    note: 'Optional manual review stage. It never blocks Scene Review; when enabled, Final Video requires an approved Sound Design timeline.',
-  },
-}
+// v1.4.365 — Sound Design used to be an external node here, a second place to
+// go. It is now half of the `contextual_cues` step's own page (Sound & Labels),
+// so the chain has ONE node for both halves and there is no second stage to
+// remember. The map itself stays, empty, because `ChainSpec` and the template
+// are built around it and a future read-only stage should not have to re-add
+// it; nothing is currently listed in it.
+const EXTERNAL_NODES: Record<string, ExternalNode> = {}
 
 // Order in this array is the chain order for each episode's batch run.
 // script-only → introduction-only → thumbnail prompts → thumbnails → audio →
@@ -981,7 +982,7 @@ const stepsMeta: StepMeta[] = [
   { id: 'metadata',          label: 'YouTube Finalizer', icon: '📄', link: '/metadata',       presetList: 'metadata_presets',        presetActive: 'metadata_last_preset' },
   { id: 'character_sheet',   label: 'Character Sheet',   icon: '🎭', link: '/character-sheet', presetList: 'continuity_page_presets', presetActive: 'continuity_page_last_preset_continuity-page' },
   { id: 'scene_plan',        label: 'Scene Plan',        icon: '📚', link: '/scene-plan',     presetList: 'scene_plan_presets',      presetActive: 'scene_plan_last_preset_scene-plan' },
-  { id: 'contextual_cues',   label: 'Contextual Cues',   icon: '🏷️', link: '/contextual-cues', presetList: 'contextual_cues_presets', presetActive: 'contextual_cues_last_preset_contextual-cues', optional: true, warning: 'Optional channel feature — a review preset pauses Pipeline here; an auto-approve preset continues after validated proposals.' },
+  { id: 'contextual_cues',   label: 'Sound & Labels',    icon: '🏷️', link: '/sound-and-labels', presetList: 'contextual_cues_presets', presetActive: 'contextual_cues_last_preset_contextual-cues', optional: true, warning: 'Optional channel feature — one pass proposes labels and sounds. Nothing here blocks Video Assembly; a review preset pauses Pipeline here, an auto-approve preset continues after validated proposals.' },
   { id: 'scene_review',      label: 'Scene Review (render)', icon: '✅', link: '/scene-review', presetList: 'scene_review_genstudio_presets', presetActive: 'scene_review_genstudio_last_preset_scene-review' },
   { id: 'motion_review',     label: 'Motion Clips (optional image to video)', icon: '🎬', link: '/motion-review', presetList: 'motion_review_presets', presetActive: 'motion_review_last_preset_motion-review', costly: true, optional: true, warning: 'Optional — skip to assemble with still images. Generates one image-to-video clip per ready scene when selected; provider charges apply' },
   { id: 'video_assembly',    label: 'Final Video',       icon: '🎞', link: '/video-assembly', presetList: 'video_bundle_presets',    presetActive: 'video_bundle_last_preset' },
@@ -1032,7 +1033,7 @@ const CHAIN_TIMESTAMP: ChainSpec = [
   'image_prompts', 'thumb_images',
   'audio', 'audio_merge', 'subtitles',
   'metadata',
-  'scene_plan', 'contextual_cues', { external: 'sound_design' }, 'scene_review', 'motion_review', 'video_assembly',
+  'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'video_assembly',
 ]
 // Continuity-chain — like timestamp, plus the Character Sheet step before
 // planning. Character Sheet is config-only: the batch writes continuity.json
@@ -1044,7 +1045,7 @@ const CHAIN_CONTINUITY: ChainSpec = [
   'audio', 'audio_merge', 'subtitles',
   'metadata',
   'character_sheet',
-  'scene_plan', 'contextual_cues', { external: 'sound_design' }, 'scene_review', 'motion_review', 'video_assembly',
+  'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'video_assembly',
 ]
 // Narrated-scenes (v1.0.300) — the timestamp chain for STORY/fiction. Same
 // audio-paced scene planning as continuity; Character Sheet stays available
@@ -1058,7 +1059,7 @@ const CHAIN_NARRATED_SCENES: ChainSpec = [
   'audio', 'audio_merge', 'subtitles',
   'metadata',
   'character_sheet',
-  'scene_plan', 'contextual_cues', { external: 'sound_design' }, 'scene_review', 'motion_review', 'video_assembly',
+  'scene_plan', 'contextual_cues', 'scene_review', 'motion_review', 'video_assembly',
 ]
 
 // Music (SPEC phase 4): Build Episode → Scene Pictures → Final Video → Thumbnail → YouTube Finalizer.
@@ -1843,9 +1844,13 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, unknown> | 
     // v1.0.363 — audio-paced format steps.
     case 'subtitles':          return !!s.subtitles
     case 'scene_plan':         return !!s.scene_plan
-    // Mirrors the backend: an episode with nothing outstanding but nothing
-    // proposed either is NOT done — a selected step still has work to do.
-    case 'contextual_cues':    return !!s.contextual_cues_generated && !!s.contextual_cues
+    // v1.4.365 — one cell for BOTH halves. `contextual_cues` and `sound_design`
+    // are the two "outstanding" answers, and the backend derives both from the
+    // same resolvers the renderer refuses over, so this cell cannot claim done
+    // on an episode the mixer would reject. `contextual_cues_generated` keeps
+    // a freshly selected step doing real work rather than skipping straight to
+    // done.
+    case 'contextual_cues':    return !!s.contextual_cues && s.sound_design !== false && (!!s.contextual_cues_generated || s.sound_design === true)
     case 'scene_review':       return !!s.scene_review
     case 'motion_review':      return !!s.motion_review
     case 'character_sheet':    return !!s.character_sheet

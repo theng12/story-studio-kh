@@ -4,6 +4,7 @@ import {
   DEFAULT_SOUND_DESIGN_SETTINGS,
   assertSoundDesignReadiness,
   normalizeSoundDesignSettings,
+  resolveRenderableSoundCues,
   validateSoundDesignTimeline,
 } from '../services/sound-design.js'
 import { buildSoundDesignMixArgs } from '../lib/sound-design-mixer.js'
@@ -24,12 +25,29 @@ describe('Sound Design contract', () => {
     assert.equal(normalizeSoundDesignSettings({ default_spot_gain_db: 10 }).default_spot_gain_db, -3)
   })
 
-  test('requires every enabled cue to be approved or excluded', () => {
+  test('an unreviewed cue is SILENCE plus a note, never a refused render', () => {
+    // v1.4.365 — owner, 2026-10-28: "a missing/unapproved optional sound =
+    // silence and a stated note". Before this the whole episode refused to
+    // assemble over one cue nobody had approved.
     const current = timeline([cue({ status: 'matched' })])
     const issues = validateSoundDesignTimeline(current, plan, current.settings, { requireResolved: true })
     assert.match(issues[0]!.detail, /approval or exclusion/)
-    assert.throws(() => assertSoundDesignReadiness({ enabled: true }, current, plan), /Sound Design needs review/)
+    assert.equal(issues[0]!.severity, 'warning', 'it must not block the render')
+    const resolved = resolveRenderableSoundCues({ enabled: true }, current, plan)
+    assert.deepEqual(resolved.cues, [])
+    assert.equal(resolved.skipped.length, 1)
     assert.deepEqual(assertSoundDesignReadiness({ enabled: false }, current, plan), [])
+  })
+
+  test('approved sounds mix while the unreviewed ones are skipped and stated', () => {
+    const current = timeline([
+      cue({ id: 'ok', status: 'approved', start_sec: 10 }),
+      cue({ id: 'waiting', status: 'proposed', start_sec: 30 }),
+    ])
+    const resolved = resolveRenderableSoundCues({ enabled: true }, current, plan)
+    assert.deepEqual(resolved.cues.map(row => row.id), ['ok'])
+    assert.equal(resolved.skipped.length, 1)
+    assert.equal(resolved.skipped[0]!.cue_id, 'waiting')
   })
 
   test('rejects unsafe overlaps, density, missing assets, and out-of-range cues', () => {
@@ -42,9 +60,21 @@ describe('Sound Design contract', () => {
     ])
     const issues = validateSoundDesignTimeline(current, plan, current.settings, { requireResolved: true })
     assert.ok(issues.some(issue => /overlaps/.test(issue.detail)))
-    assert.ok(issues.some(issue => /local-library clip/.test(issue.detail)))
+    assert.ok(issues.some(issue => /sound chosen/.test(issue.detail)))
     assert.ok(issues.some(issue => /0.75 seconds/.test(issue.detail)))
     assert.ok(issues.some(issue => /outside/.test(issue.detail)))
+    // Only the mixing DEFECT still refuses; an unapproved or out-of-range row
+    // is skipped with its reason and the rest of the episode still renders.
+    const resolved = resolveRenderableSoundCues({ enabled: true }, current, plan)
+    assert.ok(resolved.skipped.some(issue => /overlaps/.test(issue.detail)))
+    assert.ok(resolved.skipped.some(issue => /0.75 seconds/.test(issue.detail)))
+  })
+
+  test('an excluded cue with stale times never refuses a save any more', () => {
+    // The 422 that made an excluded row impossible to edit or delete: every
+    // rule applied to a cue the customer had already turned off.
+    const current = timeline([cue({ status: 'excluded', start_sec: 999, gain_db: 0, label: '' })])
+    assert.deepEqual(validateSoundDesignTimeline(current, plan, current.settings), [])
   })
 
   // Same defect as Contextual Cues, found by auditing for the shape rather than
@@ -54,19 +84,34 @@ describe('Sound Design contract', () => {
   test('an episode that never added a cue renders — nothing exists to resolve', () => {
     assert.deepEqual(validateSoundDesignTimeline(null, plan, DEFAULT_SOUND_DESIGN_SETTINGS, { requireResolved: true }), [])
     assert.deepEqual(assertSoundDesignReadiness({ enabled: true }, null, plan), [])
-    // …and the other half still holds: a real timeline with an unresolved cue
-    // is still someone's outstanding decision.
+    // …and the other half holds: an unresolved cue is silence plus a stated
+    // note, and the render goes ahead.
     const pending = timeline([cue({ status: 'proposed' })])
-    assert.throws(() => assertSoundDesignReadiness({ enabled: true }, pending, plan), /Sound Design needs review/)
+    assert.deepEqual(assertSoundDesignReadiness({ enabled: true }, pending, plan), [])
+    assert.equal(resolveRenderableSoundCues({ enabled: true }, pending, plan).skipped.length, 1)
     assert.deepEqual(assertSoundDesignReadiness({ enabled: true }, timeline([]), plan), [])
   })
 
-  test('rejects stale timelines and unknown cue states instead of silently mixing them', () => {
-    const stale = timeline([cue({ status: 'unknown' as any })])
+  test('an older plan is a WARNING that names the rows, and an unknown state still refuses', () => {
+    // v1.4.365 — this used to be an ERROR, so every Scene Plan re-run left the
+    // whole sound timeline unsaveable. It is now a warning, and only for cues
+    // that carry no scene anchor (a v1 cue, which cannot follow its scene).
+    const stale = timeline([cue({ status: 'approved' })])
     stale.source_scene_plan_generated_at = 'older-plan'
     const issues = validateSoundDesignTimeline(stale, plan, stale.settings, { requireResolved: true })
-    assert.ok(issues.some(issue => /older Scene Plan/.test(issue.detail)))
-    assert.ok(issues.some(issue => /unknown review status/.test(issue.detail)))
+    const older = issues.find(issue => /Scene Plan was rebuilt/.test(issue.detail))
+    assert.ok(older, 'the older plan is still reported')
+    assert.equal(older!.severity, 'warning', 'but it must not refuse the save')
+
+    // An ANCHORED cue on the same old plan has nothing to report: it follows
+    // its scene by construction.
+    const anchored = timeline([cue({ status: 'approved', scene_id: 'scene-1', anchor_word: 'temple' })])
+    anchored.source_scene_plan_generated_at = 'older-plan'
+    assert.equal(validateSoundDesignTimeline(anchored, plan, anchored.settings).filter(issue => /rebuilt/.test(issue.detail)).length, 0)
+
+    // An unknown state is a real defect and still refuses.
+    const unknown = timeline([cue({ status: 'unknown' as any })])
+    assert.ok(validateSoundDesignTimeline(unknown, plan, unknown.settings).some(issue => /unknown review status/.test(issue.detail)))
   })
 })
 

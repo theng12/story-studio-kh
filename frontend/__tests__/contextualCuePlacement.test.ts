@@ -90,11 +90,14 @@ describe('no layer may narrow the corner menu on its own', () => {
    * for itself and three of them said "top only"; the customer's logo was
    * covered for four months as a result.
    */
+  // v1.4.365 — the page is `sound-and-labels.vue`; the placement route moved
+  // with it into `routes/sound-and-labels.ts`. The contract this sweeps for is
+  // unchanged: no layer may decide the corner set on its own.
   const GUARDED = [
-    'pages/projects/[slug]/contextual-cues.vue',
+    'pages/projects/[slug]/sound-and-labels.vue',
     '../electron/server/services/contextual-cues.ts',
     '../electron/server/routes/pipeline.ts',
-    '../electron/server/routes/contextual-cues.ts',
+    '../electron/server/routes/sound-and-labels.ts',
   ]
 
   test('no guarded file collapses placement to the two top corners', () => {
@@ -110,7 +113,7 @@ describe('no layer may narrow the corner menu on its own', () => {
   })
 
   test('the review page builds its corner menus from the shared list', () => {
-    const page = readFileSync(path.join(FRONTEND_ROOT, 'pages/projects/[slug]/contextual-cues.vue'), 'utf8')
+    const page = readFileSync(path.join(FRONTEND_ROOT, 'pages/projects/[slug]/sound-and-labels.vue'), 'utf8')
     assert.ok(
       page.includes("from '@shared/contextual-cue-position'"),
       'the page must take its corners from the shared contract, not a local copy',

@@ -83,7 +83,6 @@ const PRESET_PAGES = [
   'audio-merge.vue',
   'broll.vue',
   'character-sheet.vue',
-  'contextual-cues.vue',
   'effects-library.vue',
   'episode-builder.vue',
   'ideas.vue',
@@ -96,7 +95,7 @@ const PRESET_PAGES = [
   'scene-plan.vue',
   'scene-review.vue',
   'scripts.vue',
-  'sound-design.vue',
+  'sound-and-labels.vue',
   'subtitles.vue',
   'video-assembly.vue',
 ] as const
@@ -150,15 +149,32 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     compositionPrompt: { verdict: 'transient', reason: 'the composition-preview dialog\'s prompt; nothing generated from it enters the episode' },
     compositionModel: { verdict: 'transient', reason: 'the composition-preview dialog\'s model, remembered in this browser only' },
   },
-  'contextual-cues.vue': {
-    'config.enabled': { verdict: 'saved-elsewhere', reason: 'a project-level switch in config.json, not a preset concept' },
-    'config.auto_approve_cues': { verdict: 'saved-elsewhere', reason: 'a project-level switch; the preset carries the per-run `auto_approve` instead' },
-    'cue.title': { verdict: 'episode', reason: 'one cue in this episode\'s timeline' },
-    'cue.subtitle': { verdict: 'episode', reason: 'one cue in this episode\'s timeline' },
-    'cue.kind': { verdict: 'episode', reason: 'one cue in this episode\'s timeline' },
-    'cue.template': { verdict: 'episode', reason: 'one cue in this episode\'s timeline' },
-    'cue.start_sec': { verdict: 'episode', reason: 'one cue\'s position in this episode' },
-    'cue.end_sec': { verdict: 'episode', reason: 'one cue\'s position in this episode' },
+  // v1.4.365 — ONE page, TWO preset types. The proposal setup (`form`) is the
+  // Contextual Cues preset and the mix (`settings`) is the Sound Design preset;
+  // both keys, both config keys and both preset types are unchanged, and no new
+  // preset key exists. Everything else on the page is this episode's own state.
+  'sound-and-labels.vue': {
+    // The two project switches are `:checked` + `@change`, not `v-model`: each
+    // writes ONLY its own config key through the route that names that key, so a
+    // stale value on screen can never overwrite the other switch. That is
+    // deliberate, and it is why the checker does not derive them — there is
+    // nothing here for a preset to carry either way.
+    'form.model': { verdict: 'saved-by-preset', reason: 'which model proposes labels — reusable, and the thing most presets exist for', via: 'model' },
+    'form.density': { verdict: 'saved-by-preset', reason: 'how often labels appear — a reusable editorial choice', via: 'density' },
+    'form.placement': { verdict: 'saved-by-preset', reason: 'the default corner for new labels — a reusable channel look', via: 'placement' },
+    'form.auto_approve': { verdict: 'saved-by-preset', reason: 'AGENTS.md §5: decided 2026-08-18, kept and announced in both directions', via: 'auto_approve' },
+    'settings.max_spots_per_minute': { verdict: 'saved-by-preset', reason: 'a pacing cap the mixer enforces — reusable mix policy', via: 'settings' },
+    'settings.default_bed_gain_db': { verdict: 'saved-by-preset', reason: 'a default mix level — reusable', via: 'settings' },
+    'settings.default_spot_gain_db': { verdict: 'saved-by-preset', reason: 'a default mix level — reusable', via: 'settings' },
+    'settings.ducking_profile': { verdict: 'saved-by-preset', reason: 'a reusable mixing choice', via: 'settings' },
+    'row.cue.title': { verdict: 'episode', reason: 'one label in this episode\'s timeline' },
+    'row.cue.subtitle': { verdict: 'episode', reason: 'one label in this episode\'s timeline' },
+    'row.cue.kind': { verdict: 'episode', reason: 'one item in this episode\'s timeline' },
+    'row.cue.template': { verdict: 'episode', reason: 'one label in this episode\'s timeline' },
+    'row.cue.start_sec': { verdict: 'episode', reason: 'one item\'s position in this episode' },
+    'row.cue.end_sec': { verdict: 'episode', reason: 'one item\'s position in this episode' },
+    'row.cue.label': { verdict: 'episode', reason: 'one sound in this episode\'s timeline' },
+    'row.cue.gain_db': { verdict: 'episode', reason: 'one sound\'s level in this episode' },
   },
   'effects-library.vue': {
     'file.custom_order': { verdict: 'episode', reason: 'this episode\'s effect ordering, saved with the episode\'s effects file' },
@@ -289,14 +305,6 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     recencyLookbackInput: { verdict: 'saved-elsewhere', reason: 'a project-level recency setting at /recency/lookback, not a preset value' },
     translateTargetSlug: { verdict: 'run-only', reason: 'the target channel for ONE translation job; the job, not a preset, records it' },
     useCharacters: { verdict: 'transient', reason: 'a disclosure toggle over `character_ids`, which IS saved' },
-  },
-  'sound-design.vue': {
-    'config.enabled': { verdict: 'saved-elsewhere', reason: 'a project-level switch in config.json, not a preset concept' },
-    'cue.label': { verdict: 'episode', reason: 'one cue in this episode\'s timeline' },
-    'cue.kind': { verdict: 'episode', reason: 'one cue in this episode\'s timeline' },
-    'cue.start_sec': { verdict: 'episode', reason: 'one cue\'s position in this episode' },
-    'cue.end_sec': { verdict: 'episode', reason: 'one cue\'s position in this episode' },
-    'cue.gain_db': { verdict: 'episode', reason: 'one cue\'s level in this episode' },
   },
   'subtitles.vue': {
     importPath: { verdict: 'transient', reason: 'the import dialog\'s scratch path' },

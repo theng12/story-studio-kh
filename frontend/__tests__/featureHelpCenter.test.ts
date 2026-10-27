@@ -43,8 +43,9 @@ const reachableRoutes = [
   '/projects/example/subtitles',
   '/projects/example/character-sheet',
   '/projects/example/scene-plan',
-  '/projects/example/contextual-cues',
-  '/projects/example/sound-design',
+  // v1.4.365 — the two old addresses redirect to /sound-and-labels, which must
+  // carry its own guide rather than falling back to the generic one.
+  '/projects/example/sound-and-labels',
   '/projects/example/scene-review',
   '/projects/example/motion-review',
   '/projects/example/video-assembly',
