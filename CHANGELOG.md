@@ -19,6 +19,7 @@ What's new in each release. Newest first.
 - Still Posts: choose one drawing fitted to each size (the default) or a fresh drawing for each size you tick.
 - YouTube: Story can update the title, description and tags of a video that is already on YouTube, keeping everything else, never touching privacy or the schedule, and checking the result afterwards. It can also list a channel's videos read-only and remembers what it has already checked to save the daily quota. Pipeline titles use the preset's own title settings, a title suffix is never added twice, a title over 100 characters is refused rather than cut, and an upload with an empty description is refused before it goes out.
 - Background music: regular narrated channels start at 6% everywhere in the app, from one setting. Audio Assembly and the Production Board show how many background music options a channel has and warn below 10; this never blocks assembly.
+- Remote final rendering: when the Gateway gives up on a remote render, the episode now finishes on this Mac and says why, instead of waiting for ever. When no other Mac is free, the message says so rather than blaming the encode.
 
 ## v1.4.363 — 2026-10-27
 
