@@ -12,6 +12,7 @@ const JOB_TYPE_STATUS_FIELD: Record<string, string> = {
   research_run: 'research',
   outline_only: 'script',
   expand_chapters: 'script',
+  translate_episode: 'script',
   'introduction-only': 'introduction',
   thumb_images: 'thumbnails',
   audio: 'audio',

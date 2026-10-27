@@ -42,6 +42,7 @@ import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { generateCompositionTemplateJob } from '../generators/composition-template.js'
 import { generateIdeaCampaign } from '../generators/idea-campaign.js'
+import { generateTranslateEpisode, verifyTranslatedCompletion } from '../services/translation.js'
 import { requireJobCompletion, completionErrorMessage } from '../services/job-completion.js'
 import { registerJobCancellationAuditor, type JobCancellationAudit } from '../services/job-cancellation-auditors.js'
 import { getAudioStatus } from '../services/audio-reconciler.js'
@@ -412,6 +413,27 @@ function registerCancellationAuditors(): void {
       : 0
     return completed >= wanted ? 'complete' : 'repair-required'
   })
+  // Translation — the service's own verified-completion contract (§8), over the
+  // SAME chapter set the run asked for. Read-only.
+  registerJobCancellationAuditor('translate_episode', async job => {
+    try {
+      const params = job.params as Record<string, any>
+      const sourceSlug = typeof params.source_slug === 'string' ? params.source_slug : ''
+      const sourceEpisodeId = typeof params.source_episode_id === 'string' ? params.source_episode_id : ''
+      if (!sourceSlug || !sourceEpisodeId) return 'repair-required'
+      const { loadSourceEpisodeScript } = await import('../services/translation.js')
+      const source = await loadSourceEpisodeScript(sourceSlug, sourceEpisodeId)
+      const requested = Array.isArray(params.chapters)
+        ? (params.chapters as unknown[]).map(Number).filter(n => Number.isFinite(n) && n > 0)
+        : source.chapters.map(ch => ch.number)
+      const expectIntro = !!source.intro && !requested.length
+      const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+      await verifyTranslatedCompletion(paths.script_dir, job.episode_id, requested, expectIntro)
+      return 'complete'
+    } catch {
+      return 'repair-required'
+    }
+  })
 }
 
 export function registerAllExecutors(options: { loadSettings?: boolean } = {}): void {
@@ -510,6 +532,8 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   // v1.0.143+ — Scene planner for the timestamp-driven pipeline.
   registerExecutor('scene_plan_run', runScenePlanJob)
   registerExecutor('contextual_cues', generateContextualCues)
+  // Translate a scripted episode into another language (English ↔ Khmer).
+  registerExecutor('translate_episode', generateTranslateEpisode)
   // v1.0.144+ — Per-scene image generator (one job per scene).
   registerExecutor('scene_image_generate', generateSceneImageJob)
   // v1.0.470 — Phase 2: per-scene image-to-video clip. Heavy media → guarded.

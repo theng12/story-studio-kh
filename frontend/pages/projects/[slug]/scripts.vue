@@ -102,17 +102,18 @@
               <option v-for="p in translateTargets" :key="p.slug" :value="p.slug">{{ p.name }}</option>
             </select>
             <span class="text-muted text-xs">
-              A new episode is created there with every chapter translated. Narration, subtitles and
-              assembly then run in that channel's language.
+              A queued job translates every chapter into a new episode there and then carries on
+              through that channel's Pipeline (narration → subtitles → final video, plus metadata)
+              with its own presets. Stills and the scene plan are reused.
               <template v-if="translateTargets.length === 0"> No {{ oppositeLanguageName }} channel exists yet — create one first.</template>
             </span>
           </div>
           <button class="btn btn-primary btn-sm" :disabled="translateRunning || !translateTargetSlug" @click="translateEpisode">
-            {{ translateRunning ? 'Translating…' : 'Translate' }}
+            {{ translateRunning ? 'Starting…' : 'Translate' }}
           </button>
           <p v-if="translateResult" class="text-xs mt-2">
-            Translated into <strong>{{ translateResult.targetEpisodeId }}</strong> — {{ translateResult.targetTitle }}.
-            Open that channel to run narration → subtitles → assembly.
+            Queued: <strong>{{ translateResult.target_episode_id }}</strong> — {{ translateResult.target_title }}.
+            Follow it on Jobs; Retry redoes only the chapters that failed.
           </p>
         </template>
       </div>
@@ -880,7 +881,7 @@ const translateOpen = ref(false)
 const translateChannels = ref<Array<{ slug: string; name: string; content_language?: string | null }>>([])
 const translateTargetSlug = ref('')
 const translateRunning = ref(false)
-const translateResult = ref<{ targetSlug: string; targetEpisodeId: string; targetTitle: string } | null>(null)
+const translateResult = ref<{ target_slug: string; target_episode_id: string; target_title: string } | null>(null)
 
 const sourceLanguage = computed<'en' | 'km' | null>(() => {
   const lang = project.value?.content_language
@@ -911,15 +912,15 @@ async function translateEpisode(): Promise<void> {
   translateRunning.value = true
   translateResult.value = null
   try {
-    const r = await post<{ targetSlug: string; targetEpisodeId: string; targetTitle: string }>(
+    const r = await post<{ target_slug: string; target_episode_id: string; target_title: string }>(
       `/projects/${slug.value}/episodes/${ep}/translate`,
       { target_slug: translateTargetSlug.value, model: form.model },
     )
     if (form.episode_id !== ep) return
     translateResult.value = r
-    success(`Translated into ${r.targetEpisodeId} — ${r.targetTitle}. Open that channel to run narration, subtitles and assembly.`)
+    success(`Translation queued for ${r.target_episode_id} — ${r.target_title}. Follow it on Jobs; Retry redoes only the chapters that failed.`)
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Translation failed')
+    showError(e?.data?.detail || e?.message || 'Could not start the translation')
   } finally {
     translateRunning.value = false
   }

@@ -2610,6 +2610,8 @@ export const JOB_TYPES = [
   'music_episode_build',
   /** Episode Builder: rewrite scene prompts with the writing model the owner picked at the click. */
   'music_scene_polish',
+  /** Translate a finished/scripted episode into another language (English ↔ Khmer). */
+  'translate_episode',
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]

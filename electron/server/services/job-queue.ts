@@ -1631,6 +1631,8 @@ const queues: Record<JobType, QueueState> = {
   continuity_render: { pending: [], running: false, executor: null },
   // v1.0.260: generate the composition LAYOUT template image from a prompt.
   composition_generate: { pending: [], running: false, executor: null },
+  // Translate a finished/scripted episode into another language (English ↔ Khmer).
+  translate_episode: { pending: [], running: false, executor: null },
 }
 
 /**
@@ -1662,6 +1664,7 @@ const MAX_QUEUE_TIMER_DELAY_MS = 0x7fffffff
 const WRITING_JOB_TYPES = new Set<string>([
   'idea_campaign', 'outline_only', 'expand_chapters', 'chapter-only', 'introduction-only',
   'research_run', 'metadata', 'image_prompts', 'scene_plan_run', 'contextual_cues',
+  'translate_episode',
 ])
 
 function writingModelOf(job: Job): string {
@@ -1930,7 +1933,7 @@ function fleetEpisodeTypesFor(group: string): ReadonlySet<JobType> {
 // number of concurrent writing jobs one nobody chose.
 const LLM_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'idea_campaign', 'outline_only', 'expand_chapters', 'metadata', 'image_prompts', 'scene_plan_run',
-  'research_run',
+  'research_run', 'translate_episode',
 ])
 function usesLocalTextFleet(job: Job | undefined): boolean {
   if (!job || !LLM_TYPES.has(job.type)) return false
@@ -7791,21 +7794,28 @@ const chapterWriterAdmissionReservations = new Map<string, ChapterWriterAdmissio
 function isChapterWriterScope(scope: Pick<EnqueueOptions, 'type'>): boolean {
   return scope.type === 'outline_only' || scope.type === 'introduction-only'
     || scope.type === 'expand_chapters' || scope.type === 'chapter-only'
+    || scope.type === 'translate_episode'
 }
 
 function chapterWriterReservationConflicts(
   requested: ChapterWriterAdmissionScope,
   reserved: ChapterWriterAdmissionScope,
 ): boolean {
+  // A translation writes chapter files and re-assembles the same unified
+  // narration, so it takes the same admission as the other chapter writers.
+  if (requested.type === 'translate_episode') return isChapterWriterScope(reserved)
   if (requested.type === 'expand_chapters') return isChapterWriterScope(reserved)
   if (requested.type === 'outline_only') {
     return reserved.type === 'outline_only' || reserved.type === 'expand_chapters' || reserved.type === 'chapter-only'
+      || reserved.type === 'translate_episode'
   }
   if (requested.type === 'introduction-only') {
     return reserved.type === 'introduction-only' || reserved.type === 'expand_chapters' || reserved.type === 'chapter-only'
+      || reserved.type === 'translate_episode'
   }
   if (requested.type !== 'chapter-only') return false
-  if (reserved.type === 'expand_chapters' || reserved.type === 'outline_only' || reserved.type === 'introduction-only') return true
+  if (reserved.type === 'expand_chapters' || reserved.type === 'outline_only' || reserved.type === 'introduction-only'
+    || reserved.type === 'translate_episode') return true
   return reserved.type === 'chapter-only' && (!requested.dedupeParams || requested.dedupeParams(reserved.params || {}))
 }
 
