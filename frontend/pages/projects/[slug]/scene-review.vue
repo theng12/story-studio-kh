@@ -347,6 +347,91 @@
         <p v-else class="sr-image-check-stats text-muted">
           Free vision check is turned off. No check is queued and nothing is recorded.
         </p>
+        <!-- v1.4.365 — the OPT-IN stronger check (owner 2026-10-27). OFF by
+             default: it sends the picture to a model of the owner's choosing.
+             What it costs depends on the chosen row, and the picker below says
+             whether that row is free or chargeable. Its findings are recorded
+             BESIDE the free check's, never instead of them. -->
+        <label
+          class="sr-auto-approve"
+          title="Sends each generated scene image to a vision-capable model the Gateway offers, so anatomy, faces and drawn text can be judged. Default OFF, findings only. The chosen model may be free or chargeable — the picker says which."
+        >
+          <input
+            type="checkbox"
+            :checked="visionCheckConfig.enabled"
+            :disabled="visionCheckSaving"
+            @change="toggleVisionCheckEnabled"
+          >
+          <span>
+            <strong>Stronger vision image check</strong>
+            <small v-if="!visionCheckConfig.enabled">OFF · nothing is sent and nothing is recorded</small>
+            <small v-else>
+              ON · {{ visionSelectedModel ? (visionSelectedModel.chargeable ? 'chargeable per image' : 'free') : 'choose a model' }} · findings only
+            </small>
+          </span>
+        </label>
+        <div v-if="visionCheckConfig.enabled" class="sr-vision-check">
+          <label class="sr-vision-model">
+            <span>Model for the stronger check</span>
+            <select
+              :value="visionCheckConfig.model || ''"
+              :disabled="visionCheckSaving || visionCheckModelsLoading"
+              @change="selectVisionModel"
+            >
+              <option value="" disabled>
+                {{ visionCheckModelsLoading ? 'Loading Gateway models…' : 'Select a model' }}
+              </option>
+              <option v-for="option in visionModels" :key="option.id" :value="option.id">{{ visionModelLabel(option) }}</option>
+            </select>
+          </label>
+          <!-- Whose row this is, and what it costs. The provider is DISPLAYED
+               where the catalogue publishes it and never used to route (§2). -->
+          <p v-if="visionSelectedModel" class="sr-image-check-stats">
+            {{ visionSelectedModel.provider_name ? `Served by ${visionSelectedModel.provider_name}` : 'The Gateway publishes no provider for this row' }}
+            · {{ visionSelectedModel.chargeable ? 'chargeable per image' : 'free' }}
+            <template v-if="visionSelectedModel.structured_output_mode !== 'none'">· asks for a JSON object</template>
+            <template v-else>· answers in prose, read as JSON here</template>
+          </p>
+          <p v-if="visionCheckModelsError" class="sr-image-check-stats">{{ visionCheckModelsError }}</p>
+          <p v-else-if="!visionCheckModelsLoading && !visionModels.length" class="sr-image-check-stats text-muted">
+            {{ visionModelsReason }}
+          </p>
+          <p v-if="!visionProviderKindPublished && visionModels.length" class="sr-image-check-stats text-muted">
+            The Gateway publishes no provider kind for some rows, so Story Studio cannot tell whether their
+            image input is converted correctly.
+          </p>
+          <!-- Per-axis auto-remake. Every one is OFF by default and locked until
+               the shadow window ends (the same window the free check uses). -->
+          <label
+            v-for="axis in VISION_AXES"
+            :key="axis"
+            class="sr-auto-approve"
+            :title="visionCheckSwitchUnlocked
+              ? `One automatic remake per image when the stronger check fails ${VISION_AXIS_LABEL[axis]}. Off by default.`
+              : `The stronger check is recording findings only. The auto-remake switches stay locked until ${imageCheckUnlockLabel}.`"
+          >
+            <input
+              type="checkbox"
+              :checked="visionCheckConfig.auto_remake[axis]"
+              :disabled="visionCheckSaving || !visionCheckSwitchUnlocked"
+              @change="toggleVisionAxis(axis, $event)"
+            >
+            <span>
+              <strong>Auto-remake on {{ VISION_AXIS_LABEL[axis] }} failures</strong>
+              <small v-if="visionCheckSwitchUnlocked">One remake per image · OFF by default</small>
+              <small v-else>Shadow review until {{ imageCheckUnlockLabel }} · findings only</small>
+            </span>
+          </label>
+          <p class="sr-image-check-stats">
+            Stronger check:
+            <span v-if="!visionCheckSwitchUnlocked || !visionAnyAxisOn">shadow mode (nothing changed)</span>
+            <span v-else>auto-remake on for {{ visionAxesOnLabel }}</span>
+            · {{ visionCheckStats.checked }} checked,
+            {{ visionCheckStats.withFails }} with a finding,
+            {{ visionCheckStats.notChecked }} not checked.
+            <template v-if="visionCheckStats.latestFinding">Latest finding: {{ visionCheckStats.latestFinding }}</template>
+          </p>
+        </div>
       </div>
 
       <div class="sr-control-section sr-action-section">
@@ -625,6 +710,12 @@
                 :class="['review-image-check-badge', !imageCheckConfig.enabled ? 'is-off' : `is-${scene.image_check?.state || 'not_checked'}`]"
                 :title="describeImageCheck(scene.image_check, imageCheckConfig.enabled)"
               >{{ imageCheckBadgeLabel(scene.image_check, imageCheckConfig.enabled) }}</span>
+              <!-- v1.4.365 — the OPT-IN stronger check's verdict, shown BESIDE it. -->
+              <span
+                v-if="scene.vision_check"
+                :class="['review-image-check-badge', `is-${visionBadgeTone(scene.vision_check)}`]"
+                :title="describeVisionCheck(scene.vision_check)"
+              >{{ visionCheckBadgeLabel(scene.vision_check) }}</span>
             </div>
             <p class="review-transcript">{{ scene.transcript_segment }}</p>
             <details class="review-prompt-details disclosure">
@@ -817,7 +908,7 @@ import {
 import { sceneReviewPresetApply, sceneReviewPresetSnapshot, type SceneReviewPresetData } from '../../../utils/scene-review-preset.js'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
-import { SCENE_IMAGE_CHECK_SHADOW_UNTIL, sceneImageCheckShadowOver } from '@shared/scene-image-check'
+import { SCENE_IMAGE_CHECK_SHADOW_UNTIL, SCENE_VISION_AXES, sceneImageCheckShadowOver, type SceneVisionAxis } from '@shared/scene-image-check'
 import { secureOperationId } from '~/composables/useFreshGenerationAction'
 
 // usePresets captures the project slug at setup. Recreate this page for a
@@ -881,6 +972,21 @@ interface ReviewScene {
     caption?: string
     model_id?: string
     model_name?: string
+    checked_at: string
+    shadow_mode: boolean
+    remade: boolean
+    reason?: string
+  }
+  /** v1.4.365 — the OPT-IN stronger vision check's recorded verdict, if one ran. */
+  vision_check?: {
+    state: 'checked' | 'not_checked'
+    axes: Record<SceneVisionAxis, { verdict: 'pass' | 'fail' | 'not_visible' | 'could_not_check'; findings: string[]; transcription?: string }>
+    findings: string[]
+    confidence: number | null
+    model_id?: string
+    model_name?: string
+    provider_name?: string
+    expected_text?: string
     checked_at: string
     shadow_mode: boolean
     remade: boolean
@@ -1075,6 +1181,150 @@ async function toggleImageCheckAutoRemake(event: Event): Promise<void> {
     imageCheckSaving.value = false
   }
 }
+
+// v1.4.365 — the OPT-IN stronger image check (owner 2026-10-27).
+//
+// A vision-capable chat product chosen from the LIVE Gateway catalogue. Only its
+// id is stored; its provider, price, limits and capabilities are read live on
+// every use (§1). The check is OFF by default because every picture costs money,
+// and its auto-remake switches are per axis, OFF, and locked until the same
+// shadow window the free check uses has ended.
+const VISION_AXES = SCENE_VISION_AXES
+const VISION_AXIS_LABEL: Record<SceneVisionAxis, string> = {
+  anatomy: 'anatomy (hands, limbs)',
+  face: 'face',
+  text: 'text',
+}
+interface VisionModelOption {
+  id: string
+  display_name: string
+  provider_name?: string
+  provider_id?: string
+  chargeable?: boolean
+  structured_output_mode: 'none' | 'json_object' | 'request_json_schema'
+  input_credits_per_million_tokens?: number
+  output_credits_per_million_tokens?: number
+  minimum_credits?: number
+}
+const visionCheckSaving = ref(false)
+const visionCheckModelsLoading = ref(false)
+const visionCheckModelsError = ref('')
+const visionModelsReason = ref('')
+const visionProviderKindPublished = ref(true)
+const visionModels = ref<VisionModelOption[]>([])
+const visionCheckConfig = computed(() => {
+  const raw = ((config.value as any)?.scene_image_check?.vision || {}) as Record<string, any>
+  const auto = (raw.auto_remake || {}) as Record<string, unknown>
+  return {
+    enabled: raw.enabled === true,
+    model: typeof raw.model === 'string' && raw.model.trim() ? raw.model.trim() : '',
+    auto_remake: {
+      anatomy: auto.anatomy === true,
+      face: auto.face === true,
+      text: auto.text === true,
+    } as Record<SceneVisionAxis, boolean>,
+  }
+})
+const visionCheckSwitchUnlocked = computed(() => sceneImageCheckShadowOver(imageCheckConfig.value.shadow_until))
+const visionSelectedModel = computed(() => visionModels.value.find(option => option.id === visionCheckConfig.value.model) || null)
+const visionAnyAxisOn = computed(() => VISION_AXES.some(axis => visionCheckConfig.value.auto_remake[axis]))
+const visionAxesOnLabel = computed(() => VISION_AXES
+  .filter(axis => visionCheckConfig.value.auto_remake[axis])
+  .map(axis => VISION_AXIS_LABEL[axis])
+  .join(', '))
+const visionCheckStats = computed(() => {
+  let checked = 0
+  let withFails = 0
+  let notChecked = 0
+  let latestFinding = ''
+  for (const scene of scenes.value) {
+    const check = (scene as any).vision_check as ReviewScene['vision_check']
+    if (!check) continue
+    if (check.state !== 'checked') { notChecked++; continue }
+    checked++
+    if (check.findings?.length) { withFails++; latestFinding = check.findings[0] || latestFinding }
+  }
+  return { checked, withFails, notChecked, latestFinding }
+})
+function visionModelLabel(option: VisionModelOption): string {
+  const provider = option.provider_name ? ` · ${option.provider_name}` : ''
+  // What the row costs, beside whose row it is. Which of these is free decides
+  // whether the check spends anything, so it belongs in the menu itself.
+  return `${option.display_name || option.id}${provider} · ${option.chargeable ? 'chargeable' : 'free'}`
+}
+async function loadVisionModels(): Promise<void> {
+  const project = slug.value
+  if (!project) return
+  visionCheckModelsLoading.value = true
+  visionCheckModelsError.value = ''
+  try {
+    const data = await get(`/projects/${project}/scene-image-check/vision-models`) as {
+      models?: VisionModelOption[]
+      provider_id_published?: boolean
+      reason?: string | null
+    }
+    visionModels.value = Array.isArray(data?.models) ? data.models : []
+    visionProviderKindPublished.value = data?.provider_id_published !== false
+    visionModelsReason.value = data?.reason || 'No Gateway model publishes image input right now, so this check cannot run.'
+  } catch (error: any) {
+    visionModels.value = []
+    visionCheckModelsError.value = error?.data?.detail || error?.message || 'Could not load Gateway vision models.'
+  } finally {
+    visionCheckModelsLoading.value = false
+  }
+}
+async function saveVisionConfig(patch: Record<string, unknown>, failureMessage: string): Promise<void> {
+  if (visionCheckSaving.value) return
+  const project = slug.value
+  const existing = ((config.value as any)?.scene_image_check || {}) as Record<string, any>
+  const current = (existing.vision || {}) as Record<string, any>
+  visionCheckSaving.value = true
+  try {
+    await put(`/projects/${project}/settings/config`, {
+      scene_image_check: {
+        ...existing,
+        shadow_until: imageCheckConfig.value.shadow_until,
+        vision: {
+          ...current,
+          ...patch,
+          // Merged, not replaced: one axis's switch must never clear another's.
+          ...(patch.auto_remake
+            ? { auto_remake: { ...(current.auto_remake || {}), ...(patch.auto_remake as Record<string, boolean>) } }
+            : {}),
+        },
+      },
+    })
+    await refreshConfig(project)
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || failureMessage)
+  } finally {
+    visionCheckSaving.value = false
+  }
+}
+async function toggleVisionCheckEnabled(event: Event): Promise<void> {
+  const next = (event.target as HTMLInputElement).checked
+  if (visionCheckSaving.value) return
+  await saveVisionConfig({ enabled: next }, 'Could not save the stronger vision check switch.')
+  if (next && !visionModels.value.length) void loadVisionModels()
+}
+async function selectVisionModel(event: Event): Promise<void> {
+  const next = (event.target as HTMLSelectElement).value
+  await saveVisionConfig({ model: next }, 'Could not save the vision model.')
+}
+async function toggleVisionAxis(axis: SceneVisionAxis, event: Event): Promise<void> {
+  const next = (event.target as HTMLInputElement).checked
+  if (visionCheckSaving.value) return
+  if (next && !visionCheckSwitchUnlocked.value) return
+  await saveVisionConfig({ auto_remake: { [axis]: next } }, 'Could not save the vision auto-remake switch.')
+}
+watch(() => visionCheckConfig.value.enabled, on => {
+  if (on && !visionModels.value.length && !visionCheckModelsLoading.value) void loadVisionModels()
+})
+// The saved config may already be there when this watch is set up, so read it
+// once on mount too rather than waiting for a change that already happened.
+onMounted(() => {
+  if (visionCheckConfig.value.enabled) void loadVisionModels()
+})
 
 // Scene Review presets contain only current GenStudio render controls.
 // Presets saved by older builds can still carry retired quality, step-count,
@@ -2019,6 +2269,38 @@ function describeImageCheck(check: ReviewScene['image_check'] | undefined, enabl
   return parts.join(' ')
 }
 
+// v1.4.365 — the stronger check's badge text, shown BESIDE the free one.
+function visionBadgeTone(check: ReviewScene['vision_check']): string {
+  if (!check || check.state !== 'checked') return 'not_checked'
+  return check.findings?.length ? 'failed' : 'passed'
+}
+function visionCheckBadgeLabel(check: ReviewScene['vision_check'] | undefined): string {
+  if (!check) return ''
+  if (check.state !== 'checked') return '· vision not checked'
+  const shadow = check.shadow_mode ? ' · shadow' : ''
+  const failed = VISION_AXES.filter(axis => check.axes?.[axis]?.verdict === 'fail')
+  if (failed.length) return `⚠ Vision ${failed.join('/')}${check.remade ? ' · remade' : ''}${shadow}`
+  const unmeasurable = VISION_AXES.filter(axis => check.axes?.[axis]?.verdict === 'could_not_check')
+  if (unmeasurable.length) return `· vision ${unmeasurable.join('/')} unmeasurable${shadow}`
+  return `✓ Vision checked${shadow}`
+}
+function describeVisionCheck(check: ReviewScene['vision_check']): string {
+  if (check.state !== 'checked') {
+    return `The stronger vision check did not run${check.reason ? ` — ${check.reason}` : ''}. This is NOT a pass.`
+  }
+  const parts: string[] = [check.shadow_mode ? 'Shadow check — findings recorded, nothing changed.' : 'Vision check result.']
+  for (const axis of VISION_AXES) {
+    const entry = check.axes?.[axis]
+    if (!entry) continue
+    const findings = entry.findings?.length ? ` — ${entry.findings.join('; ')}` : ''
+    parts.push(`${VISION_AXIS_LABEL[axis]}: ${entry.verdict}${findings}.`)
+  }
+  if (check.expected_text) parts.push(`Compared against the text Story drew: “${check.expected_text}”.`)
+  if (check.model_name) parts.push(`Model: ${check.model_name}${check.provider_name ? ` (${check.provider_name})` : ''}.`)
+  if (check.confidence != null) parts.push(`Model confidence: ${check.confidence.toFixed(2)}.`)
+  return parts.join(' ')
+}
+
 // `getJobs()` groups by status and SSE updates replace in place, so array order
 // is not action chronology. Created time is the durable action clock; job ID
 // makes a same-millisecond tie deterministic.
@@ -2729,6 +3011,36 @@ watch(() => replaceableUncertainJob.value?.job_id || '', (sourceJobId, previousS
   line-height: 1.45;
   max-width: 70ch;
   overflow-wrap: anywhere;
+}
+/* v1.4.365 — the opt-in stronger check's own block, nested under the free one. */
+.sr-vision-check {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  width: fit-content;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+}
+.sr-vision-check .sr-auto-approve { margin-top: 4px; }
+.sr-vision-model {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+}
+.sr-vision-model select {
+  min-height: 32px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
 }
 .sr-ratio-label {
   color: var(--text-muted);

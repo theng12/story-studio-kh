@@ -427,6 +427,45 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
   } catch {
     // A failed check never blocks the job.
   }
+  // OPT-IN stronger vision check (owner 2026-10-27): a vision-capable chat
+  // product from the live catalogue, recorded BESIDE the free check. OFF by
+  // default, silent in shadow mode, and it never delays a render unless one of
+  // its per-axis auto-remake switches is actually acting.
+  try {
+    const {
+      runSceneVisionCheck, describeSceneVisionCheck, sceneImageVisionConfig,
+      sceneVisionAutoRemakeActive, sceneVisionAxesToRemake, queueSceneVisionCheck,
+    } = await import('../services/scene-image-vision-check.js')
+    const { enqueueImageCheckRemake } = await import('../services/scene-image-quality-check.js')
+    if (sceneImageVisionConfig(config).enabled) {
+      const visionInput = {
+        sceneId: scene_id,
+        imagePath: outPath,
+        visualPrompt: scene.visual_prompt,
+        planPath,
+        config,
+        remade: params.image_check_remake === true,
+      }
+      if (sceneVisionAutoRemakeActive(config)) {
+        const visionResult = await runSceneVisionCheck(visionInput)
+        job.output_lines.push(describeSceneVisionCheck(visionResult))
+        const axes = sceneVisionAxesToRemake(visionResult, config)
+        if (axes.length && params.image_check_remake !== true) {
+          // The same one-remake-per-image dedupe the free check uses: whichever
+          // check asks first owns the remake, and a second check cannot buy one.
+          await enqueueImageCheckRemake({
+            projectSlug: job.project_slug, episodeId: episode_id, sceneId: scene_id,
+            title: job.title, params,
+          })
+          job.output_lines.push(`Vision check failed (${axes.join(', ')}) — one automatic remake queued for ${scene_id}.`)
+        }
+      } else {
+        queueSceneVisionCheck(visionInput)
+      }
+    }
+  } catch {
+    // A failed check never blocks the job.
+  }
   // E2–E4 — an auto-approved picture is analysed in the background (only where the channel has it on).
   if (autoApproveOn(params.auto_approve_generated)) queueEpisodeAnalysisSoon(job.project_slug, episode_id, [scene_id])
 }

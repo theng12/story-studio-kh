@@ -486,6 +486,25 @@ export const UpdateConfigSchema = z.object({
     auto_remake: z.boolean().optional(),
     shadow_until: z.string().optional(),
     model: z.string().trim().max(240).optional(),
+    /**
+     * The OPT-IN stronger check (owner 2026-10-27). A sub-object because it is
+     * a second, independent check with its own model and its own switches —
+     * folding its fields in beside the free check's would make "which model"
+     * ambiguous on the one screen that shows both.
+     *
+     * Only the SELECTION is stored (the catalogue id). Limits, prices,
+     * capabilities and provider are read live from the catalogue on every use
+     * (AGENTS.md §1).
+     */
+    vision: z.object({
+      enabled: z.boolean().optional(),
+      model: z.string().trim().max(240).optional(),
+      auto_remake: z.object({
+        anatomy: z.boolean().optional(),
+        face: z.boolean().optional(),
+        text: z.boolean().optional(),
+      }).optional(),
+    }).optional(),
   }).optional(),
 }).passthrough().transform((value) => {
   // Legacy Story Studio releases persisted a project-owned TTS catalog. Keep
@@ -535,6 +554,12 @@ export interface SafeProjectConfigResponse {
     auto_remake?: boolean
     shadow_until?: string
     model?: string
+    /** The opt-in stronger check's selection and per-axis switches (owner 2026-10-27). */
+    vision?: {
+      enabled?: boolean
+      model?: string
+      auto_remake?: { anatomy?: boolean; face?: boolean; text?: boolean }
+    }
   }
   image_models: Record<string, any>
   voice_presets: Array<{
