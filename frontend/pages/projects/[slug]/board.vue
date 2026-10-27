@@ -45,6 +45,18 @@
           <span v-if="channelTotal?.waste.state === 'measured'" class="workspace-metric" data-tone="warning">
             <strong>{{ formatWaste(channelTotal.waste) }}</strong> waste
           </span>
+          <!-- Owner, 2026-10-27: a regular narrated channel keeps background music
+               under the narration and needs at least ten tracks to choose from.
+               A standard to show, never a gate — assembly always runs. -->
+          <span
+            v-if="musicOptionsNotice"
+            class="workspace-metric"
+            :data-tone="musicOptionsNotice.level === 'warn' ? 'warning' : undefined"
+            :title="musicOptionsNotice.text"
+          >
+            <strong>{{ musicOptionsCount }}</strong> music options
+            <template v-if="musicOptionsNotice.level === 'warn'"> · standard is {{ MIN_CHANNEL_MUSIC_OPTIONS }}</template>
+          </span>
         </div>
         <UpdatedAgo
           :at="loadedAt"
@@ -460,6 +472,11 @@ import {
   formatTotal,
 } from '~/composables/useProjectCost'
 import { awaitingApprovalLabel, episodeStepJobStates } from '~/utils/episode-step-jobs'
+import {
+  musicOptionsNotice as musicOptionsNoticeFor,
+  MIN_CHANNEL_MUSIC_OPTIONS,
+  type MusicOptionsMeasurement,
+} from '../../../../electron/server/contracts/music-bed-defaults'
 import { boardRetryPlan, readRepairRecords } from '~/utils/board-retry'
 import { hideFinished, pipelineLinkFor, selectShown } from '~/utils/board-selection'
 import { groupEpisodeRecoveryRetries } from '~/utils/episode-recovery'
@@ -494,6 +511,26 @@ const {
 const { jobs } = useJobs()
 const { channelTotal, costFor, load: loadCost, refresh: refreshCost } = useProjectCost(slug)
 onMounted(() => { void loadCost() })
+
+// The channel's background-music options, against the owner's standard (2026-10-27: at
+// least 10). Read from the same measurement the Audio Assembly page uses, and `null`
+// while unanswered — an unmeasurable count is shown as "—", never as 0 (§6).
+const musicOptions = ref<MusicOptionsMeasurement | null>(null)
+/** The number to show: "—" when it could not be measured, never a 0 that means "unknown". */
+const musicOptionsCount = computed(() => {
+  const m = musicOptions.value
+  return m && 'usable' in m ? m.usable : '—'
+})
+const musicOptionsNotice = computed(() => musicOptions.value ? musicOptionsNoticeFor(musicOptions.value) : null)
+async function loadMusicOptions() {
+  try {
+    const r = await get<{ music_options?: MusicOptionsMeasurement } | null>(`/projects/${slug.value}/music-pool`)
+    musicOptions.value = r?.music_options ?? null
+  } catch {
+    musicOptions.value = null
+  }
+}
+onMounted(() => { void loadMusicOptions() })
 function costTooltipFor(code: string): string {
   const c = costFor(code)
   if (!c) return 'No cost data recorded for this episode'

@@ -372,6 +372,19 @@
         Loops one or more music files under the narration. The post-narration volume kicks in once the last chapter ends, in case you want music to swell or fade out.
       </p>
 
+      <!-- Owner, 2026-10-27: background music under every regular narrated
+           channel, with at least ten tracks to choose from. Stated where the
+           music is chosen; WARNS and never blocks (assembly always runs). -->
+      <p
+        v-if="musicOptionsNotice"
+        :class="['music-options-standard', `is-${musicOptionsNotice.level}`]"
+      >
+        {{ musicOptionsNotice.text }}
+        <template v-if="musicOptionsNotice.level === 'warn'">
+          Add tracks to the Music Pool below, or drop files into this channel's music folder in Finder. This is a standard, not a limit — assembly still runs.
+        </template>
+      </p>
+
       <div v-if="music.enabled" class="music-source-switch mt-2" role="radiogroup" aria-label="Background music source">
         <button
           type="button"
@@ -806,6 +819,14 @@
 // `excludeKeys` REPLACES the composable's default list rather than extending it,
 // so the shared per-episode identifiers must be spread in explicitly.
 import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
+// The bed's starting level is defined ONCE, in the contract the generator that
+// mixes it also reads (`contracts/music-bed-defaults.ts`) — the page shows a
+// percentage where the generator speaks linear gain.
+import {
+  DEFAULT_BACKGROUND_MUSIC_VOLUME_PERCENT,
+  musicOptionsNotice as buildMusicOptionsNotice,
+  type MusicOptionsMeasurement,
+} from '../../../../electron/server/contracts/music-bed-defaults'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Audio Assembly')
@@ -1006,7 +1027,9 @@ const music = reactive({
   // Owner, 2026-10-26: 6% (about 24 dB under the voice) is the starting level,
   // after DM0018/PR0039 were mixed too loud at 8%. A saved preset or a remembered
   // value still wins; this only decides what a NEW/unset form starts at.
-  volume: 6,
+  // The number comes from `contracts/music-bed-defaults.ts` — the same one the
+  // generator mixes with — so the two cannot drift apart.
+  volume: DEFAULT_BACKGROUND_MUSIC_VOLUME_PERCENT,
   post_narration_volume: 40,
   fade_in: 3,
   fade_out: 5,
@@ -1036,6 +1059,15 @@ const poolPickedPath = ref('')
 const poolPickedReason = ref('')
 const poolPeekLoading = ref(false)
 const musicPoolPanelRef = ref<{ refresh: () => Promise<void> } | null>(null)
+
+// Owner, 2026-10-27: a regular narrated channel has background music, and at
+// least ten tracks to choose from. This counts what the channel actually has so
+// the standard is visible where the music is chosen; it WARNS and never blocks
+// assembly. `null` = not answered yet (show nothing), and the backend's own
+// typed measurement keeps "no tracks" and "could not read the folder" apart —
+// the second is never shown as a zero (§6).
+const musicOptions = ref<MusicOptionsMeasurement | null>(null)
+const musicOptionsNotice = computed(() => musicOptions.value ? buildMusicOptionsNotice(musicOptions.value) : null)
 
 watch(() => music.enabled, (enabled) => {
   if (enabled && music.source === 'pool' && !poolPickedPath.value) void refreshPoolPeek()
@@ -1727,6 +1759,23 @@ async function onPoolChanged() {
   // the peek so the banner reflects the new "next track" without forcing
   // the user to navigate away + back.
   await refreshPoolPeek()
+  // Adding or removing a track moves the options count too.
+  void refreshMusicOptions()
+}
+
+/**
+ * How many background-music options this channel has, for the standard's line
+ * under Background Music. A failed read leaves the line out rather than
+ * claiming zero — the backend's measurement is the honest one and it is asked
+ * again on the next visit (§6).
+ */
+async function refreshMusicOptions() {
+  try {
+    const r = await get<{ music_options?: MusicOptionsMeasurement } | null>(`/projects/${slug.value}/music-pool`)
+    if (r?.music_options) musicOptions.value = r.music_options
+  } catch {
+    musicOptions.value = null
+  }
 }
 
 function onEpisodeSelected(ep: any) {
@@ -1908,6 +1957,9 @@ onMounted(async () => {
   // don't exist on this Mac. Without this, the user would have to click
   // Apply manually to surface stale paths after switching devices.
   void runPresetPathCheck()
+  // The channel's music-options standard sits beside the music controls, so it
+  // is asked for whether or not the bed is switched on for this episode.
+  void refreshMusicOptions()
 })
 
 onUnmounted(() => {
@@ -1941,6 +1993,18 @@ onUnmounted(() => {
   background: rgba(245, 158, 11, 0.14);
   color: rgb(180, 83, 9);
   border-color: rgba(245, 158, 11, 0.35);
+}
+
+/* The channel's music-options standard. Quiet when it is met, amber when it is
+   not — the same amber the merge-integrity warning uses, so "this wants your
+   attention" reads the same twice on one page. */
+.music-options-standard { margin-top: 6px; font-size: 13px; }
+.music-options-standard.is-warn {
+  padding: 6px 10px;
+  border-left: 3px solid rgb(245, 158, 11);
+  border-radius: var(--radius-md);
+  background: rgba(245, 158, 11, 0.12);
+  color: rgb(180, 83, 9);
 }
 
 .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }

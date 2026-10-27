@@ -32,6 +32,7 @@ import path from 'path'
 import * as pm from './project-manager.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { percentGainToLinear } from '../lib/audio-gain.js'
+import type { MusicOptionsMeasurement } from '../contracts/music-bed-defaults.js'
 import type {
   VideoMusicConfig,
   MusicPoolTrack,
@@ -83,6 +84,77 @@ export interface PoolState {
   /** Absolute path to the project's music folder (so the UI can show
    *  it in a "drop files here via Finder" hint). */
   folder: string
+  /** How many background-music options this channel has, against the owner's
+   *  standard of at least ten (owner, 2026-10-27). A typed measurement, so a
+   *  folder that could not be read is never reported as zero tracks (§6). */
+  music_options: MusicOptionsMeasurement
+}
+
+/**
+ * Filenames the customer has retired from the Music Library: a rejected song, or
+ * an archived one that was already used in an episode. The sidecar is read alone
+ * (`readPool` would migrate and reconcile it, i.e. write), and a missing or
+ * unreadable sidecar simply retires nothing — the folder scan is the fallback.
+ */
+async function retiredLibraryFiles(projectDir: string): Promise<Set<string>> {
+  const file = path.join(projectDir, 'music-library', 'library.json')
+  try {
+    const pool = JSON.parse(await fs.readFile(file, 'utf8'))
+    const songs = Array.isArray(pool?.songs) ? pool.songs : []
+    return new Set(songs.filter((s: { status?: string }) => s.status === 'rejected' || s.status === 'archived')
+      .map((s: { file?: string }) => s.file).filter((f: unknown): f is string => typeof f === 'string'))
+  } catch {
+    return new Set()
+  }
+}
+
+/**
+ * Count this channel's background-music options: files that exist in
+ * `{projectDir}/music/` with a known audio extension — the same list the Music
+ * Pool panel shows and the cycler draws from — plus the channel's own Music
+ * Library songs (`music-library/`) that are not in the pool yet, because the
+ * panel offers those in one click ("Add N songs from your Music Library") and
+ * they are options this channel may use.
+ *
+ * Read-only (no folder is created, no sidecar is written) and honest about
+ * failure: a missing folder is genuinely zero options, while a folder that
+ * exists and cannot be read is UNMEASURABLE, not empty — `scanTracks` answers
+ * `[]` for both, which is why this measurement exists separately from
+ * `tracks.length`.
+ */
+export async function measureMusicOptions(slug: string): Promise<MusicOptionsMeasurement> {
+  const projectDir = pm.getProjectDir(slug)
+  if (!projectDir) return { measured: false, reason: 'the channel folder could not be found' }
+
+  const audioIn = async (folder: string): Promise<string[] | null> => {
+    try {
+      return (await fs.readdir(path.join(projectDir, folder))).filter(f => AUDIO_EXT.test(f) && !f.startsWith('.'))
+    } catch (e) {
+      // No folder yet is a real answer: nothing there.
+      if ((e as NodeJS.ErrnoException)?.code === 'ENOENT') return []
+      return null
+    }
+  }
+
+  const poolFiles = await audioIn('music')
+  if (!poolFiles) return { measured: false, reason: 'its music folder could not be read' }
+  const libraryFiles = await audioIn('music-library')
+  if (!libraryFiles) return { measured: false, reason: 'its Music Library folder could not be read' }
+
+  // A song the customer RETIRED (rejected, or archived because it was already
+  // used) stays on disk but is not an option anybody may draw. Read the pool's
+  // sidecar DIRECTLY and never write it — this is a page load, not an edit.
+  const retired = await retiredLibraryFiles(projectDir)
+  const inPool = new Set(poolFiles)
+  const libraryOnly = libraryFiles.filter(f => !inPool.has(f) && !retired.has(f))
+  const cfg = await pm.getConfig(slug)
+  const enabledByName = new Map((cfg?.music_pool_tracks || []).map(m => [m.filename, m.enabled !== false]))
+  return {
+    measured: true,
+    usable: poolFiles.length + libraryOnly.length,
+    enabled: poolFiles.filter(f => enabledByName.get(f) !== false).length,
+    from_library: libraryOnly.length,
+  }
 }
 
 /** Resolve {projectDir}/music/, creating it if missing. Returns null
@@ -152,6 +224,7 @@ export async function getPoolState(slug: string): Promise<PoolState | null> {
     tracks,
     recent_usage,
     folder: path.join(projectDir, 'music'),
+    music_options: await measureMusicOptions(slug),
   }
 }
 

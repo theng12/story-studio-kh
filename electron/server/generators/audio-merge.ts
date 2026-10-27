@@ -36,6 +36,7 @@ import { MIX_LIMITER, type LoudnessTarget } from '../lib/final-loudness.js'
 import { channelLoudnessTarget, levelAndCheck, mergedAudioMasterPath } from '../lib/level-audio.js'
 import { closingTailFromPostAudio, resolveProjectClosingTail, type ClosingTailRequest } from '../lib/closing-tail.js'
 import { buildMusicBed, MUSIC_REFERENCE_LUFS } from '../lib/music-bed.js'
+import { DEFAULT_BACKGROUND_MUSIC_VOLUME } from '../contracts/music-bed-defaults.js'
 import { measureLoudness } from './music-episode-build.js'
 import type {
   AudioMergeRequest, Job,
@@ -1477,15 +1478,15 @@ export function resolveClosingTailParams(opts: {
  *  enough that the tail is at its level almost immediately. */
 export const DEFAULT_DUCK_RELEASE_SEC = 1.5
 /**
- * The background music level under the narration, as 0–1.
+ * The background music level under the narration, as 0–1 (linear gain).
  *
- * Owner, 2026-10-26 (after DM0018's Khmer narration was buried and PR0039's bed
- * was too loud at the old 8%): 6% is the starting level, about 24 dB under the
- * voice. It applies to a request that states NO level and to nothing else — a
- * page value and a saved preset are the customer's own choice (AGENTS.md §5),
- * so they pass through untouched.
+ * Defined ONCE in `contracts/music-bed-defaults.ts` because the Audio Assembly
+ * form and the Music Pool panel show the same starting level, and re-exported
+ * here under the name this generator's callers and tests already use. The
+ * owner's reasoning (2026-10-26: DM0018's Khmer narration buried, PR0039 too
+ * loud at the old 8%) lives beside the definition.
  */
-export const DEFAULT_BACKGROUND_MUSIC_VOLUME = 0.06
+export { DEFAULT_BACKGROUND_MUSIC_VOLUME }
 
 export function resolveBackgroundMusicVolume(value: unknown): { volume: number; defaulted: boolean } {
   // Only a real number (or a non-empty numeric string) states a level. An empty
