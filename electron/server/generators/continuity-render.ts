@@ -119,6 +119,8 @@ interface ContinuityRenderParams {
    *  portraits are attached before the episode template. Resolved to files by
    *  ownership lookup in the generator — the client never sends a path. */
   reference_character_ids?: string[]
+  /** Set on the one automatic remake after a failed free image check. */
+  image_check_remake?: boolean
 }
 
 export function shouldPauseContinuityForStall(state: {
@@ -1646,6 +1648,49 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 `Scene ${scene.scene_index}/${scenes.length} (${scene.id}) ✓` +
                 `${recovery.kind === 'recovered' ? ` — recovered task ${recovery.taskId.slice(0, 12)}… (no charge)` : ''}`,
               )
+              // Free image quality check (owner 2026-10-26). Shadow mode is the
+              // default for the first 2 weeks: it runs AFTER this scene so it
+              // never delays a render and records findings for Scene Review.
+              try {
+                const {
+                  runSceneImageQualityCheck, describeSceneImageCheck, sceneImageCheckConfig, enqueueImageCheckRemake,
+                  queueSceneImageQualityCheck,
+                } = await import('../services/scene-image-quality-check.js')
+                const checkCfg = sceneImageCheckConfig(config)
+                const checkInput = {
+                  sceneId: scene.id,
+                  imagePath: outPath,
+                  visualPrompt: scene.visual_prompt,
+                  planPath,
+                  config,
+                  remade: params.image_check_remake === true,
+                }
+                if (checkCfg.auto_remake) {
+                  const checkResult = await runSceneImageQualityCheck(checkInput)
+                  job.output_lines.push(describeSceneImageCheck(checkResult))
+                  if (checkResult.state === 'failed' && params.image_check_remake !== true) {
+                    await enqueueImageCheckRemake({
+                      projectSlug: job.project_slug, episodeId: job.episode_id, sceneId: scene.id,
+                      title: job.title,
+                      params: {
+                        episode_id: job.episode_id,
+                        title: job.title,
+                        model: params.model,
+                        ...(params.aspect_ratio ? { aspect_ratio: params.aspect_ratio } : {}),
+                        ...(params.width ? { width: params.width } : {}),
+                        ...(params.height ? { height: params.height } : {}),
+                        auto_approve_generated: autoApproveOn(params.auto_approve_generated),
+                        ...(Array.isArray(params.reference_character_ids) ? { reference_character_ids: params.reference_character_ids } : {}),
+                      },
+                    })
+                    job.output_lines.push(`Image check failed — one automatic remake queued for ${scene.id}.`)
+                  }
+                } else {
+                  queueSceneImageQualityCheck(checkInput)
+                }
+              } catch {
+                // A failed check never blocks the job.
+              }
               break
             } catch (e: any) {
               if (e instanceof jq.JobPausedError || jq.isPauseRequested(job.job_id)) return

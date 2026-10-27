@@ -132,6 +132,8 @@ interface SceneImageGenerateParams {
    *  portraits are attached as references. Resolved to files here, by
    *  ownership lookup — the client never sends a path (AGENTS.md §4). */
   reference_character_ids?: string[]
+  /** Set on the one automatic remake after a failed free image check. */
+  image_check_remake?: boolean
 }
 
 export async function generateSceneImageJob(job: Job): Promise<void> {
@@ -389,6 +391,40 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     retry_hint: 'The downloaded image is kept; Retry repairs only an incomplete registration.',
   })
   job.output_lines.push(`Done → ${path.basename(outPath)}`)
+  // Free image quality check (owner 2026-10-26). Shadow mode is the default for
+  // the first 2 weeks: the check runs AFTER this job so it never delays a
+  // render, and records its findings for Scene Review. With the remaking switch
+  // on, it runs here because a failed check decides whether one remake is due.
+  try {
+    const {
+      runSceneImageQualityCheck, describeSceneImageCheck, sceneImageCheckConfig, enqueueImageCheckRemake,
+      queueSceneImageQualityCheck,
+    } = await import('../services/scene-image-quality-check.js')
+    const cfg = sceneImageCheckConfig(config)
+    const checkInput = {
+      sceneId: scene_id,
+      imagePath: outPath,
+      visualPrompt: scene.visual_prompt,
+      planPath,
+      config,
+      remade: params.image_check_remake === true,
+    }
+    if (cfg.auto_remake) {
+      const checkResult = await runSceneImageQualityCheck(checkInput)
+      job.output_lines.push(describeSceneImageCheck(checkResult))
+      if (checkResult.state === 'failed' && params.image_check_remake !== true) {
+        await enqueueImageCheckRemake({
+          projectSlug: job.project_slug, episodeId: episode_id, sceneId: scene_id,
+          title: job.title, params,
+        })
+        job.output_lines.push(`Image check failed — one automatic remake queued for ${scene_id}.`)
+      }
+    } else {
+      queueSceneImageQualityCheck(checkInput)
+    }
+  } catch {
+    // A failed check never blocks the job.
+  }
   // E2–E4 — an auto-approved picture is analysed in the background (only where the channel has it on).
   if (autoApproveOn(params.auto_approve_generated)) queueEpisodeAnalysisSoon(job.project_slug, episode_id, [scene_id])
 }

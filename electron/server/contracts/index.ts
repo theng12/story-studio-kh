@@ -480,6 +480,12 @@ export const UpdateConfigSchema = z.object({
     mode: z.enum(['off', 'flag_issues', 'check_and_repair']),
     alternate_transcription_model: z.string().trim().min(1).max(240).optional(),
   }).optional(),
+  /** 1.4.364 — the free scene-image quality check (owner 2026-10-26). */
+  scene_image_check: z.object({
+    auto_remake: z.boolean().optional(),
+    shadow_started_at: z.string().optional(),
+    model: z.string().trim().max(240).optional(),
+  }).optional(),
 }).passthrough().transform((value) => {
   // Legacy Story Studio releases persisted a project-owned TTS catalog. Keep
   // accepting those payloads so old clients can save unrelated settings, but
@@ -521,6 +527,12 @@ export interface SafeProjectConfigResponse {
   audio_quality?: {
     mode: 'off' | 'flag_issues' | 'check_and_repair'
     alternate_transcription_model?: string
+  }
+  /** 1.4.364 — the free scene-image quality check's switch and shadow start. */
+  scene_image_check?: {
+    auto_remake?: boolean
+    shadow_started_at?: string
+    model?: string
   }
   image_models: Record<string, any>
   voice_presets: Array<{
