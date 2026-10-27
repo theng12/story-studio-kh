@@ -1488,6 +1488,7 @@ export async function scanEpisodeAssets(
         const useMotion = scene.motion_choice === 'clip'
           && !!clipPath
           && !clipFreshReason
+        const isT2VScene = scene.visual_lane === 'text_to_video'
         // A scene with a fresh selected clip and NO still is complete — the T2V shape. It is never
         // reported missing, and it never borrows another scene's picture. Every other lane must
         // still have its own still (§7: a missing image is a blocking error there).
@@ -1498,8 +1499,19 @@ export async function scanEpisodeAssets(
         const stale = typeof scene.rendered_prompt === 'string'
           && scene.rendered_prompt !== scene.visual_prompt
         if (stale) stalePlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
-        if (!scene.approved && hasStill) unapprovedPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
-        if (clipFreshReason) motionFallback.push({ id: scene.id, scene_index: scene.scene_index, reason: clipFreshReason })
+        // A T2V scene's approval is its OWN Motion Review decision (owner, 2026-10-26). An
+        // unapproved T2V clip falls back to its backup still and says why — the same shape as a
+        // stale clip, so the operator sees the one decision still owed.
+        const fallbackReason = clipFreshReason
+          || (isT2VScene && !useMotion && scene.motion_choice !== 'still'
+            ? (clipPath ? 'clip not approved in Motion Review' : 'no clip yet')
+            : null)
+        // Scene Review owns the still of every image lane; a T2V scene is approved in Motion
+        // Review instead, so its backup still never counts as an approval.
+        if (!isT2VScene && !scene.approved && hasStill) {
+          unapprovedPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
+        }
+        if (fallbackReason) motionFallback.push({ id: scene.id, scene_index: scene.scene_index, reason: fallbackReason })
         result.scenes.push({
           filename: path.basename(useMotion ? clipPath : plannedPath),
           path: useMotion ? clipPath : plannedPath,

@@ -17,7 +17,6 @@ import { reconcileImages } from '../services/image-reconciler.js'
 import { generateImagePrompts } from '../generators/image-prompts.js'
 import { generateAudio } from '../generators/audio.js'
 import { generateVideo as generateVideoAssembly } from '../generators/video.js'
-import { generateAiVideo } from '../generators/ai-video.js'
 import { generateAudioMerge } from '../generators/audio-merge.js'
 import { generateMetadata } from '../generators/metadata.js'
 import { generateSubtitlesTranscribe } from '../generators/subtitles.js'
@@ -45,7 +44,7 @@ import { generateIdeaCampaign } from '../generators/idea-campaign.js'
 import { requireJobCompletion, completionErrorMessage } from '../services/job-completion.js'
 import { registerJobCancellationAuditor, type JobCancellationAudit } from '../services/job-cancellation-auditors.js'
 import { getAudioStatus } from '../services/audio-reconciler.js'
-import { getImageStatus, getVideoStatus } from '../services/asset-status.js'
+import { getImageStatus } from '../services/asset-status.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { inspectPromptCompletion } from '../services/prompt-completion.js'
 import { inspectMetadataCompletion } from '../services/metadata-completion.js'
@@ -292,10 +291,6 @@ function registerCancellationAuditors(): void {
   // Group 1.1b — `broll_assemble` had no auditor at all, so a truncated video
   // (the generator encodes `-shortest`) reported Done over a cut-off render.
   registerJobCancellationAuditor('broll_assemble', auditBrollAssemblyOutput)
-  registerJobCancellationAuditor('video', async job => {
-    const status = await getVideoStatus(job.project_slug, job.episode_id)
-    return status.total > 0 && status.present === status.total ? 'complete' : 'repair-required'
-  })
   // NEW-02 — the text job types that had no auditor at all. A restart that
   // removed the executor could leave a SETTLED provider task with nothing able
   // to verify the local output, so the job failed loudly (DS-02). That is
@@ -485,7 +480,6 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('audio', guardMedia(generateAudio))
   registerExecutor('audio_merge', guardMedia(generateAudioMerge))
   registerExecutor('metadata', generateMetadata)
-  registerExecutor('video', guardMedia(generateAiVideo))
   registerExecutor('video_assembly', guardMedia(generateVideoAssembly))
   registerExecutor('subtitles_transcribe', generateSubtitlesTranscribe)
   registerExecutor('youtube_upload', generateYoutubeUpload)

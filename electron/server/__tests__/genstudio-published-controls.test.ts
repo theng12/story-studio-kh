@@ -312,10 +312,8 @@ test('the video model picker discloses a charged audio track it will not use', (
 test('video assembly documents why every prepared clip drops audio', () => {
   const generator = readFileSync(new URL('../generators/video.ts', import.meta.url), 'utf8')
   assert.match(generator, /Why every prepared clip carries `-an`/)
-  // The AI-video generator must still write the downloaded clip untouched, so
-  // the generated track survives outside the assembled episode.
-  const aiVideo = readFileSync(new URL('../generators/ai-video.ts', import.meta.url), 'utf8')
-  assert.doesNotMatch(aiVideo, /'-an'/)
+  const sceneClip = readFileSync(new URL('../generators/scene-clip.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(sceneClip, /'-an'/)
 })
 
 // ── 3. reference_image_max_dimension is enforced before upload ───────────

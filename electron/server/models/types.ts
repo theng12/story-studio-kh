@@ -2593,7 +2593,7 @@ export interface UpdateConfigRequest {
 export const JOB_TYPES = [
   'idea_campaign', 'broll_select', 'introduction-only', 'chapter-only',
   'outline_only', 'expand_chapters', 'image_prompts', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
-  'metadata', 'video', 'video_assembly',
+  'metadata', 'video_assembly',
   'subtitles_transcribe', 'youtube_upload', 'youtube_playlist_update',
   'youtube_thumbnail_refresh', 'broll_normalize', 'broll_assemble',
   /** Post one finished episode to the Facebook / Instagram / TikTok accounts the owner ticked. */
@@ -4876,8 +4876,12 @@ export interface ScenePlanEntry {
   video_prompt?: string
   /** v1.4.360 — prompt value from which `clip_path` was rendered when T2V. */
   rendered_video_prompt?: string
-  /** v1.4.360 — whether this scene is marked as a key moment for motion allocation. */
+  /** v1.4.360 — whether this scene is marked as a key moment for motion allocation.
+   *  The CUSTOMER's own answer; it always wins over the planner's suggestion. */
   key_moment?: boolean
+  /** The planner's suggestion, shown as a suggestion the customer may change. Never
+   *  presented as the customer's choice. Used only where `key_moment` is unset. */
+  key_moment_suggested?: boolean
   /** v1.4.360 — strategy when scene exceeds model clip length: hold last frame or chain clips. */
   fill_mode?: 'chain' | 'hold'
   /** v1.4.360 — cheap backup still image made for every scene including T2V. */

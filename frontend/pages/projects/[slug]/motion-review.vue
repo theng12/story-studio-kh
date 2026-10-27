@@ -495,8 +495,8 @@
             class="btn btn-sm btn-primary"
             :disabled="!scene.clip_exists || scene.clip_stale || savingId === scene.id"
             @click="setChoice(scene, 'clip')"
-          >Use Clip</button>
-          <button class="btn btn-sm btn-ghost" :disabled="savingId === scene.id" @click="setChoice(scene, 'still')">Use Still</button>
+          >{{ sceneLane(scene) === 'text_to_video' ? 'Approve Clip' : 'Use Clip' }}</button>
+          <button class="btn btn-sm btn-ghost" :disabled="savingId === scene.id" @click="setChoice(scene, 'still')">{{ sceneLane(scene) === 'text_to_video' ? 'Reject — use backup still' : 'Use Still' }}</button>
         </div>
       </li>
     </ul>
@@ -573,6 +573,8 @@ interface MotionScene {
   visual_lane?: VisualLane
   video_prompt?: string
   key_moment?: boolean
+  /** The planner's suggestion; used only where the customer has not decided. */
+  key_moment_suggested?: boolean
   fill_mode?: 'chain' | 'hold'
   backup_still?: boolean
 }

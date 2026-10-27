@@ -991,14 +991,16 @@
                   <option value="imported">📁 Imported</option>
                 </select>
               </span>
-              <label class="scene-key-moment-toggle text-xs" title="Mark as key moment for motion share prioritization">
+              <label class="scene-key-moment-toggle text-xs" :title="scene.key_moment === undefined && scene.key_moment_suggested
+                ? 'The planner suggests this scene as a key moment. Your own choice always wins.'
+                : 'Mark as key moment for motion share prioritization'">
                 <input
                   type="checkbox"
-                  :checked="scene.key_moment === true"
+                  :checked="isKeyMoment(scene)"
                   :disabled="planBusy"
                   @change="updateSceneKeyMoment(scene, ($event.target as HTMLInputElement).checked)"
                 >
-                ⭐ Key
+                ⭐ Key<span v-if="scene.key_moment === undefined && scene.key_moment_suggested" class="key-suggested"> (suggested)</span>
               </label>
             </div>
             <div class="form-group mt-1">
@@ -1605,6 +1607,8 @@ interface ScenePlanEntry {
   video_prompt?: string
   rendered_video_prompt?: string
   key_moment?: boolean
+  /** The planner's suggestion. Used only where the customer has not decided. */
+  key_moment_suggested?: boolean
   fill_mode?: 'chain' | 'hold'
   backup_still_path?: string
   // v1.0.336 — continuity: what the scene depicts. 'character' includes the
@@ -3095,6 +3099,12 @@ function rewordScenePrompt(scene: ScenePlanEntry): Promise<void> {
 }
 
 const plannedMaxClipSec = ref(10)
+
+/** The customer's own key-moment answer, else the planner's suggestion. */
+function isKeyMoment(scene: ScenePlanEntry): boolean {
+  return scene.key_moment ?? scene.key_moment_suggested ?? false
+}
+
 function isSceneOverlongForModel(scene: ScenePlanEntry): boolean {
   const isVideo = scene.visual_lane === 'text_to_video'
     || scene.visual_lane === 'image_to_video'

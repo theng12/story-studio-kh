@@ -98,9 +98,11 @@ async function resolveRequestedVariant(
       `The Gateway does not currently publish an available video model with id "${modelId}".`,
     )
   }
-  const operation = providerParams?.operation || STORY_STUDIO_VIDEO_MODE
+  // The operation is REQUIRED, never defaulted: an omitted field would make two different
+  // purchases look like the same request in the record. Both published modes are accepted.
+  const operation = providerParams?.operation
   if (!STORY_STUDIO_VIDEO_MODES.includes(operation as any)) {
-    throw new Error(`Gateway video requests must include a published video operation (${STORY_STUDIO_VIDEO_MODES.join(', ')}).`)
+    throw new Error(`Gateway video requests must include a published video operation (${STORY_STUDIO_VIDEO_MODES.join(' or ')}).`)
   }
   const published = variantsForGenStudioVideoOperation(model.variants, operation)
   if (!published.length) {
@@ -182,7 +184,7 @@ const genstudioVideoProvider: VideoProvider = {
    * `providerParams.provider` is the structural signal. The `PREFIX` test is
    * safe here for a reason that does NOT hold for images: `genstudio-video:` is
    * a transport NAMESPACE that Story Studio itself prepends to whatever product
-   * id it resolved (see `generators/ai-video.ts`), not a fragment of the
+   * id it resolved (see `generators/scene-clip.ts`), not a fragment of the
    * product's own name. Any resolved product id still matches once prefixed, so
    * renaming a product to a customer handle cannot break video selection.
    */

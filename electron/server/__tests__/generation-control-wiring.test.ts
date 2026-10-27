@@ -755,44 +755,6 @@ test('composition template writes prepared then exact accepted work before its f
   }
 })
 
-test('AI video writes the accepted variant checkpoint before its first video status read', async () => {
-  const temp = await useTempDataDir()
-  const service = await startMockGenStudioService()
-  try {
-    await configureMockGenStudio(service.baseUrl)
-    const restoreVideoCatalog = enableMockVideoCatalog(service)
-    await import('../providers/video/genstudio.js')
-    const { generateAiVideo } = await import('../generators/ai-video.js')
-    const { readManifest } = await import('../services/task-manifest.js')
-    const { project, episodeId, paths } = await createEpisode('Video checkpoint ordering')
-    await fs.writeFile(path.join(paths.bg_dir, `${episodeId}_Scene01_v1.png`), ONE_PIXEL_PNG)
-    service.queueScenario('video', { states: ['accepted', 'running', 'succeeded'] })
-    const status = withFirstStatusAssertion(service, 'video', async taskId => {
-      const entry = (await readManifest(paths.video_dir)).tasks[`${episodeId}_Video01_v1.mp4`]
-      const submission = service.submissions.find(item => item.jobId === taskId)
-      assert.ok(entry, 'video manifest exists before first provider poll')
-      assert.ok(submission)
-      assert.equal(entry.task_id, taskId)
-      assert.equal(entry.idempotency_key, submission.idempotencyKey)
-      assert.equal(entry.last_state, 'accepted')
-    })
-    try {
-      await generateAiVideo(job(project.slug, episodeId, 'ai_video_generate', {
-        model: 'mock-video-v1', mode: 'frames', prompt_source: 'manual',
-        manual_prompts: ['A slow push through a lamplit archive.'], number_of_videos_per_prompt: 1,
-        aspect_ratio: 'landscape', duration_seconds: 5, resolution: '720p', force: false,
-      }))
-    } finally {
-      status.restore()
-      restoreVideoCatalog()
-    }
-    assert.ok(status.wasObserved(), 'AI video must poll the accepted task')
-  } finally {
-    await service.close()
-    await temp.cleanup()
-  }
-})
-
 test('a scene clip with a removed selected variant fails before a Gateway video POST', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
@@ -963,7 +925,7 @@ test('an accepted Gateway image stops local monitoring when its cancellation pro
 test('static mutation tripwires keep queue-producer wiring intact', () => {
   const sceneImage = source('../generators/scene-image.ts')
   const composition = source('../generators/composition-template.ts')
-  const aiVideo = source('../generators/ai-video.ts')
+  const sceneClip = source('../generators/scene-clip.ts')
   const genstudioVideo = source('../providers/video/genstudio.ts')
 
   assert.match(sceneImage, /isCancelled:\s*\(\)\s*=>\s*jq\.isCancelled\(job\.job_id\)/)
@@ -979,10 +941,10 @@ test('static mutation tripwires keep queue-producer wiring intact', () => {
   assert.match(composition, /last_state:\s*'prepared'/)
   assert.match(composition, /last_state:\s*'accepted'/)
 
-  assert.match(aiVideo, /onJobAccepted:\s*async\s*\(taskId,\s*idempotencyKey,\s*variantIndex\)/)
-  assert.match(aiVideo, /recordTaskStrict\(videoDir,\s*filename/)
-  assert.match(aiVideo, /operation:\s*'video'/)
-  assert.match(aiVideo, /last_state:\s*'accepted'/)
+  assert.match(sceneClip, /onJobAccepted:\s*async\s*\(providerJobId,\s*acceptedIdempotencyKey\)/)
+  assert.match(sceneClip, /recordTaskStrict\(outDir,\s*manifestKey/)
+  assert.match(sceneClip, /operation:\s*'video'/)
+  assert.match(sceneClip, /last_state:\s*'accepted'/)
   assert.match(genstudioVideo, /onJobAccepted\?\.\(taskId,\s*idempotencyKey,\s*index\)/)
 })
 

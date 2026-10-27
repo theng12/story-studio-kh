@@ -162,7 +162,6 @@ describe('local auto-retry policy', () => {
 
   test('keeps all external API and provider recovery jobs manual-only', () => {
     assert.equal(policy('youtube_upload').eligible, false)
-    assert.equal(policy('video').eligible, false)
     assert.equal(policy('scene_clip_generate').eligible, false)
     assert.equal(policy('images_repair').eligible, false)
     assert.equal(policy('music_generate', { model: 'studio-hub::music' }).eligible, false)

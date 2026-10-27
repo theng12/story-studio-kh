@@ -349,6 +349,8 @@ interface ReviewSceneAugmented {
   visual_lane?: ScenePlanEntry['visual_lane']
   video_prompt?: string
   key_moment?: boolean
+  /** The planner's suggestion; used only where the customer has not decided. */
+  key_moment_suggested?: boolean
   fill_mode?: ScenePlanEntry['fill_mode']
   /** True when a cheap backup still exists for a text-to-video scene. */
   backup_still?: boolean
@@ -796,6 +798,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         visual_lane: s.visual_lane,
         video_prompt: s.video_prompt,
         key_moment: s.key_moment === true,
+        key_moment_suggested: s.key_moment_suggested === true,
         fill_mode: s.fill_mode,
         backup_still: !!s.backup_still_path,
         approved: !!s.approved,

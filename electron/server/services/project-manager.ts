@@ -15,6 +15,7 @@ import {
   DEFAULT_IMAGE_MODELS, DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS,
 } from '../models/defaults.js'
 import { OWNER_STANDARD_SCENE_PACING } from '../contracts/pacing.js'
+import { DEFAULT_MOTION_SCOPE } from '../contracts/motion-scope.js'
 import { DEFAULT_THUMBNAIL_COUNT } from '../contracts/thumbnail-counts.js'
 import { normalizeProjectLabels } from '../contracts/project-labels.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
@@ -1109,6 +1110,11 @@ export async function createProject(
     // complete, and an accepted thumbnail is never regenerated or replaced.
     thumbnail_prompts_presets: [newChannelThumbnailPromptsPreset()],
     thumbnail_prompts_last_preset: NEW_CHANNEL_THUMBNAIL_PRESET_ID,
+    // Owner decision, 2026-10-26 — every channel starts with a 25% video share
+    // using the opening-hook formula. A STARTING VALUE ONLY (§5): an episode
+    // reads it until it saves its own scope in Motion Review, every episode may
+    // change it, and an existing channel is never rewritten.
+    default_motion_scope: structuredClone(DEFAULT_MOTION_SCOPE),
   })
   // No per-project secrets.json is seeded — API keys live in the
   // app-level store (see app-secrets-store.ts). YouTube OAuth state is

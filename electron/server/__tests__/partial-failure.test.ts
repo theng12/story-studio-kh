@@ -1,7 +1,7 @@
 /**
  * Tests for the "partial failure → status=error, not done" invariant.
  *
- * Every generator (images, audio, ai-video) is expected to throw when ANY
+ * Every generator (images, audio, scene-clip) is expected to throw when ANY
  * item failed so the queue runner stamps the job as `error` instead of
  * `done`. Those generators build their logic on top of this job-queue
  * contract:

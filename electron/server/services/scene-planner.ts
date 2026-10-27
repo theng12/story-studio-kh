@@ -581,6 +581,23 @@ function normalizeScenes(
   return out
 }
 
+/**
+ * v1.4.360 — the planner SUGGESTS key moments (owner, 2026-10-26). A key moment is where the
+ * episode's drama lands, which is exactly what the planner already records in `boundary_reason`
+ * (topic shifts, named-entity introductions, tonal pivots) plus the opening scene. The suggestion
+ * is written to `key_moment_suggested` — NEVER to `key_moment`, which is the customer's own answer
+ * and always wins. Used only where the customer has not decided.
+ */
+export function suggestKeyMoments(scenes: ScenePlanEntry[]): ScenePlanEntry[] {
+  const beat = /topic shift|named entity|tonal pivot|reveal|climax|turn(ing)? point|named entity intro/i
+  for (const [index, scene] of scenes.entries()) {
+    const narrativeBeat = typeof scene.boundary_reason === 'string' && beat.test(scene.boundary_reason)
+    // The opening scene is the hook the sharing formula starts from.
+    scene.key_moment_suggested = index === 0 || narrativeBeat
+  }
+  return scenes
+}
+
 // ── Audio-coverage safeguard (v1.0.522) ────────────────────────────────────
 // "Every second of narration must have a scene." These pure helpers are the
 // single source of truth for coverage math, shared by: plan generation

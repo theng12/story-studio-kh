@@ -568,8 +568,7 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
   // Re-bind to a `string` local so TS narrowing survives the async closure.
   const root: string = outputRoot
 
-  // Look for a video prompts docx; fall back to scene prompts as the
-  // generator does (loadPrompts in ai-video.ts).
+  // Look for a video prompts docx; fall back to scene prompts.
   async function findFirstPrompts(): Promise<string | null> {
     const candidates = [
       `${code}_Video_Prompts.md`,
@@ -608,8 +607,7 @@ export async function getVideoStatus(slug: string, episodeId: string): Promise<V
   }
 
   const parsed = await parseImagePromptsDocx(promptsPath)
-  // Video generator uses the same "scenes" numbering from the prompts doc;
-  // see ai-video.ts loadPrompts(). Scene prompts carry `number` + `title`.
+  // Scene prompts carry `number` + `title`.
   const expected = parsed.scenes.map(s => s.number)
 
   const names = await resolveSubfolderNames(slug, code)
@@ -1562,12 +1560,18 @@ export async function computeEpisodeStatus(
           ? await resolveSketchDrawSettings(slug, code).catch(() => undefined)
           : undefined
         const motionContext = { slug, episodeId: code, episodeDir: byCode.episode_dir, sketchSettings: motionSketchSettings, revealScenes: scenes.map((scene: any) => scene?.id).filter((id: unknown): id is string => typeof id === 'string') }
-        const motionReady = await Promise.all(scenes.filter((s: any) => scopedMotion.scene_ids.includes(s.id)).map(async (s: any) => {
+        // Owner, 2026-10-26 — a text-to-video scene is reviewed in Motion Review, never in
+        // Scene Review, so it is ALWAYS a motion scene and its clip needs its own approval.
+        const isT2V = (s: any) => s?.visual_lane === 'text_to_video'
+        const motionScenes = scenes.filter((s: any) => isT2V(s) || scopedMotion.scene_ids.includes(s.id))
+        const motionReady = await Promise.all(motionScenes.map(async (s: any) => {
           if (s?.motion_choice === 'still') return true
           const hasClip = typeof s?.id === 'string' && await fileHasContent(path.join(clipsDir, `${s.id}.mp4`))
           if (!hasClip || s?.motion_choice === 'pending') return false
           if (await sceneClipStaleReason(s, motionContext)) return false
-          return s?.motion_choice === 'clip' || s?.motion_choice == null
+          // A T2V clip is approved only by an explicit Motion Review decision. A legacy
+          // missing choice stays accepted for image-to-video, where the still also stands.
+          return isT2V(s) ? s?.motion_choice === 'clip' : (s?.motion_choice === 'clip' || s?.motion_choice == null)
         }))
         status.motion_review = status.scene_plan && motionReady.every(Boolean)
       }

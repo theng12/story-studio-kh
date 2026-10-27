@@ -1,5 +1,8 @@
 export type MotionShareFormula = 'opening_hook' | 'key_moments' | 'spread' | 'chronological'
 
+/** Default motion scope: 25% video share with opening-hook formula (owner decision, 2026-10-26). */
+export const DEFAULT_MOTION_SCOPE: MotionScope = { mode: 'share', share_percent: 25, formula: 'opening_hook' }
+
 /** Episode editorial scope, independent of model capabilities and clip readiness. */
 export type MotionScope =
   | { mode: 'off' }
@@ -35,7 +38,13 @@ export function normalizeMotionScope(value: unknown): MotionScope {
 
 /** Times must be on the narration timeline, without added opening/title clips. */
 export function resolveMotionScope(
-  scenes: readonly { id: string; start_sec: number; end_sec: number; key_moment?: boolean }[],
+  scenes: readonly {
+    id: string; start_sec: number; end_sec: number
+    /** The customer's own mark. */
+    key_moment?: boolean
+    /** The planner's suggestion, used only where the customer has not decided. */
+    key_moment_suggested?: boolean
+  }[],
   value: unknown,
 ): { scene_ids: string[]; crossing_scene_ids: string[] } {
   const scope = normalizeMotionScope(value)
@@ -65,9 +74,13 @@ export function resolveMotionScope(
     if (formula === 'key_moments') {
       const picked = new Set<string>()
       let accumulated = 0
+      // A scene is a key moment when the customer marked it, else when the planner suggested it.
+      // The customer's own mark always wins — a suggestion is never presented as their choice.
+      const isKeyMoment = (scene: (typeof scenes)[number]) =>
+        scene.key_moment ?? scene.key_moment_suggested ?? false
       // Pass 1: key moments
       for (const scene of scenes) {
-        if (scene.key_moment && accumulated < targetSeconds) {
+        if (isKeyMoment(scene) && accumulated < targetSeconds) {
           picked.add(scene.id)
           accumulated += (scene.end_sec - scene.start_sec)
         }
