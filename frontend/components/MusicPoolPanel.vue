@@ -260,6 +260,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useApi } from '~/composables/useApi'
 import { useToast } from '~/composables/useToast'
 import { pickFile } from '~/composables/usePathPicker'
+import { DEFAULT_BACKGROUND_MUSIC_VOLUME_PERCENT } from '../../electron/server/contracts/music-bed-defaults'
 
 interface PoolTrack {
   filename: string
@@ -299,7 +300,8 @@ const props = defineProps<{
 
 const defaultVolumes = computed(() => props.defaultVolumes || {
   // Owner, 2026-10-26: an unset bed starts at 6% (about 24 dB under the voice).
-  volume: 6,
+  // Read from the one definition the generator mixes with, never a second copy.
+  volume: DEFAULT_BACKGROUND_MUSIC_VOLUME_PERCENT,
   post_narration_volume: 40,
   fade_in: 3,
   fade_out: 5,

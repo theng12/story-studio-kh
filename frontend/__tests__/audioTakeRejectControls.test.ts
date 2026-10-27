@@ -56,10 +56,13 @@ test('the 3-day sweep is announced instead of a take silently vanishing', () => 
 })
 
 test('an unset background music level starts at 6%, and a remembered/preset value still wins', () => {
-  assert.match(merge, /volume: 6,/)
+  // The level is defined ONCE, in the contract the generator mixes with
+  // (`contracts/music-bed-defaults.ts`); the page and the panel read it rather
+  // than keeping their own copies, which is how 6% and 8% coexisted.
+  assert.match(merge, /volume: DEFAULT_BACKGROUND_MUSIC_VOLUME_PERCENT,/)
   assert.doesNotMatch(merge, /volume: 8,/)
   assert.match(merge, /6% \(about 24 dB under\)/)
   // The remembered form still carries the level, so a stored 8% is not overwritten.
   assert.match(merge, /useRememberedForm\('audio-merge-music'[\s\S]*?include: \['enabled', 'source', 'volume'/)
-  assert.match(pool, /volume: 6,/)
+  assert.match(pool, /volume: DEFAULT_BACKGROUND_MUSIC_VOLUME_PERCENT,/)
 })
