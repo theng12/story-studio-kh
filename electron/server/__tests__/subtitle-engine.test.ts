@@ -16,7 +16,7 @@
  *     later block sets the same property statically. This is the single
  *     easiest way to break word modes and the hardest to see in a diff.
  *  4. **Character-weighted timing**, including the degenerate cues.
- *  5. **All sixteen presets validate and produce a parseable document.**
+ *  5. **All eighteen presets validate and produce a parseable document.**
  *  6. **Unknown fields are rejected by name.**
  *  7. **Preview and burn agree on scale.** The preview is only evidence if a
  *     640x360 render and a 1920x1080 render describe the same caption.
@@ -331,11 +331,12 @@ describe('character-weighted word timing', () => {
 
 // ── 5. Presets ──────────────────────────────────────────────────────────────
 
-describe('the sixteen built-in presets', () => {
-  test('there are exactly sixteen, with unique ids and names', () => {
-    assert.equal(BUILT_IN_SUBTITLE_PRESETS.length, 16)
-    assert.equal(new Set(BUILT_IN_SUBTITLE_PRESETS.map(p => p.id)).size, 16)
-    assert.equal(new Set(BUILT_IN_SUBTITLE_PRESETS.map(p => p.name)).size, 16)
+describe('the eighteen built-in presets', () => {
+  // Sixteen, plus Quote Shorts' two vertical styles (1.4.361).
+  test('there are exactly eighteen, with unique ids and names', () => {
+    assert.equal(BUILT_IN_SUBTITLE_PRESETS.length, 18)
+    assert.equal(new Set(BUILT_IN_SUBTITLE_PRESETS.map(p => p.id)).size, 18)
+    assert.equal(new Set(BUILT_IN_SUBTITLE_PRESETS.map(p => p.name)).size, 18)
   })
 
   for (const p of BUILT_IN_SUBTITLE_PRESETS) {

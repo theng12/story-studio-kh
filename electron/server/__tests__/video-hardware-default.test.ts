@@ -173,7 +173,15 @@ test('a failed VideoToolbox encode falls back to libx264 with the full graph, th
   assert.ok(finalCheckCalls.length >= 1, 'enclosing block contains finalCheckFinalVideo call')
   assert.ok(verifyCalls.length >= 1, 'enclosing block contains verifyFinalVideo call')
   const finalCheckCall = finalCheckCalls[0]!
-  const verifyCall = verifyCalls[0]!
+  // 1.4.361: a re-assembly verifies the staged render through publishOverPreviousFinal's
+  // `verify` (awaited there, before the previous final moves); a first render still
+  // awaits it here, after the final check.
+  const stagedVerify = verifyCalls.find(c => ts.isArrowFunction(c.parent)
+    && ts.isPropertyAssignment(c.parent.parent) && c.parent.parent.name.getText(sourceFile) === 'verify')
+  assert.ok(stagedVerify, 'a replacement verifies the staged render before it is published')
+  assert.deepEqual(stagedVerify.arguments.map(arg => arg.getText(sourceFile)),
+    ['job', 'staged', 'compFinalName', 'totalRenderDuration', 'loudness', 'true'])
+  const verifyCall = verifyCalls.find(c => ts.isAwaitExpression(c.parent)) ?? verifyCalls[0]!
   assert.ok(ts.isAwaitExpression(finalCheckCall.parent), 'finalCheckFinalVideo is awaited')
   assert.ok(ts.isAwaitExpression(verifyCall.parent), 'verifyFinalVideo is awaited')
   assert.ok(finalCheckCall.pos > compositionCall.pos, 'finalCheckFinalVideo appears after runFinalComposition')
