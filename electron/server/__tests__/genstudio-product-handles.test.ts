@@ -344,7 +344,7 @@ test('the same video product selected by its NEW handle resolves too', async () 
 
 test('an unpublished video identifier is still refused', async () => {
   const outcome = await videoSubmitOutcome('google-veo-9.9-v1', 'video-unknown-key')
-  assert.match(outcome, /does not currently publish an available image-to-video model/)
+  assert.match(outcome, /does not currently publish an available video model/)
 })
 
 // ── 5. Retry classification survives the rename ────────────────────────────
