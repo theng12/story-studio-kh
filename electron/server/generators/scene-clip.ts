@@ -230,8 +230,9 @@ export function selectSceneClipGenStudioVariant(
   variants: readonly GenStudioVideoVariant[] | undefined,
   requestedVariant?: Partial<SceneClipVariantSelection>,
 ): GenStudioVideoVariant {
-  const operation = requestedVariant?.operation || STORY_STUDIO_VIDEO_MODE
-  if (!requestedVariant || !STORY_STUDIO_VIDEO_MODES.includes(operation as any)) {
+  // The operation is never assumed: duration and resolution alone are ambiguous across lanes.
+  const operation = requestedVariant?.operation
+  if (!requestedVariant || !operation || !STORY_STUDIO_VIDEO_MODES.includes(operation as any)) {
     throw new Error(`A queued motion clip variant operation is required and must be one of: ${STORY_STUDIO_VIDEO_MODES.join(', ')}.`)
   }
   const intended = variantsForGenStudioVideoOperation(variants, operation)
