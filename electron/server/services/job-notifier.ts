@@ -209,6 +209,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   scene_image_generate: 'Scene image', scene_images_batch: 'Scene images (batch)', scene_clips_batch: 'Motion clips', continuity_render: 'Scene render',
   composition_generate: 'Composition',
   research_run: 'Research',
+  translate_episode: 'Translate episode',
   broll_normalize: 'B-roll normalize', broll_assemble: 'B-roll assembly',
   broll_autotag: 'B-roll auto-tag',
   // Retired job types: kept so old rows in Jobs still read plainly.

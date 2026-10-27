@@ -666,6 +666,16 @@ export const GenerateChapterOnlySchema = z.object({
 }).passthrough()
 export type GenerateChapterOnlyBody = z.infer<typeof GenerateChapterOnlySchema>
 
+export const TranslateEpisodeSchema = z.object({
+  target_slug: z.string().min(1, 'target_slug is required').max(120),
+  model: z.string().min(1, 'model is required'),
+  target_episode_id: EpisodeId.optional(),
+  target_title: z.string().max(300).optional(),
+  reuse_visuals: z.boolean().optional(),
+  chapters: z.array(z.number().int().min(1)).optional(),
+}).strict()
+export type TranslateEpisodeBody = z.infer<typeof TranslateEpisodeSchema>
+
 export const GenerateImagesSchema = z.object({
   episode_id: EpisodeId,
   /**

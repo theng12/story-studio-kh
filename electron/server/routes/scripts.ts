@@ -14,7 +14,7 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { resolveSubfolderNames } from '../services/utils.js'
 import { parseMetadataTxt } from '../services/metadata-format.js'
 import { validateBody } from '../lib/validate.js'
-import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema } from '../schemas/index.js'
+import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema, TranslateEpisodeSchema } from '../schemas/index.js'
 import { metadataFormulaCatalogue } from '../services/metadata-formula-catalogue.js'
 import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -2019,6 +2019,76 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
     res.json({ versions })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to list metadata versions'))
+  }
+})
+
+router.post('/projects/:slug/episodes/:episodeId/translate', validateBody(TranslateEpisodeSchema), async (req, res) => {
+  const { slug, episodeId } = req.params
+  try {
+    // The translation runs as a queued job (Production Board / Jobs page, Retry,
+    // §8 verified completion). The request only validates, binds the target
+    // episode, and enqueues — no model call happens inside this request.
+    const {
+      loadSourceEpisodeScript, resolveTranslationLanguages, resolveTranslationTarget,
+    } = await import('../services/translation.js')
+
+    const model = String(req.body.model || '').trim()
+    if (!model) {
+      return res.status(400).json({ detail: 'Choose a writing model for the translation.' })
+    }
+    const sourceProject = await pm.getProject(slug)
+    if (!sourceProject) return res.status(404).json({ detail: 'Project not found' })
+    const targetProject = await pm.getProject(req.body.target_slug)
+    if (!targetProject) return res.status(404).json({ detail: 'Target channel not found' })
+    resolveTranslationLanguages(sourceProject.content_language, targetProject.content_language)
+
+    const sourceScript = await loadSourceEpisodeScript(slug, episodeId)
+    const chapters = Array.isArray(req.body.chapters) && req.body.chapters.length
+      ? req.body.chapters as number[]
+      : undefined
+    if (chapters?.length) {
+      const missing = chapters.filter(n => !sourceScript.chapters.some(ch => ch.number === n))
+      if (missing.length) {
+        return res.status(400).json({
+          detail: `Source episode ${episodeId} has no ${missing.length === 1 ? 'Chapter' : 'Chapters'} ${missing.join(', ')} to translate.`,
+        })
+      }
+    }
+
+    const target = await resolveTranslationTarget({
+      sourceSlug: slug,
+      sourceEpisodeId: episodeId,
+      targetSlug: req.body.target_slug,
+      model,
+      targetEpisodeId: req.body.target_episode_id,
+      targetTitle: req.body.target_title,
+      chapters,
+    }, sourceScript.title)
+
+    const job = await jq.enqueue({
+      project_slug: req.body.target_slug,
+      type: 'translate_episode',
+      episode_id: target.code,
+      title: `Translate ${slug}/${episodeId} → ${target.code} — ${target.title}`,
+      params: {
+        source_slug: slug,
+        source_episode_id: episodeId,
+        model,
+        target_title: req.body.target_title,
+        reuse_visuals: req.body.reuse_visuals,
+        chapters,
+      },
+    })
+
+    res.status(202).json({
+      job,
+      target_slug: req.body.target_slug,
+      target_episode_id: target.code,
+      target_title: target.title,
+    })
+  } catch (e: any) {
+    const status = e?.statusCode || e?.status || 500
+    res.status(status).json(humanizeBackendError(e, 'Failed to start the translation'))
   }
 })
 

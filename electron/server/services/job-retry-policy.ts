@@ -118,6 +118,7 @@ const TEXT_MODEL_STAGES: Partial<Record<JobType, PipelineModelPolicyStage | null
   scene_plan_run: 'scene_plan',
   idea_campaign: 'ideas',
   music_scene_polish: null,
+  translate_episode: null,
 }
 
 /** Chat writing work. Running it again keeps saved answers and collects earlier requests by key where it can. */
