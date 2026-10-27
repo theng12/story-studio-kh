@@ -1,0 +1,340 @@
+/**
+ * Still Posts — the shared contract between the server, the jobs and the page.
+ *
+ * A Still Post is one short quote burned onto one illustrated image, published in BATCHES. The
+ * owner's decisions (2026-10-27) shape every type here:
+ *
+ *  - **A format is the LOOK** (style bible, negative prompt, background treatment, lettering).
+ *    **An option is the LAYOUT** (how many panels, where the words sit, what the picture leaves
+ *    room for). The two are independent by construction, so any option works with any format.
+ *  - **Characters are channel data, never preset data** (AGENTS §4/§5). A post names characters
+ *    that belong to THIS channel; a preset never carries a character id.
+ *  - **The words are burned in by our own renderer** (`lib/thumbnail-text-render.ts`), never drawn
+ *    by the image model. Khmer is never sent to an image model as lettering.
+ *  - **The image model is always a live Gateway model** (a preset may remember the choice; nothing
+ *    hardcodes one) and reference to image appears only where the selected model publishes it.
+ *  - Posting, carousels-as-posting and Board tracking are LATER phases. The record keeps the
+ *    fields they need (`caption`, `batch_id`, `published_at`) so they slot in without a migration.
+ */
+
+import type { TextAnchor, TextFill, ScriptCode } from './thumbnail-text.js'
+
+/** The three export frames. 4:5 is deliberately absent (owner, 2026-10-27). */
+export const STILL_POST_ASPECTS = ['1:1', '9:16', '16:9'] as const
+export type StillPostAspect = typeof STILL_POST_ASPECTS[number]
+
+export function isStillPostAspect(value: unknown): value is StillPostAspect {
+  return typeof value === 'string' && (STILL_POST_ASPECTS as readonly string[]).includes(value)
+}
+
+/** The pixels each export frame is drawn at. 1080 on the short edge, as every platform wants. */
+export const STILL_POST_CANVAS: Record<StillPostAspect, { width: number; height: number }> = {
+  '1:1': { width: 1080, height: 1080 },
+  '9:16': { width: 1080, height: 1920 },
+  '16:9': { width: 1920, height: 1080 },
+}
+
+/** The languages a Still Post can be written and lettered in. */
+export const STILL_POST_LANGUAGES = ['en', 'km', 'zh'] as const
+export type StillPostsLanguage = typeof STILL_POST_LANGUAGES[number]
+
+export function isStillPostsLanguage(value: unknown): value is StillPostsLanguage {
+  return typeof value === 'string' && (STILL_POST_LANGUAGES as readonly string[]).includes(value)
+}
+
+/**
+ * The writing system one language is drawn in, as the ISO 15924 code the font manifest declares.
+ * Used to pick the format's lettering font for the post's language — never to guess a face.
+ */
+export const STILL_POST_LANGUAGE_SCRIPT: Record<StillPostsLanguage, ScriptCode> = {
+  en: 'latn',
+  km: 'khmr',
+  zh: 'hani',
+}
+
+export const STILL_POST_LANGUAGE_LABELS: Record<StillPostsLanguage, string> = {
+  en: 'English',
+  km: 'Khmer',
+  zh: 'Mandarin (Simplified Chinese)',
+}
+
+// ── Format: the look ───────────────────────────────────────────────────────
+
+/**
+ * How one format letters a post. The FONT is chosen per script so the same format works in every
+ * language; everything else (weight, fill, outline, shadow, leading) is the format's voice.
+ */
+export interface StillPostLettering {
+  /** Bundled font id per ISO 15924 script. A script with no entry refuses rather than substitutes. */
+  fonts: Partial<Record<ScriptCode, string>>
+  weight: number
+  uppercase: boolean
+  fill: TextFill
+  outline: { enabled: boolean; color: string; width_px: number }
+  shadow: { enabled: boolean; color: string; opacity: number; dx: number; dy: number; blur_px: number }
+  line_height: number
+}
+
+/** The rounded panel an option may draw behind the words. Colour belongs to the format's look. */
+export interface StillPostTextPanel {
+  color: string
+  opacity: number
+  padding_px: number
+  radius_px: number
+}
+
+export interface StillPostFormat {
+  id: string
+  name: string
+  /** One line for the picker. */
+  description: string
+  /** The style bible: prompt language that shapes every image this format makes. */
+  style_bible: string
+  /** What the picture must never contain. Also appended to the prompt as an explicit avoidance. */
+  negative_prompt: string
+  /** The background treatment, in words the customer reads. */
+  background: string
+  lettering: StillPostLettering
+  text_panel: StillPostTextPanel
+  /** The frame this format composes best in. An export may still request any other. */
+  default_aspect: StillPostAspect
+}
+
+// ── Option: the layout ─────────────────────────────────────────────────────
+
+export type StillPostPanelRole = 'single' | 'setup' | 'punchline'
+
+/** One panel's text box, in percent of the export canvas. */
+export interface StillPostTextBox {
+  anchor: TextAnchor
+  x_pct: number
+  y_pct: number
+  width_pct: number
+  height_pct: number
+  align: 'left' | 'center' | 'right'
+  max_lines: number
+}
+
+export interface StillPostOption {
+  id: string
+  name: string
+  /** One line for the picker. */
+  description: string
+  /** 1 = a single picture; 2 = a setup/punchline pair. */
+  panels: 1 | 2
+  /** One entry per panel, in order. */
+  text: StillPostTextBox[]
+  /** What each picture must leave room for — added to the image prompt so the words are readable. */
+  composition: string[]
+  /** Draw the format's text panel behind the words (a solid banner instead of bare lettering). */
+  text_background: boolean
+}
+
+// ── A post ─────────────────────────────────────────────────────────────────
+
+export interface StillPostImage {
+  filename: string
+  rendered_at: string
+  sha256: string
+  /** The live Gateway model that drew it, as the catalogue published it. */
+  model_id: string
+  model_label: string
+  /** The exact prompt submitted (format + option + scene), so a re-draw is reproducible. */
+  prompt: string
+  reference_character_ids: string[]
+  reference_names: string[]
+  /** An explicit re-draw, so a Retry reconnects instead of buying a second render. */
+  generation_action?: { id: string; kind: 'fresh' }
+}
+
+export interface StillPostPanel {
+  id: string
+  role: StillPostPanelRole
+  /** The words burned into this panel. Never sent to the image model. */
+  text: string
+  /** What the picture shows. Text-free by construction. */
+  scene_prompt: string
+  image: StillPostImage | null
+}
+
+export interface StillPostFinal {
+  aspect: StillPostAspect
+  panel_id: string
+  filename: string
+  rendered_at: string
+  /** What was drawn, so a final made from older words is detectable as stale. */
+  text: string
+  /** Identity of the whole look that produced it (text + lettering + layout + branding + canvas). */
+  style_hash: string
+  font_id: string
+}
+
+export interface StillPost {
+  /** Stable id inside the channel, e.g. `post-0001`. */
+  id: string
+  batch_id: string
+  created_at: string
+  updated_at: string
+  format_id: string
+  option_id: string
+  language: StillPostsLanguage
+  /** Characters of THIS channel that appear. Channel data — a preset never carries these. */
+  character_ids: string[]
+  /** The social caption written with the quote. Phase 1 stores it; posting uses it later. */
+  caption: string
+  panels: StillPostPanel[]
+  finals: StillPostFinal[]
+  /** Requested export frames, captured when the batch was written. */
+  aspects: StillPostAspect[]
+  /** Reserved for the posting phase. Absent means never published. */
+  published_at?: string | null
+}
+
+/** The channel's own Still Posts settings (config.json → `still_posts`). */
+export interface StillPostsProjectConfig {
+  /**
+   * The channel's character roster, ordered, 1–10 entries.
+   *
+   * Each id must resolve to a character of THIS channel (its Library record assigned to this
+   * project, or a project-scoped character). This is channel data: it is never copied into a
+   * preset, and a post's `character_ids` must be a subset of it.
+   */
+  character_ids?: string[]
+  /** Absolute path to the logo art. Absent = the logo layer draws nothing at all. */
+  logo_path?: string | null
+  /** A handle to burn in instead of the channel profile's own. Absent = use the channel handle. */
+  handle?: string | null
+}
+
+// ── Presets ────────────────────────────────────────────────────────────────
+
+export interface StillPostBranding {
+  /** Burn the handle in. */
+  handle_enabled: boolean
+  /** A handle for this preset, or null to use the channel profile's own handle. */
+  handle_text: string | null
+  /** Burn the channel's logo in. Does nothing until a logo file is set on the channel. */
+  logo_enabled: boolean
+  /** Where the handle and the logo sit. */
+  position: TextAnchor
+  /** Handle type size, in canvas pixels at the 1080 short edge. */
+  handle_size_px: number
+  /** Logo width, in percent of the canvas width. */
+  logo_width_pct: number
+  /** Distance from the edge, in percent of the canvas. */
+  margin_pct: number
+  opacity: number
+}
+
+/** Everything a preset restores. Reusable look and configuration only (AGENTS §5). */
+export interface StillPostPresetData {
+  /** A live Gateway chat model id, or null to use this Mac's writing default. */
+  writing_model: string | null
+  /** A live Gateway image model id, or null until the customer picks one. */
+  image_model: string | null
+  format_id: string
+  option_id: string
+  language: StillPostsLanguage
+  aspects: StillPostAspect[]
+  /** Multiplies the format's fitted type size, so a preset can whisper or shout. */
+  text_scale: number
+  branding: StillPostBranding
+}
+
+export interface StillPostPreset {
+  id: string
+  name: string
+  builtin: boolean
+  data: StillPostPresetData
+}
+
+// ── Verification (§8) ──────────────────────────────────────────────────────
+
+export type StillPostArtifactState = 'ok' | 'missing' | 'invalid' | 'stale'
+
+export interface StillPostPanelState {
+  panel_id: string
+  role: StillPostPanelRole
+  /** The generated art: present, decodable and non-empty. */
+  image: StillPostArtifactState
+  /** One entry per requested frame. */
+  finals: Record<string, StillPostArtifactState>
+  problems: string[]
+}
+
+export interface StillPostState {
+  id: string
+  complete: boolean
+  panels: StillPostPanelState[]
+  problems: string[]
+}
+
+export interface StillPostsBatchState {
+  batch_id: string
+  aspects: StillPostAspect[]
+  total: number
+  complete_count: number
+  /** True only when EVERY post has its art and a final in EVERY requested frame. */
+  complete: boolean
+  posts: StillPostState[]
+  /** What is missing, in plain words, for the page and the job log. */
+  missing: string[]
+}
+
+/** `GET /api/projects/:slug/still-posts` — everything the workspace renders from. */
+export interface StillPostsWorkspace {
+  config: {
+    character_ids: string[]
+    logo_path: string | null
+    /** The handle that will actually be burned in when a preset uses the channel's own. */
+    handle: string | null
+    /** True when the channel has a logo file that exists on disk. */
+    logo_ready: boolean
+  }
+  /** The channel's characters, for the roster and the per-post picker. */
+  characters: ChannelCharacterRow[]
+  formats: StillPostFormat[]
+  options: StillPostOption[]
+  presets: StillPostPreset[]
+  last_preset_id: string | null
+  posts: StillPost[]
+  batches: StillPostsBatchState[]
+}
+
+/** One character as the Still Posts workspace lists it. */
+export interface ChannelCharacterRow {
+  id: string
+  name: string
+  description: string
+  /** True when the character has at least one reference image on disk. */
+  has_reference: boolean
+  reference_count: number
+  /** Where the portrait the generator will attach lives (`GET …/characters/:id/portrait`). */
+  portrait_url: string | null
+}
+
+/** POST …/still-posts/batches — write N posts. */
+export interface StillPostBatchRequest {
+  brief: string
+  count: number
+  format_id: string
+  option_id: string
+  language: StillPostsLanguage
+  aspects: StillPostAspect[]
+  /** Characters every post may use. Must be a subset of the channel roster. */
+  character_ids: string[]
+  /** A live Gateway chat model id. Absent uses this Mac's writing default. */
+  writing_model?: string | null
+  /** Name for the batch, shown in the workspace. */
+  name?: string
+}
+
+/** POST …/still-posts/render — draw art + finals for a batch (or named posts). */
+export interface StillPostRenderRequest {
+  batch_id?: string
+  post_ids?: string[]
+  /** A live Gateway image model id. Absent is refused — nothing picks a model for the customer. */
+  image_model: string
+  /** Re-draw even the art that already exists. Finals are always brought up to date. */
+  redraw?: boolean
+}

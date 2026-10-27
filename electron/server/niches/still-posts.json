@@ -1,0 +1,152 @@
+{
+  "id": "still-posts",
+  "name": "Still Posts",
+  "description": "A channel of single illustrated thoughts: one short quote burned onto one drawn picture, with recurring characters, written and drawn in batches. No narration, no video, no timeline — a quote, a picture, a handle.",
+  "tagline": "One thought, one picture.",
+  "builtin": true,
+  "schemaVersion": 1,
+  "kind": "series-formula",
+  "formulaFamily": "Still image posts",
+  "catalogStatus": "active",
+  "catalogName": "Still Posts",
+  "perspectivePolicy": "First or second person, spoken quietly — the words belong to the character in the picture or to the reader, never to a narrator addressing a crowd.",
+  "narrativeQualityContract": {
+    "openingPolicy": "The quote IS the whole post, so its first words carry everything: open inside the feeling or inside a concrete image, never with a greeting, a definition, a rhetorical question, or a promise.",
+    "forbiddenPatterns": [
+      "In today's world",
+      "Have you ever",
+      "Let's talk about",
+      "Here's the thing",
+      "At the end of the day",
+      "Everything happens for a reason",
+      "You've got this",
+      "Believe in yourself",
+      "Chase your dreams",
+      "Stay positive",
+      "Good vibes only",
+      "Level up",
+      "Unlock your potential",
+      "Remember, you are enough",
+      "Tag someone who",
+      "Double tap",
+      "Follow for more"
+    ],
+    "requiredHabits": [
+      "Name one concrete thing — an object, a time of day, a small action — before naming the feeling.",
+      "Keep it short enough to read in a glance on a phone, because it is burned into a picture.",
+      "Write something a person could have thought themselves; never advice, never a lesson.",
+      "Prefer the plainest verb available, and end the line one word earlier than feels natural.",
+      "A setup/punchline pair must read as one thought split in two, not as two unrelated lines."
+    ],
+    "closingPolicy": "Leave the thought open. Do not summarise it, moralise it, or add a call to action — the quiet after the last word is the point."
+  },
+  "exampleTopics": [
+    "The lamp left on for a person who is not coming",
+    "Being tired in a way sleep does not fix",
+    "Telling a small lie to keep the peace",
+    "The coat still on the hook",
+    "Missing a version of yourself",
+    "Sitting in a parked car before going inside",
+    "Loving someone in the boring, daily way",
+    "The friend who stopped replying",
+    "Learning to sit with a feeling",
+    "The kitchen at two in the morning",
+    "What your hands remember",
+    "Saying less and meaning more"
+  ],
+  "ideaSystemPromptRole": "You write short illustrated posts for a Still Posts channel. Each post is one quiet, specific thought — a feeling found in an ordinary object or moment — illustrated by a small recurring character. Write the kind of line a person screenshots and sends to one friend.",
+  "ideaGuidanceText": "One thought per post. Concrete, short, and true. Never a slogan, never advice, never a motivational poster. Vary the mood across a batch: do not write the same loneliness twelve times.",
+  "scriptContext": "This channel does not make episodes or videos. A post is one short line (or a setup and a punchline) plus one picture. Nothing is narrated aloud.",
+  "scriptSystemPromptRole": "You write the words that will be burned into a picture. Short, plain, specific. You never write more than the picture can hold, and you never explain the feeling.",
+  "scriptClosingHint": "End the line where the feeling lands, and stop.",
+  "narratorStyles": [
+    {
+      "id": "A",
+      "label": "Quiet",
+      "description": "Soft and specific, as if thought rather than said. The default."
+    },
+    {
+      "id": "B",
+      "label": "Dry",
+      "description": "Flat and a little wry, for the funny ones. Never cruel."
+    },
+    {
+      "id": "C",
+      "label": "Tender",
+      "description": "Warm and close, for the ones about people you love."
+    }
+  ],
+  "defaultNarratorStyleId": "A",
+  "titleShapeRules": [
+    "A post's internal name is a fragment of the thought, not a label.",
+    "Never a question, never 'How to', never a promise of a transformation."
+  ],
+  "titleLengthRange": [2, 8],
+  "structuralVariety": "vary-subject-only",
+  "vocabulary": {
+    "mood": [
+      "quiet",
+      "tired",
+      "tender",
+      "wry",
+      "lonely",
+      "resolved",
+      "homesick",
+      "aching",
+      "dry",
+      "warm",
+      "unhurried",
+      "honest",
+      "bittersweet",
+      "still"
+    ],
+    "theme": [
+      "heartbreak",
+      "burnout",
+      "self-respect",
+      "letting go",
+      "home",
+      "memory",
+      "solitude",
+      "forgiveness",
+      "ordinary courage",
+      "small kindnesses",
+      "silence",
+      "waiting",
+      "the end of a day",
+      "starting again"
+    ],
+    "genre": ["still post", "illustrated quote", "doodle", "micro-essay"],
+    "keyword": ["still post", "illustrated quote", "quiet", "relatable", "doodle", "short quote"]
+  },
+  "audienceHint": "People scrolling late at night for a line that names a feeling they have not put into words. They save it and send it to one person.",
+  "youtubeTagsHint": [
+    "still post",
+    "illustrated quote",
+    "short quote",
+    "relatable",
+    "quiet thoughts",
+    "late night thoughts"
+  ],
+  "metadataTitleStyleHint": "A fragment of the thought itself, lower-case where it feels right.",
+  "aspectRatio": "1:1",
+  "scriptStructure": {
+    "defaultChapterCount": 1,
+    "chapterCountRange": [1, 1],
+    "defaultLengthMinutes": 1,
+    "lengthMinutesRange": [1, 1],
+    "durationPresets": [1],
+    "defaultWordsPerMinute": 120,
+    "chaptersIndependent": true,
+    "pacingArc": ["One thought, held."],
+    "additionalRules": [
+      "This channel makes still posts, not episodes: never write narration, chapter headings or a recap.",
+      "One post is one line (or a setup and a punchline) plus one picture."
+    ]
+  },
+  "stillPostsFormat": {
+    "enabled": true,
+    "writeSystemPromptRole": "You write short illustrated posts. Each one is a single quiet thought in the channel's own voice: specific, plain, and short enough to burn into a picture. You find the feeling inside an ordinary object or moment instead of naming it, you never write advice or a slogan, and you never explain the picture — the picture is drawn separately.",
+    "quoteGuidance": "Vary the subject across the batch: a person, a room, an hour of the day, a small habit. Never repeat the same situation twice in one batch."
+  }
+}
