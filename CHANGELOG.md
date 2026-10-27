@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.364 — 2026-10-27
+
+- Cost per episode: every episode shows what it really cost — the paid charge the Gateway recorded for its jobs, an estimate of this Mac's electricity for local work, and the share wasted on failed, cancelled or redone jobs. The Production Board has three cost columns and a channel total, and the Dashboard has a cost card. Where there is no record it says "No data", never $0. The electricity price and Mac wattage are editable in Settings → Performance & recovery.
+- Translated versions: translating an episode into another channel is now a queued job you can follow on the Jobs page and the Production Board. The title is translated too, scene timings are kept, and once the translation is checked the target channel's own presets carry it on through narration, audio assembly, subtitles, final video and metadata. A step with no usable preset is left out with a plain message. A retry keeps every chapter already translated.
+- Video plan: a new channel starts with 25% of the running time as video, as an opening hook. An episode's own saved share always wins, and existing channels are unchanged. Scenes planned as video are approved in Motion Review (Approve Clip, or Reject to use the backup still) instead of Scene Review, and the final video uses the backup still for any clip not approved. The planner suggests key moments; your own mark always wins. The old AI-video generator is gone. A paid video model can be used only when the Gateway lists it as available.
+- Scene images get a free quality check in shadow mode until 30 November 2026: findings are recorded beside each image and nothing is changed. Scene Review has an on/off switch for the check; the auto-remake switch stays off and locked until the shadow period ends. A check that could not run says "not checked", never "passed".
+- Upload: after an upload, the other thumbnail candidates are shown beside the chosen one, with a link to start a thumbnail test in YouTube Studio.
+- Quote Shorts: many moods per channel, an Old Film & Grain effect stack, a short cover frame (from half a second), animated captions inside the 9:16 safe area, music at 50–60%, batches where each Short gets its own cover, and a length around 45 seconds that you can adjust.
+
 ## v1.4.363 — 2026-10-27
 
 - Automatic recovery never redoes a step on an episode that already has an accepted final video. It leaves the episode alone and says so; Retry or Recover still redoes a step on purpose, and a step already running is left to finish.
