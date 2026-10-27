@@ -25,6 +25,7 @@ import { exportsAnchorFor, resolveExternalFinalVideoDir } from './external-video
 import { resolveAssetPath } from './path-resolver.js'
 import { videoAssemblySourceStampPath } from './video-visual-source.js'
 import { narrationPartsToFree, PARTS_DIRNAME, trashEpisodeParts, trashTargetFor } from './chapter-parts.js'
+import { PREVIOUS_FINALS_DIRNAME } from './final-video-retention.js'
 import { listStorageLeftovers, trashStorageLeftovers, type LeftoverKind } from './storage-leftovers.js'
 import {
   createProjectFactsCache,
@@ -994,7 +995,13 @@ async function discoverRoot(
         excluded.push({ path: full, category: spec.category, reason: 'Symbolic links are never cleanup candidates.' })
         continue
       }
-      if (entry.isDirectory()) { if (entry.name !== spec.skip_dir) await walk(full); continue }
+      // A replaced final the owner may still restore is never a cleanup candidate: it is
+      // inside `_previous_finals/` beside the episode's final, and only its own three-day
+      // sweep (`services/final-video-retention.ts`) may move it, to Story's Trash.
+      if (entry.isDirectory()) {
+        if (entry.name !== spec.skip_dir && entry.name !== PREVIOUS_FINALS_DIRNAME) await walk(full)
+        continue
+      }
       if (!entry.isFile() || !spec.accepts(entry.name)) continue
       // Converting needs real PNG bytes; a JPEG (even under .png) is never hashed or listed.
       if (pngOnly && !isPngFile(full)) continue
