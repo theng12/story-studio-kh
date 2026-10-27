@@ -71,9 +71,8 @@ describe('unknown stays conservative, never unlimited', () => {
 })
 
 describe('every generator uses the keyed publication for its staging workload', () => {
-  test('video and subtitles stage from their keyed account ceiling', async () => {
+  test('subtitles stage from their keyed account ceiling', async () => {
     for (const [file, call] of [
-      ['generators/ai-video.ts', 'prompts.length'],
       ['generators/subtitles.ts', 'sections.length'],
     ] as const) {
       const body = await read(file)
@@ -170,7 +169,7 @@ describe('the override is reachable, not just present', () => {
       assert.match(await read(file), /jq\.getImageFanoutOverride\(\)/,
         `${file} ignores the owner's override`)
     }
-    for (const file of ['generators/ai-video.ts', 'generators/subtitles.ts']) {
+    for (const file of ['generators/subtitles.ts']) {
       assert.doesNotMatch(await read(file), /jq\.getImageFanoutOverride\(\)/,
         `${file} must not inherit the image override`)
     }

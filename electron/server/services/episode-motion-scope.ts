@@ -1,7 +1,8 @@
 import fs from 'fs/promises'
 import path from 'path'
-import { normalizeMotionScope, resolveMotionScope, type MotionScope } from '../contracts/motion-scope.js'
+import { DEFAULT_MOTION_SCOPE, normalizeMotionScope, resolveMotionScope, type MotionScope } from '../contracts/motion-scope.js'
 import { resolveEpisodePathsByCode } from './utils.js'
+import * as pm from './project-manager.js'
 
 export interface EpisodeMotionScope {
   motion_scope: MotionScope
@@ -16,7 +17,25 @@ function motionLevel(value: unknown): number {
   return value
 }
 
-/** Read only the two motion controls; missing continuity state never authorizes motion. */
+/**
+ * The channel's starting video share (owner, 2026-10-26: 25% / opening hook, for
+ * every channel, as a STARTING VALUE ONLY — §5). An episode that saves its own
+ * scope overwrites it; an existing channel is never rewritten, so a channel that
+ * predates the seed reads the app-wide default.
+ */
+async function channelDefaultMotionScope(slug: string): Promise<MotionScope> {
+  try {
+    const raw = (await pm.getConfig(slug))?.default_motion_scope
+    return raw === undefined ? DEFAULT_MOTION_SCOPE : normalizeMotionScope(raw)
+  } catch {
+    return DEFAULT_MOTION_SCOPE
+  }
+}
+
+/**
+ * Read only the two motion controls. An episode with no saved scope reads its
+ * channel's starting share; without one it uses the app-wide default.
+ */
 export async function readEpisodeMotionScope(
   slug: string,
   episodeId: string,
@@ -27,7 +46,9 @@ export async function readEpisodeMotionScope(
   try {
     raw = await fs.readFile(path.join(dir, 'continuity.json'), 'utf8')
   } catch (error: any) {
-    if (error?.code === 'ENOENT') return { motion_scope: { mode: 'off' }, motion_level: 2 }
+    if (error?.code === 'ENOENT') {
+      return { motion_scope: await channelDefaultMotionScope(slug), motion_level: 2 }
+    }
     throw error
   }
   let value: unknown
@@ -41,7 +62,9 @@ export async function readEpisodeMotionScope(
   }
   const config = value as Record<string, unknown>
   return {
-    motion_scope: normalizeMotionScope(config.motion_scope),
+    motion_scope: config.motion_scope === undefined
+      ? await channelDefaultMotionScope(slug)
+      : normalizeMotionScope(config.motion_scope),
     motion_level: motionLevel(config.motion_level),
   }
 }
@@ -49,7 +72,7 @@ export async function readEpisodeMotionScope(
 export async function resolveEpisodeMotionSceneIds(
   slug: string,
   episodeId: string,
-  scenes: readonly { id: string; start_sec: number; end_sec: number }[],
+  scenes: readonly { id: string; start_sec: number; end_sec: number; key_moment?: boolean; key_moment_suggested?: boolean }[],
   episodeDir?: string,
 ): Promise<EpisodeMotionScope & { scene_ids: string[]; crossing_scene_ids: string[] }> {
   const settings = await readEpisodeMotionScope(slug, episodeId, episodeDir)

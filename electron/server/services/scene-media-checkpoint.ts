@@ -33,8 +33,13 @@ export type SceneClipCompletionAudit = SceneImageCompletionAudit
 
 export function motionPresentationSelection(value: unknown): MotionPresentationSettings {
   const raw = value as Partial<MotionPresentationSettings> | null
+  const renderer = raw?.renderer === 'sketch_draw'
+    ? 'sketch_draw'
+    : raw?.renderer === 'text_to_video'
+      ? 'text_to_video'
+      : 'image_to_video'
   return {
-    renderer: raw?.renderer === 'sketch_draw' ? 'sketch_draw' : 'image_to_video',
+    renderer,
     pen: ['none', 'plain', 'name', 'logo'].includes(String(raw?.pen)) ? raw!.pen! : 'none',
   }
 }
@@ -226,6 +231,12 @@ export function revealTypeFor(reveal: SketchRevealSetting, context: SceneClipFre
 
 /** The single freshness rule used by review, approval, completion, status, retry and assembly. */
 export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: SceneClipFreshnessContext): Promise<string | null> {
+  const isT2V = scene.clip_renderer === 'text_to_video' || scene.visual_lane === 'text_to_video'
+  if (isT2V) {
+    if (typeof scene.rendered_video_prompt === 'string'
+      && scene.rendered_video_prompt !== (scene.video_prompt || '')) return 'stale video prompt'
+    return null
+  }
   const sketch = scene.clip_renderer === 'sketch_draw'
   if (!sketch) {
     // Provider clips are trimmed/held by Assembly; a plan-timing nudge must never turn an
@@ -567,6 +578,7 @@ export async function checkpointSceneClip(
     else delete scene.clip_sketch
     scene.clip_path = clipPath
     scene.rendered_motion_prompt = renderedMotionPrompt
+    if (receipt.renderer === 'text_to_video') scene.rendered_video_prompt = renderedMotionPrompt
     scene.clip_source_image_version = sourceImageVersion
     // The provider may finish after the editor has explicitly chosen Still.
     // Keep the verified artifact and receipt for later reuse, but do not let a

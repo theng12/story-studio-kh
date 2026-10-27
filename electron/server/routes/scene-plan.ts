@@ -34,6 +34,7 @@ import { allowedSubtitleCueGapSec, resolveScenePlanRepairPacing } from '../servi
 import { safetyMode } from '../services/safety-checks.js'
 import { requireScenePlanGenStudioModel, SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
+  checkScenesAgainstModelBounds,
   COVERAGE_FAIL_SEC,
   inspectScenePlanCoverage,
   repairOverlongScenesDeterministically,
@@ -1045,6 +1046,194 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-motion-prompt', async (re
     res.json({ ok: true, scene_id: sceneId, motion_prompt: motionPrompt })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save motion prompt'))
+  }
+})
+
+// ── POST /scene-plan/:ep/set-visual-lane ───────────────────────────────
+// v1.4.360 — per-scene visual lane choice (still / sketch_draw / image_to_video / text_to_video / imported).
+router.post('/projects/:slug/scene-plan/:episodeId/set-visual-lane', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const sceneId = typeof req.body?.scene_id === 'string' ? req.body.scene_id.trim() : ''
+  const visualLane = typeof req.body?.visual_lane === 'string' ? req.body.visual_lane.trim() : ''
+  const allowedLanes = ['still', 'sketch_draw', 'image_to_video', 'text_to_video', 'imported']
+  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+  if (!allowedLanes.includes(visualLane)) {
+    return res.status(400).json({ detail: `visual_lane must be one of: ${allowedLanes.join(', ')}` })
+  }
+
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+    await withLock(sidecarPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const target = fresh.scenes.find(item => item.id === sceneId)
+      if (!target) throw new Error(`Scene ${sceneId} not found in scene_plan.json`)
+      target.visual_lane = visualLane as any
+      if (visualLane === 'text_to_video') {
+        target.motion_choice = 'clip'
+        if (!target.video_prompt?.trim() && target.visual_prompt?.trim()) {
+          target.video_prompt = target.visual_prompt
+        }
+      } else if (visualLane === 'still') {
+        target.motion_choice = 'still'
+      } else if (visualLane === 'image_to_video' || visualLane === 'sketch_draw' || visualLane === 'imported') {
+        target.motion_choice = 'clip'
+      }
+      await writeJsonAtomic(sidecarPath, fresh)
+    })
+    await invalidateScenePlanStatus(slug, episodeId)
+    res.json({ ok: true, scene_id: sceneId, visual_lane: visualLane })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save visual lane'))
+  }
+})
+
+// ── POST /scene-plan/:ep/set-video-prompt ──────────────────────────────
+// v1.4.360 — text-to-video motion prompt (style + action + camera).
+router.post('/projects/:slug/scene-plan/:episodeId/set-video-prompt', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const sceneId = typeof req.body?.scene_id === 'string' ? req.body.scene_id.trim() : ''
+  const videoPrompt = typeof req.body?.video_prompt === 'string' ? req.body.video_prompt.trim() : ''
+  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+    await withLock(sidecarPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const target = fresh.scenes.find(item => item.id === sceneId)
+      if (!target) throw new Error(`Scene ${sceneId} not found in scene_plan.json`)
+      target.video_prompt = videoPrompt
+      await writeJsonAtomic(sidecarPath, fresh)
+    })
+    await invalidateScenePlanStatus(slug, episodeId)
+    res.json({ ok: true, scene_id: sceneId, video_prompt: videoPrompt })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save video prompt'))
+  }
+})
+
+// ── POST /scene-plan/:ep/set-key-moment ────────────────────────────────
+// v1.4.360 — flag scene as a key moment for motion share allocation.
+router.post('/projects/:slug/scene-plan/:episodeId/set-key-moment', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const sceneId = typeof req.body?.scene_id === 'string' ? req.body.scene_id.trim() : ''
+  const keyMoment = Boolean(req.body?.key_moment)
+  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+    await withLock(sidecarPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const target = fresh.scenes.find(item => item.id === sceneId)
+      if (!target) throw new Error(`Scene ${sceneId} not found in scene_plan.json`)
+      target.key_moment = keyMoment
+      await writeJsonAtomic(sidecarPath, fresh)
+    })
+    res.json({ ok: true, scene_id: sceneId, key_moment: keyMoment })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to set key moment'))
+  }
+})
+
+// ── POST /scene-plan/:ep/set-fill-mode ─────────────────────────────────
+// v1.4.360 — strategy when scene exceeds model clip length: chain or hold.
+router.post('/projects/:slug/scene-plan/:episodeId/set-fill-mode', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+
+  const sceneId = typeof req.body?.scene_id === 'string' ? req.body.scene_id.trim() : ''
+  const fillMode = req.body?.fill_mode
+  if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
+  if (fillMode !== 'chain' && fillMode !== 'hold' && fillMode !== null && fillMode !== undefined) {
+    return res.status(400).json({ detail: 'fill_mode must be chain, hold, or null' })
+  }
+
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+    await withLock(sidecarPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const target = fresh.scenes.find(item => item.id === sceneId)
+      if (!target) throw new Error(`Scene ${sceneId} not found in scene_plan.json`)
+      if (fillMode) target.fill_mode = fillMode
+      else delete target.fill_mode
+      await writeJsonAtomic(sidecarPath, fresh)
+    })
+    res.json({ ok: true, scene_id: sceneId, fill_mode: fillMode || null })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to set fill mode'))
+  }
+})
+
+// ── POST /scene-plan/:ep/check-clip-bounds ─────────────────────────────
+// v1.4.360 — validate scenes against planned video model clip bounds.
+router.post('/projects/:slug/scene-plan/:episodeId/check-clip-bounds', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const minSec = typeof req.body?.min_seconds === 'number' ? req.body.min_seconds : 0
+  const maxSec = typeof req.body?.max_seconds === 'number' ? req.body.max_seconds : Infinity
+
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+    const plan = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+    const result = checkScenesAgainstModelBounds(plan.scenes, { min_clip_seconds: minSec, max_clip_seconds: maxSec })
+    res.json(result)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to check clip bounds'))
+  }
+})
+
+// ── POST /scene-plan/:ep/fill-flagged-scenes ───────────────────────────
+// v1.4.360 — batch apply chain or hold fill mode to flagged scenes.
+router.post('/projects/:slug/scene-plan/:episodeId/fill-flagged-scenes', async (req, res) => {
+  const { slug, episodeId } = req.params
+  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+  const fillMode = req.body?.fill_mode === 'chain' ? 'chain' : 'hold'
+  const sceneIds = Array.isArray(req.body?.scene_ids) ? req.body.scene_ids : null
+
+  try {
+    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+    const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+    if (!existsSync(sidecarPath)) {
+      return res.status(404).json({ detail: 'No scene_plan.json — run Scene Plan first.' })
+    }
+    await withLock(sidecarPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const targetIds = sceneIds ? new Set(sceneIds) : null
+      for (const scene of fresh.scenes) {
+        if (!targetIds || targetIds.has(scene.id)) {
+          scene.fill_mode = fillMode
+        }
+      }
+      await writeJsonAtomic(sidecarPath, fresh)
+    })
+    res.json({ ok: true, fill_mode: fillMode })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to fill flagged scenes'))
   }
 })
 

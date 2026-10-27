@@ -2194,7 +2194,8 @@ export interface ChannelProfileConfig {
   banner?: string
 }
 
-export type SceneClipRenderer = 'image_to_video' | 'sketch_draw'
+export type SceneClipRenderer = 'image_to_video' | 'sketch_draw' | 'text_to_video'
+export type VisualLane = 'still' | 'sketch_draw' | 'image_to_video' | 'text_to_video' | 'imported'
 export type SketchDrawPenMode = 'none' | 'plain' | 'name' | 'logo'
 export interface MotionPresentationSettings {
   renderer: SceneClipRenderer
@@ -2596,7 +2597,7 @@ export interface UpdateConfigRequest {
 export const JOB_TYPES = [
   'idea_campaign', 'broll_select', 'introduction-only', 'chapter-only',
   'outline_only', 'expand_chapters', 'image_prompts', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
-  'metadata', 'video', 'video_assembly',
+  'metadata', 'video_assembly',
   'subtitles_transcribe', 'youtube_upload', 'youtube_playlist_update',
   'youtube_thumbnail_refresh', 'broll_normalize', 'broll_assemble',
   /** Post one finished episode to the Facebook / Instagram / TikTok accounts the owner ticked. */
@@ -4875,6 +4876,25 @@ export interface ScenePlanEntry {
   /** Creative interpretation assigned before the visual-prompt pass. This is
    * independent of scene_type and is retained by missing-prompt repairs. */
   creative_strategy?: SceneCreativeStrategy
+  /** v1.4.360 — which visual lane renders this scene. */
+  visual_lane?: VisualLane
+  /** v1.4.360 — text-to-video motion prompt (channel style + action + camera). */
+  video_prompt?: string
+  /** v1.4.360 — prompt value from which `clip_path` was rendered when T2V. */
+  rendered_video_prompt?: string
+  /** v1.4.360 — whether this scene is marked as a key moment for motion allocation.
+   *  The CUSTOMER's own answer; it always wins over the planner's suggestion. */
+  key_moment?: boolean
+  /** The planner's suggestion, shown as a suggestion the customer may change. Never
+   *  presented as the customer's choice. Used only where `key_moment` is unset. */
+  key_moment_suggested?: boolean
+  /** v1.4.360 — strategy when scene exceeds model clip length: hold last frame or chain clips. */
+  fill_mode?: 'chain' | 'hold'
+  /** v1.4.360 — cheap backup still image made for every scene including T2V. */
+  backup_still_path?: string
+  backup_still_prompt?: string
+  backup_still_version?: string
+  backup_still_sha256?: string
 }
 
 export type SceneMotionMode = 'still' | 'gentle' | 'limited'

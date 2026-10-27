@@ -4,7 +4,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { ScenePlan } from '../models/types.js'
 import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
 
-export type ScenePromptCheckpointKind = 'visual' | 'motion'
+export type ScenePromptCheckpointKind = 'visual' | 'motion' | 'video'
 
 export interface ScenePromptCheckpointResult {
   changed: boolean
@@ -41,9 +41,11 @@ export async function auditScenePromptCompletion(
 
   for (const sceneId of requested) {
     const scene = sceneById.get(sceneId)
-    const complete = kind === 'motion'
-      ? !!scene?.motion_prompt?.trim()
-      : !!scene?.visual_prompt?.trim() && !invalidVisualIds!.has(sceneId)
+    const complete = kind === 'video'
+      ? !!scene?.video_prompt?.trim()
+      : kind === 'motion'
+        ? !!scene?.motion_prompt?.trim()
+        : !!scene?.visual_prompt?.trim() && !invalidVisualIds!.has(sceneId)
     if (complete) completedIds.push(sceneId)
     else {
       missingIds.push(sceneId)
@@ -78,12 +80,12 @@ export async function checkpointScenePrompt(
     const scene = plan.scenes.find(item => item.id === sceneId)
     if (!scene) throw new Error(`Cannot checkpoint ${kind} prompt: scene ${sceneId} is not in the current timeline.`)
 
-    const key = kind === 'motion' ? 'motion_prompt' : 'visual_prompt'
+    const key = kind === 'video' ? 'video_prompt' : kind === 'motion' ? 'motion_prompt' : 'visual_prompt'
     if (scene[key]?.trim() === prompt) return { changed: false, plan }
 
     scene[key] = prompt
     plan.generated_at = new Date().toISOString()
-    plan.planning_stage = kind
+    plan.planning_stage = kind as any
     await writeJsonAtomic(planPath, plan, { compact: true })
     return { changed: true, plan }
   })

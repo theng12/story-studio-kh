@@ -23,6 +23,7 @@ async function setupWith(models: ReturnType<typeof ref<any[]>>) {
     const describeVideoModelRate = () => ''
     const formatCredits = value => String(value)
     const hasPriceTruth = () => false
+    const formatUsd = value => '$' + Number(value).toFixed(2)
     const variantsForVideoOperation = (rows, operation) => Array.isArray(rows) ? rows.filter(row => row.operation === operation) : []
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined

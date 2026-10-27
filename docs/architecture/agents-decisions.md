@@ -534,6 +534,26 @@ What does not move is that a remote result is accepted only through the same imp
 local render (hash, media, loudness, shared final checks), and it never replaces an accepted final.
 Render Studio selection and FFmpeg credit charging stay retired.
 
+### Video expansion: multi-lane motion & T2V approved (2026-10-26)
+
+AGENTS §7 previously mandated image-to-video only and strictly forbade text-to-video modes or UI
+controls. On 2026-10-26, the owner approved the video expansion plan (`memory/video-expansion.md`,
+`_orchestra/video-expansion-20261026/PLAN.md`):
+
+1. **Multi-lane motion**: scenes choose between still, Sketch Draw (local), AI image-to-video, AI
+   text-to-video, and imported clips. One motion type is not enough.
+2. **Text-to-video at Scene Plan**: T2V is a deliberate per-scene editorial choice. T2V scenes get a
+   video prompt (channel style + action + camera) and are reviewed in Motion Review. A cheap backup
+   still is generated for every scene as a safety net.
+3. **Running-time video share in Motion Review**: mix control operates as a share of total running
+   time (10–100%), filled via formulas (opening hook, key moments, spread).
+4. **Planned model clip bounds**: Scene Plan respects the planned model's min/max duration. If the
+   model changes, Motion Review flags scenes outside the range and offers re-plan or fill (chain/hold).
+5. **Encode-once clips**: clips are normalized once on arrival so final video assembly copies matching
+   streams instead of re-decoding and re-encoding.
+6. **Paid models added but not used**: only Wan 3.0 and Seedance 2.5 via the Gateway, with every
+   option read live from capability records. Nothing is charged by default, and nothing in tests.
+
 ---
 
 ## 8. Related records kept elsewhere

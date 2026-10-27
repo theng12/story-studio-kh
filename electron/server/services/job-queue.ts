@@ -1577,7 +1577,6 @@ const queues: Record<JobType, QueueState> = {
   // never holds up a stitch.
   music_scene_polish: { pending: [], running: false, executor: null },
   metadata: { pending: [], running: false, executor: null },
-  video: { pending: [], running: false, executor: null },
   video_assembly: { pending: [], running: false, executor: null },
   subtitles_transcribe: { pending: [], running: false, executor: null },
   // Upload Center — YouTube video upload (resumable) + metadata PATCH.
@@ -1902,7 +1901,7 @@ const THUMBNAIL_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'thumb_images',
 ])
 const VIDEO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
-  'video', 'scene_clip_generate', 'scene_clips_batch',
+  'scene_clip_generate', 'scene_clips_batch',
 ])
 // `music_generate` keeps its own lane, like `thumb_images`: a three-song request
 // queued behind two 2-hour narrations (then limited by the scene-image setting)
@@ -5417,6 +5416,9 @@ function pump(type: JobType): void {
   queuePumpObserverForTesting?.(type)
   if (queuePaused) return  // network is down; jobs wait
   const q = queues[type]
+  // A retired job type can still sit in a project's history (owner rule: stored data is read
+  // safely and never rewritten). Its lane no longer exists, so there is nothing to pump.
+  if (!q) return
   const next = q.pending[0]
   const group = groupOf(type, next)
   if (group === IMAGE_EPISODE_GROUP) {

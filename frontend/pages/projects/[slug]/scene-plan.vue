@@ -975,6 +975,33 @@
                 </select>
                 <span v-if="scene.scene_type_locked" class="scene-type-lock" title="You set this — kept during deterministic repairs.">🔒</span>
               </span>
+              <!-- v1.4.360 — Multi-lane visual choice (still / sketch / i2v / t2v / imported) -->
+              <span class="scene-lane-pick">
+                <select
+                  :value="scene.visual_lane || (scene.motion_choice === 'clip' ? 'image_to_video' : 'still')"
+                  class="scene-type-select"
+                  :disabled="planBusy"
+                  title="Choose visual lane: Still, Sketch Draw, AI I2V, AI T2V, or Imported clip"
+                  @change="updateSceneVisualLane(scene, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="still">🖼️ Still</option>
+                  <option value="sketch_draw">✏️ Sketch</option>
+                  <option value="image_to_video">🎬 AI I2V</option>
+                  <option value="text_to_video">🎥 AI T2V</option>
+                  <option value="imported">📁 Imported</option>
+                </select>
+              </span>
+              <label class="scene-key-moment-toggle text-xs" :title="scene.key_moment === undefined && scene.key_moment_suggested
+                ? 'The planner suggests this scene as a key moment. Your own choice always wins.'
+                : 'Mark as key moment for motion share prioritization'">
+                <input
+                  type="checkbox"
+                  :checked="isKeyMoment(scene)"
+                  :disabled="planBusy"
+                  @change="updateSceneKeyMoment(scene, ($event.target as HTMLInputElement).checked)"
+                >
+                ⭐ Key<span v-if="scene.key_moment === undefined && scene.key_moment_suggested" class="key-suggested"> (suggested)</span>
+              </label>
             </div>
             <div class="form-group mt-1">
               <label class="text-xs text-muted">Transcript segment</label>
@@ -988,7 +1015,7 @@
             </div>
             <div class="form-group mt-1">
               <label class="text-xs text-muted prompt-length-label">
-                <span>Visual prompt (sent to the image generator)</span>
+                <span>{{ scene.visual_lane === 'text_to_video' ? '🖼️ Backup still prompt (cheap safety net)' : 'Visual prompt (sent to the image generator)' }}</span>
                 <!-- Live count for every prompt, against the ceiling in force.
                      Amber when over — a nudge, never a block. -->
                 <span
@@ -1047,9 +1074,22 @@
                 </label>
               </div>
             </div>
+            <!-- v1.4.360 — Text-to-video direct prompt when T2V is selected -->
+            <div v-if="scene.visual_lane === 'text_to_video'" class="form-group mt-1">
+              <label class="text-xs text-muted">🎥 Text-to-Video prompt (scene action + camera + style)</label>
+              <textarea
+                v-model="scene.video_prompt"
+                class="textarea scene-textarea"
+                rows="2"
+                :readonly="planBusy"
+                placeholder="Cinematic camera move, subjects, action, and lighting for direct video generation…"
+                @input="markPlanDirty"
+                @blur="saveVideoPrompt(scene)"
+              />
+            </div>
             <!-- v1.0.468 — per-scene motion prompt (image-to-video instruction).
                  Editable inline; saved via set-motion-prompt; regen via the LLM. -->
-            <div class="form-group mt-1">
+            <div v-else class="form-group mt-1">
               <label class="text-xs text-muted">🎬 Motion prompt (how this scene animates)</label>
               <textarea
                 v-model="scene.motion_prompt"
@@ -1070,6 +1110,21 @@
                     : 'Write a new motion prompt for this scene (picture prompt and timing stay the same)'"
                 @click="regenMotionPrompt(scene)"
               >{{ regenMotionId === scene.id ? '⏳ Motion…' : '🎬 Regen Motion' }}</button>
+            </div>
+            <!-- v1.4.360 — Fill mode when video scene duration exceeds model max clip limit -->
+            <div v-if="isSceneOverlongForModel(scene)" class="form-group mt-1 scene-fill-mode">
+              <label class="text-xs text-warning">
+                ⚠️ {{ (scene.end_sec - scene.start_sec).toFixed(1) }}s exceeds {{ plannedMaxClipSec }}s clip limit — Fill mode:
+              </label>
+              <select
+                :value="scene.fill_mode || 'hold'"
+                class="input input-xs"
+                :disabled="planBusy"
+                @change="updateSceneFillMode(scene, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="hold">Freeze last frame</option>
+                <option value="chain">Chain clips</option>
+              </select>
             </div>
             <div class="scene-row-actions mt-1">
               <NuxtLink
@@ -1547,6 +1602,15 @@ interface ScenePlanEntry {
   motion_prompt?: string
   motion_mode?: 'still' | 'gentle' | 'limited'
   motion_choice?: 'still' | 'clip'
+  // v1.4.360 — multi-lane video expansion
+  visual_lane?: 'still' | 'sketch_draw' | 'image_to_video' | 'text_to_video' | 'imported'
+  video_prompt?: string
+  rendered_video_prompt?: string
+  key_moment?: boolean
+  /** The planner's suggestion. Used only where the customer has not decided. */
+  key_moment_suggested?: boolean
+  fill_mode?: 'chain' | 'hold'
+  backup_still_path?: string
   // v1.0.336 — continuity: what the scene depicts. 'character' includes the
   // guide; the rest render without him. Unset → treated as 'character'.
   scene_type?: SceneType
@@ -3032,6 +3096,86 @@ async function regenerateSelectedPrompts(): Promise<void> {
  */
 function rewordScenePrompt(scene: ScenePlanEntry): Promise<void> {
   return regenerateScenePrompt(scene, { reword: true })
+}
+
+const plannedMaxClipSec = ref(10)
+
+/** The customer's own key-moment answer, else the planner's suggestion. */
+function isKeyMoment(scene: ScenePlanEntry): boolean {
+  return scene.key_moment ?? scene.key_moment_suggested ?? false
+}
+
+function isSceneOverlongForModel(scene: ScenePlanEntry): boolean {
+  const isVideo = scene.visual_lane === 'text_to_video'
+    || scene.visual_lane === 'image_to_video'
+    || scene.motion_choice === 'clip'
+  if (!isVideo) return false
+  return (scene.end_sec - scene.start_sec) > plannedMaxClipSec.value
+}
+
+async function updateSceneVisualLane(scene: ScenePlanEntry, lane: string): Promise<void> {
+  const ep = episodeId.value
+  if (!ep) return
+  scene.visual_lane = lane as any
+  if (lane === 'text_to_video') {
+    scene.motion_choice = 'clip'
+    if (!scene.video_prompt?.trim() && scene.visual_prompt?.trim()) {
+      scene.video_prompt = scene.visual_prompt
+    }
+  } else if (lane === 'still') {
+    scene.motion_choice = 'still'
+  } else if (lane === 'image_to_video' || lane === 'sketch_draw' || lane === 'imported') {
+    scene.motion_choice = 'clip'
+  }
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/set-visual-lane`, {
+      scene_id: scene.id,
+      visual_lane: lane,
+    })
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to save visual lane')
+  }
+}
+
+async function updateSceneKeyMoment(scene: ScenePlanEntry, checked: boolean): Promise<void> {
+  const ep = episodeId.value
+  if (!ep) return
+  scene.key_moment = checked
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/set-key-moment`, {
+      scene_id: scene.id,
+      key_moment: checked,
+    })
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to update key moment')
+  }
+}
+
+async function updateSceneFillMode(scene: ScenePlanEntry, fillMode: string): Promise<void> {
+  const ep = episodeId.value
+  if (!ep) return
+  scene.fill_mode = fillMode as any
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/set-fill-mode`, {
+      scene_id: scene.id,
+      fill_mode: fillMode,
+    })
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to update fill mode')
+  }
+}
+
+async function saveVideoPrompt(scene: ScenePlanEntry): Promise<void> {
+  const ep = episodeId.value
+  if (!ep) return
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/set-video-prompt`, {
+      scene_id: scene.id,
+      video_prompt: (scene.video_prompt || '').trim(),
+    })
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to save video prompt')
+  }
 }
 
 // v1.0.468 — motion-prompt: inline save (on blur) + LLM regen for one scene.

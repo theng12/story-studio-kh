@@ -43,11 +43,6 @@ function releaseControlledWork(): void {
 
 function trackFixtureJob(job: Job): Job {
   fixtureJobs.set(job.job_id, job.project_slug)
-  if (job.type === 'video') {
-    const projectDir = pm.getProjectDir(job.project_slug)
-    assert.ok(projectDir, `missing fixture project path for ${job.project_slug}`)
-    sessionPaths.add(path.join(projectDir, 'sessions.json'))
-  }
   return job
 }
 
@@ -259,14 +254,14 @@ describe('LLM-group concurrency', () => {
   test('non-LLM types stay serial even with a high LLM budget', async () => {
     const proj = await pm.createProject({ name: 'JQCC4' })
     const b = makeBlocker()
-    jq.registerExecutor('video', b.executor)
-    jq.setLlmConcurrency(4)              // must NOT affect the video queue
+    jq.registerExecutor('scene_clips_batch', b.executor)
+    jq.setLlmConcurrency(4)              // must NOT affect the motion-clip queue
     for (const ep of ['EP001', 'EP002']) {
-      enqueueTracked({ project_slug: proj.slug, type: 'video', episode_id: ep, title: ep, params: {} })
+      enqueueTracked({ project_slug: proj.slug, type: 'scene_clips_batch', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 1)
     await settle()
-    assert.equal(b.active, 1, 'video runs one-at-a-time regardless of llmConcurrency')
+    assert.equal(b.active, 1, 'the motion-clip queue runs one-at-a-time regardless of llmConcurrency')
     b.releases.shift()!()
     await waitFor(() => b.done === 1 && b.active === 1)
     b.releases.shift()!()

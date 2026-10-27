@@ -9,6 +9,7 @@ import { submitSent } from './inflight-submits.js'
 import { safetyGate, safetyMode, type SafetyMode } from '../services/safety-checks.js'
 import { STORY_CALLER } from './machine-name.js'
 import fs from 'fs/promises'
+import { existsSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
@@ -2283,16 +2284,21 @@ export interface GenStudioVideoControl {
   note: string | null
 }
 
-/** Story Studio's one video mode. Enforced where a request is BUILT, never by
- *  dropping modes during the catalogue parse. */
+/** Story Studio supported video modes. */
+export const STORY_STUDIO_VIDEO_MODES = ['image-to-video', 'text-to-video'] as const
+export type StoryStudioVideoMode = typeof STORY_STUDIO_VIDEO_MODES[number]
+
+/** Story Studio's legacy video mode default. */
 export const STORY_STUDIO_VIDEO_MODE = 'image-to-video'
 
 /** Does this model publish the mode Story Studio actually submits? */
 export function supportsGenStudioVideoMode(
   model: Pick<GenStudioVideoModel, 'modes'>,
-  mode: string = STORY_STUDIO_VIDEO_MODE,
+  mode?: string,
 ): boolean {
-  return Array.isArray(model.modes) && model.modes.includes(mode)
+  if (!Array.isArray(model.modes)) return false
+  if (mode) return model.modes.includes(mode)
+  return model.modes.some(m => STORY_STUDIO_VIDEO_MODES.includes(m as any))
 }
 
 /**
@@ -2452,7 +2458,7 @@ interface GenStudioVideoJob extends GenStudioJob {
 export interface GenStudioVideoRequest extends GenStudioOperationContext {
   prompt: string
   modelId: string
-  sourceImagePath: string
+  sourceImagePath?: string
   /**
    * The aspect ratio to submit, from the resolved variant's own published ratio.
    *
@@ -5962,7 +5968,7 @@ export function videoSourceMediaType(filename: string, bytes?: Uint8Array): stri
 export function buildGenStudioVideoIdempotencyKey(input: {
   prompt: string
   modelId: string
-  sourceSha256: string
+  sourceSha256?: string
   /** Absent when the product published no ratio: the key then describes a request that sends none. */
   aspectRatio?: string
   operation: string
@@ -5985,7 +5991,7 @@ export function buildGenStudioVideoIdempotencyKey(input: {
   const digest = createHash('sha256').update(JSON.stringify({
     prompt: input.prompt.trim(),
     model_id: input.modelId.trim(),
-    source_sha256: input.sourceSha256,
+    source_sha256: input.sourceSha256 || '',
     aspect_ratio: input.aspectRatio,
     operation: input.operation,
     duration_seconds: input.durationSeconds,
@@ -6119,12 +6125,40 @@ async function generateVideoWithGenStudioAdmitted(
   const modelId = request.modelId.trim()
   if (prompt.length < 3 || prompt.length > 4_000) throw new Error('Gateway video prompts must contain 3 to 4,000 characters.')
   if (!modelId) throw new Error('Select a Gateway video model.')
-  if (request.operation !== STORY_STUDIO_VIDEO_MODE) {
-    throw new Error(`Story Studio only submits the published ${STORY_STUDIO_VIDEO_MODE} video operation.`)
+  if (!STORY_STUDIO_VIDEO_MODES.includes(request.operation as any)) {
+    throw new Error(`Story Studio only submits the published ${STORY_STUDIO_VIDEO_MODES.join(', ')} video operations.`)
   }
-  const source = await fs.readFile(request.sourceImagePath)
-  if (!source.length) throw new Error('Gateway video source image is empty.')
-  const sourceSha256 = createHash('sha256').update(source).digest('hex')
+  let sourceAssetId: string | undefined
+  let sourceSha256 = ''
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+
+  if (request.operation === 'image-to-video') {
+    if (!request.sourceImagePath) throw new Error('Gateway image-to-video request requires a source image path.')
+    const source = await fs.readFile(request.sourceImagePath)
+    if (!source.length) throw new Error('Gateway video source image is empty.')
+    sourceSha256 = createHash('sha256').update(source).digest('hex')
+    const uploadBody = new FormData()
+    uploadBody.set(
+      'upload',
+      new Blob([new Uint8Array(source)], { type: videoSourceMediaType(request.sourceImagePath, source) }),
+      path.basename(request.sourceImagePath),
+    )
+    const sourceAsset = await requestJsonWithRetry(
+      `${apiBase(baseUrl)}/v1/videos/source-images`,
+      { method: 'POST', headers: authorization(apiKey), body: uploadBody },
+      request,
+      deadline,
+    ) as GenStudioVideoSourceAsset
+    if (!sourceAsset.id) throw new Error('Gateway video source upload returned no asset id.')
+    sourceAssetId = sourceAsset.id
+  } else if (request.sourceImagePath && existsSync(request.sourceImagePath)) {
+    const source = await fs.readFile(request.sourceImagePath).catch(() => Buffer.alloc(0))
+    if (source.length) {
+      sourceSha256 = createHash('sha256').update(source).digest('hex')
+    }
+  }
+
   // A caller that checkpointed its key before this call is authoritative: that
   // persisted key is exactly what makes a lost submit response replay instead
   // of creating a second paid job.
@@ -6139,21 +6173,6 @@ async function generateVideoWithGenStudioAdmitted(
     audio: request.audio,
     requestIdentity: request.requestIdentity,
   })
-  const baseUrl = await getGenStudioUrl()
-  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
-  const uploadBody = new FormData()
-  uploadBody.set(
-    'upload',
-    new Blob([new Uint8Array(source)], { type: videoSourceMediaType(request.sourceImagePath, source) }),
-    path.basename(request.sourceImagePath),
-  )
-  const sourceAsset = await requestJsonWithRetry(
-    `${apiBase(baseUrl)}/v1/videos/source-images`,
-    { method: 'POST', headers: authorization(apiKey), body: uploadBody },
-    request,
-    deadline,
-  ) as GenStudioVideoSourceAsset
-  if (!sourceAsset.id) throw new Error('Gateway video source upload returned no asset id.')
 
   const requestPreview = await recordGenStudioRequestPreview('video.generation', {
     method: 'POST',
@@ -6171,7 +6190,7 @@ async function generateVideoWithGenStudioAdmitted(
       // was actually asked for, so a silent request has to say so here — an
       // omission would make the two requests look identical in the record.
       ...(typeof request.audio === 'boolean' ? [['audio', String(request.audio)] as [string, string]] : []),
-      ['reference_asset_id', sourceAsset.id],
+      ...(sourceAssetId ? [['reference_asset_id', sourceAssetId] as [string, string]] : []),
     ],
   })
   const jobGroup = await jobGroupField()
@@ -6190,7 +6209,7 @@ async function generateVideoWithGenStudioAdmitted(
         prompt,
         model_id: modelId,
         mode: request.operation,
-        reference_asset_id: sourceAsset.id,
+        ...(sourceAssetId ? { reference_asset_id: sourceAssetId } : {}),
         aspect_ratio: request.aspectRatio,
         duration_seconds: request.durationSeconds,
         resolution: request.resolution,

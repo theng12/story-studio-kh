@@ -52,6 +52,7 @@ import {
   resolveGenStudioRetryScope,
   supportsGenStudioVideoMode,
   STORY_STUDIO_VIDEO_MODE,
+  STORY_STUDIO_VIDEO_MODES,
   variantsForGenStudioVideoOperation,
   type GenStudioVideoVariant,
   type GenStudioVideoModel,
@@ -229,9 +230,9 @@ export function selectSceneClipGenStudioVariant(
   variants: readonly GenStudioVideoVariant[] | undefined,
   requestedVariant?: Partial<SceneClipVariantSelection>,
 ): GenStudioVideoVariant {
-  const operation = requestedVariant?.operation
-  if (!requestedVariant || operation !== STORY_STUDIO_VIDEO_MODE) {
-    throw new Error(`A queued motion clip variant operation is required and must be ${STORY_STUDIO_VIDEO_MODE}.`)
+  const operation = requestedVariant?.operation || STORY_STUDIO_VIDEO_MODE
+  if (!requestedVariant || !STORY_STUDIO_VIDEO_MODES.includes(operation as any)) {
+    throw new Error(`A queued motion clip variant operation is required and must be one of: ${STORY_STUDIO_VIDEO_MODES.join(', ')}.`)
   }
   const intended = variantsForGenStudioVideoOperation(variants, operation)
   const cheapest = cheapestGenStudioVideoVariant(intended)
@@ -274,12 +275,13 @@ export function selectSceneClipNarrationVariant(
   resolution: string,
   narrationDurationSeconds: number,
   aspectRatio?: string,
+  operation: string = STORY_STUDIO_VIDEO_MODE,
 ): GenStudioVideoVariant {
   if (!Number.isFinite(narrationDurationSeconds) || narrationDurationSeconds <= 0) {
     throw new Error('Scene narration duration must be a positive number.')
   }
   const normalizedResolution = resolution.trim().toLowerCase()
-  const forResolution = variantsForGenStudioVideoOperation(variants, STORY_STUDIO_VIDEO_MODE)
+  const forResolution = variantsForGenStudioVideoOperation(variants, operation)
     .filter(variant => variant.resolution.trim().toLowerCase() === normalizedResolution)
   // The requested ratio keeps this on one canvas where the catalogue states a ratio per row,
   // so a portrait request is not measured against the landscape row's durations.
@@ -526,14 +528,20 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
   const scene = plan.scenes.find(s => s.id === scene_id)
   if (!scene) throw new Error(`Scene ${scene_id} not in scene_plan.json (was it deleted?)`)
-  const resolvedImagePath = scene.image_path && existsSync(scene.image_path)
+  const isTextToVideo = scene.visual_lane === 'text_to_video'
+  // A T2V scene renders from its video prompt and needs NO still by design. Every image lane still
+  // refuses without its own scene image (§7), and no lane may borrow another scene's picture.
+  const resolvedImagePath = isTextToVideo ? null : scene.image_path && existsSync(scene.image_path)
     ? scene.image_path
     : await resolveSceneImageReadPath(job.project_slug, episode_id.toUpperCase(), paths.episode_dir, scene_id)
-  if (!resolvedImagePath) {
+  if (!isTextToVideo && !resolvedImagePath) {
     throw new Error(`Scene ${scene_id} has no generated image to animate — generate the image first.`)
   }
-  if (!scene.motion_prompt || !scene.motion_prompt.trim()) {
-    throw new Error(`Scene ${scene_id} has no motion_prompt — write one on the Scene Plan page first.`)
+  const clipPrompt = isTextToVideo ? (scene.video_prompt || '') : scene.motion_prompt || ''
+  if (!clipPrompt.trim()) {
+    throw new Error(isTextToVideo
+      ? `Scene ${scene_id} has no video_prompt — write one on the Scene Plan page first.`
+      : `Scene ${scene_id} has no motion_prompt — write one on the Scene Plan page first.`)
   }
 
   // The ratio is resolved BEFORE the variant, because the variant is a *row* of the catalogue and
@@ -548,10 +556,13 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   // Re-check the live catalog at execution time. A queued historical job may
   // outlive a route/catalog refresh, but it must never revive a direct route.
   const savedDuration = params.scene_durations?.[scene_id]
+  // The scene owns its operation. A T2V scene is always text-to-video, whatever a stale client
+  // sent; every other scene keeps the image-to-video request it has always made.
+  const sceneOperation = isTextToVideo ? 'text-to-video' : (params.operation || STORY_STUDIO_VIDEO_MODE)
   const requestedVariant = params.operation === undefined && params.duration_seconds === undefined && params.resolution === undefined
     ? undefined
     : {
-      operation: params.operation,
+      operation: sceneOperation,
       duration_seconds: savedDuration?.duration_seconds ?? params.duration_seconds,
       resolution: params.resolution,
       aspect_ratio: requestAspect,
@@ -588,7 +599,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     `Variant: ${variant.operation} / ${describeGenStudioVideoVariant(variant)} — the Gateway's published option for this model `
     + `(${variant.credits_per_video} credits, minimum ${variant.minimum_credits}, price ${variant.price_version}).`,
   )
-  job.output_lines.push(`Motion: ${scene.motion_prompt.slice(0, 200)}${scene.motion_prompt.length > 200 ? '…' : ''}`)
+  job.output_lines.push(`Motion: ${clipPrompt.slice(0, 200)}${clipPrompt.length > 200 ? '…' : ''}`)
   job.progress = 10
 
   // Resolve the output folder BEFORE submitting: the request identity has to be
@@ -612,9 +623,13 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   let savedEntry = manifest.tasks[manifestKey]?.provider === 'genstudio'
     ? manifest.tasks[manifestKey]!
     : null
-  const sourceSha256 = createHash('sha256')
-    .update(await fs.readFile(resolvedImagePath))
-    .digest('hex')
+  // A T2V request hashes its prompt instead of an image: there is no still to identify, and the
+  // video prompt is what the paid request actually is.
+  const sourceSha256 = isTextToVideo
+    ? 'text-to-video:' + createHash('sha256').update(clipPrompt.trim()).digest('hex')
+    : createHash('sha256')
+      .update(await fs.readFile(resolvedImagePath!))
+      .digest('hex')
   const baseIdentity = `${job.project_slug}:${episode_id}:${scene_id}:motion`
 
   /**
@@ -652,7 +667,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     const requestIdentity = requestScope === 'missing' ? baseIdentity : `${baseIdentity}:${requestScope}`
     const inputHash = hashInput(JSON.stringify({
       requestIdentity,
-      prompt: scene.motion_prompt,
+      prompt: clipPrompt,
       modelId,
       sourceSha256,
       aspectRatio: submittedAspect,
@@ -679,7 +694,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
       )
     }
     const idempotencyKey = recoveryEntry?.idempotency_key || buildGenStudioVideoIdempotencyKey({
-      prompt: scene.motion_prompt.trim(),
+      prompt: clipPrompt.trim(),
       modelId,
       sourceSha256,
       aspectRatio: submittedAspect,
@@ -718,9 +733,11 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     })
 
     const videoRequest: GenStudioVideoRequest = {
-      prompt: scene.motion_prompt,
+      prompt: clipPrompt,
       modelId,
-      sourceImagePath: resolvedImagePath,
+      // Omitted for a text-to-video scene: there is no source image to upload, and sending one
+      // would turn the request back into an image-to-video job.
+      ...(resolvedImagePath ? { sourceImagePath: resolvedImagePath } : {}),
       aspectRatio: submittedAspect,
       operation,
       durationSeconds,
@@ -847,12 +864,13 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
     planPath,
     scene_id,
     outPath,
-    scene.motion_prompt,
+    clipPrompt,
     scene.image_version,
     params.auto_approve_clip === true,
     {
       requested_duration_seconds: durationSeconds,
       duration_seconds: measuredDurationSeconds,
+      ...(isTextToVideo ? { renderer: 'text_to_video' as const } : {}),
       ...(params.duration_mode === 'follow_narration'
         ? { shortfall_mode: 'hold' as const }
         : {}),
@@ -923,13 +941,18 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
     if (requestedSceneIds && !requestedSceneIds.has(scene.id)) continue
     if (scene.motion_choice === 'still') continue
     if (!requestedSceneIds) requiredIds.push(scene.id)
-    const image = scene.image_path && existsSync(scene.image_path)
-      ? scene.image_path
-      : await resolveSceneImageReadPath(job.project_slug, episode_id.toUpperCase(), paths.episode_dir, scene.id)
-    if (!image) { blockers.push(`${scene.id} (missing image)`); continue }
-    const imageStat = await fs.stat(image).catch(() => null)
-    if (!imageStat?.isFile() || imageStat.size <= 0) { blockers.push(`${scene.id} (empty image)`); continue }
-    if (!scene.motion_prompt?.trim()) { blockers.push(`${scene.id} (missing motion prompt)`); continue }
+    const t2v = scene.visual_lane === 'text_to_video'
+    if (t2v) {
+      if (!scene.video_prompt?.trim()) { blockers.push(`${scene.id} (missing video prompt)`); continue }
+    } else {
+      const image = scene.image_path && existsSync(scene.image_path)
+        ? scene.image_path
+        : await resolveSceneImageReadPath(job.project_slug, episode_id.toUpperCase(), paths.episode_dir, scene.id)
+      if (!image) { blockers.push(`${scene.id} (missing image)`); continue }
+      const imageStat = await fs.stat(image).catch(() => null)
+      if (!imageStat?.isFile() || imageStat.size <= 0) { blockers.push(`${scene.id} (empty image)`); continue }
+      if (!scene.motion_prompt?.trim()) { blockers.push(`${scene.id} (missing motion prompt)`); continue }
+    }
     const clipPath = path.join(clipsDir, `${scene.id}.mp4`)
     const clipStat = await fs.stat(clipPath).catch(() => null)
     const freshClip = !!clipStat?.isFile() && clipStat.size > 0

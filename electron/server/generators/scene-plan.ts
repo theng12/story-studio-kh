@@ -11,7 +11,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { isDeepStrictEqual } from 'node:util'
 import { proposeSceneReferencesForEpisode } from '../services/scene-reference-characters.js'
-import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes, COVERAGE_FAIL_SEC, styleLeadOverhead, buildEpisodePromptContext, episodePromptContextBlock } from '../services/scene-planner.js'
+import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, inspectScenePlanCoverage, repairPlanCoverage, removeNonRenderableScenes, suggestKeyMoments, COVERAGE_FAIL_SEC, styleLeadOverhead, buildEpisodePromptContext, episodePromptContextBlock } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
 import { compareMergedAudio, comparePlanStamp, planNarrationShortfallSec, readNarrationRecord, stampFromCues } from '../lib/scene-plan-timeline.js'
 import { checkpointJobState, hasUnsettledProviderEvidence, isCancelled, throwIfPauseRequested } from '../services/job-queue.js'
@@ -1342,6 +1342,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       } catch { /* stitched SRT duration remains the safe fallback */ }
       if (scenes.length) scenes[scenes.length - 1]!.end_sec = totalDuration
       if (characterDensity != null) assignDensityToUntagged(scenes, characterDensity)
+      // v1.4.360 — the planner SUGGESTS key moments; the customer's own mark always wins.
+      suggestKeyMoments(scenes)
       const builtAt = new Date().toISOString()
       const plan: ScenePlan = {
         schema_version: 1,

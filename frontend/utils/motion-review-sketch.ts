@@ -9,6 +9,8 @@ export interface MotionBatchScene {
   motion_choice?: 'pending' | 'clip' | 'still'
   start_sec: number
   end_sec: number
+  visual_lane?: 'still' | 'sketch_draw' | 'image_to_video' | 'text_to_video' | 'imported'
+  video_prompt?: string
 }
 
 export interface MotionBatchContext {
@@ -20,14 +22,19 @@ export interface MotionBatchContext {
 
 /** The same rule the route and generator apply before a batch can include a scene. */
 export function motionBatchEligible(scene: MotionBatchScene, context: MotionBatchContext): boolean {
-  return !context.imagePool
-    && context.scoped
-    && scene.approved
+  if (context.imagePool || !context.scoped || scene.motion_choice === 'still') return false
+  if (scene.end_sec - scene.start_sec < context.animateMinSeconds) return false
+
+  const isT2V = scene.visual_lane === 'text_to_video'
+  if (isT2V) {
+    if (!scene.video_prompt?.trim() && !scene.motion_prompt?.trim()) return false
+    return !scene.clip_exists
+  }
+
+  return scene.approved
     && !!scene.image_filename
     && (context.isSketchDraw || !!scene.motion_prompt?.trim())
     && (context.isSketchDraw ? (!scene.clip_exists || !!scene.clip_stale) : !scene.clip_exists)
-    && scene.motion_choice !== 'still'
-    && scene.end_sec - scene.start_sec >= context.animateMinSeconds
 }
 
 /** Sketch Draw needs a saved pen, and a logo pen only when the channel actually has one. */

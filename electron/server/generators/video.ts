@@ -1477,25 +1477,41 @@ export async function scanEpisodeAssets(
         const flatPath = path.join(legacySceneDir, `${scene.id}.png`)
         const named = !!namedPath && namedFiles.has(`${scene.id}.png`)
         const stored = !named && !!scene.image_path && existsSync(scene.image_path)
+        const hasStill = named || stored || flatFiles.has(`${scene.id}.png`)
         const plannedPath = named ? namedPath : stored ? scene.image_path! : flatPath
-        if (!named && !stored && !flatFiles.has(`${scene.id}.png`)) {
+        const canonicalClip = path.join(clipsDir, `${scene.id}.mp4`)
+        const clipPath = clipFiles.has(`${scene.id}.mp4`) ? canonicalClip
+          : scene.clip_path && existsSync(scene.clip_path) ? scene.clip_path : ''
+        const clipFreshReason = scene.motion_choice === 'clip' && clipPath
+          ? await sceneClipStaleReason(scene, { slug, episodeId: code, episodeDir, imagePath: hasStill ? plannedPath : null, sketchSettings: scanSketchSettings, revealScenes: plan.scenes.map(item => item.id) })
+          : null
+        const useMotion = scene.motion_choice === 'clip'
+          && !!clipPath
+          && !clipFreshReason
+        const isT2VScene = scene.visual_lane === 'text_to_video'
+        // A scene with a fresh selected clip and NO still is complete — the T2V shape. It is never
+        // reported missing, and it never borrows another scene's picture. Every other lane must
+        // still have its own still (§7: a missing image is a blocking error there).
+        if (!hasStill && !useMotion) {
           missingPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
           continue
         }
         const stale = typeof scene.rendered_prompt === 'string'
           && scene.rendered_prompt !== scene.visual_prompt
         if (stale) stalePlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
-        if (!scene.approved) unapprovedPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
-        const canonicalClip = path.join(clipsDir, `${scene.id}.mp4`)
-        const clipPath = clipFiles.has(`${scene.id}.mp4`) ? canonicalClip
-          : scene.clip_path && existsSync(scene.clip_path) ? scene.clip_path : ''
-        const clipFreshReason = scene.motion_choice === 'clip' && clipPath
-          ? await sceneClipStaleReason(scene, { slug, episodeId: code, episodeDir, imagePath: plannedPath, sketchSettings: scanSketchSettings, revealScenes: plan.scenes.map(item => item.id) })
-          : null
-        if (clipFreshReason) motionFallback.push({ id: scene.id, scene_index: scene.scene_index, reason: clipFreshReason })
-        const useMotion = scene.motion_choice === 'clip'
-          && !!clipPath
-          && !clipFreshReason
+        // A T2V scene's approval is its OWN Motion Review decision (owner, 2026-10-26). An
+        // unapproved T2V clip falls back to its backup still and says why — the same shape as a
+        // stale clip, so the operator sees the one decision still owed.
+        const fallbackReason = clipFreshReason
+          || (isT2VScene && !useMotion && scene.motion_choice !== 'still'
+            ? (clipPath ? 'clip not approved in Motion Review' : 'no clip yet')
+            : null)
+        // Scene Review owns the still of every image lane; a T2V scene is approved in Motion
+        // Review instead, so its backup still never counts as an approval.
+        if (!isT2VScene && !scene.approved && hasStill) {
+          unapprovedPlannedScenes.push({ id: scene.id, scene_index: scene.scene_index })
+        }
+        if (fallbackReason) motionFallback.push({ id: scene.id, scene_index: scene.scene_index, reason: fallbackReason })
         result.scenes.push({
           filename: path.basename(useMotion ? clipPath : plannedPath),
           path: useMotion ? clipPath : plannedPath,
@@ -1506,13 +1522,13 @@ export async function scanEpisodeAssets(
           source: 'scene_plan',
           planned_scene_index: scene.scene_index,
           plan_scene_id: scene.id,
-          approved: !!scene.approved,
+          approved: !!scene.approved || useMotion,
           start_sec: scene.start_sec,
           end_sec: scene.end_sec,
           duration_sec: Math.max(0, scene.end_sec - scene.start_sec),
         })
         // 1.4.296 — a stale picture is still usable (see prepareUnifiedVideoAssemblyInputs).
-        if (scene.approved) usableCount++
+        if (scene.approved || useMotion) usableCount++
       }
       result.scene_sources!.scene_plan = result.scenes.filter(scene => scene.source === 'scene_plan').length
       result.scene_plan_coverage = {
@@ -5244,6 +5260,20 @@ export async function prepareSceneClips(
     //      builds the whole clip from a single frame; looping made ffmpeg
     //      re-decode + supersample-upscale the same image ~25×duration times.
     const stillDecoder = isVideoScene ? [] : await stillDecoderArgs(scene.image_path)
+    // v1.4.360 — ENCODE ONCE. A motion clip that already has this render's exact shape (canvas,
+    // frame rate, pixel format, colour tags and duration) is copied, not decoded, rescaled and
+    // re-encoded. That is what keeps a clips-heavy episode near a stills-only one. A clip that
+    // does not match falls through to the FFmpeg chain below exactly as before, so the slow path
+    // is still there for every shape a provider returns.
+    if (isVideoScene && !wantsChapterTitle && !naturalVideo && !holdVideo) {
+      const problems = sceneClipCompatibilityProblems(
+        await probeVideoStream(scene.image_path), { w, h, fps: quality.fps, duration: renderDuration })
+      if (problems.length === 0) {
+        await fs.copyFile(scene.image_path, clipPath)
+        await completePlainClip(`${tagLog} [copied: already in render shape]`)
+        return
+      }
+    }
     const singleFrameStill = !isVideoScene && (ffmpegVisionDocument
       ? ffmpegVisionDocument.spin.rate_rad_per_sec === 0 && (ffmpegVisionDocument.zoom.mode !== 'none' || ffmpegVisionDocument.pan.mode !== 'none')
       : isZoompanAnimation(pickedType, motionLibrary))
