@@ -184,7 +184,10 @@ function validTransition(before: FinalRenderRemoteWaitReceipt, after: FinalRende
       || ((after.phase === 'recovery_hold' || after.phase === 'refused') && after.gateway_job_id === null)
   }
   if (before.phase === 'remote_wait') {
-    return (after.phase === 'output_ready' || after.phase === 'recovery_hold')
+    // `remote_failed` is the Gateway's own settled verdict on this bound render (see
+    // `isRemoteFailedFinalRenderReceipt`); it keeps the same id as every other wait transition.
+    return (after.phase === 'output_ready' || after.phase === 'recovery_hold'
+        || after.phase === 'remote_failed')
       && after.gateway_job_id === before.gateway_job_id
   }
   if (before.phase === 'output_ready') {
@@ -903,11 +906,23 @@ export function validateFinalRenderTransportEvidence(
           importReceiptSha256 = response.output.receipt_digest
         }
         if (monitorHold) {
-          const validReason = (value.payload.reason === 'remote_failed' && response.remote_state === 'failed')
-            || (value.payload.reason === 'remote_cancelled' && response.remote_state === 'cancelled'
+          // A settled remote failure is not a hold: it is the Gateway saying this render produced
+          // nothing and never will, so its own phase is the honest record and the one the local
+          // lane reads (`isRemoteFailedFinalRenderReceipt`). The other two reasons are genuinely
+          // ambiguous and stay holds.
+          const remoteFailed = value.payload.reason === 'remote_failed'
+            && response.remote_state === 'failed'
+          const validHold = (value.payload.reason === 'remote_cancelled'
+              && response.remote_state === 'cancelled'
               && response.terminal_proof?.kind === 'launched_stopped')
-            || (value.payload.reason === 'acknowledged_without_story_import' && response.state === 'acknowledged')
-          if (after.phase !== 'recovery_hold' || !validReason) fail('monitor recovery hold evidence is invalid')
+            || (value.payload.reason === 'acknowledged_without_story_import'
+              && response.state === 'acknowledged')
+          if (remoteFailed) {
+            if (after.phase !== 'remote_failed') fail('monitor remote-failed evidence is invalid')
+            if (after.gateway_job_id === null) fail('monitor remote-failed evidence lost its bound job id')
+          } else if (after.phase !== 'recovery_hold' || !validHold) {
+            fail('monitor recovery hold evidence is invalid')
+          }
         }
       } else if (monitorHold) {
         if (after.phase !== 'recovery_hold' || value.payload.reason !== 'bound_key_not_found'

@@ -41,6 +41,7 @@ type LookupMode =
   | 'acknowledged'
   | 'unclassified-output'
   | 'unclassified-cancelled'
+  | 'remote-failed'
 
 const ORIGIN = 'https://gateway.private.example'
 const OWNER_SCOPE = '11111111-1111-4111-8111-111111111111'
@@ -270,6 +271,10 @@ class FakeGateway {
       result.remote_state = 'cancelled'
     }
     if (entry.mode === 'acknowledged') result.state = 'acknowledged'
+    // The Gateway's bounded status tail: 30 answers it cannot accept settle the delivery
+    // `remote_state: "failed"` while the row keeps its accepted state (render_service.py
+    // `_status_answer_refused`). No output, no terminal proof — a settled failure.
+    if (entry.mode === 'remote-failed') result.remote_state = 'failed'
     return result
   }
 
@@ -1254,4 +1259,81 @@ test('unclassified strict remote views hold without cancellation dispatch or ter
       assertNoPrivateProjection(publicJob)
     })
   }
+})
+
+/**
+ * The Gateway's bounded status tail (render_service.py `_status_answer_refused`, commit 41fe7b1)
+ * settles a render it can never accept as `remote_state: "failed"` — the delivery state the commit
+ * says Story "already reads as a remote refusal and falls back locally from". Story did not: it
+ * wrote a `recovery_hold` for `remote_failed` and then stopped for ever. The reconciler returns
+ * false for any hold, the monitor returns early for any hold, and `isRefusedFinalRenderReceipt`
+ * demanded `phase === 'refused'` with `gateway_job_id === null`, which a submitted render can never
+ * be. A settled remote failure must hand the episode back to this Mac and say so.
+ */
+test('a render the Gateway settles failed finishes on this Mac instead of holding for ever', async () => {
+  const monitor = requireReconciler()
+  const prepared = await prepareCase('remote-failed')
+  gateway.setMode(prepared.key, 'remote-failed')
+
+  // The first observation records the Gateway's own settled verdict as durable, attributable
+  // evidence. Driven directly so the test owns the timing (the scheduler's own clock is exercised
+  // by its dedicated backoff test).
+  await requireReconcileOne()(prepared.job.project_slug, prepared.job.job_id)
+  const settled = await canonicalMarker(prepared)
+  assert.equal(settled.phase, 'remote_failed',
+    'a settled remote failure is its own phase, not a hold that nothing advances')
+  assert.equal(settled.gateway_job_id, prepared.marker.gateway_job_id,
+    'the bound Gateway id is kept, so the verdict is attributable to this render')
+  const events = (await revisions(prepared))
+    .map(item => JSON.parse(item.bytes.toString('utf8')) as Record<string, any>)
+  assert.ok(events.some(item => item.payload?.reason === 'remote_failed'),
+    "the Gateway's failed answer is recorded rather than discarded")
+
+  // The next passes must hand the episode to the local lane rather than wait for ever. The
+  // scheduler advances a bounded batch per pass, so drive it until this row has been reached.
+  let job: any = null
+  for (let pass = 0; pass < 40; pass++) {
+    await monitor.runFinalRenderReconcilePassForTesting()
+    job = (await queue.getJobs(prepared.job.project_slug, { view: 'full' }))[0]
+    const reached = ((job?.output_lines || []) as string[])
+      .some(line => /renders on this Mac/i.test(line))
+    if (reached || job?.status !== 'running') break
+  }
+  const lines: string[] = job.output_lines || []
+  assert.ok(lines.some(line => /renders on this Mac/i.test(line)),
+    `the job must say the video renders here; its last lines were ${JSON.stringify(lines.slice(-6))}`)
+  assert.notEqual(job.status, 'error', 'a settled remote failure is a local fallback, not an error')
+  assert.equal(queue.hasFinalRenderMonitorTransientHold(prepared.job.project_slug, prepared.job.job_id), false,
+    'the settled row no longer needs an attention hold')
+})
+
+/**
+ * The fallback must state the real reason. Two settled outcomes reach this Mac and they mean
+ * different things: a refused render never became a remote job, while a settled failure ran (or may
+ * have run) on a fleet Mac. The owner reads one line, and it must say which one happened — AGENTS
+ * §1/§8: name what happened and never a reason the customer will mistake for another.
+ */
+test('the local fallback names a settled remote failure as its own outcome, not a refusal', async () => {
+  const monitor = requireReconciler()
+  const refused = await prepareCase('message-refused')
+  // A definite refusal is the POST the Gateway never accepted, so no Gateway id is bound.
+  assert.equal((await canonicalMarker(refused)).gateway_job_id !== null, true,
+    'this fixture starts from an accepted render')
+
+  const failed = await prepareCase('message-remote-failed')
+  gateway.setMode(failed.key, 'remote-failed')
+  await requireReconcileOne()(failed.job.project_slug, failed.job.job_id)
+
+  let job: any = null
+  for (let pass = 0; pass < 40; pass++) {
+    await monitor.runFinalRenderReconcilePassForTesting()
+    job = (await queue.getJobs(failed.job.project_slug, { view: 'full' }))[0]
+    if (((job?.output_lines || []) as string[]).some(line => /renders on this Mac/i.test(line))) break
+  }
+  const line = ((job?.output_lines || []) as string[]).find(value => /renders on this Mac/i.test(value))
+  assert.ok(line, 'the fallback states a reason')
+  assert.match(line!, /settled this render as failed/i,
+    'the line says the Gateway settled it failed')
+  assert.equal(/refused/i.test(line!), false,
+    'a settled failure is not described as a refusal: no refusal happened on that Gateway')
 })

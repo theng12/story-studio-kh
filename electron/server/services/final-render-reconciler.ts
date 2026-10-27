@@ -103,7 +103,10 @@ async function reconcileOne({ project_slug, job_id }: Identity): Promise<boolean
   const job = await loadAuthoritativeJob(project_slug, job_id)
   const parsed = parseFinalRenderRemoteWaitReceipt(job?.final_render_remote_wait, job_id)
   const receipt = parsed.ok ? parsed.receipt : null
-  if (receipt?.version === 3 && receipt.phase === 'refused') {
+  if (receipt?.version === 3 && (receipt.phase === 'refused' || receipt.phase === 'remote_failed')) {
+    // Both are settled: the Gateway will never produce an output for this render. `refused` means
+    // it never took the job; `remote_failed` means it took it and then settled it failed. Either
+    // way this Mac's lane carries the episode — a hold for the second case had no exit at all.
     if (receipt.cancel_requested_at !== null || isQueuePaused()) return false
     await resumeRefusedFinalRenderLocally(project_slug, job_id)
     return true

@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.365 — 2026-10-28
+
+- A final video the Gateway accepted and then settled as failed now finishes on this Mac and says so, instead of waiting for ever. The Gateway stops polling a render it can never complete, so no finished video could ever arrive; Story kept the episode parked with nothing to advance it. It now records the Gateway's own verdict and renders the video here, and the log names that verdict rather than calling it a refusal. A refused render and a render cancelled on the far Mac are unchanged.
+
 ## v1.4.364 — 2026-10-27
 
 - Cost per episode: every episode shows what it really cost — the paid charge the Gateway recorded for its jobs, an estimate of this Mac's electricity for local work, and the share wasted on failed, cancelled or redone jobs. The Production Board has three cost columns and a channel total, and the Dashboard has a cost card. Where there is no record it says "No data", never $0. The electricity price and Mac wattage are editable in Settings → Performance & recovery.

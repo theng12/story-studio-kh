@@ -11,7 +11,7 @@ import {
   holdsUnknownMusicResult,
 } from '../contracts/provider-task-state.js'
 import { isProvenLocalStopCapableJob as isSafelyStoppableLocalJob } from './job-retry-policy.js'
-import { hasFinalRenderRemoteWaitMarker, isRefusedFinalRenderReceipt, parseFinalRenderRemoteWaitReceipt } from '../lib/final-render-remote-wait.js'
+import { hasFinalRenderRemoteWaitMarker, isLocallyRenderedFinalRenderReceipt, parseFinalRenderRemoteWaitReceipt } from '../lib/final-render-remote-wait.js'
 
 export { isSafelyStoppableLocalJob as isProvenLocalStopCapableJob }
 export type { JobControl, JobControlCapabilities }
@@ -254,7 +254,7 @@ function classifyProviderJobControl(
     // remote-wait Cancel recorded no remote target, left the row `running`, and the reconciler then
     // resumed it and rendered the episode again (2026-10-26). It takes the ordinary local controls
     // below instead: Stop while it waits or runs, and the finished rules once it ends.
-    if (!(parsed.ok && isRefusedFinalRenderReceipt(parsed.receipt))) {
+    if (!(parsed.ok && isLocallyRenderedFinalRenderReceipt(parsed.receipt))) {
       if (parsed.ok && parsed.receipt.cancel_requested_at === null) {
         return control('request-remote-cancel', true, 'Cancel', 'Records your cancellation request while Story Studio waits for the remote render.', 'READY', 'remote-result-required')
       }

@@ -85,7 +85,9 @@ import { safetyGate, safetyMode } from './safety-checks.js'
 import {
   FINAL_RENDER_ACCEPTED_FINAL_CONFLICT,
   FINAL_RENDER_ATTENTION_PREFIX,
+  FINAL_RENDER_REMOTE_FAILED_MESSAGE,
   hasFinalRenderRemoteWaitMarker,
+  isLocallyRenderedFinalRenderReceipt,
   isRefusedFinalRenderReceipt,
   parseFinalRenderRemoteWaitReceipt,
   publicFinalRenderWait,
@@ -611,7 +613,7 @@ function finalRenderCrossProcessTransitionKey(intentId: string): string {
 
 function isRefusedFinalRender(job: Pick<Job, 'job_id'> & Partial<Pick<Job, 'final_render_remote_wait'>>): boolean {
   const parsed = parseFinalRenderRemoteWaitReceipt(job.final_render_remote_wait, job.job_id)
-  return parsed.ok && isRefusedFinalRenderReceipt(parsed.receipt)
+  return parsed.ok && isLocallyRenderedFinalRenderReceipt(parsed.receipt)
 }
 
 function hasFinalRenderFence(job: Pick<Job, 'job_id' | 'project_slug' | 'type'> & Partial<Pick<Job, 'final_render_remote_wait'>>): boolean {
@@ -3288,7 +3290,11 @@ function validFinalRenderTransportTransition(
       || ((after.phase === 'recovery_hold' || after.phase === 'refused') && after.gateway_job_id === null)
   }
   if (before.phase === 'remote_wait') {
-    return (after.phase === 'output_ready' || after.phase === 'recovery_hold')
+    // `remote_failed` is the Gateway's own settled verdict on this bound render; it keeps the same
+    // id as every other wait transition. Mirrors lib/final-render-transport-evidence.ts, which is
+    // the independent validator this one is deliberately kept separate from.
+    return (after.phase === 'output_ready' || after.phase === 'recovery_hold'
+        || after.phase === 'remote_failed')
       && after.gateway_job_id === before.gateway_job_id
   }
   if (before.phase === 'output_ready') {
@@ -3492,6 +3498,20 @@ async function persistVerifiedFinalRenderTerminal(
 }
 
 async function readFinalRenderRefusalMessage(receipt: FinalRenderTransportReceiptV3): Promise<string> {
+  // A render the Gateway settled failed still reads the durable revision that proves it, so the
+  // fallback is backed by evidence rather than by the phase string alone.
+  if (receipt.phase === 'remote_failed') {
+    const revisionsDir = path.join(getUserDataDir(), 'private-render', 'intents', receipt.intent_id, 'transport', 'revisions')
+    const name = (await fs.readdir(revisionsDir)).find(name => name.endsWith(`-${receipt.transport_revision_sha256}.json`))
+    if (!name) throw finalRenderWaitConflict()
+    const bytes = await readStablePrivateFile(path.join(revisionsDir, name), FINAL_RENDER_MAX_REVISION_BYTES)
+    if (!bytes || createHash('sha256').update(bytes).digest('hex') !== receipt.transport_revision_sha256) throw finalRenderWaitConflict()
+    const record = JSON.parse(bytes.toString('utf8')) as Record<string, any>
+    if (record?.event !== 'monitor_recovery_hold' || record?.payload?.reason !== 'remote_failed') {
+      throw finalRenderWaitConflict()
+    }
+    return FINAL_RENDER_REMOTE_FAILED_MESSAGE
+  }
   const revisionsDir = path.join(getUserDataDir(), 'private-render', 'intents', receipt.intent_id, 'transport', 'revisions')
   const name = (await fs.readdir(revisionsDir)).find(name => name.endsWith(`-${receipt.transport_revision_sha256}.json`))
   if (!name) throw finalRenderWaitConflict()

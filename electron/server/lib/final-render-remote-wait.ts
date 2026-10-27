@@ -19,6 +19,13 @@ export const FINAL_RENDER_ATTENTION_PREFIX = 'Final render needs attention: '
 export const FINAL_RENDER_ACCEPTED_FINAL_CONFLICT = 'Local fallback preserved the accepted final video; its new render remains in the work folder.'
 
 /**
+ * What the owner reads when a render the Gateway had accepted was settled `failed` there and the
+ * episode finishes here instead. It says what happened and what was not claimed: nothing was
+ * imported, and this Mac renders the video now.
+ */
+export const FINAL_RENDER_REMOTE_FAILED_MESSAGE = 'Private final render: the paired Gateway settled this render as failed and will not produce a video, so this video renders on this Mac.'
+
+/**
  * A refused render never became a remote job: the Gateway published `gateway_job_id: null` when it
  * turned the remote lane down. Such a row is this Mac's own render — there is nothing remote to
  * cancel, look up or import — so every boundary must classify it as local, never as a remote wait.
@@ -28,6 +35,38 @@ export function isRefusedFinalRenderReceipt(
 ): receipt is FinalRenderTransportReceiptV3 {
   return receipt.version === 3 && receipt.phase === 'refused'
     && receipt.gateway_job_id === null && receipt.cancel_requested_at === null
+}
+
+/**
+ * A render the Gateway settled `failed` is over remotely and will never produce an output, so this
+ * Mac's lane carries the episode instead of waiting.
+ *
+ * The Gateway's bounded status tail (`render_service.py _status_answer_refused`) settles exactly
+ * this after 30 answers it could never accept; before it, one unacceptable answer crash-looped the
+ * monitor for ever. Story wrote the answer down as a `recovery_hold` and then refused to move:
+ * the reconciler skips every hold, the monitor returns early for every hold, and
+ * `isRefusedFinalRenderReceipt` demands `gateway_job_id === null`, which a submitted render can
+ * never be. The episode therefore waited for ever. This phase is that hold's only honest exit.
+ *
+ * It is NOT `refused`: a refused render never became a remote job and its `gateway_job_id` is null,
+ * while this one ran (or may have run) on a fleet Mac and keeps its bound id. Keeping the two apart
+ * is what lets every boundary say which one happened.
+ */
+export function isRemoteFailedFinalRenderReceipt(
+  receipt: FinalRenderRemoteWaitReceipt,
+): receipt is FinalRenderTransportReceiptV3 {
+  return receipt.version === 3 && receipt.phase === 'remote_failed'
+    && receipt.gateway_job_id !== null && receipt.cancel_requested_at === null
+}
+
+/**
+ * Either settled outcome that hands the episode back to this Mac. The render lane, the queue's
+ * fence and the owner's controls all read this, so a new settled phase is added in one place.
+ */
+export function isLocallyRenderedFinalRenderReceipt(
+  receipt: FinalRenderRemoteWaitReceipt,
+): receipt is FinalRenderTransportReceiptV3 {
+  return isRefusedFinalRenderReceipt(receipt) || isRemoteFailedFinalRenderReceipt(receipt)
 }
 
 export type FinalRenderRemoteWaitInvalidReason =
@@ -65,6 +104,7 @@ const V3_FIELDS = new Set([
 const V3_PHASES = new Set([
   'request_persisted', 'send_may_start', 'send_unknown', 'lookup_not_found',
   'remote_wait', 'output_ready', 'importing', 'imported', 'acknowledged', 'recovery_hold', 'refused',
+  'remote_failed',
 ])
 const V3_HASH_FIELDS = [...V2_HASH_FIELDS, 'request_body_sha256', 'transport_revision_sha256'] as const
 const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -120,6 +160,7 @@ function parseV3(
   }
   const gatewayRequired = candidate.phase === 'remote_wait' || candidate.phase === 'output_ready'
     || candidate.phase === 'importing' || candidate.phase === 'imported' || candidate.phase === 'acknowledged'
+    || candidate.phase === 'remote_failed'
   const gatewayOptional = candidate.phase === 'recovery_hold'
   const validGateway = typeof candidate.gateway_job_id === 'string' && CANONICAL_UUID.test(candidate.gateway_job_id)
   if ((gatewayRequired && !validGateway)
@@ -280,14 +321,27 @@ export function publicFinalRenderWait(job: unknown, inProcessRecoveryHold = fals
   const parsed = parseFinalRenderRemoteWaitReceipt(candidate[FINAL_RENDER_REMOTE_WAIT_FIELD], String(candidate.job_id || ''))
   if (!parsed.ok) return { state: 'recovery_hold', cancellation_requested: false, gateway_id_known: false, committed_at: null }
   const receipt = parsed.receipt
-  if (receipt.version === 3 && receipt.phase === 'refused') return undefined
-  const state = receipt.version === 2 ? 'intent_staged'
-    : receipt.version === 3 ? (receipt.phase === 'lookup_not_found' || receipt.phase === 'refused' ? 'recovery_hold' : receipt.phase)
-      : 'remote_wait'
+  if (receipt.version === 2) {
+    return {
+      state: 'intent_staged', cancellation_requested: receipt.cancel_requested_at !== null,
+      gateway_id_known: false, committed_at: receipt.committed_at,
+    }
+  }
+  if (receipt.version !== 3) {
+    return {
+      state: 'remote_wait', cancellation_requested: receipt.cancel_requested_at !== null,
+      gateway_id_known: false, committed_at: receipt.committed_at,
+    }
+  }
+  // Both settled outcomes hand the episode to this Mac, so neither is a remote wait to show.
+  if (receipt.phase === 'refused' || receipt.phase === 'remote_failed') return undefined
+  // `lookup_not_found` is the only V3 phase the owner sees as a hold; everything else is its own.
+  const state: PublicFinalRenderWait['state'] = receipt.phase === 'lookup_not_found'
+    ? 'recovery_hold' : receipt.phase
   return {
     state,
-    cancellation_requested: parsed.receipt.cancel_requested_at !== null,
-    gateway_id_known: parsed.receipt.version !== 2 && parsed.receipt.gateway_job_id !== null,
-    committed_at: parsed.receipt.committed_at,
+    cancellation_requested: receipt.cancel_requested_at !== null,
+    gateway_id_known: receipt.gateway_job_id !== null,
+    committed_at: receipt.committed_at,
   }
 }
