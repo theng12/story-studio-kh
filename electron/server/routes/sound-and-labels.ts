@@ -64,6 +64,54 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
 
+/** The two project switches, as the page reads them on load. */
+router.get('/projects/:slug/sound-and-labels/config', async (req, res) => {
+  const current = await pm.getConfig(req.params.slug)
+  if (!current) return res.status(404).json({ detail: 'Project not found' })
+  res.json({
+    on_screen_text: normalizeContextualCueConfig(current.contextual_cues).enabled,
+    sound: normalizeSoundDesignConfig(current.sound_design).enabled,
+  })
+})
+
+/** The two project switches. Same two keys, same two files — nothing rewritten. */
+router.put('/projects/:slug/sound-and-labels/config', async (req, res) => {
+  const slug = req.params.slug
+  const current = await pm.getConfig(slug)
+  if (!current) return res.status(404).json({ detail: 'Project not found' })
+  const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {}
+  // Each switch writes ONLY its own key, and only when the caller named it, so
+  // flipping one cannot blank the other's stored value.
+  const patch: Record<string, unknown> = {}
+  if ('on_screen_text' in body) patch.contextual_cues = { ...normalizeContextualCueConfig(current.contextual_cues), enabled: body.on_screen_text === true }
+  if ('sound' in body) patch.sound_design = { ...normalizeSoundDesignConfig(current.sound_design), enabled: body.sound === true }
+  if (!Object.keys(patch).length) return res.status(400).json({ detail: 'Name on_screen_text or sound.' })
+  if (!await pm.updateConfig(slug, patch as any)) return res.status(404).json({ detail: 'Project not found' })
+  const next = await pm.getConfig(slug)
+  res.json({
+    on_screen_text: normalizeContextualCueConfig(next?.contextual_cues).enabled,
+    sound: normalizeSoundDesignConfig(next?.sound_design).enabled,
+  })
+})
+
+/**
+ * A page read reports what would be refused; it never throws for it.
+ *
+ * The failure message is kept verbatim so the page can show the renderer's own
+ * sentence beside the row at fault, rather than a second, differently-worded
+ * opinion of its own.
+ */
+function asReport<T extends { cues: unknown[]; skipped: unknown[] }>(resolve: () => T): { cues: any[]; skipped: any[]; refuses?: string } {
+  try {
+    return resolve()
+  } catch (error: any) {
+    // The reason is a sentence naming each cue at fault, so the page can still
+    // put it beside the row. Nothing is rendered by a read; the renderer makes
+    // the same refusal for itself.
+    return { cues: [], skipped: [], refuses: String(error?.message || 'These items cannot be drawn or mixed yet.') }
+  }
+}
+
 /** Both halves of one episode, at one instant, against one plan. */
 async function loadEpisode(slug: string, episodeId: string) {
   const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
@@ -93,8 +141,12 @@ router.get('/projects/:slug/sound-and-labels/:episodeId', async (req, res) => {
   try {
     const { plan, cueConfig, soundConfig, anchored } = await loadEpisode(req.params.slug, req.params.episodeId)
     const { labels, sounds } = anchored
-    const label = resolveRenderableContextualCues(cueConfig, labels, plan)
-    const sound = resolveRenderableSoundCues(soundConfig, sounds, plan)
+    // A read REPORTS; it never refuses. `resolveRenderable*` throws for exactly
+    // the defects the renderer throws for, and the page has to be able to show
+    // the row that caused one — a 400 here would hide the very thing that needs
+    // fixing. The renderer still refuses, from the same rule.
+    const label = asReport(() => resolveRenderableContextualCues(cueConfig, labels, plan))
+    const sound = asReport(() => resolveRenderableSoundCues(soundConfig, sounds, plan))
     res.json({
       config: { on_screen_text: cueConfig.enabled, sound: soundConfig.enabled },
       // Whole timelines, every status. The page edits them; the renderer uses
@@ -103,8 +155,8 @@ router.get('/projects/:slug/sound-and-labels/:episodeId', async (req, res) => {
       // ONE readiness answer, derived exactly as Video Assembly derives it, so
       // the page and the renderer can never disagree about what is missing.
       readiness: {
-        labels: { will_render: label.cues.length, skipped: label.skipped },
-        sound: { will_mix: sound.cues.length, skipped: sound.skipped },
+        labels: { will_render: label.cues.length, skipped: label.skipped, refuses: label.refuses },
+        sound: { will_mix: sound.cues.length, skipped: sound.skipped, refuses: sound.refuses },
       },
       // What the last read moved because a Scene Plan re-run moved its scene.
       moved: anchored.moves,
@@ -114,10 +166,15 @@ router.get('/projects/:slug/sound-and-labels/:episodeId', async (req, res) => {
         labels: labels ? validateContextualCueTimeline(labels, plan, { subtitles: { enabled: false } as any }) : [],
         sound: sounds ? validateSoundDesignTimeline(sounds, plan, sounds.settings, { requireResolved: false }) : [],
       },
-      scenes: plan.scenes.map(scene => ({
-        id: scene.id, scene_index: scene.scene_index,
-        start_sec: scene.start_sec, end_sec: scene.end_sec,
-        transcript_segment: scene.transcript_segment,
+      // `scene_index` is 1-based position and is RECOMPUTED from the order,
+      // never taken on faith: a hand-edited or pre-v1 plan may not carry it, and
+      // "Scene undefined" is not a scene name.
+      scenes: plan.scenes.map((scene, index) => ({
+        id: scene.id,
+        scene_index: Number.isInteger(scene.scene_index) ? scene.scene_index : index + 1,
+        start_sec: scene.start_sec,
+        end_sec: scene.end_sec,
+        transcript_segment: typeof scene.transcript_segment === 'string' ? scene.transcript_segment : '',
       })),
       subtitles: anchored.subtitles,
     })
@@ -138,26 +195,6 @@ router.post('/projects/:slug/sound-and-labels/:episodeId/accept-moves', async (r
   } catch (error: any) {
     res.status(400).json(humanizeBackendError(error, 'Could not save the re-placed text and sound.'))
   }
-})
-
-/** The two project switches. Same two keys, same two files — nothing rewritten. */
-router.put('/projects/:slug/sound-and-labels/config', async (req, res) => {
-  const slug = req.params.slug
-  const current = await pm.getConfig(slug)
-  if (!current) return res.status(404).json({ detail: 'Project not found' })
-  const body = req.body && typeof req.body === 'object' ? req.body as Record<string, unknown> : {}
-  // Each switch writes ONLY its own key, and only when the caller named it, so
-  // flipping one cannot blank the other's stored value.
-  const patch: Record<string, unknown> = {}
-  if ('on_screen_text' in body) patch.contextual_cues = { ...normalizeContextualCueConfig(current.contextual_cues), enabled: body.on_screen_text === true }
-  if ('sound' in body) patch.sound_design = { ...normalizeSoundDesignConfig(current.sound_design), enabled: body.sound === true }
-  if (!Object.keys(patch).length) return res.status(400).json({ detail: 'Name on_screen_text or sound.' })
-  if (!await pm.updateConfig(slug, patch as any)) return res.status(404).json({ detail: 'Project not found' })
-  const next = await pm.getConfig(slug)
-  res.json({
-    on_screen_text: normalizeContextualCueConfig(next?.contextual_cues).enabled,
-    sound: normalizeSoundDesignConfig(next?.sound_design).enabled,
-  })
 })
 
 // ── On-screen text (labels) ────────────────────────────────────────────────

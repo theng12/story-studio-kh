@@ -224,8 +224,16 @@
                 <div class="sl-label-preview">
                   <span class="sl-preview-caption">Preview over the real scene image</span>
                   <div class="sl-frame">
-                    <img v-if="sceneImageUrl(row.cue.scene_id)" :src="sceneImageUrl(row.cue.scene_id)" alt="" class="sl-frame-image" />
-                    <div v-else class="sl-frame-empty">No scene image yet</div>
+                    <!-- An image that fails to load falls back to the same
+                         honest empty state as one that does not exist. A
+                         broken-image icon would read as a bug, not as "this
+                         scene has no picture yet". -->
+                    <img
+                      v-if="sceneImageUrl(row.cue.scene_id) && !failedPreviews.has(row.cue.scene_id)"
+                      :src="sceneImageUrl(row.cue.scene_id)" alt="" class="sl-frame-image"
+                      @error="failedPreviews.add(row.cue.scene_id); failedPreviews = new Set(failedPreviews)"
+                    />
+                    <div v-else class="sl-frame-empty">{{ sceneImageUrl(row.cue.scene_id) ? 'No scene image yet' : 'No scene chosen' }}</div>
                     <div class="sl-frame-cue" :class="`preview-${row.cue.template}`" :style="cueChipStyle(row.cue)">
                       <span>{{ row.cue.template === 'map-pin' ? '●' : row.cue.template === 'chapter-plate' ? 'CHAPTER' : row.cue.template === 'archival-caption' ? 'ARCHIVE' : 'CONTEXT' }}</span>
                       <strong>{{ row.cue.title || 'Cue title' }}</strong>
@@ -403,6 +411,8 @@ const savedAt = ref('')
 const saveError = ref('')
 const proposing = ref(false)
 const playing = ref('')
+/** Scene ids whose preview image did not load. Never retried on every render. */
+const failedPreviews = ref<Set<string>>(new Set())
 const form = ref<ProbeForm>({ model: '', density: 'restrained', placement: 'top-right', auto_approve: false })
 useRememberedForm('sound-and-labels', slug, form, { include: ['model', 'density', 'placement', 'auto_approve'], version: 1 })
 const autoApproveNotice = ref<{ on: boolean; changed: boolean } | null>(null)
@@ -471,8 +481,14 @@ const pickerGroups = computed(() => {
 })
 
 function time(value: number): string { const whole = Math.max(0, Math.floor(value || 0)); return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}` }
-function sceneLabel(id?: string): string { const scene = scenes.value.find(row => row.id === id); return scene ? `Scene ${scene.scene_index}` : '—' }
-function sceneOption(scene: Scene): string { return `${scene.scene_index}. ${time(scene.start_sec)}–${time(scene.end_sec)}${scene.transcript_segment ? ` · ${scene.transcript_segment.slice(0, 40)}` : ''}` }
+function sceneLabel(id?: string): string {
+  if (!id) return '—'
+  const scene = scenes.value.find(row => row.id === id)
+  // An id the current plan no longer has is NAMED, not blanked: the cue is
+  // orphaned, and an em dash would read as "this one has no scene".
+  return scene ? `Scene ${scene.scene_index || scenes.value.indexOf(scene) + 1}` : 'Scene missing'
+}
+function sceneOption(scene: Scene): string { return `${scene.scene_index || scenes.value.indexOf(scene) + 1}. ${time(scene.start_sec)}–${time(scene.end_sec)}${scene.transcript_segment ? ` · ${scene.transcript_segment.slice(0, 40)}` : ''}` }
 function sceneImageUrl(id?: string): string { return id ? `/api/projects/${encodeURIComponent(slug.value)}/scene-review/${encodeURIComponent(episodeId.value)}/image/${encodeURIComponent(id)}` : '' }
 function creditLine(credit?: Credit): string {
   if (!credit) return ''
@@ -725,6 +741,9 @@ async function loadEpisode(): Promise<void> {
   // are read from it — the leak the audit found was a remembered form carrying
   // one episode's settings into another, which is why they are not remembered.
   labels.value = null; sounds.value = null; scenes.value = []; movedNotes.value = []
+  // §4 — a preview that FAILED for one episode must not suppress the same
+  // scene id in the next one, which may well have its own picture.
+  failedPreviews.value = new Set()
   validation.value = { labels: [], sound: [] }
   poolClips.value = []; unavailablePools.value = []; libraryHits.value = []; libraryNote.value = ''
   settings.value = { max_spots_per_minute: 3, default_bed_gain_db: -20, default_spot_gain_db: -12, ducking_profile: 'gentle' }
