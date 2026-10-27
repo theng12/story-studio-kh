@@ -376,6 +376,38 @@ describe('episode media cleanup preview', () => {
     }
   })
 
+  test('a replaced final kept for restore is never offered or moved by Free up space', async () => {
+    const episode = await seedEpisode('EP0001')
+    await markUploaded(episode)
+    __setYouTubeTransportForTests((async () => new Response(JSON.stringify({
+      items: [{
+        id: 'video-EP0001',
+        status: { uploadStatus: 'processed', privacyStatus: 'private' },
+        snippet: { channelId: CHANNEL, title: episode.title, description: '', tags: [] },
+      }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch)
+    // What both a local re-assembly and a remote import keep beside the final for three days.
+    const { PREVIOUS_FINALS_DIRNAME } = await import('../services/final-video-retention.js')
+    const keptDir = path.join(
+      episode.paths.video_dir, PREVIOUS_FINALS_DIRNAME, '2026-10-27T00-00-00-000Z_EP0001',
+    )
+    await fs.mkdir(keptDir, { recursive: true })
+    const keptFinal = path.join(keptDir, 'EP0001_final_video.mp4')
+    await fs.writeFile(keptFinal, 'kept-previous-final-EP0001')
+    await makeOlder(keptFinal)
+
+    const reviewed = await preview(['EP0001'], ['final_video'])
+    assert.deepEqual(reviewedFiles(reviewed).map(file => file.path), [episode.final],
+      'only the episode\'s current final is offered; the kept copy is not')
+
+    const operation = await run(reviewed.preview_id, 'remove')
+    assert.equal(operation.result?.removed_count, 1)
+    assert.equal(operation.result?.items[0]?.destination_path?.endsWith(path.join('final_video', 'final_video', 'EP0001_final_video.mp4')), true)
+    assert.equal(existsSync(episode.final), false, 'the current final moved, as offered')
+    assert.equal(await fs.readFile(keptFinal, 'utf8'), 'kept-previous-final-EP0001',
+      'the kept copy is untouched: only its own three-day sweep may move it')
+  })
+
   test('refuses a configured media root reached through a symbolic-link ancestor', async () => {
     const projectFile = path.join(pm.getProjectDir(SLUG)!, 'project.json')
     const project = JSON.parse(await fs.readFile(projectFile, 'utf8'))

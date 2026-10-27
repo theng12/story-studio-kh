@@ -24,13 +24,15 @@
  * walking, and an unreadable record throws instead of reading as "nothing
  * retained" (AGENTS.md §6).
  *
- * The remote-render importer keeps its own, older protection: it files the
- * prior final into Story's Trash after verifying the downloaded candidate
- * (`services/final-render-import.ts`). This module covers the LOCAL writers.
+ * The remote-render importer uses the SAME service for the final it displaces
+ * (`services/final-render-import.ts`), so a fleet render and a local
+ * re-assembly leave the owner with the same three-day restorable copy rather
+ * than the fleet path dropping the previous final straight into Story's Trash.
  */
 
 import fs from 'fs/promises'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
 import path from 'node:path'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
@@ -123,7 +125,7 @@ export function readRetainedFinalVideos(projectDir: string): RetainedFinalVideo[
     && typeof row.retained_at === 'string' && Number.isFinite(Date.parse(row.retained_at)))
 }
 
-async function recordRetainedFinalVideo(projectDir: string, entry: RetainedFinalVideo): Promise<void> {
+export async function recordRetainedFinalVideo(projectDir: string, entry: RetainedFinalVideo): Promise<void> {
   const file = replacementsPath(projectDir)
   await withLock(`final-video-replacements:${path.resolve(file)}`, async () => {
     const kept = readRetainedFinalVideos(projectDir)
@@ -132,7 +134,8 @@ async function recordRetainedFinalVideo(projectDir: string, entry: RetainedFinal
   })
 }
 
-async function dropRetainedFinalVideo(projectDir: string, retainedPath: string): Promise<void> {
+/** Forget one retained copy whose bytes went back to the live name (never deletes). */
+export async function dropRetainedFinalVideo(projectDir: string, retainedPath: string): Promise<void> {
   const file = replacementsPath(projectDir)
   await withLock(`final-video-replacements:${path.resolve(file)}`, async () => {
     const kept = readRetainedFinalVideos(projectDir).filter(row => row.retained_path !== retainedPath)
@@ -206,6 +209,95 @@ export async function retainPreviousFinalVideo(opts: {
     + 'restore by moving it back to the episode folder, or use Story → Trash after that.',
   )
   return entry
+}
+
+function digestOf(file: string): string | null {
+  let handle: number | null = null
+  try {
+    handle = openSync(file, 'r')
+    const digest = createHash('sha256')
+    const buffer = Buffer.allocUnsafe(1024 * 1024)
+    for (;;) {
+      const read = readSync(handle, buffer, 0, buffer.length, null)
+      if (!read) break
+      digest.update(buffer.subarray(0, read))
+    }
+    return digest.digest('hex')
+  } catch {
+    return null
+  } finally {
+    if (handle !== null) closeSync(handle)
+  }
+}
+
+/** Is this retained copy the exact bytes the caller is about to replace? */
+export function retainedCopyMatches(entry: RetainedFinalVideo, expected: { sha256: string; size_bytes: number }): boolean {
+  const kept = path.join(entry.retained_path, entry.final_name)
+  try {
+    if (statSync(kept).size !== expected.size_bytes) return false
+  } catch {
+    return false
+  }
+  return digestOf(kept) === expected.sha256
+}
+
+/**
+ * The copy of `finalPath` a previous pass already kept, if there is one.
+ *
+ * A retry re-enters publication with the previous final already moved aside
+ * (a crash after the keep, or a second importer pass after one that could not
+ * finish), so the live name no longer has its bytes. The channel record is the
+ * answer; when a crash landed between the move and the record write, the
+ * `_previous_finals/` folder is found and the record is written now — the daily
+ * sweep only knows what the record says (§6: the folder alone is not enough).
+ */
+export async function findRetainedFinalVideo(opts: {
+  job: Job
+  projectDir: string
+  finalPath: string
+  expected: { sha256: string; size_bytes: number }
+}): Promise<RetainedFinalVideo | null> {
+  const { job, projectDir, finalPath, expected } = opts
+  const finalName = path.basename(finalPath)
+  const dir = previousFinalsDir(finalPath)
+  const recorded = readRetainedFinalVideos(projectDir).filter(entry => entry.final_name === finalName)
+  // One folder per replacement, newest last only by name order; every candidate
+  // is checked against the bytes being replaced, so a stamp order can never
+  // hand back another replacement's copy.
+  const candidates = [
+    ...recorded,
+    ...(await fs.readdir(dir).catch((error: any) => {
+      if (error?.code === 'ENOENT') return [] as string[]
+      throw error
+    })).map(name => ({
+      code: name.slice(name.lastIndexOf('_') + 1),
+      retained_path: path.join(dir, name),
+      // The kept file's own timestamp: a stamp of 0 would let the sweep bin it at once.
+      retained_at: new Date(statSync(path.join(dir, name), { throwIfNoEntry: false })?.mtimeMs ?? Date.now()).toISOString(),
+      replaced_by: finalName,
+      final_name: finalName,
+    } satisfies RetainedFinalVideo)),
+  ]
+  for (const entry of candidates) {
+    if (!retainedCopyMatches(entry, expected)) continue
+    if (!recorded.some(row => row.retained_path === entry.retained_path)) {
+      await recordRetainedFinalVideo(projectDir, entry).catch((error: any) => {
+        job.output_lines.push(
+          `⚠ Kept the previous final at ${entry.retained_path}, but could not record it for automatic cleanup `
+          + `(${error?.message || error}). It stays there until you remove it.`,
+        )
+      })
+    }
+    return entry
+  }
+  return null
+}
+
+/** One line for a job log: which previous final was kept, where, and for how long. */
+export function retainedFinalLogLine(entry: RetainedFinalVideo): string {
+  return `Previous final kept for ${FINAL_VIDEO_RETENTION_DAYS} days: ${entry.retained_path} `
+    + `(${entry.final_name}). It is reversible until the daily cleanup hands it to Story's Trash; `
+    + 'restore by moving it back to the episode folder, or use Story → Trash after that.'
 }
 
 /** Put a retained final (and its sidecars) back where it came from. */
