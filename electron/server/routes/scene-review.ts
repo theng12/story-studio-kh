@@ -39,7 +39,7 @@ import {
   resolveVideoAssetsDir,
   selectSceneClipNarrationVariant,
 } from '../generators/scene-clip.js'
-import { publishedVideoControls, type GenStudioVideoControl } from '../lib/genstudio-client.js'
+import { publishedVideoControls, STORY_STUDIO_VIDEO_MODE, type GenStudioVideoControl } from '../lib/genstudio-client.js'
 import { decodeUploadBuffer } from './image-references.js'
 import {
   assertScenePromptsRenderable,
@@ -210,18 +210,19 @@ async function scenesEligibleForClipBatch(
   const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
   const cfg = await pm.getConfig(slug).catch(() => null)
   const animateMinSeconds = Math.max(0, Number((cfg as any)?.animate_min_seconds) || 0)
-  return plan.scenes.filter(scene => (
-    (!sceneIds || sceneIds.has(scene.id))
-      &&
-    scene.motion_choice !== 'still'
-      && scene.approved === true
+  return plan.scenes.filter(scene => {
+    if (sceneIds && !sceneIds.has(scene.id)) return false
+    if (scene.motion_choice === 'still') return false
+    if ((scene.end_sec - scene.start_sec) < animateMinSeconds) return false
+    // Existing clips, stale included, require the visible individual Regenerate action. Batch
+    // work never silently spends over recovery.
+    if (existsSync(path.join(clipsDir, `${scene.id}.mp4`))) return false
+    // A text-to-video scene has no still by design: its video prompt is what the request is.
+    if (scene.visual_lane === 'text_to_video') return !!scene.video_prompt?.trim()
+    return scene.approved === true
       && !!scene.motion_prompt?.trim()
-      && (scene.end_sec - scene.start_sec) >= animateMinSeconds
       && (existsSync(path.join(namedDir, `${scene.id}.png`)) || existsSync(path.join(legacyDir, `${scene.id}.png`)))
-      // Existing clips, stale included, require the visible individual
-      // Regenerate action. Batch work never silently spends over recovery.
-      && !existsSync(path.join(clipsDir, `${scene.id}.mp4`))
-  ))
+  })
 }
 
 const SCENE_STAT_CONCURRENCY = 32
@@ -344,6 +345,13 @@ interface ReviewSceneAugmented {
   scene_type?: ScenePlanEntry['scene_type']
   /** This scene's OWN character references; absent = the page's default applies. */
   reference_character_ids?: string[]
+  /** v1.4.360 — the scene's editorial visual lane, and the fields that belong to it. */
+  visual_lane?: ScenePlanEntry['visual_lane']
+  video_prompt?: string
+  key_moment?: boolean
+  fill_mode?: ScenePlanEntry['fill_mode']
+  /** True when a cheap backup still exists for a text-to-video scene. */
+  backup_still?: boolean
 }
 
 /** Guard failures raised from inside a `withLock` body, where an Express
@@ -783,6 +791,13 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         transcript_segment: s.transcript_segment,
         visual_prompt: s.visual_prompt,
         motion_prompt: s.motion_prompt,  // v1.0.468 — image-to-video instruction
+        // v1.4.360 — multi-lane video expansion. The lane, the T2V prompt and the fill strategy
+        // travel to Motion Review so a scene can be reviewed and decided in the lane it will render.
+        visual_lane: s.visual_lane,
+        video_prompt: s.video_prompt,
+        key_moment: s.key_moment === true,
+        fill_mode: s.fill_mode,
+        backup_still: !!s.backup_still_path,
         approved: !!s.approved,
         image_filename: imageExists ? filename : null,
         image_version: imageVersion,
@@ -1329,6 +1344,11 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
     if (visualSource.source !== 'scene_plan') throw new Error('Motion Review is not used for Image Pool episodes.')
     const plan = await readScenePlanForClipDurations(slug, episodeId)
     await assertSceneIsWithinMotionScope(slug, episodeId, sceneId, plan)
+    // The scene owns its operation: a text-to-video scene is always text-to-video, whatever a
+    // stale client sent. Everything else keeps the image-to-video request it has always made.
+    const sceneLane = plan.scenes.find(item => item.id === sceneId)?.visual_lane
+    const sceneOperation = sceneLane === 'text_to_video' ? 'text-to-video' : STORY_STUDIO_VIDEO_MODE
+    if (requestedVariant) requestedVariant = { ...requestedVariant, operation: sceneOperation }
     let variant: SceneClipVariantSelection
     let sceneDurations: SceneClipDurations | undefined
     let modelId: string
@@ -1340,11 +1360,11 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
       const scene = plan.scenes.find(item => item.id === sceneId)
       if (!scene) return res.status(404).json({ detail: `scene ${sceneId} not found in scene_plan.json` })
       const selected = await requireSceneClipGenStudioCatalogModel(model)
-      const followVariant = selectSceneClipNarrationVariant(selected.model.variants, resolution, narrationDurationSeconds(scene))
+      const followVariant = selectSceneClipNarrationVariant(selected.model.variants, resolution, narrationDurationSeconds(scene), undefined, sceneOperation)
       modelId = selected.modelId
       variant = followVariant
       audio = requestedSceneClipAudio(body, selected.model)
-      sceneDurations = sceneClipDurations([scene], narration => selectSceneClipNarrationVariant(selected.model.variants, resolution, narration).duration_seconds)
+      sceneDurations = sceneClipDurations([scene], narration => selectSceneClipNarrationVariant(selected.model.variants, resolution, narration, undefined, sceneOperation).duration_seconds)
     } else {
       const selected = await requireSceneClipGenStudioModel(model, requestedVariant)
       modelId = selected.modelId

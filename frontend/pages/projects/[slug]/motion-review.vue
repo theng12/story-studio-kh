@@ -59,15 +59,25 @@
           </p>
           <p v-if="motionScopeError" class="motion-scope-error">{{ motionScopeError }}</p>
         </div>
-        <div v-if="isSketchDraw" class="scope-control" role="group" aria-label="Motion scope for this episode">
+        <div class="scope-control" role="group" aria-label="Motion scope for this episode">
           <button v-for="o in SCOPE_CHOICES" :key="o.mode" type="button" class="btn btn-sm"
             :class="motionScope.mode === o.mode ? 'btn-primary' : 'btn-ghost'" :aria-pressed="motionScope.mode === o.mode"
             :disabled="scopeSaving || !episodeId" @click="saveMotionScope(o.mode)">{{ o.label }}</button>
           <label v-if="motionScope.mode === 'opening'" class="scope-opening">first
             <input v-model.number="openingSeconds" type="number" min="1" step="1" class="input scope-num" aria-label="Opening seconds" :disabled="scopeSaving" @change="saveMotionScope('opening')"> s</label>
+          <template v-if="motionScope.mode === 'share'">
+            <label class="scope-opening">video
+              <input v-model.number="sharePercent" type="number" min="10" max="100" step="5" class="input scope-num" aria-label="Video share percent" :disabled="scopeSaving" @change="saveMotionScope('share')"> % of running time</label>
+            <label class="scope-opening">filled by
+              <select v-model="shareFormula" class="select" :disabled="scopeSaving" aria-label="Video share formula" @change="saveMotionScope('share')">
+                <option v-for="f in SHARE_FORMULAS" :key="f.value" :value="f.value">{{ f.label }}</option>
+              </select>
+            </label>
+            <span class="scope-share-summary">{{ shareSummary }}</span>
+          </template>
           <NuxtLink v-if="motionScope.mode === 'selected'" :to="scenePlanMotionLink" class="btn btn-sm btn-ghost">Pick scenes in Scene Plan</NuxtLink>
+          <NuxtLink v-if="isSketchDraw && motionScope.mode === 'share'" :to="scenePlanMotionLink" class="btn btn-sm btn-ghost">Edit in Scene Plan</NuxtLink>
         </div>
-        <NuxtLink v-else :to="scenePlanMotionLink" class="btn btn-sm btn-secondary">Edit in Scene Plan</NuxtLink>
       </div>
       <div class="motion-summary">
         <div class="motion-summary-copy">
@@ -326,8 +336,18 @@
           </div>
           <div v-if="selectedResolutionVariants.length" class="batch-cost" aria-live="polite">
             <strong>{{ batchPlans.length }} {{ batchPlans.length === 1 ? 'clip' : 'clips' }}<template v-if="!videoHasUsdPrice"> · Estimated total {{ formatCredits(batchListedTotal) }}</template></strong>
-            <span>Price is confirmed when each clip starts.</span>
+            <span v-if="batchEstimatedUsd !== null">Estimate: {{ formatUsdAmount(batchEstimatedUsd) }} for {{ formatSeconds(batchDurationSeconds) }} of video.</span>
+            <span v-else-if="!videoHasUsdPrice">Price is confirmed when each clip starts.</span>
+            <span v-if="batchEstimatedMinutes > 0">Estimate: about {{ formatMinutes(batchEstimatedMinutes) }} of render time on this Mac.</span>
             <span v-if="existingClipCount">Existing clips stay out of this batch.</span>
+          </div>
+          <div v-if="clipMisfits.length" class="clip-misfit-banner" role="status">
+            <strong>{{ clipMisfitLabel }}</strong>
+            <span>Re-plan those scenes in Scene Plan, or fill the extra time here:</span>
+            <span class="clip-misfit-actions">
+              <button class="btn btn-sm btn-secondary" :disabled="fillingMisfits" @click="fillFlaggedScenes('chain')">Chain clips</button>
+              <button class="btn btn-sm btn-secondary" :disabled="fillingMisfits" @click="fillFlaggedScenes('hold')">Hold last frame</button>
+            </span>
           </div>
           </template>
           <button v-if="motionScope.mode === 'all'" class="btn btn-sm btn-secondary" :disabled="savingAll || scopedClipCount === 0" @click="approveAllClips">
@@ -383,6 +403,37 @@
             <span>{{ scene.start_sec.toFixed(1) }}s to {{ scene.end_sec.toFixed(1) }}s</span>
             <span class="choice-badge" :class="{ working: !!clipWork(scene) }">{{ clipWork(scene) || choiceLabel(scene) }}</span>
           </div>
+          <div class="scene-lane-row">
+            <label class="model-field lane-field">
+              <span>Visual lane</span>
+              <select
+                class="select"
+                :value="sceneLane(scene)"
+                :disabled="!!clipWork(scene) || laneSavingId === scene.id"
+                :aria-label="`Visual lane for scene ${scene.scene_index}`"
+                @change="setSceneLane(scene, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="still">Still image</option>
+                <option value="sketch_draw">Sketch Draw</option>
+                <option value="image_to_video">AI image-to-video</option>
+                <option value="text_to_video">AI text-to-video</option>
+                <option value="imported">Imported clip</option>
+              </select>
+            </label>
+            <label v-if="sceneLane(scene) !== 'still' && sceneLane(scene) !== 'imported'" class="model-field fill-field">
+              <span>If over the clip limit</span>
+              <select
+                class="select"
+                :value="scene.fill_mode || 'hold'"
+                :disabled="!!clipWork(scene) || laneSavingId === scene.id"
+                :aria-label="`Fill mode for scene ${scene.scene_index}`"
+                @change="setSceneFillMode(scene, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="hold">Hold last frame</option>
+                <option value="chain">Chain clips</option>
+              </select>
+            </label>
+          </div>
           <div v-if="scene.duration_plan" class="scene-duration-plan" :class="{ 'has-shortfall': scene.duration_plan.adjustment === 'hold' }">
             <span><small>Narration</small><strong>{{ formatSeconds(scene.duration_plan.narration_seconds) }}</strong></span>
             <span><small>Next request</small><strong>{{ formatSeconds(scene.duration_plan.requested_seconds) }}</strong></span>
@@ -394,8 +445,10 @@
           </div>
           <p class="transcript">{{ scene.transcript_segment }}</p>
           <details v-if="!isSketchDraw" class="disclosure" open>
-            <summary>Motion direction</summary>
-            <p class="motion-prompt">{{ scene.motion_prompt || 'No motion prompt. Add one in Scene Plan, or keep this scene as a still.' }}</p>
+            <summary>{{ sceneLane(scene) === 'text_to_video' ? 'Video direction (text-to-video)' : 'Motion direction' }}</summary>
+            <p class="motion-prompt">{{ sceneLane(scene) === 'text_to_video'
+              ? (scene.video_prompt || scene.motion_prompt || 'No video prompt. Add one in Scene Plan, or choose a still for this scene.')
+              : (scene.motion_prompt || 'No motion prompt. Add one in Scene Plan, or keep this scene as a still.') }}</p>
           </details>
           <p v-if="!clipWork(scene) && !scene.clip_exists && generateBlocked(scene)" class="blocked-note">Generate Clip is off: {{ generateBlocked(scene) }}.</p>
           <div v-if="isSketchDraw" class="scene-reveal">
@@ -476,7 +529,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-cost'
-import { hasPriceTruth } from '~/utils/genstudio-price-usd'
+import { formatUsd, hasPriceTruth } from '~/utils/genstudio-price-usd'
 import { variantsForVideoOperation } from '~/utils/genstudio-video-variants'
 import type { GenStudioVideoControl } from '~/composables/useGenStudioMediaModels'
 import { emptyDefaultModels, normalizeDefaultModels, resolveEffectiveModel } from '~/utils/live-genstudio-model-selection'
@@ -490,11 +543,14 @@ definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || 
 useAppTitle('Motion Review')
 
 type MotionChoice = 'pending' | 'clip' | 'still'
+type VisualLane = 'still' | 'sketch_draw' | 'image_to_video' | 'text_to_video' | 'imported'
+type MotionShareFormula = 'opening_hook' | 'key_moments' | 'spread' | 'chronological'
 type MotionScope =
   | { mode: 'off' }
   | { mode: 'opening'; end_sec: number }
   | { mode: 'selected'; scene_ids: string[] }
   | { mode: 'all' }
+  | { mode: 'share'; share_percent: number; formula?: MotionShareFormula }
 interface MotionScene {
   id: string
   scene_index: number
@@ -507,12 +563,18 @@ interface MotionScene {
   clip_exists?: boolean
   clip_stale?: boolean
   clip_stale_reason?: string
-  clip_renderer?: 'sketch_draw' | 'image_to_video' | 'external'
+  clip_renderer?: 'sketch_draw' | 'image_to_video' | 'text_to_video' | 'external'
   /** The reveal style this Sketch Draw scene resolves to, or null for other renderers. */
   reveal_type?: SketchRevealType | null
   /** The style this scene is pinned to, or null when it follows the episode's reveal. */
   reveal_pin?: SketchRevealType | null
   motion_choice?: MotionChoice
+  /** Multi-lane video expansion: this scene's editorial lane. */
+  visual_lane?: VisualLane
+  video_prompt?: string
+  key_moment?: boolean
+  fill_mode?: 'chain' | 'hold'
+  backup_still?: boolean
 }
 interface MotionStats {
   total_scenes: number
@@ -1387,6 +1449,14 @@ function formatSeconds(seconds: number): string {
   return `${Math.round(seconds * 10) / 10}s`
 }
 
+/** "1.5 min" / "45 s" — an estimate, so it is rounded generously. */
+function formatMinutes(minutes: number): string {
+  if (minutes < 1) return `${Math.max(5, Math.round(minutes * 60 / 5) * 5)} s`
+  return `${Math.round(minutes * 10) / 10} min`
+}
+
+const formatUsdAmount = formatUsd
+
 function durationPlanForScene(scene: MotionScene): DurationPlan | null {
   if (isSketchDraw.value) return null
   const narration = Math.max(0, scene.end_sec - scene.start_sec)
@@ -1441,12 +1511,97 @@ const batchPlans = computed(() => scenes.value.filter(batchEligible)
 const batchListedTotal = computed(() => batchPlans.value
   .reduce((total, plan) => total + plan.variant.credits_per_video, 0))
 const existingClipCount = computed(() => scenes.value.filter(scene => scene.clip_exists).length)
+
+// ── Clip-length misfits ───────────────────────────────────────────────────────
+// A planned model publishes its own min/max clip length. A scene outside that range cannot be
+// made in one request, so it is flagged here (the owner, 2026-10-27) with both fixes offered.
+const clipMisfits = computed(() => {
+  const min = minimumDuration.value
+  const max = maximumDuration.value
+  if (min === null || max === null) return []
+  return scopedMotionScenes.value
+    .filter(scene => {
+      const lane = scene.visual_lane || (scene.motion_choice === 'clip' ? 'image_to_video' : 'still')
+      return lane !== 'still' && lane !== 'imported'
+    })
+    .map(scene => ({ scene, seconds: scene.end_sec - scene.start_sec }))
+    .filter(({ seconds }) => seconds < min || seconds > max)
+    .map(({ scene, seconds }) => ({
+      scene,
+      seconds,
+      kind: seconds < min ? ('under' as const) : ('over' as const),
+    }))
+})
+const clipMisfitLabel = computed(() => {
+  if (!clipMisfits.value.length) return ''
+  const under = clipMisfits.value.filter(m => m.kind === 'under').length
+  const over = clipMisfits.value.length - under
+  const parts: string[] = []
+  if (under) parts.push(`${under} shorter than ${minimumDuration.value}s`)
+  if (over) parts.push(`${over} longer than ${maximumDuration.value}s`)
+  return `${clipMisfits.value.length} video ${clipMisfits.value.length === 1 ? 'scene is' : 'scenes are'} outside the planned model's clip length (${parts.join(', ')}).`
+})
+const fillingMisfits = ref(false)
+async function fillFlaggedScenes(fillMode: 'chain' | 'hold') {
+  const ep = episodeId.value
+  if (!ep || !clipMisfits.value.length) return
+  fillingMisfits.value = true
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/fill-flagged-scenes`, {
+      fill_mode: fillMode,
+      scene_ids: clipMisfits.value.map(m => m.scene.id),
+    })
+    success(fillMode === 'chain'
+      ? `Chaining clips for ${clipMisfits.value.length} flagged scene(s).`
+      : `Holding the last frame for ${clipMisfits.value.length} flagged scene(s).`)
+    await loadReview()
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Could not fill the flagged scenes')
+  } finally {
+    fillingMisfits.value = false
+  }
+}
+
+// ── Estimates shown before anything is spent ─────────────────────────────────
+// Paid: published price per second × chosen duration. Sketch Draw: measured frames/s on this Mac.
+// Local fleet: free. Every number is labelled an estimate, because none is a receipt.
+const batchDurationSeconds = computed(() => batchPlans.value
+  .reduce((total, plan) => total + plan.requested_seconds, 0))
+const videoPricePerSecond = computed(() => {
+  // Only a published per-second USD is a price. Credits are not dollars, and a lane with no
+  // published unit gets no estimate rather than a made-up one.
+  const usd = (selectedVideoModel.value as { price_usd?: Record<string, number> } | null)?.price_usd
+  const perSecond = Number(usd?.per_second)
+  return Number.isFinite(perSecond) && perSecond > 0 ? perSecond : null
+})
+const batchEstimatedUsd = computed(() => {
+  const perSecond = videoPricePerSecond.value
+  if (perSecond === null) return null
+  return perSecond * batchDurationSeconds.value
+})
+const batchEstimatedMinutes = computed(() => {
+  if (isSketchDraw.value) {
+    // ~8 frames/s measured for the Metal helper on Apple Silicon; a scene is fps × seconds.
+    const fps = 24
+    return (batchDurationSeconds.value * fps) / 8 / 60
+  }
+  // Cloud lanes: a per-clip queue + render window. 1.5 minutes per clip is the observed middle.
+  return batchPlans.value.length * 1.5
+})
+const shareSummary = computed(() => {
+  if (motionScope.value.mode !== 'share') return ''
+  const total = scenes.value.reduce((sum, s) => sum + (s.end_sec - s.start_sec), 0)
+  const target = total * (motionScope.value.share_percent / 100)
+  return `≈ ${formatSeconds(target)} of ${formatSeconds(total)} becomes video; the rest stays still.`
+})
+
 const usesImagePool = computed(() => visualSource.value === 'image_pool')
 const scopedMotionSceneIds = computed(() => new Set(motionSceneIds.value))
 const motionScopeLabel = computed(() => {
   if (motionScope.value.mode === 'opening') return `Opening · first ${formatSeconds(motionScope.value.end_sec)}`
   if (motionScope.value.mode === 'selected') return 'Selected scenes'
   if (motionScope.value.mode === 'all') return 'Whole episode'
+  if (motionScope.value.mode === 'share') return `Video share · ${motionScope.value.share_percent}% of running time`
   return 'Off'
 })
 const motionCrossingLabel = computed(() => {
@@ -1505,21 +1660,49 @@ function imageUrl(scene: MotionScene) {
 function clipUrl(scene: MotionScene) {
   return `/api/projects/${slug.value}/scene-review/${episodeId.value}/clip/${scene.id}?t=${cacheBuster.value}`
 }
-// Sketch Draw needs no motion prompts, so its scope is chosen here; it is the same saved value Scene Plan shows.
-const SCOPE_CHOICES = [{ mode: 'off', label: 'Off' }, { mode: 'opening', label: 'Opening' }, { mode: 'all', label: 'All scenes' }] as const
+// The owner's mix control: a share of RUNNING TIME, or an explicit scope. Sketch Draw and the AI
+// lanes read the same saved value, so both surfaces show one answer.
+const SCOPE_CHOICES = [
+  { mode: 'off', label: 'Off' },
+  { mode: 'share', label: 'Video share' },
+  { mode: 'opening', label: 'Opening' },
+  { mode: 'all', label: 'All scenes' },
+] as const
+const SHARE_FORMULAS = [
+  { value: 'opening_hook', label: 'Opening hook' },
+  { value: 'key_moments', label: 'Key moments' },
+  { value: 'spread', label: 'Spread evenly' },
+  { value: 'chronological', label: 'Chronological' },
+] as const
 const scopeSaving = ref(false)
 const openingSeconds = ref(60)
-watch(motionScope, scope => { if (scope.mode === 'opening') openingSeconds.value = scope.end_sec }, { immediate: true })
-async function saveMotionScope(mode: 'off' | 'opening' | 'all') {
+const sharePercent = ref(25)
+const shareFormula = ref<MotionShareFormula>('opening_hook')
+watch(motionScope, (scope) => {
+  if (scope.mode === 'opening') openingSeconds.value = scope.end_sec
+  if (scope.mode === 'share') {
+    sharePercent.value = scope.share_percent
+    shareFormula.value = scope.formula || 'opening_hook'
+  }
+}, { immediate: true })
+async function saveMotionScope(mode: 'off' | 'opening' | 'all' | 'share') {
   const ep = episodeId.value
   if (!ep) return
   const seconds = Number(openingSeconds.value)
   if (mode === 'opening' && !(Number.isFinite(seconds) && seconds > 0)) { showError('Enter the opening length in seconds, more than 0.'); return }
+  const percent = Math.round(Number(sharePercent.value))
+  if (mode === 'share' && !(Number.isFinite(percent) && percent >= 10 && percent <= 100)) {
+    showError('The video share must be between 10% and 100% of running time.')
+    return
+  }
   scopeSaving.value = true
   try {
-    await put(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-scope`, {
-      motion_scope: mode === 'opening' ? { mode, end_sec: seconds } : { mode },
-    })
+    const motion_scope = mode === 'opening'
+      ? { mode, end_sec: seconds }
+      : mode === 'share'
+        ? { mode, share_percent: percent, formula: shareFormula.value }
+        : { mode }
+    await put(`/projects/${slug.value}/scene-review/${encodeURIComponent(ep)}/motion-scope`, { motion_scope })
     if (ep === episodeId.value) await loadReview()
   } catch (error: any) {
     showError(error?.data?.detail || error?.message || 'Could not save the motion scope')
@@ -1728,6 +1911,46 @@ async function setChoice(scene: MotionScene, choice: 'clip' | 'still') {
     showError(error?.data?.detail || error?.message || 'Could not save the motion decision')
   } finally {
     savingId.value = null
+  }
+}
+
+/** The lane a scene renders in. Absent means "derived": a clip is I2V, otherwise a still. */
+function sceneLane(scene: MotionScene): VisualLane {
+  return scene.visual_lane || (scene.motion_choice === 'clip' ? 'image_to_video' : 'still')
+}
+
+const laneSavingId = ref<string | null>(null)
+async function setSceneLane(scene: MotionScene, lane: string) {
+  const ep = episodeId.value
+  if (!ep) return
+  const next = lane as VisualLane
+  // Apply locally first so the picker reflects the click immediately; the saved value is re-read below.
+  scene.visual_lane = next
+  if (next !== 'still') scene.motion_choice = 'clip'
+  laneSavingId.value = scene.id
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/set-visual-lane`, { scene_id: scene.id, visual_lane: next })
+    await loadReview()
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Could not save the visual lane')
+    await loadReview().catch(() => {})
+  } finally {
+    if (laneSavingId.value === scene.id) laneSavingId.value = null
+  }
+}
+
+async function setSceneFillMode(scene: MotionScene, fillMode: string) {
+  const ep = episodeId.value
+  if (!ep) return
+  const next = fillMode === 'chain' ? 'chain' : 'hold'
+  scene.fill_mode = next
+  laneSavingId.value = scene.id
+  try {
+    await post(`/projects/${slug.value}/scene-plan/${ep}/set-fill-mode`, { scene_id: scene.id, fill_mode: next })
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Could not save the fill mode')
+  } finally {
+    if (laneSavingId.value === scene.id) laneSavingId.value = null
   }
 }
 
