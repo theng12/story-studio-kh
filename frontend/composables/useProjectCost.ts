@@ -45,7 +45,9 @@ export function formatPaid(paid: PaidCostMeasurement | null | undefined, emptyLa
 export function formatLocal(local: LocalCostMeasurement | null | undefined, emptyLabel = '—'): string {
   if (!local || local.state === 'unmeasurable') return emptyLabel
   const mins = formatMinutes(local.mac_minutes || 0)
-  const usd = typeof local.cost_usd === 'number' ? `$${local.cost_usd.toFixed(2)}` : '$0.00'
+  // A measured fraction of a cent must not read as $0.00 (AGENTS §6).
+  const usd = typeof local.cost_usd !== 'number' ? '$0.00'
+    : local.cost_usd > 0 && local.cost_usd < 0.005 ? '<$0.01' : `$${local.cost_usd.toFixed(2)}`
   return `${mins} · ${usd}`
 }
 export function formatWaste(waste: WasteCostMeasurement | null | undefined, emptyLabel = '—'): string {

@@ -339,7 +339,7 @@
           · {{ imageCheckStats.checked }} checked,
           {{ imageCheckStats.passed }} passed,
           {{ imageCheckStats.failed }} failed,
-          {{ imageCheckStats.notChecked }} not checked.
+          {{ imageCheckStats.notChecked }} not checked<template v-if="imageCheckStats.noRecord">, {{ imageCheckStats.noRecord }} with no check yet</template>.
           <template v-if="imageCheckStats.failedFindings.length">
             Latest finding: {{ imageCheckStats.failedFindings[0] }}
           </template>
@@ -1015,21 +1015,23 @@ const imageCheckSwitchUnlocked = computed(() => sceneImageCheckShadowOver(imageC
 const imageCheckUnlockLabel = computed(() => {
   const until = Date.parse(imageCheckConfig.value.shadow_until)
   if (!Number.isFinite(until)) return 'Nov 30, 2026'
-  return new Date(until).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+  // shadow_until is the last instant of a UTC day; show that day, not the next one in local time.
+  return new Date(until).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 })
 const imageCheckStats = computed(() => {
   let passed = 0
   let failed = 0
   let notChecked = 0
+  let noRecord = 0
   const failedFindings: string[] = []
   for (const scene of scenes.value) {
     const check = scene.image_check
-    if (!check) continue
+    if (!check) { noRecord++; continue }
     if (check.state === 'passed') passed++
     else if (check.state === 'failed') { failed++; if (check.findings.length) failedFindings.push(check.findings.join('; ')) }
     else notChecked++
   }
-  return { checked: passed + failed + notChecked, passed, failed, notChecked, failedFindings }
+  return { checked: passed + failed + notChecked, passed, failed, notChecked, noRecord, failedFindings }
 })
 async function toggleImageCheckEnabled(event: Event): Promise<void> {
   const next = (event.target as HTMLInputElement).checked

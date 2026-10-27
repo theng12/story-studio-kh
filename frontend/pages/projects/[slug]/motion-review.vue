@@ -55,7 +55,7 @@
           <h3>Motion scope: {{ motionScopeLabel }}</h3>
           <p>{{ motionSceneIds.length }} eligible {{ motionSceneIds.length === 1 ? 'scene' : 'scenes' }} in this batch.</p>
           <p v-if="motionCrossingSceneIds.length" class="motion-scope-crossing">
-            {{ motionCrossingLabel }} crosses the opening boundary and stays still unless you explicitly include it.
+            {{ motionCrossingLabel }} {{ motionScope.mode === 'share' ? `would take the video share past ${motionScope.share_percent}%` : 'crosses the opening boundary' }} and {{ motionScope.mode === 'share' ? 'would stay' : 'stays' }} still unless you explicitly include it.
           </p>
           <p v-if="motionScopeError" class="motion-scope-error">{{ motionScopeError }}</p>
         </div>
@@ -2264,6 +2264,12 @@ input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-
 @media (max-width: 1220px) {
   .motion-command-bar :deep(.top-action-bar) { grid-template-columns: 1fr; align-items: stretch; }
   .motion-command-bar :deep(.generate-region) { justify-content: flex-start; }
+  .motion-card { grid-template-columns: 1fr; }
+}
+/* The five-column tool grid needs ~1500px of the DECK, not of the window: with the sidebar open a
+   1280px window leaves ~940px, which clipped Clip timing out of reach. Measure the deck itself. */
+.motion-control-deck { container-type: inline-size; }
+@container (max-width: 1520px) {
   .motion-tools { grid-template-columns: minmax(280px, 1fr) minmax(140px, .45fr); }
   .duration-mode { grid-column: 1 / -1; grid-row: 2; }
   .manual-duration, .follow-duration-note { grid-column: 1 / -1; grid-row: 3; }
@@ -2271,7 +2277,6 @@ input:focus-visible, select:focus-visible, .duration-mode label:has(input:focus-
   .motion-tools > .btn { grid-row: 5; }
   .motion-tools > .btn:first-of-type { grid-column: 1; justify-self: start; }
   .motion-tools > .btn:last-child { grid-column: 2; justify-self: end; }
-  .motion-card { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
   .motion-hero-route { display: none; }

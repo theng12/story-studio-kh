@@ -501,7 +501,7 @@ function costTooltipFor(code: string): string {
     ? `Paid: $${c.paid.usd?.toFixed(2) ?? '0.00'}${c.paid.credits ? ` (${c.paid.credits} credits)` : ''}`
     : 'Paid: No Gateway charge recorded'
   const localText = c.local.state === 'measured'
-    ? `Local: ${c.local.mac_minutes ?? 0}m ($${c.local.cost_usd?.toFixed(2) ?? '0.00'})`
+    ? `Local: ${formatLocal(c.local)}`
     : 'Local: No runtime recorded'
   const wasteText = c.waste.state === 'measured'
     ? `Waste: ${c.waste.percent ?? 0}% (${c.waste.waste_jobs_count ?? 0} of ${c.waste.total_jobs_count ?? 0} jobs redone or failed)`
