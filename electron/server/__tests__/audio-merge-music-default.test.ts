@@ -24,3 +24,21 @@ test('a stated level — a preset at 8%, a customer at 3% — passes through unt
   assert.deepEqual(resolveBackgroundMusicVolume(0), { volume: 0, defaulted: false }, '0 is a real choice (music muted)')
   assert.deepEqual(resolveBackgroundMusicVolume('0.5'), { volume: 0.5, defaulted: false })
 })
+
+/**
+ * A stated value above unity is a percentage that skipped its one conversion (a mix saved before
+ * 1.4.361). It is refused before any FFmpeg work instead of being replayed as 8× the voice or being
+ * squeezed silently into range — the DM0018/PR0039 defect either way (lib/audio-gain.ts).
+ */
+test('a stated level above unity is refused before any work', async () => {
+  const { generateAudioMerge } = await import('../generators/audio-merge.js')
+  const job = {
+    job_id: 'legacy-percent-level', project_slug: 'no-such-project', episode_id: 'EP0001', type: 'audio_merge',
+    status: 'running', created_at: new Date().toISOString(), output_lines: [],
+    params: {
+      episode_id: 'EP0001', chapters: [], gap_duration: 0, normalize_volume: false,
+      music: { enabled: true, source: 'manual', files: [], volume: 8 },
+    },
+  }
+  await assert.rejects(generateAudioMerge(job as never), /Background music level 8 is not a gain Story can apply/)
+})

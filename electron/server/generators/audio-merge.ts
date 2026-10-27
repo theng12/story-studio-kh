@@ -591,6 +591,24 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     throw new Error(CLOSING_TAIL_REMIX_IN_PROGRESS)
   }
 
+  // The bed's level under the narration. An UNSET value is the owner's default (6%, 2026-10-26,
+  // after DM0018/PR0039 were mixed too loud at 8%); a stated one — the page, a saved preset — is
+  // the customer's choice and is never rewritten (AGENTS.md §5). Checked before any FFmpeg work.
+  if (req.music) {
+    const level = resolveBackgroundMusicVolume(req.music.volume)
+    if (level.defaulted) {
+      req.music.volume = level.volume
+      job.output_lines.push(`Background music level was not set; using ${Math.round(level.volume * 100)}% under the narration.`)
+    } else if (Number(req.music.volume) > 1) {
+      // Levels are LINEAR GAIN: `8` is eight times the voice, not 8%. A stated level above unity is
+      // a percentage that never went through its one conversion (a mix saved before 1.4.361 replays
+      // one). Never guess the unit or squeeze the value into range silently — that is the DM0018 /
+      // PR0039 defect with a new coat of paint (`lib/audio-gain.ts`, AGENTS.md §6).
+      throw new Error(`Background music level ${req.music.volume} is not a gain Story can apply (levels are linear, 0–1: 0.08 is 8%). `
+        + 'The saved mix predates linear levels — open Audio Assembly, check it with the current preset, and run it from that page.')
+    }
+  }
+
   // One file per chapter: an episode still holding split `_partN` narration
   // gets each complete chapter joined first (a quality refresh keeps the exact
   // files its repair selected).
@@ -1137,17 +1155,6 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     }
 
     // 5. Mix with music and/or noise
-    // The bed's level under the narration. An UNSET value is the owner's default
-    // (6%, 2026-10-26, after DM0018/PR0039 were mixed too loud at 8%); a stated
-    // one — the page, a saved preset — is the customer's choice and is never
-    // rewritten (AGENTS.md §5).
-    if (req.music) {
-      const level = resolveBackgroundMusicVolume(req.music.volume)
-      if (level.defaulted) {
-        req.music.volume = level.volume
-        job.output_lines.push(`Background music level was not set; using ${Math.round(level.volume * 100)}% under the narration.`)
-      }
-    }
     const musicEnabled = req.music?.enabled && (req.music.files?.length ?? 0) > 0
     const noiseEnabled = req.background_noise?.enabled
 
