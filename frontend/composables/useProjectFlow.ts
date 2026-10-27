@@ -27,7 +27,7 @@ import { useRoute } from 'vue-router'
  * Library/Jobs/Settings are intentionally NOT steps — they're tools, not
  * stages of the creation chain.
  */
-export type VisualSource = 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'music'
+export type VisualSource = 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'music' | 'still-posts'
 export type EpisodeVisualSource = 'scene_plan' | 'image_pool'
 
 export type SceneAlignment = 'chapter' | 'sentence'
@@ -71,7 +71,10 @@ export function normalizeVisualSource(
  * (`musicChannel: true`) is the MUSIC flow whatever its narration format says. Every page that
  * reads the format uses this, so the sidebar, Board, Dashboard and Pipeline agree.
  */
-export function visualSourceFromFormat(format: { visualSource?: unknown; musicChannel?: unknown } | null | undefined): VisualSource | null {
+export function visualSourceFromFormat(format: { visualSource?: unknown; musicChannel?: unknown; stillPostsChannel?: unknown } | null | undefined): VisualSource | null {
+  // A Still Posts channel is decided by its Formula (owner, 2026-10-27), exactly as a music channel
+  // is: the flag comes from the effective-format response, so the sidebar and the ribbon agree.
+  if (format?.stillPostsChannel === true) return 'still-posts'
   if (format?.musicChannel === true) return 'music'
   return parseVisualSource(format?.visualSource)
 }
@@ -138,6 +141,9 @@ const STEP = {
   songPool:     { key: 'song-pool', label: 'Song Pool', icon: '🎼', path: '/song-pool', phase: 'music' },
   episodeBuilder: { key: 'episode-builder', label: 'Episode Builder', icon: '🧩', path: '/episode-builder', phase: 'episode' },
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
+  // Still Posts (owner, 2026-10-27): one workspace is the whole production path — the batch writer,
+  // the channel's characters, the per-post editor and the export all live on one page.
+  stillPosts: { key: 'still-posts', label: 'Still Posts', icon: '🖼', path: '/still-posts', phase: 'story' },
 } satisfies Record<string, FlowStep>
 const FLOW_TIMESTAMP: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.introduction,
@@ -173,7 +179,11 @@ const FLOW_MUSIC: FlowStep[] = [
   STEP.videoAssembly, { ...STEP.thumbnails, phase: 'video' }, { ...STEP.metadata, phase: 'video' },
 ]
 
+// A Still Posts channel makes pictures, not episodes: no story, media or video stages at all.
+const FLOW_STILL_POSTS: FlowStep[] = [STEP.stillPosts]
+
 export function flowForVisualSource(vs: VisualSource): FlowStep[] {
+  if (vs === 'still-posts') return FLOW_STILL_POSTS
   if (vs === 'music') return FLOW_MUSIC
   if (vs === 'timestamp-driven') return FLOW_TIMESTAMP
   if (vs === 'continuity-chain') return FLOW_CONTINUITY

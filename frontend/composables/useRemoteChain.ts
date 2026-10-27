@@ -26,6 +26,9 @@ const CHAINS: Record<VisualSource, CockpitStep[]> = {
   // Music channels (SPEC phase 4): Episode Builder draw + stitch → scene pictures → final video →
   // thumbnail → YouTube Finalizer. Never makes songs; a short pool fails the build step plainly.
   'music': ['music_build', 'scene_review', 'video_assembly', 'thumb_images', 'metadata'],
+  // Still Posts makes pictures, not episodes: there is no video batch for the remote cockpit to
+  // run, and an empty chain says that honestly instead of offering steps that cannot apply.
+  'still-posts': [],
 }
 
 // The "Final video" steps — "Up to review" stops before these so you can eyeball
