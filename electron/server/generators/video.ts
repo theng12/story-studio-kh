@@ -5257,7 +5257,7 @@ export async function prepareSceneClips(
     // does not match falls through to the FFmpeg chain below exactly as before, so the slow path
     // is still there for every shape a provider returns.
     if (isVideoScene && !wantsChapterTitle && !naturalVideo && !holdVideo) {
-      const problems = await sceneClipCompatibilityProblems(
+      const problems = sceneClipCompatibilityProblems(
         await probeVideoStream(scene.image_path), { w, h, fps: quality.fps, duration: renderDuration })
       if (problems.length === 0) {
         await fs.copyFile(scene.image_path, clipPath)
