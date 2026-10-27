@@ -534,45 +534,87 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-scope', async (req, r
   } catch (error: any) { res.status(409).json({ detail: error.message }) }
 })
 
+export interface SketchDrawEligibleScenesResult {
+  plan: ScenePlan
+  planPath: string
+  episodeDir: string
+  clipsDir: string
+  scope: Set<string>
+  queuedSceneIds: string[]
+  skippedReasons: Array<{ scene_id: string; reason: string }>
+}
+
+/**
+ * Shared scene-selection and skip rules for Sketch Draw batch work (Motion Review page + Pipeline).
+ * Skips scenes outside motion scope, unapproved images, marked Still, shorter than floor,
+ * missing images, and already-fresh clips.
+ */
+export async function resolveSketchDrawEligibleScenes(
+  slug: string,
+  episodeId: string,
+  options?: { singleSceneId?: string },
+): Promise<SketchDrawEligibleScenesResult> {
+  if ((await readVideoVisualSource(slug, episodeId)).source !== 'scene_plan') {
+    throw new Error('Motion Review is not used for Image Pool episodes.')
+  }
+  const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+  const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
+  const scoped = await resolveEpisodeMotionSceneIds(slug, episodeId, plan.scenes, paths.episode_dir)
+  const scope = new Set(scoped.scene_ids)
+  const single = Boolean(options?.singleSceneId)
+  const sceneId = typeof options?.singleSceneId === 'string' ? options.singleSceneId.trim() : ''
+  if (single && (!/^[A-Za-z0-9_-]+$/.test(sceneId) || !scope.has(sceneId))) {
+    throw new Error('Choose a scene inside the saved motion scope.')
+  }
+  const settings = plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
+    ? await resolveSketchDrawSettings(slug, episodeId) : undefined
+  const config = await pm.getConfig(slug)
+  const floor = Math.max(0, Number(config?.animate_min_seconds) || 0)
+  const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+  const filterContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: settings, revealScenes: plan.scenes.map(item => item.id) }
+  const ids: string[] = []
+  const skipped_reasons: Array<{ scene_id: string; reason: string }> = []
+  for (const scene of plan.scenes) {
+    if (!scope.has(scene.id) || (single && scene.id !== sceneId)) continue
+    const skip = (reason: string) => { skipped_reasons.push({ scene_id: scene.id, reason }) }
+    if (!scene.approved) { skip('image is not approved'); continue }
+    if (!single && scene.motion_choice === 'still') { skip('marked Still'); continue }
+    let window: number
+    try { window = sceneWindowSeconds(scene) }
+    catch { skip(`invalid Scene Plan window for ${scene.id}`); continue }
+    if (window < floor) { skip(`shorter than this channel's ${floor}s animation minimum`); continue }
+    // Presence only: a full image decode belongs to generation, never to queue admission.
+    const image = await resolveSceneImageReadPath(slug, episodeId.toUpperCase(), paths.episode_dir, scene.id)
+    const imageStat = image ? await fs.stat(image).catch(() => null) : null
+    if (!image || !imageStat?.isFile() || imageStat.size <= 0) { skip('missing image'); continue }
+    if (!single && scene.clip_renderer === 'sketch_draw'
+      && await isSceneClipFresh(scene, path.join(clipsDir, `${scene.id}.mp4`), filterContext)) {
+      skip('already fresh')
+      continue
+    }
+    ids.push(scene.id)
+  }
+  return {
+    plan,
+    planPath,
+    episodeDir: paths.episode_dir,
+    clipsDir,
+    scope,
+    queuedSceneIds: ids,
+    skippedReasons: skipped_reasons,
+  }
+}
+
 async function enqueueSketchDraw(req: express.Request<{ slug: string; episodeId: string }>, res: express.Response, single: boolean): Promise<void> {
   const { slug, episodeId } = req.params
   try {
-    if ((await readVideoVisualSource(slug, episodeId)).source !== 'scene_plan') throw new Error('Motion Review is not used for Image Pool episodes.')
-    const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
-    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
-    const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
-    const scoped = await resolveEpisodeMotionSceneIds(slug, episodeId, plan.scenes, paths.episode_dir)
-    const scope = new Set(scoped.scene_ids)
     const sceneId = typeof req.body?.scene_id === 'string' ? req.body.scene_id.trim() : ''
-    if (single && (!/^[A-Za-z0-9_-]+$/.test(sceneId) || !scope.has(sceneId))) throw new Error('Choose a scene inside the saved motion scope.')
-    const settings = plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
-      ? await resolveSketchDrawSettings(slug, episodeId) : undefined
-    const config = await pm.getConfig(slug)
-    const floor = Math.max(0, Number(config?.animate_min_seconds) || 0)
-    const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
-    const filterContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: settings, revealScenes: plan.scenes.map(item => item.id) }
-    const ids: string[] = []
-    const skipped_reasons: Array<{ scene_id: string; reason: string }> = []
-    for (const scene of plan.scenes) {
-      if (!scope.has(scene.id) || (single && scene.id !== sceneId)) continue
-      const skip = (reason: string) => { skipped_reasons.push({ scene_id: scene.id, reason }) }
-      if (!scene.approved) { skip('image is not approved'); continue }
-      if (!single && scene.motion_choice === 'still') { skip('marked Still'); continue }
-      let window: number
-      try { window = sceneWindowSeconds(scene) }
-      catch { skip(`invalid Scene Plan window for ${scene.id}`); continue }
-      if (window < floor) { skip(`shorter than this channel's ${floor}s animation minimum`); continue }
-      // Presence only: a full image decode belongs to generation, never to queue admission.
-      const image = await resolveSceneImageReadPath(slug, episodeId.toUpperCase(), paths.episode_dir, scene.id)
-      const imageStat = image ? await fs.stat(image).catch(() => null) : null
-      if (!image || !imageStat?.isFile() || imageStat.size <= 0) { skip('missing image'); continue }
-      if (!single && scene.clip_renderer === 'sketch_draw'
-        && await isSceneClipFresh(scene, path.join(clipsDir, `${scene.id}.mp4`), filterContext)) {
-        skip('already fresh')
-        continue
-      }
-      ids.push(scene.id)
-    }
+    const { queuedSceneIds: ids, skippedReasons: skipped_reasons } = await resolveSketchDrawEligibleScenes(
+      slug,
+      episodeId,
+      single ? { singleSceneId: sceneId } : undefined,
+    )
     if (!ids.length) {
       if (single) throw new Error(`Scene ${sceneId} cannot start Sketch Draw: ${skipped_reasons[0]?.reason || 'it is outside the current motion scope'}.`)
       res.json({ ok: true, queued: 0, skipped: skipped_reasons.length, skipped_reasons, queued_scene_ids: [] })
