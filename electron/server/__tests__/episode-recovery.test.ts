@@ -1664,3 +1664,99 @@ test('History15 shape: the new plan names the explicitly selected failed row as 
   assert.equal(plan.steps.scene_plan_run?.job_id, `recovery-${plan.id}-scene_plan_run`)
   assert.equal(plan.steps.scene_plan_run?.dispatched, undefined)
 })
+
+// Owner, 2026-10-27: automatic episode recovery never re-does a step on an episode that already has
+// an accepted final video; Retry / Recover still may. The final is the one Video Assembly's own
+// detection counts (`asset-status.hasAcceptedFinalVideo`).
+const ACCEPTED_FINAL_LEFT_ALONE = 'This episode already has an accepted final video, so automatic recovery left it alone.'
+  + ' Use Retry to redo a step on purpose.'
+
+async function acceptedFinalFixture(name: string) {
+  const jq = await import('../services/job-queue.js')
+  const pm = await import('../services/project-manager.js')
+  const { createEpisodeRecoveryPlan } = await subject()
+  const project = await pm.createProject({ name })
+  await jq.setQueuePaused(true)
+  const merge = { ...source('audio_merge'), project_slug: project.slug, job_id: 'accepted-merge',
+    status: 'done' as const, finished_at: '2026-10-20T00:02:00Z' }
+  await jq.writeAuthoritativeJob(merge)
+  const plan = createEpisodeRecoveryPlan([merge])
+  plan.target = 'scene_plan_run'
+  plan.completed = ['audio_merge', 'subtitle_sections', 'subtitle_stitch']
+  plan.first_unresolved = 'scene_plan_run'
+  plan.steps.scene_plan_run = { job_id: `recovery-${plan.id}-scene_plan_run`, type: 'scene_plan_run',
+    title: 'Scene Plan', params: { model: 'fixture-planner' } }
+  await fs.writeFile(path.join(pm.getProjectDir(project.slug)!, 'episode-recovery-plans.json'),
+    JSON.stringify({ version: 1, plans: { EP0001: plan } }))
+  const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+  const paths = await resolveEpisodePathsByCode(project.slug, 'EP0001')
+  const writeFinal = async () => {
+    await fs.mkdir(paths.video_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.video_dir, 'EP0001_final_video.mp4'), Buffer.alloc(2048, 3))
+  }
+  return { project, plan, writeFinal }
+}
+
+test('automatic recovery queues nothing on an episode with an accepted final, and says why', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const { project, plan, writeFinal } = await acceptedFinalFixture('Accepted final automatic pass')
+    await writeFinal()
+    const { recoverEpisode } = await subject()
+    const automatic = (await recoverEpisode(project.slug, 'EP0001', false))!
+    assert.equal(automatic.message, ACCEPTED_FINAL_LEFT_ALONE)
+    assert.equal(automatic.dispatch_status, 'blocked')
+    assert.equal(automatic.first_unresolved, 'scene_plan_run', 'the plan is kept for Retry, not deleted')
+    assert.equal(automatic.id, plan.id)
+    assert.equal((await jq.getJobs(project.slug)).filter(job => job.type === 'scene_plan_run').length, 0,
+      'no step is enqueued on the episode the guard protects')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('an owner request dispatches the same step on an episode with an accepted final', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const { project, plan, writeFinal } = await acceptedFinalFixture('Accepted final owner retry')
+    await writeFinal()
+    const { recoverEpisode } = await subject()
+    const explicit = (await recoverEpisode(project.slug, 'EP0001', true, [], [], true))!
+    assert.equal(explicit.id, plan.id, 'the same saved plan answers Retry')
+    assert.notEqual(explicit.message, ACCEPTED_FINAL_LEFT_ALONE, 'an owner request is audited, not refused')
+    assert.ok(explicit.owner_requested_at, 'the plan records that the owner asked')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('an episode with no accepted final is audited exactly as before', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const { project } = await acceptedFinalFixture('No accepted final')
+    const { recoverEpisode } = await subject()
+    const audited = (await recoverEpisode(project.slug, 'EP0001', false))!
+    assert.notEqual(audited.message, ACCEPTED_FINAL_LEFT_ALONE, 'the guard only protects finished episodes')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})
+
+test('a step that is already running is left to finish and is not stamped with the guard', async () => {
+  const temp = await useTempDataDir()
+  const jq = await import('../services/job-queue.js')
+  try {
+    const { project, plan, writeFinal } = await acceptedFinalFixture('Accepted final while running')
+    const jobId = plan.steps.scene_plan_run!.job_id
+    const queued = await jq.enqueueEpisodeRecoveryOnce(jobId, {
+      project_slug: project.slug, episode_id: 'EP0001', type: 'scene_plan_run', title: 'Scene Plan',
+      params: plan.steps.scene_plan_run!.params,
+    })
+    // The in-memory row is authoritative while the lane is paused; the disk copy stays as saved.
+    assert.equal(jq._setJobRecordForTesting(queued.job_id, { status: 'running', started_at: '2026-10-20T00:03:00Z' }), true)
+    await writeFinal()
+    const { recoverEpisode } = await subject()
+    const current = (await recoverEpisode(project.slug, 'EP0001', false))!
+    assert.equal(current.dispatch_status, 'running', 'the accepted job already owns this edge')
+    assert.notEqual(current.message, ACCEPTED_FINAL_LEFT_ALONE, 'the running step is not the guard\'s business')
+    assert.equal((await jq.getJobs(project.slug)).find(row => row.job_id === queued.job_id)?.status, 'running',
+      'nothing cancels a step in flight')
+  } finally { await jq._waitForJobPersistenceForTesting(); await temp.cleanup() }
+})

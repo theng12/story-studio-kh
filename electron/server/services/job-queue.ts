@@ -636,6 +636,12 @@ export function _hasFinalRenderRecoveryHoldForTesting(jobId: string): boolean {
   return [...finalRenderRecoveryHolds].some(key => key.endsWith(`\0${jobId}`))
 }
 
+/** Test-only: put an in-memory row into a lane state no test can reach without a real executor. */
+export function _setJobRecordForTesting(jobId: string, patch: Partial<Job>): boolean {
+  const job = jobs.get(jobId)
+  return job ? (Object.assign(job, patch), true) : false
+}
+
 export function hasFinalRenderMonitorTransientHold(projectSlug: string, jobId: string): boolean {
   return finalRenderMonitorTransientHolds.has(finalRenderStateKey(projectSlug, jobId))
 }
