@@ -52,6 +52,7 @@ import {
   resolveGenStudioRetryScope,
   supportsGenStudioVideoMode,
   STORY_STUDIO_VIDEO_MODE,
+  STORY_STUDIO_VIDEO_MODES,
   variantsForGenStudioVideoOperation,
   type GenStudioVideoVariant,
   type GenStudioVideoModel,
@@ -229,9 +230,9 @@ export function selectSceneClipGenStudioVariant(
   variants: readonly GenStudioVideoVariant[] | undefined,
   requestedVariant?: Partial<SceneClipVariantSelection>,
 ): GenStudioVideoVariant {
-  const operation = requestedVariant?.operation
-  if (!requestedVariant || operation !== STORY_STUDIO_VIDEO_MODE) {
-    throw new Error(`A queued motion clip variant operation is required and must be ${STORY_STUDIO_VIDEO_MODE}.`)
+  const operation = requestedVariant?.operation || STORY_STUDIO_VIDEO_MODE
+  if (!requestedVariant || !STORY_STUDIO_VIDEO_MODES.includes(operation as any)) {
+    throw new Error(`A queued motion clip variant operation is required and must be one of: ${STORY_STUDIO_VIDEO_MODES.join(', ')}.`)
   }
   const intended = variantsForGenStudioVideoOperation(variants, operation)
   const cheapest = cheapestGenStudioVideoVariant(intended)
@@ -274,12 +275,13 @@ export function selectSceneClipNarrationVariant(
   resolution: string,
   narrationDurationSeconds: number,
   aspectRatio?: string,
+  operation: string = STORY_STUDIO_VIDEO_MODE,
 ): GenStudioVideoVariant {
   if (!Number.isFinite(narrationDurationSeconds) || narrationDurationSeconds <= 0) {
     throw new Error('Scene narration duration must be a positive number.')
   }
   const normalizedResolution = resolution.trim().toLowerCase()
-  const forResolution = variantsForGenStudioVideoOperation(variants, STORY_STUDIO_VIDEO_MODE)
+  const forResolution = variantsForGenStudioVideoOperation(variants, operation)
     .filter(variant => variant.resolution.trim().toLowerCase() === normalizedResolution)
   // The requested ratio keeps this on one canvas where the catalogue states a ratio per row,
   // so a portrait request is not measured against the landscape row's durations.

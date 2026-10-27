@@ -11,6 +11,7 @@ import {
   publishedVideoControls,
   supportsGenStudioVideoMode,
   STORY_STUDIO_VIDEO_MODE,
+  STORY_STUDIO_VIDEO_MODES,
   variantsForGenStudioVideoOperation,
   type GenStudioVideoControl,
   type GenStudioVideoVariant,
@@ -94,12 +95,12 @@ async function resolveRequestedVariant(
   const model = findGenStudioProduct(catalog, modelId)
   if (!model || !model.available || !supportsGenStudioVideoMode(model)) {
     throw new Error(
-      `The Gateway does not currently publish an available image-to-video model with id "${modelId}".`,
+      `The Gateway does not currently publish an available video model with id "${modelId}".`,
     )
   }
-  const operation = providerParams?.operation
-  if (operation !== STORY_STUDIO_VIDEO_MODE) {
-    throw new Error(`Gateway video requests must include the published ${STORY_STUDIO_VIDEO_MODE} operation.`)
+  const operation = providerParams?.operation || STORY_STUDIO_VIDEO_MODE
+  if (!STORY_STUDIO_VIDEO_MODES.includes(operation as any)) {
+    throw new Error(`Gateway video requests must include a published video operation (${STORY_STUDIO_VIDEO_MODES.join(', ')}).`)
   }
   const published = variantsForGenStudioVideoOperation(model.variants, operation)
   if (!published.length) {

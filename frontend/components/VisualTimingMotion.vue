@@ -303,6 +303,7 @@ function setMotionMode(mode: MotionScope['mode']): void {
   clearPresetNotice()
   if (mode === 'opening') draft.value.motion_scope = { mode, end_sec: 30 }
   else if (mode === 'selected') draft.value.motion_scope = { mode, scene_ids: [] }
+  else if (mode === 'share') draft.value.motion_scope = { mode, share_percent: 25, formula: 'opening_hook' }
   else draft.value.motion_scope = { mode }
 }
 

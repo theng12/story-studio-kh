@@ -207,11 +207,42 @@ chapter-distributed scene-image formats may run `mode: "all"`; B-Roll, timestamp
 continuity-chain and narrated-scenes must run thumbnail prompts only (`mode: "thumbnails"`),
 because their scene prompts come from Scene Plan.
 
-**Video.** Image-to-video only — never restore text-to-video modes, models, UI controls, preset
-values, or fallbacks. (Owner, 2026-10-26: text-to-video may become a future feature, but he has not
-decided; changing this is his call, not an implementation task.) Video models resolve through the
-one paired Gateway's live catalogue — do not half-wire or duplicate a second catalogue. Every request uses the exact scene image for its stable scene number,
-and a missing image is a **blocking error**, never permission to reuse a different one.
+**Video.** Video is a multi-lane feature, and each scene names its own lane: **still · Sketch Draw
+(local) · AI image-to-video · AI text-to-video · reference-to-video · an imported clip**. This
+**supersedes the image-to-video-only rule of 2026-09-xx** (owner, 2026-10-26): one kind of motion
+is not enough, and Sketch Draw is one option among several, not the only one.
+
+- **Capabilities come live from the Gateway** (§1) — published durations, resolutions, aspect
+  ratios, start/end-frame and reference support, audio switches, price basis and controls. Nothing
+  here is hardcoded, curated from memory, or inferred from a model's name; a row the Gateway
+  cannot describe is not offered.
+- **A scene's lane is an editorial choice.** T2V is chosen deliberately at Scene Plan (per scene or
+  per episode); a T2V scene is reviewed in Motion Review, has a cheap backup still made as a safety
+  net, and must assemble as a clip when available. Scene Plan writes a **video prompt** for T2V
+  scenes and a **motion prompt** for I2V scenes; neither is optional for the lane that needs it.
+- **Scene Plan respects the planned model's clip length.** Read min/max clip duration live from the
+  Gateway capability record; plan every video scene inside that range. If the model changes, flag
+  misfits in Motion Review and offer to re-plan or fill (chain or hold).
+- **Every image lane uses the exact scene image for its stable scene number.** A missing image is a
+  **blocking error** for still, Sketch Draw and image-to-video — never permission to reuse a
+  different scene's image.
+- **Reference-to-video may use only this episode's own character images** (§4, ownership is looked
+  up in the episode's own file list, never parsed from a path), and a generator refuses foreign
+  input in preflight.
+- **Mix control belongs to Motion Review.** The per-episode video share (a share of running time,
+  10–100%) and its selection formula (opening hook, Scene Plan key moments, spread) are resolved
+  there; the remainder becomes stills or still+Sketch Draw. Cost and time are shown before anything
+  is spent.
+- **Paid models are added but not used.** Only Wan 3.0 and Seedance 2.5 via the Gateway, with every
+  option read from capability records. Nothing is charged by default, and nothing in tests.
+- **Legacy is deleted, not renamed.** Sora 2, Runway Gen-3 and the local LTX-2.3/Lance/Gemma-3-12B
+  packs are gone from code, docs, tests and rules; stored project data still reads safely and is
+  never rewritten (§5).
+- **Clips must not slow assembly.** A clip is normalised once and then copied where possible
+  (encode-once); a motion episode's assembly time is measured against a stills-only episode and
+  reported.
+
+Model retirements are by **id**, in one list per app, never by display name.
 
 **Model inventory.** Do not restore the Add Custom Model form, a project-level `models` catalog,
 `is_custom` entries, or a unified catalog write path. Inventory and dispatch belong to GenStudio; do
