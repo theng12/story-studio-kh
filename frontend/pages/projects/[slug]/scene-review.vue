@@ -296,6 +296,57 @@
             <small>Default on · saved with this Scene Review preset</small>
           </span>
         </label>
+        <!-- v1.4.364 — the free image quality check (owner 2026-10-26).
+             Master on/off switch: ON by default. Turn off to stop checks. -->
+        <label
+          class="sr-auto-approve"
+          title="Free quality check of generated scene images using a fleet vision model through Gateway. Default ON."
+        >
+          <input
+            type="checkbox"
+            :checked="imageCheckConfig.enabled"
+            :disabled="imageCheckSaving"
+            @change="toggleImageCheckEnabled"
+          >
+          <span>
+            <strong>Free vision image check</strong>
+            <small>{{ imageCheckConfig.enabled ? 'ON · runs free quality check on generated images' : 'OFF · no check is queued and nothing is recorded' }}</small>
+          </span>
+        </label>
+        <!-- The auto-remake switch: OFF by default and locked until shadow_until (2026-11-30). -->
+        <label
+          v-if="imageCheckConfig.enabled"
+          class="sr-auto-approve"
+          :title="imageCheckSwitchUnlocked
+            ? 'One automatic remake per image when the free check fails. Off by default.'
+            : `The free check is recording findings in shadow mode. The auto-remake switch stays locked until ${imageCheckUnlockLabel}.`"
+        >
+          <input
+            type="checkbox" :checked="imageCheckConfig.auto_remake"
+            :disabled="imageCheckSaving || !imageCheckSwitchUnlocked"
+            @change="toggleImageCheckAutoRemake"
+          >
+          <span>
+            <strong>Auto-remake images the free check fails</strong>
+            <small v-if="imageCheckSwitchUnlocked">One remake per image · OFF by default</small>
+            <small v-else>Shadow review until {{ imageCheckUnlockLabel }} · findings only</small>
+          </span>
+        </label>
+        <p v-if="imageCheckConfig.enabled" class="sr-image-check-stats">
+          Free vision check:
+          <span v-if="!imageCheckSwitchUnlocked || !imageCheckConfig.auto_remake">shadow mode (nothing changed)</span>
+          <span v-else>auto-remake on</span>
+          · {{ imageCheckStats.checked }} checked,
+          {{ imageCheckStats.passed }} passed,
+          {{ imageCheckStats.failed }} failed,
+          {{ imageCheckStats.notChecked }} not checked.
+          <template v-if="imageCheckStats.failedFindings.length">
+            Latest finding: {{ imageCheckStats.failedFindings[0] }}
+          </template>
+        </p>
+        <p v-else class="sr-image-check-stats text-muted">
+          Free vision check is turned off. No check is queued and nothing is recorded.
+        </p>
       </div>
 
       <div class="sr-control-section sr-action-section">
@@ -568,6 +619,12 @@
                 class="review-stale-badge"
                 title="This image was rendered from an older prompt — the prompt has changed since. Re-render to refresh it."
               >⚠ stale — re-render</span>
+              <!-- v1.4.364 — the free image quality check's verdict. -->
+              <span
+                v-if="scene.image_check || !imageCheckConfig.enabled"
+                :class="['review-image-check-badge', !imageCheckConfig.enabled ? 'is-off' : `is-${scene.image_check?.state || 'not_checked'}`]"
+                :title="describeImageCheck(scene.image_check, imageCheckConfig.enabled)"
+              >{{ imageCheckBadgeLabel(scene.image_check, imageCheckConfig.enabled) }}</span>
             </div>
             <p class="review-transcript">{{ scene.transcript_segment }}</p>
             <details class="review-prompt-details disclosure">
@@ -760,6 +817,7 @@ import {
 import { sceneReviewPresetApply, sceneReviewPresetSnapshot, type SceneReviewPresetData } from '../../../utils/scene-review-preset.js'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
+import { SCENE_IMAGE_CHECK_SHADOW_UNTIL, sceneImageCheckShadowOver } from '@shared/scene-image-check'
 import { secureOperationId } from '~/composables/useFreshGenerationAction'
 
 // usePresets captures the project slug at setup. Recreate this page for a
@@ -773,7 +831,7 @@ const slug = computed(() => route.params.slug as string)
 // v1.0.229 — image-model catalog for the picker. Scene Review renders IMAGES
 // (continuity chain / per-scene regen), so it needs the image-model picker,
 // not the LLM ModelSelector that used to be here.
-const { config } = useProject()
+const { config, refreshConfig } = useProject()
 const { get, post, put } = useApi()
 const freshSceneImageAction = useFreshGenerationAction()
 const { success, error: showError } = useToast()
@@ -812,6 +870,22 @@ interface ReviewScene {
    *  current visual_prompt (re-prompted in Scene Plan / edited here without
    *  re-rendering). */
   stale?: boolean
+  /** v1.4.364 — the free image quality check's recorded verdict, if one ran. */
+  image_check?: {
+    state: 'passed' | 'failed' | 'not_checked'
+    score?: number
+    passed?: boolean
+    findings: string[]
+    /** What the free engine cannot measure (e.g. text legibility, anatomy). */
+    unmeasurable?: string[]
+    caption?: string
+    model_id?: string
+    model_name?: string
+    checked_at: string
+    shadow_mode: boolean
+    remade: boolean
+    reason?: string
+  }
   /** v1.0.470 — an animated clip (mp4) exists for this scene. */
   clip_exists?: boolean
   /** v1.0.470 — clip exists but its motion prompt changed since it was rendered. */
@@ -922,6 +996,83 @@ useRememberedForm('scene-review-genstudio', slug, form)
 // Safety-sensitive and intentionally separate from remembered form state:
 // this turns on by default (owner 2026-10-25); a preset that explicitly saved false stays off.
 const autoApproveGenerated = ref(true)
+
+// v1.4.364 — the free image quality check's project switches (owner 2026-10-26).
+// 1. Master on/off switch (default ON). When off, nothing is queued and nothing is recorded.
+// 2. Auto-remake switch (default OFF). Locked until shadow_until (2026-11-30).
+const imageCheckSaving = ref(false)
+const imageCheckConfig = computed(() => {
+  const raw = ((config.value as any)?.scene_image_check || {}) as Record<string, any>
+  return {
+    enabled: raw.enabled !== false,
+    auto_remake: raw.auto_remake === true,
+    shadow_until: typeof raw.shadow_until === 'string' && Number.isFinite(Date.parse(raw.shadow_until))
+      ? raw.shadow_until
+      : SCENE_IMAGE_CHECK_SHADOW_UNTIL,
+  }
+})
+const imageCheckSwitchUnlocked = computed(() => sceneImageCheckShadowOver(imageCheckConfig.value.shadow_until))
+const imageCheckUnlockLabel = computed(() => {
+  const until = Date.parse(imageCheckConfig.value.shadow_until)
+  if (!Number.isFinite(until)) return 'Nov 30, 2026'
+  return new Date(until).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+})
+const imageCheckStats = computed(() => {
+  let passed = 0
+  let failed = 0
+  let notChecked = 0
+  const failedFindings: string[] = []
+  for (const scene of scenes.value) {
+    const check = scene.image_check
+    if (!check) continue
+    if (check.state === 'passed') passed++
+    else if (check.state === 'failed') { failed++; if (check.findings.length) failedFindings.push(check.findings.join('; ')) }
+    else notChecked++
+  }
+  return { checked: passed + failed + notChecked, passed, failed, notChecked, failedFindings }
+})
+async function toggleImageCheckEnabled(event: Event): Promise<void> {
+  const next = (event.target as HTMLInputElement).checked
+  if (imageCheckSaving.value) return
+  const project = slug.value
+  imageCheckSaving.value = true
+  try {
+    await put(`/projects/${project}/settings/config`, {
+      scene_image_check: {
+        ...((config.value as any)?.scene_image_check || {}),
+        enabled: next,
+        shadow_until: imageCheckConfig.value.shadow_until,
+      },
+    })
+    await refreshConfig(project)
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Could not save the image check switch.')
+  } finally {
+    imageCheckSaving.value = false
+  }
+}
+async function toggleImageCheckAutoRemake(event: Event): Promise<void> {
+  const next = (event.target as HTMLInputElement).checked
+  if (imageCheckSaving.value) return
+  if (next && (!imageCheckSwitchUnlocked.value || !imageCheckConfig.value.enabled)) return
+  const project = slug.value
+  imageCheckSaving.value = true
+  try {
+    await put(`/projects/${project}/settings/config`, {
+      scene_image_check: {
+        ...((config.value as any)?.scene_image_check || {}),
+        enabled: imageCheckConfig.value.enabled,
+        auto_remake: next,
+        shadow_until: imageCheckConfig.value.shadow_until,
+      },
+    })
+    await refreshConfig(project)
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Could not save the auto-remake switch.')
+  } finally {
+    imageCheckSaving.value = false
+  }
+}
 
 // Scene Review presets contain only current GenStudio render controls.
 // Presets saved by older builds can still carry retired quality, step-count,
@@ -1830,6 +1981,42 @@ function jobCreatedAt(job: any): number {
   return Number.isFinite(createdAt) ? createdAt : Number.MIN_SAFE_INTEGER
 }
 
+// v1.4.364 — the free image quality check's recorded verdict, shown beside the
+// stale badge. When the check is off, existing findings stay visible and the
+// badge reads "check off", never "passed" (§6).
+function imageCheckBadgeLabel(check: ReviewScene['image_check'] | undefined, enabled = true): string {
+  if (!enabled) {
+    if (check?.findings?.length) return `⚠ Check (${check.findings.length}) · check off`
+    return '· check off'
+  }
+  if (!check) return ''
+  if (check.state === 'passed') return `✓ Checked${check.score != null ? ` ${check.score}` : ''}${check.shadow_mode ? ' · shadow' : ''}`
+  if (check.state === 'failed') return `⚠ Check${check.remade ? ' · remade' : ''}${check.shadow_mode ? ' · shadow' : ''}`
+  return '· not checked'
+}
+function describeImageCheck(check: ReviewScene['image_check'] | undefined, enabled = true): string {
+  if (!enabled) {
+    if (check?.findings?.length) {
+      return `Free image check is turned off in project settings. Prior recorded findings: ${check.findings.join('; ')}.`
+    }
+    return 'Free image check is turned off in project settings. No check is run and this is NOT a pass.'
+  }
+  if (!check) return 'Not checked. This is NOT a pass.'
+  const parts: string[] = []
+  parts.push(check.shadow_mode ? 'Shadow check — findings recorded, nothing changed.' : 'Quality check result.')
+  if (check.state === 'passed') parts.push(`Passed${check.score != null ? ` with score ${check.score}` : ''}.`)
+  else if (check.state === 'failed') {
+    parts.push(`Failed${check.score != null ? ` with score ${check.score}` : ''}.`)
+    if (check.findings.length) parts.push(`Findings: ${check.findings.join('; ')}.`)
+    if (check.remade) parts.push('This image was auto-remade once.')
+  } else {
+    parts.push(`Not checked${check.reason ? ` — ${check.reason}` : ''}. This is NOT a pass.`)
+  }
+  if (check.model_name) parts.push(`Model: ${check.model_name}.`)
+  if (check.unmeasurable?.length) parts.push(`Not measured by this free check: ${check.unmeasurable.join(', ')}.`)
+  return parts.join(' ')
+}
+
 // `getJobs()` groups by status and SSE updates replace in place, so array order
 // is not action chronology. Created time is the durable action clock; job ID
 // makes a same-millisecond tie deterministic.
@@ -2533,6 +2720,14 @@ watch(() => replaceableUncertainJob.value?.job_id || '', (sourceJobId, previousS
 .sr-auto-approve span { display: grid; gap: 3px; min-width: 0; }
 .sr-auto-approve strong { color: var(--text-primary); font-size: 12px; }
 .sr-auto-approve small { color: var(--text-muted); font-size: var(--font-xs); }
+.sr-image-check-stats {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+  max-width: 70ch;
+  overflow-wrap: anywhere;
+}
 .sr-ratio-label {
   color: var(--text-muted);
   font-size: var(--font-xs);
@@ -2594,6 +2789,18 @@ watch(() => replaceableUncertainJob.value?.job_id || '', (sourceJobId, previousS
   border-radius: 4px;
   padding: 0 5px;
 }
+.review-image-check-badge {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.review-image-check-badge.is-passed { color: #4eb373; border-color: color-mix(in srgb, #4eb373 50%, transparent); }
+.review-image-check-badge.is-failed { color: #e0843a; border-color: color-mix(in srgb, #e0843a 50%, transparent); }
+.review-image-check-badge.is-not_checked { color: var(--text-muted); border-style: dashed; }
+.review-image-check-badge.is-off { color: var(--text-muted); border-style: dashed; opacity: .8; }
 .review-thumb-stale {
   position: absolute;
   top: 5px;

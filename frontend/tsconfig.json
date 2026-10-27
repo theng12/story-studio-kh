@@ -25,7 +25,8 @@
       "@shared/effect-params": ["../electron/server/contracts/effect-params.ts"],
       "@shared/effects-look": ["../electron/server/contracts/effects-look.ts"],
       "@shared/publishing-overview": ["../electron/server/contracts/publishing-overview.ts"],
-      "@shared/genstudio-image-defaults": ["../electron/server/contracts/genstudio-image-defaults.ts"]
+      "@shared/genstudio-image-defaults": ["../electron/server/contracts/genstudio-image-defaults.ts"],
+      "@shared/scene-image-check": ["../electron/server/contracts/scene-image-check.ts"]
     },
     "noUncheckedIndexedAccess": false,
     "noImplicitAny": false,

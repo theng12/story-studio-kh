@@ -332,6 +332,8 @@ interface ReviewSceneAugmented {
    *  the renderer stamps alongside image_path. Always false for images rendered
    *  before this shipped (no rendered_prompt recorded) — no false positives. */
   stale: boolean
+  /** v1.4.364 — the free image quality check's recorded verdict, if one ran. */
+  image_check?: import('../services/scene-image-quality-check.js').SceneImageQualityCheckResult
   /** v1.0.470 — an animated clip (mp4) exists for this scene in "11 Video Assets". */
   clip_exists?: boolean
   /** v1.0.470 — the clip exists but was rendered from a now-changed motion prompt. */
@@ -794,6 +796,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         stale: imageExists
           && typeof (s as any).rendered_prompt === 'string'
           && (s as any).rendered_prompt !== s.visual_prompt,
+        image_check: (s as any).image_check || undefined,
         // v1.0.470 — clip animation status.
         clip_exists: clipExists,
         clip_stale: clipStale,

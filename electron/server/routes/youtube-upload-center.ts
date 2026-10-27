@@ -2483,8 +2483,16 @@ async function youtubePreviewResponse(options: {
   const source = sourcePath
     ? { filename: path.basename(sourcePath), revision: await resolveYouTubeSourceRevisionCached(sourcePath) }
     : null
+  let videoId: string | null = null
+  try {
+    const { channelId } = await accountForCurrentChannel(slug)
+    const remote = await remoteVideoFor(slug, episodeCode, previewTitle, channelId)
+    if (remote?.video_id) videoId = remote.video_id
+  } catch {
+    // lookup is best-effort
+  }
   const { thumbnail_filename: _thumbnailFilename, ...payload } = built
-  return { ...payload, thumbnail, source, limits: YOUTUBE_EDIT_LIMITS }
+  return { ...payload, thumbnail, source, video_id: videoId, limits: YOUTUBE_EDIT_LIMITS }
 }
 
 /** A refusal the route answers itself, rather than a 500 with a stack. */

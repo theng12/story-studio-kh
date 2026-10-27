@@ -232,6 +232,16 @@
               >
                 {{ busy === ep.operation.operation_id ? 'Checking…' : 'Check on YouTube' }}
               </button>
+              <a
+                v-if="associatedVideoId(ep)"
+                :href="`https://studio.youtube.com/video/${encodeURIComponent(associatedVideoId(ep))}/edit`"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-ghost btn-sm"
+                title="Start a thumbnail test in YouTube Studio"
+              >
+                Start a thumbnail test in YouTube Studio
+              </a>
               <button
                 v-if="canScheduleExisting(ep)" class="btn btn-ghost btn-sm" type="button"
                 :disabled="busy !== '' || !!scheduleBlocked" :title="scheduleBlocked || ''"
@@ -405,21 +415,56 @@
             </span>
           </div>
           <template v-if="previewed.thumbnail.state === 'selected'">
-            <div class="selected-thumbnail">
-              <img
-                v-if="!thumbnailImageUnavailable"
-                :src="previewed.thumbnail.url"
-                :alt="`Thumbnail selected for ${previewedEpisode}`"
-                @error="thumbnailImageUnavailable = true"
-              />
-              <div v-else class="thumbnail-unavailable" role="status">
-                This thumbnail file is selected, but its preview is unavailable.
+            <div :class="['selected-thumbnail', { 'has-candidates': isPostUpload && otherThumbnailCandidates.length > 0 }]">
+              <div class="chosen-thumbnail-wrap">
+                <span v-if="isPostUpload" class="candidate-tag chosen-tag">✓ Chosen thumbnail</span>
+                <img
+                  v-if="!thumbnailImageUnavailable"
+                  :src="previewed.thumbnail.url"
+                  :alt="`Thumbnail selected for ${previewedEpisode}`"
+                  @error="thumbnailImageUnavailable = true"
+                />
+                <div v-else class="thumbnail-unavailable" role="status">
+                  This thumbnail file is selected, but its preview is unavailable.
+                </div>
+                <div class="selected-thumbnail-copy">
+                  <strong>{{ previewed.thumbnail.filename }}</strong>
+                  <span v-if="alreadyPublished">Current local selection. It does not change the upload already queued or on YouTube.</span>
+                  <span v-else>Selected for this upload request. Your saved default is unchanged.</span>
+                </div>
               </div>
-              <div class="selected-thumbnail-copy">
-                <strong>{{ previewed.thumbnail.filename }}</strong>
-                <span v-if="alreadyPublished">Current local selection. It does not change the upload already queued or on YouTube.</span>
-                <span v-else>Selected for this upload request. Your saved default is unchanged.</span>
+
+              <!-- Other 2 candidate thumbnails shown beside the chosen one after an upload -->
+              <div v-if="isPostUpload && otherThumbnailCandidates.length > 0" class="other-candidates-wrap" aria-label="Other thumbnail candidates">
+                <div
+                  v-for="candidate in otherThumbnailCandidates"
+                  :key="candidate.filename"
+                  class="candidate-thumb-card"
+                >
+                  <div class="candidate-header">
+                    <span class="candidate-tag">Candidate</span>
+                    <small v-if="candidate.is_pinned" class="pinned-tag">Saved default</small>
+                  </div>
+                  <img :src="candidate.url" :alt="`Candidate thumbnail ${candidate.filename}`" />
+                  <div class="candidate-copy">
+                    <strong>{{ candidate.filename }}</strong>
+                    <small>Available for test in YouTube Studio</small>
+                  </div>
+                </div>
               </div>
+            </div>
+
+            <!-- Start thumbnail test link in YouTube Studio -->
+            <div v-if="isPostUpload && recordedVideoId" class="thumbnail-test-cta">
+              <a
+                :href="youtubeStudioVideoUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-primary btn-sm thumbnail-test-link"
+              >
+                Start a thumbnail test in YouTube Studio ↗
+              </a>
+              <span class="hint">Opens this video’s page in YouTube Studio to run a thumbnail test across these candidates.</span>
             </div>
           </template>
           <div v-else-if="previewed.thumbnail.state === 'unavailable'" class="thumbnail-unavailable" role="status">
@@ -1028,6 +1073,7 @@ interface Preview {
   source?: { filename: string; revision: string } | null
   snippet: { title: string; description?: string; tags?: string[]; categoryId?: string }
   status: { privacyStatus: string; publishAt?: string; containsSyntheticMedia?: boolean }
+  video_id?: string | null
   modifications: Array<{ field: string; reason: string }>
   warnings: string[]
   /**
@@ -1513,6 +1559,32 @@ function canScheduleExisting(ep: PublishableEpisode): boolean {
   return ep.can_schedule_existing === true && publicationState(ep) === 'uploaded'
 }
 function associatedVideoId(ep: PublishableEpisode): string { return ep.remote_video_id || ep.operation?.video_id || '' }
+
+const recordedVideoId = computed(() => {
+  return previewed.value?.video_id
+    || (selectedEpisode.value ? associatedVideoId(selectedEpisode.value) : '')
+    || ''
+})
+
+const isPostUpload = computed(() => {
+  if (recordedVideoId.value) return true
+  const ep = selectedEpisode.value
+  if (ep) {
+    if (uploadState(ep) === 'succeeded' || ep.has_remote_video) return true
+  }
+  return !!alreadyPublished.value && reviewIntent.value !== 'schedule'
+})
+
+const youtubeStudioVideoUrl = computed(() => {
+  if (!recordedVideoId.value) return ''
+  return `https://studio.youtube.com/video/${encodeURIComponent(recordedVideoId.value)}/edit`
+})
+
+const otherThumbnailCandidates = computed(() => {
+  const options = previewed.value?.thumbnail?.options || []
+  const chosenFilename = previewed.value?.thumbnail?.filename
+  return options.filter(opt => opt.filename !== chosenFilename)
+})
 const scheduleVisibilityUnknown = computed(() => reviewIntent.value === 'schedule'
   && !!selectedEpisode.value
   && !selectedEpisode.value.publication?.visibility)
@@ -3505,6 +3577,19 @@ watch(slug, () => {
 .section-kicker { margin: 0; color: var(--text-muted); font-size: var(--font-xs); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .thumbnail-count { color: var(--text-muted); font-size: var(--font-xs); }
 .selected-thumbnail { display: grid; grid-template-columns: minmax(180px, 280px) minmax(0, 1fr); gap: 12px; align-items: center; }
+.selected-thumbnail.has-candidates { grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.chosen-thumbnail-wrap { display: grid; gap: 6px; }
+.chosen-thumbnail-wrap > img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--radius-sm); background: var(--bg-primary); }
+.other-candidates-wrap { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.candidate-thumb-card { display: grid; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-primary); }
+.candidate-thumb-card img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: calc(var(--radius-sm) - 2px); background: var(--bg-secondary); }
+.candidate-header { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.candidate-tag { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.candidate-tag.chosen-tag { color: var(--accent); }
+.candidate-copy { display: grid; gap: 2px; }
+.candidate-copy strong { font-size: var(--font-xs); overflow-wrap: anywhere; }
+.candidate-copy small, .pinned-tag { color: var(--text-muted); font-size: 11px; }
+.thumbnail-test-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-primary); border: 1px solid var(--border); }
 .selected-thumbnail > img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--radius-sm); background: var(--bg-primary); }
 .selected-thumbnail-copy { display: grid; gap: 5px; min-width: 0; }
 .selected-thumbnail-copy strong, .thumbnail-option span { overflow-wrap: anywhere; }
@@ -3619,7 +3704,7 @@ watch(slug, () => {
   .bulk-background { grid-template-columns: 1fr; }
   .upload-review .payload > div { grid-template-columns: 1fr; }
   .timing-options { grid-template-columns: 1fr; }
-  .selected-thumbnail { grid-template-columns: 1fr; }
+  .selected-thumbnail, .selected-thumbnail.has-candidates { grid-template-columns: 1fr; }
   .thumbnail-options { grid-template-columns: 1fr 1fr; }
   .bulk-review-details { grid-template-columns: 1fr; }
   .bulk-thumbnail { max-width: 240px; }

@@ -1582,6 +1582,12 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     script_settings: raw.script_settings || undefined,
     confirmation_preferences: raw.confirmation_preferences || undefined,
     audio_quality: normalizeAudioQualityConfig(raw.audio_quality),
+    // 1.4.364 — the free scene-image quality check's switch and shadow start.
+    // An allow-list read: without this entry the owner's saved switch would be
+    // invisible on the next read (the write-only defect above).
+    scene_image_check: ((raw as any).scene_image_check && typeof (raw as any).scene_image_check === 'object')
+      ? (raw as any).scene_image_check
+      : undefined,
     intro_standards: raw.intro_standards || '',
     standards_presets: raw.standards_presets || [],
     intro_presets: raw.intro_presets || [],
