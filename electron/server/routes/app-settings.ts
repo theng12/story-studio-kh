@@ -31,6 +31,7 @@ import {
   getManualGenerationRedoSetting, setManualGenerationRedoSetting,
   getPrivateFinalRenderSetting, setPrivateFinalRenderSetting,
   getDefaultModels, setDefaultModels,
+  getCostSettings, setCostSettings,
   recordAutomationKeyUse,
   setAppSetting,
 } from '../services/app-settings.js'
@@ -106,6 +107,23 @@ router.put('/app-settings/manual-generation-redo', async (req, res) => {
     res.json(await setManualGenerationRedoSetting(req.body))
   } catch (e: any) {
     res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save manual fresh-attempt setting'))
+  }
+})
+
+// Cost & compute power settings (electricity tariff + per-Mac-class watts)
+router.get('/app-settings/cost', async (_req, res) => {
+  try {
+    res.json(await getCostSettings())
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to load cost settings'))
+  }
+})
+
+router.put('/app-settings/cost', async (req, res) => {
+  try {
+    res.json(await setCostSettings(req.body))
+  } catch (e: any) {
+    res.status(e?.statusCode || 400).json(humanizeBackendError(e, 'Failed to save cost settings'))
   }
 })
 

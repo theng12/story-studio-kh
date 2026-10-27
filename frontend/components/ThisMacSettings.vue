@@ -6,6 +6,7 @@
     </header>
 
     <PerformanceSettings v-if="section === 'all' || section === 'performance'" />
+    <CostSettings v-if="section === 'all' || section === 'performance'" />
 
     <section v-if="section === 'all' || section === 'appearance'" class="panel appearance" data-setting="theme">
       <div>

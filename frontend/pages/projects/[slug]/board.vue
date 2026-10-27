@@ -33,6 +33,18 @@
           <span v-if="searchActive || needsWorkOnly || stepFilter || failedOnly" class="workspace-metric" data-tone="info">
             <strong>{{ visibleEpisodes.length }}</strong> shown
           </span>
+          <span v-if="channelTotal" class="workspace-metric" title="Channel total: paid Gateway charges plus local Mac compute">
+            <strong>{{ formatTotal(channelTotal.total_usd, 'Cost unknown') }}</strong> total cost
+          </span>
+          <span v-if="channelTotal?.paid.state === 'measured'" class="workspace-metric">
+            <strong>{{ formatPaid(channelTotal.paid) }}</strong> paid
+          </span>
+          <span v-if="channelTotal?.local.state === 'measured'" class="workspace-metric">
+            <strong>{{ formatMinutes(channelTotal.local.mac_minutes ?? 0) }}</strong> Mac time
+          </span>
+          <span v-if="channelTotal?.waste.state === 'measured'" class="workspace-metric" data-tone="warning">
+            <strong>{{ formatWaste(channelTotal.waste) }}</strong> waste
+          </span>
         </div>
         <UpdatedAgo
           :at="loadedAt"
@@ -255,6 +267,7 @@
               {{ phase.label }}
             </th>
             <th class="phase-head">Publishing</th>
+            <th class="phase-head" colspan="3">Episode cost</th>
           </tr>
           <tr>
             <th
@@ -279,6 +292,9 @@
               </button>
             </th>
             <th class="col-upload sticky-head stage-head">YouTube upload<br /><small>Separate from production</small></th>
+            <th class="col-cost sticky-head stage-head">Paid<br /><small>Gateway charge</small></th>
+            <th class="col-cost sticky-head stage-head">Local<br /><small>Mac time · power</small></th>
+            <th class="col-cost sticky-head stage-head">Waste<br /><small>Redone / failed</small></th>
           </tr>
         </thead>
         <tbody>
@@ -356,6 +372,22 @@
               <small v-if="ep.youtube_upload?.visibility">{{ ep.youtube_upload.scheduled_for ? 'Scheduled · ' : '' }}{{ ep.youtube_upload.visibility }}</small>
               <small v-if="finalMediaRemoved(ep)">Local final removed</small>
             </td>
+            <td class="col-cost" :title="costTooltipFor(ep.episode_code)">
+              <span :data-state="(costFor(ep.episode_code)?.paid.state ?? 'unmeasurable')">
+                {{ formatPaid(costFor(ep.episode_code)?.paid) }}
+              </span>
+            </td>
+            <td class="col-cost" :title="costTooltipFor(ep.episode_code)">
+              <span :data-state="(costFor(ep.episode_code)?.local.state ?? 'unmeasurable')">
+                {{ formatLocal(costFor(ep.episode_code)?.local) }}
+              </span>
+            </td>
+            <td class="col-cost" :title="costTooltipFor(ep.episode_code)">
+              <span :data-state="(costFor(ep.episode_code)?.waste.state ?? 'unmeasurable')"
+                :class="{ 'cost-waste-high': (costFor(ep.episode_code)?.waste.percent ?? 0) > 20 }">
+                {{ formatWaste(costFor(ep.episode_code)?.waste) }}
+              </span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -420,6 +452,13 @@ import {
   type VisualSource,
 } from '~/composables/useProjectFlow'
 import { localMediaStatusLabel } from '~/composables/useEpisodes'
+import {
+  useProjectCost,
+  formatPaid,
+  formatLocal,
+  formatWaste,
+  formatTotal,
+} from '~/composables/useProjectCost'
 import { awaitingApprovalLabel, episodeStepJobStates } from '~/utils/episode-step-jobs'
 import { boardRetryPlan, readRepairRecords } from '~/utils/board-retry'
 import { hideFinished, pipelineLinkFor, selectShown } from '~/utils/board-selection'
@@ -453,6 +492,22 @@ const {
   updateEpisode,
 } = useEpisodes(slug)
 const { jobs } = useJobs()
+const { channelTotal, costFor, load: loadCost, refresh: refreshCost } = useProjectCost(slug)
+onMounted(() => { void loadCost() })
+function costTooltipFor(code: string): string {
+  const c = costFor(code)
+  if (!c) return 'No cost data recorded for this episode'
+  const paidText = c.paid.state === 'measured'
+    ? `Paid: $${c.paid.usd?.toFixed(2) ?? '0.00'}${c.paid.credits ? ` (${c.paid.credits} credits)` : ''}`
+    : 'Paid: No Gateway charge recorded'
+  const localText = c.local.state === 'measured'
+    ? `Local: ${c.local.mac_minutes ?? 0}m ($${c.local.cost_usd?.toFixed(2) ?? '0.00'})`
+    : 'Local: No runtime recorded'
+  const wasteText = c.waste.state === 'measured'
+    ? `Waste: ${c.waste.percent ?? 0}% (${c.waste.waste_jobs_count ?? 0} of ${c.waste.total_jobs_count ?? 0} jobs redone or failed)`
+    : 'Waste: No cost data'
+  return `${paidText}\n${localText}\n${wasteText}\nLocal cost: Mac-minutes × power × 720 KHR/kWh.`
+}
 // When the rows on screen were last read (rows remembered from the last launch don't count).
 const loadedAt = ref<number | null>(episodes.value.length && !isRemembered.value ? Date.now() : null)
 watch(episodes, () => { if (!isRemembered.value) loadedAt.value = Date.now() })
@@ -509,6 +564,7 @@ function openImport(ep: any) { importEp.value = ep }
 // pace); Shift-click keeps the full rebuild of every row.
 function onRefreshClick(event: MouseEvent) {
   void (event.shiftKey ? refresh() : revalidate())
+  void refreshCost()
 }
 
 // After closing Repair, re-read status from disk — any recovered file should
@@ -1175,6 +1231,22 @@ a.board-filter { display: inline-flex; align-items: center; text-decoration: non
   text-align: center;
   padding: 0;
   min-width: 84px;
+}
+.col-cost {
+  min-width: 110px;
+  padding: 8px 10px;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.col-cost [data-state='unmeasurable'] {
+  color: var(--text-muted);
+  opacity: 0.7;
+  font-style: italic;
+}
+.col-cost .cost-waste-high {
+  color: var(--warning, #e5a15e);
+  font-weight: 650;
 }
 .step-h {
   display: flex;

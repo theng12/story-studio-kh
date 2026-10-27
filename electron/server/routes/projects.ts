@@ -147,6 +147,28 @@ router.get('/projects/:slug/channel-counts', async (req, res) => {
   }
 })
 
+router.get('/projects/:slug/cost', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { getProjectCostReport } = await import('../services/episode-cost.js')
+    const report = await getProjectCostReport(req.params.slug)
+    res.json(report)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to compute project cost report'))
+  }
+})
+
+router.get('/projects/:slug/episodes/:code/cost', async (req, res) => {
+  try {
+    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { getEpisodeCostSummary } = await import('../services/episode-cost.js')
+    const summary = await getEpisodeCostSummary(req.params.slug, req.params.code)
+    res.json(summary)
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to compute episode cost summary'))
+  }
+})
+
 // Project-wide asset audit: per-episode presence counts across audio,
 // scenes, thumbnails, video clips, merged audio. Powers the Settings →
 // Assets matrix.
