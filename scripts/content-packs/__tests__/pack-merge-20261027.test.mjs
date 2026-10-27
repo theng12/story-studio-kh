@@ -23,39 +23,29 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import JSZip from 'jszip'
 import { register } from 'tsx/esm/api'
 
-import { validateContentPack } from '../lib.mjs'
 
 const unregisterTsx = register()
 const { ContentPackDocumentSchema } = await import('../../../electron/server/content-packs/schemas.ts')
 unregisterTsx()
 
 const CWD = process.cwd()
-const STYLE_ARCHIVE_PATH = join(CWD, 'dist', 'style-academic-classical-oil-v2-1.0.1.sspack')
-const TOPIC_ARCHIVE_PATH = join(CWD, 'dist', 'topic-wars-treaties-world-order-v2-1.0.1.sspack')
+// The committed merge sources, not a built archive: dist/ is untracked, so an
+// archive-reading test passes only where it happened to be built. The .sspack is
+// built from these sources at publish time and checked by validate-pack there.
+const SOURCES = join(CWD, '.superpowers/sdd/2026-10-27-pack-merge/sources')
+const STYLE_SOURCE = join(SOURCES, 'style-academic-classical-oil-v2')
+const TOPIC_SOURCE = join(SOURCES, 'topic-wars-treaties-world-order-v2')
+const readJson = async path => JSON.parse(await readFile(path, 'utf8'))
 
-test('visual style merge: academic-classical-oil-v2 1.0.1 archive verifies and meets content contract', async () => {
-  const result = await validateContentPack({
-    archivePath: STYLE_ARCHIVE_PATH,
-    deliveryProfile: 'genstudio-store-receipt-v1',
-  })
-
-  assert.equal(result.packId, 'com.storystudio.pack.style.academic-classical-oil-v2')
-  assert.equal(result.version, '1.0.1')
-  assert.equal(result.sha256, '92515d80570a460d270aad9a0276191f36615281f9db0fbcff0ed5b2f86d678c')
-
-  const zip = await JSZip.loadAsync(await readFile(STYLE_ARCHIVE_PATH))
-  const manifest = JSON.parse(await zip.file('manifest.json').async('text'))
-
+test('visual style merge: academic-classical-oil-v2 1.0.1 source meets the content contract', async () => {
+  const manifest = await readJson(join(STYLE_SOURCE, 'pack.json'))
   assert.equal(manifest.pack_id, 'com.storystudio.pack.style.academic-classical-oil-v2')
   assert.equal(manifest.version, '1.0.1')
-  assert.equal(manifest.min_app_version, '1.0.843')
-  assert.equal(manifest.delivery_profile, 'genstudio-store-receipt-v1')
-  assert.equal(manifest.items.length, 1)
 
-  const doc = JSON.parse(await zip.file('content/visual-style.json').async('text'))
+  const doc = await readJson(join(STYLE_SOURCE, 'content/visual-style.json'))
+  ContentPackDocumentSchema.parse(doc)
   assert.equal(doc.kind, 'visual-style')
   assert.equal(doc.id, 'com.storystudio.style.academic-classical-oil-v2')
 
@@ -93,21 +83,14 @@ test('visual style merge: academic-classical-oil-v2 1.0.1 archive verifies and m
   assert.ok(doc.compatible_formula_ids.includes('com.storystudio.formula.human-behavior-explained-v2'))
 })
 
-test('full union topic pack: wars-treaties-world-order-v2 1.0.1 archive verifies full merge at raised ceiling', async () => {
-  const result = await validateContentPack({
-    archivePath: TOPIC_ARCHIVE_PATH,
-    deliveryProfile: 'genstudio-store-receipt-v1',
-  })
-
-  assert.equal(result.packId, 'com.storystudio.pack.topic.wars-treaties-world-order-v2')
-  assert.equal(result.version, '1.0.1')
-  assert.equal(result.sha256, 'fb071ab2be22418dfea731f0340f081b3996774bfa7e79c00b68a456bda6e8ba')
-
-  const zip = await JSZip.loadAsync(await readFile(TOPIC_ARCHIVE_PATH))
-  const manifest = JSON.parse(await zip.file('manifest.json').async('text'))
+test('full union topic pack: wars-treaties-world-order-v2 1.0.1 source carries the full merge at the raised ceiling', async () => {
+  const manifest = await readJson(join(TOPIC_SOURCE, 'pack.json'))
+  assert.equal(manifest.pack_id, 'com.storystudio.pack.topic.wars-treaties-world-order-v2')
+  assert.equal(manifest.version, '1.0.1')
   assert.equal(manifest.min_app_version, '1.4.362', 'requires 1.4.362 where ceiling was raised to 4000')
 
-  const doc = JSON.parse(await zip.file('content/topic-pack.json').async('text'))
+  const doc = await readJson(join(TOPIC_SOURCE, 'content/topic-pack.json'))
+  ContentPackDocumentSchema.parse(doc)
 
   // Compatible formulas: 2 unioned
   assert.deepEqual(doc.compatible_formula_ids, [
@@ -130,7 +113,7 @@ test('full union topic pack: wars-treaties-world-order-v2 1.0.1 archive verifies
   assert.equal(doc.evidence_lenses.length, 3000)
 
   // Document byte size is well within 4 MiB limit
-  const docBytes = Buffer.byteLength(await zip.file('content/topic-pack.json').async('uint8array'))
+  const docBytes = (await readFile(join(TOPIC_SOURCE, 'content/topic-pack.json'))).length
   assert.ok(docBytes < 4 * 1024 * 1024, `document byte size ${docBytes} must be under 4 MiB`)
 })
 
