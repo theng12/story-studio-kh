@@ -84,6 +84,7 @@ import { parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
 import type { MotionScope } from '../contracts/motion-scope.js'
 import { readEpisodeMotionScope, resolveEpisodeMotionSceneIds } from '../services/episode-motion-scope.js'
 import { motionSceneIdsForNewRequest } from '../services/scene-motion-prompt-scope.js'
+import { resolveSketchDrawEligibleScenes } from './scene-review.js'
 import { mapWithConcurrency as mapEpisodes } from '../lib/map-with-concurrency.js'
 import { describeEffectStack, duplicatePresetHints, normalizeEffectsLook } from '../contracts/effects-look.js'
 import { NARRATION_ONLY_RENDER_KEYS } from '../services/music-episode.js'
@@ -833,13 +834,15 @@ async function preflightBatch(
     }
     if (step === 'motion_review') {
       const data = result.preset.data ?? result.preset
-      const hasOperation = typeof data?.operation === 'string' && Boolean(data.operation.trim())
-      const hasDuration = Number.isFinite(Number(data?.duration_seconds)) && Number(data.duration_seconds) > 0
-      const hasResolution = typeof data?.resolution === 'string' && Boolean(data.resolution.trim())
-      if (!hasOperation || !hasDuration || !hasResolution) {
-        const message = 'Motion Review preset has no exact published clip variant. Open Motion Review, choose a current length and resolution, then save the preset again.'
-        if (!ticked) return message
-        issues.push({ code: 'invalid_preset', step, message })
+      if (data?.renderer !== 'sketch_draw') {
+        const hasOperation = typeof data?.operation === 'string' && Boolean(data.operation.trim())
+        const hasDuration = Number.isFinite(Number(data?.duration_seconds)) && Number(data.duration_seconds) > 0
+        const hasResolution = typeof data?.resolution === 'string' && Boolean(data.resolution.trim())
+        if (!hasOperation || !hasDuration || !hasResolution) {
+          const message = 'Motion Review preset has no exact published clip variant. Open Motion Review, choose a current length and resolution, then save the preset again.'
+          if (!ticked) return message
+          issues.push({ code: 'invalid_preset', step, message })
+        }
       }
     }
     for (const missingPath of collectMissingLocalAssets(result.preset.data ?? result.preset)) {
@@ -1228,6 +1231,10 @@ const PRESET_MODEL_READERS: Partial<Record<BatchStep, (body: Record<string, any>
  * no opinion about steps whose model comes from somewhere else.
  */
 export function presetHasNoWritingModel(step: BatchStep, preset: StoredPreset | undefined): boolean {
+  if (step === 'motion_review') {
+    const body = (preset?.data ?? preset) as Record<string, any> | undefined
+    if (body?.renderer === 'sketch_draw') return false
+  }
   const reader = PRESET_MODEL_READERS[step]
   if (!reader) return false
   // Presets are stored as `{ id, name, type, data }`; older ones carry the body
@@ -1694,6 +1701,14 @@ export function resolveStepParams(
     return { episode_id: episodeId, draw_if_empty: true }
   }
   if (step === 'motion_review') {
+    if (data.renderer === 'sketch_draw') {
+      return {
+        episode_id: episodeId,
+        renderer: 'sketch_draw',
+        visual_source: 'scene_plan',
+        auto_approve_clip: data.auto_approve_clip !== undefined ? Boolean(data.auto_approve_clip) : true,
+      }
+    }
     return {
       episode_id: episodeId,
       model: data.model,
@@ -2631,12 +2646,15 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
 
   let pipelineMotionParams: { model: string; operation: string; duration_seconds: number; resolution: string; audio?: boolean } | null = null
   if (presetByStep.motion_review) {
-    try {
-      pipelineMotionParams = await resolvePipelineMotionParams(presetByStep.motion_review)
-    } catch (error: unknown) {
-      return res.status(400).json({
-        detail: `${error instanceof Error ? error.message : 'Select a current Motion Review variant.'} Nothing was started.`,
-      })
+    const motionData = (presetByStep.motion_review.data ?? presetByStep.motion_review) as Record<string, any>
+    if (motionData?.renderer !== 'sketch_draw') {
+      try {
+        pipelineMotionParams = await resolvePipelineMotionParams(presetByStep.motion_review)
+      } catch (error: unknown) {
+        return res.status(400).json({
+          detail: `${error instanceof Error ? error.message : 'Select a current Motion Review variant.'} Nothing was started.`,
+        })
+      }
     }
   }
 
@@ -2954,9 +2972,11 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         // A preset that named no model runs on this Mac's app-wide default for that family
         // (Settings → Default models). The default is folded into the JOB's own params, not into
         // the preset or the channel: a job already queued keeps the model it was admitted with,
-        // and the next run re-reads the setting.
-        const appDefaultModel = defaultModelForStep(step, defaults)
-        if (appDefaultModel && !String(params.model || '').trim()) params.model = appDefaultModel
+        // and the next run re-reads the setting. Sketch Draw motion presets need no video model.
+        if (step !== 'motion_review' || params.renderer !== 'sketch_draw') {
+          const appDefaultModel = defaultModelForStep(step, defaults)
+          if (appDefaultModel && !String(params.model || '').trim()) params.model = appDefaultModel
+        }
         // 1.4.282 — readable on the job: exactly what this render bakes in. Never read by the render.
         if (step === 'video_assembly') {
           // 1.4.312 — every key this step's resolution produced, and the preset the batch chose for
@@ -3015,8 +3035,34 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         if (sceneIds) params.scene_ids = sceneIds
         params.manual_image_finish = { action_id: actionId, replace_uncertain: false }
       }
-      if (step === 'motion_review' && pipelineMotionParams) {
-        Object.assign(params, pipelineMotionParams)
+      if (step === 'motion_review') {
+        const motionPresetData = (presetByStep.motion_review?.data ?? presetByStep.motion_review) as Record<string, any> | undefined
+        if (motionPresetData?.renderer === 'sketch_draw') {
+          try {
+            const { queuedSceneIds, skippedReasons } = await resolveSketchDrawEligibleScenes(slug, episodeId)
+            if (!queuedSceneIds.length) {
+              skipped.push({
+                episode_id: episodeId,
+                reason: `motion_review: ${skippedReasons[0]?.reason || 'no scenes eligible for Sketch Draw'}`,
+              })
+              continue
+            }
+            params.renderer = 'sketch_draw'
+            params.motion_scene_ids = queuedSceneIds
+            params.visual_source = 'scene_plan'
+            params.auto_approve_clip = motionPresetData.auto_approve_clip !== undefined
+              ? Boolean(motionPresetData.auto_approve_clip)
+              : true
+          } catch (error: any) {
+            skipped.push({
+              episode_id: episodeId,
+              reason: `motion_review: ${error?.message || String(error)}`,
+            })
+            continue
+          }
+        } else if (pipelineMotionParams) {
+          Object.assign(params, pipelineMotionParams)
+        }
       }
       if (step === 'introduction-only') {
         // Same three sources, same order, as `POST /generate/introduction-only`:
@@ -3088,6 +3134,9 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         for (const key of ['pacing', 'motion_scope', 'motion_level'] as const) {
           if (link.params[key] !== undefined) delete episodeVisualSettings[key]
         }
+      }
+      if (link.type === 'scene_clips_batch' && link.params.renderer === 'sketch_draw') {
+        delete episodeVisualSettings.motion_scene_ids
       }
       link.params = { ...link.params, ...episodeVisualSettings }
     }
