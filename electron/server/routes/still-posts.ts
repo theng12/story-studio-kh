@@ -24,6 +24,8 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import {
   allowedArtifactNames,
+  artFilenameFor,
+  artModeOf,
   brandingFor,
   buildWorkspace,
   channelHandle,
@@ -31,7 +33,6 @@ import {
   commitFinals,
   listChannelCharacters,
   lookForPost,
-  panelArtFilename,
   panelsForOption,
   postDir,
   postStateFor,
@@ -166,6 +167,8 @@ router.put('/projects/:slug/still-posts/presets', async (req, res) => {
         name: String(entry?.name || '').trim(),
         data: {
           ...data,
+          // A reusable drawing choice (§5). Normalised so a preset always stores a real boolean.
+          fresh_drawing_per_size: data.fresh_drawing_per_size === true,
           branding: brandingFrom(data.branding, DEFAULT_BRANDING),
         },
       }
@@ -316,7 +319,12 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
 
     let saved = post
     let renderError: string | null = null
-    const artReady = post.panels.every((_, index) => existsSync(path.join(postDir(slug, post.id), panelArtFilename(index))))
+    const mode = artModeOf(post)
+    const dir = postDir(slug, post.id)
+    // Per-size posts letter each frame from its OWN drawing, so every requested frame needs one.
+    const artReady = post.panels.every((_, index) => mode === 'per-size'
+      ? aspects.every(aspect => existsSync(path.join(dir, artFilenameFor(index, mode, aspect))))
+      : existsSync(path.join(dir, artFilenameFor(index, mode, aspects[0]!))))
     if (artReady) {
       try {
         const rendered = await renderPostFinals(slug, saved, look, aspects)
@@ -325,7 +333,9 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
         renderError = error?.message || String(error)
       }
     } else {
-      renderError = 'The artwork has not been drawn yet, so there is nothing to letter. Draw this post to see it.'
+      renderError = mode === 'per-size'
+        ? 'This post is set to a fresh drawing per size and one of its frames has no artwork yet. Draw this post to see it.'
+        : 'The artwork has not been drawn yet, so there is nothing to letter. Draw this post to see it.'
     }
 
     res.json({ post: saved, state: await postStateFor(slug, saved), render_error: renderError })
@@ -390,6 +400,7 @@ router.post('/projects/:slug/still-posts/batches', async (req, res) => {
         option_id: option.id,
         language,
         aspects,
+        fresh_drawing_per_size: body.fresh_drawing_per_size === true,
         character_ids: chosen,
         writing_model: typeof body.writing_model === 'string' && body.writing_model.trim() ? body.writing_model.trim() : null,
       },
@@ -418,6 +429,9 @@ router.post('/projects/:slug/still-posts/render', async (req, res) => {
         ...(Array.isArray(body.post_ids) && body.post_ids.length ? { post_ids: body.post_ids.map((id: string) => validatePostId(String(id))) } : {}),
         image_model: imageModel,
         redraw: body.redraw === true,
+        ...(typeof body.fresh_drawing_per_size === 'boolean'
+          ? { fresh_drawing_per_size: body.fresh_drawing_per_size }
+          : {}),
         ...(brandingFrom(asRecord(body.preset).branding) ? { branding: brandingFrom(asRecord(body.preset).branding) } : {}),
         ...(Number(asRecord(body.preset).text_scale) > 0 ? { text_scale: Number(asRecord(body.preset).text_scale) } : {}),
       },
