@@ -1693,6 +1693,52 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               } catch {
                 // A failed check never blocks the job.
               }
+              // OPT-IN stronger vision check (owner 2026-10-27): recorded BESIDE
+              // the free check, silent in shadow mode, and only awaited when one
+              // of its per-axis auto-remake switches is actually acting.
+              try {
+                const {
+                  runSceneVisionCheck, describeSceneVisionCheck, sceneImageVisionConfig,
+                  sceneVisionAutoRemakeActive, sceneVisionAxesToRemake, queueSceneVisionCheck,
+                } = await import('../services/scene-image-vision-check.js')
+                const { enqueueImageCheckRemake } = await import('../services/scene-image-quality-check.js')
+                if (sceneImageVisionConfig(config).enabled) {
+                  const visionInput = {
+                    sceneId: scene.id,
+                    imagePath: outPath,
+                    visualPrompt: scene.visual_prompt,
+                    planPath,
+                    config,
+                    remade: params.image_check_remake === true,
+                  }
+                  if (sceneVisionAutoRemakeActive(config)) {
+                    const visionResult = await runSceneVisionCheck(visionInput)
+                    job.output_lines.push(describeSceneVisionCheck(visionResult))
+                    const axes = sceneVisionAxesToRemake(visionResult, config)
+                    if (axes.length && params.image_check_remake !== true) {
+                      await enqueueImageCheckRemake({
+                        projectSlug: job.project_slug, episodeId: job.episode_id, sceneId: scene.id,
+                        title: job.title,
+                        params: {
+                          episode_id: job.episode_id,
+                          title: job.title,
+                          model: params.model,
+                          ...(params.aspect_ratio ? { aspect_ratio: params.aspect_ratio } : {}),
+                          ...(params.width ? { width: params.width } : {}),
+                          ...(params.height ? { height: params.height } : {}),
+                          auto_approve_generated: autoApproveOn(params.auto_approve_generated),
+                          ...(Array.isArray(params.reference_character_ids) ? { reference_character_ids: params.reference_character_ids } : {}),
+                        },
+                      })
+                      job.output_lines.push(`Vision check failed (${axes.join(', ')}) — one automatic remake queued for ${scene.id}.`)
+                    }
+                  } else {
+                    queueSceneVisionCheck(visionInput)
+                  }
+                }
+              } catch {
+                // A failed check never blocks the job.
+              }
               break
             } catch (e: any) {
               if (e instanceof jq.JobPausedError || jq.isPauseRequested(job.job_id)) return

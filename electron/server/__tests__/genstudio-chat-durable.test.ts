@@ -629,7 +629,10 @@ test('every "no request or credit charge was made" guard runs before any fetch',
     for (const [label, request] of [
       ['empty model', { ...baseRequest, modelId: '  ' }],
       ['empty input', { ...baseRequest, userMessage: '   ' }],
-      ['image input', { ...baseRequest, inputImage: { assetId: 'a', detail: 'auto' as const } }],
+      // A picture that is not a data URI, and one that carries no digest, are
+      // caller bugs: both are refused before the catalogue is even read.
+      ['image without a data URI', { ...baseRequest, inputImage: { dataUri: 'a', sha256: 'a'.repeat(64) } }],
+      ['image without a digest', { ...baseRequest, inputImage: { dataUri: 'data:image/jpeg;base64,AAAA', sha256: 'x' } }],
     ] as const) {
       await assert.rejects(callChatWithGenStudio('guard-key', request), /./, label)
     }

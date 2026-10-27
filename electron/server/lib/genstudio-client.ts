@@ -1987,6 +1987,17 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioPrice
   display_name: string
   /** Published model creator/provider label. Absent until GenStudio supplies it. */
   provider_name?: string
+  /**
+   * The provider KIND, as the catalogue publishes it (`openrouter-main`,
+   * `google-ai`, `anthropic-direct`, …).
+   *
+   * Carried because one adapter's behaviour differs by kind and by no other
+   * published fact: the Gateway's Anthropic adapter emits OpenAI `image_url`
+   * blocks, which Anthropic refuses, so an Anthropic row cannot serve an image
+   * request (FINDINGS 2026-10-27 §1). That is a statement about the published
+   * provider id — never a guess from a model id or a display name (§2).
+   */
+  provider_id?: string
   description?: string
   available: boolean
   /** GenStudio's published reason for a temporarily unavailable row. */
@@ -2637,6 +2648,22 @@ export interface GenStudioCreditActivity {
   job_id: string | null
 }
 
+/**
+ * One content part in a chat turn, OpenAI-style.
+ *
+ * This is the wire vocabulary the Gateway's chat path actually forwards:
+ * `adapters/openai_compat.py` keeps `image_url` parts and drops unknown ones,
+ * `google` reuses that same normaliser, and `anthropic` refuses it. Nothing
+ * here is invented — `input_image` / asset ids have no Gateway field at all
+ * (FINDINGS 2026-10-27 §1).
+ */
+export type GenStudioChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } }
+
+/** One chat turn. Text-only turns keep the plain string every existing caller sends. */
+export type GenStudioChatMessage = { role: string; content: string | GenStudioChatContentPart[] }
+
 export interface GenStudioChatRequest extends GenStudioOperationContext {
   modelId: string
   system: string
@@ -2693,8 +2720,22 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   onRequestPrepared?: (idempotencyKey: string, preview?: GenStudioRequestPreview) => void | Promise<void>
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
   onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
-  /** A private GenStudio-owned image asset for a vision-capable chat model. */
-  inputImage?: { assetId: string; detail: 'low' | 'high' | 'auto' }
+  /**
+   * One picture for a vision-capable chat product, as an OpenAI-style
+   * `image_url` data URI (`data:image/jpeg;base64,…`).
+   *
+   * The image rides INSIDE the turn's content parts because the Gateway's chat
+   * path has no image-asset field and never had one — `input_image` was an
+   * invented field this app refused before the wire (FINDINGS 2026-10-27 §1).
+   * The Gateway forwards `image_url` parts unchanged to OpenRouter and Google;
+   * its Anthropic adapter cannot convert them, so an Anthropic row is refused
+   * before submission (see `chatProductAcceptsImages`).
+   *
+   * `sha256` is the digest of the encoded JPEG bytes behind `dataUri`, and it is
+   * the only thing the idempotency key hashes: a megabyte of base64 in the key
+   * would be slow to compute and impossible to read back.
+   */
+  inputImage?: { dataUri: string; sha256: string; detail?: 'low' | 'high' | 'auto' }
   /** Exact workflow contract; catalog mode compatibility is checked before spend. */
   outputContract?: TextOutputContract
   /** @deprecated Use outputContract. Preserved for older JSON Object callers. */
@@ -5686,6 +5727,10 @@ export async function listChatModelsSnapshot(
     ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     provider_name: publishedText(value?.provider_name),
+    // Read, never derived: the provider KIND the catalogue states. A Gateway
+    // that publishes none leaves it absent, and every reader must treat absence
+    // as "not stated" rather than assuming a kind (§2).
+    ...(publishedText(value?.provider_id) ? { provider_id: publishedText(value?.provider_id) } : {}),
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
@@ -6989,7 +7034,15 @@ export function buildGenStudioChatIdempotencyKey(request: GenStudioChatRequest):
       ? { output_budget: describeOutputBudget(request.outputBudget) }
       : {}),
     request_identity: request.requestIdentity?.trim() || null,
-    input_image: request.inputImage ? { asset_id: request.inputImage.assetId, detail: request.inputImage.detail } : null,
+    // FROZEN COMPONENT — always null, exactly as every key ever computed has
+    // hashed it. The image-asset field it used to describe is gone (the Gateway
+    // never had one), but this key must not move: changing it would let a retry
+    // that crosses an upgrade submit — and bill — a second job instead of
+    // replaying the first. A picture is identified by its SHA-256 instead, below.
+    input_image: null,
+    // Only for a request that carries one, so every pre-existing key stays
+    // byte-for-byte what it was. The DIGEST, never the base64 (FINDINGS §1).
+    ...(request.inputImage ? { input_image_sha256: request.inputImage.sha256.toLowerCase() } : {}),
     output_contract: digestOutputContract(outputContract),
     ...(request.webSearch ? { web_search: request.webSearch } : {}),
     // The WIRE format, not a re-derivation of it. See wireFormatDigestComponent.
@@ -7487,8 +7540,10 @@ interface PreparedChatSubmission {
    *  publishes the `system_instruction` control. When it does not, the same
    *  text is folded into the single user turn instead, so the instruction is
    *  still delivered without sending a field the product never advertised.
-   *  `messages` on the completions route, `input` on the responses route. */
-  messages: Array<{ role: string; content: string }>
+   *  A turn's content is a plain string, or OpenAI-style parts when the request
+   *  carries a picture. `messages` on the completions route, `input` on the
+   *  responses route. */
+  messages: GenStudioChatMessage[]
   /** Sampling fields the product actually published, already resolved. A field
    *  absent here is NOT sent — never sent as a Story Studio default. */
   samplingFields: Record<string, number>
@@ -7514,6 +7569,103 @@ export function productPublishesControl(
 }
 
 /**
+ * Provider KINDS whose Gateway adapter cannot carry image parts.
+ *
+ * The Gateway's Anthropic adapter reuses the OpenAI-compatible normaliser, so
+ * it emits `{"type":"image_url"}` blocks that Anthropic refuses — nothing in
+ * the Gateway converts them (`adapters/anthropic.py:267`, FINDINGS §1). This is
+ * a statement about the PUBLISHED provider id, never a guess: a row that
+ * publishes no provider id is not excluded, and the limitation that we then
+ * cannot know its kind is reported rather than papered over (§2).
+ */
+export const IMAGE_UNSUPPORTED_PROVIDER_IDS: readonly string[] = ['anthropic-direct']
+
+export type ChatImageEligibility = { eligible: true } | { eligible: false; reason: string }
+
+/**
+ * Whether a chat product can be sent a picture, and why not when it cannot.
+ *
+ * Only what the catalogue publishes decides this: `supports_vision` and
+ * `provider_id`. Never a model id, a display name, or a provider label.
+ */
+export function chatImageEligibility(
+  product: Pick<GenStudioChatModel, 'supports_vision' | 'provider_id' | 'display_name'>,
+): ChatImageEligibility {
+  const name = product.display_name || 'This model'
+  if (product.supports_vision !== true) {
+    return { eligible: false, reason: `${name} does not publish image input support.` }
+  }
+  if (product.provider_id && IMAGE_UNSUPPORTED_PROVIDER_IDS.includes(product.provider_id)) {
+    return { eligible: false, reason: `${name} is served by a Gateway adapter that cannot convert image input yet.` }
+  }
+  return { eligible: true }
+}
+
+export function chatProductAcceptsImages(
+  product: Pick<GenStudioChatModel, 'supports_vision' | 'provider_id' | 'display_name'>,
+): boolean {
+  return chatImageEligibility(product).eligible
+}
+
+/** A base64 data URI for one of the three image types the OpenAI-style part accepts. */
+const CHAT_IMAGE_DATA_URI = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/
+const SHA256_HEX = /^[0-9a-f]{64}$/i
+
+/**
+ * Turn one picture into the content part the Gateway forwards.
+ *
+ * Validated here, before any network call — a malformed picture is a caller
+ * bug, and it must not read as a provider failure or a charge.
+ */
+function chatImageContentParts(
+  image: NonNullable<GenStudioChatRequest['inputImage']>,
+): GenStudioChatContentPart[] {
+  if (!CHAT_IMAGE_DATA_URI.test(image.dataUri)) {
+    throw new Error('The image must be a JPEG, PNG or WebP base64 data URI. No request or credit charge was made.')
+  }
+  if (!SHA256_HEX.test(image.sha256)) {
+    throw new Error('The image’s SHA-256 is missing or malformed. No request or credit charge was made.')
+  }
+  return [{
+    type: 'image_url',
+    image_url: { url: image.dataUri, ...(image.detail ? { detail: image.detail } : {}) },
+  }]
+}
+
+/**
+ * What a retained request preview should show for each turn.
+ *
+ * A picture is a ~100 KB data URI, and the preview is persisted on the job's
+ * evidence: hashing it into the preview keeps the description of the request
+ * honest without storing — or re-scrubbing — a megabyte of base64. Text-only
+ * turns are returned untouched, so every existing preview is unchanged.
+ */
+function previewMessages(messages: GenStudioChatMessage[], imageSha256?: string): GenStudioChatMessage[] {
+  return messages.map(message => Array.isArray(message.content)
+    ? {
+        ...message,
+        content: message.content.map(part => part.type === 'image_url'
+          ? { type: 'text' as const, text: `[image: ${describeImageDataUri(part.image_url.url, imageSha256)}]` }
+          : part),
+      }
+    : message)
+}
+
+/**
+ * The picture, described rather than copied.
+ *
+ * The digest is part of the description because a replacement identity is
+ * derived from these messages: two different pictures of the same byte count
+ * must not describe themselves identically.
+ */
+function describeImageDataUri(url: string, imageSha256?: string): string {
+  const comma = url.indexOf(',')
+  const header = comma > 0 ? url.slice(5, comma) : 'image'
+  const bytes = comma > 0 ? Math.floor((url.length - comma - 1) * 3 / 4) : 0
+  return `${header}, ${bytes.toLocaleString()} bytes${imageSha256 ? `, sha256 ${imageSha256.toLowerCase()}` : ''}`
+}
+
+/**
  * Run every pre-network guard and resolve the request shape.
  *
  * EVERY `throw` in this function happens STRICTLY BEFORE the submit call on
@@ -7529,9 +7681,9 @@ async function prepareChatSubmission(
   const modelId = request.modelId.trim().replace(/^genstudio-chat:/, '')
   if (!modelId) throw new Error('Select a Gateway chat model.')
   if (!request.userMessage.trim()) throw new Error('Gateway chat input cannot be empty.')
-  if (request.inputImage) {
-    throw new Error('The Gateway language-product endpoint is text-only in this release. No request or credit charge was made.')
-  }
+  // Request-only guards run FIRST, before the catalogue read: a malformed
+  // picture is a caller bug and must never read as a provider failure.
+  const imageParts = request.inputImage ? chatImageContentParts(request.inputImage) : null
   const product = findGenStudioProduct(await listChatModels(apiKey), modelId)
   if (!product || !product.available || product.qualification_only || product.locked === true) {
     throw new GenStudioChatProductUnavailableError(modelId, {
@@ -7543,6 +7695,17 @@ async function prepareChatSubmission(
       // package it cannot place.
       blockers: product?.activation_blockers,
     })
+  }
+  // Catalogue-dependent guard: the product itself has to state image input,
+  // and its provider kind has to be one whose Gateway adapter can carry an
+  // OpenAI-style `image_url` part. Both are LIVE catalogue facts (§1) — this is
+  // the same rule the pickers use, enforced once more where the request is
+  // built, so no caller can route around it.
+  if (imageParts) {
+    const eligibility = chatImageEligibility(product)
+    if (!eligibility.eligible) {
+      throw new Error(`${eligibility.reason} Choose a model the Gateway publishes image input for. No request or credit charge was made.`)
+    }
   }
   // An explicit number still wins (and is still checked below). Otherwise the
   // workflow's declared tier is sized from THIS product's published ceiling —
@@ -7611,6 +7774,9 @@ async function prepareChatSubmission(
   // not publish it, the instruction is folded into the user turn instead: the
   // text still reaches the model, and no unpublished field goes on the wire.
   const sendsSystemTurn = !!systemText && productPublishesControl(product, 'system_instruction')
+  const userText = !systemText || sendsSystemTurn
+    ? request.userMessage
+    : `${systemText}\n\n${request.userMessage}`
   return {
     modelId,
     product,
@@ -7623,9 +7789,9 @@ async function prepareChatSubmission(
       ...(sendsSystemTurn ? [{ role: 'system', content: systemText }] : []),
       {
         role: 'user',
-        content: !systemText || sendsSystemTurn
-          ? request.userMessage
-          : `${systemText}\n\n${request.userMessage}`,
+        // Text first, then the picture: the instruction reads before the thing
+        // it is about, and both OpenRouter and Google accept either order.
+        content: imageParts ? [{ type: 'text' as const, text: userText }, ...imageParts] : userText,
       },
     ],
     // `temperature` travels only when published. `top_p` never travels at all
@@ -8123,7 +8289,7 @@ function replaceFailedChat(apiKey: string, request: GenStudioChatRequest, prepar
 }
 
 function chatReplacementItemKey(prepared: PreparedChatSubmission, request: GenStudioChatRequest): string {
-  return createHash('sha256').update(JSON.stringify({ model: prepared.modelId, messages: prepared.messages,
+  return createHash('sha256').update(JSON.stringify({ model: prepared.modelId, messages: previewMessages(prepared.messages, request.inputImage?.sha256),
     format: prepared.responseFormat, sampling: prepared.samplingFields, max: prepared.maxOutputTokens, web_search: request.webSearch })).digest('hex')
 }
 
@@ -8399,7 +8565,7 @@ async function callChatViaResponsesOnce(
       ? {}
       : { expectedOutputTokens: prepared.expectedOutputTokens }),
     idempotencyKey: prepared.idempotencyKey,
-    messages: prepared.messages,
+    messages: previewMessages(prepared.messages, request.inputImage?.sha256),
     fields: chatPreviewFields(request, prepared),
   })
   if (request.recoverByIdempotencyKey) {
@@ -8540,7 +8706,7 @@ async function callChatViaCompletions(
       ? {}
       : { expectedOutputTokens: prepared.expectedOutputTokens }),
     idempotencyKey: prepared.idempotencyKey,
-    messages: prepared.messages,
+    messages: previewMessages(prepared.messages, request.inputImage?.sha256),
     fields: [['stream', false], ...chatPreviewFields(request, prepared)],
   })
   const jobGroup = await jobGroupField()
@@ -8745,7 +8911,7 @@ async function callChatWithGenStudioAdmitted(
       ? {}
       : { expectedOutputTokens: prepared.expectedOutputTokens }),
       idempotencyKey: prepared.idempotencyKey,
-      messages: prepared.messages,
+      messages: previewMessages(prepared.messages, request.inputImage?.sha256),
       fields: chatPreviewFields(request, prepared),
     })
     const matches = prepared.transport === 'responses'

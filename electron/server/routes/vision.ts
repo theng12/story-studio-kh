@@ -17,7 +17,7 @@ import { isPreviewablePath } from '../lib/preview-roots.js'
 import { imageMediaTypeForFile } from '../lib/image-media-type.js'
 import { GENSTUDIO_VISION_UNAVAILABLE } from '../lib/vision-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { callChatWithGenStudio, listChatModels, uploadImageSourceWithGenStudio, type GenStudioChatModel } from '../lib/genstudio-client.js'
+import { callChatWithGenStudio, chatImageEligibility, listChatModels, uploadImageSourceWithGenStudio, type GenStudioChatModel } from '../lib/genstudio-client.js'
 import { JSON_OBJECT_OUTPUT_CONTRACT } from '../lib/json-output-contract.js'
 
 export const router = Router()
@@ -202,7 +202,13 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
       // The detail level this model states, or Story's own when it states none
       // — `detail_source` in the menu says which, so the choice is never
       // presented as the model's own.
-      inputImage: { assetId: remote.id, detail: detailFor(model).detail },
+      //
+      // The picture rides as an OpenAI-style content part, NOT as an asset id:
+      // the Gateway's chat path has no image-asset field and never had one, so
+      // the old `input_image` the client refused to send is gone. The bytes are
+      // the same ones already copied into the project and uploaded above; only
+      // the DIGEST goes into the idempotency key, never the base64.
+      inputImage: { dataUri: `data:${mime};base64,${bytes.toString('base64')}`, sha256, detail: detailFor(model).detail },
       requestIdentity: `thumbnail-reference:${slug}:${sha256}:${model.id}`,
     })
     const analysis = parseComposition(result.text)
@@ -221,6 +227,60 @@ router.post('/projects/:slug/thumbnail-reference/analyze', async (req, res) => {
     res.json({ reference, analysis_job_id: result.jobId })
   } catch (error: any) {
     res.status(502).json({ detail: error?.message || 'Thumbnail reference analysis failed.' })
+  }
+})
+
+/**
+ * The models the opt-in stronger scene-image check may use (owner 2026-10-27).
+ *
+ * ONE rule, read live: the catalogue publishes image input for the row, the row
+ * is available, and its provider kind is one whose Gateway adapter can carry an
+ * OpenAI-style `image_url` part. Nothing here picks a model, names a default, or
+ * ranks by price — the owner chooses, and the choice is persisted by id.
+ *
+ * `provider_id_published` is the honest limitation: a Gateway that publishes no
+ * provider kind leaves a row's kind unknown, and the menu says so rather than
+ * guessing from a model id (AGENTS.md §2).
+ */
+router.get('/projects/:slug/scene-image-check/vision-models', async (req, res) => {
+  if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+  try {
+    const apiKey = await getApiKey('genstudio')
+    if (!apiKey) return res.status(400).json({ detail: 'Add a Gateway API Key first.' })
+    const rows = await listChatModels(apiKey)
+    const eligible = rows
+      .filter(row => row.available === true && row.locked !== true && row.qualification_only === false)
+      .map(row => ({ row, eligibility: chatImageEligibility(row) }))
+      .filter(entry => entry.eligibility.eligible)
+    const models = eligible.map(({ row }) => ({
+        id: row.id,
+        display_name: row.display_name || row.id,
+        // §2 — shown wherever the catalogue publishes it, never used to route.
+        provider_name: row.provider_name,
+        provider_id: row.provider_id,
+        chargeable: row.chargeable === true,
+        input_credits_per_million_tokens: row.input_credits_per_million_tokens,
+        output_credits_per_million_tokens: row.output_credits_per_million_tokens,
+        minimum_credits: row.minimum_credits,
+        price_version: row.price_version,
+        // The check asks for a JSON object only where the row states it can
+        // return one; otherwise the rubric carries the shape in words.
+        structured_output_mode: row.structured_output_mode,
+        context_window_tokens: row.context_window_tokens,
+        max_output_tokens: row.max_output_tokens,
+        max_output_tokens_source: row.max_output_tokens_source,
+        deprecation_warning: row.deprecation_warning,
+        retires_at: row.retires_at,
+      }))
+    res.json({
+      models,
+      provider_id_published: eligible.every(entry => typeof entry.row.provider_id === 'string' && entry.row.provider_id.length > 0),
+      reason: models.length
+        ? null
+        : 'No Gateway chat model publishes image input right now, so the stronger check cannot run.',
+    })
+  } catch (error: any) {
+    res.status(502).json({ detail: error?.message || 'Could not load Gateway vision models.' })
   }
 })
 

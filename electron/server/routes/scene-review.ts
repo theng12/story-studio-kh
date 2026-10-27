@@ -335,6 +335,8 @@ interface ReviewSceneAugmented {
   stale: boolean
   /** v1.4.364 — the free image quality check's recorded verdict, if one ran. */
   image_check?: import('../services/scene-image-quality-check.js').SceneImageQualityCheckResult
+  /** v1.4.365 — the OPT-IN stronger vision check's verdict, recorded BESIDE the free one. */
+  vision_check?: import('../services/scene-image-vision-check.js').SceneVisionCheckResult
   /** v1.0.470 — an animated clip (mp4) exists for this scene in "11 Video Assets". */
   clip_exists?: boolean
   /** v1.0.470 — the clip exists but was rendered from a now-changed motion prompt. */
@@ -815,6 +817,8 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
           && typeof (s as any).rendered_prompt === 'string'
           && (s as any).rendered_prompt !== s.visual_prompt,
         image_check: (s as any).image_check || undefined,
+        // v1.4.365 — the stronger check's own record, shown beside (never instead of) the free one.
+        vision_check: (s as any).vision_check || undefined,
         // v1.0.470 — clip animation status.
         clip_exists: clipExists,
         clip_stale: clipStale,
