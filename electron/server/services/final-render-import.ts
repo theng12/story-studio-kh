@@ -1,4 +1,4 @@
-import { constants } from 'node:fs'
+import { constants, existsSync } from 'node:fs'
 import fs, { type FileHandle } from 'node:fs/promises'
 import { createHash, type Hash } from 'node:crypto'
 import path from 'node:path'
@@ -25,9 +25,13 @@ import {
   getValidVideoAssemblyCheckpoint, isOwnedVideoAssemblyWorkDir, setVideoAssemblyCheckpoint,
 } from '../lib/video-assembly-checkpoint.js'
 import { withFinalVideoPathLock } from './final-video-lock.js'
+import {
+  findRetainedFinalVideo, readRetainedFinalVideos, retainPreviousFinalVideo, retainedFinalLogLine,
+  restoreRetainedFinalVideo, dropRetainedFinalVideo, type RetainedFinalVideo,
+} from './final-video-retention.js'
 import { getProjectDir, getUserDataDir } from './project-manager.js'
 import { exportsAnchorFor } from './external-video-store.js'
-import { ensureTrashMoveIndexedSync, moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import {
   appendFinalRenderImportRevision,
   refreshFinalRenderImportSession,
@@ -68,7 +72,7 @@ export type MediaObservation = {
 
 export interface FinalRenderImportProbe {
   phase: 'after-output-owner-acquired' | 'after-output-download-prefix' | 'before-output-publication'
-    | 'before-output-ack' | 'after-output-ack-unknown' | 'after-output-ack-observed'
+    | 'after-output-keep' | 'before-output-ack' | 'after-output-ack-unknown' | 'after-output-ack-observed'
   candidate_path?: string
   destination_path?: string
   project_slug: string
@@ -484,6 +488,43 @@ function sameStableFile(
     && left.size === right.size && left.sha256 === right.sha256
 }
 
+/** Is the file at `pathname` still exactly the accepted final the import captured? */
+async function stillTheAcceptedFinal(
+  pathname: string,
+  expectedState: { size_bytes?: number; sha256?: string },
+): Promise<boolean> {
+  try {
+    const present = await stableMediaFile(pathname, expectedState.size_bytes)
+    return present.sha256 === expectedState.sha256
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
+/** The measured state of the final this intent will replace, or null for a first-ever final. */
+function acceptedFinalState(state: Record<string, any>): { size_bytes: number; sha256: string } | null {
+  if (state.kind === 'absent') return null
+  if (state.kind !== 'file' || typeof state.size_bytes !== 'number' || !Number.isFinite(state.size_bytes)
+    || typeof state.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(state.sha256)) {
+    throw new Error('Final render staged destination state is invalid.')
+  }
+  return { size_bytes: state.size_bytes, sha256: state.sha256 }
+}
+
+/**
+ * Put the kept-final line on the row once, and keep it there across a restart.
+ *
+ * `retainPreviousFinalVideo` already wrote a line when it moved the copy; this replaces
+ * it with one that says the import kept it, and it is idempotent so a completion after a
+ * restart (whose first pass died before this tail) still reports it.
+ */
+function reportKeptPreviousFinal(job: Job, carried: CarriedFinalCheck, line: string): void {
+  job.output_lines = job.output_lines
+    .filter(value => !(value.startsWith('Previous final kept for ') && value.includes(carried.previousFinal!.retained_path)))
+  if (!job.output_lines.includes(line)) job.output_lines.push(line)
+}
+
 async function registeredRecoveryPath(
   session: FinalRenderImportSession,
   destinationPath: string,
@@ -523,12 +564,26 @@ async function publishDestination(
   validationSha256: string,
   validatedCandidate: Awaited<ReturnType<typeof stableMediaFile>>,
 ): Promise<PublishedDestination> {
+  const job = await loadAuthoritativeJob(session.projectSlug, session.jobId)
+  if (!job || job.type !== 'video_assembly') {
+    throw new Error('Final render publication has no authoritative queue row.')
+  }
+  const loadedProjectDir = getProjectDir(session.projectSlug)
+  if (!loadedProjectDir) throw new Error('Final render project directory is unavailable.')
+  const projectDir = loadedProjectDir
+  const destinationCode = record(
+    record(session.reopened.manifest.destination, 'staged destination').route, 'staged destination route',
+  ).code
   const destination = record(session.reopened.manifest.destination, 'staged destination')
   const destinationPath = destination.pathname
   if (typeof destinationPath !== 'string' || !path.isAbsolute(destinationPath)) {
     throw new Error('Final render staged destination is invalid.')
   }
+  if (typeof destinationCode !== 'string' || !destinationCode) {
+    throw new Error('Final render staged destination does not name its episode code.')
+  }
   const expectedState = record(destination.state, 'staged destination state')
+  const acceptedFinal = acceptedFinalState(expectedState)
   const recoveryPath = expectedState.kind === 'file'
     ? await registeredRecoveryPath(session, destinationPath)
     : null
@@ -574,42 +629,40 @@ async function publishDestination(
           throw new Error('Final render destination was written by an unowned competing writer.')
         }
         if (expectedState.kind === 'file') {
-          const recoveryDir = path.dirname(recoveryPath!)
-          await fs.mkdir(recoveryDir, { recursive: true, mode: 0o700 })
-          let displacedMatches = false
-          let recoveryPathExists = false
-          try {
-            const displaced = await stableMediaFile(recoveryPath!, expectedState.size_bytes)
-            recoveryPathExists = true
-            displacedMatches = displaced.sha256 === expectedState.sha256
-          } catch (error: any) {
-            if (error?.code !== 'ENOENT') throw error
-          }
-          if (!displacedMatches) {
-            if (recoveryPathExists) {
-              throw new Error('Final render recovery path conflicted with retained evidence.')
+          const accepted = acceptedFinal!
+          // The accepted final is kept exactly as a local re-assembly keeps it (owner,
+          // 2026-10-27): through `final-video-retention.ts`, so the same channel record and
+          // the same three-day sweep apply and the owner can restore it from Story → Trash.
+          if (!destinationMatchesOutput && !await stillTheAcceptedFinal(destinationPath, accepted)) {
+            // An earlier pass moved the accepted final aside and then stopped. Put it back so
+            // the end state after a failed or cancelled import is the one the render found.
+            const kept = await findRetainedFinalVideo({
+              job, projectDir, finalPath: destinationPath, expected: accepted,
+            })
+            if (kept) {
+              await restoreRetainedFinalVideo(kept)
+              await dropRetainedFinalVideo(projectDir, kept.retained_path).catch(() => undefined)
             }
-            if (destinationMatchesOutput) {
-              throw new Error('Final render recovery destination is missing after publication.')
-            }
-            const current = await stableMediaFile(destinationPath, expectedState.size_bytes)
-            if (current.sha256 !== expectedState.sha256) {
+            if (!await stillTheAcceptedFinal(destinationPath, accepted)) {
               throw new Error('Final render destination changed before publication.')
             }
-            const moved = moveToTrashSync(destinationPath, recoveryPath!, 'final-video', true)
-            if (moved !== recoveryPath) {
-              throw new Error('Final render recovery path conflicted with retained evidence.')
-            }
-          } else {
-            if (!priorPublishIntent) throw new Error('Final render recovery file lacks a prior publication intent.')
-            ensureTrashMoveIndexedSync(destinationPath, recoveryPath!, 'final-video')
           }
-          // Repeat directory durability on replay too: index or directory sync may have failed after rename.
-          await syncDirectory(recoveryDir)
-          await syncDirectory(path.dirname(recoveryDir))
-          await syncDirectory(path.dirname(path.dirname(recoveryDir)))
-          await syncDirectory(path.dirname(path.dirname(path.dirname(recoveryDir))))
-          await syncDirectory(path.dirname(destinationPath))
+          if (!destinationMatchesOutput) {
+            const retained = await retainPreviousFinalVideo({
+              job, projectDir, code: destinationCode, finalPath: destinationPath,
+            })
+            if (!retained) {
+              throw new Error('Final render could not keep the final it replaces; nothing was published.')
+            }
+            // The kept folder sits beside the final; sync it and its parent for durability on replay too.
+            await syncDirectory(retained.retained_path)
+            await syncDirectory(path.dirname(retained.retained_path))
+            await syncDirectory(path.dirname(destinationPath))
+            await testHooks.probe?.({
+              phase: 'after-output-keep', candidate_path: pathname, destination_path: destinationPath,
+              project_slug: session.projectSlug, job_id: session.jobId,
+            })
+          }
         } else if (expectedState.kind !== 'absent') {
           throw new Error('Final render staged destination state is invalid.')
         }
@@ -673,11 +726,19 @@ async function readPublishedDestination(
       throw new Error('Final render imported destination identity changed.')
     }
     const before = record(session.reopened.manifest.destination.state, 'staged destination state')
-    if (before.kind === 'file') {
-      const recoveryPath = await registeredRecoveryPath(session, pathname)
-      const displaced = await stableMediaFile(recoveryPath, before.size_bytes)
-      if (displaced.sha256 !== before.sha256) throw new Error('Final render retained recovery bytes changed.')
-      ensureTrashMoveIndexedSync(pathname, recoveryPath, 'final-video')
+    const accepted = acceptedFinalState(before)
+    if (accepted) {
+      // The final this render replaced is still where the retention service put it, unchanged.
+      // A restart reaches here with no in-memory record, so the channel's own record is read.
+      const job = await loadAuthoritativeJob(session.projectSlug, session.jobId)
+      const projectDir = getProjectDir(session.projectSlug)
+      if (!job || !projectDir) throw new Error('Final render project directory is unavailable.')
+      const kept = await findRetainedFinalVideo({ job, projectDir, finalPath: pathname, expected: accepted })
+      const recorded = readRetainedFinalVideos(projectDir)
+        .filter(entry => entry.final_name === path.basename(pathname) && existsSync(entry.retained_path))
+      // A copy that has already aged into Story's Trash is reported by the sweep, not a
+      // reason to refuse a verified publication; a copy whose bytes changed is.
+      if (!kept && recorded.length) throw new Error('Final render kept final changed before acknowledgement.')
     }
     return {
       pathname, sha256: output.sha256, size_bytes: output.size_bytes, dev: file.dev, ino: file.ino,
@@ -893,6 +954,10 @@ async function acknowledge(
     // A restart can reach this phase with no in-memory verdict; the published hardlink is checked
     // again before the row is completed, so terminal consumption never outruns its plan.
     const checked = verified ?? await verifiedPublishedBeforeAcknowledge(session, destination)
+    // Read here, outside the terminal's own lock, so completion's only job edit is its own line.
+    checked.previousFinal = await previousFinalKeptFor(
+      session, await loadAuthoritativeJob(session.projectSlug, session.jobId) as Job, destination.pathname,
+    ).catch(() => null)
     const terminal = await terminalArtifact(session, 'acknowledged', output, destination, candidate)
     let keptWorkDirs: string[] = []
     await consumeFinalRenderTerminal(
@@ -933,6 +998,8 @@ type CarriedFinalCheck = {
   result: FinalCheckResult | null
   resultFields: Record<string, unknown>
   outputLines: string[]
+  /** The final this render replaced and kept, found from the channel's own record. */
+  previousFinal?: RetainedFinalVideo | null
 }
 
 /** The frozen plan a fleet final must be checked against; absent means the import cannot be proven. */
@@ -1060,6 +1127,21 @@ async function verifiedPublishedBeforeAcknowledge(
 }
 
 /**
+ * The final this import displaced and kept, from the channel's own record. A first-ever
+ * final has nothing to look up; a copy that has already aged into Story's Trash is gone
+ * and is reported as such rather than invented.
+ */
+async function previousFinalKeptFor(
+  session: FinalRenderImportSession, job: Job, finalPath: string,
+): Promise<RetainedFinalVideo | null> {
+  const before = record(session.reopened.manifest.destination.state, 'staged destination state')
+  const projectDir = getProjectDir(session.projectSlug)
+  const accepted = acceptedFinalState(before)
+  if (!accepted || !projectDir) return null
+  return findRetainedFinalVideo({ job, projectDir, finalPath, expected: accepted })
+}
+
+/**
  * The finish tail, once, for the published file. The caller has already run the shared checks on
  * these exact bytes (the downloaded candidate before publication, or the published hardlink on a
  * restart) and hands their verdict in; nothing here guesses or re-measures under the consume lock.
@@ -1083,6 +1165,12 @@ async function finishImported(
   job.result = { ...(job.result || {}), ...carried.resultFields }
   job.output_lines.push(...carried.outputLines)
   await video.finishImportedFinalVideo(job, facts.code, finalPath, facts.visual_source, facts.image_pool)
+  // Say what this render kept and where, on the row that completes. A restart after
+  // publication reaches here without the first pass's lines; the channel record names
+  // the copy either way, and a first-ever final kept nothing and logs nothing.
+  if (carried.previousFinal) {
+    reportKeptPreviousFinal(job, carried, retainedFinalLogLine(carried.previousFinal))
+  }
   const kept: string[] = []
   const checkpoint = await getValidVideoAssemblyCheckpoint(job)
   if (checkpoint) kept.push(checkpoint.work_dir)

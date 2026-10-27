@@ -2954,6 +2954,34 @@ function stagedRootForTransportReceipt(receipt: FinalRenderTransportReceiptV3): 
   }
 }
 
+/**
+ * Is the accepted final this cancelled render displaced still recoverable?
+ *
+ * It can be at its own name (the usual case) or in the channel's three-day
+ * retention after an import pass was interrupted between the keep and publication
+ * (owner, 2026-10-27). Answering "not kept" for a copy that is sitting in
+ * `_previous_finals/` with its record would abandon it silently (§6).
+ */
+async function acceptedFinalIsKept(
+  projectSlug: string,
+  destination: { pathname: string; state: { size_bytes: number; sha256: string } },
+): Promise<boolean> {
+  const projectDir = getProjectDir(projectSlug)
+  if (!projectDir) return false
+  try {
+    const { findRetainedFinalVideo } = await import('./final-video-retention.js')
+    const kept = await findRetainedFinalVideo({
+      job: { output_lines: [] } as unknown as Job,
+      projectDir,
+      finalPath: destination.pathname,
+      expected: { size_bytes: destination.state.size_bytes, sha256: destination.state.sha256 },
+    })
+    return kept !== null
+  } catch {
+    return false
+  }
+}
+
 async function hasDurableFinalRenderPrivateSnapshot(
   receipt: FinalRenderRemoteWaitReceipt,
   expectedImport?: {
@@ -2962,6 +2990,8 @@ async function hasDurableFinalRenderPrivateSnapshot(
     receipt_sha256: string
     destination_path: string | null
     candidate_path: string | null
+    /** The channel whose final-retention record is consulted for a cancelled, unimported render. */
+    project_slug: string
   },
 ): Promise<boolean> {
   if (receipt.version === 1) return false
@@ -3010,15 +3040,11 @@ async function hasDurableFinalRenderPrivateSnapshot(
     if (expectedImport?.destination_path === null) {
       const { destination } = JSON.parse(manifestBytes.toString('utf8'))
       if (destination.state.kind === 'file') {
-        const recoveryPath = path.join(destination.recovery_root, 'final-render-recovery', receipt.intent_id,
-          path.basename(destination.pathname))
-        try {
-          await fs.lstat(recoveryPath)
-          return false // Displacement without an imported revision is not the captured before-state.
-        } catch (error: any) {
-          if (error?.code !== 'ENOENT') return false
-        }
-        if (await hashStableFinalRenderMedia(destination.pathname, destination.state.size_bytes)
+        // The accepted final is either still at its own name, or kept by the channel's final
+        // retention for its three-day window (owner, 2026-10-27). Neither is a displacement
+        // this cancellation may claim as the captured before-state; anything else is.
+        const kept = await acceptedFinalIsKept(expectedImport.project_slug, destination)
+        if (!kept && await hashStableFinalRenderMedia(destination.pathname, destination.state.size_bytes)
           !== destination.state.sha256) return false
       } else {
         try {
@@ -3533,6 +3559,7 @@ export async function consumeFinalRenderTerminal(
       if (!await hasDurableFinalRenderPrivateSnapshot(expected, {
         ...terminal.evidence,
         destination_path: terminal.destination?.pathname ?? null,
+        project_slug: projectSlug,
       })) {
         throw new Error('Final render terminal is not bound to its durable private import evidence.')
       }

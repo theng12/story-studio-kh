@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import nodeFs from 'node:fs'
+import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import path from 'node:path'
@@ -1235,7 +1236,7 @@ test('the finish tail runs once after publication and never for a cancelled impo
   assert.ok((await fs.stat(keptWorkDir)).isDirectory(), 'a cancelled render keeps its work folder, like a failed one')
 })
 
-test('a staged render plan checks the candidate before prior-final Trash, publication, and ACK', async t => {
+test('a staged render plan checks the candidate before the previous final is kept, publication, and ACK', async t => {
   let publicationProbes = 0
   installHooks(t, {
     verifyFinal: 'real',
@@ -2352,147 +2353,250 @@ test('original-key 404 installs a visible hold without private import facts', as
   ))
 })
 
-test('Trash index write failure after prior-final rename blocks ACK and recovers exact durable Restore entry', async t => {
-  const project = await pm.createProject({ name: `Import Trash Index Failure ${++serial}` })
+test('a remote import that replaces a final keeps the previous one for three days', async t => {
+  const project = await pm.createProject({ name: `Import Keeps Previous ${++serial}` })
   const projectDir = pm.getProjectDir(project.slug)!
   const videoDir = path.join(projectDir, 'Episodes', 'EP1', 'Video')
-  const prior = Buffer.from('prior final retained across real index append failure\n')
-  const prepared = await prepareOutputReady('trash-index-write-failure', false, {
+  const prior = Buffer.from('accepted final from the earlier render\n')
+  const prepared = await prepareOutputReady('keeps-previous', false, {
     slug: project.slug, videoDir, priorDestinationBytes: prior,
     resolveExternalFinalVideoDir: async () => null,
   })
-  const recoveryRoot = String((prepared.manifest.destination as Record<string, unknown>).recovery_root)
-  const recoveryPath = path.join(recoveryRoot, 'final-render-recovery', prepared.marker.intent_id,
-    path.basename(prepared.destination))
-  const indexPath = path.join(path.dirname(recoveryRoot), '.trash-index.jsonl')
-  await fs.mkdir(path.dirname(indexPath), { recursive: true, mode: 0o700 })
-  const savedIndex = `${indexPath}.retained-before-${prepared.marker.intent_id}`
-  const hadIndex = await fs.lstat(indexPath).then(() => true, error => {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
-    throw error
+  installHooks(t)
+  await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
+
+  const retention = await import('../services/final-video-retention.js')
+  assert.equal(sha256(await fs.readFile(prepared.destination)), OUTPUT_SHA, 'the new final took the name')
+
+  const kept = retention.readRetainedFinalVideos(projectDir)
+  assert.equal(kept.length, 1, 'the channel record names exactly one kept final')
+  const [entry] = kept
+  assert.equal(entry!.final_name, 'EP1_final_video.mp4')
+  assert.equal(entry!.code, 'EP1')
+  assert.equal(
+    path.dirname(entry!.retained_path),
+    path.join(path.dirname(prepared.destination), retention.PREVIOUS_FINALS_DIRNAME),
+    'the kept folder sits beside the final, on the final\'s own drive',
+  )
+  assert.deepEqual(
+    await fs.readFile(path.join(entry!.retained_path, 'EP1_final_video.mp4')), prior,
+    'the accepted final itself is the copy that was kept',
+  )
+  const age = Date.now() - Date.parse(entry!.retained_at)
+  assert.ok(age >= 0 && age < 60 * 60 * 1000, 'the retention window starts when it was replaced')
+
+  const job = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(job?.status, 'done')
+  const line = job?.output_lines.find(value => value.startsWith('Previous final kept for '))
+  assert.ok(line, `the job log says what was kept and where: ${job?.output_lines.join(' | ')}`)
+  assert.match(line!, /Previous final kept for 3 days:/)
+  assert.ok(line!.includes(entry!.retained_path), 'the log names the exact folder')
+  assert.equal(
+    job!.output_lines.filter(value => value.startsWith('Previous final kept for ')).length, 1,
+    'the line is written once, not once per pass',
+  )
+})
+
+test('a failed import leaves the accepted final exactly where it was and keeps no copy', async t => {
+  const project = await pm.createProject({ name: `Import Fails Keeps Nothing ${++serial}` })
+  const projectDir = pm.getProjectDir(project.slug)!
+  const videoDir = path.join(projectDir, 'Episodes', 'EP1', 'Video')
+  const prior = Buffer.from('accepted final that must survive a failed import\n')
+  const prepared = await prepareOutputReady('fails-keeps-nothing', false, {
+    slug: project.slug, videoDir, priorDestinationBytes: prior,
+    resolveExternalFinalVideoDir: async () => null,
   })
-  if (hadIndex) await fs.rename(indexPath, savedIndex)
-  // A real directory at the index pathname makes the shared append fail even for an owner/root process.
-  await fs.mkdir(indexPath, { mode: 0o700 })
-  const io = observeTrashIndexIo(t, indexPath)
-  const atAck: Array<{ index: string | null; synced: number }> = []
+  installHooks(t, { verifyFinal: async () => { throw new Error('the finished video is 12 s short of the plan') } })
+  await assert.rejects(
+    requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id),
+    /12 s short/,
+  )
+
+  const retention = await import('../services/final-video-retention.js')
+  assert.deepEqual(await fs.readFile(prepared.destination), prior, 'the accepted final is untouched')
+  assert.deepEqual(retention.readRetainedFinalVideos(projectDir), [], 'nothing was kept because nothing was replaced')
+  await assert.rejects(fs.stat(path.join(videoDir, retention.PREVIOUS_FINALS_DIRNAME)),
+    (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT')
+  assert.equal(ackPosts(prepared).length, 0)
+})
+
+test('a first-ever remote final keeps nothing and records nothing', async t => {
+  const project = await pm.createProject({ name: `Import First Final ${++serial}` })
+  const projectDir = pm.getProjectDir(project.slug)!
+  const videoDir = path.join(projectDir, 'Episodes', 'EP1', 'Video')
+  const prepared = await prepareOutputReady('first-final', false, {
+    slug: project.slug, videoDir, resolveExternalFinalVideoDir: async () => null,
+  })
+  installHooks(t)
+  await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
+
+  const retention = await import('../services/final-video-retention.js')
+  assert.equal(sha256(await fs.readFile(prepared.destination)), OUTPUT_SHA)
+  assert.deepEqual(retention.readRetainedFinalVideos(projectDir), [])
+  await assert.rejects(fs.stat(path.join(videoDir, retention.PREVIOUS_FINALS_DIRNAME)),
+    (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT')
+  assert.equal(existsSync(path.join(projectDir, retention.FINAL_VIDEO_REPLACEMENTS_SIDECAR)), false,
+    'a first final creates no retention record')
+  const job = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(job?.output_lines.some(value => value.startsWith('Previous final kept for ')), false)
+})
+
+test('after three days the daily sweep hands the kept final to Story\'s Trash with an index entry', async t => {
+  const project = await pm.createProject({ name: `Import Kept Sweep ${++serial}` })
+  const projectDir = pm.getProjectDir(project.slug)!
+  const videoDir = path.join(projectDir, 'Episodes', 'EP1', 'Video')
+  const prior = Buffer.from('accepted final that ages into the trash\n')
+  const prepared = await prepareOutputReady('kept-sweep', false, {
+    slug: project.slug, videoDir, priorDestinationBytes: prior,
+    resolveExternalFinalVideoDir: async () => null,
+  })
+  installHooks(t)
+  await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
+
+  const retention = await import('../services/final-video-retention.js')
+  const [entry] = retention.readRetainedFinalVideos(projectDir)
+  assert.ok(entry)
+  const inside = await retention.sweepChannelRetainedFinalVideos({ projectDir, slug: project.slug })
+  assert.equal(inside.swept, 0, 'inside the window it stays restorable')
+  assert.equal(existsSync(entry!.retained_path), true)
+
+  const later = Date.now() + (retention.FINAL_VIDEO_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000
+  const swept = await retention.sweepChannelRetainedFinalVideos({ projectDir, slug: project.slug, now: later })
+  assert.equal(swept.swept, 1)
+  assert.equal(swept.deferred, 0)
+  assert.equal(existsSync(entry!.retained_path), false)
+  assert.deepEqual(retention.readRetainedFinalVideos(projectDir), [])
+
+  const trashRoot = trash.trashRootFor(projectDir, projectDir, project.slug)
+  const index = await fs.readFile(path.join(path.dirname(trashRoot), '.trash-index.jsonl'), 'utf8')
+  const moved = index.trim().split('\n').map(value => JSON.parse(value) as TrashIndexEntry)
+    .find(row => row.from === entry!.retained_path)
+  assert.ok(moved, 'the move has a Restore entry')
+  assert.equal(moved!.kind, 'final-video')
+  assert.equal(existsSync(path.join(moved!.to, 'EP1_final_video.mp4')), true, 'the video travelled with the folder')
+})
+
+test('a crash between keeping the previous final and publishing it still converges', async t => {
+  const project = await pm.createProject({ name: `Import Crash After Keep ${++serial}` })
+  const projectDir = pm.getProjectDir(project.slug)!
+  const videoDir = path.join(projectDir, 'Episodes', 'EP1', 'Video')
+  const prior = Buffer.from('accepted final kept across a crash mid-import\n')
+  const prepared = await prepareOutputReady('crash-after-keep', false, {
+    slug: project.slug, videoDir, priorDestinationBytes: prior,
+    resolveExternalFinalVideoDir: async () => null,
+  })
+  let crashed = false
   installHooks(t, {
-    probe: async value => {
-      if (value.phase === 'before-output-ack') atAck.push({
-        index: await fs.readFile(indexPath, 'utf8').catch(() => null), synced: io.synced.length,
-      })
+    probe: value => {
+      if (value.phase !== 'after-output-keep' || crashed) return
+      crashed = true
+      throw new Error('simulated power loss after the keep')
     },
   })
   let firstError: unknown
-  let firstRow: Job | null = null
-  let firstAckPosts = -1
-  let firstImported = false
-  let displaced: Buffer | null = null
   try {
-    try { await requireImporter().recoverFinalRenderImport(project.slug, prepared.job.job_id) }
-    catch (error) { firstError = error }
-    firstRow = await queue.loadAuthoritativeJob(project.slug, prepared.job.job_id)
-    firstAckPosts = ackPosts(prepared).length
-    firstImported = (await revisions(prepared)).some(value => value.event === 'output_imported')
-    displaced = await fs.readFile(recoveryPath).catch(() => null)
-  } finally {
-    await fs.rename(indexPath, `${indexPath}.retained-failed-directory-${prepared.marker.intent_id}`)
-    if (hadIndex) await fs.rename(savedIndex, indexPath)
-  }
-  gateway.resetCalls()
-  try {
-    await requireImporter().recoverFinalRenderImport(project.slug, prepared.job.job_id)
-    const recovered = await queue.loadAuthoritativeJob(project.slug, prepared.job.job_id)
-    const indexText = await fs.readFile(indexPath, 'utf8').catch(error => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''
-      throw error
-    })
-    const restoreEntries = indexText.split('\n').filter(Boolean)
-      .map(line => JSON.parse(line) as TrashIndexEntry)
-      .filter(entry => entry.from === prepared.destination && entry.to === recoveryPath)
-    assert.ok(io.failedWrites.some(error => error.code === 'EISDIR'),
-      'real shared index I/O must fail after the prior-final rename')
-    assert.deepEqual(displaced, prior, 'the actual prior file reached its exact registered recovery path')
-    assert.equal(firstAckPosts, 0, 'an unindexed displaced prior final must never authorize ACK')
-    assert.equal(firstRow?.status, 'running', `index failure must remain recoverable: ${String(firstError)}`)
-    assert.ok(firstRow?.local_execution_complete === false || firstRow?.local_execution_complete === undefined)
-    assert.equal(firstImported, false, 'index failure cannot commit imported publication')
-    assert.equal(restoreEntries.length, 1, 'recovery must repair exactly one Restore entry for this from/to pair')
-    assert.equal(restoreEntries[0].kind, 'final-video')
-    assert.match(restoreEntries[0].id, /^[0-9a-f-]{36}$/)
-    assert.ok(Number.isFinite(Date.parse(restoreEntries[0].at)))
-    assert.ok(io.synced.length > 0, 'the actual index file descriptor must be synced')
-    assert.ok(atAck.length > 0, 'successful repair reaches the real ACK boundary')
-    assert.ok(atAck.every(value => value.index?.split('\n').filter(Boolean).some(line => {
-      const entry = JSON.parse(line) as TrashIndexEntry
-      return entry.from === prepared.destination && entry.to === recoveryPath && entry.kind === 'final-video'
-    }) && value.synced > 0), 'exact Restore entry and index fsync precede every ACK opportunity')
-    assert.equal(ackPosts(prepared).length, 1)
-    assert.equal(recovered?.status, 'done')
-    assert.equal(recovered?.local_execution_complete, true)
-    assert.deepEqual(await fs.readFile(recoveryPath), prior)
-    assert.equal(sha256(await fs.readFile(prepared.destination)), OUTPUT_SHA)
-  } finally {
-    io.restore()
-  }
+    await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
+  } catch (error) { firstError = error }
+
+  const retention = await import('../services/final-video-retention.js')
+  assert.equal(crashed, true, `the first pass reached the keep: ${String(firstError)}`)
+  assert.equal((await canonicalMarker(prepared)).phase, 'importing', 'publication never completed')
+  assert.equal(ackPosts(prepared).length, 0, 'an unpublished import never acknowledges')
+  const keptDuringCrash = retention.readRetainedFinalVideos(projectDir)
+  assert.equal(keptDuringCrash.length, 1, 'the accepted final was kept before the crash')
+  assert.deepEqual(
+    await fs.readFile(path.join(keptDuringCrash[0]!.retained_path, 'EP1_final_video.mp4')), prior,
+  )
+
+  installHooks(t)
+  await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
+  const recovered = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(recovered?.status, 'done', 'the restart publishes and completes')
+  assert.equal(recovered?.local_execution_complete, true)
+  assert.equal(sha256(await fs.readFile(prepared.destination)), OUTPUT_SHA)
+
+  const kept = retention.readRetainedFinalVideos(projectDir)
+  assert.equal(kept.length, 1, 'exactly one kept copy, not one per attempt')
+  assert.deepEqual(await fs.readFile(path.join(kept[0]!.retained_path, 'EP1_final_video.mp4')), prior)
+  assert.equal(ackPosts(prepared).length, 1)
 })
 
-test('displaced registered project and external finals use indexed Story Trash', async t => {
+test('a keep whose record never reached disk is repaired from its folder and converges', async t => {
+  const project = await pm.createProject({ name: `Import Kept Without Record ${++serial}` })
+  const projectDir = pm.getProjectDir(project.slug)!
+  const videoDir = path.join(projectDir, 'Episodes', 'EP1', 'Video')
+  const prior = Buffer.from('accepted final moved aside before its record was written\n')
+  const prepared = await prepareOutputReady('kept-without-record', false, {
+    slug: project.slug, videoDir, priorDestinationBytes: prior,
+    resolveExternalFinalVideoDir: async () => null,
+  })
+  // The exact disk state a power loss between the keep and the record write leaves behind.
+  const retention = await import('../services/final-video-retention.js')
+  const orphan = path.join(
+    path.dirname(prepared.destination), retention.PREVIOUS_FINALS_DIRNAME, '2026-10-27T00-00-00-000Z_EP1',
+  )
+  await fs.mkdir(orphan, { recursive: true, mode: 0o700 })
+  await fs.rename(prepared.destination, path.join(orphan, 'EP1_final_video.mp4'))
+  assert.deepEqual(retention.readRetainedFinalVideos(projectDir), [], 'no record yet')
+
+  installHooks(t)
+  await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
+
+  const recovered = await queue.loadAuthoritativeJob(prepared.job.project_slug, prepared.job.job_id)
+  assert.equal(recovered?.status, 'done', 'the import converges instead of stranding the displaced final')
+  assert.equal(sha256(await fs.readFile(prepared.destination)), OUTPUT_SHA)
+  const kept = retention.readRetainedFinalVideos(projectDir)
+  assert.equal(kept.length, 1, 'the moved-aside final is back on the channel record')
+  assert.deepEqual(await fs.readFile(path.join(kept[0]!.retained_path, 'EP1_final_video.mp4')), prior)
+})
+
+test('the kept final sits beside a registered project or external final, never in the trash early', async t => {
   const previousLibrary = await settings.getAppSetting('library_root')
   const previousExports = await settings.getAppSetting('exports_root')
   t.after(async () => {
     await settings.setAppSetting('exports_root', previousExports)
     await settings.setAppSetting('library_root', previousLibrary)
   })
-  const libraryRoot = path.join(retainedRoot, `registered-library-${++serial}`)
+  const libraryRoot = path.join(retainedRoot, `kept-beside-library-${++serial}`)
   await fs.mkdir(path.join(libraryRoot, 'Exports'), { recursive: true, mode: 0o700 })
   await settings.setAppSetting('library_root', libraryRoot)
   await settings.setAppSetting('exports_root', '')
+  const retention = await import('../services/final-video-retention.js')
 
   for (const route of ['project-tree', 'external'] as const) {
     await t.test(route, async st => {
-      const project = await pm.createProject({ name: `Import Trash ${route} ${serial}` })
+      const project = await pm.createProject({ name: `Import Kept Beside ${route} ${serial}` })
       const projectDir = pm.getProjectDir(project.slug)
       assert.ok(projectDir)
-      const prior = Buffer.from(`prior ${route} final\n`)
+      const prior = Buffer.from(`prior ${route} final kept beside the episode\n`)
       const projectVideoDir = path.join(projectDir, 'Episodes', 'EP1', 'Video')
-      const externalAnchor = path.join(libraryRoot, 'Exports')
       const selectedDir = route === 'external'
-        ? path.join(externalAnchor, project.slug, 'Season 001', 'EP1 - Import Trash')
+        ? path.join(libraryRoot, 'Exports', project.slug, 'Season 001', 'EP1 - Kept Beside')
         : projectVideoDir
       await fs.mkdir(selectedDir, { recursive: true, mode: 0o700 })
       const destination = path.join(selectedDir, 'EP1_final_video.mp4')
-      const prepared = await prepareOutputReady(`trash-${route}`, false, {
+      const prepared = await prepareOutputReady(`kept-beside-${route}`, false, {
         slug: project.slug,
         videoDir: projectVideoDir,
         priorDestinationBytes: prior,
         priorDestinationPath: destination,
         resolveExternalFinalVideoDir: async () => route === 'external' ? selectedDir : null,
       })
-      assert.equal(prepared.destination, await fs.realpath(destination))
       installHooks(st)
       await requireImporter().recoverFinalRenderImport(prepared.job.project_slug, prepared.job.job_id)
 
-      const anchor = route === 'external' ? externalAnchor : projectDir
-      if (route === 'external') {
-        const externalStore = await import('../services/external-video-store.js')
-        assert.equal(await externalStore.exportsAnchorFor(project.slug, selectedDir), externalAnchor)
-      }
-      const recovery = path.join(
-        trash.trashRootFor(anchor, projectDir, project.slug),
-        'final-render-recovery', prepared.marker.intent_id, path.basename(destination),
-      )
-      assert.deepEqual(await fs.readFile(recovery), prior)
-      const trashRoot = trash.trashRootFor(anchor, projectDir, project.slug)
-      assert.equal(
-        (prepared.manifest.destination as Record<string, unknown>).recovery_root,
-        trashRoot,
-      )
-      const index = await fs.readFile(path.join(path.dirname(trashRoot), '.trash-index.jsonl'), 'utf8')
-      assert.match(index, new RegExp(prepared.marker.intent_id))
       assert.equal(sha256(await fs.readFile(prepared.destination)), OUTPUT_SHA)
-      const publish = (await revisions(prepared)).find(value => value.event === 'output_publish_intent')
-      assert.equal((publish?.payload as Record<string, unknown>).recovery_path, recovery)
+      const [entry] = retention.readRetainedFinalVideos(projectDir)
+      assert.ok(entry, 'the channel record names the kept final')
+      assert.equal(path.dirname(entry.retained_path),
+        path.join(path.dirname(prepared.destination), retention.PREVIOUS_FINALS_DIRNAME),
+        'the kept folder is beside the final it belonged to, whichever folder that is')
+      assert.deepEqual(await fs.readFile(path.join(entry.retained_path, 'EP1_final_video.mp4')), prior)
+      // Nothing reached Story's Trash early: the three-day sweep is the only thing that moves it.
+      const anchor = route === 'external' ? path.join(libraryRoot, 'Exports') : projectDir
+      const earlyTrash = path.join(path.dirname(trash.trashRootFor(anchor, projectDir, project.slug)), '.trash-index.jsonl')
+      const lines = await fs.readFile(earlyTrash, 'utf8').catch(() => '')
+      assert.equal(lines.includes(entry.retained_path), false, 'the kept copy is not in the trash yet')
     })
   }
 })
