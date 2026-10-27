@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.academic-classical-oil-v2",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Merged Oil Painting Classical into Academic Classical Oil: enriched surface and texture wording with concrete impasto, layered glazes, and canvas texture descriptors, unioned negative prompts, preserved soft low-contrast lighting, kept the three Qwen previews.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.academic-classical-oil-v2",
+    "family": "com.storystudio.family.style.academic-classical-oil-v2"
+  },
+  "dependencies": []
+}
