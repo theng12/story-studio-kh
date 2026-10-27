@@ -52,6 +52,8 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   music_episode_build: 'Music episode',
   music_scene_polish: 'Scene prompt polish',
   translate_episode: 'Translate episode',
+  still_post_write: 'Still Posts writing',
+  still_post_render: 'Still Posts drawing',
   // Retired ids retained so old history rows stay readable.
   'script-only': 'Script (chapters)',
   expression_markup: 'Expression markup',
@@ -335,6 +337,8 @@ export function jobWorkspaceLink(job: {
     music_video: ['music', 'Music'],
     music_episode_build: ['episode-builder', 'Episode Builder'],
     music_scene_polish: ['episode-builder', 'Episode Builder'],
+    still_post_write: ['still-posts', 'Still Posts'],
+    still_post_render: ['still-posts', 'Still Posts'],
   }
   if (!Object.hasOwn(destinations, job.type)) return null
   const destination = destinations[job.type]

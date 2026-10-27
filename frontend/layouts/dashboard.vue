@@ -229,6 +229,7 @@ const channelFormulaName = computed(() => {
   return channelFormulaLoading.value ? 'Loading Series Formula…' : 'Series Formula unavailable'
 })
 const productionPathName = computed(() => {
+  if (visualSource.value === 'still-posts') return 'Still image posts'
   if (visualSource.value === 'music') return 'Music channel formula'
   switch (project.value?.continuity_mode) {
     case 'character-continuity': return 'Character continuity'

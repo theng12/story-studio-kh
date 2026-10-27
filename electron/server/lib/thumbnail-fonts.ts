@@ -180,9 +180,97 @@ export function configureFontconfig(): string {
 /** Whether the config was prepared in this process (tests assert the renderer really did it). */
 export function fontconfigConfigured(): boolean {
   return !!fontconfigDir
-}
-
-/** The Fontconfig file path currently in force, or null. */
+}/** The Fontconfig file path currently in force, or null. */
 export function fontconfigFile(): string | null {
   return fontconfigDir ? path.join(fontconfigDir, FONTCONFIG_FILE) : null
+}
+
+// ── Making the bundled faces visible to Pango on macOS ─────────────────────
+//
+// MEASURED, 2026-10-27 (this build, macOS, libvips 8.18.6 / Pango 1.58.2): on macOS
+// pangocairo renders through CoreText, whose font map is the system's. The `<dir>` in the fontconfig
+// file above is therefore NOT what resolves a family here — a family resolves only because the same
+// file happens to be installed in `~/Library/Fonts`. The five fonts Story Studio shipped before
+// today were all installed by hand on the owner's Mac, which is why the self-check passed and hid
+// this. A bundled font that is not installed is not found at all, and the renderer refuses loudly
+// (which is the right failure, but it means a fresh Mac has no bundled faces).
+//
+// So the app installs its own fonts the way macOS understands: it copies each bundled file into
+// `~/Library/Fonts/Story Studio/` when that family cannot be resolved. It never overwrites a family
+// the Mac already has, so a customer's own Inter is left exactly as it is.
+
+/** Where the app puts bundled fonts the system does not already have. */
+export function bundledFontInstallDir(): string {
+  return path.join(os.homedir(), 'Library', 'Fonts', 'Story Studio')
+}
+
+/**
+ * True when Pango can draw with `family` at all.
+ *
+ * Same evidence the renderer's self-check uses: a request that resolves produces different pixels
+ * from a request for a family that does not exist. It cannot tell WHICH face came back, only that
+ * the request was honoured — which is the question here.
+ */
+export async function familyResolves(family: string): Promise<boolean> {
+  const sharp = (await import('sharp')).default
+  const sample = 'Hamburgefonstiv'
+  const [target, probe] = await Promise.all([
+    sharp({ text: { text: sample, font: `${family} Regular 40`, rgba: true } }).png().toBuffer(),
+    sharp({ text: { text: sample, font: `${MISSING_FAMILY} Regular 40`, rgba: true } }).png().toBuffer(),
+  ])
+  if (target.length !== probe.length) return true
+  const [a, b] = await Promise.all([sharp(target).metadata(), sharp(probe).metadata()])
+  return a.width !== b.width || a.height !== b.height
+}
+
+/** The family name used to prove a request was honoured (never a real face). */
+const MISSING_FAMILY = 'Story Studio Font Probe (not a real family)'
+
+export interface FontInstallResult {
+  /** Font ids that were already usable on this Mac. */
+  present: string[]
+  /** Font ids copied into `~/Library/Fonts/Story Studio/` just now. */
+  installed: string[]
+  /** Font ids that could not be installed, with the reason. */
+  failed: Array<{ id: string; reason: string }>
+}
+
+/**
+ * Install any bundled font this Mac cannot resolve yet.
+ *
+ * Runs at boot, so the copy happens long before anyone asks for a picture. It is idempotent and
+ * cheap: a family that already resolves costs one small render and nothing else.
+ */
+export async function ensureBundledFontsInstalled(): Promise<FontInstallResult> {
+  const result: FontInstallResult = { present: [], installed: [], failed: [] }
+  // Never touch the customer's home from a test run, and let a diagnostic opt out too.
+  if (process.env.STORY_STUDIO_SKIP_FONT_INSTALL === '1') return result
+  if (process.env.STORY_STUDIO_TEST_HARNESS_ROOT || process.env.NODE_ENV === 'test') return result
+  const manifest = await readFontManifest()
+  let targetDir: string | null = null
+  for (const entry of manifest.fonts) {
+    try {
+      if (await familyResolves(entry.family)) {
+        result.present.push(entry.id)
+        continue
+      }
+      targetDir ??= bundledFontInstallDir()
+      await fs.mkdir(targetDir, { recursive: true })
+      const destination = path.join(targetDir, entry.file.split('/').pop() || `${entry.id}.ttf`)
+      if (existsSync(destination)) {
+        const same = (await sha256File(destination)) === entry.sha256
+        if (same) {
+          // Already there but not yet visible to this process — nothing more to do; the system
+          // font daemon indexes new files within a few seconds of the first launch.
+          result.present.push(entry.id)
+          continue
+        }
+      }
+      await fs.copyFile(fontFilePath(entry), destination)
+      result.installed.push(entry.id)
+    } catch (error: any) {
+      result.failed.push({ id: entry.id, reason: error?.message || String(error) })
+    }
+  }
+  return result
 }

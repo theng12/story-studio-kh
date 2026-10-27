@@ -54,7 +54,7 @@ function tableChecksum(bytes: Buffer, tag: string, table: SfntTable): number {
   return sum
 }
 
-const NAME_IDS = { 1: 'family', 2: 'subfamily', 5: 'version', 6: 'postscript', 0: 'copyright' } as const
+const NAME_IDS = { 1: 'family', 2: 'subfamily', 4: 'full', 5: 'version', 6: 'postscript', 0: 'copyright', 16: 'typographic_family', 17: 'typographic_subfamily' } as const
 
 function readNameTable(bytes: Buffer, table: SfntTable): Record<string, string> {
   const base = table.offset
@@ -108,7 +108,11 @@ describe('bundled fonts — the file is the face the manifest names', () => {
     for (const entry of (await readFontManifest()).fonts) {
       const bytes = readFileSync(fontFilePath(entry))
       const names = readNameTable(bytes, readTables(bytes).get('name')!)
-      assert.equal(names.family, entry.family, `${entry.id}: family table says ${names.family}`)
+      // A variable font names its DEFAULT INSTANCE in nameID 1 ("Noto Sans SC Thin") and the real
+      // family in the typographic record (nameID 16, "Noto Sans SC") — which is the family
+      // fontconfig resolves and the manifest offers. Prefer the typographic record when there is
+      // one, so "the file identifies itself as this family" stays a true statement for both shapes.
+      assert.equal(names.typographic_family || names.family, entry.family, `${entry.id}: family table says ${names.typographic_family || names.family}`)
       assert.ok(names.version, `${entry.id}: no version recorded in the name table`)
       // A variable font's file stem is `Inter[opsz,wght]`; its PostScript name is `Inter-Regular`.
       const normalizedFamily = entry.family.toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -137,6 +141,14 @@ describe('bundled fonts — the file is the face the manifest names', () => {
       } else {
         // A 'latn'-only face must NOT have Khmer glyphs — that is what the renderer refuses on.
         assert.notDeepEqual(khmerMissing, [], `${entry.id} declares no khmr script but has Khmer glyphs`)
+      }
+      // Same rule for Chinese: a face offered for Mandarin must really draw it, and a face that
+      // does not offer it must not quietly carry the glyphs either.
+      const chineseMissing = await missingCharacters(file, '今天我很累')
+      if (publicFont.scripts.includes('hani')) {
+        assert.deepEqual(chineseMissing, [], `${entry.id} declares hani and must cover Chinese`)
+      } else {
+        assert.notDeepEqual(chineseMissing, [], `${entry.id} declares no hani script but has Chinese glyphs`)
       }
     }
   })
