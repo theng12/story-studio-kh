@@ -439,10 +439,11 @@ function isComplete(ep: EpisodeRow): boolean {
 const readyCount = computed(() => episodes.value.filter(isComplete).length)
 const needsWorkCount = computed(() => Math.max(0, episodeCount.value - readyCount.value))
 const finalVideoCount = computed(() => episodes.value.filter(ep => statusDone(ep, 'video_assembly')).length)
-// The renderer refuses an episode whose switched-on Contextual Cues or Sound
-// Design are not ready (`false` only when the feature is on and unfinished), so
-// such an episode is not ready for the final video even though every step
-// below is done.
+// Sound & Labels is one optional gate (v1.4.365): the backend derives BOTH
+// `contextual_cues` and `sound_design` from the same resolvers the renderer
+// refuses over, and neither is false for an unreviewed row — only for a defect
+// approving cannot fix. So "not ready" here means the renderer really would
+// refuse, not that somebody has not got round to reviewing yet.
 const readyToRenderCount = computed(() => episodes.value.filter(ep =>
   visualSource.value
     && ep.status?.contextual_cues !== false
