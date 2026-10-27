@@ -446,6 +446,54 @@ off for every preset saved before the field existed. `storedPresetAutoApprove` i
 hand edit of the tick-box and by an episode change, and it never fires for the preset re-apply
 `usePresets.load()` performs on mount — that is a restore, not a change the customer just made.
 
+### Sound & Labels: one page, one auto-approve, one readiness answer (2026-10-28)
+
+The owner approved merging Contextual Cues and Sound Design into **one page, Sound & Labels**.
+Phases P1–P3 are built; P4 (an EmbeddingGemma ranker choosing sounds) is a documented hook, not
+built.
+
+**Why the merge.** Two pages for two optional layers of the same moment. The audit found the pair
+failing in each other's blind spots: the sound page's PUT answered `validation: []` while its GET
+validated with `requireResolved`, so a page could report "ready" for a cue the renderer refused;
+each page had its own idea of where a cue sits; and both stored absolute seconds that a Scene Plan
+re-run left pointing at the wrong scene.
+
+**What did NOT change, and must not.** The two file names (`contextual_cues.json`,
+`sound_design.json`), the two project config keys, the two preset types, and the job type and step
+id of the `contextual_cues` job — queued jobs, history and Pipeline links all name it. Both old
+pages are redirects and both old API paths answer 410 with the new address in `detail`.
+
+**One auto-approve switch.** The project-level `contextual_cues.auto_approve_cues` is deleted. The
+preset's `auto_approve` is the only one, for the reason 2026-08-17 already settled (§5). A stored
+channel config still carrying the old key is read safely and ignored: nothing rewrites it, and
+`normalizeContextualCueConfig` does not carry it through, so a stale `true` cannot start approving
+cues nobody asked to approve. **Do not restore the field to "support" old configs** — that is the
+defect, not the fix.
+
+**Nothing optional blocks Video Assembly.** An unreviewed, missing or turned-off item is silence
+(or no label) plus a stated note; approved items render. This replaces a hard gate that refused the
+whole episode over one unreviewed cue. Only a defect approving cannot fix still refuses, and it
+refuses from the same resolver the Production Board reads: a label outside its scene, one shorter
+than 2.25s, two approved labels crowding, two approved beds overlapping. `resolveRenderable*` is the
+single answer — do not add a second opinion anywhere.
+
+**A page READ reports; it never refuses.** `routes/sound-and-labels.ts` catches the resolver's
+refusal into `readiness.*.refuses` and still returns every row, because a 400 hides the very row
+that needs fixing. The renderer keeps refusing for itself.
+
+**Anchors, not absolute seconds.** A v2 cue carries `scene_id` + `anchor_word`, and
+`contracts/cue-anchor.ts` finds the phrase in this episode's own subtitle cues — so a label lands
+where the narration says it rather than at a fixed pad (`scene start + 0.15s` was the complaint).
+Re-anchoring happens on READ, so no save path can certify a stale time. **A cue with NO anchor
+keeps the seconds it was saved with** (`unanchored` in `resolveAnchoredStart`): every v1 file is
+that case, and re-deriving it to the scene start would move every delivered episode's labels the
+first time a plan was rebuilt. Nothing rewrites a stored v1 file; a save writes v2.
+
+**What the gates cannot see, from this change.** The route-order bug (fixed-path routes declared
+below `/:episodeId`, so "config" was read as an episode code) and the "Scene undefined" fallback
+both passed typecheck, lint and every unit test. Both were found by running the page against a real
+isolated Library — the same lesson §3 already records.
+
 ---
 
 ## 6. A zero that means two things
