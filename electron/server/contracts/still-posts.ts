@@ -28,6 +28,23 @@ export function isStillPostAspect(value: unknown): value is StillPostAspect {
   return typeof value === 'string' && (STILL_POST_ASPECTS as readonly string[]).includes(value)
 }
 
+/**
+ * How a batch's pictures are drawn.
+ *
+ * Owner, 2026-10-27: *"keep the current way to do it but also add the option to have a fresh
+ * drawing per size. So we have 2 options but default to just 1 drawing per post."*
+ *
+ *  - `single`    one drawing per panel, composed once and fitted into every ticked frame by our
+ *                renderer (the blurred fill means nothing is cropped). The default.
+ *  - `per-size`  a separate drawing per panel per ticked frame, at that frame's own aspect, then
+ *                lettered and branded exactly as a single drawing is.
+ *
+ * The mode is stored on the POST, so a batch keeps the choice it was written with and each drawing
+ * records the mode that made it. A render may restate the choice (the page always does); when it
+ * differs from the stored mode the job applies it and says so, keeping the other mode's pictures.
+ */
+export type StillPostArtMode = 'single' | 'per-size'
+
 /** The pixels each export frame is drawn at. 1080 on the short edge, as every platform wants. */
 export const STILL_POST_CANVAS: Record<StillPostAspect, { width: number; height: number }> = {
   '1:1': { width: 1080, height: 1080 },
@@ -144,6 +161,16 @@ export interface StillPostImage {
   prompt: string
   reference_character_ids: string[]
   reference_names: string[]
+  /**
+   * Which mode drew this picture, and the aspect it was requested at.
+   *
+   * Recorded on every drawing so a mode change on retry is visible rather than guessed: a
+   * `single` drawing exists once per panel and is fitted into every frame, while a `per-size`
+   * drawing belongs to exactly one frame. Absent on records written before this field existed,
+   * which are single drawings by definition.
+   */
+  mode?: StillPostArtMode
+  aspect?: StillPostAspect
   /** An explicit re-draw, so a Retry reconnects instead of buying a second render. */
   generation_action?: { id: string; kind: 'fresh' }
 }
@@ -155,7 +182,15 @@ export interface StillPostPanel {
   text: string
   /** What the picture shows. Text-free by construction. */
   scene_prompt: string
+  /** The ONE drawing a `single`-mode batch makes, fitted into every frame. */
   image: StillPostImage | null
+  /**
+   * The drawings a `per-size` batch makes, one per ticked frame.
+   *
+   * Keyed by the frame each one was requested at, so completion can require every frame's OWN
+   * picture (AGENTS §8) and a retry draws only the frames that are missing.
+   */
+  images?: Partial<Record<StillPostAspect, StillPostImage>>
 }
 
 export interface StillPostFinal {
@@ -187,6 +222,11 @@ export interface StillPost {
   finals: StillPostFinal[]
   /** Requested export frames, captured when the batch was written. */
   aspects: StillPostAspect[]
+  /**
+   * How this post's pictures are drawn. Absent means `single` — the original behaviour, kept
+   * byte-for-byte for every post written before this choice existed.
+   */
+  art_mode?: StillPostArtMode
   /** Reserved for the posting phase. Absent means never published. */
   published_at?: string | null
 }
@@ -237,6 +277,13 @@ export interface StillPostPresetData {
   option_id: string
   language: StillPostsLanguage
   aspects: StillPostAspect[]
+  /**
+   * Draw a separate picture per ticked frame instead of one fitted into each.
+   *
+   * A reusable configuration choice, so §5 puts it in the preset. Absent/false keeps the original
+   * one-drawing behaviour.
+   */
+  fresh_drawing_per_size: boolean
   /** Multiplies the format's fitted type size, so a preset can whisper or shout. */
   text_scale: number
   branding: StillPostBranding
@@ -256,8 +303,10 @@ export type StillPostArtifactState = 'ok' | 'missing' | 'invalid' | 'stale'
 export interface StillPostPanelState {
   panel_id: string
   role: StillPostPanelRole
-  /** The generated art: present, decodable and non-empty. */
+  /** The generated art: present, decodable and non-empty. `ok` only when every required frame has one. */
   image: StillPostArtifactState
+  /** Per-size mode only: the state of each frame's OWN drawing. */
+  images?: Record<string, StillPostArtifactState>
   /** One entry per requested frame. */
   finals: Record<string, StillPostArtifactState>
   problems: string[]
@@ -322,6 +371,8 @@ export interface StillPostBatchRequest {
   option_id: string
   language: StillPostsLanguage
   aspects: StillPostAspect[]
+  /** Draw a separate picture per ticked frame. Absent/false = one drawing, fitted to each size. */
+  fresh_drawing_per_size?: boolean
   /** Characters every post may use. Must be a subset of the channel roster. */
   character_ids: string[]
   /** A live Gateway chat model id. Absent uses this Mac's writing default. */

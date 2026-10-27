@@ -41,3 +41,18 @@ test('the page keeps the owner rules visible: batches, characters, and a live mo
   assert.match(page, /never drawn by/)
   assert.doesNotMatch(page, /window\.confirm/)
 })
+
+test('the drawing choice is offered in plain words beside the export frames, defaulting to one drawing', () => {
+  // Owner, 2026-10-27: keep one drawing per post, and offer a fresh drawing per size.
+  assert.match(page, /One drawing, fitted to each size \(default\)/)
+  assert.match(page, /A fresh drawing for each size \(up to 3× the drawings\)/)
+  // The default is OFF, in the page state the preset applies into.
+  assert.match(page, /fresh_drawing_per_size:\s*false/)
+  // It is a reusable configuration choice, so the preset RESTORES it (AGENTS §5)…
+  assert.match(page, /preset\.fresh_drawing_per_size\s*=\s*found\.data\.fresh_drawing_per_size/)
+  // …and the batch/render requests carry it, so the stored record knows the mode.
+  assert.match(page, /fresh_drawing_per_size:\s*preset\.fresh_drawing_per_size/)
+  // The cost is quoted from the live model's published price, and it counts the drawings.
+  assert.match(page, /describeImageBatchEstimate/)
+  assert.match(page, /drawingsForBatch/)
+})

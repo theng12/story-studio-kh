@@ -12,6 +12,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { describe, test } from 'node:test'
@@ -442,6 +443,266 @@ describe('still posts — channel scope', () => {
   })
 })
 
+
+describe('still posts — a fresh drawing per size', () => {
+  /**
+   * Start the mock Gateway, replace the image provider with a counting fake, and widen the
+   * catalogue's published sizes to all three frames. The counting fake is the point: every
+   * assertion about "only the missing ones" is a count of provider calls.
+   */
+  async function setup(options: { publishAllAspects?: boolean } = {}) {
+    const isolated = await useTempDataDir()
+    const service = await startMockGenStudioService()
+    const originalFetch = globalThis.fetch
+    const registryModule = await import('../providers/registry.js')
+    await import('../providers/image/genstudio.js')
+    const realProvider = registryModule.registry.getImageProvider('genstudio-image')!
+    let draws = 0
+    const requestedAspects: string[] = []
+    globalThis.fetch = async (input, init) => {
+      const response = await originalFetch(input, init)
+      if (options.publishAllAspects !== false
+        && String(input).includes('/v1/image/models') && response.ok) {
+        const rows = await response.clone().json() as Array<Record<string, any>>
+        return Response.json(rows.map(row => ({
+          ...row,
+          aspect_ratios: ['1:1', '9:16', '16:9'],
+          output_options: [
+            { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: true },
+            { resolution: '1K', aspect_ratio: '9:16', width: 768, height: 1344, is_default: false },
+            { resolution: '1K', aspect_ratio: '16:9', width: 1344, height: 768, is_default: false },
+          ],
+        })))
+      }
+      return response
+    }
+    const settings = await import('../services/app-settings.js')
+    const secrets = await import('../services/app-secrets-store.js')
+    const client = await import('../lib/genstudio-client.js')
+    registryModule.registry.registerImage({
+      meta: { id: 'genstudio-image', name: 'Gateway (test)', apiKeyField: 'genstudio_api_key', providerId: 'genstudio' },
+      supportsModel: () => true,
+      generateImage: async (request: any) => {
+        draws += 1
+        requestedAspects.push(String(request.aspectRatio))
+        const png = await artBytes(`#${(draws * 37 % 200 + 40).toString(16).padStart(2, '0')}3344`)
+        return { urls: [`data:image/png;base64,${png.toString('base64')}`] }
+      },
+    })
+    await settings.setGenStudioUrl(service.baseUrl)
+    await secrets.setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    client.clearGenStudioCatalogCache()
+    const pm = await import('../services/project-manager.js')
+    const store = await import('../services/still-posts.js')
+    const { generateStillPostsRender, createPostsFromDrafts } = await import('../generators/still-posts.js')
+    const { stillPostFormat, stillPostOption } = await import('../still-posts/catalog.js')
+    const project = await pm.createProject({ name: 'Still posts per size' })
+    return {
+      slug: project.slug,
+      store,
+      createPostsFromDrafts,
+      generateStillPostsRender,
+      format: stillPostFormat('night-painterly')!,
+      option: stillPostOption('quote-top')!,
+      draws: () => draws,
+      requestedAspects: () => [...requestedAspects],
+      cleanup: async () => {
+        registryModule.registry.registerImage(realProvider)
+        globalThis.fetch = originalFetch
+        await service.close?.()
+        await isolated.cleanup()
+      },
+    }
+  }
+
+  test('one drawing per ticked frame; a retry draws only the frames that are missing', async () => {
+    const ctx = await setup()
+    try {
+      const created = await ctx.createPostsFromDrafts(ctx.slug, {
+        batch_id: 'batch-size-1', format: ctx.format, option: ctx.option, language: 'en',
+        aspects: ['1:1', '9:16'], art_mode: 'per-size', character_ids: [],
+      }, [{ panels: [{ text: 'I miss who I was', scene_prompt: 'a figure on a cliff' }], caption: '' }])
+      assert.equal(created.length, 1)
+
+      const first = job(ctx.slug, 'still_post_render', {
+        image_model: 'mock-image-v1', batch_id: 'batch-size-1', fresh_drawing_per_size: true,
+      })
+      await ctx.generateStillPostsRender(first)
+      assert.equal(ctx.draws(), 2, 'one paid drawing for each of the two ticked frames')
+      // The model was asked for each frame's own aspect — never a substituted one.
+      assert.deepEqual([...ctx.requestedAspects()].sort(), ['1:1', '9:16'])
+
+      const [post] = await ctx.store.listPosts(ctx.slug)
+      assert.equal(post.art_mode, 'per-size')
+      assert.equal(post.panels[0]!.images?.['1:1']?.mode, 'per-size')
+      assert.equal(post.panels[0]!.images?.['1:1']?.aspect, '1:1')
+      assert.equal(post.panels[0]!.images?.['9:16']?.aspect, '9:16')
+      assert.equal(post.panels[0]!.image, null, 'a per-size post makes no single fitted drawing')
+
+      const dir = ctx.store.postDir(ctx.slug, post.id)
+      for (const aspect of ['1:1', '9:16'] as const) {
+        assert.ok(existsSync(path.join(dir, ctx.store.panelArtFilename(0, aspect))), aspect)
+        assert.ok(existsSync(path.join(dir, ctx.store.finalFilename(0, aspect))), aspect)
+      }
+      assert.equal(existsSync(path.join(dir, ctx.store.panelArtFilename(0))), false,
+        'a per-size post does not also pretend a single fitted drawing exists')
+      const state = await ctx.store.verifyPostState(ctx.slug, post, ['1:1', '9:16'])
+      assert.equal(state.complete, true, state.problems.join('; '))
+
+      // Remove ONE frame's own drawing: the batch is incomplete, and Retry buys exactly one more.
+      // (Moved aside rather than deleted — the repo never removes a file with `rm`.)
+      const missingArt = path.join(dir, ctx.store.panelArtFilename(0, '9:16'))
+      await fs.rename(missingArt, `${missingArt}.moved-aside`)
+      const broken = await ctx.store.verifyPostState(ctx.slug, post, ['1:1', '9:16'])
+      assert.equal(broken.complete, false)
+      assert.ok(broken.problems.some(problem => /9:16 artwork is missing/i.test(problem)))
+      assert.equal(broken.panels[0]!.images?.['9:16'], 'missing')
+      assert.equal(broken.panels[0]!.images?.['1:1'], 'ok')
+
+      const before = ctx.draws()
+      await ctx.generateStillPostsRender(job(ctx.slug, 'still_post_render', {
+        image_model: 'mock-image-v1', batch_id: 'batch-size-1', fresh_drawing_per_size: true,
+      }))
+      assert.equal(ctx.draws(), before + 1, 'only the missing frame is drawn again')
+      const retried = (await ctx.store.listPosts(ctx.slug))[0]!
+      assert.equal((await ctx.store.verifyPostState(ctx.slug, retried, ['1:1', '9:16'])).complete, true)
+
+      // A third run buys nothing.
+      const idle = ctx.draws()
+      await ctx.generateStillPostsRender(job(ctx.slug, 'still_post_render', {
+        image_model: 'mock-image-v1', batch_id: 'batch-size-1', fresh_drawing_per_size: true,
+      }))
+      assert.equal(ctx.draws(), idle, 'a complete per-size batch must not buy another render')
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  test('a frame the selected model does not publish is refused in preflight, before any paid call', async () => {
+    // The mock catalogue publishes 16:9 and 1:1 only.
+    const ctx = await setup({ publishAllAspects: false })
+    try {
+      await ctx.createPostsFromDrafts(ctx.slug, {
+        batch_id: 'batch-size-2', format: ctx.format, option: ctx.option, language: 'en',
+        aspects: ['1:1', '9:16'], art_mode: 'per-size', character_ids: [],
+      }, [{ panels: [{ text: 'the light stays on', scene_prompt: 'a lit window' }], caption: '' }])
+
+      await assert.rejects(
+        ctx.generateStillPostsRender(job(ctx.slug, 'still_post_render', {
+          image_model: 'mock-image-v1', batch_id: 'batch-size-2', fresh_drawing_per_size: true,
+        })),
+        (error: any) => /does not publish 9:16/i.test(error.message)
+          && /Mock Image/.test(error.message)
+          && /No image was requested/i.test(error.message),
+      )
+      assert.equal(ctx.draws(), 0, 'the refusal happens before any image is requested')
+
+      // An omitted choice keeps the post's stored mode, so a retry cannot silently re-decide it.
+      await assert.rejects(
+        ctx.generateStillPostsRender(job(ctx.slug, 'still_post_render', {
+          image_model: 'mock-image-v1', batch_id: 'batch-size-2',
+        })),
+        /does not publish 9:16/i,
+      )
+      assert.equal(ctx.draws(), 0)
+
+      // The same batch drawn as ONE fitted picture is unaffected: 9:16 is framed from the drawing.
+      // (The choice must be restated: an omitted flag keeps the post's stored mode.)
+      await ctx.generateStillPostsRender(job(ctx.slug, 'still_post_render', {
+        image_model: 'mock-image-v1', batch_id: 'batch-size-2', fresh_drawing_per_size: false,
+      }))
+      assert.equal(ctx.draws(), 1, 'one drawing per post, fitted into both frames')
+      const [post] = await ctx.store.listPosts(ctx.slug)
+      assert.equal((await ctx.store.verifyPostState(ctx.slug, post!, ['1:1', '9:16'])).complete, true)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  test('a mode change on retry is applied, recorded and announced', async () => {
+    const ctx = await setup()
+    try {
+      await ctx.createPostsFromDrafts(ctx.slug, {
+        batch_id: 'batch-size-3', format: ctx.format, option: ctx.option, language: 'en',
+        aspects: ['1:1', '9:16'], character_ids: [],
+      }, [{ panels: [{ text: 'the light stays on', scene_prompt: 'a lit window' }], caption: '' }])
+
+      // 1. The default: ONE drawing, fitted.
+      await ctx.generateStillPostsRender(job(ctx.slug, 'still_post_render', {
+        image_model: 'mock-image-v1', batch_id: 'batch-size-3',
+      }))
+      assert.equal(ctx.draws(), 1)
+      let [post] = await ctx.store.listPosts(ctx.slug)
+      assert.equal(post!.art_mode, undefined, 'the default writes no mode field')
+      assert.equal(post!.panels[0]!.image?.mode, 'single')
+      assert.equal((await ctx.store.verifyPostState(ctx.slug, post!, ['1:1', '9:16'])).complete, true)
+
+      // 2. Turning it on draws one per frame — the fitted drawing does not count as a frame's own —
+      //    and the job says the earlier drawing is kept but not used.
+      const switched = job(ctx.slug, 'still_post_render', {
+        image_model: 'mock-image-v1', batch_id: 'batch-size-3', fresh_drawing_per_size: true,
+      })
+      await ctx.generateStillPostsRender(switched)
+      assert.equal(ctx.draws(), 3, 'two fresh drawings for the two frames')
+      assert.ok(switched.output_lines.some((line: string) => /switching from one fitted drawing/i.test(line)))
+      assert.ok(switched.output_lines.some((line: string) => /kept but not used/i.test(line)))
+      ;[post] = await ctx.store.listPosts(ctx.slug)
+      assert.equal(post!.art_mode, 'per-size')
+
+      // 3. Turning it back off reuses the fitted drawing that is still on disk: no new purchase.
+      const back = job(ctx.slug, 'still_post_render', {
+        image_model: 'mock-image-v1', batch_id: 'batch-size-3', fresh_drawing_per_size: false,
+      })
+      await ctx.generateStillPostsRender(back)
+      assert.equal(ctx.draws(), 3, 'the earlier fitted drawing is reused, not re-bought')
+      assert.ok(back.output_lines.some((line: string) => /switching from a fresh drawing per size/i.test(line)))
+      ;[post] = await ctx.store.listPosts(ctx.slug)
+      assert.equal(post!.art_mode, 'single')
+      assert.equal((await ctx.store.verifyPostState(ctx.slug, post!, ['1:1', '9:16'])).complete, true)
+    } finally {
+      await ctx.cleanup()
+    }
+  })
+
+  test('the choice travels in the preset and is written on the batch', async () => {
+    const isolated = await useTempDataDir()
+    try {
+      const pm = await import('../services/project-manager.js')
+      const catalog = await import('../still-posts/catalog.js')
+      assert.equal(catalog.STILL_POST_BUILTIN_PRESETS[0]!.data.fresh_drawing_per_size, false)
+
+      const project = await pm.createProject({ name: 'Still posts preset mode' })
+      const { router } = await import('../routes/still-posts.js')
+      const app = express().use(express.json()).use('/api', router)
+      const saved = await request(app).put(`/api/projects/${project.slug}/still-posts/presets`).send({
+        presets: [{ id: 'mine', name: 'Mine', data: { format_id: 'sticker-flat', fresh_drawing_per_size: true } }],
+        last_preset_id: 'mine',
+      })
+      assert.equal(saved.status, 200)
+      const preset = saved.body.presets.find((entry: any) => entry.id === 'mine')
+      assert.equal(preset.data.fresh_drawing_per_size, true)
+      // And a preset saved without the field is normalised to false, never left undefined.
+      const plain = await request(app).put(`/api/projects/${project.slug}/still-posts/presets`).send({
+        presets: [{ id: 'plain', name: 'Plain', data: { format_id: 'sticker-flat' } }],
+      })
+      assert.equal(plain.body.presets.find((entry: any) => entry.id === 'plain').data.fresh_drawing_per_size, false)
+
+      // The write route captures the choice on the batch's posts.
+      const { createPostsFromDrafts } = await import('../generators/still-posts.js')
+      const store = await import('../services/still-posts.js')
+      const format = catalog.stillPostFormat('sticker-flat')!
+      const option = catalog.stillPostOption('quote-top')!
+      await createPostsFromDrafts(project.slug, {
+        batch_id: 'batch-size-4', format, option, language: 'en', aspects: ['1:1'],
+        art_mode: 'per-size', character_ids: [],
+      }, [{ panels: [{ text: 'hello', scene_prompt: 'a frog' }], caption: '' }])
+      const [post] = await store.listPosts(project.slug)
+      assert.equal(post!.art_mode, 'per-size')
+    } finally {
+      await isolated.cleanup()
+    }
+  })
+})
 
 describe('still posts — routes', () => {
   test('the workspace, a refused cast change, an instant re-letter, and a refused path', async () => {

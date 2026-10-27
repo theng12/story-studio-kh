@@ -92,9 +92,9 @@ export function postDir(slug: string, postId: string): string {
   return path.join(postsDir(slug), validatePostId(postId))
 }
 
-/** `p0.png`, `p1.png` … the generated art for one panel. */
-export function panelArtFilename(index: number): string {
-  return `p${index}.png`
+/** `p0.png` (one drawing, fitted to every frame) or `p0-1x1.png` (that frame's own drawing). */
+export function panelArtFilename(index: number, aspect?: StillPostAspect): string {
+  return aspect ? `p${index}-${aspect.replace(':', 'x')}.png` : `p${index}.png`
 }
 
 /** `final-p0-1x1.png` … one finished frame for one panel. */
@@ -102,12 +102,25 @@ export function finalFilename(index: number, aspect: StillPostAspect): string {
   return `final-p${index}-${aspect.replace(':', 'x')}.png`
 }
 
+/** The stored mode of a post. Absent = `single`, the behaviour every earlier record has. */
+export function artModeOf(post: Pick<StillPost, 'art_mode'>): 'single' | 'per-size' {
+  return post.art_mode === 'per-size' ? 'per-size' : 'single'
+}
+
+/** The art file a frame is drawn at, or the one fitted drawing in `single` mode. */
+export function artFilenameFor(index: number, mode: 'single' | 'per-size', aspect: StillPostAspect): string {
+  return mode === 'per-size' ? panelArtFilename(index, aspect) : panelArtFilename(index)
+}
+
 /** Every filename a post's folder may serve. Anything else is refused by the route. */
 export function allowedArtifactNames(panelCount: number): Set<string> {
   const names = new Set<string>()
   for (let index = 0; index < panelCount; index++) {
     names.add(panelArtFilename(index))
-    for (const aspect of STILL_POST_ASPECTS) names.add(finalFilename(index, aspect))
+    for (const aspect of STILL_POST_ASPECTS) {
+      names.add(panelArtFilename(index, aspect))
+      names.add(finalFilename(index, aspect))
+    }
   }
   return names
 }
@@ -284,15 +297,26 @@ async function artifactState(file: string): Promise<StillPostArtifactState> {
   }
 }
 
+/** The worse of two artifact states. `invalid` outranks `missing`; `ok` absorbs everything else. */
+function worseArtifactState(a: StillPostArtifactState, b: StillPostArtifactState): StillPostArtifactState {
+  if (a === 'invalid' || b === 'invalid') return 'invalid'
+  if (a === 'missing' || b === 'missing') return 'missing'
+  return 'ok'
+}
+
 /**
  * What is really on disk for one post, per panel and per requested frame.
  *
  * A final whose recorded text no longer matches the panel's text is `stale`: the words were edited
  * and the picture still shows the old ones. That is the one drift a preset change does not cause,
  * and it is the one that would otherwise ship the wrong words.
+ *
+ * In `per-size` mode each requested frame must have its OWN drawing — one shared picture is not a
+ * complete batch just because it can be fitted into every frame (AGENTS §8).
  */
 export async function verifyPostState(slug: string, post: StillPost, aspects: readonly StillPostAspect[]): Promise<StillPostState> {
   const dir = postDir(slug, post.id)
+  const mode = artModeOf(post)
   const problems: string[] = []
   const panels: StillPostPanelState[] = []
   const finalsByKey = new Map(post.finals.map(final => [`${final.panel_id}:${final.aspect}`, final]))
@@ -300,10 +324,27 @@ export async function verifyPostState(slug: string, post: StillPost, aspects: re
   for (const [index, panel] of post.panels.entries()) {
     const panelProblems: string[] = []
     const finals: Record<string, StillPostArtifactState> = {}
+    let image: StillPostArtifactState
+    let images: Record<string, StillPostArtifactState> | undefined
 
-    const image = await artifactState(path.join(dir, panelArtFilename(index)))
-    if (image !== 'ok') {
-      panelProblems.push(index === 0 ? 'The artwork is missing.' : `Panel ${index + 1}'s artwork is missing.`)
+    if (mode === 'per-size') {
+      images = {}
+      image = 'ok'
+      for (const aspect of aspects) {
+        const state = await artifactState(path.join(dir, panelArtFilename(index, aspect)))
+        images[aspect] = state
+        image = worseArtifactState(image, state)
+        if (state !== 'ok') {
+          panelProblems.push(index === 0
+            ? `The ${aspect} artwork is missing.`
+            : `Panel ${index + 1}'s ${aspect} artwork is missing.`)
+        }
+      }
+    } else {
+      image = await artifactState(path.join(dir, panelArtFilename(index)))
+      if (image !== 'ok') {
+        panelProblems.push(index === 0 ? 'The artwork is missing.' : `Panel ${index + 1}'s artwork is missing.`)
+      }
     }
 
     for (const aspect of aspects) {
@@ -323,7 +364,7 @@ export async function verifyPostState(slug: string, post: StillPost, aspects: re
       }
     }
 
-    panels.push({ panel_id: panel.id, role: panel.role, image, finals, problems: panelProblems })
+    panels.push({ panel_id: panel.id, role: panel.role, image, ...(images ? { images } : {}), finals, problems: panelProblems })
   }
 
   for (const state of panels) problems.push(...state.problems)
@@ -581,12 +622,19 @@ export async function renderPostFinals(
   aspects: readonly StillPostAspect[],
 ): Promise<RenderedFinal[]> {
   const dir = postDir(slug, post.id)
+  const mode = artModeOf(post)
   const out: RenderedFinal[] = []
   for (const [index, panel] of post.panels.entries()) {
-    const artPath = path.join(dir, panelArtFilename(index))
-    if (!existsSync(artPath)) throw new Error(`${post.id}: panel ${index + 1} has no artwork to letter yet.`)
-    const artBytes = await fs.readFile(artPath)
     for (const aspect of aspects) {
+      // A per-size post letters each frame from that frame's OWN drawing; a single post letters
+      // every frame from the one drawing, fitted. Neither path substitutes another frame's art.
+      const artPath = path.join(dir, artFilenameFor(index, mode, aspect))
+      if (!existsSync(artPath)) {
+        throw new Error(mode === 'per-size'
+          ? `${post.id}: the ${aspect} artwork has not been drawn yet, so there is nothing to letter.`
+          : `${post.id}: panel ${index + 1} has no artwork to letter yet.`)
+      }
+      const artBytes = await fs.readFile(artPath)
       const style = textStyleFor(look, index, aspect)
       const framed = await frameArt(artBytes, aspect)
       const rendered = await renderThumbnailText({
@@ -644,6 +692,7 @@ export function panelsForOption(option: StillPostOption, previous: readonly Stil
     text: previous[index]?.text ?? '',
     scene_prompt: previous[index]?.scene_prompt ?? '',
     image: previous[index]?.image ?? null,
+    ...(previous[index]?.images ? { images: { ...previous[index]!.images } } : {}),
   }))
 }
 

@@ -595,6 +595,7 @@ function preset(id: string, name: string, data: Partial<StillPostPresetData>): S
       option_id: 'quote-top',
       language: 'en',
       aspects: ['1:1'],
+      fresh_drawing_per_size: false,
       text_scale: 1,
       branding: BRANDING_BOTTOM,
       ...data,

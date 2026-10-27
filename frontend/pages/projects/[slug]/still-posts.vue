@@ -144,6 +144,13 @@
                 <input v-model="preset.aspects" type="checkbox" :value="aspect"> {{ aspect }}
               </label>
             </div>
+            <label class="sp-draw-mode">
+              <span class="sp-label">Drawings</span>
+              <select v-model="preset.fresh_drawing_per_size" class="select" aria-label="Drawings per post">
+                <option :value="false">One drawing, fitted to each size (default)</option>
+                <option :value="true">A fresh drawing for each size (up to 3× the drawings)</option>
+              </select>
+            </label>
             <span class="sp-help">Every chosen frame is rendered for every post before a batch is complete.</span>
           </div>
           <label class="sp-field">
@@ -251,6 +258,17 @@
             </button>
           </div>
         </div>
+
+        <p
+          v-if="preset.image_model && drawingsForBatch > 0"
+          class="sp-help sp-cost"
+          :class="`basis-${drawCost.basis}`"
+          :title="drawCost.title"
+        >
+          {{ CREDIT_BASIS_LABEL[drawCost.basis] }}: {{ drawCost.text }} for
+          {{ drawingsForBatch }} drawing{{ drawingsForBatch === 1 ? '' : 's' }}
+          ({{ preset.fresh_drawing_per_size ? 'one per ticked size' : 'one per post, fitted to each size' }}).
+        </p>
 
         <p v-if="drawError" class="sp-notice sp-notice-error" role="alert">{{ drawError }}</p>
 
@@ -444,6 +462,7 @@ import { useApi } from '~/composables/useApi'
 import { useJobs } from '~/composables/useJobs'
 import { useConfirm } from '~/composables/useConfirm'
 import { projectSlug } from '~/utils/project-slug'
+import { CREDIT_BASIS_LABEL, describeImageBatchEstimate, type PricedImageModel } from '~/utils/genstudio-credit-cost'
 import type { Job } from '~/composables/useJobs'
 
 definePageMeta({ layout: 'dashboard' })
@@ -466,11 +485,13 @@ interface StillPostPresetData {
   option_id: string
   language: 'en' | 'km' | 'zh'
   aspects: string[]
+  /** Draw a separate picture per ticked frame. A reusable choice, so the preset carries it (§5). */
+  fresh_drawing_per_size: boolean
   text_scale: number
   branding: StillPostBranding
 }
 
-interface StillPostPanelState { panel_id: string, image: string, finals: Record<string, string>, problems: string[] }
+interface StillPostPanelState { panel_id: string, image: string, images?: Record<string, string>, finals: Record<string, string>, problems: string[] }
 interface StillPostState { id: string, complete: boolean, panels: StillPostPanelState[], problems: string[] }
 interface StillPost {
   id: string
@@ -483,6 +504,8 @@ interface StillPost {
   panels: Array<{ id: string, role: string, text: string, scene_prompt: string }>
   finals: Array<{ aspect: string, panel_id: string, filename: string, text: string }>
   aspects: string[]
+  /** Absent = a single drawing fitted to every size (the original behaviour). */
+  art_mode?: 'single' | 'per-size'
   updated_at: string
 }
 interface Workspace {
@@ -531,6 +554,7 @@ const preset = reactive<StillPostPresetData>({
   option_id: 'quote-top',
   language: 'en',
   aspects: ['1:1'],
+  fresh_drawing_per_size: false,
   text_scale: 1,
   branding: {
     handle_enabled: true,
@@ -573,7 +597,16 @@ const editorNote = ref('')
 const editorError = ref(false)
 
 const writingModels = ref<Array<{ id: string, label: string, available: boolean }>>([])
-const imageModels = ref<Array<{ id: string, display_name: string, available?: boolean, supports_reference_images?: boolean, max_reference_images?: number }>>([])
+// The whole live row is kept: its published price fields are what the batch estimate is read from,
+// and nothing here invents a figure the catalogue did not state.
+type ImageModelRow = PricedImageModel & {
+  id: string
+  display_name: string
+  available?: boolean
+  supports_reference_images?: boolean
+  max_reference_images?: number
+}
+const imageModels = ref<ImageModelRow[]>([])
 
 const draftFormat = computed(() => workspace.value?.formats.find(format => format.id === preset.format_id) || null)
 const draftOption = computed(() => workspace.value?.options.find(option => option.id === preset.option_id) || null)
@@ -595,6 +628,19 @@ const canWrite = computed(() => !!workspace.value && brief.value.trim().length >
 const canDraw = computed(() => !!preset.image_model)
 const selected = computed(() => workspace.value?.posts.find(entry => entry.id === selectedId.value) || null)
 const writeJob = computed(() => jobs.value.find(job => job.job_id === writeJobId.value) || null)
+const imageModelInfo = computed(() => imageModels.value.find(model => model.id === preset.image_model) || null)
+/**
+ * How many paid drawings the current posts would take: one per panel, times one per ticked frame
+ * when a fresh drawing per size is on. The price comes from `describeImageBatchEstimate`, which only
+ * multiplies the model's PUBLISHED rate and says "not reported" when there is none.
+ */
+const drawingsForBatch = computed(() => {
+  const posts = workspace.value?.posts || []
+  const frames = preset.aspects.length || 1
+  return posts.reduce((total, post) =>
+    total + Math.max(1, post.panels?.length || 1) * (preset.fresh_drawing_per_size ? frames : 1), 0)
+})
+const drawCost = computed(() => describeImageBatchEstimate(imageModelInfo.value, null, drawingsForBatch.value))
 
 function postState(id: string): StillPostState | undefined {
   for (const batch of workspace.value?.batches || []) {
@@ -654,6 +700,7 @@ function applyPreset(id: string): void {
   preset.option_id = found.data.option_id
   preset.language = found.data.language
   preset.aspects = [...(found.data.aspects || ['1:1'])]
+  preset.fresh_drawing_per_size = found.data.fresh_drawing_per_size === true
   preset.text_scale = Number(found.data.text_scale) || 1
   Object.assign(preset.branding, found.data.branding)
   presetNote.value = found.builtin
@@ -689,13 +736,8 @@ async function loadModels(): Promise<void> {
   } catch { writingModels.value = [] }
   try {
     const response = await get<{ models: any[] }>('/app-settings/genstudio/image-models')
-    imageModels.value = response.models.map(model => ({
-      id: model.id,
-      display_name: model.display_name,
-      available: model.available,
-      supports_reference_images: model.supports_reference_images,
-      max_reference_images: model.max_reference_images,
-    }))
+    // Kept whole: the price fields feed the batch estimate, and capabilities drive the help text.
+    imageModels.value = (Array.isArray(response.models) ? response.models : []) as ImageModelRow[]
   } catch { imageModels.value = [] }
 }
 
@@ -761,6 +803,7 @@ async function writeBatch(): Promise<void> {
       option_id: preset.option_id,
       language: preset.language,
       aspects: preset.aspects,
+      fresh_drawing_per_size: preset.fresh_drawing_per_size,
       character_ids: castDraft.value,
       writing_model: preset.writing_model,
     })
@@ -781,6 +824,7 @@ async function draw(batchId?: string, postIds?: string[], redraw = false): Promi
       ...(postIds?.length ? { post_ids: postIds } : {}),
       image_model: preset.image_model,
       redraw,
+      fresh_drawing_per_size: preset.fresh_drawing_per_size,
       preset: { branding: preset.branding, text_scale: preset.text_scale },
     })
   } catch (error: any) {
@@ -891,6 +935,9 @@ onMounted(() => {
 .sp-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .sp-checks { display: flex; gap: 12px; flex-wrap: wrap; }
 .sp-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.sp-draw-mode { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.sp-cost { margin: 6px 0 0; }
+.sp-cost.basis-unpublished { color: var(--text-secondary); font-style: italic; }
 .sp-range { width: 100%; }
 .sp-note { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 13px; }
 .sp-notice-error, .sp-note-error { background: color-mix(in srgb, #c0392b 16%, transparent); }
