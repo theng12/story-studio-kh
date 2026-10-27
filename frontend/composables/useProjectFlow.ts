@@ -132,6 +132,10 @@ const STEP = {
   // step by and two steps sharing one key breaks that contract. Both now point
   // at the merged page, and each says which half it stands for.
   contextualCues: { key: 'contextual-cues', label: 'Labels', icon: '🏷️', path: '/sound-and-labels', phase: 'video', optional: true },
+  // One board CELL is the rule (see STEP_STATUS_FIELD and the Sound & Labels
+  // decision): the board dedupes its columns by field, and only the Labels step
+  // maps to a field. This step exists so the sidebar shows the Sound half beside
+  // the Labels half; the board shows the single merged cell.
   soundDesign: { key: 'sound-design', label: 'Sound', icon: '🎵', path: '/sound-and-labels', phase: 'video', optional: true },
   // v1.4.37 — the music library. `optional` because a scripted channel never
   // touches it, and a music channel touches almost nothing else.
@@ -278,6 +282,12 @@ export const STEP_STATUS_FIELD: Readonly<Record<string, string>> = {
   subtitles: 'subtitles',
   'character-sheet': 'character_sheet',
   'scene-plan': 'scene_plan',
+  // v1.4.365 — ONE board cell for both halves of Sound & Labels. The two flow
+  // steps above still point at their own pages and their own preset pools, but
+  // a board column is a status FIELD, and there is exactly one cell: the backend
+  // derives `contextual_cues` from BOTH halves (labels will render, sounds will
+  // mix) using the same resolvers the renderer refuses over.
+  'contextual-cues': 'contextual_cues',
   'scene-review': 'scene_review',
   'motion-review': 'motion_review',
   'image-pool': 'broll_picked',
@@ -342,6 +352,11 @@ export function episodeStage(
   const source = normalizeEpisodeVisualSource(ep?.visual_source ?? status?.visual_source)
   if (isEpisodeDone(status, vs, source)) return 'ready_to_publish'
   if (generating) return 'producing'
+  // v1.4.365 — Sound & Labels is ONE optional gate, not two. `contextual_cues`
+  // and `sound_design` are both derived on the backend from the same resolvers
+  // the renderer refuses over, and neither ever refuses over an unreviewed row;
+  // requiring both here as well would make the sidebar say "waiting for you" on
+  // an episode the renderer would happily assemble.
   if (status
     && status.contextual_cues !== false
     && status.sound_design !== false

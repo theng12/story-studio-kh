@@ -660,10 +660,22 @@ function sourceLabel(ep: any): string {
   return episodeVisualSource(ep) === 'image_pool' ? 'Image Pool' : 'Scene Plan'
 }
 
-const columns = computed<BoardCol[]>(() =>
-  (visualSource.value ? unionFlowForEpisodeSources(visualSource.value, episodes.value.map(episodeVisualSource)) : [])
-    .filter(s => !!STEP_STATUS_FIELD[s.key])
-    .map(s => ({ ...s, field: STEP_STATUS_FIELD[s.key] })))
+const columns = computed<BoardCol[]>(() => {
+  // v1.4.365 — ONE column per status FIELD, not per flow step. Labels and Sound
+  // are two steps of one page and one cell: the backend derives
+  // `status.contextual_cues` from both halves, so a second column would show
+  // the same answer twice and invite the two to disagree. First one wins — the
+  // Labels step, which is the one whose page hosts both.
+  const seen = new Set<string>()
+  const out: BoardCol[] = []
+  for (const step of visualSource.value ? unionFlowForEpisodeSources(visualSource.value, episodes.value.map(episodeVisualSource)) : []) {
+    const field = STEP_STATUS_FIELD[step.key]
+    if (!field || seen.has(field)) continue
+    seen.add(field)
+    out.push({ ...step, field, ...(field === 'contextual_cues' ? { label: 'Sound & Labels' } : {}) })
+  }
+  return out
+})
 const columnPhases = computed(() => FLOW_PHASES.map(phase => ({
   ...phase,
   count: columns.value.filter(column => column.phase === phase.key).length,

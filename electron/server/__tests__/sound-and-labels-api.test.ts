@@ -142,6 +142,58 @@ describe('a save cannot certify a stale time', () => {
   })
 })
 
+describe('fixed-path routes are not read as an episode code', () => {
+  test('the config route answers on both GET and PUT', async () => {
+    // This was a real bug found by running the page: `/sound-and-labels/config`
+    // was declared BELOW `/sound-and-labels/:episodeId`, so Express bound "config"
+    // as the episode code and answered "Invalid episode code: config". Typecheck,
+    // lint and every unit test passed. The service is live.
+    const read = await get('/config')
+    assert.equal(read.status, 200, JSON.stringify(read.body))
+    assert.deepEqual(read.body, { on_screen_text: true, sound: true })
+    const wrote = await put('/config', { on_screen_text: true })
+    assert.equal(wrote.status, 200, JSON.stringify(wrote.body))
+  })
+
+  test('flipping one switch leaves the other exactly as it was', async () => {
+    // Sending both back from a stale page is how one switch silently cleared
+    // the other. Each writes only the key the caller names.
+    const off = await put('/config', { on_screen_text: false })
+    assert.equal(off.body.on_screen_text, false)
+    assert.equal(off.body.sound, true, 'the unnamed switch is untouched')
+    await put('/config', { on_screen_text: true })
+  })
+
+  test('a read reports a refusal instead of hiding the rows behind it', async () => {
+    // A cue that escapes its scene cannot be drawn. The PAGE still gets it, plus
+    // the renderer's own sentence — a 400 would hide the row that needs fixing.
+    await put(`/${episode}/labels`, { cues: [label({ status: 'approved' })] })
+    await fs.writeFile(planPath, JSON.stringify({
+      ...plan,
+      scenes: [
+        { id: 'scene-1', scene_index: 1, start_sec: 0, end_sec: 4, transcript_segment: '', visual_prompt: '' },
+        { id: 'scene-2', scene_index: 2, start_sec: 4, end_sec: 40, transcript_segment: '', visual_prompt: '' },
+      ],
+    }))
+    const read = await get(`/${episode}`)
+    assert.equal(read.status, 200, JSON.stringify(read.body))
+    assert.equal(read.body.labels.cues.length, 1, 'the row is still there to fix')
+    assert.match(String(read.body.readiness.labels.refuses), /inside its scene timing/)
+    await fs.writeFile(planPath, JSON.stringify(plan))
+  })
+
+  test('a plan with no scene_index still names its scenes', async () => {
+    // "Scene undefined" on every row came from trusting the field.
+    await fs.writeFile(planPath, JSON.stringify({
+      ...plan,
+      scenes: plan.scenes.map(({ scene_index: _dropped, ...scene }) => scene),
+    }))
+    const read = await get(`/${episode}`)
+    assert.deepEqual(read.body.scenes.map((scene: any) => scene.scene_index), [1, 2])
+    await fs.writeFile(planPath, JSON.stringify(plan))
+  })
+})
+
 describe('the retired page routes', () => {
   test('both answer 410 with the new address', async () => {
     const labels = await request(app).get(`/api/projects/${slug}/contextual-cues/${episode}`)
