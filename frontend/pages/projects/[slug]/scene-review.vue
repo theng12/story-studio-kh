@@ -348,11 +348,13 @@
           Free vision check is turned off. No check is queued and nothing is recorded.
         </p>
         <!-- v1.4.365 — the OPT-IN stronger check (owner 2026-10-27). OFF by
-             default because it sends the picture to a paid model. Its findings
-             are recorded BESIDE the free check's, never instead of them. -->
+             default: it sends the picture to a model of the owner's choosing.
+             What it costs depends on the chosen row, and the picker below says
+             whether that row is free or chargeable. Its findings are recorded
+             BESIDE the free check's, never instead of them. -->
         <label
           class="sr-auto-approve"
-          title="Sends each generated scene image to a vision-capable model the Gateway offers, so anatomy, faces and drawn text can be judged. A paid call per image. Default OFF, findings only."
+          title="Sends each generated scene image to a vision-capable model the Gateway offers, so anatomy, faces and drawn text can be judged. Default OFF, findings only. The chosen model may be free or chargeable — the picker says which."
         >
           <input
             type="checkbox"
@@ -361,10 +363,11 @@
             @change="toggleVisionCheckEnabled"
           >
           <span>
-            <strong>Stronger vision image check (paid)</strong>
-            <small>{{ visionCheckConfig.enabled
-              ? 'ON · judges anatomy, faces and text · findings only'
-              : 'OFF · nothing is sent and nothing is recorded' }}</small>
+            <strong>Stronger vision image check</strong>
+            <small v-if="!visionCheckConfig.enabled">OFF · nothing is sent and nothing is recorded</small>
+            <small v-else>
+              ON · {{ visionSelectedModel ? (visionSelectedModel.chargeable ? 'chargeable per image' : 'free') : 'choose a model' }} · findings only
+            </small>
           </span>
         </label>
         <div v-if="visionCheckConfig.enabled" class="sr-vision-check">
@@ -1245,7 +1248,9 @@ const visionCheckStats = computed(() => {
 })
 function visionModelLabel(option: VisionModelOption): string {
   const provider = option.provider_name ? ` · ${option.provider_name}` : ''
-  return `${option.display_name || option.id}${provider} · ${option.chargeable ? 'paid' : 'free'}`
+  // What the row costs, beside whose row it is. Which of these is free decides
+  // whether the check spends anything, so it belongs in the menu itself.
+  return `${option.display_name || option.id}${provider} · ${option.chargeable ? 'chargeable' : 'free'}`
 }
 async function loadVisionModels(): Promise<void> {
   const project = slug.value

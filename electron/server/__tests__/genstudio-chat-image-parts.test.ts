@@ -20,6 +20,7 @@ import {
   callChatWithGenStudio,
   chatImageEligibility,
   chatProductAcceptsImages,
+  clearGenStudioCatalogCache,
 } from '../lib/genstudio-client.js'
 
 function catalog(over: Record<string, unknown> = {}) {
@@ -71,6 +72,10 @@ function job(fields: Record<string, unknown>) {
 
 /** One scripted accepted→succeeded progression, capturing what was submitted. */
 function stubGateway(rows: unknown[]) {
+  // The catalogue is cached per account, so a test that changes the rows must
+  // forget the previous test's read first — otherwise every later test would
+  // silently keep the FIRST catalogue's capabilities.
+  clearGenStudioCatalogCache()
   const originalFetch = globalThis.fetch
   const submits: Array<{ key: string; body: Record<string, any> }> = []
   let polls = 0
@@ -195,7 +200,9 @@ test('eligibility is decided only by published capability and provider kind', ()
 
 test('a prose-only row gets no response_format and still carries the picture', async (t) => {
   _setGenStudioPollLadderForTesting([0])
-  const stub = stubGateway(catalog({ structured_output_mode: 'none', max_output_tokens: 0 }))
+  // A row that publishes no output ceiling at all (absent, not `0` — zero is
+  // malformed, and the catalogue reader says so).
+  const stub = stubGateway(catalog({ structured_output_mode: 'none', max_output_tokens: undefined }))
   t.after(() => { stub.restore(); _setGenStudioPollLadderForTesting(null) })
 
   await callChatWithGenStudio('test-key', { ...imageRequest, outputContract: { mode: 'prose' } })

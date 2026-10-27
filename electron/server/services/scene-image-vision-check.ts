@@ -187,7 +187,7 @@ export async function resolveSceneVisionModel(
 // ── The call ─────────────────────────────────────────────────────────────────
 
 /** 640 px q80 JPEG — the same encoding the free check sends, and its SHA-256 for the request identity. */
-async function encodeSceneVisionImage(imagePath: string): Promise<{ dataUri: string; sha256: string; bytes: number }> {
+async function encodeSceneVisionImage(imagePath: string): Promise<{ dataUri: string; sha256: string }> {
   const jpeg = await sharp(imagePath)
     .resize({ width: VISION_IMAGE_WIDTH, withoutEnlargement: true })
     .jpeg({ quality: VISION_IMAGE_QUALITY })
@@ -195,7 +195,6 @@ async function encodeSceneVisionImage(imagePath: string): Promise<{ dataUri: str
   return {
     dataUri: `data:image/jpeg;base64,${jpeg.toString('base64')}`,
     sha256: crypto.createHash('sha256').update(jpeg).digest('hex'),
-    bytes: jpeg.length,
   }
 }
 

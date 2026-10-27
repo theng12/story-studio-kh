@@ -137,6 +137,9 @@ const NOT_VISIBLE_WORDS = new Set(['no_people', 'no_person', 'no_face', 'no_text
 function normalizeVerdict(raw: unknown): SceneVisionVerdict | null {
   if (typeof raw !== 'string') return null
   const token = raw.trim().toLowerCase()
+  // The rubric's own spelling is accepted first: the answer is read with the
+  // vocabulary it was asked in.
+  if (token === 'not_visible') return 'not_visible'
   if (NOT_VISIBLE_WORDS.has(token)) return 'not_visible'
   if (token === 'pass' || token === 'passed' || token === 'ok') return 'pass'
   if (token === 'fail' || token === 'failed' || token === 'defect') return 'fail'

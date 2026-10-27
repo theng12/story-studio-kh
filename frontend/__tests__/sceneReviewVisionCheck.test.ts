@@ -16,7 +16,11 @@ function source(path: string): string {
  */
 test('the stronger check is a separate opt-in switch with per-axis auto-remake', () => {
   const page = source('../pages/projects/[slug]/scene-review.vue')
-  assert.ok(page.includes('Stronger vision image check (paid)'), 'its own switch, named plainly')
+  assert.ok(page.includes('<strong>Stronger vision image check</strong>'), 'its own switch, named plainly')
+  assert.ok(!page.includes('Stronger vision image check (paid)'),
+    'the label never claims a price: which row is chosen decides that')
+  assert.ok(page.includes("visionSelectedModel.chargeable ? 'chargeable per image' : 'free'"),
+    'the switch says whether the chosen row costs anything')
   assert.ok(page.includes('@change="toggleVisionCheckEnabled"'), 'the switch saves through its own handler')
   // OFF by default: only an explicit true turns it on.
   assert.ok(page.includes('enabled: raw.enabled === true'), 'nothing defaults the check on')
