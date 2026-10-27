@@ -257,8 +257,17 @@ export async function preparePrivateFinalRenderDescriptor(
         || !discovery.encode.entries.some(entry =>
           sameRequestedEncode(entry, description.recipe.encode as Record<string, any>)))) {
     if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
-    opts.job.output_lines.push('Private final render: this exact encode is not qualified for remote rendering, '
-      + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    // Two unrelated causes reach this branch and the owner acts on them differently. The Gateway
+    // publishes `encode: null` when NO candidate was eligible at all (`render_service.capabilities`
+    // intersects an empty list, and `fleet.render_encode_intersection` answers None for it) as well
+    // as when the eligible Macs share no encode. Telling a customer their encode is unqualified
+    // when the truth is "no Mac was free" is a reason they will act on wrongly, so name the cause
+    // the Gateway actually published.
+    opts.job.output_lines.push(discovery.eligible === 0
+      ? 'Private final render: no other Mac was free to take this render, so this video stays on '
+        + 'this Mac. The render is otherwise unchanged.'
+      : 'Private final render: this exact encode is not qualified for remote rendering, '
+        + 'so this video stays on this Mac. The render is otherwise unchanged.')
     return null
   }
   if (description.composition.still_tail_from_sec !== null) {
@@ -1049,7 +1058,7 @@ async function appendMonitorJobTransition(
   jobId: string,
   context: MonitorContext,
   event: 'monitor_output_ready' | 'monitor_recovery_hold',
-  phase: 'output_ready' | 'recovery_hold',
+  phase: 'output_ready' | 'recovery_hold' | 'remote_failed',
   extra: Record<string, unknown>,
 ): Promise<void> {
   const owner = await acquireMonitorMutationOwner(projectSlug, jobId, context)
@@ -1152,12 +1161,14 @@ export async function reconcileSealedPrivateFinalRenderOnce(
 ): Promise<void> {
   const initial = await canonicalReceipt(projectSlug, jobId)
   if (initial.version !== 3 || initial.phase === 'request_persisted') return
-  if (initial.phase === 'output_ready' || initial.phase === 'recovery_hold' || initial.phase === 'refused') return
+  if (initial.phase === 'output_ready' || initial.phase === 'recovery_hold' || initial.phase === 'refused'
+    || initial.phase === 'remote_failed') return
   const computeKey = path.join(getUserDataDir(), 'private-render', 'locks', `${initial.intent_id}.compute`)
   await withCrossProcessLock(computeKey, async () => {
     const context = await monitorContext(projectSlug, jobId)
     if (!context || context.current.phase === 'request_persisted'
-      || context.current.phase === 'output_ready' || context.current.phase === 'recovery_hold' || context.current.phase === 'refused') return
+      || context.current.phase === 'output_ready' || context.current.phase === 'recovery_hold'
+      || context.current.phase === 'refused' || context.current.phase === 'remote_failed') return
     const expected = monitorLookupExpectation(context.current)
     let view: FinalRenderJobView
     try {
@@ -1238,8 +1249,13 @@ export async function reconcileSealedPrivateFinalRenderOnce(
       return
     }
     if (view.remote_state === 'failed') {
+      // The Gateway settles a render it can never accept as `failed` and will poll it no further
+      // (`render_service.py _status_answer_refused`), so no output can ever arrive. A hold here has
+      // no exit — the reconciler skips holds, the monitor returns early for holds, and the local
+      // lane only resumes a receipt it may render locally — so the episode waited for ever. Record
+      // the Gateway's own verdict as its own phase, which the local lane resumes from.
       await appendMonitorJobTransition(projectSlug, jobId, context,
-        'monitor_recovery_hold', 'recovery_hold', {
+        'monitor_recovery_hold', 'remote_failed', {
           reason: 'remote_failed', response: structuredClone(view),
         })
       return

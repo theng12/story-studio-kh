@@ -752,7 +752,7 @@ test('an encode the paired machine cannot execute stays local before staging', a
       return []
     }
   }
-  const withEncode = async (entries: unknown[] | null) => {
+  const withEncode = async (entries: unknown[] | null, eligible = 0) => {
     const original = globalThis.fetch
     const calls: string[] = []
     globalThis.fetch = async (input, init = {}) => {
@@ -760,6 +760,8 @@ test('an encode the paired machine cannot execute stays local before staging', a
       assert.equal(init.method ?? 'GET', 'GET')
       return Response.json({
         ...capabilities(),
+        eligible,
+        idle: eligible,
         encode: entries === null
           ? null
           : { format: 'studio.render.encode-authority.v1', entries },
@@ -774,7 +776,9 @@ test('an encode the paired machine cannot execute stays local before staging', a
 
   await setPrivateFinalRenderSetting({ enabled: true })
   const before = await intents()
-  const mismatched = await withEncode([{ ...matching, requested_effort: 'medium', quality_cpu_preset: 'medium' }])
+  const mismatched = await withEncode(
+    [{ ...matching, requested_effort: 'medium', quality_cpu_preset: 'medium' }], 1,
+  )
   try {
     const value = await prepareCase('encode-local')
     assert.equal(await prepare(value), null)
@@ -793,7 +797,11 @@ test('an encode the paired machine cannot execute stays local before staging', a
     const value = await prepareCase('encode-unassured')
     assert.equal(await prepare(value), null)
     assert.equal(unassured.calls.length, 1)
-    assert.match(value.job.output_lines.join('\n'), /exact encode is not qualified for remote rendering/)
+    // `encode: null` with nothing eligible means no Mac was free. The Gateway publishes no encode
+    // authority for an empty candidate list (`render_service.capabilities` intersects it), and
+    // calling that "this exact encode is not qualified" sends the owner after the wrong thing.
+    assert.match(value.job.output_lines.join('\n'), /no other Mac was free to take this render/)
+    assert.doesNotMatch(value.job.output_lines.join('\n'), /exact encode is not qualified/)
     assert.equal(value.job.final_render_remote_wait, undefined)
     assert.deepEqual(await intents(), before, 'a null encode authority stages nothing')
     await assert.rejects(fs.stat(value.composition.outputFile), /ENOENT/)
