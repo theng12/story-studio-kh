@@ -1580,16 +1580,44 @@ export function resolveStepParams(
     // numbers if format resolution fails or the format JSON predates
     // the new defaults block.
     const fmtMeta = format?.metadata
+    // The PRESET's own title strategy (§1/§5). metadata.vue saves
+    // `{ preset, maxLength, count, includeScriptContext, mode, prefix, suffix,
+    // manualTitle }` beside the sections, and this mapper used to drop the
+    // whole object: a batch then generated titles with the hardcoded
+    // 'Universal' preset, the format's count and max length, and NO channel
+    // prefix/suffix — so a batch and the Metadata page produced different
+    // titles from the same preset. Each field is forwarded only when the
+    // preset actually carries it, so an older preset still falls back to the
+    // format defaults and the generator's own formula/channel resolution
+    // instead of being forced to a number this mapper invented.
+    const titleConfig = data.titleConfig && typeof data.titleConfig === 'object'
+      ? data.titleConfig as Record<string, unknown>
+      : {}
+    const titleMode = titleConfig.mode
+    const usableTitleMode = titleMode === 'paraphrase' || titleMode === 'use_idea_title' || titleMode === 'manual'
+      ? titleMode
+      : undefined
+    const titlePreset = typeof titleConfig.preset === 'string' && titleConfig.preset.trim()
+      ? titleConfig.preset.trim()
+      : 'Universal'
     return {
       episode_id: episodeId,
       title: title || '',
       model: typeof data.model === 'string' ? data.model.trim() : '',
       sections: Array.isArray(data.sections) ? data.sections : [],
       max_chars: fmtMeta?.defaultMaxChars ?? 5000,
-      title_count: fmtMeta?.defaultTitleCount ?? 5,
-      title_max_length: fmtMeta?.defaultTitleMaxLength ?? 100,
-      title_platform_preset: 'Universal',
+      title_count: typeof titleConfig.count === 'number' ? titleConfig.count : fmtMeta?.defaultTitleCount ?? 5,
+      title_max_length: typeof titleConfig.maxLength === 'number'
+        ? titleConfig.maxLength
+        : fmtMeta?.defaultTitleMaxLength ?? 100,
+      title_platform_preset: titlePreset,
       tag_count: fmtMeta?.defaultTagCount ?? 15,
+      ...(usableTitleMode ? { title_mode: usableTitleMode } : {}),
+      // An explicit string wins even when empty — `use_idea_title` with no
+      // prefix is a real choice, distinct from "this preset says nothing".
+      ...(typeof titleConfig.prefix === 'string' ? { title_prefix: titleConfig.prefix } : {}),
+      ...(typeof titleConfig.suffix === 'string' ? { title_suffix: titleConfig.suffix } : {}),
+      ...(typeof titleConfig.manualTitle === 'string' ? { manual_title: titleConfig.manualTitle } : {}),
     }
   }
   if (step === 'video_assembly') {

@@ -64,6 +64,53 @@ type DriftState = {
   decided_at?: string
 }
 
+/** The snippet fields a metadata update reads, preserves and can change. */
+export type MetadataUpdateSnippet = {
+  title: string
+  description: string
+  tags: string[]
+  categoryId?: string
+  defaultLanguage?: string
+  defaultAudioLanguage?: string
+}
+
+/** The status fields a metadata update proves did not move. */
+export type MetadataUpdateStatus = {
+  privacy_status: string
+  publish_at: string | null
+  contains_synthetic_media?: boolean
+  self_declared_made_for_kids: boolean
+  embeddable: boolean
+  license: string
+  public_stats_viewable: boolean
+}
+
+export type MetadataUpdateField = 'title' | 'description' | 'tags'
+
+/**
+ * One before/after receipt for a change to an ALREADY-PUBLISHED video.
+ *
+ * Append-only: the store refuses an update that rewrites or removes an earlier
+ * receipt, so "what did Story Studio change, and what did YouTube say after?"
+ * stays answerable forever. `baseline_snippet_sha256` identifies the exact
+ * snippet the change was built from; the after-read is stored whole because a
+ * provider that silently alters a value must be visible, not inferred.
+ */
+export type MetadataUpdateReceipt = {
+  receipt_id: string
+  video_id: string
+  applied_at: string
+  applied_fields: MetadataUpdateField[]
+  baseline_snippet_sha256: string
+  after_snippet: MetadataUpdateSnippet
+  baseline_status: MetadataUpdateStatus
+  after_status: MetadataUpdateStatus
+  /** False when the after-read did not match what was sent, or the status moved. */
+  verified: boolean
+  /** Plain sentences naming each mismatch. Absent when `verified` is true. */
+  mismatches?: string[]
+}
+
 export type YouTubeOperationActionClassification = 'whole_upload' | 'independent_post_accept'
 
 type ActionState = {
@@ -108,6 +155,12 @@ export type YouTubeOperationRecordBaseV1 = {
   previous_remote_snapshot?: RemoteSnapshot
   drift: Record<string, DriftState>
   actions: ActionState[]
+  /**
+   * Every metadata update applied to this already-published video, oldest
+   * first. Append-only: an earlier receipt is never rewritten or removed.
+   * Optional so a record written before this field existed still decodes.
+   */
+  metadata_updates?: MetadataUpdateReceipt[]
 }
 
 export type YouTubeOperationRecordV1 = YouTubeOperationRecordBaseV1 & {
@@ -407,13 +460,94 @@ function decodeActions(value: unknown): ActionState[] {
   return actions
 }
 
+function decodeMetadataUpdateSnippet(value: unknown): MetadataUpdateSnippet {
+  if (!isRecord(value)) throw corrupt('The YouTube operation metadata update snippet is invalid.')
+  exactKeys(
+    value,
+    ['title', 'description', 'tags'],
+    ['categoryId', 'defaultLanguage', 'defaultAudioLanguage'],
+  )
+  if (!Array.isArray(value.tags)) throw corrupt('The YouTube operation metadata update tags are invalid.')
+  return {
+    title: text(value.title, 'metadata_updates.snippet.title', true),
+    description: freeText(value.description, 'metadata_updates.snippet.description'),
+    tags: value.tags.map((tag, index) => text(tag, `metadata_updates.snippet.tags[${index}]`, true)),
+    ...(hasOwn(value, 'categoryId') ? { categoryId: text(value.categoryId, 'metadata_updates.snippet.categoryId') } : {}),
+    ...(hasOwn(value, 'defaultLanguage')
+      ? { defaultLanguage: text(value.defaultLanguage, 'metadata_updates.snippet.defaultLanguage') }
+      : {}),
+    ...(hasOwn(value, 'defaultAudioLanguage')
+      ? { defaultAudioLanguage: text(value.defaultAudioLanguage, 'metadata_updates.snippet.defaultAudioLanguage') }
+      : {}),
+  }
+}
+
+function decodeMetadataUpdateStatus(value: unknown): MetadataUpdateStatus {
+  if (!isRecord(value)) throw corrupt('The YouTube operation metadata update status is invalid.')
+  exactKeys(
+    value,
+    ['privacy_status', 'publish_at', 'self_declared_made_for_kids', 'embeddable', 'license', 'public_stats_viewable'],
+    ['contains_synthetic_media'],
+  )
+  if (value.publish_at !== null) timestamp(value.publish_at, 'metadata_updates.status.publish_at')
+  return {
+    privacy_status: text(value.privacy_status, 'metadata_updates.status.privacy_status'),
+    publish_at: value.publish_at as string | null,
+    ...(hasOwn(value, 'contains_synthetic_media')
+      ? { contains_synthetic_media: boolean(value.contains_synthetic_media, 'metadata_updates.status.contains_synthetic_media') }
+      : {}),
+    self_declared_made_for_kids: boolean(value.self_declared_made_for_kids, 'metadata_updates.status.self_declared_made_for_kids'),
+    embeddable: boolean(value.embeddable, 'metadata_updates.status.embeddable'),
+    license: text(value.license, 'metadata_updates.status.license'),
+    public_stats_viewable: boolean(value.public_stats_viewable, 'metadata_updates.status.public_stats_viewable'),
+  }
+}
+
+function decodeMetadataUpdateReceipt(value: unknown): MetadataUpdateReceipt {
+  if (!isRecord(value)) throw corrupt('The YouTube operation metadata update receipt is invalid.')
+  exactKeys(value, [
+    'receipt_id', 'video_id', 'applied_at', 'applied_fields', 'baseline_snippet_sha256',
+    'after_snippet', 'baseline_status', 'after_status', 'verified',
+  ], ['mismatches'])
+  if (!Array.isArray(value.applied_fields)) {
+    throw corrupt('The YouTube operation metadata update applied fields are invalid.')
+  }
+  if (value.mismatches !== undefined && !Array.isArray(value.mismatches)) {
+    throw corrupt('The YouTube operation metadata update mismatches are invalid.')
+  }
+  return {
+    receipt_id: identifier(value.receipt_id, 'metadata_updates.receipt_id'),
+    video_id: identifier(value.video_id, 'metadata_updates.video_id'),
+    applied_at: timestamp(value.applied_at, 'metadata_updates.applied_at'),
+    applied_fields: value.applied_fields.map((field, index) =>
+      oneOf(field, ['title', 'description', 'tags'], `metadata_updates.applied_fields[${index}]`)),
+    baseline_snippet_sha256: text(value.baseline_snippet_sha256, 'metadata_updates.baseline_snippet_sha256'),
+    after_snippet: decodeMetadataUpdateSnippet(value.after_snippet),
+    baseline_status: decodeMetadataUpdateStatus(value.baseline_status),
+    after_status: decodeMetadataUpdateStatus(value.after_status),
+    verified: boolean(value.verified, 'metadata_updates.verified'),
+    ...(Array.isArray(value.mismatches)
+      ? { mismatches: value.mismatches.map((item, index) => text(item, `metadata_updates.mismatches[${index}]`)) }
+      : {}),
+  }
+}
+
+function decodeMetadataUpdates(value: unknown): MetadataUpdateReceipt[] {
+  if (!Array.isArray(value)) throw corrupt('The YouTube operation metadata updates are invalid.')
+  const receipts = value.map(decodeMetadataUpdateReceipt)
+  if (new Set(receipts.map(receipt => receipt.receipt_id)).size !== receipts.length) {
+    throw corrupt('The YouTube operation metadata update receipt ids are duplicated.')
+  }
+  return receipts
+}
+
 const BASE_REQUIRED = [
   'schema_version', 'revision', 'operation_id', 'project_slug', 'episode_code', 'channel_id',
   'source_revision', 'metadata_revision', 'created_at', 'updated_at', 'lifecycle', 'playlists', 'drift', 'actions',
 ] as const
 const BASE_OPTIONAL = [
   'video_id', 'accepted_at', 'resumable', 'final_payload', 'processing', 'remote_snapshot',
-  'previous_remote_snapshot',
+  'previous_remote_snapshot', 'metadata_updates',
 ] as const
 const UNION_KEYS = ['origin', 'final_action'] as const
 
@@ -448,6 +582,7 @@ function decodeBase(raw: Record<string, unknown>): YouTubeOperationRecordBaseV1 
     ...(hasOwn(raw, 'previous_remote_snapshot') ? { previous_remote_snapshot: decodeRemoteSnapshot(raw.previous_remote_snapshot) } : {}),
     drift: decodeDrift(raw.drift),
     actions: decodeActions(raw.actions),
+    ...(hasOwn(raw, 'metadata_updates') ? { metadata_updates: decodeMetadataUpdates(raw.metadata_updates) } : {}),
   }
 }
 

@@ -83,13 +83,30 @@ function localValues(record: YouTubeOperationRecordV1): Partial<Record<ComparedF
   let status: any = {}
   try { snippet = JSON.parse(record.final_payload.snippet_json) } catch { snippet = {} }
   try { status = JSON.parse(record.final_payload.status_json) } catch { status = {} }
-  return {
+  const values: Partial<Record<ComparedField, unknown>> = {
     title: snippet.title,
     description: snippet.description,
     tags: snippet.tags,
     privacy_status: status.privacyStatus,
     scheduled_for: status.publishAt ?? null,
   }
+
+  // A VERIFIED metadata update from this branch is newer intent than the
+  // frozen upload payload, and Story Studio itself put it on YouTube. Leaving
+  // `final_payload` as the only local column made the owner's own applied
+  // title show up as "YouTube changed this" on the very screen they fixed it
+  // from. The receipt is the honest newer answer, and it is only used when the
+  // read-back actually matched what was sent — an unverified change says
+  // nothing about what local intent now is.
+  const applied = [...(record.metadata_updates ?? [])].reverse().find(receipt => receipt.verified)
+  if (applied) {
+    for (const field of applied.applied_fields) {
+      if (field === 'title' || field === 'description' || field === 'tags') {
+        values[field] = applied.after_snippet[field]
+      }
+    }
+  }
+  return values
 }
 
 function snapshotValues(
@@ -211,6 +228,11 @@ export function compareYouTubeVideo(
     }
 
     const storyStudioMoved = localValue !== lastValue
+    // Agreement is agreement FIRST. When Story Studio's own metadata update
+    // moved local intent and YouTube to the same value, both columns have
+    // moved together — that is the change working, not a conflict. Reading it
+    // as one would flag every video the owner just fixed, and flag it forever.
+    if (localValue === liveValue) return { ...base, state: 'in_sync' }
     if (storyStudioMoved && youtubeMoved) return { ...base, state: 'conflict' }
     if (storyStudioMoved) return { ...base, state: 'story_studio_changed' }
     if (youtubeMoved) return { ...base, state: 'youtube_changed' }
