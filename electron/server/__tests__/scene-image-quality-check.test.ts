@@ -7,7 +7,7 @@ import { test } from 'node:test'
 
 import { useTempDataDir } from './_helpers.js'
 import * as pm from '../services/project-manager.js'
-import { SCENE_IMAGE_CHECK_SHADOW_START, sceneImageCheckShadowOver } from '../contracts/scene-image-check.js'
+import { SCENE_IMAGE_CHECK_SHADOW_UNTIL, sceneImageCheckShadowOver } from '../contracts/scene-image-check.js'
 import {
   _setVisionCheckCatalogForTesting,
   _setVisionCheckEvaluatorForTesting,
@@ -85,9 +85,11 @@ test('shadow mode records the finding without acting', async (t) => {
   await jq._waitForJobPersistenceForTesting()
   jq._forgetProjectPersistenceForTesting(project.slug)
 
-  // And the generators only reach the remake branch when the switch is ON, and
-  // shadow mode always goes through the bounded background queue.
+  // And the generators only run a check when the master switch is ON, only reach
+  // the remake branch when the auto-remake switch is ON, and shadow mode always
+  // goes through the bounded background queue.
   for (const source of [generatorSource, continuitySource]) {
+    assert.match(source, /if \((?:cfg|checkCfg)\.enabled\) \{/)
     assert.match(source, /if \(checkResult\.state === 'failed' && params\.image_check_remake !== true\)/)
     assert.match(source, /queueSceneImageQualityCheck\(checkInput\)/)
   }
@@ -168,18 +170,66 @@ test('an unavailable vision model shows as not checked, never a pass', async (t)
   assert.equal(plan.scenes[0].image_check.state, 'not_checked')
 })
 
-test('the switch is off by default and unlocks only after the 2-week shadow review', () => {
+test('the check is ON by default and the auto-remake switch is OFF and locked until 2026-11-30', () => {
   const defaults = sceneImageCheckConfig(undefined)
-  assert.equal(defaults.auto_remake, false, 'the switch is OFF by default')
-  assert.equal(defaults.shadow_started_at, SCENE_IMAGE_CHECK_SHADOW_START)
+  assert.equal(defaults.enabled, true, 'the check is ON by default')
+  assert.equal(defaults.auto_remake, false, 'the auto-remake switch is OFF by default')
+  assert.equal(defaults.shadow_until, SCENE_IMAGE_CHECK_SHADOW_UNTIL)
 
-  const start = Date.parse(SCENE_IMAGE_CHECK_SHADOW_START)
-  assert.equal(sceneImageCheckShadowOver(SCENE_IMAGE_CHECK_SHADOW_START, start), false)
-  assert.equal(sceneImageCheckShadowOver(SCENE_IMAGE_CHECK_SHADOW_START, start + 13 * 24 * 60 * 60 * 1000), false)
-  assert.equal(sceneImageCheckShadowOver(SCENE_IMAGE_CHECK_SHADOW_START, start + 14 * 24 * 60 * 60 * 1000), true)
+  const until = Date.parse(SCENE_IMAGE_CHECK_SHADOW_UNTIL)
+  assert.equal(sceneImageCheckShadowOver(SCENE_IMAGE_CHECK_SHADOW_UNTIL, until - 1), false, 'locked one ms before the end')
+  assert.equal(sceneImageCheckShadowOver(SCENE_IMAGE_CHECK_SHADOW_UNTIL, until + 1), true, 'unlocked after the end date')
+
+  // An explicit end date is honoured, not "start + 14".
+  assert.equal(sceneImageCheckShadowOver('2026-12-15T00:00:00.000Z', Date.parse('2026-12-14T23:59:59.000Z')), false)
+  assert.equal(sceneImageCheckShadowOver('2026-12-15T00:00:00.000Z', Date.parse('2026-12-15T00:00:01.000Z')), true)
 
   // A saved config that names a model keeps it; an unnamed one resolves live.
   const named = sceneImageCheckConfig({ scene_image_check: { auto_remake: true, model: 'studio-hub::vision-mlx' } })
   assert.equal(named.auto_remake, true)
   assert.equal(named.model, 'studio-hub::vision-mlx')
+})
+
+test('turning the check off queues nothing and records nothing; turning it back on resumes', async (t) => {
+  const temp = await useTempDataDir()
+  t.after(temp.cleanup)
+  const { planPath, imagePath } = await scenePlanFixture()
+  _setVisionCheckCatalogForTesting(async () => [
+    { id: 'studio-hub::vision-mlx', display_name: 'Fleet vision', available: true },
+  ])
+  _setVisionCheckEvaluatorForTesting(async () => ({ score: 95, findings: [] }))
+  const service = await import('../services/scene-image-quality-check.js')
+  t.after(() => {
+    _setVisionCheckCatalogForTesting(null)
+    _setVisionCheckEvaluatorForTesting(null)
+  })
+
+  // OFF: nothing is queued …
+  service.queueSceneImageQualityCheck({
+    sceneId: 'scene-1', imagePath, visualPrompt: 'A temple at dawn', planPath,
+    config: { scene_image_check: { enabled: false, auto_remake: false } },
+  })
+  await service._drainSceneImageCheckQueueForTesting()
+  // … and nothing is recorded.
+  const offPlan = JSON.parse(await fs.readFile(planPath, 'utf8'))
+  assert.equal(offPlan.scenes[0].image_check, undefined, 'no result is written while the check is off')
+  await assert.rejects(fs.readFile(path.join(path.dirname(imagePath), 'scene-1.check.json')), /ENOENT/)
+
+  // A direct call also refuses to run while off, and says so rather than passing.
+  const offResult = await service.runSceneImageQualityCheck({
+    sceneId: 'scene-1', imagePath, visualPrompt: 'A temple at dawn', planPath,
+    config: { scene_image_check: { enabled: false } },
+  })
+  assert.equal(offResult.state, 'not_checked')
+  assert.equal(offResult.passed, false)
+  assert.match(offResult.reason || '', /turned off/i)
+
+  // ON again: checking resumes.
+  service.queueSceneImageQualityCheck({
+    sceneId: 'scene-1', imagePath, visualPrompt: 'A temple at dawn', planPath,
+    config: { scene_image_check: { enabled: true, auto_remake: false } },
+  })
+  await service._drainSceneImageCheckQueueForTesting()
+  const onPlan = JSON.parse(await fs.readFile(planPath, 'utf8'))
+  assert.equal(onPlan.scenes[0].image_check.state, 'passed')
 })

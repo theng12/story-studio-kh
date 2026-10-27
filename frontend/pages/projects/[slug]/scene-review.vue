@@ -296,14 +296,30 @@
             <small>Default on · saved with this Scene Review preset</small>
           </span>
         </label>
-        <!-- v1.4.364 — the free image quality check (owner 2026-10-26). It runs in
-             shadow mode by default and records findings; this switch only decides
-             whether a failed check remakes the image, once, after the 2-week review. -->
+        <!-- v1.4.364 — the free image quality check (owner 2026-10-26).
+             Master on/off switch: ON by default. Turn off to stop checks. -->
         <label
+          class="sr-auto-approve"
+          title="Free quality check of generated scene images using a fleet vision model through Gateway. Default ON."
+        >
+          <input
+            type="checkbox"
+            :checked="imageCheckConfig.enabled"
+            :disabled="imageCheckSaving"
+            @change="toggleImageCheckEnabled"
+          >
+          <span>
+            <strong>Free vision image check</strong>
+            <small>{{ imageCheckConfig.enabled ? 'ON · runs free quality check on generated images' : 'OFF · no check is queued and nothing is recorded' }}</small>
+          </span>
+        </label>
+        <!-- The auto-remake switch: OFF by default and locked until shadow_until (2026-11-30). -->
+        <label
+          v-if="imageCheckConfig.enabled"
           class="sr-auto-approve"
           :title="imageCheckSwitchUnlocked
             ? 'One automatic remake per image when the free check fails. Off by default.'
-            : `The free check is recording findings in shadow mode. The auto-remake switch unlocks ${imageCheckUnlockLabel}, after the 2-week shadow review.`"
+            : `The free check is recording findings in shadow mode. The auto-remake switch stays locked until ${imageCheckUnlockLabel}.`"
         >
           <input
             type="checkbox" :checked="imageCheckConfig.auto_remake"
@@ -316,9 +332,9 @@
             <small v-else>Shadow review until {{ imageCheckUnlockLabel }} · findings only</small>
           </span>
         </label>
-        <p class="sr-image-check-stats">
+        <p v-if="imageCheckConfig.enabled" class="sr-image-check-stats">
           Free vision check:
-          <span v-if="!imageCheckConfig.auto_remake">shadow mode (nothing changed)</span>
+          <span v-if="!imageCheckSwitchUnlocked || !imageCheckConfig.auto_remake">shadow mode (nothing changed)</span>
           <span v-else>auto-remake on</span>
           · {{ imageCheckStats.checked }} checked,
           {{ imageCheckStats.passed }} passed,
@@ -327,6 +343,9 @@
           <template v-if="imageCheckStats.failedFindings.length">
             Latest finding: {{ imageCheckStats.failedFindings[0] }}
           </template>
+        </p>
+        <p v-else class="sr-image-check-stats text-muted">
+          Free vision check is turned off. No check is queued and nothing is recorded.
         </p>
       </div>
 
@@ -602,10 +621,10 @@
               >⚠ stale — re-render</span>
               <!-- v1.4.364 — the free image quality check's verdict. -->
               <span
-                v-if="scene.image_check"
-                :class="['review-image-check-badge', `is-${scene.image_check.state}`]"
-                :title="describeImageCheck(scene.image_check)"
-              >{{ imageCheckBadgeLabel(scene.image_check) }}</span>
+                v-if="scene.image_check || !imageCheckConfig.enabled"
+                :class="['review-image-check-badge', !imageCheckConfig.enabled ? 'is-off' : `is-${scene.image_check?.state || 'not_checked'}`]"
+                :title="describeImageCheck(scene.image_check, imageCheckConfig.enabled)"
+              >{{ imageCheckBadgeLabel(scene.image_check, imageCheckConfig.enabled) }}</span>
             </div>
             <p class="review-transcript">{{ scene.transcript_segment }}</p>
             <details class="review-prompt-details disclosure">
@@ -798,7 +817,7 @@ import {
 import { sceneReviewPresetApply, sceneReviewPresetSnapshot, type SceneReviewPresetData } from '../../../utils/scene-review-preset.js'
 import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
 import { pacingBandAt, type ScenePacing } from '@shared/pacing'
-import { SCENE_IMAGE_CHECK_SHADOW_START, SCENE_IMAGE_CHECK_SHADOW_DAYS, sceneImageCheckShadowOver } from '@shared/scene-image-check'
+import { SCENE_IMAGE_CHECK_SHADOW_UNTIL, sceneImageCheckShadowOver } from '@shared/scene-image-check'
 import { secureOperationId } from '~/composables/useFreshGenerationAction'
 
 // usePresets captures the project slug at setup. Recreate this page for a
@@ -978,24 +997,25 @@ useRememberedForm('scene-review-genstudio', slug, form)
 // this turns on by default (owner 2026-10-25); a preset that explicitly saved false stays off.
 const autoApproveGenerated = ref(true)
 
-// v1.4.364 — the free image quality check's project switch (owner 2026-10-26).
-// Shadow mode is on until the owner turns auto-remake on, which the switch only
-// allows after the 2-week shadow review. The check itself is free and always runs.
+// v1.4.364 — the free image quality check's project switches (owner 2026-10-26).
+// 1. Master on/off switch (default ON). When off, nothing is queued and nothing is recorded.
+// 2. Auto-remake switch (default OFF). Locked until shadow_until (2026-11-30).
 const imageCheckSaving = ref(false)
 const imageCheckConfig = computed(() => {
   const raw = ((config.value as any)?.scene_image_check || {}) as Record<string, any>
   return {
+    enabled: raw.enabled !== false,
     auto_remake: raw.auto_remake === true,
-    shadow_started_at: typeof raw.shadow_started_at === 'string' && Number.isFinite(Date.parse(raw.shadow_started_at))
-      ? raw.shadow_started_at
-      : SCENE_IMAGE_CHECK_SHADOW_START,
+    shadow_until: typeof raw.shadow_until === 'string' && Number.isFinite(Date.parse(raw.shadow_until))
+      ? raw.shadow_until
+      : SCENE_IMAGE_CHECK_SHADOW_UNTIL,
   }
 })
-const imageCheckSwitchUnlocked = computed(() => sceneImageCheckShadowOver(imageCheckConfig.value.shadow_started_at))
+const imageCheckSwitchUnlocked = computed(() => sceneImageCheckShadowOver(imageCheckConfig.value.shadow_until))
 const imageCheckUnlockLabel = computed(() => {
-  const started = Date.parse(imageCheckConfig.value.shadow_started_at)
-  if (!Number.isFinite(started)) return 'after the shadow review'
-  return new Date(started + SCENE_IMAGE_CHECK_SHADOW_DAYS * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+  const until = Date.parse(imageCheckConfig.value.shadow_until)
+  if (!Number.isFinite(until)) return 'Nov 30, 2026'
+  return new Date(until).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 })
 const imageCheckStats = computed(() => {
   let passed = 0
@@ -1011,22 +1031,44 @@ const imageCheckStats = computed(() => {
   }
   return { checked: passed + failed + notChecked, passed, failed, notChecked, failedFindings }
 })
-async function toggleImageCheckAutoRemake(event: Event): Promise<void> {
+async function toggleImageCheckEnabled(event: Event): Promise<void> {
   const next = (event.target as HTMLInputElement).checked
   if (imageCheckSaving.value) return
-  if (next && !imageCheckSwitchUnlocked.value) return
   const project = slug.value
   imageCheckSaving.value = true
   try {
     await put(`/projects/${project}/settings/config`, {
       scene_image_check: {
-        shadow_started_at: imageCheckConfig.value.shadow_started_at,
-        auto_remake: next,
+        ...((config.value as any)?.scene_image_check || {}),
+        enabled: next,
+        shadow_until: imageCheckConfig.value.shadow_until,
       },
     })
     await refreshConfig(project)
   } catch (error: any) {
-    showError(error?.data?.detail || error?.message || 'Could not save the image-check switch.')
+    showError(error?.data?.detail || error?.message || 'Could not save the image check switch.')
+  } finally {
+    imageCheckSaving.value = false
+  }
+}
+async function toggleImageCheckAutoRemake(event: Event): Promise<void> {
+  const next = (event.target as HTMLInputElement).checked
+  if (imageCheckSaving.value) return
+  if (next && (!imageCheckSwitchUnlocked.value || !imageCheckConfig.value.enabled)) return
+  const project = slug.value
+  imageCheckSaving.value = true
+  try {
+    await put(`/projects/${project}/settings/config`, {
+      scene_image_check: {
+        ...((config.value as any)?.scene_image_check || {}),
+        enabled: imageCheckConfig.value.enabled,
+        auto_remake: next,
+        shadow_until: imageCheckConfig.value.shadow_until,
+      },
+    })
+    await refreshConfig(project)
+  } catch (error: any) {
+    showError(error?.data?.detail || error?.message || 'Could not save the auto-remake switch.')
   } finally {
     imageCheckSaving.value = false
   }
@@ -1940,13 +1982,26 @@ function jobCreatedAt(job: any): number {
 }
 
 // v1.4.364 — the free image quality check's recorded verdict, shown beside the
-// stale badge. A "not_checked" answer is said as such: it is not a pass (§6).
-function imageCheckBadgeLabel(check: NonNullable<ReviewScene['image_check']>): string {
+// stale badge. When the check is off, existing findings stay visible and the
+// badge reads "check off", never "passed" (§6).
+function imageCheckBadgeLabel(check: ReviewScene['image_check'] | undefined, enabled = true): string {
+  if (!enabled) {
+    if (check?.findings?.length) return `⚠ Check (${check.findings.length}) · check off`
+    return '· check off'
+  }
+  if (!check) return ''
   if (check.state === 'passed') return `✓ Checked${check.score != null ? ` ${check.score}` : ''}${check.shadow_mode ? ' · shadow' : ''}`
   if (check.state === 'failed') return `⚠ Check${check.remade ? ' · remade' : ''}${check.shadow_mode ? ' · shadow' : ''}`
   return '· not checked'
 }
-function describeImageCheck(check: NonNullable<ReviewScene['image_check']>): string {
+function describeImageCheck(check: ReviewScene['image_check'] | undefined, enabled = true): string {
+  if (!enabled) {
+    if (check?.findings?.length) {
+      return `Free image check is turned off in project settings. Prior recorded findings: ${check.findings.join('; ')}.`
+    }
+    return 'Free image check is turned off in project settings. No check is run and this is NOT a pass.'
+  }
+  if (!check) return 'Not checked. This is NOT a pass.'
   const parts: string[] = []
   parts.push(check.shadow_mode ? 'Shadow check — findings recorded, nothing changed.' : 'Quality check result.')
   if (check.state === 'passed') parts.push(`Passed${check.score != null ? ` with score ${check.score}` : ''}.`)
@@ -2745,6 +2800,7 @@ watch(() => replaceableUncertainJob.value?.job_id || '', (sourceJobId, previousS
 .review-image-check-badge.is-passed { color: #4eb373; border-color: color-mix(in srgb, #4eb373 50%, transparent); }
 .review-image-check-badge.is-failed { color: #e0843a; border-color: color-mix(in srgb, #e0843a 50%, transparent); }
 .review-image-check-badge.is-not_checked { color: var(--text-muted); border-style: dashed; }
+.review-image-check-badge.is-off { color: var(--text-muted); border-style: dashed; opacity: .8; }
 .review-thumb-stale {
   position: absolute;
   top: 5px;

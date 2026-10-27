@@ -401,26 +401,28 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
       queueSceneImageQualityCheck,
     } = await import('../services/scene-image-quality-check.js')
     const cfg = sceneImageCheckConfig(config)
-    const checkInput = {
-      sceneId: scene_id,
-      imagePath: outPath,
-      visualPrompt: scene.visual_prompt,
-      planPath,
-      config,
-      remade: params.image_check_remake === true,
-    }
-    if (cfg.auto_remake) {
-      const checkResult = await runSceneImageQualityCheck(checkInput)
-      job.output_lines.push(describeSceneImageCheck(checkResult))
-      if (checkResult.state === 'failed' && params.image_check_remake !== true) {
-        await enqueueImageCheckRemake({
-          projectSlug: job.project_slug, episodeId: episode_id, sceneId: scene_id,
-          title: job.title, params,
-        })
-        job.output_lines.push(`Image check failed — one automatic remake queued for ${scene_id}.`)
+    if (cfg.enabled) {
+      const checkInput = {
+        sceneId: scene_id,
+        imagePath: outPath,
+        visualPrompt: scene.visual_prompt,
+        planPath,
+        config,
+        remade: params.image_check_remake === true,
       }
-    } else {
-      queueSceneImageQualityCheck(checkInput)
+      if (cfg.auto_remake) {
+        const checkResult = await runSceneImageQualityCheck(checkInput)
+        job.output_lines.push(describeSceneImageCheck(checkResult))
+        if (checkResult.state === 'failed' && params.image_check_remake !== true) {
+          await enqueueImageCheckRemake({
+            projectSlug: job.project_slug, episodeId: episode_id, sceneId: scene_id,
+            title: job.title, params,
+          })
+          job.output_lines.push(`Image check failed — one automatic remake queued for ${scene_id}.`)
+        }
+      } else {
+        queueSceneImageQualityCheck(checkInput)
+      }
     }
   } catch {
     // A failed check never blocks the job.

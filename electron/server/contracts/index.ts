@@ -482,8 +482,9 @@ export const UpdateConfigSchema = z.object({
   }).optional(),
   /** 1.4.364 — the free scene-image quality check (owner 2026-10-26). */
   scene_image_check: z.object({
+    enabled: z.boolean().optional(),
     auto_remake: z.boolean().optional(),
-    shadow_started_at: z.string().optional(),
+    shadow_until: z.string().optional(),
     model: z.string().trim().max(240).optional(),
   }).optional(),
 }).passthrough().transform((value) => {
@@ -528,10 +529,11 @@ export interface SafeProjectConfigResponse {
     mode: 'off' | 'flag_issues' | 'check_and_repair'
     alternate_transcription_model?: string
   }
-  /** 1.4.364 — the free scene-image quality check's switch and shadow start. */
+  /** 1.4.364 — the free scene-image quality check's switch and shadow end date. */
   scene_image_check?: {
+    enabled?: boolean
     auto_remake?: boolean
-    shadow_started_at?: string
+    shadow_until?: string
     model?: string
   }
   image_models: Record<string, any>

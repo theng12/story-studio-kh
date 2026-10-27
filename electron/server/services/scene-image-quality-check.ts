@@ -20,7 +20,7 @@ import sharp from 'sharp'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { analyzeImage, listVisionModels } from '../lib/scene-vision-client.js'
-import { SCENE_IMAGE_CHECK_SHADOW_START } from '../contracts/scene-image-check.js'
+import { SCENE_IMAGE_CHECK_SHADOW_UNTIL, sceneImageCheckShadowOver } from '../contracts/scene-image-check.js'
 import type { ScenePlan } from '../models/types.js'
 
 export type SceneImageCheckState = 'passed' | 'failed' | 'not_checked'
@@ -42,33 +42,37 @@ export interface SceneImageQualityCheckResult {
 }
 
 export interface SceneImageCheckConfig {
-  /** The one switch. OFF = the 2-week shadow review (findings only). */
+  /** Master on/off switch for the check. Default ON. When off, nothing is queued or recorded. */
+  enabled: boolean
+  /** The auto-remake switch. OFF by default, and locked until shadow_until. */
   auto_remake: boolean
-  shadow_started_at: string
+  shadow_until: string
   model?: string
 }
 
 export const DEFAULT_SCENE_IMAGE_CHECK_CONFIG: SceneImageCheckConfig = {
+  enabled: true,
   auto_remake: false,
-  shadow_started_at: SCENE_IMAGE_CHECK_SHADOW_START,
+  shadow_until: SCENE_IMAGE_CHECK_SHADOW_UNTIL,
 }
 
 /** The project's settings, defaulted. Never cached past the read. */
 export function sceneImageCheckConfig(config: unknown): SceneImageCheckConfig {
   const raw = (config as any)?.scene_image_check
-  const startedAt = typeof raw?.shadow_started_at === 'string' && Number.isFinite(Date.parse(raw.shadow_started_at))
-    ? raw.shadow_started_at
-    : SCENE_IMAGE_CHECK_SHADOW_START
+  const until = typeof raw?.shadow_until === 'string' && Number.isFinite(Date.parse(raw.shadow_until))
+    ? raw.shadow_until
+    : SCENE_IMAGE_CHECK_SHADOW_UNTIL
   return {
+    enabled: raw?.enabled !== false,
     auto_remake: raw?.auto_remake === true,
-    shadow_started_at: startedAt,
+    shadow_until: until,
     model: typeof raw?.model === 'string' && raw.model.trim() ? raw.model.trim() : undefined,
   }
 }
 
-/** Shadow mode is the switch being off: findings are recorded and nothing is changed. */
-export function sceneImageCheckShadowMode(cfg: SceneImageCheckConfig): boolean {
-  return !cfg.auto_remake
+/** Shadow mode is findings-only: either auto_remake is off, or we are still before shadow_until. */
+export function sceneImageCheckShadowMode(cfg: SceneImageCheckConfig, now = Date.now()): boolean {
+  return !cfg.auto_remake || !sceneImageCheckShadowOver(cfg.shadow_until, now)
 }
 
 export interface VisionCheckModelCandidate { id: string; display_name: string; available: boolean }
@@ -184,6 +188,20 @@ export async function runSceneImageQualityCheck(input: {
   remade?: boolean
 }): Promise<SceneImageQualityCheckResult> {
   const cfg = sceneImageCheckConfig(input.config)
+  if (!cfg.enabled) {
+    // When off, no check is queued and nothing is recorded.
+    return {
+      state: 'not_checked',
+      passed: false,
+      findings: [],
+      unmeasurable: [],
+      checked_at: new Date().toISOString(),
+      shadow_mode: true,
+      remade: false,
+      reason: 'The free vision check is turned off in project settings.',
+    }
+  }
+
   const base = {
     checked_at: new Date().toISOString(),
     shadow_mode: sceneImageCheckShadowMode(cfg),
@@ -271,6 +289,8 @@ const BACKGROUND_CHECKS_MAX = 2
 const backgroundChecks: Array<() => Promise<unknown>> = []
 let backgroundChecksRunning = 0
 export function queueSceneImageQualityCheck(input: Parameters<typeof runSceneImageQualityCheck>[0]): void {
+  const cfg = sceneImageCheckConfig(input.config)
+  if (!cfg.enabled) return
   backgroundChecks.push(() => runSceneImageQualityCheck(input))
   pumpBackgroundChecks()
 }
