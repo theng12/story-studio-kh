@@ -28,7 +28,7 @@ test('the stronger check is a separate opt-in switch with per-axis auto-remake',
   for (const axis of ['anatomy', 'face', 'text']) {
     assert.ok(page.includes(`${axis}: '`), `one auto-remake switch per axis (${axis})`)
   }
-  assert.ok(page.includes('v-for="axis in VISION_AXES"'), 'the switches are generated from the shared axis list')
+  assert.ok(page.includes('v-for="axis in SCENE_VISION_AXES"'), 'the switches are generated from the shared axis list')
   assert.ok(page.includes(':disabled="visionCheckSaving || !visionCheckSwitchUnlocked"'),
     'auto-remake stays locked until the shadow window ends')
   assert.ok(page.includes('visionSelectedModel.provider_name'), 'the provided-by label is shown where published')

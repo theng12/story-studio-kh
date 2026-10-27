@@ -1,5 +1,15 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.364 — batch release (2026-10-28, release/1.4.364 from main 0967f1ab)
+
+Merged: episode cost · Quote Shorts phase 2 · thumbnail-test link + free image check (shadow to 2026-11-30, master switch) · translated versions (queued `translate_episode` job, chains the target channel's presets) · video plan (T2V lane approved in Motion Review; unsaved episode = motion OFF, share control starts at 25% opening hook; ai-video.ts and getVideoStatus deleted; clip import accepts any ffmpeg-decodable format, normalised on import) · Still Posts phase 1 (+ fresh drawing per size, default one drawing) · opt-in stronger vision image check (content parts to the Gateway chat lane; per-axis auto-remake locked until shadow end) · YouTube existing-video title/description/tags update (`POST /api/projects/:slug/youtube/videos/metadata`, snippet-only, verified read-back) + read-only snippet audit with a per-channel ledger; Pipeline titles from the preset, idempotent suffix, over-limit refused, empty description refused · background music 6% from one contract + "N music options, standard 10" warning.
+
+Learned at integration:
+- Page harnesses strip imports: a TOP-LEVEL use of an imported value (`const X = IMPORTED`) breaks every harness that mounts the page (17 Scene Review tests). Use imported values lazily (inside computed/functions/template), or stub them in each harness.
+- The model-drift guard flags running sums of recorded charges and USD formatting; those carry `model-drift-allow` lines with reasons.
+- Bundled fonts only worked where hand-installed: macOS draws through CoreText, so the app now copies missing bundled faces into ~/Library/Fonts/Story Studio at boot.
+- Open: Production applies the AWBU/SS0066 metadata repairs only after the installed-release notice with the route contract.
+
 ## 1.4.363 — recovery leaves accepted finals alone (2026-10-27, release/1.4.363 from main 442a4900)
 
 Merged fix/recovery-skips-accepted-finals-20261027 (22ee9de4): `recoverEpisode` skips an automatic pass when `hasAcceptedFinalVideo` (asset-status.ts, the same `findCanonicalFinal` paths A/E Production Board counts; YouTube-only evidence deliberately not counted) is true, unless the owner asked. Also: three measured load-flaky files joined SERIAL_TEST_FILES (job-cancellation-reconciliation, private-render-owner-admission, video-assembly-remote-wait) ahead of the pooled-vs-serial proof on this commit.

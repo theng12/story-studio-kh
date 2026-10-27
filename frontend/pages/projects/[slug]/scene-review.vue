@@ -403,7 +403,7 @@
           <!-- Per-axis auto-remake. Every one is OFF by default and locked until
                the shadow window ends (the same window the free check uses). -->
           <label
-            v-for="axis in VISION_AXES"
+            v-for="axis in SCENE_VISION_AXES"
             :key="axis"
             class="sr-auto-approve"
             :title="visionCheckSwitchUnlocked
@@ -428,7 +428,7 @@
             <span v-else>auto-remake on for {{ visionAxesOnLabel }}</span>
             · {{ visionCheckStats.checked }} checked,
             {{ visionCheckStats.withFails }} with a finding,
-            {{ visionCheckStats.notChecked }} not checked.
+            {{ visionCheckStats.notChecked }} not checked<template v-if="visionCheckStats.noRecord">, {{ visionCheckStats.noRecord }} with no check yet</template>.
             <template v-if="visionCheckStats.latestFinding">Latest finding: {{ visionCheckStats.latestFinding }}</template>
           </p>
         </div>
@@ -1189,7 +1189,6 @@ async function toggleImageCheckAutoRemake(event: Event): Promise<void> {
 // every use (§1). The check is OFF by default because every picture costs money,
 // and its auto-remake switches are per axis, OFF, and locked until the same
 // shadow window the free check uses has ended.
-const VISION_AXES = SCENE_VISION_AXES
 const VISION_AXIS_LABEL: Record<SceneVisionAxis, string> = {
   anatomy: 'anatomy (hands, limbs)',
   face: 'face',
@@ -1227,8 +1226,8 @@ const visionCheckConfig = computed(() => {
 })
 const visionCheckSwitchUnlocked = computed(() => sceneImageCheckShadowOver(imageCheckConfig.value.shadow_until))
 const visionSelectedModel = computed(() => visionModels.value.find(option => option.id === visionCheckConfig.value.model) || null)
-const visionAnyAxisOn = computed(() => VISION_AXES.some(axis => visionCheckConfig.value.auto_remake[axis]))
-const visionAxesOnLabel = computed(() => VISION_AXES
+const visionAnyAxisOn = computed(() => SCENE_VISION_AXES.some(axis => visionCheckConfig.value.auto_remake[axis]))
+const visionAxesOnLabel = computed(() => SCENE_VISION_AXES
   .filter(axis => visionCheckConfig.value.auto_remake[axis])
   .map(axis => VISION_AXIS_LABEL[axis])
   .join(', '))
@@ -1236,15 +1235,16 @@ const visionCheckStats = computed(() => {
   let checked = 0
   let withFails = 0
   let notChecked = 0
+  let noRecord = 0
   let latestFinding = ''
   for (const scene of scenes.value) {
     const check = (scene as any).vision_check as ReviewScene['vision_check']
-    if (!check) continue
+    if (!check) { noRecord++; continue }
     if (check.state !== 'checked') { notChecked++; continue }
     checked++
     if (check.findings?.length) { withFails++; latestFinding = check.findings[0] || latestFinding }
   }
-  return { checked, withFails, notChecked, latestFinding }
+  return { checked, withFails, notChecked, noRecord, latestFinding }
 })
 function visionModelLabel(option: VisionModelOption): string {
   const provider = option.provider_name ? ` · ${option.provider_name}` : ''
@@ -2278,9 +2278,9 @@ function visionCheckBadgeLabel(check: ReviewScene['vision_check'] | undefined): 
   if (!check) return ''
   if (check.state !== 'checked') return '· vision not checked'
   const shadow = check.shadow_mode ? ' · shadow' : ''
-  const failed = VISION_AXES.filter(axis => check.axes?.[axis]?.verdict === 'fail')
+  const failed = SCENE_VISION_AXES.filter(axis => check.axes?.[axis]?.verdict === 'fail')
   if (failed.length) return `⚠ Vision ${failed.join('/')}${check.remade ? ' · remade' : ''}${shadow}`
-  const unmeasurable = VISION_AXES.filter(axis => check.axes?.[axis]?.verdict === 'could_not_check')
+  const unmeasurable = SCENE_VISION_AXES.filter(axis => check.axes?.[axis]?.verdict === 'could_not_check')
   if (unmeasurable.length) return `· vision ${unmeasurable.join('/')} unmeasurable${shadow}`
   return `✓ Vision checked${shadow}`
 }
@@ -2289,7 +2289,7 @@ function describeVisionCheck(check: ReviewScene['vision_check']): string {
     return `The stronger vision check did not run${check.reason ? ` — ${check.reason}` : ''}. This is NOT a pass.`
   }
   const parts: string[] = [check.shadow_mode ? 'Shadow check — findings recorded, nothing changed.' : 'Vision check result.']
-  for (const axis of VISION_AXES) {
+  for (const axis of SCENE_VISION_AXES) {
     const entry = check.axes?.[axis]
     if (!entry) continue
     const findings = entry.findings?.length ? ` — ${entry.findings.join('; ')}` : ''
