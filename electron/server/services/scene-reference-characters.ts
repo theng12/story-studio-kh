@@ -55,33 +55,64 @@ export interface ResolveSceneReferencesInput {
   sceneLabel?: string
 }
 
-export async function resolveSceneReferences(
-  input: ResolveSceneReferencesInput,
+/**
+ * CHANNEL-scoped reference resolution — the same rules as an episode, one scope up.
+ *
+ * Still Posts has no episodes: the character belongs to the channel, and every post may use any of
+ * the channel's own characters. Rather than a second copy of this logic (which is how the two
+ * would drift), both scopes run the one implementation below; only the ownership list, the cache
+ * directory and the words in a refusal differ.
+ */
+export interface ResolveChannelReferencesInput {
+  slug: string
+  characterIds: readonly string[]
+  modelName: string
+  supportsReferences: boolean
+  maxReferences: number | undefined
+  maxDimension?: number
+  /** Where fitted copies are cached — under the channel, never beside a portrait. */
+  cacheDir: string
+  /** `Post 3` when the selection belongs to one post, so a refusal names it. */
+  postLabel?: string
+}
+
+async function resolveReferencesFrom(
+  owned: ReadonlyArray<{ id: string; name: string; references?: { images?: string[] } }>,
+  input: {
+    slug: string
+    characterIds: readonly string[]
+    modelName: string
+    supportsReferences: boolean
+    maxReferences: number | undefined
+    maxDimension?: number
+    episodeDir: string
+    sceneLabel?: string
+    /** What a character must belong to, in the refusal sentence. */
+    belongsTo: string
+  },
 ): Promise<ResolvedSceneReferences> {
-  const ids = [...new Set(input.characterIds.filter(Boolean))]
-  if (!ids.length) return { paths: [], digests: [], names: [], fitted: [] }
+  const scopeIds = [...new Set(input.characterIds.filter(Boolean))]
+  if (!scopeIds.length) return { paths: [], digests: [], names: [], fitted: [] }
   const where = input.sceneLabel ? `${input.sceneLabel}: ` : ''
 
   // An unpublished limit is not a number to guess (§1): NaN >= 1 is false, so it refuses.
   const maxReferences = Number(input.maxReferences)
   if (!input.supportsReferences || !(maxReferences >= 1)) {
     throw new Error(
-      `${where}${input.modelName} accepts no reference images, so the ${ids.length} selected character reference(s) cannot be attached. ` +
+      `${where}${input.modelName} accepts no reference images, so the ${scopeIds.length} selected character reference(s) cannot be attached. ` +
       'Choose a reference-capable model or clear the selection. No image was requested.',
     )
   }
 
-  // Membership in THIS episode's own list is the ownership statement.
-  const owned = await listCharacters(input.slug, { episodeCode: input.episodeCode })
   const byId = new Map(owned.map(character => [character.id, character]))
 
   const chosen: Array<{ id: string; name: string; file: string; source: string }> = []
-  for (const id of ids) {
+  for (const id of scopeIds) {
     const character = byId.get(id)
     if (!character) {
       throw new Error(
-        `${where}Character '${id}' is not part of ${input.episodeCode}, so it cannot be used as a reference here. ` +
-        'Clear it and choose a character of this episode. No image was requested.',
+        `${where}Character '${id}' is not part of ${input.belongsTo}, so it cannot be used as a reference here. ` +
+        'Clear it and choose a character of this channel. No image was requested.',
       )
     }
     const filename = character.references?.images?.[0]
@@ -133,6 +164,48 @@ export async function resolveSceneReferences(
     names: chosen.map(item => item.name),
     fitted,
   }
+}
+
+export async function resolveSceneReferences(
+  input: ResolveSceneReferencesInput,
+): Promise<ResolvedSceneReferences> {
+  // Membership in THIS episode's own list is the ownership statement.
+  const owned = await listCharacters(input.slug, { episodeCode: input.episodeCode })
+  return resolveReferencesFrom(owned, {
+    slug: input.slug,
+    characterIds: input.characterIds,
+    modelName: input.modelName,
+    supportsReferences: input.supportsReferences,
+    maxReferences: input.maxReferences,
+    maxDimension: input.maxDimension,
+    episodeDir: input.episodeDir,
+    sceneLabel: input.sceneLabel,
+    belongsTo: input.episodeCode,
+  })
+}
+
+/**
+ * Resolve references for a CHANNEL-scoped surface (Still Posts).
+ *
+ * Ownership is the channel's own character list — `listCharacters(slug)` with no episode — so a
+ * character belonging to another channel is never rendered from, and a character that belongs to
+ * this channel is usable on every post without being re-picked per post.
+ */
+export async function resolveChannelReferences(
+  input: ResolveChannelReferencesInput,
+): Promise<ResolvedSceneReferences> {
+  const owned = await listCharacters(input.slug)
+  return resolveReferencesFrom(owned, {
+    slug: input.slug,
+    characterIds: input.characterIds,
+    modelName: input.modelName,
+    supportsReferences: input.supportsReferences,
+    maxReferences: input.maxReferences,
+    maxDimension: input.maxDimension,
+    episodeDir: input.cacheDir,
+    sceneLabel: input.postLabel,
+    belongsTo: 'this channel',
+  })
 }
 
 /** One file's short content digest, as used in request identities. */
