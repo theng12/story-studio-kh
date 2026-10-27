@@ -546,6 +546,17 @@ export async function translateEpisodeScript(
     ? sourceScript.chapters.filter(ch => options.chapters!.includes(ch.number))
     : sourceScript.chapters
 
+  // A requested chapter the source does not have is its own answer, not a
+  // quiet skip: name it rather than return a shorter list that looks complete.
+  const requestedMissing = (options.chapters || [])
+    .filter(n => !sourceScript.chapters.some(ch => ch.number === n))
+  if (requestedMissing.length) {
+    throw Object.assign(
+      new Error(`Source episode ${options.sourceEpisodeId} has no ${requestedMissing.length === 1 ? 'Chapter' : 'Chapters'} ${requestedMissing.join(', ')} to translate.`),
+      { statusCode: 400 },
+    )
+  }
+
   if (!chaptersToTranslate.length) {
     throw Object.assign(new Error('No matching chapters found to translate.'), { statusCode: 400 })
   }

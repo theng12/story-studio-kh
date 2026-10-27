@@ -413,6 +413,24 @@ describe('End-to-end Translation Workflow (English ↔ Khmer)', () => {
     )
   })
 
+  test('a requested chapter the source does not have is named, not skipped', async () => {
+    const shouldNotRun = async (): Promise<string> => {
+      throw new Error('the model must not be called for a missing chapter')
+    }
+    await assert.rejects(
+      translateEpisodeScript({
+        sourceSlug: enSlug,
+        sourceEpisodeId,
+        targetSlug: kmSlug,
+        model: 'mock-writing-v1',
+        targetEpisodeId: 'KH0005',
+        chapters: [1, 9],
+        callAi: shouldNotRun,
+      }),
+      (err: any) => err.statusCode === 400 && /has no Chapter 9 to translate/.test(err.message),
+    )
+  })
+
   test('translates Khmer episode back to English (km -> en)', async () => {
     const mockCallAi = async (_model: string, _system: string, user: string): Promise<string> => {
       if (user.includes('Chapter 01')) {
@@ -438,6 +456,34 @@ describe('End-to-end Translation Workflow (English ↔ Khmer)', () => {
     const targetPaths = await resolveEpisodePathsByCode(enSlug, 'EP0002')
     const ch1 = resolveArtifact(targetPaths.script_dir, 'EP0002_Chapter_01')
     assert.ok(ch1 && (await fs.readFile(ch1, 'utf-8')).includes('King Suryavarman began building Angkor Wat'))
+  })
+
+  test('a source episode with no script at all is refused, not treated as empty translation', async () => {
+    const [blankIdea] = await ideas.addIdeas(enSlug, [{
+      title: 'Blank Source Episode',
+      logline: 'Accepted but never written.',
+      themes: [],
+      suggested_chapters: 1,
+      suggested_length: 'short',
+      mood: 'neutral',
+    }], 'test-model')
+    const accepted = await ideas.acceptIdea(enSlug, blankIdea!.id, false, { override_code: 'EP0009' })
+    assert.equal(accepted.episode_code, 'EP0009')
+
+    const shouldNotRun = async (): Promise<string> => {
+      throw new Error('the model must not be called for an empty source')
+    }
+    await assert.rejects(
+      translateEpisodeScript({
+        sourceSlug: enSlug,
+        sourceEpisodeId: 'EP0009',
+        targetSlug: kmSlug,
+        model: 'mock-writing-v1',
+        targetEpisodeId: 'KH0006',
+        callAi: shouldNotRun,
+      }),
+      (err: any) => err.statusCode === 400 && /has no script chapters to translate/.test(err.message),
+    )
   })
 })
 
