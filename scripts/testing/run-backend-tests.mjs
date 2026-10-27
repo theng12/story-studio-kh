@@ -438,6 +438,11 @@ export const SERIAL_TEST_FILES = [
   // DECLARED — a warm read must answer inside 2 s (jobs-read-latency, jobs-history).
   'jobs-read-latency.test.ts',
   'jobs-history.test.ts',
+  // MEASURED, 2026-10-27 — failed in the pooled sweep on 524254f5, passed alone (job-queue timing).
+  'job-cancellation-reconciliation.test.ts',
+  'private-render-owner-admission.test.ts',
+  // MEASURED, 2026-10-27 — 3 subtests failed in serial gate A on 442a4900 under machine load, 14/14 alone.
+  'video-assembly-remote-wait.test.ts',
 ]
 
 /**

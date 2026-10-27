@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.363 — 2026-10-27
+
+- Automatic recovery never redoes a step on an episode that already has an accepted final video. It leaves the episode alone and says so; Retry or Recover still redoes a step on purpose, and a step already running is left to finish.
+
 ## v1.4.362 — 2026-10-27
 
 - Pipeline runs Motion Review with Sketch Draw on this Mac, with no video model. It uses the same scene rules as the Motion Review page. Paid image-to-video keeps all its checks.

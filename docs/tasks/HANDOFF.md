@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.363 — recovery leaves accepted finals alone (2026-10-27, release/1.4.363 from main 442a4900)
+
+Merged fix/recovery-skips-accepted-finals-20261027 (22ee9de4): `recoverEpisode` skips an automatic pass when `hasAcceptedFinalVideo` (asset-status.ts, the same `findCanonicalFinal` paths A/E Production Board counts; YouTube-only evidence deliberately not counted) is true, unless the owner asked. Also: three measured load-flaky files joined SERIAL_TEST_FILES (job-cancellation-reconciliation, private-render-owner-admission, video-assembly-remote-wait) ahead of the pooled-vs-serial proof on this commit.
+
 ## 1.4.362 — Pipeline Sketch, recovery current-audio guard, remote 3-day keep, topic caps 4000 (2026-10-27, release/1.4.362 from main fe481bd7)
 
 Merged: fix/topic-pack-caps-20261027 (topic arrays 2000→4000; Wars & Treaties 1.0.1 full union needs 1.4.362) · fix/pipeline-sketch-motion-20261027 (sketch_draw Motion Review presets admitted with no video model; scene selection shared via resolveSketchDrawEligibleScenes) · fix/remote-render-keep-20261027 (remote import keeps the replaced final via final-video-retention; Free up space skips _previous_finals/) · fix/recovery-current-audio-20261027 (inspectRecovery checks the merge is current first; level_unit 'linear' marker; unmarked node with music level >1 refused; generator refuses stated music level >1).
