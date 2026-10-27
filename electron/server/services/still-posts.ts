@@ -22,7 +22,7 @@ import sharp from 'sharp'
 import * as pm from './project-manager.js'
 import { listCharacters, referenceImagePath } from './character-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
-import { moveToTrashSync } from '../lib/trash-move.js'
+import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { renderThumbnailText, type RenderBranding } from '../lib/thumbnail-text-render.js'
 import type { ThumbnailTextStyle } from '../contracts/thumbnail-text.js'
 import { stillPostFormat, stillPostOption } from '../still-posts/catalog.js'
@@ -267,8 +267,7 @@ export async function nextPostId(slug: string): Promise<string> {
 export async function trashPost(slug: string, postId: string): Promise<void> {
   const dir = postDir(slug, postId)
   if (!existsSync(dir)) return
-  const trash = path.join(projectRootFor(slug), '_trash', 'still-posts', path.basename(dir))
-  await fs.mkdir(path.dirname(trash), { recursive: true })
+  const trash = path.join(trashRootFor(dir, projectRootFor(slug), slug), 'still-posts', path.basename(dir))
   moveToTrashSync(dir, trash, 'still-post')
 }
 

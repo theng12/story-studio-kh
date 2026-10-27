@@ -71,7 +71,8 @@ async function shellFormat() {
 /** Every built-in Formula id, read off disk rather than listed here. */
 // A Short has no introduction by design: Quote Shorts' rules say "no introduction", the
 // first line IS the hook, and automatic introductions are opt-in per channel anyway.
-const FORMULAS_WITHOUT_AN_OPENING = new Set(['quote-shorts'])
+// Still Posts makes single images with words on them: no narration, so no spoken opening.
+const FORMULAS_WITHOUT_AN_OPENING = new Set(['quote-shorts', 'still-posts'])
 
 async function builtInFormulaIds(): Promise<string[]> {
   const files = await readdir(NICHE_DIR)

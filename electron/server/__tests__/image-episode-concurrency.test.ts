@@ -72,7 +72,9 @@ describe('every kind of fleet work is pipelined, not just images', () => {
     assert.ok(!decl('const IMAGE_EPISODE_TYPES').includes("'thumb_images'"),
       'thumbnails share no budget with the local fleet')
     assert.ok(decl('const THUMBNAIL_EPISODE_TYPES').includes("'thumb_images'"))
-    for (const type of ['video', 'scene_clip_generate', 'scene_clips_batch']) {
+    // The retired `video` lane (the deleted AI-video generator) is gone; its rows still load as retired.
+    assert.ok(!decl('const VIDEO_EPISODE_TYPES').includes("'video'"), 'the retired video lane is not a group member')
+    for (const type of ['scene_clip_generate', 'scene_clips_batch']) {
       assert.ok(decl('const VIDEO_EPISODE_TYPES').includes(`'${type}'`), `${type} missing from video group`)
     }
     assert.ok(decl('const AUDIO_EPISODE_TYPES').includes("'audio'"), 'audio missing from audio group')

@@ -249,7 +249,7 @@ test('only supported image enqueue snapshots the machine policy outside request 
   assert.equal(disabled.paid_image_replacement?.enabled, false)
   assert.equal(disabled.paid_image_replacement?.additional_credit_ceiling, null)
 
-  for (const [index, type] of ['audio', 'subtitles_transcribe', 'music_generate', 'video', 'broll_normalize', 'image_prompts'].entries()) {
+  for (const [index, type] of ['audio', 'subtitles_transcribe', 'music_generate', 'scene_clips_batch', 'broll_normalize', 'image_prompts'].entries()) {
     const job = await serverSnapshot(type, `UNSUPPORTED-${index}`)
     assert.equal(job.paid_image_replacement, undefined, `${type} must never receive the paid image policy`)
     assert.equal(job.params.paid_image_replacement, undefined, `${type} must not persist caller policy params`)

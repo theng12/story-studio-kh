@@ -335,12 +335,12 @@ describe('the prose call sites are left alone', () => {
     }
   })
 
-  test('single-scene visual and motion prompt regeneration ask for no contract', () => {
+  test('single-scene visual, motion and video prompt regeneration ask for no contract', () => {
     const text = source('services/scene-planner.ts')
     const calls = [...text.matchAll(
       /const raw = await \(opts\.callAi \|\| callAi\)\(opts\.model, system, user, opts\.apiKeys, false, \{([\s\S]*?)\}\)/g,
     )]
-    assert.equal(calls.length, 2, 'expected the visual and motion single-scene calls')
+    assert.equal(calls.length, 3, 'expected the visual, motion and video (text-to-video) single-scene calls')
     for (const call of calls) {
       assert.ok(!call[0].includes('outputContract'), 'single-scene prompt regeneration returns prose')
       assert.match(call[0], /requestIdentity:\s*opts\.request_identity/,

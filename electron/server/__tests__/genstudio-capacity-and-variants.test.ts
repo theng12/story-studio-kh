@@ -208,10 +208,10 @@ test('scene clips resolve operation before duration/resolution and reject absent
     /operation.*required/i,
     'duration/resolution alone are ambiguous across Gateway operations',
   )
-  assert.throws(
-    () => selectSceneClipGenStudioVariant(variants, { operation: 'text-to-video', duration_seconds: 3, resolution: '480p' }),
-    /image-to-video/i,
-    'Story Studio never submits a different published video operation',
+  assert.deepEqual(
+    selectSceneClipGenStudioVariant(variants, { operation: 'text-to-video', duration_seconds: 3, resolution: '480p' }),
+    variants[0],
+    'a scene planned as text-to-video selects the text-to-video row, never an image-to-video one',
   )
   assert.throws(
     () => selectSceneClipGenStudioVariant(variants, { operation: 'image-to-video', duration_seconds: 8, resolution: '4k' }),
