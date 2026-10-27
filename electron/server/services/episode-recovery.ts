@@ -256,6 +256,31 @@ export function repairEpisodeRecoveryPlanParams(plan: EpisodeRecoveryPlan, jobs:
   return repairs.length > 0
 }
 
+/**
+ * The music levels a saved Audio Assembly node states that CANNOT be linear gain.
+ *
+ * Levels are linear gain (`0.08` = 8%); every slider that writes one reaches at most 100%, so a
+ * stated level above `1` is a percentage written before 1.4.361. Never read as a level and never
+ * scaled by size — the value's unit is unknown (`lib/audio-gain.ts`).
+ */
+function percentShapedMusicLevels(params: Job['params'] | undefined): string[] {
+  const music = params?.music as Record<string, unknown> | undefined
+  if (!music) return []
+  return (['volume', 'post_narration_volume'] as const)
+    .filter(key => Number(music[key]) > 1)
+    .map(key => `music.${key} = ${music[key]}`)
+}
+
+/** Why a recovery node's saved mix cannot be replayed, or null when it can (AGENTS.md §6: name the repair). */
+function recoveryMergeLevelRefusal(params: Job['params'] | undefined, episodeId: string): string | null {
+  if (params?.level_unit === 'linear') return null
+  const levels = percentShapedMusicLevels(params)
+  if (!levels.length) return null
+  return `Audio Assembly was not queued: ${episodeId.toUpperCase()}'s saved mix settings were written before levels `
+    + `became linear gain, so they cannot be replayed (${levels.join(', ')} — 8 is not 8% but eight times the voice). `
+    + 'Open Audio Assembly, check the mix with the current preset, and run Audio Assembly from that page.'
+}
+
 export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = [], settingsPool: Job[] = jobs): EpisodeRecoveryPlan {
   if (!jobs.length) throw new Error('Recovery requires an existing episode job.')
   const first = jobs[0]
@@ -286,6 +311,14 @@ export function createEpisodeRecoveryPlan(jobs: Job[], sourceJobIds: string[] = 
           && (!Array.isArray(input.sections) || input.sections.includes(s)))
       }
     }
+    // Every level an Audio Assembly request states is LINEAR GAIN today (`1` = unchanged), because
+    // the page and the preset boundary convert their percentages once (`lib/audio-gain.ts`). A
+    // recovery replays these saved params RAW, so the node records the unit it was written in: a
+    // plan saved before 1.4.361 holds `music.volume: 8` (8%), and replaying that would mix the bed
+    // eight times too loud. A level above unity is therefore NOT linear gain this app writes (every
+    // attenuation slider's linear maximum is 1), so such a node stays unmarked and dispatch
+    // refuses it (`recoveryMergeLevelRefusal`) instead of guessing or squeezing it into range.
+    if (step === 'audio_merge' && !percentShapedMusicLevels(params).length) params.level_unit = 'linear'
     plan.steps[step] = { job_id: `recovery-${id}-${step}`, type: step === 'subtitle_sections' ? 'subtitles_transcribe' : step as JobType,
       title, params, ...(source ? { source_job_id: source.job_id } : {}) }
     if (EPISODE_RECOVERY_ORDER.indexOf(step) > EPISODE_RECOVERY_ORDER.indexOf(plan.target)) plan.target = step
@@ -544,10 +577,21 @@ async function inspectRecovery(plan: EpisodeRecoveryPlan, jobs: Job[]) {
   if (jobs.some(job => job.type === 'audio_merge' && ['queued', 'running', 'paused'].includes(job.status))) {
     return { verified: unresolved, message: 'Waiting for the active Audio Assembly job.' }
   }
-  if (plan.narration_refresh_job_ids?.length && !plan.steps.audio_merge?.dispatched) {
+  // A chapter repair needs Audio Assembly only while the saved merge is NOT current: the readiness
+  // audit already refuses a missing, unfinished, stale (a chapter changed under it) or rejected
+  // merge. A plan left holding an undispatched node after a good merge — the owner ran Audio
+  // Assembly from its page, or Clear Finished pruned the job the node named — was re-merging
+  // finished, accepted episodes on every boot (AWBU EP0001/2/3/5, night-atlas-science EP0012,
+  // 2026-10-27). Let the audit verify audio_merge and the plan complete instead.
+  //
+  // A narration job that is still going keeps the old wait: its chapters land one at a time, so the
+  // merge can look current right up to the moment the next chapter replaces one under it.
+  const audio = await inspectAudioAssemblyReadiness(plan.project_slug, plan.episode_id)
+  const narrationInFlight = jobs.some(job => job.type === 'audio' && job.episode_id === plan.episode_id
+    && ['queued', 'running', 'paused'].includes(job.status))
+  if (plan.narration_refresh_job_ids?.length && !plan.steps.audio_merge?.dispatched && (!audio.audio_assembly_ready || narrationInFlight)) {
     return { verified: unresolved, message: 'Chapter repair requires Audio Assembly with the saved mix settings' }
   }
-  const audio = await inspectAudioAssemblyReadiness(plan.project_slug, plan.episode_id)
   if (!audio.audio_assembly_ready) return { verified: unresolved, message: audio.issues.join(' ') }
   const paths = await resolveEpisodePathsByCode(plan.project_slug, plan.episode_id)
   const facts = await inspectRecoverySubtitlePrerequisites(plan, { episodeDir: paths.episode_dir, subtitlesDir: paths.subtitles_dir,
@@ -731,6 +775,12 @@ export async function dispatchEpisodeRecoveryStep(
     plan.message = MANUAL_IMAGE_FINISH_GUIDANCE
     return
   }
+  // A saved merge whose levels predate linear gain is neither queued nor resumed: the job would
+  // replay the same percentages. A merge already running cannot be stopped, and one already done
+  // is audited on its artifacts, so only new or resumed work is refused (AGENTS.md §6).
+  const mergeRefusal = step === 'audio_merge' && node && (!existing || existing.status === 'error')
+    ? recoveryMergeLevelRefusal(node.params, plan.episode_id) : null
+  if (mergeRefusal) { plan.message = mergeRefusal; return }
   if (existing) {
     if (step === 'continuity_render' && existing.params?.manual_image_finish) {
       plan.message = MANUAL_IMAGE_FINISH_GUIDANCE
