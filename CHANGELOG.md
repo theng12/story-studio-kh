@@ -6,9 +6,10 @@ What's new in each release. Newest first.
 
 ## v1.4.362 — 2026-10-27
 
-- Topic Packs: raised array ceilings from 2,000 to 4,000 for episode objects, time-place scopes, mechanisms, and evidence lenses in the Content Pack document schema, admitting expanded consolidated packs without content loss.
-
----
+- Pipeline runs Motion Review with Sketch Draw on this Mac, with no video model. It uses the same scene rules as the Motion Review page. Paid image-to-video keeps all its checks.
+- Recovery no longer re-merges an episode's audio when its merged audio is already current. A saved recovery plan from before 1.4.361 that holds a music level in the old percent form is refused with a plain message, never replayed into the mixer, and the mixer itself refuses a music level above 100%.
+- A remote render that replaces a final keeps the previous final for 3 days, the same as a local re-assembly. Free up space no longer offers a kept final before its 3 days are up.
+- Topic Packs can hold up to 4,000 entries per list, so merged packs keep all their detail. Wars, Treaties & World Order 1.0.1 needs this release.
 
 ## v1.4.361 — 2026-10-27
 

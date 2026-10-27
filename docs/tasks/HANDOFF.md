@@ -1,5 +1,11 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.362 — Pipeline Sketch, recovery current-audio guard, remote 3-day keep, topic caps 4000 (2026-10-27, release/1.4.362 from main fe481bd7)
+
+Merged: fix/topic-pack-caps-20261027 (topic arrays 2000→4000; Wars & Treaties 1.0.1 full union needs 1.4.362) · fix/pipeline-sketch-motion-20261027 (sketch_draw Motion Review presets admitted with no video model; scene selection shared via resolveSketchDrawEligibleScenes) · fix/remote-render-keep-20261027 (remote import keeps the replaced final via final-video-retention; Free up space skips _previous_finals/) · fix/recovery-current-audio-20261027 (inspectRecovery checks the merge is current first; level_unit 'linear' marker; unmarked node with music level >1 refused; generator refuses stated music level >1).
+
+Learned: on the 1.4.361 boot the recovery scan re-queued audio merges for finished AWBU EP0001/2/3/5 + NA Science EP0012 (narration-refresh plans whose checks were complete); EP0001/2 carried percent levels (8/5) that would have become an 8× music bed. Those five jobs were PAUSED on the mini; cancel them only once 1.4.362 is installed. `npm version` strips package.json's \u2014 escape every time — restore it after any bump.
+
 ## 1.4.361 — integration of the 2026-10-26/27 batch (release/1.4.361 from main fdf821f9, 2026-10-27)
 
 Merged: sleep tiered pacing · narration Reject + provenance + 6% music default · one-list model pickers
