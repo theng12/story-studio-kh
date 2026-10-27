@@ -188,6 +188,21 @@ mountRoutes(app)
 runBootMigrations()
 registerAllExecutors()
 
+// Bundled fonts must be visible to the system before anyone asks for a picture: on macOS,
+// pangocairo draws through CoreText, which only knows fonts installed for the Mac (see
+// lib/thumbnail-fonts.ts). Idempotent, and it never overwrites a family the Mac already has.
+void import('./lib/thumbnail-fonts.js')
+  .then(module => module.ensureBundledFontsInstalled())
+  .then(result => {
+    if (result.installed.length) {
+      logLine('info', 'fonts.installed', { installed: result.installed })
+    }
+    if (result.failed.length) {
+      logLine('warn', 'fonts.install_failed', { failed: result.failed })
+    }
+  })
+  .catch(error => logLine('warn', 'fonts.install_error', { error: String(error) }))
+
 // Cap outbound sockets before anything can fetch. See lib/outbound-connections.ts.
 installOutboundConnectionCap()
 
