@@ -42,6 +42,17 @@ test('Sketch Draw readiness is behavioural: a logo pen needs the channel logo', 
   assert.equal(sketchSelectionReady({ ...ready, saving: true }), false)
 })
 
+test('a text-to-video scene batches without an approved still, but needs its video prompt', () => {
+  const context = { isSketchDraw: false, scoped: true, animateMinSeconds: 1, imagePool: false }
+  const t2v = { ...baseScene, image_filename: null, approved: false, visual_lane: 'text_to_video' as const, video_prompt: 'slow dolly' }
+  assert.equal(motionBatchEligible(t2v, context), true, 'a T2V scene has no still by design')
+  assert.equal(motionBatchEligible({ ...t2v, video_prompt: '' }, context), true, 'a T2V scene may fall back to its motion prompt')
+  assert.equal(motionBatchEligible({ ...t2v, video_prompt: '', motion_prompt: '' }, context), false, 'no prompt means nothing to render')
+  assert.equal(motionBatchEligible({ ...t2v, clip_exists: true }, context), false, 'an existing clip is never re-bought in a batch')
+  // An image lane still requires its own approved still.
+  assert.equal(motionBatchEligible({ ...baseScene, image_filename: null, visual_lane: 'image_to_video' }, context), false)
+})
+
 function fn(name: string): string {
   const marker = `function ${name}(`
   const asyncStart = source.indexOf(`async ${marker}`)

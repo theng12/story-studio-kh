@@ -3117,7 +3117,6 @@ async function updateSceneVisualLane(scene: ScenePlanEntry, lane: string): Promi
   } else if (lane === 'image_to_video' || lane === 'sketch_draw' || lane === 'imported') {
     scene.motion_choice = 'clip'
   }
-  markPlanDirty()
   try {
     await post(`/projects/${slug.value}/scene-plan/${ep}/set-visual-lane`, {
       scene_id: scene.id,
@@ -3132,7 +3131,6 @@ async function updateSceneKeyMoment(scene: ScenePlanEntry, checked: boolean): Pr
   const ep = episodeId.value
   if (!ep) return
   scene.key_moment = checked
-  markPlanDirty()
   try {
     await post(`/projects/${slug.value}/scene-plan/${ep}/set-key-moment`, {
       scene_id: scene.id,
@@ -3147,7 +3145,6 @@ async function updateSceneFillMode(scene: ScenePlanEntry, fillMode: string): Pro
   const ep = episodeId.value
   if (!ep) return
   scene.fill_mode = fillMode as any
-  markPlanDirty()
   try {
     await post(`/projects/${slug.value}/scene-plan/${ep}/set-fill-mode`, {
       scene_id: scene.id,

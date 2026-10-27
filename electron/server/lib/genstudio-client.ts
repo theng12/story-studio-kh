@@ -2291,25 +2291,6 @@ export type StoryStudioVideoMode = typeof STORY_STUDIO_VIDEO_MODES[number]
 /** Story Studio's legacy video mode default. */
 export const STORY_STUDIO_VIDEO_MODE = 'image-to-video'
 
-/**
- * Paid video models approved by owner (2026-10-26).
- * Paid video is "added but not used": nothing is ever charged by default, and nothing in tests.
- */
-export const ALLOWED_PAID_VIDEO_MODELS = [
-  'wan-3-0',
-  'wan-3.0',
-  'seedance-2-5',
-  'seedance-2.5',
-  'bytedance/seedance-2-mini',
-  'alibaba/wan-3-0',
-] as const
-
-export function isAllowedVideoModel(modelId: string, isPaid: boolean): boolean {
-  if (!isPaid) return true
-  const lower = modelId.toLowerCase().trim()
-  return ALLOWED_PAID_VIDEO_MODELS.some(allowed => lower.includes(allowed))
-}
-
 /** Does this model publish the mode Story Studio actually submits? */
 export function supportsGenStudioVideoMode(
   model: Pick<GenStudioVideoModel, 'modes'>,

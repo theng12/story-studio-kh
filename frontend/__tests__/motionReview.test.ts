@@ -85,9 +85,11 @@ test('Motion Review keeps catalogue selection healing and batch eligibility expl
   // Batch eligibility lives in a shared util so the page and its behavioural tests use one rule.
   const eligibility = readFileSync(new URL('../utils/motion-review-sketch.ts', import.meta.url), 'utf8')
   assert.match(source, /motionBatchEligible\(scene, \{/)
-  assert.match(eligibility, /scene\.motion_choice !== 'still'/)
+  assert.match(eligibility, /scene\.motion_choice === 'still'/)
   assert.match(eligibility, /!scene\.clip_exists/)
-  assert.match(eligibility, /scene\.end_sec - scene\.start_sec >= context\.animateMinSeconds/)
+  assert.match(eligibility, /scene\.end_sec - scene\.start_sec < context\.animateMinSeconds/)
+  // A T2V scene has no still by design, so the image gate is scoped to the image lanes.
+  assert.match(eligibility, /scene\.visual_lane === 'text_to_video'/)
   assert.match(source, /animateMinSeconds: animateMinSeconds\.value/)
   assert.doesNotMatch(source, /exact \|\| mapped \|\| genStudioVideoModels\.value\.find/)
 })

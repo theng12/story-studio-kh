@@ -76,7 +76,7 @@
             <span class="scope-share-summary">{{ shareSummary }}</span>
           </template>
           <NuxtLink v-if="motionScope.mode === 'selected'" :to="scenePlanMotionLink" class="btn btn-sm btn-ghost">Pick scenes in Scene Plan</NuxtLink>
-          <NuxtLink v-if="isSketchDraw && motionScope.mode === 'share'" :to="scenePlanMotionLink" class="btn btn-sm btn-ghost">Edit in Scene Plan</NuxtLink>
+          <NuxtLink :to="scenePlanMotionLink" class="btn btn-sm btn-ghost">Edit in Scene Plan</NuxtLink>
         </div>
       </div>
       <div class="motion-summary">
