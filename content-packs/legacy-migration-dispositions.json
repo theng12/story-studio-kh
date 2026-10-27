@@ -3,7 +3,18 @@
   "authoritative": false,
   "identity_authority": "content-packs/authoring-registry.json",
   "description": "Audit-only closure map for Story Studio legacy content. This file records dispositions but never assigns, reserves, transitions, or supersedes an identity; the authoring registry is the sole identity authority.",
-  "future_reservations": [],
+  "future_reservations": [
+    {
+      "identity": "com.storystudio.pack.style.academic-classical-oil-v2@1.0.1",
+      "receipt_ref": "authoring:30d40f27b363f2dc21e24af7c4d3729623453814cd41a4c393aaf88ee42138c8",
+      "source_path": "content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.1"
+    },
+    {
+      "identity": "com.storystudio.pack.topic.wars-treaties-world-order-v2@1.0.1",
+      "receipt_ref": "authoring:30d40f27b363f2dc21e24af7c4d3729623453814cd41a4c393aaf88ee42138c8",
+      "source_path": "content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1"
+    }
+  ],
   "dispositions": [
     {
       "legacy_key": "compatibility-successor:com.storystudio.pack.formula.history-explained@1.0.2",

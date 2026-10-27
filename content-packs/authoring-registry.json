@@ -1,5 +1,5 @@
 {
-  "revision": 348,
+  "revision": 349,
   "batches": [
     {
       "revision": 2,
@@ -6990,6 +6990,64 @@
               },
               "sku": {
                 "id": "com.storystudio.sku.style.painterly-prehistoric-life",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 349,
+      "receipt_ref": "authoring:30d40f27b363f2dc21e24af7c4d3729623453814cd41a4c393aaf88ee42138c8",
+      "request": {
+        "expected_revision": 348,
+        "coordinator": {
+          "task": "pack-publish-20261027",
+          "branch": "content/pack-publish-20261027"
+        },
+        "proposal_ref": "Owner decision 2026-10-27: duplicates are merged into one, keeping one, with more detail not less. Story 1.4.363 is on the production mini, so the raised topic cap from 1.4.362 is live. Merged 1.0.1 releases for Academic Classical Oil v2 and Wars & Treaties v2.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.academic-classical-oil-v2",
+            "item_id": "com.storystudio.style.academic-classical-oil-v2",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.academic-classical-oil-v2",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.academic-classical-oil-v2",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
+            "item_id": "com.storystudio.topic.wars-treaties-world-order-v2",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "1.4.362",
+            "min_app_version_status": "fixed",
+            "kind": "topic-pack",
+            "source_path": "content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.wars-treaties-world-order-v2",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.wars-treaties-world-order-v2",
                 "status": "proposed"
               }
             }
@@ -20064,6 +20122,52 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.painterly-prehistoric-life",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:30d40f27b363f2dc21e24af7c4d3729623453814cd41a4c393aaf88ee42138c8",
+      "pack_id": "com.storystudio.pack.style.academic-classical-oil-v2",
+      "item_id": "com.storystudio.style.academic-classical-oil-v2",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.academic-classical-oil-v2",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.academic-classical-oil-v2",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:30d40f27b363f2dc21e24af7c4d3729623453814cd41a4c393aaf88ee42138c8",
+      "pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
+      "item_id": "com.storystudio.topic.wars-treaties-world-order-v2",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "1.4.362",
+      "min_app_version_status": "fixed",
+      "kind": "topic-pack",
+      "source_path": "content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.wars-treaties-world-order-v2",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.wars-treaties-world-order-v2",
           "status": "proposed"
         }
       }
