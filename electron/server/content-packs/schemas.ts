@@ -338,6 +338,8 @@ const SeriesFormulaDocumentSchema = z.object({
   /** Tiered starting rhythm; when present it supersedes `starting_scene_seconds`
    *  for a NEW channel (services/formula-starting-defaults.ts). */
   starting_scene_pacing: StartingScenePacingSchema.optional(),
+  /** Starting background music volume (0–100%) in Audio Assembly for a NEW channel. */
+  starting_music_volume: z.number().min(0).max(100).optional(),
   /** Default "Pause between chapters" in Audio Assembly, seconds. */
   chapter_pause_sec: z.number().min(0).max(10).optional(),
   /** Default "Pause at a paragraph break" / "after a sentence" inside a chapter, seconds. */

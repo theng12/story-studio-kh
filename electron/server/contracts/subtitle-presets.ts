@@ -232,4 +232,51 @@ export const BUILT_IN_SUBTITLE_PRESETS: BuiltInSubtitlePreset[] = [
       edge: { outline_px: 4 },
       placement: { position: 'bottom', align: 'center', position_x_pct: 50, position_y_pct: 62, safe_margin_pct: 10 },
     }),
+
+  /**
+   * Quote Shorts Phase 2 (owner, 2026-10-27).
+   * High-energy Anton font with word-pop bounce animation.
+   * Clears the YouTube Shorts buttons and description stack.
+   */
+  preset('shorts-vertical-bounce', 'Shorts Vertical — Bounce (Anton)',
+    'High-energy Anton font with word-pop bounce animation, clear of the Shorts chrome.', {
+      typography: { font_family: 'Anton', font_size_px: 46, bold: true, all_caps: true, max_chars_per_line: 18, max_lines: 2 },
+      word: { mode: 'pop', active_color_hex: '#FFE712', inactive_color_hex: '#FFFFFF', active_scale_pct: 125, transition_ms: 90 },
+      edge: { outline_px: 5, shadow_px: 2 },
+      placement: { position: 'bottom', align: 'center', position_x_pct: 50, position_y_pct: 62, safe_margin_pct: 10 },
+    }),
+
+  /**
+   * Vibrant electric highlight in Anton, inside 9:16 safe area.
+   */
+  preset('shorts-vertical-electric', 'Shorts Vertical — Electric Highlight (Anton)',
+    'Bold Anton text with vibrant cyan word highlight, inside the 9:16 safe area.', {
+      typography: { font_family: 'Anton', font_size_px: 46, bold: true, all_caps: true, max_chars_per_line: 18, max_lines: 2 },
+      word: { mode: 'highlight', active_color_hex: '#00E5FF', inactive_color_hex: '#FFFFFF', transition_ms: 80 },
+      edge: { outline_px: 5 },
+      placement: { position: 'bottom', align: 'center', position_x_pct: 50, position_y_pct: 62, safe_margin_pct: 10 },
+    }),
+
+  /**
+   * The ornate Khmer display face Moul with gentle fade.
+   */
+  preset('shorts-vertical-moul', 'Shorts Vertical — Moul Display',
+    'Expressive Khmer display face Moul with gentle fade, clear of Shorts controls.', {
+      typography: { font_family: 'Moul', font_size_px: 38, max_chars_per_line: 22, max_lines: 3 },
+      color: { primary_hex: '#FFF8E7' },
+      edge: { outline_px: 4, shadow_px: 2 },
+      placement: { position: 'bottom', align: 'center', position_x_pct: 50, position_y_pct: 62, safe_margin_pct: 10 },
+      animation: { type: 'fade', in_ms: 150, out_ms: 150 },
+    }),
+
+  /**
+   * Bold Battambang type sliding up as each line is spoken.
+   */
+  preset('shorts-vertical-battambang', 'Shorts Vertical — Battambang Slide',
+    'Bold Battambang type sliding up into place, clear of Shorts controls. Khmer and Latin.', {
+      typography: { font_family: 'Battambang', font_size_px: 42, bold: true, max_chars_per_line: 22, max_lines: 3 },
+      edge: { outline_px: 4 },
+      placement: { position: 'bottom', align: 'center', position_x_pct: 50, position_y_pct: 62, safe_margin_pct: 10 },
+      animation: { type: 'slide-up' },
+    }),
 ]

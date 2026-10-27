@@ -247,7 +247,7 @@ Rules:
   // LLM can sample from. Replaces the implicit sleep-story-flavoured
   // adjective expectations that used to live in the hardcoded rules.
   const moodVocab = format.idea.moodVocabulary?.length
-    ? `Tone-appropriate mood words for this format: ${format.idea.moodVocabulary.slice(0, 12).join(', ')}.`
+    ? `Tone-appropriate mood words for this format: ${format.idea.moodVocabulary.slice(0, 30).join(', ')}.`
     : ''
 
   // ── v1.0.95+ Data-driven idea-prompt assembly ─────────────────────────

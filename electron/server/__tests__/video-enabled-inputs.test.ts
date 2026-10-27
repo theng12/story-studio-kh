@@ -56,7 +56,7 @@ describe('switched-on features need their input', () => {
       video_layout: 'compilation', scenes: [{}, {}], chapter_durations: [{ slug: 'a', duration_s: 1 }],
     }), { canDrawtext: false, episodeCode: 'EP7' })
     assert.deepEqual(missing.map(item => item.feature), [
-      'Captions', 'Title image', 'Intro video', 'Outro video', 'Text outro card',
+      'Captions', 'Title image / cover frame', 'Intro video', 'Outro video', 'Text outro card',
       'Timeline clip 1 (after_intro)', 'Timeline clip 2 (after_scenes)', 'Logo', 'Overlay "fireflies"',
       'Compilation foregrounds',
     ])

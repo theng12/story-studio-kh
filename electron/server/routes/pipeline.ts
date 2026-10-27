@@ -1517,8 +1517,13 @@ export function resolveStepParams(
       return { ...rest, ...(level !== undefined ? { [key]: level } : {}) }
     }
 
+    const fmtMerge = format?.script.audioMergeDefaults
     const normIntro = withGain(data.intro, 'volume')
-    const normMusic = withGain(withGain(data.music, 'volume'), 'post_narration_volume')
+    let normMusic: Record<string, any> | undefined = withGain(withGain(data.music, 'volume'), 'post_narration_volume')
+    if (normMusic && normMusic.volume === undefined && typeof fmtMerge?.musicVolume === 'number') {
+      const vol = percentGainToLinear(fmtMerge.musicVolume)
+      if (vol !== undefined) normMusic = { ...normMusic, volume: vol }
+    }
     const normNoise = withGain(data.background_noise, 'volume')
 
     // Multi-track ambient (v1.0.55). Same percent-on-disk shape as the blocks
@@ -1543,7 +1548,6 @@ export function resolveStepParams(
     // audioMergeDefaults block (sleep-story 5s/no-normalize, listicle
     // tighter values, etc.) instead of letting the route below clamp to
     // the historical hardcoded 5s/no-normalize sleep-story defaults.
-    const fmtMerge = format?.script.audioMergeDefaults
     return {
       episode_id: episodeId,
       intro: normIntro,
@@ -1605,7 +1609,7 @@ export function resolveStepParams(
     // useVideoAssemblyIo.ts:buildPayload(). Fields are spread only when
     // they're meaningfully populated so the v2-feature paths stay
     // disabled for legacy presets that never set them.
-    return flattenVideoAssemblyBundle(data, episodeId, title)
+    return flattenVideoAssemblyBundle(data, episodeId, title, format)
   }
   // ── v1.0.363 audio-paced format steps ──────────────────────────────────
   if (step === 'subtitles') {
@@ -1815,6 +1819,7 @@ export function flattenVideoAssemblyBundle(
   bundleData: any,
   episodeId: string,
   title: string,
+  format?: Format | null,
 ): Record<string, unknown> {
   const fb = bundleData?.fallback || {}
 
@@ -1884,6 +1889,10 @@ export function flattenVideoAssemblyBundle(
   for (const k of ['resolution', 'aspect_ratio', 'quality', 'fps', 'encoding_effort', 'codec', 'format', 'video_bitrate_kbps', 'upscale_sharpen', 'loudness_lufs', 'true_peak_db', 'loudness_tolerance_pct']) {
     if (exportS[k] !== undefined) out[k] = exportS[k]
   }
+  const formatAspect = format?.imagePrompts?.recommendedAspect || (format as any)?.aspectRatio
+  if (!out.aspect_ratio && formatAspect) {
+    out.aspect_ratio = formatAspect
+  }
   // ── Timeline slot
   if (timeline.scene_recycling)  out.scene_recycling  = timeline.scene_recycling
   if (timeline.duration)         out.duration         = timeline.duration
@@ -1905,7 +1914,7 @@ export function flattenVideoAssemblyBundle(
   if (timeline.scene_reveal && typeof timeline.scene_reveal === 'object') {
     out.scene_reveal = timeline.scene_reveal
   }
-  if (timeline.title_image?.enabled && timeline.title_image.image_path) {
+  if (timeline.title_image?.enabled) {
     out.title_image = timeline.title_image
   }
 

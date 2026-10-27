@@ -2737,7 +2737,11 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
   // resolved paths and before any encode, so a missing piece costs seconds
   // instead of a whole render (owner decision 2026-10-07).
   {
-    const missing = missingEnabledVideoInputs(req, { canDrawtext, episodeCode: code })
+    const missing = missingEnabledVideoInputs(req, {
+      canDrawtext,
+      episodeCode: code,
+      availableThumbnailPaths: authoritativeAssets.thumbnails?.map(t => t.path),
+    })
     if (missing.length) await safetyGate(project_slug, 'switched_on_inputs', job, missingInputsMessage(missing, code))
   }
   // Keep the resolved authoritative inputs before Sound Design replaces the
@@ -3704,10 +3708,15 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
 
     // 6. Prepare title image clip (if provided)
     let titleClipPath: string | undefined
-    if (req.title_image?.enabled && req.title_image.image_path) {
-      const avail = checkAssetAvailability(req.title_image.image_path, 'title_image.image_path')
+    let titleImagePath = req.title_image?.image_path
+    if (req.title_image?.enabled && !titleImagePath && authoritativeAssets.thumbnails.length > 0) {
+      titleImagePath = authoritativeAssets.thumbnails[0]!.path
+      job.output_lines.push(`Title image / cover frame auto-resolved to episode thumbnail: ${path.basename(titleImagePath)}`)
+    }
+    if (req.title_image?.enabled && titleImagePath) {
+      const avail = checkAssetAvailability(titleImagePath, 'title_image.image_path')
       if (avail.status === 'available') {
-        titleClipPath = await prepareTitleClip(req.title_image, resW, resH, quality, tempDir, job)
+        titleClipPath = await prepareTitleClip({ ...req.title_image, image_path: titleImagePath }, resW, resH, quality, tempDir, job)
       } else {
         // Stale image_path from a preset saved in a different episode is a
         // common way to hit 'missing'. 'placeholder' means the file is
@@ -5374,7 +5383,7 @@ async function prepareTitleClip(
   job: Job,
 ): Promise<string> {
   const clipPath = path.join(tempDir, 'title_scene.mp4')
-  const duration = titleImage.duration || 5
+  const duration = typeof titleImage.duration === 'number' && titleImage.duration > 0 ? titleImage.duration : 5
 
   job.output_lines.push(`Preparing title image clip (${duration}s)`)
 
