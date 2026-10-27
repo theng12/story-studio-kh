@@ -37,8 +37,10 @@
       </WorkspaceNotice>
 
       <WorkspaceNotice title="External clips use the same timeline" tone="info">
-        Upload an MP4 on the matching scene. Long clips are trimmed and short external or legacy clips loop to fill the narration window.
-        Clips generated with Follow narration hold their final frame instead when they cannot reach the full scene.
+        Upload a clip on the matching scene — MP4, MOV, WebM, MKV or any other format the app can decode; it is converted
+        on import to the same shape this render uses. Long clips are trimmed and short external or legacy clips loop to
+        fill the narration window. Clips generated with Follow narration hold their final frame instead when they cannot
+        reach the full scene.
       </WorkspaceNotice>
     </div>
 
@@ -77,6 +79,20 @@
           </template>
           <NuxtLink v-if="motionScope.mode === 'selected'" :to="scenePlanMotionLink" class="btn btn-sm btn-ghost">Pick scenes in Scene Plan</NuxtLink>
           <NuxtLink :to="scenePlanMotionLink" class="btn btn-sm btn-ghost">Edit in Scene Plan</NuxtLink>
+          <!-- Owner, 2026-10-27 — an episode that saved no scope is Off. The 25% is the control's
+               starting value, not an episode's answer, so the page says both plainly. A
+               text-to-video scene is an explicit per-scene plan and stays in Motion Review even
+               while the share is Off, so "not needed" would be wrong for that episode. -->
+          <p v-if="motionScope.mode === 'off'" class="scope-off-note text-sm">
+            <template v-if="textToVideoCount">
+              Off: still scenes stay still. {{ textToVideoCount === 1 ? 'One scene is' : `${textToVideoCount} scenes are` }}
+              planned as text-to-video, so {{ textToVideoCount === 1 ? 'its clip still needs' : 'their clips still need' }} your approval here.
+            </template>
+            <template v-else>
+              Off: every scene stays still and Motion Review is not needed for this episode.
+              Turning on Video share starts at {{ DEFAULT_MOTION_SCOPE.share_percent }}% of running time, opening hook.
+            </template>
+          </p>
         </div>
       </div>
       <div class="motion-summary">
@@ -484,7 +500,7 @@
             class="btn btn-sm btn-secondary"
             :disabled="uploadingId === scene.id || animatingId === scene.id"
             @click="uploadClipOne(scene)"
-          >{{ uploadingId === scene.id ? 'Uploading...' : 'Upload External MP4' }}</button>
+          >{{ uploadingId === scene.id ? 'Uploading...' : 'Upload External Clip' }}</button>
           <button
             class="btn btn-sm btn-secondary"
             :disabled="!!generateBlocked(scene) || animatingId === scene.id || !!clipWork(scene)"
@@ -526,6 +542,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { DEFAULT_MOTION_SCOPE } from '@shared/motion-scope'
 import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { describeVideoModelRate, formatCredits } from '~/utils/genstudio-credit-cost'
@@ -1612,6 +1629,8 @@ const motionCrossingLabel = computed(() => {
   return `${scenesAtBoundary.length} scenes`
 })
 const scopedMotionScenes = computed(() => scenes.value.filter(scene => scopedMotionSceneIds.value.has(scene.id)))
+/** Scenes planned as text-to-video: motion work regardless of the share (owner, 2026-10-26/27). */
+const textToVideoCount = computed(() => scenes.value.filter(scene => sceneLane(scene) === 'text_to_video').length)
 const scopedClipCount = computed(() => scopedMotionScenes.value.filter(scene => scene.clip_exists).length)
 const scopedMotionReviewed = computed(() => scopedMotionScenes.value.filter(scene => (
   scene.motion_choice === 'still'
@@ -1678,8 +1697,12 @@ const SHARE_FORMULAS = [
 ] as const
 const scopeSaving = ref(false)
 const openingSeconds = ref(60)
-const sharePercent = ref(25)
-const shareFormula = ref<MotionShareFormula>('opening_hook')
+// The share control's STARTING value (owner, 2026-10-26; confirmed 2026-10-27): 25% /
+// opening hook for every channel, new or existing. It is a default of the CONTROL, read
+// here at use time — never stored on the channel or the episode. An episode that saved no
+// scope of its own is Off, so nothing is in its motion scope until Share is turned on.
+const sharePercent = ref(DEFAULT_MOTION_SCOPE.share_percent)
+const shareFormula = ref<MotionShareFormula>(DEFAULT_MOTION_SCOPE.formula || 'opening_hook')
 watch(motionScope, (scope) => {
   if (scope.mode === 'opening') openingSeconds.value = scope.end_sec
   if (scope.mode === 'share') {
@@ -1872,13 +1895,16 @@ async function generateMissing() {
 async function uploadClipOne(scene: MotionScene) {
   if (scene.clip_exists && !await ask({
     title: `Replace the clip for scene ${scene.scene_index}?`,
-    message: 'This replaces the current clip with your MP4. If the current clip was generated, you would pay again to get it back.',
-    confirmLabel: 'Choose MP4',
+    message: 'This replaces the current clip with your video file. If the current clip was generated, you would pay again to get it back.',
+    confirmLabel: 'Choose video',
     danger: true,
   })) return
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = 'video/mp4,.mp4'
+  // Any container/codec the app can decode. The backend probes the file and converts it on
+  // import; the extensions are listed as well because macOS file pickers read those, not the
+  // MIME wildcard.
+  input.accept = 'video/*,.mp4,.m4v,.mov,.webm,.mkv,.avi,.ts,.m2ts,.mpg,.mpeg,.wmv,.flv,.3gp,.ogv'
   input.onchange = async () => {
     const file = input.files?.[0]
     if (!file) return
@@ -1886,7 +1912,14 @@ async function uploadClipOne(scene: MotionScene) {
     try {
       const response = await fetch(
         `/api/projects/${slug.value}/scene-review/${episodeId.value}/upload-clip/${scene.id}`,
-        { method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: file },
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': file.type && file.type.startsWith('video/') ? file.type : 'application/octet-stream',
+            'X-File-Name': encodeURIComponent(file.name),
+          },
+          body: file,
+        },
       )
       if (!response.ok) {
         const detail = await response.json().catch(() => ({} as any))
@@ -2177,6 +2210,7 @@ watch(episodeId, () => {
 .choice-badge.working { color: var(--accent, #f59e0b); }
 .blocked-note { margin-top: 8px; font-size: .85rem; opacity: .8; }
 .scope-control { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.scope-off-note { flex-basis: 100%; margin: 4px 0 0; color: var(--text-secondary); }
 .scope-opening { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; }
 .scope-num { width: 5.5rem; }
 .manual-duration { grid-column: 1 / -1; grid-row: 2; width: min(100%, 760px); }

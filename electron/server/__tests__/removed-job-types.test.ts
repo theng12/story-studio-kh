@@ -1,8 +1,9 @@
 /**
- * Job types removed from Story Studio (Expression markup, the legacy script-only
- * lane): an old row saved by a previous version must still list, must not crash
- * boot or the Jobs page, and Retry must refuse with one plain sentence. The
- * routes that created them are gone too.
+ * Job types removed from Story Studio (Expression markup, the legacy script-only lane and the
+ * retired AI Video Generator): an old row saved by a previous version must still list, must not
+ * crash boot or the Jobs page, and Retry must refuse with one plain sentence — a retired lane has
+ * no executor, so an admitted retry would queue work nothing can ever run. The routes that
+ * created them are gone too.
  */
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
@@ -25,7 +26,7 @@ function oldJob(slug: string, id: string, type: string, status: Job['status']): 
   } as Job
 }
 
-void test('old expression_markup and script-only jobs still list and Retry refuses plainly', async () => {
+void test('old expression_markup, script-only and video jobs still list and Retry refuses plainly', async () => {
   const temp = await useTempDataDir()
   process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
   try {
@@ -40,14 +41,17 @@ void test('old expression_markup and script-only jobs still list and Retry refus
       oldJob(project.slug, 'old-script', 'script-only', 'error'),
       oldJob(project.slug, 'old-script-done', 'script-only', 'done'),
       oldJob(project.slug, 'old-script-queued', 'script-only', 'queued'),
+      oldJob(project.slug, 'old-ai-video', 'video', 'error'),
+      oldJob(project.slug, 'old-ai-video-done', 'video', 'done'),
     ]
     await fs.writeFile(path.join(temp.dir, 'projects', project.slug, 'jobs.json'), JSON.stringify({ jobs: rows }))
 
     // Loading must not throw, and every row is listed.
     const listed = await jq.getJobs(project.slug)
     assert.deepEqual(
-      ['old-expression', 'old-script', 'old-script-done', 'old-script-queued'].filter(id => listed.some(job => job.job_id === id)),
-      ['old-expression', 'old-script', 'old-script-done', 'old-script-queued'],
+      ['old-expression', 'old-script', 'old-script-done', 'old-script-queued', 'old-ai-video', 'old-ai-video-done']
+        .filter(id => listed.some(job => job.job_id === id)),
+      ['old-expression', 'old-script', 'old-script-done', 'old-script-queued', 'old-ai-video', 'old-ai-video-done'],
     )
     const viaRoute = await request(app).get(`/api/projects/${project.slug}/jobs`)
     assert.equal(viaRoute.status, 200, JSON.stringify(viaRoute.body))
@@ -55,8 +59,9 @@ void test('old expression_markup and script-only jobs still list and Retry refus
     // They still read as words, not slugs.
     assert.equal(labelForJobType('expression_markup'), 'Expression markup')
     assert.equal(labelForJobType('script-only'), 'Script')
+    assert.equal(labelForJobType('video'), 'Video clips')
 
-    for (const id of ['old-expression', 'old-script']) {
+    for (const id of ['old-expression', 'old-script', 'old-ai-video']) {
       const refused = await request(app).post(`/api/projects/${project.slug}/jobs/${id}/retry`).send({})
       assert.equal(refused.status, 409, JSON.stringify(refused.body))
       assert.match(refused.body.detail, REFUSAL)
@@ -68,8 +73,10 @@ void test('old expression_markup and script-only jobs still list and Retry refus
 
     // Even a caller that skips the route's own check cannot enqueue a lane that no longer exists.
     assert.throws(() => jq.retryTerminalJob(project.slug, 'old-script'), REFUSAL)
+    assert.throws(() => jq.retryTerminalJob(project.slug, 'old-ai-video'), REFUSAL)
     assert.equal(jq.knownJobTypes().includes('script-only' as JobType), false)
     assert.equal(jq.knownJobTypes().includes('expression_markup' as JobType), false)
+    assert.equal(jq.knownJobTypes().includes('video' as JobType), false)
   } finally {
     const jq = await import('../services/job-queue.js').catch(() => null)
     await jq?._waitForJobPersistenceForTesting()

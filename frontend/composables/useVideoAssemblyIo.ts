@@ -243,9 +243,7 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
    *   - `post` — the useApi().post helper (re-injected so the composable
    *     doesn't have to import it twice if the caller already has it).
    *   - `videoAssemblyGenerating` — the sidebar's cross-tab "video assembly
-   *     is running" flag that useGenerating exposes. This is the Video
-   *     *Assembly* pulse, distinct from the AI Video Generator's
-   *     `videoGenerating` (v1.0.391 — they used to be conflated).
+   *     is running" flag that useGenerating exposes.
    */
   /**
    * The render request this page would submit.

@@ -2,7 +2,8 @@
  * Owner answers, 2026-10-27 — the five decisions that finish the video expansion on
  * `feat/story-video-plan-20261027`:
  *
- *   1. every channel starts on a 25% / opening-hook video share, as a STARTING VALUE ONLY (§5);
+ *   1. the 25% / opening-hook video share is the CONTROL's starting value for every channel,
+ *      new or existing, and an episode that never saved a scope is Off (owner, 2026-10-27);
  *   2. a text-to-video scene is approved in Motion Review, never in Scene Review;
  *   3. the planner SUGGESTS key moments, and the customer's own mark always wins;
  *   4. the dead legacy `generators/ai-video.ts` generator is gone;
@@ -49,27 +50,51 @@ before(async () => {
 
 after(async () => { await cleanup() })
 
-// ── 1. Default share ─────────────────────────────────────────────────────────
+// ── 1. Share default, OFF at the start ──────────────────────────────────────
 
-describe('every channel starts on a 25% opening-hook video share', () => {
-  test('a new channel stores the default as a starting value', async () => {
+describe('the video share starts at 25%, and an episode with no saved scope is Off', () => {
+  test('the 25% / opening-hook value is the control’s default, and no channel stores it', async () => {
+    const { DEFAULT_MOTION_SCOPE } = await import('../contracts/motion-scope.js')
+    assert.deepEqual(DEFAULT_MOTION_SCOPE, { mode: 'share', share_percent: 25, formula: 'opening_hook' })
     const config = await readJsonFile(path.join(projectsRoot(), slug, 'config.json'))
-    assert.deepEqual(config.default_motion_scope, { mode: 'share', share_percent: 25, formula: 'opening_hook' })
+    assert.equal('default_motion_scope' in config, false,
+      'a starting value of the control is never written into a channel (§5)')
   })
 
-  test('an episode with no saved scope reads the channel default', async () => {
-    const { readEpisodeMotionScope } = await import('../services/episode-motion-scope.js')
+  test('an episode with no saved scope is Off — it authorizes no motion', async () => {
+    const { readEpisodeMotionScope, resolveEpisodeMotionSceneIds } = await import('../services/episode-motion-scope.js')
     const scope = await readEpisodeMotionScope(slug, EP, episodeDir)
-    assert.deepEqual(scope.motion_scope, { mode: 'share', share_percent: 25, formula: 'opening_hook' })
+    assert.deepEqual(scope.motion_scope, { mode: 'off' },
+      'owner, 2026-10-27: existing channels default to 25% in the CONTROL, but every episode starts OFF')
+    const plan = [
+      { id: 's1', start_sec: 0, end_sec: 8 },
+      { id: 's2', start_sec: 8, end_sec: 16 },
+    ]
+    const resolved = await resolveEpisodeMotionSceneIds(slug, EP, plan, episodeDir)
+    assert.deepEqual(resolved.scene_ids, [], 'nothing is in this episode’s motion scope')
+    assert.deepEqual(resolved.crossing_scene_ids, [])
+  })
+
+  test('a continuity record without a scope is still Off, not the 25% default', async () => {
+    const { readEpisodeMotionScope } = await import('../services/episode-motion-scope.js')
+    const sidecar = path.join(episodeDir, 'continuity.json')
+    await fs.writeFile(sidecar, JSON.stringify({ schema_version: 1, motion_level: 3 }))
+    try {
+      const scope = await readEpisodeMotionScope(slug, EP, episodeDir)
+      assert.deepEqual(scope.motion_scope, { mode: 'off' })
+      assert.equal(scope.motion_level, 3)
+    } finally {
+      await fs.unlink(sidecar).catch(() => {})
+    }
   })
 
   test("an episode's own saved scope wins, and is never overwritten by the default", async () => {
     const { readEpisodeMotionScope } = await import('../services/episode-motion-scope.js')
     const sidecar = path.join(episodeDir, 'continuity.json')
-    await fs.writeFile(sidecar, JSON.stringify({ motion_scope: { mode: 'off' }, motion_level: 3 }))
+    await fs.writeFile(sidecar, JSON.stringify({ motion_scope: { mode: 'all' }, motion_level: 3 }))
     try {
       const scope = await readEpisodeMotionScope(slug, EP, episodeDir)
-      assert.deepEqual(scope.motion_scope, { mode: 'off' }, "the customer's own answer is read back")
+      assert.deepEqual(scope.motion_scope, { mode: 'all' }, "the customer's own answer is read back")
       assert.equal(scope.motion_level, 3)
     } finally {
       await fs.unlink(sidecar).catch(() => {})

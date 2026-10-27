@@ -2309,7 +2309,6 @@ const filterTabs = computed(() => {
     { type: 'continuity_render',    label: 'Scene Review' },
     { type: 'thumb_images',         label: 'Thumb Images' },
     { type: 'images_repair',        label: 'Image Repair' },
-    { type: 'video',                label: 'AI Video' },
     { type: 'scene_clips_batch',    label: 'Motion Review' },
     { type: 'audio',                label: 'Audio' },
     { type: 'audio_merge',          label: 'Audio Assembly' },

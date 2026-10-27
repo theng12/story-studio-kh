@@ -65,6 +65,12 @@
     <fieldset class="vtm-section" :disabled="loading || saving || !!loadError">
       <legend>Motion scope</legend>
       <p class="text-muted text-sm">Times use the narration clock, starting at zero. Any opening visuals already covering that time remain in place.</p>
+      <!-- Owner, 2026-10-27 — an episode that saved no scope is Off. The 25% share is the default
+           VALUE of Motion Review's control, not a decision made for this episode (§4). -->
+      <p v-if="draft.motion_scope.mode === 'off'" class="vtm-scope-note text-sm">
+        Off: every scene keeps its still, and Motion Review is not needed for this episode.
+        Turning on Video share in Motion Review starts at {{ DEFAULT_MOTION_SCOPE.share_percent }}% of running time.
+      </p>
       <div class="vtm-choice-row" role="radiogroup" aria-label="Motion scope">
         <label><input :checked="draft.motion_scope.mode === 'off'" type="radio" name="motion-scope" @change="setMotionMode('off')" /> Off</label>
         <label><input :checked="draft.motion_scope.mode === 'opening'" type="radio" name="motion-scope" @change="setMotionMode('opening')" /> Opening</label>
@@ -111,7 +117,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { normalizeMotionScope, resolveMotionScope, type MotionScope } from '@shared/motion-scope'
+import { DEFAULT_MOTION_SCOPE, normalizeMotionScope, resolveMotionScope, type MotionScope } from '@shared/motion-scope'
 import { parseScenePacing, type ScenePacing, type ScenePacingPeriod } from '@shared/pacing'
 import {
   continuityDefaults,

@@ -28,7 +28,6 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   audio: 'Audio',
   audio_merge: 'Audio Assembly',
   metadata: 'YouTube Finalizer',
-  video: 'AI Video',
   video_assembly: 'Video Assembly',
   subtitles_transcribe: 'Subtitles',
   youtube_upload: 'YouTube upload',
@@ -56,6 +55,9 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   still_post_render: 'Still Posts drawing',
   // Retired ids retained so old history rows stay readable.
   'script-only': 'Script (chapters)',
+  // The legacy AI Video Generator's lane. Its executor, auditor and reader are gone; stored
+  // job rows from before that still name it, so the label keeps their history readable.
+  video: 'AI Video (retired)',
   expression_markup: 'Expression markup',
   images: 'Images (All)',
   scene_images: 'Scene Images',
@@ -141,14 +143,19 @@ export function jobDisplayLabel(job: { type: string; params?: { mode?: unknown }
   return jobTypeLabel(job.type)
 }
 
-/** Job types with no executor any more; old rows still list but cannot be retried. Keep in step with `routes/jobs.ts`. */
-const REMOVED_JOB_TYPES = new Set(['script-only', 'expression_markup'])
+/**
+ * Job types that no longer have an executor; old rows still list but cannot be retried.
+ * `video` is the retired AI Video Generator's lane (deleted 2026-10-27), whose stored rows
+ * are history. Keep this in step with `routes/jobs.ts`.
+ */
+const REMOVED_JOB_TYPES = new Set(['script-only', 'expression_markup', 'video'])
 
 /**
  * The frontend half of the backend's `retryAdmissionError` legacy rules
- * (Q-06). These two shapes are always refused with a 409, so offering Retry —
- * per row or through Retry all — is a dead end the user only discovers after
- * clicking. Keep this in step with `routes/jobs.ts`.
+ * (Q-06). A removed job type and the two retired prompt shapes are always
+ * refused with a 409, so offering Retry — per row or through Retry all — is a
+ * dead end the user only discovers after clicking. Keep this in step with
+ * `routes/jobs.ts`.
  */
 export function retryAdmissionAllowed(job: { type: string; params?: { mode?: unknown } | null }): boolean {
   const mode = job.params?.mode

@@ -3,11 +3,10 @@
 // Mirrors the per-format chains in pipeline.vue (CHAIN_*), reduced to the
 // batchable steps that are ON by default there. It intentionally EXCLUDES the
 // opt-in / costly steps that pipeline.vue leaves unchecked — Introduction
-// (optional since v1.0.363), AI Video Clips (`video`, $0.50–$2/clip), and the
-// legacy unified `images` — so a remote "Full run" matches the desktop
-// "Run all pending" defaults and never surprise-spends. The backend skips
-// already-done steps (run-batch force=false), so sending the whole chain only
-// runs what's actually outstanding.
+// (optional since v1.0.363) and the legacy unified `images` — so a remote
+// "Full run" matches the desktop "Run all pending" defaults and never
+// surprise-spends. The backend skips already-done steps (run-batch force=false),
+// so sending the whole chain only runs what's actually outstanding.
 //
 // pipeline.vue remains the source of truth for the chains; keep this in sync.
 import type { VisualSource } from '~/composables/useProjectFlow'

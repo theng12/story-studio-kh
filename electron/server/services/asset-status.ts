@@ -17,7 +17,7 @@ import { isFinalVideoFilename } from '../lib/final-video-name.js'
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
-import { findDirLevelOrder, findDirsLevelOrder } from '../lib/dir-search.js'
+import { findDirLevelOrder } from '../lib/dir-search.js'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import {
   resolveEpisodePaths,
@@ -41,7 +41,6 @@ import {
   readResearchReview,
   readResearchTriage,
 } from '../lib/research-verification.js'
-import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import {
   findScenePromptsFile, findThumbPromptsFile, resolveImageDirs,
@@ -547,90 +546,6 @@ export async function getImageStatus(
   return result
 }
 
-// ── Video (clips animated from scene images) ───────────────────────────────
-
-export interface VideoStatus {
-  total: number
-  present: number
-  missing: number[]       // missing prompt numbers
-  dir?: string
-}
-
-/**
- * For each video prompt, does at least one `{code}_Video{NN}_v*.mp4` exist?
- * Looks for prompts in `{code}_Video_Prompts.docx` first, then falls back
- * to `{code}_Scene_Prompts.docx` (the generator does the same).
- */
-export async function getVideoStatus(slug: string, episodeId: string): Promise<VideoStatus> {
-  const code = episodeId.toUpperCase()
-  const outputRoot = await pm.getProjectOutputRoot(slug)
-  if (!outputRoot) return { total: 0, present: 0, missing: [] }
-  // Re-bind to a `string` local so TS narrowing survives the async closure.
-  const root: string = outputRoot
-
-  // Look for a video prompts docx; fall back to scene prompts.
-  async function findFirstPrompts(): Promise<string | null> {
-    const candidates = [
-      `${code}_Video_Prompts.md`,
-      `${code}_Video_Prompts.docx`,
-      `${code}_Scene_Prompts.md`,
-      `${code}_Scene_Prompts.docx`,
-    ]
-    async function recurse(dir: string, depth = 0): Promise<string | null> {
-      if (depth > 6) return null
-      const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
-      for (const e of entries) {
-        if (e.isFile() && candidates.includes(e.name)) return path.join(dir, e.name)
-        if (e.isDirectory()) {
-          const found = await recurse(path.join(dir, e.name), depth + 1)
-          if (found) return found
-        }
-      }
-      return null
-    }
-    // Search the episode's own folder, not the whole library: this used to walk
-    // every directory under the root (scene-image folders included) until it hit
-    // the first match, so each episode's audit cost grew with the episodes before it.
-    const ownDirs = await findDirsLevelOrder(root, 4, name => episodeDirNameMatchesCode(name, code))
-    for (const ownDir of ownDirs) {
-      const found = await recurse(ownDir)
-      if (found) return found
-    }
-    return ownDirs.length ? null : recurse(root)
-  }
-
-  const promptsPath = await findFirstPrompts()
-  if (!promptsPath) {
-    // Files alone cannot establish how many clips were expected. Keep this
-    // pending until prompts provide an authoritative target set.
-    return { total: 0, present: 0, missing: [] }
-  }
-
-  const parsed = await parseImagePromptsDocx(promptsPath)
-  // Scene prompts carry `number` + `title`.
-  const expected = parsed.scenes.map(s => s.number)
-
-  const names = await resolveSubfolderNames(slug, code)
-  const epDir = await findEpisodeDir(outputRoot, code, undefined, slug)
-  if (!epDir) return { total: expected.length, present: 0, missing: expected }
-  const videoDir = await resolveEpisodeSubfolderDir(slug, code, 'video', epDir, names.video, false)
-
-  const presentFiles = await safeReaddir(videoDir)
-  const missing: number[] = []
-  let present = 0
-  for (const n of expected) {
-    const stem = `${code}_Video${n.toString().padStart(2, '0')}`
-    let ok = false
-    for (const f of presentFiles) {
-      if (f.startsWith(stem + '_v') && f.endsWith('.mp4')) {
-        if (await fileHasContent(path.join(videoDir, f))) { ok = true; break }
-      }
-    }
-    if (ok) present++; else missing.push(n)
-  }
-  return { total: expected.length, present, missing, dir: videoDir }
-}
-
 // ── Audio-Merge ────────────────────────────────────────────────────────────
 
 /**
@@ -863,17 +778,16 @@ export interface EpisodeAuditRow {
   audio:        { total: number; present: number; missing: number }
   scenes:       { total: number; present: number; missing: number }
   thumbnails:   { total: number; present: number; missing: number }
-  video:        { total: number; present: number; missing: number }
   merged_audio: { present: boolean }
-  errors?: Partial<Record<'audio' | 'images' | 'video' | 'merged_audio', string>>
+  errors?: Partial<Record<'audio' | 'images' | 'merged_audio', string>>
 }
 
 /**
  * Audit every accepted episode in the project, returning per-episode counts
- * for audio / scene images / thumbnails / video clips / merged audio. Any
- * individual status computation that throws (e.g. no narration yet) is
- * swallowed and reported as zero with a reason in `errors`, so one bad
- * episode doesn't break the whole table.
+ * for audio / scene images / thumbnails / merged audio. Any individual status
+ * computation that throws (e.g. no narration yet) is swallowed and reported as
+ * zero with a reason in `errors`, so one bad episode doesn't break the whole
+ * table.
  */
 export async function auditProjectAssets(
   slug: string,
@@ -902,17 +816,15 @@ export async function auditProjectAssets(
       audio: { total: 0, present: 0, missing: 0 },
       scenes: { total: 0, present: 0, missing: 0 },
       thumbnails: { total: 0, present: 0, missing: 0 },
-      video: { total: 0, present: 0, missing: 0 },
       merged_audio: { present: false },
       errors: {},
     }
 
     // Settle each subcheck independently — one failure mustn't nuke the row.
     // Thumbnails use the same canonical paths computeEpisodeStatus does, so the table and the status agree.
-    const [audio, images, video, merged, thumbs] = await Promise.allSettled([
+    const [audio, images, merged, thumbs] = await Promise.allSettled([
       getAudioStatus(slug, code),
       getImageStatus(slug, code),
-      getVideoStatus(slug, code),
       getAudioMergeStatus(slug, code),
       resolveEpisodePaths(slug, code, title).then(known => getImageStatus(slug, code, 'thumbnails', known)),
     ])
@@ -949,16 +861,6 @@ export async function auditProjectAssets(
       }
     } else if (!row.errors!.images) {
       row.errors!.images = (thumbs.reason as any)?.message || 'thumbnail check failed'
-    }
-
-    if (video.status === 'fulfilled') {
-      row.video = {
-        total: video.value.total,
-        present: video.value.present,
-        missing: video.value.missing.length,
-      }
-    } else {
-      row.errors!.video = (video.reason as any)?.message || 'video check failed'
     }
 
     if (merged.status === 'fulfilled') {

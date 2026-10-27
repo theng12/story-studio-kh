@@ -5,7 +5,7 @@
  *   - Files without prompts do not invent their own expected totals.
  *   - With a prompts docx present, the existing strict expected-vs-present
  *     behaviour is preserved (partial generations still flag false)
- *   - Empty episodes (no files, no docx) report no scenes/thumbs/video
+ *   - Empty episodes (no files, no docx) report no scenes/thumbnails
  *     (mode 'all', no buckets) — back-compat
  */
 
@@ -82,8 +82,6 @@ const PNG_BYTES = Buffer.from(
   '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a4944415478da6300010000000500010d0a2db40000000049454e44ae426082',
   'hex',
 )
-
-const MP4_BYTES = Buffer.from('not-actually-an-mp4-but-non-empty-for-content-check', 'utf-8')
 
 describe('asset-status verified completion', () => {
   before(async () => {
@@ -174,18 +172,6 @@ describe('asset-status verified completion', () => {
     await fs.writeFile(path.join(bgDir, `${CODE}_Scene02_v1.png`), Buffer.alloc(0))
     const result = await assetStatus.getImageStatus(SLUG, CODE)
     assert.equal(result.scenes, undefined)
-  })
-
-  test('MP4s in video_dir without prompts do not mark video generation complete', async () => {
-    const { videoDir } = await makeProject()
-    for (let n = 1; n <= 4; n++) {
-      const stem = `${CODE}_Video${n.toString().padStart(2, '0')}`
-      await fs.writeFile(path.join(videoDir, `${stem}_v1.mp4`), MP4_BYTES)
-    }
-    const result = await assetStatus.getVideoStatus(SLUG, CODE)
-    assert.equal(result.total, 0)
-    assert.equal(result.present, 0)
-    assert.deepEqual(result.missing, [])
   })
 
   test('computeEpisodeStatus keeps unmanifested scenes and thumbnails pending', async () => {

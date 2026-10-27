@@ -450,7 +450,10 @@ async function pipelineVisualSettingsSnapshot(
   snapshot.motion_scope = motion.motion_scope
   snapshot.motion_level = motion.motion_level
 
-  if (!includeMotionSceneIds || motion.motion_scope.mode === 'off') return snapshot
+  // An Off episode authorizes no share work — but its text-to-video scenes are an explicit
+  // per-scene plan and are always in scope, so the ids are resolved even when Off. With no such
+  // scene the list is empty and the paid step queues nothing, exactly as before.
+  if (!includeMotionSceneIds) return snapshot
   const planPath = await resolveScenePlanPath(slug, episodeId, source.episode_dir, projectFacts)
   if (!existsSync(planPath)) return snapshot
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))

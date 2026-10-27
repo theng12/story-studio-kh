@@ -161,7 +161,6 @@ interface AuditRow {
   audio: AssetCount
   scenes: AssetCount
   thumbnails: AssetCount
-  video: AssetCount
   merged_audio: { present: boolean }
   errors?: Record<string, string>
 }

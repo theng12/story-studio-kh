@@ -71,7 +71,7 @@ async function loadPanel(): Promise<Component> {
         && Number.isFinite(pacing.min_sec) && Number.isFinite(pacing.max_sec) ? pacing : null
     }
     import { parseScenePacing } from ${JSON.stringify(new URL('../../electron/server/contracts/pacing.ts', import.meta.url).href)}
-    import { normalizeMotionScope, resolveMotionScope } from ${JSON.stringify(new URL('../../electron/server/contracts/motion-scope.ts', import.meta.url).href)}
+    import { DEFAULT_MOTION_SCOPE, normalizeMotionScope, resolveMotionScope } from ${JSON.stringify(new URL('../../electron/server/contracts/motion-scope.ts', import.meta.url).href)}
     const useRoute = () => globalThis.__visualTimingMotionRoute
     const useApi = () => globalThis.__visualTimingMotionApi
     const useToast = () => ({ success: message => globalThis.__visualTimingMotionToasts.push(message), error: message => globalThis.__visualTimingMotionToasts.push(message) })

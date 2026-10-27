@@ -4259,36 +4259,6 @@ export interface GenerateVideoRequest {
 
 // ── Audio Merge ─────────────────────────────────────────────────────────────
 
-// ── Video Generation ────────────────────────────────────────────────────────
-
-export type VideoGenerationMode = 'frames'
-
-/**
- * The AI Video Generator's request, resolved through the GenStudio video catalogue.
- *
- * Renamed from `GenerateVideoRequest` in v1.4.15. It shared that name with the
- * local FFmpeg assembly request above, IN THE SAME MODULE, so TypeScript
- * silently MERGED the two: every consumer of either was really typed against
- * the union of both, and a field present in one was accepted in the other with
- * no complaint. It surfaced the moment Video Assembly gained an `aspect_ratio`
- * of its own and collided with this one's `'landscape' | 'portrait'`. Two
- * requests, two names.
- */
-export interface GenerateAiVideoRequest {
-  episode_id: string
-  model: string            // video model ID, resolved from the live GenStudio catalogue
-  mode: VideoGenerationMode
-  aspect_ratio: 'landscape' | 'portrait'
-  number_of_videos_per_prompt: number  // 1-4
-  /** 'scene_prompts' | 'video_prompts' | 'manual' */
-  prompt_source: 'scene_prompts' | 'video_prompts' | 'manual'
-  /** Manual prompts, used when prompt_source='manual' */
-  manual_prompts?: string[]
-  /** For image-to-video: pick specific scene image filenames. If empty, uses all generated scene images. */
-  scene_image_filenames?: string[]
-  force: boolean
-}
-
 export interface AudioMergeIntro {
   enabled: boolean
   file: string                 // absolute path to intro audio
