@@ -610,10 +610,19 @@ export function applyNicheToFormat(
     introDefaults: niche.introDefaults
       ? { ...niche.introDefaults, beats: niche.introDefaults.beats?.slice() }
       : format.script.introDefaults,
-    // The pause between chapters is a fact about the channel type (a sleep
-    // story wants a long, calm gap), so the Formula sets Audio Assembly's default.
-    ...(typeof niche.chapterPauseSec === 'number' && niche.chapterPauseSec >= 0
-      ? { audioMergeDefaults: { ...format.script.audioMergeDefaults, gapDurationSec: niche.chapterPauseSec } }
+    // The pause between chapters and starting background music level are facts
+    // about the channel type (e.g. Quote Shorts wants prominent music at 50–60%),
+    // so the Formula sets Audio Assembly's starting defaults.
+    ...(typeof niche.chapterPauseSec === 'number' || typeof niche.startingMusicVolume === 'number'
+      ? { audioMergeDefaults: {
+          ...format.script.audioMergeDefaults,
+          ...(typeof niche.chapterPauseSec === 'number' && niche.chapterPauseSec >= 0
+            ? { gapDurationSec: niche.chapterPauseSec }
+            : {}),
+          ...(typeof niche.startingMusicVolume === 'number' && niche.startingMusicVolume >= 0
+            ? { musicVolume: niche.startingMusicVolume }
+            : {}),
+        } }
       : {}),
     // Likewise the pauses inside a chapter, where a formula overrides the uniform 1.5 / 1.0 s.
     ...(typeof niche.paragraphPauseSec === 'number' || typeof niche.sentencePauseSec === 'number'

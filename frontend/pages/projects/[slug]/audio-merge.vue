@@ -1024,6 +1024,10 @@ const newMusicPath = ref('')
 useRememberedForm('audio-merge-music', slug, music, {
   include: ['enabled', 'source', 'volume', 'post_narration_volume', 'fade_in', 'fade_out', 'lead_in_enabled', 'lead_in_seconds'],
 })
+// A remembered form's volume was restored during setup. Capture it so a
+// channel-format starting volume (Quote Shorts, 55%) only applies when the
+// customer has never set one — a remembered choice still wins (§5).
+const rememberedMusicVolume = music.volume
 
 // Music Pool state remains separate from hand-picked episode files. Only a
 // submitted pool pick advances the pool cursor after a successful merge.
@@ -1880,6 +1884,11 @@ async function applyMergeFormatDefaultsIfNoPreset() {
     if (typeof m.gapDurationSec === 'number' && m.gapDurationSec >= 0) {
       gapDuration.value = m.gapDurationSec
       formulaGapSec.value = m.gapDurationSec
+    }
+    if (typeof m.musicVolume === 'number' && m.musicVolume >= 0) {
+      // A remembered volume (restored from localStorage in setup) still wins;
+      // the format's starting value only decides what a NEW/unset form starts at.
+      if (rememberedMusicVolume === music.volume) music.volume = m.musicVolume
     }
   } catch {
     // Format endpoint unavailable / project missing — keep the legacy

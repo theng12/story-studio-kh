@@ -55,11 +55,35 @@
     "Being homesick for a version of yourself",
     "Why the second cup of tea goes cold",
     "The kind of tired that sleep doesn't fix",
-    "Saying less and meaning more of it"
+    "Saying less and meaning more of it",
+    "The quiet resolve to begin again on Wednesday",
+    "A small mercy you never told anyone about",
+    "Standing on the porch while the rain starts",
+    "Letting someone be wrong about you"
   ],
-  "ideaSystemPromptRole": "You write ideas for a vertical short-form channel of quiet, reflective readings. Each idea names ONE feeling or human moment — heartbreak, motivation, calm, grief, tenderness, resolve — and finds it in a small, concrete, ordinary thing rather than in an abstraction. Pitch moments a person recognises from their own week, never advice, never a lesson, never a motivational slogan.",
-  "ideaGuidanceText": "Every idea should be specific enough to picture: a room, an hour, a habit, a thing left on a table. Never 'how to be happier' or 'the power of letting go' — instead the kitchen at 2am, the coat still on the hook. Vary the mood across a batch; do not pitch the same heartbreak twelve times.",
-  "scriptContext": "This channel makes vertical Shorts, not episodes. A Short is 15 to 45 seconds of speech: eight to fourteen short sentences, each one its own picture and its own caption. Write a single thought followed all the way to its end. No introduction, no chapter structure, no recap, no closing call to action.",
+  "ideaAxes": [
+    {
+      "id": "mood",
+      "label": "Mood",
+      "values": [
+        "heartbreak",
+        "quiet motivation",
+        "late-night calm",
+        "grief and remembrance",
+        "tenderness",
+        "resolve and self-respect",
+        "solitude",
+        "wistful reflection",
+        "ordinary courage",
+        "homesick for a past self"
+      ]
+    }
+  ],
+  "visualStyleHint": "Atmospheric 35mm photography with natural light, fine film grain, subtle dust patina, and rich cinematic depth of field.",
+  "startingMusicVolume": 55,
+  "ideaSystemPromptRole": "You write ideas for a vertical short-form channel of quiet, reflective readings. A channel is not restricted to one mood: it carries quiet motivation, heartbreak, calm, grief, tenderness, solitude, and resolve across its episodes. Each idea names ONE feeling or human moment and finds it in a small, concrete, ordinary thing rather than in an abstraction. Pitch moments a person recognises from their own week, never advice, never a lesson, never a motivational slogan.",
+  "ideaGuidanceText": "Every idea should be specific enough to picture: a room, an hour, a habit, a thing left on a table. Never 'how to be happier' or 'the power of letting go' — instead the kitchen at 2am, the coat still on the hook. Vary the mood across a batch: an episode may be heartbreak, the next resolve, the next calm or ordinary courage; do not pitch the same heartbreak twelve times.",
+  "scriptContext": "This channel makes vertical Shorts, not episodes. A Short is adjustable in length — suggested around 45 seconds (roughly 30 to 60 seconds of speech): six to sixteen short sentences, each one its own picture and its own caption. Write a single thought followed all the way to its end. No introduction, no chapter structure, no recap, no closing call to action.",
   "scriptSystemPromptRole": "You write short, reflective readings that are spoken aloud over a quiet picture. The voice is human, unhurried, and specific — someone telling you one true thing they noticed, not a narrator performing wisdom. You bring the emotion out of an ordinary object or moment instead of naming it, and you trust the listener to finish the thought. You never write inspirational-poster phrasing, never rhyme for its own sake, and never tell anyone what they should feel.",
   "scriptClosingHint": "End on the line that leads back to the first one. The listener should want to watch it again, not be told to.",
   "narratorStyles": [
@@ -208,7 +232,7 @@
       "One unbroken thought: the hook, the turn, and the line that loops back."
     ],
     "additionalRules": [
-      "This Formula makes a SHORT, not an episode. Write ONE reading of 8 to 14 short sentences — roughly 40 to 90 words in total — with no introduction, no chapter headings, and no recap.",
+      "This Formula makes a SHORT, not an episode. The length is adjustable — suggested around 45 seconds (roughly 40 to 90 words in 8 to 14 short sentences) — with no introduction, no chapter headings, and no recap.",
       "The first sentence is the hook: concrete, short, and impossible to predict the second line from. It is the only sentence allowed to be a fragment.",
       "One sentence becomes one picture and one caption. Keep every sentence short enough to read on a phone in a single glance, and never let a sentence depend on the one before it for its meaning.",
       "Name the object before the feeling. 'The second cup of tea went cold' carries more than 'I was lonely'.",

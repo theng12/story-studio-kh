@@ -21,7 +21,7 @@ function present(p: string | undefined | null): boolean {
 
 export function missingEnabledVideoInputs(
   req: GenerateVideoRequest,
-  opts: { canDrawtext: boolean; episodeCode: string },
+  opts: { canDrawtext: boolean; episodeCode: string; availableThumbnailPaths?: string[] },
 ): MissingVideoInput[] {
   const missing: MissingVideoInput[] = []
   const add = (feature: string, fix: string) => missing.push({ feature, fix })
@@ -35,7 +35,10 @@ export function missingEnabledVideoInputs(
     add('Text title card', `This FFmpeg has no drawtext filter, so the card cannot be drawn. Install a full FFmpeg build, ${off('the text title card')}.`)
   }
   if (req.title_image?.enabled && !textTitle && !present(req.title_image.image_path)) {
-    add('Title image', `${req.title_image.image_path ? `The file is missing (${req.title_image.image_path}).` : 'No image is chosen.'} Pick the title image again, ${off('the title image')}.`)
+    const hasThumbnailFallback = Array.isArray(opts.availableThumbnailPaths) && opts.availableThumbnailPaths.some(p => present(p))
+    if (!hasThumbnailFallback) {
+      add('Title image / cover frame', `${req.title_image.image_path ? `The file is missing (${req.title_image.image_path}).` : 'No image is chosen and no thumbnail is available.'} Pick the title image again (or generate episode thumbnails), ${off('the title image')}.`)
+    }
   }
   if (req.intro?.enabled && !present(req.intro.video_path)) {
     add('Intro video', `${req.intro.video_path ? `The file is missing (${req.intro.video_path}).` : 'No video is chosen.'} Pick the intro again, ${off('the intro')}.`)

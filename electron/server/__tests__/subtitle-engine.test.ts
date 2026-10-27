@@ -331,12 +331,12 @@ describe('character-weighted word timing', () => {
 
 // ── 5. Presets ──────────────────────────────────────────────────────────────
 
-describe('the eighteen built-in presets', () => {
-  // Sixteen, plus Quote Shorts' two vertical styles (1.4.361).
-  test('there are exactly eighteen, with unique ids and names', () => {
-    assert.equal(BUILT_IN_SUBTITLE_PRESETS.length, 18)
-    assert.equal(new Set(BUILT_IN_SUBTITLE_PRESETS.map(p => p.id)).size, 18)
-    assert.equal(new Set(BUILT_IN_SUBTITLE_PRESETS.map(p => p.name)).size, 18)
+describe('the twenty-two built-in presets', () => {
+  // Sixteen, plus Quote Shorts vertical styles (1.4.361 + phase 2).
+  test('there are exactly twenty-two, with unique ids and names', () => {
+    assert.equal(BUILT_IN_SUBTITLE_PRESETS.length, 22)
+    assert.equal(new Set(BUILT_IN_SUBTITLE_PRESETS.map(p => p.id)).size, 22)
+    assert.equal(new Set(BUILT_IN_SUBTITLE_PRESETS.map(p => p.name)).size, 22)
   })
 
   for (const p of BUILT_IN_SUBTITLE_PRESETS) {

@@ -212,6 +212,7 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
     // The channel's frame shape (owner, 2026-10-27). Reaches the same three
     // surfaces a built-in Format's `recommendedAspect` already drives.
     aspectRatio: document.aspect_ratio,
+    startingMusicVolume: document.starting_music_volume,
     chapterPauseSec: document.chapter_pause_sec,
     paragraphPauseSec: document.paragraph_pause_sec,
     sentencePauseSec: document.sentence_pause_sec,

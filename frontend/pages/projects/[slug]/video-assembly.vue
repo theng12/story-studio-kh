@@ -638,17 +638,17 @@
         @delete="finishPreset(timelinePresets.remove(), 'Timeline preset deleted')"
       />
 
-      <!-- Title Image -->
+      <!-- Title Image / Cover Frame -->
       <div class="settings-section mt-2">
         <div class="flex gap-2 items-center">
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="titleImage.enabled" />
           </label>
-          <h4>Title Image</h4>
+          <h4>Title Image / Cover Frame</h4>
         </div>
 
         <p class="text-muted text-xs hint-line mt-1">
-          The selected image belongs to this episode and is never saved in Timeline or all-steps presets.
+          An opening still shown before scenes begin. For vertical Shorts, this serves as the YouTube / TikTok cover frame. The selected image belongs to this episode and is never saved in presets (batch renders auto-use the episode thumbnail).
         </p>
 
         <div v-if="titleImage.enabled" class="mt-2">
@@ -712,9 +712,9 @@
           <div class="grid-3 mt-1">
             <div class="form-group">
               <label>Duration ({{ titleImage.duration }}s)</label>
-              <SliderWithNumber v-model="titleImage.duration" :min="1" :max="15" :step="1" suffix="s" />
+              <SliderWithNumber v-model="titleImage.duration" :min="0.5" :max="15" :step="0.5" :decimals="1" suffix="s" />
               <p class="text-muted text-xs hint-line">
-                Adds {{ titleImage.duration }}s to the total runtime. Typical sleep-story range: 3–5s.
+                Adds {{ titleImage.duration }}s to total runtime. Cover frames on Shorts typically use 0.5–1s; sleep stories 3–5s.
               </p>
             </div>
             <div class="form-group">

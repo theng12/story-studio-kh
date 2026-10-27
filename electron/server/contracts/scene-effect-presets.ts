@@ -802,6 +802,15 @@ export const BUILT_IN_EFFECT_STACKS: EffectStackPreset[] = [
       { id: 'bloom-glow', params: { strength: 0.2 } },
     ],
   },
+  {
+    id: 'stack-old-film', name: 'Old Film & Grain', builtin: true,
+    description: 'Atmospheric old-film patina: fine grain, film dust and scratches, and a soft vignette.',
+    effects: [
+      { id: 'film-dust' },
+      { id: 'film-grain-fine' },
+      { id: 'vignette-soft', params: { intensity: 0.6 } },
+    ],
+  },
 ]
 
 export function findBuiltInOverlay(id: string | null | undefined): BuiltInOverlay | undefined {

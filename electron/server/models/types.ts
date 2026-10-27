@@ -507,6 +507,8 @@ export interface ScriptFormat {
     normalizeVolume?: boolean
     /** Default silence gap between chapters, seconds. */
     gapDurationSec?: number
+    /** Default background music volume percentage (0–100%). */
+    musicVolume?: number
   }
 
   /**
@@ -1100,6 +1102,8 @@ export interface Niche {
    * still wins, and every page can change it.
    */
   aspectRatio?: '16:9' | '9:16' | '1:1'
+  /** Starting background music volume (0–100%) in Audio Assembly for a NEW channel. */
+  startingMusicVolume?: number
   /** Default "Pause between chapters" in Audio Assembly (seconds). Sleep
    *  formulas want a longer, calm gap; the customer can still change it. */
   chapterPauseSec?: number
