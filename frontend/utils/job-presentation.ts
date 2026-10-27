@@ -306,6 +306,7 @@ export function jobWorkspaceLink(job: {
     'chapter-only': ['scripts', 'Script Generator'],
     outline_only: ['scripts', 'Script Generator'],
     expand_chapters: ['scripts', 'Script Generator'],
+    translate_episode: ['scripts', 'Script Generator'],
     'introduction-only': ['introduction', 'Introduction'],
     research_run: ['research', 'Research'],
     image_prompts: job.params?.mode === 'scenes' ? ['scene-plan', 'Scene Plan'] : ['image-prompts', 'Thumbnail Prompts'],
