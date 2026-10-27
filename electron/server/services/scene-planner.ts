@@ -2214,6 +2214,187 @@ export async function generateMotionPromptsForScenes(
 }
 
 /**
+ * v1.4.360 — generate text-to-video prompt for a single scene (style + action + camera).
+ * Directly usable by text-to-video models (Wan 3.0, Seedance 2.5).
+ */
+export async function generateVideoPromptOnly(opts: {
+  transcript_segment: string
+  visual_prompt?: string
+  model: string
+  motion_level?: number
+  style_prompt?: string
+  custom_instructions?: string
+  apiKeys: Record<string, string | undefined>
+  callAi?: typeof callAi
+  slug?: string
+  request_identity?: string
+}): Promise<string> {
+  const spec = MOTION_SPECS[opts.motion_level ?? 2] || MOTION_SPECS[2]!
+  const sysParts: string[] = [
+    'You write a direct text-to-video prompt describing a complete cinematic shot (visuals + action + camera movement).',
+    'Describe the scene clearly: subjects, environment, lighting, visual style, action happening in real time, and camera motion.',
+    'Output ONLY the video prompt as natural prose (one to three descriptive sentences). No JSON, no labels, no quotes, no preamble.',
+    `Camera energy — ${spec.label}: ${spec.camera}. Motion: ${spec.allow}`,
+    'HARD RULE: smooth, cinematic movement. Ground everything in the scene narration.',
+  ]
+  if (opts.style_prompt && opts.style_prompt.trim()) {
+    sysParts.push(`Channel visual style: ${opts.style_prompt.trim()}`)
+  }
+  if (opts.custom_instructions && opts.custom_instructions.trim()) {
+    sysParts.push(`Additional rules: ${opts.custom_instructions.trim()}`)
+  }
+  const system = sysParts.join('\n\n')
+
+  const userParts: string[] = []
+  if (opts.transcript_segment && opts.transcript_segment.trim()) {
+    userParts.push(`Narration for this scene:\n${opts.transcript_segment.trim()}`)
+  }
+  if (opts.visual_prompt && opts.visual_prompt.trim()) {
+    userParts.push(`Scene context / visual base:\n${opts.visual_prompt.trim()}`)
+  }
+  userParts.push('Write the text-to-video prompt (one to three sentences, no quotes):')
+  const user = userParts.join('\n\n')
+
+  const raw = await (opts.callAi || callAi)(opts.model, system, user, opts.apiKeys, false, {
+    slug: opts.slug,
+    requestIdentity: opts.request_identity,
+  })
+  let cleaned = (raw || '').trim()
+  cleaned = cleaned.replace(/^```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+  cleaned = cleaned.replace(/^(video\s*prompt|text-to-video\s*prompt|prompt|scene\s*action|camera)\s*[:\-]\s*/i, '').trim()
+  cleaned = cleaned.replace(/^["'`“‘]+|["'`”’]+$/g, '').trim()
+  return cleaned
+}
+
+export async function generateVideoPromptsForScenes(
+  scenes: ScenePlanEntry[],
+  targetIndices: number[],
+  ctx: {
+    model: string
+    motion_level?: number
+    motion_level_for_scene?: (scene: ScenePlanEntry) => number
+    style_prompt?: string
+    custom_instructions?: string
+    apiKeys: Record<string, string | undefined>
+    callAi?: typeof callAi
+    slug?: string
+    max_retries?: number
+    should_cancel?: () => boolean
+    onProgress?: (done: number, total: number) => void
+    onWarn?: (msg: string) => void
+    onResult?: (sceneIndex: number, prompt: string) => Promise<void>
+  },
+): Promise<number> {
+  if (!targetIndices.length) return 0
+  const maxRetries = 0
+  const concurrency = 1
+
+  let failed = 0
+  let done = 0
+  for (let chunkStart = 0; chunkStart < targetIndices.length; chunkStart += concurrency) {
+    if (ctx.should_cancel?.()) break
+    const chunk = targetIndices.slice(chunkStart, chunkStart + concurrency)
+    const tasks = chunk.map(i => (async () => {
+      const scene = scenes[i]!
+      let lastErr: any = null
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        let prompt = ''
+        try {
+          prompt = await generateVideoPromptOnly({
+            transcript_segment: scene.transcript_segment,
+            visual_prompt: scene.visual_prompt,
+            model: ctx.model,
+            motion_level: ctx.motion_level_for_scene?.(scene) ?? ctx.motion_level,
+            style_prompt: ctx.style_prompt,
+            custom_instructions: ctx.custom_instructions,
+            apiKeys: ctx.apiKeys,
+            callAi: ctx.callAi,
+            slug: ctx.slug,
+          })
+        } catch (e: any) {
+          lastErr = e
+        }
+        if (prompt && prompt.trim()) {
+          scene.video_prompt = prompt
+          await ctx.onResult?.(i, prompt)
+          return
+        }
+        if (!lastErr) lastErr = new Error('model returned an empty video prompt')
+        if (attempt < maxRetries) {
+          ctx.onWarn?.(
+            `Scene #${i + 1}: video-prompt attempt ${attempt + 1}/${maxRetries + 1} failed `
+            + `(${lastErr?.message || 'unknown'}) — retrying…`,
+          )
+          await new Promise(r => setTimeout(r, 1200 * (attempt + 1)))
+        }
+      }
+      failed++
+      ctx.onWarn?.(
+        `Scene #${i + 1}: video prompt failed after ${maxRetries + 1} attempt(s) `
+        + `(${lastErr?.message || 'unknown'}) — left empty for manual fill / bulk regen.`,
+      )
+    })())
+    await Promise.all(tasks)
+    done += chunk.length
+    ctx.onProgress?.(done, targetIndices.length)
+  }
+  return failed
+}
+
+export interface VideoModelClipBounds {
+  min_clip_seconds: number
+  max_clip_seconds: number
+}
+
+export interface SceneClipRangeCheck {
+  scene_id: string
+  scene_index: number
+  duration: number
+  fits: boolean
+  underflow: boolean
+  overflow: boolean
+  min_seconds: number
+  max_seconds: number
+  fill_mode?: 'chain' | 'hold'
+}
+
+export function checkScenesAgainstModelBounds(
+  scenes: readonly ScenePlanEntry[],
+  bounds: VideoModelClipBounds,
+): {
+  misfits: SceneClipRangeCheck[]
+  allFit: boolean
+} {
+  const misfits: SceneClipRangeCheck[] = []
+  for (const scene of scenes) {
+    const isVideo = scene.visual_lane === 'text_to_video'
+      || scene.visual_lane === 'image_to_video'
+      || scene.motion_choice === 'clip'
+    if (!isVideo) continue
+    const dur = Math.max(0, scene.end_sec - scene.start_sec)
+    const underflow = dur < bounds.min_clip_seconds
+    const overflow = dur > bounds.max_clip_seconds
+    if (underflow || overflow) {
+      misfits.push({
+        scene_id: scene.id,
+        scene_index: scene.scene_index,
+        duration: dur,
+        fits: false,
+        underflow,
+        overflow,
+        min_seconds: bounds.min_clip_seconds,
+        max_seconds: bounds.max_clip_seconds,
+        fill_mode: scene.fill_mode || (overflow ? 'hold' : undefined),
+      })
+    }
+  }
+  return {
+    misfits,
+    allFit: misfits.length === 0,
+  }
+}
+
+/**
  * v1.0.291 — Two-pass scene planner. Built specifically for smaller local
  * LLMs that fail the single-pass structured-JSON output.
  *
