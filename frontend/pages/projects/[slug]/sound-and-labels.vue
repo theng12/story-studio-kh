@@ -302,6 +302,23 @@
 
         <!-- The mix settings, now actually honest about which ones do something. -->
         <AdvancedDisclosure label="Sound mix settings" :persist-key="`sl-mix-${slug}`">
+          <!-- The mix is its own reusable preset: the levels, the spot cap and
+               the ducking travel together and belong to no episode. The page
+               mounts this controller for its values; without a picker there was
+               no way to save or apply one. -->
+          <PresetPicker
+            class="sl-mix-presets"
+            label="Sound mix preset"
+            hint="Captures the levels, the per-minute spot cap and the ducking below."
+            :presets="soundPresets.presets.value"
+            :active-id="soundPresets.activeId.value"
+            @update:active-id="soundPresets.setActive"
+            @apply="soundPresets.applyActive(); success('Sound mix preset applied')"
+            @overwrite="finishPreset(soundPresets.overwrite(), 'Sound mix preset saved')"
+            @save-as="(n: string) => finishPreset(soundPresets.saveAs(n), 'Sound mix preset saved')"
+            @rename="(n: string) => finishPreset(soundPresets.rename(n), `Renamed to ${n}`)"
+            @delete="finishPreset(soundPresets.remove(), 'Sound mix preset deleted')"
+          />
           <div class="sl-mix">
             <label>Maximum spots per minute
               <input v-model.number="settings.max_spots_per_minute" class="input" type="number" min="1" max="12" @input="markDirty()" />
@@ -385,7 +402,7 @@ const route = useRoute()
 const slug = computed(() => String(route.params.slug))
 const { get, post, put } = useApi()
 const freshAction = useFreshGenerationAction()
-const { success, error: showError, showAction } = useToast()
+const { success, info, error: showError, showAction } = useToast()
 const { isJobActiveFor } = useJobs()
 
 const episodeId = ref('')
@@ -892,6 +909,16 @@ const soundPresets = usePresets<Settings>({
   apply: (data) => { settings.value = { ...settings.value, ...data }; markDirty() },
 })
 
+/** A preset action's own result, said plainly. A built-in is not an error. */
+async function finishPreset(run: Promise<unknown>, done: string): Promise<void> {
+  try {
+    if (await run) success(done)
+    else info('Nothing was changed. Built-in presets can\'t be edited — use "Save as…" to keep your own copy.')
+  } catch (cause: any) {
+    showError(`Your preset was not saved. ${cause?.data?.detail || cause?.message || 'Please try again.'}`)
+  }
+}
+
 const saveState = computed<'saving' | 'error' | 'unsaved' | 'saved'>(() => saving.value ? 'saving' : saveError.value ? 'error' : dirty.value ? 'unsaved' : 'saved')
 const saveStateLabel = computed(() => {
   if (saving.value) return 'Saving…'
@@ -980,6 +1007,7 @@ onMounted(async () => {
 .sl-frame-cue span, .sl-frame-cue small { font-size: .55rem; letter-spacing: .07em; text-transform: uppercase; color: #b6c0d1; }
 .preview-archival-caption { background: #2c211b; border-color: #66513f; font-family: Georgia, serif; }
 .preview-chapter-plate { background: linear-gradient(135deg, #111827, #2b3445); text-align: center; }
+.sl-mix-presets { margin-bottom: .25rem; }
 .sl-mix { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .75rem; padding: .65rem 0; }
 .sl-mix > label { display: grid; gap: .25rem; color: var(--text-muted); font-size: .78rem; }
 .sl-mix small { color: var(--text-muted); font-size: .7rem; line-height: 1.35; }
