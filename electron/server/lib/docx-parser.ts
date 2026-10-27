@@ -68,7 +68,7 @@ export interface ParsedPrompts {
 // ── parseImagePromptsDocx memoization ──────────────────────────────────────
 //
 // `computeEpisodeStatus` calls parseImagePromptsDocx for every accepted
-// episode in a project (via getImageStatus + getVideoStatus). At 150+
+// episode in a project (via getImageStatus). At 150+
 // episodes that's 300+ docx parses per /projects/:slug/episodes request —
 // each one a mammoth HTML conversion (CPU-heavy). Memoize by absolute path
 // + mtime so back-to-back calls in one request reuse the parse, while file

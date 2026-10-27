@@ -165,7 +165,7 @@ const STAGE_LABELS: Record<AuditStage, string> = {
   audio: 'Audio chunks',
   scenes: 'Scene images',
   thumbnails: 'Thumbnail images',
-  video: 'AI video clips',
+  video: 'Motion clips',
   merged_audio: 'Merged audio',
 }
 

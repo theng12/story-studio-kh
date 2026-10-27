@@ -203,7 +203,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   image_prompts: 'Image prompts', images: 'Images', scene_images: 'Scene images',
   thumb_images: 'Thumbnail images', images_repair: 'Image repair',
   audio: 'Audio', audio_merge: 'Audio merge', metadata: 'Metadata',
-  video: 'Video clips', video_assembly: 'Video assembly',
+  video_assembly: 'Video assembly',
   subtitles_transcribe: 'Subtitles', scene_plan_run: 'Scene plan',
   contextual_cues: 'Contextual cues',
   scene_image_generate: 'Scene image', scene_images_batch: 'Scene images (batch)', scene_clips_batch: 'Motion clips', continuity_render: 'Scene render',
@@ -214,6 +214,8 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   broll_autotag: 'B-roll auto-tag',
   // Retired job types: kept so old rows in Jobs still read plainly.
   expression_markup: 'Expression markup',
+  // The legacy AI Video Generator's lane (deleted 2026-10-27). Its stored rows are history.
+  video: 'Video clips',
   youtube_upload: 'YouTube upload', youtube_playlist_update: 'YouTube playlist',
   social_publish: 'Social posting',
   youtube_thumbnail_refresh: 'Thumbnail backfill',

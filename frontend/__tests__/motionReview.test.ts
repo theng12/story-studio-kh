@@ -134,3 +134,15 @@ test('switching episodes blanks the previous episode\'s motion state instead of 
     'the reset must run on the episode change, not only inside loadReview',
   )
 })
+
+test('the share control starts at the 25% opening-hook default, and Off is the start for an unsaved episode', () => {
+  // Owner, 2026-10-27: "make existing channels default to 25% but they are all off at the
+  // start right?" The 25% is the CONTROL's starting value, read at use time from the one
+  // shared constant — it is never a scope an episode was given.
+  assert.match(source, /import \{ DEFAULT_MOTION_SCOPE \} from '@shared\/motion-scope'/)
+  assert.match(source, /const sharePercent = ref\(DEFAULT_MOTION_SCOPE\.share_percent\)/)
+  assert.match(source, /const shareFormula = ref<MotionShareFormula>\(DEFAULT_MOTION_SCOPE\.formula/)
+  assert.doesNotMatch(source, /share_percent: 25/, 'the 25% must come from the contract, not a second copy')
+  assert.match(source, /v-if="motionScope\.mode === 'off'"[\s\S]*?Off: every scene stays still/)
+  assert.match(source, /starts at \{\{ DEFAULT_MOTION_SCOPE\.share_percent \}\}%/)
+})

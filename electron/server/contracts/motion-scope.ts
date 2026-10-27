@@ -1,7 +1,16 @@
 export type MotionShareFormula = 'opening_hook' | 'key_moments' | 'spread' | 'chronological'
 
-/** Default motion scope: 25% video share with opening-hook formula (owner decision, 2026-10-26). */
-export const DEFAULT_MOTION_SCOPE: MotionScope = { mode: 'share', share_percent: 25, formula: 'opening_hook' }
+/**
+ * Owner decision, 2026-10-26 — the DEFAULT VALUE of the share control: 25% with the
+ * opening-hook formula. It is a starting value for the control only (owner, 2026-10-27:
+ * "make existing channels default to 25% but they are all off at the start right?").
+ *
+ * It never authorizes motion. An episode that has saved no scope of its own is OFF
+ * (`readEpisodeMotionScope`), so nothing is in its motion scope, Motion Review is not
+ * required for its completion, and Pipeline makes no clips for it. It is never written
+ * into a stored channel or episode — only read when the customer turns Share on.
+ */
+export const DEFAULT_MOTION_SCOPE: Extract<MotionScope, { mode: 'share' }> = { mode: 'share', share_percent: 25, formula: 'opening_hook' }
 
 /** Episode editorial scope, independent of model capabilities and clip readiness. */
 export type MotionScope =

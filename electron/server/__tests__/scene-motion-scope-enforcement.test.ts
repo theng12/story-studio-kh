@@ -369,3 +369,115 @@ test('review status reports Image Pool even before any Scene Plan exists', async
     await temp.cleanup()
   }
 })
+
+// ── Off at the start (owner, 2026-10-27) ───────────────────────────────────
+// "make existing channels default to 25% but they are all off at the start right?" — the
+// 25% is the value of the share CONTROL; an episode that saved no scope is OFF. These pin
+// the consequences: completion needs no motion decisions, and no clip work is admitted.
+
+test('an episode with no saved motion scope is Off: completion needs no motion decisions', async () => {
+  const temp = await useTempDataDir()
+  try {
+    const { computeEpisodeStatus } = await import('../services/asset-status.js')
+    const { readEpisodeMotionScope } = await import('../services/episode-motion-scope.js')
+    const { isStepAlreadyDone } = await import('../routes/pipeline.js')
+    const { project, episodeId, paths } = await createEpisode('Unsaved motion scope')
+    // continuity.json exists but says nothing about motion — the case a plain scene-plan
+    // run leaves behind. No clip exists; being Off, that must not hold completion.
+    await writeMotionPlan(project.slug, episodeId, paths, undefined, true)
+
+    const scope = await readEpisodeMotionScope(project.slug, episodeId, paths.episode_dir)
+    assert.deepEqual(scope.motion_scope, { mode: 'off' })
+
+    const status = await computeEpisodeStatus(project.slug, episodeId)
+    assert.equal(status.scene_plan, true, 'the fixture plan is complete, or the assertion below is meaningless')
+    assert.equal(status.motion_review, true, 'Motion Review is not required for an Off episode')
+    assert.equal(isStepAlreadyDone(status, 'motion_review'), true, 'Pipeline skips the step instead of making clips')
+  } finally {
+    await temp.cleanup()
+  }
+})
+
+test('a saved scope still gates completion: an all-scenes scope with no clip is pending', async () => {
+  const temp = await useTempDataDir()
+  try {
+    const { computeEpisodeStatus } = await import('../services/asset-status.js')
+    const { project, episodeId, paths } = await createEpisode('Saved motion scope needs clips')
+    await writeMotionPlan(project.slug, episodeId, paths, { mode: 'all' }, true)
+
+    const status = await computeEpisodeStatus(project.slug, episodeId)
+    assert.equal(status.motion_review, false, 'a scene in scope with no clip keeps Motion Review pending')
+  } finally {
+    await temp.cleanup()
+  }
+})
+
+test('Sketch Draw queues no clips for an unsaved scope, and every eligible scene for a saved one', async () => {
+  const temp = await useTempDataDir()
+  try {
+    const { resolveSketchDrawEligibleScenes } = await import('../routes/scene-review.js')
+
+    const off = await createEpisode('Sketch Draw unsaved scope')
+    await writeMotionPlan(off.project.slug, off.episodeId, off.paths, undefined, true)
+    const offResult = await resolveSketchDrawEligibleScenes(off.project.slug, off.episodeId)
+    assert.deepEqual(offResult.queuedSceneIds, [], 'an Off episode makes no Sketch Draw clips')
+    assert.deepEqual(offResult.skippedReasons, [], 'nothing is "skipped" — no scene is in scope at all')
+
+    const saved = await createEpisode('Sketch Draw saved scope')
+    await writeMotionPlan(saved.project.slug, saved.episodeId, saved.paths, { mode: 'all' }, true)
+    const savedResult = await resolveSketchDrawEligibleScenes(saved.project.slug, saved.episodeId)
+    assert.deepEqual(savedResult.queuedSceneIds, ['scene-a', 'scene-b', 'scene-c'],
+      'a saved all-scenes scope renders every approved scene')
+  } finally {
+    await temp.cleanup()
+  }
+})
+
+test('a saved share scope wins and resolves against the plan exactly as before', async () => {
+  const temp = await useTempDataDir()
+  try {
+    const { resolveEpisodeMotionSceneIds } = await import('../services/episode-motion-scope.js')
+    const { project, episodeId, paths } = await createEpisode('Saved share scope')
+    await writeMotionPlan(project.slug, episodeId, paths, { mode: 'share', share_percent: 25, formula: 'opening_hook' }, false)
+    const plan = JSON.parse(await fs.readFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), 'utf8'))
+    const resolved = await resolveEpisodeMotionSceneIds(project.slug, episodeId, plan.scenes, paths.episode_dir)
+    assert.deepEqual(resolved.motion_scope, { mode: 'share', share_percent: 25, formula: 'opening_hook' })
+    assert.deepEqual(resolved.scene_ids, ['scene-a'], '25% of 24 s is the first 8 s scene')
+  } finally {
+    await temp.cleanup()
+  }
+})
+
+test('a text-to-video scene is motion work even when the episode is Off', async () => {
+  const temp = await useTempDataDir()
+  try {
+    const { computeEpisodeStatus } = await import('../services/asset-status.js')
+    const { resolveEpisodeMotionSceneIds } = await import('../services/episode-motion-scope.js')
+    const { project, episodeId, paths } = await createEpisode('Text-to-video under an Off scope')
+    await writeMotionPlan(project.slug, episodeId, paths, undefined, true)
+    const planPath = path.join(paths.scene_prompts_dir, 'scene_plan.json')
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
+    // The middle scene is planned as text-to-video: no still by design, its video prompt IS the request.
+    plan.scenes[1].visual_lane = 'text_to_video'
+    plan.scenes[1].video_prompt = 'A slow push through the hall.'
+    delete plan.scenes[1].motion_prompt
+    await fs.writeFile(planPath, JSON.stringify(plan))
+
+    const scoped = await resolveEpisodeMotionSceneIds(project.slug, episodeId, plan.scenes, paths.episode_dir)
+    assert.deepEqual(scoped.motion_scope, { mode: 'off' })
+    assert.deepEqual(scoped.scene_ids, ['scene-b'],
+      'the text-to-video scene is an explicit per-scene plan, so it is in scope while the share is Off')
+    assert.deepEqual(
+      (await resolveEpisodeMotionSceneIds(project.slug, episodeId, [plan.scenes[0], plan.scenes[2]], paths.episode_dir)).scene_ids,
+      [],
+      'still scenes stay out of scope on an Off episode',
+    )
+
+    // Readiness keeps the owner's T2V rule: the clip is approved in Motion Review, not Scene Review,
+    // so completion waits for it — the state a customer can now actually reach and clear.
+    const status = await computeEpisodeStatus(project.slug, episodeId)
+    assert.equal(status.motion_review, false, 'an unapproved text-to-video clip keeps Motion Review pending')
+  } finally {
+    await temp.cleanup()
+  }
+})

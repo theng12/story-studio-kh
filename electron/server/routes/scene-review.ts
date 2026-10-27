@@ -19,6 +19,7 @@ import express, { Router } from 'express'
 import fs from 'fs/promises'
 import { existsSync, createReadStream } from 'fs'
 import path from 'path'
+import os from 'os'
 import { createHash, randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
@@ -30,7 +31,7 @@ import { resolveEpisodeMergedAudioChoice } from '../lib/merged-audio-selection.j
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseHttpByteRange } from '../lib/http-byte-range.js'
 import { decodableImageSignature, isDecodableImage, peekDecodableImageSignature } from '../lib/image-validation.js'
-import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
+import { assertPlayableSceneClip, normaliseImportedSceneClip, SceneClipImportRefused } from '../lib/scene-clip-media.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir, resolveSceneImageReadPath } from '../generators/scene-image.js'
 import {
@@ -1731,30 +1732,45 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
 
 // ── POST /scene-review/:ep/upload-clip/:sceneId ───────────────────────
 // v1.0.473 — set a scene's animated CLIP directly from an externally-generated
-// mp4 (e.g. a Chrome-extension image→motion-prompt→video flow), instead of
-// generating it in-app via fal/kie. Saved as <11 Video Assets>/<id>.mp4 — the
-// SAME location + filename the in-app generator writes and the timestamp
-// assembler scans for (it detects a scene's clip by file existence, not by
-// scene_plan.clip_path) — so external clips and fal/kie clips are fully
-// interchangeable per scene, and either makes the clip flow into the final video.
+// video (e.g. a Chrome-extension image→motion-prompt→video flow), instead of
+// generating it in-app. Saved as <11 Video Assets>/<id>.mp4 — the SAME location
+// + filename the in-app generator writes and the timestamp assembler scans for
+// (it detects a scene's clip by file existence, not by scene_plan.clip_path) —
+// so external clips and generated clips are fully interchangeable per scene, and
+// either makes the clip flow into the final video.
 //
-// Raw binary body (Content-Type: video/mp4 or application/octet-stream) because
+// v1.4.364 — any format the built-in ffmpeg can decode is accepted (owner,
+// 2026-10-27: "import any supported format"). The upload is probed with ffprobe
+// and converted ON IMPORT into the shape assembly expects (H.264/MP4, yuv420p,
+// bt709, constant frame rate) by the one existing clip encoder. A file ffmpeg
+// cannot decode, or one with no video stream, is refused by name and the
+// accepted clip is left alone.
+//
+// Raw binary body (Content-Type: video/* or application/octet-stream) because
 // the app-wide JSON limit is 10mb; this route takes its own 256mb cap. No body
 // metadata needed: scene id is in the URL and the motion prompt is read from the
-// plan.
-const clipUpload = express.raw({ type: ['video/mp4', 'application/octet-stream'], limit: '256mb' })
+// plan. The optional `X-File-Name` header is used only to name the format in a
+// refusal (and to hint the demuxer); nothing is stored from it.
+const clipUpload = express.raw({ type: ['video/*', 'application/octet-stream'], limit: '256mb' })
+
+/** The upload's own name, for a plain refusal message. Never used as a path. */
+function uploadFileName(header: string | undefined): string | undefined {
+  if (!header) return undefined
+  let decoded = header
+  try { decoded = decodeURIComponent(header) } catch { /* keep it as sent */ }
+  const name = path.basename(decoded).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120)
+  return name || undefined
+}
+
 router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clipUpload, async (req, res) => {
   const { slug, episodeId, sceneId } = req.params
   // Strict id (matches the planner's freshId scheme) — prevents path traversal.
   if (!/^[A-Za-z0-9_-]+$/.test(sceneId)) return res.status(400).json({ detail: 'invalid scene id' })
   const buf = req.body
   if (!Buffer.isBuffer(buf) || buf.length === 0) {
-    return res.status(400).json({ detail: 'Empty body — POST the clip as raw bytes with Content-Type: video/mp4.' })
+    return res.status(400).json({ detail: 'Empty body — POST the clip as raw bytes with Content-Type: video/* or application/octet-stream.' })
   }
-  // Basic mp4 sniff: a standard mp4 carries an "ftyp" box at byte offset 4.
-  if (buf.length < 12 || buf.toString('ascii', 4, 8) !== 'ftyp') {
-    return res.status(400).json({ detail: 'Body is not an mp4 (no ftyp box). Send a valid .mp4 clip.' })
-  }
+  const incomingName = uploadFileName(req.get('x-file-name'))
   try {
     if ((await readVideoVisualSource(slug, episodeId)).source !== 'scene_plan') {
       return res.status(409).json({ detail: 'Motion Review is not used for Image Pool episodes.' })
@@ -1774,7 +1790,23 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clip
     const outPath = path.join(outDir, `${sceneId}.mp4`)
     // Atomic write (tmp → rename) so the assembler never reads a half-written mp4.
     const tmp = path.join(outDir, `.tmp_${sceneId}_${process.pid}.mp4`)
-    await fs.writeFile(tmp, buf)
+    // The upload lands in app temp, not the episode's asset folder: a refused import
+    // leaves nothing behind and cannot disturb the accepted clip.
+    const work = await fs.mkdtemp(path.join(os.tmpdir(), 'scene-clip-import-'))
+    let imported: { duration: number; copied: boolean }
+    try {
+      const extension = (path.extname(incomingName || '').match(/^\.[A-Za-z0-9]{1,8}$/) || [''])[0]!
+      const sourcePath = path.join(work, `upload${extension}`)
+      await fs.writeFile(sourcePath, buf)
+      imported = await normaliseImportedSceneClip(sourcePath, tmp, incomingName)
+    } catch (error) {
+      await fs.unlink(tmp).catch(() => {})
+      throw error
+    } finally {
+      await fs.rm(work, { recursive: true, force: true }).catch(() => {})
+    }
+    // The converted clip is decoded end to end before it may replace anything, and the
+    // duration recorded on the plan is the one measured from THAT file — not from the upload.
     const measuredDurationSeconds = await assertPlayableSceneClip(tmp)
     await fs.rename(tmp, outPath)
 
@@ -1790,8 +1822,16 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clip
       false,
       { renderer: 'external', duration_seconds: measuredDurationSeconds },
     )
-    res.json({ ok: true, scene_id: sceneId, saved_as: path.basename(outPath), bytes: buf.length })
+    res.json({
+      ok: true,
+      scene_id: sceneId,
+      saved_as: path.basename(outPath),
+      bytes: buf.length,
+      duration_seconds: measuredDurationSeconds,
+      converted: !imported.copied,
+    })
   } catch (e: any) {
+    if (e instanceof SceneClipImportRefused) return res.status(400).json({ detail: e.message })
     res.status(500).json(humanizeBackendError(e, 'Failed to save uploaded clip'))
   }
 })

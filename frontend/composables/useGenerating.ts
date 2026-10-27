@@ -17,11 +17,8 @@ export function useGenerating() {
   const audioGenerating = useState('audioGenerating', () => false)
 
   const audioMergeGenerating = useState('audioMergeGenerating', () => false)
-  const videoGenerating = useState('videoGenerating', () => false)
-  // v1.0.391 — Video Assembly (FFmpeg stitch, job type `video_assembly`) is a
-  // DISTINCT generator from the AI Video Generator (job type `video`). It used
-  // to share `videoGenerating`, which lit the wrong "Video Generator" nav pulse
-  // while an assembly was running. Its own flag drives the Video Assembly pulse.
+  // v1.0.391 — Video Assembly (FFmpeg stitch, job type `video_assembly`) drives the Video
+  // Assembly pulse. Its own flag keeps an assembly from lighting any other nav pulse.
   const videoAssemblyGenerating = useState('videoAssemblyGenerating', () => false)
 
   // Direct-API generating states (managed manually by pages)
@@ -49,7 +46,7 @@ export function useGenerating() {
       'introduction-only', 'chapter-only', 'outline_only', 'expand_chapters',
       'images', 'scene_images', 'thumb_images', 'images_repair',
       'audio', 'audio_merge',
-      'video', 'video_assembly',
+      'video_assembly',
     ])
     const activeSignal = computed(() =>
       jobs.value
@@ -79,9 +76,6 @@ export function useGenerating() {
       if (audioMergeGenerating.value && !hasActive('audio_merge')) {
         audioMergeGenerating.value = false
       }
-      if (videoGenerating.value && !hasActive('video')) {
-        videoGenerating.value = false
-      }
       if (videoAssemblyGenerating.value && !hasActive('video_assembly')) {
         videoAssemblyGenerating.value = false
       }
@@ -96,7 +90,6 @@ export function useGenerating() {
     audioGenerating,
     audioMergeGenerating,
     metaGenerating,
-    videoGenerating,
     videoAssemblyGenerating,
   }
 }

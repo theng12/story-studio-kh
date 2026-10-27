@@ -310,8 +310,12 @@ function retryReplacementParams(job: Job): Record<string, any> | undefined {
   return undefined
 }
 
-/** Job types that no longer have an executor. Their old rows still list; they just cannot run again. */
-const REMOVED_JOB_TYPES = new Set(['script-only', 'expression_markup'])
+/**
+ * Job types that no longer have an executor. Their old rows still list; they just cannot run
+ * again. `video` is the retired AI Video Generator's lane (deleted 2026-10-27) — its rows are
+ * history, and its lane is gone, so a Retry would queue work nothing can ever run.
+ */
+const REMOVED_JOB_TYPES = new Set(['script-only', 'expression_markup', 'video'])
 
 /** Retired jobs keep their terminal record; Retry must not replace it with the same known failure. */
 function retryAdmissionError(job: Job): string | null {
