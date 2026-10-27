@@ -86,6 +86,19 @@ test('the list is sorted by time, labels and sounds together', () => {
   assert.match(page, /return rows\.sort\(\(a, b\) => a\.start_sec - b\.start_sec/)
 })
 
+test('a refusal is SHOWN, before the render rather than after it', () => {
+  // The backend reports what it would refuse instead of hiding the rows behind
+  // a 400. A page that never drew that sentence left the customer with rows
+  // that looked fine and a render that refused for an unstated reason.
+  assert.match(page, /const refuses = ref<\{ labels\?: string; sound\?: string \}>\(\{\}\)/)
+  assert.match(page, /const refusedNote = computed\(\(\) => \[refuses\.value\.labels, refuses\.value\.sound\]/)
+  assert.match(page, /v-if="refusedNote"/)
+  assert.match(page, /data\.readiness\?\.labels\?\.refuses/)
+  // And it is cleared on an episode change, like every other field (§4).
+  const load = page.slice(page.indexOf('async function loadEpisode'))
+  assert.match(load.slice(0, load.indexOf('\n}\n')), /refuses\.value = \{\}/)
+})
+
 test('the page has ONE readiness answer, taken from the backend that also renders it', () => {
   // A page that validated with its own rule is how "ready" came to disagree
   // with the renderer.

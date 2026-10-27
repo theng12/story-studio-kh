@@ -64,6 +64,12 @@
     </WorkspaceNotice>
 
     <template v-else>
+      <!-- A read REPORTS what the renderer would refuse; it never hides the rows
+           behind the refusal. This is the renderer's own sentence, said before
+           the render rather than after it. -->
+      <WorkspaceNotice v-if="refusedNote" tone="warning" title="Final Video will not use these yet">
+        {{ refusedNote }}
+      </WorkspaceNotice>
       <WorkspaceNotice v-if="loadError" tone="warning" :title="/Scene Plan/.test(loadError) ? 'Sound & Labels needs a Scene Plan' : 'This episode could not be opened'">
         {{ loadError }}
       </WorkspaceNotice>
@@ -412,6 +418,9 @@ const sounds = ref<SoundTimeline | null>(null)
 const scenes = ref<Scene[]>([])
 const validation = ref<{ labels: Array<{ cue_id?: string; detail: string; severity?: string }>; sound: Array<{ cue_id?: string; detail: string; severity?: string }> }>({ labels: [], sound: [] })
 const movedNotes = ref<string[]>([])
+/** The renderer's own refusal sentence for a defect only a fix can clear. */
+const refuses = ref<{ labels?: string; sound?: string }>({})
+const refusedNote = computed(() => [refuses.value.labels, refuses.value.sound].filter(Boolean).join(' '))
 const settings = ref<Settings>({ max_spots_per_minute: 3, default_bed_gain_db: -20, default_spot_gain_db: -12, ducking_profile: 'gentle' })
 const poolClips = ref<PoolClip[]>([])
 const unavailablePools = ref<Array<{ id: string; name: string; reason: string }>>([])
@@ -764,6 +773,7 @@ async function loadEpisode(): Promise<void> {
   validation.value = { labels: [], sound: [] }
   poolClips.value = []; unavailablePools.value = []; libraryHits.value = []; libraryNote.value = ''
   settings.value = { max_spots_per_minute: 3, default_bed_gain_db: -20, default_spot_gain_db: -12, ducking_profile: 'gentle' }
+  refuses.value = {}
   loadError.value = ''; dirty.value = false; saveError.value = ''; savedAt.value = ''
   if (!episode) return
   loading.value = true
@@ -780,6 +790,10 @@ async function loadEpisode(): Promise<void> {
     scenes.value = data.scenes || []
     validation.value = data.validation || { labels: [], sound: [] }
     movedNotes.value = data.moved_notes || []
+    refuses.value = {
+      ...(data.readiness?.labels?.refuses ? { labels: data.readiness.labels.refuses } : {}),
+      ...(data.readiness?.sound?.refuses ? { sound: data.readiness.sound.refuses } : {}),
+    }
     poolClips.value = available.pool_clips || []
     unavailablePools.value = available.unavailable || []
   } catch (cause: any) {
