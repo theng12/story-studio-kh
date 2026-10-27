@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "1.4.362",
+  "lifecycle": "active",
+  "changelog": "Full union merge of historical-wars-treaties-world-order-v2 into wars-treaties-world-order-v2: 122 subjects, 122 coverage profiles, 2,999 episode objects, 3,000 time-place scopes, 3,000 mechanisms, 3,000 evidence lenses, 7 exclusions, and 2 compatible formula IDs.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.wars-treaties-world-order-v2",
+    "family": "com.storystudio.family.topic.wars-treaties-world-order-v2"
+  },
+  "dependencies": []
+}
