@@ -257,8 +257,17 @@ export async function preparePrivateFinalRenderDescriptor(
         || !discovery.encode.entries.some(entry =>
           sameRequestedEncode(entry, description.recipe.encode as Record<string, any>)))) {
     if (known) throw new Error('Existing private final render lineage requires recovery before local rendering.')
-    opts.job.output_lines.push('Private final render: this exact encode is not qualified for remote rendering, '
-      + 'so this video stays on this Mac. The render is otherwise unchanged.')
+    // Two unrelated causes reach this branch and the owner acts on them differently. The Gateway
+    // publishes `encode: null` when NO candidate was eligible at all (`render_service.capabilities`
+    // intersects an empty list, and `fleet.render_encode_intersection` answers None for it) as well
+    // as when the eligible Macs share no encode. Telling a customer their encode is unqualified
+    // when the truth is "no Mac was free" is a reason they will act on wrongly, so name the cause
+    // the Gateway actually published.
+    opts.job.output_lines.push(discovery.eligible === 0
+      ? 'Private final render: no other Mac was free to take this render, so this video stays on '
+        + 'this Mac. The render is otherwise unchanged.'
+      : 'Private final render: this exact encode is not qualified for remote rendering, '
+        + 'so this video stays on this Mac. The render is otherwise unchanged.')
     return null
   }
   if (description.composition.still_tail_from_sec !== null) {
