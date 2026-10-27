@@ -86,6 +86,14 @@
         <strong>{{ overview?.ideas ? overview.ideas.total : '—' }}</strong>
         <span class="dashboard-metric-detail">{{ overview?.ideas ? `${overview.ideas.new} new ideas waiting for review` : 'Idea counts have not loaded yet' }}</span>
       </NuxtLink>
+      <NuxtLink :to="`/projects/${slug}/board`" class="dashboard-metric" title="Channel cost: paid Gateway charges plus local Mac compute">
+        <span class="dashboard-metric-top">
+          <span class="dashboard-metric-kicker">Channel cost</span>
+          <span class="dashboard-metric-arrow" aria-hidden="true">→</span>
+        </span>
+        <strong>{{ formatTotal(channelTotal?.total_usd, 'No data') }}</strong>
+        <span class="dashboard-metric-detail">{{ channelCostDetail }}</span>
+      </NuxtLink>
     </section>
 
     <p v-if="statusKnown && visualSource && episodes.length" class="dashboard-stages" aria-label="Episodes by state">
@@ -296,6 +304,7 @@ import {
   type FlowStep,
   type VisualSource,
 } from '~/composables/useProjectFlow'
+import { useProjectCost, formatTotal } from '~/composables/useProjectCost'
 
 definePageMeta({ layout: 'dashboard', key: route => String(route.params.slug || '') })
 useAppTitle('Dashboard')
@@ -329,6 +338,26 @@ const {
   refresh: refreshEpisodes,
   revalidate: revalidateEpisodes,
 } = useEpisodes(slug)
+const { channelTotal, load: loadCost } = useProjectCost(slug)
+const channelCostDetail = computed(() => {
+  const t = channelTotal.value
+  if (!t) return 'No cost records yet'
+  if (t.total_usd?.state === 'unmeasurable') return 'No Gateway charges or runtime recorded'
+  const parts: string[] = []
+  if (t.paid.state === 'measured') {
+    const usd = t.paid.usd ?? 0
+    const cr = t.paid.credits ?? 0
+    if (usd > 0) parts.push(`$${usd.toFixed(2)} paid`)
+    if (cr > 0) parts.push(`${cr} credits`)
+  }
+  if (t.local.state === 'measured') {
+    parts.push(`${formatMinutes(t.local.mac_minutes ?? 0)} local`)
+  }
+  if (t.waste.state === 'measured') {
+    parts.push(`${t.waste.percent ?? 0}% waste`)
+  }
+  return parts.join(' · ') || 'Explicit $0'
+})
 const notif = useNotifications()
 
 interface DashboardOverview {
@@ -701,6 +730,7 @@ watch([episodesError, overviewError, accountsError, formatError], reportReadines
 onMounted(() => {
   hydrateAudit()
   void loadOverview()
+  void loadCost()
 })
 onBeforeUnmount(() => {
   const projectSlug = slug.value

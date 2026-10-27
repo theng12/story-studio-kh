@@ -19,6 +19,10 @@ import {
   normalizeVoicePresets,
   type NormalizedVoicePreset,
 } from './voice-presets.js'
+import {
+  type CostSettings,
+  DEFAULT_COST_SETTINGS,
+} from '../contracts/episode-cost.js'
 
 // `ffmpeg_path` lives in this file and is fed to `spawn()` by ffmpeg-manager.
 // Any process running as the user that can write this file gets
@@ -1469,4 +1473,66 @@ export async function bootstrapServerModeFromEnv(): Promise<{ bootstrapped: bool
   } catch (e: any) {
     return { bootstrapped: false, reason: e?.message || String(e) }
   }
+}
+
+export const COST_SETTINGS_KEY = 'cost_settings'
+
+export async function getCostSettings(): Promise<CostSettings> {
+  const settings = await readSettings()
+  const raw = settings[COST_SETTINGS_KEY]
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ...DEFAULT_COST_SETTINGS, mac_power_watts: { ...DEFAULT_COST_SETTINGS.mac_power_watts } }
+  }
+  const khrPerKwh = typeof raw.electricity_khr_per_kwh === 'number' && Number.isFinite(raw.electricity_khr_per_kwh) && raw.electricity_khr_per_kwh >= 0
+    ? raw.electricity_khr_per_kwh
+    : DEFAULT_COST_SETTINGS.electricity_khr_per_kwh
+  const khrPerUsd = typeof raw.khr_per_usd === 'number' && Number.isFinite(raw.khr_per_usd) && raw.khr_per_usd > 0
+    ? raw.khr_per_usd
+    : DEFAULT_COST_SETTINGS.khr_per_usd
+  const macPowerWatts: Record<string, number> = { ...DEFAULT_COST_SETTINGS.mac_power_watts }
+  if (raw.mac_power_watts && typeof raw.mac_power_watts === 'object' && !Array.isArray(raw.mac_power_watts)) {
+    for (const [k, v] of Object.entries(raw.mac_power_watts)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) {
+        macPowerWatts[k.toLowerCase()] = v
+      }
+    }
+  }
+  return {
+    electricity_khr_per_kwh: khrPerKwh,
+    khr_per_usd: khrPerUsd,
+    mac_power_watts: macPowerWatts,
+  }
+}
+
+export async function setCostSettings(patch: unknown): Promise<CostSettings> {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new Error('Cost settings payload must be an object')
+  }
+  const current = await getCostSettings()
+  const p = patch as Record<string, unknown>
+  if (p.electricity_khr_per_kwh !== undefined) {
+    if (typeof p.electricity_khr_per_kwh !== 'number' || !Number.isFinite(p.electricity_khr_per_kwh) || p.electricity_khr_per_kwh < 0) {
+      throw new Error('electricity_khr_per_kwh must be a non-negative number')
+    }
+    current.electricity_khr_per_kwh = p.electricity_khr_per_kwh
+  }
+  if (p.khr_per_usd !== undefined) {
+    if (typeof p.khr_per_usd !== 'number' || !Number.isFinite(p.khr_per_usd) || p.khr_per_usd <= 0) {
+      throw new Error('khr_per_usd must be a positive number')
+    }
+    current.khr_per_usd = p.khr_per_usd
+  }
+  if (p.mac_power_watts !== undefined) {
+    if (!p.mac_power_watts || typeof p.mac_power_watts !== 'object' || Array.isArray(p.mac_power_watts)) {
+      throw new Error('mac_power_watts must be an object')
+    }
+    for (const [k, v] of Object.entries(p.mac_power_watts as Record<string, unknown>)) {
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+        throw new Error(`mac_power_watts.${k} must be a non-negative number`)
+      }
+      current.mac_power_watts[k.toLowerCase()] = v
+    }
+  }
+  await setAppSetting(COST_SETTINGS_KEY, current)
+  return current
 }

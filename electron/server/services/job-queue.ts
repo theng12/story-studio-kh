@@ -8220,6 +8220,16 @@ export async function getActiveJobs(projectSlug: string, view: JobView = 'stream
   return findJobs(projectSlug, job => ACTIVE_JOB_STATUSES.includes(job.status), view)
 }
 
+/** Return every raw job for one project without stripping attempts or provider evidence. */
+export async function getRawProjectJobs(projectSlug: string): Promise<Job[]> {
+  await loadPersistedJobs(projectSlug)
+  const list: Job[] = []
+  for (const job of jobs.values()) {
+    if (job.project_slug === projectSlug) list.push(job)
+  }
+  return list
+}
+
 /**
  * One scope's status counts, read from the raw queue. Counting a fleet's
  * history must never clone it — this is what lets the active-only snapshot

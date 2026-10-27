@@ -116,11 +116,22 @@
          step to auto-detect. Collapsed to a one-line summary by default so
          the picker stays compact on every generator page. -->
     <div v-if="selectedEp" class="step-strip">
-      <button type="button" class="step-summary" @click="stepsExpanded = !stepsExpanded">
-        <span class="step-summary-arrow ds-chevron" aria-hidden="true" :class="{ 'is-open': stepsExpanded }" />
-        Steps: {{ doneChipCount }}/{{ visibleChips.length }} done
-        <span v-if="manualChipCount" class="step-summary-manual">· {{ manualChipCount }} manual</span>
-      </button>
+      <div class="step-strip-header">
+        <button type="button" class="step-summary" @click="stepsExpanded = !stepsExpanded">
+          <span class="step-summary-arrow ds-chevron" aria-hidden="true" :class="{ 'is-open': stepsExpanded }" />
+          Steps: {{ doneChipCount }}/{{ visibleChips.length }} done
+          <span v-if="manualChipCount" class="step-summary-manual">· {{ manualChipCount }} manual</span>
+        </button>
+        <div v-if="epCost" class="ep-cost-bar" :title="costTooltip">
+          <span class="ep-cost-item">Paid: <strong>{{ formatPaid(epCost.paid, 'No data') }}</strong></span>
+          <span class="ep-cost-dot" aria-hidden="true">·</span>
+          <span class="ep-cost-item">Local: <strong>{{ formatLocal(epCost.local, 'No data') }}</strong></span>
+          <span class="ep-cost-dot" aria-hidden="true">·</span>
+          <span class="ep-cost-item" :class="{ 'ep-cost-waste-high': (epCost.waste?.percent ?? 0) > 20 }">
+            Waste: <strong>{{ formatWaste(epCost.waste, 'No data') }}</strong>
+          </span>
+        </div>
+      </div>
       <template v-if="stepsExpanded">
         <div class="step-chips-row">
           <button
@@ -159,6 +170,7 @@ import { STEP_STATUS_FIELD } from '~/composables/useProjectFlow'
 import { localMediaStatusLabel } from '~/composables/useEpisodes'
 import { jobTypeLabel } from '~/utils/job-presentation'
 import { adjacentEpisodeCodes } from '~/utils/episode-neighbours'
+import { useProjectCost, formatPaid, formatLocal, formatWaste } from '~/composables/useProjectCost'
 
 const props = defineProps<{
   modelValue: string
@@ -239,6 +251,27 @@ watch(() => props.projectSlug, () => {
   tryAutoSelectFromQuery()
 })
 onMounted(tryAutoSelectFromQuery)
+
+const { costFor, load: loadCost } = useProjectCost(slugRef)
+onMounted(() => {
+  loadCost()
+})
+
+const epCost = computed(() => costFor(props.modelValue))
+const costTooltip = computed(() => {
+  const c = epCost.value
+  if (!c) return 'Episode cost breakdown'
+  const paidText = c.paid.state === 'measured'
+    ? `Paid: $${c.paid.usd?.toFixed(2) ?? '0.00'}${c.paid.credits ? ` (${c.paid.credits} credits)` : ''}`
+    : 'Paid: No Gateway charge recorded'
+  const localText = c.local.state === 'measured'
+    ? `Local: ${c.local.mac_minutes ?? 0}m ($${c.local.cost_usd?.toFixed(2) ?? '0.00'})`
+    : 'Local: No runtime recorded'
+  const wasteText = c.waste.state === 'measured'
+    ? `Waste: ${c.waste.percent ?? 0}% (${c.waste.waste_jobs_count ?? 0} of ${c.waste.total_jobs_count ?? 0} jobs redone or failed)`
+    : 'Waste: No cost data'
+  return `${paidText}\n${localText}\n${wasteText}\nLocal cost: Mac-minutes × power × 720 KHR/kWh.`
+})
 
 // ── v1.0.338 — per-step status chips + manual mark-as-done ────────────────
 const { patch } = useApi()
@@ -829,6 +862,35 @@ defineExpose({ refresh, rescan })
 /* v1.0.338 — per-step status strip (collapsed summary + expandable chips). */
 .step-strip {
   margin-top: 6px;
+}
+.step-strip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ep-cost-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+.ep-cost-item strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.ep-cost-dot {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+.ep-cost-waste-high strong {
+  color: var(--warning, #e5a15e);
 }
 .step-summary {
   display: inline-flex;
