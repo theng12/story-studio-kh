@@ -29,7 +29,7 @@
 
 import sharp from 'sharp'
 import type { OverlayOptions } from 'sharp'
-import type { ThumbnailTextRenderReport, ThumbnailTextStyle, TextFill } from '../contracts/thumbnail-text.js'
+import type { ThumbnailTextRenderReport, ThumbnailTextStyle, TextAnchor, TextFill } from '../contracts/thumbnail-text.js'
 import { THUMBNAIL_TEXT_CANVAS } from '../contracts/thumbnail-text.js'
 import { configureFontconfig, fontFilePath, requireFont, ThumbnailFontError, type FontManifestEntry } from './thumbnail-fonts.js'
 import { glyphCoverage } from './font-coverage.js'
@@ -62,6 +62,46 @@ export interface RenderInput {
   sourceBytes: Buffer
   text: string
   style: ThumbnailTextStyle
+  /**
+   * The frame to draw at. Absent means the YouTube thumbnail size, which is what every existing
+   * caller gets — so adding this changed no thumbnail by a pixel.
+   */
+  canvas?: { width: number; height: number }
+  /**
+   * The channel's mark burned onto the same copy: a handle set in a bundled font and, when one is
+   * set, the logo image. Both are optional and both simply draw nothing when disabled, which is
+   * why a channel with no logo yet is not a special case anywhere.
+   */
+  branding?: RenderBranding
+}
+
+/**
+ * The handle and logo layer.
+ *
+ * Owner, 2026-10-27: the handle defaults to the channel's own and may be overridden; the logo is a
+ * file the owner will make later, so the layer exists now and draws nothing until there is one.
+ */
+export interface RenderBranding {
+  handle: {
+    enabled: boolean
+    text: string
+    font_id: string
+    weight: number
+    size_px: number
+    color: string
+    opacity: number
+  }
+  logo: {
+    enabled: boolean
+    /** Absolute path to the logo art, or null when the channel has none yet. */
+    path: string | null
+    /** Logo width, in percent of the canvas width. */
+    width_pct: number
+    opacity: number
+  }
+  position: TextAnchor
+  /** Distance from the nearest edge, in percent of the canvas. */
+  margin_pct: number
 }
 
 /** A refusal the route turns into a plain 400 with the message intact. */
@@ -469,6 +509,78 @@ export function placementBox(style: ThumbnailTextStyle, canvasWidth: number, can
   }
 }
 
+// ── Branding (handle + logo) ───────────────────────────────────────────────
+
+/** Gap between the logo and the handle inside the mark row, at a 1080px short edge. */
+const BRAND_GAP_RATIO = 0.018
+
+/**
+ * Build the mark row: [logo][space][handle], or whichever of the two is switched on.
+ *
+ * One row rather than two independent corners, because "the handle and the logo" is one mark and a
+ * channel that has only one of them should look deliberate rather than broken. Returns null when
+ * nothing is switched on OR when the logo file does not exist — the caller then draws no mark at
+ * all, which is the honest outcome for a channel that has not set one yet.
+ */
+async function buildBrandRow(
+  branding: RenderBranding,
+  canvas: { width: number; height: number },
+): Promise<{ png: Buffer; width: number; height: number } | null> {
+  const parts: Array<{ png: Buffer; width: number; height: number }> = []
+
+  if (branding.logo.enabled && branding.logo.path) {
+    try {
+      const width = Math.max(1, Math.round((branding.logo.width_pct / 100) * canvas.width))
+      const resized = await sharp(branding.logo.path)
+        .resize({ width, withoutEnlargement: true })
+        .ensureAlpha()
+        .png()
+        .toBuffer()
+      parts.push({ png: await applyOpacity(resized, branding.logo.opacity), ...(await sizeOf(resized)) })
+    } catch {
+      // A logo that cannot be read is not a reason to lose the handle, or the artwork.
+    }
+  }
+
+  if (branding.handle.enabled && branding.handle.text.trim()) {
+    const font = await requireFont(branding.handle.font_id)
+    const rendered = await renderLine(branding.handle.text.trim(), font, branding.handle.weight, branding.handle.size_px)
+    const painted = await applyOpacity(await tint(rendered, branding.handle.color), branding.handle.opacity)
+    parts.push({ png: painted, ...(await sizeOf(painted)) })
+  }
+
+  if (!parts.length) return null
+  const gap = parts.length > 1 ? Math.round(BRAND_GAP_RATIO * canvas.width) : 0
+  const width = parts.reduce((total, part) => total + part.width, 0) + gap * (parts.length - 1)
+  const height = Math.max(...parts.map(part => part.height))
+  const overlays: OverlayOptions[] = []
+  let left = 0
+  for (const part of parts) {
+    overlays.push({ input: part.png, left, top: Math.round((height - part.height) / 2) })
+    left += part.width + gap
+  }
+  const png = await blankLayer(width, height).composite(overlays).png().toBuffer()
+  return { png, width, height }
+}
+
+/** Where the mark row sits, clamped inside the canvas. */
+export function brandingBox(
+  branding: RenderBranding,
+  row: { width: number; height: number },
+  canvas: { width: number; height: number },
+): { left: number; top: number } {
+  const { vertical, horizontal } = anchorParts(branding.position)
+  const margin = Math.round((Math.max(0, branding.margin_pct) / 100) * Math.min(canvas.width, canvas.height))
+  const left = horizontal === 'left' ? margin
+    : horizontal === 'right' ? canvas.width - margin - row.width
+      : Math.round((canvas.width - row.width) / 2)
+  const top = vertical === 'top' ? margin
+    : vertical === 'bottom' ? canvas.height - margin - row.height
+      : Math.round((canvas.height - row.height) / 2)
+  const clamp = (value: number, limit: number) => Math.max(0, Math.min(limit - 1, value))
+  return { left: clamp(left, canvas.width - row.width + 1), top: clamp(top, canvas.height - row.height + 1) }
+}
+
 // ── Font self-check ────────────────────────────────────────────────────────
 
 /**
@@ -524,6 +636,7 @@ export async function renderThumbnailText(input: RenderInput): Promise<RenderedT
   configureFontconfig()
 
   const style = input.style
+  const canvas = input.canvas ?? THUMBNAIL_TEXT_CANVAS
   const font = await requireFont(style.font_id)
   const text = style.uppercase && textHasCase(input.text) ? input.text.toUpperCase() : input.text
 
@@ -546,7 +659,7 @@ export async function renderThumbnailText(input: RenderInput): Promise<RenderedT
 
   await ensureFontsResolve(font)
 
-  const box = placementBox(style, THUMBNAIL_TEXT_CANVAS.width, THUMBNAIL_TEXT_CANVAS.height)
+  const box = placementBox(style, canvas.width, canvas.height)
   const pad = style.background.enabled ? Math.max(0, Math.round(style.background.padding_px)) : 0
   const margin = outlineMargin(style)
   // The outlined, padded block — not the bare text — is what has to fit inside the box, so the
@@ -647,9 +760,9 @@ export async function renderThumbnailText(input: RenderInput): Promise<RenderedT
       : style.align === 'right' ? box.left + box.width - pad - margin - block.width
         : box.left + (box.width - block.width) / 2,
     block.width,
-    THUMBNAIL_TEXT_CANVAS.width,
+    canvas.width,
   )
-  const blockTop = clamp(box.top + (box.height - block.height) / 2, block.height, THUMBNAIL_TEXT_CANVAS.height)
+  const blockTop = clamp(box.top + (box.height - block.height) / 2, block.height, canvas.height)
 
   const layers: OverlayOptions[] = []
 
@@ -673,17 +786,26 @@ export async function renderThumbnailText(input: RenderInput): Promise<RenderedT
 
   layers.push({ input: block.png, left: blockLeft, top: blockTop })
 
+  // The mark rides ON TOP of the words: a handle that the quote covers is not a handle.
+  if (input.branding) {
+    const row = await buildBrandRow(input.branding, canvas)
+    if (row) {
+      const at = brandingBox(input.branding, row, canvas)
+      layers.push({ input: row.png, left: at.left, top: at.top })
+    }
+  }
+
   const overlay = await sharp({
     create: {
-      width: THUMBNAIL_TEXT_CANVAS.width,
-      height: THUMBNAIL_TEXT_CANVAS.height,
+      width: canvas.width,
+      height: canvas.height,
       channels: 4,
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     },
   }).composite(layers).png().toBuffer()
 
   const backdrop = await sharp(input.sourceBytes)
-    .resize(THUMBNAIL_TEXT_CANVAS.width, THUMBNAIL_TEXT_CANVAS.height, { fit: 'cover', position: 'centre' })
+    .resize(canvas.width, canvas.height, { fit: 'cover', position: 'centre' })
     .png()
     .toBuffer()
 
@@ -693,10 +815,10 @@ export async function renderThumbnailText(input: RenderInput): Promise<RenderedT
     .toBuffer()
 
   const meta = await sizeOf(png)
-  if (meta.width !== THUMBNAIL_TEXT_CANVAS.width || meta.height !== THUMBNAIL_TEXT_CANVAS.height) {
+  if (meta.width !== canvas.width || meta.height !== canvas.height) {
     throw new Error(
-      `The renderer produced ${meta.width}x${meta.height}; every thumbnail must be `
-      + `${THUMBNAIL_TEXT_CANVAS.width}x${THUMBNAIL_TEXT_CANVAS.height}.`,
+      `The renderer produced ${meta.width}x${meta.height}; this frame must be `
+      + `${canvas.width}x${canvas.height}.`,
     )
   }
 
