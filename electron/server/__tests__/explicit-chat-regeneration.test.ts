@@ -27,7 +27,7 @@ test('each visible fresh action retains one caller operation id until its submit
     source('frontend/components/PromptReviewPanel.vue'),
     source('frontend/pages/projects/[slug]/scene-plan.vue'),
     source('frontend/pages/projects/[slug]/research.vue'),
-    source('frontend/pages/projects/[slug]/contextual-cues.vue'),
+    source('frontend/pages/projects/[slug]/sound-and-labels.vue'),
     source('frontend/pages/projects/[slug]/images.vue'),
     source('frontend/pages/projects/[slug]/scene-review.vue'),
     source('frontend/pages/projects/[slug]/music.vue'),

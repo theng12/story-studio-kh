@@ -762,7 +762,9 @@ describe('episode-status-cache', () => {
     assert.equal(status.contextual_cues_generated, false, 'but no timeline was ever written')
   })
 
-  test('contextual cues: an unresolved proposal still reads as outstanding', async () => {
+  // v1.4.365 — the rule follows the renderer: an unreviewed label renders as no label
+  // plus a note, so it no longer holds the episode. Still reported as produced.
+  test('contextual cues: an unresolved proposal no longer holds the episode', async () => {
     const { epDir, projDir } = await makeProject()
     await fs.writeFile(path.join(projDir, 'config.json'), JSON.stringify({ contextual_cues: { enabled: true } }))
     const scenePromptsDir = path.join(epDir, `${CODE} - 03 Scene Prompts`)
@@ -790,7 +792,7 @@ describe('episode-status-cache', () => {
     await writeVerifiedSubtitleTimeline(epDir)
 
     const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
-    assert.equal(status.contextual_cues, false, 'a proposal nobody reviewed is still outstanding')
+    assert.equal(status.contextual_cues, true, 'a proposal nobody reviewed is silence plus a note, not a block')
     assert.equal(status.contextual_cues_generated, true)
   })
 })
