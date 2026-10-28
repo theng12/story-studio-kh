@@ -418,6 +418,8 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
           fps: settings.fps, frames, width: settings.width, height: settings.height,
           pen_fingerprint: settings.penFingerprint,
           hold_frames: holdFrames, hold_fingerprint: settings.holdFingerprint,
+          // No depth-mask identity here on purpose: the map only reorders the colouring and the
+          // final frame is the scene picture either way, so a changed map never stales a clip.
           reveal_type: revealType },
         candidate_path: candidatePath,
         context: { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, imagePath, revealScenes }, assertActive,
