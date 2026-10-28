@@ -1459,8 +1459,10 @@ router.get('/projects/:slug/youtube/videos/snippets', async (req, res) => {
       await recordVideoAuditEntries({ project_slug: slug, channel_id: channelId, entries: fresh })
     }
 
-    const merged: Record<string, VideoAuditEntry> = { ...ledger }
-    for (const entry of fresh) merged[entry.video_id] = entry
+    // Answer with what was stored, so the response carries Story's write markers too.
+    const merged: Record<string, VideoAuditEntry> = fresh.length
+      ? await readChannelVideoAudit(slug, channelId)
+      : { ...ledger }
 
     res.json({
       channel_id: channelId,
