@@ -10,6 +10,7 @@
       "@shared/motion-scope": ["../electron/server/contracts/motion-scope.ts"],
       "@shared/pacing": ["../electron/server/contracts/pacing.ts"],
       "@shared/project-labels": ["../electron/server/contracts/project-labels.ts"],
+      "@shared/project-slug": ["../electron/server/contracts/project-slug.ts"],
       "@shared/subtitle-style": ["../electron/server/contracts/subtitle-style.ts"],
       "@shared/subtitle-presets": ["../electron/server/contracts/subtitle-presets.ts"],
       "@shared/subtitle-gaps": ["../electron/server/contracts/subtitle-gaps.ts"],

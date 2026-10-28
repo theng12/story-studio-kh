@@ -29,12 +29,17 @@ import {
   MAX_PROJECT_LABEL_LENGTH,
   normalizeProjectLabels,
 } from './project-labels.js'
+import { MAX_PROJECT_SLUG_LENGTH } from './project-slug.js'
 
 // ── Projects ────────────────────────────────────────────────────────────────
 
 export const CreateProjectSchema = z.object({
   // `name` stays .min(1) — a project literally can't exist without one.
   name: z.string().min(1, 'name is required').max(120),
+  // 2026-10-28 — the channel folder name, chosen outright (optional). The
+  // charset/unique checks live in project-manager so a refusal reads as a plain
+  // sentence; this bound only stops a wildly long value at the wire.
+  slug: z.string().max(MAX_PROJECT_SLUG_LENGTH).optional(),
   // The fields below are all "optional with a sensible default" — frontend
   // forms either start empty or let the user blank them out, sending '' to
   // mean "use the default." Pairing .min(1) with .optional() rejects ''

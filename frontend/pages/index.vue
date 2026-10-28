@@ -349,6 +349,18 @@
             autocomplete="off"
             required
           />
+          <!-- The slug is the channel's FOLDER name, and the server derives it
+               from the name. A derived value that is enforced must also be
+               shown, so the customer sees exactly what will be created before
+               they press Create (owner rule, AGENTS §1). For a Khmer-only name
+               the derived part is "channel-" plus a short id from the name. -->
+          <p v-if="slugPreview" class="slug-preview">
+            Folder slug: <code>{{ slugPreview }}</code>
+            <small>
+              This becomes the channel's folder under your Library. It is fixed once the channel exists —
+              Story Studio does not rename channel folders.
+            </small>
+          </p>
         </div>
 
         <!-- Owner ruling, 2026-10-25: the Formula is a required step, with an
@@ -495,6 +507,9 @@
 
 <script setup lang="ts">
 import { projectSlug } from '~/utils/project-slug'
+// The slug rule itself — the SAME module the create route uses, so the preview
+// below is the value, not a second copy of the rule that can drift.
+import { projectSlugBase, uniqueProjectSlug } from '@shared/project-slug'
 import { readLastKnownList, writeLastKnownList } from '~/utils/last-known-list'
 import { CONTENT_LANGUAGE_OPTIONS } from '~/utils/content-language'
 import {
@@ -596,6 +611,24 @@ const formulaChoiceMade = computed(() => (
   form.formula_choice === 'generic'
   || (form.formula_choice === 'formula' && !!form.niche_id)
 ))
+
+/**
+ * The folder slug the server will create for the name typed so far.
+ *
+ * Computed by the same shared module `project-manager.resolveCreateSlug` uses,
+ * against the channel list this page already loaded (hidden channels still own
+ * their folder, so their slugs count). `-2` / `-3` is the server's suffix rule,
+ * shown rather than applied invisibly later.
+ */
+const slugPreview = computed(() => {
+  const name = form.name.trim()
+  if (!name) return ''
+  const taken = [
+    ...projects.value.map((row: any) => row?.slug),
+    ...hiddenProjects.items.value.map((row: any) => row?.slug),
+  ].filter((value: unknown): value is string => typeof value === 'string' && !!value)
+  return uniqueProjectSlug(projectSlugBase(name), taken)
+})
 
 function chooseGeneric(): void {
   // A deliberate Generic choice replaces any half-picked Formula, so the
@@ -1374,6 +1407,20 @@ onMounted(async () => {
   line-height: 1.45;
 }
 .formula-generic-note { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
+.slug-preview {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
+.slug-preview code {
+  color: var(--text-primary);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow-wrap: anywhere;
+}
+.slug-preview small { color: var(--text-muted); }
 .naming-options { border-top: 1px solid var(--border); padding-top: 16px; }
 .naming-options summary { color: var(--text-secondary); cursor: pointer; font-weight: 650; }
 .naming-options[open] summary { margin-bottom: 14px; color: var(--text-primary); }

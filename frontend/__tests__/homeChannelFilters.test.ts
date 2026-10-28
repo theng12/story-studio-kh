@@ -34,10 +34,14 @@ async function loadComponent(file: string, id: string, support: string) {
   })
   const vueUrl = await import.meta.resolve('vue')
   const util = (name: string) => JSON.stringify(new URL(`../utils/${name}.ts`, import.meta.url).href)
+  const shared = (name: string) => JSON.stringify(new URL(`../../electron/server/contracts/${name}.ts`, import.meta.url).href)
   const scriptCode = script.content
     .replace("'~/utils/project-slug'", util('project-slug'))
     .replace("'~/utils/last-known-list'", util('last-known-list'))
     .replace("'~/utils/channel-view'", util('channel-view'))
+    // `@shared/*` has no import map inside a data: module — point the page's
+    // slug rule (the same module the server uses) at the real file.
+    .replace("'@shared/project-slug'", shared('project-slug'))
     .replace('export default', 'const __sfc__ =')
   const code = `${support}\n${scriptCode}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })

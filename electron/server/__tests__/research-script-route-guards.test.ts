@@ -36,6 +36,14 @@ before(async () => {
   slug = proj.body.slug
   const pm = await import('../services/project-manager.js')
   projectDir = pm.getProjectDir(slug)!
+  // An import may only create an episode folder for an episode this channel
+  // owns (2026-10-28), so the fixture registers EP001 the way the UI does.
+  const im = await import('../services/idea-manager.js')
+  const [idea] = await im.addIdeas(slug, [{
+    title: TITLE, logline: '', themes: [],
+    suggested_chapters: 10, suggested_length: '45 min', mood: '',
+  }], 'manual')
+  await im.acceptIdea(slug, idea!.id, false, { override_code: EP })
 })
 
 after(async () => { await cleanup() })

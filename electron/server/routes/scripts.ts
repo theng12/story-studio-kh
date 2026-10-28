@@ -5,6 +5,7 @@ import { existsSync } from 'fs'
 import pathMod from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import * as im from '../services/idea-manager.js'
 import { hasAnyTextProviderKey } from '../lib/ai-client.js'
 import { resolveEpisodePaths, resolveEpisodePathsForRead, resolveEpisodePathsByCode, resolveEpisodeTitleByCode } from '../services/utils.js'
 import { episodeIsIntroEligible } from '../lib/episode-creation-facts.js'
@@ -20,7 +21,7 @@ import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
-import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
 import { inspectYouTubeFinalizationStatus } from '../services/youtube-metadata-finalizer.js'
 import { safetyMode } from '../services/safety-checks.js'
 import { noThumbnailModelMessage, resolveThumbnailModel } from '../services/thumbnail-presets.js'
@@ -777,9 +778,9 @@ function parseOutlineText(text: string): Array<{ title: string; synopsis?: strin
 }
 
 /**
- * Resolve the on-disk Script subfolder to write an imported/pasted script or
- * outline into, preferring the EXISTING episode folder over a freshly built
- * path.
+ * Run an imported script/outline write inside the episode's Script subfolder,
+ * preferring the EXISTING episode folder over a freshly built path — and, when
+ * no folder exists yet, creating one ATOMICALLY.
  *
  * `resolveEpisodePaths` constructs the folder name from the *request* title, so
  * a pasted script whose title differs even slightly from the title the folder
@@ -790,34 +791,98 @@ function parseOutlineText(text: string): Array<{ title: string; synopsis?: strin
  *
  * Fix: match the real folder by `${code} - ` prefix (✅-tolerant) the same way
  * the old image-prompts save did, then find/create the Script subfolder inside it.
- * Only when no folder matches the code do we fall back to creating the computed
- * path — a genuinely new episode. This converges every writer on one on-disk
- * folder per episode.
+ *
+ * ── Why a new folder is staged (Production defect, 2026-10-28) ─────────────
+ *
+ * A failed import for a code this channel did not own used to leave a
+ * half-written `Season 000/EP0000 - <Title>` folder behind: nothing in the app
+ * listed it (no accepted idea), yet every folder scan found it. Two rules now
+ * hold:
+ *
+ *   1. An import may only CREATE a folder for an episode this channel actually
+ *      has — an accepted idea (what the selectors and the Production Board
+ *      read). A code that is neither registered nor on disk is refused with a
+ *      plain message instead of silently becoming a folder.
+ *   2. The new folder is built under `<channel>/.import-staging/…` and renamed
+ *      into the season on success, so a partial one is never an episode folder.
+ *      On failure the staging folder moves to the channel's own Trash and the
+ *      error says where it went — never `rm`.
  */
-async function resolveScriptDirForImport(slug: string, episodeId: string, title: string): Promise<string> {
+async function withEpisodeScriptDir<T>(
+  slug: string,
+  episodeId: string,
+  title: string,
+  run: (scriptDir: string) => Promise<T>,
+): Promise<T> {
   const paths = await resolveEpisodePaths(slug, episodeId, title)
   const computedEpisodeDir = paths.episode_dir.replace(/\/$/, '')
   const seasonDir = pathMod.dirname(computedEpisodeDir)
+  const scriptFolderName = pathMod.basename(paths.script_dir)
+
   const actualDir = await resolveEpisodeDir(seasonDir, episodeId)
-  if (!actualDir) {
-    console.warn(
-      `[script-import] episode ${slug}/${episodeId}: no existing folder under ${seasonDir} ` +
-      `matches "${episodeId} - " prefix — creating "${pathMod.basename(computedEpisodeDir)}". ` +
-      `(Expected when importing a script for an episode whose folder was never generated.)`,
-    )
-    await fs.mkdir(paths.script_dir, { recursive: true })
-    return paths.script_dir
+  if (actualDir) {
+    if (actualDir !== computedEpisodeDir) {
+      console.log(
+        `[script-import] episode ${slug}/${episodeId}: request title yielded ` +
+        `"${pathMod.basename(computedEpisodeDir)}" but on-disk folder is ` +
+        `"${pathMod.basename(actualDir)}". Writing into the existing folder.`,
+      )
+    }
+    // Find/create the Script subfolder inside the real episode dir (✅-tolerant,
+    // never duplicates a "✅ "-marked subfolder).
+    return run(await resolveSubfolder(actualDir, scriptFolderName, true))
   }
-  if (actualDir !== computedEpisodeDir) {
-    console.log(
-      `[script-import] episode ${slug}/${episodeId}: request title yielded ` +
-      `"${pathMod.basename(computedEpisodeDir)}" but on-disk folder is ` +
-      `"${pathMod.basename(actualDir)}". Writing into the existing folder.`,
-    )
+
+  // No folder for this code. Decide whether this channel owns the episode at all.
+  const registered = (await im.getIdeas(slug)).some(idea => (
+    idea.status === 'accepted'
+    && (idea.episode_code || '').toUpperCase() === episodeId.toUpperCase()
+  ))
+  if (!registered) {
+    const numberPart = Number(episodeId.replace(/^[A-Za-z]+/, ''))
+    const detail = Number.isFinite(numberPart) && numberPart < 1
+      ? `${episodeId} has no episode number, so it names no episode in this channel.`
+      : `${episodeId} is not an episode in this channel.`
+    throw Object.assign(new Error(
+      `${detail} Accept the idea first (Ideas → Accept), then import into the code it was given.`,
+    ), { statusCode: 400, expose: true, code: 'EPISODE_NOT_REGISTERED' })
   }
-  // Find/create the Script subfolder inside the real episode dir (✅-tolerant,
-  // never duplicates a "✅ "-marked subfolder).
-  return resolveSubfolder(actualDir, pathMod.basename(paths.script_dir), true)
+
+  console.warn(
+    `[script-import] episode ${slug}/${episodeId}: no existing folder under ${seasonDir} ` +
+    `matches "${episodeId} - " prefix — creating "${pathMod.basename(computedEpisodeDir)}" once the import succeeds.`,
+  )
+  const projectDir = pm.getProjectDir(slug)!
+  const stagingRoot = pathMod.join(projectDir, '.import-staging', `${episodeId}-${randomUUID().slice(0, 8)}`)
+  const stagingScriptDir = pathMod.join(stagingRoot, scriptFolderName)
+  await fs.mkdir(stagingScriptDir, { recursive: true })
+
+  try {
+    const result = await run(stagingScriptDir)
+    await fs.mkdir(seasonDir, { recursive: true })
+    await fs.rename(stagingRoot, computedEpisodeDir)
+    return result
+  } catch (error) {
+    // The staging folder is not an episode folder, but it still holds the
+    // partial work — keep it restorable and say exactly where it went.
+    let trashed = ''
+    try {
+      trashed = moveToTrashSync(
+        stagingRoot,
+        pathMod.join(trashRootFor(projectDir, projectDir, slug), 'import-failures', pathMod.basename(stagingRoot)),
+        'episode-import',
+      )
+    } catch { /* reported below — losing the cleanup must not mask the cause */ }
+    const cause = error instanceof Error ? error.message : String(error)
+    const status = typeof (error as { statusCode?: unknown })?.statusCode === 'number'
+      ? (error as { statusCode: number }).statusCode
+      : 500
+    throw Object.assign(new Error(
+      trashed
+        ? `${cause} Nothing was left behind: the partial episode folder was moved to ${trashed}.`
+        : `${cause} A partial episode folder was left at ${stagingRoot} (moving it to the Trash failed).`,
+    ), { statusCode: status, expose: true })
+  }
 }
 
 /** A queued, running or paused writer owns this episode's script files; an
@@ -843,57 +908,61 @@ router.post('/projects/:slug/episodes/:episodeId/import-script', async (req, res
     const busy = importBlockedByActiveWriter(slug, episodeId)
     if (busy) return res.status(409).json({ detail: busy })
 
-    const scriptDir = await resolveScriptDirForImport(slug, episodeId, title)
-
     const { splitNarrationIntoChapters, writeChapterFiles, assembleUnifiedNarration } =
       await import('../lib/narration-assembly.js')
-    let parts = splitNarrationIntoChapters(text)
-    if (!parts.chapters.length) {
-      // No `## Chapter N:` headings → import the whole thing as one chapter.
-      parts = { chapters: [{ number: 1, title: title || 'Script', text: text.trim() }], ...(parts.intro ? { intro: parts.intro } : {}) }
-    }
 
-    // Move prior script artifacts for this episode into Story's Trash
-    // (never hard-deleted) so a re-import is clean.
-    //
-    // The code is ESCAPED before it is used as a pattern. It arrives as a route
-    // param, and an unescaped `.*` turns `^${code}_Chapter_` into a pattern that
-    // matches every episode's chapters in this folder — and the loop below
-    // moves each match away. `scene-review.ts` already escapes at its own
-    // pattern sites; this block was the copy that did not.
-    const codePattern = episodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const projectDir = pm.getProjectDir(slug)!
-    const narrationPath = pathMod.join(scriptDir, `${episodeId}_Script_Narration.md`)
-    const asm = await withLock(narrationPath, async () => {
-      const entries = await fs.readdir(scriptDir).catch(() => [] as string[])
-      for (const f of entries) {
-        if (
-          new RegExp(`^${codePattern}_Chapter_\\d+\\.(md|docx)$`).test(f) ||
-          new RegExp(`^${codePattern}_Introduction\\.(md|docx)$`).test(f) ||
-          new RegExp(`^${codePattern}_Script_Narration\\.(md|docx)$`).test(f) ||
-          f === `${episodeId}_Script_Narration.intro.json` ||
-          f === `${episodeId}_chunked-progress.json`
-        ) {
-          const file = pathMod.join(scriptDir, f)
-          const rel = pathMod.relative(projectDir, file)
-          moveToTrashSync(file, pathMod.join(trashRootFor(projectDir, projectDir, slug),
-            rel.startsWith('..') || pathMod.isAbsolute(rel) ? pathMod.join(episodeId, f) : rel), 'script')
+    // Everything below runs inside the episode's Script folder. When the folder
+    // has to be created, withEpisodeScriptDir builds it in staging and renames
+    // it only after this callback resolves — see its doc comment.
+    const asm = await withEpisodeScriptDir(slug, episodeId, title, async (scriptDir) => {
+      let parts = splitNarrationIntoChapters(text)
+      if (!parts.chapters.length) {
+        // No `## Chapter N:` headings → import the whole thing as one chapter.
+        parts = { chapters: [{ number: 1, title: title || 'Script', text: text.trim() }], ...(parts.intro ? { intro: parts.intro } : {}) }
+      }
+
+      // Move prior script artifacts for this episode into Story's Trash
+      // (never hard-deleted) so a re-import is clean.
+      //
+      // The code is ESCAPED before it is used as a pattern. It arrives as a route
+      // param, and an unescaped `.*` turns `^${code}_Chapter_` into a pattern that
+      // matches every episode's chapters in this folder — and the loop below
+      // moves each match away. `scene-review.ts` already escapes at its own
+      // pattern sites; this block was the copy that did not.
+      const codePattern = episodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const projectDir = pm.getProjectDir(slug)!
+      const narrationPath = pathMod.join(scriptDir, `${episodeId}_Script_Narration.md`)
+      return withLock(narrationPath, async () => {
+        const entries = await fs.readdir(scriptDir).catch(() => [] as string[])
+        for (const f of entries) {
+          if (
+            new RegExp(`^${codePattern}_Chapter_\\d+\\.(md|docx)$`).test(f) ||
+            new RegExp(`^${codePattern}_Introduction\\.(md|docx)$`).test(f) ||
+            new RegExp(`^${codePattern}_Script_Narration\\.(md|docx)$`).test(f) ||
+            f === `${episodeId}_Script_Narration.intro.json` ||
+            f === `${episodeId}_chunked-progress.json`
+          ) {
+            const file = pathMod.join(scriptDir, f)
+            const rel = pathMod.relative(projectDir, file)
+            moveToTrashSync(file, pathMod.join(trashRootFor(projectDir, projectDir, slug),
+              rel.startsWith('..') || pathMod.isAbsolute(rel) ? pathMod.join(episodeId, f) : rel), 'script')
+          }
         }
-      }
 
-      await writeChapterFiles(scriptDir, episodeId, title || episodeId, parts)
-      const assembled = await assembleUnifiedNarration(scriptDir, episodeId, title || episodeId)
-      if (assembled.introduction_present) {
-        await writeJsonAtomic(pathMod.join(scriptDir, `${episodeId}_Script_Narration.intro.json`), { imported_at: new Date().toISOString() })
-      }
-      return assembled
+        await writeChapterFiles(scriptDir, episodeId, title || episodeId, parts)
+        const assembled = await assembleUnifiedNarration(scriptDir, episodeId, title || episodeId)
+        if (assembled.introduction_present) {
+          await writeJsonAtomic(pathMod.join(scriptDir, `${episodeId}_Script_Narration.intro.json`), { imported_at: new Date().toISOString() })
+        }
+        return assembled
+      })
     })
 
     const { episodeStatusCache } = await import('../services/episode-status-cache.js')
     episodeStatusCache.invalidate(slug, episodeId)
     res.json({ ok: true, chapters: asm.chapter_numbers.length, introduction: asm.introduction_present })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to import script'))
+    respondWithError(res, e, 'Failed to import script')
   }
 })
 
@@ -917,17 +986,19 @@ router.post('/projects/:slug/episodes/:episodeId/import-outline', async (req, re
     const busy = importBlockedByActiveWriter(slug, episodeId)
     if (busy) return res.status(409).json({ detail: busy })
 
-    const scriptDir = await resolveScriptDirForImport(slug, episodeId, title)
     const fmt = await getEffectiveFormat(slug).catch(() => null as any)
     const mode = fmt?.id === 'listicle' ? 'listicle' : 'narrative'
     const { writeImportedOutline } = await import('../lib/chunked-narration.js')
-    const sidecar = await writeImportedOutline(scriptDir, episodeId, outline, { mode })
+    // Same staging rule as import-script: a folder this channel does not own is
+    // refused, and a folder being created is renamed into place only on success.
+    const sidecar = await withEpisodeScriptDir(slug, episodeId, title, scriptDir =>
+      writeImportedOutline(scriptDir, episodeId, outline, { mode }))
 
     const { episodeStatusCache } = await import('../services/episode-status-cache.js')
     episodeStatusCache.invalidate(slug, episodeId)
     res.json({ ok: true, chapters: sidecar.total_chapters })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to import outline'))
+    respondWithError(res, e, 'Failed to import outline')
   }
 })
 

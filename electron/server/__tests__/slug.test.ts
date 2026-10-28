@@ -7,7 +7,14 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { sanitizeProjectSlug } from '../services/slug.js'
+import {
+  fallbackChannelSlug,
+  isValidExplicitProjectSlug,
+  projectSlugBase,
+  projectSlugCore,
+  sanitizeProjectSlug,
+  uniqueProjectSlug,
+} from '../services/slug.js'
 
 describe('sanitizeProjectSlug()', () => {
   describe('baseline behaviour (unchanged from the old slugify)', () => {
@@ -100,6 +107,57 @@ describe('sanitizeProjectSlug()', () => {
 
     test('mixed ASCII + symbols reduces to ASCII core', () => {
       assert.equal(sanitizeProjectSlug('Hello — World!'), 'hello-world')
+    })
+  })
+
+  // Production defect, 2026-10-28: a Khmer-only channel name became the literal
+  // folder "project", so a second such channel collided with it. Creation uses
+  // projectSlugBase(), whose fallback is unique per name; the historical
+  // sanitiser keeps its "project" fallback for the callers that pinned it.
+  describe('the fallback for a name with no Latin characters', () => {
+    test('the core is empty, and the old wrapper still falls back to "project"', () => {
+      assert.equal(projectSlugCore('ពិភពទេវកថា'), '')
+      assert.equal(sanitizeProjectSlug('ពិភពទេវកថា'), 'project')
+    })
+
+    test('creation gets channel-<8 hex>, never the literal "project"', () => {
+      const slug = projectSlugBase('ពិភពទេវកថា')
+      assert.notEqual(slug, 'project')
+      assert.match(slug, /^channel-[0-9a-f]{8}$/)
+      assert.equal(slug, fallbackChannelSlug('ពិភពទេវកថា'))
+    })
+
+    test('the fallback is stable for one name and different for another', () => {
+      assert.equal(fallbackChannelSlug('ពិភពទេវកថា'), fallbackChannelSlug('ពិភពទេវកថា'))
+      assert.notEqual(fallbackChannelSlug('ពិភពទេវកថា'), fallbackChannelSlug('រឿងព្រេងខ្មែរ'))
+    })
+
+    test('a Latin name is unaffected and a name that IS "project" keeps it', () => {
+      assert.equal(projectSlugBase('My New Project'), 'my-new-project')
+      assert.equal(projectSlugBase('project'), 'project')
+    })
+
+    test('the second channel with the same name is made unique, case-insensitively', () => {
+      const base = projectSlugBase('ពិភពទេវកថា')
+      assert.equal(uniqueProjectSlug(base, []), base)
+      assert.equal(uniqueProjectSlug(base, [base]), `${base}-2`)
+      assert.equal(uniqueProjectSlug(base, [base.toUpperCase(), `${base}-2`]), `${base}-3`)
+      // A base whose plain form is free is never suffixed.
+      assert.equal(uniqueProjectSlug('fresh-name', [base]), 'fresh-name')
+    })
+  })
+
+  describe('explicit slugs', () => {
+    test('accepts lowercase letters, digits and single hyphens', () => {
+      for (const slug of ['abc', 'khmer-stories-2', 'a1']) {
+        assert.equal(isValidExplicitProjectSlug(slug), true, slug)
+      }
+    })
+
+    test('rejects spaces, underscores, edges and Windows device names', () => {
+      for (const slug of ['not a slug', 'under_score', '-lead', 'trail-', 'dou--ble', 'con', 'COM1', '', 'ពិភព']) {
+        assert.equal(isValidExplicitProjectSlug(slug), false, JSON.stringify(slug))
+      }
     })
   })
 })
