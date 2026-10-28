@@ -8,7 +8,7 @@
  * starting default for an episode that has none. Per-scene pins are keyed by scene id, so they are
  * episode state and are excluded from presets (AGENTS.md §5).
  */
-export const REVEAL_TYPES = ['line', 'buildup', 'swipes', 'patches', 'bloom'] as const
+export const REVEAL_TYPES = ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour'] as const
 export type SketchRevealType = (typeof REVEAL_TYPES)[number]
 export type SketchRevealStyle = SketchRevealType | 'mix'
 
@@ -28,6 +28,7 @@ export const REVEAL_MAX_MIX = REVEAL_TYPES.length
 
 export const REVEAL_LABELS: Record<SketchRevealType, string> = {
   line: 'Line', buildup: 'Build-up', swipes: 'Swipes', patches: 'Patches', bloom: 'Bloom',
+  colour: 'Colour it in',
 }
 
 /** What the customer picked: null for "not chosen", a setting, or the sentence to show. */

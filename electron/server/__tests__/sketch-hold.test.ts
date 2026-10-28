@@ -273,7 +273,7 @@ describe('the hold in settings and freshness', () => {
   })
 
   test('version-2 clips (old 15% hold) stay fresh under every hold setting until they are regenerated', async () => {
-    assert.deepEqual([...version.SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4])
+    assert.deepEqual([...version.SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS], [2, 3, 4, 5])
     const slug = await channel('Legacy v2')
     const ep = await episode(slug, 'EP001')
     const legacy = await renderedNow(slug, 'EP001', 8)

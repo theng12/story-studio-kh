@@ -49,7 +49,11 @@ struct SketchJob: Decodable {
     var paper: String
     var pen: SketchPen
     var quality: Double?
-    var reveal: String?        // line | buildup | swipes | patches | bloom. Default: line.
+    var reveal: String?        // line | buildup | swipes | patches | bloom | colour. Default: line.
+    // Optional 8-bit depth map for THIS scene (the episode's own Scene Analysis depth), used only by
+    // `colour` to paint the subject first. Absent, unreadable or flat: no subject phase, never an
+    // invented one — the reveal never guesses where the subject is.
+    var mask: String?
 }
 
 /// The closing hold the app and the helper agree on; lib/native-scene-clip.ts mirrors it.
@@ -60,8 +64,8 @@ func sketchDefaultHold(frames: Int, fps: Int) -> Int {
 
 /// The reveal styles this engine draws. `mix` is resolved per scene by the app, never here.
 enum SketchReveal: String {
-    case line, buildup, swipes, patches, bloom
-    static let names = ["line", "buildup", "swipes", "patches", "bloom"]
+    case line, buildup, swipes, patches, bloom, colour
+    static let names = ["line", "buildup", "swipes", "patches", "bloom", "colour"]
 }
 
 private final class SketchBitmap {
@@ -554,8 +558,11 @@ private final class SketchV2 {
     private var posterFor = -1
     private(set) var inked = false
     private(set) var tip: SIMD2<Float>?
+    /// The colour reveal's contact timeline; nil for every other style.
+    private(set) var colour: ColourPlan?
 
-    init(_ source: SketchBitmap, _ paper: [UInt8], _ reveal: SketchReveal) {
+    init(_ source: SketchBitmap, _ paper: [UInt8], _ reveal: SketchReveal,
+         mask: (path: String, rect: (x: Int, y: Int, w: Int, h: Int))? = nil) {
         w = source.width; h = source.height; n = w * h
         self.reveal = reveal
         self.paper = paper
@@ -627,6 +634,25 @@ private final class SketchV2 {
         buildStrokes(lum, depth)
         if strokes.isEmpty {
             FileHandle.standardError.write(Data("scene-clip sketch: no strokes found for this picture; its reveal will be colour only\n".utf8))
+        }
+        if reveal == .colour {
+            // The subject phase needs a real mask. A missing, unreadable or flat depth map is not a
+            // reason to guess one: the picture is coloured in one phase instead, and says which.
+            var subject: [Bool]? = nil
+            if let mask = mask {
+                if let plane = colourDepthPlane(mask.path, w, h, mask.rect) {
+                    subject = colourSubjectMask(plane, mask.rect, w, h)
+                    if subject == nil {
+                        FileHandle.standardError.write(Data("scene-clip sketch: this scene's depth map is too flat to separate a subject; colouring without a subject phase\n".utf8))
+                    }
+                } else {
+                    FileHandle.standardError.write(Data("scene-clip sketch: this scene's depth map could not be decoded; colouring without a subject phase\n".utf8))
+                }
+            }
+            let plan = colourPlan(picture: picture, w: w, h: h, strokes: strokes, subject: subject)
+            colour = plan
+            FileHandle.standardError.write(Data(String(format: "scene-clip sketch colour: %d colour groups, %d brush strokes, %.1f px brush, subject phase %@, plan %.3fs, travel %.0f px\n",
+                plan.groups, plan.strokes, plan.brush, plan.subject ? "on" : "off", plan.seconds, plan.travel).utf8))
         }
     }
 
@@ -1147,6 +1173,12 @@ private final class SketchV2 {
     }
 
     private func fillPolygon(_ poly: [SIMD2<Float>], _ value: UInt8) {
+        SketchV2.fillPolygon(poly, value, w, h, inkAcc)
+    }
+
+    /// Scan-fill one polygon, taking the maximum of what is already there. Static so the colour
+    /// barrier can fill its own buffer with the same arithmetic the ink mask uses.
+    fileprivate static func fillPolygon(_ poly: [SIMD2<Float>], _ value: UInt8, _ w: Int, _ h: Int, _ target: UnsafeMutablePointer<UInt8>) {
         var ymin = Float.greatestFiniteMagnitude, ymax = -Float.greatestFiniteMagnitude
         for p in poly { if p.y < ymin { ymin = p.y }; if p.y > ymax { ymax = p.y } }
         let y0 = max(0, Int(ymin.rounded(.down))), y1 = min(h - 1, Int(ymax.rounded(.up)))
@@ -1172,7 +1204,7 @@ private final class SketchV2 {
                     var xa = Int((xs[i] - 0.5).rounded(.up)), xb = Int((xs[i + 1] - 0.5).rounded(.down))
                     if xa < 0 { xa = 0 }
                     if xb > w - 1 { xb = w - 1 }
-                    if xa <= xb { for x in xa...xb where inkAcc[row + x] < value { inkAcc[row + x] = value } }
+                    if xa <= xb { for x in xa...xb where target[row + x] < value { target[row + x] = value } }
                     i += 2
                 }
             }
@@ -1210,8 +1242,19 @@ private final class SketchV2 {
         }
     }
 
-    private func overPicture(_ dst: UnsafeMutablePointer<UInt8>) {
-        let pic = picture, al = alpha
+    /// The colour reveal's hard contact: a pixel is painted exactly when the brush has passed it,
+    /// with no fade. One shared timeline, so the brush and the picture can never drift apart.
+    private func contact(_ timing: [Float], _ p: Float) {
+        let al = alpha
+        timing.withUnsafeBufferPointer { tb in
+            let tp = tb.baseAddress!
+            forRows(h) { y0, y1 in
+                for i in (y0 * self.w)..<(y1 * self.w) { al[i] = tp[i] <= p ? 255 : 0 }
+            }
+        }
+    }
+
+    private func overPicture(_ dst: UnsafeMutablePointer<UInt8>) {        let pic = picture, al = alpha
         forRows(h) { y0, y1 in
             for p in (y0 * self.w)..<(y1 * self.w) {
                 let a = Int32(al[p])
@@ -1273,13 +1316,16 @@ private final class SketchV2 {
     /// Dark ink always; pale ink only where the picture's own colour has already arrived, because
     /// pale ink on bare paper is invisible — an artist's light-ground lines appear when the dark
     /// ground is laid in.
-    private func overInk(_ dst: UnsafeMutablePointer<UInt8>, _ ground: UnsafePointer<UInt8>?) {
+    private func overInk(_ dst: UnsafeMutablePointer<UInt8>, _ ground: UnsafePointer<UInt8>?, fade: Float = 1) {
         guard inked else { return }
         let acc = inkAcc, ch = choose, dark = inkDark, pale = inkPale
+        // 255 leaves the arithmetic untouched, so every reveal that never fades is byte-identical.
+        let fadeFactor = fade >= 1 ? 255 : Int32(max(0, min(1, fade)) * 255 + 0.5)
         forRows(h) { y0, y1 in
             for p in (y0 * self.w)..<(y1 * self.w) {
-                let a = Int32(acc[p])
+                var a = Int32(acc[p])
                 if a == 0 { continue }
+                if fadeFactor != 255 { a = a * fadeFactor / 255 }
                 let c = Int32(ch[p])
                 let d = p * 4, s = p * 3
                 let darkA = a * c / 255
@@ -1442,8 +1488,761 @@ private final class SketchV2 {
             }
             overInk(dst, alpha)
             applyRim(dst, field, local)
+        case .colour:
+            guard let plan = colour else { fillPaper(dst); break }
+            drawInk("line", ramp(u, 0.00, colourInkShare))
+            let p = ramp(u, colourInkShare, colourPaintEnd)
+            fillPaper(dst)
+            contact(plan.timing, p)
+            overPicture(dst)
+            // The closing hold is the source picture: the bold ink eases out over the last part of
+            // the reveal, so the clip ends on the scene image itself, not on a two-tone drawing.
+            let fade = 1 - colourSmoothstep(ramp(u, colourPaintEnd, 1))
+            overInk(dst, plan.first <= p ? alpha : nil, fade: fade)
         }
     }
+}
+
+// ── Colour it in ─────────────────────────────────────────────────────────────
+// The sixth reveal, ported from the approved 2026-10-29 prototype (`proto/colour_in.py`, CC0).
+//
+// Our own v2 ink is laid down first, in the `line` order. Then the picture is coloured in: Lab
+// colour groups, each split into ink-bounded regions so a group finishes one region at a time;
+// the subject first when this scene has a real depth map; colours ordered by the first substantial
+// occurrence near the top of their phase; brush-lane strokes with short-span merging and a routed
+// contact timeline; and one eased timeline that both the brush and the pixels follow, so a pixel
+// appears exactly when the brush passes over it.
+//
+// The closing hold is the SOURCE PICTURE, not a drawing: the bold two-tone ink eases out over the
+// last part of the reveal, so the clip ends on the scene image itself. Ink is how the picture
+// arrives, not a look it keeps.
+//
+// Not ported: their Grid path, their hand, and `grid_stream.py` (MIT), and the "Quick" left-to-right
+// background tail, which at a 12° brush angle tears skies into white strips.
+
+private let colourPaletteColors = 16
+private let colourGroupCount = 8
+private let colourMinRegionArea = 80
+private let colourBrushRatio: Float = 0.12
+private let colourBrushMin: Float = 24
+private let colourBrushMax: Float = 92
+private let colourStrokeAngle: Float = 12
+private let colourTravelSpeed: Float = 1.5
+/// Ink runs from 0 to this share of the drawing; colour then runs to `colourPaintEnd`.
+private let colourInkShare: Float = 0.45
+private let colourPaintEnd: Float = 0.88
+private let colourMaskFloor: Float = 0.55
+private let colourMaskMinArea = 4000
+
+/// One colour group's brush-stroke plan for one phase.
+private struct ColourSpan {
+    var pixels: [Int32]        // indices into the colour's own pixel list
+    var begin: SIMD2<Float>
+    var end: SIMD2<Float>
+    var v0: Float
+    var v1: Float
+}
+
+private struct ColourStroke {
+    var pixels: [Int32]        // global pixel indices
+    var progress: [Float]
+    var travel: Float
+    var length: Float
+    var phase: Int
+}
+
+private struct ColourPlan {
+    var timing: [Float]        // per pixel: contact time in [0, 1] over the colour phase
+    var first: Float           // the earliest contact, so "is anything painted" costs nothing
+    var brush: Float
+    var groups: Int
+    var strokes: Int
+    var travel: Float
+    var paint: Float
+    var subject: Bool
+    var seconds: Double
+}
+
+@inline(__always) private func colourSmoothstep(_ t: Float) -> Float {
+    let x = min(1, max(0, t))
+    return x * x * (3 - 2 * x)
+}
+
+@inline(__always) private func colourSq(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float {
+    let d = a - b
+    return d.x * d.x + d.y * d.y + d.z * d.z
+}
+
+/// sRGB (0…255) to CIE Lab (D65). vImage has no RGB→Lab conversion, so the transform is here; it is
+/// the same space the prototype clusters in.
+@inline(__always) private func colourLab(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> SIMD3<Float> {
+    @inline(__always) func linear(_ v: Float) -> Float { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+    let lr = linear(Float(r) / 255), lg = linear(Float(g) / 255), lb = linear(Float(b) / 255)
+    let x = (0.4124564 * lr + 0.3575761 * lg + 0.1804375 * lb) / 0.95047
+    let y = 0.2126729 * lr + 0.7151522 * lg + 0.0721750 * lb
+    let z = (0.0193339 * lr + 0.1191920 * lg + 0.9503041 * lb) / 1.08883
+    @inline(__always) func curve(_ t: Float) -> Float { t > 0.008856 ? pow(t, 1.0 / 3.0) : 7.787 * t + 16.0 / 116.0 }
+    let fx = curve(x), fy = curve(y), fz = curve(z)
+    return SIMD3<Float>(116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz))
+}
+
+/// Weighted k-means++ over a handful of samples. Deterministic: the first centre is the heaviest
+/// sample and every later pick comes from the fixed-seed stream.
+private func colourKMeans(_ samples: [SIMD3<Float>], _ weights: [Float], _ k: Int,
+                          seed: UInt64, iterations: Int, tolerance: Float) -> (centres: [SIMD3<Float>], labels: [Int32]) {
+    let n = samples.count
+    guard n > 0, k > 0 else { return ([], []) }
+    if k == 1 { return ([samples[0]], [Int32](repeating: 0, count: n)) }
+    var rng = SketchRng(seed)
+    var centres: [SIMD3<Float>] = []
+    var chosen = [Bool](repeating: false, count: n)
+    var first = 0
+    for i in 1..<n where weights[i] > weights[first] { first = i }
+    centres.append(samples[first]); chosen[first] = true
+    var nearest = [Float](repeating: 0, count: n)
+    for i in 0..<n { nearest[i] = colourSq(samples[i], centres[0]) }
+    while centres.count < k {
+        var total: Float = 0
+        for i in 0..<n where !chosen[i] { total += weights[i] * nearest[i] }
+        var pick = -1
+        if total > 1e-12 {
+            let target = rng.unit() * total
+            var acc: Float = 0
+            for i in 0..<n where !chosen[i] {
+                acc += weights[i] * nearest[i]
+                if acc >= target { pick = i; break }
+            }
+        }
+        if pick < 0 { for i in 0..<n where !chosen[i] { if pick < 0 || weights[i] > weights[pick] { pick = i } } }
+        guard pick >= 0 else { break }
+        chosen[pick] = true
+        centres.append(samples[pick])
+        for i in 0..<n where !chosen[i] {
+            let d = colourSq(samples[i], samples[pick])
+            if d < nearest[i] { nearest[i] = d }
+        }
+    }
+    var labels = [Int32](repeating: 0, count: n)
+    for _ in 0..<iterations {
+        for i in 0..<n {
+            var best = 0, bestD = colourSq(samples[i], centres[0])
+            for c in 1..<centres.count {
+                let d = colourSq(samples[i], centres[c])
+                if d < bestD { bestD = d; best = c }
+            }
+            labels[i] = Int32(best)
+        }
+        var sum = [SIMD3<Float>](repeating: .zero, count: centres.count)
+        var mass = [Float](repeating: 0, count: centres.count)
+        for i in 0..<n { let c = Int(labels[i]); sum[c] += samples[i] * weights[i]; mass[c] += weights[i] }
+        var shift: Float = 0
+        for c in 0..<centres.count where mass[c] > 0 {
+            let next = sum[c] / mass[c]
+            let d = colourSq(next, centres[c])
+            if d > shift { shift = d }
+            centres[c] = next
+        }
+        if shift < tolerance { break }
+    }
+    for i in 0..<n {
+        var best = 0, bestD = colourSq(samples[i], centres[0])
+        for c in 1..<centres.count {
+            let d = colourSq(samples[i], centres[c])
+            if d < bestD { bestD = d; best = c }
+        }
+        labels[i] = Int32(best)
+    }
+    return (centres, labels)
+}
+
+@inline(__always) private func colourBin(_ lab: SIMD3<Float>) -> Int {
+    let l = min(31, max(0, Int(lab.x * (32.0 / 100.0))))
+    let a = min(31, max(0, Int((lab.y + 128) * (32.0 / 255.0))))
+    let b = min(31, max(0, Int((lab.z + 128) * (32.0 / 255.0))))
+    return (l << 10) | (a << 5) | b
+}
+
+/// A subject mask from the scene's own depth map: near, large and closed up. Depth does not know
+/// what a character is, so the mask is a near-field blob, and a picture whose floor is near takes
+/// the floor too — exactly what the approved prototype's depth mask does.
+private func colourSubjectMask(_ depth: [Float], _ rect: (x: Int, y: Int, w: Int, h: Int), _ w: Int, _ h: Int) -> [Bool]? {
+    let x0 = max(0, rect.x), y0 = max(0, rect.y)
+    let x1 = min(w, rect.x + rect.w), y1 = min(h, rect.y + rect.h)
+    guard x1 > x0, y1 > y0 else { return nil }
+    // Normalise to the fitted picture's own 1st…99th percentile, so the paper border is not "far".
+    var lo = Float.greatestFiniteMagnitude, hi = -Float.greatestFiniteMagnitude
+    for y in y0..<y1 { for x in x0..<x1 { let v = depth[y * w + x]; if v < lo { lo = v }; if v > hi { hi = v } } }
+    if !(hi > lo) { return nil }
+    let scale = 1 / (hi - lo)
+    var hist = [Int](repeating: 0, count: 128)
+    var values = [Float](repeating: 0, count: (x1 - x0) * (y1 - y0))
+    var at = 0
+    for y in y0..<y1 { for x in x0..<x1 {
+        let v = max(0, min(1, (depth[y * w + x] - lo) * scale))
+        values[at] = v; at += 1
+        hist[min(127, Int(v * 127.999))] += 1
+    } }
+    // Otsu's threshold, floored: a near-field mask must not swallow the whole picture.
+    let total = values.count
+    var sumAll: Float = 0
+    for i in 0..<128 { sumAll += Float(i) * Float(hist[i]) }
+    var wB: Float = 0, sumB: Float = 0, best: Float = -1
+    var otsu: Float = 0.5
+    for i in 0..<128 {
+        wB += Float(hist[i])
+        if wB == 0 { continue }
+        let wF = Float(total) - wB
+        if wF <= 0 { break }
+        sumB += Float(i) * Float(hist[i])
+        let mB = sumB / wB, mF = (sumAll - sumB) / wF
+        let between = wB * wF * (mB - mF) * (mB - mF)
+        if between > best { best = between; otsu = Float(i) / 127 }
+    }
+    let threshold = max(otsu, colourMaskFloor)
+    var mask = [Bool](repeating: false, count: w * h)
+    at = 0
+    for y in y0..<y1 { for x in x0..<x1 { if values[at] >= threshold { mask[y * w + x] = true }; at += 1 } }
+    // Close 9×9, drop small islands, fill holes — the prototype's `_clean`.
+    colourBox(&mask, w, h, radius: 4, wantAll: false)
+    colourBox(&mask, w, h, radius: 4, wantAll: true)
+    colourDropSmall(&mask, w, h, minArea: colourMaskMinArea)
+    colourFillHoles(&mask, w, h)
+    return mask
+}
+
+/// One separable half of a 9×9 binary morphology pass: a pixel survives a dilation if any true,
+/// an erosion if every one is true, within `radius`.
+private func colourBox(_ mask: inout [Bool], _ w: Int, _ h: Int, radius: Int, wantAll: Bool) {
+    var tmp = [Bool](repeating: false, count: w * h)
+    for y in 0..<h {
+        let row = y * w
+        for x in 0..<w {
+            var acc = wantAll
+            var k = max(0, x - radius)
+            while k <= min(w - 1, x + radius) {
+                if wantAll ? !mask[row + k] : mask[row + k] { acc = !wantAll; break }
+                k += 1
+            }
+            tmp[row + x] = acc
+        }
+    }
+    for y in 0..<h {
+        let row = y * w
+        for x in 0..<w {
+            var acc = wantAll
+            var k = max(0, y - radius)
+            while k <= min(h - 1, y + radius) {
+                if wantAll ? !tmp[k * w + x] : tmp[k * w + x] { acc = !wantAll; break }
+                k += 1
+            }
+            mask[row + x] = acc
+        }
+    }
+}
+
+private func colourDropSmall(_ mask: inout [Bool], _ w: Int, _ h: Int, minArea: Int) {
+    var seen = [Bool](repeating: false, count: w * h)
+    var stack: [Int32] = [], members: [Int32] = []
+    for i in 0..<(w * h) where mask[i] && !seen[i] {
+        members.removeAll(keepingCapacity: true); stack.removeAll(keepingCapacity: true)
+        stack.append(Int32(i)); seen[i] = true
+        while let p = stack.popLast() {
+            let pi = Int(p)
+            members.append(p)
+            let y = pi / w, x = pi % w
+            if x > 0 && mask[pi - 1] && !seen[pi - 1] { seen[pi - 1] = true; stack.append(Int32(pi - 1)) }
+            if x + 1 < w && mask[pi + 1] && !seen[pi + 1] { seen[pi + 1] = true; stack.append(Int32(pi + 1)) }
+            if y > 0 && mask[pi - w] && !seen[pi - w] { seen[pi - w] = true; stack.append(Int32(pi - w)) }
+            if y + 1 < h && mask[pi + w] && !seen[pi + w] { seen[pi + w] = true; stack.append(Int32(pi + w)) }
+        }
+        if members.count < minArea { for p in members { mask[Int(p)] = false } }
+    }
+}
+
+/// A hole is background the border cannot reach.
+private func colourFillHoles(_ mask: inout [Bool], _ w: Int, _ h: Int) {
+    var reach = [Bool](repeating: false, count: w * h)
+    var queue: [Int32] = []
+    func seed(_ i: Int) { if !mask[i] && !reach[i] { reach[i] = true; queue.append(Int32(i)) } }
+    for x in 0..<w { seed(x); seed((h - 1) * w + x) }
+    for y in 0..<h { seed(y * w); seed(y * w + w - 1) }
+    var head = 0
+    while head < queue.count {
+        let p = Int(queue[head]); head += 1
+        let y = p / w, x = p % w
+        if x > 0 && !mask[p - 1] && !reach[p - 1] { reach[p - 1] = true; queue.append(Int32(p - 1)) }
+        if x + 1 < w && !mask[p + 1] && !reach[p + 1] { reach[p + 1] = true; queue.append(Int32(p + 1)) }
+        if y > 0 && !mask[p - w] && !reach[p - w] { reach[p - w] = true; queue.append(Int32(p - w)) }
+        if y + 1 < h && !mask[p + w] && !reach[p + w] { reach[p + w] = true; queue.append(Int32(p + w)) }
+    }
+    for i in 0..<(w * h) where !mask[i] && !reach[i] { mask[i] = true }
+}
+
+private func colourGreedyRoute(_ spans: [ColourSpan], _ tip: SIMD2<Float>) -> [(Int, Bool)] {
+    var remaining = [Bool](repeating: true, count: spans.count)
+    var route: [(Int, Bool)] = []
+    route.reserveCapacity(spans.count)
+    var at = tip
+    for _ in 0..<spans.count {
+        var bestScore = Float.greatestFiniteMagnitude, bestIndex = -1, bestReverse = false
+        for i in spans.indices where remaining[i] {
+            for reverse in 0...1 {
+                let p = reverse == 0 ? spans[i].begin : spans[i].end
+                let score = v2Len(p - at) + 0.08 * max(at.y - p.y, 0)
+                if score < bestScore { bestScore = score; bestIndex = i; bestReverse = reverse == 1 }
+            }
+        }
+        guard bestIndex >= 0 else { break }
+        remaining[bestIndex] = false
+        route.append((bestIndex, bestReverse))
+        at = bestReverse ? spans[bestIndex].begin : spans[bestIndex].end
+    }
+    return route
+}
+
+/// Bounded block reversal inside one colour group: shortens travel without reordering colours.
+private func colourRefine(_ spans: [ColourSpan], _ route: [(Int, Bool)], _ tip: SIMD2<Float>,
+                          window: Int = 25, passes: Int = 2) -> [(Int, Bool)] {
+    var r = route
+    for _ in 0..<passes {
+        var best: Float = 0
+        var change: (Int, Int)?
+        for left in 0..<r.count {
+            let (first, firstReverse) = r[left]
+            let before = left == 0 ? tip : (r[left - 1].1 ? spans[r[left - 1].0].begin : spans[r[left - 1].0].end)
+            let firstEntry = firstReverse ? spans[first].end : spans[first].begin
+            let firstExit = firstReverse ? spans[first].begin : spans[first].end
+            var right = left + 1
+            while right < min(r.count, left + window) {
+                let (last, lastReverse) = r[right]
+                let lastEntry = lastReverse ? spans[last].begin : spans[last].end
+                var old = v2Len(before - firstEntry)
+                var new = v2Len(before - lastEntry)
+                if right + 1 < r.count {
+                    let (after, afterReverse) = r[right + 1]
+                    let afterEntry = afterReverse ? spans[after].end : spans[after].begin
+                    let lastExit = lastReverse ? spans[last].begin : spans[last].end
+                    old += v2Len(afterEntry - lastExit)
+                    new += v2Len(afterEntry - firstExit)
+                }
+                if old - new > best + 1e-9 { best = old - new; change = (left, right) }
+                right += 1
+            }
+        }
+        guard let (left, right) = change else { break }
+        var slice = Array(r[left...right])
+        slice.reverse()
+        for k in 0..<slice.count { r[left + k] = (slice[k].0, !slice[k].1) }
+    }
+    return r
+}
+
+/// Join short neighbouring spans that fit inside one brush corridor (their `_merge_short`).
+private func colourMergeShort(_ spans: [ColourSpan], _ u: [Float], _ brush: Float, _ cosA: Float, _ sinA: Float) -> [ColourSpan] {
+    var active = spans
+    var alive = [Bool](repeating: true, count: active.count)
+    guard active.count > 1 else { return active }
+    for i in 0..<active.count {
+        if !alive[i] { continue }
+        if active[i].v1 - active[i].v0 > brush * 0.65 { continue }
+        for j in (i + 1)..<active.count {
+            if !alive[j] || active[j].v1 - active[j].v0 > brush * 0.65 { continue }
+            let low = min(active[i].v0, active[j].v0), high = max(active[i].v1, active[j].v1)
+            let gap = max(max(active[i].v0 - active[j].v1, active[j].v0 - active[i].v1), 0)
+            let endpointGap = min(min(v2Len(active[i].begin - active[j].begin), v2Len(active[i].begin - active[j].end)),
+                                  min(v2Len(active[i].end - active[j].begin), v2Len(active[i].end - active[j].end)))
+            if gap > brush * 0.75 || high - low > brush * 1.5 || endpointGap > brush { continue }
+            let combined = active[i].pixels + active[j].pixels
+            var uLo = Float.greatestFiniteMagnitude, uHi = -Float.greatestFiniteMagnitude
+            for m in combined { let v = u[Int(m)]; if v < uLo { uLo = v }; if v > uHi { uHi = v } }
+            if uHi - uLo > brush { continue }
+            let laneU = (uLo + uHi) * 0.5
+            active[i] = ColourSpan(pixels: combined,
+                                   begin: SIMD2<Float>(laneU * cosA - low * sinA, laneU * sinA + low * cosA),
+                                   end: SIMD2<Float>(laneU * cosA - high * sinA, laneU * sinA + high * cosA),
+                                   v0: low, v1: high)
+            alive[j] = false
+            if high - low > brush * 0.65 { break }
+        }
+    }
+    return zip(active, alive).filter { $0.1 }.map { $0.0 }
+}
+
+/// The whole colouring plan: ink barrier, colour regions, subject phase, lanes and contact times.
+private func colourPlan(picture: UnsafeMutablePointer<UInt8>, w: Int, h: Int,
+                        strokes: [V2Stroke], subject: [Bool]?) -> ColourPlan {
+    let began = DispatchTime.now().uptimeNanoseconds
+    let n = w * h
+    let brush = max(colourBrushMin, min(colourBrushMax, Float(min(w, h)) * colourBrushRatio))
+    let angle = colourStrokeAngle * Float.pi / 180
+    let cosA = cos(angle), sinA = sin(angle)
+
+    // 1. The ink barrier: the union of the strokes we are about to draw, at their full width.
+    var barrier = [UInt8](repeating: 0, count: n)
+    barrier.withUnsafeMutableBufferPointer { bp in
+        let target = bp.baseAddress!
+        for s in strokes where s.points.count >= 2 {
+            let half = max(0.75, s.width * 0.5)
+            var poly: [SIMD2<Float>] = []
+            poly.reserveCapacity(s.points.count * 2)
+            for i in 0..<s.points.count {
+                let t = i == 0 ? s.points[1] - s.points[0]
+                    : (i == s.points.count - 1 ? s.points[i] - s.points[i - 1] : s.points[i + 1] - s.points[i - 1])
+                var normal = SIMD2<Float>(-t.y, t.x)
+                let len = v2Len(normal)
+                normal = len > 1e-6 ? normal / len : SIMD2<Float>(0, 0)
+                poly.append(s.points[i] + normal * half)
+            }
+            for i in stride(from: s.points.count - 1, through: 0, by: -1) {
+                let t = i == 0 ? s.points[1] - s.points[0]
+                    : (i == s.points.count - 1 ? s.points[i] - s.points[i - 1] : s.points[i + 1] - s.points[i - 1])
+                var normal = SIMD2<Float>(-t.y, t.x)
+                let len = v2Len(normal)
+                normal = len > 1e-6 ? normal / len : SIMD2<Float>(0, 0)
+                poly.append(s.points[i] - normal * half)
+            }
+            SketchV2.fillPolygon(poly, 255, w, h, target)
+        }
+    }
+    // 2. Ink, grown by one pixel, is what splits a colour group into regions.
+    var grown = [UInt8](repeating: 0, count: n)
+    for y in 0..<h {
+        let row = y * w
+        for x in 0..<w {
+            var v = barrier[row + x]
+            if v == 0 && x > 0 && barrier[row + x - 1] != 0 { v = 1 }
+            if v == 0 && x + 1 < w && barrier[row + x + 1] != 0 { v = 1 }
+            grown[row + x] = v
+        }
+    }
+    // The vertical half reads a copy: growing in place would cascade down the column.
+    let horizontal = grown
+    for y in 0..<h {
+        let row = y * w
+        for x in 0..<w {
+            if horizontal[row + x] == 0 {
+                if y > 0 && horizontal[row - w + x] != 0 { grown[row + x] = 1 }
+                else if y + 1 < h && horizontal[row + w + x] != 0 { grown[row + x] = 1 }
+            }
+        }
+    }
+    var visible = [Bool](repeating: false, count: n)
+    for i in 0..<n { visible[i] = barrier[i] == 0 }
+
+    // 3. Lab colour groups, from a 32³ histogram so k-means sees bins, not pixels.
+    var labL = [Float](repeating: 0, count: n)
+    var labA = [Float](repeating: 0, count: n)
+    var labB = [Float](repeating: 0, count: n)
+    let bins = 32 * 32 * 32
+    var counts = [Int32](repeating: 0, count: bins)
+    var sums = [Float](repeating: 0, count: bins * 3)
+    for i in 0..<n where visible[i] {
+        let s = i * 3
+        let lab = colourLab(picture[s], picture[s + 1], picture[s + 2])
+        labL[i] = lab.x; labA[i] = lab.y; labB[i] = lab.z
+        let bin = colourBin(lab)
+        counts[bin] += 1
+        sums[bin * 3] += lab.x; sums[bin * 3 + 1] += lab.y; sums[bin * 3 + 2] += lab.z
+    }
+    var samples: [SIMD3<Float>] = [], weights: [Float] = []
+    samples.reserveCapacity(bins); weights.reserveCapacity(bins)
+    for bin in 0..<bins where counts[bin] > 0 {
+        let c = Float(counts[bin])
+        samples.append(SIMD3<Float>(sums[bin * 3] / c, sums[bin * 3 + 1] / c, sums[bin * 3 + 2] / c))
+        weights.append(c)
+    }
+    let fineCount = min(colourPaletteColors, samples.count)
+    let fine = colourKMeans(samples, weights, max(1, fineCount), seed: 42, iterations: 10, tolerance: 1.0)
+    var fineLabel = [UInt8](repeating: 255, count: n)
+    for i in 0..<n where visible[i] {
+        var best = 0, bestD = colourSq(SIMD3<Float>(labL[i], labA[i], labB[i]), fine.centres[0])
+        for c in 1..<fine.centres.count {
+            let d = colourSq(SIMD3<Float>(labL[i], labA[i], labB[i]), fine.centres[c])
+            if d < bestD { bestD = d; best = c }
+        }
+        fineLabel[i] = UInt8(best)
+    }
+
+    // 4. Ink-bounded connected regions per colour group; every pixel then belongs to the nearest one.
+    var regions = [Int32](repeating: 0, count: n)
+    var nextRegion: Int32 = 1
+    var stack: [Int32] = [], members: [Int32] = []
+    for colour in 0..<max(1, fineCount) {
+        let label = UInt8(colour)
+        for i in 0..<n where fineLabel[i] == label && grown[i] == 0 && regions[i] == 0 {
+            members.removeAll(keepingCapacity: true); stack.removeAll(keepingCapacity: true)
+            stack.append(Int32(i)); regions[i] = -1
+            while let p = stack.popLast() {
+                let pi = Int(p)
+                members.append(p)
+                let y = pi / w, x = pi % w
+                if x > 0 && fineLabel[pi - 1] == label && grown[pi - 1] == 0 && regions[pi - 1] == 0 { regions[pi - 1] = -1; stack.append(Int32(pi - 1)) }
+                if x + 1 < w && fineLabel[pi + 1] == label && grown[pi + 1] == 0 && regions[pi + 1] == 0 { regions[pi + 1] = -1; stack.append(Int32(pi + 1)) }
+                if y > 0 && fineLabel[pi - w] == label && grown[pi - w] == 0 && regions[pi - w] == 0 { regions[pi - w] = -1; stack.append(Int32(pi - w)) }
+                if y + 1 < h && fineLabel[pi + w] == label && grown[pi + w] == 0 && regions[pi + w] == 0 { regions[pi + w] = -1; stack.append(Int32(pi + w)) }
+            }
+            if members.count >= colourMinRegionArea {
+                for p in members { regions[Int(p)] = nextRegion }
+                nextRegion += 1
+            } else {
+                for p in members { regions[Int(p)] = 0 }
+            }
+        }
+    }
+    // Nearest-region fill under the ink, so nothing is left unpainted under the lines.
+    var queue: [Int32] = []
+    queue.reserveCapacity(n)
+    for i in 0..<n where regions[i] > 0 { queue.append(Int32(i)) }
+    var head = 0
+    while head < queue.count {
+        let p = Int(queue[head]); head += 1
+        let y = p / w, x = p % w
+        if x > 0 && regions[p - 1] == 0 { regions[p - 1] = regions[p]; queue.append(Int32(p - 1)) }
+        if x + 1 < w && regions[p + 1] == 0 { regions[p + 1] = regions[p]; queue.append(Int32(p + 1)) }
+        if y > 0 && regions[p - w] == 0 { regions[p - w] = regions[p]; queue.append(Int32(p - w)) }
+        if y + 1 < h && regions[p + w] == 0 { regions[p + w] = regions[p]; queue.append(Int32(p + w)) }
+    }
+    let regionCount = Int(nextRegion)
+
+    // 5. Coarse colour groups from the region means, weighted by area: brush groups, not 16 greys.
+    if regionCount > 1 {
+        var area = [Float](repeating: 0, count: regionCount)
+        var sumL = [Float](repeating: 0, count: regionCount)
+        var sumA = [Float](repeating: 0, count: regionCount)
+        var sumB = [Float](repeating: 0, count: regionCount)
+        for i in 0..<n {
+            let r = Int(regions[i])
+            if r <= 0 { continue }
+            area[r] += 1; sumL[r] += labL[i]; sumA[r] += labA[i]; sumB[r] += labB[i]
+        }
+        var means: [SIMD3<Float>] = [], mass: [Float] = []
+        var seen = Set<UInt32>()
+        for r in 1..<regionCount where area[r] > 0 {
+            let m = SIMD3<Float>(sumL[r] / area[r], sumA[r] / area[r], sumB[r] / area[r])
+            let key = UInt32(bitPattern: Int32(m.x.rounded())) &* 73856093
+                ^ UInt32(bitPattern: Int32(m.y.rounded())) &* 19349663
+                ^ UInt32(bitPattern: Int32(m.z.rounded()))
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            means.append(m); mass.append(area[r])
+        }
+        let groupCount = max(1, min(colourGroupCount, means.count))
+        var assignment = [Int32](repeating: 0, count: regionCount)
+        if means.isEmpty {
+            // No regions at all: one group.
+        } else {
+            let grouped = colourKMeans(means, mass, groupCount, seed: 42, iterations: 20, tolerance: 0.5)
+            // Clusters are not one-per-region; map each region to its nearest group mean.
+            for r in 1..<regionCount where area[r] > 0 {
+                let m = SIMD3<Float>(sumL[r] / area[r], sumA[r] / area[r], sumB[r] / area[r])
+                var best = 0, bestD = colourSq(m, grouped.centres[0])
+                for c in 1..<grouped.centres.count {
+                    let d = colourSq(m, grouped.centres[c])
+                    if d < bestD { bestD = d; best = c }
+                }
+                assignment[r] = Int32(best + 1)
+            }
+        }
+        var palette = [UInt8](repeating: 1, count: n)
+        for i in 0..<n { let r = Int(regions[i]); if r > 0 && assignment[r] > 0 { palette[i] = UInt8(assignment[r]) } }
+        return colourStrokes(palette: palette, visible: visible, subject: subject, w: w, h: h, brush: brush,
+                             cosA: cosA, sinA: sinA, began: began)
+    }
+    // One region or none: the whole picture is one colour group.
+    return colourStrokes(palette: [UInt8](repeating: 1, count: n), visible: visible, subject: subject,
+                         w: w, h: h, brush: brush, cosA: cosA, sinA: sinA, began: began)
+}
+
+/// Phases, colour order, lanes, routing and the one contact timeline.
+private func colourStrokes(palette: [UInt8], visible: [Bool], subject: [Bool]?, w: Int, h: Int,
+                           brush: Float, cosA: Float, sinA: Float, began: UInt64) -> ColourPlan {
+    let n = w * h
+    var phases: [[Int32]] = []
+    if let subjectMask = subject {
+        var front: [Int32] = [], back: [Int32] = []
+        for i in 0..<n where visible[i] {
+            if subjectMask[i] { front.append(Int32(i)) } else { back.append(Int32(i)) }
+        }
+        phases.append(front); phases.append(back)
+    } else {
+        var all: [Int32] = []
+        for i in 0..<n where visible[i] { all.append(Int32(i)) }
+        phases.append(all)
+    }
+
+    var out: [ColourStroke] = []
+    var tip = SIMD2<Float>(0, 0)
+    var groupTotal = 0
+    for (phaseIndex, phase) in phases.enumerated() {
+        if phase.isEmpty { continue }
+        var byColour = [[Int32]](repeating: [], count: colourGroupCount)
+        for p in phase {
+            let g = Int(palette[Int(p)]) - 1
+            if g >= 0 && g < colourGroupCount { byColour[g].append(p) }
+        }
+        var rowHist = [[Int32]](repeating: [Int32](repeating: 0, count: h), count: colourGroupCount)
+        for g in 0..<colourGroupCount {
+            for p in byColour[g] { rowHist[g][Int(p) / w] += 1 }
+        }
+        // Their rule: the first substantial occurrence of each colour near the top of the phase.
+        var order: [(row: Int, group: Int)] = []
+        for g in 0..<colourGroupCount where !byColour[g].isEmpty {
+            let want = Int(Float(byColour[g].count) * 0.05)
+            var row = 0, seen = 0
+            while row < h {
+                seen += Int(rowHist[g][row])
+                if seen > want { break }
+                row += 1
+            }
+            order.append((min(row, h - 1), g))
+        }
+        order.sort { $0.row != $1.row ? $0.row < $1.row : $0.group < $1.group }
+        groupTotal += order.count
+
+        for entry in order {
+            let px = byColour[entry.group]
+            if px.isEmpty { continue }
+            var u = [Float](repeating: 0, count: px.count)
+            var v = [Float](repeating: 0, count: px.count)
+            var uLo = Float.greatestFiniteMagnitude, uHi = -Float.greatestFiniteMagnitude
+            for k in 0..<px.count {
+                let p = Int(px[k])
+                let x = Float(p % w), y = Float(p / w)
+                u[k] = x * cosA + y * sinA
+                v[k] = -x * sinA + y * cosA
+                if u[k] < uLo { uLo = u[k] }
+                if u[k] > uHi { uHi = u[k] }
+            }
+            let lanes = max(1, Int(((uHi - uLo) / brush).rounded(.down)) + 1)
+            var beams = [[Int32]](repeating: [], count: lanes)
+            for k in 0..<px.count {
+                let lane = min(lanes - 1, max(0, Int(((u[k] - uLo) / brush).rounded(.down))))
+                beams[lane].append(Int32(k))
+            }
+            var spans: [ColourSpan] = []
+            for lane in beams.indices {
+                var idx = beams[lane]
+                if idx.isEmpty { continue }
+                idx.sort { a, b in
+                    let va = v[Int(a)], vb = v[Int(b)]
+                    return va != vb ? va < vb : a < b
+                }
+                var start = 0
+                func emit(_ a: Int, _ b: Int) {
+                    let slice = Array(idx[a...b])
+                    var lo = Float.greatestFiniteMagnitude, hi = -Float.greatestFiniteMagnitude
+                    var lLo = Float.greatestFiniteMagnitude, lHi = -Float.greatestFiniteMagnitude
+                    for m in slice {
+                        let vv = v[Int(m)], uu = u[Int(m)]
+                        if vv < lo { lo = vv }
+                        if vv > hi { hi = vv }
+                        if uu < lLo { lLo = uu }
+                        if uu > lHi { lHi = uu }
+                    }
+                    let laneU = (lLo + lHi) * 0.5
+                    spans.append(ColourSpan(pixels: slice,
+                                            begin: SIMD2<Float>(laneU * cosA - lo * sinA, laneU * sinA + lo * cosA),
+                                            end: SIMD2<Float>(laneU * cosA - hi * sinA, laneU * sinA + hi * cosA),
+                                            v0: lo, v1: hi))
+                }
+                if idx.count == 1 { emit(0, 0); continue }
+                for k in 1..<idx.count where v[Int(idx[k])] - v[Int(idx[k - 1])] > brush * 0.75 {
+                    emit(start, k - 1); start = k
+                }
+                emit(start, idx.count - 1)
+            }
+            spans = colourMergeShort(spans, u, brush, cosA, sinA)
+            if spans.isEmpty { continue }
+            let route = colourRefine(spans, colourGreedyRoute(spans, tip), tip)
+            for (index, reverse) in route {
+                var span = spans[index]
+                if reverse {
+                    swap(&span.begin, &span.end)
+                    swap(&span.v0, &span.v1)
+                }
+                let travel = v2Len(span.begin - tip)
+                let length = max(abs(span.v1 - span.v0), brush * 0.35)
+                let spanV = span.v1 - span.v0
+                var progress = [Float](repeating: 0.5, count: span.pixels.count)
+                if abs(spanV) > 1e-6 {
+                    for k in 0..<span.pixels.count { progress[k] = (v[Int(span.pixels[k])] - span.v0) / spanV }
+                }
+                // `span.pixels` are indices into this colour's own pixel list; the timeline is
+                // indexed by global pixel, so the mapping happens exactly once, here.
+                out.append(ColourStroke(pixels: span.pixels.map { px[Int($0)] }, progress: progress,
+                                        travel: travel, length: length, phase: phaseIndex))
+                tip = span.end
+            }
+        }
+    }
+
+    // One eased timeline for brush contact and pixels: a pixel appears exactly when the nib reaches it.
+    var timing = [Float](repeating: .greatestFiniteMagnitude, count: n)
+    var travelSum: Float = 0, paintSum: Float = 0
+    var weightTotal: Float = 0
+    var weights: [Float] = []
+    weights.reserveCapacity(out.count * 2)
+    for s in out {
+        let travelWeight = max(s.travel / colourTravelSpeed, brush * 0.04)
+        weights.append(travelWeight); weights.append(s.length)
+        travelSum += s.travel; paintSum += s.length
+        weightTotal += travelWeight + s.length
+    }
+    if weightTotal > 0 {
+        var current: Float = 0
+        for (i, s) in out.enumerated() {
+            let travelDuration = weights[i * 2] / weightTotal
+            let paintDuration = weights[i * 2 + 1] / weightTotal
+            let paintStart = current + travelDuration
+            for k in 0..<s.pixels.count {
+                let contact = acos(1 - 2 * min(1, max(0, s.progress[k]))) / Float.pi
+                timing[Int(s.pixels[k])] = paintStart + contact * paintDuration
+            }
+            current = paintStart + paintDuration
+        }
+    }
+    // Every other pixel — the ink itself — takes its nearest painted neighbour's time, so the
+    // picture is painted under the lines instead of leaving white paper showing through them.
+    var queue: [Int32] = []
+    for i in 0..<n where timing[i].isFinite {
+        if timing[i] > 1 { timing[i] = 1 }
+        queue.append(Int32(i))
+    }
+    var head = 0
+    while head < queue.count {
+        let p = Int(queue[head]); head += 1
+        let y = p / w, x = p % w
+        if x > 0 && !timing[p - 1].isFinite { timing[p - 1] = timing[p]; queue.append(Int32(p - 1)) }
+        if x + 1 < w && !timing[p + 1].isFinite { timing[p + 1] = timing[p]; queue.append(Int32(p + 1)) }
+        if y > 0 && !timing[p - w].isFinite { timing[p - w] = timing[p]; queue.append(Int32(p - w)) }
+        if y + 1 < h && !timing[p + w].isFinite { timing[p + w] = timing[p]; queue.append(Int32(p + w)) }
+    }
+    for i in 0..<n where !timing[i].isFinite { timing[i] = 1 }
+    var first = Float.greatestFiniteMagnitude
+    for i in 0..<n where timing[i] < first { first = timing[i] }
+    return ColourPlan(timing: timing, first: first == .greatestFiniteMagnitude ? 0 : first,
+                      brush: brush, groups: groupTotal, strokes: out.count,
+                      travel: travelSum, paint: paintSum, subject: subject != nil,
+                      seconds: Double(DispatchTime.now().uptimeNanoseconds - began) / 1e9)
+}
+
+/// Decode a scene's depth map into a canvas-sized plane, drawn into the same fitted rect as the
+/// picture so the two line up. Nil when the file is not a decodable image.
+private func colourDepthPlane(_ path: String, _ w: Int, _ h: Int, _ rect: (x: Int, y: Int, w: Int, h: Int)) -> [Float]? {
+    guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+          let image = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+    let bytes = UnsafeMutablePointer<UInt8>.allocate(capacity: w * h)
+    bytes.initialize(repeating: 0, count: w * h)
+    defer { bytes.deinitialize(count: w * h); bytes.deallocate() }
+    guard let context = CGContext(data: bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                                  space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+    context.setFillColor(CGColor(gray: 0, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    context.interpolationQuality = .high
+    context.draw(image, in: CGRect(x: rect.x, y: rect.y, width: rect.w, height: rect.h))
+    var plane = [Float](repeating: 0, count: w * h)
+    for i in 0..<(w * h) { plane[i] = Float(bytes[i]) }
+    return plane
 }
 
 // ── Pen, NV12 and the render loop ────────────────────────────────────────────
@@ -1553,7 +2352,8 @@ func renderSketch(_ job: SketchJob) {
           ["none", "plain", "name", "logo"].contains(job.pen.mode),
           job.pen.mode != "name" || (!(job.pen.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (job.pen.text?.count ?? 0) <= 256),
           job.pen.mode != "logo" || !(job.pen.logo ?? "").isEmpty,
-          job.input.hasPrefix("/"), job.output.hasPrefix("/"), job.input != job.output else { fail(2, "bad sketch geometry, frame budget, paper, reveal or pen") }
+          job.input.hasPrefix("/"), job.output.hasPrefix("/"), job.input != job.output,
+          job.mask == nil || job.mask!.hasPrefix("/") else { fail(2, "bad sketch geometry, frame budget, paper, reveal, mask or pen") }
     if FileManager.default.fileExists(atPath: job.output) { fail(2, "sketch output already exists; use a new temporary path") }
     let began = DispatchTime.now().uptimeNanoseconds
     let hex = String(job.paper.dropFirst()), paper = stride(from: 0, to: 6, by: 2).map { i -> UInt8 in
@@ -1570,7 +2370,9 @@ func renderSketch(_ job: SketchJob) {
     source.context.interpolationQuality = .high
     source.context.draw(image, in: CGRect(x: px, y: py, width: fw, height: fh))
     let analysisBegan = DispatchTime.now().uptimeNanoseconds
-    let engine = SketchV2(source, paper, SketchReveal(rawValue: revealName)!)
+    // The depth map is the scene's own, and is drawn into the same fitted rect as the picture.
+    let mask = job.mask.map { (path: $0, rect: (x: Int(px), y: Int(py), w: Int(fw), h: Int(fh))) }
+    let engine = SketchV2(source, paper, SketchReveal(rawValue: revealName)!, mask: mask)
     let analysisSeconds = Double(DispatchTime.now().uptimeNanoseconds - analysisBegan) / 1e9
     let hold = job.hold_frames ?? sketchDefaultHold(frames: job.frames, fps: job.fps)
     let drawing = job.frames - hold

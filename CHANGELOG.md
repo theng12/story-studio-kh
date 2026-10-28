@@ -4,6 +4,9 @@ What's new in each release. Newest first.
 
 ---
 
+<!-- DRAFT — the "Colour it in" reveal. Move this line under the next release's `## vX.Y.Z` heading. -->
+- Sketch Draw has a sixth reveal, **Colour it in**. The ink goes down first, then the picture is coloured in colour group by colour group, finishing the subject before the background when the scene has a depth map, so the colour arrives the way a person paints it in. The bold ink then eases out and the clip ends on the scene picture itself. A Mix can include it like any other style, and every clip already accepted keeps the reveal it was made with.
+
 ## v1.4.367 — 2026-10-28
 
 - A paused job whose requests to the Gateway have all finished can now be stopped. Before, it could sit on "waiting for the provider" with no way out except abandoning it.

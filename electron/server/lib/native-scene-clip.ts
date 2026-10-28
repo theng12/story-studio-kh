@@ -210,6 +210,13 @@ export interface SketchDrawJob {
    */
   reveal: SketchRevealType
   quality?: number
+  /**
+   * This scene's own depth map (an 8-bit greyscale image), used only by the `colour` reveal to
+   * paint the subject before the background. It is an input, not a gate: the generator omits it
+   * when the scene has no usable analysis, and the helper then colours in one phase rather than
+   * inventing a subject.
+   */
+  mask?: string
 }
 
 export class SketchDrawError extends Error {
@@ -233,7 +240,8 @@ export function validateSketchDrawJob(job: SketchDrawJob): void {
   }
   if (typeof job.input !== 'string' || typeof job.output !== 'string' || !path.isAbsolute(job.input) || !path.isAbsolute(job.output) || path.resolve(job.input) === path.resolve(job.output)) invalid('input and output must be different absolute paths')
   if (typeof job.paper !== 'string' || !/^#[a-f\d]{6}$/i.test(job.paper)) invalid('paper must be a six-digit hex colour')
-  if (typeof job.reveal !== 'string' || !(SKETCH_REVEAL_TYPES as readonly string[]).includes(job.reveal)) invalid('reveal must be one of line, buildup, swipes, patches, bloom')
+  if (typeof job.reveal !== 'string' || !(SKETCH_REVEAL_TYPES as readonly string[]).includes(job.reveal)) invalid('reveal must be one of line, buildup, swipes, patches, bloom, colour')
+  if (job.mask !== undefined && (typeof job.mask !== 'string' || !path.isAbsolute(job.mask))) invalid('mask must be an absolute path')
   if (job.quality !== undefined && (!Number.isFinite(job.quality) || job.quality < 0 || job.quality > 1)) invalid('quality must be 0–1')
   const pen = job.pen
   if (!pen || !['none', 'plain', 'name', 'logo'].includes(pen.mode)) invalid('unknown pen mode')

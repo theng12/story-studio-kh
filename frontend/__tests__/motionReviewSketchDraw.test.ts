@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { motionBatchEligible, sketchSelectionReady } from '../utils/motion-review-sketch'
+import { REVEAL_LABELS, REVEAL_MAX_MIX, REVEAL_TYPES, revealFromDraft, revealLabel } from '../utils/sketch-reveal'
 
 const source = readFileSync(new URL('../pages/projects/[slug]/motion-review.vue', import.meta.url), 'utf8')
 
@@ -200,7 +201,7 @@ test('the reveal style control edits THIS episode, offers the channel default, a
   // "not chosen" episode value: an episode with no style of its own IS following the channel.
   assert.match(source, /<option value="channel">Channel default \(\{\{ revealLabel\(channelReveal\) \}\}\)<\/option>/)
   assert.doesNotMatch(source, /<option value="none">Not chosen/)
-  // Each of the five styles is offered by name through a v-for loop.
+  // Each style is offered by name through a v-for loop, so a new reveal appears here for free.
   assert.match(source, /<option v-for="type in REVEAL_TYPES" :key="type" :value="type">\{\{ REVEAL_LABELS\[type\] \}\}<\/option>/)
   assert.match(source, /<option value="mix">Mix — a different style per scene<\/option>/)
   // The Mix expands into checkboxes and an Apply button; a single style saves at once.
@@ -263,4 +264,14 @@ test('the reveal look travels in the preset and the per-scene pins never do', ()
   // The live pins are carried across the apply explicitly, and only once this episode is known.
   assert.match(apply, /if \(revealLoaded\.value\) \{[\s\S]*applyRevealPreset\(data\?\.reveal, episodeReveal\.value\)/)
   assert.match(apply, /void saveReveal\(nextReveal\)/)
+})
+
+test('Colour it in is the sixth reveal, labelled plainly and mixable', () => {
+  assert.deepEqual([...REVEAL_TYPES], ['line', 'buildup', 'swipes', 'patches', 'bloom', 'colour'])
+  assert.equal(REVEAL_LABELS.colour, 'Colour it in')
+  assert.equal(REVEAL_MAX_MIX, 6)
+  assert.deepEqual(revealFromDraft('colour', []), { ok: true, reveal: { style: 'colour', mix: [] } })
+  const mix = revealFromDraft('mix', ['line', 'colour'])
+  assert.ok(mix.ok && mix.reveal?.style === 'mix')
+  assert.equal(revealLabel({ style: 'mix', mix: ['line', 'colour'] }), 'Mix: Line, Colour it in')
 })
