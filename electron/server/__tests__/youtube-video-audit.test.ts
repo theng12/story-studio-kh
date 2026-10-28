@@ -282,6 +282,15 @@ describe('the read-only video audit', () => {
     assert.equal(reads[0]!.path, listPath(['vid-invalidate-a']), 'only the written video is re-read')
     const byId = Object.fromEntries(afterUpdate.body.videos.map((video: any) => [video.video_id, video]))
     assert.equal(byId['vid-invalidate-a'].title, 'Edited on YouTube')
+    // The re-read keeps Story's write marker, joined to the receipt the operations list now returns.
+    const receiptId = byId['vid-invalidate-a'].story_receipt_id
+    assert.ok(receiptId, 'the marker survives the re-read')
+    assert.ok(byId['vid-invalidate-a'].story_written_at)
+    const operations = await request(app).get(`/api/projects/${slug}/youtube/operations`)
+    assert.equal(operations.status, 200)
+    const op = operations.body.operations.find((row: any) => row.operation_id === operationId)
+    assert.equal(op.metadata_updates.at(-1).receipt_id, receiptId)
+    assert.equal(op.metadata_updates.at(-1).video_id, 'vid-invalidate-a')
   })
 
   test('include_uploads also audits videos with no Story record, and reports the extra listing', async () => {
@@ -359,6 +368,9 @@ describe('the audit ledger', () => {
     })
     const current = await auditStore.readChannelVideoAudit(slug, channel)
     assert.equal(auditStore.videoAuditEntryIsCurrent(current['vid-ledger'], ALGORITHM), true)
+    // The re-read replaced the observation but kept Story's write marker and its receipt.
+    assert.equal(current['vid-ledger']?.story_written_at, '2026-10-27T12:00:00.000Z')
+    assert.equal(current['vid-ledger']?.story_receipt_id, 'receipt_ledger')
   })
 
   test('an observation hashed by an OLDER rule is re-read, not handed out as current', async () => {

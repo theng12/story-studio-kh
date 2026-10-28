@@ -228,8 +228,9 @@ export async function readChannelVideoAudit(
 /**
  * Replace (or create) the observation for each video in one channel.
  *
- * Replace-by-id: a newer observation overwrites the older one whole. Another
- * channel's entries and every video not named here are untouched.
+ * Replace-by-id: a newer observation overwrites the older one, except Story's
+ * own write marker (`story_written_at`, `story_receipt_id`), which it carries
+ * over. Another channel's entries and every video not named here are untouched.
  */
 export async function recordVideoAuditEntries(input: {
   project_slug: string
@@ -243,7 +244,15 @@ export async function recordVideoAuditEntries(input: {
     const ledger = await readUnlocked(filePath)
     const channel = ledger.channels[input.channel_id] ?? { videos: {} }
     for (const entry of input.entries) {
-      if (entry.video_id && entry.checked_at) channel.videos[entry.video_id] = entry
+      if (!entry.video_id || !entry.checked_at) continue
+      // A re-read replaces the observation, never Story's own write marker: it is
+      // the only join from this entry to the receipt that proves what Story wrote.
+      const prior = channel.videos[entry.video_id]
+      channel.videos[entry.video_id] = {
+        ...entry,
+        ...(prior?.story_written_at ? { story_written_at: prior.story_written_at } : {}),
+        ...(prior?.story_receipt_id ? { story_receipt_id: prior.story_receipt_id } : {}),
+      }
     }
     ledger.channels[input.channel_id] = channel
     await writeJsonAtomic(filePath, ledger)

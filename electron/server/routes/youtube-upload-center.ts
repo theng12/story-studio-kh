@@ -290,6 +290,8 @@ function publicOperation(record: YouTubeOperationRecordV1) {
     ...(record.processing ? { processing: record.processing } : {}),
     ...(record.remote_snapshot ? { last_checked_at: record.remote_snapshot.fetched_at } : {}),
     drift: record.drift,
+    // Story's own metadata-write receipts: Production's ledger joins on them.
+    ...(record.metadata_updates?.length ? { metadata_updates: record.metadata_updates } : {}),
   }
 }
 
