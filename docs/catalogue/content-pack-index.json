@@ -1,6 +1,6 @@
 {
-  "generated": "2026-10-26T20:07:37.214Z",
-  "count": 229,
+  "generated": "2026-10-28T15:58:33.835Z",
+  "count": 232,
   "items": [
     {
       "kind": "lettering-style",
@@ -779,6 +779,16 @@
       "collection_dir": "free-starters/formula/khmer-folk-horror",
       "axis": "Folk horror",
       "description": "Khmer cautionary tales, local legends and restless spirits, told as independent chapters with atmosphere rather than go…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.mythologies-before-us",
+      "name": "Mythologies Before Us",
+      "collection_dir": "mythologies-before-us/formula/mythologies-before-us",
+      "axis": "Myth retelling",
+      "description": "Feature-length retellings of the world's myths, grouped into self-contained chapters. Each chapter retells one myth, on…",
       "version": "1.0.0",
       "lifecycle": "active"
     },
@@ -1713,6 +1723,16 @@
       "lifecycle": "active"
     },
     {
+      "kind": "topic-pack",
+      "id": "com.storystudio.topic.wars-treaties-world-order-v2",
+      "name": "Wars, Treaties & World Order",
+      "collection_dir": "rebuilt/topic/wars-treaties-world-order-v2-v1.0.1",
+      "axis": "war history, diplomacy, treaties, world order, geopolitics",
+      "description": "Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.",
+      "version": "1.0.1",
+      "lifecycle": "active"
+    },
+    {
       "kind": "visual-style",
       "id": "com.storystudio.style.academic-classical-oil",
       "name": "Academic Classical Oil",
@@ -1720,6 +1740,16 @@
       "axis": "Illustration",
       "description": "The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped…",
       "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "visual-style",
+      "id": "com.storystudio.style.academic-classical-oil-v2",
+      "name": "Academic Classical Oil",
+      "collection_dir": "rebuilt/style/academic-classical-oil-v2-v1.0.1",
+      "axis": "Illustration",
+      "description": "The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped…",
+      "version": "1.0.1",
       "lifecycle": "active"
     },
     {
