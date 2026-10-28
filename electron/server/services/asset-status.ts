@@ -1469,7 +1469,10 @@ export async function computeEpisodeStatus(
         const motionSketchSettings = scenes.some((scene: any) => scene?.clip_renderer === 'sketch_draw')
           ? await resolveSketchDrawSettings(slug, code).catch(() => undefined)
           : undefined
-        const motionContext = { slug, episodeId: code, episodeDir: byCode.episode_dir, sketchSettings: motionSketchSettings, revealScenes: scenes.map((scene: any) => scene?.id).filter((id: unknown): id is string => typeof id === 'string') }
+        // `imagesDir` is the folder already resolved above: the freshness rule proves each clip
+        // against its own scene image, and a scene whose image predates `image_sha256` has no other
+        // proof. Without it every such clip read stale and the episode never reached motion review.
+        const motionContext = { slug, episodeId: code, episodeDir: byCode.episode_dir, sketchSettings: motionSketchSettings, revealScenes: scenes.map((scene: any) => scene?.id).filter((id: unknown): id is string => typeof id === 'string'), imagesDir: namedDir }
         // Owner, 2026-10-26 — a text-to-video scene is reviewed in Motion Review, never in
         // Scene Review, so it is ALWAYS a motion scene and its clip needs its own approval.
         const isT2V = (s: any) => s?.visual_lane === 'text_to_video'

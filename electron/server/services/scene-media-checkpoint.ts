@@ -1,4 +1,5 @@
 import { createHash } from 'crypto'
+import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -178,7 +179,19 @@ export interface SceneClipFreshnessContext {
   slug: string
   episodeId: string
   episodeDir: string
+  /** This ONE scene's source image, when the caller already resolved it. */
   imagePath?: string | null
+  /**
+   * The folder this episode's scene images live in, resolved ONCE by a caller that checks many
+   * scenes. `imagePath` answers for one scene; this lets a loop give every scene its own image
+   * without resolving the folder per scene.
+   *
+   * Both are optional, and neither is trusted to be there: an image registered before
+   * `image_sha256` existed (2026-10-16) carries no recorded stamp, and the clip's own
+   * `clip_source_image_sha256` is then proven by hashing the scene's own image now. A call site that
+   * supplies neither is still CORRECT (the rule resolves the folder itself), just slower.
+   */
+  imagesDir?: string | null
   sketchSettings?: SketchDrawSettings
   /** Scenes the saved request observed as deliberately Still. */
   stillIds?: string[]
@@ -216,7 +229,57 @@ async function currentImageSha256(filePath: string): Promise<string | null> {
   return sha256
 }
 
+/**
+ * The scene's OWN source image, resolved by the same rule the renderer draws from
+ * (`resolveSceneImageReadPath`: the episode's named images folder first, the legacy flat folder
+ * second — never an arbitrary stored path, so the file compared here is one the clip could really
+ * have been drawn from).
+ *
+ * Why the rule resolves this itself: the clip carries `clip_source_image_sha256` — the sha of the
+ * exact bytes it was drawn from — but a scene image registered before 2026-10-16 carries no
+ * `image_sha256` to compare it to. Every multi-scene caller (completion audit, Motion Review,
+ * episode status) used to pass no image at all, so the shared rule answered "cannot verify" for
+ * every such clip while the evidence sat on disk. Asking here means no caller can omit the proof.
+ */
+async function sourceImagePathFor(scene: ScenePlanEntry, context: SceneClipFreshnessContext): Promise<string | null> {
+  // Imported lazily: `generators/scene-image.ts` imports this module, and a static import here
+  // would close that cycle.
+  const { resolveSceneImageReadPath, SCENE_IMAGES_SUBFOLDER } = await import('../generators/scene-image.js')
+  if (context.imagesDir) {
+    const named = path.join(context.imagesDir, `${scene.id}.png`)
+    if (existsSync(named)) return named
+    const flat = path.join(context.episodeDir, SCENE_IMAGES_SUBFOLDER, `${scene.id}.png`)
+    return existsSync(flat) ? flat : null
+  }
+  const code = context.episodeId?.trim().toUpperCase()
+  if (!context.slug?.trim() || !code || !context.episodeDir) return null
+  return resolveSceneImageReadPath(context.slug, code, context.episodeDir, scene.id)
+}
+
+/** The one folder this episode's scene images live in — resolved once by a multi-scene caller. */
+async function resolveSceneImagesFolder(context: SceneClipFreshnessContext): Promise<string | null> {
+  const code = context.episodeId?.trim().toUpperCase()
+  if (!context.slug?.trim() || !code || !context.episodeDir) return null
+  const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+  return resolveSceneImagesDir(context.slug, code, context.episodeDir)
+}
+
+/**
+ * Prove (or fail to prove) that the scene's image on disk is still the one a clip recorded.
+ * `unavailable` means no image could even be named — never the same value as "it changed".
+ */
+async function sourceImageProof(scene: ScenePlanEntry, recordedSha: string, context: SceneClipFreshnessContext): Promise<'match' | 'mismatch' | 'unavailable'> {
+  const filePath = context.imagePath !== undefined
+    ? context.imagePath
+    : await sourceImagePathFor(scene, context)
+  if (!filePath) return 'unavailable'
+  const currentSha = await currentImageSha256(filePath)
+  return currentSha === recordedSha ? 'match' : 'mismatch'
+}
+
 const CANNOT_VERIFY_SOURCE = 'Sketch Draw cannot verify its source image here. Open Motion Review and Retry.'
+/** The clip recorded its source, but the scene's own image is not where it should be. */
+const SOURCE_IMAGE_MISSING = 'source image is missing'
 const SETTINGS_UNAVAILABLE = 'Sketch Draw settings could not be checked. Choose the pen, reveal style and Video Assembly frame rate again.'
 /** Only reachable if a caller omits the episode's scene order from a Mix check; it never guesses. */
 const REVEAL_NEEDS_EPISODE = 'Sketch Draw cannot check its reveal style here. Open Motion Review and Retry.'
@@ -245,10 +308,14 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
       && scene.rendered_motion_prompt !== (scene.motion_prompt || '')) return 'stale motion prompt'
     if (scene.image_version != null && scene.clip_source_image_version !== scene.image_version) return 'stale source image'
     if (scene.clip_source_image_sha256 !== undefined) {
-      if (!scene.image_sha256) {
-        if (!context?.imagePath) return 'source image cannot be verified here'
-        if (await currentImageSha256(context.imagePath) !== scene.clip_source_image_sha256) return 'stale source image'
-      } else if (scene.image_sha256 !== scene.clip_source_image_sha256) return 'stale source image'
+      const recorded = scene.clip_source_image_sha256
+      if (scene.image_sha256) return scene.image_sha256 === recorded ? null : 'stale source image'
+      // No recorded image stamp: hash the scene's own image now, exactly as the Sketch Draw branch
+      // does. Nothing is invented — an unreadable or different file is still stale.
+      const proof = context
+        ? await sourceImageProof(scene, recorded, context)
+        : 'unavailable' as const
+      return proof === 'match' ? null : proof === 'mismatch' ? 'stale source image' : 'source image cannot be verified here'
     }
     return null
   }
@@ -303,11 +370,16 @@ export async function sceneClipStaleReason(scene: ScenePlanEntry, context?: Scen
   }
 
   const clipSha = scene.clip_source_image_sha256
+  // No receipt sha at all: the clip never recorded what it was drawn from, so there is nothing to
+  // compare and no honest way to call it fresh.
   if (!clipSha) return CANNOT_VERIFY_SOURCE
   if (scene.image_sha256) return scene.image_sha256 === clipSha ? null : 'stale source image'
-  if (!context.imagePath) return CANNOT_VERIFY_SOURCE
-  const currentSha = await currentImageSha256(context.imagePath)
-  return currentSha && currentSha === clipSha ? null : 'stale source image'
+  // Every scene image registered before 2026-10-16 has no `image_sha256`, and it never will: the
+  // stamp is written when an image is registered and nothing rewrites a stored plan. The clip's own
+  // `clip_source_image_sha256` is then the proof, compared against the scene's image hashed NOW.
+  const proof = await sourceImageProof(scene, clipSha, context)
+  if (proof === 'match') return null
+  return proof === 'mismatch' ? 'stale source image' : SOURCE_IMAGE_MISSING
 }
 
 /** The one definition of "this scene already has a fresh clip", without decoding it. */
@@ -410,6 +482,12 @@ export async function auditSceneClipCompletion(
   const missing: string[] = []
   const invalid: string[] = []
   const issues: SceneClipCompletionAudit['issues'] = []
+  // The audit checks many scenes, so it resolves the one images folder once and lets the freshness
+  // rule join each scene's own id inside it. Without this the rule had no image to hash for a scene
+  // whose image predates `image_sha256`, and called a complete clip unknowable (2026-10-28).
+  const auditContext = context && context.imagesDir === undefined && context.imagePath === undefined
+    ? { ...context, imagesDir: await resolveSceneImagesFolder(context).catch(() => null) }
+    : context
 
   for (const sceneId of [...new Set(sceneIds)]) {
     const scene = scenesById.get(sceneId)
@@ -433,7 +511,7 @@ export async function auditSceneClipCompletion(
       issues.push({ item_id: sceneId, state: 'invalid', reason: 'empty clip' })
       continue
     }
-    const staleReason = await sceneClipStaleReason(scene, context)
+    const staleReason = await sceneClipStaleReason(scene, auditContext)
     if (staleReason) {
       invalid.push(`${sceneId} (${staleReason})`)
       issues.push({ item_id: sceneId, state: 'invalid', reason: staleReason })

@@ -21,7 +21,7 @@ import path from 'path'
 import { downloadVideo } from '../lib/download-video.js'
 import { assertPlayableSceneClip } from '../lib/scene-clip-media.js'
 import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath, type ProjectFactsCache } from '../services/utils.js'
-import { resolveSceneImageReadPath } from './scene-image.js'
+import { resolveSceneImageReadPath, resolveSceneImagesDir } from './scene-image.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as jq from '../services/job-queue.js'
@@ -431,7 +431,10 @@ export async function generateSketchDrawBatch(job: Job, render = renderSketchDra
   // Eligibility uses one snapshot; the completion audit below re-resolves live settings so a
   // pen/fps change during the batch is reported as stale by scene name, never as success.
   const revealScenes = plan.scenes.map(item => item.id)
-  const filterContext = { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, revealScenes,
+  // Resolved once for the whole batch: the freshness rule proves a clip against the scene's own
+  // image, and a folder lookup per scene would mean one readdir per scene.
+  const imagesDir = await resolveSceneImagesDir(job.project_slug, episodeId.toUpperCase(), paths.episode_dir).catch(() => null)
+  const filterContext = { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, revealScenes, imagesDir,
     sketchSettings: plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
       ? await resolveSketchDrawSettings(job.project_slug, episodeId).catch(() => undefined) : undefined }
   const requiredIds: string[] = []
@@ -440,7 +443,11 @@ export async function generateSketchDrawBatch(job: Job, render = renderSketchDra
   for (const sceneId of ids) {
     const scene = plan.scenes.find(item => item.id === sceneId)
     if (scene?.motion_choice === 'still') { stillIds.add(sceneId); continue }
-    if (scene?.clip_renderer === 'sketch_draw' && scene.image_sha256
+    // `scene.image_sha256` is NOT a precondition here. It is only ever written when an image is
+    // registered, so every image registered before 2026-10-16 has none — and gating on it made a
+    // complete clip look un-fresh, which re-rendered 1,310 good clips on 2026-10-28. The one
+    // freshness rule decides, and it proves the source by hashing the scene's own image.
+    if (scene?.clip_renderer === 'sketch_draw'
       && await isSceneClipFresh(scene, path.join(clipsDir, `${sceneId}.mp4`), filterContext)) freshIds.push(sceneId)
     else requiredIds.push(sceneId)
   }
@@ -938,6 +945,9 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
     throw new Error(`Requested motion scenes no longer exist: ${missingSnapshotIds.join(', ')}. Submit the scoped motion batch again.`)
   }
   const requiredIds: string[] = requestedSceneIds ? [...requestedSceneIds] : []
+  // Resolved once: the freshness rule proves a clip against its scene's own image, and a folder
+  // lookup per scene would mean one readdir per scene.
+  const imagesDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir).catch(() => null)
   for (const scene of plan.scenes) {
     if (requestedSceneIds && !requestedSceneIds.has(scene.id)) continue
     if (scene.motion_choice === 'still') continue
@@ -957,7 +967,7 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
     const clipPath = path.join(clipsDir, `${scene.id}.mp4`)
     const clipStat = await fs.stat(clipPath).catch(() => null)
     const freshClip = !!clipStat?.isFile() && clipStat.size > 0
-      && !await sceneClipStaleReason(scene, { slug: job.project_slug, episodeId: episode_id, episodeDir: paths.episode_dir, revealScenes: plan.scenes.map(item => item.id) })
+      && !await sceneClipStaleReason(scene, { slug: job.project_slug, episodeId: episode_id, episodeDir: paths.episode_dir, imagesDir, revealScenes: plan.scenes.map(item => item.id) })
       && scene.motion_choice === 'clip'
     if (!freshClip) ready.push(scene)
   }
