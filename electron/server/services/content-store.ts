@@ -1,5 +1,7 @@
 import {
   GenStudioContentStoreApiError,
+  GenStudioContentStoreLimitError,
+  GenStudioContentStoreResponseError,
   canonicalizeContentStoreObject,
   getGenStudioContentAccount,
   getGenStudioContentReceipts,
@@ -13,8 +15,10 @@ import {
   type GenStudioOwnedContentRelease,
 } from '../lib/genstudio-content-store.js'
 import { verifyContentStoreRestoreReceipt } from '../lib/genstudio-content-store-trust.js'
+import { gatewayConnectionFailure } from '../lib/humanize-backend-error.js'
 import { getApiKey } from './app-secrets-store.js'
 import { getGenStudioUrl } from './app-settings.js'
+import { logLine } from './logger.js'
 import {
   readContentStoreCommerceState,
   readVerifiedContentStoreRestore,
@@ -30,6 +34,7 @@ import {
 import {
   type CachedContentQuote,
   type CachedContentRefusal,
+  type ContentStoreCommerceState,
 } from '../content-store/types.js'
 
 export interface PublicContentPurchaseAttempt {
@@ -157,10 +162,33 @@ export type PublicContentProduct = Omit<GenStudioContentProduct,
   discount: PublicContentProductDiscount | null
 }
 
+export interface ContentStoreOverviewSections {
+  /** This account's ownership, balance and installed releases, as GenStudio publishes them. */
+  account: ContentStoreSectionStatus
+  /** The published product catalogue. */
+  catalog: ContentStoreSectionStatus
+  /** Shelf assignments (the Discover shelves). Needs the catalogue. */
+  shelves: ContentStoreSectionStatus
+  /** Recall receipts, which decide which installed versions stay usable. */
+  receipts: ContentStoreSectionStatus
+  /** This Mac's own purchase journal. Local, but it needs the account to scope it. */
+  commerce: ContentStoreSectionStatus
+}
+
+export type ContentStoreSectionStatus =
+  | { status: 'available' }
+  | { status: 'unavailable'; code: string; reason: string }
+
 export interface ContentStoreOverview {
-  phase: 'delivery_ready'
+  /**
+   * `delivery_ready` — every section answered. `partial` — at least one did
+   * not, and the response says which one and why. A partial overview still
+   * carries what this Mac knows on its own (installed packs, local journal).
+   */
+  phase: 'delivery_ready' | 'partial'
   origin: string
-  account: PublicContentAccount
+  /** Null only when the account section is unavailable — never "owns nothing". */
+  account: PublicContentAccount | null
   installed: PublicContentInstalledPack[]
   products: PublicContentProduct[]
   shelves: PublicContentStoreShelf[]
@@ -172,6 +200,7 @@ export interface ContentStoreOverview {
     install_after_purchase: false
     restore: true
   }
+  sections: ContentStoreOverviewSections
 }
 
 
@@ -537,11 +566,17 @@ async function publicDependencies(
   })
 }
 
+/**
+ * The journal is passed in, not read here: reading it is this Mac's own answer
+ * and must be reported as a LOCAL failure, while enriching an attempt asks the
+ * Gateway and must be reported as a Gateway failure. Reading it here made those
+ * two indistinguishable to the caller.
+ */
 async function localAttempts(
   accountId: string,
   context: PublicDependencyContext,
+  state: ContentStoreCommerceState,
 ): Promise<PublicContentPurchaseAttempt[]> {
-  const state = await readContentStoreCommerceState()
   const attempts = Object.values(state.attempts)
     .filter(attempt => attempt.account_id === accountId)
     .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
@@ -553,58 +588,206 @@ async function localAttempts(
   }))
 }
 
-export async function loadContentStoreOverview(): Promise<ContentStoreOverview> {
-  const apiKey = await activeKey()
-  await recoverInterruptedContentPurchases()
-  const storyVersion = await resolveStoryStudioVersion()
-  // Account, catalog and receipts depend only on the key, so they are asked
-  // for together; shelves need the catalog's product ids and follow it. The
-  // four used to run one after another — the live overview took 4.7 s warm and
-  // 13 s cold (2026-09-12), most of it waiting on GenStudio in series.
-  const accountRequest = getGenStudioContentAccount(apiKey).catch((error: unknown) => {
-    if (error instanceof GenStudioContentStoreApiError && error.status === 401) {
-      throw new ContentStoreLocalError(
-        401,
-        'CONTENT_STORE_SCOPE_REQUIRED',
-        'The active GenStudio key was not accepted for required content:read access.',
-      )
+const SECTION_AVAILABLE: ContentStoreSectionStatus = Object.freeze({ status: 'available' as const })
+
+/**
+ * What a section's failure means, in words the customer can act on — or null
+ * when nothing here can explain it.
+ *
+ * Null is deliberate: an unexpected error in this file is a BUG and must stay a
+ * loud, logged 500, not be laundered into "the Gateway did not answer". Every
+ * shape a real machine can produce is classified below, so a null here is a
+ * signal worth investigating rather than a catch-all.
+ */
+export function contentStoreSectionFailure(error: unknown): { code: string; reason: string } | null {
+  // Local, exact refusals: no key saved, key refused for content:read, an
+  // account mismatch the caller keeps loud, a broken local journal.
+  if (error instanceof ContentStoreLocalError) {
+    return { code: error.code, reason: error.message }
+  }
+  const offline = gatewayConnectionFailure(error)
+  if (offline) return { code: 'GATEWAY_UNREACHABLE', reason: offline.detail }
+  if (error instanceof GenStudioContentStoreResponseError) {
+    // Answered, but not with a Content Store response: a Gateway that does not
+    // serve these endpoints (a catch-all page), or a contract this build cannot
+    // read. The validator detail names the field and endpoint; it is a
+    // description of the response, never a local path.
+    return {
+      code: error.code,
+      reason: `The Gateway answered, but not with a Studio Library response: ${error.message}`,
     }
-    throw error
-  })
-  const catalogRequest = listGenStudioContentProducts(apiKey, storyVersion)
-  const shelvesRequest = catalogRequest.then(catalog =>
-    listGenStudioContentStoreShelves(apiKey, storyVersion, catalog.products.map(product => product.productId)))
-  const receiptsRequest = getGenStudioContentReceipts(apiKey)
+  }
+  if (error instanceof GenStudioContentStoreLimitError) {
+    return { code: error.code, reason: error.message }
+  }
+  if (error instanceof GenStudioContentStoreApiError) {
+    if (error.status === 401) {
+      return {
+        code: 'CONTENT_STORE_SCOPE_REQUIRED',
+        reason: 'The saved Gateway API Key was not accepted for Studio Library access.',
+      }
+    }
+    if (error.status === 404) {
+      return { code: 'CONTENT_STORE_NOT_SERVED', reason: 'This Gateway does not serve the Studio Library.' }
+    }
+    return {
+      code: 'CONTENT_STORE_GATEWAY_FAILED',
+      reason: `The Gateway could not serve the Studio Library (HTTP ${error.status}${
+        typeof error.code === 'string' && error.code ? `, ${error.code}` : ''}).`,
+    }
+  }
+  // A local journal or pack-state file this Mac cannot read. The message can
+  // carry the file path, so only the errno code is repeated to the renderer.
+  const errno = (error as { code?: unknown })?.code
+  if (typeof errno === 'string' && /^(?:EACCES|EPERM|ENOSPC|EISDIR|ENOTDIR|EIO|EBUSY|EMFILE)$/.test(errno)) {
+    return {
+      code: 'CONTENT_STORE_LOCAL_STATE_UNAVAILABLE',
+      reason: `This Mac could not read its Studio Library records (${errno}).`,
+    }
+  }
+  return null
+}
+
+function sectionFailure(error: unknown, section: string): { status: 'unavailable'; code: string; reason: string } {
+  const described = contentStoreSectionFailure(error)
+  if (!described) throw error
+  return { status: 'unavailable', ...described }
+}
+
+/**
+ * Load the Studio Library overview, answering with whatever this Mac can
+ * honestly state.
+ *
+ * It used to be all-or-nothing: one rejection anywhere — a Gateway that does
+ * not serve the content endpoints, a 200 that is not the published shape, a
+ * local journal this Mac cannot read — threw, and the route answered the
+ * generic `500 {"detail":"Failed to load the Content Store."}`. On 2026-10-28
+ * the installed mini reported exactly that while its archive bank answered 216
+ * archives normally, and the cause could not even be read out of the log.
+ *
+ * Now each part is asked for on its own and reported as
+ * `available` or `unavailable` with a code and a reason. Local facts — the
+ * packs installed on this Mac and this Mac's own purchase journal — are
+ * answered even when the Gateway cannot be asked at all, and an unavailable
+ * part is NEVER flattened into an empty one: `account: null` and
+ * `sections.account.status === 'unavailable'` mean "could not ask", which is
+ * not "you own nothing" (AGENTS.md 6).
+ *
+ * What stays loud, on purpose: a real local defect (an unreadable Content Pack
+ * state, which is also what every install depends on) and an account mismatch
+ * (409) — those are bugs, not a Gateway that does not offer the Store.
+ */
+export async function loadContentStoreOverview(): Promise<ContentStoreOverview> {
+  const origin = await currentGenStudioOrigin()
+
+  // ── the key ────────────────────────────────────────────────────────────
+  // No key means every question about the account is unanswerable, but nothing
+  // local is. It used to be a 400 with no body worth showing.
+  let apiKey: string | null = null
+  let keyFailure: { status: 'unavailable'; code: string; reason: string } | null = null
+  try {
+    apiKey = await activeKey()
+  } catch (error) {
+    keyFailure = sectionFailure(error, 'account')
+    logLine('warn', 'Content Store overview: no usable Gateway key', { code: keyFailure.code })
+  }
+
+  // ── the four Gateway reads, together ───────────────────────────────────
+  // Account, catalog and receipts depend only on the key; shelves need the
+  // catalog's product ids and follow it. They used to run one after another —
+  // 4.7 s warm and 13 s cold (2026-09-12).
+  const accountRequest = apiKey === null
+    ? Promise.reject(new ContentStoreLocalError(400, 'CONTENT_STORE_KEY_REQUIRED', keyFailure!.reason))
+    : getGenStudioContentAccount(apiKey).catch((error: unknown) => {
+      if (error instanceof GenStudioContentStoreApiError && error.status === 401) {
+        throw new ContentStoreLocalError(
+          401,
+          'CONTENT_STORE_SCOPE_REQUIRED',
+          'The active GenStudio key was not accepted for required content:read access.',
+        )
+      }
+      throw error
+    })
+  const storyVersionRequest = resolveStoryStudioVersion()
+  const catalogRequest = apiKey === null
+    ? Promise.reject(new ContentStoreLocalError(400, 'CONTENT_STORE_KEY_REQUIRED', keyFailure!.reason))
+    : storyVersionRequest.then(version => listGenStudioContentProducts(apiKey, version))
+  const shelvesRequest = Promise.all([storyVersionRequest, catalogRequest]).then(([version, catalog]) =>
+    listGenStudioContentStoreShelves(apiKey!, version, catalog.products.map(product => product.productId)))
+  const receiptsRequest = apiKey === null
+    ? Promise.reject(new ContentStoreLocalError(400, 'CONTENT_STORE_KEY_REQUIRED', keyFailure!.reason))
+    : getGenStudioContentReceipts(apiKey)
   // Settle every request so a rejection cannot leave a sibling dangling as an
-  // unhandled rejection; the account's refusal keeps precedence, as before.
-  const settled = await Promise.allSettled([accountRequest, catalogRequest, receiptsRequest, shelvesRequest])
-  for (const outcome of settled) if (outcome.status === 'rejected') throw outcome.reason
-  const account: GenStudioContentAccount = (settled[0] as PromiseFulfilledResult<GenStudioContentAccount>).value
-  const catalog = (settled[1] as PromiseFulfilledResult<Awaited<typeof catalogRequest>>).value
-  const receipts = (settled[2] as PromiseFulfilledResult<Awaited<typeof receiptsRequest>>).value
-  const shelfResponse = (settled[3] as PromiseFulfilledResult<Awaited<typeof shelvesRequest>>).value
-  if (receipts.accountId !== account.accountId || receipts.contentAccountId !== account.contentAccountId) {
+  // unhandled rejection, and so one refusal cannot hide the others' answers.
+  const [accountOutcome, catalogOutcome, receiptsOutcome, shelvesOutcome] = await Promise.allSettled(
+    [accountRequest, catalogRequest, receiptsRequest, shelvesRequest])
+
+  const sections: ContentStoreOverviewSections = {
+    account: SECTION_AVAILABLE, catalog: SECTION_AVAILABLE, shelves: SECTION_AVAILABLE,
+    receipts: SECTION_AVAILABLE, commerce: SECTION_AVAILABLE,
+  }
+  const noteFailure = (section: keyof ContentStoreOverviewSections, error: unknown): void => {
+    const failure = sectionFailure(error, section)
+    sections[section] = failure
+    logLine('warn', 'Content Store overview section unavailable', {
+      section,
+      code: failure.code,
+      reason: failure.reason,
+      raw: String((error as { message?: unknown })?.message ?? error ?? ''),
+    })
+  }
+  if (accountOutcome.status === 'rejected') noteFailure('account', accountOutcome.reason)
+  if (catalogOutcome.status === 'rejected') noteFailure('catalog', catalogOutcome.reason)
+  if (shelvesOutcome.status === 'rejected') noteFailure('shelves', shelvesOutcome.reason)
+  if (receiptsOutcome.status === 'rejected') noteFailure('receipts', receiptsOutcome.reason)
+
+  const account = accountOutcome.status === 'fulfilled' ? accountOutcome.value : null
+  const catalog = catalogOutcome.status === 'fulfilled' ? catalogOutcome.value : null
+  const receipts = receiptsOutcome.status === 'fulfilled' ? receiptsOutcome.value : null
+  const shelfResponse = shelvesOutcome.status === 'fulfilled' ? shelvesOutcome.value : null
+
+  // An account/receipts disagreement is not "unavailable": it is a wrong
+  // answer, and must stay loud rather than be softened into a notice.
+  if (account && receipts
+    && (receipts.accountId !== account.accountId || receipts.contentAccountId !== account.contentAccountId)) {
     throw new ContentStoreLocalError(
       409,
       'CONTENT_STORE_ACCOUNT_MISMATCH',
       'GenStudio returned Content Store recall state for a different account.',
     )
   }
-  const recalledVersionsByFamily = new Map(receipts.entitlements.map(entitlement => [
+
+  const recalledVersionsByFamily = new Map((receipts?.entitlements ?? []).map(entitlement => [
     entitlement.entitlementFamily,
     entitlement.recalledReleaseVersions,
   ]))
-  await reconcileContentStoreRecalledVersions({
-    accountId: account.accountId,
-    origin: await currentGenStudioOrigin(),
-    recalledVersionsByFamily,
-  })
+
+  // ── local facts ────────────────────────────────────────────────────────
+  // Recalls are written to pack state BEFORE the install snapshot is read, so
+  // this one answer already reflects them instead of needing a second request.
+  if (account && receipts) {
+    // Marking recalls writes pack state; failing to do it must not cost the
+    // customer the whole page, but it must be named.
+    await reconcileContentStoreRecalledVersions({
+      accountId: account.accountId,
+      origin,
+      recalledVersionsByFamily,
+    }).catch(error => {
+      // Folded into receipts: this IS the recall fact failing to land.
+      noteFailure('receipts', error)
+    })
+  }
+  // The install snapshot is read for this Mac alone; ownership only decorates
+  // it. A local pack-state failure is a real defect (every install depends on
+  // the same state), so it is NOT caught here.
   const [verifiedFamilies, installSnapshot] = await Promise.all([
-    cachedVerifiedFamilies(account.accountId),
-    resolveContentStoreInstallSnapshot(account.owned.map(owned => owned.currentRelease)),
+    account ? cachedVerifiedFamilies(account.accountId).catch(() => new Set<string>()) : Promise.resolve(new Set<string>()),
+    resolveContentStoreInstallSnapshot((account?.owned ?? []).map(owned => owned.currentRelease)),
   ])
-  const catalogByProduct = new Map(catalog.products.map(product => [product.productId, product]))
-  const verifiedOwnedProductIds = new Set(account.owned
+
+  const products = catalog?.products ?? []
+  const catalogByProduct = new Map(products.map(product => [product.productId, product]))
+  const verifiedOwnedProductIds = new Set((account?.owned ?? [])
     .filter(owned => verifiedFamilies.has(owned.entitlementFamily))
     .map(owned => owned.productId))
   const installed: PublicContentInstalledPack[] = installSnapshot.installed.map(local => {
@@ -616,21 +799,61 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
       ownedByActiveAccount: verifiedOwnedProductIds.has(local.productId),
     }
   })
-  const dependencies = dependencyContext(apiKey, catalog.products, installed)
+  const shelves: PublicContentStoreShelf[] = shelfResponse
+    ? [
+        ...shelfResponse.shelves.map(shelf => ({ id: shelf.shelfId, title: shelf.title, productIds: [...shelf.productIds] })),
+        ...(shelfResponse.fallbackProductIds.length > 0
+          ? [{ id: 'fallback', title: 'More Content', productIds: [...shelfResponse.fallbackProductIds] }]
+          : []),
+      ]
+    : []
+
+  // ── this Mac's own purchase journal ────────────────────────────────────
+  // Reading it needs no Gateway, but scoping it to the account does. Every
+  // failure of THIS read is local, whatever it says: the journal is this Mac's
+  // own record, and the shop is retired, so an unreadable one is a notice, not
+  // a reason to fail the whole page.
+  let attempts: PublicContentPurchaseAttempt[] = []
+  if (account && apiKey) {
+    let journal: Awaited<ReturnType<typeof readContentStoreCommerceState>> | null = null
+    try {
+      await recoverInterruptedContentPurchases()
+      journal = await readContentStoreCommerceState()
+    } catch (error) {
+      sections.commerce = {
+        status: 'unavailable',
+        code: 'CONTENT_STORE_LOCAL_STATE_UNAVAILABLE',
+        reason: 'This Mac could not read its Studio Library purchase records.',
+      }
+      logLine('error', 'Content Store purchase journal unavailable', {
+        raw: String((error as { message?: unknown })?.message ?? error ?? ''),
+      })
+    }
+    if (journal) {
+      try {
+        attempts = await localAttempts(account.accountId, dependencyContext(apiKey, products, installed), journal)
+      } catch (error) {
+        noteFailure('commerce', error)
+      }
+    }
+  } else if (sections.account.status === 'unavailable') {
+    // Purchase attempts are scoped to the account, so an account that could not
+    // be asked is also why this list is empty. It is the account's reason.
+    sections.commerce = sections.account
+  }
+
+  const unavailable = Object.values(sections).some(section => section.status === 'unavailable')
   return {
-    phase: 'delivery_ready',
-    origin: await currentGenStudioOrigin(),
-    account: await publicAccount(account, verifiedFamilies, installSnapshot.owned, recalledVersionsByFamily,
-      new Map(catalog.products.map(product => [product.productId, product.compatible]))),
+    phase: unavailable ? 'partial' : 'delivery_ready',
+    origin,
+    account: account
+      ? await publicAccount(account, verifiedFamilies, installSnapshot.owned, recalledVersionsByFamily,
+        new Map(products.map(product => [product.productId, product.compatible])))
+      : null,
     installed,
-    products: catalog.products.map(publicProduct),
-    shelves: [
-      ...shelfResponse.shelves.map(shelf => ({ id: shelf.shelfId, title: shelf.title, productIds: [...shelf.productIds] })),
-      ...(shelfResponse.fallbackProductIds.length > 0
-        ? [{ id: 'fallback', title: 'More Content', productIds: [...shelfResponse.fallbackProductIds] }]
-        : []),
-    ],
-    attempts: await localAttempts(account.accountId, dependencies),
+    products: products.map(publicProduct),
+    shelves,
+    attempts,
     capabilities: {
       purchase: false,
       receipt_verification: true,
@@ -638,5 +861,6 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
       install_after_purchase: false,
       restore: true,
     },
+    sections,
   }
 }

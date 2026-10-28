@@ -111,9 +111,14 @@ describe('user style packs', () => {
       active_style_preset_id: 'kh.art-styles.dreamlands',
       style_presets: [{ id: 'kh.art-styles.dreamlands', name: 'Dreamlands', description: 'Soft dreamlands brushwork, no text.', created_at: new Date().toISOString() }],
     } as any, {})
-    const resolved = await resolveProjectArtStyle(project.slug)
+    const { style: resolved, fallback } = await resolveProjectArtStyle(project.slug)
     assert.equal(resolved?.presetId, 'kh.art-styles.dreamlands')
     assert.equal(resolved?.description, 'Soft dreamlands brushwork, no text.')
+    // The Store owns this look now, but its pack is not installed here, so the
+    // channel's own saved prose runs — and the resolution says so.
+    assert.equal(fallback?.reason, 'store_style_not_installed')
+    assert.equal(fallback?.storeStyleId, 'com.storystudio.style.dreamlike-luminous-sleep-illustration')
+    assert.equal(fallback?.used, 'saved_preset')
     assert.deepEqual((await projectManager.getProject(project.slug))?.content_pack_items ?? {}, {})
   })
 })

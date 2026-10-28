@@ -28,11 +28,19 @@ describe('Content Store overview and install cost', () => {
     const source = await read('../services/content-store.ts')
     const start = source.indexOf('export async function loadContentStoreOverview')
     const body = source.slice(start, source.indexOf('\n}\n', start))
-    assert.match(body, /const accountRequest = getGenStudioContentAccount\(apiKey\)/)
-    assert.match(body, /const catalogRequest = listGenStudioContentProducts\(apiKey, storyVersion\)/)
-    assert.match(body, /const receiptsRequest = getGenStudioContentReceipts\(apiKey\)/)
-    assert.match(body, /Promise\.allSettled\(\[accountRequest, catalogRequest, receiptsRequest, shelvesRequest\]\)/)
+    // The four requests are still created BEFORE anything is awaited: each one
+    // is its own promise, and they settle together. (2026-10-28 changed what a
+    // rejection MEANS — a named, partial answer — not that they run in
+    // parallel, which is the cost this test exists to protect.)
+    assert.match(body, /getGenStudioContentAccount\(apiKey\)/)
+    assert.match(body, /listGenStudioContentProducts\(apiKey, version\)/)
+    assert.match(body, /getGenStudioContentReceipts\(apiKey\)/)
+    assert.match(body, /Promise\.allSettled\(\s*\[accountRequest, catalogRequest, receiptsRequest, shelvesRequest\]/)
     assert.doesNotMatch(body, /const catalog = await listGenStudioContentProducts/)
+    // No request may be awaited before the settle, or the fan-out is serial again.
+    const beforeSettle = body.slice(0, body.indexOf('allSettled'))
+    assert.doesNotMatch(beforeSettle, /await getGenStudioContentAccount/)
+    assert.doesNotMatch(beforeSettle, /await getGenStudioContentReceipts/)
   })
 
   test('an install can skip the overview rebuild, and only then', async () => {

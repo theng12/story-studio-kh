@@ -396,6 +396,27 @@ export class GenStudioContentStoreTransportError extends Error {
   }
 }
 
+/**
+ * The Gateway ANSWERED, but not with a Content Store response this build can
+ * read: a different JSON shape, an HTML page behind a catch-all route, or a
+ * body that is not JSON at all.
+ *
+ * This is its own type because it means something specific to the customer —
+ * "this Gateway does not serve the Content Store" — and because the alternative
+ * was worse: an untyped `Error` here reached the renderer as the generic
+ * "Failed to load the Content Store." 500, which is exactly what the installed
+ * mini reported on 2026-10-28 while its archive bank answered normally. The
+ * `detail` is the field-level reason from the validator; it is safe to log.
+ */
+export class GenStudioContentStoreResponseError extends Error {
+  readonly code = 'CONTENT_STORE_RESPONSE_INVALID' as const
+
+  constructor(detail: string, cause?: unknown) {
+    super(detail, cause === undefined ? undefined : { cause })
+    this.name = 'GenStudioContentStoreResponseError'
+  }
+}
+
 function plainObject(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${field} must be an object`)
   const prototype = Object.getPrototypeOf(value)
@@ -1470,7 +1491,10 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
         error,
       )
     }
-    throw new Error('GenStudio Content Store returned invalid JSON', { cause: error })
+    throw new GenStudioContentStoreResponseError(
+      `GenStudio answered ${options.path.split('?')[0]} with a body that is not JSON.`,
+      error,
+    )
   }
   try {
     return options.parse(parsed)
@@ -1488,7 +1512,15 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
         error,
       )
     }
-    throw error
+    // A validator refusal is the Gateway's answer being the wrong shape, not a
+    // bug here: name the field and the endpoint, in a type the callers can
+    // classify without guessing.
+    if (error instanceof GenStudioContentStoreLimitError) throw error
+    throw new GenStudioContentStoreResponseError(
+      `GenStudio answered ${options.path.split('?')[0]} with a body that is not a Content Store response: ${
+        (error as { message?: unknown })?.message ?? 'invalid shape'}`,
+      error,
+    )
   }
 }
 

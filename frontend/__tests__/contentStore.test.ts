@@ -41,9 +41,15 @@ const completeOverview = {
   ],
   shelves: [{ id: 'cshf_featured', title: 'Featured', productIds: ['formula'] }],
   attempts: [],
+  installed: [],
   capabilities: {
     purchase: false, receipt_verification: true, download: true,
     install_after_purchase: false, restore: true,
+  },
+  sections: {
+    account: { status: 'available' as const }, catalog: { status: 'available' as const },
+    shelves: { status: 'available' as const }, receipts: { status: 'available' as const },
+    commerce: { status: 'available' as const },
   },
 }
 
@@ -798,19 +804,26 @@ describe('Studio Library renderer contract', () => {
     assert.match(card, /:data-owned="ownershipResolved \? product\.owned : undefined"/)
 
     for (const source of [libraryView, installedView]) {
-      assert.match(source, /v-if="!ownershipResolved"[^>]*role="status"/)
       assert.match(source, /Not checked yet/)
     }
+    assert.match(libraryView, /v-if="!ownershipResolved"[^>]*role="status"/,
+      'a catalog list that needs the account says it is still checking')
+    // The Installed list is read from this Mac, so it is answered by the same
+    // response that names an account it could not reach — gating it on
+    // ownership would turn a known local fact into "not checked yet".
+    assert.match(installedView, /v-if="!installsResolved"[^>]*role="status"/)
+    assert.doesNotMatch(installedView, /v-if="!ownershipResolved"/)
     assert.match(libraryView, /ownershipResolved \? `\$\{products\.length\}/, 'a pack count is only shown once it has been counted')
     assert.match(detail, /v-if="!ownershipResolved" class="detail-pending"/)
     assert.doesNotMatch(detail, /See Exact Quote|Get Free|Requesting Quote/)
 
     assert.match(page, /catalogFreshness === 'restored'/)
     assert.match(page, /Showing the published catalogue saved on this Mac/)
-    assert.match(page, /function tabCountLabel\(tab: StoreTab\): string \{ return !ownershipResolved\.value && tab !== 'discover' \? '—'/)
+    assert.match(page, /function tabCountLabel\(tab: StoreTab\): string \{/)
+    assert.match(page, /return !ownershipResolved\.value && tab !== 'discover' \? '—' : String\(tabProductCount\(tab\)\)/)
     assert.match(page, /:ownership-resolved="ownershipResolved"/)
-    assert.match(page, /const networkActionsDisabled = computed\(\(\) => catalogFreshness\.value !== 'fresh'\)/,
-      'restored reuses the existing disabled-actions machinery rather than a second flag')
+    assert.match(page, /const networkActionsDisabled = computed\(\(\) => catalogFreshness\.value !== 'fresh' \|\| !accountResolved\.value\)/,
+      'restored reuses the existing disabled-actions machinery rather than a second flag; a catalogue without an account is not actionable either')
   })
 
   test('separates Discover, Owned, Installed, and Updates with truthful counts and empty states', () => {

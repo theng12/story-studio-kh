@@ -360,13 +360,22 @@ describe('Content Store commerce routes', () => {
     assert.deepEqual(await jobQueue.getJobs(project.slug), jobsBefore)
   })
 
-  test('a stopped Gateway is named, not reported as a generic "Failed to load the Content Store."', async () => {
+  test('a stopped Gateway is named per section, and the overview still answers with what this Mac knows', async () => {
     const { app: localApp } = await setup({ products: [product()] })
     await mock.close()
-    const response = await request(localApp).get('/api/content-store')
-    assert.equal(response.status, 503)
-    assert.equal(response.body.code, 'GATEWAY_UNREACHABLE')
-    assert.match(response.body.detail, /Could not reach the Gateway/)
+    // 2026-10-28: this used to be a bare 503/500 with nothing else. The parts
+    // that do not need the Gateway are answered, and each part that does is
+    // named — "could not ask" is never rendered as "you own nothing".
+    const response = await request(localApp).get('/api/content-store').expect(200)
+    assert.equal(response.body.phase, 'partial')
+    assert.equal(response.body.account, null, 'a refused question is not an empty ownership list')
+    assert.equal(response.body.sections.account.status, 'unavailable')
+    assert.equal(response.body.sections.account.code, 'GATEWAY_UNREACHABLE')
+    assert.match(response.body.sections.account.reason, /Could not reach the Gateway/)
+    assert.equal(response.body.sections.catalog.status, 'unavailable')
+    assert.equal(response.body.sections.receipts.status, 'unavailable')
+    assert.deepEqual(response.body.products, [])
+    assert.deepEqual(response.body.installed, [], 'no packs are installed in this fixture — a real, local fact')
   })
 
   test('projects authoritative hero and complete license fields without raw upstream proof bytes', async () => {
@@ -669,11 +678,16 @@ describe('Content Store commerce routes', () => {
     assert.equal(mock.contentArchiveGetCount, 0)
   })
 
-  test('requires a saved key locally and sends no remote request', async () => {
+  test('a Mac with no saved key answers locally and names the missing key, sending no remote request', async () => {
     const { app: localApp } = await setup({ key: '' })
-    const response = await request(localApp).get('/api/content-store').expect(400)
-    assert.equal(response.body.code, 'CONTENT_STORE_KEY_REQUIRED')
-    assert.equal(mock.requests.length, 0)
+    const response = await request(localApp).get('/api/content-store').expect(200)
+    assert.equal(mock.requests.length, 0, 'no key means no request is attempted')
+    assert.equal(response.body.account, null)
+    assert.equal(response.body.sections.account.code, 'CONTENT_STORE_KEY_REQUIRED')
+    assert.match(response.body.sections.account.reason, /Gateway API Key/)
+    assert.equal(response.body.sections.catalog.code, 'CONTENT_STORE_KEY_REQUIRED')
+    assert.equal(response.body.sections.commerce.status, 'unavailable')
+    assert.deepEqual(response.body.installed, [])
   })
 
   test('loads exact account and products with the current Story version and accepts an empty catalog', async () => {
@@ -754,9 +768,10 @@ describe('Content Store commerce routes', () => {
     await request(localApp).get('/api/content-store').expect(200)
     mock.registerKey('gsk_without_content_scope', [])
     await setApiKey('genstudio', 'gsk_without_content_scope')
-    const response = await request(localApp).get('/api/content-store').expect(401)
-    assert.match(response.body.detail, /content:read/i)
-    assert.equal(response.body.account, undefined)
+    const response = await request(localApp).get('/api/content-store').expect(200)
+    assert.match(response.body.sections.account.reason, /content:read/i)
+    assert.equal(response.body.sections.account.code, 'CONTENT_STORE_SCOPE_REQUIRED')
+    assert.equal(response.body.account, null, 'a refused key never leaves the previous ownership on screen')
   })
 
   test('keeps the 16 KiB body cap on Store routes only, not on the routers mounted after it', async () => {
@@ -790,5 +805,118 @@ describe('Content Store commerce routes', () => {
     const serviceSource = await fs.readFile(new URL('../services/content-store.ts', import.meta.url), 'utf8')
     const routeSource = await fs.readFile(new URL('../routes/content-store.ts', import.meta.url), 'utf8')
     assert.doesNotMatch(serviceSource + routeSource, /content-packs\/(?:installer|lifecycle)|job-queue|admission|generation/i)
+  })
+})
+
+/**
+ * The 2026-10-28 production report: `GET /api/content-store` answered
+ * `500 {"detail":"Failed to load the Content Store."}` on the installed mini
+ * while `GET /api/content-packs/gateway-archives` answered 216 archives and
+ * installs from it worked. The cause could not be read out of the log.
+ *
+ * The rule these pin (AGENTS.md 6): "the answer is none" and "I could not ask"
+ * must never render as the same value. A Gateway that does not serve these
+ * endpoints, or answers with something that is not a Content Store response, is
+ * a named `unavailable` section — never a generic 500, and never an empty list
+ * that reads as "you own nothing".
+ */
+describe('Content Store overview answers partially instead of failing whole', () => {
+  async function withContentFetch(replacement: (url: string, init?: RequestInit) => Promise<Response> | null) {
+    const original = globalThis.fetch
+    globalThis.fetch = (async (input: any, init?: any) => {
+      const url = typeof input === 'string' ? input : input?.url ?? String(input)
+      const replaced = replacement(url, init)
+      if (replaced) return replaced
+      return original(input, init)
+    }) as typeof fetch
+    return () => { globalThis.fetch = original }
+  }
+
+  test('a complete answer says every section is available and keeps the typed phase', async () => {
+    const { app: localApp } = await setup()
+    const response = await request(localApp).get('/api/content-store').expect(200)
+    assert.equal(response.body.phase, 'delivery_ready')
+    assert.deepEqual(response.body.sections, {
+      account: { status: 'available' },
+      catalog: { status: 'available' },
+      shelves: { status: 'available' },
+      receipts: { status: 'available' },
+      commerce: { status: 'available' },
+    })
+  })
+
+  test('a Gateway that answers 200 with a foreign body is named, and this Mac still answers', async () => {
+    // A catch-all route, a proxy page, or another product's JSON behind these
+    // paths. Before 2026-10-28 every one of these was the generic 500.
+    const { app: localApp } = await setup()
+    const restore = await withContentFetch(url => (
+      new URL(url).pathname.startsWith('/v1/content/')
+        ? Promise.resolve(new Response('<html><body>Gateway</body></html>', {
+          status: 200, headers: { 'content-type': 'text/html' },
+        }))
+        : null
+    ))
+    try {
+      const response = await request(localApp).get('/api/content-store').expect(200)
+      assert.equal(response.body.phase, 'partial')
+      assert.equal(response.body.sections.account.code, 'CONTENT_STORE_RESPONSE_INVALID')
+      assert.match(response.body.sections.account.reason, /not with a Studio Library response/i)
+      assert.equal(response.body.account, null, 'could not ask is not an empty ownership list')
+      assert.equal(response.body.sections.catalog.code, 'CONTENT_STORE_RESPONSE_INVALID')
+      assert.deepEqual(response.body.products, [])
+      assert.deepEqual(response.body.installed, [], 'the local answer is still a real answer')
+    } finally { restore() }
+  })
+
+  test('a Gateway without the content endpoints is named as not serving the Library, not a 500', async () => {
+    const { app: localApp } = await setup()
+    const restore = await withContentFetch(url => (
+      new URL(url).pathname.startsWith('/v1/content/')
+        ? Promise.resolve(new Response('Not Found', { status: 404 }))
+        : null
+    ))
+    try {
+      const response = await request(localApp).get('/api/content-store').expect(200)
+      assert.equal(response.body.sections.account.code, 'CONTENT_STORE_NOT_SERVED')
+      assert.match(response.body.sections.account.reason, /does not serve the Studio Library/)
+      assert.equal(response.body.account, null)
+      assert.equal(response.body.sections.commerce.status, 'unavailable')
+    } finally { restore() }
+  })
+
+  test('an unreadable local purchase journal is named once and never hides the catalogue', async () => {
+    const { app: localApp } = await setup()
+    // The journal path is a directory: this Mac cannot read its own record.
+    await fs.mkdir(getContentStoreStatePath(), { recursive: true })
+    const response = await request(localApp).get('/api/content-store').expect(200)
+    assert.equal(response.body.sections.commerce.status, 'unavailable')
+    assert.equal(response.body.sections.commerce.code, 'CONTENT_STORE_LOCAL_STATE_UNAVAILABLE')
+    assert.deepEqual(response.body.attempts, [])
+    // Everything the Gateway answered is still there, and still marked available.
+    assert.equal(response.body.sections.catalog.status, 'available')
+    assert.equal(response.body.sections.account.status, 'available')
+    assert.ok(response.body.account, 'a broken local journal does not make ownership unknown')
+    assert.equal(response.body.phase, 'partial')
+  })
+
+  test('an account/receipts mismatch still fails loudly — that is a wrong answer, not a missing one', async () => {
+    const { app: localApp } = await setup()
+    // A real receipts body, re-labelled as another account's: the answer is
+    // wrong, not absent, so it must NOT become a partial overview.
+    const original = globalThis.fetch
+    globalThis.fetch = (async (input: any, init?: any) => {
+      const url = typeof input === 'string' ? input : input?.url ?? String(input)
+      if (new URL(url).pathname !== '/v1/content/receipts') return original(input, init)
+      const real = await original(input, init)
+      const body = await real.json() as Record<string, unknown>
+      body.account_id = 'acct_someone_else'
+      body.content_account_id = 'content_acct_someone_else'
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+    }) as typeof fetch
+    try {
+      const response = await request(localApp).get('/api/content-store')
+      assert.equal(response.status, 409)
+      assert.equal(response.body.code, 'CONTENT_STORE_ACCOUNT_MISMATCH')
+    } finally { globalThis.fetch = original }
   })
 })

@@ -7,6 +7,7 @@ import {
   UpdateConfigSchema, UpdateStandardsSchema,
 } from '../schemas/index.js'
 import { updateProjectContentConfigSelections } from '../content-packs/project-pins.js'
+import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import {
   getGlobalCompression, getProjectCompressionOverride, setProjectCompressionOverride,
 } from '../services/generation-compression.js'
@@ -21,6 +22,30 @@ router.get('/projects/:slug/settings/config', async (req, res) => {
   const config = await pm.getSafeConfig(req.params.slug)
   if (!config) return res.status(404).json({ detail: 'Project not found' })
   res.json(config)
+})
+
+/**
+ * What this channel's images will actually use, and whether the style it names
+ * could be used at all.
+ *
+ * Settings renders this, and it is the SAME resolution the generators run —
+ * two screens must never disagree about which look goes into a prompt. It
+ * exists because the divergence was silent in both directions: a Store style
+ * whose Content Pack is not installed (renders with the format default) and one
+ * of this channel's own presets the Store now owns (renders with the preset's
+ * older prose). Nothing on disk is read differently; this only reports.
+ */
+router.get('/projects/:slug/settings/art-style', async (req, res) => {
+  const config = await pm.getConfig(req.params.slug)
+  if (!config) return res.status(404).json({ detail: 'Project not found' })
+  const resolution = await resolveProjectArtStyle(req.params.slug)
+  res.json({
+    requestedId: (config.active_style_preset_id || '').trim(),
+    applied: resolution.style
+      ? { id: resolution.style.presetId ?? null, name: resolution.style.name ?? null }
+      : null,
+    fallback: resolution.fallback,
+  })
 })
 
 // The one-time "LLM lineup is gone" notice on the Pipeline page, closed for good.

@@ -48,8 +48,9 @@ describe('art-style-resolver', () => {
       active_style_preset_id: 'wd',
     } as any)
 
-    const art = await resolver.resolveProjectArtStyle(proj.slug)
+    const { style: art, fallback } = await resolver.resolveProjectArtStyle(proj.slug)
     assert.ok(art, 'expected a resolved art style')
+    assert.equal(fallback, null, 'a preset that resolves is not a fallback')
     assert.equal(art!.source, 'preset')
     assert.equal(art!.presetId, 'wd')
     assert.equal(art!.name, 'Whiteboard Doodle Explainer')
@@ -76,7 +77,7 @@ describe('art-style-resolver', () => {
       active_style_preset_id: 'wd',
     } as any)
 
-    const art = await resolver.resolveProjectArtStyle(proj.slug)
+    const { style: art } = await resolver.resolveProjectArtStyle(proj.slug)
     assert.ok(art)
     assert.equal(art!.referenceImagePaths.length, 1)
     assert.equal(art!.referenceImagePaths[0], path.join(previewsDir, 'wd.png'))
@@ -84,13 +85,20 @@ describe('art-style-resolver', () => {
 
   test('null when no active preset', async () => {
     const proj = await pm.createProject({ name: 'ArtNone' })
-    assert.equal(await resolver.resolveProjectArtStyle(proj.slug), null)
+    const resolution = await resolver.resolveProjectArtStyle(proj.slug)
+    assert.equal(resolution.style, null)
+    assert.equal(resolution.fallback, null, 'nothing was named, so nothing was dropped')
   })
 
-  test('active_style_preset_id pointing at a missing preset → falls through to null', async () => {
+  test('active_style_preset_id pointing at a missing preset → no style, and the fallback is named', async () => {
     const proj = await pm.createProject({ name: 'ArtMissing' })
     await pm.updateConfig(proj.slug, { active_style_preset_id: 'does-not-exist' } as any)
-    assert.equal(await resolver.resolveProjectArtStyle(proj.slug), null)
+    const resolution = await resolver.resolveProjectArtStyle(proj.slug)
+    assert.equal(resolution.style, null)
+    assert.equal(resolution.fallback?.reason, 'style_not_found')
+    assert.equal(resolution.fallback?.requestedId, 'does-not-exist')
+    assert.equal(resolution.fallback?.used, 'format_default')
+    assert.match(resolution.fallback!.message, /does-not-exist/)
   })
 
   test('an unresolvable saved style is warned about, never dropped in silence', async () => {
@@ -100,7 +108,9 @@ describe('art-style-resolver', () => {
     const original = console.warn
     console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')) }
     try {
-      assert.equal(await resolver.resolveProjectArtStyle(proj.slug), null)
+      const resolution = await resolver.resolveProjectArtStyle(proj.slug)
+      assert.equal(resolution.style, null)
+      assert.equal(resolution.fallback?.used, 'format_default')
     } finally {
       console.warn = original
     }
@@ -126,11 +136,21 @@ describe('art-style-resolver', () => {
       active_style_preset_id: 'night-atlas-woodcut',
     } as any)
 
-    const art = await resolver.resolveProjectArtStyle(proj.slug)
+    const { style: art, fallback } = await resolver.resolveProjectArtStyle(proj.slug)
     assert.ok(art, 'an aliased preset with no installed style still resolves')
     assert.equal(art!.description, ownProse)
     assert.equal(art!.name, 'Night Atlas — Woodcut')
     assert.deepEqual(art!.negatives, [], 'the alias contributes no negatives when it cannot load')
+    // Rendering with the preset's own prose is NOT the Store style it names, so
+    // the substitution is reported: which style was asked for, which text ran.
+    assert.equal(fallback?.reason, 'store_style_not_installed')
+    assert.equal(fallback?.requestedId, 'night-atlas-woodcut')
+    assert.equal(fallback?.storeStyleId, 'com.storystudio.style.carved-woodcut-print')
+    assert.equal(fallback?.used, 'saved_preset')
+    assert.equal(fallback?.usedName, 'Night Atlas — Woodcut')
+    assert.match(fallback!.message, /carved woodcut print/)
+    assert.match(fallback!.message, /is not installed/)
+    assert.match(fallback!.message, /Night Atlas — Woodcut/)
 
     // And the preset on disk is untouched by having been resolved.
     const config = await pm.getConfig(proj.slug)
@@ -145,11 +165,26 @@ describe('art-style-resolver', () => {
     const original = console.warn
     console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')) }
     try {
-      assert.equal(await resolver.resolveProjectArtStyle(proj.slug), null)
+      const resolution = await resolver.resolveProjectArtStyle(proj.slug)
+      assert.equal(resolution.style, null)
+      assert.equal(resolution.fallback, null)
     } finally {
       console.warn = original
     }
     assert.deepEqual(warnings, [])
+  })
+
+  test('every image generator announces a fallback in the job the customer watches', async () => {
+    // The resolver cannot announce anything by itself: the words have to reach
+    // the job log, because that is the screen the customer is looking at while
+    // their channel renders with a look they did not name.
+    const read = (rel: string) => fs.readFile(new URL(rel, import.meta.url), 'utf8')
+    for (const rel of ['../generators/image-prompts.ts', '../generators/images.ts']) {
+      const source = await read(rel)
+      assert.match(source, /artStyleResolution = /, `${rel} must keep the whole resolution, not just the style`)
+      assert.match(source, /fallback\.message/, `${rel} must say which style was asked for and what ran instead`)
+      assert.match(source, /Art style not used:/, `${rel} must put that on the job's output lines`)
+    }
   })
 
 })

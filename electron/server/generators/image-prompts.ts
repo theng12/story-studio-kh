@@ -757,7 +757,8 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     )
 
     const explicitStyleTag = (req.style_tag || '').trim()
-    const artStyle = explicitStyleTag ? null : await resolveProjectArtStyle(projectSlug)
+    const artStyleResolution = explicitStyleTag ? { style: null, fallback: null } : await resolveProjectArtStyle(projectSlug)
+    const artStyle = artStyleResolution.style
     let styleTag = explicitStyleTag || artStyle?.description || ''
     if (!styleTag) {
       try {
@@ -773,6 +774,12 @@ export async function generateImagePrompts(job: Job): Promise<void> {
         `Art style applied (${artStyle.source}${artStyle.name ? `: ${artStyle.name}` : ''})` +
         (artStyle.referenceImagePaths.length ? '; reference image available to image generation' : ''),
       )
+    }
+    // A style the channel names but this Mac cannot provide is announced, never
+    // silently swapped: the prompts still render, with something else — and the
+    // line says which style was asked for and what ran in its place.
+    if (artStyleResolution.fallback) {
+      job.output_lines.push(`Art style not used: ${artStyleResolution.fallback.message}`)
     }
 
     /**

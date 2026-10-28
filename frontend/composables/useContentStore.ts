@@ -215,10 +215,35 @@ export interface PublicContentPurchaseAttempt {
   receipt_verification?: 'unverified_phase1'
 }
 
+/**
+ * One part of the Studio Library, as the server could or could not answer it.
+ *
+ * `unavailable` is NOT an empty value: `code` and `reason` say what could not
+ * be asked. "The Gateway does not serve the Studio Library" and "you own
+ * nothing" must never render as the same screen.
+ */
+export interface ContentStoreSectionStatus {
+  status: 'available' | 'unavailable'
+  code?: string
+  reason?: string
+}
+
+export interface ContentStoreOverviewSections {
+  account: ContentStoreSectionStatus
+  catalog: ContentStoreSectionStatus
+  shelves: ContentStoreSectionStatus
+  receipts: ContentStoreSectionStatus
+  commerce: ContentStoreSectionStatus
+}
+
+export const CONTENT_STORE_SECTION_KEYS = ['account', 'catalog', 'shelves', 'receipts', 'commerce'] as const
+export type ContentStoreSectionKey = typeof CONTENT_STORE_SECTION_KEYS[number]
+
 interface ContentStoreOverview {
-  phase: 'delivery_ready'
+  phase: 'delivery_ready' | 'partial'
   origin: string
-  account: ContentStoreAccount
+  /** Null only when the account section is unavailable. */
+  account: ContentStoreAccount | null
   installed: ContentStoreInstalledPack[]
   products: ContentStoreProduct[]
   shelves: ContentStoreShelf[]
@@ -230,6 +255,7 @@ interface ContentStoreOverview {
     install_after_purchase: false
     restore: true
   }
+  sections: ContentStoreOverviewSections
 }
 
 export interface ContentStoreUiError {
@@ -415,6 +441,13 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
   const failure = (title: string, recovery: string, settingsAction = false): ContentStoreErrorPresentation => ({ title, detail: error.detail, recovery, settingsAction })
   switch (error.code) {
     case 'GATEWAY_UNREACHABLE': return failure('The Gateway is not answering', 'Open the Gateway app, then press Refresh store. Nothing was bought or changed.', true)
+    // A Gateway that answers but does not serve these endpoints is not a broken
+    // Story Studio and not a refused key — it is a Gateway that does not offer
+    // the Studio Library (or offers a shape this build cannot read).
+    case 'CONTENT_STORE_NOT_SERVED': return failure('This Gateway does not serve the Studio Library', 'Update the Gateway app, or check its address in Settings → Connections, then refresh.', true)
+    case 'CONTENT_STORE_RESPONSE_INVALID': return failure('The Gateway’s Studio Library answer could not be read', 'Update the Gateway app so it serves this Studio Library version, then refresh.', true)
+    case 'CONTENT_STORE_GATEWAY_FAILED': return failure('The Gateway could not serve the Studio Library', 'Try again in a moment. If it keeps happening, check the Gateway in Settings → Connections.', true)
+    case 'CONTENT_STORE_LOCAL_STATE_UNAVAILABLE': return failure('This Mac’s Studio Library records could not be read', 'Check that the disk has space and Story Studio can write its data folder, then restart Story Studio.')
     case 'CONTENT_STORE_KEY_REQUIRED':
     case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Studio Library access is needed', 'Open Settings and test the Studio Library scope, then refresh.', true)
     case 'CONTENT_STORE_KEYCHAIN_UNAVAILABLE': return failure('This Mac\u2019s Keychain is not available', 'Sign in to macOS and unlock the Keychain, restart Story Studio, then try again.')
@@ -485,6 +518,9 @@ const sharedLastVerifiedAt = ref<string | null>(null)
 const sharedLastVerifiedProof = ref<ContentStoreCachedProof | null>(null)
 const sharedRecovery = ref<ContentPackRecovery | null>(null)
 const sharedRecoveryError = ref<ContentPackRecoveryError | null>(null)
+const sharedSectionStates = ref<ContentStoreOverviewSections | null>(null)
+/** True once an overview has answered: the installed list is read from this Mac. */
+const sharedInstallsResolved = ref(false)
 const sharedCachedProof = computed<ContentStoreCachedProof | null>(() =>
   sharedCatalogFreshness.value === 'cached' ? sharedLastVerifiedProof.value : null)
 /**
@@ -493,8 +529,24 @@ const sharedCachedProof = computed<ContentStoreCachedProof | null>(() =>
  * install state or a balance must show that it is still being checked instead.
  * An unverified absence is not the same fact as "you do not own this", and
  * rendering it as one is the mistake this flag exists to prevent.
+ *
+ * The account section can also answer "could not ask" — a Gateway that does not
+ * serve the Studio Library, a refused key — and that is not an ownership answer
+ * either, so it holds this false too.
  */
-const sharedOwnershipResolved = computed<boolean>(() => sharedCatalogFreshness.value !== 'restored')
+const sharedOwnershipResolved = computed<boolean>(() =>
+  sharedCatalogFreshness.value !== 'restored' && sharedAccountResolved.value)
+/** Whether the last answer carried this account's ownership at all. */
+const sharedAccountResolved = computed<boolean>(() =>
+  sharedSectionStates.value?.account.status === 'available')
+/** Each part the server could not answer, in the order the page shows them. */
+const sharedUnavailableSections = computed<Array<{ section: ContentStoreSectionKey; code: string; reason: string }>>(() =>
+  CONTENT_STORE_SECTION_KEYS
+    .map(section => ({ section, state: sharedSectionStates.value?.[section] }))
+    .filter((entry): entry is { section: ContentStoreSectionKey; state: ContentStoreSectionStatus & { status: 'unavailable' } } =>
+      entry.state?.status === 'unavailable')
+    .map(({ section, state }) => ({ section, code: state.code ?? 'CONTENT_STORE_UNAVAILABLE', reason: state.reason ?? 'This part of the Studio Library could not be read.' })))
+
 let sharedOverviewGeneration = 0
 let sharedRecoveryGeneration = 0
 let catalogHydrationAttempted = false
@@ -551,7 +603,10 @@ function hydrateRestoredCatalog(): void {
  * missing means no fingerprint, which means no way to detect an account
  * change, which means we decline to save at all.
  */
-async function persistVerifiedCatalog(overview: ContentStoreOverview, origin: string): Promise<void> {
+async function persistVerifiedCatalog(
+  overview: ContentStoreOverview & { account: ContentStoreAccount },
+  origin: string,
+): Promise<void> {
   const fingerprint = await contentAccountFingerprint({
     accountId: overview.account.accountId,
     contentAccountId: overview.account.contentAccountId,
@@ -583,6 +638,8 @@ export function _clearContentStoreSessionCacheForTests(): void {
   sharedCatalogFreshness.value = 'unavailable'
   sharedLastVerifiedAt.value = null
   sharedLastVerifiedProof.value = null
+  sharedSectionStates.value = null
+  sharedInstallsResolved.value = false
   sharedRecovery.value = null
   sharedRecoveryError.value = null
   sharedOverviewGeneration = 0
@@ -682,6 +739,12 @@ export function useContentStore(): {
   attempts: Readonly<Ref<PublicContentPurchaseAttempt[]>>
   catalogFreshness: Readonly<Ref<ContentStoreCatalogFreshness>>
   ownershipResolved: Readonly<Ref<boolean>>
+  /** Whether the last answer carried this account's ownership at all. */
+  accountResolved: Readonly<Ref<boolean>>
+  /** True once an answer has arrived: the installed list is read from this Mac. */
+  installsResolved: Readonly<Ref<boolean>>
+  /** Each part of the Studio Library the server could not answer, and why. */
+  unavailableSections: Readonly<Ref<Array<{ section: ContentStoreSectionKey; code: string; reason: string }>>>
   lastVerifiedAt: Readonly<Ref<string | null>>
   cachedProof: Readonly<Ref<ContentStoreCachedProof | null>>
   recovery: Readonly<Ref<ContentPackRecovery | null>>
@@ -717,20 +780,54 @@ export function useContentStore(): {
     }
     // Vue batches these synchronous assignments, so every mounted consumer
     // observes one verified account/origin snapshot rather than mixed facts.
-    sharedAccount.value = overview.account
-    sharedProducts.value = overview.products
+    const sections = overview.sections
+    const accountReady = sections.account.status === 'available'
+    const catalogReady = sections.catalog.status === 'available'
+    const hadVerifiedThisSession = sharedLastVerifiedAt.value !== null
+    // A part the server could not answer NEVER overwrites what this session
+    // already verified, and never leaves an empty value in its place: the
+    // section states below are what says it could not be asked.
+    if (accountReady) sharedAccount.value = overview.account
+    if (catalogReady) {
+      sharedProducts.value = overview.products
+      sharedShelves.value = overview.shelves
+    }
+    if (accountReady) sharedAttempts.value = overview.attempts
+    // Installed packs are read from this Mac, so they answer whether or not the
+    // Gateway can be asked — but only an answer that carried a list is trusted.
     sharedInstalled.value = overview.installed ?? []
-    sharedShelves.value = overview.shelves
-    sharedAttempts.value = overview.attempts
-    sharedCatalogFreshness.value = 'fresh'
-    sharedLastVerifiedAt.value = verifiedAt
-    if (sessionOverview && (sessionOverview.accountId !== overview.account.accountId || sessionOverview.origin !== origin)) sessionOverview = null
-    sessionOverview = { accountId: overview.account.accountId, origin, verifiedAt }
-    sharedLastVerifiedProof.value = { accountId: overview.account.accountId, origin, verifiedAt }
-    lastCatalogPersist = persistVerifiedCatalog(overview, origin).catch(() => {
-      // Saving the catalogue is an optimisation for the next launch. It must
-      // never turn a verified overview that is already on screen into an error.
-    })
+    sharedInstallsResolved.value = true
+    sharedSectionStates.value = sections
+    if (catalogReady) {
+      sharedCatalogFreshness.value = 'fresh'
+      sharedLastVerifiedAt.value = verifiedAt
+    } else {
+      // Keep a catalogue already on screen, and label where it came from.
+      sharedCatalogFreshness.value = hadVerifiedThisSession ? 'cached'
+        : sharedCatalogFreshness.value === 'restored' ? 'restored' : 'unavailable'
+      if (!hadVerifiedThisSession) sharedLastVerifiedAt.value = null
+    }
+    const account = overview.account
+    if (account) {
+      if (sessionOverview && (sessionOverview.accountId !== account.accountId || sessionOverview.origin !== origin)) sessionOverview = null
+      sessionOverview = { accountId: account.accountId, origin, verifiedAt }
+    } else {
+      sessionOverview = null
+      sharedLastVerifiedProof.value = null
+    }
+    if (accountReady && catalogReady && account) {
+      sharedLastVerifiedProof.value = { accountId: account.accountId, origin, verifiedAt }
+      lastCatalogPersist = persistVerifiedCatalog({ ...overview, account }, origin).catch(() => {
+        // Saving the catalogue is an optimisation for the next launch. It must
+        // never turn a verified overview that is already on screen into an error.
+      })
+    }
+    // A partial answer is not a failure, but it is not silence either: the page
+    // shows the first part that could not be asked with its own words.
+    const firstUnavailable = sharedUnavailableSections.value[0]
+    error.value = firstUnavailable
+      ? { status: null, code: firstUnavailable.code, detail: firstUnavailable.reason }
+      : null
   }
 
   /**
@@ -753,8 +850,9 @@ export function useContentStore(): {
     }
     try {
       const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
+      // `applyOverview` owns `error` from here: a partial answer is a 200 whose
+      // unavailable sections are the notice, so clearing it would hide them.
       applyOverview(overview, generation)
-      if (generation === sharedOverviewGeneration) error.value = null
     } catch (cause: any) {
       if (generation === sharedOverviewGeneration) {
         const hasVerifiedOverview = sharedLastVerifiedAt.value !== null
@@ -929,6 +1027,9 @@ export function useContentStore(): {
     attempts: readonly(sharedAttempts) as unknown as Readonly<Ref<PublicContentPurchaseAttempt[]>>,
     catalogFreshness: readonly(sharedCatalogFreshness),
     ownershipResolved: readonly(sharedOwnershipResolved),
+    accountResolved: readonly(sharedAccountResolved),
+    installsResolved: readonly(sharedInstallsResolved),
+    unavailableSections: sharedUnavailableSections as unknown as Readonly<Ref<Array<{ section: ContentStoreSectionKey; code: string; reason: string }>>>,
     lastVerifiedAt: readonly(sharedLastVerifiedAt),
     cachedProof: readonly(sharedCachedProof),
     recovery: readonly(sharedRecovery),

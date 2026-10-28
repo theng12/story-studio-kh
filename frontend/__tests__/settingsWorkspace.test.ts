@@ -204,11 +204,20 @@ describe('Settings workspace navigation', () => {
     assert.equal(settingsSource.match(/active_style_preset_id:/g), null)
   })
 
-  test('an art style that resolves to nothing is visible in the UI, not just in a log', () => {
+  test('an art style that resolves to nothing is visible in the UI, and names what runs instead', () => {
+    // The screen must not decide this for itself: it renders the resolver's own
+    // answer (`GET …/settings/art-style`), which covers the uninstalled Store
+    // style AND the aliased preset whose adopting pack is missing.
     assert.match(settingsSource, /unresolvedArtStyleId/)
-    assert.match(settingsSource, /images are being generated without it/)
-    assert.match(settingsSource, /Style library/)
+    assert.match(settingsSource, /\/settings\/art-style/)
+    assert.match(settingsSource, /artStyleStatus\?\.fallback\?\.message/)
+    assert.match(settingsSource, /format default style/)
+    assert.match(settingsSource, /Style library|Studio Library/)
     assert.doesNotMatch(settingsSource, /label="Built-in styles"/)
+    // The old sentence claimed images simply went out without the style; for an
+    // aliased preset they go out with the channel's own text, which is not
+    // "without it". The wording now says which is which.
+    assert.doesNotMatch(settingsSource, /images are being generated without it/)
   })
 
   test('Gateway catalogs are account-scoped under App & Connections', () => {

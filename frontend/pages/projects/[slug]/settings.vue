@@ -1091,11 +1091,18 @@
           No Content Pack styles are installed. Add one from the
           <NuxtLink to="/library">Studio Library</NuxtLink>.
         </p>
-        <p v-if="unresolvedArtStyleId" class="text-warning text-sm mt-1">
-          This channel is saved against the art style <code>{{ humanizeCatalogId(unresolvedArtStyleId) }}</code>,
-          but nothing installed provides it — images are being generated without it. Pick a style
-          above, or install the pack that provides it from the
-          <NuxtLink to="/library">Studio Library</NuxtLink>.
+        <p v-if="unresolvedArtStyleId" class="text-warning text-sm mt-1" data-art-style-fallback>
+          {{ artStyleStatus?.fallback?.message }}
+          <template v-if="artStyleStatus?.fallback?.used === 'format_default'">
+            Images are being generated with the format default style unless you pick a style
+            above or install the Content Pack that provides this one from the
+            <NuxtLink to="/library">Studio Library</NuxtLink>.
+          </template>
+          <template v-else>
+            Install the Content Pack that provides it from the
+            <NuxtLink to="/library">Studio Library</NuxtLink> to use it again, or pick another style
+            above.
+          </template>
         </p>
         <span v-if="artStyleSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ artStyleSaveMessage }}</span>
       </div>
@@ -3954,21 +3961,54 @@ const savedStylePresets = computed(() =>
   Array.isArray((config.value as any)?.style_presets) ? (config.value as any).style_presets : [])
 
 /**
- * A saved style id that resolves to nothing renders nothing — the generator
- * quietly falls back and the picker still shows a name, so the project looks
- * configured while every prompt goes out without the style. Saving one is
- * refused now, but a project can still carry an id from an older build or
- * from a pack that has since been uninstalled. Say so, here, in the UI.
+ * A saved style id that does not resolve renders as something else — the picker
+ * still shows a name, so the channel looks configured while every prompt goes
+ * out with a look nobody named. Saving one is refused now, but a project can
+ * still carry an id from an older build or from a pack that has since been
+ * uninstalled. Say so, here, in the UI.
+ *
+ * What this channel's images will ACTUALLY use is answered by the same resolver
+ * the generators run (GET …/settings/art-style), so this screen cannot claim a
+ * style is applied while the render quietly drops it. It covers both ways a
+ * saved id can miss: a Store style whose Content Pack is not installed (renders
+ * with the format default) and one of this channel's own presets that the Store
+ * now owns, whose pack is not installed (renders with the preset's older prose).
+ * Both used to be invisible here.
  */
-const unresolvedArtStyleId = computed(() => {
-  if (visualStylesLoading.value || visualStylesError.value) return ''
-  const active = String((config.value as any)?.active_style_preset_id || '').trim()
-  if (!active) return ''
-  if (visualStyles.value.some(style => style.id === active)) return ''
-  if (savedStylePresets.value.some((preset: any) =>
-    preset?.id === active && String(preset?.description || '').trim())) return ''
-  return active
-})
+interface ArtStyleFallbackStatus {
+  reason: 'store_style_not_installed' | 'store_style_missing' | 'style_not_found'
+  requestedId: string
+  requestedName: string
+  storeStyleId: string | null
+  used: 'saved_preset' | 'format_default'
+  usedName: string | null
+  message: string
+}
+const artStyleStatus = ref<{
+  requestedId: string
+  applied: { id: string | null; name: string | null } | null
+  fallback: ArtStyleFallbackStatus | null
+} | null>(null)
+const artStyleStatusLoading = ref(false)
+async function refreshArtStyleStatus(): Promise<void> {
+  const target = slug.value
+  if (!target) return
+  artStyleStatusLoading.value = true
+  try {
+    const status = await get(`/projects/${target}/settings/art-style`, { cache: 'no-store' })
+    if (slug.value === target) artStyleStatus.value = status as typeof artStyleStatus.value
+  } catch {
+    // The picker still shows what is saved; a failed status read must not
+    // invent a warning about a style this Mac might well have.
+    if (slug.value === target) artStyleStatus.value = null
+  } finally {
+    if (slug.value === target) artStyleStatusLoading.value = false
+  }
+}
+onMounted(() => { void refreshArtStyleStatus() })
+watch(slug, () => { artStyleStatus.value = null; void refreshArtStyleStatus() })
+watch(() => (config.value as any)?.active_style_preset_id, () => { void refreshArtStyleStatus() })
+const unresolvedArtStyleId = computed(() => (artStyleStatusLoading.value ? '' : artStyleStatus.value?.fallback?.requestedId || ''))
 
 watch(artStyleSelection, async (next, prev) => {
   if (artStyleRollback) {
