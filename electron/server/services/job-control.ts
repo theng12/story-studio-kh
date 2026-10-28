@@ -405,9 +405,10 @@ function classifyProviderJobControl(
   }
 
   // Every request this job sent has a final Gateway answer and nothing is being cancelled, so there
-  // is nothing left to wait for: a paused or queued job can stop here (2026-10-28, brain-wise EP0054
-  // sat on "waiting for settlement" with 26 succeeded and 3 failed tasks and no way out).
-  if (!active.length && (job.status === 'paused' || job.status === 'queued')) {
+  // is nothing left to wait for: a paused job can stop here (2026-10-28, brain-wise EP0054 sat on
+  // "waiting for settlement" with 26 succeeded and 3 failed tasks and no way out). A queued row is
+  // NOT included: it may hold an accepted admission (Finish missing images) that must not be dropped.
+  if (!active.length && job.status === 'paused') {
     return control('stop-local', true, 'Stop', 'Every request this job sent to the Gateway has finished, so stopping it here costs nothing more.', 'READY', 'local-only')
   }
   return control('return-later', false, 'Return later', 'Story Studio is waiting for authoritative provider settlement.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')

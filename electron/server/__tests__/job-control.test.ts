@@ -286,6 +286,10 @@ test('a paused job whose provider tasks all finished can be stopped, not left wa
   assert.equal(control.action, 'stop-local')
   assert.equal(control.enabled, true)
   assert.equal(control.code, 'READY')
+  // A queued row may carry an accepted admission, so it keeps the honest refusal.
+  const queued = classifyJobControl(job({ status: 'queued', type: 'audio', genstudio_jobs: settled }) as Job,
+    { remoteCancellationAudited: true })
+  assert.equal(queued.code, 'CANCELLATION_STATUS_UNKNOWN')
   // A running job with the same evidence keeps its own rules (nothing to stop mid-step here).
   const running = classifyJobControl(job({ status: 'running', type: 'audio', genstudio_jobs: settled }) as Job,
     { remoteCancellationAudited: true })
