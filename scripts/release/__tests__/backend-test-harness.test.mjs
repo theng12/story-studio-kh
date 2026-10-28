@@ -112,6 +112,16 @@ function defaultRunnerEnv(extra = {}) {
   return env
 }
 
+
+// Outside the checkout, but in ONE enclosing folder beside it (`../.test-work/<checkout>/`, the
+// content-packs lane's convention) — never loose in the parent folder, where every run left a new
+// directory beside the owner's projects.
+async function outsideRepoWorkDir() {
+  const dir = path.join(path.resolve(ROOT, '..'), '.test-work', path.basename(path.resolve(ROOT)), 'release-lane')
+  await fs.mkdir(dir, { recursive: true })
+  return dir
+}
+
 test('backend runner parser rejects unknown options instead of widening the run', async () => {
   const { parseBackendTestArgs, parseOnly } = await import(
     pathToFileURL(path.join(ROOT, 'scripts', 'testing', 'run-backend-tests.mjs')).href
@@ -197,7 +207,7 @@ test('sandbox retention reserves a fresh container without touching a prior coll
 test('the retained fixtures root can be moved out of the shared Trash', async () => {
   // Use a path explicitly outside the repo, not os.tmpdir() which may resolve
   // inside the worktree on some platforms.
-  const override = await fs.realpath(await fs.mkdtemp(path.join(path.resolve(ROOT, '..'), 'retained-fixtures-root-')))
+  const override = await fs.realpath(await fs.mkdtemp(path.join(await outsideRepoWorkDir(), 'retained-fixtures-root-')))
   const before = await runnerFixtureEntries()
   const shared = await trashIsShared()
   const { exitCode, stdout, stderr } = await runHarness(['--probe'], {
@@ -229,7 +239,7 @@ test('a symlinked retained fixtures root is refused, not followed', async () => 
   // with it. The fixture below is retained, not cleaned up.
   // Use a path explicitly outside the repo, not os.tmpdir() which may resolve
   // inside the worktree on some platforms.
-  const container = await fs.realpath(await fs.mkdtemp(path.join(path.resolve(ROOT, '..'), 'retained-fixtures-link-')))
+  const container = await fs.realpath(await fs.mkdtemp(path.join(await outsideRepoWorkDir(), 'retained-fixtures-link-')))
   const real = path.join(container, 'real')
   const link = path.join(container, 'link')
   await fs.mkdir(real, { recursive: true })

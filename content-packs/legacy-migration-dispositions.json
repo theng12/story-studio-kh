@@ -1086,6 +1086,16 @@
       "note": "Built-in Quote Shorts Formula (owner, 2026-10-27); ships with the app, not yet a Content Store pack."
     },
     {
+      "legacy_key": "niche:still-posts",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/niches/still-posts.json",
+      "target": {
+        "kind": "runtime-niche",
+        "id": "still-posts"
+      },
+      "note": "Built-in Still Posts Formula (owner, 2026-10-27); ships with the app, not yet a Content Store pack."
+    },
+    {
       "legacy_key": "overlay:channel-mark",
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/scene-effect-presets.ts",
@@ -2598,6 +2608,46 @@
       "target": {
         "kind": "runtime-subtitle",
         "id": "shorts-vertical"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:shorts-vertical-battambang",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "shorts-vertical-battambang"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:shorts-vertical-bounce",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "shorts-vertical-bounce"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:shorts-vertical-electric",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "shorts-vertical-electric"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:shorts-vertical-moul",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "shorts-vertical-moul"
       },
       "closure_group": "intentional-free-baseline"
     },

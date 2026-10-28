@@ -40,6 +40,14 @@ const EXCLUDED_DIR = 'content-packs/archival-ledger/'
  * ignored. Anything not on that list must resolve.
  */
 const KNOWN_UNRESOLVED = new Set([
+  // The two packs merged on 2026-10-27 name '-v2' Formula ids that were never published (the store
+  // Formulas are the un-suffixed ids). Published 1.0.1 archives are immutable; fix in their 1.0.2.
+  'content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.1/content/visual-style.json::com.storystudio.formula.sleep-history-compilation-v2',
+  'content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.1/content/visual-style.json::com.storystudio.formula.sleep-story-v2',
+  'content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.1/content/visual-style.json::com.storystudio.formula.history-explained-v2',
+  'content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.1/content/visual-style.json::com.storystudio.formula.human-behavior-explained-v2',
+  'content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1/content/topic-pack.json::com.storystudio.formula.archival-ledger-v2',
+  'content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1/content/topic-pack.json::com.storystudio.formula.history-explained-v2',
   'content-packs/free-starters/thumbnail/centered-hero-headline/content/thumbnail-recipe.json::com.storystudio.formula.motivation',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon/content/thumbnail-recipe.json::com.storystudio.formula.fungi',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon/content/thumbnail-recipe.json::com.storystudio.formula.insects',

@@ -114,6 +114,16 @@ async function fixtureDir(prefix) {
   return fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)))
 }
 
+
+// Outside the checkout, but in ONE enclosing folder beside it (`../.test-work/<checkout>/`, the
+// content-packs lane's convention) — never loose in the parent folder, where every run left a new
+// directory beside the owner's projects.
+async function outsideRepoWorkDir() {
+  const dir = path.join(path.resolve(ROOT, '..'), '.test-work', path.basename(path.resolve(ROOT)), 'release-lane')
+  await fs.mkdir(dir, { recursive: true })
+  return dir
+}
+
 test('a whole lane reports one completed file per discovered file', async () => {
   const dir = await fixtureDir('lane-coverage-whole-')
   try {
@@ -230,7 +240,7 @@ test('the lane keeps its retained evidence in the override root, not the shared 
   // fixture is retained, not cleaned up.
   // Use a path explicitly outside the repo, not os.tmpdir() which may resolve
   // inside the worktree on some platforms.
-  const override = await fs.realpath(await fs.mkdtemp(path.join(path.resolve(ROOT, '..'), 'lane-retained-root-')))
+  const override = await fs.realpath(await fs.mkdtemp(path.join(await outsideRepoWorkDir(), 'lane-retained-root-')))
   const dir = await fixtureDir('lane-retained-override-')
   await fs.writeFile(path.join(dir, 'alpha.test.mjs'),
     'import { test } from "node:test"\ntest("alpha", () => {})\n')
