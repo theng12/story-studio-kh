@@ -2,6 +2,23 @@
 
 ## 1.4.367 — a text-to-image model is not refused for having no reference (2026-10-28, fix/t2i-reference-minimum-20261028 from main 7cadb79d)
 
+**Private final render re-pairs itself across a Gateway move (added on the same branch, owner
+2026-10-28: "you just do it. repair it automatically" and "make sure remote can go to 1301").**
+The pairing (`<userData>/private-render/gateway-binding.json`) pins origin + owner_scope +
+gateway_instance_id and had no way out; the identity lives in the Gateway's own sqlite, which a move
+does not carry, so after the Gateway moved to its new Mac every remote final render was refused and
+went local. Rule now: a **changed configured origin** is the owner deliberately pointing Story at
+another Gateway, so `getFinalRenderCapabilities` re-pairs to the identity that answers there
+(`repairGatewayBinding` in `services/private-render-identity.ts`, same cross-process lock as the pin;
+old file moved to Story's Trash with an index entry, never deleted; `repaired_from` in
+`GET /app-settings/private-final-render/binding` feeds the Settings → This Mac note). **An unchanged
+origin with a different identity is still refused, never re-paired** — that is the
+spoof/replacement case and its tests stay green. Nothing is re-paired while a remote final render is
+still in flight (`findInFlightPrivateFinalRender` in `services/job-queue.ts`; `unknown` before boot
+jobs load is its own answer and refuses), so the next capabilities call after it settles repairs.
+Not done: the Settings note is read on page load only — a re-pair that happens while the page is open
+shows on the next open, not live.
+
 Supersedes 1.4.366, which passed its gate but was never published (the mini stayed on 1.4.365 while
 Production ran AWBU 13–16). Production's report: 6 `thumb_images` jobs 0/3 (Domnak DM14–17, Origin
 EP17–18) — `qwen-image-2-1-turbo-mflux-q4 requires at least 1 reference image(s); 0 were supplied`.

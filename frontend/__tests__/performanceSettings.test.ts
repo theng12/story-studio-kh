@@ -24,6 +24,7 @@ const PAID = {
 const CONCURRENCY = '/app-settings/concurrency'
 const MANUAL_REDO = '/app-settings/manual-generation-redo'
 const PRIVATE_FLEET = '/app-settings/private-final-render'
+const PRIVATE_FLEET_BINDING = '/app-settings/private-final-render/binding'
 
 async function loadComponent(): Promise<Component> {
   const filename = fileURLToPath(new URL('../components/PerformanceSettings.vue', import.meta.url))
@@ -53,6 +54,7 @@ async function mount(options: {
   manualRedo?: { enabled: boolean }
   failManualRedo?: boolean
   privateFleet?: { enabled: boolean }
+  privateBinding?: Record<string, any>
   refuse?: Record<string, Error>
   concurrency?: Record<string, any>
   echo?: (path: string, body: any) => any
@@ -71,6 +73,7 @@ async function mount(options: {
         return options.manualRedo ?? { enabled: false }
       }
       if (path === PRIVATE_FLEET) return options.privateFleet ?? { enabled: false }
+      if (path === PRIVATE_FLEET_BINDING) return options.privateBinding ?? { bound: false }
       const kind = Object.entries(PAID).find(([, p]) => p === path)?.[0]
       if (kind) {
         if (options.failPaid?.includes(kind)) throw new Error('offline')
@@ -269,6 +272,47 @@ describe('Performance & recovery', () => {
         assert.equal(refused.saveButton().disabled, true)
       } finally { refused.unmount() }
     }
+  })
+
+  test('the private render pairing says what it replaced, and warns while it still names an old Gateway', async () => {
+    const repaired = await mount({
+      privateFleet: { enabled: true },
+      privateBinding: {
+        bound: true, origin: 'https://new-gateway.example',
+        configured_origin: 'https://new-gateway.example', matches_configured_gateway: true,
+        repaired_from: { origin: 'https://old-gateway.example', gateway_instance_id: '22222222-2222-4222-8222-222222222222', at: '2026-10-28T00:00:00.000Z' },
+      },
+    })
+    try {
+      assert.match(repaired.host.textContent || '',
+        /Re-paired with the Gateway at https:\/\/new-gateway\.example\s+\(was https:\/\/old-gateway\.example\)/)
+      assert.doesNotMatch(repaired.host.textContent || '', /going local/)
+    } finally { repaired.unmount() }
+
+    const mismatched = await mount({
+      privateFleet: { enabled: true },
+      privateBinding: {
+        bound: true, origin: 'https://old-gateway.example',
+        configured_origin: 'https://new-gateway.example', matches_configured_gateway: false,
+        repaired_from: null,
+      },
+    })
+    try {
+      assert.match(mismatched.host.textContent || '', /Remote final renders are going local/)
+      assert.match(mismatched.host.textContent || '', /https:\/\/old-gateway\.example/)
+      assert.match(mismatched.host.textContent || '', /https:\/\/new-gateway\.example/)
+      assert.match(mismatched.host.textContent || '', /re-pairs itself the next time Story\s+checks that Gateway/)
+      assert.equal(
+        [...mismatched.host.querySelectorAll('button')].some(b => /Re-pair/i.test(b.textContent || '')),
+        false,
+        'no repair button: the pairing re-pairs itself',
+      )
+    } finally { mismatched.unmount() }
+
+    const plain = await mount({ privateFleet: { enabled: true }, privateBinding: { bound: false } })
+    try {
+      assert.doesNotMatch(plain.host.textContent || '', /going local|Re-paired with the Gateway/)
+    } finally { plain.unmount() }
   })
 
   test('unreadable job numbers are not shown and cannot be saved over the real ones', async () => {

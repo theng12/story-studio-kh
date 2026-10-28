@@ -80,6 +80,26 @@
         </label>
         <span v-else class="perf-muted">{{ privateFleetError ? 'Could not load this setting' : 'Loading…' }}</span>
       </header>
+      <p
+        v-if="privateFleetBinding?.repaired_from"
+        class="perf-binding-note"
+        data-binding="repaired"
+        role="status"
+      >
+        Re-paired with the Gateway at {{ privateFleetBinding.configured_origin || privateFleetBinding.origin }}
+        (was {{ privateFleetBinding.repaired_from.origin }}). Remote final renders use the new Gateway from now on.
+      </p>
+      <p
+        v-else-if="privateFleetBinding?.matches_configured_gateway === false"
+        class="perf-binding-note"
+        data-binding="mismatch"
+        role="status"
+      >
+        Remote final renders are going local: the saved pairing names the Gateway at
+        {{ privateFleetBinding.origin }}, but Story Studio is pointed at
+        {{ privateFleetBinding.configured_origin }}. The pairing re-pairs itself the next time Story
+        checks that Gateway.
+      </p>
     </section>
 
     <section class="perf-card paid-replacement" data-setting="paid-replacement" aria-labelledby="perf-paid-title">
@@ -158,6 +178,14 @@ import { THROUGHPUT_FIELDS, type ThroughputField, type ThroughputKey, throughput
 interface PaidSetting { enabled: boolean; additional_credit_ceiling: number | null }
 interface ManualRedoSetting { enabled: boolean }
 type PrivateFleetSetting = ManualRedoSetting
+/** The server's private-render Gateway pairing; `null` until it loads, unknown on a failed read. */
+interface PrivateFleetBinding {
+  bound: boolean
+  origin?: string
+  configured_origin?: string | null
+  matches_configured_gateway?: boolean | null
+  repaired_from?: { origin: string; gateway_instance_id: string; at: string } | null
+}
 interface PaidRow {
   kind: 'image' | 'subtitle' | 'audio' | 'writing'
   label: string
@@ -246,6 +274,7 @@ const privateFleetLoaded = ref(false)
 const privateFleetError = ref('')
 const privateFleetEnabled = ref(false)
 const privateFleetBaseline = ref(false)
+const privateFleetBinding = ref<PrivateFleetBinding | null>(null)
 
 const paidRows = reactive<PaidRow[]>([
   { kind: 'image', label: 'Images', path: '/app-settings/paid-image-replacement' },
@@ -352,6 +381,13 @@ async function load(): Promise<void> {
     privateFleetLoaded.value = true
   } catch {
     privateFleetError.value = 'Could not load this setting'
+  }
+  try {
+    const status = await get<PrivateFleetBinding>('/app-settings/private-final-render/binding')
+    if (status && typeof status.bound === 'boolean') privateFleetBinding.value = status
+  } catch {
+    // The pairing note is informative: a read that fails only leaves it out.
+    privateFleetBinding.value = null
   }
 }
 
@@ -469,6 +505,7 @@ onMounted(() => { void load() })
 .ceiling { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 12px; }
 .ceiling input { width: 90px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
 .perf-muted { color: var(--text-muted); font-size: 12px; }
+.perf-binding-note { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .perf-row-error { display: block; margin-top: 4px; color: var(--error); font-size: 12px; }
 .perf-error { color: var(--error); font-size: 12px; margin: 0; }
 .perf-save-bar {

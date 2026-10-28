@@ -84,6 +84,8 @@ test('private render mutations require fresh owner credentials even on loopback 
   assert.deepEqual(admitted.body, { enabled: false })
   assert.deepEqual((await request(app).get('/api/app-settings/private-final-render/binding').expect(200)).body, {
     bound: false, story_instance_id: storyInstanceId,
+    configured_origin: 'https://gateway.private.example',
+    matches_configured_gateway: null, repaired_from: null,
   })
 
   const login = await request(app).post('/api/auth/login')
@@ -112,6 +114,7 @@ test('private render mutations require fresh owner credentials even on loopback 
   assert.deepEqual(status.body, {
     bound: true, story_instance_id: storyInstanceId,
     origin: ORIGIN, owner_scope: OWNER_SCOPE, gateway_instance_id: GATEWAY_ID,
+    configured_origin: ORIGIN, matches_configured_gateway: true, repaired_from: null,
   })
   assert.ok(!JSON.stringify(status.body).includes(BEARER))
 })

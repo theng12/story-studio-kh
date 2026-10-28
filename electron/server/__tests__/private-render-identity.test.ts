@@ -260,7 +260,10 @@ test('Gateway binding is pinned once, origin-bound, refuses a different identity
     await assert.rejects(identity.readPrivateRenderAccess(), /API key/i)
     await secrets.setApiKey('genstudio', BEARER)
     await assert.rejects(identity.readPrivateRenderAccess(), /binding/i)
-    assert.deepEqual(await identity.getGatewayBindingStatus(), { bound: false, story_instance_id: created.story_instance_id })
+    assert.deepEqual(await identity.getGatewayBindingStatus(), {
+      bound: false, story_instance_id: created.story_instance_id,
+      configured_origin: ORIGIN, matches_configured_gateway: null, repaired_from: null,
+    })
 
     const bindingFile = path.join(dir, 'private-render', 'gateway-binding.json')
     assert.deepEqual(await identity.pinGatewayBinding(binding), binding)
@@ -286,14 +289,19 @@ test('Gateway binding is pinned once, origin-bound, refuses a different identity
     })
     assert.deepEqual(await identity.getGatewayBindingStatus(), {
       bound: true, story_instance_id: created.story_instance_id, ...binding,
+      configured_origin: ORIGIN, matches_configured_gateway: true, repaired_from: null,
     })
     assert.ok(!JSON.stringify(await identity.getGatewayBindingStatus()).includes(BEARER))
 
     await secrets.setApiKey('genstudio', 'cd'.repeat(32))
     assert.equal((await identity.readPrivateRenderAccess()).bearer, 'cd'.repeat(32), 'key rotation needs no re-pairing')
 
+    // A pin for another origin is reported, not rewritten here: only the capabilities route
+    // re-pairs, because only it has the identity the new Gateway answers with.
     await settings.setGenStudioUrl('https://different-gateway.example')
-    await assert.rejects(identity.readPrivateRenderConnection(), /origin|binding/i)
+    const unpaired = await identity.readPrivateRenderConnection()
+    assert.equal(unpaired.origin, 'https://different-gateway.example')
+    assert.equal(unpaired.binding?.origin, ORIGIN, 'the old pin is still what is stored')
     await assert.rejects(identity.readPrivateRenderAccess(), /origin|binding/i)
     await settings.setGenStudioUrl(ORIGIN)
     assert.equal((await identity.readPrivateRenderAccess()).origin, ORIGIN)
@@ -311,6 +319,99 @@ test('Gateway binding is pinned once, origin-bound, refuses a different identity
     await assert.rejects(identity.pinGatewayBinding(binding), /binding|field/i)
     await assert.rejects(identity.readPrivateRenderAccess(), /binding|field/i)
     assert.deepEqual(await fs.readFile(bindingFile), malformed, 'unsafe binding bytes remain inspectable')
+  })
+})
+
+test('a movable Gateway origin re-pairs itself, moves the old pairing to Story\'s Trash, and refuses the same origin', async () => {
+  const identity = await import('../services/private-render-identity.js')
+  const settings = await import('../services/app-settings.js')
+  const secrets = await import('../services/app-secrets-store.js')
+  const queue = await import('../services/job-queue.js')
+  const binding = { origin: ORIGIN, owner_scope: OWNER_SCOPE, gateway_instance_id: GATEWAY_ID }
+  const MOVED_ORIGIN = 'https://moved-gateway.example'
+  const MOVED_ID = '44444444-4444-4444-8444-444444444444'
+  const moved = { origin: MOVED_ORIGIN, owner_scope: OWNER_SCOPE, gateway_instance_id: MOVED_ID }
+
+  await inCase('binding-repair', async dir => {
+    await settings.setGenStudioUrl(ORIGIN)
+    await secrets.setApiKey('genstudio', BEARER)
+    await identity.pinGatewayBinding(binding)
+    const bindingFile = path.join(dir, 'private-render', 'gateway-binding.json')
+    const beforeBytes = await fs.readFile(bindingFile)
+    const beforeStat = await fs.lstat(bindingFile)
+
+    // Before the queue has loaded this Mac's jobs, "nothing is in flight" cannot be proven.
+    await settings.setGenStudioUrl(MOVED_ORIGIN)
+    await assert.rejects(identity.repairGatewayBinding(moved), /not been re-paired|loaded/i)
+    assert.deepEqual(await fs.readFile(bindingFile), beforeBytes, 'an unproven queue state moves nothing')
+    if (!queue.areBootJobsLoaded()) await queue.resumeInterruptedJobsAtBoot()
+
+    // A different identity at the SAME origin is the replacement/spoof case and is never re-paired.
+    await settings.setGenStudioUrl(ORIGIN)
+    await assert.rejects(
+      identity.repairGatewayBinding({ ...binding, gateway_instance_id: MOVED_ID }),
+      /pinned|binding/i,
+    )
+    assert.deepEqual(await fs.readFile(bindingFile), beforeBytes)
+    assert.equal((await fs.lstat(bindingFile)).ino, beforeStat.ino)
+
+    // An origin nobody configured is not somewhere the pairing may move to.
+    await assert.rejects(identity.repairGatewayBinding(moved), /configured Gateway origin/i)
+
+    await settings.setGenStudioUrl(MOVED_ORIGIN)
+    assert.deepEqual(await identity.repairGatewayBinding(moved), moved)
+    assert.deepEqual(JSON.parse(await fs.readFile(bindingFile, 'utf8')), moved)
+    assert.notEqual((await fs.lstat(bindingFile)).ino, beforeStat.ino, 'the pairing is a new file')
+
+    // The old pairing is not destroyed: it is in Story's Trash, indexed, with its exact bytes.
+    const trashRoot = path.join(dir, 'projects', '_trash')
+    const movedTo = path.join(trashRoot, '_story-studio', 'private-render')
+    const trashed = await fs.readdir(movedTo)
+    assert.equal(trashed.length, 1)
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(movedTo, trashed[0]!), 'utf8')), binding)
+    const indexEntries = (await fs.readFile(path.join(trashRoot, '.trash-index.jsonl'), 'utf8'))
+      .trim().split('\n').map(line => JSON.parse(line))
+      .filter(entry => entry.kind === 'private-render')
+    assert.equal(indexEntries.length, 1)
+    assert.equal(indexEntries[0].from, path.resolve(bindingFile))
+    assert.equal(indexEntries[0].to, path.resolve(path.join(movedTo, trashed[0]!)))
+
+    const status = await identity.getGatewayBindingStatus()
+    assert.deepEqual(status, {
+      bound: true, story_instance_id: status.story_instance_id, ...moved,
+      configured_origin: MOVED_ORIGIN, matches_configured_gateway: true,
+      repaired_from: { origin: ORIGIN, gateway_instance_id: GATEWAY_ID, at: status.repaired_from?.at },
+    })
+    assert.match(status.repaired_from?.at || '', /^\d{4}-\d\d-\d\dT[\d:.]+Z$/)
+
+    // Nothing more to do on the next call, and it does not move the new pairing anywhere.
+    const repairedInode = (await fs.lstat(bindingFile)).ino
+    assert.deepEqual(await identity.repairGatewayBinding(moved), moved)
+    assert.equal((await fs.lstat(bindingFile)).ino, repairedInode)
+    assert.equal((await fs.readdir(movedTo)).length, 1, 'an unchanged pairing adds no second Trash move')
+
+    assert.deepEqual(await identity.readPrivateRenderAccess(), {
+      origin: MOVED_ORIGIN, bearer: BEARER, story_instance_id: status.story_instance_id,
+      owner_scope: OWNER_SCOPE, gateway_instance_id: MOVED_ID,
+    })
+  })
+
+  await inCase('binding-repair-in-flight', async dir => {
+    await settings.setGenStudioUrl(ORIGIN)
+    await secrets.setApiKey('genstudio', BEARER)
+    await identity.pinGatewayBinding(binding)
+    if (!queue.areBootJobsLoaded()) await queue.resumeInterruptedJobsAtBoot()
+    const job = queue.enqueuePreparedForTest({
+      project_slug: 'repair-channel', type: 'video_assembly', episode_id: 'EP1',
+    })
+    queue._setJobRecordForTesting(job.job_id, { final_render_remote_wait: { version: 1 } as any })
+
+    await settings.setGenStudioUrl(MOVED_ORIGIN)
+    await assert.rejects(identity.repairGatewayBinding(moved), /in flight/i)
+    const bindingFile = path.join(dir, 'private-render', 'gateway-binding.json')
+    assert.deepEqual(JSON.parse(await fs.readFile(bindingFile, 'utf8')), binding, 'the old pairing stands')
+    await assert.rejects(fs.stat(path.join(dir, 'projects', '_trash')), /ENOENT/,
+      'a refused re-pair moves nothing to the Trash')
   })
 })
 

@@ -5,6 +5,7 @@ import { decodeStrictJson as decodeJsonSyntax, StrictJsonError } from './final-r
 import { parseQualificationProvenance, RenderProvenanceError, type QualificationProvenance } from './final-render-provenance-contract.js'
 import {
   pinGatewayBinding,
+  repairGatewayBinding,
   readPrivateRenderAccess,
   readPrivateRenderConnection,
   type PrivateRenderAccess,
@@ -1014,17 +1015,24 @@ function byteStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
   })
 }
 
-/** The first valid capabilities response pins the Gateway identity; a later mismatch is refused. */
+/**
+ * The first valid capabilities response pins the Gateway identity. A pin for another origin means
+ * the owner moved the Gateway, so this call re-pairs to the identity that answers at the configured
+ * origin; a different identity at the *same* origin is refused, never re-paired.
+ */
 export async function getFinalRenderCapabilities(): Promise<FinalRenderCapabilities> {
   const connection = await readPrivateRenderConnection()
+  const originChanged = connection.binding !== null && connection.binding.origin !== connection.origin
   const capabilities = parseCapabilities(await fetchJson(
     connection, '/v1/final-renders/capabilities', { method: 'GET' }, 'Final render capabilities', 200,
-  ), connection)
-  await pinGatewayBinding({
+  ), originChanged ? { ...connection, binding: null } : connection)
+  const answered = {
     origin: connection.origin,
     owner_scope: capabilities.owner_scope,
     gateway_instance_id: capabilities.gateway_instance_id,
-  })
+  }
+  if (originChanged) await repairGatewayBinding(answered)
+  else await pinGatewayBinding(answered)
   return capabilities
 }
 

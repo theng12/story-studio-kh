@@ -810,3 +810,50 @@ test('the paired profile is read at the bounds version it states, and an unknown
   await refuses(profileV2({ ...BOUNDS_V2, canvas_range: { max_edge: 3840 } }),
     'profile descriptor.execution_bounds.canvas_range must have the exact closed fields')
 })
+
+test('a Gateway moved to another origin re-pairs from the capabilities call, and its old pairing goes to Story Trash', async () => {
+  const client = await import('../lib/final-render-gateway-client.js')
+  const settings = await import('../services/app-settings.js')
+  const queue = await import('../services/job-queue.js')
+  const MOVED = 'https://moved.private.example'
+  const MOVED_ID = '44444444-4444-4444-8444-444444444444'
+  const pinnedAtOrigin = { origin: ORIGIN, owner_scope: OWNER_SCOPE, gateway_instance_id: GATEWAY_ID }
+  const restoreFetch = () => { globalThis.fetch = originalFetch }
+  try {
+    if (!queue.areBootJobsLoaded()) await queue.resumeInterruptedJobsAtBoot()
+    await settings.setGenStudioUrl(MOVED)
+    globalThis.fetch = async (input, init = {}) => {
+      assert.equal(String(input), `${MOVED}/v1/final-renders/capabilities`)
+      assert.equal(init.method, 'GET')
+      return Response.json(capabilities({ gateway_instance_id: MOVED_ID }))
+    }
+    await client.getFinalRenderCapabilities()
+    assert.deepEqual(await bindingRecord(), {
+      origin: MOVED, owner_scope: OWNER_SCOPE, gateway_instance_id: MOVED_ID,
+    }, 'the pairing follows the origin the owner set')
+    const trashed = await fs.readdir(path.join(retained!.dir, 'projects', '_trash', '_story-studio', 'private-render'))
+    assert.equal(trashed.length, 1)
+    assert.deepEqual(
+      JSON.parse(await fs.readFile(path.join(
+        retained!.dir, 'projects', '_trash', '_story-studio', 'private-render', trashed[0]!,
+      ), 'utf8')),
+      pinnedAtOrigin,
+      'the old pairing is kept in Story Trash, not destroyed',
+    )
+
+    // A different identity at the SAME origin is still the replacement case, never a re-pair.
+    globalThis.fetch = async () => Response.json(capabilities({
+      gateway_instance_id: '55555555-5555-4555-8555-555555555555',
+    }))
+    await assert.rejects(client.getFinalRenderCapabilities(), /binding|response|invalid/i)
+    assert.deepEqual(await bindingRecord(), {
+      origin: MOVED, owner_scope: OWNER_SCOPE, gateway_instance_id: MOVED_ID,
+    }, 'the moved pairing is untouched by a same-origin identity change')
+  } finally {
+    // Put the fixture's own pairing back for any later read in this file.
+    await settings.setGenStudioUrl(ORIGIN)
+    globalThis.fetch = async () => Response.json(capabilities())
+    await client.getFinalRenderCapabilities()
+    restoreFetch()
+  }
+})

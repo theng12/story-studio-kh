@@ -628,6 +628,32 @@ function hasFinalRenderPublicHold(projectSlug: string, jobId: string): boolean {
   return finalRenderRecoveryHolds.has(key) || finalRenderMonitorTransientHolds.has(key)
 }
 
+export type InFlightPrivateFinalRender =
+  | { state: 'idle' }
+  | { state: 'in_flight'; project_slug: string; job_id: string }
+  | { state: 'unknown'; reason: string }
+
+/**
+ * A private remote final render that still holds this install's Gateway lineage: its Gateway
+ * request is unsettled, or its output is still coming back. A terminal row is history — a refused
+ * or failed one already handed the episode to this Mac — so neither is in flight.
+ *
+ * `unknown` is its own answer (AGENTS.md §6): before boot has loaded every channel's jobs, "no
+ * render found" cannot be told apart from "not looked at", and re-pairing under a live render
+ * strands its receipt on an identity the Gateway no longer answers with.
+ */
+export function findInFlightPrivateFinalRender(): InFlightPrivateFinalRender {
+  if (!bootJobsLoaded) {
+    return { state: 'unknown', reason: 'the job queue has not finished loading jobs for this Mac' }
+  }
+  for (const job of jobs.values()) {
+    if (job.type !== 'video_assembly' || TERMINAL_JOB_STATUSES.has(job.status)) continue
+    if (!hasFinalRenderRemoteWaitMarker(job) || isRefusedFinalRender(job)) continue
+    return { state: 'in_flight', project_slug: job.project_slug, job_id: job.job_id }
+  }
+  return { state: 'idle' }
+}
+
 function finalRenderWaitConflict(): Error {
   return Object.assign(new Error('This remote video render is preserved until its original lineage is reconciled.'), {
     status: 409, statusCode: 409, expose: true,
