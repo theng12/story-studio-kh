@@ -275,3 +275,19 @@ describe('server-owned job controls', () => {
     assert.equal(await getJobCancellationAuditor('audio_merge')?.({} as Job), 'complete')
   })
 })
+
+test('a paused job whose provider tasks all finished can be stopped, not left waiting', () => {
+  const settled = [
+    evidence('voice.tts', 'succeeded', { id: 'a', provider_job_id: 'a', dispatch_state: 'dispatched' }),
+    evidence('voice.tts', 'failed', { id: 'b', provider_job_id: 'b', dispatch_state: 'dispatched' }),
+  ]
+  const control = classifyJobControl(job({ status: 'paused', type: 'audio', genstudio_jobs: settled }) as Job,
+    { remoteCancellationAudited: true })
+  assert.equal(control.action, 'stop-local')
+  assert.equal(control.enabled, true)
+  assert.equal(control.code, 'READY')
+  // A running job with the same evidence keeps its own rules (nothing to stop mid-step here).
+  const running = classifyJobControl(job({ status: 'running', type: 'audio', genstudio_jobs: settled }) as Job,
+    { remoteCancellationAudited: true })
+  assert.notEqual(running.action, 'stop-local')
+})

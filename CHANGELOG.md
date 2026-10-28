@@ -6,6 +6,7 @@ What's new in each release. Newest first.
 
 ## v1.4.367 — 2026-10-28
 
+- A paused job whose requests to the Gateway have all finished can now be stopped. Before, it could sit on "waiting for the provider" with no way out except abandoning it.
 - Thumbnails and other images no longer fail on a model that can draw from a prompt alone but also accepts reference images. Such a model's "at least one reference" figure applies only when references are sent; a render with none goes ahead. A model that only edits from a reference still asks for one. This release also carries everything listed under v1.4.366, which was not installed on its own.
 - Remote final rendering re-pairs by itself when you point Story Studio at a new Gateway — say, after the Gateway moves to another Mac — and Settings → This Mac says which Gateway it replaced. The old pairing moves to Story's Trash. A Gateway that answers with a different identity at the same address is still refused, and nothing changes while a remote render is still running.
 
