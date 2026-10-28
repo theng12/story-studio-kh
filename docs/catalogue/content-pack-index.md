@@ -7,9 +7,9 @@ One line per pack item, deduped to the highest version per `pack_id`. Format:
 
 `- <id> | <name> | <collection dir> | <category/tags or axis> | <description> | v<version> <lifecycle>`
 
-Totals — 232 items. Visual styles: 59, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 27, Metadata formulas: 13, Topic packs: 46.
+Totals — 233 items. Visual styles: 60, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 27, Metadata formulas: 13, Topic packs: 46.
 
-## Visual styles (59)
+## Visual styles (60)
 
 - com.storystudio.style.academic-classical-oil | Academic Classical Oil | royal-history/style/academic-classical-oil | Illustration | The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped… | v1.0.0 active
 - com.storystudio.style.academic-classical-oil-v2 | Academic Classical Oil | rebuilt/style/academic-classical-oil-v2-v1.0.1 | Illustration | The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped… | v1.0.1 active
@@ -69,6 +69,7 @@ Totals — 232 items. Visual styles: 59, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.style.warm-cosy-interior-illustration | Warm Cosy Interior Illustration | custom-looks/style/warm-cosy-interior-illustration | Illustration | A warm painted interior at lamplight — soft digital brushwork in browns, cream and amber with muted greens, inviting an… | v1.0.0 active
 - com.storystudio.style.watercolor-storybook | Watercolor Storybook | free-starters/style/watercolor-storybook-v1.0.1 | Illustration | Soft children’s-book watercolor — gentle washes, rounded shapes, warm and cozy. | v1.0.1 active
 - com.storystudio.style.waxy-outline-cartoon | Waxy Outline Cartoon | free-starters/style/waxy-outline-cartoon-v1.0.1 | Explainer | Bold curiosity-cartoon art with waxy imperfect outlines, saturated flats, and instantly readable reactions. | v1.0.1 active
+- com.storystudio.style.webtoon-martial-arts | Webtoon Martial Arts | production-looks/style/webtoon-martial-arts | Digital | Modern Korean martial-arts webtoon — bold ink outlines, flat cel colour with one hard shadow tone, expressive comic fac… | v1.0.0 active
 - com.storystudio.style.whiteboard-doodle-explainer | Whiteboard Doodle Explainer | production-looks/style/whiteboard-doodle-explainer-v1.0.1 | Explainer | Hand-drawn whiteboard doodles — stick figures, big expressive faces, one idea per frame. | v1.0.1 active
 
 ## Lettering styles (50)

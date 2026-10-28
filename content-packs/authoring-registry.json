@@ -1,5 +1,5 @@
 {
-  "revision": 351,
+  "revision": 353,
   "batches": [
     {
       "revision": 2,
@@ -7090,6 +7090,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 352,
+      "receipt_ref": "authoring:6259c9378381399fe92c860138d93ec13292342dd82a8638ddb00be8b8565c9c",
+      "request": {
+        "expected_revision": 351,
+        "coordinator": {
+          "task": "content-pack-authoring: Webtoon Martial Arts visual style",
+          "branch": "content/webtoon-martial-arts-style-20261029"
+        },
+        "proposal_ref": "Owner-approved 2026-10-29 new Visual Style: a Korean martial-arts webtoon (murim manhwa) look, derived from three supplied webtoon reference panels, authored as a standalone style with the owner's three-preview set.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.webtoon-martial-arts",
+            "item_id": "com.storystudio.style.webtoon-martial-arts",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/production-looks/style/webtoon-martial-arts",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.webtoon-martial-arts",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.webtoon-martial-arts",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -12131,6 +12167,23 @@
         },
         "receipt_ref": "authoring:a509a4382eb7819c9842e217160ce8a477d2d94999212921e3646b264faf6ecb",
         "pack_id": "com.storystudio.pack.formula.mythologies-before-us",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 353,
+      "transition_ref": "lifecycle:0bc3893b153c918f4a8b3638b9842d63fc97e23c636922424f47d0309f1a6445",
+      "request": {
+        "expected_revision": 352,
+        "coordinator": {
+          "task": "content-pack-authoring: Webtoon Martial Arts visual style",
+          "branch": "content/webtoon-martial-arts-style-20261029"
+        },
+        "receipt_ref": "authoring:6259c9378381399fe92c860138d93ec13292342dd82a8638ddb00be8b8565c9c",
+        "pack_id": "com.storystudio.pack.style.webtoon-martial-arts",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -20244,6 +20297,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.formula.mythologies-before-us",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:6259c9378381399fe92c860138d93ec13292342dd82a8638ddb00be8b8565c9c",
+      "pack_id": "com.storystudio.pack.style.webtoon-martial-arts",
+      "item_id": "com.storystudio.style.webtoon-martial-arts",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/production-looks/style/webtoon-martial-arts",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.webtoon-martial-arts",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.webtoon-martial-arts",
           "status": "proposed"
         }
       }

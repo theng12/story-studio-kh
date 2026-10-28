@@ -1,0 +1,27 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.webtoon-martial-arts",
+  "name": "Webtoon Martial Arts",
+  "description": "Modern Korean martial-arts webtoon — bold ink outlines, flat cel colour with one hard shadow tone, expressive comic faces and dramatic camera angles over softly painted backgrounds.",
+  "category": "Digital",
+  "tags": [
+    "webtoon",
+    "manhwa",
+    "martial arts",
+    "murim",
+    "cel shading",
+    "ink line art",
+    "comic panel",
+    "expressive faces",
+    "dramatic angle"
+  ],
+  "style_bible": "Korean martial-arts webtoon manhwa panel, a drawn and painted 2D digital comic key art: bold clean confident black ink outlines of varied weight, heavier on outer contours and lighter on interior detail, large flat cel colour areas, posterised flat tonal steps with one single hard-edged shadow tone modelling each form and a crisp drawn shadow edge, a few short straight ink hatch marks placed only inside shadows and cloth creases, simplified stylised manhwa anatomy with large expressive eyes and exaggerated sometimes comedic facial expressions, dramatic cinematic camera angle with strong diagonals and foreshortening, softly digital-painted background kept slightly out of focus and lower in contrast than the figures, airy light pastel palette of muted jade pale sand dusty rose soft slate and warm cream, bright even light, crisp finished high-resolution modern webtoon key art, smooth flat colour, clean graphic shapes",
+  "negative_prompt": "photorealism, photograph, realistic skin texture, realistic skin pores, 3D render, CGI, airbrush gradients, painterly modelling on figures, heavy impasto brushwork, sketchy unfinished pencil lines, scratchy pen scrawl, all-over cross-hatching, dense hatching over the whole image, watercolour bleed, oil painting texture, film grain, heavy vignette, lens flare, bloom, muddy desaturated colours, neon oversaturation, manga screentone dot shading, western cartoon, chibi mascot rendering, speech bubbles, captions, lettering, signature, watermark, logo, border, copied reference composition",
+  "preview_assets": [
+    "assets/webtoon-martial-arts.webp",
+    "assets/webtoon-martial-arts-scene.webp",
+    "assets/webtoon-martial-arts-hardest.webp"
+  ],
+  "compatible_formula_ids": []
+}
