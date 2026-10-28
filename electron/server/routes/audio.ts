@@ -1203,6 +1203,13 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
         ? action.candidate?.controls
         : candidate?.controls && typeof candidate.controls === 'object'
           ? candidate.controls as Record<string, number | boolean | string> : undefined
+      // How the replacement is read. A confirmed repair makes the SAME take the
+      // customer asked for, so a resumed candidate reuses the direction it was
+      // staged with rather than a live value that may have moved.
+      const candidateDelivery = resumingHeldCandidate
+        ? action.candidate?.delivery_instruction
+        : typeof candidate?.delivery_instruction === 'string' && candidate.delivery_instruction.trim()
+          ? candidate.delivery_instruction.trim() : undefined
       // Alternate means a distinct published model id, not a provider label.
       // Old SRTs without durable model provenance remain visible for review but
       // cannot silently become an automatic paid repair.
@@ -1220,6 +1227,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
         episode_id: code, model, voice, sections: action.sections.join(','),
         speed: candidateSpeed,
         controls: candidateControls,
+        ...(candidateDelivery ? { delivery_instruction: candidateDelivery } : {}),
         force: true, no_overwrite: false,
         quality_repair: { action_id: operationId!, source_fingerprint: action.source_fingerprint, verification_credit_ceiling: ceiling },
       }, operationId!)
@@ -1243,6 +1251,7 @@ router.post('/projects/:slug/episodes/:code/audio-quality/confirm', async (req, 
         currentAction.candidate = {
           model_id: model, voice_id: voice, speed: candidateSpeed,
           ...(candidateControls && Object.keys(candidateControls).length ? { controls: candidateControls } : {}),
+          ...(candidateDelivery ? { delivery_instruction: candidateDelivery } : {}),
           staging_dir: path.join('.audio-quality-candidates', operationId!),
           source_audio_hashes: scope.source_audio_hashes,
         }

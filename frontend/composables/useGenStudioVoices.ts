@@ -16,7 +16,11 @@
  *   provider on a generation request.
  */
 
-import type { GenStudioTtsControl, TtsControlValues } from '~/utils/tts-controls'
+import type {
+  GenStudioDeliveryInstructionControl,
+  GenStudioTtsControl,
+  TtsControlValues,
+} from '~/utils/tts-controls'
 import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
 import type { RelaxedQueueHint } from '~/utils/genstudio-relaxed-queue'
 import type { PriceTruth } from '~/utils/genstudio-price-usd'
@@ -69,6 +73,15 @@ export interface GenStudioTtsModel extends PriceTruth {
    * only so an older cached response cannot break the page.
    */
   controls?: GenStudioTtsControl[]
+  /**
+   * The delivery/emotion control THIS model publishes, with the model's own
+   * guidance inside it, or `null`/absent when the Gateway published none
+   * (owner, 2026-10-29). Read from the model's own `controls[]` by the backend
+   * and re-read on every catalogue read, so a model that gains or loses the
+   * capability gains or loses the box with it. `null` means the setting is
+   * hidden and no instruction is sent.
+   */
+  delivery_instruction?: GenStudioDeliveryInstructionControl | null
   /**
    * `TTSModelResponse.pause_parameters[]` — the join pauses (at a paragraph
    * break / after a sentence) this model takes, with its own bounds and

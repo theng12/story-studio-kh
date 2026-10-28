@@ -749,6 +749,14 @@ export const GenerateAudioSchema = z.object({
    * and an out-of-range value is clamped there, not here.
    */
   controls: z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).optional(),
+  /**
+   * How the words should be read (owner, 2026-10-29). Accepted without a length
+   * bound HERE on purpose: whether the selected model takes an instruction, and
+   * how long it may be, is a fact its catalogue row publishes, so the limit is
+   * applied against the live row in the generator (lib/tts-controls.ts) rather
+   * than restated as a constant in this schema.
+   */
+  delivery_instruction: z.string().optional(),
   force: z.boolean().optional(),
   no_overwrite: z.boolean().optional(),
   /** Re-narrate from a subtitle gap: re-make the chapter's subtitles once its new narration is saved. */

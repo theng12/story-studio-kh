@@ -10,7 +10,7 @@ import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { createProjectFactsCache, projectDirFor, resolveEpisodePathsByCode, resolveEpisodePathsByCodeWithSidecar, type ProjectFactsCache } from '../services/utils.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
-import { resolveTtsControlValues } from '../lib/tts-controls.js'
+import { resolveDeliveryInstruction, resolveTtsControlValues } from '../lib/tts-controls.js'
 import {
   buildGenStudioSubmission,
   generateTtsToFile as generateTtsGenStudio,
@@ -629,6 +629,22 @@ export async function generateAudio(job: Job): Promise<void> {
     genStudioMaximumSpeed,
   )
   const genStudioProviderLabel = ttsModel.provider_name || 'this voice provider'
+  // How the words should be READ (owner, 2026-10-29), resolved against THIS
+  // model's published delivery/emotion control: cut to the model's own
+  // published length, and empty when the model publishes no such control. A
+  // request that carried one for a model that does not take it is REFUSED here
+  // rather than dropped — the Gateway refuses it too, and a silent drop would
+  // hand back the plain reading under a label claiming otherwise (§4, §8).
+  const deliveryInstruction = resolveDeliveryInstruction(ttsModel.delivery_instruction, req.delivery_instruction)
+  const askedForDeliveryInstruction = typeof req.delivery_instruction === 'string'
+    && req.delivery_instruction.trim().length > 0
+  if (askedForDeliveryInstruction && !deliveryInstruction) {
+    throw new Error(
+      `${ttsModel.display_name} does not take a delivery/emotion instruction. `
+      + 'Clear it on the Audio tab, or choose a voice model whose catalogue row publishes it.',
+    )
+  }
+  const deliveryRequest = deliveryInstruction ? { deliveryInstruction } : {}
   // PROVENANCE (owner, 2026-10-26): keep what the catalogue published about the
   // model and voice that actually make these bytes, so the Audio page can show
   // each take's engine, model and voice without re-deriving any of it from a
@@ -651,6 +667,10 @@ export async function generateAudio(job: Job): Promise<void> {
     ...(voiceRecord?.model_revision_id ? { model_revision_id: voiceRecord.model_revision_id } : {}),
     ...(voiceRecord?.model_family ? { model_family: voiceRecord.model_family } : {}),
     ...(voiceRecord?.voice_revision ? { voice_revision: voiceRecord.voice_revision } : {}),
+    // HOW this take was directed, beside who made it (owner, 2026-10-29). Only
+    // when an instruction was actually sent — a take made without one records
+    // nothing rather than a blank.
+    ...(deliveryInstruction ? { delivery_instruction: deliveryInstruction } : {}),
   }
   const admission = await refreshGenStudioAdmission(apiKey)
   const requestBudget = resolveTtsRequestBudget(ttsModel)
@@ -685,6 +705,13 @@ export async function generateAudio(job: Job): Promise<void> {
       + ' (published by this model; resolved against its own ranges)',
     )
   }
+  job.output_lines.push(
+    deliveryInstruction
+      ? `Delivery: “${deliveryInstruction}”`
+        + ` (${ttsModel.delivery_instruction?.label || 'delivery/emotion instruction'}`
+        + `${ttsModel.delivery_instruction?.max_length != null ? `, up to ${ttsModel.delivery_instruction.max_length} characters as this model publishes` : ''})`
+      : 'Delivery: no instruction — the model\'s own reading.',
+  )
   job.output_lines.push(
     `Voice model: ${ttsModel.display_name}`
     + `${ttsModel.provider_name ? ` (served by ${ttsModel.provider_name})` : ''}`
@@ -1039,6 +1066,9 @@ export async function generateAudio(job: Job): Promise<void> {
         // against what GenStudio will accept, not Story Studio's planning
         // head-room. A body planned inside the smaller budget passes it.
         maxInputCharacters: genStudioMaxCharacters,
+        // How the words are read, when the model publishes the control and the
+        // customer typed something. Same object the submit path rebuilds from.
+        ...deliveryRequest,
         // Decided by the caller: the durable identity, the manual-retry
         // identity, or an identity derived from the job this chunk just
         // failed as. Every one of them is a pure function of what happened,
@@ -1104,6 +1134,7 @@ export async function generateAudio(job: Job): Promise<void> {
         // had published correctly all along. Same live catalogue value as the
         // `prepared` submission above; there is only one source for it.
         maxInputCharacters: genStudioMaxCharacters,
+        ...deliveryRequest,
         // THIS attempt's identity, not the chunk's durable one. The submit
         // path rebuilds a submission from this object, and a retry attempt
         // that rebuilt under the base identity would derive the dead job's
@@ -1186,6 +1217,10 @@ export async function generateAudio(job: Job): Promise<void> {
       // existing manifest entry stays reusable across this upgrade instead of
       // being resubmitted (and recharged) for a request that has not changed.
       ...(Object.keys(requestControls).length ? { controls: requestControls } : {}),
+      // Same rule: absent unless sent, so an existing manifest entry stays
+      // reusable, and a changed instruction can never reuse the audio that was
+      // made under the previous one.
+      ...deliveryRequest,
       // Same rule: absent unless sent, so an existing manifest entry stays reusable.
       ...pauseRequest,
     }))
@@ -1278,6 +1313,7 @@ export async function generateAudio(job: Job): Promise<void> {
         speed: genStudioSpeed, supportsSpeed: genStudioSupportsSpeed,
         minimumSpeed: genStudioMinimumSpeed, maximumSpeed: genStudioMaximumSpeed,
         controls: requestControls, maxInputCharacters: genStudioMaxCharacters,
+        ...deliveryRequest,
         requestIdentity: `${requestIdentity}:regenerate:${generationActionId || job.job_id}`,
         ...(outputFormat ? { outputFormat } : {}),
         ...pauseRequest,

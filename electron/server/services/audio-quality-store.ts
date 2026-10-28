@@ -72,6 +72,12 @@ export interface AudioQualityRepairAction {
     voice_id: string
     speed?: number
     controls?: Record<string, number | boolean | string>
+    /**
+     * How the replacement was DIRECTED, when one was given (owner, 2026-10-29).
+     * Kept with the candidate so a resumed repair makes the same take, and so a
+     * repaired chapter is not quietly read differently from the rest.
+     */
+    delivery_instruction?: string
     staging_dir: string
     source_audio_hashes: Record<string, string>
     /** Candidate files and their post-ASR content fingerprints. */

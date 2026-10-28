@@ -7,9 +7,11 @@
  * made TypeScript degrade unrelated zod-inferred types elsewhere in the server
  * tree (282 bogus errors, 2026-10-26). One interface, no imports, no cycle.
  *
- * Every field is an optional PUBLISHED catalogue fact. Absent means the Gateway
- * did not publish it (or the part predates this record) — never `false`, never
- * a substituted value (AGENTS.md §1/§2).
+ * Every field is an optional PUBLISHED catalogue fact — except
+ * `delivery_instruction`, which is the direction the customer gave and is
+ * labelled as such. Absent means the Gateway did not publish it (or the part
+ * predates this record) — never `false`, never a substituted value
+ * (AGENTS.md §1/§2).
  */
 export interface TtsProvenanceFacts {
   model_id?: string
@@ -25,4 +27,12 @@ export interface TtsProvenanceFacts {
   model_revision_id?: string
   model_family?: string
   voice_revision?: string
+  /**
+   * How this take was DIRECTED — the model's own delivery/emotion instruction,
+   * exactly as it was sent (owner, 2026-10-29). The one field here that is not
+   * a catalogue fact: it is what the customer asked for, recorded beside the
+   * engine and voice so a take can answer "how was this read?". Absent means no
+   * instruction was sent — never an empty string and never a default.
+   */
+  delivery_instruction?: string
 }

@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## Unreleased — Delivery / emotion for narration
+
+- Narration can be directed in words — "warm and unhurried, a little amused" — where the chosen voice model takes a delivery/emotion instruction. The setting appears only for models that publish it, with that model's own examples, language rule and inline vocal events beside it, and what a take was directed with is recorded on the take beside its engine and voice. It is empty by default, saved in the narration preset, and a model that publishes no such setting shows one line saying so.
+
 ## v1.4.367 — 2026-10-28
 
 - A paused job whose requests to the Gateway have all finished can now be stopped. Before, it could sit on "waiting for the provider" with no way out except abandoning it.

@@ -421,6 +421,8 @@ interface TakeProvenance {
   model_revision_id?: string
   model_family?: string
   voice_revision?: string
+  /** How the take was directed — the delivery/emotion instruction that was sent. */
+  delivery_instruction?: string
   sources?: string[]
 }
 
@@ -640,6 +642,10 @@ function describeProvenance(provenance?: TakeProvenance): string {
     model ? `Model: ${model}` : '',
     voice ? `Voice: ${voice}` : '',
     provenance.provider ? `Provider: ${provenance.provider}` : '',
+    // How it was DIRECTED, beside who made it (owner, 2026-10-29). Recorded only
+    // when an instruction was sent; a plain take says nothing here rather than
+    // claiming a direction it never had.
+    provenance.delivery_instruction ? `Delivery: ${provenance.delivery_instruction}` : '',
   ].filter(Boolean)
   return parts.join(' · ')
 }

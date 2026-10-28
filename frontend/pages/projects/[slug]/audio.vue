@@ -471,6 +471,20 @@
       <details class="audio-advanced disclosure">
         <summary>Delivery and request controls <span>{{ advancedSummary }}</span></summary>
         <div class="audio-advanced-body">
+      <!-- Delivery / emotion (owner, 2026-10-29). Drawn ONLY when the selected
+           model's own row publishes the control, with that model's own guidance
+           beside it. When it publishes none, one line says so and nothing is
+           sent — there is no app-wide list of emotions and no invented hints. -->
+      <DeliveryInstructionPanel
+        v-if="deliveryControl"
+        v-model="form.delivery_instruction"
+        :control="deliveryControl"
+        :model-name="selectedTtsModel?.display_name || ''"
+      />
+      <p v-else-if="deliveryUnsupported" class="text-muted text-xs hint-line delivery-unavailable">
+        <strong>Delivery / emotion</strong> is not available on {{ selectedTtsModel?.display_name }} —
+        its catalogue row publishes no delivery/emotion setting, so none is shown and none is sent.
+      </p>
       <div class="grid-3">
         <!-- the Gateway publishes `supports_speed` and the numeric bounds per
              model. A model without a complete published range gets no slider. -->
@@ -719,6 +733,7 @@ import {
 } from '~/utils/genstudio-relaxed-queue'
 import {
   defaultTtsControlValues,
+  resolveDeliveryInstructionText,
   resolveTtsControlValues,
   type GenStudioTtsControl,
 } from '~/utils/tts-controls'
@@ -869,6 +884,14 @@ const form = reactive({
    */
   controls: {} as Record<string, number | boolean | string>,
   /**
+   * How the words should be read — the SELECTED model's own free-text
+   * delivery/emotion instruction (owner, 2026-10-29). Empty by default and
+   * never filled in for the customer. Sent ONLY when the model publishes the
+   * control and this is non-empty; a model change re-checks both, and clears
+   * it when the new model publishes no such control.
+   */
+  delivery_instruction: '',
+  /**
    * Pauses inside a chapter, seconds (Series Formula override). Undefined = the
    * default for all narration (1.5 s at a paragraph, 1.0 s after a sentence).
    */
@@ -914,7 +937,7 @@ const requestedAudioSectionForEpisode = computed(() => {
 // left out of the allowlist. A restored voice that's incompatible with the
 // restored model is reconciled by VoicePicker on load.
 useRememberedForm('audio', slug, form, {
-  include: ['model', 'voice', 'speed', 'controls'],
+  include: ['model', 'voice', 'speed', 'controls', 'delivery_instruction'],
   // The control names are the catalogue's, not ours, so the saved map is
   // restored whole rather than merged key-by-key against a declared shape —
   // there is no declared shape. What comes back is reconciled against the
@@ -1158,6 +1181,56 @@ function applyDeferredAudioControlReconciliation(): void {
   deferredAudioControlReconciliation.value = false
   form.controls = resolveTtsControlValues(publishedControls.value, form.controls)
 }
+
+// ── Delivery / emotion ─────────────────────────────────────────────────
+// The selected model's own free-text direction for HOW the words are read
+// (owner, 2026-10-29). The control is read from the model's published
+// `controls[]` by the backend and re-read on every catalogue read, so this is
+// a computed, not a copy: a model that gains or loses the capability gains or
+// loses the setting with it, with no reload (§1).
+const deliveryControl = computed(() => selectedTtsModel.value?.delivery_instruction ?? null)
+/** What the request would carry right now — resolved, trimmed and cut to the published limit. */
+const resolvedDeliveryInstruction = computed(() =>
+  resolveDeliveryInstructionText(deliveryControl.value, form.delivery_instruction))
+
+/**
+ * A model change re-checks the setting, because the capability belongs to the
+ * model and not to us:
+ *
+ *  - the new model publishes no control → the text is CLEARED (never left
+ *    standing for a request that would be refused), and the customer is told;
+ *  - the new model publishes one → the text is kept only as far as the new
+ *    model's own published limit allows, and a cut is announced.
+ *
+ * A live-limit change on the SAME model is not a model change: nothing is
+ * cleared, only re-clamped.
+ */
+const deliveryModelId = ref<string | null>(null)
+watch([() => selectedTtsModel.value?.id, deliveryControl], ([modelId, control]) => {
+  const previous = deliveryModelId.value
+  if (!modelId) return
+  deliveryModelId.value = modelId
+  const changedModel = !!previous && previous !== modelId
+  if (!control) {
+    if (form.delivery_instruction) {
+      form.delivery_instruction = ''
+      if (changedModel) {
+        showInfo(`${selectedTtsModel.value?.display_name || 'This model'} does not take a delivery/emotion instruction, so it was cleared.`)
+      }
+    }
+    return
+  }
+  const kept = resolveDeliveryInstructionText(control, form.delivery_instruction)
+  if (kept !== form.delivery_instruction.trim()) {
+    form.delivery_instruction = kept
+    if (changedModel && kept) {
+      showInfo(`${selectedTtsModel.value?.display_name || 'This model'} takes at most ${control.max_length?.toLocaleString() || 'its published'} characters, so the instruction was shortened.`)
+    }
+  }
+}, { immediate: true })
+
+/** True when a model is selected but its own row publishes no delivery control — the one-line reason shows instead. */
+const deliveryUnsupported = computed(() => !!selectedTtsModel.value && !deliveryControl.value)
 
 type AudioActionMode = 'generate' | 'regenerate' | 'new_version'
 interface SectionAction { slug: string; mode: 'generate' | 'regenerate' }
@@ -1459,6 +1532,8 @@ const qualityCandidateAudio = computed(() => ({
   voice: form.voice,
   ...(supportsSpeed.value ? { speed: form.speed } : {}),
   ...(Object.keys(resolvedControls.value).length ? { controls: resolvedControls.value } : {}),
+  // A repaired chapter is read the same way as the rest of the take.
+  ...(resolvedDeliveryInstruction.value ? { delivery_instruction: resolvedDeliveryInstruction.value } : {}),
 }))
 const audioQualityRequestScope = (sections: string[]) => ({
   episode_id: form.episode_id,
@@ -2300,7 +2375,7 @@ async function queueSelectedAudio() {
 }
 
 function audioRequestPayload(targetSections: string[], mode: AudioActionMode): Record<string, any> {
-  const { controls: _controls, ...rest } = form
+  const { controls: _controls, delivery_instruction: _delivery, ...rest } = form
   const payload: Record<string, any> = {
     ...rest,
     sections: targetSections.join(','),
@@ -2308,6 +2383,10 @@ function audioRequestPayload(targetSections: string[], mode: AudioActionMode): R
     no_overwrite: mode === 'new_version',
     controls: resolvedControls.value,
   }
+  // Only when the selected model publishes the control AND something was typed:
+  // the resolved text, never the raw box. An empty box sends nothing, so the
+  // model reads the script its own way (§1: no invented default).
+  if (resolvedDeliveryInstruction.value) payload.delivery_instruction = resolvedDeliveryInstruction.value
   if (!supportsSpeed.value) payload.speed = 1
   if (mode === 'new_version' && manualAudioRedoChecked.value && manualAudioRedoSource.value) {
     payload.manual_redo = {

@@ -186,3 +186,76 @@ export function ttsControlDecimals(step: number | null): number {
   if (dot < 0) return 0
   return Math.min(text.length - dot - 1, 6)
 }
+
+// ── Delivery / emotion (owner, 2026-10-29) ──────────────────────────────
+//
+// A model whose catalogue row publishes the `delivery_instruction` control
+// takes a free-text direction for HOW the words are read. The Gateway publishes
+// it only for models that take one, with the model's own guidance inside it;
+// the backend normalises that guidance (lib/tts-controls.ts) and this page
+// prints only what arrived. Nothing here supplies an example, a rule, an event
+// syntax, a language, or a character limit of its own.
+
+/** The Gateway's published name for the control, and for the request field it leaves as. */
+export const DELIVERY_INSTRUCTION_CONTROL = 'delivery_instruction'
+
+/** One inline vocal event the engine accepts: how it is written, and what it does. */
+export interface DeliveryInstructionEvent {
+  syntax: string
+  /** What it does (`event` in the Hub's own shape). */
+  meaning: string
+  /** Where in the words it may be written, when the card states it. */
+  where: string
+}
+
+/** The model's own guidance. Every member is empty when the Gateway published none. */
+export interface DeliveryInstructionGuidance {
+  /** What kind of input the model takes, in the card's own words (e.g. free text). */
+  kind: string
+  /** How the engine applies it (`instruct`, `text_prefix`), when the card says. */
+  engineForm: string
+  text: string
+  examples: string[]
+  languageRule: string
+  inlineEvents: DeliveryInstructionEvent[]
+  sourceUrl: string
+  /** The card's own caveat, when it published one. */
+  note: string
+}
+
+/** The published delivery/emotion control for the selected model, or absent. */
+export interface GenStudioDeliveryInstructionControl {
+  label: string
+  /** Published `max_length`. `null` = none published, so none is shown or applied. */
+  max_length: number | null
+  /** The model's guidance. `null` = none published, so the box shows alone. */
+  guidance: DeliveryInstructionGuidance | null
+}
+
+/** The published character limit, or `null` when the model published none. */
+export function deliveryInstructionLimit(
+  control: GenStudioDeliveryInstructionControl | null | undefined,
+): number | null {
+  return control?.max_length ?? null
+}
+
+/**
+ * What the request carries: the text trimmed, cut to the model's own published
+ * `max_length` (never a limit of ours), and empty when the model publishes no
+ * control — in which case the setting is hidden and nothing is sent.
+ *
+ * Cut by code point, because the Gateway counts characters its own way and a
+ * JS string index would split a surrogate pair.
+ */
+export function resolveDeliveryInstructionText(
+  control: GenStudioDeliveryInstructionControl | null | undefined,
+  value: unknown,
+): string {
+  if (!control || typeof value !== 'string') return ''
+  const text = value.trim()
+  if (!text) return ''
+  const limit = deliveryInstructionLimit(control)
+  if (limit === null) return text
+  const points = Array.from(text)
+  return points.length > limit ? points.slice(0, limit).join('').trimEnd() : text
+}
