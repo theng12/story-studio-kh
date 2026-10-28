@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.367 — 2026-10-28
+
+- Thumbnails and other images no longer fail on a model that can draw from a prompt alone but also accepts reference images. Such a model's "at least one reference" figure applies only when references are sent; a render with none goes ahead. A model that only edits from a reference still asks for one. This release also carries everything listed under v1.4.366, which was not installed on its own.
+
 ## v1.4.366 — 2026-10-28
 
 - YouTube metadata records: when Story re-checks a video it now keeps its own note that it updated that video, and which update it was, instead of erasing it. The video list returns that note, and each episode's YouTube record now lists every metadata update Story made, so a later check can tell what is already done without spending YouTube quota again.

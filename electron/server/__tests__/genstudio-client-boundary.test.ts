@@ -1125,6 +1125,29 @@ test('Gateway image catalog carries every published capability and invents none'
   }
 })
 
+// 2026-10-28: Qwen Image 2.1 turbo published text-to-image AND image-to-image with its edit
+// lane's 1-reference minimum, and every thumbnail with no reference was refused (0 of 3).
+test("a model that renders text-to-image needs no reference; an edit-only one keeps its minimum", async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => Response.json([{
+      id: 'both-lanes', display_name: 'Both lanes', aspect_ratios: ['16:9'], default_aspect_ratio: '16:9',
+      supports_reference_images: true, min_reference_images: 1, max_reference_images: 2,
+      operations: ['text-to-image', 'image-to-image'],
+    }, {
+      id: 'edit-only', display_name: 'Edit only', aspect_ratios: ['16:9'], default_aspect_ratio: '16:9',
+      supports_reference_images: true, min_reference_images: 1, max_reference_images: 2,
+      operations: ['image-to-image'],
+    }])
+    const [both, editOnly] = await listImageModels('reference-minimum-key')
+    assert.equal(both?.min_reference_images, 0, 'a prompt alone is a valid render here')
+    assert.equal(both?.max_reference_images, 2, 'references still go through, up to the published room')
+    assert.equal(editOnly?.min_reference_images, 1, 'a model that only edits still needs one')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('an image model that publishes nothing optional reports nothing optional', async () => {
   const originalFetch = globalThis.fetch
   try {

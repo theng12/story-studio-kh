@@ -9123,8 +9123,11 @@ async function loadImageModelsFromGenStudio(baseUrl: string, apiKey: string, sig
     supports_reference_images: value?.supports_reference_images === true,
     supports_image_to_image: publishedFlag(value?.supports_image_to_image),
     supports_seed: publishedFlag(value?.supports_seed),
+    // The Gateway enforces this minimum only on a request that sends references (its edit lane);
+    // a model that also publishes `text-to-image` renders from a prompt alone, so a render with
+    // none must not be refused here (2026-10-28: every Qwen thumbnail refused, 0 of 3).
     min_reference_images: Number.isInteger(value?.min_reference_images) && value.min_reference_images >= 0
-      ? value.min_reference_images
+      ? (Array.isArray(value?.operations) && value.operations.includes('text-to-image') ? 0 : value.min_reference_images)
       : undefined,
     max_reference_images: Number.isInteger(value?.max_reference_images) ? Math.max(0, value.max_reference_images) : 0,
     reference_image_max_dimension: publishedPositiveInteger(value?.reference_image_max_dimension),

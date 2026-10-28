@@ -1,5 +1,20 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.367 — a text-to-image model is not refused for having no reference (2026-10-28, fix/t2i-reference-minimum-20261028 from main 7cadb79d)
+
+Supersedes 1.4.366, which passed its gate but was never published (the mini stayed on 1.4.365 while
+Production ran AWBU 13–16). Production's report: 6 `thumb_images` jobs 0/3 (Domnak DM14–17, Origin
+EP17–18) — `qwen-image-2-1-turbo-mflux-q4 requires at least 1 reference image(s); 0 were supplied`.
+The live 1301 row publishes `operations: ["text-to-image","image-to-image"]` with
+`min_reference_images: 1`, which is the EDIT lane's minimum: the Gateway enforces it only on a request
+that sends references (`_refuse_references_this_lane_cannot_take`). Story enforced it on every
+request. Fix at the one boundary every reader goes through (`loadImageModelsFromGenStudio` in
+`lib/genstudio-client.ts`): the minimum reads 0 when the row publishes `text-to-image`; an edit-only
+row keeps it. Regression test in `genstudio-client-boundary.test.ts` (note: the image catalogue is
+cached per API key, so each test needs its own key). Limit: a hypothetical text-to-image model whose
+edit lane needs 2+ references would now be stopped by the Gateway rather than by Story's pre-check —
+still loud, never charged.
+
 ## 1.4.366 — YouTube record contract, readable end to end (2026-10-28, fix/youtube-receipts-read-20261028 from main a55c5f12)
 
 Production's ledger adapter found the 1.4.365 contract unreadable; three defects, all fixed:
