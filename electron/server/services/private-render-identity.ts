@@ -332,7 +332,7 @@ function trashOldBinding(file: string): void {
   } catch (error) {
     // A rename never crosses drives: the app's own Trash holds it when the Library is elsewhere.
     if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error
-    moveToTrashSync(file, path.join(getUserDataDir(), '_trash', 'private-render', name), 'private-render')
+    moveToTrashSync(file, path.join(libraryTrashDir(getUserDataDir()), 'private-render', name), 'private-render')
   }
 }
 
