@@ -60,8 +60,29 @@ export interface VideoAuditEntry {
   description_length: number
   description_empty: boolean
   tag_count: number
-  /** Stable identity of title+description+tags, so a later audit can say WHAT changed. */
+  /**
+   * The snippet's identity, from `metadataSnippetHash` — the SAME function the
+   * metadata-update route compares `expected_baseline_hash` against. Send it
+   * back unchanged and the precondition holds.
+   *
+   * Before 1.4.365 this was a hash over title+description+tags only, computed
+   * here, so it could never equal what the update route wanted. Entries
+   * carrying one are still readable; `snippet_sha256_algorithm` says which rule
+   * produced it, and an entry without that label predates it.
+   */
   snippet_sha256: string
+  /** Which rule produced `snippet_sha256`. Absent = the pre-1.4.365 3-field hash. */
+  snippet_sha256_algorithm?: string
+  /**
+   * The two fields the hash covers that a caller otherwise cannot see, echoed
+   * exactly as YouTube returned them so the hash is checkable rather than
+   * something to be trusted.
+   */
+  category_id?: string
+  /** Absent when YouTube echoed no defaultLanguage — NOT the same as "none set". */
+  default_language?: string
+  /** Absent when YouTube echoed no defaultAudioLanguage — NOT "none set". */
+  default_audio_language?: string
   privacy_status: string
   /** null = YouTube reported no schedule; absent is never used (we always write it). */
   publish_at: string | null
@@ -69,6 +90,12 @@ export interface VideoAuditEntry {
   episode_code?: string
   /** When Story Studio last wrote this video's metadata. A newer write makes the entry stale. */
   story_written_at?: string
+  /**
+   * The receipt of the last metadata update Story Studio applied to this video
+   * (`metadata_updates[].receipt_id` on the operation record). Absent means no
+   * receipt was recorded beside this observation.
+   */
+  story_receipt_id?: string
 }
 
 export interface VideoAuditLedger {
@@ -113,12 +140,25 @@ function decodeEntry(value: unknown, videoId: string, channelId: string): VideoA
     description_empty: value.description_empty === true,
     tag_count: Number.isSafeInteger(value.tag_count) ? value.tag_count as number : 0,
     snippet_sha256: typeof value.snippet_sha256 === 'string' ? value.snippet_sha256 : '',
+    ...(typeof value.snippet_sha256_algorithm === 'string' && value.snippet_sha256_algorithm
+      ? { snippet_sha256_algorithm: value.snippet_sha256_algorithm }
+      : {}),
+    ...(typeof value.category_id === 'string' && value.category_id ? { category_id: value.category_id } : {}),
+    ...(typeof value.default_language === 'string' && value.default_language
+      ? { default_language: value.default_language }
+      : {}),
+    ...(typeof value.default_audio_language === 'string' && value.default_audio_language
+      ? { default_audio_language: value.default_audio_language }
+      : {}),
     privacy_status: typeof value.privacy_status === 'string' ? value.privacy_status : '',
     publish_at: typeof value.publish_at === 'string' ? value.publish_at : null,
     findings,
     ...(typeof value.episode_code === 'string' && value.episode_code ? { episode_code: value.episode_code } : {}),
     ...(typeof value.story_written_at === 'string' && value.story_written_at
       ? { story_written_at: value.story_written_at }
+      : {}),
+    ...(typeof value.story_receipt_id === 'string' && value.story_receipt_id
+      ? { story_receipt_id: value.story_receipt_id }
       : {}),
   }
 }
@@ -217,12 +257,18 @@ export async function recordVideoAuditEntries(input: {
  * — but it is no longer current, so the next audit re-reads exactly this video.
  * A video with no observation is left alone: there is nothing to invalidate,
  * and the next audit reads it for the first time anyway.
+ *
+ * `receipt_id` is the `metadata_updates[].receipt_id` of the write that caused
+ * this. Stored beside the marker so a reader can correlate the ledger's "Story
+ * wrote here" with the operation record's evidence of what it wrote, without
+ * matching on a timestamp that two writes could share.
  */
 export async function noteStoryMetadataWrite(input: {
   project_slug: string
   channel_id: string
   video_id: string
   at: string
+  receipt_id?: string
 }): Promise<void> {
   const filePath = ledgerPath(input.project_slug)
   await withLock(filePath, async () => {
@@ -230,6 +276,7 @@ export async function noteStoryMetadataWrite(input: {
     const entry = ledger.channels[input.channel_id]?.videos[input.video_id]
     if (!entry) return
     entry.story_written_at = input.at
+    if (input.receipt_id) entry.story_receipt_id = input.receipt_id
     await writeJsonAtomic(filePath, ledger)
   })
 }
@@ -240,9 +287,20 @@ export async function noteStoryMetadataWrite(input: {
  * Current when it was taken at or after Story Studio's own last metadata write
  * to the video. An observation taken BEFORE that write describes a video that
  * has since changed, so it must be re-read.
+ *
+ * An entry whose `snippet_sha256` came from an older, narrower rule is also NOT
+ * current. Its title/description/tags are still true — but its hash is not the
+ * value the update route compares against, so handing it out would guarantee a
+ * phantom `YOUTUBE_METADATA_BASELINE_STALE`. This is a rebuildable cache, so
+ * the honest repair is one re-read of exactly that video, after which the entry
+ * carries the current rule and its label.
  */
-export function videoAuditEntryIsCurrent(entry: VideoAuditEntry | undefined): boolean {
+export function videoAuditEntryIsCurrent(
+  entry: VideoAuditEntry | undefined,
+  currentAlgorithm: string,
+): boolean {
   if (!entry?.checked_at) return false
+  if (entry.snippet_sha256_algorithm !== currentAlgorithm) return false
   if (!entry.story_written_at) return true
   // Both are ISO-8601 UTC strings from `toISOString()`, so lexical order is
   // chronological order. Parsing would only add a way for a malformed value to

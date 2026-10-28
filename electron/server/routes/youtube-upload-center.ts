@@ -20,7 +20,7 @@
  * Nothing here returns a token, secret, or resumable session URL.
  */
 
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import fsp from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
@@ -158,6 +158,9 @@ import {
   type VideoBackfillView,
 } from '../lib/youtube-client.js'
 import {
+  METADATA_SNIPPET_HASH_ALGORITHM,
+  metadataSnippetHash,
+  metadataSnippetSnapshot,
   updateYouTubeVideoMetadata,
   type MetadataUpdateFields,
 } from '../services/youtube-metadata-update.js'
@@ -1055,6 +1058,59 @@ router.post('/projects/:slug/youtube/library/:operation_id/thumbnail', async (re
  * verifies the result by reading it back. `expected_baseline_hash` (the hash a
  * caller got from a previous snippet listing) makes it refuse rather than
  * overwrite a video that changed since the change was prepared.
+ *
+ * ── The record a Production adapter reads (contract, 1.4.365) ──
+ *
+ * Per video, two files on this project's disk. Field names are the JSON ones;
+ * nothing here is inferred from a filename or a timestamp order.
+ *
+ * 1. `youtube/operations/<operation_id>.json` — the durable operation record.
+ *    Identity: `project_slug`, `episode_code`, `channel_id`, `video_id`,
+ *    `operation_id`. One entry per applied change is appended to
+ *    `metadata_updates[]` and NEVER rewritten or removed (`assertMetadataUpdatesAppendOnly`):
+ *      receipt_id               this write, e.g. `receipt_<uuid>` — the join key
+ *      video_id                 the video the receipt is about
+ *      applied_at               ISO-8601 UTC, when YouTube accepted it
+ *      applied_fields           subset of ['title','description','tags']
+ *      baseline_snippet_sha256  `metadataSnippetHash` of the snippet the change
+ *                               was built from (six fields; see the algorithm
+ *                               label below)
+ *      after_snippet            {title, description, tags, categoryId?,
+ *                                defaultLanguage?, defaultAudioLanguage?}
+ *      baseline_status / after_status  the status block, proved byte-identical
+ *      verified                 true only when the read-back matched the send
+ *                               AND the status did not move
+ *      mismatches               present only when `verified` is false
+ *    `remote_snapshot` / `previous_remote_snapshot` are bumped with the same
+ *    write, so "YouTube now" and "YouTube before" agree with the receipt.
+ *
+ * 2. `youtube/video-audit.json` — the per-channel, per-video observation ledger.
+ *    Replace-by-id; never an append-only history. Read it per video:
+ *      checked_at               when YouTube answered about this video
+ *      snippet_sha256           the same `metadataSnippetHash` value the GET
+ *                               .../videos/snippets read publishes, and the
+ *                               value this route accepts as
+ *                               expected_baseline_hash
+ *      snippet_sha256_algorithm labels the rule that produced it; an entry
+ *                               without the label predates 1.4.365 and its hash
+ *                               covers title+description+tags only, so it is
+ *                               NOT comparable with the six-field one
+ *      category_id, default_language, default_audio_language
+ *                               the hashed fields a caller otherwise cannot see
+ *      story_written_at         THE STORY-WRITE MARKER: set to `applied_at`
+ *                               every time this route applies a change, by
+ *                               `noteStoryMetadataWrite`. An observation is
+ *                               current only while `checked_at >= story_written_at`.
+ *      story_receipt_id         the `receipt_id` of that write, so the marker
+ *                               can be joined to the receipt above
+ *
+ * When the marker is bumped: after YouTube has answered the write and the
+ * receipt is durably recorded, before the response is sent — for a changed
+ * write only. A no-op retry (`changed: false`) bumps nothing, because nothing
+ * was written and the existing observation is still the current word.
+ *
+ * A video with no ledger entry yet reads as "unknown", not "unchanged": the
+ * file only holds what an audit has actually observed.
  */
 router.post('/projects/:slug/youtube/videos/metadata', async (req, res) => {
   try {
@@ -1220,6 +1276,7 @@ router.post('/projects/:slug/youtube/videos/metadata', async (req, res) => {
     // no longer current: the next audit re-reads exactly this video.
     await noteStoryMetadataWrite({
       project_slug: slug, channel_id: record.channel_id, video_id: outcome.video_id, at: appliedAt,
+      receipt_id: receiptId,
     }).catch(() => { /* rebuildable cache; invalidation must not fail the update */ })
 
     invalidatePublishingOverviewCache()
@@ -1273,6 +1330,7 @@ function videoAuditEntryFrom(
   episodeCode: string | undefined,
   checkedAt: string,
 ): VideoAuditEntry {
+  const snippet = metadataSnippetSnapshot(view)
   return {
     video_id: videoId,
     channel_id: channelId,
@@ -1281,11 +1339,17 @@ function videoAuditEntryFrom(
     description_length: [...view.description].length,
     description_empty: !view.description.trim(),
     tag_count: view.tags.length,
-    // The whole snippet's identity, so a later audit can tell WHAT changed
-    // without re-reading the video or storing its full text a second time.
-    snippet_sha256: createHash('sha256').update(JSON.stringify({
-      title: view.title, description: view.description, tags: view.tags,
-    })).digest('hex'),
+    // The WHOLE snippet's identity, from the same function the update route
+    // compares `expected_baseline_hash` against, plus the two fields it covers
+    // that a caller cannot otherwise see. Publishing a narrower hash here is
+    // what made the precondition impossible to satisfy on 1.4.364: Production
+    // could not compute the six-field value from any installed read route, so
+    // it had to omit the check entirely.
+    snippet_sha256: metadataSnippetHash(snippet),
+    snippet_sha256_algorithm: METADATA_SNIPPET_HASH_ALGORITHM,
+    ...(snippet.categoryId ? { category_id: snippet.categoryId } : {}),
+    ...(snippet.defaultLanguage ? { default_language: snippet.defaultLanguage } : {}),
+    ...(snippet.defaultAudioLanguage ? { default_audio_language: snippet.defaultAudioLanguage } : {}),
     privacy_status: view.privacyStatus,
     publish_at: view.publishAt,
     findings: auditFindingsFor(view),
@@ -1304,9 +1368,15 @@ function videoAuditEntryFrom(
  * audited too (that listing costs its own quota and is reported separately).
  *
  * Returns, per video: id, channel, when it was checked, the title, description
- * length, tag count, a hash of title+description+tags, the privacy and publishAt
- * seen, and findings (empty description, missing tags, title rule). Never calls
- * a publishing-schedule endpoint and never writes to YouTube.
+ * length, tag count, the snippet identity (`snippet_sha256`, produced by the
+ * same `metadataSnippetHash` the metadata-update route compares
+ * `expected_baseline_hash` against, with `snippet_sha256_algorithm` naming the
+ * rule), the hashed-but-otherwise-invisible `category_id`,
+ * `default_language` and `default_audio_language`, the privacy and publishAt
+ * seen, and findings (empty description, missing tags, title rule). Send
+ * `snippet_sha256` straight back as `expected_baseline_hash` and the
+ * precondition holds; there is nothing for a caller to recompute.
+ * Never calls a publishing-schedule endpoint and never writes to YouTube.
  */
 router.get('/projects/:slug/youtube/videos/snippets', async (req, res) => {
   try {
@@ -1362,7 +1432,10 @@ router.get('/projects/:slug/youtube/videos/snippets', async (req, res) => {
 
     const knownIds = [...episodeByVideo.keys()]
     const ledger = await readChannelVideoAudit(slug, channelId)
-    const toRead = force ? knownIds : knownIds.filter(videoId => !videoAuditEntryIsCurrent(ledger[videoId]))
+    const toRead = force
+      ? knownIds
+      : knownIds.filter(videoId =>
+          !videoAuditEntryIsCurrent(ledger[videoId], METADATA_SNIPPET_HASH_ALGORITHM))
     const skippedCached = knownIds.length - toRead.length
 
     // videos.list costs ONE unit per request of up to 50 ids. Zero ids means

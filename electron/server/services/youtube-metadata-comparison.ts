@@ -77,6 +77,33 @@ function normalize(value: unknown): string | null {
   return text.length ? text : null
 }
 
+/**
+ * The form of a normalized value that decides AGREEMENT.
+ *
+ * Tags are compared as a multiset. YouTube stores them in its own order
+ * (codepoint-sorted — proven on three live videos on 2026-10-28, see
+ * `docs/tasks/HANDOFF.md` 1.4.365 item 1) while Story Studio sends the order the
+ * owner approved, so element-wise comparison reported "YouTube changed the tags"
+ * on every video forever — a false statement about someone's public video, and
+ * the same defect the metadata-update verifier had.
+ *
+ * Only the comparison is order-free. The `local`/`last_synced`/`live` values
+ * handed to the Library stay exactly as observed, because the owner is being
+ * shown what is actually there.
+ */
+function comparableValue(field: ComparedField, normalized: string | null): string | null {
+  if (field !== 'tags' || normalized === null) return normalized
+  try {
+    const entries: unknown = JSON.parse(normalized)
+    if (!Array.isArray(entries)) return normalized
+    return JSON.stringify([...entries].sort())
+  } catch {
+    // A value this function cannot parse is left alone: it still compares, and
+    // it is still compared as the exact string it is.
+    return normalized
+  }
+}
+
 function localValues(record: YouTubeOperationRecordV1): Partial<Record<ComparedField, unknown>> {
   if (!record.final_payload) return {}
   let snippet: any = {}
@@ -177,9 +204,15 @@ export function compareYouTubeVideo(
       const normalized = normalize(source[field])
       return field === 'scheduled_for' ? canonicalInstant(normalized) : normalized
     }
+    // `base` carries the values AS OBSERVED, because the Library shows the
+    // owner what is actually there. Agreement is decided on `c*` instead, which
+    // for tags drops the provider's own ordering (see `comparableValue`).
     const localValue = present(local)
     const lastValue = present(lastSynced)
     const liveValue = present(live)
+    const cLocal = comparableValue(field, localValue)
+    const cLast = comparableValue(field, lastValue)
+    const cLive = comparableValue(field, liveValue)
 
     const decision = record.drift[field]
     const base: FieldComparison = {
@@ -195,22 +228,24 @@ export function compareYouTubeVideo(
     // has already answered this one.
     if (decision?.state === 'keep_youtube') return { ...base, state: 'keep_youtube' }
 
-    // Never compared. An absent snapshot is not agreement.
+    // Never compared. An absent snapshot is not agreement — the SNAPSHOT, not
+    // the value: a live snapshot whose field is null is an observation that
+    // says "nothing there".
     if (!live) return base
     if (isExpectedScheduleTransition(field, local, live, now)) return { ...base, state: 'in_sync' }
 
     // We intend something YouTube did not report at all.
-    if (liveValue === null && localValue !== null) return { ...base, state: 'unavailable' }
+    if (cLive === null && cLocal !== null) return { ...base, state: 'unavailable' }
 
-    const youtubeMoved = liveValue !== lastValue
+    const youtubeMoved = cLive !== cLast
 
     // No recorded intent for this field is NOT "our value is empty, so we
     // changed it". We can still report whether YouTube moved; we simply have
     // nothing of our own to compare against.
-    if (localValue === null) {
+    if (cLocal === null) {
       if (youtubeMoved) return { ...base, state: 'youtube_changed' }
       // Both sides genuinely absent is agreement, not ignorance.
-      if (liveValue === null) return { ...base, state: 'in_sync' }
+      if (cLive === null) return { ...base, state: 'in_sync' }
       return { ...base, state: 'unknown' }
     }
 
@@ -224,15 +259,15 @@ export function compareYouTubeVideo(
     // this" to an owner who changed nothing is the same defect as any other
     // value standing for two facts.
     if (!record.previous_remote_snapshot) {
-      return { ...base, state: localValue === liveValue ? 'in_sync' : 'youtube_changed' }
+      return { ...base, state: cLocal === cLive ? 'in_sync' : 'youtube_changed' }
     }
 
-    const storyStudioMoved = localValue !== lastValue
+    const storyStudioMoved = cLocal !== cLast
     // Agreement is agreement FIRST. When Story Studio's own metadata update
     // moved local intent and YouTube to the same value, both columns have
     // moved together — that is the change working, not a conflict. Reading it
     // as one would flag every video the owner just fixed, and flag it forever.
-    if (localValue === liveValue) return { ...base, state: 'in_sync' }
+    if (cLocal === cLive) return { ...base, state: 'in_sync' }
     if (storyStudioMoved && youtubeMoved) return { ...base, state: 'conflict' }
     if (storyStudioMoved) return { ...base, state: 'story_studio_changed' }
     if (youtubeMoved) return { ...base, state: 'youtube_changed' }

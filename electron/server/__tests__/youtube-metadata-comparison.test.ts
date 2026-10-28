@@ -165,6 +165,46 @@ describe('three-way metadata comparison', () => {
     assert.equal(stateOf(result, 'tags'), 'in_sync')
   })
 
+  test('YouTube storing the SAME tags in its own order is not drift', () => {
+    // YouTube codepoint-sorts tags (proven on three live videos, 2026-10-28),
+    // so a video Story Studio uploaded with an approved order comes back in
+    // another. Comparing element-wise told the owner "YouTube changed the tags"
+    // on every video, forever.
+    const sent = ['sleep history', 'China history', 'Bedtime History']
+    const stored = ['Bedtime History', 'China history', 'sleep history']
+
+    const firstSync = compareYouTubeVideo(record({
+      snippet: { tags: sent }, live: { tags: stored },
+    }), NOW)
+    assert.equal(stateOf(firstSync, 'tags'), 'in_sync', 'the first observation already agrees')
+
+    const steady = compareYouTubeVideo(record({
+      snippet: { tags: sent }, previous: { tags: stored }, live: { tags: stored },
+    }), NOW)
+    assert.equal(stateOf(steady, 'tags'), 'in_sync', 'and it stays in sync on every later read')
+
+    // The values SHOWN are still exactly what YouTube returned, in its order:
+    // order-free comparison must not rewrite the evidence.
+    const tags = steady.fields.find(field => field.field === 'tags')!
+    assert.deepEqual(JSON.parse(tags.live!), stored)
+  })
+
+  test('a genuinely different tag set is still drift, in any order', () => {
+    const steady = (live: string[]) => compareYouTubeVideo(record({
+      snippet: { tags: [' Bedtime History ', 'China history', 'sleep history'] },
+      previous: { tags: ['Bedtime History', 'China history', 'sleep history'] },
+      live: { tags: live },
+    }), NOW).fields.find(field => field.field === 'tags')!.state
+
+    assert.equal(steady(['Bedtime History', 'sleep history']), 'youtube_changed', 'a tag removed')
+    assert.equal(
+      steady(['Bedtime History', 'China history', 'sleep history', 'bonus']), 'youtube_changed', 'a tag added',
+    )
+    assert.equal(
+      steady(['Bedtime History', 'China history', 'Sleep History']), 'youtube_changed', 'a re-cased tag',
+    )
+  })
+
   test('a first-sync disagreement is not blamed on Story Studio', () => {
     // With no previous snapshot there is no baseline, so movement is
     // unmeasurable and the old logic blamed us for every difference. But

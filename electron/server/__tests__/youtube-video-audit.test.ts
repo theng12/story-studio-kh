@@ -36,6 +36,9 @@ let app: express.Express
 let cleanup: (() => Promise<void>) | undefined
 let projectNameCounter = 0
 
+/** The hash rule the update route compares `expected_baseline_hash` against. */
+const ALGORITHM = 'sha256:utf8-json:{title,description,tags,categoryId,defaultLanguage,defaultAudioLanguage}'
+
 function listPath(ids: string[]): string {
   return `/youtube/v3/videos?part=snippet,status&id=${ids.join(',')}`
 }
@@ -320,6 +323,7 @@ describe('the audit ledger', () => {
     const entry = {
       video_id: 'vid-ledger', channel_id: channel, checked_at: checkedAt, title: 'First title',
       description_length: 10, description_empty: false, tag_count: 2, snippet_sha256: 'a'.repeat(64),
+      snippet_sha256_algorithm: ALGORITHM,
       privacy_status: 'public', publish_at: null, findings: [],
     } as import('../services/youtube-video-audit-store.js').VideoAuditEntry
 
@@ -333,15 +337,20 @@ describe('the audit ledger', () => {
     const replaced = await auditStore.readChannelVideoAudit(slug, channel)
     assert.equal(Object.keys(replaced).length, 1, 'one entry per id, not an appended history')
     assert.equal(replaced['vid-ledger']?.title, 'Second title')
-    assert.equal(auditStore.videoAuditEntryIsCurrent(replaced['vid-ledger']), true)
+    assert.equal(auditStore.videoAuditEntryIsCurrent(replaced['vid-ledger'], ALGORITHM), true)
 
     // A Story write AFTER the observation makes it stale, so the next audit re-reads it.
     await auditStore.noteStoryMetadataWrite({
       project_slug: slug, channel_id: channel, video_id: 'vid-ledger', at: '2026-10-27T12:00:00.000Z',
+      receipt_id: 'receipt_ledger',
     })
     const stale = await auditStore.readChannelVideoAudit(slug, channel)
-    assert.equal(auditStore.videoAuditEntryIsCurrent(stale['vid-ledger']), false)
+    assert.equal(auditStore.videoAuditEntryIsCurrent(stale['vid-ledger'], ALGORITHM), false)
     assert.equal(stale['vid-ledger']?.title, 'Second title', 'the observation is kept as history, not deleted')
+    // The marker carries the receipt it came from, so a reader can join it to
+    // the operation record's evidence of that write.
+    assert.equal(stale['vid-ledger']?.story_written_at, '2026-10-27T12:00:00.000Z')
+    assert.equal(stale['vid-ledger']?.story_receipt_id, 'receipt_ledger')
 
     // An observation taken at the same instant or later is current again.
     await auditStore.recordVideoAuditEntries({
@@ -349,7 +358,36 @@ describe('the audit ledger', () => {
       entries: [{ ...entry, checked_at: '2026-10-27T12:00:00.000Z' }],
     })
     const current = await auditStore.readChannelVideoAudit(slug, channel)
-    assert.equal(auditStore.videoAuditEntryIsCurrent(current['vid-ledger']), true)
+    assert.equal(auditStore.videoAuditEntryIsCurrent(current['vid-ledger'], ALGORITHM), true)
+  })
+
+  test('an observation hashed by an OLDER rule is re-read, not handed out as current', async () => {
+    await boot()
+    const { slug, channel } = await freshProject()
+    await uploadedVideo(slug, channel, 'vid-old-hash')
+
+    const fake = new FakeYouTube()
+    fake.respond({ method: 'GET', path: listPath(['vid-old-hash']), body: { items: [videoItem('vid-old-hash')] } })
+    youtube.__setYouTubeTransportForTests(fake.transport())
+    const first = await request(app).get(auditUrl(slug))
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    assert.equal(first.body.read_now, 1)
+
+    // Rewrite the entry the way a pre-1.4.365 install would have left it: a
+    // hash with no algorithm label, over title+description+tags only.
+    const stored = (await auditStore.readChannelVideoAudit(slug, channel))['vid-old-hash']!
+    const legacy = { ...stored }
+    delete (legacy as { snippet_sha256_algorithm?: string }).snippet_sha256_algorithm
+    await auditStore.recordVideoAuditEntries({ project_slug: slug, channel_id: channel, entries: [legacy] })
+
+    // Cached-but-mislabeled would 409 the update route forever, so the audit
+    // re-reads exactly this video once and labels the new hash.
+    fake.respond({ method: 'GET', path: listPath(['vid-old-hash']), body: { items: [videoItem('vid-old-hash')] } })
+    const second = await request(app).get(auditUrl(slug))
+    assert.equal(second.status, 200, JSON.stringify(second.body))
+    assert.equal(second.body.read_now, 1, 'the stale-rule entry was re-read')
+    const refreshed = (await auditStore.readChannelVideoAudit(slug, channel))['vid-old-hash']!
+    assert.equal(refreshed.snippet_sha256_algorithm, ALGORITHM)
   })
 
   test('an empty ledger is never shared between projects', async () => {

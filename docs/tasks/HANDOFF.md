@@ -1,5 +1,66 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.365 — the existing-video metadata update, corrected from Production (2026-10-28, fix/yt-metadata-verify-20261028 from release/1.4.365 ebeb4dd7)
+
+Three defects 1.4.364 shipped, found by Production applying the AWBU/SS0066 repairs on the
+installed mini. Evidence: `_orchestra/production-records/metadata-repairs-installed364-20261028/`
+(`README.md`, `hash-proof-20261028.json`, `receipts/`, `raw/`, `final-verification-index.json`).
+
+**1. Tag order is not tag content — YouTube reorders, so the verifier must not compare order.**
+`sameTags` (`electron/server/services/youtube-metadata-update.ts`) compared the tag arrays
+element-wise. **YouTube stores tags codepoint-sorted, not in the order sent**, and Story's own
+`cleanTags` preserves input order, so the PUT carried one order and the read-back another. Proof
+from the three AWBU videos: the provider's `snippet_sha256` equalled SHA-256 of
+`{title,description,tags}` computed over the **sorted** tag list for all three, and never matched
+it over the sent order (`hash-proof-20261028.json`; independently re-derived from `intents/` and
+`receipts/`). Every successful tag write therefore returned `502
+YOUTUBE_METADATA_VERIFICATION_FAILED`, and the same defect made a retry in another order look like
+a change worth writing again. `sameTags` is now a **multiset** comparison: same count, same
+members, each **trimmed**, **case-exact and order-free**. Case stays significant because the
+provider echoed the casing it was sent (the live read-back kept `A World Before Us` and `Yellow
+River` capitalised) — a case difference is a difference in what is stored, not a round-trip
+artefact. A missing, extra, changed, re-cased or duplicated tag still fails loudly. The no-op
+check and the verify call the same helper, so a reordered retry is `changed: false` and sends
+nothing.
+
+**The same root cause reached the Library, and was fixed with it.**
+`youtube-metadata-comparison.ts` `normalize` compares tags element-wise too, and its own test was
+already named "tag order and whitespace are not treated as edits" while the code never sorted. Any
+video uploaded with one tag order and read back in YouTube's therefore reported
+`youtube_changed` on tags forever — a false statement about the owner's public video on the screen
+they use to fix things. `comparableValue` now decides AGREEMENT as a multiset, while `local` /
+`last_synced` / `live` keep the values exactly as observed, because the Library shows what is
+actually there. Re-verified: a reordered first observation and a reordered steady state are both
+`in_sync`; a removed, added or re-cased tag is still `youtube_changed`.
+
+**2. `expected_baseline_hash` could not be computed from any read route.** The route hashes six
+fields; the snippets read published a hash over three, and no read route exposed `categoryId`,
+`defaultLanguage` or `defaultAudioLanguage` at all. Production had to omit the precondition. The
+one hash now lives in `electron/server/lib/youtube-snippet-hash.ts` (`metadataSnippetHash` +
+`METADATA_SNIPPET_HASH_ALGORITHM`) and both sides call it: `GET .../youtube/videos/snippets`
+publishes it as `snippet_sha256`, names the rule in `snippet_sha256_algorithm`, and echoes the
+hashed-but-invisible `category_id`, `default_language`, `default_audio_language`. Send the value
+straight back. A ledger entry hashed by the older, 3-field rule (no algorithm label) no longer
+counts as current, so the next audit re-reads exactly that video once instead of handing out a
+value that could only produce a phantom 409. Nothing stored is rewritten: the ledger is a
+rebuildable cache, so the repair is one re-read per affected video.
+
+**3. Record contract for Production's ledger adapter** — documented in the route's code comment
+above `POST /projects/:slug/youtube/videos/metadata`, and here:
+`youtube/operations/<operation_id>.json` `metadata_updates[]` (append-only, never rewritten):
+`receipt_id`, `video_id`, `applied_at`, `applied_fields`, `baseline_snippet_sha256`,
+`after_snippet`, `baseline_status`, `after_status`, `verified`, `mismatches?`.
+`youtube/video-audit.json` per (channel, video), replace-by-id: `checked_at`, `snippet_sha256`,
+`snippet_sha256_algorithm`, `category_id`, `default_language`, `default_audio_language`,
+`story_written_at` (**the Story-write marker**, set to `applied_at`), `story_receipt_id` (the
+receipt that bumped it). The marker is bumped after YouTube answered and the receipt was durably
+recorded, before the response — changed writes only; a `changed: false` retry bumps nothing.
+No new store: the revision field Production needed was missing, and `story_receipt_id` is the
+smallest addition that lets a marker be joined to its receipt.
+
+No version bump, no gate, no DMG in this commit — focused backend runs only, on a Mac with a Hub
+gate running.
+
 ## 1.4.365 — Sound & Labels + optional duplicate screening (2026-10-28, release/1.4.365 from release/1.4.364 bb88e785)
 
 Merged two finished branches, in this order:

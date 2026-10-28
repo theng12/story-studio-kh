@@ -26,8 +26,6 @@
  * only that video.
  */
 
-import { createHash } from 'node:crypto'
-
 import {
   listVideoSnippetStatus,
   updateVideoMetadata,
@@ -35,6 +33,7 @@ import {
 } from '../lib/youtube-client.js'
 import { utf8Bytes, YOUTUBE_DESCRIPTION_MAX_BYTES_PUBLISHED } from '../lib/youtube-description-limit.js'
 import { YT_TAGS_TOTAL_MAX, YT_TITLE_MAX } from '../lib/upload-metadata.js'
+import { METADATA_SNIPPET_HASH_ALGORITHM, metadataSnippetHash } from '../lib/youtube-snippet-hash.js'
 
 export type MetadataUpdateField = 'title' | 'description' | 'tags'
 
@@ -192,21 +191,53 @@ export function metadataStatusSnapshot(view: VideoBackfillView): MetadataStatusS
 /**
  * The stable identity of a snippet, so a caller can say which observation it
  * prepared a change against and the operation can refuse to overwrite a newer
- * one. Key order is fixed here, so the same values always hash the same.
+ * one.
+ *
+ * Re-exported from `lib/youtube-snippet-hash.ts`, which is the ONE
+ * implementation: `GET .../youtube/videos/snippets` publishes the same value as
+ * `snippet_sha256`, so a caller can send it straight back as
+ * `expected_baseline_hash` instead of recomputing it from a second, subtly
+ * different rule.
  */
-export function metadataSnippetHash(snapshot: MetadataSnippetSnapshot): string {
-  return createHash('sha256').update(JSON.stringify({
-    title: snapshot.title,
-    description: snapshot.description,
-    tags: snapshot.tags,
-    categoryId: snapshot.categoryId ?? null,
-    defaultLanguage: snapshot.defaultLanguage ?? null,
-    defaultAudioLanguage: snapshot.defaultAudioLanguage ?? null,
-  })).digest('hex')
-}
+export { METADATA_SNIPPET_HASH_ALGORITHM, metadataSnippetHash }
 
+/**
+ * Are these two tag lists the SAME TAGS?
+ *
+ * As a multiset, not as sequences. YouTube stores tags in its own order —
+ * codepoint-sorted, proven on three live videos on 2026-10-28 (see
+ * `docs/tasks/HANDOFF.md`, 1.4.365 item 1): the provider's own `snippet_sha256`
+ * matched the hash over the SORTED list for all three, and never matched the
+ * hash over the order that was sent. `videos.update` carried the sent order
+ * unchanged, so the reordering is provider-side and no caller can avoid it.
+ * Comparing element-wise therefore reported every successful tag write as
+ * `YOUTUBE_METADATA_VERIFICATION_FAILED`, and the same defect made a retry look
+ * like a change worth writing again.
+ *
+ * Order is not content here, so it is not compared. Everything that IS content
+ * still is: the count, every member, and each member's exact spelling — a
+ * missing tag, an extra tag, a changed tag, or a repeated one still fails
+ * loudly.
+ *
+ * Case is compared EXACTLY, and deliberately: the three live read-backs kept
+ * the casing that was sent (`A World Before Us`, `Yellow River`, `China
+ * history` all came back with it), so a case difference is a difference in what
+ * is stored, not an artefact of the round trip.
+ *
+ * Surrounding whitespace is ignored because it is never part of a tag's
+ * content — this route already measures tag lengths from the trimmed value
+ * (`assertMetadataFieldsWithinYouTubeLimits`), so `' tag '` and `'tag'` are one
+ * tag everywhere else here too. Nothing wider is normalized: no case folding,
+ * no collapse of inner spaces, no dedupe.
+ */
 function sameTags(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((tag, index) => tag === right[index])
+  if (left.length !== right.length) return false
+  // Sorted rather than set-compared: a set comparison would call ['a','a'] and
+  // ['a','b'] equal when the counts happen to match.
+  const normalize = (tags: string[]): string[] => tags.map(tag => tag.trim()).sort()
+  const a = normalize(left)
+  const b = normalize(right)
+  return a.every((tag, index) => tag === b[index])
 }
 
 async function readFreshView(slug: string, accountId: string, videoId: string): Promise<VideoBackfillView> {

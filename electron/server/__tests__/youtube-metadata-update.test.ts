@@ -226,6 +226,88 @@ describe('a metadata update preserves everything it was not asked to change', ()
   })
 })
 
+describe('tag order is not tag content', () => {
+  // The approved tags, and the order YouTube actually stores them in.
+  // Codepoint-sorted, which is what three live videos showed on 2026-10-28:
+  // the provider's own snippet hash matched the SORTED list and never the
+  // order that was sent (hash-proof-20261028.json).
+  const SENT = ['sleep story', 'China history', 'Bedtime History']
+  const STORED = ['Bedtime History', 'China history', 'sleep story']
+
+  test('a write verifies when YouTube returns the SAME tags in ITS order', async () => {
+    const videoId = 'vid-tag-order'
+    const { operationId } = await uploadedVideo(videoId)
+    const fake = new FakeYouTube()
+    fake.respond({ method: 'GET', path: listPath(videoId), body: listBody(videoId, liveVideo()) })
+    fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=snippet', body: { id: videoId } })
+    // YouTube reordered; the members are exactly the approved ones.
+    fake.respond({ method: 'GET', path: listPath(videoId), body: listBody(videoId, liveVideo({ tags: STORED })) })
+    youtube.__setYouTubeTransportForTests(fake.transport())
+
+    const res = await request(app).post(updateUrl())
+      .send({ confirm: true, operation_id: operationId, tags: SENT })
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(res.body.verified, true, 'a reordered read-back is the write landing, not failing')
+    assert.equal(res.body.changed, true)
+    assert.deepEqual(res.body.applied_fields, ['tags'])
+
+    // The reorder is PROVIDER-side: the request carried the sent order.
+    const put = fake.calls.find(call => call.method === 'PUT')
+    assert.deepEqual(JSON.parse(put!.body!).snippet.tags, SENT)
+  })
+
+  test('a genuinely different tag set still fails loudly', async () => {
+    const cases: Array<{ name: string, live: string[], pattern: RegExp }> = [
+      { name: 'a missing tag', live: ['Bedtime History', 'China history'], pattern: /tags/ },
+      { name: 'an extra tag', live: ['Bedtime History', 'China history', 'sleep story', 'bonus'], pattern: /tags/ },
+      { name: 'a changed tag', live: ['Bedtime History', 'China history', 'sleep stories'], pattern: /tags/ },
+      // Case is content: the provider echoed the casing it was sent (the live
+      // read-back kept "A World Before Us" and "Yellow River" capitalised), so
+      // a case difference is a difference in what is stored.
+      { name: 'a re-cased tag', live: ['Bedtime History', 'China history', 'Sleep Story'], pattern: /tags/ },
+      // Same count, one member repeated: a set comparison would call this a
+      // match, and it is not one.
+      { name: 'a duplicated tag', live: ['Bedtime History', 'Bedtime History', 'sleep story'], pattern: /tags/ },
+    ]
+
+    for (const { name, live, pattern } of cases) {
+      const videoId = `vid-tag-diff-${cases.findIndex(entry => entry.name === name)}`
+      const { operationId } = await uploadedVideo(videoId)
+      const fake = new FakeYouTube()
+      fake.respond({ method: 'GET', path: listPath(videoId), body: listBody(videoId, liveVideo()) })
+      fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=snippet', body: { id: videoId } })
+      // YouTube kept something else: the write did NOT land as sent.
+      fake.respond({ method: 'GET', path: listPath(videoId), body: listBody(videoId, liveVideo({ tags: live })) })
+      youtube.__setYouTubeTransportForTests(fake.transport())
+
+      const res = await request(app).post(updateUrl())
+        .send({ confirm: true, operation_id: operationId, tags: SENT })
+      assert.equal(res.status, 502, `${name}: ${JSON.stringify(res.body)}`)
+      assert.equal(res.body.code, 'YOUTUBE_METADATA_VERIFICATION_FAILED', name)
+      assert.ok(res.body.mismatches.some((mismatch: string) => pattern.test(mismatch)), name)
+      const receipt = (await operations.readYouTubeOperation(slug, operationId))?.metadata_updates?.at(-1)
+      assert.equal(receipt?.verified, false, `${name}: the receipt records the failure`)
+    }
+  })
+
+  test('a retry that only reorders the tags makes NO update call', async () => {
+    const videoId = 'vid-tag-retry'
+    const { operationId } = await uploadedVideo(videoId)
+    const fake = new FakeYouTube()
+    // The live video already holds the approved tags, in YouTube's own order.
+    fake.respond({ method: 'GET', path: listPath(videoId), body: listBody(videoId, liveVideo({ tags: STORED })) })
+    // Nothing else is queued: an update request would throw.
+    youtube.__setYouTubeTransportForTests(fake.transport())
+
+    const res = await request(app).post(updateUrl())
+      .send({ confirm: true, operation_id: operationId, tags: SENT })
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(res.body.changed, false, 'the same tags in another order are not a change')
+    assert.deepEqual(res.body.applied_fields, [])
+    assert.equal(fake.calls.filter(call => call.method === 'PUT').length, 0, 'no provider write')
+  })
+})
+
 describe('the boundaries refuse rather than guess or truncate', () => {
   test('YouTube limits are refused with a plain message and no provider call', async () => {
     const videoId = 'vid-limits'
@@ -446,5 +528,59 @@ describe('the shared snippet hash', () => {
       metadataUpdate.metadataSnippetHash({ ...a, categoryId: '22' }),
       'preserved fields are part of the identity the caller prepares against',
     )
+  })
+
+  test('the hash from the snippets READ is accepted as expected_baseline_hash by the UPDATE', async () => {
+    const videoId = 'vid-hash-roundtrip'
+    const { operationId } = await uploadedVideo(videoId)
+
+    const fake = new FakeYouTube()
+    // `force=1` re-reads every video this project knows about, so the audit's
+    // request carries the whole list. Match on the path shape rather than
+    // restating it, and answer for the one video this test is about.
+    fake.respondMatching({
+      method: 'GET', match: /^\/youtube\/v3\/videos\?part=snippet,status&id=/,
+      body: { items: [{ id: videoId, etag: '"etag-baseline"', snippet: liveVideo().snippet, status: liveVideo().status }] },
+    })
+    youtube.__setYouTubeTransportForTests(fake.transport())
+
+    // 1. Read the snippet the way Production does.
+    const read = await request(app).get(`/api/projects/${slug}/youtube/videos/snippets?force=1`)
+    assert.equal(read.status, 200, JSON.stringify(read.body))
+    const entry = read.body.videos.find((video: any) => video.video_id === videoId)
+    assert.ok(entry, 'the read returned the video')
+    assert.equal(entry.snippet_sha256_algorithm, metadataUpdate.METADATA_SNIPPET_HASH_ALGORITHM)
+    // The hashed-but-invisible fields are published, so the hash is checkable.
+    assert.equal(entry.category_id, '27')
+    assert.equal(entry.default_language, 'en')
+    assert.equal(entry.default_audio_language, 'en')
+
+    // 2. Send that exact value back as the precondition. If the two sides used
+    //    different rules this would 409 with YOUTUBE_METADATA_BASELINE_STALE.
+    fake.respond({ method: 'GET', path: listPath(videoId), body: listBody(videoId, liveVideo()) })
+    fake.respond({ method: 'PUT', path: '/youtube/v3/videos?part=snippet', body: { id: videoId } })
+    fake.respond({
+      method: 'GET', path: listPath(videoId),
+      body: listBody(videoId, liveVideo({ title: `${TITLE} For Sleep` })),
+    })
+    const res = await request(app).post(updateUrl()).send({
+      confirm: true, operation_id: operationId,
+      title: `${TITLE} For Sleep`, expected_baseline_hash: entry.snippet_sha256,
+    })
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.equal(res.body.verified, true)
+    assert.equal(
+      res.body.baseline_snippet_sha256, entry.snippet_sha256,
+      'the update hashed the SAME identity the read published',
+    )
+
+    // 3. A WRONG hash is still refused, so the check is not a formality.
+    fake.respond({ method: 'GET', path: listPath(videoId), body: listBody(videoId, liveVideo()) })
+    const refused = await request(app).post(updateUrl()).send({
+      confirm: true, operation_id: operationId,
+      title: 'Something else', expected_baseline_hash: 'f'.repeat(64),
+    })
+    assert.equal(refused.status, 409, JSON.stringify(refused.body))
+    assert.equal(refused.body.code, 'YOUTUBE_METADATA_BASELINE_STALE')
   })
 })
