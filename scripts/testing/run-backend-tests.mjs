@@ -443,6 +443,10 @@ export const SERIAL_TEST_FILES = [
   'private-render-owner-admission.test.ts',
   // MEASURED, 2026-10-27 — 3 subtests failed in serial gate A on 442a4900 under machine load, 14/14 alone.
   'video-assembly-remote-wait.test.ts',
+  // MEASURED, 2026-10-28 — failed in the pooled sweep on a55c5f12 (load ~15), passed alone 73/15/34.
+  'episode-media-cleanup.test.ts',
+  'jobs-stream.test.ts',
+  'job-queue-genstudio-resume.test.ts',
 ]
 
 /**
