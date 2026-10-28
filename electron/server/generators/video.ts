@@ -2342,6 +2342,39 @@ export async function prepareUnifiedVideoAssemblyInputs(
   assets = await guardClosingTail(slug, episodeId, req, assets, job)
   acceptedMergedName = assets.merged_audio[0]?.filename ?? acceptedMergedName
 
+  // 1.4.368 — a TRANSLATED episode's Scene Plan is retimed onto its OWN narration before any
+  // timing repair runs. Reconcile cannot do it: it matches the stored scene text against the
+  // captions, and until the retime runs that text is the source language's. The retime keeps every
+  // scene's id, picture, order and approval, and it is a no-op when the plan already follows this
+  // narration. A plan that still does not follow it blocks the render, naming the scenes, rather
+  // than letting the pictures drift under the target voice.
+  {
+    const { ensureTranslatedEpisodePlanRebased } = await import('../services/translation-timeline-rebase.js')
+    // An Image Pool render does not play the Scene Plan, so it has no timeline to retime.
+    const rebased = assets.visual_source === 'image_pool' ? null : await ensureTranslatedEpisodePlanRebased(slug, episodeId)
+    if (rebased) {
+      if (rebased.changed) {
+        job?.output_lines.push(rebased.message)
+        if (rebased.dropped.length) {
+          job?.output_lines.push(`${rebased.dropped.length} scene(s) left the plan because this narration has no such chapter: `
+            + `${rebased.dropped.slice(0, 8).map(entry => `${entry.id} (${entry.chapter})`).join(', ')}`
+            + `${rebased.dropped.length > 8 ? `, … ${rebased.dropped.length - 8} more` : ''}. Their pictures stay on disk.`)
+        }
+        for (const note of rebased.notes) job?.output_lines.push(`Timeline: ${note}`)
+        assets = await scanEpisodeAssets(slug, episodeId, { preferredMergedFilename: acceptedMergedName })
+      }
+      const stale = assets.scene_plan_timing?.audio_stale_reason
+      if (stale) {
+        const rows = assets.scene_plan_timing?.scenes || []
+        const named = rows.slice(0, 8).map(row => `#${row.scene_index} (${row.start_sec.toFixed(1)}–${row.end_sec.toFixed(1)}s)`)
+        throw new Error('Video Assembly is blocked: this translated episode\'s Scene Plan does not follow its narration — '
+          + `${stale.replace(/ Re-stitch.*$/, '')} `
+          + `Scenes: ${named.join(', ')}${rows.length > 8 ? `, … ${rows.length - 8} more` : ''}. `
+          + 'Retime the plan (translate the episode again) or rebuild its timeline. Nothing was rendered.')
+      }
+    }
+  }
+
   // Timing overlaps of any size, and a plan timed against a slightly different narration, are
   // repaired with the Scene Plan's own "Reconcile timings", which keeps every scene and image, and
   // the render goes on (1.4.278 for small overlaps; 1.4.296 for all of them and for narration

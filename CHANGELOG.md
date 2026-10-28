@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## Unreleased (draft — not a release)
+
+- Translated episodes now show the same pictures in the same order on their own narration. When a translated episode's narration is merged, Story retimes its Scene Plan onto that narration: each scene keeps its chapter (the only point both languages share) and its share of that chapter, so every still, clip, approval and prompt is kept exactly while the timings follow the new voice. The source episode is never touched, and running it again changes nothing.
+- A translated episode's Scene Plan can no longer render while it still follows the old language's timing: final video refuses and names the scenes instead.
+- Sketch Draw clips whose scene length changed are flagged for a re-render; provider clips stay as they are. No image is ever generated automatically.
+- A translated episode no longer copies the source's drawn thumbnail headline. The artwork is copied and the target channel's own headline layer writes its own text; when nothing proves the artwork is free of the source language's words, the episode says so plainly.
+- Translation now adapts rather than translates: a spoken storyteller's version in the target language, keeping every beat, name and statement in the same order, with numbers and idioms said the way a narrator there would. One name glossary per episode is built first and given to every chapter, the introduction and the title, so each name is spelled the same way throughout.
+
 ## v1.4.367 — 2026-10-28
 
 - A paused job whose requests to the Gateway have all finished can now be stopped. Before, it could sit on "waiting for the provider" with no way out except abandoning it.
