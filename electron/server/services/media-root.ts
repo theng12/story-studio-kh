@@ -109,7 +109,7 @@ export async function mediaEpisodeBaseForCode(
   code: string,
   cache?: ProjectFactsCache,
 ): Promise<string | null> {
-  const { episodeNumber, projectMetaOnce, resolveEpisodePathsByCode } = await import('./utils.js')
+  const { episodeNumber, storedEpisodeNumber, projectMetaOnce, resolveEpisodePathsByCode } = await import('./utils.js')
   // No `media_root` ⇒ every heavy subfolder sits under the episode dir, so the
   // caller's own episode dir is already correct. Answering that costs ONE cached
   // read of project.json; resolving the full path set instead also reads
@@ -119,12 +119,14 @@ export async function mediaEpisodeBaseForCode(
   // and 1,340 of ideas.json for a comparison that always said "not split".
   const meta = await projectMetaOnce(slug, cache)
   if (!meta?.media_root || !String(meta.media_root).trim()) {
-    // The fast path must not be quieter than the slow one. `resolveEpisodePaths`
-    // refused an episode code its prefix does not match, and callers relied on
-    // that — a WRITE reaches here through `resolveEpisodeSubfolderDir`, which
-    // creates the folder it is handed. Asking the same question here throws the
-    // identical error rather than letting a malformed code name a new folder.
-    episodeNumber(code, meta?.episode_prefix || 'EP')
+    // The fast path must not be quieter than the slow one. A WRITE reaches here
+    // through `resolveEpisodeSubfolderDir`, which creates the folder it is
+    // handed, so a code that names no episode must still be refused. Since
+    // 2026-10-28 `resolveEpisodePaths` reads a STORED code's number whatever its
+    // prefix (an episode accepted as AU0001 keeps that code after the channel's
+    // prefix changes) and refuses only a code with no number at all — ask the
+    // same question here rather than refusing the channel's own episode.
+    if (storedEpisodeNumber(code) === null) episodeNumber(code, meta?.episode_prefix || 'EP')
     return null
   }
 

@@ -11,6 +11,8 @@ import { resolveSubfolderNames } from '../services/utils.js'
 import type { Format, Job } from '../models/types.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { redactSecrets } from '../lib/redact-secrets.js'
+import { logLine } from '../services/logger.js'
 import { projectContentLanguageDirective } from '../lib/content-language.js'
 import { withLock } from '../lib/atomic-store.js'
 import {
@@ -1140,10 +1142,67 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
   const CONCURRENCY = 8
   const results: any[] = new Array(ideas.length)
   let cursor = 0
+
+  /**
+   * One episode that cannot be read must not fail the whole channel.
+   *
+   * Production, 2026-10-28: `/episodes` answered 500 for every page on a
+   * channel because ONE accepted episode (AU0001, accepted while the prefix was
+   * briefly `AU`) made a path resolver throw; `/ideas` and `/jobs` kept working,
+   * so the channel looked broken rather than one episode. A row that cannot be
+   * computed now comes back with the identity the pickers need, an EMPTY status
+   * (every step reads "not checked", never a pretend "done" — §6), and
+   * `episode_error`, a plain sentence naming this episode. The failure is logged
+   * with its stack, so it is loud for support and quiet for the rest of the list.
+   */
+  async function buildRowOrProblem(idea: any): Promise<any | null> {
+    try {
+      return await buildRow(idea)
+    } catch (error) {
+      const code = idea?.episode_code
+      if (!code) throw error
+      const message = redactSecrets(error instanceof Error ? error.message : String(error))
+      logLine('error', 'episode-row-failed', {
+        slug,
+        episode_code: code,
+        error: message,
+        stack: error instanceof Error ? error.stack : undefined,
+      })
+      return {
+        idea_id: idea.id,
+        episode_code: code,
+        title: idea.title,
+        logline: idea.logline,
+        suggested_chapters: idea.suggested_chapters,
+        suggested_length: idea.suggested_length,
+        mood: idea.mood,
+        themes: idea.themes,
+        series_formula_id: idea.series_formula_id,
+        topic_pack_ids: idea.topic_pack_ids,
+        idea_dimensions: idea.idea_dimensions,
+        episode_profile: idea.idea_dimensions?.['episode-profile'],
+        batch_id: idea.batch_id,
+        marked_done: idea.marked_done === true,
+        marked_done_at: idea.marked_done_at || null,
+        status_overrides: idea.status_overrides || null,
+        local_media_status: {
+          state: 'available', updated_at: null, has_retired_media: false, preset_archived_at: null, categories: [],
+          blocked_reason: 'This episode could not be read.',
+        },
+        youtube_upload: { state: 'unknown', reason: 'This episode could not be read.' },
+        visual_source: projectVisualSource,
+        status: {},
+        scene_images: { total: 0, present: 0, complete: false },
+        thumbnail_images: { total: 0, present: 0, complete: false },
+        episode_error: `This episode could not be read: ${message}`,
+      }
+    }
+  }
+
   async function worker() {
     while (cursor < ideas.length) {
       const i = cursor++
-      results[i] = await buildRow(ideas[i])
+      results[i] = await buildRowOrProblem(ideas[i])
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ideas.length) }, worker))

@@ -9,6 +9,7 @@ What's new in each release. Newest first.
      version heading are ignored by check:changelog and What's New. -->
 - Channel folders: a channel name with no Latin letters (a Khmer-only name, such as ពិភពទេវកថា) used to become the folder `project`, so a second such channel collided with the first. It now gets its own folder, named after the name, and a channel can be created with a folder name you choose. A folder name that is already taken is refused with a plain message instead of being silently renamed, and the Create channel form shows the folder name before you press Create. Nothing already on disk is renamed.
 - Script import: a failed import used to leave an empty, unregistered episode folder behind. An import now only creates a folder for an episode the channel actually has, and builds it out of sight until the whole import succeeds. A failure moves the partial folder to the channel's Trash and says where it went, so nothing is lost and no stray folder appears.
+- Episode lists: one episode that cannot be read no longer stops the whole channel from listing. An episode whose code was accepted under an older episode prefix (for example AU0001 after the channel's prefix went back to EP) now resolves normally, and any other per-episode failure shows that episode as "could not be read", with the reason beside it and every step shown as not checked — never a failed channel and never a pretend done.
 
 ## v1.4.367 — 2026-10-28
 

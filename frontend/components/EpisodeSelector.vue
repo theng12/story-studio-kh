@@ -94,7 +94,7 @@
         <template v-else>Select an episode...</template>
       </option>
       <option v-for="ep in filteredEpisodes" :key="ep.episode_code" :value="ep.episode_code">
-        {{ ep.episode_code }} — {{ ep.title }}{{ statusSuffix(ep) }}{{ localMediaStatusSuffix(ep) }}{{ retainedSuffix(ep) }}
+        {{ ep.episode_code }} — {{ ep.title }}{{ unreadableSuffix(ep) }}{{ statusSuffix(ep) }}{{ localMediaStatusSuffix(ep) }}{{ retainedSuffix(ep) }}
       </option>
     </select>
     <button
@@ -107,6 +107,11 @@
     >→</button>
     </div>
     <div v-if="legend" class="status-legend">{{ legend }}</div>
+    <!-- One episode that cannot be read is named here, with its reason. Its
+         steps below say "not checked" — the list itself keeps working. -->
+    <div v-if="selectedEp?.episode_error" class="ep-problem" role="status">
+      {{ selectedEp.episode_error }} Its steps below show as not checked.
+    </div>
 
     <!-- v1.0.338 — per-step status for the SELECTED episode + manual
          mark-as-done. Step status auto-detects from files on disk; when a
@@ -495,11 +500,17 @@ function retainedSuffix(ep: any): string {
   return ep.status?.[props.filterField] === true ? ' ✓ done — still listed because it is open' : ''
 }
 
+/** An episode the backend could not read. Never hidden by the pending filter:
+ *  a problem the customer can act on is not the same as "not done yet". */
+function unreadableSuffix(ep: any): string {
+  return ep.episode_error ? ' ⚠ could not be read' : ''
+}
+
 const filteredEpisodes = computed(() => {
   let list = episodes.value
   if (!showAll.value && props.filterField) {
     const field = props.filterField
-    list = list.filter(ep => !ep.status[field] || ep.episode_code === props.modelValue)
+    list = list.filter(ep => ep.episode_error || !ep.status[field] || ep.episode_code === props.modelValue)
   }
   // v1.0.92+ — apply search after the pending/all filter so the count
   // badge "N of M shown" reflects what the user is actually scanning,
@@ -781,6 +792,16 @@ defineExpose({ refresh, rescan })
   margin-top: 4px;
 }
 .ep-load-error { margin: 8px 0; }
+.ep-problem {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--warning, #d8a23c);
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--warning, #d8a23c) 8%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
 
 /* v1.0.48 — episode-count + loading-state hints next to the label. */
 .ep-count {
