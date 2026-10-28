@@ -214,11 +214,11 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
   },
   {
     key: 'sound_design',
-    label: 'Sound Design',
+    label: 'Sound (mix settings)',
     icon: '🔊',
-    hint: 'Ambience and sound-effect settings.',
+    hint: 'Bed and spot levels, the per-minute spot cap, and ducking.',
     configKey: 'sound_design',
-    editLink: '/sound-design',
+    editLink: '/sound-and-labels',
   },
   {
     key: 'broll',
@@ -246,11 +246,11 @@ const groupsMeta: Omit<PresetGroup, 'items'>[] = [
   },
   {
     key: 'contextual_cues',
-    label: 'Contextual Cues',
+    label: 'Labels (proposal setup)',
     icon: '🏷',
-    hint: 'Cue model, density, placement, and auto-approve.',
+    hint: 'Proposal model, density, default corner, and auto-approve.',
     configKey: 'contextual_cues',
-    editLink: '/contextual-cues',
+    editLink: '/sound-and-labels',
   },
   {
     key: 'metadata',

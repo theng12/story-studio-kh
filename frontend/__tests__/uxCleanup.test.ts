@@ -35,7 +35,10 @@ describe('focused workspace UX', () => {
     assert.match(dashboard, /v-for="step in phase\.steps"/)
     assert.match(dashboard, /FLOW_PHASES/)
     assert.match(dashboard, /useProjectFlow\(slug, visualSource\)/)
-    for (const workflowStage of ['Research', 'Thumbnail Prompts', 'Audio Assembly', 'Subtitles', 'Character Sheet', 'Scene Plan', 'Contextual Cues', 'Sound Design', 'Scene Review', 'Motion Review', 'Video Assembly']) {
+    // v1.4.365 — the two optional layers are one page with two steps in the
+    // flow, named for the half each stands for. Both still appear, and both
+    // open the merged page; the labels changed, the presence did not.
+    for (const workflowStage of ['Research', 'Thumbnail Prompts', 'Audio Assembly', 'Subtitles', 'Character Sheet', 'Scene Plan', 'Labels', 'Sound', 'Scene Review', 'Motion Review', 'Video Assembly']) {
       assert.ok(projectFlow.includes(`label: '${workflowStage}'`), `missing workflow stage: ${workflowStage}`)
     }
     assert.match(dashboard, /step\.optional/)

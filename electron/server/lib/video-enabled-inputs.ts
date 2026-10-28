@@ -83,28 +83,44 @@ export function missingEnabledVideoInputs(
  * or proposals still waiting: stop. Every cue turned down in review: render
  * without them, and say so in the job result (it is the reviewer's decision).
  */
+/**
+ * What to SAY when an optional layer is switched on and contributes nothing.
+ *
+ * v1.4.365 — owner decision 2026-10-28: "nothing optional ever blocks Video
+ * Assembly: a missing/unapproved optional sound = silence and a stated note".
+ *
+ * This used to return a `stop`. Switching Sound Design on for a channel and
+ * rendering an episode nobody had placed a sound on refused the whole render;
+ * so did an episode whose cues were all still waiting on a reviewer. Both are
+ * editorial states, not defects in the output, and refusing to assemble an
+ * otherwise finished video over one is the app overruling its editor.
+ *
+ * So the gate is now purely a NOTICE, and the notice names what is missing and
+ * where to fix it. `stop` is kept in the return type for callers that still
+ * read it, and is never set — deleting the field outright would silently
+ * change every `if (gate.stop)` site into dead code without saying so.
+ */
 export function switchedOnCueGate(
-  feature: 'Contextual Cues' | 'Sound Design',
+  feature: 'On-screen text' | 'Sound',
   episodeId: string,
   input: { enabled: boolean; timeline: { cues: Array<{ status: string }> } | null; approved: number },
 ): { stop?: string; note?: string } {
   if (!input.enabled || input.approved > 0) return {}
-  const page = feature === 'Contextual Cues' ? 'Contextual Cues' : 'Sound Design'
-  const waiting = input.timeline?.cues.filter(cue => cue.status === 'proposed').length || 0
   if (!input.timeline) {
     return {
-      stop: `Video Assembly stopped before encoding ${episodeId}: ${feature} ${feature === 'Sound Design' ? 'is' : 'are'} switched on but nothing was ever `
-        + `${feature === 'Sound Design' ? 'added' : 'proposed'} for this episode. Open ${page} and press `
-        + `${feature === 'Sound Design' ? 'Add cues' : 'Propose cues'}, or switch ${feature} off in the project settings. Nothing was rendered.`,
+      note: `${feature}: switched on for this project, but nothing was ever ${feature === 'Sound' ? 'placed' : 'proposed'} for `
+        + `${episodeId}. Nothing was rendered the wrong way — the episode plays ${feature === 'Sound' ? 'without sound' : 'without labels'}. `
+        + `Open Sound & Labels to add ${feature === 'Sound' ? 'a sound' : 'a label'}.`,
     }
   }
+  const waiting = input.timeline.cues.filter(cue => cue.status === 'proposed').length
   if (waiting) {
     return {
-      stop: `Video Assembly stopped before encoding ${episodeId}: ${feature} ${feature === 'Sound Design' ? 'is' : 'are'} switched on but none is approved `
-        + `and ${waiting} still await review. Open ${page} and approve or switch off each one, or switch ${feature} off in the project settings. Nothing was rendered.`,
+      note: `${feature}: ${waiting} item${waiting === 1 ? ' is' : 's are'} still awaiting review and will not be `
+        + `${feature === 'Sound' ? 'mixed' : 'drawn'}. The rest of the episode renders normally. Open Sound & Labels to approve ${waiting === 1 ? 'it' : 'them'}.`,
     }
   }
-  return { note: `${feature}: every cue on this episode was turned down in review — rendering without them.` }
+  return { note: `${feature}: every item on this episode was turned down in review — rendering without ${feature === 'Sound' ? 'sound' : 'labels'}.` }
 }
 
 export function missingInputsMessage(missing: MissingVideoInput[], episodeCode: string): string {

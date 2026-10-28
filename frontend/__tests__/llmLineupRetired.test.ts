@@ -46,7 +46,9 @@ test('an empty writing page gets the model kept from the retired lineup, and onl
   assert.match(fill, /applyModel\(kept\)/, 'the kept model still has to be usable in the live catalogue')
   assert.match(selector, /function applyModel\(value: string, userSelected = false\): void \{\s*const model = allModels\.value\.find/)
   assert.match(selector, /if \(!model \|\| isDisabled\(model\)\) return/)
-  for (const page of ['ideas', 'research', 'scripts', 'metadata', 'image-prompts', 'scene-plan', 'contextual-cues']) {
+  // v1.4.365 — the Contextual Cues page merged into sound-and-labels.vue; the
+  // writing picker there is the same ModelSelector under the same rule.
+  for (const page of ['ideas', 'research', 'scripts', 'metadata', 'image-prompts', 'scene-plan', 'sound-and-labels']) {
     const source = read(`../pages/projects/[slug]/${page}.vue`)
     assert.doesNotMatch(source, /InheritedLlmLineupNotice|llm_lineup\b|lineup-model-readonly/, `${page} has no lineup left`)
     assert.match(source, /<ModelSelector[^>]*\bwriting-step\b/, `${page}'s writing picker takes the kept model when empty`)

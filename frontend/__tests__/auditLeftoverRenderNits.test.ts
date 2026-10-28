@@ -9,10 +9,14 @@ test('Introduction: the channel Save button never wraps', () => {
   assert.match(page('introduction'), /\.recipe-heading > \.btn \{ flex-shrink: 0; white-space: nowrap; \}/)
 })
 
-test('Contextual Cues: setup controls wrap instead of clipping Density; cue controls sit in a compact grid', () => {
-  const cues = page('contextual-cues')
-  assert.match(cues, /\.cue-settings-controls \{ display:grid; grid-template-columns:repeat\(auto-fit, minmax\(16rem, 1fr\)\)/)
-  assert.match(cues, /\.cue-meta \{ grid-column:1\/-1; display:grid; grid-template-columns:repeat\(auto-fill, minmax\(9\.5rem, 1fr\)\)/)
+test('Sound & Labels: setup controls wrap, and the advanced grid is a compact auto-fill', () => {
+  // v1.4.365 — the page is the merged one. The geometry rule is unchanged: a
+  // control grid grows its columns from a minimum instead of clipping the last
+  // one, and the per-row advanced controls pack from a small minimum so a
+  // narrow window stacks them rather than squeezing them to nothing.
+  const page_ = page('sound-and-labels')
+  assert.match(page_, /\.sl-setup-controls \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(16rem, 1fr\)\)/)
+  assert.match(page_, /\.sl-advanced \{ display: grid; grid-template-columns: repeat\(auto-fill, minmax\(11rem, 1fr\)\)/)
 })
 
 test('Script Generator uses the full workspace width like the other generators; only its prose keeps a readable measure', () => {

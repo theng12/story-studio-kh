@@ -6,6 +6,7 @@ import os from 'node:os'
 import {
   assertContextualCueReadiness,
   autoApproveEligibleCues,
+  resolveRenderableContextualCues,
   contextualCueProgressFingerprint,
   contextualCueProgressPath,
   isReleasedContextualCueBackpressure,
@@ -103,16 +104,23 @@ describe('Contextual Cues contract', () => {
   })
 
   test('disabled projects normalize to a zero-impact safe default', () => {
-    assert.deepEqual(normalizeContextualCueConfig(undefined), {
-      enabled: false,
-      auto_approve_cues: false,
-    })
+    assert.deepEqual(normalizeContextualCueConfig(undefined), { enabled: false })
   })
 
-  test('auto_approve_cues normalizes to an explicit opt-in, never inferred', () => {
-    assert.equal(normalizeContextualCueConfig({ enabled: true }).auto_approve_cues, false)
-    assert.equal(normalizeContextualCueConfig({ enabled: true, auto_approve_cues: true }).auto_approve_cues, true)
-    assert.equal(normalizeContextualCueConfig({ enabled: true, auto_approve_cues: 'true' }).auto_approve_cues, false)
+  /**
+   * v1.4.365 — the project-level auto-approve switch is GONE (owner,
+   * 2026-10-28). The preset's `auto_approve` is the only one.
+   *
+   * Both directions matter and both are pinned here. A channel config on disk
+   * still stores the old key, so reading it must not throw, must not crash, and
+   * — the part that would be a real defect — must not carry it through as if it
+   * still decided anything. A future reader who "restores" the field would turn
+   * a stale `true` in an old config back into cues nobody approved.
+   */
+  test('the retired project-level auto-approve key is read safely and has no effect', () => {
+    assert.equal(normalizeContextualCueConfig({ enabled: true }).auto_approve_cues, undefined)
+    assert.equal(normalizeContextualCueConfig({ enabled: true }).auto_approve_cues, undefined)
+    assert.equal(normalizeContextualCueConfig({ enabled: true }).enabled, true)
   })
 
   test('proposal controls use their own safe defaults instead of Scene Plan settings', () => {
@@ -159,22 +167,41 @@ describe('Contextual Cues contract', () => {
     assert.equal(outOfRange.position_y_pct, null)
   })
 
-  test('a held cue is named by its number, title and time, never its internal id', () => {
-    const held = cue({ status: 'proposed' })
-    const timeline = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [held] } as any
+  test('an UNREVIEWED cue is skipped with a note, never a refused render', () => {
+    // v1.4.365 — owner, 2026-10-28: "render approved ones, report the rest".
+    // Before this, one proposed cue threw and the whole episode refused to
+    // assemble. An optional editorial layer that is allowed to be empty is not
+    // allowed to be a hard gate either.
+    const timeline = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [cue({ status: 'proposed' })] } as any
+    const result = resolveRenderableContextualCues({ enabled: true }, timeline, plan)
+    assert.deepEqual(result.cues, [])
+    assert.equal(result.skipped.length, 1)
+    assert.match(result.skipped[0]!.detail, /awaiting review/i)
+  })
+
+  test('approved labels render while the unreviewed ones beside them are reported', () => {
+    const timeline = {
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+      cues: [cue({ status: 'approved' }), cue({ id: 'cue-scene-2', scene_id: 'scene-2', start_sec: 6.2, end_sec: 9.5, title: 'Later', status: 'proposed' })],
+    } as any
+    const result = resolveRenderableContextualCues({ enabled: true }, timeline, plan)
+    assert.equal(result.cues.length, 1, 'the approved label is drawn')
+    assert.equal(result.cues[0]!.id, 'cue-scene-1')
+    assert.equal(result.skipped.length, 1, 'the unreviewed one is named, not silently dropped')
+    assert.equal(result.skipped[0]!.cue_id, 'cue-scene-2')
+  })
+
+  test('a label whose timing is broken still refuses, and is named without its id', () => {
+    const bad = cue({ id: 'cue-bad', scene_id: 'scene-1', start_sec: 5.9, end_sec: 9.9, title: 'Escapes its scene' })
+    const timeline = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [bad] } as any
     assert.throws(
-      () => assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, timeline, plan),
+      () => resolveRenderableContextualCues({ enabled: true }, timeline, plan),
       (error: Error) => {
-        assert.match(error.message, new RegExp(`Cue 1 "${held.title}" \\(\\d+:\\d{2}\\)`))
-        assert.ok(!error.message.includes(held.id), 'raw cue id is not shown')
+        assert.match(error.message, new RegExp(`Cue 1 "Escapes its scene" \\(\\d+:\\d{2}\\)`))
+        assert.ok(!error.message.includes(bad.id), 'raw cue id is not shown')
         return true
       },
     )
-  })
-
-  test('enabled projects reject unresolved proposals before assembly', () => {
-    const timeline = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [cue({ status: 'proposed' })] } as any
-    assert.throws(() => assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, timeline, plan), /needs review/i)
   })
 
   /**
@@ -210,7 +237,7 @@ describe('Contextual Cues contract', () => {
       cues: [cue({ placement: 'bottom-left' })],
     } as any
     const approved = assertContextualCueReadiness(
-      { enabled: true, auto_approve_cues: false }, timeline, plan, { enabled: true } as any,
+      { enabled: true }, timeline, plan, { enabled: true } as any,
     )
     assert.equal(approved.length, 1, 'the caption warning must not stop assembly')
   })
@@ -239,7 +266,7 @@ describe('Contextual Cues contract', () => {
   })
 
   test('disabled feature does not block Video Assembly', () => {
-    assert.deepEqual(assertContextualCueReadiness({ enabled: false, auto_approve_cues: false }, null, plan), [])
+    assert.deepEqual(assertContextualCueReadiness({ enabled: false }, null, plan), [])
   })
 
   // Reported on EP0046: "it says contextual cue is blocking the render as it
@@ -250,25 +277,19 @@ describe('Contextual Cues contract', () => {
   // forced cue generation just to earn permission to render.
   test('an episode that never proposed a cue renders — nothing exists to resolve', () => {
     assert.deepEqual(validateContextualCueTimeline(null, plan, { requireResolved: true }), [])
-    assert.deepEqual(assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, null, plan), [])
-    assert.deepEqual(assertContextualCueReadiness({ enabled: true, auto_approve_cues: true }, null, plan), [])
+    assert.deepEqual(assertContextualCueReadiness({ enabled: true }, null, plan), [])
+    assert.deepEqual(assertContextualCueReadiness({ enabled: true }, null, plan), [])
   })
 
-  test('but a real timeline with unresolved proposals still blocks', () => {
-    // The other half of the same fix: only nothing-exists is vacuous. A cue that
-    // was proposed and left unreviewed is still waiting on a person.
+  test('a timeline with unreviewed proposals renders without them', () => {
     const proposed = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [cue({ status: 'proposed' })] } as any
-    assert.throws(
-      () => assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, proposed, plan),
-      /needs review/i,
-    )
-    // An existing timeline holding zero cues is the same vacuous case as none.
+    assert.deepEqual(assertContextualCueReadiness({ enabled: true }, proposed, plan), [])
     const empty = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [] } as any
-    assert.deepEqual(assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, empty, plan), [])
+    assert.deepEqual(assertContextualCueReadiness({ enabled: true }, empty, plan), [])
   })
 })
 
-describe('Automatic cue approval (auto_approve_cues)', () => {
+describe('Automatic cue approval (the preset\'s auto_approve)', () => {
   test('approves a candidate that clears every structural rule', () => {
     const candidate = cue({ status: 'proposed' }) // 0.2–3.5s in scene-1: valid duration, in-scene, fields.
     const result = autoApproveEligibleCues([candidate], [], plan)
@@ -329,7 +350,7 @@ describe('Automatic cue approval (auto_approve_cues)', () => {
     assert.equal(note!.severity, 'warning')
     // And it must not stop the render.
     assert.doesNotThrow(() => assertContextualCueReadiness(
-      { enabled: true, auto_approve_cues: false },
+      { enabled: true },
       { schema_version: 1, generated_at: '', source_scene_plan_generated_at: planWithLongScene.generated_at, cues: [veryLong] } as any,
       planWithLongScene,
     ))
@@ -375,22 +396,19 @@ describe('Automatic cue approval (auto_approve_cues)', () => {
     assert.equal(result.cues[0]!.status, 'approved')
   })
 
-  test('readiness no longer waits on a cue an automatic pass held back, but every other rule still applies', () => {
+  test('readiness never waits on a cue an automatic pass held back, but every other rule still applies', () => {
     // Structurally clean in every respect except that no one has approved or
-    // excluded it yet — the one thing requireResolved checks for.
+    // excluded it yet — the one thing an unreviewed cue is.
     const held = cue({ id: 'cue-scene-1-b', scene_id: 'scene-1', start_sec: 3.6, end_sec: 6.0, status: 'proposed' })
     const approved = cue({ status: 'approved' })
     const timeline = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [approved, held] } as any
 
-    // Manual review (default: auto_approve_cues false) still requires resolution — unchanged.
-    assert.throws(() => assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, timeline, plan), /needs review/i)
-
-    // With auto_approve_cues on, the leftover 'proposed' cue no longer blocks Video Assembly...
-    const ready = assertContextualCueReadiness({ enabled: true, auto_approve_cues: true }, timeline, plan)
+    // A leftover 'proposed' cue never blocks Video Assembly; it is simply skipped.
+    const ready = assertContextualCueReadiness({ enabled: true }, timeline, plan)
     assert.deepEqual(ready, [approved])
 
     // ...but a cue with an unrelated structural problem still blocks it either way.
     const brokenTimeline = { ...timeline, cues: [approved, cue({ id: 'cue-broken', scene_id: 'scene-2', start_sec: 6, end_sec: 6.5, status: 'proposed' })] } as any
-    assert.throws(() => assertContextualCueReadiness({ enabled: true, auto_approve_cues: true }, brokenTimeline, plan), /readable for/i)
+    assert.throws(() => assertContextualCueReadiness({ enabled: true }, brokenTimeline, plan), /readable for/i)
   })
 })

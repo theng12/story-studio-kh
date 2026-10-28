@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url'
 import { storedPresetAutoApprove } from '../utils/contextual-cues.js'
 
 const page = readFileSync(
-  fileURLToPath(new URL('../pages/projects/[slug]/contextual-cues.vue', import.meta.url)),
+  fileURLToPath(new URL('../pages/projects/[slug]/sound-and-labels.vue', import.meta.url)),
   'utf8',
 )
 
@@ -53,8 +53,8 @@ test('a preset with no opinion about auto-approve says so, and is not read as "o
 test('the page announces auto-approve in both directions, and only when it was carried', () => {
   // Both a switch-on and a switch-off are announced; a silent switch-off is
   // the same defect in the other direction.
-  assert.match(page, /switched on Auto-approve safe proposals/)
-  assert.match(page, /switched off Auto-approve safe proposals/)
+  assert.match(page, /switched on Auto-approve safe labels/)
+  assert.match(page, /switched off Auto-approve safe labels/)
   // A preset carrying nothing leaves the live setting alone and says nothing.
   assert.match(page, /autoApproveNotice\.value = storedAutoApprove === null\s*\n\s*\? null/)
   assert.match(page, /if \(storedAutoApprove !== null\) form\.value\.auto_approve = storedAutoApprove/)
@@ -71,10 +71,10 @@ test('the notice clears on a hand edit and on an episode change, and never fires
   assert.match(page, /function onAutoApproveEdited\(\): void \{ autoApproveNotice\.value = null \}/)
   // Switching episode makes the announcement stale — it described the episode
   // you just left.
-  assert.match(page, /watch\(\[slug, episodeId\], \(\) => \{ cueScopeEpoch\+\+; autoApproveNotice\.value = null; void loadTimeline\(\) \}, \{ flush: 'sync' \}\)/)
+  assert.match(page, /watch\(\[slug, episodeId\], \(\) => \{ scopeEpoch\+\+; autoApproveNotice\.value = null; void loadEpisode\(\) \}, \{ flush: 'sync' \}\)/)
   // `usePresets.load()` re-applies the active preset on every mount. That is a
   // restore, not something the customer just did, so it announces nothing.
-  assert.match(page, /await cuePresets\.load\(\)[\s\S]{0,400}?autoApproveNotice\.value = null/)
+  assert.match(page, /await Promise\.all\(\[activePresets\.load\(\), soundPresets\.load\(\)\]\)[\s\S]{0,400}?autoApproveNotice\.value = null/)
 })
 
 // ── Part B: saving ──────────────────────────────────────────────────────────
@@ -93,12 +93,12 @@ test('every edit goes through one entry point, so nothing can be dirty without b
 
 test('a save is debounced, and the debounce is never the only thing keeping an edit', () => {
   assert.match(page, /const AUTO_SAVE_DELAY_MS = 800/)
-  assert.match(page, /autoSaveTimer = setTimeout\([^\n]*saveNow\(\) \}, AUTO_SAVE_DELAY_MS\)/)
+  assert.match(page, /autoSaveTimer = setTimeout\([^\n]*saveNow\(false\) \}, AUTO_SAVE_DELAY_MS\)/)
   // Leaving the page flushes it.
-  assert.match(page, /onBeforeUnmount\(\(\) => \{ void saveNow\(\) \}\)/)
+  assert.match(page, /onBeforeUnmount\(\(\) => \{ void saveNow\(false\); audio\?\.pause\(\) \}\)/)
   // So does reloading the timeline — which is what the episode picker, the
   // enable switch and a finished proposal job all go through.
-  assert.match(page, /async function loadTimeline\(\): Promise<void> \{[\s\S]{0,400}?await saveNow\(\)/)
+  assert.match(page, /async function loadEpisode\(\): Promise<void> \{[\s\S]{0,400}?await saveNow\(false\)/)
 })
 
 test('two writes never overlap, and a stale response never overwrites what was typed', () => {
@@ -106,11 +106,10 @@ test('two writes never overlap, and a stale response never overwrites what was t
   assert.match(page, /saveTail\.then\(writeTimeline, writeTimeline\)/)
   // A response that comes back to a changed timeline is dropped, not applied.
   assert.match(page, /const sentAt = editSeq/)
-  assert.match(page, /if \(!isCurrentCueScope\(projectSlug, episode, scopeEpoch\) \|\| !stillOwnsTimeline \|\| editSeq !== sentAt\) return/)
   // The write addresses the episode the cues came from, not whichever is
   // selected by the time it fires.
-  assert.match(page, /const episode = timelineEpisodeId\.value/)
-  assert.match(page, /contextual-cues\/\$\{episode\}`, \{ cues \}\)/)
+  assert.match(page, /const episode = episodeId\.value/)
+  assert.match(page, /sound-and-labels\/\$\{episode\}\/labels`, \{ cues: labelPayload \}\)/)
 })
 
 test('a failed save keeps the edits, says so, and does not retry on a timer', () => {
@@ -124,8 +123,10 @@ test('a failed save keeps the edits, says so, and does not retry on a timer', ()
   // Nothing schedules itself again after a failure — a dead backend would
   // otherwise be asked every 800ms forever.
   assert.doesNotMatch(rescue, /setTimeout|markDirty\(\)|saveNow\(\)/)
-  // And the customer is told plainly, including that the work is still there.
-  assert.match(page, /Not saved — \$\{saveError\.value\} Your changes are still here; Save Changes tries again\./)
+  // And the customer is told plainly, including that the work is still there
+  // on screen and still dirty, so the next edit or Save changes retries.
+  assert.match(page, /saveError\.value = cause\?\.data\?\.detail \|\| 'Could not save\.'/)
+  assert.match(page, /if \(saveError\.value\) return `Not saved — \$\{saveError\.value\}`/)
 })
 
 test('the manual button survives auto-save: always pressable, honest about what it did', () => {

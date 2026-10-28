@@ -36,8 +36,9 @@ function compiled(source: string): string {
 const presets = source('../pages/projects/[slug]/presets.vue')
 const remote = source('../pages/remote.vue')
 const settings = source('../pages/projects/[slug]/settings.vue')
-const contextualCues = source('../pages/projects/[slug]/contextual-cues.vue')
-const soundDesign = source('../pages/projects/[slug]/sound-design.vue')
+// v1.4.365 — both halves are one page now. The race guards below are the same
+// guards, over `sound-and-labels.vue`.
+const soundAndLabels = source('../pages/projects/[slug]/sound-and-labels.vue')
 
 test('Preset group saves serialize overlapping mutations', async () => {
   const runtime = new Function(compiled(`
@@ -157,78 +158,86 @@ test('initial art-style hydration consumes suppression before the first user cho
   assert.deepEqual(saves, ['user-style'])
 })
 
-test('Contextual Cues preserves the captured project and episode for late loads and saves', () => {
-  assert.match(contextualCues, /const timelineProjectSlug = ref\(''\)/)
-  assert.match(contextualCues, /watch\(\[slug, episodeId\], \(\) => \{ cueScopeEpoch\+\+[^}]*\}, \{ flush: 'sync' \}\)/)
-  assert.match(contextualCues, /const projectSlug = timelineProjectSlug\.value\s*\n  const episode = timelineEpisodeId\.value/)
-  assert.match(contextualCues, /await put<any>\(`\/projects\/\$\{projectSlug\}\/contextual-cues\/\$\{episode\}`, \{ cues \}\)/)
-  assert.match(contextualCues, /request !== timelineLoadSequence \|\| !isCurrentCueScope\(projectSlug, episode, scopeEpoch\)/)
-  assert.match(contextualCues, /const stillOwnsTimeline = timelineProjectSlug\.value === projectSlug && timelineEpisodeId\.value === episode/)
-  assert.match(contextualCues, /await saveNow\(\)\s*\n  if \(!isCurrentCueScope\(projectSlug, episode, scopeEpoch\)\) return\s*\n  if \(dirty\.value \|\| saveError\.value\)/)
+test('Sound & Labels preserves the captured project and episode for late loads and saves', () => {
+  // Every load and save captures the project and episode it STARTED on, and
+  // compares that captured pair when it finishes. Without it, a selection that
+  // moved mid-flight writes one episode's cues into another (AGENTS.md §4).
+  assert.match(soundAndLabels, /const project = slug\.value\s*\n\s*const episode = episodeId\.value/)
+  assert.match(soundAndLabels, /watch\(\[slug, episodeId\], \(\) => \{ scopeEpoch\+\+[^}]*\}, \{ flush: 'sync' \}\)/)
+  assert.match(soundAndLabels, /function isCurrentScope\(project: string, episode: string, epoch: number\): boolean/)
+  assert.match(soundAndLabels, /await put<any>\(`\/projects\/\$\{project\}\/sound-and-labels\/\$\{episode\}\/labels`, \{ cues: labelPayload \}\)/)
+  assert.match(soundAndLabels, /await put<any>\(`\/projects\/\$\{project\}\/sound-and-labels\/\$\{episode\}\/sounds`, \{ cues: soundPayload, settings: mixSettings \}\)/)
+  assert.match(soundAndLabels, /request !== loadSequence \|\| !isCurrentScope\(project, episode, epoch\)/)
+  assert.match(soundAndLabels, /await saveNow\(false\)\s*\n\s*if \(!isCurrentScope\(project, episode, epoch\)\) return/)
 })
 
-test('Sound Design preserves the captured project and episode for late loads and saves', () => {
-  assert.match(soundDesign, /const timelineProjectSlug = ref\(''\)/)
-  assert.match(soundDesign, /watch\(\[slug, episodeId\], \(\) => \{ soundScopeEpoch\+\+[^}]*\}, \{ flush: 'sync' \}\)/)
-  assert.match(soundDesign, /get<any>\(`\/projects\/\$\{projectSlug\}\/sound-design\/\$\{episode\}`\)/)
-  assert.match(soundDesign, /await put<any>\(`\/projects\/\$\{projectSlug\}\/sound-design\/\$\{episode\}`, \{ cues, settings: timelineSettings \}\)/)
-  assert.match(soundDesign, /request !== soundLoadSequence \|\| !isCurrentSoundScope\(projectSlug, episode, scopeEpoch\)/)
-  assert.match(soundDesign, /if \(!stillOwnsTimeline \|\| soundEditSeq !== sentAt\) return/)
-  assert.match(soundDesign, /await saveTimeline\(false\)\s*\n  if \(!isCurrentSoundScope\(projectSlug, episode, scopeEpoch\)\) return\s*\n  if \(dirty\.value\)/)
+test('an episode change replaces the page state before filling it from the new one', () => {
+  // AGENTS.md §4 — the owner's most expensive defect class. A field that is
+  // only overwritten "if the new value exists" leaves the previous episode's
+  // value standing. Everything is blanked FIRST, then filled.
+  const load = soundAndLabels.slice(soundAndLabels.indexOf('async function loadEpisode'))
+  const body = load.slice(0, load.indexOf('\n}\n'))
+  const blanks = body.indexOf("labels.value = null; sounds.value = null")
+  const fills = body.indexOf('labels.value = data.labels')
+  assert.ok(blanks > 0 && fills > blanks, 'the blank must come before the fill')
+  // The mix settings belong to the loaded timeline, not to a remembered form:
+  // remembering them is exactly how one episode's reverb reached another.
+  assert.doesNotMatch(soundAndLabels, /useRememberedForm\('sound-and-labels', slug, settings/)
+  assert.match(soundAndLabels, /if \(sounds\.value\?\.settings\) settings\.value = \{ \.\.\.sounds\.value\.settings \}/)
 })
 
-test('Sound Design serializes an original-target flush and keeps edits made during the first save', async () => {
+test('a save serializes on one tail and keeps edits made during the first write', async () => {
   const pending: Array<(value: unknown) => void> = []
   const writes: Array<{ url: string; body: any }> = []
   const runtime = new Function('pending', 'writes', compiled(`
     const slug = { value: 'alpha' }
     const episodeId = { value: 'episode-a' }
-    const timelineProjectSlug = { value: 'alpha' }
-    const timelineEpisodeId = { value: 'episode-a' }
-    const timeline = { value: { cues: [{ id: 'cue-1', label: 'first' }] } }
-    const settings = { value: { density: 'minimal' } }
-    const validation = { value: [] }
+    const labels = { value: { cues: [{ id: 'cue-1', title: 'first' }] } }
+    const sounds = { value: null }
+    const settings = { value: { max_spots_per_minute: 3 } }
+    const validation = { value: { labels: [], sound: [] } }
     const dirty = { value: true }
     const saving = { value: false }
-    let soundScopeEpoch = 1
-    let soundEditSeq = 1
-    let soundSaveTail = Promise.resolve()
+    const savedAt = { value: '' }
+    const saveError = { value: '' }
+    let scopeEpoch = 1
+    let editSeq = 1
+    let saveTail = Promise.resolve()
     const success = () => {}
-    const error = () => {}
     const put = (url, body) => new Promise(resolve => { writes.push({ url, body }); pending.push(resolve) })
-    ${extractFunction(soundDesign, 'isCurrentSoundScope')}
-    ${extractFunction(soundDesign, 'writeTimeline')}
-    ${extractFunction(soundDesign, 'saveTimeline')}
+    ${extractFunction(soundAndLabels, 'isCurrentScope')}
+    ${extractFunction(soundAndLabels, 'writeTimeline')}
+    ${extractFunction(soundAndLabels, 'saveNow')}
     return {
-      saveTimeline,
-      edit: label => { timeline.value.cues[0].label = label; dirty.value = true; soundEditSeq++ },
+      writeTimeline,
+      edit: title => { labels.value.cues[0].title = title; dirty.value = true; editSeq++ },
       writes: () => writes,
       resolve: (index, value) => pending[index](value),
       dirty,
-      timeline,
+      labels,
     }
   `))(pending, writes) as {
-    saveTimeline(announce?: boolean): Promise<void>
-    edit(label: string): void
+    writeTimeline(announce: boolean): Promise<void>
+    edit(title: string): void
     writes(): Array<{ url: string; body: any }>
     resolve(index: number, value: unknown): void
     dirty: { value: boolean }
-    timeline: { value: { cues: Array<{ label: string }> } }
+    labels: { value: { cues: Array<{ title: string }> } }
   }
 
-  const first = runtime.saveTimeline(false)
+  const first = runtime.writeTimeline(false)
   await Promise.resolve()
   runtime.edit('latest')
-  const second = runtime.saveTimeline(false)
-  runtime.resolve(0, { timeline: { cues: [{ label: 'server-first' }] }, validation: [] })
+  const second = runtime.writeTimeline(false)
+  runtime.resolve(0, { timeline: { cues: [{ title: 'server-first' }] }, validation: [] })
   await first
   await Promise.resolve()
 
-  assert.equal(runtime.writes()[0]?.url, '/projects/alpha/sound-design/episode-a')
-  assert.equal(runtime.writes()[1]?.body.cues[0]?.label, 'latest')
-  runtime.resolve(1, { timeline: { cues: [{ label: 'server-latest' }] }, validation: [] })
+  assert.equal(runtime.writes()[0]?.url, '/projects/alpha/sound-and-labels/episode-a/labels')
+  assert.equal(runtime.writes()[1]?.body.cues[0]?.title, 'latest', 'the edit made during the first write is what goes second')
+  runtime.resolve(1, { timeline: { cues: [{ title: 'server-latest' }] }, validation: [] })
   await Promise.all([first, second])
 
   assert.equal(runtime.dirty.value, false)
-  assert.equal(runtime.timeline.value.cues[0]?.label, 'server-latest')
+  assert.equal(runtime.labels.value.cues[0]?.title, 'server-latest')
 })
