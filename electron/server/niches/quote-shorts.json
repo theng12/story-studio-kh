@@ -197,10 +197,6 @@
     "prose poem"
   ],
   "metadataTitleStyleHint": "A fragment of the thought itself. Lower-case where it feels right, no clickbait, no question marks.",
-  "startingSceneSeconds": [
-    3,
-    6
-  ],
   "scriptStructure": {
     "defaultChapterCount": 1,
     "chapterCountRange": [
