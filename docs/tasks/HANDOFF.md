@@ -1,5 +1,22 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.366 — YouTube record contract, readable end to end (2026-10-28, fix/youtube-receipts-read-20261028 from main a55c5f12)
+
+Production's ledger adapter found the 1.4.365 contract unreadable; three defects, all fixed:
+1. `recordVideoAuditEntries` replaced each entry whole, so every re-read wiped `story_written_at` /
+   `story_receipt_id`. A re-read now carries both over from the prior entry.
+2. `publicOperation` never returned `metadata_updates[]`; `GET /projects/:slug/youtube/operations` now
+   does (only for operations that have receipts).
+3. `GET .../youtube/videos/snippets` built its answer from the fresh observations, not the stored
+   ledger, so even with (1) fixed it dropped the markers. It now answers from what was stored.
+Markers wiped under 1.4.365 are not rebuilt from the audit file; Production rebuilds them from each
+operation's append-only `metadata_updates[]` (join on channel + video_id + receipt_id). Note: the
+snippets read without `force` still calls YouTube for stale or missing entries — it is not
+guaranteed quota-free.
+Also: episode-media-cleanup, jobs-stream and job-queue-genstudio-resume joined `SERIAL_TEST_FILES`
+(failed in the pooled sweep on a55c5f12, passed alone). Pooled ≠ serial is still unproven; the
+gate of record stays `STORY_STUDIO_BACKEND_TEST_WORKERS=1`.
+
 ## 1.4.365 — the existing-video metadata update, corrected from Production (2026-10-28, fix/yt-metadata-verify-20261028 from release/1.4.365 ebeb4dd7)
 
 Three defects 1.4.364 shipped, found by Production applying the AWBU/SS0066 repairs on the

@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.366 — 2026-10-28
+
+- YouTube metadata records: when Story re-checks a video it now keeps its own note that it updated that video, and which update it was, instead of erasing it. The video list returns that note, and each episode's YouTube record now lists every metadata update Story made, so a later check can tell what is already done without spending YouTube quota again.
+- Tests: three more slow test files run on their own in the release checks, after they failed only when run beside other tests.
+
 ## v1.4.365 — 2026-10-28
 
 - Sound & Labels: Contextual Cues and Sound Design are now one page, in one place, for the words and sounds that sit over your narration. Turn on-screen text and sound on or off independently; neither ever blocks the final video. What you approve is drawn or mixed, and everything you leave alone is reported rather than refused. The two old pages now send you to the new one, and every existing cue and sound file keeps working.
