@@ -134,7 +134,7 @@ test('the Production Board and the Pipeline agree on what a Research tick means'
   const flow = readFileSync(fileURLToPath(new URL('../composables/useProjectFlow.ts', import.meta.url)), 'utf8')
   assert.match(flow, /^\s*research: 'research',$/m,
     'the shared step map must map Research to status.research')
-  assert.match(board, /STEP_STATUS_FIELD\[s\.key\]/,
+  assert.match(board, /STEP_STATUS_FIELD\[step\.key\]/,
     'and the Board columns must be built from that shared map, not a private copy')
   assert.match(fnBody(pipeline, 'isStepDoneForEpisode').split('\n').find(l => l.includes("case 'research':"))!,
     /s\.research\b/, 'and the Pipeline pill must read the same field')

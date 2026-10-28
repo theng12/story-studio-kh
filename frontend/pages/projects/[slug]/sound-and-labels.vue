@@ -548,7 +548,10 @@ function clipKey(cue: SoundCue): string { return cue.clip ? `${cue.source === 'g
 
 // ── Edits ────────────────────────────────────────────────────────────────
 
-function markDirty(): void { dirty.value = true; editSeq += 1; if (autoSaveTimer) clearTimeout(autoSaveTimer); autoSaveTimer = setTimeout(() => { autoSaveTimer = null; void saveNow(false) }, 800) }
+/** How long an edit waits before it is written. Named, so the figure is one place. */
+const AUTO_SAVE_DELAY_MS = 800
+
+function markDirty(): void { dirty.value = true; editSeq += 1; if (autoSaveTimer) clearTimeout(autoSaveTimer); autoSaveTimer = setTimeout(() => { autoSaveTimer = null; void saveNow(false) }, AUTO_SAVE_DELAY_MS) }
 
 function setLabelScene(cue: LabelCue, sceneId: string): void {
   const scene = scenes.value.find(row => row.id === sceneId)
@@ -811,7 +814,16 @@ function saveNow(announce = false): Promise<void> {
 }
 
 async function writeTimeline(announce: boolean): Promise<void> {
-  if (!dirty.value || !episodeId.value) return
+  // Pressing Save with nothing outstanding confirms that, rather than doing
+  // visibly nothing — a button that looks broken is its own defect. Only the
+  // manual press (announce) says it; the debounce stays silent.
+  if (!dirty.value || !episodeId.value) {
+    if (announce && episodeId.value) {
+      if (saveError.value) showError(saveError.value)
+      else success('Everything here is already saved.')
+    }
+    return
+  }
   const project = slug.value
   const episode = episodeId.value
   const epoch = scopeEpoch

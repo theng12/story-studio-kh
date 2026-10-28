@@ -56,13 +56,13 @@ test('the page announces auto-approve in both directions, and only when it was c
   assert.match(page, /switched on Auto-approve safe labels/)
   assert.match(page, /switched off Auto-approve safe labels/)
   // A preset carrying nothing leaves the live setting alone and says nothing.
-  assert.match(page, /autoApproveNotice\.value = storedAutoApprove === null\s*\n\s*\? null/)
-  assert.match(page, /if \(storedAutoApprove !== null\) form\.value\.auto_approve = storedAutoApprove/)
+  assert.match(page, /autoApproveNotice\.value = stored === null \? null : \{ on: stored, changed: form\.value\.auto_approve !== stored \}/)
+  assert.match(page, /if \(stored !== null\) form\.value\.auto_approve = stored/)
   // The old default-fallback is gone for good.
   assert.doesNotMatch(page, /form\.value\.auto_approve = data\?\.auto_approve === true/)
   // Read the live value BEFORE the write, or "the preset set it" and "it was
   // already like that" cannot be told apart.
-  assert.match(page, /changed: form\.value\.auto_approve !== storedAutoApprove/)
+  assert.match(page, /changed: form\.value\.auto_approve !== stored/)
 })
 
 test('the notice clears on a hand edit and on an episode change, and never fires on mount', () => {
@@ -85,7 +85,7 @@ test('every edit goes through one entry point, so nothing can be dirty without b
   const script = page.slice(page.indexOf('<script setup'))
   const rawSets = script.match(/dirty\.value = true/g) || []
   assert.equal(rawSets.length, 1, 'only markDirty() may set dirty')
-  assert.match(page, /function markDirty\(\): void \{\s*\n\s*dirty\.value = true/)
+  assert.match(page, /function markDirty\(\): void \{ dirty\.value = true/)
   // Including the template handlers.
   assert.doesNotMatch(page, /@input="dirty = true"/)
   assert.doesNotMatch(page, /@change="dirty = true"/)
@@ -102,8 +102,8 @@ test('a save is debounced, and the debounce is never the only thing keeping an e
 })
 
 test('two writes never overlap, and a stale response never overwrites what was typed', () => {
-  // One tail, as usePresets.persistNow() does.
-  assert.match(page, /saveTail\.then\(writeTimeline, writeTimeline\)/)
+  // One tail, as usePresets.persistNow() does — and the SAME write both queued.
+  assert.match(page, /saveTail\.then\(\(\) => writeTimeline\(announce\), \(\) => writeTimeline\(announce\)\)/)
   // A response that comes back to a changed timeline is dropped, not applied.
   assert.match(page, /const sentAt = editSeq/)
   // The write addresses the episode the cues came from, not whichever is
@@ -131,26 +131,28 @@ test('a failed save keeps the edits, says so, and does not retry on a timer', ()
 
 test('the manual button survives auto-save: always pressable, honest about what it did', () => {
   // Never disabled just because everything is saved — that reads as broken.
-  assert.match(page, /:disabled="saving" @click="saveTimeline">Save Changes</)
+  assert.match(page, /:disabled="saving" @click="saveNow\(true\)">Save changes</)
   assert.doesNotMatch(page, /:disabled="saving \|\| !dirty"/)
   // Pressing it with nothing to save confirms that instead of doing nothing.
-  assert.match(page, /if \(!dirty\.value\) \{ success\(/)
-  // And it never reports success for a write that failed.
-  assert.match(page, /if \(saveError\.value\) showError\(saveError\.value\)\s*\n\s*else \{\s*\n\s*success\('Contextual cue timeline saved'\)/)
+  assert.match(page, /if \(!dirty\.value \|\| !episodeId\.value\) \{/)
+  assert.match(page, /if \(saveError\.value\) showError\(saveError\.value\)\s*\n\s*else success\('Everything here is already saved\.'\)/)
+  // And it never reports success for a write that failed: the success line sits
+  // in the try, the refusal in the catch, so a failed write cannot announce.
+  assert.match(page, /if \(announce\) success\('Saved'\)\s*\n\s*\} catch[\s\S]{0,600}?if \(announce\) showError\(saveError\.value\)/)
 })
 
 test('the page states saving/unsaved/saved rather than leaving it to be guessed', () => {
-  assert.match(page, /class="cue-save-state" :data-state="saveState"/)
+  assert.match(page, /class="sl-save-state" :data-state="saveState"/)
   assert.match(page, /return 'Saving…'/)
-  assert.match(page, /return 'Unsaved changes — saving in a moment'/)
+  assert.match(page, /return 'Unsaved — saving in a moment'/)
   assert.match(page, /savedAt\.value \? `Saved at \$\{savedAt\.value\}` : 'Saved'/)
 })
 
 test('bulk actions ride the same auto-save, and stop telling the customer to click Save', () => {
   // Approve All still writes nothing directly — it marks dirty like every
   // other edit, and the shared debounce does the writing.
-  assert.doesNotMatch(page, /function approveAllProposed[\s\S]{0,400}?await (put|post)\(/)
-  assert.match(page, /for \(const cue of pending\) setStatus\(cue, 'approved'\)/)
+  assert.doesNotMatch(page, /function approveAll(Proposed|Labels)[\s\S]{0,400}?await (put|post)\(/)
+  assert.match(page, /for \(const cue of proposedLabels\.value\) cue\.status = 'approved'/)
   // Their toasts would otherwise be instructions the page no longer needs —
   // a control that describes an action it is not performing.
   assert.doesNotMatch(page, /click Save Changes to keep this/)
