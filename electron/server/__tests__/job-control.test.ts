@@ -278,8 +278,8 @@ describe('server-owned job controls', () => {
 
 test('a paused job whose provider tasks all finished can be stopped, not left waiting', () => {
   const settled = [
-    evidence('voice.tts', 'succeeded', { id: 'a', provider_job_id: 'a', dispatch_state: 'dispatched' }),
-    evidence('voice.tts', 'failed', { id: 'b', provider_job_id: 'b', dispatch_state: 'dispatched' }),
+    evidence('voice.tts', 'succeeded', { id: 'a', dispatch_state: 'dispatched' }),
+    evidence('voice.tts', 'failed', { id: 'b', dispatch_state: 'dispatched' }),
   ]
   const control = classifyJobControl(job({ status: 'paused', type: 'audio', genstudio_jobs: settled }) as Job,
     { remoteCancellationAudited: true })
