@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.365 — 2026-10-28
+
+- Sound & Labels: Contextual Cues and Sound Design are now one page, in one place, for the words and sounds that sit over your narration. Turn on-screen text and sound on or off independently; neither ever blocks the final video. What you approve is drawn or mixed, and everything you leave alone is reported rather than refused. The two old pages now send you to the new one, and every existing cue and sound file keeps working.
+- Labels now sit where the narration says them. A label carries the scene and the word it belongs to, so it lands on that phrase instead of a fixed offset from the scene start — and it moves with its scene if the plan is rebuilt. A label saved before this release keeps the exact timing it had.
+- One auto-approve switch. The extra project-level switch is gone, so a preset's own setting is the only one; a project still carrying the old setting is read safely and ignored, not rewritten.
+- Duplicate screening is now optional on this Mac, and off by default. Story can compare your scene images and your episode titles for near-duplicates with a small model that runs here and nowhere else — no account, no upload, no Gateway request. Settings → This Mac has a Download button with progress; nothing is fetched until you press it, and Remove moves the files to Story's Trash. It only warns: a near-duplicate scene and a repeated title are both shown beside the thing they describe, and neither blocks a render, a save or an upload. With the model off, not downloaded or broken, every check reads "not checked", never "passed".
+
 ## v1.4.364 — 2026-10-27
 
 - Cost per episode: every episode shows what it really cost — the paid charge the Gateway recorded for its jobs, an estimate of this Mac's electricity for local work, and the share wasted on failed, cancelled or redone jobs. The Production Board has three cost columns and a channel total, and the Dashboard has a cost card. Where there is no record it says "No data", never $0. The electricity price and Mac wattage are editable in Settings → Performance & recovery.
