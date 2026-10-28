@@ -26,6 +26,7 @@ import { router as youtubeConnectionsRouter } from './youtube-connections.js'
 import { router as youtubeUploadCenterRouter } from './youtube-upload-center.js'
 import { router as socialPublishingRouter } from './social-publishing.js'
 import { router as appSettingsRouter } from './app-settings.js'
+import { router as localScreeningRouter } from './local-screening.js'
 import { router as lastSessionRouter } from './last-session.js'
 import { router as charactersRouter } from './characters.js'
 import { router as characterLibraryRouter } from './character-library.js'
@@ -79,6 +80,8 @@ export function mountRoutes(app: Express): void {
   app.use('/api', channelProfileRouter)
   app.use('/api', settingsRouter)
   app.use('/api', appSettingsRouter)
+  // Optional, in-app duplicate screening (owner 2026-10-27). Warns; gates nothing.
+  app.use('/api', localScreeningRouter)
   app.use('/api', appUpdateRouter)
   app.use('/api', lastSessionRouter)
   app.use('/api', jobsRouter)

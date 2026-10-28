@@ -431,6 +431,12 @@
             {{ visionCheckStats.notChecked }} not checked<template v-if="visionCheckStats.noRecord">, {{ visionCheckStats.noRecord }} with no check yet</template>.
             <template v-if="visionCheckStats.latestFinding">Latest finding: {{ visionCheckStats.latestFinding }}</template>
           </p>
+          <!-- v1.4.365 — optional local duplicate screening. Says WHY nothing was
+               checked rather than leaving a silent blank, and claims no verdict
+               of its own. -->
+          <p v-if="duplicateScreenReason" class="sr-image-check-stats">
+            Duplicate screening: not checked — {{ duplicateScreenReason }}
+          </p>
         </div>
       </div>
 
@@ -716,6 +722,14 @@
                 :class="['review-image-check-badge', `is-${visionBadgeTone(scene.vision_check)}`]"
                 :title="describeVisionCheck(scene.vision_check)"
               >{{ visionCheckBadgeLabel(scene.vision_check) }}</span>
+              <!-- v1.4.365 — OPTIONAL local duplicate screening (owner 2026-10-27).
+                   Warns only: it never blocks a render or an upload. Absent, off,
+                   or not downloaded reads "not checked", never a pass. -->
+              <span
+                v-if="duplicateBadge(scene.id)"
+                :class="['review-image-check-badge', `is-${duplicateBadge(scene.id)!.tone}`]"
+                :title="duplicateBadge(scene.id)!.title"
+              >{{ duplicateBadge(scene.id)!.label }}</span>
             </div>
             <p class="review-transcript">{{ scene.transcript_segment }}</p>
             <details class="review-prompt-details disclosure">
@@ -1953,6 +1967,76 @@ async function loadReview(): Promise<void> {
     if (current()) loading.value = false
   }
   if (loaded && current()) await focusPendingScene()
+  if (loaded && current()) void loadDuplicateScreen()
+}
+
+// ── Optional local duplicate screening (owner 2026-10-27) ────────────
+//
+// A SEPARATE request, deliberately: the screening model is optional, may not be
+// downloaded, and must never be what stops Scene Review from loading. A failed
+// or absent answer leaves every badge hidden, which reads as "not checked" —
+// the honest state — rather than as a pass.
+type DuplicateScreenState = { state: 'checked' | 'not_checked'; reason?: string; results: Array<{
+  scene_id: string
+  state: 'checked' | 'not_checked'
+  reason?: string
+  matches: Array<{ scene_id: string; scene_index: number; score: number; strength: 'duplicate' | 'similar'; other_episode?: { episode_code: string; title?: string } }>
+}> }
+
+const duplicateScreen = ref<Map<string, DuplicateScreenState['results'][number]>>(new Map())
+const duplicateScreenReason = ref<string | null>(null)
+
+async function loadDuplicateScreen(): Promise<void> {
+  const ep = episodeId.value
+  const project = slug.value
+  if (!ep) {
+    duplicateScreen.value = new Map()
+    return
+  }
+  try {
+    const response = await get<DuplicateScreenState>(`/projects/${project}/local-screening/scenes/${encodeURIComponent(ep)}`)
+    // A response that arrived after an episode change belongs to the episode it
+    // was asked for, never to the one on screen now (§4).
+    if (ep !== episodeId.value || project !== slug.value) return
+    duplicateScreenReason.value = response.state === 'not_checked' ? (response.reason || null) : null
+    const next = new Map<string, DuplicateScreenState['results'][number]>()
+    for (const row of response.results || []) next.set(row.scene_id, row)
+    duplicateScreen.value = next
+  } catch {
+    // The check is advice; a failure to reach it is not a Scene Review error.
+    if (ep !== episodeId.value || project !== slug.value) return
+    duplicateScreen.value = new Map()
+    duplicateScreenReason.value = null
+  }
+}
+
+/**
+ * The badge for one scene, or null when there is nothing worth saying.
+ *
+ * A `not_checked` row produces no badge: drawing one for every scene would be
+ * noise, and drawing a green one would be the silent pass §6 forbids.
+ */
+function duplicateBadge(sceneId: string): { label: string; title: string; tone: string } | null {
+  const row = duplicateScreen.value.get(sceneId)
+  if (!row || row.state !== 'checked') return null
+  const top = row.matches?.[0]
+  if (!top) return null
+  const where = top.other_episode
+    ? `scene ${top.scene_index} of ${top.other_episode.episode_code}`
+    : `scene ${top.scene_index}`
+  const ratio = top.score.toFixed(3)
+  if (top.strength === 'duplicate') {
+    return {
+      label: `⚠ looks like ${where}`,
+      title: `This picture looks like a duplicate of ${where} (similarity ${ratio}). Advice only — nothing is blocked.`,
+      tone: 'failed',
+    }
+  }
+  return {
+    label: `≈ similar to ${where}`,
+    title: `This picture looks similar to ${where} (similarity ${ratio}). Advice only — nothing is blocked.`,
+    tone: 'not_checked',
+  }
 }
 
 // ── Actions ─────────────────────────────────────────────────────────

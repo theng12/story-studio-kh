@@ -63,6 +63,10 @@ export const SETTINGS_INDEX: SettingEntry[] = [
 
   { section: 'performance', anchor: 'throughput', label: 'How much runs at once', keywords: 'concurrency throughput parallel jobs at once writing images thumbnails transcribing subtitles episodes speed' },
   { section: 'performance', anchor: 'throughput', label: 'Writing request time limit', keywords: 'timeout time limit minutes writing request tokens per second slow speed warning outline chapters headroom' },
+  // v1.4.365 — optional, in-app duplicate screening (owner 2026-10-27). Listed
+  // under This Mac because the model is installed once per Mac, next to the
+  // performance knobs it sits with on the page.
+  { section: 'performance', anchor: 'duplicate-screening', label: 'Duplicate screening (optional)', keywords: 'duplicate near duplicate screening embeddings model scene title local offline optional download' },
   { section: 'performance', anchor: 'paid-replacement', label: 'Paid replacements after a failure', keywords: 'failed failure retry replacement buy credits limit ceiling image subtitle audio writing recovery automatic' },
 
   { section: 'appearance', anchor: 'theme', label: 'Light or dark mode', keywords: 'theme dark light system appearance colour color' },

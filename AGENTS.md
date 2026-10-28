@@ -252,6 +252,22 @@ generator's real-source lists (`services/reference-pool.ts`) make free, read-onl
 `en.wikipedia.org` — no key, no model, at most one request a second, a User-Agent with nothing
 personal in it, cached, and failing soft. It is not a model endpoint; never route generation there.
 
+**Named exception (owner, 2026-10-27): optional local duplicate screening downloads MODEL FILES.**
+Settings → This Mac → *Duplicate screening (optional)* runs `google/embeddinggemma-2` (Apache-2.0) on
+the Mac running Story, in Story's own process, to warn about near-duplicate scene images and repeated
+titles. The owner's decision is binding: **the model runs inside Story, not on the fleet and not
+through the Gateway**, and the feature is **optional extra screening, never required** — it starts OFF,
+Story offers the download, and the user turns it on deliberately. Uploading without it must work
+exactly as today, and when it is off, not downloaded, or broken, every check reads **"not checked"** —
+never "passed", never a reason to block anything. The exception, narrowly: on opt-in,
+`services/local-model-store.ts` fetches the pinned ONNX export from
+`huggingface.co/onnx-community/embeddinggemma-2-ONNX` (one immutable revision) plus the darwin-arm64
+slice of `onnxruntime-node` from `unpkg.com`, each file verified against a pinned size and SHA-256.
+That is a **model-file download only**: no generation request is ever sent to it, no provider is
+selected or routed from it, and nothing about it becomes a second endpoint for anything else. The
+model is not in the DMG — the app grows by neither the ≈970 MB of weights nor the ≈46 MB runtime for
+a feature that is off by default. Removing it moves the files to Story's Trash, never `rm`.
+
 **Final Video Assembly — owner, 2026-10-23, superseding the earlier local-only rule:** a final
 render may be sent through the one paired Gateway to an idle Mac the owner owns (private fleet
 final rendering, `private_final_render`, off by default, owner-only switch). Render locally whenever
