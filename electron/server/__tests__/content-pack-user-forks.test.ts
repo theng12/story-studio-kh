@@ -713,3 +713,76 @@ describe('forking a Formula that ships as a Content Pack', () => {
     )
   })
 })
+
+/**
+ * The same rule for Topic Packs (owner, 2026-10-29 — "no custom, no built in,
+ * all from packs"). A bare stored Topic Pack id reads as the pack item that now
+ * owns it (`resolveTopicPackAlias`), so editing that channel forks the pack —
+ * not the legacy file the pack supersedes. Without the pack installed the
+ * legacy file still answers, exactly as before.
+ */
+describe('forking a Topic Pack that ships as a Content Pack', () => {
+  const PACK_TOPIC_ID = 'com.storystudio.topic.natural-world-animals'
+  const LEGACY_TOPIC_ID = 'natural-world-animals'
+
+  function packTopicArchive(name = 'Signed Animals Topic'): Promise<Uint8Array> {
+    return signedArchive({
+      kind: 'topic-pack', schema_version: 1, id: PACK_TOPIC_ID,
+      name, description: 'Animal lives that live in a pack.',
+      compatible_formula_ids: ['com.storystudio.formula.natural-world-explained'],
+      subjects: ['mammals', 'deep-sea animals'],
+      episode_objects: ['Field record'], time_place_scopes: ['Present day'],
+      mechanisms: ['Adaptation'], evidence_lenses: ['Observation'], exclusions: [],
+      max_siblings_per_subject: 4, prompt_context: 'Signed Animals context.',
+    } as ContentPackDocument, 'content/animals.json')
+  }
+
+  test('a bare legacy id forks the installed pack it reads as', async () => {
+    const { options } = await isolated()
+    await installContentPack({ archiveBytes: await packTopicArchive(), source: 'local-import' }, options)
+    assert.equal(topicLoader.resolveTopicPackAlias(LEGACY_TOPIC_ID), PACK_TOPIC_ID)
+    assert.equal((await topicLoader.loadTopicPack(LEGACY_TOPIC_ID, options))?.id, PACK_TOPIC_ID,
+      'the loader already reads the bare id as the pack')
+
+    const project = await projectManager.createProject({
+      name: 'Aliased topic channel', topic_pack_ids: [LEGACY_TOPIC_ID],
+    })
+    const fork = await forkLegacyContentForEdit(
+      { kind: 'topic-pack', legacyId: LEGACY_TOPIC_ID, projectSlug: project.slug },
+      options,
+    )
+    assert.equal(fork.source, 'content-pack')
+    const record = await readUserFork(fork.fork_id, options)
+    // The id the channel stored is kept; the content is the pack's, not the file's.
+    assert.equal(record?.source.catalog_source, 'content-pack')
+    assert.equal(record?.source.legacy_id, LEGACY_TOPIC_ID)
+    assert.equal((record?.document as { name?: string }).name, 'Signed Animals Topic')
+    assert.deepEqual((await projectManager.getProject(project.slug))?.topic_pack_ids, [fork.fork_id])
+  })
+
+  test('without the pack the legacy Topic Pack still answers, exactly as before', async () => {
+    const { options } = await isolated()
+    const builtin = await topicLoader.loadTopicPack(LEGACY_TOPIC_ID, options)
+    assert.equal(builtin?.id, LEGACY_TOPIC_ID, 'no pack installed means the legacy file is the Topic Pack')
+    const project = await projectManager.createProject({
+      name: 'Fallback topic channel', topic_pack_ids: [LEGACY_TOPIC_ID],
+    })
+
+    const fork = await forkLegacyContentForEdit(
+      { kind: 'topic-pack', legacyId: LEGACY_TOPIC_ID, projectSlug: project.slug },
+      options,
+    )
+    assert.equal(fork.source, 'legacy-builtin')
+    const record = await readUserFork(fork.fork_id, options)
+    assert.equal(record?.source.catalog_source, 'legacy-builtin')
+    assert.equal((record?.document as { name?: string }).name, builtin?.name)
+  })
+
+  test('the shadow-conflict list sees the pack a bare topic id reads as', async () => {
+    const { options } = await isolated()
+    await installContentPack({ archiveBytes: await packTopicArchive(), source: 'local-import' }, options)
+    const conflict = (await listLegacyShadowConflicts(options))
+      .find(entry => entry.kind === 'topic-pack' && entry.legacy_id === LEGACY_TOPIC_ID)
+    assert.ok(conflict, 'an installed pack makes the bare legacy id shadowable even before any fork')
+  })
+})

@@ -250,6 +250,18 @@ async function loadLegacySource(
     if (result) return result
   } else if (kind === 'topic-pack') {
     const loader = await import('../services/topic-pack-loader.js')
+    // The same read-time alias the Topic Pack loader uses: a bare id reads as
+    // its pack first (the merged Wars pack, for example), and the legacy file
+    // is the fallback for a Mac where the pack is not installed (AGENTS §1, §5).
+    const canonical = loader.resolveTopicPackAlias(legacyId)
+    if (canonical !== legacyId) {
+      const fromPack = await loadPackItemSource(kind, canonical, options)
+      if (fromPack) return fromPack
+      console.warn(
+        `[user-forks] '${legacyId}' reads as '${canonical}', which is not installed on this machine; `
+        + 'forking the legacy Topic Pack so editing keeps working',
+      )
+    }
     const result = await loader.loadLegacyTopicPack(legacyId)
     if (result) return result
   } else {
@@ -433,10 +445,14 @@ async function hasLegacyBuiltin(
   id: string,
   options: UserForkOptions = {},
 ): Promise<boolean> {
-  if (isQualifiedContentPackId(id) || kind === 'series-formula') {
-    const itemId = isQualifiedContentPackId(id)
-      ? id
-      : (await import('../services/niche-loader.js')).resolveFormulaAlias(id)
+  if (isQualifiedContentPackId(id) || kind === 'series-formula' || kind === 'topic-pack') {
+    let itemId = id
+    if (!isQualifiedContentPackId(id)) {
+      // A bare id reads as its pack item, exactly as the loader resolves it.
+      itemId = kind === 'topic-pack'
+        ? (await import('../services/topic-pack-loader.js')).resolveTopicPackAlias(id)
+        : (await import('../services/niche-loader.js')).resolveFormulaAlias(id)
+    }
     if (await loadPackItemSource(kind, itemId, options)) return true
     // A qualified id has no legacy file; only a bare one can still answer.
     if (isQualifiedContentPackId(id)) return false
