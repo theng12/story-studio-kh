@@ -55,6 +55,7 @@ import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.j
 import { pipelinePolicyForJob, pipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 import { MAX_NARRATION_SENTENCE_CHARS } from '../lib/tts-text.js'
 import { auditNarrationSection } from '../lib/narration-section-audit.js'
+import { formulaWordsPerChapter } from '../lib/script-sizing.js'
 import { withLock } from '../lib/atomic-store.js'
 import { resolveDefaultModel } from '../services/genstudio-default-model.js'
 
@@ -371,8 +372,21 @@ export async function generateChapterOnly(job: Job): Promise<void> {
     }
   }
 
-  const wordsPerChapter = Number(req.words_per_chapter) || 550
   const totalChapters = Number(req.chapters) || existingNumbers.length || chapterNumber
+  // A single-chapter regeneration targets the same per-chapter size the
+  // outline used: the request's choice, else the Formula's own length × pace,
+  // else the neutral 550. Without this a Quote Shorts regeneration would ask
+  // for a 550-word chapter its Formula never writes (AGENTS.md §1). The words
+  // are divided across THIS episode's chapter count (above), not the Formula's
+  // default: an episode whose count differs would otherwise get a chapter
+  // sized for a different episode.
+  const wordsPerChapter = Number(req.words_per_chapter)
+    || formulaWordsPerChapter({
+        minutes: req.length ?? format.script.defaultLengthMinutes,
+        wordsPerMinute: format.script.defaultWordsPerMinute,
+        chapters: totalChapters,
+      })
+    || 550
   const requestedStyle = req.style || format.script.defaultNarratorStyleId
   const style = requestedStyle === 'auto'
     ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
@@ -1025,9 +1039,20 @@ async function setupChunkedJobContext(
   const chapters = snapshotTotalChapters ?? req.chapters ?? format.script.defaultChapterCount
   // v1.0.168 — word sizing is chapters × words-per-chapter, never a
   // duration-keyed guess. Prefer explicit per-chapter target; derive total
-  // from it. Falls back to a neutral 550/chapter only when nothing is set.
+  // from it. When the caller sends neither (a headless/API outline — the UI
+  // always sends sizing), take the Formula's own length × pace instead of a
+  // neutral long-form 550. A Quote Shorts Formula asks for 1 chapter at
+  // 1 minute / 120 wpm; 550 words was the long-form default leaking in
+  // (AGENTS.md §1). Only a Formula that publishes no usable pace keeps 550.
+  const requestedTotalWords = snapshot?.total_words ?? req.total_words
   const wordsPerChapter = snapshot?.words_per_chapter ?? req.words_per_chapter
-    ?? (snapshot?.total_words ?? req.total_words ? Math.floor((snapshot?.total_words ?? req.total_words!) / chapters) : 550)
+    ?? (requestedTotalWords
+      ? Math.floor(requestedTotalWords / chapters)
+      : (formulaWordsPerChapter({
+          minutes: length,
+          wordsPerMinute: format.script.defaultWordsPerMinute,
+          chapters,
+        }) ?? 550))
   const totalWords = snapshot?.total_words ?? req.total_words ?? (wordsPerChapter * chapters)
   const requestedStyle = snapshot?.style ?? req.style ?? format.script.defaultNarratorStyleId
   const style = requestedStyle === 'auto'

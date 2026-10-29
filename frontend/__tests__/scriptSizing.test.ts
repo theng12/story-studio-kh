@@ -79,6 +79,20 @@ describe('script episode sizing', () => {
     })
   })
 
+  test('rounds once, over minutes × words-per-minute ÷ chapters — the server\'s arithmetic', () => {
+    // 2.5 min × 121 wpm ÷ 2 chapters = 151.25 → 151. Rounding the TOTAL first
+    // (303 ÷ 2 = 151.5) would say 152 — a chapter size lib/script-sizing.ts,
+    // and so the generator, would never target.
+    assert.deepEqual(resolveEpisodeScriptSizing({
+      suggestedChapters: 2,
+      suggestedLength: '2.5 min',
+      formatDefaultChapters: 2,
+      formatDefaultLengthMinutes: 2.5,
+      chapterCountRange: [2, 4],
+      wordsPerMinute: 121,
+    }), { chapters: 2, wordsPerChapter: 151 })
+  })
+
   test('requests the effective format for the selected accepted episode', () => {
     assert.equal(
       effectiveFormatPathForEpisode('pastoral-channel', 'PS 001/2'),

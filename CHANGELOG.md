@@ -33,6 +33,8 @@ What's new in each release. Newest first.
 - Khmer captions no longer come apart. Any caption look that added letter spacing drew every Khmer vowel and subscript on its own dotted circle; Khmer is now shaped properly whatever spacing the look asks for, and the fix reaches the one shipped look that set spacing.
 
 ---
+<!-- Draft — fold into the next release entry when this ships. -->
+- Quote Shorts: a new channel now follows its own Formula for length and scene rhythm. The outline targets the Formula's own length (one short at 120 wpm) instead of a long-form 550-word chapter, and a new channel's scene rhythm starts on the Formula's pacing profile — a shorter opening band, then the settled one — instead of the long-form tiers. An episode that saved its own rhythm keeps it, and no stored channel, preset or episode is rewritten.
 
 ## v1.4.367 — 2026-10-28
 
