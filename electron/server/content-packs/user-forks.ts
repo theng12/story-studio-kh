@@ -8,17 +8,30 @@ import * as projectManager from '../services/project-manager.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runtime-paths.js'
 import { withContentPackCoordinationLock } from './state.js'
 import type { ContentPackItemKind, UserForkableContentPackItemKind } from './types.js'
-import type { ContentCatalogSource, ContentPackRegistryOptions } from './registry.js'
+import {
+  isQualifiedContentPackId,
+  resolveCatalogItem,
+  type ContentPackRegistryOptions,
+} from './registry.js'
 
 export type UserForkId = `user:${string}`
 export type UserForkDocument = Niche | TopicPack | ThumbnailTemplate
+
+/**
+ * Where a fork's content came from. `content-pack` is a Formula or Topic Pack
+ * that ships as a Content Pack (owner, 2026-10-29: every Formula comes from a
+ * pack): its channel stores the qualified item id, so editing it must fork the
+ * installable item rather than look for a built-in file that no longer speaks
+ * for it.
+ */
+export type UserForkSource = 'legacy-builtin' | 'legacy-user-fork' | 'content-pack'
 
 export interface UserForkRecord {
   schema_version: 1
   fork_id: UserForkId
   kind: UserForkableContentPackItemKind
   source: {
-    catalog_source: 'legacy-builtin' | 'legacy-user-fork'
+    catalog_source: UserForkSource
     legacy_id: string
   }
   created_at: string
@@ -109,7 +122,8 @@ function parseForkRecord(value: unknown): UserForkRecord {
     throw new Error('Unsupported Content Pack user-fork kind')
   }
   const source = record.source as Record<string, unknown> | undefined
-  if (!source || (source.catalog_source !== 'legacy-builtin' && source.catalog_source !== 'legacy-user-fork')
+  if (!source || (source.catalog_source !== 'legacy-builtin' && source.catalog_source !== 'legacy-user-fork'
+    && source.catalog_source !== 'content-pack')
     || typeof source.legacy_id !== 'string' || !LEGACY_ID.test(source.legacy_id)) {
     throw new Error('Content Pack user-fork source metadata is invalid')
   }
@@ -173,13 +187,65 @@ export async function listUserForks(
   return records.sort((left, right) => left.fork_id.localeCompare(right.fork_id))
 }
 
+/**
+ * A Formula or Topic Pack that ships as a Content Pack, read as a fork source.
+ *
+ * A channel pinned to one stores the pack's qualified item id, and a bare
+ * legacy id reads as its pack through the read-time alias. Both must fork the
+ * installed item — reading only `electron/server/niches/*.json` sent a
+ * pack-pinned channel to a 404 the moment its own pack was installed
+ * (Settings → episode shape / music format).
+ *
+ * A recipe is deliberately not resolved here: forking one needs its signed
+ * preview rasters, which this path has never carried.
+ */
+async function loadPackItemSource(
+  kind: UserForkableContentPackItemKind,
+  itemId: string,
+  options: UserForkOptions,
+): Promise<{ document: UserForkDocument; source: 'content-pack' } | null> {
+  if (kind === 'thumbnail-recipe') return null
+  const entry = await resolveCatalogItem(itemId, undefined, options)
+  if (!entry) return null
+  const { contentPackDocumentToNiche, contentPackDocumentToTopicPack } = await import('./legacy-adapters.js')
+  if (kind === 'series-formula' && entry.value.kind === 'series-formula') {
+    return { document: contentPackDocumentToNiche(entry.value), source: 'content-pack' }
+  }
+  if (kind === 'topic-pack' && entry.value.kind === 'topic-pack') {
+    return { document: contentPackDocumentToTopicPack(entry.value), source: 'content-pack' }
+  }
+  return null
+}
+
 async function loadLegacySource(
   kind: UserForkableContentPackItemKind,
   legacyId: string,
-): Promise<{ document: UserForkDocument; source: 'legacy-builtin' | 'legacy-user-fork' }> {
+  options: UserForkOptions = {},
+): Promise<{ document: UserForkDocument; source: UserForkSource }> {
   if (!LEGACY_ID.test(legacyId)) throw Object.assign(new Error('Invalid legacy content id'), { statusCode: 400, expose: true })
+  // A qualified id can only ever be a pack item: there is no built-in file for
+  // it to fall back to, so an uninstalled one says so plainly.
+  if (isQualifiedContentPackId(legacyId)) {
+    const fromPack = await loadPackItemSource(kind, legacyId, options)
+    if (fromPack) return fromPack
+    throw Object.assign(
+      new Error(`Content Pack item is not installed on this Mac: ${legacyId}`),
+      { statusCode: 404, expose: true },
+    )
+  }
   if (kind === 'series-formula') {
     const loader = await import('../services/niche-loader.js')
+    // A bare legacy id reads as its pack first; the built-in file is the
+    // fallback, exactly as the niche loader resolves it (AGENTS §1, §5).
+    const canonical = loader.resolveFormulaAlias(legacyId)
+    if (canonical !== legacyId) {
+      const fromPack = await loadPackItemSource(kind, canonical, options)
+      if (fromPack) return fromPack
+      console.warn(
+        `[user-forks] '${legacyId}' reads as '${canonical}', which is not installed on this machine; `
+        + 'forking the legacy Formula so editing keeps working',
+      )
+    }
     const result = await loader.loadLegacyNiche(legacyId)
     if (result) return result
   } else if (kind === 'topic-pack') {
@@ -274,7 +340,7 @@ export async function forkLegacyContentForEdit(input: {
   kind: ContentPackItemKind
   legacyId: string
   projectSlug?: string
-}, options: UserForkOptions = {}): Promise<{ fork_id: UserForkId; source: ContentCatalogSource }> {
+}, options: UserForkOptions = {}): Promise<{ fork_id: UserForkId; source: UserForkSource }> {
   if (input.kind === 'visual-style' || input.kind === 'subtitle-style'
     || input.kind === 'scene-effect' || input.kind === 'overlay'
     || input.kind === 'reveal') {
@@ -287,7 +353,7 @@ export async function forkLegacyContentForEdit(input: {
   const paths = pathsFor(options)
   return withContentPackCoordinationLock(paths, async () => {
     if (input.projectSlug) await assertProjectSelectsLegacySource(input.projectSlug, kind, input.legacyId)
-    const legacy = await loadLegacySource(kind, input.legacyId)
+    const legacy = await loadLegacySource(kind, input.legacyId, options)
     const forkId = `user:${randomUUID()}` as UserForkId
     const document = structuredClone(legacy.document) as UserForkDocument
     document.id = forkId
@@ -357,7 +423,24 @@ async function legacyFilesForKind(kind: UserForkableContentPackItemKind): Promis
   }
 }
 
-async function hasLegacyBuiltin(kind: UserForkableContentPackItemKind, id: string): Promise<boolean> {
+/**
+ * Whether anything an id resolves to exists to be shadowed: an installed pack
+ * item (the id itself, or the item a bare legacy Formula id reads as), or —
+ * the fallback — the legacy built-in file.
+ */
+async function hasLegacyBuiltin(
+  kind: UserForkableContentPackItemKind,
+  id: string,
+  options: UserForkOptions = {},
+): Promise<boolean> {
+  if (isQualifiedContentPackId(id) || kind === 'series-formula') {
+    const itemId = isQualifiedContentPackId(id)
+      ? id
+      : (await import('../services/niche-loader.js')).resolveFormulaAlias(id)
+    if (await loadPackItemSource(kind, itemId, options)) return true
+    // A qualified id has no legacy file; only a bare one can still answer.
+    if (isQualifiedContentPackId(id)) return false
+  }
   let filePath: string
   if (kind === 'series-formula') {
     filePath = path.join((await import('../services/niche-loader.js')).BUILTIN_NICHES_DIR, `${id}.json`)
@@ -402,7 +485,7 @@ export async function listLegacyShadowConflicts(options: UserForkOptions = {}): 
         const signed = await resolveCatalogItem(legacyId, undefined, options)
         if (signed?.value.kind === kind) signedItemId = legacyId
       }
-      if (!signedItemId && !await hasLegacyBuiltin(kind, legacyId)) continue
+      if (!signedItemId && !await hasLegacyBuiltin(kind, legacyId, options)) continue
       conflicts.push({
         kind,
         legacy_id: legacyId,

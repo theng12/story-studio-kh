@@ -401,6 +401,10 @@ function formulaTitleStyle(formula: Niche): string {
 }
 function formulaDuration(formula: Niche): string {
   const structure = formula.scriptStructure
+  // 1.4.369 — a short-form Formula states its length in seconds (Quote
+  // Shorts: 10–60 s); a whole-minute figure next to its prose would contradict it.
+  if (structure?.lengthSecondsRange) return `${structure.lengthSecondsRange[0]}–${structure.lengthSecondsRange[1]} seconds`
+  if (typeof structure?.defaultLengthSeconds === 'number') return `${structure.defaultLengthSeconds} seconds`
   if (structure?.lengthMinutesRange) return `${structure.lengthMinutesRange[0]}–${structure.lengthMinutesRange[1]} minutes`
   return structure?.defaultLengthMinutes ? `${structure.defaultLengthMinutes} minutes` : 'Not specified'
 }

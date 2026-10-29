@@ -3109,14 +3109,22 @@ async function doAccept(action: 'folders' | 'script') {
     acceptDialogIdea.value = null
     await loadIdeas()
     const code = result.episode_code
-    success(`Accepted! ${code} folders created.`)
+    // 1.4.369 — a channel with a starting length range draws this episode's
+    // length at creation. Say the number when it differs from the suggestion
+    // the customer was looking at, so it never changes under them silently.
+    const acceptedLength = result.idea?.suggested_length
+    const lengthNote = acceptedLength && acceptedLength !== idea.suggested_length
+      ? ` This episode's length: ${acceptedLength}.`
+      : ''
+    success(`Accepted! ${code} folders created.${lengthNote}`)
     if (action === 'script') navigateTo({
       path: `/projects/${slug.value}/scripts`,
       query: scriptDeepLinkQuery({
         episodeCode: code,
         title: idea.title,
         suggestedChapters: idea.suggested_chapters,
-        suggestedLength: idea.suggested_length,
+        // The drawn length, not the model's suggestion — the episode's own.
+        suggestedLength: acceptedLength ?? idea.suggested_length,
       }),
     })
   } catch (e: any) {

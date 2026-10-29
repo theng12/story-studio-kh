@@ -24,6 +24,10 @@
  *   startingSceneSeconds → config.json `default_scene_pacing`, when it declares
  *                         only one band; ignored when either of the above is
  *                         present
+ *   scriptStructure      → config.json `episode_length` when it declares a
+ *                         seconds-precision length range (Quote Shorts, owner
+ *                         2026-10-29): each NEW episode's length is drawn once
+ *                         inside the range instead of copying one fixed figure
  *
  * The rhythm is also seeded as a Scene Plan preset the channel builds on. A
  * new channel already gets the app-wide "Owner standard pacing" preset marked
@@ -36,6 +40,7 @@
 
 import * as pm from './project-manager.js'
 import { parseScenePacing, type ScenePacing } from '../contracts/pacing.js'
+import { episodeLengthSettingFromScript } from '../lib/episode-length.js'
 import type { Niche } from '../models/types.js'
 
 type StartingDefaultsSource = Pick<
@@ -94,6 +99,14 @@ export function startingDefaultsFromFormula(niche: StartingDefaultsSource | null
   if (look) defaults.default_style_bible = look
   const pacing = startingPacingFromFormula(niche)
   if (pacing) defaults.default_scene_pacing = pacing
+  // 1.4.369 — a Formula that declares a seconds-precision length range (Quote
+  // Shorts: 10–60 s) seeds the channel's own copy. From then on it is an
+  // ordinary editable setting — the channel can change the range or switch the
+  // per-episode draw off — and each NEW episode's length is drawn from it once
+  // (services/episode-length.ts). A channel created before this has no copy and
+  // reads the Formula live, so it needs no migration.
+  const episodeLength = episodeLengthSettingFromScript(niche?.scriptStructure)
+  if (episodeLength) defaults.episode_length = episodeLength
   return defaults
 }
 

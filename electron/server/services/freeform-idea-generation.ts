@@ -11,6 +11,7 @@ import type { OutputBudget } from './output-token-budget.js'
 import { ideaBatchOutputContract } from '../lib/story-output-contracts.js'
 import type { TextOutputContract } from '../lib/json-output-contract.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { formulaLengthPrompt } from '../lib/episode-length.js'
 import { sample } from './reference-pool.js'
 
 // Expanded lever pool covering four diversity axes. Two are picked at random
@@ -234,6 +235,13 @@ Rules:
   const lengthExamples = lenMin === lenMax
     ? `"${lenMin} min"`
     : `"${lenMin} min" through "${lenMax} min"`
+  // 1.4.369 — a short-form Formula publishes seconds (Quote Shorts: 10–60 s).
+  // Say that, so the writer suggests a Short length instead of rounding it to
+  // a whole-minute range it would immediately contradict.
+  const lengthPrompt = formulaLengthPrompt(format.script)
+  const lengthRule = format.script.lengthSecondsRange || typeof format.script.defaultLengthSeconds === 'number'
+    ? `${lengthPrompt.oneOf} (this Formula's own default ${lengthPrompt.example})`
+    : `minutes-string within ${lengthExamples} (format default ${format.script.defaultLengthMinutes} min)`
   // Example ideas baked into the format render as a "see this bar"
   // signal — the LLM matches output style to in-prompt examples far
   // more reliably than to abstract guidance.
@@ -333,7 +341,7 @@ ${titleInstruction}
 ${loglineInstruction}
 ${themeInstruction}
 4. suggested_chapters — ${chapterRule}
-5. suggested_length — minutes-string within ${lengthExamples} (format default ${format.script.defaultLengthMinutes} min)
+5. suggested_length — ${lengthRule}
 6. mood — emotional arc in 2–4 words
 
 RULES:

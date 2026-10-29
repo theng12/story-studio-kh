@@ -1,5 +1,5 @@
 {
-  "revision": 357,
+  "revision": 362,
   "batches": [
     {
       "revision": 2,
@@ -7184,6 +7184,100 @@
           }
         ]
       }
+    },
+    {
+      "revision": 358,
+      "receipt_ref": "authoring:97f0501631d2c953ad8121f59511564442de2df6fe5fb01d1f7c9e46eb2d5e6f",
+      "request": {
+        "expected_revision": 357,
+        "coordinator": {
+          "task": "quote-shorts-still-posts-formula-packs",
+          "branch": "content/quote-shorts-still-posts-packs-20261029"
+        },
+        "proposal_ref": "Owner ruling 2026-10-29: no custom, no built in, all Formulas from packs. Adopt the free built-in Quote Shorts and Still Posts Formulas as their own Content Packs.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.formula.quote-shorts",
+            "item_id": "com.storystudio.formula.quote-shorts",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "1.4.369",
+            "min_app_version_status": "fixed",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/quote-shorts",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.quote-shorts",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.quote-shorts",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.still-posts",
+            "item_id": "com.storystudio.formula.still-posts",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "1.4.369",
+            "min_app_version_status": "fixed",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/still-posts",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.still-posts",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.still-posts",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 359,
+      "receipt_ref": "authoring:a6199e910d9c43be876d96c7261479ec23e51d9309c54310364aa8c145618503",
+      "request": {
+        "expected_revision": 358,
+        "coordinator": {
+          "task": "quote-shorts-still-posts-formula-packs",
+          "branch": "content/quote-shorts-still-posts-packs-20261029"
+        },
+        "proposal_ref": "Owner ruling 2026-10-29: no custom, no built in, all Formulas from packs. Adopt the remaining pack-less built-in Formula, Music Mix, as its own Content Pack carrying the same music format.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.formula.music-mix",
+            "item_id": "com.storystudio.formula.music-mix",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "1.4.359",
+            "min_app_version_status": "fixed",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/music-mix",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.music-mix",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.music-mix",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -12294,6 +12388,57 @@
         "receipt_ref": "authoring:30d40f27b363f2dc21e24af7c4d3729623453814cd41a4c393aaf88ee42138c8",
         "pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
         "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 360,
+      "transition_ref": "lifecycle:876b4b371c3ae9e1d30627178b3cca158c48f424e290ad4b7a9f24e75eb43c50",
+      "request": {
+        "expected_revision": 359,
+        "coordinator": {
+          "task": "quote-shorts-still-posts-formula-packs",
+          "branch": "content/quote-shorts-still-posts-packs-20261029"
+        },
+        "receipt_ref": "authoring:97f0501631d2c953ad8121f59511564442de2df6fe5fb01d1f7c9e46eb2d5e6f",
+        "pack_id": "com.storystudio.pack.formula.quote-shorts",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 361,
+      "transition_ref": "lifecycle:92b7918f4fb771a49d0b6bd8faf1c48924b052513897a7d991c01f7c3b07173d",
+      "request": {
+        "expected_revision": 360,
+        "coordinator": {
+          "task": "quote-shorts-still-posts-formula-packs",
+          "branch": "content/quote-shorts-still-posts-packs-20261029"
+        },
+        "receipt_ref": "authoring:97f0501631d2c953ad8121f59511564442de2df6fe5fb01d1f7c9e46eb2d5e6f",
+        "pack_id": "com.storystudio.pack.formula.still-posts",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 362,
+      "transition_ref": "lifecycle:013d51e33282fe269be1cb82cb73614ad23a2ae1b876b3b3e699d74230815f5f",
+      "request": {
+        "expected_revision": 361,
+        "coordinator": {
+          "task": "quote-shorts-still-posts-formula-packs",
+          "branch": "content/quote-shorts-still-posts-packs-20261029"
+        },
+        "receipt_ref": "authoring:a6199e910d9c43be876d96c7261479ec23e51d9309c54310364aa8c145618503",
+        "pack_id": "com.storystudio.pack.formula.music-mix",
+        "version": "1.0.0",
         "changes": {
           "status": "authored"
         }
@@ -20475,6 +20620,75 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:97f0501631d2c953ad8121f59511564442de2df6fe5fb01d1f7c9e46eb2d5e6f",
+      "pack_id": "com.storystudio.pack.formula.quote-shorts",
+      "item_id": "com.storystudio.formula.quote-shorts",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "1.4.369",
+      "min_app_version_status": "fixed",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/quote-shorts",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.quote-shorts",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.quote-shorts",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:97f0501631d2c953ad8121f59511564442de2df6fe5fb01d1f7c9e46eb2d5e6f",
+      "pack_id": "com.storystudio.pack.formula.still-posts",
+      "item_id": "com.storystudio.formula.still-posts",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "1.4.369",
+      "min_app_version_status": "fixed",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/still-posts",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.still-posts",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.still-posts",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:a6199e910d9c43be876d96c7261479ec23e51d9309c54310364aa8c145618503",
+      "pack_id": "com.storystudio.pack.formula.music-mix",
+      "item_id": "com.storystudio.formula.music-mix",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "1.4.359",
+      "min_app_version_status": "fixed",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/music-mix",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.music-mix",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.music-mix",
           "status": "proposed"
         }
       }

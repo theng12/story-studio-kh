@@ -602,3 +602,114 @@ describe('explicit legacy Content Pack user forks', () => {
       /(?:\/Users\/|file:|\.niches|\.topic-packs|\.thumbnail-templates)/i)
   })
 })
+
+/**
+ * Owner, 2026-10-29: every Formula comes from a pack, so the id a channel stores
+ * is the pack's qualified item id (or a bare id that reads as one). Editing that
+ * channel's episode shape or music format forks the Formula it actually uses —
+ * reading only `electron/server/niches/*.json` sent every pack-pinned channel to
+ * a 404 the moment its own pack was installed.
+ *
+ * The legacy file stays the fallback, so a Mac without the pack behaves exactly
+ * as it did before.
+ */
+describe('forking a Formula that ships as a Content Pack', () => {
+  const SLUG = 'com.storystudio.formula.sleep-story'
+
+  function packFormulaArchive(name = 'Signed Sleep Formula'): Promise<Uint8Array> {
+    return signedArchive({
+      kind: 'series-formula', schema_version: 1, id: SLUG,
+      name, description: 'Sleep content that lives in a pack.',
+      channel_promise: 'Quiet nights.', audience: 'Night listeners.',
+      narrative_rules: ['Stay calm.'], title_rules: ['Name the hour.'],
+      script_structure: {
+        default_chapter_count: 2, chapter_count_range: [1, 3], default_length_minutes: 30,
+        length_minutes_range: [20, 40], duration_presets: [20, 30, 40], default_words_per_minute: 110,
+        chapters_independent: true, pacing_arc: ['Slow open'], additional_rules: ['No shock.'],
+      },
+      compatible_topic_pack_ids: [],
+      recommended_visual_style_ids: [], recommended_thumbnail_recipe_ids: [],
+    } as ContentPackDocument, 'content/sleep.json')
+  }
+
+  test('a channel pinned to the pack item forks the pack, through the edit route', async () => {
+    const { options } = await isolated()
+    await installContentPack({ archiveBytes: await packFormulaArchive(), source: 'local-import' }, options)
+    const project = await projectManager.createProject({ name: 'Pack Formula channel', niche_id: SLUG })
+    const app = express()
+    app.use(express.json())
+    app.locals.contentPackOptions = options
+    app.use('/api', nichesRouter)
+
+    const response = await request(app)
+      .patch(`/api/niches/${encodeURIComponent(SLUG)}/episode-shape?project_slug=${project.slug}`)
+      .send({
+        defaultChapterCount: 4,
+        chapterCountRange: [3, 5],
+        defaultLengthMinutes: 35,
+        lengthMinutesRange: [30, 40],
+        defaultWordsPerMinute: 120,
+        chaptersIndependent: true,
+        metadataTitleStyleHint: 'Name the hour and the weather.',
+      })
+      .expect(200)
+
+    assert.match(response.body.id, /^user:/)
+    assert.equal(response.body.forked_from, SLUG)
+    assert.equal(response.body.niche.scriptStructure.defaultLengthMinutes, 35)
+    // The fork carries the PACK's content, not the built-in file's.
+    assert.equal(response.body.niche.name, 'Signed Sleep Formula')
+
+    const record = await readUserFork(response.body.id, options)
+    assert.equal(record?.source.catalog_source, 'content-pack')
+    assert.equal(record?.source.legacy_id, SLUG)
+    assert.equal((record?.document as { name?: string }).name, 'Signed Sleep Formula')
+    assert.equal((await projectManager.getProject(project.slug))?.niche_id, response.body.id)
+    const effective = await nicheLoader.getEffectiveNicheFor((await projectManager.getProject(project.slug))!, undefined, options)
+    assert.equal(effective?.scriptStructure?.defaultLengthMinutes, 35)
+  })
+
+  test('a bare legacy id forks the installed pack it reads as', async () => {
+    const { options } = await isolated()
+    await installContentPack({ archiveBytes: await packFormulaArchive(), source: 'local-import' }, options)
+    const project = await projectManager.createProject({ name: 'Aliased channel', niche_id: 'sleep' })
+    assert.equal((await nicheLoader.loadNiche('sleep', options))?.id, SLUG, 'the bare id reads the pack')
+
+    const fork = await forkLegacyContentForEdit(
+      { kind: 'series-formula', legacyId: 'sleep', projectSlug: project.slug },
+      options,
+    )
+    assert.equal(fork.source, 'content-pack')
+    const record = await readUserFork(fork.fork_id, options)
+    // The id the channel stored is what the record keeps; the content is the pack's.
+    assert.equal(record?.source.catalog_source, 'content-pack')
+    assert.equal(record?.source.legacy_id, 'sleep')
+    assert.equal((record?.document as { name?: string }).name, 'Signed Sleep Formula')
+    assert.equal((await projectManager.getProject(project.slug))?.niche_id, fork.fork_id)
+  })
+
+  test('without the pack the legacy built-in still answers, exactly as before', async () => {
+    const { options } = await isolated()
+    const builtin = await nicheLoader.loadNiche('sleep', options)
+    assert.equal(builtin?.id, 'sleep', 'no pack installed means the built-in is the Formula')
+    const project = await projectManager.createProject({ name: 'Fallback channel', niche_id: 'sleep' })
+
+    const fork = await forkLegacyContentForEdit(
+      { kind: 'series-formula', legacyId: 'sleep', projectSlug: project.slug },
+      options,
+    )
+    assert.equal(fork.source, 'legacy-builtin')
+    const record = await readUserFork(fork.fork_id, options)
+    assert.equal(record?.source.catalog_source, 'legacy-builtin')
+    assert.equal(record?.source.legacy_id, 'sleep')
+    assert.equal((record?.document as { name?: string }).name, builtin?.name)
+  })
+
+  test('a qualified id with nothing installed says the pack is missing, not a legacy file', async () => {
+    const { options } = await isolated()
+    await assert.rejects(
+      () => forkLegacyContentForEdit({ kind: 'series-formula', legacyId: SLUG }, options),
+      /not installed on this Mac/,
+    )
+  })
+})

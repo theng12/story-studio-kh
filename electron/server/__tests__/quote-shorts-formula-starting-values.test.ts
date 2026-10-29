@@ -30,6 +30,7 @@ import { fileURLToPath } from 'url'
 import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 import { formulaWordsPerChapter } from '../lib/script-sizing.js'
+import { scriptLengthMinutes } from '../lib/episode-length.js'
 import { startingDefaultsFromFormula } from '../services/formula-starting-defaults.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
@@ -84,10 +85,15 @@ before(async () => {
 after(async () => { await tmp.cleanup() })
 
 describe('the script target comes from the Formula', () => {
-  test('Quote Shorts asks for a one-minute, 120-wpm Short', async () => {
+  test('Quote Shorts asks for a 45-second Short, drawn per episode inside 10–60 s', async () => {
     const formula = await readJson('electron/server/niches/quote-shorts.json')
     assert.equal(formula.scriptStructure.defaultChapterCount, 1)
-    assert.equal(formula.scriptStructure.defaultLengthMinutes, 1)
+    // 1.4.369 — the owner's agreed single value, in seconds: 45 s. The
+    // whole-minute fields stay as the required integer fallback and are
+    // superseded by these everywhere the length is read.
+    assert.equal(formula.scriptStructure.defaultLengthSeconds, 45)
+    assert.deepEqual(formula.scriptStructure.lengthSecondsRange, [10, 60])
+    assert.equal(formula.scriptStructure.randomizeLength, true)
     assert.equal(formula.scriptStructure.defaultWordsPerMinute, 120)
     assert.deepEqual(formula.scriptStructure.visualPacingProfile, {
       opening_duration_sec: 6,
@@ -99,13 +105,17 @@ describe('the script target comes from the Formula', () => {
   test('the effective format the generator reads carries the Shorts target, not 550', async () => {
     const { getEffectiveFormat } = await import('../services/format-loader.js')
     const format = await getEffectiveFormat(slug)
+    assert.equal(format.script.defaultLengthSeconds, 45)
+    assert.deepEqual(format.script.lengthSecondsRange, [10, 60])
+    assert.equal(format.script.randomizeLength, true)
     const words = formulaWordsPerChapter({
-      minutes: format.script.defaultLengthMinutes,
+      minutes: scriptLengthMinutes(format.script),
       wordsPerMinute: format.script.defaultWordsPerMinute,
       chapters: format.script.defaultChapterCount,
     })
-    assert.equal(words, 120, '1 minute × 120 wpm ÷ 1 chapter = 120 words')
+    assert.equal(words, 90, '45 s × 120 wpm ÷ 1 chapter = 90 words')
     assert.notEqual(words, 550, 'the long-form neutral default must not be the Shorts target')
+    assert.notEqual(words, 120, 'a whole minute would still be the too-long figure the owner rejected')
   })
 
   test('a long-form Formula keeps its own per-chapter target', async () => {
@@ -142,6 +152,16 @@ describe('the scene rhythm starts on the Formula profile', () => {
 
     // The owner-standard preset stays available by name; nothing was rewritten.
     assert.ok(config.scene_plan_presets.some((entry: any) => entry.name === 'Owner standard pacing'))
+  })
+
+  test('a new channel copies the Formula length range as its own editable setting', async () => {
+    const config = await pm.getConfig(slug) as any
+    assert.deepEqual(config.episode_length, {
+      mode: 'random',
+      min_sec: 10,
+      max_sec: 60,
+      fixed_sec: 45,
+    }, 'the channel starts drawing each new episode inside the Formula range')
   })
 
   test('a fresh episode planned by Scene Plan resolves the Formula profile', async () => {

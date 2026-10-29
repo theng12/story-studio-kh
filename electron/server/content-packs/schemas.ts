@@ -124,6 +124,15 @@ const ScriptStructureSchema = z.object({
   chapter_count_range: boundedRange(1, 100),
   default_length_minutes: z.number().int().min(1).max(600),
   length_minutes_range: boundedRange(1, 600),
+  /**
+   * 1.4.369 — seconds-precision length for a short-form Formula (a 10–60 s
+   * Quote Short cannot be written in whole minutes). Optional, so every
+   * already-authored pack validates unchanged; when present the app's length
+   * readers prefer it over the minutes pair above.
+   */
+  default_length_seconds: z.number().int().min(1).max(3600).optional(),
+  length_seconds_range: boundedRange(1, 3600).optional(),
+  randomize_length: z.boolean().optional(),
   duration_presets: z.array(z.number().int().min(1).max(600)).min(1).max(20),
   default_words_per_minute: z.number().int().min(50).max(300),
   chapters_independent: z.boolean(),
@@ -257,6 +266,23 @@ const MusicFormatSchema = z.object({
 }).strict()
 
 /**
+ * A Still Posts channel's own block (owner, 2026-10-27: a Formula that declares
+ * `stillPostsFormat` makes the channel a Still Posts channel; owner, 2026-10-29:
+ * that Formula now ships as a Content Pack).
+ *
+ * The keys stay exactly as the still-posts subsystem already reads them
+ * (`stillPostsFormat.writeSystemPromptRole`, `.quoteGuidance`), so the block is
+ * DATA passed through verbatim and the writer prompt needs no code change.
+ * Presence is what marks the channel: the same rule the built-in niche has
+ * always followed, so adopting the built-in changes nothing it reports.
+ */
+const StillPostsFormatSchema = z.object({
+  enabled: z.boolean().optional(),
+  writeSystemPromptRole: safeText(4000),
+  quoteGuidance: safeText(4000),
+}).strict()
+
+/**
  * A tiered starting rhythm: the same `variable` shape Scene Plan's Visual timing
  * & motion panel edits (contracts/pacing.ts), authored as data so a Formula can
  * start an episode slower as it lengthens — e.g. the Sleep tiers (owner,
@@ -334,6 +360,8 @@ const SeriesFormulaDocumentSchema = z.object({
   aspect_ratio: z.enum(['16:9', '9:16', '1:1']).optional(),
   /** Present only on a music channel; see MusicFormatSchema. */
   music_format: MusicFormatSchema.optional(),
+  /** Present only on a Still Posts channel; see StillPostsFormatSchema. */
+  still_posts_format: StillPostsFormatSchema.optional(),
   starting_scene_seconds: boundedRange(1, 120).optional(),
   /** Tiered starting rhythm; when present it supersedes `starting_scene_seconds`
    *  for a NEW channel (services/formula-starting-defaults.ts). */

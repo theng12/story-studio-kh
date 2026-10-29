@@ -238,9 +238,16 @@ function validateNicheShape(n: any, filePath: string): void {
  * `electron/server/niches/*.json` sources stay in place (AGENTS §5).
  *
  * The map is the identity table in `content-packs/legacy-migration-dispositions
- * .json`, made executable for the read path. `music-mix` is deliberately
- * absent: it was retired as a Story Content Store Formula and remains owned by
- * the music-video subsystem.
+ * .json`, made executable for the read path.
+ *
+ * `music-mix` used to be the one Formula deliberately absent from this table:
+ * the 2026-09-01 ledger closed it as runtime-only because the music-video
+ * subsystem owned it, and a Formula could not carry a music format. A music
+ * Formula now carries its own `music_format` block (owner, 2026-10-25, Coffee
+ * Jazz), and the owner has since ruled that every Formula comes from a pack
+ * (2026-10-29), so that reason no longer holds and Music Mix is an aliased pack
+ * like the rest. The music subsystem still owns the workflow; only the Formula
+ * they read changed where it lives.
  *
  * The three owner-authored forks below are unique contracts, not duplicates
  * (owner ruling, 2026-10-25), so they were adopted into the store under
@@ -268,6 +275,13 @@ export const LEGACY_FORMULA_ALIASES: Readonly<Record<string, string>> = Object.f
   preaching: 'com.storystudio.formula.pastoral-scripture',
   psychology: 'com.storystudio.formula.human-behavior-explained',
   sleep: 'com.storystudio.formula.sleep-story',
+  // Owner, 2026-10-29: "no custom, no built in, all from packs." The Quote
+  // Shorts and Still Posts built-ins are now Content Packs, so a channel that
+  // stored either built-in id reads the installed pack instead. The legacy
+  // files stay as the fallback for a Mac where the pack is not installed.
+  'quote-shorts': 'com.storystudio.formula.quote-shorts',
+  'still-posts': 'com.storystudio.formula.still-posts',
+  'music-mix': 'com.storystudio.formula.music-mix',
   // Owner custom Formulas adopted as store packs (content-only adoption).
   'user:c0293626-910a-4dbd-9c5a-2e0a6c90d798': 'com.storystudio.formula.wildlife-under-pressure',
   'user:9388c497-e3a1-4faa-9334-f86deead2efe': 'com.storystudio.formula.coffee-jazz-ambient',

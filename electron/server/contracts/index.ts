@@ -205,6 +205,10 @@ const FormulaScriptStructureSchema = z.object({
   chapterCountRange: z.tuple([z.number().int().min(1).max(100), z.number().int().min(1).max(100)]),
   defaultLengthMinutes: z.number().int().min(1).max(600),
   lengthMinutesRange: z.tuple([z.number().int().min(1).max(600), z.number().int().min(1).max(600)]),
+  /** 1.4.369 — seconds-precision length; supersedes the minutes pair. */
+  defaultLengthSeconds: z.number().int().min(1).max(3600).optional(),
+  lengthSecondsRange: z.tuple([z.number().int().min(1).max(3600), z.number().int().min(1).max(3600)]).optional(),
+  randomizeLength: z.boolean().optional(),
   durationPresets: z.array(z.number().int().min(1).max(600)).min(1).max(20),
   defaultWordsPerMinute: z.number().int().min(50).max(300),
   chaptersIndependent: z.boolean(),
@@ -481,6 +485,20 @@ export const UpdateConfigSchema = z.object({
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check (services/safety-checks.ts). */
   safety_checks: z.record(z.string().max(80), z.enum(['off', 'warn', 'block'])).optional(),
+  /**
+   * 1.4.369 — the channel's per-episode starting length. A shape that is not
+   * whole seconds, or whose bounds cross, is refused rather than stored and
+   * quietly ignored by the reader (§6).
+   */
+  episode_length: z.object({
+    mode: z.enum(['random', 'fixed']),
+    min_sec: z.number().int().min(1).max(3600),
+    max_sec: z.number().int().min(1).max(3600),
+    fixed_sec: z.number().int().min(1).max(3600),
+  }).strict().refine(v => v.max_sec >= v.min_sec, {
+    message: 'the longest episode must not be shorter than the shortest',
+    path: ['max_sec'],
+  }).optional(),
   audio_quality: z.object({
     mode: z.enum(['off', 'flag_issues', 'check_and_repair']),
     alternate_transcription_model: z.string().trim().min(1).max(240).optional(),
@@ -552,6 +570,17 @@ export interface SafeProjectConfigResponse {
   audio_quality?: {
     mode: 'off' | 'flag_issues' | 'check_and_repair'
     alternate_transcription_model?: string
+  }
+  /**
+   * 1.4.369 — the channel's per-episode starting length (Quote Shorts: draw
+   * each new episode's length inside 10–60 s). Absent means "read the live
+   * Formula", which is how every channel created before this setting behaves.
+   */
+  episode_length?: {
+    mode: 'random' | 'fixed'
+    min_sec: number
+    max_sec: number
+    fixed_sec: number
   }
   /** 1.4.364 — the free scene-image quality check's switch and shadow end date. */
   scene_image_check?: {

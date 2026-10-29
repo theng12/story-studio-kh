@@ -1549,6 +1549,22 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     default_style_bible: typeof (config as any).default_style_bible === 'string'
       ? (config as any).default_style_bible
       : undefined,
+    // 1.4.369 — the channel's per-episode starting length. Echoed for the same
+    // reason as the toggles above: this response is an allow-list, so without
+    // an entry the saved range would be invisible on the next read and the
+    // Script page would re-render the Formula's default. Undefined means "never
+    // set", which resolves to the live Formula's range (lib/episode-length.ts).
+    episode_length: (() => {
+      const raw = (config as any).episode_length
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+      const mode = raw.mode === 'random' || raw.mode === 'fixed' ? raw.mode : null
+      const num = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null
+      const min = num(raw.min_sec)
+      const max = num(raw.max_sec)
+      const fixed = num(raw.fixed_sec)
+      if (!mode || min === null || max === null || fixed === null) return undefined
+      return { mode, min_sec: min, max_sec: max, fixed_sec: fixed }
+    })(),
     avoid_legible_text_in_scenes: typeof (config as any).avoid_legible_text_in_scenes === 'boolean'
       ? (config as any).avoid_legible_text_in_scenes
       : undefined,

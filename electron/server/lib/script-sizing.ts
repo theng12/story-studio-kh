@@ -7,7 +7,7 @@
  * without an explicit `words_per_chapter` (a headless or Production API call —
  * the UI always sends it) fell through to a neutral 550 words per chapter. That
  * made a Quote Shorts episode target a 550-word chapter although its Formula
- * asks for a one-minute Short at 120 wpm (AGENTS.md §1: everything follows the
+ * asks for a 45-second Short at 120 wpm (AGENTS.md §1: everything follows the
  * Formula).
  *
  * This is deliberately the same arithmetic, moved to one place both the outline

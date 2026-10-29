@@ -207,9 +207,11 @@ test('declared preview redirects cannot cross a Style or Recipe provenance ident
 // Owner ruling 2026-10-25 added five free Formula lineages — the three adopted
 // owner Formulas (Wildlife Under Pressure, Coffee Jazz Ambient) and the three
 // new channel Formulas (Khmer Folk Horror, Calm Science for Sleep, Mythology
-// for Sleep) — so the floor is 42. The four components each Kit used to
-// coordinate are all still here and still sold.
-test('free Starter sources preserve 42 lineages and every versioned successor', async () => {
+// for Sleep) — so the floor was 42. Owner ruling 2026-10-29 ("no custom, no
+// built in, all from packs") adopted the free built-in Formulas, Quote Shorts,
+// Still Posts and Music Mix, so the floor is 45. The four components each Kit
+// used to coordinate are all still here and still sold.
+test('free Starter sources preserve 45 lineages and every versioned successor', async () => {
   const sourceRoots = ['formula', 'topic', 'style', 'thumbnail']
   const packSources = []
   for (const root of sourceRoots) {
@@ -221,7 +223,7 @@ test('free Starter sources preserve 42 lineages and every versioned successor', 
       packSources.push({ relative, source })
     }
   }
-  assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 42)
+  assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 45)
   assert.equal(
     new Set(packSources.map(row => `${row.source.pack_id}@${row.source.version}`)).size,
     packSources.length,

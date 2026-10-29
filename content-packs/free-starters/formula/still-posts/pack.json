@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.formula.still-posts",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "1.4.369",
+  "lifecycle": "active",
+  "entitlement": {
+    "sku": "com.storystudio.sku.formula.still-posts",
+    "family": "com.storystudio.family.formula.still-posts"
+  },
+  "dependencies": [],
+  "changelog": "The Still Posts Formula as an installable pack, carrying the built-in exactly: one short quote burned onto one drawn picture, with recurring characters and no narration. Applying it to a channel keeps that channel's Still Posts workspace and its writing voice."
+}

@@ -968,13 +968,16 @@
     },
     {
       "legacy_key": "niche:music-mix",
-      "disposition": "retired-runtime-compatible",
+      "disposition": "authored-standalone",
       "source": "electron/server/niches/music-mix.json",
       "target": {
-        "kind": "runtime-niche",
-        "id": "music-mix"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.music-mix",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/music-mix"
       },
-      "note": "Old projects remain readable; the music-video subsystem owns this workflow, so it is not a Story Content Store Formula."
+      "note": "Superseded 2026-10-29 (owner: no custom, no built in, all Formulas from packs). It was closed as runtime-only on 2026-09-01 because the music-video subsystem owned the workflow and a Formula could not carry a music format; a music Formula now carries its own music_format block (2026-10-25, Coffee Jazz), so the built-in is adopted as its own pack with the same music format and the legacy id resolves through the read-time alias. The music subsystem still owns the workflow."
     },
     {
       "legacy_key": "niche:philosophy",
@@ -1077,23 +1080,29 @@
     },
     {
       "legacy_key": "niche:quote-shorts",
-      "disposition": "retained-free-builtin",
+      "disposition": "authored-standalone",
       "source": "electron/server/niches/quote-shorts.json",
       "target": {
-        "kind": "runtime-niche",
-        "id": "quote-shorts"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.quote-shorts",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/quote-shorts"
       },
-      "note": "Built-in Quote Shorts Formula (owner, 2026-10-27); ships with the app, not yet a Content Store pack."
+      "note": "Owner, 2026-10-29: no custom, no built in — all Formulas from packs. The built-in Quote Shorts Formula is adopted as its own pack, unchanged; the legacy id resolves to the pack through the read-time alias and the legacy file stays as the fallback."
     },
     {
       "legacy_key": "niche:still-posts",
-      "disposition": "retained-free-builtin",
+      "disposition": "authored-standalone",
       "source": "electron/server/niches/still-posts.json",
       "target": {
-        "kind": "runtime-niche",
-        "id": "still-posts"
+        "kind": "registry-record",
+        "pack_id": "com.storystudio.pack.formula.still-posts",
+        "version": "1.0.0",
+        "status": "authored",
+        "source_path": "content-packs/free-starters/formula/still-posts"
       },
-      "note": "Built-in Still Posts Formula (owner, 2026-10-27); ships with the app, not yet a Content Store pack."
+      "note": "Owner, 2026-10-29: no custom, no built in — all Formulas from packs. The built-in Still Posts Formula is adopted as its own pack, unchanged, carrying its still_posts_format block so the Still Posts workspace and writer voice still follow the Formula; the legacy id resolves to the pack through the read-time alias, with the legacy file as the fallback."
     },
     {
       "legacy_key": "overlay:channel-mark",

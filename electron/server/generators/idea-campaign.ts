@@ -30,6 +30,7 @@ import {
   resolveFormulaEpisodeProfile,
 } from '../services/formula-production-kit.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { formulaLengthPrompt } from '../lib/episode-length.js'
 import { normalizeContentLanguage, projectContentLanguageDirective } from '../lib/content-language.js'
 import { applyEmojiPolicy, NO_EMOJI_DIRECTIVE } from '../lib/emoji-policy.js'
 import { recentCharacterNamesAvoidance } from '../services/recent-character-names.js'
@@ -146,6 +147,14 @@ function campaignPrompt(options: {
     ? `\n${options.languageDirectiveText}\nApply this to every returned text value, including title, logline, each theme, mood and suggested_length. Keep JSON keys and idea_key unchanged.`
     : ''
 
+  // 1.4.369 — a short-form Formula publishes seconds (Quote Shorts: 10–60 s).
+  // The contract says seconds then, instead of a whole-minute range the model
+  // would round into a length the Formula itself contradicts.
+  const lengthPrompt = formulaLengthPrompt(format.script)
+  const lengthRule = format.script.lengthSecondsRange || typeof format.script.defaultLengthSeconds === 'number'
+    ? `${lengthPrompt.oneOf}`
+    : `a minutes string within ${format.script.lengthMinutesRange[0]}-${format.script.lengthMinutesRange[1]} minutes`
+
   return `Generate exactly ${assignments.length} distinct episode ideas, one for each RESERVED ASSIGNMENT below.
 The assignments were selected by Story Studio's coverage planner. They are binding.
 Each assignment carries its own Formula role and guidance. Apply only the contract printed beneath that assignment.${languageBlock}
@@ -170,7 +179,7 @@ OUTPUT CONTRACT:
 - The title and logline must explicitly reflect the assignment's subject and distinguishing dimensions.
 - Ideas must be meaningfully different in subject and payoff, not merely differently worded.
 - suggested_chapters must be an integer within ${format.script.chapterCountRange[0]}-${format.script.chapterCountRange[1]}.
-- suggested_length must be a minutes string within ${format.script.lengthMinutesRange[0]}-${format.script.lengthMinutesRange[1]} minutes.
+- suggested_length must be ${lengthRule}.
 - themes must contain 2-4 concrete keywords.
 
 - ${NO_EMOJI_DIRECTIVE}

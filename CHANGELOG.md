@@ -24,6 +24,7 @@ What's new in each release. Newest first.
   not.
 - Bold Illustrated History: the Studio Library style is the one, so a channel
   still naming its own copy of that look reads the Library style's own text.
+- Quote Shorts: each new episode now gets its own length, drawn once inside the channel's starting range (10–60 seconds by default) and stored on that episode; the channel can change the range or switch the random draw off, and an episode that already has a length keeps it. The Quote Shorts Formula's length fields now match its writing rules (45 seconds, not a one-minute Short), and the writer is told to write to each episode's own target. -->
 
 ## v1.4.368 — 2026-10-29
 

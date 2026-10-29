@@ -748,8 +748,15 @@
           <div v-if="!shapeOpen" class="episode-shape-grid">
             <div class="episode-shape-item">
               <span>Usual length</span>
-              <strong>{{ selectedNicheProfile?.scriptStructure?.defaultLengthMinutes ?? 8 }} min</strong>
-              <small>
+              <strong>{{ selectedNicheProfile?.scriptStructure?.defaultLengthSeconds != null
+                ? `${selectedNicheProfile?.scriptStructure?.defaultLengthSeconds} s`
+                : `${selectedNicheProfile?.scriptStructure?.defaultLengthMinutes ?? 8} min` }}</strong>
+              <small v-if="selectedNicheProfile?.scriptStructure?.lengthSecondsRange">
+                Each new episode starts between
+                {{ selectedNicheProfile?.scriptStructure?.lengthSecondsRange?.[0] }}–{{
+                  selectedNicheProfile?.scriptStructure?.lengthSecondsRange?.[1] }} s, drawn once
+              </small>
+              <small v-else>
                 Allowed {{ selectedNicheProfile?.scriptStructure?.lengthMinutesRange?.[0] ?? 3 }}–{{
                   selectedNicheProfile?.scriptStructure?.lengthMinutesRange?.[1] ?? 20 }} min
               </small>
@@ -780,18 +787,26 @@
 
           <form v-else class="episode-shape-form" @submit.prevent="saveEpisodeShape">
             <div class="episode-shape-fields">
-              <label>
-                <span>Usual length (minutes)</span>
-                <input v-model.number="shapeForm!.defaultLengthMinutes" type="number" min="1" max="600" />
-              </label>
-              <label>
-                <span>Shortest allowed</span>
-                <input v-model.number="shapeForm!.minutesMin" type="number" min="1" max="600" />
-              </label>
-              <label>
-                <span>Longest allowed</span>
-                <input v-model.number="shapeForm!.minutesMax" type="number" min="1" max="600" />
-              </label>
+              <template v-if="shapeForm!.lengthSecondsDefault == null">
+                <label>
+                  <span>Usual length (minutes)</span>
+                  <input v-model.number="shapeForm!.defaultLengthMinutes" type="number" min="1" max="600" />
+                </label>
+                <label>
+                  <span>Shortest allowed</span>
+                  <input v-model.number="shapeForm!.minutesMin" type="number" min="1" max="600" />
+                </label>
+                <label>
+                  <span>Longest allowed</span>
+                  <input v-model.number="shapeForm!.minutesMax" type="number" min="1" max="600" />
+                </label>
+              </template>
+              <p v-else class="episode-shape-seconds text-muted text-sm">
+                This Formula sets each Short's length in seconds
+                ({{ shapeForm!.lengthSecondsMin }}–{{ shapeForm!.lengthSecondsMax }} s, usually
+                {{ shapeForm!.lengthSecondsDefault }} s), drawn once for every new episode.
+                Change the range on the Script page.
+              </p>
               <label>
                 <span>Usual chapters</span>
                 <input v-model.number="shapeForm!.defaultChapterCount" type="number" min="1" max="100" />
@@ -2175,22 +2190,34 @@ interface EpisodeShapeForm {
   defaultLengthMinutes: number
   minutesMin: number
   minutesMax: number
+  /** 1.4.369 — a short-form Formula's own seconds length (read-only here). */
+  lengthSecondsDefault: number | null
+  lengthSecondsMin: number | null
+  lengthSecondsMax: number | null
   defaultWordsPerMinute: number
   chaptersIndependent: boolean
   metadataTitleStyleHint: string
 }
 const shapeForm = ref<EpisodeShapeForm | null>(null)
 
+/** The length the maths below should use: seconds when the Formula declares
+ *  one, the whole-minute field otherwise. */
+const shapeLengthMinutes = computed(() => {
+  const f = shapeForm.value
+  if (!f) return 0
+  return f.lengthSecondsDefault != null ? f.lengthSecondsDefault / 60 : f.defaultLengthMinutes
+})
+
 /** Roughly how many words a chapter carries at this shape — the number that
  *  makes a length and a pace mean something together. */
 const shapeWordsPerChapter = computed(() => {
   const f = shapeForm.value
   if (!f || !f.defaultChapterCount) return 0
-  return Math.round((f.defaultLengthMinutes * f.defaultWordsPerMinute) / f.defaultChapterCount)
+  return Math.round((shapeLengthMinutes.value * f.defaultWordsPerMinute) / f.defaultChapterCount)
 })
 const shapeTotalWords = computed(() => {
   const f = shapeForm.value
-  return f ? Math.round(f.defaultLengthMinutes * f.defaultWordsPerMinute) : 0
+  return f ? Math.round(shapeLengthMinutes.value * f.defaultWordsPerMinute) : 0
 })
 
 function openEpisodeShape() {
@@ -2204,6 +2231,9 @@ function openEpisodeShape() {
     defaultLengthMinutes: ss.defaultLengthMinutes ?? 8,
     minutesMin: ss.lengthMinutesRange?.[0] ?? 3,
     minutesMax: ss.lengthMinutesRange?.[1] ?? 20,
+    lengthSecondsDefault: typeof ss.defaultLengthSeconds === 'number' ? ss.defaultLengthSeconds : null,
+    lengthSecondsMin: Array.isArray(ss.lengthSecondsRange) ? ss.lengthSecondsRange[0] : null,
+    lengthSecondsMax: Array.isArray(ss.lengthSecondsRange) ? ss.lengthSecondsRange[1] : null,
     defaultWordsPerMinute: ss.defaultWordsPerMinute ?? 160,
     chaptersIndependent: !!ss.chaptersIndependent,
     metadataTitleStyleHint: (n as any)?.metadataTitleStyleHint || '',
@@ -5513,6 +5543,7 @@ async function deleteProject() {
 }
 .episode-shape-fields label { display: flex; flex-direction: column; gap: 4px; }
 .episode-shape-fields label > span { font-size: 13px; opacity: 0.8; }
+.episode-shape-seconds { grid-column: 1 / -1; margin: 0; }
 .episode-shape-maths { margin: 12px 0 0; }
 .episode-shape-check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; }
 .episode-shape-check small { display: block; margin-top: 2px; }

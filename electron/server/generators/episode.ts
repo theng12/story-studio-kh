@@ -56,6 +56,7 @@ import { pipelinePolicyForJob, pipelinePolicyCheckpointStore } from '../lib/pipe
 import { MAX_NARRATION_SENTENCE_CHARS } from '../lib/tts-text.js'
 import { auditNarrationSection } from '../lib/narration-section-audit.js'
 import { formulaWordsPerChapter } from '../lib/script-sizing.js'
+import { scriptLengthMinutes } from '../lib/episode-length.js'
 import { withLock } from '../lib/atomic-store.js'
 import { resolveDefaultModel } from '../services/genstudio-default-model.js'
 
@@ -382,7 +383,9 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   // sized for a different episode.
   const wordsPerChapter = Number(req.words_per_chapter)
     || formulaWordsPerChapter({
-        minutes: req.length ?? format.script.defaultLengthMinutes,
+        // Seconds-precision Formulas (Quote Shorts: 45 s) publish their length
+        // in seconds; the minutes field is the whole-minute fallback.
+        minutes: req.length ?? scriptLengthMinutes(format.script) ?? format.script.defaultLengthMinutes,
         wordsPerMinute: format.script.defaultWordsPerMinute,
         chapters: totalChapters,
       })
@@ -614,7 +617,7 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
   format = await applyRecencyToFormat(format, project_slug, episode_id)
   const resolvedIntroduction = req.resolved_introduction?.version === 1 ? req.resolved_introduction : null
   const title = resolvedIntroduction?.title || req.title
-  const length = req.length || format.script.defaultLengthMinutes
+  const length = req.length || scriptLengthMinutes(format.script) || format.script.defaultLengthMinutes
   const requestedStyle = resolvedIntroduction?.style || req.style || format.script.defaultNarratorStyleId
   const style = requestedStyle === 'auto'
     ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
@@ -1035,14 +1038,16 @@ async function setupChunkedJobContext(
       `No model in the request — falling back to the outline's recorded model "${snapshotModel}".`,
     )
   }
-  const length = snapshot?.length ?? req.length ?? format.script.defaultLengthMinutes
+  const length = snapshot?.length ?? req.length
+    ?? scriptLengthMinutes(format.script) ?? format.script.defaultLengthMinutes
   const chapters = snapshotTotalChapters ?? req.chapters ?? format.script.defaultChapterCount
   // v1.0.168 — word sizing is chapters × words-per-chapter, never a
   // duration-keyed guess. Prefer explicit per-chapter target; derive total
   // from it. When the caller sends neither (a headless/API outline — the UI
   // always sends sizing), take the Formula's own length × pace instead of a
-  // neutral long-form 550. A Quote Shorts Formula asks for 1 chapter at
-  // 1 minute / 120 wpm; 550 words was the long-form default leaking in
+  // neutral long-form 550. A Quote Shorts Formula asks for 1 chapter of
+  // 45 s / 120 wpm (0.75 min), so its Short is ~90 words; 550 was the
+  // long-form default leaking in
   // (AGENTS.md §1). Only a Formula that publishes no usable pace keeps 550.
   const requestedTotalWords = snapshot?.total_words ?? req.total_words
   const wordsPerChapter = snapshot?.words_per_chapter ?? req.words_per_chapter

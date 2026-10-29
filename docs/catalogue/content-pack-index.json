@@ -1,6 +1,6 @@
 {
-  "generated": "2026-10-29T16:27:31.155Z",
-  "count": 233,
+  "generated": "2026-10-29T17:57:27.223Z",
+  "count": 236,
   "items": [
     {
       "kind": "lettering-style",
@@ -784,6 +784,16 @@
     },
     {
       "kind": "series-formula",
+      "id": "com.storystudio.formula.music-mix",
+      "name": "Music Mix",
+      "collection_dir": "free-starters/formula/music-mix",
+      "axis": "Music mix",
+      "description": "A long-form music channel. There is no script and no narration: the episode is a mix built from the channel's own music…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
       "id": "com.storystudio.formula.mythologies-before-us",
       "name": "Mythologies Before Us",
       "collection_dir": "mythologies-before-us/formula/mythologies-before-us",
@@ -874,6 +884,16 @@
     },
     {
       "kind": "series-formula",
+      "id": "com.storystudio.formula.quote-shorts",
+      "name": "Quote Shorts",
+      "collection_dir": "free-starters/formula/quote-shorts",
+      "axis": "Short-form readings",
+      "description": "A vertical reading: one short, reflective passage narrated over a picture per sentence, with captions burned in and mus…",
+      "version": "1.0.0",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
       "id": "com.storystudio.formula.sleep-history-compilation",
       "name": "Sleep History Compilation",
       "collection_dir": "sleep-history/formula/sleep-history-compilation-v1.0.2",
@@ -890,6 +910,16 @@
       "axis": "Calm stories",
       "description": "Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories wit…",
       "version": "1.0.3",
+      "lifecycle": "active"
+    },
+    {
+      "kind": "series-formula",
+      "id": "com.storystudio.formula.still-posts",
+      "name": "Still Posts",
+      "collection_dir": "free-starters/formula/still-posts",
+      "axis": "Still image posts",
+      "description": "A channel of single illustrated thoughts: one short quote burned onto one drawn picture, with recurring characters, wri…",
+      "version": "1.0.0",
       "lifecycle": "active"
     },
     {
