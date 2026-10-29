@@ -201,7 +201,7 @@ describe('Motion Review per-scene reveal pins', () => {
     assert.equal(select.value, '', 'a scene with no pin follows the episode')
     assert.deepEqual(
       [...select.querySelectorAll('option')].map(option => option.value),
-      ['', 'line', 'buildup', 'swipes', 'patches', 'bloom'],
+      ['', 'line', 'buildup', 'swipes', 'patches', 'bloom', 'colour'],
     )
 
     change(select, 'bloom')
