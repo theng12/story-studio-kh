@@ -427,6 +427,14 @@
             @error="finishedVideoError = 'The finished video could not be played. Check that the Library or media drive is connected, then select the episode again.'"
           >This video cannot play in your browser.</video>
           <p v-else-if="!scanning" class="text-muted text-sm">No finished video is available for this episode yet.</p>
+          <p
+            v-if="finalReviewOn && finalReview && scannedAssets?.finished_video_url"
+            class="final-review-note"
+            :data-state="finalReviewTone(finalReview)"
+          >
+            {{ finalReviewText(finalReview) }}
+            <NuxtLink to="/review" class="final-review-link">Open Review</NuxtLink>
+          </p>
         </section>
 
         <!-- Validation Messages -->
@@ -2968,6 +2976,7 @@
 
 <script setup lang="ts">
 import type { CSSProperties } from 'vue'
+import type { FinalReviewListResponse, FinalReviewState } from '@shared/final-review'
 import { describeEffectStack, duplicatePresetHints, normalizeEffectsLook } from '@shared/effects-look'
 import { findBuiltInOverlay } from '@shared/scene-effect-presets'
 import {
@@ -3075,6 +3084,40 @@ const assemblyJobActiveForEpisode = computed(() => isJobActiveFor(episodeId.valu
 const ffmpegStatus = ref<{ installed: boolean; version?: string; has_drawtext?: boolean; has_libass?: boolean; hw_encoders?: { h264: boolean; h265: boolean }; check_error?: string } | null>(null)
 const scannedAssets = ref<any>(null)
 const scanning = ref(false)
+// Final review mark for this episode's finished video (owner, 2026-10-29). Read from the same
+// route the Review page uses; a channel with review off shows nothing here, as before.
+const finalReview = ref<FinalReviewState | null>(null)
+const finalReviewOn = ref(false)
+async function loadFinalReview(): Promise<void> {
+  const code = episodeId.value
+  const channel = slug.value
+  if (!channel || !code) { finalReview.value = null; finalReviewOn.value = false; return }
+  try {
+    const r = await get<FinalReviewListResponse>(`/review/finals?slug=${encodeURIComponent(channel)}`)
+    // §4 — an episode or channel change while this read was in flight must not
+    // show another episode's mark.
+    if (episodeId.value !== code || slug.value !== channel) return
+    finalReviewOn.value = (r?.channels || []).some(row => row.review_enabled)
+    finalReview.value = (r?.finals || []).find(item => item.episode_code === code)?.review ?? null
+  } catch {
+    if (episodeId.value !== code || slug.value !== channel) return
+    finalReview.value = null
+    finalReviewOn.value = false
+  }
+}
+watch([() => scannedAssets.value?.finished_video_url, episodeId], () => {
+  finalReview.value = null
+  void loadFinalReview()
+})
+function finalReviewText(review: FinalReviewState): string {
+  if (review.state === 'unreadable') return `The review mark could not be read. ${review.error}`
+  if (review.state === 'stale') return 'The file changed since it was marked — review it again.'
+  if (review.state === 'current') return review.decision === 'approved' ? 'Final approved (review note only).' : 'Marked as needing changes.'
+  return 'Final not reviewed yet.'
+}
+function finalReviewTone(review: FinalReviewState): string {
+  return review.state === 'current' ? review.decision : review.state
+}
 // v1.4.314 — pinning which merged track this episode's video uses.
 const selectingMergedAudio = ref(false)
 const imagePoolNarrationDuration = computed(() => Number(
@@ -7293,4 +7336,9 @@ onUnmounted(() => {
   background: #000;
   border-radius: var(--radius-md, 8px);
 }
+.final-review-note { margin-top: 6px; font-size: var(--font-sm); color: var(--text-secondary); }
+.final-review-note[data-state='approved'] { color: #1d7a46; }
+.final-review-note[data-state='needs_changes'], .final-review-note[data-state='unreadable'] { color: var(--danger, #c0392b); }
+.final-review-note[data-state='stale'] { color: #9a6400; }
+.final-review-link { margin-left: 8px; }
 </style>

@@ -14,6 +14,7 @@
 
       <nav class="home-actions" aria-label="Application">
         <NuxtLink to="/publishing" class="home-action">Publishing</NuxtLink>
+        <NuxtLink to="/review" class="home-action">Review</NuxtLink>
         <NuxtLink to="/library" class="home-action">Studio Library</NuxtLink>
         <NuxtLink to="/usage" class="home-action">Usage</NuxtLink>
         <NuxtLink to="/trash" class="home-action">Trash</NuxtLink>

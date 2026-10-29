@@ -2286,6 +2286,12 @@ export interface ProjectConfig {
   contextual_cues?: ContextualCueProjectConfig
   /** Optional, reviewed sound-design layer. Disabled by default. */
   sound_design?: SoundDesignProjectConfig
+  /**
+   * Optional final-video review marks (owner, 2026-10-29). Absent or false = off, so every
+   * existing channel is untouched: no mark is written, no review state is shown, and nothing in
+   * production reads it. A mark is a review note only — it authorises no upload or publish.
+   */
+  final_review?: { enabled: boolean }
 
   /** App-level B-Roll pool used by the B-Roll picker and Video Assembly. */
   broll_pool_id?: string
@@ -2598,6 +2604,8 @@ export interface UpdateConfigRequest {
   still_posts?: Record<string, any>
   still_post_presets?: Array<Record<string, any>>
   still_post_last_preset?: string
+  /** The channel's optional final-video review switch (owner, 2026-10-29). Absent = off. */
+  final_review?: { enabled: boolean }
 }
 
 // ── Jobs ────────────────────────────────────────────────────────────────────

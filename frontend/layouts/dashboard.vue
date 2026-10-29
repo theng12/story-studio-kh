@@ -124,6 +124,7 @@
             <button v-else type="button" class="sidebar-utility" @click="appSettingsModal.open()">Settings</button>
             <NuxtLink to="/" class="sidebar-utility all-projects-link">All Channels</NuxtLink>
             <NuxtLink to="/publishing" class="sidebar-utility" active-class="active" title="Schedules across every channel">Publishing</NuxtLink>
+            <NuxtLink to="/review" class="sidebar-utility" active-class="active" title="Finished videos, mark them approved or needing changes">Review finals</NuxtLink>
           </nav>
           <div class="network-status" :class="connection.tone" role="status">
             <span class="network-dot" aria-hidden="true" />
