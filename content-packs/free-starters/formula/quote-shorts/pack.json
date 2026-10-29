@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.formula.quote-shorts",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "1.4.369",
+  "lifecycle": "active",
+  "entitlement": {
+    "sku": "com.storystudio.sku.formula.quote-shorts",
+    "family": "com.storystudio.family.formula.quote-shorts"
+  },
+  "dependencies": [],
+  "changelog": "The Quote Shorts Formula as an installable pack, carrying the built-in exactly: a vertical reading with a picture per sentence and captions burned in. Each new episode draws its own length between 10 and 60 seconds, starting from 45 seconds, and the channel can change that range or switch the draw off."
+}

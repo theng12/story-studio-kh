@@ -214,7 +214,12 @@ test('legacy migration ledger closes every real inventory key exactly once witho
   assert.equal(freeSuccessor.target.status, 'authored')
 
   assert.equal(ledger.dispositions.find(entry => entry.legacy_key === 'niche:dark-psychology').disposition, 'absorbed')
-  assert.equal(ledger.dispositions.find(entry => entry.legacy_key === 'niche:music-mix').disposition, 'retired-runtime-compatible')
+  // Superseded 2026-10-29: Music Mix was runtime-only while a Formula could not
+  // carry a music format. It can now, and the owner ruled every Formula comes
+  // from a pack, so the ledger names the adopted pack instead.
+  const musicMix = ledger.dispositions.find(entry => entry.legacy_key === 'niche:music-mix')
+  assert.equal(musicMix.disposition, 'authored-standalone')
+  assert.equal(registryIdentity(musicMix.target), 'com.storystudio.pack.formula.music-mix@1.0.0')
 
   const freeBaselineKeys = ledger.dispositions
     .filter(entry => entry.closure_group === 'intentional-free-baseline')

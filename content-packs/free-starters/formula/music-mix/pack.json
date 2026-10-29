@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.formula.music-mix",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "1.4.359",
+  "lifecycle": "active",
+  "entitlement": {
+    "sku": "com.storystudio.sku.formula.music-mix",
+    "family": "com.storystudio.family.formula.music-mix"
+  },
+  "dependencies": [],
+  "changelog": "The Music Mix Formula as an installable pack, carrying the built-in's music format exactly: the same nine registers and ninety worlds, one looping background per video, and no narration. A music channel reads its worlds, scenes and registers from this pack."
+}

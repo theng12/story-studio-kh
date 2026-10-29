@@ -254,6 +254,13 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
   if (document.music_format) {
     (niche as Niche & { musicFormat?: unknown }).musicFormat = structuredClone(document.music_format)
   }
+  // Same rule for a Still Posts channel (owner, 2026-10-29: the built-in Still
+  // Posts Formula ships as a pack). Presence of `stillPostsFormat` is what makes
+  // the channel a Still Posts channel and what gives its writer its voice, so it
+  // is carried verbatim rather than dropped at the pack boundary.
+  if (document.still_posts_format) {
+    (niche as Niche & { stillPostsFormat?: unknown }).stillPostsFormat = structuredClone(document.still_posts_format)
+  }
   return niche
 }
 

@@ -7,7 +7,7 @@ One line per pack item, deduped to the highest version per `pack_id`. Format:
 
 `- <id> | <name> | <collection dir> | <category/tags or axis> | <description> | v<version> <lifecycle>`
 
-Totals — 233 items. Visual styles: 60, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 27, Metadata formulas: 13, Topic packs: 46.
+Totals — 236 items. Visual styles: 60, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 30, Metadata formulas: 13, Topic packs: 46.
 
 ## Visual styles (60)
 
@@ -165,7 +165,7 @@ Totals — 233 items. Visual styles: 60, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.thumbnail.two-option-criteria-split | Two-Option Criteria Split | thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split | Explainer | A balanced present-time comparison of two alternatives under shared visible criteria. | v1.0.0 active
 - com.storystudio.thumbnail.two-tone-hook-portrait-right | Two-Tone Hook, Portrait Right | royal-history/thumbnail/two-tone-hook-portrait-right | History | A two-word hook sits bottom-left in two colours — the first word white, the second gold — while a portrait cut at the c… | v1.0.0 active
 
-## Series formulas (27)
+## Series formulas (30)
 
 - com.storystudio.formula.a-world-before-us | A World Before Us | illustrated-history/formula/a-world-before-us | Calm documentary | Illustrated histories of one subject at a time — a city, a region, a people, an empire, a war or a route — told slowly… | v1.0.0 active
 - com.storystudio.formula.ancient-humans | How Did Ancient Humans…? | free-starters/formula/ancient-humans-v1.0.3 | Evidence & systems | Long-form prehistoric and early-human survival explainers. Each episode asks one concrete question about how ancient hu… | v1.0.3 active
@@ -182,6 +182,7 @@ Totals — 233 items. Visual styles: 60, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.formula.human-behavior-explained | Human Behavior, Explained | free-starters/formula/human-behavior-explained-v1.0.3 | Mind & ideas | Pop-psychology narration — habits, cognitive biases, relationships, mental health, focus, anxiety, ADHD, stoicism-as-CB… | v1.0.3 active
 - com.storystudio.formula.illustrated-history-for-sleep | Illustrated History for Sleep | illustrated-history/formula/illustrated-history-for-sleep-v1.0.1 | Calm documentary | Illustrated histories of one subject at a time — a city, a region, a people, an empire, a war or a route — told slowly… | v1.0.1 active
 - com.storystudio.formula.khmer-folk-horror | Khmer Folk Horror Anthology | free-starters/formula/khmer-folk-horror | Folk horror | Khmer cautionary tales, local legends and restless spirits, told as independent chapters with atmosphere rather than go… | v1.0.0 active
+- com.storystudio.formula.music-mix | Music Mix | free-starters/formula/music-mix | Music mix | A long-form music channel. There is no script and no narration: the episode is a mix built from the channel's own music… | v1.0.0 active
 - com.storystudio.formula.mythologies-before-us | Mythologies Before Us | mythologies-before-us/formula/mythologies-before-us | Myth retelling | Feature-length retellings of the world's myths, grouped into self-contained chapters. Each chapter retells one myth, on… | v1.0.0 active
 - com.storystudio.formula.mythology-for-sleep | Mythology for Sleep | free-starters/formula/mythology-for-sleep-v1.0.1 | Calm documentary | Pantheons and epic cycles told as slow, settling stories rather than dramatic action. Each chapter takes one figure, on… | v1.0.1 active
 - com.storystudio.formula.natural-world-explained | Natural World, Explained | free-starters/formula/natural-world-explained-v1.0.3 | Living world | Wildlife subjects from across the whole animal kingdom, vertebrates and invertebrates alike — mammals, birds, reptiles,… | v1.0.3 active
@@ -191,8 +192,10 @@ Totals — 233 items. Visual styles: 60, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.formula.practical-motivation | Practical Motivation | free-starters/formula/practical-motivation-v1.0.2 | Mind & ideas | Spoken-word motivational narration — discipline, mindset, hard work, resilience. Pair with cinematic B-Roll (runners, s… | v1.0.2 active
 - com.storystudio.formula.prayer | Prayer | legacy-niche-conversion/formula/prayer-v1.0.1 | Faith | Spoken-word Christian prayer paired with calm, reverent B-Roll. Topics span morning / evening / mealtime / family / anx… | v1.0.1 active
 - com.storystudio.formula.question-ladder | Question Ladder | reusable-primitives/formula/question-ladder-v1.0.1 | Evidence-aware explainers | A reusable explanatory Formula that starts with one concrete audience question, defines its scope, explains the mechani… | v1.0.1 active
+- com.storystudio.formula.quote-shorts | Quote Shorts | free-starters/formula/quote-shorts | Short-form readings | A vertical reading: one short, reflective passage narrated over a picture per sentence, with captions burned in and mus… | v1.0.0 active
 - com.storystudio.formula.sleep-history-compilation | Sleep History Compilation | sleep-history/formula/sleep-history-compilation-v1.0.2 | Calm documentary | Long, calm compilations of true histories — ten to twenty independent chapters per video, each the slow story of one fo… | v1.0.2 active
 - com.storystudio.formula.sleep-story | Sleep Story | free-starters/formula/sleep-story-v1.0.3 | Calm stories | Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories wit… | v1.0.3 active
+- com.storystudio.formula.still-posts | Still Posts | free-starters/formula/still-posts | Still image posts | A channel of single illustrated thoughts: one short quote burned onto one drawn picture, with recurring characters, wri… | v1.0.0 active
 - com.storystudio.formula.wildlife-under-pressure | Wildlife Under Pressure | free-starters/formula/wildlife-under-pressure | Living world | Wildlife subjects from across the whole animal kingdom, vertebrates and invertebrates alike — mammals, birds, reptiles,… | v1.0.0 active
 
 ## Metadata formulas (13)
