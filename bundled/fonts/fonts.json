@@ -304,7 +304,7 @@
       "source": "bundled",
       "file": "CormorantGaramond[wght].ttf",
       "sha256": "b20b7d9626dd956b2c5e558692ad328b1f19e3275e2782db4fa07670d83f35e0",
-      "family": "Cormorant Garamond Light",
+      "family": "Cormorant Garamond",
       "license_file": "OFL.txt",
       "source_url": "https://github.com/google/fonts/tree/main/ofl/cormorantgaramond"
     },

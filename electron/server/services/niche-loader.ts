@@ -484,15 +484,19 @@ export async function withFormulaLabels<T extends FormulaChoiceRow>(
   // A stored Formula that no installed pack publishes still has a name in its
   // own source (the shipped profile or a user fork). Read that name for the
   // channel's card — the picker shows the same selection as "(not in a pack)".
-  const unnamed = new Set<string>()
+  const unnamed = new Map<string, string>()
   for (const row of rows) {
     if (row.status && row.status !== 'ready') continue
     const id = formulaResolvedId(row)
-    if (id && !names.has(id)) unnamed.add(id)
+    if (!id || names.has(id)) continue
+    unnamed.set(id, typeof row.niche_id === 'string' ? row.niche_id.trim() : '')
   }
-  for (const id of unnamed) {
-    const document = await loadNiche(id, registryOptions).catch((e: any) => {
-      console.warn(`[niche-loader] Formula name unavailable for stored id '${id}': ${e?.message || e}`)
+  for (const [id, storedId] of unnamed) {
+    // Read the STORED id: `loadNiche` tries its alias target first and falls
+    // back to the shipped profile or the fork, which is where the name lives
+    // when no installed pack publishes the Formula.
+    const document = await loadNiche(storedId || id, registryOptions).catch((e: any) => {
+      console.warn(`[niche-loader] Formula name unavailable for stored id '${storedId || id}': ${e?.message || e}`)
       return null
     })
     const name = document?.catalogName || document?.name
