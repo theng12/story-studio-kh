@@ -193,7 +193,8 @@ async function toggleChannel(channel: FinalReviewChannel, enabled: boolean): Pro
 }
 
 function currentDecision(review: FinalReviewState): FinalReviewDecision | null {
-  return review.state === 'current' || review.state === 'stale' ? review.decision : null
+  // A stale mark is about bytes nobody has watched, so no button reads as already chosen.
+  return review.state === 'current' ? review.decision : null
 }
 
 function markTone(review: FinalReviewState): string {
@@ -267,7 +268,7 @@ onUnmounted(() => poller.stop())
   cursor: pointer;
 }
 .rv-toggle input { width: 20px; height: 20px; }
-.rv-toggle small { color: var(--text-secondary); }
+.rv-toggle small { color: var(--text-secondary); font-size: var(--font-xs); }
 .rv-hint { margin: 10px 0 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
 .rv-empty { color: var(--text-secondary); text-align: center; padding: 24px 8px; }
 .rv-card {
@@ -284,10 +285,10 @@ onUnmounted(() => poller.stop())
 .rv-card-sub { margin: 0; color: var(--text-secondary); font-size: var(--font-xs); }
 .rv-video { width: 100%; height: auto; border-radius: 8px; background: #000; }
 .rv-mark { margin: 0; font-size: var(--font-sm); color: var(--text-secondary); }
-.rv-mark[data-state='approved'] { color: #1d7a46; }
-.rv-mark[data-state='needs_changes'] { color: var(--danger, #c0392b); }
-.rv-mark[data-state='stale'] { color: #9a6400; }
-.rv-mark[data-state='unreadable'] { color: var(--danger, #c0392b); }
+.rv-mark[data-state='approved'] { color: var(--success); }
+.rv-mark[data-state='needs_changes'] { color: var(--error); }
+.rv-mark[data-state='stale'] { color: var(--warning); }
+.rv-mark[data-state='unreadable'] { color: var(--error); }
 .rv-actions { display: flex; gap: 10px; }
 .rv-btn {
   flex: 1;
