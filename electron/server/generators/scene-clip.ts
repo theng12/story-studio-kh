@@ -1102,3 +1102,83 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
   })
   job.output_lines.push(`Motion Clips complete: ${requiredIds.length}/${requiredIds.length} verified and selected for assembly.`)
 }
+
+/**
+ * Did every clip a `scene_clips_batch` job covered land on disk — fresh and
+ * selected — by the ONE freshness rule?
+ *
+ * The settle rule (`services/stale-failures.ts`) asks this so a failed batch row
+ * clears only when the work it was for really exists (Production, 2026-10-29:
+ * four failed rows that later runs had already made). It is the SAME proof each
+ * branch above ends with — `auditSceneClipCompletion`, which is
+ * `sceneClipStaleReason` plus a playability check — over the SAME scope those
+ * branches resolve from the job's own accepted parameters. No second definition
+ * of "done" (§8).
+ *
+ * Anything it cannot prove answers `false`: a failed row that stays visible is
+ * honest; a wrong "settled" is not (§6).
+ */
+export async function sceneClipBatchOutputsComplete(job: Job): Promise<boolean> {
+  const params = (job.params || {}) as SceneClipGenerateParams
+  const episodeId = String(params.episode_id || job.episode_id || '')
+  if (!episodeId) return false
+  const paths = await resolveEpisodePathsByCode(job.project_slug, episodeId)
+  const planPath = await resolveScenePlanPath(job.project_slug, episodeId, paths.episode_dir)
+  if (!existsSync(planPath)) return false
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+  if (!plan.scenes.length) return false
+  const clipsDir = await resolveVideoAssetsDir(job.project_slug, episodeId.toUpperCase(), paths.episode_dir)
+  const revealScenes = plan.scenes.map(scene => scene.id)
+  const imagesDir = await resolveSceneImagesDir(job.project_slug, episodeId.toUpperCase(), paths.episode_dir).catch(() => null)
+  const sketch = params.renderer === 'sketch_draw'
+
+  // The accepted scope, resolved exactly as each branch above resolves it.
+  const snapshotIds = Array.isArray(params.motion_scene_ids) ? params.motion_scene_ids.map(String) : null
+  let requiredIds: string[]
+  if (sketch) {
+    // generateSketchDrawBatch refuses a batch with no saved scope, so a row
+    // without one never covered anything this can prove.
+    if (!snapshotIds?.length) return false
+    requiredIds = snapshotIds
+  } else if (snapshotIds) {
+    requiredIds = [...snapshotIds]
+  } else if (params.motion_scope !== undefined) {
+    // A Pipeline batch froze a scope and resolves it against the saved plan
+    // before its first paid request; the failed row may not have checkpointed
+    // the resolved ids yet, so resolve them the same way.
+    const motionScope = normalizeMotionScope(params.motion_scope)
+    requiredIds = motionSceneIdsForNewRequest(plan.scenes, resolveMotionScope(plan.scenes, motionScope).scene_ids)
+  } else if (params.scene_durations) {
+    requiredIds = Object.keys(params.scene_durations)
+  } else {
+    requiredIds = plan.scenes.filter(scene => scene.motion_choice !== 'still').map(scene => scene.id)
+  }
+  if (!requiredIds.length) return false
+
+  const expectedDurations = sketch ? {} : Object.fromEntries(requiredIds.flatMap(sceneId => {
+    const duration = params.scene_durations?.[sceneId]?.duration_seconds ?? params.duration_seconds
+    return typeof duration === 'number' ? [[sceneId, duration]] : []
+  }))
+  const sketchSettings = sketch
+    ? await resolveSketchDrawSettings(job.project_slug, episodeId).catch(() => undefined)
+    : undefined
+  // A scene the owner has since marked Still needs no clip; the audit skips it
+  // when it is named here, exactly as the Sketch Draw batch tells it.
+  const stillIds = sketch
+    ? requiredIds.filter(id => plan.scenes.find(scene => scene.id === id)?.motion_choice === 'still')
+    : undefined
+
+  const audit = await auditSceneClipCompletion(planPath, requiredIds, clipsDir, expectedDurations, {
+    slug: job.project_slug,
+    episodeId,
+    episodeDir: paths.episode_dir,
+    revealScenes,
+    imagesDir,
+    ...(sketchSettings ? { sketchSettings } : {}),
+    ...(stillIds ? { stillIds } : {}),
+    // A provider batch approves what it makes; a Sketch Draw batch only selects
+    // when the job itself asked to. The audit's bar is each branch's own bar.
+    requireSelected: sketch ? params.auto_approve_clip === true : true,
+  })
+  return audit.expected > 0 && audit.completed === audit.expected
+}

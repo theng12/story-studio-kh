@@ -7751,6 +7751,9 @@ export async function enqueueOrRun(opts: {
     throw Object.assign(new Error('Project removal is in progress. Return later before starting new work.'), { statusCode: 409 })
   }
   if (!opts.sync) return enqueue(opts, contentPackOptions)
+  // The inline branch below never reaches `enqueue`, so it asks the same
+  // admission question itself rather than running a job the queue would refuse.
+  await assertEpisodeCodeAdmission(opts)
 
   const executor = queues[opts.type]?.executor
   if (!executor) throw new Error(`enqueueOrRun(sync): no executor registered for ${opts.type}`)
@@ -7938,6 +7941,66 @@ function assertNoSettlingWorker(opts: EnqueueOptions): void {
       || worker.type !== opts.type || !TERMINAL_JOB_STATUSES.has(worker.status)
       || chainHandoffJobIds.has(jobId)) continue
     throw settlingWorkerError(opts.type, opts.episode_id)
+  }
+}
+
+/**
+ * Job types whose `episode_id` IS an episode code — the value is handed to the
+ * episode path resolver by their executor.
+ *
+ * Every type in `JOB_TYPES` is classified here or in
+ * `NON_EPISODE_ID_JOB_TYPES` below, and a test fails if one is missing, so a new
+ * job type has to decide instead of inheriting a silent answer (§6).
+ */
+export const EPISODE_CODE_JOB_TYPES: ReadonlySet<JobType> = new Set<JobType>([
+  'broll_select', 'broll_assemble',
+  'introduction-only', 'chapter-only', 'outline_only', 'expand_chapters',
+  'image_prompts', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
+  'metadata', 'video_assembly', 'subtitles_transcribe',
+  'youtube_upload', 'youtube_playlist_update', 'youtube_thumbnail_refresh',
+  'social_publish', 'research_run', 'scene_plan_run',
+  'scene_image_generate', 'scene_clip_generate', 'scene_clips_batch', 'continuity_render',
+  'composition_generate', 'contextual_cues', 'translate_episode',
+  'music_video', 'music_episode_build', 'music_scene_polish',
+])
+
+/**
+ * The rest: the same slot threads something that is NOT an episode code — a
+ * B-Roll pool id, the literal `ideas`, or nothing at all. These are never
+ * code-checked, because they have no episode to name.
+ */
+export const NON_EPISODE_ID_JOB_TYPES: ReadonlySet<JobType> = new Set<JobType>([
+  'idea_campaign', 'broll_normalize', 'image_pool_generate',
+  'music_generate', 'still_post_write', 'still_post_render',
+])
+
+/**
+ * Refuse an episode-scoped job whose code cannot name a stored episode, at
+ * submit time (§8: prove it before the queue owns it).
+ *
+ * Production, 2026-10-29 (job 70795c6c): an Audio job for `AU0001` was admitted
+ * and then failed with "Invalid episode code: AU0001 (expected prefix: EP)". A
+ * code accepted under an older prefix is a stored episode and MUST be admitted
+ * — so this asks `assertEpisodeCodeAdmitted`, which asks the resolver's own
+ * question (`storedEpisodeNumber`). Admission and execution therefore cannot
+ * disagree about which codes exist.
+ *
+ * `enqueuePrepared` (synchronous insertion) is NOT where this runs: the project
+ * prefix needed for the refusal's wording is read asynchronously. Its direct
+ * callers — Jobs Retry and Pipeline/recovery continuation markers — re-use a
+ * code that already passed this check on the request that created the job.
+ */
+async function assertEpisodeCodeAdmission(
+  opts: Pick<EnqueueOptions, 'project_slug' | 'type' | 'episode_id'>,
+): Promise<void> {
+  if (!EPISODE_CODE_JOB_TYPES.has(opts.type)) return
+  const { assertEpisodeCodeAdmitted } = await import('./utils.js')
+  try {
+    await assertEpisodeCodeAdmitted(opts.project_slug, opts.episode_id)
+  } catch (error: any) {
+    // The message stays exactly what the generator would have written into a
+    // failed row; only the moment and the status code change (400, not a 500).
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), { statusCode: 400, expose: true })
   }
 }
 
@@ -8149,6 +8212,10 @@ export async function enqueue(
   contentPackOptions: ContentPackProjectPinOptions = {},
   beforeAdmission?: () => Promise<void>,
 ): Promise<Job> {
+  // §8 — prove the episode code before the queue owns the job. A code the
+  // generator cannot resolve is refused here, in the same words it would have
+  // failed with, instead of becoming a row that can never succeed.
+  await assertEpisodeCodeAdmission(opts)
   const safeOpts: EnqueueOptions = { ...opts, ...(opts.params ? { params: { ...opts.params } } : {}) }
   delete (safeOpts as EnqueueOptions & { paid_image_replacement?: unknown }).paid_image_replacement
   delete (safeOpts as EnqueueOptions & { genstudio_chat_recovery_preview?: unknown }).genstudio_chat_recovery_preview

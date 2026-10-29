@@ -79,6 +79,28 @@ export function formatEpisodeCode(num: number, prefix: string = 'EP', digits: nu
   return `${prefix}${num.toString().padStart(digits, '0')}`
 }
 
+/**
+ * The queue's admission question: could this code name a stored episode?
+ *
+ * Production, 2026-10-29 (job 70795c6c): an Audio job for `AU0001` was accepted
+ * into the queue and then failed after admission with "Invalid episode code:
+ * AU0001 (expected prefix: EP)". `resolveEpisodePaths` had already been fixed to
+ * read a stored code's NUMBER whatever prefix it was accepted with, so the
+ * generator could resolve that episode — the queue simply never asked.
+ *
+ * So the queue asks the resolver's own question (`storedEpisodeNumber`), which
+ * means admission and execution cannot disagree: a code `resolveEpisodePaths`
+ * accepts is admitted, and a code it refuses is refused at submit time with its
+ * exact words (`episodeNumber`'s message) instead of becoming a failed row.
+ */
+export async function assertEpisodeCodeAdmitted(slug: string, code: string): Promise<void> {
+  if (storedEpisodeNumber(code) !== null) return
+  const meta = await projectMetaOnce(slug).catch(() => null)
+  // Throws "Invalid episode code: <code> (expected prefix: <prefix>)" — the same
+  // sentence the generator would have written into a failed job.
+  episodeNumber(String(code ?? ''), meta?.episode_prefix || 'EP')
+}
+
 export interface EpisodePaths {
   /** ABSOLUTE — `<projectDir>/episodes`. Computed, never a stored setting. */
   output_root: string
