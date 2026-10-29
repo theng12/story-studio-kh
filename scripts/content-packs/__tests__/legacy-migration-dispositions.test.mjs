@@ -237,8 +237,9 @@ test('legacy migration ledger closes every real inventory key exactly once witho
     // plus Living Picture (1.4.284), plus E1's twelve (1.4.287), plus E4's twelve that follow the
     // picture (1.4.288). Scene effects gain E1's two handheld floats and E2–E3's fifteen
     // picture-aware moves. Subtitles gain Quote Shorts' two vertical styles (1.4.361) and
-    // Quote Shorts phase 2's four animated vertical styles (1.4.364).
-    [35, 5, 22, 48, 54],
+    // Quote Shorts phase 2's four animated vertical styles (1.4.364), and the two
+    // hand-lettered Shorts styles (1.4.368).
+    [35, 5, 24, 48, 54],
   )
 
   exactSet(
