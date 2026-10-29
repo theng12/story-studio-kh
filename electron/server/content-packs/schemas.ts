@@ -124,6 +124,15 @@ const ScriptStructureSchema = z.object({
   chapter_count_range: boundedRange(1, 100),
   default_length_minutes: z.number().int().min(1).max(600),
   length_minutes_range: boundedRange(1, 600),
+  /**
+   * 1.4.369 — seconds-precision length for a short-form Formula (a 10–60 s
+   * Quote Short cannot be written in whole minutes). Optional, so every
+   * already-authored pack validates unchanged; when present the app's length
+   * readers prefer it over the minutes pair above.
+   */
+  default_length_seconds: z.number().int().min(1).max(3600).optional(),
+  length_seconds_range: boundedRange(1, 3600).optional(),
+  randomize_length: z.boolean().optional(),
   duration_presets: z.array(z.number().int().min(1).max(600)).min(1).max(20),
   default_words_per_minute: z.number().int().min(50).max(300),
   chapters_independent: z.boolean(),

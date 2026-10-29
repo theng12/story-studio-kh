@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+<!-- v1.4.369 (draft — newest-first entry to be written at release time).
+     Quote Shorts: each new episode now gets its own length, drawn once inside
+     the channel's starting range (10–60 seconds by default) and stored on that
+     episode; the channel can change the range or switch the random draw off,
+     and an episode that already has a length keeps it. The Quote Shorts Formula's
+     length fields now match its writing rules (45 seconds, not a one-minute
+     Short), and the writer is told to write to each episode's own target. -->
+
 ## v1.4.368 — 2026-10-29
 
 - Translated episodes now show the same pictures in the same order on their own narration. When a translated episode's narration is merged, Story retimes its Scene Plan onto that narration: each scene keeps its chapter (the only point both languages share) and its share of that chapter, so every still, clip, approval and prompt is kept exactly while the timings follow the new voice. The source episode is never touched, and running it again changes nothing.

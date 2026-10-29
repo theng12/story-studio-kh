@@ -11,6 +11,7 @@ import { resolveSubfolderNames } from '../services/utils.js'
 import type { Format, Job } from '../models/types.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { formulaLengthPrompt } from '../lib/episode-length.js'
 import { redactSecrets } from '../lib/redact-secrets.js'
 import { logLine } from '../services/logger.js'
 import { projectContentLanguageDirective } from '../lib/content-language.js'
@@ -500,10 +501,18 @@ Rules:
   const chMax = Math.max(chMaxFmt, exampleChapters)
   const lenMin = Math.min(lenMinFmt, exampleLengthMin)
   const lenMax = Math.max(lenMaxFmt, exampleLengthMin)
-  const exampleLength = `${exampleLengthMin} min`
-  const lengthOneOf = lenMin === lenMax
-    ? `"${lenMin} min"`
-    : `any minutes-string between "${lenMin} min" and "${lenMax} min"`
+  // 1.4.369 — a short-form Formula publishes its length in SECONDS (Quote
+  // Shorts: 10–60 s, default 45 s). The prompt says so instead of rounding it
+  // into a whole-minute range the writer would then contradict.
+  const lengthPrompt = formulaLengthPrompt(format.script)
+  const declaresSeconds = Boolean(format.script.lengthSecondsRange
+    || typeof format.script.defaultLengthSeconds === 'number')
+  const exampleLength = declaresSeconds ? lengthPrompt.example : `${exampleLengthMin} min`
+  const lengthOneOf = declaresSeconds
+    ? lengthPrompt.oneOf
+    : lenMin === lenMax
+      ? `"${lenMin} min"`
+      : `any minutes-string between "${lenMin} min" and "${lenMax} min"`
 
   return `${format.idea.systemPromptRole}${languageDirectiveText ? `\n\n${languageDirectiveText}` : ''}
 Return a JSON array of idea objects ONLY — no prose before or after. If your
@@ -559,7 +568,7 @@ router.get('/projects/:slug/ideas/paste-prompt', async (req, res) => {
  * with defaults is explicitly NOT used — the preview table exists so the
  * user notices quality issues before they're written to disk.
  */
-function validatePastedIdea(raw: any, idx: number, defaultLengthMin: number = 45): { ok: true; value: {
+function validatePastedIdea(raw: any, idx: number, defaultLengthSuggestion: string = '45 min'): { ok: true; value: {
   title: string; logline: string; themes: string[];
   suggested_chapters: number; suggested_length: string; mood: string;
 } } | { ok: false; reason: string } {
@@ -589,12 +598,12 @@ function validatePastedIdea(raw: any, idx: number, defaultLengthMin: number = 45
     return { ok: false, reason: '"suggested_chapters" must be an integer between 1 and 20' }
   }
 
-  // suggested_length: accept any string but fall back to the format's
-  // defaultLengthMinutes (passed by caller) if empty — this field is
-  // primarily a UI hint and not safety-critical. v1.0.102+: was hardcoded
-  // '45 min'; now reads format.script.defaultLengthMinutes via the caller.
+  // suggested_length: accept any string but fall back to the format's own
+  // default (passed by caller) if empty — this field is primarily a UI hint
+  // and not safety-critical. The caller reads it from the live Formula, in
+  // seconds for a short-form one ("45 s") and whole minutes otherwise.
   const lenRaw = typeof raw.suggested_length === 'string' ? raw.suggested_length.trim() : ''
-  const suggested_length = lenRaw || `${defaultLengthMin} min`
+  const suggested_length = lenRaw || defaultLengthSuggestion
 
   const mood = typeof raw.mood === 'string' ? raw.mood.trim() : ''
   if (!mood) return { ok: false, reason: 'missing or empty "mood"' }
@@ -632,16 +641,15 @@ router.post('/projects/:slug/ideas/import-paste', async (req, res) => {
   // Previously hardcoded '45 min' (sleep-story). For a broll-narration
   // / prayer project this would now be `10 min`.
   const effectiveFormat = await getEffectiveFormat(slug)
-  const formatDefaultLengthMin =
-    effectiveFormat?.script?.defaultLengthMinutes && effectiveFormat.script.defaultLengthMinutes > 0
-      ? effectiveFormat.script.defaultLengthMinutes
-      : 45
+  // 1.4.369 — a short-form Formula's default is in seconds ("45 s"); a
+  // long-form one keeps its whole-minute figure.
+  const formatDefaultLengthSuggestion = formulaLengthPrompt(effectiveFormat?.script).example
 
   const valid: Array<{ title: string; logline: string; themes: string[];
                        suggested_chapters: number; suggested_length: string; mood: string }> = []
   const rejected: Array<{ index: number; reason: string; raw: any }> = []
   for (let i = 0; i < parsed.length; i++) {
-    const check = validatePastedIdea(parsed[i], i, formatDefaultLengthMin)
+    const check = validatePastedIdea(parsed[i], i, formatDefaultLengthSuggestion)
     if (check.ok) valid.push(check.value)
     else rejected.push({ index: i, reason: check.reason, raw: parsed[i] })
   }

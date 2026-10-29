@@ -83,7 +83,7 @@
   "startingMusicVolume": 55,
   "ideaSystemPromptRole": "You write ideas for a vertical short-form channel of quiet, reflective readings. A channel is not restricted to one mood: it carries quiet motivation, heartbreak, calm, grief, tenderness, solitude, and resolve across its episodes. Each idea names ONE feeling or human moment and finds it in a small, concrete, ordinary thing rather than in an abstraction. Pitch moments a person recognises from their own week, never advice, never a lesson, never a motivational slogan.",
   "ideaGuidanceText": "Every idea should be specific enough to picture: a room, an hour, a habit, a thing left on a table. Never 'how to be happier' or 'the power of letting go' — instead the kitchen at 2am, the coat still on the hook. Vary the mood across a batch: an episode may be heartbreak, the next resolve, the next calm or ordinary courage; do not pitch the same heartbreak twelve times.",
-  "scriptContext": "This channel makes vertical Shorts, not episodes. A Short is adjustable in length — suggested around 45 seconds (roughly 30 to 60 seconds of speech): six to sixteen short sentences, each one its own picture and its own caption. Write a single thought followed all the way to its end. No introduction, no chapter structure, no recap, no closing call to action.",
+  "scriptContext": "This channel makes vertical Shorts, not episodes. A Short's length is its own: each new episode starts from this channel's range (10 to 60 seconds by default), so it varies from one Short to the next. Write to the exact target length the Script form shows for this episode — every sentence is its own picture and its own caption, so the target decides how many short sentences there are. Write a single thought followed all the way to its end. No introduction, no chapter structure, no recap, no closing call to action.",
   "scriptSystemPromptRole": "You write short, reflective readings that are spoken aloud over a quiet picture. The voice is human, unhurried, and specific — someone telling you one true thing they noticed, not a narrator performing wisdom. You bring the emotion out of an ordinary object or moment instead of naming it, and you trust the listener to finish the thought. You never write inspirational-poster phrasing, never rhyme for its own sake, and never tell anyone what they should feel.",
   "scriptClosingHint": "End on the line that leads back to the first one. The listener should want to watch it again, not be told to.",
   "narratorStyles": [
@@ -208,6 +208,12 @@
       1,
       1
     ],
+    "defaultLengthSeconds": 45,
+    "lengthSecondsRange": [
+      10,
+      60
+    ],
+    "randomizeLength": true,
     "durationPresets": [
       1
     ],
@@ -228,7 +234,7 @@
       "One unbroken thought: the hook, the turn, and the line that loops back."
     ],
     "additionalRules": [
-      "This Formula makes a SHORT, not an episode. The length is adjustable — suggested around 45 seconds (roughly 40 to 90 words in 8 to 14 short sentences) — with no introduction, no chapter headings, and no recap.",
+      "This Formula makes a SHORT, not an episode. Its length belongs to the episode: each new one starts from this channel's range (10 to 60 seconds by default) and can differ from the last. Write to the exact target length the Script form shows for this episode — at this Formula's 120 words per minute that is roughly 20 words for a 10-second Short and 90 words for a 45-second one — with no introduction, no chapter headings, and no recap.",
       "The first sentence is the hook: concrete, short, and impossible to predict the second line from. It is the only sentence allowed to be a fragment.",
       "One sentence becomes one picture and one caption. Keep every sentence short enough to read on a phone in a single glance, and never let a sentence depend on the one before it for its meaning.",
       "Name the object before the feeling. 'The second cup of tea went cold' carries more than 'I was lonely'.",

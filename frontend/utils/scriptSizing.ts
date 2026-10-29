@@ -19,6 +19,11 @@ export interface ScriptFormatContext {
   summary: string
   defaultChapterCount: number | null
   defaultLengthMinutes: number | null
+  /** 1.4.369 — a short-form Formula's own length, in seconds; supersedes the
+   *  whole-minute fields wherever it is present. */
+  defaultLengthSeconds: number | null
+  lengthSecondsRange: [number, number] | null
+  randomizeLength: boolean
   chapterCountRange: [number, number] | null
   lengthMinutesRange: [number, number] | null
   durationPresets: number[] | null
@@ -51,11 +56,45 @@ function positiveNumber(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+/**
+ * An episode length suggestion, in MINUTES.
+ *
+ * "45 min" is minutes; "37 s" and "1 min 5 s" are read by their own units.
+ * 1.4.369 added the seconds forms because a Quote Shorts episode's length is
+ * drawn in the 10–60 s range and stored on the episode as "37 s"; treating
+ * that as 37 minutes is the kind of quiet misread this parser exists to stop.
+ * A bare number stays minutes, which is what every older caller sends.
+ */
 export function parseSuggestedMinutes(value: unknown): number | null {
   if (typeof value === 'number') return positiveNumber(value)
   if (typeof value !== 'string') return null
-  const match = value.match(/(\d+(?:\.\d+)?)/)
+  const text = value.trim()
+  if (!text) return null
+  const parts = [...text.matchAll(/(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi)]
+  if (parts.length) {
+    let seconds = 0
+    for (const part of parts) {
+      const amount = Number(part[1])
+      if (!Number.isFinite(amount)) continue
+      const unit = part[2]!.toLowerCase()
+      if (unit.startsWith('h')) seconds += amount * 3600
+      else if (unit.startsWith('m')) seconds += amount * 60
+      else seconds += amount
+    }
+    const minutes = seconds / 60
+    return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes * 10000) / 10000 : null
+  }
+  const match = text.match(/(\d+(?:\.\d+)?)/)
   return match ? positiveNumber(match[1]) : null
+}
+
+/** A length in seconds as the pages show it: "37 s", or "2 min 5 s". */
+export function formatLengthSecondsLabel(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds))
+  if (whole < 90) return `${whole} s`
+  const minutes = Math.floor(whole / 60)
+  const rest = whole % 60
+  return rest ? `${minutes} min ${rest} s` : `${minutes} min`
 }
 
 export function effectiveFormatPathForEpisode(slug: string, episodeCode?: string): string {
@@ -125,12 +164,16 @@ export function scriptFormatContextFromResponse(value: unknown): ScriptFormatCon
         }]
       })
     : []
+  const secondsRange = pair(script.lengthSecondsRange)
   return {
     id: typeof format.id === 'string' ? format.id : 'unknown',
     name: typeof format.name === 'string' ? format.name : 'Format',
     summary: descriptionSummary(format.description),
     defaultChapterCount: positiveNumber(script.defaultChapterCount),
     defaultLengthMinutes: positiveNumber(script.defaultLengthMinutes),
+    defaultLengthSeconds: positiveNumber(script.defaultLengthSeconds),
+    lengthSecondsRange: secondsRange,
+    randomizeLength: script.randomizeLength === true,
     chapterCountRange: pair(script.chapterCountRange),
     lengthMinutesRange: pair(script.lengthMinutesRange),
     durationPresets: durationPresets.length ? durationPresets : null,
@@ -164,7 +207,11 @@ export async function refreshScriptFormatState(options: {
     suggestedChapters: options.chaptersPinned ? options.state.chapters : options.suggestedChapters,
     suggestedLength: options.suggestedLength,
     formatDefaultChapters: context.defaultChapterCount,
-    formatDefaultLengthMinutes: context.defaultLengthMinutes,
+    // A seconds-precision Formula's own length is the fallback duration; the
+    // whole-minute field is its long-form counterpart.
+    formatDefaultLengthMinutes: context.defaultLengthSeconds !== null
+      ? context.defaultLengthSeconds / 60
+      : context.defaultLengthMinutes,
     chapterCountRange: options.chaptersPinned ? undefined : context.chapterCountRange,
     wordsPerMinute: context.defaultWordsPerMinute ?? 122,
   })

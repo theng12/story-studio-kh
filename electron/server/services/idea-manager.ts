@@ -9,6 +9,11 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { resolveEpisodePaths, formatEpisodeCode, storedEpisodeNumber, projectDirFor, projectMetaOnce, type EpisodePaths, type ProjectFactsCache } from './utils.js'
 import * as pm from './project-manager.js'
+import {
+  drawEpisodeLengthSeconds,
+  formatLengthSuggestion,
+  resolveEpisodeLengthSetting,
+} from '../lib/episode-length.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 
@@ -462,11 +467,34 @@ export async function acceptIdea(
   slug: string,
   ideaId: string,
   autoGenerateScript: boolean = false,
-  /** `append` (1.4.276, Episode Builder): continue after the highest code, never fill a gap below it. */
-  opts: { override_code?: string; append?: boolean } = {},
+  /**
+   * `append` (1.4.276, Episode Builder): continue after the highest code, never fill a gap below it.
+   * `rng` (1.4.369): the uniform draw for a channel with a starting length
+   * range; tests pin it, production leaves it as `Math.random`.
+   */
+  opts: { override_code?: string; append?: boolean; rng?: () => number } = {},
 ): Promise<AcceptResult> {
   const meta = await pm.getProject(slug)
   if (!meta) throw new Error('Project not found')
+
+  // 1.4.369 — this episode's STARTING length, drawn ONCE here and stored on
+  // the episode. A Quote Shorts channel draws a different Short length
+  // (10–60 s) for each new episode instead of copying one fixed figure; the
+  // channel's own setting wins, and a channel that has none reads its Formula
+  // live, so every channel created before this setting existed still behaves.
+  // Nothing redraws on reload or retry, and no existing episode is rewritten.
+  // Best effort: a channel with no range (every long-form one) is unchanged.
+  let drawnLengthSeconds: number | null = null
+  try {
+    // Imported here, not at module load: the format loader reaches the
+    // Content Pack registry, and idea-manager is loaded on every route.
+    const { getEffectiveFormat } = await import('./format-loader.js')
+    const [format, config] = await Promise.all([getEffectiveFormat(slug), pm.getConfig(slug)])
+    const setting = resolveEpisodeLengthSetting((config as any)?.episode_length, format?.script)
+    if (setting) drawnLengthSeconds = drawEpisodeLengthSeconds(setting, opts.rng)
+  } catch {
+    // A Formula that cannot be read leaves the episode's length as it was.
+  }
 
   // Phase 1 (locked): reserve the episode number & flip idea status atomically.
   // Folder creation is deliberately kept OUTSIDE the lock — each episode gets a
@@ -543,6 +571,11 @@ export async function acceptIdea(
     idea.status = 'accepted'
     idea.episode_code = episodeCode
     idea.accepted_at = new Date().toISOString()
+    // The drawn starting length replaces the model's suggestion at the moment
+    // the episode exists, so every page (this row, the Script form, the
+    // episode's own file) reads one length instead of two. Only a channel with
+    // a range reaches this; a long-form episode keeps its suggestion verbatim.
+    if (drawnLengthSeconds !== null) idea.suggested_length = formatLengthSuggestion(drawnLengthSeconds)
 
     return { idea, episodeCode, paths }
   })
@@ -586,6 +619,10 @@ export async function acceptIdea(
     // omitted when unset (legacy), never written as a guess.
     ...(meta.auto_introduction_enabled === true ? { intro_eligible: true } : {}),
     content_language: meta.content_language ?? undefined,
+    // 1.4.369 — this episode's own starting length, in seconds, when its
+    // channel draws one. Written once, here; absent for every long-form
+    // episode and for every episode created before this existed.
+    ...(drawnLengthSeconds !== null ? { target_length_seconds: drawnLengthSeconds } : {}),
   }
   await fs.writeFile(
     path.join(paths.episode_dir, 'episode_info.json'),

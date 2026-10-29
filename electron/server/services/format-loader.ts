@@ -31,6 +31,7 @@ import { createRequire } from 'module'
 import * as pm from './project-manager.js'
 import { resolveMotionProfile } from './motion-profiles.js'
 import { applyFormulaEpisodeProfile, resolveFormulaEpisodeDimensions } from './formula-production-kit.js'
+import { formulaLengthPrompt } from '../lib/episode-length.js'
 import type { Format, DeepPartial, ProjectMeta } from '../models/types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -487,7 +488,10 @@ export function applyNicheToFormat(
           logline: '',  // LLM infers from title + niche scriptContext
           themes: (niche.vocabulary?.theme || []).slice(0, 3),
           suggested_chapters: format.script.defaultChapterCount,
-          suggested_length: `${format.script.defaultLengthMinutes} min`,
+          suggested_length: formulaLengthPrompt({
+            ...format.script,
+            ...(niche.scriptStructure ?? {}),
+          }).example,
           mood: (niche.vocabulary?.mood || [])[0] || (format.idea.moodVocabulary || [])[0] || '',
         }))
       : undefined
@@ -660,6 +664,23 @@ export function applyNicheToFormat(
       const presets = niche_structure.durationPresets
         .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
       if (presets.length) baseScript.durationPresets = presets
+    }
+    // 1.4.369 — seconds-precision length (Quote Shorts: 10–60 s). Carried
+    // through as the Formula wrote it; every length reader prefers it over
+    // the whole-minute fields above, and the random draw is opted into
+    // explicitly by `randomizeLength`.
+    if (typeof niche_structure.defaultLengthSeconds === 'number'
+      && Number.isFinite(niche_structure.defaultLengthSeconds) && niche_structure.defaultLengthSeconds > 0) {
+      baseScript.defaultLengthSeconds = niche_structure.defaultLengthSeconds
+    }
+    if (Array.isArray(niche_structure.lengthSecondsRange)
+      && niche_structure.lengthSecondsRange.length === 2
+      && niche_structure.lengthSecondsRange.every(n => typeof n === 'number' && Number.isFinite(n) && n > 0)) {
+      const [minSec, maxSec] = niche_structure.lengthSecondsRange
+      if (maxSec >= minSec) baseScript.lengthSecondsRange = [minSec, maxSec]
+    }
+    if (typeof niche_structure.randomizeLength === 'boolean') {
+      baseScript.randomizeLength = niche_structure.randomizeLength
     }
     if (typeof niche_structure.defaultWordsPerMinute === 'number' && niche_structure.defaultWordsPerMinute > 0) {
       baseScript.defaultWordsPerMinute = niche_structure.defaultWordsPerMinute

@@ -361,6 +361,22 @@ export interface ScriptFormat {
   chapterCountRange: [number, number]
   defaultLengthMinutes: number
   lengthMinutesRange: [number, number]
+  /**
+   * 1.4.369 — seconds-precision length for a short-form Formula (a Quote
+   * Shorts Short is 10–60 s, which whole minutes cannot express). When the
+   * Formula declares either field, every length reader prefers it over the
+   * integer `defaultLengthMinutes` / `lengthMinutesRange` above, which stay
+   * as the required whole-minute fallback for long-form Formats and packs.
+   */
+  defaultLengthSeconds?: number
+  lengthSecondsRange?: [number, number]
+  /**
+   * 1.4.369 — a STARTING behaviour, not a limit: each NEW episode's length is
+   * drawn uniformly inside `lengthSecondsRange` (services/episode-length.ts).
+   * The channel gets its own editable copy of this at creation and can turn
+   * it off or change the range; an episode that already has a length keeps it.
+   */
+  randomizeLength?: boolean
   /** v1.0.101+ — Recommended duration values shown in the Script
    *  Generator's Duration dropdown. When unset, the page falls back to
    *  the legacy sleep-story-flavoured set [15, 20, 30, 45, 60, 90].
@@ -1179,6 +1195,12 @@ export interface Niche {
     /** Override the Continuity Engine's short-form length defaults. */
     defaultLengthMinutes?: number
     lengthMinutesRange?: [number, number]
+    /** Seconds-precision length; supersedes the two minutes fields above
+     *  wherever it is present (1.4.369). See ScriptFormat. */
+    defaultLengthSeconds?: number
+    lengthSecondsRange?: [number, number]
+    /** Draw each NEW episode's length inside `lengthSecondsRange` (1.4.369). */
+    randomizeLength?: boolean
     /** Recommended long-form duration choices shown in Script Generator. */
     durationPresets?: number[]
     /** Formula-owned narration speed used for word-count estimation. */
@@ -2221,7 +2243,32 @@ export interface MotionPresentationSettings {
   reveal?: SketchRevealSetting
 }
 
+/**
+ * A channel's per-episode starting length (1.4.369).
+ *
+ * `random` draws an integer number of seconds uniformly inside
+ * [min_sec, max_sec] for each NEW episode; `fixed` uses `fixed_sec`. All three
+ * numbers are kept even in the mode that does not use them, so switching the
+ * switch back restores the previous values instead of inventing new ones.
+ */
+export interface EpisodeLengthSetting {
+  mode: 'random' | 'fixed'
+  min_sec: number
+  max_sec: number
+  fixed_sec: number
+}
+
 export interface ProjectConfig {
+  /**
+   * 1.4.369 — this channel's episode length, as a STARTING value for each NEW
+   * episode. A Quote Shorts Formula asks for 10–60 s per Short, drawn once
+   * per episode. The channel copies the Formula's values at creation and can
+   * change them (or switch the draw off) here; absent means "read the live
+   * Formula", so a channel created before this setting existed still starts
+   * its new episodes inside its Formula's range. An episode that already has a
+   * length keeps it — this never rewrites one.
+   */
+  episode_length?: EpisodeLengthSetting
   /**
    * Thumbnail text layer — draw a real headline onto a copy of a text-free thumbnail
    * (owner, 2026-10-24). Absent means off, so every existing channel is untouched and the
@@ -2552,6 +2599,8 @@ export interface UpdateApiKeysRequest {
 }
 
 export interface UpdateConfigRequest {
+  /** 1.4.369 — the channel's per-episode starting length (Quote Shorts). */
+  episode_length?: EpisodeLengthSetting
   /** 1.4.300 — per-channel Off / Warn / Block for each safety check. */
   safety_checks?: Record<string, 'off' | 'warn' | 'block'>
   /** Server-written only (the HTTP schema strips it). */

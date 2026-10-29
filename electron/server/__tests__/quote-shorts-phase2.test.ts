@@ -8,7 +8,7 @@
  * 4. Caption animation with fun fonts kept inside 9:16 safe area (Anton bounce/electric, Moul, Battambang slide).
  * 5. Background music at 50-60% starting level for this Formula only.
  * 6. Making Shorts in batches (aspect ratio inheritance, cover frame resolution).
- * 7. Adjustable length, suggested around 45 s.
+ * 7. A Short's own length: 10–60 s per episode, written to the episode's target (1.4.369).
  */
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -283,15 +283,21 @@ describe('6. Making Shorts in batches', () => {
   })
 })
 
-describe('7. Adjustable length, suggested around 45 s', () => {
-  test('script context explains adjustable length suggested around 45 s', async () => {
+describe('7. A Short’s length belongs to the episode (10–60 s)', () => {
+  test('script context says the length varies per episode inside the range', async () => {
     const raw = JSON.parse(await readFile(new URL('../niches/quote-shorts.json', import.meta.url), 'utf8'))
-    assert.match(raw.scriptContext, /suggested around 45 seconds/i)
-    assert.match(raw.scriptStructure.additionalRules.join(' '), /suggested around 45 seconds/i)
+    assert.match(raw.scriptContext, /10 to 60 seconds/i)
+    assert.match(raw.scriptContext, /exact target length/i)
+    assert.match(raw.scriptStructure.additionalRules.join(' '), /10 to 60 seconds/i)
+    assert.match(raw.scriptStructure.additionalRules.join(' '), /exact target length/i)
+    // The old hard figure is gone: it contradicted the fields (1 min × 120 wpm
+    // = 120 words) and the owner rejected the too-long duration.
+    assert.doesNotMatch(raw.scriptStructure.additionalRules.join(' '), /suggested around 45 seconds/i)
   })
 
-  test('script prompt communicates adjustable length to the writer model', async () => {
+  test('script prompt tells the writer to write to the episode’s own target', async () => {
     const prompt = systemPrompt(await effective(), '')
-    assert.match(prompt, /suggested around 45 seconds/i)
+    assert.match(prompt, /10 to 60 seconds/i)
+    assert.match(prompt, /exact target length/i)
   })
 })

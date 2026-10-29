@@ -4,10 +4,12 @@ import { GenerateScriptOnlySchema } from '../../electron/server/contracts/index.
 import {
   canSubmitScriptOutline,
   effectiveFormatPathForEpisode,
+  formatLengthSecondsLabel,
   parseSuggestedMinutes,
   refreshScriptFormatState,
   resolveEpisodeScriptSizing,
   scriptDeepLinkQuery,
+  scriptFormatContextFromResponse,
   scriptOutlineSubmissionParams,
   type ScriptFormatRefreshState,
 } from '../utils/scriptSizing.js'
@@ -137,6 +139,7 @@ describe('script episode sizing', () => {
       chapters: 10, wordsPerChapter: 550,
       formatContext: {
         id: 'old', name: 'Old', summary: '', defaultChapterCount: 10, defaultLengthMinutes: 50,
+        defaultLengthSeconds: null, lengthSecondsRange: null, randomizeLength: false,
         chapterCountRange: [8, 12], lengthMinutesRange: [40, 60], durationPresets: [50],
         defaultWordsPerMinute: 200, defaultWordsPerChapter: null,
         narratorStyles: [], defaultNarratorStyleId: 'old-a',
@@ -305,5 +308,103 @@ describe('script episode sizing', () => {
       chapters: 6,
       length: '25',
     })
+  })
+})
+
+describe('a Quote Shorts episode length is seconds, not a rounded minute', () => {
+  test('"37 s" is 37 seconds, not 37 minutes', () => {
+    assert.ok(Math.abs((parseSuggestedMinutes('37 s') ?? 0) - 37 / 60) < 0.0001)
+    assert.equal(parseSuggestedMinutes('2 min 5 s'), Math.round((125 / 60) * 10000) / 10000)
+    assert.equal(parseSuggestedMinutes('45 min'), 45)
+    assert.equal(parseSuggestedMinutes(8), 8, 'a bare number stays minutes for every older caller')
+    assert.equal(parseSuggestedMinutes('standard'), null)
+  })
+
+  test('script sizing follows the drawn length: 37 s × 120 wpm ÷ 1 chapter = 74 words', () => {
+    assert.deepEqual(resolveEpisodeScriptSizing({
+      suggestedChapters: 1,
+      suggestedLength: '37 s',
+      formatDefaultChapters: 1,
+      formatDefaultLengthMinutes: 45 / 60,
+      chapterCountRange: [1, 1],
+      wordsPerMinute: 120,
+    }), { chapters: 1, wordsPerChapter: 74 })
+
+    assert.deepEqual(resolveEpisodeScriptSizing({
+      suggestedChapters: 1,
+      suggestedLength: '10 s',
+      formatDefaultChapters: 1,
+      formatDefaultLengthMinutes: 45 / 60,
+      chapterCountRange: [1, 1],
+      wordsPerMinute: 120,
+    }), { chapters: 1, wordsPerChapter: 20 })
+
+    assert.deepEqual(resolveEpisodeScriptSizing({
+      suggestedChapters: 1,
+      suggestedLength: '60 s',
+      formatDefaultChapters: 1,
+      formatDefaultLengthMinutes: 45 / 60,
+      chapterCountRange: [1, 1],
+      wordsPerMinute: 120,
+    }), { chapters: 1, wordsPerChapter: 120 })
+  })
+
+  test('the effective format carries the seconds range, and its own length is the fallback', async () => {
+    const context = scriptFormatContextFromResponse({
+      id: 'shorts', name: 'Quote Shorts', description: 'Vertical readings.',
+      script: {
+        defaultChapterCount: 1,
+        chapterCountRange: [1, 1],
+        defaultLengthMinutes: 1,
+        lengthMinutesRange: [1, 1],
+        durationPresets: [1],
+        defaultLengthSeconds: 45,
+        lengthSecondsRange: [10, 60],
+        randomizeLength: true,
+        defaultWordsPerMinute: 120,
+        narratorStyles: [{ id: 'A', label: 'Quiet and close', description: '' }],
+        defaultNarratorStyleId: 'A',
+      },
+    })
+    assert.equal(context?.defaultLengthSeconds, 45)
+    assert.deepEqual(context?.lengthSecondsRange, [10, 60])
+    assert.equal(context?.randomizeLength, true)
+
+    // No episode suggestion: the Formula's own 45 s is the duration, not 1 min.
+    const state: ScriptFormatRefreshState = {
+      selectedEpisodeCode: 'QS0001', sizingTouched: false,
+      chapters: 0, wordsPerChapter: 0, formatContext: null,
+    }
+    await refreshScriptFormatState({
+      state,
+      requestedEpisodeCode: 'QS0001',
+      load: async () => ({
+        id: 'shorts', name: 'Quote Shorts', description: 'Vertical readings.',
+        script: {
+          defaultChapterCount: 1,
+          chapterCountRange: [1, 1],
+          defaultLengthMinutes: 1,
+          lengthMinutesRange: [1, 1],
+          durationPresets: [1],
+          defaultLengthSeconds: 45,
+          lengthSecondsRange: [10, 60],
+          randomizeLength: true,
+          defaultWordsPerMinute: 120,
+          narratorStyles: [{ id: 'A', label: 'Quiet and close', description: '' }],
+          defaultNarratorStyleId: 'A',
+        },
+      }),
+      suggestedChapters: 1,
+    })
+    assert.deepEqual({ chapters: state.chapters, wordsPerChapter: state.wordsPerChapter }, {
+      chapters: 1, wordsPerChapter: 90,
+    })
+  })
+
+  test('a duration label reads in the unit the channel thinks in', () => {
+    assert.equal(formatLengthSecondsLabel(37), '37 s')
+    assert.equal(formatLengthSecondsLabel(65), '65 s')
+    assert.equal(formatLengthSecondsLabel(125), '2 min 5 s')
+    assert.equal(formatLengthSecondsLabel(120), '2 min')
   })
 })

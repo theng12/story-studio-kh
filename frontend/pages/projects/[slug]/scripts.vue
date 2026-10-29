@@ -278,14 +278,20 @@
             <strong>{{ formatContext.chapterCountRange[0] }}–{{ formatContext.chapterCountRange[1] }}</strong>
             <span class="rec-chip-current">you: {{ form.chapters }}</span>
           </span>
-          <span v-if="formatContext.lengthMinutesRange" :class="['rec-chip', { 'rec-chip-warn': lengthOutOfRange }]"
+          <span v-if="formatContext.lengthSecondsRange" class="rec-chip"
+            :title="`This Formula's Shorts start between ${formatContext.lengthSecondsRange[0]} and ${formatContext.lengthSecondsRange[1]} seconds. A starting value, not a limit.`">
+            <span class="rec-chip-label">Duration</span>
+            <strong>{{ formatContext.lengthSecondsRange[0] }}–{{ formatContext.lengthSecondsRange[1] }} s</strong>
+            <span class="rec-chip-current">you: {{ durationLabel(estimatedSeconds) }}</span>
+          </span>
+          <span v-else-if="formatContext.lengthMinutesRange" :class="['rec-chip', { 'rec-chip-warn': lengthOutOfRange }]"
             :title="lengthOutOfRange || 'Your duration is within the format’s typical envelope.'">
             <span class="rec-chip-label">Duration</span>
             <strong>{{ formatContext.lengthMinutesRange[0] }}–{{ formatContext.lengthMinutesRange[1] }} min</strong>
             <span class="rec-chip-current">you: {{ form.length }} min</span>
           </span>
           <span v-if="recommendedWordsPerChapter" class="rec-chip"
-            :title="`Computed from this format's default ${formatContext.defaultLengthMinutes}-minute / ${formatContext.defaultChapterCount}-${sectionLabel.singular} shape at ~${wordsPerMinute} w/min.`">
+            :title="`Computed from this format's default ${formatContext.defaultLengthSeconds != null ? `${formatContext.defaultLengthSeconds} s` : `${formatContext.defaultLengthMinutes} min`} / ${formatContext.defaultChapterCount}-${sectionLabel.singular} shape at ~${wordsPerMinute} w/min.`">
             <span class="rec-chip-label">Typical w/{{ sectionLabel.singular }}</span>
             <strong>~{{ recommendedWordsPerChapter.toLocaleString() }}</strong>
             <span class="rec-chip-current">you: {{ form.words_per_chapter.toLocaleString() }}</span>
@@ -296,6 +302,43 @@
           <span v-if="lengthOutOfRange">⚠ {{ lengthOutOfRange }}.</span>
           <span class="text-muted">Generation will still proceed — this is just a hint.</span>
         </div>
+      </div>
+
+      <!-- 1.4.369 — the channel's per-episode starting length. A Quote Shorts
+           Formula wants a different-length Short each time (10–60 s by
+           default); the channel owns the range and this card is where it is
+           read and changed. STARTING value only: words per section still
+           decide this episode's real length, and an episode that already has
+           a length keeps it. -->
+      <div v-if="episodeLengthAvailable" class="format-context-card episode-length-card">
+        <div class="format-context-header">
+          <span class="format-context-icon" aria-hidden="true">⏱</span>
+          <span class="format-context-name">Episode length</span>
+          <span class="format-context-summary">— a starting value for new episodes, not a limit</span>
+        </div>
+        <p v-if="episodeStartingSeconds !== null" class="episode-length-current">
+          This episode starts at <strong>{{ formatLengthSecondsLabel(episodeStartingSeconds) }}</strong>.
+          <span class="text-muted">{{ sectionLabel.Plural }} and words per {{ sectionLabel.singular.toLowerCase() }} below set its real length — change it there for this episode.</span>
+        </p>
+        <div class="episode-length-controls">
+          <label class="episode-length-random">
+            <input v-model="episodeLengthRandom" type="checkbox" :disabled="savingEpisodeLength">
+            A different length each new episode
+          </label>
+          <template v-if="episodeLengthRandom">
+            <label>Shortest <input v-model.number="episodeLengthMin" class="input narrow" type="number" min="1" max="3600" step="1" :disabled="savingEpisodeLength"> s</label>
+            <label>Longest <input v-model.number="episodeLengthMax" class="input narrow" type="number" min="1" max="3600" step="1" :disabled="savingEpisodeLength"> s</label>
+          </template>
+          <label v-else>
+            Length <input v-model.number="episodeLengthFixed" class="input narrow" type="number" min="1" max="3600" step="1" :disabled="savingEpisodeLength"> s
+          </label>
+          <button type="button" class="btn btn-sm" :disabled="savingEpisodeLength || !episodeLengthDirty" @click="saveEpisodeLength">
+            {{ savingEpisodeLength ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+        <p class="text-muted episode-length-note">
+          Applies to episodes created after this. An episode that already has a length keeps it.
+        </p>
       </div>
 
       <!-- v1.0.105+ — Niche overlay visibility. Surfaces what the active -->
@@ -475,7 +518,7 @@
           </div>
           <div class="form-group">
             <label>2 · Words / {{ sectionLabel.Singular }}</label>
-            <input v-model.number="form.words_per_chapter" class="input" type="number" min="100" @input="onWordsPerChapterChange" />
+            <input v-model.number="form.words_per_chapter" class="input" type="number" :min="formatContext?.lengthSecondsRange ? 1 : 100" @input="onWordsPerChapterChange" />
             <span class="sizing-sub text-muted">Target length of each {{ sectionLabel.singular.toLowerCase() }}.</span>
           </div>
           <div class="form-group">
@@ -485,7 +528,7 @@
           </div>
           <div class="form-group">
             <label>Est. duration <span class="calc-badge">info only</span></label>
-            <div class="estimate-box">≈ {{ estimatedDuration }} min</div>
+            <div class="estimate-box">≈ {{ durationLabel(estimatedSeconds) }}</div>
             <span class="sizing-sub text-muted">at ~{{ wordsPerMinute }} w/min · does not control generation</span>
           </div>
         </div>
@@ -494,7 +537,7 @@
           × <strong>{{ form.words_per_chapter.toLocaleString() }}</strong> words/{{ sectionLabel.singular }}
           = <strong>{{ form.total_words.toLocaleString() }}</strong> story body
           <template v-if="channelIntroEnabled"> + <strong>~{{ channelIntroWordTarget }}</strong> intro</template>
-          = <strong class="text-accent">~{{ totalOutput.toLocaleString() }} total (~{{ estimatedTotalDuration }} min)</strong>
+          = <strong class="text-accent">~{{ totalOutput.toLocaleString() }} total (~{{ durationLabel(estimatedTotalSeconds) }})</strong>
         </div>
         <p class="sizing-scale text-muted">
           Rough guide at ~{{ wordsPerMinute }} w/min:
@@ -722,6 +765,8 @@ import { DEFAULT_EXCLUDE_KEYS } from '~/composables/usePresets'
 import {
   canSubmitScriptOutline,
   effectiveFormatPathForEpisode,
+  formatLengthSecondsLabel,
+  parseSuggestedMinutes,
   refreshScriptFormatState,
   scriptOutlineSubmissionParams,
   type ScriptFormatContext,
@@ -1121,7 +1166,7 @@ watch(() => form.character_ids.length, (n) => {
 // once on mount + when slug changes; project-meta arrival triggers the
 // watcher that hydrates formatId.
 const projectFormatId = ref('scenes')
-const { project } = useProject()
+const { project, config: projectConfig } = useProject()
 watch(project, (p) => {
   if (!p) return
   const id = (p as any).format_id
@@ -1368,9 +1413,14 @@ async function clearRecencyLog() {
 // glance whether they've drifted from "what this format normally does."
 const recommendedWordsPerChapter = computed(() => {
   const fc = formatContext.value
-  if (!fc?.defaultChapterCount || !fc?.defaultLengthMinutes) return null
+  // A seconds-precision Formula's own length wins; the whole-minute field is
+  // the long-form fallback (1.4.369 — Quote Shorts: 45 s, not 1 min).
+  const minutes = fc?.defaultLengthSeconds != null
+    ? fc.defaultLengthSeconds / 60
+    : fc?.defaultLengthMinutes
+  if (!fc?.defaultChapterCount || !minutes) return null
   if (fc.defaultChapterCount <= 0) return null
-  return Math.round((fc.defaultLengthMinutes * wordsPerMinute.value) / fc.defaultChapterCount)
+  return Math.round((minutes * wordsPerMinute.value) / fc.defaultChapterCount)
 })
 
 // Out-of-range checks. Each returns either null (in range / no data) or
@@ -1384,6 +1434,9 @@ const chaptersOutOfRange = computed<string | null>(() => {
   return null
 })
 const lengthOutOfRange = computed<string | null>(() => {
+  // A seconds-precision Formula (Quote Shorts) has its own starting range and
+  // is shown in seconds; its whole-minute fallback range must not flag it.
+  if (formatContext.value?.lengthSecondsRange) return null
   const range = formatContext.value?.lengthMinutesRange
   if (!range || form.length <= 0) return null
   const [lo, hi] = range
@@ -1391,6 +1444,119 @@ const lengthOutOfRange = computed<string | null>(() => {
   if (form.length > hi) return `${form.length} min is above this format's typical range (${lo}–${hi})`
   return null
 })
+
+// 1.4.369 — the channel's per-episode starting length.
+//
+// A Quote Shorts Formula gives every new episode a DIFFERENT length inside a
+// range (10–60 s by default) rather than copying one fixed figure. The channel
+// owns the range from its creation on, and this card is where it is read and
+// changed. It is a STARTING value, never a limit: this episode's own words per
+// section still decide its real length, and nothing here refuses a length the
+// customer types. An episode that already has a length keeps it.
+const episodeLengthRandom = ref(false)
+const episodeLengthMin = ref(10)
+const episodeLengthMax = ref(60)
+const episodeLengthFixed = ref(45)
+const savingEpisodeLength = ref(false)
+const savedEpisodeLength = ref('')
+
+/** The row for the episode in the form — the picked object, else the list's. */
+const episodeRow = computed(() => {
+  const list = cachedEpisodeList.value as any[] | undefined
+  const code = form.episode_id
+  if (list && code) {
+    const found = list.find((entry: any) => entry.episode_code === code)
+    if (found) return found
+  }
+  return selectedEpisode.value
+})
+
+/** The selected episode's own length, when it was stored in seconds ("37 s"). */
+const episodeStartingSeconds = computed<number | null>(() => {
+  const minutes = parseSuggestedMinutes(episodeRow.value?.suggested_length)
+  return minutes === null ? null : Math.round(minutes * 60)
+})
+
+/** The channel's setting if it has one, else what its Formula declares. */
+const episodeLengthSetting = computed(() => {
+  const own = (projectConfig.value as any)?.episode_length
+  if (own && typeof own === 'object') return own as { mode: 'random' | 'fixed'; min_sec: number; max_sec: number; fixed_sec: number }
+  const fc = formatContext.value
+  if (!fc) return null
+  if (fc.lengthSecondsRange) {
+    return {
+      mode: (fc.randomizeLength ? 'random' : 'fixed') as 'random' | 'fixed',
+      min_sec: fc.lengthSecondsRange[0],
+      max_sec: fc.lengthSecondsRange[1],
+      fixed_sec: fc.defaultLengthSeconds ?? fc.lengthSecondsRange[0],
+    }
+  }
+  if (fc.defaultLengthSeconds !== null) {
+    return { mode: 'fixed' as const, min_sec: fc.defaultLengthSeconds, max_sec: fc.defaultLengthSeconds, fixed_sec: fc.defaultLengthSeconds }
+  }
+  return null
+})
+
+const episodeLengthAvailable = computed(() => episodeLengthSetting.value !== null)
+
+function syncEpisodeLengthForm() {
+  const setting = episodeLengthSetting.value
+  if (!setting) return
+  episodeLengthRandom.value = setting.mode === 'random'
+  episodeLengthMin.value = setting.min_sec
+  episodeLengthMax.value = setting.max_sec
+  episodeLengthFixed.value = setting.fixed_sec
+  savedEpisodeLength.value = JSON.stringify(setting)
+}
+watch([episodeLengthSetting], syncEpisodeLengthForm, { immediate: true })
+
+const episodeLengthPayload = computed(() => episodeLengthRandom.value
+  ? { mode: 'random' as const, min_sec: episodeLengthMin.value, max_sec: episodeLengthMax.value, fixed_sec: episodeLengthFixed.value }
+  : { mode: 'fixed' as const, min_sec: episodeLengthFixed.value, max_sec: episodeLengthFixed.value, fixed_sec: episodeLengthFixed.value })
+
+const episodeLengthDirty = computed(() => JSON.stringify(episodeLengthPayload.value) !== savedEpisodeLength.value)
+
+async function saveEpisodeLength() {
+  const payload = episodeLengthPayload.value
+  const numbers = [payload.min_sec, payload.max_sec, payload.fixed_sec]
+  if (!numbers.every(value => Number.isInteger(value) && value >= 1 && value <= 3600)) {
+    showError('Each length must be a whole number of seconds between 1 and 3600.')
+    return
+  }
+  if (payload.max_sec < payload.min_sec) {
+    showError('The longest episode must not be shorter than the shortest.')
+    return
+  }
+  savingEpisodeLength.value = true
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { episode_length: payload })
+    if (projectConfig.value) (projectConfig.value as any).episode_length = { ...payload }
+    savedEpisodeLength.value = JSON.stringify(payload)
+    success(payload.mode === 'random'
+      ? `New episodes on this channel will each be a different length, ${payload.min_sec}–${payload.max_sec} s. Existing episodes keep theirs.`
+      : `New episodes on this channel will each start at ${payload.fixed_sec} s. Existing episodes keep theirs.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not save the episode length')
+  } finally {
+    savingEpisodeLength.value = false
+  }
+}
+
+/** A duration in the unit this channel thinks in: seconds for a Short. */
+function durationLabel(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds))
+  const shortForm = !!formatContext.value?.lengthSecondsRange
+    || formatContext.value?.defaultLengthSeconds != null
+  if (shortForm || whole < 90) return formatLengthSecondsLabel(whole)
+  return `${Math.round(whole / 60)} min`
+}
+
+const estimatedSeconds = computed(() =>
+  wordsPerMinute.value > 0 ? Math.round((form.total_words / wordsPerMinute.value) * 60) : 0,
+)
+const estimatedTotalSeconds = computed(() =>
+  wordsPerMinute.value > 0 ? Math.round((totalOutput.value / wordsPerMinute.value) * 60) : 0,
+)
 
 // A concise, always-visible summary for the Formula contract.
 const scriptContextSummary = computed<string>(() => {
@@ -1820,12 +1986,6 @@ watch(cachedEpisodeList, (list) => {
 
 const totalOutput = computed(() =>
   form.total_words + (channelIntroEnabled.value ? channelIntroWordTarget.value : 0)
-)
-const estimatedDuration = computed(() =>
-  Math.round(form.total_words / wordsPerMinute.value)
-)
-const estimatedTotalDuration = computed(() =>
-  Math.round(totalOutput.value / wordsPerMinute.value)
 )
 /** Names the first missing item, like Research's runDisabledReason. */
 const submitDisabledReason = computed(() => {
@@ -2482,6 +2642,30 @@ onMounted(() => { setTimeout(() => { pageReadyForAutoIntro.value = true }, 1500)
   border-left: 3px solid var(--accent);
   font-size: 13px;
   color: var(--text-primary);
+}
+
+/* 1.4.369 — the channel's per-episode starting length. */
+.episode-length-card {
+  border-left-color: var(--text-muted, #8a8f98);
+}
+.episode-length-current {
+  margin: 8px 0 6px;
+}
+.episode-length-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.episode-length-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.episode-length-note {
+  margin: 6px 0 0;
+  font-size: 12px;
 }
 
 /* v1.0.105+ — Niche overlay indicator. Sits directly under the format

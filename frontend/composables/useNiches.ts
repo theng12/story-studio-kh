@@ -128,6 +128,10 @@ export interface Niche {
     chapterCountRange?: [number, number]
     defaultLengthMinutes?: number
     lengthMinutesRange?: [number, number]
+    /** 1.4.369 — seconds-precision length; supersedes the minutes pair. */
+    defaultLengthSeconds?: number
+    lengthSecondsRange?: [number, number]
+    randomizeLength?: boolean
     durationPresets?: number[]
     defaultWordsPerMinute?: number
     /** True when a chapter is its own subject rather than part of one story —
