@@ -288,7 +288,9 @@ describe('the hold in settings and freshness', () => {
     assert.equal(await reason(slug, ep, noHold), 'stale closing hold')
     // Versions outside the compatible list are still a stale renderer.
     assert.match((await reason(slug, ep, { ...legacy, clip_sketch: { ...legacy.clip_sketch, helper_version: 1 } }))!, /renderer/)
-    assert.match((await reason(slug, ep, { ...legacy, clip_sketch: { ...legacy.clip_sketch, helper_version: 5 } }))!, /renderer/)
+    // Helper 5 is the current version (it added the Colour it in reveal) and IS compatible;
+    // a version this build does not know is the stale renderer.
+    assert.match((await reason(slug, ep, { ...legacy, clip_sketch: { ...legacy.clip_sketch, helper_version: 6 } }))!, /renderer/)
   })
 
   test("an episode's own hold overrides the channel default, and each stales only itself", async () => {
