@@ -2069,18 +2069,31 @@ const {
   createNiche: createNicheApi,
   deleteNiche: deleteNicheApi,
   refresh: refreshNiches,
+  ensureListed: ensureFormulasListed,
 } = useNiches()
-const { topicPacks: topicPackLibList } = useTopicPacks()
+const {
+  topicPacks: topicPackLibList,
+  find: findTopicPack,
+  ensureListed: ensureTopicPacksListed,
+} = useTopicPacks()
 const nicheId = ref<string>('')
 const topicPackIds = ref<string[]>([])
 const identityPickerOpen = ref(false)
 const customNicheLibList = computed(() => nicheLibList.value.filter(niche => !niche.builtin))
 const nicheLibraryCount = computed(() => customNicheLibList.value.length)
 const selectedNicheProfile = computed(() => findNicheProfile(nicheId.value))
-const selectedFormulaLabel = computed(() => selectedNicheProfile.value?.catalogName || selectedNicheProfile.value?.name || nicheId.value || 'No Formula')
+const selectedFormulaLabel = computed(() => {
+  const profile = selectedNicheProfile.value
+  const label = profile?.catalogName || profile?.name || nicheId.value || 'No Formula'
+  return profile?.catalog?.not_in_pack ? `${label} (not in a pack)` : label
+})
 const selectedTopicPackLabel = computed(() => {
   if (!topicPackIds.value.length) return 'No Topic Packs'
-  const names = topicPackIds.value.map(id => topicPackLibList.value.find(pack => pack.id === id)?.name || id)
+  const names = topicPackIds.value.map(id => {
+    const pack = findTopicPack(id)
+    if (!pack) return id
+    return pack.catalog?.not_in_pack ? `${pack.name} (not in a pack)` : pack.name
+  })
   return names.length > 2 ? `${names.slice(0, 2).join(', ')} +${names.length - 2}` : names.join(', ')
 })
 const projectContentPackVersions = computed<Record<string, string>>(() => (project.value as any)?.content_pack_versions || {})
@@ -2242,6 +2255,14 @@ function syncNicheFromProject() {
   topicPackIds.value = Array.isArray(m.topic_pack_ids)
     ? [...m.topic_pack_ids]
     : [...(findNicheProfile(nicheId.value)?.defaultTopicPackIds || [])]
+  // The lists carry installed pack items only (owner ruling, 2026-10-29), so a
+  // saved selection is read back against them: pack-served ids show as their
+  // pack item, and anything no pack publishes is shown "(not in a pack)" rather
+  // than silently disappearing from this channel's own screens.
+  void Promise.all([
+    ensureFormulasListed([nicheId.value]),
+    ensureTopicPacksListed(topicPackIds.value),
+  ])
 }
 
 watch(project, syncNicheFromProject, { immediate: true })

@@ -7,6 +7,23 @@ What's new in each release. Newest first.
 <!-- DRAFT (1.4.369) — no version heading yet; the bump and heading land with the release. -->
 - Still Posts lettering fonts: a channel can keep a pool of fonts for its quote posts, one pool per writing system. Add one font and every post uses it; add several and they rotate one after another, wrapping, exactly as listed — or switch that pool to by-percentage and each font's share is shown beside it. With no pool, posts keep using the format's own face, so every channel and post that exist today is lettered exactly as before. A post remembers the face it was given when it was written, so re-lettering, a retry or a later pool edit never quietly changes an old post's face; changing a post's language to another writing system clears that face and says so. Only fonts whose font list covers the language are offered, and a font that cannot draw the language is refused by name rather than drawn in something else. The pool is saved in the preset; where the rotation stands is kept per channel, so restarting Story Studio neither repeats a font nor skips one, and adding, removing or reordering fonts mid-run carries on from where it stopped.
 - Twenty-nine more lettering fonts ship with the app, free and openly licenced (twenty-seven under the SIL Open Font License, two under Apache 2.0, each with its licence beside it): handwriting and brush faces such as Caveat, Kalam, Gochi Hand, Amatic SC, Indie Flower, Gloria Hallelujah, Reenie Beanie and Just Another Hand, text faces such as Lora, EB Garamond, Cormorant Garamond and Fraunces, and twelve Khmer faces including Koulen, Bayon, Angkor, Preah Vihear, Moulpali and Hanuman. They appear in the font pickers and in the Still Posts pool wherever their own font file says they can draw the writing system, so a Latin-only face is never offered for a Khmer line. Where a post asks for a weight a face does not have, the nearest weight the face really has is used — bold is never faked. Khmer faces carry the letters but not curly quotes, em dashes or the ellipsis, so those six marks are now drawn by one Latin face for every Khmer face (Moul, Battambang and Kantumruy Pro included) instead of the headline being refused, and the preview says whose marks they are. Nothing already saved changes: existing looks keep the face they were made with, and Khmer captions still fall back to Kantumruy Pro.
+- One copy per look, and per Topic Pack. The Formula, Topic Pack and Style
+  Library pickers now list only what the Content Packs installed on this Mac
+  publish, so a shipped built-in profile and the owner's own custom copy no
+  longer sit beside the pack that grew out of them. Nothing was deleted or
+  rewritten: a channel, preset or plan that already names one of the old ids
+  still resolves — through the pack item where a pack owns that look or subject,
+  otherwise through the old file as a read-only fallback — and a channel whose
+  own selection no pack publishes says "(not in a pack)" beside its name in its
+  own picker, so nothing changes under you without a word.
+- Wars, Treaties & World Order is one pack now: the merged pack carries 122
+  subjects. The two overlapping packs that came before it are marked replaced
+  (pointing at the merged pack) so the Store stops offering duplicates, an
+  installed copy keeps working, and every stored id — including the old short id
+  — reads the merged pack when it is installed and the old content when it is
+  not.
+- Bold Illustrated History: the Studio Library style is the one, so a channel
+  still naming its own copy of that look reads the Library style's own text.
 
 ## v1.4.368 — 2026-10-29
 

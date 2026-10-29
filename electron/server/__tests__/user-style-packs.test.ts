@@ -48,31 +48,31 @@ async function appWithTempData() {
 }
 
 describe('user style packs', () => {
-  test('an imported pack is listed and its styles join the Style Library with no preview', async () => {
+  test('an imported pack is managed by its own route and is no longer listed in the Style Library', async () => {
     const app = await appWithTempData()
     const installed = await request(app).post('/api/user-style-packs')
       .send(pack([style('dreamlands'), style('woodcut', { negative_prompt: 'photo, 3D render' })])).expect(200)
     assert.deepEqual(installed.body, { ok: true, pack_id: 'kh.art-styles', version: '1.0.0', styles: 2 })
 
+    // Owner ruling 2026-10-29 — "no custom, no built in, all from packs": the
+    // Style Library lists installed Content Packs only. The pack itself is still
+    // installed, readable and managed here; it is simply not offered as a look.
     const listed = await request(app).get('/api/user-style-packs').expect(200)
     assert.deepEqual(listed.body.user_style_packs.map((p: any) => p.pack_id), ['kh.art-styles'])
 
     const library = await request(app).get('/api/visual-styles').expect(200)
-    const dreamlands = library.body.visual_styles.find((s: any) => s.id === 'kh.art-styles.dreamlands')
-    assert.deepEqual(dreamlands, {
-      id: 'kh.art-styles.dreamlands', name: 'Style dreamlands', builtin: true, blurb: 'The dreamlands look.',
-      category: 'Painterly', tags: ['painterly'],
-      data: { style_bible: 'Soft dreamlands brushwork, no text.', negative_prompt: '' },
-      preview_image: '',
-      preview_images: [],
-      user_style: true,
-    })
-    assert.equal(library.body.visual_styles.find((s: any) => s.id === 'kh.art-styles.woodcut').data.negative_prompt, 'photo, 3D render')
+    assert.deepEqual(library.body.visual_styles, [],
+      'a user style pack style must not appear in the Library beside the packs')
+    assert.equal(
+      (await request(app).get('/api/user-style-packs').expect(200)).body.user_style_packs[0].styles[1].negative_prompt,
+      'photo, 3D render',
+      'the stored text still reads back exactly as written',
+    )
 
     // Re-importing the same pack id replaces it rather than adding a second copy.
     await request(app).post('/api/user-style-packs').send(pack([style('dreamlands')], { version: '1.0.1' })).expect(200)
-    const replaced = await request(app).get('/api/visual-styles').expect(200)
-    assert.deepEqual(replaced.body.visual_styles.map((s: any) => s.id), ['kh.art-styles.dreamlands'])
+    const replaced = await request(app).get('/api/user-style-packs').expect(200)
+    assert.deepEqual(replaced.body.user_style_packs.map((p: any) => [p.pack_id, p.version]), [['kh.art-styles', '1.0.1']])
   })
 
   test('a bad pack is refused with the reason and writes nothing', async () => {
@@ -93,13 +93,17 @@ describe('user style packs', () => {
     await assert.rejects(fs.readdir(dir), { code: 'ENOENT' })
   })
 
-  test('a damaged pack file is skipped and never hides the signed library', async () => {
+  test('a damaged pack file is skipped and never takes the library down', async () => {
     const app = await appWithTempData()
     await request(app).post('/api/user-style-packs').send(pack([style('dreamlands')])).expect(200)
     const dir = path.join(getContentPackRuntimePaths().root, 'user-style-packs')
     await fs.writeFile(path.join(dir, 'broken.pack.json'), '{ not json')
     const library = await request(app).get('/api/visual-styles').expect(200)
-    assert.deepEqual(library.body.visual_styles.map((s: any) => s.id), ['kh.art-styles.dreamlands'])
+    assert.deepEqual(library.body.visual_styles, [],
+      'the unreadable file neither throws nor surfaces a style it cannot describe')
+    // The readable pack is still there to manage.
+    assert.deepEqual((await request(app).get('/api/user-style-packs').expect(200)).body.user_style_packs
+      .map((p: any) => p.pack_id), ['kh.art-styles'])
   })
 
   test('picking a user style copies its text into the project, which then renders with it', async () => {

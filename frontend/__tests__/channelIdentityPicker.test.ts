@@ -108,13 +108,23 @@ async function mountPicker(options: HarnessOptions = {}) {
     niches: () => ({
       niches: formulas, isLoading: formulaLoading, error: formulaError,
       refresh: async () => { formulaRefreshes += 1; if (options.afterFormulaRefresh) formulas.value = options.afterFormulaRefresh },
+      // Owner ruling 2026-10-29: the list is installed packs only, and a saved
+      // selection is read back against it. These fixtures already ARE the list,
+      // so the identity mapping and the read-back are no-ops here.
+      selectionId: (id: string) => id,
+      ensureListed: async () => {},
       setProjectNiche: async (slug: string, formulaId: string | null, topicIds: string[]) => {
         puts.push({ slug, formulaId, topicIds: [...topicIds] })
         await saveGate
         if (options.failSave) throw new Error('disk is read-only')
       },
     }),
-    topics: () => ({ topicPacks: topics, isLoading: topicLoading, error: topicError, refresh: async () => { topicRefreshes += 1 } }),
+    topics: () => ({
+      topicPacks: topics, isLoading: topicLoading, error: topicError,
+      refresh: async () => { topicRefreshes += 1 },
+      selectionId: (id: string) => id,
+      ensureListed: async () => {},
+    }),
   }
   document.body.innerHTML = ''
   const host = document.body.appendChild(document.createElement('div'))

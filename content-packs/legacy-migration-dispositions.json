@@ -2944,11 +2944,12 @@
       "source": "electron/server/topic-packs/historical-wars-treaties-world-order.json",
       "target": {
         "kind": "registry-record",
-        "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
+        "pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
         "version": "1.0.1",
         "status": "authored",
-        "source_path": "content-packs/paid/archival-ledger/topic/wars-treaties-world-order-v1.0.1"
-      }
+        "source_path": "content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1"
+      },
+      "note": "Owner ruling 2026-10-29: the two overlapping Wars, Treaties & World Order packs are superseded by this merged pack (122 subjects). The legacy short id resolves to it, and both predecessors are marked lifecycle replaced with successor_pack_id pointing here."
     },
     {
       "legacy_key": "topic:human-behavior-social-dynamics",

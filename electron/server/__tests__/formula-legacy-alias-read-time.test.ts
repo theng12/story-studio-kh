@@ -144,7 +144,7 @@ test('adopted owner custom Formulas resolve to their store packs at read time', 
   assert.equal(loaded?.name, 'Adopted Wildlife Formula')
 })
 
-test('the picker hides a superseded legacy entry only when its store Formula is listed', async t => {
+test('the picker lists installed pack Formulas only, and every stored id still resolves', async t => {
   const temporary = await useTempDataDir()
   t.after(temporary.cleanup)
   const paths = getContentPackRuntimePaths()
@@ -155,8 +155,12 @@ test('the picker hides a superseded legacy entry only when its store Formula is 
 
   const listed = (await niches.listNicheCatalogEntries(options)).map(entry => entry.value.id)
   assert.ok(listed.includes(storeSleepId))
-  assert.equal(listed.includes('sleep'), false, 'the superseded entry must not sit beside its own successor')
-  assert.ok(listed.includes('music-mix'), 'a legacy Formula with no store successor stays listed')
+  assert.equal(listed.includes('sleep'), false,
+    'the shipped profile is not listed beside the pack that now serves it (owner, 2026-10-29)')
+  assert.equal(listed.includes('music-mix'), false,
+    'a shipped profile with no store successor is not listed either — it still loads')
+  assert.equal((await niches.loadNiche('music-mix', options))?.id, 'music-mix',
+    'a stored Formula that no pack publishes still resolves from its own source')
 })
 
 test('without the store Formula the legacy file still answers, so a channel keeps its Formula', async t => {

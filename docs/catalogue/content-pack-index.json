@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-29T06:19:03.033Z",
+  "generated": "2026-10-29T16:27:31.155Z",
   "count": 233,
   "items": [
     {
@@ -1356,11 +1356,11 @@
       "kind": "topic-pack",
       "id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order",
       "name": "Wars, Treaties & World Order",
-      "collection_dir": "paid/archival-ledger/topic/wars-treaties-world-order-v1.0.1",
+      "collection_dir": "paid/archival-ledger/topic/wars-treaties-world-order-v1.0.2",
       "axis": "war history, diplomacy, treaties, world order, geopolitics",
       "description": "Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.",
-      "version": "1.0.1",
-      "lifecycle": "active"
+      "version": "1.0.2",
+      "lifecycle": "replaced"
     },
     {
       "kind": "topic-pack",
@@ -1536,11 +1536,11 @@
       "kind": "topic-pack",
       "id": "com.storystudio.topic.historical-wars-treaties-world-order",
       "name": "Wars, Treaties & World Order",
-      "collection_dir": "free-starters/topic/historical-wars-treaties-world-order-v1.0.2",
+      "collection_dir": "free-starters/topic/historical-wars-treaties-world-order-v1.0.3",
       "axis": "war history, diplomacy, treaties, world order, geopolitics",
       "description": "Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.",
-      "version": "1.0.2",
-      "lifecycle": "active"
+      "version": "1.0.3",
+      "lifecycle": "replaced"
     },
     {
       "kind": "topic-pack",

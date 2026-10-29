@@ -190,6 +190,9 @@ export const STYLE_ALIASES: readonly StyleAlias[] = [
     presetIds: [
       'bold-illustrated-history',
       'kh.owner.illustrated-history.bold-illustrated-history',
+      // Owner, 2026-10-29: the Studio Library style is the one. A channel that
+      // still names its own user-pack copy reads the signed style's bible.
+      'kh.owner.style.bold-illustrated-history',
     ],
   },
   {

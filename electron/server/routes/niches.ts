@@ -63,7 +63,12 @@ router.get('/niches', async (req, res) => {
     const projects = await pm.listProjects()
     const refCount: Record<string, number> = {}
     for (const summary of projects) {
-      if (summary.niche_id) refCount[summary.niche_id] = (refCount[summary.niche_id] || 0) + 1
+      // A channel that stored a legacy id IS using the pack item it reads as, so
+      // the badge counts the resolved id (owner ruling, 2026-10-29: the list is
+      // pack items only, and "in use by 0 projects" beside a channel using it
+      // would be a lie).
+      const nicheId = summary.niche_id ? nl.resolveFormulaAlias(summary.niche_id) : ''
+      if (nicheId) refCount[nicheId] = (refCount[nicheId] || 0) + 1
     }
     res.json({
       niches: niches.map(entry => ({

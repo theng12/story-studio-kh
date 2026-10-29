@@ -2,8 +2,11 @@
  * Topic Pack loader.
  *
  * Topic Packs are reusable subject inventories layered under a Series Formula
- * (the legacy Niche object). Built-ins ship with the app; user packs live in
- * `${PROJECTS_ROOT}/.topic-packs` and shadow built-ins by id.
+ * (the legacy Niche object). The LIST is the installed Content Packs' items;
+ * the legacy sources — shipped JSON under `electron/server/topic-packs` and
+ * `${PROJECTS_ROOT}/.topic-packs` user files — are no longer listed but stay
+ * readable, and are what a stored legacy id falls back to when its pack is not
+ * installed (owner ruling, 2026-10-29).
  */
 
 import fs from 'fs/promises'
@@ -16,7 +19,6 @@ import type { TopicPack } from '../models/types.js'
 import {
   isQualifiedContentPackId,
   listCatalogEntries,
-  listUserForkCatalogEntries,
   resolveCatalogItem,
   resolveUserForkCatalogItem,
   type CatalogEntry,
@@ -93,8 +95,104 @@ async function readPack(filePath: string): Promise<TopicPack> {
   return parsed
 }
 
+// ── Read-time legacy-id aliases ────────────────────────────────────────────
+
+/**
+ * Owner ruling, 2026-10-29 — "no custom, no built in, all from packs": a Topic
+ * Pack picker lists what the installed Content Packs publish, and nothing else.
+ * A channel, preset or plan that stores one of the bare legacy ids keeps its
+ * bytes; every READ of that id resolves to the pack item that now owns the
+ * content (AGENTS §5 — aliases, never a migration). The legacy
+ * `electron/server/topic-packs/*.json` sources stay in place and still answer
+ * when the pack is not installed on this Mac.
+ *
+ * The table is the `topic:<legacy-id>` rows of
+ * `content-packs/legacy-migration-dispositions.json`, made executable for the
+ * read path; a test derives it from that file and fails if the two drift.
+ *
+ * THREE EXCEPTIONS, each deliberate:
+ *  - `historical-wars-treaties-world-order` points at the merged
+ *    `…-v2` item (owner, 2026-10-29: "use the one with the most context"), not
+ *    at the archival-ledger 1.0.1 disposition;
+ *  - the two superseded item ids below point at the same merged item, so a
+ *    stored selection written before the merge reads the fullest pack.
+ *
+ * Of the two ways to make a superseded id resolve (a v2-declared alias field, or
+ * a replaced pack that stays resolvable while hidden), the second is the smaller
+ * — no archive-schema change — and `RESOLVABLE_LIFECYCLES` in the registry
+ * implements it, so the two packs themselves still answer when the merged one is
+ * not installed. This table is what adds the merged pack's content on top.
+ */
+export const LEGACY_TOPIC_PACK_ALIASES: Readonly<Record<string, string>> = Object.freeze({
+  'ancient-humans-environments': 'com.storystudio.topic.ancient-humans-environments',
+  'ancient-humans-social-life': 'com.storystudio.topic.ancient-humans-social-life',
+  'ancient-humans-survival': 'com.storystudio.topic.ancient-humans-survival',
+  'ancient-humans-technology': 'com.storystudio.topic.ancient-humans-technology',
+  'deep-time-deep-ocean': 'com.storystudio.topic.deep-time-field-record.ancient-oceans-deep-sea',
+  'deep-time-earth-systems': 'com.storystudio.topic.deep-time-earth-systems',
+  'deep-time-human-origins': 'com.storystudio.topic.deep-time-field-record.human-origins-ancient-worlds',
+  'deep-time-prehistoric-life': 'com.storystudio.topic.deep-time-field-record.prehistoric-life-extinction',
+  'deep-time-speculative-earth': 'com.storystudio.topic.deep-time-speculative-earth',
+  'economics-ancient-civilizations': 'com.storystudio.topic.economics-ancient-civilizations',
+  'economics-businesses': 'com.storystudio.topic.economics-businesses',
+  'historical-empires-trade-extraction': 'com.storystudio.topic.archival-ledger.empires-trade-extraction',
+  'historical-infrastructure-commodities-corporate-power': 'com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power',
+  'historical-money-debt-financial-institutions': 'com.storystudio.topic.archival-ledger.money-debt-financial-institutions',
+  'historical-states-revolutions-collapse': 'com.storystudio.topic.archival-ledger.states-revolutions-collapse',
+  // The merged successor carries the free 1.0.2 and archival-ledger content.
+  'historical-wars-treaties-world-order': 'com.storystudio.topic.wars-treaties-world-order-v2',
+  'com.storystudio.topic.historical-wars-treaties-world-order': 'com.storystudio.topic.wars-treaties-world-order-v2',
+  'com.storystudio.topic.archival-ledger.wars-treaties-world-order': 'com.storystudio.topic.wars-treaties-world-order-v2',
+  'human-behavior-social-dynamics': 'com.storystudio.topic.human-behavior-social-dynamics',
+  'natural-world-animals': 'com.storystudio.topic.natural-world-animals',
+  'natural-world-fungi': 'com.storystudio.topic.natural-world-fungi',
+  'natural-world-insects': 'com.storystudio.topic.natural-world-insects',
+  'natural-world-plants': 'com.storystudio.topic.natural-world-plants',
+  'pastoral-daily-reflection': 'com.storystudio.topic.pastoral-daily-reflection',
+  'pastoral-expository-teaching': 'com.storystudio.topic.pastoral-expository-teaching',
+  'pov-criminal-hierarchies': 'com.storystudio.topic.pov-criminal-hierarchies',
+  'pov-historical-occupations': 'com.storystudio.topic.pov-historical-occupations',
+  'pov-law-enforcement': 'com.storystudio.topic.pov-law-enforcement',
+})
+
+/** The pack item id a stored Topic Pack id reads as. Unknown ids pass through. */
+export function resolveTopicPackAlias(id: string): string {
+  return LEGACY_TOPIC_PACK_ALIASES[id] ?? id
+}
+
+/**
+ * Load a Topic Pack by id. An aliased id reads as its pack item first; a bare
+ * legacy id whose pack is not installed still resolves THROUGH the alias target
+ * (a newer or superseding pack) and then to its own legacy source, so a stored
+ * selection never stops resolving (AGENTS §1, §5).
+ */
 export async function loadTopicPack(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<TopicPack | null> {
   if (!id) return null
+  const alias = LEGACY_TOPIC_PACK_ALIASES[id]
+  if (alias) return loadAliasedTopicPack(id, alias, registryOptions)
+  return loadResolvedTopicPack(id, registryOptions)
+}
+
+async function loadAliasedTopicPack(
+  legacyId: string,
+  targetId: string,
+  registryOptions: ContentPackRegistryOptions,
+): Promise<TopicPack | null> {
+  try {
+    const target = await loadResolvedTopicPack(targetId, registryOptions)
+    if (target) return target
+  } catch (e: any) {
+    console.warn(`[topic-pack-loader] alias '${legacyId}' → '${targetId}' could not be resolved: ${e.message}`)
+  }
+  console.warn(
+    `[topic-pack-loader] '${legacyId}' reads as '${targetId}', which is not available on this machine; `
+    + 'falling back to the legacy Topic Pack so generation keeps working',
+  )
+  return loadResolvedTopicPack(legacyId, registryOptions)
+}
+
+/** Today's resolution order: a local fork, then the qualified pack item, then the legacy file. */
+async function loadResolvedTopicPack(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<TopicPack | null> {
   const userFork = await resolveUserForkCatalogItem(id, 'topic-pack', registryOptions)
   if (userFork) return userFork.value as TopicPack
   if (isQualifiedContentPackId(id)) {
@@ -125,37 +223,24 @@ export async function loadLegacyTopicPack(id: string): Promise<{ document: Topic
   return { document: pack, source: 'legacy-builtin' }
 }
 
+/**
+ * Every Topic Pack the installed Content Packs publish, sorted by name.
+ *
+ * Owner ruling, 2026-10-29 — "no custom, no built in, all from packs": this is
+ * the picker's list, so it carries installed pack items only. The shipped
+ * `electron/server/topic-packs/*.json` files, `.topic-packs` user files and user
+ * forks are no longer listed — and nothing is deleted or rewritten. A stored id
+ * keeps resolving through `loadTopicPack` (alias → pack item, otherwise the old
+ * source as a read-only fallback), and a selection no installed pack publishes
+ * is shown as "<name> (not in a pack)" in its own picker.
+ *
+ * Malformed sources are skipped with a warning rather than failing the list.
+ */
 export async function listTopicPackCatalogEntries(registryOptions: ContentPackRegistryOptions = {}): Promise<Array<CatalogEntry<TopicPack>>> {
   const found = new Map<string, CatalogEntry<TopicPack>>()
   for (const entry of await listCatalogEntries('topic-pack', registryOptions)) {
-    if (entry.value.kind === 'topic-pack') {
+    if (entry.value.kind === 'topic-pack' && !found.has(entry.value.id)) {
       found.set(entry.value.id, { ...entry, value: contentPackDocumentToTopicPack(entry.value) })
-    }
-  }
-  for (const entry of await listUserForkCatalogEntries('topic-pack', registryOptions)) {
-    const pack = entry.value as TopicPack
-    if (!found.has(pack.id)) found.set(pack.id, { ...entry, value: pack })
-  }
-  if (existsSync(userDir())) {
-    for (const name of await fs.readdir(userDir()).catch(() => [] as string[])) {
-      if (!name.endsWith('.json')) continue
-      try {
-        const pack = await readPack(path.join(userDir(), name))
-        if (!found.has(pack.id)) found.set(pack.id, { value: pack, source: 'legacy-user-fork' })
-      } catch (error: any) {
-        console.warn(`[topic-pack-loader] skipping malformed user pack ${name}: ${error.message}`)
-      }
-    }
-  }
-  if (existsSync(BUILTIN_TOPIC_PACKS_DIR)) {
-    for (const name of await fs.readdir(BUILTIN_TOPIC_PACKS_DIR).catch(() => [] as string[])) {
-      if (!name.endsWith('.json')) continue
-      try {
-        const pack = await readPack(path.join(BUILTIN_TOPIC_PACKS_DIR, name))
-        if (!found.has(pack.id)) found.set(pack.id, { value: pack, source: 'legacy-builtin' })
-      } catch (error: any) {
-        console.warn(`[topic-pack-loader] skipping malformed built-in pack ${name}: ${error.message}`)
-      }
     }
   }
   return [...found.values()].sort((a, b) => a.value.name.localeCompare(b.value.name))

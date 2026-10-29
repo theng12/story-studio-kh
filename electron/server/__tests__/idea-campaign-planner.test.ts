@@ -1,12 +1,17 @@
 import { after, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { composeNicheWithTopicPacks, listNiches, loadNiche } from '../services/niche-loader.js'
+import {
+  BUILTIN_NICHES_DIR,
+  composeNicheWithTopicPacks,
+  loadLegacyNiche,
+  loadNiche,
+} from '../services/niche-loader.js'
 import { planIdeaAssignments } from '../services/idea-campaign-planner.js'
-import { listTopicPacks } from '../services/topic-pack-loader.js'
+import { BUILTIN_TOPIC_PACKS_DIR, loadLegacyTopicPack } from '../services/topic-pack-loader.js'
 import { contentPackDocumentToNiche, contentPackDocumentToTopicPack } from '../content-packs/legacy-adapters.js'
 import { parseContentPackDocument } from '../content-packs/schemas.js'
 import type { ContentPackDocument } from '../content-packs/types.js'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { useTempDataDir } from './_helpers.js'
 /**
  * Claim an isolated data dir before anything runs.
@@ -24,9 +29,15 @@ after(() => isolatedDataDir.cleanup())
 
 describe('Series Formula + Topic Pack campaign planning', () => {
   test('legacy and new niches load as Series Formulas without a project migration', async () => {
-    const niches = await listNiches()
+    // Owner ruling 2026-10-29: the picker lists installed packs only, so this
+    // reads the SHIPPED profiles through the compatibility loader — the same
+    // read path a stored legacy id uses — not the catalogue list.
+    const names = (await readdir(BUILTIN_NICHES_DIR)).filter(name => name.endsWith('.json'))
+    assert.ok(names.length > 0, 'the app still ships its Formula sources')
+    const niches = (await Promise.all(names.map(async name =>
+      (await loadLegacyNiche(name.slice(0, -'.json'.length)))?.document))).filter(Boolean)
     assert.ok(niches.length > 0)
-    assert.ok(niches.every(niche => niche.kind === 'series-formula'))
+    assert.ok(niches.every(niche => niche!.kind === 'series-formula'))
   })
 
   test('Business Economics defaults to the business pack and can compose with ancient civilizations', async () => {
@@ -297,9 +308,15 @@ describe('Series Formula + Topic Pack campaign planning', () => {
   })
 
   test('all three requested formula families have compatible built-in packs', async () => {
-    const packs = await listTopicPacks()
+    // The shipped Topic Pack sources, read through the same compatibility loader
+    // a stored id uses — the picker list itself is installed packs only now
+    // (owner ruling, 2026-10-29).
+    const names = (await readdir(BUILTIN_TOPIC_PACKS_DIR)).filter(name => name.endsWith('.json'))
+    const packs = (await Promise.all(names.map(async name =>
+      (await loadLegacyTopicPack(name.slice(0, -'.json'.length)))?.document))).filter(Boolean)
+    assert.ok(packs.length > 0, 'the app still ships its Topic Pack sources')
     const compatible = (formulaId: string) =>
-      packs.filter(pack => pack.compatibleNicheIds.includes(formulaId))
+      packs.filter(pack => pack!.compatibleNicheIds.includes(formulaId))
 
     assert.ok(compatible('business-economics').length >= 2)
     assert.ok(compatible('ancient-humans').length >= 4)

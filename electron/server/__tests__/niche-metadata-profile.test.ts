@@ -3,6 +3,7 @@
  * retired format-starter-template taxonomy. */
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { readdir } from 'node:fs/promises'
 import { useTempDataDir } from './_helpers.js'
 
 let nicheLoader: typeof import('../services/niche-loader.js')
@@ -17,8 +18,14 @@ describe('Formula metadata profiles', () => {
   after(async () => { await tmp.cleanup() })
 
   test('active built-in Formulas resolve a complete YouTube publishing blueprint', async () => {
-    const formulas = await nicheLoader.listNiches()
-    const activeBuiltIns = formulas.filter(n => n.builtin && n.catalogStatus !== 'legacy')
+    // Owner ruling 2026-10-29: the Formula picker lists installed packs only, so
+    // "every built-in" is read from the shipped sources through the compatibility
+    // loader rather than from the catalogue list.
+    const names = (await readdir(nicheLoader.BUILTIN_NICHES_DIR)).filter(name => name.endsWith('.json'))
+    const shipped = (await Promise.all(names.map(async name =>
+      (await nicheLoader.loadLegacyNiche(name.slice(0, -'.json'.length)))?.document ?? null)))
+      .flatMap(document => (document ? [document] : []))
+    const activeBuiltIns = shipped.filter(n => n.catalogStatus !== 'legacy')
     assert.ok(activeBuiltIns.length > 0)
     for (const formula of activeBuiltIns) {
       const profile = formula.metadataProfile
