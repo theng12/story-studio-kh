@@ -901,12 +901,16 @@ describe('Content Store overview answers partially instead of failing whole', ()
 
   test('an account/receipts mismatch still fails loudly — that is a wrong answer, not a missing one', async () => {
     const { app: localApp } = await setup()
-    // A real receipts body, re-labelled as another account's: the answer is
-    // wrong, not absent, so it must NOT become a partial overview.
+    // The account answer is re-labelled as another account's while the receipts
+    // stay this account's. Both bodies parse; together they disagree, which is
+    // a wrong answer, not an absent one — so it must NOT become a partial
+    // overview. (Re-labelling the SIGNED receipts instead would make that body
+    // incoherent, which is a different case: an unreadable response, covered by
+    // the foreign-body test above.)
     const original = globalThis.fetch
     globalThis.fetch = (async (input: any, init?: any) => {
       const url = typeof input === 'string' ? input : input?.url ?? String(input)
-      if (new URL(url).pathname !== '/v1/content/receipts') return original(input, init)
+      if (new URL(url).pathname !== '/v1/content/account') return original(input, init)
       const real = await original(input, init)
       const body = await real.json() as Record<string, unknown>
       body.account_id = 'acct_someone_else'

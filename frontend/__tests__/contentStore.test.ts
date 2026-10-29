@@ -840,7 +840,13 @@ describe('Studio Library renderer contract', () => {
     assert.match(page, /The Studio Library is ready, but no packs have been published yet\./)
     assert.doesNotMatch(page + card, /starter entries|preview gallery|license terms|portal URL/i)
     assert.match(page, /Re-check my packs/)
-    assert.doesNotMatch(page, /Restore Purchases|purchase/i)
+    // The retired shop's affordances must not come back. `Purchase records` is
+    // a non-interactive section label for this Mac's own local journal in the
+    // partial-state notice — not an action — so the guard refuses purchase
+    // CONTROLS and checkout wording rather than the noun itself.
+    assert.doesNotMatch(page, /Restore Purchases/i)
+    assert.doesNotMatch(page, /<(?:button|a)\b[^>]*>[^<]*purchase/i, 'no control offers a purchase')
+    assert.doesNotMatch(page, /\bbuy\b|checkout|purchase now/i, 'no checkout wording')
     assert.match(card, /Install on this Mac/)
     assert.match(card, /ContentProductCover/)
     assert.match(card, /View proof/)

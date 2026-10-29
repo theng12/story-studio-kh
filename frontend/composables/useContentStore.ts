@@ -784,10 +784,14 @@ export function useContentStore(): {
     const accountReady = sections.account.status === 'available'
     const catalogReady = sections.catalog.status === 'available'
     const hadVerifiedThisSession = sharedLastVerifiedAt.value !== null
-    // A part the server could not answer NEVER overwrites what this session
-    // already verified, and never leaves an empty value in its place: the
-    // section states below are what says it could not be asked.
-    if (accountReady) sharedAccount.value = overview.account
+    // A part the server could not answer NEVER overwrites a catalogue this
+    // session already verified, and never leaves an empty list in its place:
+    // the section states below are what says it could not be asked.
+    // The ACCOUNT is different: `null` on the wire means "could not ask", so a
+    // stale balance/ownership snapshot is dropped rather than presented as the
+    // current answer. `ownershipResolved` stays false, so nothing renders that
+    // as "you own nothing".
+    sharedAccount.value = accountReady ? overview.account : null
     if (catalogReady) {
       sharedProducts.value = overview.products
       sharedShelves.value = overview.shelves

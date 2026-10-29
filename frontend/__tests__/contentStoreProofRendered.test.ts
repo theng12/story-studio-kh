@@ -132,7 +132,7 @@ function testStore(overrides: Partial<{
 }> = {}) {
   return {
     account: ref(null), products: overrides.products || ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
-    catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref(null), cachedProof: ref(null),
+    catalogFreshness: ref('fresh'), ownershipResolved: ref(true), accountResolved: ref(true), installsResolved: ref(true), unavailableSections: ref([]), lastVerifiedAt: ref(null), cachedProof: ref(null),
     loading: overrides.loading || ref(false), error: overrides.error || ref(null),
     refresh: overrides.refresh || (async () => {}),
     importPack: async () => { throw new Error('not used') },
