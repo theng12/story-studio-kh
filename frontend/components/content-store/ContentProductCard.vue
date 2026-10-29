@@ -9,12 +9,12 @@
       </div>
     </NuxtLink>
 
-    <p v-if="!ownershipResolved" class="ownership-status">Checking with the Gateway what this account owns, what is installed here, and whether this works with this version.</p>
+    <p v-if="!ownershipResolved" class="ownership-status">Checking with the Gateway what can be installed on this Mac and whether this works with this version.</p>
     <p v-else-if="!product.compatible" class="compatibility-message" role="status"><strong>Not compatible with this Story Studio version.</strong>{{ product.compatibilityReason }}</p>
-    <p v-else-if="product.owned" class="ownership-status">{{ ownedStatus }}</p>
-    <p v-else-if="product.retired" class="ownership-status">No longer available for new ownership.</p>
-    <p v-else class="ownership-status">Not owned by this Gateway account.</p>
-    <section v-if="ownership?.recalledReleaseVersions.length" class="recall-message" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><p>The Gateway stopped serving those versions. Ownership remains permanent.</p><p v-if="ownership.currentRelease">The newest safe owned release is {{ ownership.currentRelease.version }}.</p></section>
+    <p v-else-if="product.owned" class="ownership-status">{{ availabilityStatus }}</p>
+    <p v-else-if="product.retired" class="ownership-status">This pack is no longer published.</p>
+    <p v-else class="ownership-status">Not available to this Mac.</p>
+    <section v-if="ownership?.recalledReleaseVersions.length" class="recall-message" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><p>The Gateway stopped serving those versions.</p><p v-if="ownership.currentRelease">The newest release it still serves is {{ ownership.currentRelease.version }}.</p></section>
     <section v-if="ownership?.installState === 'incomplete'" class="closure-message" role="status"><strong>Installed files are incomplete</strong><p v-if="ownership.missingDependencies.length">{{ closureSummary }}</p><p v-else>Story Studio could not verify the installed pack. Install the published release explicitly to repair it.</p></section>
 
     <div class="product-action">
@@ -31,16 +31,16 @@ import ContentProductCover from './ContentProductCover.vue'
 import type { ContentStoreAccount, ContentStoreProduct } from '~/composables/useContentStore'
 import type { InstallQueueStatus } from '~/composables/useInstallQueue'
 
-type OwnedContent = ContentStoreAccount['owned'][number]
+type AvailabilityRow = ContentStoreAccount['owned'][number]
 /**
  * `ownershipResolved: false` means the catalogue came off this Mac and
  * GenStudio has not answered yet. Everything the card would say about this
- * account — owned, installed, compatible — is unknown, not false, so the card
+ * Mac — available, installed, compatible — is unknown, not false, so the card
  * says it is checking and offers no action. Defaults to true because
  * every other caller renders a verified overview.
  */
 const props = withDefaults(
-  defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; networkUnavailable?: boolean; ownershipResolved?: boolean; queueStatus?: InstallQueueStatus }>(),
+  defineProps<{ product: ContentStoreProduct; ownership?: AvailabilityRow | null; busy?: boolean; networkUnavailable?: boolean; ownershipResolved?: boolean; queueStatus?: InstallQueueStatus }>(),
   { ownershipResolved: true, queueStatus: 'idle' },
 )
 defineEmits<{ install: [releaseId: string] }>()
@@ -64,28 +64,31 @@ const status = computed(() => {
   if (props.product.retired) return 'Retired'
   if (!props.ownershipResolved) return 'Checking…'
   // The install queue's word beats the last overview's: a pack being installed
-  // is "Installing", not "Owned", and the tag sits at the top of the card
+  // is "Installing", not "Available", and the tag sits at the top of the card
   // where a scrolled list still shows it.
   if (props.queueStatus === 'queued') return 'Queued to install'
   if (props.queueStatus === 'installing' || props.busy) return 'Installing…'
   if (props.queueStatus === 'failed') return 'Install failed'
   if (props.queueStatus === 'installed') return 'Installed'
   if (!props.product.compatible) return 'Not compatible'
-  if (!props.product.owned) return 'Not owned'
+  if (!props.product.owned) return 'Not available'
   if (props.ownership?.installState === 'installed_current') return 'Installed'
   if (props.ownership?.installState === 'update_available') return 'Update available'
   if (props.ownership?.installState === 'incomplete') return 'Incomplete'
-  return 'Owned'
+  return 'Available'
 })
-const ownedStatus = computed(() => {
-  if (!props.ownership) return 'Owned in GenStudio.'
-  if (props.ownership.receiptVerification !== 'verified') return 'Owned in GenStudio · re-check my packs to verify on this Mac.'
-  if (props.ownership.installState === 'installed_current') return 'Verified ownership · installed on this Mac.'
-  if (props.ownership.installState === 'update_available') return `Installed ${props.ownership.installedVersion || 'version'} · newer owned release available.`
-  if (props.ownership.installState === 'installed_other_version') return `Verified ownership · ${props.ownership.installedVersion || 'another version'} is active.`
-  if (props.ownership.installState === 'incomplete') return 'Verified ownership · installed files need repair on this Mac.'
-  if (!props.ownership.downloadAvailable) return 'Verified ownership · no downloadable release is available right now.'
-  return 'Verified ownership · ready to install on this Mac.'
+/**
+ * What the Gateway offers, in availability words only. The entitlement behind
+ * it is an install grant, not a purchase: nothing here is bought or owned.
+ */
+const availabilityStatus = computed(() => {
+  if (!props.ownership) return 'Available from your Gateway; this Mac is still checking the release.'
+  if (props.ownership.installState === 'installed_current') return 'Installed on this Mac.'
+  if (props.ownership.installState === 'update_available') return `Installed ${props.ownership.installedVersion || 'version'} · a newer release is available.`
+  if (props.ownership.installState === 'installed_other_version') return `${props.ownership.installedVersion || 'Another version'} is installed on this Mac.`
+  if (props.ownership.installState === 'incomplete') return 'Installed files need repair on this Mac.'
+  if (!props.ownership.downloadAvailable) return 'No downloadable release is available right now.'
+  return 'Ready to install on this Mac.'
 })
 const closureSummary = computed(() => props.ownership?.missingDependencies.map(dependency => `${dependency.packId} ${dependency.version} (${dependency.reason})`).join(', ') || '')
 const canInstall = computed(() => {

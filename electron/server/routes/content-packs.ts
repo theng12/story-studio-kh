@@ -10,6 +10,12 @@ import { z } from 'zod'
 import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
 import { assertContentPackAppCompatible, installContentPack, verifyInstalledContentPackClosure } from '../content-packs/installer.js'
 import { setContentPackDiscoveryDisabled } from '../content-packs/lifecycle.js'
+import {
+  ContentPackRemovalError,
+  readContentPackRemovalStatus,
+  removeContentPack,
+  restoreContentPack,
+} from '../content-packs/removal.js'
 import { listVerifiedRecoveryPacks } from '../content-packs/recovery.js'
 import type { ContentPackRegistryOptions } from '../content-packs/registry.js'
 import {
@@ -170,6 +176,86 @@ for (const [action, disabled] of [['disable', true], ['enable', false]] as const
     }
   })
 }
+
+const REMOVAL_FAILURE_STATUS: Record<string, number> = {
+  CONTENT_PACK_NOT_INSTALLED: 404,
+  CONTENT_PACK_NOT_REMOVED: 404,
+  CONTENT_PACK_REMOVAL_STATE_UNREADABLE: 500,
+}
+
+function removalFailure(res: Response, error: unknown, fallback: string): void {
+  if (error instanceof ContentPackRemovalError) {
+    res.status(REMOVAL_FAILURE_STATUS[error.code] ?? 409).json({
+      code: error.code,
+      detail: error.message,
+      ...(error.channels.length ? { channels: error.channels } : {}),
+    })
+    return
+  }
+  const code = (error as { code?: unknown })?.code
+  if (typeof code === 'string' && code.startsWith('CONTENT_PACK_')) {
+    res.status(409).json({ code, detail: (error as Error).message })
+    return
+  }
+  lifecycleFailure(res, error, fallback)
+}
+
+/**
+ * The renderer needs where a version came from and where it went, not the
+ * signed manifest and install record it was verified against.
+ */
+function publicRemovalStatus(status: Awaited<ReturnType<typeof readContentPackRemovalStatus>>) {
+  return {
+    unreadable: status.unreadable,
+    channels: status.channels,
+    packs: Object.fromEntries(Object.entries(status.packs).map(([packId, entry]) => [packId, {
+      ...entry,
+      versions: entry.versions.map(({ version, install_path, trash_path, active }) => ({
+        version, install_path, trash_path, active,
+      })),
+    }])),
+  }
+}
+
+/** What Story Studio knows locally about removing and restoring its Content Packs. */
+router.get('/content-packs/removals', async (req, res) => {
+  try {
+    // `channels` is what the Installed view shows beside each pack and what the
+    // removal itself refuses on: one reader, so the two cannot disagree.
+    res.json(publicRemovalStatus(await readContentPackRemovalStatus(runtimePaths(routeOptions(req)))))
+  } catch {
+    res.status(500).json({
+      code: 'CONTENT_PACK_REMOVAL_STATE_UNREADABLE',
+      detail: 'This Mac could not read its Content Pack removal records.',
+    })
+  }
+})
+
+router.post('/content-packs/:packId/remove', async (req, res) => {
+  let packId: string
+  try { packId = parseParam(PackIdSchema, firstParam(req.params.packId), 'pack ID') } catch (error) {
+    lifecycleFailure(res, error, 'Invalid Content Pack ID.')
+    return
+  }
+  try {
+    res.json(await removeContentPack(packId, routeOptions(req)))
+  } catch (error) {
+    removalFailure(res, error, 'This Content Pack could not be removed from this Mac.')
+  }
+})
+
+router.post('/content-packs/:packId/restore', async (req, res) => {
+  let packId: string
+  try { packId = parseParam(PackIdSchema, firstParam(req.params.packId), 'pack ID') } catch (error) {
+    lifecycleFailure(res, error, 'Invalid Content Pack ID.')
+    return
+  }
+  try {
+    res.json(await restoreContentPack(packId, routeOptions(req)))
+  } catch (error) {
+    removalFailure(res, error, 'This Content Pack could not be restored from Story Studio Trash.')
+  }
+})
 
 async function snapshotDirectoryChain(root: string, target: string): Promise<DirectoryIdentity[]> {
   const resolvedRoot = path.resolve(root)

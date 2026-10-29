@@ -60,6 +60,21 @@ export function groupProductsByKind(products: readonly ContentStoreProduct[]): P
   return groups
 }
 
+/**
+ * Split a usage answer into real channel names and channels the check could not
+ * read. "Could not check" is never dropped: an unread channel is why a removal
+ * was refused, not evidence that it is unused (AGENTS.md 6).
+ */
+export function splitPackUsage(labels: readonly string[]): { channels: string[]; unchecked: string[] } {
+  const unchecked: string[] = []
+  const channels: string[] = []
+  for (const label of labels) {
+    if (label.startsWith('could not check ')) unchecked.push(label.slice('could not check '.length))
+    else channels.push(label)
+  }
+  return { channels, unchecked }
+}
+
 /** Whether this product's newest owned release is on this Mac right now. */
 export function isInstalledHere(product: ContentStoreProduct, ownership: OwnershipLookup): boolean {
   return ownership(product)?.installState === 'installed_current'

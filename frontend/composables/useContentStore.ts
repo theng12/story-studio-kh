@@ -50,8 +50,6 @@ export interface ContentStoreBundleComponent {
   entitlementFamily: string
   title: string
   kind: ContentStoreProductKind
-  componentCreditValue: number
-  owned: boolean
 }
 
 export interface ContentStoreShowcaseVideo {
@@ -68,17 +66,6 @@ export interface ContentStoreProductPresentation {
   tags: string[]
 }
 
-export interface ContentStoreProductDiscount {
-  id: string
-  version: number
-  percent: number
-  startsOn: string | null
-  endsOn: string | null
-  timezone: 'Asia/Phnom_Penh'
-  listCreditPrice: number
-  discountedCreditPrice: number
-}
-
 export interface ContentStoreShelf {
   id: string
   title: string
@@ -93,8 +80,8 @@ export interface ContentStoreProduct {
   summary: string
   description: string
   publisherId: string
-  creditPrice: number
   free: boolean
+  /** This Gateway offers the pack to this Mac. Internal only: it is shown as availability, never as ownership. */
   owned: boolean
   retired: boolean
   successorProductId: string | null
@@ -102,28 +89,27 @@ export interface ContentStoreProduct {
   compatible: boolean
   compatibilityReason: string | null
   bundleComponents: ContentStoreBundleComponent[]
-  ownedComponentCreditValue: number
   showcaseVideos: ContentStoreShowcaseVideo[]
   presentation: ContentStoreProductPresentation
-  discount: ContentStoreProductDiscount | null
 }
 
+/**
+ * What the Gateway says this Mac may install, and how each release sits on it.
+ *
+ * Only the two ids are account facts; everything else is install state. The
+ * field names are the wire's — the page never shows any of it as ownership.
+ */
 export interface ContentStoreAccount {
   accountId: string
   contentAccountId: string
-  availableCredits: number
-  contentSpendableCredits: number
   owned: Array<{
     entitlementFamily: string
     productId: string
     title: string
     kind: ContentStoreProductKind
-    grantedAt: string
-    purchaseId: string | null
     currentRelease: ContentStoreRelease | null
     showcaseVideos: ContentStoreShowcaseVideo[]
     recalledReleaseVersions: string[]
-    receiptVerification: 'verified' | 'unverified'
     downloadAvailable: boolean
     installState: 'not_installed' | 'installed_current' | 'installed_other_version' | 'update_available' | 'incomplete' | 'unavailable'
     installedVersion: string | null
@@ -140,79 +126,6 @@ export interface ContentStoreInstalledPack {
   productId: string
   title: string
   kind: ContentStoreProductKind | 'unknown'
-  ownedByActiveAccount: boolean
-}
-
-export type ContentPurchaseStatus = 'quoted' | 'submitting' | 'uncertain' | 'refused' | 'completed'
-
-export type ContentStoreDependencyState =
-  | 'free' | 'owned' | 'included' | 'installed'
-  | 'unavailable' | 'withdrawn' | 'recalled'
-
-export interface ContentStoreDependency {
-  position: number
-  productId: string
-  entitlementFamily: string
-  releaseId: string
-  version: string
-  archiveSha256: string
-  title: string
-  kind: ContentStoreProductKind | 'unknown'
-  states: ContentStoreDependencyState[]
-}
-
-export interface PublicContentPurchaseAttempt {
-  quote_id: string
-  account_id: string
-  product_id: string
-  release_id: string
-  entitlement_family: string
-  expires_at: string
-  status: ContentPurchaseStatus
-  base_credit_price: number
-  discount_credits: number
-  entitlement_families?: string[]
-  bundle_closure?: Array<{
-    position: number
-    product_id: string
-    entitlement_family: string
-    release_id: string
-    version: string
-    archive_sha256: string
-  }>
-  dependencies?: ContentStoreDependency[]
-  operator_discount?: {
-    discount_id: string
-    version: number
-    percent: number
-    starts_on: string | null
-    ends_on: string | null
-    timezone: 'Asia/Phnom_Penh'
-  } | null
-  operator_discount_credits?: number
-  quoted_credits: number
-  balance_before: number
-  balance_after: number
-  owned_components: string[]
-  sufficient_credits: boolean
-  insufficient_reason: 'insufficient_credits' | null
-  shortfall_credits: number
-  refusal?: {
-    status: number
-    code: string
-    detail: string
-    required_credits?: number
-    available_credits?: number
-    shortfall_credits?: number
-  }
-  uncertain_detail?: string
-  ownership?: 'owned_not_installed'
-  credits_charged?: number
-  component_discount_credits?: number
-  granted_families?: string[]
-  previously_owned_families?: string[]
-  replayed?: boolean
-  receipt_verification?: 'unverified_phase1'
 }
 
 /**
@@ -234,9 +147,18 @@ export interface ContentStoreOverviewSections {
   shelves: ContentStoreSectionStatus
   receipts: ContentStoreSectionStatus
   commerce: ContentStoreSectionStatus
+  /** Applying the Gateway's "take this pack off installs" requests. */
+  removals: ContentStoreSectionStatus
 }
 
-export const CONTENT_STORE_SECTION_KEYS = ['account', 'catalog', 'shelves', 'receipts', 'commerce'] as const
+/**
+ * The parts the page reports when the server could not answer them.
+ *
+ * `commerce` is deliberately absent: the shop is retired, nothing on the page
+ * reads this Mac's old purchase journal, and a journal it cannot read must not
+ * raise an error on a page that only installs packs.
+ */
+export const CONTENT_STORE_SECTION_KEYS = ['account', 'catalog', 'shelves', 'receipts', 'removals'] as const
 export type ContentStoreSectionKey = typeof CONTENT_STORE_SECTION_KEYS[number]
 
 interface ContentStoreOverview {
@@ -247,7 +169,6 @@ interface ContentStoreOverview {
   installed: ContentStoreInstalledPack[]
   products: ContentStoreProduct[]
   shelves: ContentStoreShelf[]
-  attempts: PublicContentPurchaseAttempt[]
   capabilities: {
     purchase: false
     receipt_verification: true
@@ -258,13 +179,44 @@ interface ContentStoreOverview {
   sections: ContentStoreOverviewSections
 }
 
+/** One version Story Studio moved into its Trash. */
+export interface ContentPackRemovalVersion {
+  version: string
+  install_path: string
+  trash_path: string | null
+  active: boolean
+}
+
+/**
+ * What happened the last time this Mac dealt with one pack's removal.
+ *
+ * `kept_in_use` is a real outcome, not a failure: the Gateway or the customer
+ * asked, and a channel still uses it. `channels` is what makes that actionable.
+ */
+export interface ContentPackRemovalEntry {
+  pack_id: string
+  removed_at: string
+  outcome: 'removed' | 'kept_in_use' | 'failed'
+  channels: string[]
+  detail: string | null
+  gateway_remove_at: string | null
+  versions: ContentPackRemovalVersion[]
+  restored_at: string | null
+  reported_at: string | null
+}
+
+export interface ContentPackRemovalState {
+  packs: Record<string, ContentPackRemovalEntry>
+  /** Channels using each installed pack, read by the same reader the removal refuses on. */
+  channels: Record<string, string[]>
+  /** True when this Mac's removal records exist but cannot be read — not an empty list. */
+  unreadable: boolean
+}
+
 export interface ContentStoreUiError {
   status: number | null
   code: string
   detail: string
-  requiredCredits?: number
-  availableCredits?: number
-  shortfallCredits?: number
   terminal?: boolean
   recallReason?: string | null
   recalledAt?: string | null
@@ -451,30 +403,30 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_STORE_KEY_REQUIRED':
     case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Studio Library access is needed', 'Open Settings and test the Studio Library scope, then refresh.', true)
     case 'CONTENT_STORE_KEYCHAIN_UNAVAILABLE': return failure('This Mac\u2019s Keychain is not available', 'Sign in to macOS and unlock the Keychain, restart Story Studio, then try again.')
-    case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Studio Library access is needed', 'GenStudio did not publish the signing key needed to verify this ownership proof. Refresh later.')
+    case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Studio Library access is needed', 'GenStudio did not publish the signing key this Mac needs. Refresh later.')
     case 'CONTENT_PRODUCT_NOT_AVAILABLE': return failure('This product is not available', 'Refresh the Library to see currently published products.')
-    case 'CONTENT_PRODUCT_ALREADY_OWNED': return failure('Already owned in GenStudio', 'Re-check my packs to verify ownership on this Mac.')
+    case 'CONTENT_PRODUCT_ALREADY_OWNED': return failure('This is already available to this Mac', 'Refresh the Library to see its current install state.')
     case 'CONTENT_PRODUCT_RETIRED': return failure('This product is retired', 'Choose a currently published product instead.')
     case 'CONTENT_PRODUCT_INCOMPATIBLE':
     case 'incompatible_story_version': return failure('A newer Story Studio version is needed', 'Update Story Studio before requesting this release.')
     case 'CONTENT_RELEASE_NOT_AVAILABLE': return failure('This release is not available', 'Refresh the Library and choose a published release.')
-    case 'CONTENT_STORE_QUOTE_NOT_FOUND': return failure('This quote is no longer available', 'Close it and request a new exact quote.')
-    case 'CONTENT_PURCHASE_NOT_SENT': return failure('This purchase was not sent', 'Request or retry the saved exact quote when GenStudio is available.')
-    case 'insufficient_credits': return failure('More credits are needed', 'Add credits, then request a new exact quote.')
+    case 'CONTENT_STORE_QUOTE_NOT_FOUND': return failure('This quote is no longer available', 'Close it and start again.')
+    case 'CONTENT_PURCHASE_NOT_SENT': return failure('This request was not sent', 'Try again when the Gateway is available.')
+    case 'insufficient_credits': return failure('Not enough balance for this request', 'Top up the Gateway account, then try again.')
     case 'quote_expired':
-    case 'quote_rejected': return failure('This quote can no longer be used', 'Close it and request a new exact quote.')
-    case 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN': return failure('GenStudio’s answer is uncertain', 'Retry this exact purchase; Story Studio will reuse its saved attempt.')
-    case 'signing_unavailable': return failure('The Studio Library is not open yet', 'Try again after GenStudio can sign ownership evidence.')
+    case 'quote_rejected': return failure('This quote can no longer be used', 'Close it and start again.')
+    case 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN': return failure('GenStudio’s answer is uncertain', 'Retry this request; Story Studio will reuse its saved attempt.')
+    case 'signing_unavailable': return failure('The Studio Library is not open yet', 'Try again after GenStudio can sign its answer.')
     case 'CONTENT_STORE_ACCOUNT_MISMATCH':
     case 'CONTENT_PURCHASE_ACCOUNT_MISMATCH':
     case 'CONTENT_PACK_OWNED_RELEASE_MISMATCH':
     case 'CONTENT_PACK_NOT_OWNED':
-    case 'not_entitled': return failure('Ownership could not be confirmed', 'Re-check my packs to verify the active Gateway account.')
-    case 'download_grant_expired': return failure('The download authorization expired', 'Request the owned release again to receive a new authorization.')
+    case 'not_entitled': return failure('This Mac could not confirm availability', 'Refresh the Library to ask the Gateway again.')
+    case 'download_grant_expired': return failure('The download authorization expired', 'Install again to receive a new authorization.')
     case 'archive_limit_exceeded':
     case 'CONTENT_PACK_TOO_LARGE_FOR_THIS_APP': return failure('This archive is too large to install safely', 'Choose another published release or contact the publisher.')
     case 'CONTENT_PACK_REQUIRES_NEWER_APP': return failure('A newer Story Studio version is needed', 'Update Story Studio before installing this release.')
-    case 'CONTENT_PACK_ARCHIVE_UNAVAILABLE': return failure('This archive is not available', 'Refresh the owned release and try again later.')
+    case 'CONTENT_PACK_ARCHIVE_UNAVAILABLE': return failure('This archive is not available', 'Refresh the Library and try again later.')
     case 'CONTENT_PACK_SIGNATURE_INVALID':
     case 'CONTENT_PACK_ARCHIVE_HASH_MISMATCH':
     case 'CONTENT_PACK_SCHEMA_INVALID':
@@ -488,13 +440,13 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH': return failure('GenStudio has not attested to the versions this pack requires', 'Refreshing will not clear this. Install the newest release of this pack, or contact the publisher.')
     case 'CONTENT_PACK_DEPENDENCY_CYCLE':
     case 'CONTENT_PACK_DEPENDENCY_NOT_OWNED':
-    case 'CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED': return failure('This Content Pack cannot be installed', 'Refresh the owned release and its required dependencies before trying again.')
+    case 'CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED': return failure('This Content Pack cannot be installed', 'Refresh the Library and its required dependencies before trying again.')
     case 'CONTENT_PACK_RECEIPT_MISSING':
-    case 'CONTENT_PACK_REMOTE_IDENTITY_MISMATCH': return failure('This Content Pack could not be verified', 'Restore purchases, then refresh the owned release before trying again.')
-    case 'release_recalled': return failure('A Content Pack release was recalled', 'Ownership remains permanent. Install the newest safe owned release when available.')
+    case 'CONTENT_PACK_REMOTE_IDENTITY_MISMATCH': return failure('This Content Pack could not be verified', 'Refresh the Library, then try installing again.')
+    case 'release_recalled': return failure('A Content Pack release was recalled', 'Install the newest release the Gateway still serves, when one is available.')
     case 'CONTENT_PACK_DISK_UNAVAILABLE':
     case 'CONTENT_PACK_STAGING_FAILED':
-    case 'CONTENT_PACK_ACTIVATION_FAILED': return failure('This Mac could not prepare the install', 'Check available disk space, then install the owned release again.')
+    case 'CONTENT_PACK_ACTIVATION_FAILED': return failure('This Mac could not prepare the install', 'Check available disk space, then install it again.')
     case 'CONTENT_STORE_REQUEST_INVALID':
     case 'CONTENT_STORE_REQUEST_TOO_LARGE': return failure('This Studio Library request is invalid', 'Refresh the Library and try the action again.')
     case 'CONTENT_STORE_UPSTREAM_REFUSED': return failure('GenStudio could not complete this request', 'Refresh the Library before trying again.')
@@ -512,12 +464,12 @@ const sharedAccount = ref<ContentStoreAccount | null>(null)
 const sharedProducts = ref<ContentStoreProduct[]>([])
 const sharedInstalled = ref<ContentStoreInstalledPack[]>([])
 const sharedShelves = ref<ContentStoreShelf[]>([])
-const sharedAttempts = ref<PublicContentPurchaseAttempt[]>([])
 const sharedCatalogFreshness = ref<ContentStoreCatalogFreshness>('unavailable')
 const sharedLastVerifiedAt = ref<string | null>(null)
 const sharedLastVerifiedProof = ref<ContentStoreCachedProof | null>(null)
 const sharedRecovery = ref<ContentPackRecovery | null>(null)
 const sharedRecoveryError = ref<ContentPackRecoveryError | null>(null)
+const sharedRemovals = ref<ContentPackRemovalState | null>(null)
 const sharedSectionStates = ref<ContentStoreOverviewSections | null>(null)
 /** True once an overview has answered: the installed list is read from this Mac. */
 const sharedInstallsResolved = ref(false)
@@ -572,11 +524,11 @@ function warmVerifiedCatalog(now: number): boolean {
 /**
  * Draw the published catalogue saved on this Mac, once, before the first fetch.
  *
- * Only the catalogue is restored. `sharedAccount`, `sharedInstalled` and
- * `sharedAttempts` stay empty and `sharedLastVerifiedAt` stays null, because
+ * Only the catalogue is restored. `sharedAccount` and `sharedInstalled` stay
+ * empty and `sharedLastVerifiedAt` stays null, because
  * nothing here was verified this session and `lastVerifiedAt` means exactly
- * that. Freshness becomes `'restored'`, which keeps commerce switched off and
- * tells every surface to say it is still checking.
+ * that. Freshness becomes `'restored'`, which keeps Gateway actions switched
+ * off and tells every surface to say it is still checking.
  *
  * Nothing runs if a live overview has already landed — a real answer is never
  * replaced by a saved one.
@@ -634,7 +586,6 @@ export function _clearContentStoreSessionCacheForTests(): void {
   sharedProducts.value = []
   sharedInstalled.value = []
   sharedShelves.value = []
-  sharedAttempts.value = []
   sharedCatalogFreshness.value = 'unavailable'
   sharedLastVerifiedAt.value = null
   sharedLastVerifiedProof.value = null
@@ -642,6 +593,7 @@ export function _clearContentStoreSessionCacheForTests(): void {
   sharedInstallsResolved.value = false
   sharedRecovery.value = null
   sharedRecoveryError.value = null
+  sharedRemovals.value = null
   sharedOverviewGeneration = 0
   sharedRecoveryGeneration = 0
   catalogHydrationAttempted = false
@@ -657,9 +609,6 @@ function uiError(cause: any, fallback: string): ContentStoreUiError {
     code: typeof data.code === 'string' ? data.code : 'CONTENT_STORE_UNAVAILABLE',
     detail: typeof data.detail === 'string' ? data.detail
       : typeof cause?.message === 'string' ? cause.message : fallback,
-    ...(Number.isInteger(data.required_credits) ? { requiredCredits: data.required_credits } : {}),
-    ...(Number.isInteger(data.available_credits) ? { availableCredits: data.available_credits } : {}),
-    ...(Number.isInteger(data.shortfall_credits) ? { shortfallCredits: data.shortfall_credits } : {}),
     ...(data.terminal === true ? { terminal: true } : {}),
     ...(typeof data.recall_reason === 'string' || data.recall_reason === null
       ? { recallReason: data.recall_reason as string | null } : {}),
@@ -736,7 +685,6 @@ export function useContentStore(): {
   products: Readonly<Ref<ContentStoreProduct[]>>
   installed: Readonly<Ref<ContentStoreInstalledPack[]>>
   shelves: Readonly<Ref<ContentStoreShelf[]>>
-  attempts: Readonly<Ref<PublicContentPurchaseAttempt[]>>
   catalogFreshness: Readonly<Ref<ContentStoreCatalogFreshness>>
   ownershipResolved: Readonly<Ref<boolean>>
   /** Whether the last answer carried this account's ownership at all. */
@@ -749,12 +697,16 @@ export function useContentStore(): {
   cachedProof: Readonly<Ref<ContentStoreCachedProof | null>>
   recovery: Readonly<Ref<ContentPackRecovery | null>>
   recoveryError: Readonly<Ref<ContentPackRecoveryError | null>>
+  /** Installed-pack usage and removal records. Null until this Mac has answered. */
+  removals: Readonly<Ref<ContentPackRemovalState | null>>
   loading: Readonly<Ref<boolean>>
   error: Readonly<Ref<ContentStoreUiError | null>>
   refresh: (options?: { background?: boolean }) => Promise<void>
   refreshRecovery: () => Promise<void>
   dismissRecovery: (incidentId: string) => Promise<void>
-  restoreOwnership: () => Promise<void>
+  refreshRemovals: () => Promise<void>
+  removePack: (packId: string) => Promise<void>
+  restorePack: (packId: string) => Promise<void>
   installRelease: (releaseId: string, options?: { refreshOverview?: boolean; onProgress?: (operation: ContentStoreInstallOperation) => void }) => Promise<{ pack_id: string; version: string; activated: boolean }>
   importPack: (archive: ArrayBuffer) => Promise<LocalContentPackInstall>
   listGatewayArchives: () => Promise<GatewayContentArchive[]>
@@ -796,7 +748,6 @@ export function useContentStore(): {
       sharedProducts.value = overview.products
       sharedShelves.value = overview.shelves
     }
-    if (accountReady) sharedAttempts.value = overview.attempts
     // Installed packs are read from this Mac, so they answer whether or not the
     // Gateway can be asked — but only an answer that carried a list is trusted.
     sharedInstalled.value = overview.installed ?? []
@@ -870,7 +821,6 @@ export function useContentStore(): {
           sharedProducts.value = []
           sharedInstalled.value = []
           sharedShelves.value = []
-          sharedAttempts.value = []
         }
         sharedCatalogFreshness.value = hasVerifiedOverview ? 'cached' : hasRestoredCatalog ? 'restored' : 'unavailable'
         if (!silent) error.value = uiError(cause, 'The Studio Library could not be loaded.')
@@ -878,21 +828,6 @@ export function useContentStore(): {
       throw cause
     } finally {
       if (!silent) loading.value = false
-    }
-  }
-
-  async function restoreOwnership(): Promise<void> {
-    const generation = beginOverviewRequest()
-    loading.value = true
-    error.value = null
-    try {
-      const overview = await post<ContentStoreOverview>('/content-store/restore', {})
-      applyOverview(overview, generation)
-    } catch (cause: any) {
-      error.value = uiError(cause, 'GenStudio ownership could not be restored.')
-      throw cause
-    } finally {
-      loading.value = false
     }
   }
 
@@ -926,6 +861,38 @@ export function useContentStore(): {
       }
       throw cause
     }
+  }
+
+  /**
+   * This Mac's own answer: which channels use each installed pack, and what
+   * happened the last time one was removed. No Gateway request.
+   *
+   * A read that fails leaves `removals` null, which the page renders as "could
+   * not read" — never as "nothing was removed".
+   */
+  async function refreshRemovals(): Promise<void> {
+    try {
+      sharedRemovals.value = await get<ContentPackRemovalState>('/content-packs/removals', { cache: 'no-store' })
+    } catch (cause: any) {
+      sharedRemovals.value = null
+      throw cause
+    }
+  }
+
+  async function removePack(packId: string): Promise<void> {
+    await post(`/content-packs/${encodeURIComponent(packId)}/remove`)
+    await Promise.all([
+      refreshRemovals().catch(() => { /* the page keeps the refusal it already shows */ }),
+      refresh({ background: true }).catch(() => { /* the install list refreshes on the next read */ }),
+    ])
+  }
+
+  async function restorePack(packId: string): Promise<void> {
+    await post(`/content-packs/${encodeURIComponent(packId)}/restore`)
+    await Promise.all([
+      refreshRemovals().catch(() => {}),
+      refresh({ background: true }).catch(() => {}),
+    ])
   }
 
   async function installRelease(
@@ -1028,7 +995,6 @@ export function useContentStore(): {
     products: readonly(sharedProducts) as unknown as Readonly<Ref<ContentStoreProduct[]>>,
     installed: readonly(sharedInstalled) as unknown as Readonly<Ref<ContentStoreInstalledPack[]>>,
     shelves: readonly(sharedShelves) as unknown as Readonly<Ref<ContentStoreShelf[]>>,
-    attempts: readonly(sharedAttempts) as unknown as Readonly<Ref<PublicContentPurchaseAttempt[]>>,
     catalogFreshness: readonly(sharedCatalogFreshness),
     ownershipResolved: readonly(sharedOwnershipResolved),
     accountResolved: readonly(sharedAccountResolved),
@@ -1038,12 +1004,15 @@ export function useContentStore(): {
     cachedProof: readonly(sharedCachedProof),
     recovery: readonly(sharedRecovery),
     recoveryError: readonly(sharedRecoveryError),
+    removals: readonly(sharedRemovals) as unknown as Readonly<Ref<ContentPackRemovalState | null>>,
     loading: readonly(loading),
     error: readonly(error),
     refresh,
     refreshRecovery,
     dismissRecovery,
-    restoreOwnership,
+    refreshRemovals,
+    removePack,
+    restorePack,
     installRelease,
     importPack,
     listGatewayArchives,

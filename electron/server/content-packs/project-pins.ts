@@ -1057,7 +1057,12 @@ export async function snapshotProjectContentPackProvenance(
   })
 }
 
-async function candidateProjectSlugs(): Promise<string[]> {
+/**
+ * Every folder that could be a channel here: the project list plus any real
+ * directory beside it. A removal check must not miss a channel just because a
+ * project index entry is missing, so this stays generous.
+ */
+export async function candidateProjectSlugs(): Promise<string[]> {
   const slugs = new Set((await projectManager.listProjects()).map(project => project.slug))
   for (const name of await fs.readdir(projectManager.projectsRoot()).catch(() => [] as string[])) {
     if (name.startsWith('.') || name.includes('.bak-')) continue

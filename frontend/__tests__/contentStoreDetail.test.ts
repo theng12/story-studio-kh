@@ -124,22 +124,23 @@ describe('Studio Library proof route contract', () => {
   test('mounts semantic roving tabs and moves focus with ArrowRight, Home, and End', async () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = {
-      account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
+      account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]),
       catalogFreshness: ref('fresh'), ownershipResolved: ref(true), accountResolved: ref(true), installsResolved: ref(true), unavailableSections: ref([]), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
       recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
-      refresh: async () => {}, restoreOwnership: async () => {},
+      removals: ref(null), refreshRemovals: async () => {}, removePack: async () => {}, restorePack: async () => {},
+      refresh: async () => {},
     }
     const rendered = await mount(Page, {})
     const tabs = [...rendered.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
-    assert.equal(tabs.length, 4)
+    assert.equal(tabs.length, 3, 'Discover, Installed and Updates -- the Owner tab went with the shop')
     tabs[0]!.focus()
     tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     await nextTick()
-    assert.equal(document.activeElement?.id, 'library-tab-owned')
+    assert.equal(document.activeElement?.id, 'library-tab-installed')
     tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
     await nextTick()
     assert.equal(document.activeElement?.id, 'library-tab-updates')
-    tabs[3]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    tabs[2]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
     await nextTick()
     assert.equal(document.activeElement?.id, 'library-tab-discover')
     rendered.unmount()
@@ -148,11 +149,11 @@ describe('Studio Library proof route contract', () => {
   test('mounts an unavailable no-cache state without catalog filters or a false empty result', async () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = {
-      account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
+      account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]),
       catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), accountResolved: ref(true), installsResolved: ref(true), unavailableSections: ref([]), lastVerifiedAt: ref(null), loading: ref(false),
       error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio could not be reached.' }),
       recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
-      refresh: async () => { throw new Error('offline') }, restoreOwnership: async () => {},
+      refresh: async () => { throw new Error('offline') },
     }
     const rendered = await mount(Page, {})
     assert.match(rendered.host.textContent || '', /Studio Library is unavailable/)
@@ -166,14 +167,16 @@ describe('Studio Library proof route contract', () => {
     let actionCalls = 0
     ;(globalThis as any).__contentStoreDetailStore = {
       account: ref({ accountId: 'acct_a', owned: [{ entitlementFamily: 'formula-family' }] }),
-      products: ref([{ productId: 'formula', title: 'Account A Formula', entitlementFamily: 'formula-family', owned: true }]), attempts: ref([]),
+      installed: ref([]), removals: ref(null), refreshRemovals: async () => {}, removePack: async () => {}, restorePack: async () => {},
+      products: ref([{ productId: 'formula', title: 'Account A Formula', entitlementFamily: 'formula-family', owned: true }]),
       cachedProof: ref({ accountId: 'acct_a', origin: 'https://a.example.test', verifiedAt: '2026-08-14T10:00:00Z' }),
       catalogFreshness: ref('cached'), ownershipResolved: ref(true), loading: ref(false), error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio is offline.' }),
       refresh: async () => { throw new Error('offline') },
     }
     const rendered = await mount(DetailRoute, {})
     const proof = rendered.host.querySelector<HTMLElement>('[data-test="historical-proof"]')!
-    assert.match(rendered.host.textContent || '', /Last verified for Gateway account acct_a at https:\/\/a\.example\.test/)
+    assert.match(rendered.host.textContent || '', /Last checked with the Gateway at https:\/\/a\.example\.test/)
+    assert.doesNotMatch(rendered.host.textContent || '', /account acct_a|Gateway account/, 'no account wording on the page')
     assert.match(rendered.host.textContent || '', /CONTENT_STORE_UNAVAILABLE: GenStudio is offline/)
     assert.equal(proof.textContent, 'Account A Formula')
     assert.equal(proof.dataset.owned, 'false', 'historical product proof must not assert active ownership')
@@ -188,7 +191,8 @@ describe('Studio Library proof route contract', () => {
     ;(globalThis as any).__contentStoreDetailQueueStatus = 'installed'
     ;(globalThis as any).__contentStoreDetailStore = {
       account: ref({ accountId: 'acct_a', owned: [{ entitlementFamily: 'formula-family', downloadAvailable: true, installState: 'not_installed', recalledReleaseVersions: [] }] }),
-      products: ref([{ productId: 'formula', title: 'Formula', entitlementFamily: 'formula-family', owned: true, compatible: true, currentRelease: { releaseId: 'release_1' } }]), attempts: ref([]),
+      installed: ref([]), removals: ref(null), refreshRemovals: async () => {}, removePack: async () => {}, restorePack: async () => {},
+      products: ref([{ productId: 'formula', title: 'Formula', entitlementFamily: 'formula-family', owned: true, compatible: true, currentRelease: { releaseId: 'release_1' } }]),
       cachedProof: ref(null), catalogFreshness: ref('fresh'), ownershipResolved: ref(true), loading: ref(false), error: ref(null),
       refresh: async () => {},
     }
@@ -200,11 +204,12 @@ describe('Studio Library proof route contract', () => {
 
   function pageStore(overrides: Record<string, unknown> = {}) {
     return {
-      account: ref({ contentAccountId: 'content_a', availableCredits: 500, contentSpendableCredits: 500, owned: [] }),
-      products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
+      account: ref({ contentAccountId: 'content_a', owned: [] }),
+      products: ref([]), installed: ref([]), shelves: ref([]),
       catalogFreshness: ref('fresh'), ownershipResolved: ref(true), accountResolved: ref(true), installsResolved: ref(true), unavailableSections: ref([]), lastVerifiedAt: ref('2026-08-17T10:00:00Z'), loading: ref(false), error: ref(null),
       recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
-      refresh: async () => {}, restoreOwnership: async () => {},
+      removals: ref(null), refreshRemovals: async () => {}, removePack: async () => {}, restorePack: async () => {},
+      refresh: async () => {},
       ...overrides,
     }
   }
@@ -246,13 +251,13 @@ describe('Studio Library proof route contract', () => {
     assert.match(text, /Showing the published catalogue saved on this Mac/)
     assert.match(text, /Gateway download stays off until it answers/)
     assert.match(text, /Install Content Pack still works from a local file/)
-    assert.doesNotMatch(text, /content_a|500 credits/, 'no account id and no balance before GenStudio answers')
+    assert.doesNotMatch(text, /content_a/, 'no account id before GenStudio answers')
 
     const tabCounts = [...rendered.host.querySelectorAll('[role="tab"] span')].map(node => node.textContent)
-    assert.deepEqual(tabCounts, ['1', '—', '—', '—'], 'the published count is a catalogue fact; the rest are not counted yet')
+    assert.deepEqual(tabCounts, ['1', '—', '—'], 'the published count is a catalogue fact; the rest are not counted yet')
 
-    const restore = [...rendered.host.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Re-check my packs')
-    assert.equal(restore?.disabled, true, 'commerce stays off until ownership is verified')
+    const tabLabels = [...rendered.host.querySelectorAll('[role="tab"]')].map(node => (node.textContent || '').replace(/\d|—/g, '').trim())
+    assert.deepEqual(tabLabels, ['Discover', 'Installed', 'Updates'])
     rendered.unmount()
   })
 
@@ -268,12 +273,6 @@ describe('Studio Library proof route contract', () => {
 
   test('each Discover empty state names its own cause instead of blaming filters', async () => {
     const cases = [
-      {
-        name: 'every published pack is owned',
-        store: { products: ref([catalogProduct({ owned: true })]), shelves: ref([{ id: 's1', productIds: ['p1'] }]) },
-        expect: /You already own every published pack/,
-        absent: /No published products match these filters/,
-      },
       {
         name: 'the catalogue publishes nothing',
         store: { products: ref([catalogProduct({ retired: true })]), installed: ref([{ packId: 'pack_old' }]) },

@@ -62,28 +62,27 @@ async function mount(component: Component) {
 function product(id: string): ContentStoreProduct {
   return {
     productId: id, entitlementFamily: `family.${id}`, kind: 'topic_pack', title: `Product ${id}`,
-    summary: '', description: '', publisherId: 'Story Studio', creditPrice: 300, free: false,
+    summary: '', description: '', publisherId: 'Story Studio', free: false,
     owned: true, retired: false, successorProductId: null, compatible: true, compatibilityReason: null,
     currentRelease: {
       releaseId: `rel-${id}`, packId: `pack-${id}`, version: '1.0.0', archiveSha256: 'a'.repeat(64),
       archiveBytes: 10, archiveAvailable: true, minStoryVersion: '1.0.0', changelog: '', componentSummary: {},
     },
-    bundleComponents: [], ownedComponentCreditValue: 0, showcaseVideos: [], presentation: {}, discount: null,
+    bundleComponents: [], showcaseVideos: [], presentation: {},
   } as unknown as ContentStoreProduct
 }
 
 function ownedRow(id: string, installState: string) {
   return {
     entitlementFamily: `family.${id}`, productId: id, title: `Product ${id}`, kind: 'topic_pack',
-    grantedAt: '2026-08-01T00:00:00Z', purchaseId: `cpur_${id}`,
     currentRelease: { releaseId: `rel-${id}`, packId: `pack-${id}`, version: '1.0.0' },
-    showcaseVideos: [], recalledReleaseVersions: [], receiptVerification: 'verified',
+    showcaseVideos: [], recalledReleaseVersions: [],
     downloadAvailable: true, installState, installedVersion: null, missingDependencies: [],
   } as unknown as ContentStoreAccount['owned'][number]
 }
 
 function accountWith(rows: Array<ReturnType<typeof ownedRow>>): ContentStoreAccount {
-  return { contentAccountId: 'acct_test', availableCredits: 0, contentSpendableCredits: 0, owned: rows } as unknown as ContentStoreAccount
+  return { contentAccountId: 'acct_test', owned: rows } as unknown as ContentStoreAccount
 }
 
 describe('the Install all missing button gives feedback', () => {
@@ -102,7 +101,7 @@ describe('the Install all missing button gives feedback', () => {
     const Wrapper = defineComponent({
       setup() {
         return () => h(ContentLibraryView, {
-          headingId: 'owned-heading', title: 'Owned', products, account: accountRef.value,
+          headingId: 'library-heading', title: 'Library', products, account: accountRef.value,
           emptyTitle: 'none', emptyDescription: 'none', busyProductId: '', busyReleaseId: '',
           showInstallAll: true, queueStatus: queue.statusOf,
           onInstallMany: (ids: string[]) => { emitted.push(ids); queue.enqueueAll(ids) },

@@ -43,21 +43,18 @@ const ALLOWED_KEYS: Record<string, string[]> = {
   '': ['schemaVersion', 'capturedAt', 'accountFingerprint', 'products', 'shelves'],
   'products[]': [
     'productId', 'entitlementFamily', 'kind', 'title', 'summary', 'description', 'publisherId',
-    'creditPrice', 'free', 'retired', 'successorProductId', 'currentRelease', 'bundleComponents',
-    'showcaseVideos', 'presentation', 'discount',
+    'free', 'retired', 'successorProductId', 'currentRelease', 'bundleComponents',
+    'showcaseVideos', 'presentation',
   ],
   'products[].currentRelease': [
     'releaseId', 'packId', 'version', 'archiveSha256', 'archiveBytes', 'archiveAvailable',
     'minStoryVersion', 'changelog',
   ],
-  'products[].bundleComponents[]': ['productId', 'entitlementFamily', 'title', 'kind', 'componentCreditValue'],
+  'products[].bundleComponents[]': ['productId', 'entitlementFamily', 'title', 'kind'],
   'products[].showcaseVideos[]': ['url', 'title', 'description'],
   'products[].presentation': ['cover', 'hero', 'licenseLabel', 'licenseText', 'tags'],
   'products[].presentation.cover': ['src', 'alt'],
   'products[].presentation.hero': ['src', 'alt'],
-  'products[].discount': [
-    'id', 'version', 'percent', 'startsOn', 'endsOn', 'timezone', 'listCreditPrice', 'discountedCreditPrice',
-  ],
   'shelves[]': ['id', 'title', 'productIds'],
 }
 
@@ -82,7 +79,7 @@ function overviewProduct(): ContentStoreProduct {
     productId: 'formula', entitlementFamily: 'formula.family', kind: 'series_formula',
     title: 'Archive Formula', summary: 'A repeatable documentary structure.',
     description: 'Long-form production guidance.', publisherId: 'Story Studio',
-    creditPrice: 400, free: false, owned: true, retired: false, successorProductId: null,
+    free: false, owned: true, retired: false, successorProductId: null,
     currentRelease: {
       releaseId: 'rel_formula', packId: 'pack_formula', version: '1.0.0',
       archiveSha256: 'a'.repeat(64), archiveBytes: 4_096, archiveAvailable: true,
@@ -92,19 +89,14 @@ function overviewProduct(): ContentStoreProduct {
     compatible: false, compatibilityReason: 'Needs a newer Story Studio.',
     bundleComponents: [{
       productId: 'topics', entitlementFamily: 'topics.family', title: 'Topic Pack',
-      kind: 'topic_pack', componentCreditValue: 150, owned: true,
+      kind: 'topic_pack',
     }],
-    ownedComponentCreditValue: 150,
     showcaseVideos: [{ url: 'https://example.test/v', title: 'Example', description: 'A sample.' }],
     presentation: {
       cover: { src: 'https://example.test/cover.webp', alt: 'Cover' },
       hero: { src: 'https://example.test/hero.webp', alt: 'Hero' },
       licenseLabel: 'Story Studio Content Pack License', licenseText: 'Use it in your channel.',
       tags: ['documentary', 'archive'],
-    },
-    discount: {
-      id: 'cdsc_archive', version: 1, percent: 25, startsOn: null, endsOn: '2026-12-31',
-      timezone: 'Asia/Phnom_Penh', listCreditPrice: 400, discountedCreditPrice: 300,
     },
   }
 }
@@ -132,6 +124,13 @@ describe('the Content Store catalogue saved on this Mac', () => {
     }
     assert.deepEqual([...(seen.get('') ?? [])].sort(), [...ALLOWED_KEYS['']!].sort())
     assert.deepEqual([...(seen.get('products[]') ?? [])].sort(), [...ALLOWED_KEYS['products[]']!].sort())
+  })
+
+  test('no price, credit or purchase fact is written to a saved catalogue either', () => {
+    const written = serializePersistedCatalog(catalog())
+    // The shop is retired: a download page has nothing to price, and a saved
+    // catalogue must not carry money facts it will never read.
+    assert.doesNotMatch(written, /creditPrice|componentCreditValue|ownedComponentCreditValue|discount|listCreditPrice|discountedCreditPrice/)
   })
 
   test('no account-scoped key name appears anywhere in a saved catalogue', () => {
@@ -172,12 +171,10 @@ describe('the Content Store catalogue saved on this Mac', () => {
     assert.match(written, /"minStoryVersion":"1\.0\.834"/, 'the published compatibility metadata is kept')
   })
 
-  test('keeps the public facts a customer actually came to see', () => {
+  test('keeps the public facts a customer actually came to see, and no price at all', () => {
     const saved = catalog()
     const product = saved.products[0]!
     assert.equal(product.title, 'Archive Formula')
-    assert.equal(product.creditPrice, 400)
-    assert.equal(product.discount?.discountedCreditPrice, 300)
     assert.equal(product.presentation.cover?.src, 'https://example.test/cover.webp')
     assert.deepEqual(product.presentation.tags, ['documentary', 'archive'])
     assert.equal(product.currentRelease?.version, '1.0.0')
@@ -199,9 +196,7 @@ describe('the Content Store catalogue saved on this Mac', () => {
       productId: `p-${kind}`,
       entitlementFamily: `family.${kind}`,
       kind,
-      discount: null,
       bundleComponents: [],
-      ownedComponentCreditValue: 0,
     })) as unknown as ContentStoreProduct[]
 
     const saved = serializePersistedCatalog(catalog(products))
@@ -220,8 +215,6 @@ describe('the Content Store catalogue saved on this Mac', () => {
     const [product] = restoredCatalogProducts(parsed)
     assert.ok(product)
     assert.equal(product.owned, false, 'a placeholder, never displayed as a fact — the Store shows "checking" instead')
-    assert.equal(product.ownedComponentCreditValue, 0)
-    assert.equal(product.bundleComponents[0]?.owned, false)
     assert.equal(product.compatible, true, 'no incompatibility is claimed on evidence nobody has')
     assert.equal(product.compatibilityReason, null)
     assert.deepEqual(product.currentRelease?.componentSummary, {})
