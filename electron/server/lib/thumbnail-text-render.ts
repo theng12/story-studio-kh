@@ -24,15 +24,17 @@
  *
  * `glyphs_complete` / `missing_characters` come from the **font file's own cmap**, never from "it
  * rendered": a fallback face has the glyphs too, so pixels cannot prove coverage (AGENTS §6 — a
- * silent substitution and a correct render must not look the same).
+ * silent substitution and a correct render must not look the same). The one deliberate substitution
+ * — six punctuation marks drawn by a named Latin face for faces that lack them — is reported, never
+ * silent (`report.fallback_family`).
  */
 
 import sharp from 'sharp'
 import type { OverlayOptions } from 'sharp'
 import type { ThumbnailTextRenderReport, ThumbnailTextStyle, TextAnchor, TextFill } from '../contracts/thumbnail-text.js'
 import { THUMBNAIL_TEXT_CANVAS } from '../contracts/thumbnail-text.js'
-import { configureFontconfig, fontFilePath, requireFont, ThumbnailFontError, type FontManifestEntry } from './thumbnail-fonts.js'
-import { glyphCoverage } from './font-coverage.js'
+import { configureFontconfig, fontFilePath, readFontManifest, requireFont, ThumbnailFontError, type FontManifestEntry } from './thumbnail-fonts.js'
+import { glyphCoverage, missingCharacters } from './font-coverage.js'
 
 /**
  * Pango in this renderer takes points at 96dpi, so a requested pixel size is scaled by 96/72.
@@ -48,6 +50,69 @@ const WEIGHT_STYLE: Array<[number, string]> = [
 
 /** The face the self-check requests to prove a family request is really applied. */
 const PROBE_FAMILY = 'Story Studio Font Probe (not a real family)'
+
+// ── The punctuation a Khmer face cannot draw ───────────────────────────────
+//
+// MEASURED, 2026-10-29: every Khmer face we ship except Kantumruy Pro (Moul, Battambang and the
+// eleven new Khmer faces) carries the letters but not one of these six marks, so a Khmer line with
+// “quotes”, an em dash or an ellipsis used to be REFUSED — the coverage check is right that the
+// chosen face cannot draw it. Dropping the character, or swapping it for a straight quote, would
+// change the customer's words.
+//
+// So ONE Latin face draws them, for every face that lacks them (owner: "one consistent fallback
+// face for EVERY Khmer face"). Pango takes a comma-separated family list and consults the second
+// family only for glyphs the first cannot draw — measured: `Moul, Inter Regular 48` drew U+2018
+// pixel-identically to `Inter Regular 48`, while `Moul` alone drew a 6x13 mark from whichever face
+// the system happened to choose. The list of marks is fixed here because it is the punctuation
+// every Khmer face is missing; which FACE draws them is data — the first Latin-only `text` face in
+// the manifest that really has all six (see `resolvePunctuationFallback`).
+const PUNCTUATION_FALLBACK_TEXT = '‘’“”—…'
+const PUNCTUATION_FALLBACK_SET = new Set([...PUNCTUATION_FALLBACK_TEXT])
+
+/** The family that draws the six, once resolved. Null until `resolvePunctuationFallback` ran. */
+let punctuationFallbackFamily: string | null = null
+/** Font ids whose own file lacks at least one of the six, so their request needs the list. */
+const facesNeedingFallback = new Set<string>()
+let punctuationFallbackResolution: Promise<void> | null = null
+
+/** Forget the resolved fallback (tests, a manifest change). */
+export function resetPunctuationFallback(): void {
+  punctuationFallbackFamily = null
+  punctuationFallbackResolution = null
+  facesNeedingFallback.clear()
+}
+
+/** The face that draws the six punctuation marks for faces that lack them, or null if none does. */
+export async function punctuationFallbackFace(): Promise<string | null> {
+  await resolvePunctuationFallback()
+  return punctuationFallbackFamily
+}
+
+/** Which face draws the six, and which shipped faces need it. Read from the manifest, not a constant. */
+async function resolvePunctuationFallback(): Promise<void> {
+  punctuationFallbackResolution ??= (async () => {
+    const manifest = await readFontManifest()
+    for (const entry of manifest.fonts) {
+      const missing = await missingCharacters(fontFilePath(entry), PUNCTUATION_FALLBACK_TEXT)
+      if (missing.length) facesNeedingFallback.add(entry.id)
+    }
+    // A Latin-only `text` face: the marks are Latin punctuation, and a face that also draws Khmer is
+    // the very kind that lacks them. Manifest order decides, so the answer is stable and no id is
+    // written into this file.
+    const chosen = manifest.fonts.find(entry =>
+      entry.role === 'text'
+      && entry.scripts.includes('latn')
+      && !entry.scripts.includes('khmr')
+      && !facesNeedingFallback.has(entry.id))
+    punctuationFallbackFamily = chosen?.family ?? null
+  })().catch(error => {
+    // A failed resolution must not be cached as the answer: the next render tries again.
+    punctuationFallbackResolution = null
+    facesNeedingFallback.clear()
+    throw error
+  })
+  await punctuationFallbackResolution
+}
 
 /** Characters that never carry a line of their own and are not drawn. */
 const INVISIBLE = /[​﻿]/
@@ -227,15 +292,33 @@ export function hexToRgb(hex: string): { r: number, g: number, b: number } {
   }
 }
 
-export function nearestWeight(wanted: number): string {
+/**
+ * The Pango style word for the weight to request.
+ *
+ * `available` is the face's OWN list from the manifest. When it is given, the nearest weight the
+ * face really has is requested, so bold is never synthesised onto a face that has no bold instance
+ * (owner, 2026-10-29). Measured on this build: Pango/fontconfig already clamps to the nearest real
+ * instance (Moul's only weight answers "Regular", "Medium" and "Bold" with byte-identical pixels),
+ * and naming that instance explicitly keeps it true for every face and every machine.
+ */
+export function nearestWeight(wanted: number, available?: readonly number[]): string {
+  const wantedWeight = available && available.length
+    ? available.reduce((best, weight) => Math.abs(weight - wanted) < Math.abs(best - wanted) ? weight : best, available[0]!)
+    : wanted
   return WEIGHT_STYLE.reduce(
-    (best, entry) => Math.abs(entry[0] - wanted) < Math.abs(best[0] - wanted) ? entry : best,
+    (best, entry) => Math.abs(entry[0] - wantedWeight) < Math.abs(best[0] - wantedWeight) ? entry : best,
     WEIGHT_STYLE[3]!,
   )[1]
 }
 
 function fontDescription(font: FontManifestEntry, weight: number, px: number): string {
-  return `${font.family} ${nearestWeight(weight)} ${Math.max(1, Math.round(px * POINTS_PER_PIXEL))}`
+  // Pango's description takes a comma-separated family list and uses the later family only for
+  // glyphs the first cannot draw, so a face that lacks the six punctuation marks still draws the
+  // words in its own face and gets the marks from the one chosen fallback (see above).
+  const family = punctuationFallbackFamily && facesNeedingFallback.has(font.id) && punctuationFallbackFamily !== font.family
+    ? `${font.family}, ${punctuationFallbackFamily}`
+    : font.family
+  return `${family} ${nearestWeight(weight, font.weights)} ${Math.max(1, Math.round(px * POINTS_PER_PIXEL))}`
 }
 
 function blankLayer(width: number, height: number): import('sharp').Sharp {
@@ -647,13 +730,22 @@ export async function renderThumbnailText(input: RenderInput): Promise<RenderedT
     )
   }
 
-  // Coverage from the font file's own cmap.
+  // Coverage from the font file's own cmap. A face that lacks only the six punctuation marks is not
+  // refused: the fallback family draws those, and the report says whose glyph they were.
+  await resolvePunctuationFallback()
   const coverage = await glyphCoverage(fontFilePath(font), text)
-  if (!coverage.complete) {
+  const fallbackCovers = !!punctuationFallbackFamily
+    && facesNeedingFallback.has(font.id)
+    && coverage.missing.every(character => PUNCTUATION_FALLBACK_SET.has(character))
+  const fallbackReport = fallbackCovers && coverage.missing.length
+    ? { fallback_family: punctuationFallbackFamily! }
+    : {}
+  const stillMissing = fallbackCovers ? [] : coverage.missing
+  if (stillMissing.length) {
     throw new ThumbnailTextRefusal(
-      `${font.label} cannot draw ${coverage.missing.map(c => `"${c}"`).join(', ')}. `
+      `${font.label} cannot draw ${stillMissing.map(c => `"${c}"`).join(', ')}. `
       + 'Choose a font that covers this headline, or change the headline.',
-      { font_px: 0, lines: 0, glyphs_complete: false, missing_characters: coverage.missing, overflow: false }
+      { font_px: 0, lines: 0, glyphs_complete: false, missing_characters: stillMissing, overflow: false }
     )
   }
 
@@ -830,6 +922,7 @@ export async function renderThumbnailText(input: RenderInput): Promise<RenderedT
       glyphs_complete: true,
       missing_characters: [],
       overflow: false,
+      ...fallbackReport,
     },
   }
 }

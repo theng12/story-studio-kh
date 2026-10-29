@@ -3,8 +3,8 @@
  *
  * ── Why a burn needs this at all ───────────────────────────────────────────
  *
- * The app ships five OFL faces in `bundled/fonts/` (Inter, Anton, Kantumruy
- * Pro, Moul, Battambang) so a headline is identical on every Mac. The
+ * The app ships its own OFL faces in `bundled/fonts/` — `fonts.json` is the
+ * only list, and it grows — so a headline is identical on every Mac. The
  * thumbnail renderer already resolves them by family through its own
  * Fontconfig file. The VIDEO burn did not, and the difference is not cosmetic:
  *

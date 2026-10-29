@@ -28,6 +28,8 @@
       "@shared/publishing-overview": ["../electron/server/contracts/publishing-overview.ts"],
       "@shared/final-review": ["../electron/server/contracts/final-review.ts"],
       "@shared/genstudio-image-defaults": ["../electron/server/contracts/genstudio-image-defaults.ts"],
+      "@shared/still-post-fonts": ["../electron/server/contracts/still-post-fonts.ts"],
+      "@shared/still-posts": ["../electron/server/contracts/still-posts.ts"],
       "@shared/scene-image-check": ["../electron/server/contracts/scene-image-check.ts"]
     },
     "noUncheckedIndexedAccess": false,

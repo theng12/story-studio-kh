@@ -596,6 +596,8 @@ function preset(id: string, name: string, data: Partial<StillPostPresetData>): S
       language: 'en',
       aspects: ['1:1'],
       fresh_drawing_per_size: false,
+      // No pool: every post is lettered in the format's own face, exactly as before.
+      font_pools: {},
       text_scale: 1,
       branding: BRANDING_BOTTOM,
       ...data,

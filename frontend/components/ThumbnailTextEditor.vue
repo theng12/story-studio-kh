@@ -45,6 +45,7 @@
             <span>{{ report.font_px }} px · {{ report.lines }} line{{ report.lines === 1 ? '' : 's' }}</span>
             <strong v-if="report.overflow" class="text-danger">Text overflows. Enlarge the box, lower the minimum size, allow more lines, or shorten the headline.</strong>
             <strong v-if="!report.glyphs_complete || report.missing_characters?.length" class="text-danger">Missing glyphs{{ report.missing_characters?.length ? `: ${report.missing_characters.join(' ')}` : '' }}. Choose another font or edit the headline.</strong>
+            <span v-if="report.fallback_family" class="text-muted">Quotes, dashes and the ellipsis are drawn in {{ report.fallback_family }} — this face has no marks of its own.</span>
           </div>
           <button type="button" class="btn btn-sm btn-secondary" :disabled="!source || !text.trim() || !selectedFont || rendering" @click="renderExact">Retry exact preview</button>
           <details class="tte-live" open>
