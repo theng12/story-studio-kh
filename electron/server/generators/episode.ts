@@ -376,12 +376,15 @@ export async function generateChapterOnly(job: Job): Promise<void> {
   // A single-chapter regeneration targets the same per-chapter size the
   // outline used: the request's choice, else the Formula's own length × pace,
   // else the neutral 550. Without this a Quote Shorts regeneration would ask
-  // for a 550-word chapter its Formula never writes (AGENTS.md §1).
+  // for a 550-word chapter its Formula never writes (AGENTS.md §1). The words
+  // are divided across THIS episode's chapter count (above), not the Formula's
+  // default: an episode whose count differs would otherwise get a chapter
+  // sized for a different episode.
   const wordsPerChapter = Number(req.words_per_chapter)
     || formulaWordsPerChapter({
         minutes: req.length ?? format.script.defaultLengthMinutes,
         wordsPerMinute: format.script.defaultWordsPerMinute,
-        chapters: Number(req.chapters) || format.script.defaultChapterCount,
+        chapters: totalChapters,
       })
     || 550
   const requestedStyle = req.style || format.script.defaultNarratorStyleId

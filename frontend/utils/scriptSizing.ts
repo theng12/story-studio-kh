@@ -219,10 +219,12 @@ export function resolveEpisodeScriptSizing(input: EpisodeSizingInput): {
     ?? positiveNumber(input.formatDefaultLengthMinutes)
   if (durationMinutes === null) return null
   const wordsPerMinute = positiveNumber(input.wordsPerMinute) ?? 122
-  const totalWords = Math.round(durationMinutes * wordsPerMinute)
 
   return {
     chapters,
-    wordsPerChapter: Math.max(1, Math.round(totalWords / chapters)),
+    // One rounding, over the division — exactly what the server does
+    // (`lib/script-sizing.ts`). Rounding the total first would size a chapter
+    // by a number the generator never uses.
+    wordsPerChapter: Math.max(1, Math.round((durationMinutes * wordsPerMinute) / chapters)),
   }
 }
