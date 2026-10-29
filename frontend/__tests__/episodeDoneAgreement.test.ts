@@ -128,7 +128,8 @@ describe('Pending only explains why a finished episode is still listed', () => {
   test('the selected episode keeps its row, and the row says why', () => {
     // Keeping it is deliberate: a step you just finished must not vanish from
     // under you mid-edit. It just has to stop reading as pending.
-    assert.match(selector, /list\.filter\(ep => !ep\.status\[field\] \|\| ep\.episode_code === props\.modelValue\)/)
+    // An episode that could not be read keeps its row (1.4.368: one bad episode never fails the list).
+    assert.match(selector, /list\.filter\(ep => ep\.episode_error \|\| !ep\.status\[field\] \|\| ep\.episode_code === props\.modelValue\)/)
     assert.match(selector, /function retainedSuffix\(ep: any\): string/)
     assert.match(selector, /still listed because it is open/)
     assert.match(selector, /\{\{ statusSuffix\(ep\) \}\}\{\{ localMediaStatusSuffix\(ep\) \}\}\{\{ retainedSuffix\(ep\) \}\}/)
