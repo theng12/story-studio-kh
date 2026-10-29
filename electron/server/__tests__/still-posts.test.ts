@@ -785,10 +785,14 @@ describe('still posts — the Formula makes the channel type', () => {
     try {
       const niches = await import('../services/niche-loader.js')
       const pm = await import('../services/project-manager.js')
-      const catalog = await niches.listNicheCatalogEntries()
-      const entry = catalog.find(row => row.value.id === 'still-posts')
-      assert.ok(entry, 'the Still Posts Formula must appear in the catalogue')
-      assert.equal(entry!.value.catalogStatus, 'active')
+      // Owner ruling 2026-10-29: the catalogue lists installed packs, and no pack
+      // publishes still-posts yet — so the Formula is asserted where it matters, by
+      // resolving the id a channel stores, and its card keeps the real name.
+      const formula = await niches.loadNiche('still-posts')
+      assert.ok(formula, 'the Still Posts Formula must resolve for a channel that selects it')
+      assert.equal(formula!.catalogStatus, 'active')
+      const names = await niches.formulaDisplayNames()
+      assert.ok(names.get('still-posts'), 'a channel on still-posts keeps a real Formula name on its card')
 
       const project = await pm.createProject({ name: 'A still posts channel', niche_id: 'still-posts' })
       const effective = await niches.getEffectiveNicheFor(project)

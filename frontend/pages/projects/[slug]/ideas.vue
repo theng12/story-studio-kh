@@ -2030,11 +2030,30 @@ const customKeywords = ref<string[]>([])
 // they reached the LLM. Fix: merge format + niche pools client-side
 // the same way the backend does, so the chip input shows the full
 // union AND Randomize picks from the union.
-const { niches: allNichesList } = useNiches()
-const { topicPacks: allTopicPacks } = useTopicPacks()
+const { niches: allNichesList, find: findFormula, ensureListed: ensureFormulasListed } = useNiches()
+const { find: findTopicPack, ensureListed: ensureTopicPacksListed } = useTopicPacks()
+// The shared lists carry installed pack items only (owner ruling, 2026-10-29).
+// This channel's saved Formula and Topic Packs are read back against them, so a
+// pack-served id shows as its pack item and anything no pack publishes is shown
+// with its own name instead of disappearing from this page.
+watch(
+  [
+    () => form.niche_id,
+    () => form.topic_pack_ids.join(','),
+    () => projectNicheId.value,
+    () => projectTopicPackIds.value.join(','),
+  ],
+  () => {
+    void Promise.all([
+      ensureFormulasListed([form.niche_id, projectNicheId.value]),
+      ensureTopicPacksListed([...form.topic_pack_ids, ...projectTopicPackIds.value]),
+    ])
+  },
+  { immediate: true },
+)
 watch([allNichesList, projectNicheId], () => {
   if (projectTopicPacksExplicit.value || !projectNicheId.value) return
-  const formula = allNichesList.value?.find(niche => niche.id === projectNicheId.value)
+  const formula = findFormula(projectNicheId.value)
   if (!formula) return
   projectTopicPackIds.value = [...(formula.defaultTopicPackIds || [])]
   if (form.niche_id === projectNicheId.value && form.topic_pack_ids.length === 0) {
@@ -2044,12 +2063,16 @@ watch([allNichesList, projectNicheId], () => {
 const activeNiche = computed(() => {
   const id = form.niche_id
   if (!id) return null
-  return allNichesList.value?.find(n => n.id === id) || null
+  return findFormula(id) || null
 })
 const activeFormulaName = computed(() => activeNiche.value?.catalogName || activeNiche.value?.name || 'No Formula selected')
 const activeTopicPackLabel = computed(() => {
   if (!form.topic_pack_ids.length) return 'No Topic Packs selected'
-  const names = form.topic_pack_ids.map(id => allTopicPacks.value.find(pack => pack.id === id)?.name || id)
+  const names = form.topic_pack_ids.map(id => {
+    const pack = findTopicPack(id)
+    if (!pack) return id
+    return pack.catalog?.not_in_pack ? `${pack.name} (not in a pack)` : pack.name
+  })
   return names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0]
 })
 

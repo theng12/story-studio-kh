@@ -8,7 +8,6 @@ import {
   contentPackDocumentToVisualStyle,
   type ContentPackVisualStyle,
 } from '../content-packs/legacy-adapters.js'
-import { listUserVisualStyles } from './user-style-packs.js'
 
 function assetUrl(packId: string, version: string, assetId: string): string {
   return `/api/content-packs/${encodeURIComponent(packId)}/${encodeURIComponent(version)}/assets/${encodeURIComponent(assetId)}`
@@ -36,7 +35,15 @@ export async function loadVisualStyle(
   return mapEntry(await resolveCatalogItem(id, undefined, effectiveOptions))
 }
 
-/** Publish installed signed styles, then user style pack styles, as renderer-safe records. */
+/**
+ * The Style Library list: what the installed Content Packs publish.
+ *
+ * Owner ruling, 2026-10-29 — "no custom, no built in, all from packs". The
+ * owner's own user style packs are no longer listed here, and nothing is
+ * deleted or rewritten: their styles keep resolving for every channel that
+ * already carries their text, and a stored legacy preset id reads the Store
+ * style that owns the look through `aliasedVisualStyleId` (art-style-resolver).
+ */
 export async function listVisualStyles(options: ContentPackRegistryOptions = {}): Promise<ContentPackVisualStyle[]> {
   const entries = await listCatalogEntries('visual-style', options)
   const result: ContentPackVisualStyle[] = []
@@ -51,8 +58,5 @@ export async function listVisualStyles(options: ContentPackRegistryOptions = {})
     }
     result.push(mapped)
   }
-  // The owner's own user style packs follow the signed styles. Their ids can
-  // never be `com.storystudio.`, so picking one copies its text into the project.
-  result.push(...await listUserVisualStyles(options.paths))
   return result
 }

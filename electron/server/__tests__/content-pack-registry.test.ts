@@ -132,7 +132,7 @@ async function isolated() {
 }
 
 describe('verified Content Pack registry', () => {
-  test('formula and Topic Pack catalogue routes expose verified source without collapsing same-name legacy entries', async () => {
+  test('formula and Topic Pack catalogue routes expose verified source for installed packs only', async () => {
     const { paths, options } = await isolated()
     const packId = 'com.storystudio.registry-catalogue-source'
     const archive = await buildArchive(
@@ -169,23 +169,30 @@ describe('verified Content Pack registry', () => {
     }
     const signedFormula = formulas.find((item: any) => item.id === `${packId}.formula`)
     const legacyFormula = formulas.find((item: any) => item.id === 'animals')
-    assert.equal(signedFormula.name, legacyFormula.catalogName)
+    // Owner ruling, 2026-10-29 — "no custom, no built in, all from packs": the
+    // shipped profile is not listed beside a pack, and there is no second row to
+    // collapse. It is still readable, which the check below proves.
+    assert.equal(legacyFormula, undefined, 'a shipped legacy profile must not be listed any more')
+    assert.equal(signedFormula.name, 'Natural World, Explained', 'the pack publishes its own name')
     assert.equal(signedFormula.project_count, 1)
-    assert.equal(legacyFormula.project_count, 0)
+    assert.equal((await nicheLoader.loadNiche('animals', options))?.id, 'animals',
+      'a stored legacy id still resolves, through the pack when the pack owns it')
     assert.equal(projectMetadataReads, 1, 'the listing metadata must be reused for niche counts')
     assert.deepEqual(signedFormula.catalog, {
       source: 'signed-installed', pack_id: packId, version: '1.0.0',
     })
-    assert.deepEqual(legacyFormula.catalog, { source: 'legacy-builtin' })
 
     const topics = (await request(app).get('/api/topic-packs').expect(200)).body.topic_packs
     const signedTopic = topics.find((item: any) => item.id === `${packId}.topic`)
     const legacyTopic = topics.find((item: any) => item.id === 'historical-wars-treaties-world-order')
-    assert.equal(signedTopic.name, legacyTopic.name)
+    assert.equal(legacyTopic, undefined, 'a shipped legacy Topic Pack must not be listed any more')
+    assert.equal(signedTopic.name, 'Wars, Treaties & World Order')
     assert.deepEqual(signedTopic.catalog, {
       source: 'signed-installed', pack_id: packId, version: '1.0.0',
     })
-    assert.deepEqual(legacyTopic.catalog, { source: 'legacy-builtin' })
+    assert.equal((await topicPackLoader.loadTopicPack('historical-wars-treaties-world-order', options))?.id,
+      'historical-wars-treaties-world-order',
+      'a stored legacy id still resolves from its own source when no pack owns it')
     assert.doesNotMatch(JSON.stringify({ formulas, topics }), /archive_sha256|install_path|\/Users\//i)
 
     const runtimeFormula = (await nicheLoader.listNiches(options))

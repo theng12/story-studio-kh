@@ -4,6 +4,29 @@ What's new in each release. Newest first.
 
 ---
 
+<!-- DRAFT for the next release — deliberately unheaded. The release step moves
+     these lines into a `## vX.Y.Z — YYYY-MM-DD` section and bumps the version in
+     package.json and package-lock.json together.
+
+- One copy per look, and per Topic Pack. The Formula, Topic Pack and Style
+  Library pickers now list only what the Content Packs installed on this Mac
+  publish, so a shipped built-in profile and the owner's own custom copy no
+  longer sit beside the pack that grew out of them. Nothing was deleted or
+  rewritten: a channel, preset or plan that already names one of the old ids
+  still resolves — through the pack item where a pack owns that look or subject,
+  otherwise through the old file as a read-only fallback — and a channel whose
+  own selection no pack publishes says "(not in a pack)" beside its name in its
+  own picker, so nothing changes under you without a word.
+- Wars, Treaties & World Order is one pack now: the merged pack carries 122
+  subjects. The two overlapping packs that came before it are marked replaced
+  (pointing at the merged pack) so the Store stops offering duplicates, an
+  installed copy keeps working, and every stored id — including the old short id
+  — reads the merged pack when it is installed and the old content when it is
+  not.
+- Bold Illustrated History: the Studio Library style is the one, so a channel
+  still naming its own copy of that look reads the Library style's own text.
+-->
+
 ## v1.4.368 — 2026-10-29
 
 - Translated episodes now show the same pictures in the same order on their own narration. When a translated episode's narration is merged, Story retimes its Scene Plan onto that narration: each scene keeps its chapter (the only point both languages share) and its share of that chapter, so every still, clip, approval and prompt is kept exactly while the timings follow the new voice. The source episode is never touched, and running it again changes nothing.

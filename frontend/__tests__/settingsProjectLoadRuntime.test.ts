@@ -33,8 +33,8 @@ async function loadPage(): Promise<Component> {
     const useConfirmSkip = () => ({ askSkippable: async () => false })
     const useVisualStyleCatalog = () => ({ styles: ref([]), loading: ref(false), error: ref(''), refresh: async () => undefined })
     const useGenStudioTranscriptionModels = () => ({ modelId: ref(''), options: ref([]), loading: ref(false), error: ref(''), isStale: ref(false), sourceFreshness: ref(null), load: async () => undefined })
-    const useNiches = () => ({ find: () => null, niches: ref([]), isLoading: ref(false), error: ref(''), createNiche: async () => undefined, deleteNiche: async () => undefined, refresh: async () => undefined })
-    const useTopicPacks = () => ({ topicPacks: ref([]) })
+    const useNiches = () => ({ find: () => null, niches: ref([]), isLoading: ref(false), error: ref(''), createNiche: async () => undefined, deleteNiche: async () => undefined, refresh: async () => undefined, selectionId: (id) => id, ensureListed: async () => undefined })
+    const useTopicPacks = () => ({ topicPacks: ref([]), find: () => null, selectionId: (id) => id, ensureListed: async () => undefined })
     const useRuntimeConfig = () => ({ public: {} })
     const pickFolderShared = async () => undefined
     const resolveSettingsSectionHash = () => null

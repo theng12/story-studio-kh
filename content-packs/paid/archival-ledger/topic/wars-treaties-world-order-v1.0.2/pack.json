@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
+  "publisher_id": "com.storystudio",
+  "key_id": "com.storystudio.key.archival-ledger",
+  "version": "1.0.2",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "replaced",
+  "successor_pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order",
+    "family": "com.storystudio.family.topic.archival-ledger.wars-treaties-world-order"
+  },
+  "changelog": "Superseded by Wars, Treaties & World Order v2, the merged pack that carries this expansion and the free pack's subjects together (owner ruling, 2026-10-29). Content is unchanged; the pack is no longer offered, and every stored id still resolves."
+}

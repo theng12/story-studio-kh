@@ -1,15 +1,17 @@
 /**
- * Niche library composable — fetches the available Niche profiles from the
- * backend (built-in + user-custom merged) and the per-project "effective
- * niche" (base + project overrides applied).
+ * Formula library composable — fetches the Series Formulas the installed
+ * Content Packs publish, and the per-project "effective niche" (base + project
+ * overrides applied).
  *
- * Mirrors useFormats but for the subject-domain layer. The list is small
- * (4 built-in + however many user-custom) and rarely changes during a
- * session, so we cache it module-level.
+ * Owner ruling, 2026-10-29: the list is pack items only. A channel's SAVED
+ * Formula is read back against that list by `ensureListed`, so a choice that
+ * resolves to a pack shows as that pack item and one that no pack publishes is
+ * still shown with its own name — never dropped, never rewritten.
  */
 
 import { ref, computed, onMounted, type Ref } from 'vue'
 import { useApi } from './useApi.js'
+import { resolveSavedSelection } from './pack-selection.js'
 
 export interface NicheReferenceImage {
   id: string
@@ -154,9 +156,15 @@ export interface Niche {
 }
 
 export interface ContentCatalogMetadata {
-  source: 'signed-installed' | 'signed-recovery' | 'legacy-builtin' | 'legacy-user-fork'
+  source?: 'signed-installed' | 'signed-recovery' | 'legacy-builtin' | 'legacy-user-fork'
   pack_id?: string
   version?: string
+  /**
+   * No Content Pack installed on this Mac publishes this entry: the channel
+   * saved it while it still came from a shipped profile or a local fork. It is
+   * shown with its real name and never offered as a new choice.
+   */
+  not_in_pack?: boolean
 }
 
 export interface TopicPack {
@@ -190,6 +198,8 @@ const isLoading = ref(false)
 const isReady = ref(false)
 const error = ref<unknown>(null)
 let inflight: Promise<void> | null = null
+/** Saved ids that now read as a listed pack item (the alias table's job, read through the server). */
+const resolvedIds = ref<Record<string, string>>({})
 
 async function fetchOnce(force = false): Promise<void> {
   if (inflight) return inflight
@@ -224,9 +234,35 @@ export function useNiches() {
     await fetchOnce(true)
   }
 
-  /** Synchronous lookup from the cached list. */
+  /** Synchronous lookup from the cached list. A saved id that reads as a listed
+   *  pack item finds that item, so the picker card and the suggestion button
+   *  keep naming the Formula the channel actually uses. */
   function find(id: string): Niche | undefined {
-    return niches.value.find(n => n.id === id)
+    const resolved = resolvedIds.value[id] || id
+    return niches.value.find(n => n.id === resolved)
+  }
+
+  /** The id the picker should show as selected: the pack item a saved id reads
+   *  as, or the saved id itself. The saved value is never rewritten. */
+  function selectionId(id: string): string {
+    return resolvedIds.value[id] || id
+  }
+
+  /**
+   * Read this channel's SAVED Formula against the pack list. A saved id a pack
+   * serves is mapped to that pack item; one no pack publishes is added with its
+   * real name and `not_in_pack`, so a picker can show it instead of losing the
+   * choice. A saved id whose source has gone is left out — callers keep their
+   * "unavailable" state rather than showing a made-up name.
+   */
+  async function ensureListed(ids: readonly (string | null | undefined)[]): Promise<void> {
+    const { add, alias } = await resolveSavedSelection<Niche>(
+      ids,
+      id => niches.value.some(n => n.id === id),
+      async id => (await get<Niche>(`/niches/${encodeURIComponent(id)}`)) || null,
+    )
+    if (Object.keys(alias).length) resolvedIds.value = { ...resolvedIds.value, ...alias }
+    if (add.length) niches.value = [...niches.value, ...add]
   }
 
   /** Fetch the effective niche for one project. Returns `null` field if the
@@ -279,6 +315,8 @@ export function useNiches() {
     error: computed(() => error.value),
     refresh,
     find,
+    selectionId,
+    ensureListed,
     fetchEffective,
     setProjectNiche,
     createNiche,

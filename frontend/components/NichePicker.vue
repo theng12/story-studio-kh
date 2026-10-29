@@ -6,7 +6,7 @@
     </label>
 
     <select
-      :value="modelValue || ''"
+      :value="selectedId"
       class="select"
       :disabled="isLoading || disabled"
       @change="onSelect(($event.target as HTMLSelectElement).value)"
@@ -20,10 +20,15 @@
           :value="n.id"
           :title="n.description"
         >
-          {{ displayName(n) }}{{ n.builtin ? '' : ' (custom)' }}{{ n.catalogStatus === 'legacy' ? ' (legacy)' : '' }}
+          {{ displayName(n) }}{{ n.catalog?.not_in_pack ? ' (not in a pack)' : (n.builtin ? '' : ' (custom)') }}{{ n.catalogStatus === 'legacy' ? ' (legacy)' : '' }}
         </option>
       </optgroup>
     </select>
+
+    <p v-if="selected?.catalog?.not_in_pack" class="niche-empty-note">
+      This channel's Formula is not published by a Content Pack installed on this Mac, so it is
+      shown rather than offered. Choose an installed Formula to move the channel onto a pack.
+    </p>
 
     <p v-if="!modelValue && allowEmpty" class="niche-empty-note">
       Without a Series Formula, Story Studio has no reusable hook or structure to keep a channel consistent.
@@ -32,7 +37,8 @@
     <div v-if="selected" class="niche-card">
       <div class="niche-card-header">
         <strong>{{ displayName(selected) }}</strong>
-        <span v-if="!selected.builtin" class="custom-badge">custom</span>
+        <span v-if="selected.catalog?.not_in_pack" class="not-in-pack-badge">not in a pack</span>
+        <span v-else-if="!selected.builtin" class="custom-badge">custom</span>
         <span v-if="selected.catalogStatus === 'legacy'" class="legacy-badge">legacy</span>
         <span v-if="selected.tagline" class="tagline">{{ selected.tagline }}</span>
       </div>
@@ -88,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import type { Niche } from '../composables/useNiches.js'
 
 const props = withDefaults(defineProps<{
@@ -107,15 +113,39 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
-const { niches, isLoading, error, find, refresh } = useNiches()
+const { niches, isLoading, isReady, error, find, refresh, selectionId, ensureListed } = useNiches()
 // The shared list loads once per session; a picker re-reads it so a Formula
 // installed since then is offered.
 onMounted(() => { void refresh() })
 
+/**
+ * A channel's saved Formula may predate the pack it now reads as, or come from a
+ * shipped profile no pack publishes (owner ruling, 2026-10-29). Read it back so
+ * the picker selects the pack item it resolves to, or shows it as
+ * "(not in a pack)" — never as an empty selection.
+ */
+async function readSavedFormula(): Promise<void> {
+  if (!props.modelValue) return
+  if (!isReady.value) await refresh()
+  await ensureListed([props.modelValue])
+}
+onMounted(() => { void readSavedFormula() })
+watch(() => props.modelValue, () => { void readSavedFormula() })
+
+// The option to show as selected: the pack item a saved id reads as, else the
+// saved id itself. The saved value is never rewritten by reading it.
+const selectedId = computed(() => (props.modelValue ? selectionId(props.modelValue) : ''))
 const selected = computed<Niche | undefined>(() => find(props.modelValue))
 const ownsVoice = computed(() => !!selected.value?.scriptSystemPromptRole)
 const groupedNiches = computed(() => {
-  const visible = niches.value.filter(n => n.catalogStatus !== 'legacy' || n.id === props.modelValue)
+  // A saved entry that no pack publishes is shown HERE only while it is this
+  // channel's own selection: it is a fact about the channel, never a new choice
+  // to offer (owner ruling, 2026-10-29).
+  const visible = niches.value.filter((n) => {
+    if (n.id === selectedId.value) return true
+    if (n.catalog?.not_in_pack) return false
+    return n.catalogStatus !== 'legacy'
+  })
   const byFamily = new Map<string, Niche[]>()
   for (const niche of visible) {
     const family = niche.formulaFamily || (niche.builtin ? 'Other formulas' : 'Custom formulas')
@@ -193,6 +223,7 @@ function formatErr(e: any): string {
   border-radius: 3px;
 }
 .legacy-badge { font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .05em; padding: 2px 6px; border-radius: 3px; color: #f4c36a; background: rgba(204, 144, 40, .14); }
+.not-in-pack-badge { font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .05em; padding: 2px 6px; border-radius: 3px; color: var(--warning, #d8a23c); background: var(--warning-dim, rgba(216, 162, 60, .12)); }
 
 .tagline {
   font-size: var(--font-xs);

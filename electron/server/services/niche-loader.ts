@@ -39,12 +39,12 @@ import * as topicPackLoader from './topic-pack-loader.js'
 import {
   isQualifiedContentPackId,
   listCatalogEntries,
-  listUserForkCatalogEntries,
   resolveCatalogItem,
   resolveUserForkCatalogItem,
   type CatalogEntry,
   type ContentPackRegistryOptions,
 } from '../content-packs/registry.js'
+import { listUserForks } from '../content-packs/user-forks.js'
 import { contentPackDocumentToNiche } from '../content-packs/legacy-adapters.js'
 import { registryOptionsForCurrentJob, resolveProjectContentPinsForKinds } from '../content-packs/project-pins.js'
 
@@ -349,63 +349,31 @@ export async function loadLegacyNiche(id: string): Promise<{ document: Niche; so
 }
 
 /**
- * List every available niche (built-in + user-custom), sorted by name.
- * Malformed JSONs are skipped with a console warning rather than failing
- * the list — the user can fix the bad file without losing the others.
+ * Every Series Formula the installed Content Packs publish, sorted by name.
+ *
+ * Owner ruling, 2026-10-29 — "no custom, no built in, all from packs": a
+ * Formula picker lists what the packs installed on this Mac publish, and
+ * nothing else. The shipped `electron/server/niches/*.json` profiles and the
+ * owner's own `user:` forks are no longer LISTED — and nothing is deleted or
+ * rewritten. A stored `niche_id` keeps resolving exactly as before: through
+ * `loadNiche` (alias → pack item first, otherwise the legacy file or the fork
+ * as a read-only fallback), and a selection that no installed pack publishes is
+ * shown as "<name> (not in a pack)" in its own picker so nothing changes under
+ * the customer without a word (frontend `useNiches.ensureListed`).
+ *
+ * A signed recovery entry stays listed: it is a bundled archive this Mac can
+ * genuinely serve, not a duplicate of a pack it already has.
+ *
+ * Malformed entries are skipped with a warning rather than failing the list.
  */
 export async function listNicheCatalogEntries(registryOptions: ContentPackRegistryOptions = {}): Promise<Array<CatalogEntry<Niche>>> {
   const seen = new Map<string, CatalogEntry<Niche>>()
-
   for (const entry of await listCatalogEntries('series-formula', registryOptions)) {
-    if (entry.value.kind === 'series-formula') {
+    if (entry.value.kind === 'series-formula' && !seen.has(entry.value.id)) {
       seen.set(entry.value.id, { ...entry, value: contentPackDocumentToNiche(entry.value) })
     }
   }
-
-  for (const entry of await listUserForkCatalogEntries('series-formula', registryOptions)) {
-    const niche = entry.value as Niche
-    if (!seen.has(niche.id)) seen.set(niche.id, { ...entry, value: niche })
-  }
-
-  const userDir = userNichesDir()
-  if (existsSync(userDir)) {
-    let entries: string[] = []
-    try { entries = await fs.readdir(userDir) } catch { /* ignore */ }
-    for (const name of entries) {
-      if (!name.endsWith('.json')) continue
-      try {
-        const n = await loadNicheFile(path.join(userDir, name))
-        if (!seen.has(n.id)) seen.set(n.id, { value: n, source: 'legacy-user-fork' })
-      } catch (e: any) {
-        console.warn(`[niche-loader] skipping malformed user niche ${name}: ${e.message}`)
-      }
-    }
-  }
-
-  if (existsSync(BUILTIN_NICHES_DIR)) {
-    let entries: string[] = []
-    try { entries = await fs.readdir(BUILTIN_NICHES_DIR) } catch { /* ignore */ }
-    for (const name of entries) {
-      if (!name.endsWith('.json')) continue
-      try {
-        const n = await loadNicheFile(path.join(BUILTIN_NICHES_DIR, name))
-        if (!seen.has(n.id)) seen.set(n.id, { value: n, source: 'legacy-builtin' })
-      } catch (e: any) {
-        console.warn(`[niche-loader] skipping malformed built-in niche ${name}: ${e.message}`)
-      }
-    }
-  }
-
-  // A superseded legacy entry is only hidden when its qualified target is
-  // listed too. On a machine where the store Formula is not installed the
-  // legacy source still appears (and still reads through the alias fallback),
-  // so the picker never loses the only way to choose that Formula.
-  const listedIds = new Set([...seen.values()].map(entry => entry.value.id))
-  const visible = [...seen.values()].filter(entry => {
-    const target = LEGACY_FORMULA_ALIASES[entry.value.id]
-    return !target || !listedIds.has(target)
-  })
-  return visible.sort((a, b) => a.value.name.localeCompare(b.value.name))
+  return [...seen.values()].sort((a, b) => a.value.name.localeCompare(b.value.name))
 }
 
 export async function listNiches(registryOptions: ContentPackRegistryOptions = {}): Promise<Niche[]> {
@@ -445,6 +413,14 @@ export async function formulaDisplayNames(
   try {
     for (const entry of await listNicheCatalogEntries(registryOptions)) {
       names.set(entry.value.id, entry.value.catalogName || entry.value.name)
+    }
+    // Owner ruling, 2026-10-29: a user fork is no longer listed in the pickers,
+    // but a channel may still SELECT one. Its name is read here — for the
+    // channel's own card only — so that selection never degrades into a raw
+    // `user:<uuid>`. Nothing is rewritten, and the fork is not offered.
+    for (const record of await listUserForks('series-formula', { paths: registryOptions.paths })) {
+      const document = record.document as Niche
+      if (!names.has(record.fork_id)) names.set(record.fork_id, document.catalogName || document.name)
     }
   } catch (e: any) {
     console.warn(`[niche-loader] Formula names unavailable for the channel list: ${e?.message || e}`)
@@ -491,6 +467,23 @@ export async function withFormulaLabels<T extends FormulaChoiceRow>(
   // Nothing to resolve: skip the catalogue read entirely.
   if (!rows.length) return []
   const names = await formulaDisplayNames(registryOptions)
+  // A stored Formula that no installed pack publishes still has a name in its
+  // own source (the shipped profile or a user fork). Read that name for the
+  // channel's card — the picker shows the same selection as "(not in a pack)".
+  const unnamed = new Set<string>()
+  for (const row of rows) {
+    if (row.status && row.status !== 'ready') continue
+    const id = formulaResolvedId(row)
+    if (id && !names.has(id)) unnamed.add(id)
+  }
+  for (const id of unnamed) {
+    const document = await loadNiche(id, registryOptions).catch((e: any) => {
+      console.warn(`[niche-loader] Formula name unavailable for stored id '${id}': ${e?.message || e}`)
+      return null
+    })
+    const name = document?.catalogName || document?.name
+    if (name) names.set(id, name)
+  }
   return rows.map(row => {
     // A row whose metadata could not be read (a timed-out folder) says NOTHING
     // about its Formula: "No Formula chosen" would be an answer invented from an

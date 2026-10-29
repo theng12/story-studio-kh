@@ -125,4 +125,18 @@ export const paidComponentRegistry = [
     family: 'com.storystudio.family.style.archival-documentary-reconstruction',
     sourceDirectory: 'style/archival-documentary-reconstruction-v1.0.1',
   },
+  // Owner ruling 2026-10-29 — "it's either install or update": this component is
+  // superseded by the merged com.storystudio.pack.topic.wars-treaties-world-order-v2.
+  // The version exists only to carry lifecycle "replaced" + successor_pack_id to
+  // the Store; its content is byte-identical to 1.0.1, and an installed copy keeps
+  // resolving (a replaced pack is never listed, but it is not withdrawn).
+  {
+    packId: 'com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order',
+    itemId: 'com.storystudio.topic.archival-ledger.wars-treaties-world-order',
+    kind: 'topic-pack',
+    version: '1.0.2',
+    sku: 'com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order',
+    family: 'com.storystudio.family.topic.archival-ledger.wars-treaties-world-order',
+    sourceDirectory: 'topic/wars-treaties-world-order-v1.0.2',
+  },
 ]

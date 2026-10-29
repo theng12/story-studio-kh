@@ -261,6 +261,16 @@ async function listSignedCatalogEntries(
   return result
 }
 
+/**
+ * A `replaced` pack is superseded, not withdrawn: it is never listed or offered
+ * again (a product its successor now owns must not be browsable twice), but a
+ * customer who already installed it keeps what they paid for, and a stored id
+ * still resolves through it when the successor is not on this Mac (owner
+ * ruling, 2026-10-29 — "it's either install or update"). `retired` resolves
+ * nowhere.
+ */
+const RESOLVABLE_LIFECYCLES: ReadonlySet<string> = new Set(['active', 'replaced'])
+
 /** Resolve a qualified signed item. Bare legacy IDs intentionally return null. */
 export async function resolveCatalogItem(
   id: string,
@@ -307,13 +317,13 @@ export async function resolveCatalogItem(
   for (const [packId, pack] of Object.entries(state.packs).sort(([left], [right]) => left.localeCompare(right))) {
     if (!pack.active_version || pack.discovery_disabled) continue
     const verified = await verifiedInstalled({ pack_id: packId, version: pack.active_version }, options, undefined, state)
-    if (!verified || verified.manifest.lifecycle !== 'active') continue
+    if (!verified || !RESOLVABLE_LIFECYCLES.has(verified.manifest.lifecycle)) continue
     emittedVersions.add(`${packId}@${pack.active_version}`)
     const match = entriesFromVerified(verified, 'signed-installed').find(entry => entry.value.id === id)
     if (match) matches.push(match)
   }
   for (const recovery of await recoveryPacks(options)) {
-    if (recovery.manifest.lifecycle !== 'active'
+    if (!RESOLVABLE_LIFECYCLES.has(recovery.manifest.lifecycle)
       || state.packs[recovery.manifest.pack_id]?.discovery_disabled
       || emittedVersions.has(`${recovery.manifest.pack_id}@${recovery.manifest.version}`)) continue
     const match = entriesFromVerified(recovery, 'signed-recovery').find(entry => entry.value.id === id)

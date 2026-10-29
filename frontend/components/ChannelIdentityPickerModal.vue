@@ -89,7 +89,7 @@
                 </div>
                 <div class="identity-card-actions">
                   <button type="button" class="btn btn-ghost btn-sm" @click="focusFormula(formula, $event)">View Details</button>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="saving || isUnavailable(formula)" @click="selectFormula(formula.id)">
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="saving || isUnavailable(formula) || formula.catalog?.not_in_pack === true" @click="selectFormula(formula.id)">
                     {{ draftFormulaId === formula.id ? 'Selected' : 'Choose Formula' }}
                   </button>
                 </div>
@@ -114,7 +114,7 @@
                 :class="{ selected: draftTopicIds.includes(pack.id), incompatible: !isCompatible(pack), unavailable: isUnavailable(pack) }"
               >
                 <div class="identity-card-heading">
-                  <h3>{{ pack.name }}</h3>
+                  <h3>{{ topicName(pack) }}</h3>
                   <span class="identity-source">{{ sourceLabel(pack) }}</span>
                 </div>
                 <p>{{ pack.description || 'Details are unavailable for this saved Topic Pack.' }}</p>
@@ -130,7 +130,7 @@
                   <button
                     type="button"
                     class="btn btn-secondary btn-sm"
-                    :disabled="saving || (!draftTopicIds.includes(pack.id) && (isUnavailable(pack) || !isCompatible(pack)))"
+                    :disabled="saving || (!draftTopicIds.includes(pack.id) && (isUnavailable(pack) || !isCompatible(pack) || pack.catalog?.not_in_pack === true))"
                     @click="toggleTopic(pack)"
                   >{{ draftTopicIds.includes(pack.id) ? 'Remove Pack' : 'Add Pack' }}</button>
                 </div>
@@ -160,7 +160,7 @@
             <p v-if="pinDifference(focusedFormula)" class="identity-pin">Library has v{{ focusedFormula.catalog?.version }}. Project uses v{{ pinDifference(focusedFormula) }}.</p>
           </template>
           <template v-else-if="activeShelf === 'topics' && focusedTopic">
-            <div class="identity-detail-head"><div><span>{{ topicCategory(focusedTopic) }}</span><h3>{{ focusedTopic.name }}</h3></div><span class="identity-source">{{ sourceLabel(focusedTopic) }}</span></div>
+            <div class="identity-detail-head"><div><span>{{ topicCategory(focusedTopic) }}</span><h3>{{ topicName(focusedTopic) }}</h3></div><span class="identity-source">{{ sourceLabel(focusedTopic) }}</span></div>
             <p>{{ focusedTopic.description }}</p>
             <dl>
               <div><dt>Subjects</dt><dd>{{ focusedTopic.subjects.length }}</dd></div>
@@ -212,8 +212,8 @@ const emit = defineEmits<{
   (event: 'saved', value: { formulaId: string; topicPackIds: string[] }): void
 }>()
 
-const { niches, isLoading: formulasLoading, error: formulasError, refresh: refreshFormulas, setProjectNiche } = useNiches()
-const { topicPacks, isLoading: topicsLoading, error: topicsError, refresh: refreshTopics } = useTopicPacks()
+const { niches, isLoading: formulasLoading, error: formulasError, refresh: refreshFormulas, setProjectNiche, selectionId: formulaSelectionId, ensureListed: ensureFormulas } = useNiches()
+const { topicPacks, isLoading: topicsLoading, error: topicsError, refresh: refreshTopics, selectionId: topicSelectionId, ensureListed: ensureTopics } = useTopicPacks()
 const activeShelf = ref<'formula' | 'topics'>('formula')
 const query = ref('')
 const sourceFilter = ref<SourceFilter>('all')
@@ -244,7 +244,10 @@ const allTopics = computed(() => [...unavailableTopics.value, ...topicPacks.valu
 const activeItems = computed<CatalogItem[]>(() => activeShelf.value === 'formula' ? allFormulas.value : allTopics.value)
 const focusedFormula = computed(() => allFormulas.value.find(item => item.id === focusedFormulaId.value) || allFormulas.value.find(item => item.id === draftFormulaId.value) || null)
 const focusedTopic = computed(() => allTopics.value.find(item => item.id === focusedTopicId.value) || allTopics.value.find(item => draftTopicIds.value.includes(item.id)) || null)
-const draftFormulaName = computed(() => allFormulas.value.find(item => item.id === draftFormulaId.value)?.catalogName || allFormulas.value.find(item => item.id === draftFormulaId.value)?.name || 'No Formula')
+const draftFormulaItem = computed(() => allFormulas.value.find(item => item.id === draftFormulaId.value))
+const draftFormulaName = computed(() => draftFormulaItem.value
+  ? withPackNote(draftFormulaItem.value.catalogName || draftFormulaItem.value.name, draftFormulaItem.value.catalog)
+  : 'No Formula')
 const draftTopicLabel = computed(() => draftTopicIds.value.length ? `${draftTopicIds.value.length} Topic Pack${draftTopicIds.value.length === 1 ? '' : 's'}` : 'No Topic Packs')
 const categories = computed(() => Array.from(new Set(activeShelf.value === 'formula'
   ? allFormulas.value.map(item => item.formulaFamily || 'General')
@@ -261,13 +264,17 @@ const sourceFilters = computed(() => {
 
 const filteredFormulas = computed(() => allFormulas.value.filter((formula) => {
   const selected = draftFormulaId.value === formula.id
+  // A saved Formula no installed pack publishes is shown only while it is this
+  // channel's own selection — never as a new choice for any channel.
+  if (formula.catalog?.not_in_pack && !selected) return false
   if (!passesSharedFilters(formula, formula.formulaFamily || 'General', selected)) return false
   if (selected) return true
   return matchesQuery([formulaName(formula), formula.description, formula.formulaFamily, formula.audienceHint, formula.scriptContext, ...(formula.exampleTopics || [])])
 }))
 const filteredTopics = computed(() => allTopics.value.filter((pack) => {
-  if (topicScope.value === 'compatible' && !isCompatible(pack) && !draftTopicIds.value.includes(pack.id)) return false
   const selected = draftTopicIds.value.includes(pack.id)
+  if (pack.catalog?.not_in_pack && !selected) return false
+  if (topicScope.value === 'compatible' && !isCompatible(pack) && !draftTopicIds.value.includes(pack.id)) return false
   if (!passesSharedFilters(pack, topicCategory(pack), selected)) return false
   if (selected) return true
   return matchesQuery([pack.name, pack.description, ...(pack.subjects || []), ...(pack.tags || [])])
@@ -285,6 +292,17 @@ watch(() => props.visible, async (visible) => {
   removedTopicNames.value = []
   saveError.value = ''
   await refreshCatalogs()
+  // The list is installed pack items only (owner ruling, 2026-10-29). Read this
+  // channel's saved selection back: a saved id that a pack now serves selects
+  // that pack item, and one no pack publishes is shown as "(not in a pack)".
+  await Promise.all([
+    ensureFormulas([props.selectedFormulaId]),
+    ensureTopics(props.selectedTopicPackIds),
+  ])
+  draftFormulaId.value = props.selectedFormulaId ? formulaSelectionId(props.selectedFormulaId) : ''
+  draftTopicIds.value = props.selectedTopicPackIds.map(topicSelectionId)
+  focusedFormulaId.value = draftFormulaId.value
+  focusedTopicId.value = draftTopicIds.value[0] || ''
   if (!props.visible) return
   chooseDefaultSource()
   await nextTick()
@@ -309,9 +327,15 @@ function sourceOf(item: CatalogItem): SourceFilter {
 }
 function sourceLabel(item: CatalogItem): string {
   if (isUnavailable(item)) return 'Unavailable saved selection'
+  if (item.catalog?.not_in_pack) return 'Not in a pack'
   return ({ 'signed-installed': 'Installed', 'signed-recovery': 'Included', 'legacy-builtin': 'Built in', 'legacy-user-fork': 'Custom' } as const)[sourceOf(item)]
 }
-function formulaName(formula: Niche): string { return formula.catalogName || formula.name }
+/** A saved entry no installed pack publishes says so wherever it is named. */
+function withPackNote(label: string, catalog?: { not_in_pack?: boolean }): string {
+  return catalog?.not_in_pack ? `${label} (not in a pack)` : label
+}
+function formulaName(formula: Niche): string { return withPackNote(formula.catalogName || formula.name, formula.catalog) }
+function topicName(pack: TopicPack): string { return withPackNote(pack.name, pack.catalog) }
 function topicCategory(pack: TopicPack): string { return pack.tags?.[0] || 'Topic Pack' }
 function matchesQuery(values: Array<string | undefined>): boolean {
   const terms = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
@@ -368,7 +392,7 @@ function selectFormula(id: string): void {
 function toggleTopic(pack: TopicPack): void {
   if (saving.value) return
   const selected = draftTopicIds.value.includes(pack.id)
-  if (!selected && (!isCompatible(pack) || isUnavailable(pack))) return
+  if (!selected && (!isCompatible(pack) || isUnavailable(pack) || pack.catalog?.not_in_pack)) return
   draftTopicIds.value = selected ? draftTopicIds.value.filter(id => id !== pack.id) : [...draftTopicIds.value, pack.id]
   focusedTopicId.value = pack.id
 }

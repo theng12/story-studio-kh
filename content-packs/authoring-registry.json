@@ -1,5 +1,5 @@
 {
-  "revision": 353,
+  "revision": 357,
   "batches": [
     {
       "revision": 2,
@@ -7126,6 +7126,64 @@
           }
         ]
       }
+    },
+    {
+      "revision": 354,
+      "receipt_ref": "authoring:1f958ebc809ed7b860bd372bd3b9765b41fc89e67a22c84b92648b5b142993ed",
+      "request": {
+        "expected_revision": 353,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "fix/one-copy-per-pack-20261029"
+        },
+        "proposal_ref": "Owner ruling 2026-10-29 (\"it's either install or update\"): the Wars, Treaties & World Order packs are superseded by the merged com.storystudio.pack.topic.wars-treaties-world-order-v2 v1.0.1. Reserve the two supersession versions that carry lifecycle=replaced and successor_pack_id, so the Store can stop offering the duplicates while every installed copy keeps resolving. No content changes.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+            "item_id": "com.storystudio.topic.historical-wars-treaties-world-order",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.3",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.historical-wars-treaties-world-order",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.historical-wars-treaties-world-order",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
+            "item_id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/paid/archival-ledger/topic/wars-treaties-world-order-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.archival-ledger.wars-treaties-world-order",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -12185,6 +12243,57 @@
         "receipt_ref": "authoring:dd8b9f217d28cea898f4eeaad442d3007dc6ca2bcc88448c9ecf61a423913577",
         "pack_id": "com.storystudio.pack.style.webtoon-martial-arts",
         "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 355,
+      "transition_ref": "lifecycle:929da722681f91c137d606da4760ecbd8edf059644d126b60f83fc744814f9e7",
+      "request": {
+        "expected_revision": 354,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "fix/one-copy-per-pack-20261029"
+        },
+        "receipt_ref": "authoring:1f958ebc809ed7b860bd372bd3b9765b41fc89e67a22c84b92648b5b142993ed",
+        "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+        "version": "1.0.3",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 356,
+      "transition_ref": "lifecycle:8fabdaba5cb625e7c5858bcfa826e5b763fab085e47cbc8cdc86d1bd4ce62782",
+      "request": {
+        "expected_revision": 355,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "fix/one-copy-per-pack-20261029"
+        },
+        "receipt_ref": "authoring:1f958ebc809ed7b860bd372bd3b9765b41fc89e67a22c84b92648b5b142993ed",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 357,
+      "transition_ref": "lifecycle:43ebb0bfd98c818e041a1ecb1ee39148ee2e993639f408d4fd90e3a0263b33b3",
+      "request": {
+        "expected_revision": 356,
+        "coordinator": {
+          "task": "content-pack-authoring",
+          "branch": "fix/one-copy-per-pack-20261029"
+        },
+        "receipt_ref": "authoring:30d40f27b363f2dc21e24af7c4d3729623453814cd41a4c393aaf88ee42138c8",
+        "pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
+        "version": "1.0.1",
         "changes": {
           "status": "authored"
         }
@@ -20265,7 +20374,7 @@
       "min_app_version_status": "fixed",
       "kind": "topic-pack",
       "source_path": "content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -20320,6 +20429,52 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.webtoon-martial-arts",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:1f958ebc809ed7b860bd372bd3b9765b41fc89e67a22c84b92648b5b142993ed",
+      "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+      "item_id": "com.storystudio.topic.historical-wars-treaties-world-order",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.3",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.historical-wars-treaties-world-order",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.historical-wars-treaties-world-order",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:1f958ebc809ed7b860bd372bd3b9765b41fc89e67a22c84b92648b5b142993ed",
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
+      "item_id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/wars-treaties-world-order-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.archival-ledger.wars-treaties-world-order",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order",
           "status": "proposed"
         }
       }
