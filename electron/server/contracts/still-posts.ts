@@ -17,7 +17,8 @@
  *    fields they need (`caption`, `batch_id`, `published_at`) so they slot in without a migration.
  */
 
-import type { TextAnchor, TextFill, ScriptCode } from './thumbnail-text.js'
+import type { TextAnchor, TextFill, ScriptCode, ThumbnailFont } from './thumbnail-text.js'
+import type { StillPostFontPools } from './still-post-fonts.js'
 
 /** The three export frames. 4:5 is deliberately absent (owner, 2026-10-27). */
 // model-drift-allow: the export frames Story composes itself after drawing, chosen by the owner for Still Posts; not a model aspect list
@@ -227,6 +228,14 @@ export interface StillPost {
    * byte-for-byte for every post written before this choice existed.
    */
   art_mode?: StillPostArtMode
+  /**
+   * The lettering face this post was GIVEN when it was written, from the channel's font pool.
+   *
+   * Recorded on the post so a Retry, a re-render or a later pool edit never silently changes the
+   * face of a post that already exists. Absent means the format's own face for this post's script —
+   * which is exactly how every post written before the pool existed is lettered.
+   */
+  font_id?: string
   /** Reserved for the posting phase. Absent means never published. */
   published_at?: string | null
 }
@@ -284,6 +293,14 @@ export interface StillPostPresetData {
    * one-drawing behaviour.
    */
   fresh_drawing_per_size: boolean
+  /**
+   * The channel's lettering font pool, one per writing system. A reusable look, so §5 keeps it in
+   * the preset. Empty/absent = every post uses the format's own face, exactly as before.
+   *
+   * This is what NEW posts are assigned from; the face a post was actually given is recorded on the
+   * post (`StillPost.font_id`), so editing the pool never re-letters work that already exists.
+   */
+  font_pools?: StillPostFontPools
   /** Multiplies the format's fitted type size, so a preset can whisper or shout. */
   text_scale: number
   branding: StillPostBranding
@@ -345,6 +362,12 @@ export interface StillPostsWorkspace {
   characters: ChannelCharacterRow[]
   formats: StillPostFormat[]
   options: StillPostOption[]
+  /**
+   * The bundled font catalogue, read live from `bundled/fonts/fonts.json` — the same list the
+   * thumbnail text editor uses. The pool picker offers only faces whose manifest lists the script
+   * being edited, so a face that cannot draw the language is never offered.
+   */
+  fonts: ThumbnailFont[]
   presets: StillPostPreset[]
   last_preset_id: string | null
   posts: StillPost[]
@@ -373,6 +396,11 @@ export interface StillPostBatchRequest {
   aspects: StillPostAspect[]
   /** Draw a separate picture per ticked frame. Absent/false = one drawing, fitted to each size. */
   fresh_drawing_per_size?: boolean
+  /**
+   * The preset's lettering font pools. New posts are given a face from the pool for their own
+   * script; an empty/absent pool leaves the format's face in place.
+   */
+  font_pools?: StillPostFontPools
   /** Characters every post may use. Must be a subset of the channel roster. */
   character_ids: string[]
   /** A live Gateway chat model id. Absent uses this Mac's writing default. */

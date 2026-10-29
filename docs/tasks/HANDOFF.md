@@ -1,5 +1,20 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.369 — Still Posts font pool, ten more lettering fonts (2026-10-29, feat/still-post-font-pool-20261029 from release/1.4.368 41c480a4)
+
+**Not yet released.** Written and static-checked; the ten-step gate and the DMG are still to run.
+
+What to know:
+- **Still Posts lettering font pool** (`contracts/still-post-fonts.ts` is the one implementation, shared with the page through `@shared/still-post-fonts`): one pool per ISO 15924 script on the still-post preset (`font_pools`). Empty pool = the format's own face, byte for byte; one font = every post; several = **serial by default** (pool order, wrapping) or weighted (percentages, shown in the picker, largest-remainder to 100). Only weighted avoids a back-to-back repeat, and `allow_repeat` opts into true random. `rng` is injected for the tests.
+- **Where the rotation stands** is channel runtime state, NOT preset content: `still-posts/font-pool-cursor.json`, `{script: {last_font_id, last_index}}`, written atomically under a lock, advanced **only after** the post record is written. A pool edit mid-run (add/remove/reorder) or a restart continues from the last id in the CURRENT order; a removed last-used id falls back to the stored index (the face that slid into its place).
+- **A post keeps its face**: `StillPost.font_id` is recorded at creation and wins in `textStyleFor`; a post with none keeps the format face. Changing a post's language to another script BLANKS it and says so in the response (`font_note`).
+- **Coverage is refused, never substituted**: a face whose manifest does not list the script is refused by name at preset save, batch preflight and the write job. The picker offers only manifest-covered faces (`StillPostsWorkspace.fonts`).
+- **The handle** deliberately stays on the format's face (`brandingFor`), not the post's pool face — the mark must read the same on every post. Owner can change this if he disagrees.
+- **Twenty-nine new OFL/Apache faces** in `bundled/fonts/` (+5.38 MiB on disk, 36 bundled in total): handwriting, brush, text and Khmer families, incl. twelve Khmer faces. Each was hash-checked against Production's manifest and verification file, licence-checked (27 SIL OFL 1.1, 2 Apache-2.0 with `LICENSE.txt`), family-name-checked, table-checksum-checked and cmap-checked with `lib/font-coverage.ts`. Every Khmer face draws the letters and is missing exactly the 24 Khmer codepoints Production expects (U+17DE/17DF, U+17EA–17FF) plus all six punctuation marks; every Latin-only face has no Khmer and no CJK.
+- **Weights are never synthesised** (owner, 2026-10-29): `nearestWeight(wanted, face.weights)` names the nearest weight the face really has, so a one-weight face answers every request with its one real instance (measured: Moul returned byte-identical pixels for Regular/Medium/Bold before the change).
+- **One punctuation fallback for Khmer** (`lib/thumbnail-text-render.ts`): Pango's comma-separated family list is used only for glyphs the first family lacks (measured: `Moul, Inter Regular 48` draws every one of the six pixel-identically to Inter alone, and adding the list changes nothing when the face has the glyph). The fallback face is chosen from the manifest — the first Latin-only `text` face that really carries all six (today Inter) — and the render report carries `fallback_family`, shown in the editor. **libass/caption burns are NOT covered** by this: ASS has no family list, so a Khmer caption with a curly quote still relies on CoreText's own fallback.
+- **Not done**: no Story test suite was run on this branch (a release gate was running on the Mac). The new tests are written and listed in the task report.
+
 ## 1.4.368 — nine branches in one release (2026-10-29, release/1.4.368 from main dabfff14)
 
 Merged, each verified first with focused runs (PARTIAL, not the gate): store-and-style-fallback,

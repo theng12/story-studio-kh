@@ -178,6 +178,65 @@
           </label>
         </div>
 
+        <!-- The channel's lettering font pool, one per writing system. -->
+        <h4 class="sp-h4">Lettering fonts</h4>
+        <p class="sp-help">
+          Choose the faces your posts are lettered in, one pool per writing system. One font means
+          every post uses it; several rotate — one after another by default, or by percentage. With no
+          pool, posts use the format's own face. A font that cannot draw the language is not offered.
+        </p>
+        <div v-for="row in poolRows" :key="row.script" class="sp-pool" :data-script="row.script">
+          <div class="sp-pool-head">
+            <strong>{{ row.label }}</strong>
+            <span class="sp-help sp-pool-summary">{{ poolSummary(row) }}</span>
+          </div>
+
+          <div class="sp-row">
+            <label v-for="mode in usageModes" :key="mode" class="sp-check">
+              <input
+                type="radio"
+                :value="mode"
+                :name="`pool-mode-${row.script}`"
+                v-model="row.pool.usage_mode"
+              >
+              {{ usageModeLabels[mode] }}
+            </label>
+            <label v-if="row.pool.usage_mode === 'weighted'" class="sp-check">
+              <input v-model="row.pool.allow_repeat" type="checkbox">
+              Allow the same font twice in a row (true random)
+            </label>
+          </div>
+
+          <p v-if="!row.faces.length" class="sp-help">No bundled font covers {{ row.label }}, so no pool can be set here.</p>
+
+          <div v-for="(choice, index) in row.pool.fonts" :key="`${row.script}-${index}`" class="sp-pool-row">
+            <span class="sp-pool-order">{{ row.pool.usage_mode === 'serial' ? `#${index + 1}` : `${percentagesFor(row.pool)[index] ?? 0}%` }}</span>
+            <select v-model="choice.font_id" class="select sp-pool-face" :aria-label="`${row.label} font ${index + 1}`">
+              <option v-for="face in facesForChoice(row, index)" :key="face.id" :value="face.id">{{ face.label }}</option>
+            </select>
+            <label v-if="row.pool.usage_mode === 'weighted'" class="sp-pool-weight">
+              <span class="sp-label">Weight</span>
+              <input v-model.number="choice.weight" class="input input-sm" type="number" min="1" max="100" step="1">
+            </label>
+            <span v-if="row.pool.usage_mode === 'weighted'" class="sp-pool-pct">{{ percentagesFor(row.pool)[index] ?? 0 }}% of posts</span>
+            <button type="button" class="btn btn-sm btn-ghost" @click="removePoolFont(row.script, index)">Remove</button>
+          </div>
+
+          <div class="sp-row">
+            <select
+              class="select"
+              :aria-label="`Add a ${row.label} font to the pool`"
+              :value="''"
+              :disabled="!row.faces.length"
+              @change="onAddPoolFont(row.script, $event)"
+            >
+              <option value="">Add a font…</option>
+              <option v-for="face in freeFaces(row)" :key="face.id" :value="face.id">{{ face.label }}</option>
+            </select>
+            <span class="sp-help">Percentages are of the pool, and are what the rotation uses.</span>
+          </div>
+        </div>
+
         <h4 class="sp-h4">Handle and logo</h4>
         <div class="sp-grid">
           <label class="sp-check">
@@ -464,6 +523,16 @@ import { useConfirm } from '~/composables/useConfirm'
 import { projectSlug } from '~/utils/project-slug'
 import { CREDIT_BASIS_LABEL, describeImageBatchEstimate, type PricedImageModel } from '~/utils/genstudio-credit-cost'
 import type { Job } from '~/composables/useJobs'
+import {
+  emptyFontPool,
+  normaliseFontPools,
+  percentagesFor,
+  STILL_POST_FONT_USAGE_LABELS,
+  STILL_POST_FONT_USAGE_MODES,
+  type StillPostFontPool,
+  type StillPostFontPools,
+} from '@shared/still-post-fonts'
+import { STILL_POST_LANGUAGE_SCRIPT } from '@shared/still-posts'
 
 definePageMeta({ layout: 'dashboard' })
 
@@ -487,6 +556,8 @@ interface StillPostPresetData {
   aspects: string[]
   /** Draw a separate picture per ticked frame. A reusable choice, so the preset carries it (§5). */
   fresh_drawing_per_size: boolean
+  /** The channel's lettering font pool per writing system. Empty = the format's own face. */
+  font_pools: StillPostFontPools
   text_scale: number
   branding: StillPostBranding
 }
@@ -513,6 +584,8 @@ interface Workspace {
   characters: Array<{ id: string, name: string, description: string, has_reference: boolean, reference_count: number, portrait_url: string | null }>
   formats: Array<{ id: string, name: string, description: string, lettering: { fonts: Record<string, string> } }>
   options: Array<{ id: string, name: string, description: string, panels: 1 | 2 }>
+  /** The bundled font catalogue, read live from the manifest — only these faces can be chosen. */
+  fonts: Array<{ id: string, label: string, scripts: string[], role?: string }>
   presets: Array<{ id: string, name: string, builtin: boolean, data: StillPostPresetData }>
   last_preset_id: string | null
   posts: StillPost[]
@@ -555,6 +628,7 @@ const preset = reactive<StillPostPresetData>({
   language: 'en',
   aspects: ['1:1'],
   fresh_drawing_per_size: false,
+  font_pools: poolsForEditing({}),
   text_scale: 1,
   branding: {
     handle_enabled: true,
@@ -610,10 +684,106 @@ const imageModels = ref<ImageModelRow[]>([])
 
 const draftFormat = computed(() => workspace.value?.formats.find(format => format.id === preset.format_id) || null)
 const draftOption = computed(() => workspace.value?.options.find(option => option.id === preset.option_id) || null)
+
+// ── The lettering font pool ────────────────────────────────────────────────
+//
+// Every rule here is a function in `@shared/still-post-fonts`, the same module the server and the
+// job use — the percentage the customer reads is the percentage the rotation draws with.
+
+const usageModes = STILL_POST_FONT_USAGE_MODES
+const usageModeLabels = STILL_POST_FONT_USAGE_LABELS
+
+/** Every face the bundled manifest lists for one script. Nothing else can be offered. */
+function facesFor(script: string): Array<{ id: string, label: string, scripts: string[] }> {
+  return (workspace.value?.fonts || []).filter(font => font.scripts.includes(script))
+}
+
+/** Pools keyed by the script each language is drawn in, never by the language's own name. */
+function scriptForLanguage(language: string): string {
+  return STILL_POST_LANGUAGE_SCRIPT[language as keyof typeof STILL_POST_LANGUAGE_SCRIPT] || 'latn'
+}
+
+/**
+ * The pools the page edits: every script the page's languages use has a real entry, so a pool can be
+ * built from empty. Empty pools are dropped by the server and mean "the format's own face".
+ */
+function poolsForEditing(value: unknown): StillPostFontPools {
+  const pools = normaliseFontPools(value)
+  for (const entry of languages) {
+    const script = scriptForLanguage(entry.id)
+    if (!pools[script]) pools[script] = emptyFontPool()
+  }
+  return pools
+}
+
+const poolRows = computed(() => languages.map(entry => {
+  const script = scriptForLanguage(entry.id)
+  return { language: entry.id, label: entry.label, script, pool: preset.font_pools[script] || emptyFontPool(), faces: facesFor(script) }
+}))
+
+/** Faces not already in this row's pool — a face is listed once, and a repeat is never offered. */
+function freeFaces(row: { script: string, pool: StillPostFontPool }): Array<{ id: string, label: string, scripts: string[] }> {
+  const used = new Set(row.pool.fonts.map(choice => choice.font_id))
+  return facesFor(row.script).filter(face => !used.has(face.id))
+}
+
+/**
+ * The options one entry may switch to: faces for this script that no OTHER entry already uses, plus
+ * the entry's own current face even when this build no longer offers it — so a stored pool is shown
+ * as it really is instead of looking empty.
+ */
+function facesForChoice(row: { script: string, pool: StillPostFontPool }, index: number): Array<{ id: string, label: string, scripts: string[] }> {
+  const own = row.pool.fonts[index]?.font_id
+  const used = new Set(row.pool.fonts.map(choice => choice.font_id))
+  if (own) used.delete(own)
+  const faces = facesFor(row.script).filter(face => !used.has(face.id))
+  if (own && !faces.some(face => face.id === own)) faces.unshift({ id: own, label: `${fontLabel(own)} (not offered for ${row.script})`, scripts: [] })
+  return faces
+}
+
+function poolSummary(row: { label: string, pool: StillPostFontPool }): string {
+  const count = row.pool.fonts.length
+  if (!count) return `No pool — every post uses the format's own ${row.label} face.`
+  if (count === 1) return `One font — every post uses ${fontLabel(row.pool.fonts[0]!.font_id)}.`
+  return `${count} fonts, ${usageModeLabels[row.pool.usage_mode].toLowerCase()}, wrapping.`
+}
+
+function fontLabel(id: string): string {
+  return (workspace.value?.fonts || []).find(font => font.id === id)?.label || id
+}
+
+function onAddPoolFont(script: string, event: Event): void {
+  const select = event.target as HTMLSelectElement
+  const id = select.value
+  select.value = ''
+  if (!id) return
+  const pool = preset.font_pools[script] || emptyFontPool()
+  const faces = facesFor(script)
+  // Refuse a face the manifest does not list for this script — never add it and hope.
+  if (!faces.some(face => face.id === id)) return
+  if (pool.fonts.some(choice => choice.font_id === id)) return
+  preset.font_pools[script] = { ...pool, fonts: [...pool.fonts, { font_id: id, weight: 100 }] }
+}
+
+function removePoolFont(script: string, index: number): void {
+  const pool = preset.font_pools[script]
+  if (!pool) return
+  preset.font_pools[script] = { ...pool, fonts: pool.fonts.filter((_, position) => position !== index) }
+}
+
 const letteringFontLabel = computed(() => {
-  const script = preset.language === 'km' ? 'khmr' : preset.language === 'zh' ? 'hani' : 'latn'
-  const font = draftFormat.value?.lettering.fonts[script]
-  return font ? `Lettering: ${font}` : 'This format has no font for that language yet.'
+  const script = scriptForLanguage(preset.language)
+  const pool = preset.font_pools[script]
+  const formatFace = draftFormat.value?.lettering.fonts[script]
+  if (pool && pool.fonts.length === 1) {
+    return `Lettering: ${fontLabel(pool.fonts[0]!.font_id)} for every post (from your font pool).`
+  }
+  if (pool && pool.fonts.length > 1) {
+    return `Lettering: ${pool.fonts.length} fonts, ${usageModeLabels[pool.usage_mode].toLowerCase()}.`
+  }
+  return formatFace
+    ? `Lettering: ${fontLabel(formatFace)} (the format's own face — no font pool for this language).`
+    : 'This format has no font for that language yet.'
 })
 const imageModelHelp = computed(() => {
   const model = imageModels.value.find(entry => entry.id === preset.image_model)
@@ -701,6 +871,9 @@ function applyPreset(id: string): void {
   preset.language = found.data.language
   preset.aspects = [...(found.data.aspects || ['1:1'])]
   preset.fresh_drawing_per_size = found.data.fresh_drawing_per_size === true
+  // §4/§5: the preset REPLACES the pools — a preset with no pool must not leave the previous
+  // preset's fonts standing on this one.
+  preset.font_pools = poolsForEditing(found.data.font_pools)
   preset.text_scale = Number(found.data.text_scale) || 1
   Object.assign(preset.branding, found.data.branding)
   presetNote.value = found.builtin
@@ -804,6 +977,7 @@ async function writeBatch(): Promise<void> {
       language: preset.language,
       aspects: preset.aspects,
       fresh_drawing_per_size: preset.fresh_drawing_per_size,
+      font_pools: preset.font_pools,
       character_ids: castDraft.value,
       writing_model: preset.writing_model,
     })
@@ -853,7 +1027,7 @@ async function savePost(): Promise<void> {
   savingPost.value = true
   editorNote.value = ''
   try {
-    const response = await put<{ post: StillPost, state: StillPostState, render_error: string | null }>(
+    const response = await put<{ post: StillPost, state: StillPostState, render_error: string | null, font_note?: string | null }>(
       `/projects/${slug.value}/still-posts/posts/${selected.value.id}`,
       {
         panels: editor.panels,
@@ -868,14 +1042,12 @@ async function savePost(): Promise<void> {
     )
     const index = workspace.value?.posts.findIndex(entry => entry.id === response.post.id) ?? -1
     if (workspace.value && index >= 0) workspace.value.posts.splice(index, 1, response.post)
-    editorNote.value = response.render_error
-      ? `Saved. Nothing was re-lettered: ${response.render_error}`
-      : 'Saved and re-lettered.'
-    editorError.value = !!response.render_error
     selectPost(response.post)
-    editorNote.value = response.render_error
+    // A cleared recorded face (the language moved to another script) is announced beside the
+    // render result, never swapped in silence.
+    editorNote.value = [response.render_error
       ? `Saved. Nothing was re-lettered: ${response.render_error}`
-      : 'Saved and re-lettered.'
+      : 'Saved and re-lettered.', response.font_note].filter(Boolean).join(' ')
     editorError.value = !!response.render_error
   } catch (error: any) {
     editorNote.value = error?.data?.detail || error?.message || 'Could not save this post.'
@@ -938,6 +1110,15 @@ onMounted(() => {
 .sp-draw-mode { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .sp-cost { margin: 6px 0 0; }
 .sp-cost.basis-unpublished { color: var(--text-secondary); font-style: italic; }
+.sp-pool { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.sp-pool-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sp-pool-summary { margin: 0; }
+.sp-pool-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sp-pool-order { min-width: 44px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.sp-pool-face { flex: 1 1 180px; }
+.sp-pool-weight { display: inline-flex; align-items: center; gap: 6px; }
+.sp-pool-weight .input { width: 72px; }
+.sp-pool-pct { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
 .sp-range { width: 100%; }
 .sp-note { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 13px; }
 .sp-notice-error, .sp-note-error { background: color-mix(in srgb, #c0392b 16%, transparent); }

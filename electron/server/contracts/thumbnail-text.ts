@@ -100,10 +100,18 @@ export interface ThumbnailTextRenderReport {
   /** The size actually used (after fitting). */
   font_px: number
   lines: number
-  /** True when every character was drawn by the chosen font (no fallback face, no missing glyph). */
+  /** True when every character was drawn — by the chosen font, or by the one announced fallback. */
   glyphs_complete: boolean
-  /** Characters the font could not draw (refused on apply). */
+  /** Characters nothing could draw (refused on apply). */
   missing_characters: string[]
+  /**
+   * The face that drew characters the chosen font does not carry.
+   *
+   * Currently only the six punctuation marks (curly quotes, em dash, ellipsis) that no bundled
+   * Khmer face carries; one Latin face draws them for every such face, and this names it so the
+   * substitution is stated rather than silent. Absent = every glyph came from the chosen font.
+   */
+  fallback_family?: string
   /** Set when the text could not fit the box even at min_px / max_lines (refused on apply). */
   overflow: boolean
 }

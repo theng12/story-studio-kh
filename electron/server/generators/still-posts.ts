@@ -32,7 +32,9 @@ import { STILL_POST_BUILTIN_PRESETS, stillPostFormat, stillPostOption } from '..
 import {
   artFilenameFor,
   artModeOf,
+  assertFontPoolCoversScript,
   commitFinals,
+  createPostWithPoolFont,
   imagePromptFor,
   listBatchStates,
   listChannelCharacters,
@@ -43,6 +45,7 @@ import {
   nextPostId,
   panelsForOption,
   postDir,
+  presetFontPools,
   referenceCacheDir,
   resolveRoster,
   stillPostsConfig,
@@ -51,6 +54,8 @@ import {
 } from '../services/still-posts.js'
 import { shortBatchMessage, writeStillPosts } from '../services/still-post-writer.js'
 import { channelHandle, channelLogoPath } from '../services/still-posts.js'
+import { STILL_POST_LANGUAGE_SCRIPT, STILL_POST_LANGUAGE_LABELS } from '../contracts/still-posts.js'
+import type { StillPostFontPools } from '../contracts/still-post-fonts.js'
 import {
   isStillPostAspect,
   isStillPostsLanguage,
@@ -76,6 +81,11 @@ export interface StillPostWriteParams {
   aspects: StillPostAspect[]
   /** Draw a separate picture per ticked frame. Absent/false = one drawing, fitted to each size. */
   fresh_drawing_per_size?: boolean
+  /**
+   * The preset's lettering font pools. New posts are given a face from the pool for their own
+   * script; an empty/absent pool leaves the format's face in place.
+   */
+  font_pools?: StillPostFontPools
   character_ids: string[]
   writing_model?: string | null
 }
@@ -104,6 +114,12 @@ export async function generateStillPostsWrite(job: Job): Promise<void> {
   const language: StillPostsLanguage = isStillPostsLanguage(params.language) ? params.language : 'en'
   const aspects = (Array.isArray(params.aspects) ? params.aspects : []).filter(isStillPostAspect)
   if (!aspects.length) throw new Error('At least one export frame (1:1, 9:16 or 16:9) is required.')
+
+  // The channel's lettering pool for this batch's script is checked BEFORE anything is written, so
+  // a face that cannot draw the language refuses the batch instead of being substituted (§1/§6).
+  const fontPools = presetFontPools(params.font_pools)
+  const script = STILL_POST_LANGUAGE_SCRIPT[language]
+  await assertFontPoolCoversScript(fontPools[script], script, STILL_POST_LANGUAGE_LABELS[language])
 
   // Characters are channel data. Every requested id must resolve to a character of THIS channel.
   const config = await pm.getConfig(slug)
@@ -167,6 +183,7 @@ export async function generateStillPostsWrite(job: Job): Promise<void> {
     language,
     aspects,
     art_mode: params.fresh_drawing_per_size === true ? 'per-size' : 'single',
+    font_pools: fontPools,
     character_ids: wanted,
   }, drafts)
 
@@ -187,6 +204,13 @@ export async function generateStillPostsWrite(job: Job): Promise<void> {
 /**
  * Write one post record per draft. Kept separate from the job so the count rule ("every usable draft
  * becomes a post, and a short batch still fails loudly") can be tested without a model call.
+ *
+ * The lettering face is assigned HERE, once per post, from the channel's pool for the batch's
+ * script, and recorded on the record (`font_id`). That is what makes a post keep its face across a
+ * retry, a re-render and a later pool edit. With no pool the record keeps the exact shape it had
+ * before this feature.
+ *
+ * `opts.rng` is injected only so a weighted pool can be pinned in a test; production uses Math.random.
  */
 export async function createPostsFromDrafts(
   slug: string,
@@ -198,15 +222,20 @@ export async function createPostsFromDrafts(
     aspects: StillPostAspect[]
     /** Absent/`single` writes no field, so a batch written before this choice is byte-identical. */
     art_mode?: 'single' | 'per-size'
+    /** The preset's pools. Empty/absent = every post uses the format's own face, as before. */
+    font_pools?: StillPostFontPools
     character_ids: string[]
   },
   drafts: ReadonlyArray<{ panels: ReadonlyArray<{ text: string; scene_prompt: string }>; caption: string }>,
+  opts: { rng?: () => number } = {},
 ): Promise<string[]> {
   const created: string[] = []
   // One scan of the channel decides the numbering; a per-draft scan would re-read every post file
   // once per post.
   const first = await nextPostId(slug)
   const startingNumber = Number(/^post-(\d+)$/.exec(first)?.[1] || '1')
+  const script = STILL_POST_LANGUAGE_SCRIPT[batch.language]
+  const pool = (batch.font_pools || {})[script]
   for (const [index, draft] of drafts.entries()) {
     const id = `post-${String(startingNumber + index).padStart(4, '0')}`
     const panels = panelsForOption(batch.option)
@@ -234,7 +263,7 @@ export async function createPostsFromDrafts(
       ...(batch.art_mode === 'per-size' ? { art_mode: 'per-size' as const } : {}),
       published_at: null,
     }
-    await writePost(slug, post)
+    await createPostWithPoolFont(slug, script, pool, () => post, opts)
     created.push(id)
   }
   return created

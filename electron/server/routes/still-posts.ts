@@ -26,6 +26,7 @@ import {
   allowedArtifactNames,
   artFilenameFor,
   artModeOf,
+  assertFontPoolCoversScript,
   brandingFor,
   buildWorkspace,
   channelHandle,
@@ -36,6 +37,7 @@ import {
   panelsForOption,
   postDir,
   postStateFor,
+  presetFontPools,
   readPost,
   renderPostFinals,
   resolveRoster,
@@ -47,6 +49,8 @@ import {
 import { stillPostFormat, stillPostOption } from '../still-posts/catalog.js'
 import {
   STILL_POST_ASPECTS,
+  STILL_POST_LANGUAGE_LABELS,
+  STILL_POST_LANGUAGE_SCRIPT,
   isStillPostAspect,
   isStillPostsLanguage,
   type StillPostAspect,
@@ -97,6 +101,14 @@ function brandingFrom(value: unknown, fallback: StillPostBranding | null = null)
     margin_pct: Math.max(0, Math.min(20, Number(raw.margin_pct) || 4)),
     opacity: Math.max(0, Math.min(1, Number(raw.opacity ?? 0.9))),
   }
+}
+
+/** "Khmer (khmr)" — what a customer needs to act on a refusal about a pool entry. */
+function scriptLabel(script: string): string {
+  for (const [language, code] of Object.entries(STILL_POST_LANGUAGE_SCRIPT)) {
+    if (code === script) return `${STILL_POST_LANGUAGE_LABELS[language as keyof typeof STILL_POST_LANGUAGE_LABELS]} (${script})`
+  }
+  return script
 }
 
 // ── The workspace ──────────────────────────────────────────────────────────
@@ -169,10 +181,24 @@ router.put('/projects/:slug/still-posts/presets', async (req, res) => {
           ...data,
           // A reusable drawing choice (§5). Normalised so a preset always stores a real boolean.
           fresh_drawing_per_size: data.fresh_drawing_per_size === true,
+          // The lettering pool is a reusable LOOK (§5), so the preset carries it. Normalised here so
+          // a malformed or duplicated entry never reaches the writer.
+          font_pools: presetFontPools(data.font_pools),
           branding: brandingFrom(data.branding, DEFAULT_BRANDING),
         },
       }
     }).filter(entry => entry.id && entry.name)
+    // A face this build does not ship, or one whose manifest does not list the script, is refused by
+    // name (AGENTS §1/§6) — never stored and later found unable to letter a post.
+    for (const entry of presets) {
+      for (const [script, pool] of Object.entries(entry.data.font_pools || {})) {
+        try {
+          await assertFontPoolCoversScript(pool, script, scriptLabel(script))
+        } catch (error: any) {
+          return res.status(400).json({ detail: `Preset "${entry.name}": ${error?.message || String(error)}` })
+        }
+      }
+    }
     const current = await pm.getConfig(slug)
     if (!current) return res.status(404).json({ detail: 'Project not found' })
     await pm.updateConfig(slug, {
@@ -257,6 +283,15 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
     if (!option) return res.status(400).json({ detail: `Unknown option "${optionId}".` })
 
     const language = isStillPostsLanguage(body.language) ? body.language : existing.language
+    // §4: a recorded face belongs to one writing system. Changing the post's language to another
+    // script REPLACES nothing and BLANKS the recorded face — carrying a Latin face onto a Khmer line
+    // would draw the wrong letters. The customer is told, not quietly switched.
+    const scriptChanged = STILL_POST_LANGUAGE_SCRIPT[language] !== STILL_POST_LANGUAGE_SCRIPT[existing.language]
+    const fontNote = scriptChanged && existing.font_id
+      ? `The language changed to ${STILL_POST_LANGUAGE_LABELS[language]}, so this post's recorded lettering `
+        + `face was cleared and it now uses the format's own ${scriptLabel(STILL_POST_LANGUAGE_SCRIPT[language])} face. `
+        + 'Draw it again to see the new face.'
+      : null
     if (Array.isArray(body.aspects) && body.aspects.length === 0) {
       return res.status(400).json({ detail: 'Choose at least one export frame: 1:1, 9:16 or 16:9.' })
     }
@@ -298,6 +333,8 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
       option_id: option.id,
       language,
       aspects,
+      // BLANKED, never carried: see `scriptChanged` above.
+      ...(scriptChanged ? { font_id: undefined } : {}),
       character_ids: [...new Set<string>(rawCharacters.filter((id: unknown): id is string => typeof id === 'string' && !!id))],
       caption: typeof body.caption === 'string' ? body.caption.slice(0, 2000) : existing.caption,
       panels,
@@ -338,7 +375,7 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
         : 'The artwork has not been drawn yet, so there is nothing to letter. Draw this post to see it.'
     }
 
-    res.json({ post: saved, state: await postStateFor(slug, saved), render_error: renderError })
+    res.json({ post: saved, state: await postStateFor(slug, saved), render_error: renderError, font_note: fontNote })
   } catch (error: any) {
     respondWithError(res, error, 'Failed to save the post')
   }
@@ -373,6 +410,16 @@ router.post('/projects/:slug/still-posts/batches', async (req, res) => {
     const brief = String(body.brief || '').trim()
     if (!brief) return res.status(400).json({ detail: 'Write a brief so the batch knows what it is about.' })
 
+    // The lettering pool is checked before a job is even queued: a face that cannot draw this
+    // batch's script is refused here, by name, instead of failing inside the writer.
+    const fontPools = presetFontPools(body.font_pools)
+    const script = STILL_POST_LANGUAGE_SCRIPT[language]
+    try {
+      await assertFontPoolCoversScript(fontPools[script], script, scriptLabel(script))
+    } catch (error: any) {
+      return res.status(400).json({ detail: error?.message || String(error) })
+    }
+
     const characters = await listChannelCharacters(slug)
     const roster = resolveRoster(stillPostsConfig(await pm.getConfig(slug)).character_ids, characters)
     const chosen = Array.isArray(body.character_ids)
@@ -401,6 +448,7 @@ router.post('/projects/:slug/still-posts/batches', async (req, res) => {
         language,
         aspects,
         fresh_drawing_per_size: body.fresh_drawing_per_size === true,
+        ...(Object.keys(fontPools).length ? { font_pools: fontPools } : {}),
         character_ids: chosen,
         writing_model: typeof body.writing_model === 'string' && body.writing_model.trim() ? body.writing_model.trim() : null,
       },

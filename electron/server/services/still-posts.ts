@@ -24,7 +24,17 @@ import { listCharacters, referenceImagePath } from './character-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { renderThumbnailText, type RenderBranding } from '../lib/thumbnail-text-render.js'
+import { listThumbnailFonts } from '../lib/thumbnail-fonts.js'
 import type { ThumbnailTextStyle } from '../contracts/thumbnail-text.js'
+import {
+  cursorAfter,
+  decideFont,
+  normaliseFontPools,
+  poolFontIds,
+  type StillPostFontCursor,
+  type StillPostFontPool,
+  type StillPostFontPools,
+} from '../contracts/still-post-fonts.js'
 import { stillPostFormat, stillPostOption } from '../still-posts/catalog.js'
 import {
   STILL_POST_ASPECTS,
@@ -271,6 +281,115 @@ export async function trashPost(slug: string, postId: string): Promise<void> {
   moveToTrashSync(dir, trash, 'still-post')
 }
 
+// ── The lettering font pool ────────────────────────────────────────────────
+//
+// The POOL is preset content (a reusable look, AGENTS §5). Where the rotation stands is CHANNEL
+// runtime state — never a preset — so it lives in its own small file under the channel's
+// `still-posts/` folder, per writing system, written atomically.
+
+export const FONT_POOL_CURSOR_FILE = 'font-pool-cursor.json'
+
+/** `{ "cursors": { "latn": { "last_font_id": "...", "last_index": 2 } } }` */
+interface FontPoolCursorFile {
+  cursors: Record<string, StillPostFontCursor>
+}
+
+export function fontPoolCursorPath(slug: string): string {
+  return path.join(stillPostsDir(slug), FONT_POOL_CURSOR_FILE)
+}
+
+async function readCursorFile(slug: string): Promise<FontPoolCursorFile> {
+  const file = fontPoolCursorPath(slug)
+  if (!existsSync(file)) return { cursors: {} }
+  try {
+    const parsed = JSON.parse(await fs.readFile(file, 'utf-8')) as FontPoolCursorFile
+    return { cursors: parsed && typeof parsed.cursors === 'object' && parsed.cursors ? parsed.cursors : {} }
+  } catch {
+    // A cursor we cannot read is a cursor we do not have: the next post starts the pool from its
+    // first entry rather than pretending to know where it stopped.
+    return { cursors: {} }
+  }
+}
+
+/** Where the rotation stands for one script. Null = this channel has not assigned a face yet. */
+export async function readFontPoolCursor(slug: string, script: string): Promise<StillPostFontCursor | null> {
+  const cursor = (await readCursorFile(slug)).cursors[script]
+  if (!cursor || typeof cursor !== 'object') return null
+  return {
+    last_font_id: typeof cursor.last_font_id === 'string' && cursor.last_font_id ? cursor.last_font_id : null,
+    last_index: typeof cursor.last_index === 'number' && Number.isInteger(cursor.last_index) && cursor.last_index >= 0
+      ? cursor.last_index
+      : null,
+  }
+}
+
+/**
+ * Create one post, giving it a face from the channel's pool for its own script.
+ *
+ * Order matters and is the whole point: the cursor is advanced **only after the post record has
+ * actually been written**, and the read-modify-write runs under one lock, so a failed write never
+ * skips a face and two batches can never hand out the same one. A pool with no faces for the script
+ * leaves the record exactly as it was before this feature (no `font_id`), so the format's own face
+ * is used and nothing on disk changes shape.
+ */
+export async function createPostWithPoolFont(
+  slug: string,
+  script: string,
+  pool: StillPostFontPool | null | undefined,
+  build: () => StillPost,
+  opts: { rng?: () => number } = {},
+): Promise<StillPost> {
+  if (!poolFontIds(pool).length) return writePost(slug, build())
+  const file = fontPoolCursorPath(slug)
+  return withLock(file, async () => {
+    const state = await readCursorFile(slug)
+    const chosen = decideFont(pool, state.cursors[script] || null, opts.rng)
+    if (!chosen) return writePost(slug, build())
+    const written = await writePost(slug, { ...build(), font_id: chosen.font_id })
+    state.cursors[script] = cursorAfter(chosen.font_id, chosen.index)
+    await fs.mkdir(stillPostsDir(slug), { recursive: true })
+    await writeJsonAtomic(file, { cursors: state.cursors })
+    return written
+  })
+}
+
+/**
+ * Refuse a pool that names a face this build does not ship, or one whose manifest does not list the
+ * script it is being used for (AGENTS §1/§6).
+ *
+ * Never substitutes: a face that cannot draw Khmer is a plain sentence naming the face, because a
+ * silently swapped face is a picture in the wrong writing system.
+ */
+export async function assertFontPoolCoversScript(
+  pool: StillPostFontPool | null | undefined,
+  script: string,
+  languageLabel: string,
+): Promise<void> {
+  const ids = poolFontIds(pool)
+  if (!ids.length) return
+  const fonts = await listThumbnailFonts()
+  for (const id of ids) {
+    const font = fonts.find(entry => entry.id === id)
+    if (!font) {
+      throw new Error(
+        `"${id}" is not one of this build's bundled fonts (${fonts.map(entry => entry.id).join(', ')}), `
+        + `so it cannot letter ${languageLabel}. Nothing was drawn or written in an unchosen face.`,
+      )
+    }
+    if (!font.scripts.includes(script)) {
+      throw new Error(
+        `${font.label} (${id}) does not cover ${languageLabel} (${script}), so it cannot letter it. `
+        + `Choose a face whose font list includes ${script}. Nothing was drawn or written in a substituted face.`,
+      )
+    }
+  }
+}
+
+/** Every script's pool in one payload, normalised against the shape the server will use. */
+export function presetFontPools(value: unknown): StillPostFontPools {
+  return normaliseFontPools(value)
+}
+
 // ── Verification ───────────────────────────────────────────────────────────
 
 /** PNG/JPEG/WebP magic, so an empty or truncated file is never counted as a finished artifact. */
@@ -460,6 +579,13 @@ export interface StillPostLook {
   format: StillPostFormat
   option: StillPostOption
   language: StillPostsLanguage
+  /**
+   * The face this post was given from the channel's pool when it was written, or absent.
+   *
+   * Absent = the format's own face for the post's script — today's behaviour, and what every post
+   * recorded before the pool existed keeps.
+   */
+  font_id?: string | null
   /** Multiplies the fitted type size. */
   text_scale: number
   branding: RenderBranding
@@ -483,7 +609,9 @@ export function textStyleFor(
   const canvas = STILL_POST_CANVAS[aspect]
   const box = look.option.text[Math.min(panelIndex, look.option.text.length - 1)]!
   const script = STILL_POST_LANGUAGE_SCRIPT[look.language]
-  const fontId = look.format.lettering.fonts[script]
+  // The post's own recorded face wins. With no pool (or a post written before the pool existed)
+  // this is the format's face, byte-for-byte as before.
+  const fontId = look.font_id || look.format.lettering.fonts[script]
   if (!fontId) {
     throw new Error(
       `${look.format.name} has no bundled font for ${look.language}. Choose another language or another format.`,
@@ -562,6 +690,8 @@ export function brandingFor(
     handle: {
       enabled: preset.handle_enabled && !!wanted,
       text: wanted ? `@${wanted}` : '',
+      // Deliberately the FORMAT's face, never the post's pool face: the handle is the channel's mark
+      // and must read the same on every post, while `textStyleFor` above owns the post's lettering.
       font_id: opts.format.lettering.fonts[script] || 'inter',
       weight: 500,
       size_px: Math.max(10, Math.round(preset.handle_size_px * base)),
@@ -579,8 +709,9 @@ export function brandingFor(
   }
 }
 
-/** Resolve the look a post is rendered with. Unknown ids are refused, never replaced. */export function lookForPost(
-  post: Pick<StillPost, 'format_id' | 'option_id' | 'language'>,
+/** Resolve the look a post is rendered with. Unknown ids are refused, never replaced. */
+export function lookForPost(
+  post: Pick<StillPost, 'format_id' | 'option_id' | 'language'> & { font_id?: string | null },
   branding: RenderBranding,
   textScale: number,
 ): StillPostLook {
@@ -592,6 +723,7 @@ export function brandingFor(
     format,
     option,
     language: post.language,
+    ...(post.font_id ? { font_id: post.font_id } : {}),
     text_scale: textScale,
     branding,
     brandingSignature: JSON.stringify(branding),
@@ -719,7 +851,12 @@ export function savedPresets(raw: Record<string, any> | null | undefined): Still
       id: String(entry.id),
       name: String(entry.name || entry.id),
       builtin: false,
-      data: entry.data as StillPostPresetData,
+      data: {
+        ...entry.data as StillPostPresetData,
+        // A preset saved before the pool existed reads as an empty pool — the format's face — rather
+        // than as a shape the page has to defend against.
+        font_pools: normaliseFontPools(entry.data.font_pools),
+      },
     }))
 }
 
@@ -754,6 +891,7 @@ export async function buildWorkspace(slug: string): Promise<StillPostsWorkspace>
     characters: characters.map(({ portrait_path: _portrait, ...row }) => row),
     formats: STILL_POST_FORMATS,
     options: STILL_POST_OPTIONS,
+    fonts: await listThumbnailFonts(),
     presets: await listPresets(raw),
     last_preset_id: typeof (raw as any).still_post_last_preset === 'string' ? (raw as any).still_post_last_preset : null,
     posts,
