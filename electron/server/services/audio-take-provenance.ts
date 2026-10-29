@@ -90,7 +90,10 @@ export async function takeProvenance(input: {
         const modelId = text(tts.model_id) ?? text(part!.model_id)
         if (modelId) seen.set('model_id', (seen.get('model_id') ?? new Set()).add(modelId))
         for (const key of ['model_display_name', 'voice_id', 'voice_display_name', 'provider', 'voice_provider',
-          'engine_id', 'engine_name', 'model_revision_id', 'model_family', 'voice_revision'] as const) {
+          'engine_id', 'engine_name', 'model_revision_id', 'model_family', 'voice_revision',
+          // How the take was DIRECTED (owner, 2026-10-29). Recorded per part, so a
+          // split take whose parts disagree is attributed to neither.
+          'delivery_instruction'] as const) {
           const value = text((tts as Record<string, unknown>)[key])
           if (value) seen.set(key, (seen.get(key) ?? new Set()).add(value))
         }

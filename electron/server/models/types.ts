@@ -3379,6 +3379,16 @@ export interface GenerateAudioRequest {
    * the types and the ranges (lib/tts-controls.ts).
    */
   controls?: Record<string, number | boolean | string>
+  /**
+   * How the words should be read — the model's own free-text delivery/emotion
+   * instruction (owner, 2026-10-29). Not a Story Studio vocabulary: whether the
+   * selected model takes one, what it may contain, and how long it may be are
+   * published by the Gateway per model (lib/tts-controls.ts). The generator
+   * resolves it against the live row before anything is sent, and refuses a
+   * non-empty instruction on a model that publishes none rather than dropping
+   * it silently.
+   */
+  delivery_instruction?: string
   force: boolean
   no_overwrite: boolean
   /** Server-stamped, action-scoped staged candidate; public Audio requests never carry it. */

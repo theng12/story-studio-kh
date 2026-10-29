@@ -38,8 +38,10 @@ import { wellFormedJson } from './well-formed-text.js'
 import {
   hasTtsControlValues,
   orderedTtsControlValues,
+  parseDeliveryInstructionControl,
   parseTtsControlValues,
   parseTtsControls,
+  type GenStudioDeliveryInstructionControl,
   type GenStudioTtsControl,
   type TtsControlValues,
 } from './tts-controls.js'
@@ -1082,6 +1084,18 @@ export interface GenStudioTtsRequest extends GenStudioOperationContext {
    */
   controls?: TtsControlValues
   /**
+   * How the words should be read — the model's own free-text delivery/emotion
+   * direction (owner, 2026-10-29). Already resolved against the SELECTED
+   * model's published control by `resolveDeliveryInstruction`, so it is present
+   * only when the model publishes the control and the customer typed something.
+   *
+   * Absent is the ordinary case and produces the exact body (and idempotency
+   * digest) this client sent before the field existed. It reaches the wire as
+   * the Gateway's top-level `delivery_instruction` parameter, which the Gateway
+   * refuses with a 422 on a model whose catalogue row does not publish it.
+   */
+  deliveryInstruction?: string
+  /**
    * `m4a` asks the lane to hand the narration back as AAC (transport only — Story still writes
    * its MP3 chapter from whatever arrives). Absent = native WAV, today's behaviour.
    */
@@ -1649,6 +1663,11 @@ export interface GenStudioSubmission {
     speed: number
     /** Present ONLY when the selected model published controls to send. */
     controls?: TtsControlValues
+    /**
+     * How the words are read — present ONLY when the selected model publishes
+     * the delivery/emotion control and the instruction is non-empty.
+     */
+    delivery_instruction?: string
     /** Present ONLY when the owner asked for compressed narration (`m4a`). */
     output_format?: 'm4a'
     /** Present ONLY when set and the selected model publishes it (`pause_parameters`). */
@@ -1779,6 +1798,15 @@ export interface GenStudioTtsModel extends GenStudioCatalogLock, GenStudioPriceT
    * list means this model takes no controls, and none are shown or sent.
    */
   controls: GenStudioTtsControl[]
+  /**
+   * The delivery/emotion control THIS model publishes, with the model's own
+   * guidance inside it, or `null` when the Gateway published none for it
+   * (owner, 2026-10-29). Read from the model's own `controls[]` — never from a
+   * model or provider name — and re-read on every catalogue read, so a model
+   * that gains or loses the capability gains or loses the setting with it.
+   * `null` means: no setting is shown, and no instruction is sent.
+   */
+  delivery_instruction: GenStudioDeliveryInstructionControl | null
   /** `TTSModelResponse.pause_parameters[]`; empty = this model takes no join-pause request. */
   pause_parameters?: GenStudioTtsPauseParameter[]
 }
@@ -3753,6 +3781,15 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
   const controls = hasTtsControlValues(request.controls)
     ? orderedTtsControlValues(request.controls!)
     : null
+  // How the words should be read. Sent ONLY when the caller resolved a
+  // non-empty instruction against the selected model's published control, so a
+  // model that publishes none produces exactly the body it produced before the
+  // field existed and its in-flight idempotency key still replays. It enters
+  // the digest with the body, which is right: the same script read differently
+  // is different work and must never replay the other reading's audio.
+  const deliveryInstruction = typeof request.deliveryInstruction === 'string'
+    ? request.deliveryInstruction.trim()
+    : ''
   const body = {
     // The product first, because that is what GenStudio sells and prices. It
     // also enters the digest below, which is correct: the same script in the
@@ -3763,6 +3800,7 @@ export function buildGenStudioSubmission(request: GenStudioTtsRequest): GenStudi
     text: request.text,
     speed,
     ...(controls ? { controls } : {}),
+    ...(deliveryInstruction ? { delivery_instruction: deliveryInstruction } : {}),
     // Same conditional-spread rule as `controls`: absent for the native WAV so every existing
     // key (and in-flight recovery) is unchanged, present so the two formats never share a replay.
     ...(request.outputFormat ? { output_format: request.outputFormat } : {}),
@@ -5298,6 +5336,11 @@ export async function listTtsModelsSnapshot(
         // Carried through exactly as published. An absent or empty list means
         // this model takes no controls — never a reason to supply some.
         controls: parseTtsControls(value?.controls),
+        // The delivery/emotion control leaves as its own request field, so it
+        // is read from the same published list by its own reader rather than
+        // through the generic map (lib/tts-controls.ts). `null` = this model
+        // publishes none, so the setting is hidden and nothing is sent.
+        delivery_instruction: parseDeliveryInstructionControl(value?.controls),
         pause_parameters: parseTtsPauseParameters(value?.pause_parameters),
         // The identifiers this product also answers to, exactly as published.
         // Without this the TTS catalogue was the one modality that dropped
@@ -10402,6 +10445,12 @@ async function generateTtsToFileAdmitted(
       ...(['paragraph_pause_sec', 'sentence_pause_sec'] as const)
         .filter(name => submission.body[name] !== undefined)
         .map(name => [name, submission.body[name]] as [string, unknown]),
+      // How this take was DIRECTED, when the customer directed it. Short by
+      // contract (the Gateway's own published limit), and it is a setting, not
+      // script text, so it is worth keeping where a charge is reconciled.
+      ...(submission.body.delivery_instruction
+        ? [['delivery_instruction', submission.body.delivery_instruction] as [string, unknown]]
+        : []),
       // Recorded only when the model published controls, so the operator can
       // see which settings a job went out under. The names are GenStudio's.
       ...(submission.body.controls

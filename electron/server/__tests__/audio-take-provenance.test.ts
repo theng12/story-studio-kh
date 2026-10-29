@@ -132,4 +132,56 @@ describe('recorded producer facts', () => {
     })
     assert.equal(facts.recorded, false)
   })
+
+  test('how the take was DIRECTED is read back beside the engine and voice (owner, 2026-10-29)', async () => {
+    const { episodeDir, audioDir } = await episode('delivery')
+    await manifest(audioDir, {
+      'EP001_Chapter_01.mp3': {
+        provider: 'genstudio', task_id: 'job-1', submitted_at: '2026-10-29T00:00:00.000Z', operation: 'tts',
+        model_id: 'fish-audio-s2-1-pro',
+        tts: {
+          model_id: 'fish-audio-s2-1-pro', voice_id: 'kh-voice-1', engine_name: 'S2.1',
+          delivery_instruction: 'Warm and unhurried, a little amused.',
+        },
+      },
+    })
+    const facts = await takeProvenance({
+      episodeDir, audioDir, section: 'Chapter_01', files: ['EP001_Chapter_01.mp3'], active: true,
+    })
+    assert.equal(facts.engine_name, 'S2.1')
+    assert.equal(facts.delivery_instruction, 'Warm and unhurried, a little amused.')
+  })
+
+  test('a take made without an instruction records none — never a blank claim', async () => {
+    const { episodeDir, audioDir } = await episode('no-delivery')
+    await manifest(audioDir, {
+      'EP001_Chapter_01.mp3': {
+        provider: 'genstudio', task_id: 'job-1', submitted_at: '2026-10-29T00:00:00.000Z', operation: 'tts',
+        model_id: 'fish-audio-s2-1-pro', tts: { model_id: 'fish-audio-s2-1-pro', voice_id: 'kh-voice-1' },
+      },
+    })
+    const facts = await takeProvenance({
+      episodeDir, audioDir, section: 'Chapter_01', files: ['EP001_Chapter_01.mp3'], active: true,
+    })
+    assert.equal(Object.prototype.hasOwnProperty.call(facts, 'delivery_instruction'), false)
+  })
+
+  test('split parts directed differently claim neither instruction', async () => {
+    const { episodeDir, audioDir } = await episode('delivery-conflict')
+    await manifest(audioDir, {
+      'EP001_Chapter_01_part1.mp3': {
+        provider: 'genstudio', task_id: 'a', submitted_at: '2026-10-29T00:00:00.000Z', operation: 'tts',
+        model_id: 'model-a', tts: { delivery_instruction: 'Warm.' },
+      },
+      'EP001_Chapter_01_part2.mp3': {
+        provider: 'genstudio', task_id: 'b', submitted_at: '2026-10-29T00:00:00.000Z', operation: 'tts',
+        model_id: 'model-a', tts: { delivery_instruction: 'Cold.' },
+      },
+    })
+    const facts = await takeProvenance({
+      episodeDir, audioDir, section: 'Chapter_01',
+      files: ['EP001_Chapter_01_part1.mp3', 'EP001_Chapter_01_part2.mp3'], active: true,
+    })
+    assert.equal(facts.delivery_instruction, undefined)
+  })
 })

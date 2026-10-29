@@ -28,6 +28,13 @@ export interface AudioQualityChapterProvenance {
     engine_id?: string
     engine_name?: string
     model_family?: string
+    /**
+     * How this take was DIRECTED (owner, 2026-10-29), beside who made it. The writer has always
+     * passed this through (`generators/audio.ts` spreads the take's provenance); it is customer
+     * request text, not a catalogue fact, and it is kept here so a take whose part manifest is gone
+     * can still answer "how was this read?" — absent means no instruction was sent.
+     */
+    delivery_instruction?: string
     /** Durable GenStudio facts for the part files, never request text. */
     task_ids?: Record<string, string>
     idempotency_keys?: Record<string, string>
@@ -72,6 +79,12 @@ export interface AudioQualityRepairAction {
     voice_id: string
     speed?: number
     controls?: Record<string, number | boolean | string>
+    /**
+     * How the replacement was DIRECTED, when one was given (owner, 2026-10-29).
+     * Kept with the candidate so a resumed repair makes the same take, and so a
+     * repaired chapter is not quietly read differently from the rest.
+     */
+    delivery_instruction?: string
     staging_dir: string
     source_audio_hashes: Record<string, string>
     /** Candidate files and their post-ASR content fingerprints. */
@@ -137,6 +150,7 @@ function chapter(value: unknown): AudioQualityChapterProvenance | null {
     engine_id: text(rawTts.engine_id),
     engine_name: text(rawTts.engine_name),
     model_family: text(rawTts.model_family),
+    delivery_instruction: text(rawTts.delivery_instruction),
     task_ids: rawTts.task_ids && typeof rawTts.task_ids === 'object'
       ? Object.fromEntries(Object.entries(rawTts.task_ids as Record<string, unknown>)
         .filter(([file, id]) => path.basename(file) === file && !!text(id))
