@@ -20,6 +20,15 @@ What's new in each release. Newest first.
 ## Unreleased — Delivery / emotion for narration
 
 - Narration can be directed in words — "warm and unhurried, a little amused" — where the chosen voice model takes a delivery/emotion instruction. The setting appears only for models that publish it, with that model's own examples, language rule and inline vocal events beside it, and what a take was directed with is recorded on the take beside its engine and voice. It is empty by default, saved in the narration preset, and a model that publishes no such setting shows one line saying so.
+<!-- DRAFT — no version heading yet, so this is not part of any build. Fold these lines under the
+     next release's `## vX.Y.Z` heading when that release is cut. -->
+
+**Draft — next release**
+
+- Review finals: a private, phone-friendly page (and the same marks on the Production Board and in Video Assembly) lists finished videos newest first and lets you mark each one Approved or Needs changes from wherever you are. A mark belongs to that exact file, so if a video is re-rendered or replaced, the old mark reads as out of date instead of passing for the new one. A mark is a review note only: it does not upload, schedule or publish anything, and no step waits on it. Review is optional per channel and off by default — turn it on on the Review page, and a channel that leaves it off behaves exactly as before.
+- The Review page plays each video where it is, through Story's existing private address — the browser holds only the sign-in cookie the app already uses, and no key or long-lived link appears in a URL or on the page.
+
+---
 
 ## v1.4.367 — 2026-10-28
 

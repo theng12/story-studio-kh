@@ -68,6 +68,7 @@ import { router as episodeSegmentsRouter } from './episode-segments.js'
 import { router as continuityRouter } from './continuity.js'
 import { router as stillPostsRouter } from './still-posts.js'
 import { router as publishingOverviewRouter } from './publishing-overview.js'
+import { router as finalReviewRouter } from './final-review.js'
 import { requireProject } from './middleware.js'
 
 export function mountRoutes(app: Express): void {
@@ -141,4 +142,6 @@ export function mountRoutes(app: Express): void {
   app.use('/api', stillPostsRouter)
   // Global, cross-channel read — deliberately not under /projects/:slug.
   app.use('/api', publishingOverviewRouter)
+  // Optional final-video review marks (owner, 2026-10-29) — off per channel unless enabled.
+  app.use('/api', finalReviewRouter)
 }

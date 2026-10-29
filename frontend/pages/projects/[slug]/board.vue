@@ -383,6 +383,11 @@
               <a v-if="ep.youtube_upload?.url" :href="ep.youtube_upload.url" target="_blank" rel="noopener noreferrer" class="upload-video-link">Open YouTube video ↗</a>
               <small v-if="ep.youtube_upload?.visibility">{{ ep.youtube_upload.scheduled_for ? 'Scheduled · ' : '' }}{{ ep.youtube_upload.visibility }}</small>
               <small v-if="finalMediaRemoved(ep)">Local final removed</small>
+              <small
+                v-if="finalReviewOn && finalReviews[ep.episode_code]"
+                class="final-review-state"
+                :data-state="finalReviewTone(finalReviews[ep.episode_code])"
+              >{{ finalReviewLabel(finalReviews[ep.episode_code]) }}</small>
             </td>
             <td class="col-cost" :title="costTooltipFor(ep.episode_code)">
               <span :data-state="(costFor(ep.episode_code)?.paid.state ?? 'unmeasurable')">
@@ -481,6 +486,7 @@ import { boardRetryPlan, readRepairRecords } from '~/utils/board-retry'
 import { hideFinished, pipelineLinkFor, selectShown } from '~/utils/board-selection'
 import { groupEpisodeRecoveryRetries } from '~/utils/episode-recovery'
 import { readQueryState, sameQuery, writeQueryState } from '~/utils/route-query-state'
+import type { FinalReviewListResponse, FinalReviewState } from '@shared/final-review'
 import AssetImportDialog from '~/components/AssetImportDialog.vue'
 import RepairAssetsDialog from '~/components/RepairAssetsDialog.vue'
 
@@ -531,6 +537,42 @@ async function loadMusicOptions() {
   }
 }
 onMounted(() => { void loadMusicOptions() })
+
+// Final review marks (owner, 2026-10-29) — shown in the upload column beside the saved
+// release. One read for this channel; a channel with review off returns none, so the board
+// looks exactly as it did before the feature existed.
+const finalReviews = ref<Record<string, FinalReviewState>>({})
+const finalReviewOn = ref(false)
+async function loadFinalReviews(): Promise<void> {
+  // §4 — a channel change while this read is in flight must not paint the
+  // previous channel's marks onto this board. Capture the channel this request
+  // was for, and drop the response (and any error) if it has since changed —
+  // the same guard Video Assembly uses.
+  const requested = slug.value
+  try {
+    const r = await get<FinalReviewListResponse>(`/review/finals?slug=${encodeURIComponent(requested)}`)
+    if (slug.value !== requested) return
+    finalReviewOn.value = (r?.channels || []).some(channel => channel.review_enabled)
+    const marks: Record<string, FinalReviewState> = {}
+    for (const item of r?.finals || []) marks[item.episode_code] = item.review
+    finalReviews.value = marks
+  } catch {
+    if (slug.value !== requested) return
+    finalReviews.value = {}
+    finalReviewOn.value = false
+  }
+}
+onMounted(() => { void loadFinalReviews() })
+watch(slug, () => { finalReviews.value = {}; finalReviewOn.value = false; void loadFinalReviews() })
+function finalReviewLabel(review: FinalReviewState): string {
+  if (review.state === 'unreadable') return 'Review mark unreadable'
+  if (review.state === 'stale') return 'Final changed since review'
+  if (review.state === 'current') return review.decision === 'approved' ? 'Final approved' : 'Final needs changes'
+  return 'Final not reviewed'
+}
+function finalReviewTone(review: FinalReviewState): string {
+  return review.state === 'current' ? review.decision : review.state
+}
 function costTooltipFor(code: string): string {
   const c = costFor(code)
   if (!c) return 'No cost data recorded for this episode'
@@ -1223,6 +1265,9 @@ a.board-filter { display: inline-flex; align-items: center; text-decoration: non
 .col-upload { min-width: 170px; padding: 8px 12px; text-align: left; }
 .col-upload small, .upload-video-link { display: block; font-size: var(--font-xs); }
 .col-upload small { color: var(--text-secondary); }
+.col-upload .final-review-state[data-state='approved'] { color: #1d7a46; }
+.col-upload .final-review-state[data-state='needs_changes'], .col-upload .final-review-state[data-state='unreadable'] { color: var(--danger, #c0392b); }
+.col-upload .final-review-state[data-state='stale'] { color: #9a6400; }
 .upload-state { display: block; color: var(--text-secondary); font-weight: 650; }
 .upload-state[data-state='uploaded'] { color: var(--success); }
 .upload-state[data-state='failed'], .upload-state[data-state='unknown'] { color: var(--error); }
