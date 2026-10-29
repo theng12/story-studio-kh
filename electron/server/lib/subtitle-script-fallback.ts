@@ -1,7 +1,11 @@
 /**
- * The face a caption line falls back to when the CHOSEN face cannot draw it.
+ * What a caption line needs when its SCRIPT and its STYLE disagree.
  *
- * ── Why this exists ────────────────────────────────────────────────────────
+ * Three things live here, each measured, each per line: the face that can draw
+ * the script (below), the size that script can fit (see `scriptLineOverride`),
+ * and suppressing letter spacing on a line whose marks must stay attached.
+ *
+ * ── Why the face half exists ───────────────────────────────────────────────
  *
  * The owner's hand-lettered Shorts look (2026-10-29) is set in bundled Patrick
  * Hand, which carries Latin only. A Khmer channel caption in that style had no
@@ -115,18 +119,105 @@ function familyCovers(fontFamily: string, script: string): boolean | null {
 }
 
 /**
- * The `{\fn…}` override a caption line needs, or `''` when it needs none.
+ * The override block a caption line needs for its script, or `''`.
+ *
+ * Three separate things, all of them per LINE and all of them measured:
+ *
+ * ── 1. A face the script needs (§ the module header) ──────────────────────
+ * `\fn<family>` when the style's own face is a bundled face that cannot draw
+ * the line's script.
+ *
+ * ── 2. A size that script can actually fit ────────────────────────────────
+ * `\fs<cap>` when the style asks for type larger than the script's measured
+ * cap. Khmer is written without spaces, so a whole phrase is ONE unbreakable
+ * "word" and libass has no shrink-to-fit. Measured 2026-10-29 by burning
+ * shaped Khmer and measuring the ink at the 1080 reference: a 36-character
+ * phrase spans 379 px at 64 px type and 570 px at 96 px; a 50-character phrase
+ * already spans 876 px at 64 px (just inside the 1080 frame) and is clipped at
+ * 80 px. So 64 px is the largest size at which a long, unbreakable Khmer cue
+ * still fits — a shorter cue simply leaves more air around it.
+ *
+ * This is the answer to "big Latin, readable Khmer": the STYLE carries the
+ * Latin size (a hand-lettered Short wants 100 px of it), and a Khmer line —
+ * which is always a line the fallback touched — is brought back down to the
+ * cap. It never shrinks a line whose own face already draws the script, so
+ * every existing Khmer preset (Kantumruy Pro, Moul, Battambang at 38-42 px)
+ * renders exactly as it did.
+ *
+ * ── 3. No letter spacing on a line with combining marks ───────────────────
+ * `\fsp0`. A non-zero ASS `Spacing` makes THIS libass build lose complex-script
+ * shaping entirely: every vowel sign and subscript is drawn in its isolated
+ * form on a dotted circle (measured 2026-10-29 — the same Khmer line through
+ * `shorts-vertical`, which sets no spacing, shapes correctly; add
+ * `letter_spacing_px: 1.5` and it breaks; a `\fsp0` override on the line
+ * restores it while the style's spacing still applies to every other line).
+ *
+ * A person who nudges "Letter spacing" on a Khmer caption would otherwise get
+ * a line of dotted circles, so the guard is a property of the BURN, not of any
+ * one preset. It only fires on a line that really contains a combining mark
+ * (Unicode category M) while the style asks for spacing, so a Latin caption
+ * keeps its spacing and no shipped look moves.
  *
  * `line` must already be brace-escaped (`escapeAssText`), which is what the
- * builder hands over; the tag it returns is the engine's own syntax.
+ * builder hands over; the tags it returns are the engine's own syntax.
  */
-export function scriptFallbackTag(line: string, fontFamily: string): string {
-  if (!line || !fontFamily) return ''
+export interface ScriptLineInput {
+  line: string
+  /** The style's face, as written in the ASS style line. */
+  fontFamily: string
+  /** The style's font size at the 1080 reference. */
+  fontSizePx: number
+  /** The style's letter spacing at the 1080 reference. */
+  letterSpacingPx: number
+  /** `subtitlePixelScale(w, h)` — frame short edge / 1080. */
+  scale: number
+}
+
+/**
+ * Largest type each script may use, in px at the 1080 reference. Only scripts
+ * whose phrases cannot break are capped; a script with ordinary spaces needs
+ * nothing here.
+ */
+const SCRIPT_FONT_SIZE_CAP: Record<string, number> = {
+  // Measured 2026-10-29: 50 characters of Khmer at 64 px span 876 of 1080 px;
+  // the same phrase at 80 px is clipped by the frame.
+  khmr: 64,
+}
+
+/** A combining mark the shaping engine must attach to the character before it. */
+const COMBINING_MARK = /\p{M}/u
+
+function round2(n: number): number { return Math.round(n * 100) / 100 }
+
+export function scriptLineOverride(input: ScriptLineInput): string {
+  const { line, fontFamily, fontSizePx, letterSpacingPx, scale } = input
+  if (!line) return ''
+  const tags: string[] = []
+
   for (const range of SCRIPT_RANGES) {
     if (!range.test.test(line)) continue
     if (familyCovers(fontFamily, range.script) !== false) continue
     const family = bundledFallbackFamily(range.script)
-    if (family) return `{\\fn${family}}`
+    if (!family) continue
+    tags.push(`\\fn${family}`)
+    const cap = SCRIPT_FONT_SIZE_CAP[range.script]
+    if (cap && fontSizePx > cap) tags.push(`\\fs${round2(cap * scale)}`)
+    break
   }
-  return ''
+
+  if (letterSpacingPx !== 0 && COMBINING_MARK.test(line)) tags.push('\\fsp0')
+
+  return tags.length ? `{${tags.join('')}}` : ''
+}
+
+/** The `{\fn…}` family a line's script needs, or null. Tests and callers that
+ *  only want the family answer (not the whole block) use this. */
+export function fallbackFamilyForLine(line: string, fontFamily: string): string | null {
+  if (!line) return null
+  for (const range of SCRIPT_RANGES) {
+    if (!range.test.test(line)) continue
+    if (familyCovers(fontFamily, range.script) !== false) continue
+    return bundledFallbackFamily(range.script)
+  }
+  return null
 }

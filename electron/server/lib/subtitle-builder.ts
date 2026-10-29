@@ -27,7 +27,7 @@ import {
   type WordTimingSource,
 } from './subtitle-word-timing.js'
 import { frameTextUnit } from './render-canvas.js'
-import { scriptFallbackTag } from './subtitle-script-fallback.js'
+import { scriptLineOverride } from './subtitle-script-fallback.js'
 
 export interface Chapter {
   title: string
@@ -513,6 +513,20 @@ function escapeAssText(text: string): string {
 }
 
 /**
+ * The per-line script override (face, size cap, spacing guard) for one line of
+ * this style — see `lib/subtitle-script-fallback.ts`.
+ */
+function scriptOverrideForLine(line: string, style: SubtitleStyleDocument, scale: number): string {
+  return scriptLineOverride({
+    line,
+    fontFamily: style.typography.font_family,
+    fontSizePx: style.typography.font_size_px,
+    letterSpacingPx: style.typography.letter_spacing_px,
+    scale,
+  })
+}
+
+/**
  * Join wrapped lines. libass has no line-spacing property, so a positive
  * `line_spacing_px` inserts a spacer line — a hard space at the requested
  * height — between them. See SubtitleTypography.line_spacing_px for the
@@ -524,11 +538,7 @@ function escapeAssText(text: string): string {
  * bytes are the ones the engine emitted before this existed.
  */
 function joinLines(lines: string[], style: SubtitleStyleDocument, scale: number): string {
-  const family = style.typography.font_family
-  const tagged = lines.map((line) => {
-    const fallback = scriptFallbackTag(line, family)
-    return fallback ? `${fallback}${line}` : line
-  })
+  const tagged = lines.map(line => `${scriptOverrideForLine(line, style, scale)}${line}`)
   const gap = style.typography.line_spacing_px
   if (gap <= 0) return tagged.join('\\N')
   const gapSize = round2(gap * scale)
@@ -721,9 +731,9 @@ export function buildSubtitleAssDocument(
       const resting = wordRestingState(style, n)
       for (const word of words) {
         const tag = resting ? `{${cueFragments.join('')}${resting}}` : cueTag
-        // A single word is still a line: the same script fallback applies, or a
+        // A single word is still a line: the same script overrides apply, or a
         // Khmer word in a Latin-only face draws boxes here too.
-        const fallback = scriptFallbackTag(escapeAssText(word.text), style.typography.font_family)
+        const fallback = scriptOverrideForLine(escapeAssText(word.text), style, scale)
         events.push(
           `Dialogue: 0,${assTime(word.start_sec)},${assTime(word.end_sec)},Default,,0,0,0,,${tag}${fallback}${escapeAssText(word.text)}`,
         )

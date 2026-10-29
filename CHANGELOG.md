@@ -6,7 +6,8 @@ What's new in each release. Newest first.
 
 ## Draft — not released yet
 
-- Hand-lettered captions for Shorts, in the look of a quote post lettered on paper: big, centred, lowercase handwriting in warm off-white ink with a soft dark edge so it reads over any picture. Two new caption looks — "Shorts Vertical — Hand-lettered" and "Shorts Vertical — Hand-lettered Gentle Highlight", which warms just the word being spoken and never jumps or grows. Both sit where the other vertical styles sit, clear of the Shorts buttons and title. Khmer text, which handwriting faces cannot draw, is set in the app's own Kantumruy Pro instead of showing empty boxes. Nothing already saved changes: existing caption looks and every channel's chosen look are untouched.
+- Hand-lettered captions for Shorts, in the look of a quote post lettered on paper: big, centred, lowercase handwriting in warm off-white ink with a soft dark edge so it reads over any picture. Two new caption looks — "Shorts Vertical — Hand-lettered" and "Shorts Vertical — Hand-lettered Gentle Highlight", which warms just the word being spoken and never jumps or grows. Both sit where the other vertical styles sit, clear of the Shorts buttons and title. Khmer text, which a handwriting face cannot draw, is set in the app's own Kantumruy Pro at a size a full Khmer phrase fits, so a Khmer Short reads the same on every Mac. Nothing already saved changes: existing caption looks and every channel's chosen look are untouched.
+- Khmer captions no longer come apart. Any caption look that added letter spacing drew every Khmer vowel and subscript on its own dotted circle; Khmer is now shaped properly whatever spacing the look asks for, and the fix reaches the one shipped look that set spacing.
 
 ---
 

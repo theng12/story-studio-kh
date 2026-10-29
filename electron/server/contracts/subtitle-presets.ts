@@ -305,19 +305,28 @@ export const BUILT_IN_SUBTITLE_PRESETS: BuiltInSubtitlePreset[] = [
    * fade — so each phrase fades in over 260 ms and out over 220 ms, a slow
    * hand-set rhythm instead of a snap. Nothing moves; nothing is approximate.
    *
-   * ── Khmer
+   * ── Khmer, and why this preset's size is per script
    *
    * Patrick Hand has no Khmer glyphs and there is no bundled hand-lettered
    * Khmer face. `lib/subtitle-script-fallback.ts` tags a Khmer line with the
    * bundled Kantumruy Pro face (the manifest's `text` face for `khmr`), so a
    * Khmer caption renders in real Khmer type rather than boxes. That is a burn
    * rule, not a preset field — it applies to any bundled Latin-only face.
+   *
+   * The same rule gives the line a size it can live with: Khmer is written
+   * without spaces, so a phrase is one unbreakable word and libass cannot
+   * shrink to fit, so a Khmer line takes the script's measured cap (64 px at
+   * the 1080 reference — 50 characters measure 876 px there, and 80 px clips
+   * the same phrase) while Latin keeps this preset's 100 px. It also drops the style's letter spacing on that line, because a
+   * non-zero ASS `Spacing` makes this libass draw every Khmer vowel on its own
+   * dotted circle (measured 2026-10-29). Both are part of the fallback, so the
+   * preset states the size the look wants and the burn keeps Khmer honest.
    */
   preset('shorts-vertical-hand-lettered', 'Shorts Vertical — Hand-lettered',
     'Big centred hand-lettered ink: warm off-white, soft dark edge, unhurried fade. Khmer renders in bundled Kantumruy Pro.', {
       typography: {
         font_family: 'Patrick Hand',
-        font_size_px: 64,
+        font_size_px: 100,
         letter_spacing_px: 1.5,
         line_spacing_px: 12,
         max_chars_per_line: 20,
@@ -349,7 +358,7 @@ export const BUILT_IN_SUBTITLE_PRESETS: BuiltInSubtitlePreset[] = [
     'Hand-lettered ink with the spoken word warmed to soft amber. Same hand, quieter motion.', {
       typography: {
         font_family: 'Patrick Hand',
-        font_size_px: 64,
+        font_size_px: 100,
         letter_spacing_px: 1.5,
         line_spacing_px: 12,
         max_chars_per_line: 20,
