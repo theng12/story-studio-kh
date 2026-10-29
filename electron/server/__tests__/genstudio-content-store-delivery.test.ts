@@ -700,7 +700,7 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
 
     await assert.rejects(resolveOwnedContentStoreDependency({
       apiKey: 'gsk_test', receipts: parseContentStoreReceipts(receipts()), releaseHistories: new Map(),
-    }, 'com.storystudio.missing', '1.0.0'), /not own|dependency/i)
+    }, 'com.storystudio.missing', '1.0.0'), /requires com\.storystudio\.missing@1\.0\.0.*not available to this Mac/i)
   })
 
   test('refuses a recalled exact dependency locally and never requests its bytes', async () => {

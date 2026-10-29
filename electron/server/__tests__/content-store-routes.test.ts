@@ -842,6 +842,8 @@ describe('Content Store overview answers partially instead of failing whole', ()
       shelves: { status: 'available' },
       receipts: { status: 'available' },
       commerce: { status: 'available' },
+      // 1.4.369: Gateway-requested removals are their own section.
+      removals: { status: 'available' },
     })
   })
 

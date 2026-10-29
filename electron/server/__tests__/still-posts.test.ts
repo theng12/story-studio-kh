@@ -791,8 +791,11 @@ describe('still posts — the Formula makes the channel type', () => {
       const formula = await niches.loadNiche('still-posts')
       assert.ok(formula, 'the Still Posts Formula must resolve for a channel that selects it')
       assert.equal(formula!.catalogStatus, 'active')
-      const names = await niches.formulaDisplayNames()
-      assert.ok(names.get('still-posts'), 'a channel on still-posts keeps a real Formula name on its card')
+      // The picker lists installed packs only, so the name is asked where the card
+      // asks it: a stored id no installed pack publishes still reads its own source.
+      const [row] = await niches.withFormulaLabels([{ niche_id: 'still-posts', formula_choice: 'selected' }])
+      assert.ok(row?.formula_name && row.formula_name !== 'still-posts',
+        'a channel on still-posts keeps a real Formula name on its card')
 
       const project = await pm.createProject({ name: 'A still posts channel', niche_id: 'still-posts' })
       const effective = await niches.getEffectiveNicheFor(project)

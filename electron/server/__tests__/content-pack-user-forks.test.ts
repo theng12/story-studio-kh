@@ -778,11 +778,20 @@ describe('forking a Topic Pack that ships as a Content Pack', () => {
     assert.equal((record?.document as { name?: string }).name, builtin?.name)
   })
 
-  test('the shadow-conflict list sees the pack a bare topic id reads as', async () => {
+  test('a bare topic id shadowed by an installed pack is listed as a conflict', async () => {
     const { options } = await isolated()
     await installContentPack({ archiveBytes: await packTopicArchive(), source: 'local-import' }, options)
+    // A legacy file with the bare id, exactly as an older Mac wrote it.
+    const legacyPath = topicLoader.topicPackFilePath(LEGACY_TOPIC_ID)
+    await fs.mkdir(path.dirname(legacyPath), { recursive: true })
+    await fs.writeFile(legacyPath, JSON.stringify({
+      id: LEGACY_TOPIC_ID, name: 'Animals (legacy file)', description: 'd', builtin: false,
+      schemaVersion: 1, compatibleNicheIds: [], subjects: ['mammals'],
+    }))
+    topicLoader.invalidateTopicPackCache(LEGACY_TOPIC_ID)
+
     const conflict = (await listLegacyShadowConflicts(options))
       .find(entry => entry.kind === 'topic-pack' && entry.legacy_id === LEGACY_TOPIC_ID)
-    assert.ok(conflict, 'an installed pack makes the bare legacy id shadowable even before any fork')
+    assert.ok(conflict, 'the bare legacy id is reported against the installed pack')
   })
 })

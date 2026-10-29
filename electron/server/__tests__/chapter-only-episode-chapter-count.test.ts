@@ -108,7 +108,12 @@ after(async () => {
 
 test('a chapter-only request without `chapters` sizes the chapter by the episode\'s own count', async () => {
   // The formula's published numbers, read live; nothing is hardcoded here.
-  const minutes = format.script.defaultLengthMinutes
+  // 1.4.369: Quote Shorts publishes its length in seconds (45 s). The generator
+  // reads seconds first, so the expectation must too (AGENTS §1).
+  const lengthSeconds = (format.script as { defaultLengthSeconds?: number }).defaultLengthSeconds
+  const minutes = typeof lengthSeconds === 'number' && lengthSeconds > 0
+    ? lengthSeconds / 60
+    : format.script.defaultLengthMinutes
   const wordsPerMinute = format.script.defaultWordsPerMinute
   assert.ok(typeof wordsPerMinute === 'number' && wordsPerMinute > 0,
     'the Formula publishes a narration pace; without one the generator keeps its neutral default')

@@ -149,12 +149,14 @@ describe('channel Formula names and real recency', () => {
       )
     })
 
-    test('the catalogue map uses the catalogue name, and Settings\' precedence for it', async () => {
-      // Real catalogue, real files: the built-in Formulas are listed even when
-      // no store pack is installed on this machine.
+    test('the catalogue map lists installed packs only, and a built-in is still named from its own source', async () => {
+      // Owner, 2026-10-29: "no custom, no built in, all from packs." No pack is
+      // installed in this data dir, so the picker's map carries nothing — but a
+      // channel that stored the id still reads the shipped profile's name.
       const names = await niches.formulaDisplayNames()
-      assert.ok(names.size > 0, 'the built-in Catalogue is readable')
-      assert.equal(names.get('history-narration'), 'History, Explained')
+      assert.equal(names.has('history-narration'), false, 'a built-in with no installed pack is not offered')
+      const [row] = await niches.withFormulaLabels([{ niche_id: 'history-narration', formula_choice: 'selected' }])
+      assert.equal(row?.formula_name, 'History, Explained', 'the card names it from its own source')
     })
 
     test('an installed user Formula is named by the same lookup, through the channel list route', async () => {
@@ -189,9 +191,10 @@ describe('channel Formula names and real recency', () => {
       const never = (await pm.createProject({ name: 'Never chose' })).slug
 
       // 'history-narration' aliases a store Formula that is not installed in
-      // this throwaway data dir, so the honest answer is its stored id.
+      // this throwaway data dir, so the card reads the shipped profile's name
+      // while the id it resolves to is still reported beside it.
       const selectedRow = await rowFor(selected)
-      assert.equal(selectedRow.formula_name, 'history-narration')
+      assert.equal(selectedRow.formula_name, 'History, Explained')
       assert.equal(selectedRow.formula_id, 'com.storystudio.formula.history-explained')
 
       assert.equal((await rowFor(generic)).formula_name, 'Generic — no Formula')

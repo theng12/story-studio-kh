@@ -142,12 +142,16 @@ describe('removing a Content Pack from this Mac', () => {
   test('refuses when a channel uses the pack, names the channels, and moves nothing', async () => {
     const paths = await isolated()
     const packId = 'com.storystudio.removal-test'
-    await install(packId, '1.0.0', paths)
+    await install(packId, '1.0.0', paths, 'com.storystudio.formula.sleep-story')
+    // Two real channels name the pack's Formula through its legacy alias; the
+    // refusal is the same scan the Library page shows, not a test-only seam.
+    await channel('channel-one', { niche_id: 'sleep' })
+    await channel('channel-two', { niche_id: 'sleep' })
     const before = await readContentPackState(paths)
     const installPath = before.packs[packId]!.versions['1.0.0']!.install_path
 
     await assert.rejects(
-      removeContentPack(packId, { paths, policy, isPinned: async () => ['channel-one', 'channel-two'] }),
+      removeContentPack(packId, { paths, policy }),
       (error: unknown) => {
         assert.ok(error instanceof ContentPackRemovalError)
         assert.equal(error.code, 'CONTENT_PACK_IN_USE')
@@ -411,10 +415,11 @@ describe('the Gateway asking for a pack to come off installs', () => {
   test('keeps a pack a channel uses, and says which channels', async () => {
     const paths = await isolated()
     const packId = 'com.storystudio.removal-test'
-    await install(packId, '1.0.0', paths)
+    await install(packId, '1.0.0', paths, 'com.storystudio.formula.sleep-story')
+    await channel('channel-one', { niche_id: 'sleep' })
     const applied = await applyGatewayPackRemovals(
       [{ packId, releaseId: 'crel_removal', retiredAt: AT, removeFromInstallsAt: AT }],
-      { paths, policy, isPinned: async () => ['channel-one'] },
+      { paths, policy },
     )
     assert.equal(applied[0]?.outcome, 'kept_in_use')
     assert.deepEqual(applied[0]?.channels, ['channel-one'])

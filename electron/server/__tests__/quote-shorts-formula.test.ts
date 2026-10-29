@@ -115,7 +115,10 @@ describe('Quote Shorts — the writing rules reach the script prompt', () => {
   test('it asks for a Short, not an episode, and names the word count', async () => {
     const prompt = systemPrompt(await effective(), '')
     assert.match(prompt, /This Formula makes a SHORT/i)
-    assert.match(prompt, /8 to 14 short sentences/i)
+    // 1.4.369: length belongs to the episode (a drawn 10–60 s starting range),
+    // so the prompt states words at two ends of it instead of a fixed count.
+    assert.match(prompt, /each new one starts from this channel's range/i)
+    assert.match(prompt, /20 words for a 10-second Short and 90 words for a 45-second one/i)
   })
 })
 

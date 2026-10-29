@@ -68,6 +68,16 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const useRoute = () => globalThis.__contentStoreTestRoute
     const useContentStore = () => globalThis.__contentStoreTestStore
     const useAppTitle = () => undefined
+    // The component imports this from ~/content-store/library-organisation; the
+    // harness strips imports, so it is provided here exactly as it ships.
+    const splitPackUsage = (labels) => {
+      const channels = []; const unchecked = []
+      for (const label of labels) {
+        if (label.startsWith('could not check ')) unchecked.push(label.slice('could not check '.length))
+        else channels.push(label)
+      }
+      return { channels, unchecked }
+    }
     const navigateTo = (...args) => globalThis.__contentStoreNavigations.push(args)
     const contentStoreErrorPresentation = globalThis.__contentStoreErrorPresentation
     const contentStoreKindLabel = globalThis.__contentStoreKindLabel

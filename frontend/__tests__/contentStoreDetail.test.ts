@@ -153,6 +153,7 @@ describe('Studio Library proof route contract', () => {
       catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), accountResolved: ref(true), installsResolved: ref(true), unavailableSections: ref([]), lastVerifiedAt: ref(null), loading: ref(false),
       error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio could not be reached.' }),
       recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
+      removals: ref(null), refreshRemovals: async () => {}, removePack: async () => {}, restorePack: async () => {},
       refresh: async () => { throw new Error('offline') },
     }
     const rendered = await mount(Page, {})

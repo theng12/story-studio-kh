@@ -311,6 +311,9 @@ test('free Starter sources preserve 45 lineages and every versioned successor', 
     'content-packs/free-starters/formula/natural-world-explained-v1.0.3/pack.json',
     'content-packs/free-starters/formula/pov-your-life-as-v1.0.3/pack.json',
     'content-packs/free-starters/formula/sleep-story-v1.0.3/pack.json',
+    // 1.4.369: the supersession version that marks the old Wars pack `replaced`
+    // in favour of the merged wars-treaties-world-order-v2. No new content.
+    'content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.3/pack.json',
   ])
   assert.ok(thirdSuccessors.every(({ source }) => source.version === '1.0.3'))
 })

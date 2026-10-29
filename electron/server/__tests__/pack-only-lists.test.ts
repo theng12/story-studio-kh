@@ -44,7 +44,7 @@ const policy = createContentPackKeyring([{
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 
 /** A real 1x1 WebP, so a preview asset is an image and not a renamed blob. */
-const ONE_PIXEL_WEBP = Buffer.from('UklGRiIAAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA=', 'base64')
+const ONE_PIXEL_WEBP = Buffer.from('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==', 'base64')
 
 const BOLD_STYLE_ID = 'com.storystudio.style.bold-illustrated-history'
 const OWNER_COPY_ID = 'kh.owner.style.bold-illustrated-history'

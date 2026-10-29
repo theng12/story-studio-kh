@@ -17,6 +17,8 @@ const PACK_ID = 'com.storystudio.pack.topic.list-view'
 const ITEM_ID = 'com.storystudio.topic.list-view'
 const keys = generateKeyPairSync('ed25519')
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+/** 300 characters — the schema's cap, and large enough that the slim view must drop it. */
+const MECHANISM = 'm'.repeat(300)
 
 /**
  * A signed Topic Pack — the picker's list is installed Content Pack items only
@@ -27,10 +29,19 @@ const document = {
   kind: 'topic-pack', schema_version: 1, id: ITEM_ID, name: 'Deep Time', description: 'd',
   compatible_formula_ids: ['com.storystudio.formula.history-explained'],
   subjects: ['Taung child'], tags: ['science'],
-  episode_objects: ['excavation'], time_place_scopes: ['Pliocene'], mechanisms: ['m'.repeat(500)],
+  episode_objects: ['excavation', 'lab bench', 'museum'], time_place_scopes: ['Pliocene'],
+  mechanisms: [MECHANISM, `${MECHANISM} b`, `${MECHANISM} c`],
   evidence_lenses: ['e'], exclusions: [], max_siblings_per_subject: 20, prompt_context: 'p',
   idea_axes: [{ id: 'era', label: 'Era', values: ['Pliocene'] }],
-  coverage_profiles: [{ id: 'p1', label: 'Profile', tuples: [{ a: 1 }, { a: 2 }, { a: 3 }] }],
+  coverage_profiles: [{
+    subject: 'Taung child',
+    // Each tuple must change both episode object and mechanism (the pack rule).
+    tuples: [
+      { episode_object: 'excavation', time_place_scope: 'Pliocene', mechanism: MECHANISM, evidence_lens: 'e' },
+      { episode_object: 'lab bench', time_place_scope: 'Pliocene', mechanism: `${MECHANISM} b`, evidence_lens: 'e' },
+      { episode_object: 'museum', time_place_scope: 'Pliocene', mechanism: `${MECHANISM} c`, evidence_lens: 'e' },
+    ],
+  }],
 }
 
 async function archive(): Promise<Uint8Array> {
@@ -83,7 +94,7 @@ test('GET /topic-packs?view=list drops generation inventories and coverage tuple
   const slim = (await request(app).get('/api/topic-packs?view=list').expect(200)).body.topic_packs.find((p: any) => p.id === ITEM_ID)
   assert.ok(full, 'the installed pack is listed')
   assert.equal(full.coverageProfiles?.[0]?.tuples?.length, 3, 'the default view is unchanged')
-  assert.deepEqual(slim.coverageProfiles, [{ id: 'p1', label: 'Profile', tuple_count: 3 }])
+  assert.deepEqual(slim.coverageProfiles, [{ subject: 'Taung child', tuple_count: 3 }])
   for (const field of ['mechanisms', 'evidenceLenses', 'episodeObjects', 'timePlaceScopes']) assert.equal(slim[field], undefined, field)
   assert.deepEqual(slim.subjects, ['Taung child'])
   assert.deepEqual(slim.ideaAxes, document.idea_axes)

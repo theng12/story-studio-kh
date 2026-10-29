@@ -55,7 +55,7 @@ test('episode codes are admitted or refused by the resolver admission and execut
       // code" from a hardcoded EP. `findNarrationFile` is what generateAudio calls first;
       // it must fail on the missing narration (nothing was written yet), never on the code.
       const paths = await resolveEpisodePathsByCode(project.slug, 'AU0001')
-      assert.match(paths.episode_dir, /AU0001 - Chris Khmer Audition$/)
+      assert.match(paths.episode_dir, /AU0001 - Chris Khmer Audition\/?$/)
       const { findNarrationFile } = await import('../generators/audio.js')
       const audioPathError = await findNarrationFile(project.slug, 'AU0001').then(() => null, (error: any) => String(error?.message || error))
       assert.ok(audioPathError === null || !/Invalid episode code/.test(audioPathError),

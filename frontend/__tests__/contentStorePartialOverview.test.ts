@@ -88,6 +88,7 @@ describe('a partial Studio Library overview', () => {
         catalog: unavailable('GATEWAY_UNREACHABLE', 'Could not reach the Gateway — is the Gateway app running?'),
         shelves: unavailable('GATEWAY_UNREACHABLE', 'Could not reach the Gateway — is the Gateway app running?'),
         receipts: unavailable('GATEWAY_UNREACHABLE', 'Could not reach the Gateway — is the Gateway app running?'),
+        removals: unavailable('GATEWAY_UNREACHABLE', 'Could not reach the Gateway — is the Gateway app running?'),
         commerce: unavailable('GATEWAY_UNREACHABLE', 'Could not reach the Gateway — is the Gateway app running?'),
       },
     })

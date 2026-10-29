@@ -866,10 +866,15 @@ describe('Studio Library renderer contract', () => {
   })
 
   test('shows no balance, price, ownership or purchase wording on the page, cards or detail view', () => {
+    // A comment may explain the policy without showing it, and `product.owned`,
+    // `data-owned` and the `receipts` section key are data names: this forbids
+    // what a person reads, so comments are stripped and identifiers skipped.
+    const withoutComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
     for (const source of [page, card, detail, libraryView, installedView]) {
       assert.doesNotMatch(source, /contentSpendableCredits|availableCredits|Spendable on content|Total available/)
       assert.doesNotMatch(source, /creditPrice|quoted_credits|\bcredits\b/i)
-      assert.doesNotMatch(source, /\bOwned\b|Not owned|permanently owned|Ownership remains|Purchase records|checkout|receipt/i)
+      assert.doesNotMatch(withoutComments(source),
+        /(?<![.\w'"\-\[])\bOwned\b|Not owned|permanently owned|Ownership remains|Purchase records|checkout|\breceipt\b/i)
     }
   })
 

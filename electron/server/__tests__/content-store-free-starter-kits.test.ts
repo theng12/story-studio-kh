@@ -251,8 +251,12 @@ test('free Starter sources claim and restore; historical Kits install and remain
   // 42 since 1.4.359: the Formula library gained five free starter Formulas —
   // calm-science-for-sleep, coffee-jazz-ambient, khmer-folk-horror,
   // mythology-for-sleep and wildlife-under-pressure — which were added on purpose
-  // when the owner's own Formulas were adopted. Any SIXTH is still a question to ask.
-  assert.equal(sources.length, 42)
+  // when the owner's own Formulas were adopted.
+  //
+  // 45 since 1.4.369: Quote Shorts, Still Posts and Music Mix became Content
+  // Packs (owner, 2026-10-29 — every Formula comes from a pack), so three free
+  // Formula sources joined the shelf. Any other change is a question to ask.
+  assert.equal(sources.length, 45)
   const legacyKits = legacyStarterKits()
   const products = [
     ...sources.map(source => sourceProduct(source)),
