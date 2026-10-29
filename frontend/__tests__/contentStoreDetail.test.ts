@@ -125,7 +125,7 @@ describe('Studio Library proof route contract', () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = {
       account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
-      catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
+      catalogFreshness: ref('fresh'), ownershipResolved: ref(true), accountResolved: ref(true), installsResolved: ref(true), unavailableSections: ref([]), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
       recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
       refresh: async () => {}, restoreOwnership: async () => {},
     }
@@ -149,7 +149,7 @@ describe('Studio Library proof route contract', () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = {
       account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
-      catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), lastVerifiedAt: ref(null), loading: ref(false),
+      catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), accountResolved: ref(true), installsResolved: ref(true), unavailableSections: ref([]), lastVerifiedAt: ref(null), loading: ref(false),
       error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio could not be reached.' }),
       recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
       refresh: async () => { throw new Error('offline') }, restoreOwnership: async () => {},
@@ -202,7 +202,7 @@ describe('Studio Library proof route contract', () => {
     return {
       account: ref({ contentAccountId: 'content_a', availableCredits: 500, contentSpendableCredits: 500, owned: [] }),
       products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
-      catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-17T10:00:00Z'), loading: ref(false), error: ref(null),
+      catalogFreshness: ref('fresh'), ownershipResolved: ref(true), accountResolved: ref(true), installsResolved: ref(true), unavailableSections: ref([]), lastVerifiedAt: ref('2026-08-17T10:00:00Z'), loading: ref(false), error: ref(null),
       recovery: ref(null), recoveryError: ref(null), refreshRecovery: async () => {}, dismissRecovery: async () => {},
       refresh: async () => {}, restoreOwnership: async () => {},
       ...overrides,
@@ -232,6 +232,9 @@ describe('Studio Library proof route contract', () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = pageStore({
       account: ref(null), ownershipResolved: ref(false), catalogFreshness: ref('restored'),
+      // Nothing has answered yet on a restored launch: neither the account nor
+      // the install list is known, so their tab counts must stay "—".
+      accountResolved: ref(false), installsResolved: ref(false),
       lastVerifiedAt: ref(null), loading: ref(true),
       products: ref([catalogProduct({})]), shelves: ref([{ id: 's1', productIds: ['p1'] }]),
     })
@@ -256,7 +259,7 @@ describe('Studio Library proof route contract', () => {
   test('a genuine cold start with nothing cached still shows the loading state', async () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = pageStore({
-      catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), lastVerifiedAt: ref(null), loading: ref(true),
+      catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), accountResolved: ref(true), installsResolved: ref(true), unavailableSections: ref([]), lastVerifiedAt: ref(null), loading: ref(true),
     })
     const rendered = await mount(Page, {})
     assert.match(rendered.host.textContent || '', /Loading the Gateway catalog/)

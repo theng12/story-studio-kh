@@ -24,7 +24,13 @@ const overview = {
     { productId: 'p1', entitlementFamily: 'f1', kind: 'topic_pack', title: 'Pack One', summary: '', description: '', publisherId: 'x', creditPrice: 300, free: false, owned: true, retired: false, successorProductId: null, compatible: true, compatibilityReason: null, currentRelease: { releaseId: 'rel-1', packId: 'pack-1', version: '1.0.0', archiveSha256: 'a'.repeat(64), archiveBytes: 1, archiveAvailable: true, minStoryVersion: '1.0.0', changelog: '', componentSummary: {} }, bundleComponents: [], ownedComponentCreditValue: 0, presentation: { cover: null, licenseLabel: '', tags: [] }, discount: null },
   ],
   shelves: [], attempts: [],
+  installed: [],
   capabilities: { purchase: true, receipt_verification: true, download: true, install_after_purchase: true, restore: true },
+  sections: {
+    account: { status: 'available' }, catalog: { status: 'available' },
+    shelves: { status: 'available' }, receipts: { status: 'available' },
+    commerce: { status: 'available' },
+  },
 }
 ;(globalThis as any).$fetch = async (path: string, options: Record<string, unknown> = {}) => {
   calls.push({ path, options })

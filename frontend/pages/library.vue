@@ -21,11 +21,13 @@
     </section>
     <div v-if="catalogFreshness === 'restored' && !pageError" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Showing the published catalogue saved on this Mac</strong><p>Checking with the Gateway now. Gateway download stays off until it answers. Install Content Pack still works from a local file.</p></div></div>
     <div v-if="catalogFreshness === 'cached'" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Showing the last verified catalog</strong><p>The Gateway is unavailable, so Gateway download is disabled. Install Content Pack still works from a local file. Last verified {{ formatVerifiedAt(lastVerifiedAt) }}.</p></div></div>
-    <div v-if="pageError" :class="['store-notice', pageError.tone]" role="status" aria-live="polite"><div><strong>{{ pageError.title }}</strong><p>{{ pageError.detail }}</p><p v-if="pageError.recovery">{{ pageError.recovery }}</p><button v-if="pageError.showSettings" type="button" class="notice-action" @click="appSettingsModal.open('connections')">Open Connection Settings</button></div></div>
+    <div v-if="pageError" :class="['store-notice', pageError.tone]" role="status" aria-live="polite"><div><strong>{{ pageError.title }}</strong><p>{{ pageError.detail }}</p><p v-for="entry in otherUnavailable" :key="entry.section">{{ SECTION_LABELS[entry.section] }}: {{ entry.reason }}</p><p v-if="pageError.recovery">{{ pageError.recovery }}</p><button v-if="pageError.showSettings" type="button" class="notice-action" @click="appSettingsModal.open('connections')">Open Connection Settings</button></div></div>
     <nav class="store-tabs" role="tablist" aria-label="Studio Library views" @keydown="moveTab"><button v-for="tab in tabs" :id="`library-tab-${tab.id}`" :key="tab.id" :ref="element => setTabRef(tab.id, element)" type="button" role="tab" :aria-selected="activeTab === tab.id" :aria-controls="`library-panel-${tab.id}`" :tabindex="activeTab === tab.id ? 0 : -1" @click="activeTab = tab.id">{{ tab.label }}<span>{{ tabCountLabel(tab.id) }}</span></button></nav>
     <main :id="`library-panel-${activeTab}`" class="store-content" role="tabpanel" :aria-labelledby="`library-tab-${activeTab}`">
       <div v-if="loading && catalogFreshness === 'unavailable'" class="store-state" aria-live="polite"><LoadingSpinner size="sm" /><p>Loading the Gateway catalog…</p></div>
-      <div v-else-if="catalogFreshness === 'unavailable'" class="store-state" role="status" aria-live="polite"><h2>The Studio Library is unavailable</h2><p>{{ pageError?.detail || 'Refresh the Library to try again.' }}</p><p>Install Content Pack still works from a local file.</p><button type="button" class="btn btn-secondary" @click="refreshStore">Retry Studio Library</button></div>
+      <!-- The Installed tab reads this Mac, not the Gateway, so a catalog that
+           could not be read never hides what is actually installed here. -->
+      <div v-else-if="catalogFreshness === 'unavailable' && activeTab !== 'installed'" class="store-state" role="status" aria-live="polite"><h2>The Studio Library is unavailable</h2><p>{{ pageError?.detail || 'Refresh the Library to try again.' }}</p><p v-if="installed.length">The {{ installed.length }} Content Pack{{ installed.length === 1 ? '' : 's' }} installed on this Mac {{ installed.length === 1 ? 'is' : 'are' }} still listed under Installed.</p><p>Install Content Pack still works from a local file.</p><button type="button" class="btn btn-secondary" @click="refreshStore">Retry Studio Library</button></div>
       <div v-else-if="catalogFreshness === 'fresh' && products.length === 0 && installed.length === 0" class="store-state" role="status"><h2>The Studio Library is ready, but no packs have been published yet.</h2><p>Refresh later to see the catalog the Gateway publishes.</p></div>
       <template v-else-if="activeTab === 'discover'"><ContentStoreFilters :products="tabProducts" :query="query" :kind="kind" :tag="tag" :compatible-only="compatibleOnly" @update:query="query = $event" @update:kind="kind = $event" @update:tag="tag = $event" @update:compatible-only="compatibleOnly = $event" />
       <div v-if="visibleShelves.length" class="shelf-list"><ContentStoreShelf v-for="shelf in visibleShelves" :key="shelf.shelf.id" :shelf="shelf.shelf" :products="shelf.products" :account="account" :busy-product-id="''" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :queue-status="installQueue.statusOf" :halt-reason="installQueue.haltReason.value" @install="enqueueInstall" /></div><div v-else class="store-state" role="status">
@@ -35,7 +37,7 @@
         <template v-else><h2>No published products are ready to show</h2><p>The Gateway publishes these packs but has not placed any of them on a shelf yet. Refresh the library later, or open Owned for the packs this account already has.</p></template>
       </div></template>
       <ContentLibraryView v-else-if="activeTab === 'owned'" heading-id="owned-library-heading" title="Owned" description="Packs permanently owned by this Gateway, whether or not they are installed on this Mac." :products="ownedProducts" :account="account" empty-title="No permanently owned packs yet" empty-description="Packs the Gateway grants this account appear here." :busy-product-id="''" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :show-install-all="true" :queue-status="installQueue.statusOf" :halt-reason="installQueue.haltReason.value" @install="enqueueInstall" @install-many="enqueueInstalls" />
-      <ContentInstalledLibraryView v-else-if="activeTab === 'installed'" :installed="installed" :ownership-resolved="ownershipResolved" />
+      <ContentInstalledLibraryView v-else-if="activeTab === 'installed'" :installed="installed" :installs-resolved="installsResolved" />
       <ContentLibraryView v-else heading-id="updates-library-heading" title="Updates" description="Installed packs with a newer safe release ready for an explicit update." :products="updateProducts" :account="account" empty-title="No updates available" empty-description="Your installed packs are up to date." :busy-product-id="''" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :show-install-all="true" :queue-status="installQueue.statusOf" :halt-reason="installQueue.haltReason.value" @install="enqueueInstall" @install-many="enqueueInstalls" />
     </main>
     <div v-if="installQueue.running.value || installQueue.finished.value" class="install-queue-strip" role="status" aria-live="polite"><span v-if="installQueue.running.value">Installing {{ installQueue.batchDone.value }} of {{ installQueue.batchTotal.value }}<template v-if="installQueue.batchFailed.value"> · {{ installQueue.batchFailed.value }} failed</template><template v-if="installQueue.activeTitle.value"> · now: {{ installQueue.activeTitle.value }}</template>. You can leave this page; installs continue.</span><span v-else>Installs finished — {{ installQueue.batchInstalled.value }} installed<template v-if="installQueue.haltReason.value"> — stopped early. {{ installQueue.haltReason.value }}</template><template v-else-if="installQueue.batchFailed.value">, {{ installQueue.batchFailed.value }} failed. Open the pack and try again.</template></span><button v-if="!installQueue.running.value" type="button" class="notice-action" @click="installQueue.clearFinished()">Dismiss</button><ul v-if="installQueue.failures.value.length && !installQueue.haltReason.value" class="install-failures"><li v-for="failure in installQueue.failures.value" :key="failure.releaseId"><strong>{{ failure.title }}</strong> — {{ failure.detail }}</li></ul></div>
@@ -55,7 +57,7 @@ import { contentStoreErrorPresentation, CONTENT_PACK_IMPORT_MAX_BYTES, contentPa
 useAppTitle('Studio Library')
 type StoreTab = 'discover' | 'owned' | 'installed' | 'updates'
 const tabs: Array<{ id: StoreTab; label: string }> = [{ id: 'discover', label: 'Discover' }, { id: 'owned', label: 'Owned' }, { id: 'installed', label: 'Installed' }, { id: 'updates', label: 'Updates' }]
-const store = useContentStore(); const appSettingsModal = useAppSettingsModal(); const { account, products, installed, shelves, catalogFreshness, ownershipResolved, lastVerifiedAt, loading, error, recovery, recoveryError } = store
+const store = useContentStore(); const appSettingsModal = useAppSettingsModal(); const { account, products, installed, shelves, catalogFreshness, ownershipResolved, accountResolved, installsResolved, lastVerifiedAt, loading, error, recovery, recoveryError } = store
 const route = useRoute(); const viewingDetail = computed(() => typeof route.params.productId === 'string' && route.params.productId.length > 0)
 const activeTab = ref<StoreTab>('discover'); const query = ref(''); const kind = ref<ContentStoreKindFilter>('all'); const tag = ref(''); const compatibleOnly = ref(false)
 const recoveryDismissBusy = ref(false); const tabRefs = new Map<StoreTab, HTMLButtonElement>()
@@ -93,8 +95,28 @@ const discoverEmptyReason = computed<'all-owned' | 'nothing-published' | 'filter
   if (filtersActive.value && filteredProducts.value.length === 0) return 'filters'
   return 'unshelved'
 })
-const networkActionsDisabled = computed(() => catalogFreshness.value !== 'fresh')
+const networkActionsDisabled = computed(() => catalogFreshness.value !== 'fresh' || !accountResolved.value)
 const pageError = computed(() => { if (!error.value) return null; const presentation = contentStoreErrorPresentation(error.value); if (error.value.code === 'release_recalled') return { tone: 'warning', title: 'A Content Pack release was recalled', detail: error.value.recallReason ? `The Gateway stopped serving that exact version. Reason: ${error.value.recallReason}` : 'The Gateway stopped serving that exact version. Ownership remains permanent.', recovery: presentation.recovery, showSettings: false }; return { tone: error.value.code === 'signing_unavailable' ? 'neutral' : 'warning', title: presentation.title, detail: presentation.detail, recovery: presentation.recovery, showSettings: presentation.settingsAction } })
+/**
+ * Every OTHER part the server could not answer, named. The notice above shows
+ * the first one; a partial answer that hides the rest ("the account could not
+ * be read" with no word about the catalogue, the shelves or the purchase
+ * records) is the silence this whole state exists to remove. Identical reasons
+ * are shown once, because four Gateway sections share one cause.
+ */
+const SECTION_LABELS: Record<'account' | 'catalog' | 'shelves' | 'receipts' | 'commerce', string> = {
+  account: 'Your account', catalog: 'The published catalogue', shelves: 'Shelves',
+  receipts: 'Recall notices', commerce: 'Purchase records',
+}
+const otherUnavailable = computed(() => {
+  const seen = new Set<string>([pageError.value?.detail ?? ''])
+  return store.unavailableSections.value.filter(entry => {
+    if (seen.has(entry.reason)) return false
+    seen.add(entry.reason)
+    return true
+  })
+})
+
 async function loadStore(options: { background?: boolean } = {}): Promise<void> { void store.refreshRecovery(); try { await store.refresh(options) } catch { /* state renders the exact boundary */ } }
 /** Refresh library / Retry: always a visible, cache-bypassing fetch, never the quiet path. */
 function refreshStore(): void { void loadStore() }
@@ -236,7 +258,12 @@ function tabProductCount(tab: StoreTab): number { return tab === 'discover' ? di
  * count something only the Gateway can confirm, so before it answers they show
  * an em dash rather than a zero somebody would read as "you own nothing".
  */
-function tabCountLabel(tab: StoreTab): string { return !ownershipResolved.value && tab !== 'discover' ? '—' : String(tabProductCount(tab)) }
+function tabCountLabel(tab: StoreTab): string {
+  // Installed counts what this Mac itself reports, so it is answered even when
+  // the Gateway cannot be asked. The other three need the account.
+  if (tab === 'installed') return installsResolved.value ? String(tabProductCount(tab)) : '—'
+  return !ownershipResolved.value && tab !== 'discover' ? '—' : String(tabProductCount(tab))
+}
 function setTabRef(id: StoreTab, element: Element | ComponentPublicInstance | null): void { if (element instanceof HTMLButtonElement) tabRefs.set(id, element); else tabRefs.delete(id) }
 function moveTab(event: KeyboardEvent): void { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const current = tabs.findIndex(tab => tab.id === activeTab.value); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; const target = tabs[next]; if (!target) return; activeTab.value = target.id; tabRefs.get(target.id)?.focus() }
 function formatVerifiedAt(value: string | null): string { if (!value) return 'before this session'; const date = new Date(value); if (Number.isNaN(date.getTime())) return value; return date.toLocaleString() }

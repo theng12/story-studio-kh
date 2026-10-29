@@ -710,8 +710,19 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
   // feed it as an img2img style reference so renders match the picked look.
   // Resolved once here; attached per-scene as the fifth reference source
   // below. Empty for text-only styles.
-  const artStyle = await resolveProjectArtStyle(project_slug).catch(() => null)
+  const artStyleResolution = await resolveProjectArtStyle(project_slug).catch((error: unknown) => {
+    // A style hint never fails the render, but it is not swallowed silently
+    // either: the job says the format default is what runs.
+    job.output_lines.push(`Art style could not be read, so the format default style is used: ${String((error as { message?: unknown })?.message ?? error ?? '')}`)
+    return { style: null, fallback: null }
+  })
+  const artStyle = artStyleResolution.style
   const artStyleRefPaths = (artStyle?.referenceImagePaths || []).filter(p => existsSync(p))
+  if (artStyleResolution.fallback) {
+    // A style this channel names that is not on this Mac renders as something
+    // else — say which, in the job the customer watches, not only in a log.
+    job.output_lines.push(`Art style not used: ${artStyleResolution.fallback.message}`)
+  }
 
   /**
    * Auto-detect which characters appear in a scene by scanning the prompt

@@ -134,7 +134,7 @@ describe('the six Production Looks reach the image generator as signed styles', 
     const project = await pm.createProject({ name: 'Signed Anime Cel' })
     await pm.updateConfig(project.slug, { active_style_preset_id: source.id } as never)
 
-    const art = await resolver.resolveProjectArtStyle(project.slug, options)
+    const art = (await resolver.resolveProjectArtStyle(project.slug, options)).style
     assert.ok(art, 'a signed style selection must resolve')
     assert.equal(art!.presetId, source.id)
     assert.equal(art!.name, source.name)
@@ -165,19 +165,27 @@ describe('the six Production Looks reach the image generator as signed styles', 
       active_style_preset_id: 'builtin-anime-cel',
     } as never)
 
-    const art = await resolver.resolveProjectArtStyle(project.slug, options)
+    const art = (await resolver.resolveProjectArtStyle(project.slug, options)).style
     assert.ok(art, 'the materialised preset still resolves — old projects do not break')
     assert.equal(art!.description, source.style_bible.trim())
     assert.deepEqual(art!.negatives, [], 'the legacy copy carries no negatives')
   })
 
-  test('a style saved with no copy behind it falls back silently — the case to watch', async () => {
-    // No `style_presets` entry, so nothing resolves. Generation does not fail;
-    // image-prompts.ts substitutes the format default. Recorded here so the
-    // day it changes to a loud failure, this test says so.
+  test('a style saved with no copy behind it falls back to the format default AND says so', async () => {
+    // No `style_presets` entry, so nothing resolves. Generation still does not
+    // fail; image-prompts.ts substitutes the format default. What changed on
+    // 2026-10-28: the resolver now reports that substitution instead of
+    // returning a bare null the caller could not tell from "no style chosen".
     const project = await pm.createProject({ name: 'Dangling Anime Cel' })
     await pm.updateConfig(project.slug, { active_style_preset_id: 'builtin-anime-cel' } as never)
-    assert.equal(await resolver.resolveProjectArtStyle(project.slug, options), null)
+    const resolution = await resolver.resolveProjectArtStyle(project.slug, options)
+    assert.equal(resolution.style, null)
+    assert.ok(resolution.fallback, 'a named style that could not be used is announced')
+    assert.equal(resolution.fallback!.requestedId, 'builtin-anime-cel')
+    assert.equal(resolution.fallback!.used, 'format_default')
+    assert.equal(resolution.fallback!.reason, 'style_not_found')
+    assert.match(resolution.fallback!.message, /builtin-anime-cel/)
+    assert.match(resolution.fallback!.message, /format default style/i)
   })
 
   test('the preview a customer is shown comes from the signed Content Pack source', async () => {

@@ -471,7 +471,7 @@ describe('exact project Content Pack pins', () => {
     }])
 
     await installCreative('1.1.0', 'new active', options)
-    const pinnedStyle = await resolveProjectArtStyle(project.slug, options)
+    const pinnedStyle = (await resolveProjectArtStyle(project.slug, options)).style
     assert.equal(pinnedStyle?.description, 'Style bible creative')
   })
 
@@ -629,7 +629,7 @@ describe('exact project Content Pack pins', () => {
       active_style_preset_id: alternative.item_id,
     }, options)
     assert.equal(selected.content_pack_versions?.[alternative.pack_id], alternative.version)
-    assert.equal((await resolveProjectArtStyle(project.slug, options))?.description, `Style bible ${alternative.version}`)
+    assert.equal((await resolveProjectArtStyle(project.slug, options)).style?.description, `Style bible ${alternative.version}`)
   })
 
   test('bundle application fails closed on missing, disabled, recalled, corrupt, and wrong-kind components without project mutation', async () => {

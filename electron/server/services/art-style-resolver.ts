@@ -60,6 +60,55 @@ export interface ResolvedArtStyle {
   referenceImagePaths: string[]
 }
 
+export type ArtStyleFallbackReason =
+  /** The saved preset is one the Store now owns, and that Content Pack is not installed. */
+  | 'store_style_not_installed'
+  /** The saved id is a Store style id, and that Content Pack is not installed. */
+  | 'store_style_missing'
+  /** The saved id matches no installed style and no saved preset at all. */
+  | 'style_not_found'
+
+/**
+ * The look the channel names, and the look the image prompts will actually use.
+ *
+ * It exists because both directions of this divergence were silent: a channel
+ * naming a Store style whose pack was uninstalled rendered with the format's
+ * default tag, and a channel naming one of the owner's presets that the Store
+ * now owns rendered with the preset's old prose — with nothing on any screen
+ * or in any job log saying the named style was not used. The render still
+ * happens (refusing would strand every channel on a Mac without Store styles,
+ * which is the documented behaviour of the alias table), but it is never
+ * quiet about it.
+ */
+export interface ArtStyleFallback {
+  reason: ArtStyleFallbackReason
+  /** The id the channel names — exactly what is stored, never rewritten. */
+  requestedId: string
+  /** A human-facing name for that id: the saved preset's name, or the id humanised. */
+  requestedName: string
+  /** The Store visual style that would have provided the look, when one names it. */
+  storeStyleId: string | null
+  /** What the image prompts use instead. */
+  used: 'saved_preset' | 'format_default'
+  /** The name of what was used instead, when it has one. */
+  usedName: string | null
+  /** One plain sentence, for a job log line or a Settings hint. */
+  message: string
+}
+
+export interface ArtStyleResolution {
+  /** The style to render with, or null when the caller keeps the format tag. */
+  style: ResolvedArtStyle | null
+  /** Set when the channel names a style that could not be used. */
+  fallback: ArtStyleFallback | null
+}
+
+/** `com.storystudio.style.carved-woodcut-print` → `carved woodcut print`. */
+export function humanizeVisualStyleId(id: string): string {
+  const bare = id.replace(/^com\.storystudio\.style\./, '')
+  return bare.replace(/[-_.]+/g, ' ').replace(/\s+/g, ' ').trim() || id
+}
+
 /** Absolute path to the project's style-previews directory. */
 function stylePreviewsDir(slug: string): string {
   const projDir = pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug)
@@ -83,18 +132,23 @@ function resolvePresetReferenceImages(slug: string, preset: StylePreset): string
 }
 
 /**
- * Resolve the effective art style for a project. Returns null when the
- * project has no active preset; the caller then keeps the format+niche tag.
+ * Resolve the effective art style for a project.
+ *
+ * `style` is null when the project has no active preset; the caller then keeps
+ * the format tag. `fallback` is set when the project DOES name a style that
+ * could not be used — the caller must announce it (job log, Settings), never
+ * drop it.
  */
 export async function resolveProjectArtStyle(
   slug: string,
   registryOptions: ContentPackRegistryOptions = {},
-): Promise<ResolvedArtStyle | null> {
+): Promise<ArtStyleResolution> {
   const config = await pm.getConfig(slug)
-  if (!config) return null
+  if (!config) return { style: null, fallback: null }
 
   // 1. Active preset wins.
   const activeId = (config.active_style_preset_id || '').trim()
+  let fallback: ArtStyleFallback | null = null
   if (activeId) {
     const project = await pm.getProject(slug)
     if (project) {
@@ -102,35 +156,52 @@ export async function resolveProjectArtStyle(
       const signed = await loadVisualStyle(activeId, { ...registryOptions, pins })
       if (signed) {
         return {
-          source: 'preset',
-          presetId: signed.id,
-          name: signed.name,
-          description: signed.data.style_bible.trim(),
-          negatives: signed.data.negative_prompt
-            ? signed.data.negative_prompt.split(',').map(value => value.trim()).filter(Boolean)
-            : [],
-          referenceImagePaths: [],
+          style: {
+            source: 'preset',
+            presetId: signed.id,
+            name: signed.name,
+            description: signed.data.style_bible.trim(),
+            negatives: signed.data.negative_prompt
+              ? signed.data.negative_prompt.split(',').map(value => value.trim()).filter(Boolean)
+              : [],
+            referenceImagePaths: [],
+          },
+          fallback: null,
         }
       }
       // 2. The owner's own hand-written presets, resolved to the Store style that
       // now owns that look. Read-time only: the preset in the project config is
       // never rewritten, and when the Store style is not installed this falls
-      // through to the preset's own stored prose below, exactly as before.
+      // through to the preset's own stored prose below, exactly as before —
+      // but it now says so, because that prose is not the style it names.
       const aliasedId = aliasedVisualStyleId(activeId)
       if (aliasedId) {
         const adopted = await loadVisualStyle(aliasedId, { ...registryOptions, pins })
         if (adopted) {
           return {
-            source: 'preset',
-            // The customer's selection did not change — only where its text comes from.
-            presetId: activeId,
-            name: adopted.name,
-            description: adopted.data.style_bible.trim(),
-            negatives: adopted.data.negative_prompt
-              ? adopted.data.negative_prompt.split(',').map(value => value.trim()).filter(Boolean)
-              : [],
-            referenceImagePaths: [],
+            style: {
+              source: 'preset',
+              // The customer's selection did not change — only where its text comes from.
+              presetId: activeId,
+              name: adopted.name,
+              description: adopted.data.style_bible.trim(),
+              negatives: adopted.data.negative_prompt
+                ? adopted.data.negative_prompt.split(',').map(value => value.trim()).filter(Boolean)
+                : [],
+              referenceImagePaths: [],
+            },
+            fallback: null,
           }
+        }
+        fallback = {
+          reason: 'store_style_not_installed',
+          requestedId: activeId,
+          requestedName: savedPresetName(config, activeId) ?? humanizeVisualStyleId(activeId),
+          storeStyleId: aliasedId,
+          used: 'saved_preset',
+          usedName: savedPresetName(config, activeId) ?? null,
+          message: `The Studio Library style “${humanizeVisualStyleId(aliasedId)}” (${aliasedId}) ` +
+            'is not installed on this Mac, so images do not use it.',
         }
       }
     }
@@ -138,14 +209,24 @@ export async function resolveProjectArtStyle(
   if (activeId && Array.isArray(config.style_presets)) {
     const preset = config.style_presets.find(p => p && p.id === activeId)
     if (preset && (preset.description || '').trim()) {
+      if (fallback) {
+        fallback.used = 'saved_preset'
+        fallback.usedName = preset.name || preset.id
+        fallback.message = `The Studio Library style “${humanizeVisualStyleId(fallback.storeStyleId!)}” ` +
+          `(${fallback.storeStyleId}) is not installed on this Mac, so this channel’s own saved style ` +
+          `“${fallback.usedName}” is used instead.`
+      }
       return {
-        source: 'preset',
-        presetId: preset.id,
-        name: preset.name,
-        description: preset.description.trim(),
-        // Presets carry no negatives today; kept as a slot for a future field.
-        negatives: [],
-        referenceImagePaths: resolvePresetReferenceImages(slug, preset),
+        style: {
+          source: 'preset',
+          presetId: preset.id,
+          name: preset.name,
+          description: preset.description.trim(),
+          // Presets carry no negatives today; kept as a slot for a future field.
+          negatives: [],
+          referenceImagePaths: resolvePresetReferenceImages(slug, preset),
+        },
+        fallback,
       }
     }
   }
@@ -155,14 +236,38 @@ export async function resolveProjectArtStyle(
   // simply absent from every prompt, with nothing anywhere saying so. Saving
   // one is refused at the route now (project-pins.ts), but a project can still
   // arrive here carrying an id written by an older build or by an uninstalled
-  // pack — so say it out loud. Settings shows the same condition as a warning.
+  // pack — so say it out loud, here and in every job log that renders images.
   if (activeId) {
+    const requestedName = savedPresetName(config, activeId) ?? humanizeVisualStyleId(activeId)
+    const storeStyleId = aliasedVisualStyleId(activeId)
     console.warn(
       `[art-style-resolver] project '${slug}' has active_style_preset_id '${activeId}' ` +
       'but it matches no installed style and no saved preset. Generation falls back to ' +
       'the format style tag until a style is selected.',
     )
+    return {
+      style: null,
+      fallback: {
+        reason: storeStyleId ? 'store_style_not_installed' : 'style_not_found',
+        requestedId: activeId,
+        requestedName,
+        storeStyleId,
+        used: 'format_default',
+        usedName: null,
+        message: `The art style “${requestedName}” (${activeId}) is not available on this Mac, ` +
+          'so images use the channel’s format default style instead.',
+      },
+    }
   }
   // No project art style → caller uses the format tag.
-  return null
+  return { style: null, fallback: null }
+}
+
+function savedPresetName(
+  config: { style_presets?: Array<{ id: string; name?: string }> } | null,
+  id: string,
+): string | null {
+  const preset = Array.isArray(config?.style_presets) ? config!.style_presets.find(candidate => candidate?.id === id) : undefined
+  const name = (preset?.name || '').trim()
+  return name || null
 }
