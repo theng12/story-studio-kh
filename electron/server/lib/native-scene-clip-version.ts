@@ -8,7 +8,7 @@
  * MUST equal `HELPER_VERSION` in `native/scene-clip/main.swift`; the backend regression
  * reads both files and the build script's version probe enforces it at build time.
  */
-export const NATIVE_SCENE_CLIP_VERSION = 4
+export const NATIVE_SCENE_CLIP_VERSION = 5
 
 /**
  * Helper versions whose Sketch Draw clips are still a valid render for freshness. Version 3 only
@@ -17,7 +17,8 @@ export const NATIVE_SCENE_CLIP_VERSION = 4
  * and subject-first order, and added the reveal styles — but a version-2 or version-3 clip is still
  * a complete, correct drawing of its scene, so accepted clips must not go stale on the bump. What a
  * version-4 clip adds is a `reveal_type` on its receipt; the freshness rule compares that only once
- * the channel has actually chosen a style.
+ * the channel has actually chosen a style. Version 5 adds the "Colour it in" reveal and leaves the
+ * five existing types drawing exactly as version 4 did, so every accepted clip stays fresh.
  * Freshness checks use this list; the helper probe still requires NATIVE_SCENE_CLIP_VERSION exactly.
  */
-export const SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS: readonly number[] = [2, 3, 4]
+export const SKETCH_DRAW_COMPATIBLE_HELPER_VERSIONS: readonly number[] = [2, 3, 4, 5]

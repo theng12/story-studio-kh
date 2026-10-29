@@ -30,6 +30,7 @@ import { auditSceneClipCompletion, checkpointSceneClip, assertSketchDrawClip, is
 import { DEFAULT_SKETCH_REVEAL, SKETCH_REVEAL_LABELS as REVEAL_LABEL } from '../lib/sketch-reveal.js'
 import { NATIVE_CLIP_QUALITY, renderSketchDraw } from '../lib/native-scene-clip.js'
 import { NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip-version.js'
+import { readSceneAnalysis, visionFromEntry } from '../services/scene-analysis.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { normalizeMotionScope, resolveMotionScope, type MotionScope } from '../contracts/motion-scope.js'
@@ -328,6 +329,20 @@ export async function requireSceneClipGenStudioModel(
   return { apiKey, modelId, model, variant }
 }
 
+/**
+ * This scene's own depth map, for the colour reveal's subject phase — or undefined. Ownership is
+ * looked up, never inferred: the analysis entry must be this scene's and its picture must still be
+ * the one about to be drawn. Anything else is "no mask", never a substitute.
+ */
+async function sceneDepthMask(episodeDir: string, sceneId: string, stillPath: string): Promise<string | undefined> {
+  const entry = await readSceneAnalysis(episodeDir, sceneId, stillPath)
+  if (!entry) return undefined
+  const map = visionFromEntry(episodeDir, entry).depthMap
+  if (!map) return undefined
+  const stat = await fs.stat(map).catch(() => null)
+  return stat?.isFile() && stat.size > 0 ? map : undefined
+}
+
 /** Local-only path: no catalogue, credentials, task manifest or paid request. */
 export async function generateSketchDrawSceneClip(job: Job, render = renderSketchDraw): Promise<void> {
   const { episode_id: episodeId, scene_id: sceneId } = job.params as SceneClipGenerateParams
@@ -376,10 +391,16 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
       ? { mode: 'logo' as const, logo: path.join(workDir, 'logo.png') }
       : settings.pen
     if (pen.mode === 'logo') await fs.writeFile(pen.logo, settings.logoBytes!)
+    // The colour reveal paints the subject before the background when this scene has its own
+    // usable depth map (Scene Analysis, per channel, off by default). It is an input, not a gate:
+    // no analysis, a picture that changed since it was analysed, or a map too flat to use leaves
+    // the subject phase out — the reveal never invents a subject.
+    const colourMask = revealType === 'colour' ? await sceneDepthMask(paths.episode_dir, sceneId, imagePath) : undefined
     const helperJob = { kind: 'sketch' as const, input: snapshotPath, output: candidatePath,
       width: settings.width, height: settings.height, fps: settings.fps, frames,
-      hold_frames: holdFrames, paper: '#ffffff', pen, reveal: revealType, quality: NATIVE_CLIP_QUALITY }
-    job.output_lines.push(`Scene ${sceneId}: Sketch Draw locally, ${REVEAL_LABEL[revealType]} reveal, ${frames} frames at ${settings.fps} fps (${window}s), closing hold ${holdFrames} frames (${(holdFrames / settings.fps).toFixed(1)}s).`)
+      hold_frames: holdFrames, paper: '#ffffff', pen, reveal: revealType, quality: NATIVE_CLIP_QUALITY,
+      ...(colourMask ? { mask: colourMask } : {}) }
+    job.output_lines.push(`Scene ${sceneId}: Sketch Draw locally, ${REVEAL_LABEL[revealType]} reveal, ${frames} frames at ${settings.fps} fps (${window}s), closing hold ${holdFrames} frames (${(holdFrames / settings.fps).toFixed(1)}s).${colourMask ? " Subject phase from this scene's depth map." : ''}`)
     job.progress = 10
     assertActive()
     await render(helperJob, { trackChild: jq.trackChild })
@@ -397,6 +418,8 @@ export async function generateSketchDrawSceneClip(job: Job, render = renderSketc
           fps: settings.fps, frames, width: settings.width, height: settings.height,
           pen_fingerprint: settings.penFingerprint,
           hold_frames: holdFrames, hold_fingerprint: settings.holdFingerprint,
+          // No depth-mask identity here on purpose: the map only reorders the colouring and the
+          // final frame is the scene picture either way, so a changed map never stales a clip.
           reveal_type: revealType },
         candidate_path: candidatePath,
         context: { slug: job.project_slug, episodeId, episodeDir: paths.episode_dir, imagePath, revealScenes }, assertActive,
