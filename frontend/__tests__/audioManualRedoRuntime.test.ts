@@ -23,7 +23,7 @@ async function loadAudioPage(): Promise<Component> {
   const controlsUrl = await import.meta.resolve('../utils/tts-controls.ts')
   const support = `
     import { computed, defineComponent as _defineComponent, onMounted, onUnmounted, reactive, ref, watch } from ${JSON.stringify(vueUrl)}
-    import { defaultTtsControlValues, resolveTtsControlValues } from ${JSON.stringify(controlsUrl)}
+    import { defaultTtsControlValues, resolveDeliveryInstructionText, resolveTtsControlValues } from ${JSON.stringify(controlsUrl)}
     const definePageMeta = () => undefined
     const useAppTitle = () => undefined
     const useRoute = () => globalThis.__audioManualRoute

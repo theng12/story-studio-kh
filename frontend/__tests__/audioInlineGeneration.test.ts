@@ -27,10 +27,10 @@ describe('Audio one-chapter generation', () => {
     assert.match(audioPage, /await queueAudio\(\[request\.slug\], request\.mode\)/)
     assert.match(audioPage, /const force = mode !== 'generate'/)
     assert.match(audioPage, /const no_overwrite = mode === 'new_version'/)
-    // `controls` is the ONE field the raw form does not supply: it is sent
-    // resolved against the selected model's published list, so a value for a
-    // control this model does not publish cannot ride along on a section run.
-    assert.match(audioPage, /const \{ controls: _controls, \.\.\.rest \} = form/)
+    // `controls` and `delivery_instruction` are the fields the raw form does not
+    // supply: both are sent resolved against the selected model's published
+    // facts, so a value this model does not carry cannot ride along on a run.
+    assert.match(audioPage, /const \{ controls: _controls, delivery_instruction: _delivery, \.\.\.rest \} = form/)
     assert.match(audioPage, /const payload: Record<string, any> = \{[\s\S]{0,180}\.\.\.rest,[\s\S]{0,100}sections: targetSections\.join\(','\),[\s\S]{0,80}force: mode !== 'generate',[\s\S]{0,80}no_overwrite: mode === 'new_version',[\s\S]{0,80}controls: resolvedControls\.value/)
   })
 
