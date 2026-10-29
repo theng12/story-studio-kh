@@ -436,8 +436,10 @@ test('an episode whose read fails is UNKNOWN — the ready count is null, never 
   const now = Date.now()
   const created = await connectedProject('Half Read Channel', 'HR')
   await acceptedEpisode(created.slug, 'HR0001', 'Ready One')
-  // A code that cannot belong to this project's prefix: unreadable, not zero.
-  await unreadableEpisode(created.slug, 'ZZ0002')
+  // A code no resolver can read (not letters + digits). A foreign prefix such as
+  // ZZ0002 is no longer unreadable: since 1.4.368 a stored code resolves by its
+  // number whatever prefix it was accepted under (`storedEpisodeNumber`).
+  await unreadableEpisode(created.slug, 'ZZ-0002')
 
   const overview = await svc.readPublishingOverview({ now })
   const channel = overview.channels[0]!
