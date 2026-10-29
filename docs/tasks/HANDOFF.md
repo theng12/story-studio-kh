@@ -19,8 +19,9 @@ jobs load is its own answer and refuses), so the next capabilities call after it
 Not done: the Settings note is read on page load only — a re-pair that happens while the page is open
 shows on the next open, not live.
 
-Supersedes 1.4.366, which passed its gate but was never published (the mini stayed on 1.4.365 while
-Production ran AWBU 13–16). Production's report: 6 `thumb_images` jobs 0/3 (Domnak DM14–17, Origin
+Follows 1.4.366, which the owner force-installed on the mini on 2026-10-28 (the mini runs 1.4.366).
+Also carries main's two content-only commits (Mythologies Before Us Formula, Webtoon Martial Arts
+style). Gate of record: serial, at the merge commit. Production's report: 6 `thumb_images` jobs 0/3 (Domnak DM14–17, Origin
 EP17–18) — `qwen-image-2-1-turbo-mflux-q4 requires at least 1 reference image(s); 0 were supplied`.
 The live 1301 row publishes `operations: ["text-to-image","image-to-image"]` with
 `min_reference_images: 1`, which is the EDIT lane's minimum: the Gateway enforces it only on a request
