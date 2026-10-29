@@ -346,6 +346,17 @@ interface ReviewSceneAugmented {
   motion_choice?: 'pending' | 'clip' | 'still'
   clip_stale_reason?: string | null
   clip_renderer?: ScenePlanEntry['clip_renderer']
+  /**
+   * The provenance the freshness verdict was reached from, published as the plan records it.
+   *
+   * It used to be left out, and on 2026-10-28 a read-only audit read the three absent keys as
+   * `null` and concluded the provenance had been lost — while the plan held all of it. A verdict
+   * without its evidence invites that mistake; these are the exact values `clip_stale_reason`
+   * was decided from.
+   */
+  image_sha256?: string | null
+  clip_source_image_sha256?: string | null
+  clip_sketch?: ScenePlanEntry['clip_sketch'] | null
   /** What this scene depicts — a cutaway may never carry character references. */
   scene_type?: ScenePlanEntry['scene_type']
   /** This scene's OWN character references; absent = the page's default applies. */
@@ -604,7 +615,10 @@ export async function resolveSketchDrawEligibleScenes(
     const imageStat = image ? await fs.stat(image).catch(() => null) : null
     if (!image || !imageStat?.isFile() || imageStat.size <= 0) { skip('missing image'); continue }
     if (!single && scene.clip_renderer === 'sketch_draw'
-      && await isSceneClipFresh(scene, path.join(clipsDir, `${scene.id}.mp4`), filterContext)) {
+      // `image` is this scene's own image, resolved two lines up: the freshness rule proves the
+      // clip's recorded source sha against it. Admission without it re-queued scenes whose clips
+      // were already complete (2026-10-28: 1,310 re-rendered).
+      && await isSceneClipFresh(scene, path.join(clipsDir, `${scene.id}.mp4`), { ...filterContext, imagePath: image })) {
       skip('already fresh')
       continue
     }
@@ -721,7 +735,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     const reviewSketchSettings = sketchRenderer || plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
       ? await resolveSketchDrawSettings(slug, episodeId).catch(() => undefined)
       : undefined
-    const reviewContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: reviewSketchSettings, revealScenes: plan.scenes.map(item => item.id) }
+    const reviewContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: reviewSketchSettings, revealScenes: plan.scenes.map(item => item.id), imagesDir: namedDir }
     const listed = async (dir: string) => new Set(await fs.readdir(dir).catch(() => [] as string[]))
     const [namedFiles, legacyFiles, clipFiles] = await Promise.all([listed(namedDir), listed(legacyDir), listed(clipsDir)])
     const legacyUnmappedImages = [...namedFiles].filter(filename => legacyNumberedPattern.test(filename)).length
@@ -825,6 +839,11 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
         clip_stale: clipStale,
         clip_stale_reason: clipStaleReason,
         clip_renderer: s.clip_renderer,
+        // Published as recorded; `null`, never omitted, so an absent key can never be read as
+        // "the plan lost it" again. An image registered before `image_sha256` existed is honestly null.
+        image_sha256: s.image_sha256 ?? null,
+        clip_source_image_sha256: s.clip_source_image_sha256 ?? null,
+        clip_sketch: s.clip_sketch ?? null,
         motion_choice: s.motion_choice,
         // Which reveal style THIS scene resolves to, from the same resolver the generator and the
         // freshness rule call. Shown before rendering as well as after, so a Mix can be judged for
@@ -1863,7 +1882,8 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-choice', async (req, 
     const approvalSketchSettings = plan.scenes.some(scene => scene.clip_renderer === 'sketch_draw')
       ? await resolveSketchDrawSettings(slug, episodeId).catch(() => undefined)
       : undefined
-    const approvalContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: approvalSketchSettings, revealScenes: plan.scenes.map(item => item.id) }
+    const approvalContext = { slug, episodeId, episodeDir: paths.episode_dir, sketchSettings: approvalSketchSettings, revealScenes: plan.scenes.map(item => item.id),
+      imagesDir: await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir).catch(() => null) }
 
     const changed = await withLock(planPath, async () => {
       const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
