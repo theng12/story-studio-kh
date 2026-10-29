@@ -41,7 +41,7 @@ import {
   sectionWindows,
   sliceTextByShare,
 } from '../services/translation-timeline-rebase.js'
-import { sceneClipStaleReason } from '../services/scene-media-checkpoint.js'
+import { sceneClipStaleReason, sketchHoldFramesFor } from '../services/scene-media-checkpoint.js'
 import { NATIVE_SCENE_CLIP_VERSION } from '../lib/native-scene-clip-version.js'
 import { writeChapterFiles } from '../lib/narration-assembly.js'
 import type { ScenePlan, ScenePlanEntry } from '../models/types.js'
@@ -467,7 +467,10 @@ describe('clips after a retime', () => {
       clip_sketch: {
         helper_version: NATIVE_SCENE_CLIP_VERSION, fps: 30, frames: Math.round(window * 30),
         width: 1920, height: 1080, pen_fingerprint: sha(Buffer.from('none')),
-        hold_frames: Math.round(window * 30 / 2), hold_fingerprint: sha(Buffer.from('auto')),
+        // The hold the generator would record under the same settings — never a hand-computed half,
+        // which is only the auto rule for a short scene (auto holds min(2.5 s, half)).
+        hold_frames: sketchHoldFramesFor(SETTINGS as any, 'KH0001', over.id, Math.round(window * 30)),
+        hold_fingerprint: sha(Buffer.from('auto')),
       },
       ...over,
     })
@@ -515,8 +518,8 @@ describe('clips after a retime', () => {
     assert.deepEqual([byId.get('sc-1')!.start_sec, byId.get('sc-1')!.end_sec], [0, 10])
     assert.equal(await sceneClipStaleReason(byId.get('sc-1')!, context(byId.get('sc-1')!.image_path!)), null)
 
-    // Chapter 02's scene grew 15 s → 22.5 s: the one existing freshness rule says so.
-    assert.deepEqual([byId.get('sc-2')!.start_sec, byId.get('sc-2')!.end_sec], [30, 52.5])
+    // Chapter 02 is [20, 65] (Chapter 01's 20 s, then 45 s); its first scene keeps half: 15 s → 22.5 s.
+    assert.deepEqual([byId.get('sc-2')!.start_sec, byId.get('sc-2')!.end_sec], [20, 42.5])
     assert.match(
       (await sceneClipStaleReason(byId.get('sc-2')!, context(byId.get('sc-2')!.image_path!))) || '',
       /scene length changed/,

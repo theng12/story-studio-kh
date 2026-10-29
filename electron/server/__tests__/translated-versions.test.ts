@@ -70,8 +70,13 @@ const KH_CH2 = '## Chapter 02: គូទឹកសក្ការៈ\n\nនៅជ
 /** The one per-episode glossary answer the mock model gives. */
 const GLOSSARY = 'Angkor Wat = អង្គរវត្ត\nSuryavarman = សូរ្យវរ្ម័ន'
 
-/** Is this the glossary call? The system prompt names it; the user text does not. */
-const isGlossaryCall = (system: string) => /name glossary/i.test(system)
+/**
+ * Is this the glossary-building call? Match the glossary prompt's OWN opening line, not the phrase
+ * "name glossary" — every chapter, introduction and title prompt now also carries the glossary
+ * block ("Name glossary — use EXACTLY these spellings"), so a broader test would answer them with
+ * the glossary itself.
+ */
+const isGlossaryCall = (system: string) => /preparing a name glossary/i.test(system)
 
 /**
  * The shape every translation prompt takes, answered with Khmer text. Counts
