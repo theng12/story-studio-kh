@@ -1,5 +1,39 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.368 — nine branches in one release (2026-10-29, release/1.4.368 from main dabfff14)
+
+Merged, each verified first with focused runs (PARTIAL, not the gate): store-and-style-fallback,
+sketch-provenance, translate-timeline-rebase, channel-slug-import, narration-emotion,
+phone-review-approval, hand-lettered-captions, quote-shorts-length-pacing, sketch-colour-in. Only the
+CHANGELOG drafts conflicted; they are folded into `## v1.4.368`.
+
+What to know:
+- **Translation retimes onto the target narration** (`services/translation-timeline-rebase.ts`):
+  scenes keep their chapter and proportional share; Khmer uses script timing, never ASR. Final
+  Assembly refuses a translated plan whose timing is still stale and names the scenes
+  (`video-assembly-translation-rebase.test.ts`). The owner wants ONE private Khmer listening pilot on
+  this build before any other translation; Production runs it.
+- **Narration delivery/emotion** (`delivery_instruction`) is offered only where the model's live
+  `controls[]` publishes it; a non-empty instruction on a model without it is refused before any
+  TTS request. Found while closing gaps: `audio-quality-store.ts` dropped the field from the
+  activation record, so one provenance source lost it — fixed. Needs Hub 0.6.209 + Gateway 0.2.208
+  end to end. The Breeze licence question is settled by the owner: leave as is.
+- **Phone Review** (`/review`): optional per channel (`final_review.enabled`, off by default), reuses
+  the existing session cookie and range route, marks stored beside the final with
+  path/size/mtime/inode identity; a POST is refused when any of them changed since listing, and the
+  hash is bracketed by two stats. Never a gate, never upload authorisation.
+- **Hand-lettered Shorts captions** use the bundled Patrick Hand; Khmer falls back to Kantumruy Pro
+  with per-line `\fsp0` — non-zero ASS spacing breaks libass Khmer shaping, which also fixed the
+  shipped `explainer-accent` look.
+- **Colour it in** (Sketch Draw helper 5): the final hold is the exact source picture; depth map is
+  optional ordering only (no ISNet — owner), and changing it never stales a clip.
+- **Quote Shorts sizing**: words per chapter = Formula minutes × wpm ÷ the episode's own chapter
+  count. Open for the owner: the Quote Shorts Formula's fields say 1 min × 120 wpm while its prose
+  says ~45 s / 40–90 words; Formula content was NOT changed. New Deep Time Documentary channels now
+  seed that Formula's own pacing profile (Formula wins, §5).
+- **Studio Library** answers partially with named unavailable sections; an unanswered account is
+  `null` (unknown), never the previous snapshot.
+
 ## 1.4.367 — a text-to-image model is not refused for having no reference (2026-10-28, fix/t2i-reference-minimum-20261028 from main 7cadb79d)
 
 **Private final render re-pairs itself across a Gateway move (added on the same branch, owner

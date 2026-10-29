@@ -4,39 +4,28 @@ What's new in each release. Newest first.
 
 ---
 
-## Unreleased (draft — not a release)
+## v1.4.368 — 2026-10-29
 
 - Translated episodes now show the same pictures in the same order on their own narration. When a translated episode's narration is merged, Story retimes its Scene Plan onto that narration: each scene keeps its chapter (the only point both languages share) and its share of that chapter, so every still, clip, approval and prompt is kept exactly while the timings follow the new voice. The source episode is never touched, and running it again changes nothing.
 - A translated episode's Scene Plan can no longer render while it still follows the old language's timing: final video refuses and names the scenes instead.
 - Sketch Draw clips whose scene length changed are flagged for a re-render; provider clips stay as they are. No image is ever generated automatically.
 - A translated episode no longer copies the source's drawn thumbnail headline. The artwork is copied and the target channel's own headline layer writes its own text; when nothing proves the artwork is free of the source language's words, the episode says so plainly.
 - Translation now adapts rather than translates: a spoken storyteller's version in the target language, keeping every beat, name and statement in the same order, with numbers and idioms said the way a narrator there would. One name glossary per episode is built first and given to every chapter, the introduction and the title, so each name is spelled the same way throughout.
-<!-- DRAFT (2026-10-28, fix/channel-slug-import-20261028) — fold these into the
-     next release and add its `## vX.Y.Z` heading. Lines before the first
-     version heading are ignored by check:changelog and What's New. -->
 - Channel folders: a channel name with no Latin letters (a Khmer-only name, such as ពិភពទេវកថា) used to become the folder `project`, so a second such channel collided with the first. It now gets its own folder, named after the name, and a channel can be created with a folder name you choose. A folder name that is already taken is refused with a plain message instead of being silently renamed, and the Create channel form shows the folder name before you press Create. Nothing already on disk is renamed.
 - Script import: a failed import used to leave an empty, unregistered episode folder behind. An import now only creates a folder for an episode the channel actually has, and builds it out of sight until the whole import succeeds. A failure moves the partial folder to the channel's Trash and says where it went, so nothing is lost and no stray folder appears.
 - Episode lists: one episode that cannot be read no longer stops the whole channel from listing. An episode whose code was accepted under an older episode prefix (for example AU0001 after the channel's prefix went back to EP) now resolves normally, and any other per-episode failure shows that episode as "could not be read", with the reason beside it and every step shown as not checked — never a failed channel and never a pretend done.
-## Unreleased — Delivery / emotion for narration
-
 - Narration can be directed in words — "warm and unhurried, a little amused" — where the chosen voice model takes a delivery/emotion instruction. The setting appears only for models that publish it, with that model's own examples, language rule and inline vocal events beside it, and what a take was directed with is recorded on the take beside its engine and voice. It is empty by default, saved in the narration preset, and a model that publishes no such setting shows one line saying so.
-<!-- DRAFT — no version heading yet, so this is not part of any build. Fold these lines under the
-     next release's `## vX.Y.Z` heading when that release is cut. -->
-
-**Draft — next release**
-
 - Review finals: a private, phone-friendly page (and the same marks on the Production Board and in Video Assembly) lists finished videos newest first and lets you mark each one Approved or Needs changes from wherever you are. A mark belongs to that exact file, so if a video is re-rendered or replaced, the old mark reads as out of date instead of passing for the new one. A mark is a review note only: it does not upload, schedule or publish anything, and no step waits on it. Review is optional per channel and off by default — turn it on on the Review page, and a channel that leaves it off behaves exactly as before.
 - The Review page plays each video where it is, through Story's existing private address — the browser holds only the sign-in cookie the app already uses, and no key or long-lived link appears in a URL or on the page.
-## Draft — not released yet
-
 - Hand-lettered captions for Shorts, in the look of a quote post lettered on paper: big, centred, lowercase handwriting in warm off-white ink with a soft dark edge so it reads over any picture. Two new caption looks — "Shorts Vertical — Hand-lettered" and "Shorts Vertical — Hand-lettered Gentle Highlight", which warms just the word being spoken and never jumps or grows. Both sit where the other vertical styles sit, clear of the Shorts buttons and title. Khmer text, which a handwriting face cannot draw, is set in the app's own Kantumruy Pro at a size a full Khmer phrase fits, so a Khmer Short reads the same on every Mac. Nothing already saved changes: existing caption looks and every channel's chosen look are untouched.
 - Khmer captions no longer come apart. Any caption look that added letter spacing drew every Khmer vowel and subscript on its own dotted circle; Khmer is now shaped properly whatever spacing the look asks for, and the fix reaches the one shipped look that set spacing.
-
----
-<!-- Draft — fold into the next release entry when this ships. -->
 - Quote Shorts: a new channel now follows its own Formula for length and scene rhythm. The outline targets the Formula's own length (one short at 120 wpm) instead of a long-form 550-word chapter, and a new channel's scene rhythm starts on the Formula's pacing profile — a shorter opening band, then the settled one — instead of the long-form tiers. An episode that saved its own rhythm keeps it, and no stored channel, preset or episode is rewritten.
-<!-- DRAFT — the "Colour it in" reveal. Move this line under the next release's `## vX.Y.Z` heading. -->
 - Sketch Draw has a sixth reveal, **Colour it in**. The ink goes down first, then the picture is coloured in colour group by colour group, finishing the subject before the background when the scene has a depth map, so the colour arrives the way a person paints it in. The bold ink then eases out and the clip ends on the scene picture itself. A Mix can include it like any other style, and every clip already accepted keeps the reveal it was made with.
+- Studio Library shows what it could load when part of the Gateway's answer is missing: installed packs still list, each unanswered part says so, and an account that could not be asked reads as unknown — never as owning nothing, and never as the last balance you saw.
+- When a channel's visual style is missing, generation now says which style was missing and which one it used instead, in the job log and in Settings.
+- Sketch Draw clips made before images carried a fingerprint are now checked against their own scene's picture instead of being redrawn or wrongly trusted; Retry keeps every clip that still matches and redraws only the ones that do not.
+- A failed script import now tells you where the leftover files went, instead of a generic file error.
+- Regenerating one chapter sizes it by this episode's own chapter count, not the Formula's default.
 
 ## v1.4.367 — 2026-10-28
 
