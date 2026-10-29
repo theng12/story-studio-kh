@@ -59,8 +59,12 @@ describe('channel slug at creation', () => {
   })
 
   test('the second channel with the same Khmer-only name is made unique, not dropped onto the first', async () => {
-    const first = await createChannel({ name: KHMER_NAME })
-    const second = await createChannel({ name: KHMER_NAME })
+    // Its own name: `KHMER_NAME` was already taken by the test above, so the
+    // first channel here is not necessarily the unsuffixed base.
+    const NAME = 'ព្រៃដ៏អាថ៌កំបាំង'
+    const first = await createChannel({ name: NAME })
+    const second = await createChannel({ name: NAME })
+    assert.equal(first.status, 201, JSON.stringify(first.body))
     assert.equal(second.status, 201, JSON.stringify(second.body))
     assert.equal(second.body.slug, `${first.body.slug}-2`)
   })

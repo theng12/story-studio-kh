@@ -873,7 +873,12 @@ async function withEpisodeScriptDir<T>(
         'episode-import',
       )
     } catch { /* reported below — losing the cleanup must not mask the cause */ }
-    const cause = error instanceof Error ? error.message : String(error)
+    // Strip a leading errno marker ("ENOTDIR: …"). `humanizeBackendError`
+    // re-classifies any message containing one and would replace this already
+    // specific sentence — including where the partial folder went — with its
+    // generic filesystem line. The raw cause is still logged by the humanizer.
+    const rawCause = error instanceof Error ? error.message : String(error)
+    const cause = rawCause.replace(/^\s*E[A-Z]{3,8}:\s*/, '').trim() || rawCause
     const status = typeof (error as { statusCode?: unknown })?.statusCode === 'number'
       ? (error as { statusCode: number }).statusCode
       : 500
