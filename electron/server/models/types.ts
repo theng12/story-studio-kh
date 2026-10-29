@@ -1656,6 +1656,16 @@ export interface Pointer {
 export interface CreateProjectRequest {
   name: string
   /**
+   * 2026-10-28 — the channel folder name, chosen outright.
+   *
+   * Optional. When present it is validated as safe Latin (`a-z`, `0-9`, single
+   * hyphens) and must be free; a clash is refused rather than silently renamed.
+   * When absent the slug is derived from `name`, falling back to
+   * `channel-<short id>` for a name with no Latin characters. There is no rename
+   * API: this only names a NEW channel, and nothing stored is rewritten.
+   */
+  slug?: string
+  /**
    * v1.4.20 — how often this channel publishes, set when the channel is made.
    *
    * An Upload Plan is keyed `platform:account_id` and so cannot exist before a

@@ -55,6 +55,26 @@ export function episodeNumber(code: string, prefix: string = 'EP'): number {
   return parseInt(match[1], 10)
 }
 
+/**
+ * The number a STORED code carries, whatever prefix it was accepted with.
+ *
+ * An accepted episode keeps the code it was accepted with forever — including
+ * a prefix the channel no longer uses. Production, 2026-10-28: an idea accepted
+ * as `AU0001` while the channel's prefix was briefly `AU`; the prefix went back
+ * to `EP` and every path lookup for that episode threw "Invalid episode code:
+ * AU0001 (expected prefix: EP)", which 500'd the whole channel's episode list.
+ *
+ * The prefix is only an input-validation concern (`episodeNumber` above, used by
+ * accept and renumber). Resolving the FOLDER of an episode already on disk needs
+ * the number alone. A code with no digits is still refused — `null` here.
+ */
+export function storedEpisodeNumber(code: string): number | null {
+  const match = String(code ?? '').match(/^[A-Za-z]+(\d+)$/)
+  if (!match) return null
+  const value = parseInt(match[1]!, 10)
+  return Number.isFinite(value) ? value : null
+}
+
 export function formatEpisodeCode(num: number, prefix: string = 'EP', digits: number = 4): string {
   return `${prefix}${num.toString().padStart(digits, '0')}`
 }
@@ -365,7 +385,13 @@ export async function resolveEpisodePaths(
   const folderTemplate = meta.folder_template || '{season_prefix} {season_num}/{code} - {title}/'
   const subfolder = meta.subfolder_names || {}
 
-  const epNum = episodeNumber(code, prefix)
+  // The season is the only thing this number drives. An accepted episode was
+  // accepted under the channel's prefix AT THAT TIME, and the prefix can be
+  // changed afterwards, so the stored code is read for its number rather than
+  // re-validated against today's prefix (2026-10-28: AU0001 under an EP
+  // channel threw here and 500'd every episode list and board for the channel).
+  // A code with no number at all is still refused, exactly as before.
+  const epNum = storedEpisodeNumber(code) ?? episodeNumber(code, prefix)
   const seasonNum = Math.floor((epNum - 1) / seasonSize) + 1
 
   // Episodes always live in the channel's own folder. Resolved against the

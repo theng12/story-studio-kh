@@ -66,6 +66,12 @@ export function localMediaStatusLabel(status: LocalMediaCleanupStatus | null | u
 export interface EpisodeRow {
   episode_code: string
   title: string
+  /**
+   * Present only when this ONE episode could not be read (2026-10-28). The row
+   * then carries an empty `status` — every step is "not checked", never a
+   * pretend "done" — and the list still loads. Never set on a healthy row.
+   */
+  episode_error?: string
   logline?: string
   suggested_chapters?: number
   suggested_length?: string

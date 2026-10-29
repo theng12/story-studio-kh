@@ -7,7 +7,7 @@
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
-import { resolveEpisodePaths, formatEpisodeCode, projectDirFor, projectMetaOnce, type EpisodePaths, type ProjectFactsCache } from './utils.js'
+import { resolveEpisodePaths, formatEpisodeCode, storedEpisodeNumber, projectDirFor, projectMetaOnce, type EpisodePaths, type ProjectFactsCache } from './utils.js'
 import * as pm from './project-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
@@ -104,17 +104,22 @@ function parseStore(text: string | null): IdeasStore {
  */
 async function applyAutoHeal(slug: string, store: IdeasStore, cache?: ProjectFactsCache): Promise<boolean> {
   // `projectMetaOnce` is the same `project.json` `getProject` reads, reached
-  // through the request-scoped cache. Only `episode_prefix` is used here, and
-  // it cannot change while one response is being built — so a 302-episode list
-  // should not read and parse project.json 1,340 times to learn it.
+  // through the request-scoped cache. It is read once to prove the channel
+  // exists (a missing project has no numbering to heal) — the numbers below are
+  // taken from the stored codes themselves, so a 302-episode list does not read
+  // and parse project.json 1,340 times.
   const meta = cache
     ? await projectMetaOnce(slug, cache).catch(() => null)
     : await pm.getProject(slug)
   if (!meta) return false
   const acceptedNums = store.ideas
     .filter(i => i.status === 'accepted' && i.episode_code)
-    .map(i => parseInt(i.episode_code!.replace(meta.episode_prefix, ''), 10))
-    .filter(n => !isNaN(n))
+    // A STORED code counts by its number whatever prefix it was accepted with
+    // (2026-10-28: an episode accepted as AU0001 while the prefix was briefly
+    // AU). Stripping today's prefix read that code as NaN, so its number was
+    // not counted as used and the next accept could hand out the same number.
+    .map(i => storedEpisodeNumber(i.episode_code!))
+    .filter((n): n is number => n !== null)
     .sort((a, b) => a - b)
   if (acceptedNums.length === 0) return false
   const maxNum = Math.max(...acceptedNums, store.next_episode_number - 1)

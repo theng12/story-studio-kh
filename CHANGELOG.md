@@ -11,6 +11,12 @@ What's new in each release. Newest first.
 - Sketch Draw clips whose scene length changed are flagged for a re-render; provider clips stay as they are. No image is ever generated automatically.
 - A translated episode no longer copies the source's drawn thumbnail headline. The artwork is copied and the target channel's own headline layer writes its own text; when nothing proves the artwork is free of the source language's words, the episode says so plainly.
 - Translation now adapts rather than translates: a spoken storyteller's version in the target language, keeping every beat, name and statement in the same order, with numbers and idioms said the way a narrator there would. One name glossary per episode is built first and given to every chapter, the introduction and the title, so each name is spelled the same way throughout.
+<!-- DRAFT (2026-10-28, fix/channel-slug-import-20261028) — fold these into the
+     next release and add its `## vX.Y.Z` heading. Lines before the first
+     version heading are ignored by check:changelog and What's New. -->
+- Channel folders: a channel name with no Latin letters (a Khmer-only name, such as ពិភពទេវកថា) used to become the folder `project`, so a second such channel collided with the first. It now gets its own folder, named after the name, and a channel can be created with a folder name you choose. A folder name that is already taken is refused with a plain message instead of being silently renamed, and the Create channel form shows the folder name before you press Create. Nothing already on disk is renamed.
+- Script import: a failed import used to leave an empty, unregistered episode folder behind. An import now only creates a folder for an episode the channel actually has, and builds it out of sight until the whole import succeeds. A failure moves the partial folder to the channel's Trash and says where it went, so nothing is lost and no stray folder appears.
+- Episode lists: one episode that cannot be read no longer stops the whole channel from listing. An episode whose code was accepted under an older episode prefix (for example AU0001 after the channel's prefix went back to EP) now resolves normally, and any other per-episode failure shows that episode as "could not be read", with the reason beside it and every step shown as not checked — never a failed channel and never a pretend done.
 
 ## v1.4.367 — 2026-10-28
 

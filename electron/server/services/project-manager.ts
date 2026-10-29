@@ -26,7 +26,13 @@ import type {
 import { resolveGenStudioModelId } from './genstudio-model-migration.js'
 import { channelLastWorkedAt } from './channel-recency.js'
 import { buildManifest, writeManifestCache, getMachineLabel } from './manifest.js'
-import { sanitizeProjectSlug } from './slug.js'
+import {
+  MAX_PROJECT_SLUG_LENGTH,
+  isValidExplicitProjectSlug,
+  normalizeExplicitProjectSlug,
+  projectSlugBase,
+  uniqueProjectSlug,
+} from './slug.js'
 import { getSoftDeletedSlugSet, forgetSoftDeletedProject } from './soft-delete.js'
 import { onAppSettingWritten } from './app-settings.js'
 import { randomUUID } from 'crypto'
@@ -453,34 +459,59 @@ export function isLibraryConfigured(): boolean {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function slugify(name: string): string {
-  return sanitizeProjectSlug(name)
+/** The folder names currently taken under the Library, lowercased.
+ *  Case-insensitive on purpose: APFS, HFS+ and default NTFS treat "Foo" and
+ *  "foo" as one entry, while ext4 does not, so a case-only twin would break the
+ *  first time folders were copied onto a case-insensitive disk. */
+function existingSlugSet(): Set<string> {
+  let entries: string[]
+  try {
+    entries = require('fs').readdirSync(projectsRoot()) as string[]
+  } catch {
+    return new Set<string>()
+  }
+  return new Set(entries.map((e) => e.toLowerCase()))
 }
 
 /**
  * Pick a slug that doesn't collide with any existing project directory.
  *
- * The lookup is case-insensitive on purpose: APFS, HFS+, and default NTFS
- * volumes treat "Foo" and "foo" as the same entry, while ext4 on Linux
- * does not. If we deduped with a plain `existsSync` we'd allow two
- * projects whose slugs differ only in case on Linux, then break the first
- * time that folder was copied onto a case-insensitive disk. Comparing
- * lowercased entries once up front avoids the surprise.
+ * The comparison itself is `uniqueProjectSlug` in the shared slug module, so the
+ * creation form (which shows the customer the slug before they press Create)
+ * applies exactly the same `-2` / `-3` rule.
  */
 function uniqueSlug(base: string): string {
-  let existing: Set<string>
-  try {
-    const entries = require('fs').readdirSync(projectsRoot()) as string[]
-    existing = new Set(entries.map((e) => e.toLowerCase()))
-  } catch {
-    existing = new Set<string>()
+  return uniqueProjectSlug(base, existingSlugSet())
+}
+
+/**
+ * The slug a new channel gets.
+ *
+ * - An explicit `slug` from the request is validated as safe Latin and must be
+ *   free; a clash is refused with a plain message rather than silently renamed,
+ *   because the caller asked for that folder by name.
+ * - Otherwise the name's Latin core is used, or `channel-<short id>` when the
+ *   name has no Latin characters (a Khmer-only name) — never the literal
+ *   "project", which every such channel used to collide on.
+ */
+function resolveCreateSlug(req: CreateProjectRequest): string {
+  const explicit = normalizeExplicitProjectSlug(req.slug ?? '')
+  if (explicit) {
+    if (!isValidExplicitProjectSlug(explicit)) {
+      throw Object.assign(
+        new Error(`"${String(req.slug)}" is not a usable channel slug. Use lowercase letters, numbers and single hyphens (max ${MAX_PROJECT_SLUG_LENGTH} characters), and not a reserved device name.`),
+        { statusCode: 400, expose: true },
+      )
+    }
+    if (existingSlugSet().has(explicit)) {
+      throw Object.assign(
+        new Error(`The slug "${explicit}" is already used by another channel. Choose a different slug.`),
+        { statusCode: 400, expose: true },
+      )
+    }
+    return explicit
   }
-
-  if (!existing.has(base.toLowerCase())) return base
-
-  let counter = 2
-  while (existing.has(`${base}-${counter}`.toLowerCase())) counter++
-  return `${base}-${counter}`
+  return uniqueSlug(projectSlugBase(req.name))
 }
 
 /**
@@ -979,7 +1010,7 @@ export async function createProject(
   req: CreateProjectRequest,
   initialContentPins: Pick<ProjectMeta, 'content_pack_versions' | 'content_pack_items'> = {},
 ): Promise<ProjectMeta> {
-  const slug = uniqueSlug(slugify(req.name))
+  const slug = resolveCreateSlug(req)
   const projectDir = path.join(ensureProjectsRoot(), slug)
   // If a tombstone exists for this slug, clear it — the user is
   // explicitly creating a project here; honour that over a stale
