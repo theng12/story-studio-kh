@@ -27,6 +27,7 @@ import {
   type WordTimingSource,
 } from './subtitle-word-timing.js'
 import { frameTextUnit } from './render-canvas.js'
+import { scriptLineOverride } from './subtitle-script-fallback.js'
 
 export interface Chapter {
   title: string
@@ -512,17 +513,37 @@ function escapeAssText(text: string): string {
 }
 
 /**
+ * The per-line script override (face, size cap, spacing guard) for one line of
+ * this style — see `lib/subtitle-script-fallback.ts`.
+ */
+function scriptOverrideForLine(line: string, style: SubtitleStyleDocument, scale: number): string {
+  return scriptLineOverride({
+    line,
+    fontFamily: style.typography.font_family,
+    fontSizePx: style.typography.font_size_px,
+    letterSpacingPx: style.typography.letter_spacing_px,
+    scale,
+  })
+}
+
+/**
  * Join wrapped lines. libass has no line-spacing property, so a positive
  * `line_spacing_px` inserts a spacer line — a hard space at the requested
  * height — between them. See SubtitleTypography.line_spacing_px for the
  * caveats; at the default 0 this emits a plain `\N` and nothing else.
+ *
+ * A line whose script the chosen face cannot draw carries a `{\fn…}` override
+ * in front of it — see `lib/subtitle-script-fallback.ts` for why, and for the
+ * cases deliberately left alone. At the default styles the tag is `''`, so the
+ * bytes are the ones the engine emitted before this existed.
  */
 function joinLines(lines: string[], style: SubtitleStyleDocument, scale: number): string {
+  const tagged = lines.map(line => `${scriptOverrideForLine(line, style, scale)}${line}`)
   const gap = style.typography.line_spacing_px
-  if (gap <= 0) return lines.join('\\N')
+  if (gap <= 0) return tagged.join('\\N')
   const gapSize = round2(gap * scale)
   const bodySize = round2(style.typography.font_size_px * scale)
-  return lines.join(`\\N{\\fs${gapSize}}\\h{\\fs${bodySize}}\\N`)
+  return tagged.join(`\\N{\\fs${gapSize}}\\h{\\fs${bodySize}}\\N`)
 }
 
 /**
@@ -710,8 +731,11 @@ export function buildSubtitleAssDocument(
       const resting = wordRestingState(style, n)
       for (const word of words) {
         const tag = resting ? `{${cueFragments.join('')}${resting}}` : cueTag
+        // A single word is still a line: the same script overrides apply, or a
+        // Khmer word in a Latin-only face draws boxes here too.
+        const fallback = scriptOverrideForLine(escapeAssText(word.text), style, scale)
         events.push(
-          `Dialogue: 0,${assTime(word.start_sec)},${assTime(word.end_sec)},Default,,0,0,0,,${tag}${escapeAssText(word.text)}`,
+          `Dialogue: 0,${assTime(word.start_sec)},${assTime(word.end_sec)},Default,,0,0,0,,${tag}${fallback}${escapeAssText(word.text)}`,
         )
       }
       continue

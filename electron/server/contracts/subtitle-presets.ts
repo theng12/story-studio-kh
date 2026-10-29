@@ -279,4 +279,106 @@ export const BUILT_IN_SUBTITLE_PRESETS: BuiltInSubtitlePreset[] = [
       placement: { position: 'bottom', align: 'center', position_x_pct: 50, position_y_pct: 62, safe_margin_pct: 10 },
       animation: { type: 'slide-up' },
     }),
+
+  /**
+   * Hand-lettered ink on paper (owner, 2026-10-29).
+   *
+   * The references are social quote posts lettered by hand: warm off-white
+   * paper, soft dark ink, loose line spacing, nothing square about it. Patrick
+   * Hand is the bundled face that carries that hand, and it ships through the
+   * same `:fontsdir=` root as every other bundled face, so it draws the same on
+   * a Mac that has never installed it.
+   *
+   * ── Why the edge is a shadow AND an outline
+   *
+   * "Warm off-white ink" is the whole look and also the hardest to read: white
+   * type disappears over a bright sky and cream disappears over paper-white
+   * scenes. So the ink carries a soft dark outline (the pen's own edge) plus a
+   * blurred shadow beneath it — the two together read over any picture, which
+   * is what a caption has to do. `blur_px` is what makes the shadow soft rather
+   * than a hard second copy of the letters.
+   *
+   * ── The organic motion, honestly
+   *
+   * A per-line tilt would need a rotation field this engine does not have, and
+   * a fake one is worse than none. What libass DOES render here is the cue
+   * fade — so each phrase fades in over 260 ms and out over 220 ms, a slow
+   * hand-set rhythm instead of a snap. Nothing moves; nothing is approximate.
+   *
+   * ── Khmer, and why this preset's size is per script
+   *
+   * Patrick Hand has no Khmer glyphs and there is no bundled hand-lettered
+   * Khmer face. `lib/subtitle-script-fallback.ts` tags a Khmer line with the
+   * bundled Kantumruy Pro face (the manifest's `text` face for `khmr`), so a
+   * Khmer caption renders in real Khmer type rather than boxes. That is a burn
+   * rule, not a preset field — it applies to any bundled Latin-only face.
+   *
+   * The same rule gives the line a size it can live with: Khmer is written
+   * without spaces, so a phrase is one unbreakable word and libass cannot
+   * shrink to fit, so a Khmer line takes the script's measured cap (64 px at
+   * the 1080 reference — 50 characters measure 876 px there, and 80 px clips
+   * the same phrase) while Latin keeps this preset's 100 px. It also drops the style's letter spacing on that line, because a
+   * non-zero ASS `Spacing` makes this libass draw every Khmer vowel on its own
+   * dotted circle (measured 2026-10-29). Both are part of the fallback, so the
+   * preset states the size the look wants and the burn keeps Khmer honest.
+   */
+  preset('shorts-vertical-hand-lettered', 'Shorts Vertical — Hand-lettered',
+    'Big centred hand-lettered ink: warm off-white, soft dark edge, unhurried fade. Khmer renders in bundled Kantumruy Pro.', {
+      typography: {
+        font_family: 'Patrick Hand',
+        font_size_px: 100,
+        letter_spacing_px: 1.5,
+        line_spacing_px: 12,
+        max_chars_per_line: 20,
+        max_lines: 3,
+      },
+      color: {
+        primary_hex: '#FBF4E4',
+        outline_hex: '#241B14',
+        outline_opacity: 0.9,
+        shadow_hex: '#1A120C',
+        shadow_opacity: 0.75,
+      },
+      edge: { outline_px: 6, shadow_px: 4, blur_px: 3 },
+      placement: { position: 'bottom', align: 'center', position_x_pct: 50, position_y_pct: 62, safe_margin_pct: 10 },
+      animation: { type: 'fade', in_ms: 260, out_ms: 220 },
+    }),
+
+  /**
+   * The same hand, with the spoken word picked out quietly.
+   *
+   * This is the GENTLE half of word-by-word: `highlight` changes the active
+   * word's COLOUR only and never scales it, so the line holds still while the
+   * voice moves through it. The accent is a soft warm amber rather than the
+   * white-hot yellow the energetic styles use — it reads as ink catching light,
+   * not as a graphic effect. The 220 ms ease is deliberately slower than the
+   * snappy styles' 80-90 ms.
+   */
+  preset('shorts-vertical-hand-lettered-highlight', 'Shorts Vertical — Hand-lettered Gentle Highlight',
+    'Hand-lettered ink with the spoken word warmed to soft amber. Same hand, quieter motion.', {
+      typography: {
+        font_family: 'Patrick Hand',
+        font_size_px: 100,
+        letter_spacing_px: 1.5,
+        line_spacing_px: 12,
+        max_chars_per_line: 20,
+        max_lines: 3,
+      },
+      color: {
+        primary_hex: '#FBF4E4',
+        outline_hex: '#241B14',
+        outline_opacity: 0.9,
+        shadow_hex: '#1A120C',
+        shadow_opacity: 0.75,
+      },
+      edge: { outline_px: 6, shadow_px: 4, blur_px: 3 },
+      word: {
+        mode: 'highlight',
+        active_color_hex: '#F2C87B',
+        inactive_color_hex: null,
+        transition_ms: 220,
+      },
+      placement: { position: 'bottom', align: 'center', position_x_pct: 50, position_y_pct: 62, safe_margin_pct: 10 },
+      animation: { type: 'fade', in_ms: 260, out_ms: 220 },
+    }),
 ]
