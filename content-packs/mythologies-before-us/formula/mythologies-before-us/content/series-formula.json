@@ -1,0 +1,390 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.mythologies-before-us",
+  "name": "Mythologies Before Us",
+  "description": "Feature-length retellings of the world's myths, grouped into self-contained chapters. Each chapter retells one myth, one figure's story or one small group of related myths from a named tradition, and says plainly what the retelling follows and where versions differ. World-wide popular myths come first, Greek favoured, with no rule that stops a less familiar story taking its place. A retelling, never a claim that the story happened.",
+  "channel_promise": "The old stories, retold — where they come from, and what changed.",
+  "audience": "Listeners who want the world's myths told properly: whole stories, in order, with the tradition, the sources and the variants kept visible rather than flattened into one smooth version.",
+  "formula_family": "Myth retelling",
+  "tagline": "The world's myths, retold whole.",
+  "perspective_policy": "Third-person reteller. Name the tradition, the region and the kind of source each retelling follows, and say plainly that this is a retelling and that versions differ. Never flatten different traditions into one pantheon, and never present a myth as documented history.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open each chapter by naming the tradition, the region and the source the retelling follows, then begin the story. No epic framing, no teaser, no promise of a showdown.",
+    "forbidden_patterns": [
+      "epic showdown",
+      "you will not believe",
+      "Watch what happens next",
+      "the gods were furious",
+      "cliffhanger",
+      "countdown",
+      "Imagine this",
+      "the truth about",
+      "based on a true story",
+      "it really happened",
+      "FOR SLEEP"
+    ],
+    "required_habits": [
+      "Name the tradition and the region before the story begins.",
+      "Say what this telling follows — which epic, hymn cycle, chronicle or oral tradition — in plain language.",
+      "Say plainly that this is a retelling, and that versions of the story differ.",
+      "Keep violence at a distance; describe consequence rather than spectacle.",
+      "Do not rank gods, heroes or cultures, and never merge traditions into one pantheon.",
+      "Present myth as myth: never claim it happened, and never use it as evidence for a real event.",
+      "Invent no dialogue, no scene and no missing detail; where the source is silent, say that the telling is filling the gap."
+    ],
+    "closing_policy": "Let the chapter end on its own last image — a river, a hall, a long road — with no moralising and no tease for the next chapter."
+  },
+  "opening_profile": {
+    "id": "retelling-open",
+    "label": "Retelling open",
+    "description": "A short branded welcome, then a plain statement of what is being retold, where the sources come from and that variants exist, before chapter one begins."
+  },
+  "intro_defaults": {
+    "word_target": 200,
+    "beats": [
+      {
+        "id": "welcome",
+        "custom_text": "a short greeting naming the channel and tonight's group of stories, with no host persona and no hype"
+      },
+      {
+        "id": "story_teaser",
+        "custom_text": "state plainly that tonight's stories are retellings: name the tradition and the myths, say that versions differ between sources and between tellings, and name the kind of source being followed — an epic, a hymn cycle, a chronicle or an oral tradition"
+      },
+      {
+        "id": "community_question",
+        "custom_text": "one question inviting listeners to say which version of these myths they know, or which story they heard first"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one short line inviting them to follow the channel for the next retelling"
+      },
+      {
+        "id": "transition",
+        "custom_text": "move straight into chapter one, naming it"
+      }
+    ]
+  },
+  "visual_style_hint": "quiet mythic imagery — a river at dusk, a stone hall, a distant figure on a long road, a temple in morning light; painterly and spacious, one legible scene per frame, never a battle tableau",
+  "metadata_profile": {
+    "id": "retelling-youtube",
+    "label": "Retelling YouTube package",
+    "description": "A story-specific summary, a numbered chapter list, a sources paragraph, an adaptation note, a calm disclosure and focused hashtags.",
+    "description_section_ids": [
+      "hook",
+      "sources",
+      "cta",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 4000,
+    "title_max_length": 100,
+    "tag_count": 15
+  },
+  "production_kit": {
+    "id": "mythologies-before-us-kit",
+    "label": "Mythologies Before Us kit",
+    "description": "One lane for the channel: a feature-length retelling of related myths in self-contained chapters, with a two-line thumbnail label and no sleep claim anywhere else.",
+    "episode_profiles": [
+      {
+        "id": "retold-myths",
+        "label": "Retold myths",
+        "description": "The channel's only lane: related myths grouped into self-contained chapters, told as a retelling, at 120, 150 or 180 minutes.",
+        "idea_axis_value": "retold myths",
+        "title_policy": "Name the myth, the figure or the cycle and its tradition. Never add a sleep label to the title.",
+        "forbidden_title_suffixes": [
+          " | FOR SLEEP",
+          "FOR SLEEP",
+          "for sleep"
+        ],
+        "thumbnail_policy": "The thumbnail's only text is one block of two lines: the topic on the first line, then FOR SLEEP on the second — exactly those words, upper case, nothing else added.",
+        "metadata_policy": "Describe the myths, the tradition and the sources. The description never claims the episode is for sleep; only the thumbnail may say FOR SLEEP."
+      }
+    ]
+  },
+  "narrative_rules": [
+    "Each chapter is one self-contained myth, one figure's story or one small group of related myths from a named tradition; a listener joining mid-video needs no earlier chapter.",
+    "Name the tradition and the region. Never blend Greek, Norse, Egyptian, Mesopotamian, Indian, Chinese, Japanese, Mesoamerican, West African, Celtic or Khmer material into one pantheon.",
+    "Say what the retelling follows and where versions differ; never harmonise variants into a single smooth story.",
+    "Keep violence at a distance: the consequence matters more than the blow.",
+    "Present myth as myth, never as documented history or as evidence for a real event.",
+    "No ranking of gods or cultures, no 'the most powerful', and no claim that one tradition is older or truer than another."
+  ],
+  "title_rules": [
+    "Name the myth, the figure or the cycle and the tradition it comes from; specific and plain.",
+    "Shapes that work: 'The Wrath of Achilles', 'Theseus and the Minotaur', 'Three Norse Stories of the End', 'The Descent of Persephone'.",
+    "Use the names the tradition gives; no modern slang, no all-caps, no question marks.",
+    "No 'epic', no battle words, and no sleep label — the title never says or implies FOR SLEEP."
+  ],
+  "script_structure": {
+    "default_chapter_count": 10,
+    "chapter_count_range": [
+      6,
+      16
+    ],
+    "default_length_minutes": 150,
+    "length_minutes_range": [
+      120,
+      180
+    ],
+    "duration_presets": [
+      120,
+      150,
+      180
+    ],
+    "default_words_per_minute": 140,
+    "chapters_independent": true,
+    "pacing_arc": [
+      "Chapter 1: the best-known story of the set, retold plainly, so the listener learns the rhythm of the telling.",
+      "Chapters 2–{lastButOne}: one myth, or one small group of related myths, per chapter, varying tradition and mood between neighbours; every chapter stands alone.",
+      "Chapter {last}: close on the quietest story of the set — no summary of the video and no tease."
+    ],
+    "additional_rules": [
+      "Every chapter is self-contained: a listener who starts at chapter nine needs no earlier chapter.",
+      "Each chapter names the tradition, the region and the kind of source the retelling follows — an epic, a hymn cycle, a chronicle, an oral tradition — in its first lines.",
+      "No padding: a chapter is as long as its stories need. Never stretch a myth to reach a length, never repeat a scene to fill time, and never re-summarise what the listener has already heard.",
+      "One continuous arc is not required. Group related myths by tradition, by theme or by figure, and say in the opening which group this video tells.",
+      "Where versions differ, say so plainly and give more than one; never invent the missing link between them.",
+      "Write for the ear: full sentences, no lists read aloud, no tables of names.",
+      "Chapter headings use Arabic numbers only (Chapter 1, Chapter 2…) followed by the story's plain name.",
+      "Violence stays a consequence, not a spectacle: say what the source says in one plain sentence and move to what followed.",
+      "End each chapter on its own last image, with no moral and no forward tease."
+    ]
+  },
+  "compatible_topic_pack_ids": [],
+  "example_topics": [
+    "The Wrath of Achilles: The Iliad",
+    "The Odyssey: The Long Road Home",
+    "Theseus and the Minotaur",
+    "The Twelve Labours of Heracles",
+    "Jason and the Golden Fleece",
+    "The Descent of Persephone",
+    "The Epic of Gilgamesh",
+    "Three Norse Stories Before Ragnarök",
+    "The Egyptian Journey of the Dead",
+    "The Ramayana: The Exile of Rama",
+    "Anansi the Trickster: Three Tales",
+    "Izanagi and Izanami: The First Death",
+    "Quetzalcoatl and the Making of People",
+    "The Voyage of Mael Duin"
+  ],
+  "recommended_visual_style_ids": [],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.medallion-portrait"
+  ],
+  "idea_axes": [
+    {
+      "id": "episode-profile",
+      "label": "Episode profile",
+      "values": [
+        "retold myths"
+      ]
+    },
+    {
+      "id": "tradition",
+      "label": "Tradition",
+      "values": [
+        "Greek",
+        "Norse",
+        "Egyptian",
+        "Mesopotamian",
+        "Indian",
+        "Chinese",
+        "Japanese",
+        "Mesoamerican",
+        "West African",
+        "Celtic",
+        "Khmer"
+      ]
+    },
+    {
+      "id": "story-shape",
+      "label": "Story shape",
+      "values": [
+        "a single god",
+        "a hero's whole life",
+        "a trickster",
+        "a creation story",
+        "a descent",
+        "a long journey",
+        "an epic cycle"
+      ]
+    },
+    {
+      "id": "theme",
+      "label": "Theme",
+      "values": [
+        "hospitality",
+        "fate",
+        "kinship",
+        "the underworld",
+        "the harvest",
+        "the sea",
+        "war and its aftermath"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "mythic",
+      "patient",
+      "reverent",
+      "storybook",
+      "ancient",
+      "clear-eyed",
+      "grounded",
+      "spacious",
+      "curious",
+      "unhurried"
+    ],
+    "theme": [
+      "fate",
+      "hospitality",
+      "descent",
+      "creation",
+      "kinship",
+      "seasons",
+      "the sea",
+      "the underworld",
+      "the long road",
+      "memory",
+      "inheritance"
+    ],
+    "genre": [
+      "mythology",
+      "myth retelling",
+      "folklore",
+      "epic cycle",
+      "myth documentary"
+    ],
+    "keyword": [
+      "river",
+      "hall",
+      "oracle",
+      "temple",
+      "underworld",
+      "harvest",
+      "sea",
+      "trickster",
+      "hero",
+      "goddess",
+      "god",
+      "creation",
+      "journey",
+      "star",
+      "ancestor",
+      "offering",
+      "legend",
+      "cycle",
+      "epic",
+      "variant"
+    ]
+  },
+  "audience_hint": "Listeners who want myths retold properly and at length: the popular Greek cycles first, then the other great traditions of the world, with the sources and the differences between versions kept in view.",
+  "evidence_expectations": [
+    "Name the tradition and the kind of source (epic, hymn cycle, chronicle, oral tradition) in plain language.",
+    "Where versions differ, say so plainly and keep both; never resolve a disagreement by invention.",
+    "Never treat a myth as a historical record or as proof of a real event.",
+    "Invent no dialogue, scene or detail the sources do not carry; where the telling fills a gap, say that it is the telling's own choice.",
+    "Do not cite a text, author or manuscript by shelfmark, and never invent a quotation from one."
+  ],
+  "idea_system_prompt_role": "You generate ideas for a mythology retelling channel. Each idea retells one myth, one figure's story or one epic cycle from a named tradition, told plainly as a retelling in self-contained chapters. Popular myths that listeners already half-know come first, Greek favoured, then Norse, Egyptian, Mesopotamian, Indian, Chinese, Japanese, Mesoamerican, West African, Celtic and Khmer material. Never a battle recap, and never a pantheon that merges traditions.",
+  "idea_guidance_text": "Name the tradition and the story. Lean toward the myths most listeners already half-know — Greek first, then the other popular cycles — but that is a lean, not a rule: a less familiar myth with a strong story is worth an idea too. Each video groups related myths into self-contained chapters; one continuous arc is not required. The title and the idea say plainly that this is a retelling.",
+  "script_context": "This is a mythology retelling, narrated in English. Each chapter retells one myth, or one small group of related myths, from one named tradition, in order, and says plainly what it follows and where versions differ. It is a retelling: no invented scenes, no invented dialogue, no claim that the story happened. Long videos carry several myths as self-contained chapters rather than one arc. A Khmer edition is a separate channel with its own narration, not a track of this one; it keeps each myth's sources and variants, and the same scene visuals where they fit.",
+  "script_system_prompt_role": "You are a reteller of myths writing feature-length documentaries. You name the tradition, say what the telling follows, tell the story in order, give the variants where they matter, keep violence at a distance, and never present a myth as history. You never hook, never tease, never rank gods or cultures, and never merge traditions into one pantheon.",
+  "script_closing_hint": "End on the story's own last image and what the tradition did with it afterwards. No moral, no tease.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Myth-teller",
+      "description": "Warm and measured storytelling: restrained drama at the turning points, subtle emotion, no volume jumps, and no sleep commands — the story carries its own weight at its own pace."
+    },
+    {
+      "id": "b",
+      "label": "Museum guide",
+      "description": "Measured and precise, naming the tradition and the source the retelling follows; warmth kept quiet, drama held back, no volume jumps."
+    },
+    {
+      "id": "c",
+      "label": "Fireside reteller",
+      "description": "Warm and companionable, the cadence of a long story by lamplight; emotion implied rather than performed, and no volume jumps."
+    },
+    {
+      "id": "d",
+      "label": "Scholar of the old stories",
+      "description": "Quiet and measured, naming the version and never lecturing; drama restrained, emotion subtle, no volume jumps."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Name the story, the figure or the cycle and its tradition; plain, specific and literary.",
+    "Rotate across shapes: 'The {Figure} and the {Thing}', 'The {Story}: {What It Is}', 'Three {Tradition} Stories of {Theme}', 'The {Journey} of {Hero}', '{Figure}: The {Turning Point}'.",
+    "No question marks, no all-caps, no 'epic', no battle words.",
+    "Never put a sleep label in the title — only the thumbnail says FOR SLEEP."
+  ],
+  "title_length_range": [
+    4,
+    14
+  ],
+  "logline_shape_rules": [
+    "One or two sentences naming the tradition, the myths retold and what the retelling follows.",
+    "No stakes, no promise, no question."
+  ],
+  "logline_sentence_range": [
+    1,
+    2
+  ],
+  "theme_shape_rules": [
+    "Pick 2–4 mythic or atmospheric keywords (fate, river, descent).",
+    "Avoid battle keywords (war, vengeance, slaughter)."
+  ],
+  "theme_count_range": [
+    2,
+    4
+  ],
+  "structural_variety": "vary-all",
+  "metadata_title_style_hint": "Story-specific and plain — the myth, the figure or the cycle and its tradition; no sleep label and never clickbait.",
+  "metadata_title_hook_rules": [
+    "Name the myth and its tradition up front.",
+    "No urgency, all-caps, questions or hype, and no sleep label in the title."
+  ],
+  "metadata_tags_hook_rules": [
+    "Mix broad mythology keywords with the episode's actual tradition and figures.",
+    "Each tag 1–4 words, no '#' prefix."
+  ],
+  "metadata_description": {
+    "voice_guidance": "Plain and unhurried. State what is retold and where it comes from, list the chapters, and never promise anything the video does not do.",
+    "description_shape_rules": [
+      "First line: a one- or two-sentence synopsis — which myths are retold tonight and which tradition they come from.",
+      "Then the chapter list, one story per line, numbered in Arabic numerals.",
+      "Then a Sources paragraph: name in plain language what each retelling follows — an epic, a hymn cycle, a chronicle, an oral tradition — and say that versions differ between sources and between tellings.",
+      "Then an Adaptation note: one or two sentences on what this retelling changes — what is compressed, reordered or left out — and that no scene or dialogue has been invented beyond the sources.",
+      "Close with the calm disclosure and a few hashtags; no urgency, no sleep promises and no 'FOR SLEEP' in the description."
+    ],
+    "cta_shape": "One quiet line inviting them to listen to another retelling; never 'like and subscribe now'."
+  },
+  "youtube_tags_hint": [
+    "mythology retold",
+    "greek mythology stories",
+    "world mythology",
+    "mythology documentary",
+    "greek myths",
+    "norse mythology",
+    "egyptian mythology",
+    "mesopotamian myths",
+    "the iliad",
+    "the odyssey",
+    "epic of gilgamesh",
+    "indian mythology",
+    "japanese mythology",
+    "folklore and myth",
+    "long mythology video",
+    "mythology full story"
+  ],
+  "creative_profiles": [
+    "narrative",
+    "balanced"
+  ],
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.medallion-portrait"
+}

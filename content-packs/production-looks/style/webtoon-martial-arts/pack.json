@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.webtoon-martial-arts",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release. A Korean martial-arts webtoon (murim manhwa) look authored as a standalone Visual Style: bold black ink outlines, flat cel colour with one hard-edged shadow tone, short ink hatching in the shadows, exaggerated expressive faces, dramatic camera and softly painted out-of-focus backgrounds, with a render-ready style bible, a provider-friendly negative prompt, searchable metadata, and the owner's three-preview set (hero, a quiet wide scene with no figure, and the hardest legal case for the style).",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.webtoon-martial-arts",
+    "family": "com.storystudio.family.style.webtoon-martial-arts"
+  },
+  "dependencies": []
+}

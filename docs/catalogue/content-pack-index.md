@@ -1,17 +1,18 @@
 # Content pack index
 
 Regenerate: `npm run content-pack:index` (runs `node scripts/content-packs/index.mjs`)
-Generated: 2026-10-26
+Generated: 2026-10-28
 
 One line per pack item, deduped to the highest version per `pack_id`. Format:
 
 `- <id> | <name> | <collection dir> | <category/tags or axis> | <description> | v<version> <lifecycle>`
 
-Totals — 229 items. Visual styles: 58, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 26, Metadata formulas: 13, Topic packs: 45.
+Totals — 233 items. Visual styles: 60, Lettering styles: 50, Thumbnail recipes: 37, Series formulas: 27, Metadata formulas: 13, Topic packs: 46.
 
-## Visual styles (58)
+## Visual styles (60)
 
 - com.storystudio.style.academic-classical-oil | Academic Classical Oil | royal-history/style/academic-classical-oil | Illustration | The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped… | v1.0.0 active
+- com.storystudio.style.academic-classical-oil-v2 | Academic Classical Oil | rebuilt/style/academic-classical-oil-v2-v1.0.1 | Illustration | The calm in-video scene look for sleep narration — nineteenth-century academic oil painting of marble interiors, draped… | v1.0.1 active
 - com.storystudio.style.anime-cel | Anime Cel | production-looks/style/anime-cel-v1.0.1 | Digital | Modern anime cel-shading — clean lineart, flat cel light, expressive and vivid. | v1.0.1 active
 - com.storystudio.style.archival-documentary-reconstruction | Archival Documentary Reconstruction | paid/archival-ledger/style/archival-documentary-reconstruction-v1.0.1 | Realistic | Period-photographic historical reconstructions with restrained sepia monochrome, authentic materials, and aged document… | v1.0.1 active
 - com.storystudio.style.baroque-mythological-sky | Baroque Mythological Sky | baroque-myth/style/baroque-mythological-sky | Illustration | Gods and heroes carried on banks of cloud in the high-baroque manner — long diagonal compositions, drapery billowing in… | v1.0.0 active
@@ -68,6 +69,7 @@ Totals — 229 items. Visual styles: 58, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.style.warm-cosy-interior-illustration | Warm Cosy Interior Illustration | custom-looks/style/warm-cosy-interior-illustration | Illustration | A warm painted interior at lamplight — soft digital brushwork in browns, cream and amber with muted greens, inviting an… | v1.0.0 active
 - com.storystudio.style.watercolor-storybook | Watercolor Storybook | free-starters/style/watercolor-storybook-v1.0.1 | Illustration | Soft children’s-book watercolor — gentle washes, rounded shapes, warm and cozy. | v1.0.1 active
 - com.storystudio.style.waxy-outline-cartoon | Waxy Outline Cartoon | free-starters/style/waxy-outline-cartoon-v1.0.1 | Explainer | Bold curiosity-cartoon art with waxy imperfect outlines, saturated flats, and instantly readable reactions. | v1.0.1 active
+- com.storystudio.style.webtoon-martial-arts | Webtoon Martial Arts | production-looks/style/webtoon-martial-arts | Digital | Modern Korean martial-arts webtoon — bold ink outlines, flat cel colour with one hard shadow tone, expressive comic fac… | v1.0.0 active
 - com.storystudio.style.whiteboard-doodle-explainer | Whiteboard Doodle Explainer | production-looks/style/whiteboard-doodle-explainer-v1.0.1 | Explainer | Hand-drawn whiteboard doodles — stick figures, big expressive faces, one idea per frame. | v1.0.1 active
 
 ## Lettering styles (50)
@@ -163,7 +165,7 @@ Totals — 229 items. Visual styles: 58, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.thumbnail.two-option-criteria-split | Two-Option Criteria Split | thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split | Explainer | A balanced present-time comparison of two alternatives under shared visible criteria. | v1.0.0 active
 - com.storystudio.thumbnail.two-tone-hook-portrait-right | Two-Tone Hook, Portrait Right | royal-history/thumbnail/two-tone-hook-portrait-right | History | A two-word hook sits bottom-left in two colours — the first word white, the second gold — while a portrait cut at the c… | v1.0.0 active
 
-## Series formulas (26)
+## Series formulas (27)
 
 - com.storystudio.formula.a-world-before-us | A World Before Us | illustrated-history/formula/a-world-before-us | Calm documentary | Illustrated histories of one subject at a time — a city, a region, a people, an empire, a war or a route — told slowly… | v1.0.0 active
 - com.storystudio.formula.ancient-humans | How Did Ancient Humans…? | free-starters/formula/ancient-humans-v1.0.3 | Evidence & systems | Long-form prehistoric and early-human survival explainers. Each episode asks one concrete question about how ancient hu… | v1.0.3 active
@@ -180,6 +182,7 @@ Totals — 229 items. Visual styles: 58, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.formula.human-behavior-explained | Human Behavior, Explained | free-starters/formula/human-behavior-explained-v1.0.3 | Mind & ideas | Pop-psychology narration — habits, cognitive biases, relationships, mental health, focus, anxiety, ADHD, stoicism-as-CB… | v1.0.3 active
 - com.storystudio.formula.illustrated-history-for-sleep | Illustrated History for Sleep | illustrated-history/formula/illustrated-history-for-sleep-v1.0.1 | Calm documentary | Illustrated histories of one subject at a time — a city, a region, a people, an empire, a war or a route — told slowly… | v1.0.1 active
 - com.storystudio.formula.khmer-folk-horror | Khmer Folk Horror Anthology | free-starters/formula/khmer-folk-horror | Folk horror | Khmer cautionary tales, local legends and restless spirits, told as independent chapters with atmosphere rather than go… | v1.0.0 active
+- com.storystudio.formula.mythologies-before-us | Mythologies Before Us | mythologies-before-us/formula/mythologies-before-us | Myth retelling | Feature-length retellings of the world's myths, grouped into self-contained chapters. Each chapter retells one myth, on… | v1.0.0 active
 - com.storystudio.formula.mythology-for-sleep | Mythology for Sleep | free-starters/formula/mythology-for-sleep-v1.0.1 | Calm documentary | Pantheons and epic cycles told as slow, settling stories rather than dramatic action. Each chapter takes one figure, on… | v1.0.1 active
 - com.storystudio.formula.natural-world-explained | Natural World, Explained | free-starters/formula/natural-world-explained-v1.0.3 | Living world | Wildlife subjects from across the whole animal kingdom, vertebrates and invertebrates alike — mammals, birds, reptiles,… | v1.0.3 active
 - com.storystudio.formula.pastoral-scripture | Pastoral Scripture | legacy-niche-conversion/formula/pastoral-scripture-v1.0.1 | Faith | A scripture-anchored pastoral Formula with two explicit modes: a concise daily reflection that teaches one takeaway, an… | v1.0.1 active
@@ -208,7 +211,7 @@ Totals — 229 items. Visual styles: 58, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.metadata-formula.quote-led | Quote Led | paid/metadata-formulas/editorial | A pulled quote first, then commentary, context, and attribu… | Opens on a line pulled from the episode itself, then earns it. A quote, a paragraph of commentary, the context that mak… | v1.0.0 active
 - com.storystudio.metadata-formula.signed-note | Signed Note | paid/metadata-formulas/editorial | A short first-person note to the viewer, signed off at the… | The description as a short note from the person who made it, in first person, ending in a sign-off. No headers, no bloc… | v1.0.0 active
 
-## Topic packs (45)
+## Topic packs (46)
 
 - com.storystudio.topic.ancient-humans-environments | Environments & Climate | legacy-niche-conversion/topic/ancient-humans-environments | - | How prehistoric people adapted routines and bodies to radically different landscapes. | v1.0.0 active
 - com.storystudio.topic.ancient-humans-social-life | Social Life & Belief | legacy-niche-conversion/topic/ancient-humans-social-life | - | Family, cooperation, conflict, ritual, identity, and daily rhythms in small communities. | v1.0.0 active
@@ -255,3 +258,4 @@ Totals — 229 items. Visual styles: 58, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.topic.rulers-and-dynasties | Rulers and Dynasties | royal-history/topic/rulers-and-dynasties-v1.0.1 | royal biography, royal history, sleep history | Fifty royal subjects — monarchs, emperors, dynasties, usurpers and pretenders across every era and region — each with t… | v1.0.1 active
 - com.storystudio.topic.the-real-story-is-worse | The Real Story Is Worse | midnight-archives/topic/the-real-story-is-worse | dark history, debunked legends, famous frauds | Fifty dark-history subjects — the original fairy tales, the asylums, the alchemists, the secret societies, the ghost sh… | v1.0.0 active
 - com.storystudio.topic.turning-points-and-eras | Turning Points and Eras | illuminated-history/topic/turning-points-and-eras | turning points, eras told entire, sleep compilation | Fifty whole stories from the long middle of history: the purchases and partitions that moved whole territories on paper… | v1.0.0 active
+- com.storystudio.topic.wars-treaties-world-order-v2 | Wars, Treaties & World Order | rebuilt/topic/wars-treaties-world-order-v2-v1.0.1 | war history, diplomacy, treaties, world order, geopolitics | Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order. | v1.0.1 active
