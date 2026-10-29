@@ -136,7 +136,7 @@ describe('4. Caption animation with fun fonts in 9:16 safe area', () => {
 
   test('every vertical preset is anchored in the 9:16 safe area clear of Shorts chrome', () => {
     const allShortsPresets = BUILT_IN_SUBTITLE_PRESETS.filter(p => p.id.startsWith('shorts-vertical'))
-    assert.equal(allShortsPresets.length, 6, '2 from phase 1 + 4 from phase 2')
+    assert.equal(allShortsPresets.length, 8, '2 from phase 1 + 4 from phase 2 + 2 hand-lettered')
 
     for (const p of allShortsPresets) {
       const placement = p.style.placement

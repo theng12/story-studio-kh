@@ -432,6 +432,10 @@ const FONT_CHOICES = [
   'Futura', 'Gill Sans', 'Optima', 'Georgia', 'Times New Roman', 'Palatino',
   'Baskerville', 'Verdana', 'Tahoma', 'Trebuchet MS', 'Courier New', 'Menlo',
   'Impact', 'American Typewriter', 'Marker Felt', 'Chalkboard SE', 'Comic Sans MS',
+  // Bundled with the app and resolved through the same `:fontsdir=` root as the
+  // burn, so this is the face every Mac has — listed here so a hand-lettered
+  // caption names a real family instead of reading as an unknown "Custom…".
+  'Patrick Hand',
 ]
 const CUSTOM_FONT = '__custom__'
 

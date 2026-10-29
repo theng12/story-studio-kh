@@ -2642,6 +2642,26 @@
       "closure_group": "intentional-free-baseline"
     },
     {
+      "legacy_key": "subtitle:shorts-vertical-hand-lettered",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "shorts-vertical-hand-lettered"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
+      "legacy_key": "subtitle:shorts-vertical-hand-lettered-highlight",
+      "disposition": "retained-free-builtin",
+      "source": "electron/server/contracts/subtitle-presets.ts",
+      "target": {
+        "kind": "runtime-subtitle",
+        "id": "shorts-vertical-hand-lettered-highlight"
+      },
+      "closure_group": "intentional-free-baseline"
+    },
+    {
       "legacy_key": "subtitle:shorts-vertical-moul",
       "disposition": "retained-free-builtin",
       "source": "electron/server/contracts/subtitle-presets.ts",
