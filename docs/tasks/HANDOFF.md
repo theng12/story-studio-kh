@@ -33,7 +33,7 @@ What to know:
   4. Built-in visual styles / user style packs behind `style-aliases.ts`.
   Each step must keep `npm run content-pack:registry -- validate`, the alias read-time tests and `legacy-migration-dispositions.json` in step with the files removed; removing a source without updating its table fails those tests by design.
 - **Shop pricing does not apply.** The new packs carry entitlement `sku`/`family` ids for Store identity only; Story Studio has no shop, so nothing here is priced, charged or refunded. Library removal is a download-page action, not a return.
-- **Environment notes**: the 1.4.368 gate was running on this Mac throughout the merge, so no Story test suite was started here until it ended; static checks only up to that point. `/tmp/regreq-369/` held the re-applied registry request files — disposable.
+- **Environment notes**: the 1.4.368 gate held this Mac throughout the merge, so nothing but static checks ran until it finished (gate-c: exit 0, 10/10). After it ended, every test file the six branches added or changed was run focused, plus directly related existing files: backend 20/20 changed files (225 tests + 45 suites) and 39 related-file files, content-pack 9 files / 85 tests, frontend changed files 214 tests and a second related batch 78 tests — all green. Each `--only` run prints its own PARTIAL RUN banner; none of these is the release gate, which is still to run, along with the DMG. `/tmp/regreq-369/` held the re-applied registry request files — disposable.
 
 ## 1.4.368 — nine branches in one release (2026-10-29, release/1.4.368 from main dabfff14)
 
