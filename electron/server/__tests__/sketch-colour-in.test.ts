@@ -32,6 +32,9 @@ import {
   type SketchRevealSetting, type SketchRevealType,
 } from '../lib/sketch-reveal.js'
 import { sceneClipStaleReason } from '../services/scene-media-checkpoint.js'
+import {
+  readSceneAnalysis, SCENE_ANALYSIS_DIR, SCENE_ANALYSIS_SCHEMA, visionFromEntry,
+} from '../services/scene-analysis.js'
 import { useTempDataDir } from './_helpers.js'
 
 const sha = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex')
@@ -151,6 +154,38 @@ test('a Line clip is only stale when the episode actually moves to Colour it in'
   assert.equal(await sceneClipStaleReason(colourClip, context(file, settings({ style: 'colour', mix: [] }))), null)
 })
 
+// ── What the generator hands the helper: a map only when this scene has one ──
+
+test('a depth map the app cannot use is no map: a flat entry or a vanished file gives no mask', async () => {
+  const analysis = path.join(dir, SCENE_ANALYSIS_DIR)
+  await fs.mkdir(analysis, { recursive: true })
+  const picture = await still(PNG, 'analysis-still.png')
+  const entry = (depth: Record<string, unknown> | null) => ({
+    schema: SCENE_ANALYSIS_SCHEMA, scene_id: 'scene-1', image_sha256: sha(PNG), analysed_at: '2026-10-29T00:00:00.000Z',
+    models: {}, depth, subject: null, points: [], caption: '', segments: {}, regions: {},
+  })
+  const depth = { file: 'scene-1.depth.png', w: 8, h: 8, p5: 0, p50: 0.5, p95: 1, range: 1, usable: true }
+
+  // Flat: the analysis recorded the map but says it cannot separate a subject.
+  await fs.writeFile(path.join(analysis, 'scene-1.json'), JSON.stringify(entry({ ...depth, usable: false })))
+  const flat = await readSceneAnalysis(dir, 'scene-1', picture)
+  assert.equal(visionFromEntry(dir, flat!).depthMap, null, 'a flat map is never passed to the colour reveal')
+
+  // Usable, but the file is gone: still no mask — the path alone is not a map.
+  await fs.writeFile(path.join(analysis, 'scene-1.json'), JSON.stringify(entry(depth)))
+  const gone = await readSceneAnalysis(dir, 'scene-1', picture)
+  assert.equal(visionFromEntry(dir, gone!).depthMap, null, 'a vanished map file is no map')
+
+  // Present: the map the helper is given, so the two assertions above are a real absence.
+  await fs.writeFile(path.join(analysis, 'scene-1.depth.png'), 'x')
+  const present = await readSceneAnalysis(dir, 'scene-1', picture)
+  assert.equal(visionFromEntry(dir, present!).depthMap, path.join(analysis, 'scene-1.depth.png'))
+
+  // A picture that changed since analysis is not this scene's analysis at all.
+  await fs.writeFile(picture, Buffer.concat([PNG, Buffer.from('changed')]))
+  assert.equal(await readSceneAnalysis(dir, 'scene-1', picture), null)
+})
+
 // ── The real helper (only where it is built) ────────────────────────────────
 
 const helper = process.platform === 'darwin' && process.arch === 'arm64' ? resolveSceneClipHelperPath() : null
@@ -261,3 +296,48 @@ realTest('Colour it in renders its exact frame budget, deterministically, and en
   const plain = await render('colour-no-mask', 'colour')
   assert.notDeepEqual(frameDigests(plain), digests, 'the subject phase changes the clip when a depth map exists')
 })
+
+/** The same render through the real helper, keeping what it says on stderr about the colour plan. */
+async function renderCapturing(name: string, mask?: string): Promise<{ digests: string[]; stderr: string }> {
+  const output = path.join(work, `${name}.mp4`)
+  let stderr = ''
+  await renderSketchDraw({ kind: 'sketch', input: sourcePath, output, width: W, height: H, fps: FPS,
+    frames: FRAMES, hold_frames: HOLD, paper: '#ffffff', pen: { mode: 'none' }, reveal: 'colour', ...(mask ? { mask } : {}) },
+    { run: async (_placeholder, jobPath) => {
+      // The seam's path is a placeholder; the real helper is the one under test.
+      const result = spawnSync(helper!, ['--job', jobPath], { encoding: 'utf8' })
+      stderr = result.stderr ?? ''
+      return { code: result.status, stderr }
+    } })
+  return { digests: frameDigests(output), stderr }
+}
+
+realTest('a missing, unreadable or flat depth map means no subject phase — and still a full clip', async () => {
+  const plain = await renderCapturing('bad-mask-none')
+  assert.match(plain.stderr, /subject phase off/, 'no map at all: no subject phase')
+  assert.equal(plain.digests.length, FRAMES)
+
+  const unreadable = path.join(work, 'not-an-image.png')
+  await fs.writeFile(unreadable, 'this is not a PNG')
+  const flat = path.join(work, 'flat-depth.png')
+  await sharp({ create: { width: W, height: H, channels: 3, background: '#808080' } }).greyscale().png().toFile(flat)
+
+  for (const [name, mask, reason] of [
+    ['missing', path.join(work, 'no-such-depth.png'), /could not be decoded/],
+    ['unreadable', unreadable, /could not be decoded/],
+    ['flat', flat, /too flat/],
+  ] as const) {
+    const { digests, stderr } = await renderCapturing(`bad-mask-${name}`, mask)
+    assert.equal(digests.length, FRAMES, `${name}: the clip is still the whole frame budget`)
+    assert.match(stderr, /subject phase off/, `${name}: the reveal invents no subject`)
+    assert.match(stderr, reason, `${name}: the helper says why`)
+    assert.deepEqual(digests, plain.digests, `${name}: an unusable map renders exactly the no-map clip`)
+  }
+
+  // Control: the real gradient from the test above does switch the subject phase on — so the
+  // equalities above mean "no phase", not "the mask argument is ignored".
+  const gradient = await renderCapturing('bad-mask-gradient', depthPath)
+  assert.match(gradient.stderr, /subject phase on/)
+  assert.notDeepEqual(gradient.digests, plain.digests)
+})
+
