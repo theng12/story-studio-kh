@@ -640,8 +640,8 @@ export async function generateAudio(job: Job): Promise<void> {
     && req.delivery_instruction.trim().length > 0
   if (askedForDeliveryInstruction && !deliveryInstruction) {
     throw new Error(
-      `${ttsModel.display_name} does not take a delivery/emotion instruction. `
-      + 'Clear it on the Audio tab, or choose a voice model whose catalogue row publishes it.',
+      `${ttsModel.display_name} ${ttsModel.delivery_instruction?.max_length === 0 ? 'publishes a 0-character delivery/emotion limit, so none can be sent' : 'does not take a delivery/emotion instruction'}. `
+      + 'Clear it on the Audio tab, or choose a voice model that takes one.',
     )
   }
   const deliveryRequest = deliveryInstruction ? { deliveryInstruction } : {}
