@@ -186,6 +186,49 @@ describe('Sketch Draw provenance without a recorded image stamp', () => {
     // A rule with no episode context at all still refuses to guess, exactly as before.
     assert.equal(await sceneClipStaleReason(plan.scenes[0]), CANNOT_VERIFY)
   })
+
+  /**
+   * AGENTS §4: ownership is a fact to look up, not a string to parse. `image_path` is a stored
+   * string that can name another scene's or another episode's file, and its bytes may even match
+   * the clip's receipt (a copied translation, a hand-edited plan). The proof must hash the scene's
+   * OWN image, resolved by `scene.id` the way the renderer draws it — never the stored path.
+   */
+  test('a clip is proven against its own image, never the stored image_path', async () => {
+    const fixture = await productionEpisode('Provenance foreign path')
+    const plan = JSON.parse(await fs.readFile(fixture.planPath, 'utf8'))
+    const ownOne = path.join(fixture.imagesDir, 'ep0018-scene-0001.png')
+    const ownTwo = path.join(fixture.imagesDir, 'ep0018-scene-0002.png')
+    const foreignEpisodeImage = path.join(data.dir, 'another-episode', 'ep0018-scene-0001.png')
+    await fs.mkdir(path.dirname(foreignEpisodeImage), { recursive: true })
+    await fs.writeFile(foreignEpisodeImage, CHANGED_PNG)
+
+    // Scene 1's stored `image_path` names ANOTHER episode's image whose bytes match the clip's
+    // receipt; its own image (by id) does not. Trusting the string would call a foreign picture the
+    // clip's source and accept a clip that was not drawn from this scene's image.
+    plan.scenes[0].image_path = foreignEpisodeImage
+    plan.scenes[0].clip_source_image_sha256 = sha(CHANGED_PNG)
+    // The mirror: scene 2's stored path names ANOTHER scene's image, while its own image matches.
+    plan.scenes[1].image_path = ownOne
+    plan.scenes[1].clip_source_image_sha256 = sha(CHANGED_PNG)
+    await fs.writeFile(fixture.planPath, JSON.stringify(plan, null, 1))
+
+    // The fixture proves the trap is real: the stored paths match the receipts, the own images do not.
+    assert.equal(sha(await fs.readFile(foreignEpisodeImage)), plan.scenes[0].clip_source_image_sha256)
+    assert.notEqual(sha(await fs.readFile(ownOne)), plan.scenes[0].clip_source_image_sha256)
+    assert.equal(sha(await fs.readFile(ownTwo)), plan.scenes[1].clip_source_image_sha256)
+    assert.notEqual(sha(await fs.readFile(ownOne)), plan.scenes[1].clip_source_image_sha256)
+
+    assert.equal(await sceneClipStaleReason(plan.scenes[0], auditContext(fixture)), 'stale source image',
+      'a foreign file matching the receipt must never prove this clip')
+    assert.equal(await sceneClipStaleReason(plan.scenes[1], auditContext(fixture)), null,
+      'the scene’s own matching image proves it, whatever its stored path says')
+
+    // The same verdict through the real completion audit, which resolves each scene's own image.
+    const audit = await auditSceneClipCompletion(fixture.planPath,
+      ['ep0018-scene-0001', 'ep0018-scene-0002'], fixture.clipsDir, {}, auditContext(fixture))
+    assert.equal(audit.completed, 1)
+    assert.deepEqual(audit.invalid, ['ep0018-scene-0001 (stale source image)'])
+  })
 })
 
 describe('A resumed Sketch Draw batch after a restart', () => {
