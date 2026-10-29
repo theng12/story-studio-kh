@@ -123,14 +123,28 @@ export async function readFinalReview(finalPath: string, known?: FinalReviewFile
 export async function writeFinalReview(
   finalPath: string,
   decision: FinalReviewDecision,
-  expected?: { size: number; mtime_ms: number },
+  expected?: { size: number; mtime_ms: number; ino: number },
 ): Promise<FinalReviewState> {
   const now = await statFinal(finalPath)
   if (!now) throw Object.assign(new Error('The finished video is not there any more. Refresh and try again.'), { statusCode: 409 })
-  if (expected && (now.size !== expected.size || Math.trunc(now.mtime_ms) !== Math.trunc(expected.mtime_ms))) {
+  // The identity the reviewer was looking at, all of it. Size and modified time
+  // catch an in-place rewrite; the INODE catches an atomic replacement that
+  // happens to keep the same size and modified time (a `cp -p`/import over the
+  // path). Without the inode the mark could be stamped on bytes nobody watched.
+  if (expected && (now.size !== expected.size
+    || Math.trunc(now.mtime_ms) !== Math.trunc(expected.mtime_ms)
+    || now.ino !== expected.ino)) {
     throw Object.assign(new Error('The finished video changed while you were reviewing it. Watch the new one, then mark it.'), { statusCode: 409 })
   }
   const sha256 = await resolveYouTubeSourceRevisionCached(finalPath)
+  // The hash reads the whole file over a window that can be seconds long. If the
+  // file moved or was rewritten underneath it, the digest would not describe the
+  // metadata recorded below — refuse rather than store an identity that never
+  // existed together (§6).
+  const after = await statFinal(finalPath)
+  if (!after || !sameFileSignature(now, after)) {
+    throw Object.assign(new Error('The finished video changed while its mark was being saved. Watch it again, then mark it.'), { statusCode: 409 })
+  }
   const record = {
     schema_version: 1 as const,
     decision,
@@ -163,13 +177,22 @@ export async function listFinalReviews(options: { slug?: string } = {}): Promise
   const finals: FinalReviewItem[] = []
 
   await Promise.all(selected.map(async (project) => {
-    const config = await pm.getConfig(project.slug).catch(() => null)
+    // A read that THREW is not "review is off": a corrupt or unreadable
+    // config must say so rather than read as the owner's own choice (§6).
+    let config: ProjectConfig | null = null
+    let configError = ''
+    try {
+      config = await pm.getConfig(project.slug)
+    } catch (error: any) {
+      configError = `Could not read this channel's review setting: ${error?.message || error}`
+    }
     const channel: FinalReviewChannel = {
       slug: project.slug,
       name: project.name,
       review_enabled: finalReviewEnabled(config),
       final_count: 0,
     }
+    if (configError) channel.error = configError
     channels.push(channel)
     if (!channel.review_enabled) return
 
@@ -200,6 +223,7 @@ export async function listFinalReviews(options: { slug?: string } = {}): Promise
           stream_url: finalStreamUrl(project.slug, code, now),
           size: now.size,
           mtime_ms: now.mtime_ms,
+          ino: now.ino,
           review: await readFinalReview(finalPath, now),
         }
       } catch {

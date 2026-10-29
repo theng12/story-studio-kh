@@ -161,7 +161,7 @@ async function decide(item: FinalReviewItem, decision: FinalReviewDecision): Pro
     // mark onto bytes nobody saw.
     const result = await post<{ review: FinalReviewState }>(
       `/review/finals/${encodeURIComponent(item.channel_slug)}/${encodeURIComponent(item.episode_code)}`,
-      { decision, expected_size: item.size, expected_mtime_ms: item.mtime_ms },
+      { decision, expected_size: item.size, expected_mtime_ms: item.mtime_ms, expected_ino: item.ino },
     )
     item.review = result.review
   } catch (e: any) {

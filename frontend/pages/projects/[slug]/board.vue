@@ -544,13 +544,20 @@ onMounted(() => { void loadMusicOptions() })
 const finalReviews = ref<Record<string, FinalReviewState>>({})
 const finalReviewOn = ref(false)
 async function loadFinalReviews(): Promise<void> {
+  // §4 — a channel change while this read is in flight must not paint the
+  // previous channel's marks onto this board. Capture the channel this request
+  // was for, and drop the response (and any error) if it has since changed —
+  // the same guard Video Assembly uses.
+  const requested = slug.value
   try {
-    const r = await get<FinalReviewListResponse>(`/review/finals?slug=${encodeURIComponent(slug.value)}`)
+    const r = await get<FinalReviewListResponse>(`/review/finals?slug=${encodeURIComponent(requested)}`)
+    if (slug.value !== requested) return
     finalReviewOn.value = (r?.channels || []).some(channel => channel.review_enabled)
     const marks: Record<string, FinalReviewState> = {}
     for (const item of r?.finals || []) marks[item.episode_code] = item.review
     finalReviews.value = marks
   } catch {
+    if (slug.value !== requested) return
     finalReviews.value = {}
     finalReviewOn.value = false
   }

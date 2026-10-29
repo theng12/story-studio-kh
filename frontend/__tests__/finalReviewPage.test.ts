@@ -82,6 +82,7 @@ function listWithFinal(review: Record<string, any>): ListFixture {
       stream_url: '/api/projects/demo/video-editor/final-video/EP0001?v=1760000000000-64',
       size: 64,
       mtime_ms: 1_760_000_000_000,
+      ino: 42,
       review,
     }],
     generated_at: '2026-10-29T00:00:00.000Z',
@@ -149,7 +150,7 @@ test('Approve sends one decision for that final and shows the mark', async () =>
     await flush()
     assert.deepEqual(calls.posts, [{
       url: '/review/finals/demo/EP0001',
-      body: { decision: 'approved', expected_size: 64, expected_mtime_ms: 1_760_000_000_000 },
+      body: { decision: 'approved', expected_size: 64, expected_mtime_ms: 1_760_000_000_000, expected_ino: 42 },
     }])
     assert.match(host.textContent || '', /Approved/)
   } finally { app.unmount() }
@@ -162,7 +163,7 @@ test('Needs changes sends the other decision', async () => {
     await flush()
     assert.deepEqual(calls.posts, [{
       url: '/review/finals/demo/EP0001',
-      body: { decision: 'needs_changes', expected_size: 64, expected_mtime_ms: 1_760_000_000_000 },
+      body: { decision: 'needs_changes', expected_size: 64, expected_mtime_ms: 1_760_000_000_000, expected_ino: 42 },
     }])
     assert.match(host.textContent || '', /Needs changes/)
   } finally { app.unmount() }

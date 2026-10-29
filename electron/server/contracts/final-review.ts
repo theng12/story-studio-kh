@@ -51,6 +51,12 @@ export interface FinalReviewItem {
   stream_url: string
   size: number
   mtime_ms: number
+  /**
+   * Inode of the final when it was listed. The POST echoes it back so an atomic
+   * replacement that keeps the same size and modified time is still refused
+   * (see `writeFinalReview`), not just an in-place rewrite.
+   */
+  ino: number
   review: FinalReviewState
 }
 

@@ -32,6 +32,7 @@ const { buildRequireSession } = await import('../lib/auth-session.js')
 const { getServerModeConfig } = await import('../lib/server-mode.js')
 const { router: authRouter } = await import('../routes/auth.js')
 const { router: videoRouter } = await import('../routes/video.js')
+const { router: reviewRouter } = await import('../routes/final-review.js')
 
 const USERNAME = 'owner'
 const PASSWORD = 'correct horse battery staple'
@@ -48,6 +49,7 @@ app.use('/api', buildRequireSession(() => getServerModeConfig()?.auth, {
   onKeyUsed: settings.recordAutomationKeyUse,
 }))
 app.use('/api', videoRouter)
+app.use('/api', reviewRouter)
 
 const PEER = '100.64.0.40'
 
@@ -139,4 +141,11 @@ test('a tampered cookie is not a session', async () => {
   const cookie = await sessionCookie()
   const tampered = `${cookie.slice(0, -2)}xx`
   await request(app).get(finalUrl()).set('x-test-peer', PEER).set('Cookie', tampered).expect(401)
+})
+
+test('the review list is behind the same session gate', async () => {
+  await request(app).get('/api/review/finals').set('x-test-peer', PEER).expect(401)
+  const cookie = await sessionCookie()
+  const ok = await request(app).get('/api/review/finals').set('x-test-peer', PEER).set('Cookie', cookie).expect(200)
+  assert.ok(Array.isArray(ok.body.finals), 'a signed-in session lists finals (empty here)')
 })

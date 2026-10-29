@@ -35,7 +35,7 @@ router.get('/review/finals', async (req, res) => {
 })
 
 // POST /api/review/finals/:slug/:code
-//   { decision: 'approved' | 'needs_changes', expected_size, expected_mtime_ms }
+//   { decision: 'approved' | 'needs_changes', expected_size, expected_mtime_ms, expected_ino }
 //
 // `expected_*` is the file the reviewer was looking at. When the final on disk
 // no longer matches it, the mark is refused rather than stamped onto bytes
@@ -49,8 +49,9 @@ router.post('/review/finals/:slug/:code', async (req, res) => {
     }
     const expectedSize = req.body?.expected_size
     const expectedMtime = req.body?.expected_mtime_ms
-    if (typeof expectedSize !== 'number' || typeof expectedMtime !== 'number') {
-      return res.status(400).json({ detail: 'expected_size and expected_mtime_ms are required so a mark names the file that was reviewed.' })
+    const expectedIno = req.body?.expected_ino
+    if (typeof expectedSize !== 'number' || typeof expectedMtime !== 'number' || typeof expectedIno !== 'number') {
+      return res.status(400).json({ detail: 'expected_size, expected_mtime_ms and expected_ino are required so a mark names the exact file that was reviewed.' })
     }
     const config = await pm.getConfig(slug)
     if (!config) return res.status(404).json({ detail: 'Project not found' })
@@ -62,7 +63,7 @@ router.post('/review/finals/:slug/:code', async (req, res) => {
     const paths = await resolveEpisodePaths(slug, code, title)
     const finalPath = await findYouTubeSourceVideoPath(paths, slug, code, title)
     if (!finalPath) return res.status(404).json({ detail: `${code} has no finished final video to review.` })
-    res.json({ ok: true, review: await writeFinalReview(finalPath, decision, { size: expectedSize, mtime_ms: expectedMtime }) })
+    res.json({ ok: true, review: await writeFinalReview(finalPath, decision, { size: expectedSize, mtime_ms: expectedMtime, ino: expectedIno }) })
   } catch (e: any) {
     respondWithError(res, e, 'Could not save the review mark')
   }

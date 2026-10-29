@@ -133,6 +133,25 @@ describe('the mark is tied to one exact final', () => {
     assert.notEqual(review.current?.mtime_ms, review.recorded.mtime_ms)
   })
 
+  test('goes stale when a same-size, same-modified-time replacement lands (new inode)', async () => {
+    const channel = await makeChannel('Same Size Channel', { review: true })
+    const before = await fs.stat(channel.finalPath)
+    await writeFinalReview(channel.finalPath, 'approved')
+    // An atomic replacement with identical size and modified time but a new inode:
+    // only the inode distinguishes it from the reviewed file.
+    const temp = path.join(path.dirname(channel.finalPath), 'replacement.tmp')
+    await fs.writeFile(temp, Buffer.alloc(before.size, 9))
+    await fs.utimes(temp, new Date(before.mtimeMs), new Date(before.mtimeMs))
+    await fs.rename(temp, channel.finalPath)
+    const replaced = await fs.stat(channel.finalPath)
+    assert.equal(replaced.size, before.size)
+    assert.equal(Math.trunc(replaced.mtimeMs), Math.trunc(before.mtimeMs))
+    assert.notEqual(replaced.ino, before.ino)
+
+    const review = await readFinalReview(channel.finalPath)
+    assert.equal(review.state, 'stale')
+  })
+
   test('goes stale, with no "current", when the final is gone', async () => {
     const channel = await makeChannel('Missing Channel', { review: true })
     await writeFinalReview(channel.finalPath, 'approved')
@@ -186,6 +205,19 @@ describe('review is off unless a channel turns it on', () => {
 
     // Nothing was written beside the final by a read.
     await assert.rejects(() => fs.access(finalReviewSidecarPath(channel.finalPath)))
+  })
+
+  test('a channel whose review setting could not be read says so instead of reading as off', async () => {
+    const channel = await makeChannel('Corrupt Config Channel', { review: true })
+    // A corrupt config.json makes the config read THROW; that must not look
+    // like the owner turned review off (AGENTS.md §6).
+    await fs.writeFile(path.join(pm.getProjectDir(channel.slug)!, 'config.json'), '{ not json')
+
+    const listed = await listFinalReviews({ slug: channel.slug })
+    assert.equal(listed.channels.length, 1)
+    assert.equal(listed.channels[0].review_enabled, false)
+    assert.match(String(listed.channels[0].error || ''), /could not read this channel's review setting/i)
+    assert.deepEqual(listed.finals, [])
   })
 
   test('turning it on lists the final; turning it off hides it and keeps the mark', async () => {
@@ -262,7 +294,7 @@ describe('HTTP routes', () => {
     const stat = await fs.stat(channel.finalPath)
     const saved = await request(app)
       .post(`/api/review/finals/${channel.slug}/${channel.code}`)
-      .send({ decision: 'approved', expected_size: stat.size, expected_mtime_ms: stat.mtimeMs })
+      .send({ decision: 'approved', expected_size: stat.size, expected_mtime_ms: stat.mtimeMs, expected_ino: stat.ino })
       .expect(200)
     assert.equal(saved.body.review.state, 'current')
     assert.equal(saved.body.review.identity.path, channel.finalPath)
@@ -279,7 +311,7 @@ describe('HTTP routes', () => {
 
     const refused = await request(app)
       .post(`/api/review/finals/${channel.slug}/${channel.code}`)
-      .send({ decision: 'approved', expected_size: stat.size, expected_mtime_ms: stat.mtimeMs })
+      .send({ decision: 'approved', expected_size: stat.size, expected_mtime_ms: stat.mtimeMs, expected_ino: stat.ino })
       .expect(409)
     assert.match(refused.body.detail, /changed while you were reviewing/)
     await assert.rejects(() => fs.access(finalReviewSidecarPath(channel.finalPath)))
@@ -288,9 +320,51 @@ describe('HTTP routes', () => {
     const fresh = await fs.stat(channel.finalPath)
     await request(app)
       .post(`/api/review/finals/${channel.slug}/${channel.code}`)
-      .send({ decision: 'approved', expected_size: fresh.size, expected_mtime_ms: fresh.mtimeMs })
+      .send({ decision: 'approved', expected_size: fresh.size, expected_mtime_ms: fresh.mtimeMs, expected_ino: fresh.ino })
       .expect(200)
     assert.equal((await readFinalReview(channel.finalPath)).state, 'current')
+  })
+
+  test('POST refuses a same-size rewrite whose modified time moved', async () => {
+    const channel = await makeChannel('Route Same Size Channel', { review: true })
+    const before = await fs.stat(channel.finalPath)
+    // Rewrite in place to the SAME size, then move the modified time forward.
+    await fs.writeFile(channel.finalPath, Buffer.alloc(before.size, 3))
+    const later = new Date(before.mtimeMs + 60_000)
+    await fs.utimes(channel.finalPath, later, later)
+    const now = await fs.stat(channel.finalPath)
+    assert.equal(now.size, before.size)
+    assert.notEqual(Math.trunc(now.mtimeMs), Math.trunc(before.mtimeMs))
+
+    const refused = await request(app)
+      .post(`/api/review/finals/${channel.slug}/${channel.code}`)
+      // size + inode still match the file; only the modified time is stale.
+      .send({ decision: 'approved', expected_size: before.size, expected_mtime_ms: before.mtimeMs, expected_ino: now.ino })
+      .expect(409)
+    assert.match(refused.body.detail, /changed while you were reviewing/)
+    await assert.rejects(() => fs.access(finalReviewSidecarPath(channel.finalPath)))
+  })
+
+  test('POST refuses a replacement of the same size and modified time with a new inode', async () => {
+    const channel = await makeChannel('Route Same Inode Channel', { review: true })
+    const before = await fs.stat(channel.finalPath)
+    // Atomic replacement: identical size and modified time, different inode.
+    const temp = path.join(path.dirname(channel.finalPath), 'route-replacement.tmp')
+    await fs.writeFile(temp, Buffer.alloc(before.size, 4))
+    await fs.utimes(temp, new Date(before.mtimeMs), new Date(before.mtimeMs))
+    await fs.rename(temp, channel.finalPath)
+    const replaced = await fs.stat(channel.finalPath)
+    assert.equal(replaced.size, before.size)
+    assert.equal(Math.trunc(replaced.mtimeMs), Math.trunc(before.mtimeMs))
+    assert.notEqual(replaced.ino, before.ino)
+
+    const refused = await request(app)
+      .post(`/api/review/finals/${channel.slug}/${channel.code}`)
+      // size + mtime + path all match the file the reviewer loaded; only the inode differs.
+      .send({ decision: 'approved', expected_size: before.size, expected_mtime_ms: before.mtimeMs, expected_ino: before.ino })
+      .expect(409)
+    assert.match(refused.body.detail, /changed while you were reviewing/)
+    await assert.rejects(() => fs.access(finalReviewSidecarPath(channel.finalPath)))
   })
 
   test('POST needs the identity the reviewer was looking at', async () => {
@@ -306,7 +380,7 @@ describe('HTTP routes', () => {
     const stat = await fs.stat(channel.finalPath)
     await request(app)
       .post(`/api/review/finals/${channel.slug}/${channel.code}`)
-      .send({ decision: 'approved', expected_size: stat.size, expected_mtime_ms: stat.mtimeMs })
+      .send({ decision: 'approved', expected_size: stat.size, expected_mtime_ms: stat.mtimeMs, expected_ino: stat.ino })
       .expect(409)
     await assert.rejects(() => fs.access(finalReviewSidecarPath(channel.finalPath)))
   })
@@ -325,7 +399,7 @@ describe('HTTP routes', () => {
     await fs.rm(channel.finalPath)
     await request(app)
       .post(`/api/review/finals/${channel.slug}/${channel.code}`)
-      .send({ decision: 'approved', expected_size: stat.size, expected_mtime_ms: stat.mtimeMs })
+      .send({ decision: 'approved', expected_size: stat.size, expected_mtime_ms: stat.mtimeMs, expected_ino: stat.ino })
       .expect(404)
   })
 })
