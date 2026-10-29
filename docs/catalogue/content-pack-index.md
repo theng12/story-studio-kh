@@ -1,7 +1,7 @@
 # Content pack index
 
 Regenerate: `npm run content-pack:index` (runs `node scripts/content-packs/index.mjs`)
-Generated: 2026-10-28
+Generated: 2026-10-29
 
 One line per pack item, deduped to the highest version per `pack_id`. Format:
 
@@ -69,7 +69,7 @@ Totals — 233 items. Visual styles: 60, Lettering styles: 50, Thumbnail recipes
 - com.storystudio.style.warm-cosy-interior-illustration | Warm Cosy Interior Illustration | custom-looks/style/warm-cosy-interior-illustration | Illustration | A warm painted interior at lamplight — soft digital brushwork in browns, cream and amber with muted greens, inviting an… | v1.0.0 active
 - com.storystudio.style.watercolor-storybook | Watercolor Storybook | free-starters/style/watercolor-storybook-v1.0.1 | Illustration | Soft children’s-book watercolor — gentle washes, rounded shapes, warm and cozy. | v1.0.1 active
 - com.storystudio.style.waxy-outline-cartoon | Waxy Outline Cartoon | free-starters/style/waxy-outline-cartoon-v1.0.1 | Explainer | Bold curiosity-cartoon art with waxy imperfect outlines, saturated flats, and instantly readable reactions. | v1.0.1 active
-- com.storystudio.style.webtoon-martial-arts | Webtoon Martial Arts | production-looks/style/webtoon-martial-arts | Digital | Modern Korean martial-arts webtoon — bold ink outlines, flat cel colour with one hard shadow tone, expressive comic fac… | v1.0.0 active
+- com.storystudio.style.webtoon-martial-arts | Webtoon Martial Arts | standalone-looks/style/webtoon-martial-arts | Digital | Modern Korean martial-arts webtoon — bold ink outlines, flat cel colour with one hard shadow tone, expressive comic fac… | v1.0.0 active
 - com.storystudio.style.whiteboard-doodle-explainer | Whiteboard Doodle Explainer | production-looks/style/whiteboard-doodle-explainer-v1.0.1 | Explainer | Hand-drawn whiteboard doodles — stick figures, big expressive faces, one idea per frame. | v1.0.1 active
 
 ## Lettering styles (50)

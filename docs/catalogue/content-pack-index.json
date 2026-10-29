@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-28T23:34:07.907Z",
+  "generated": "2026-10-29T06:19:03.033Z",
   "count": 233,
   "items": [
     {
@@ -2316,7 +2316,7 @@
       "kind": "visual-style",
       "id": "com.storystudio.style.webtoon-martial-arts",
       "name": "Webtoon Martial Arts",
-      "collection_dir": "production-looks/style/webtoon-martial-arts",
+      "collection_dir": "standalone-looks/style/webtoon-martial-arts",
       "axis": "Digital",
       "description": "Modern Korean martial-arts webtoon — bold ink outlines, flat cel colour with one hard shadow tone, expressive comic fac…",
       "version": "1.0.0",

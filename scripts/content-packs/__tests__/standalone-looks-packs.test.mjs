@@ -1,10 +1,11 @@
 /**
- * The Standalone Looks collection — three Visual Styles that belong to NO
- * channel: two authored 2026-09-08 and a third added 2026-09-09. Both declare `compatible_formula_ids: []`, exactly as
+ * The Standalone Looks collection — four Visual Styles that belong to NO
+ * channel: two authored 2026-09-08, a third added 2026-09-09 and a fourth added
+ * 2026-10-29. All four declare `compatible_formula_ids: []`, exactly as
  * the shipped Production Looks and Storytelling Looks styles do, because a look
  * sold on its own must not claim a Series Formula it was never authored
- * against. Two reservation batches (revisions 188 and 267), two receipts, three
- * lifecycle promotions (revisions 194-195 and 272).
+ * against. Three reservation batches (revisions 188, 267 and 352), three
+ * receipts, four lifecycle promotions (revisions 194-195, 272 and 353).
  *
  * Both declare preview assets. They did not exist when this file was first
  * written — this control Mac does not perform production image generation, and
@@ -21,8 +22,18 @@
  * second owner authorisation, through the same `gpt-image-2` lane, under the
  * run id `standalone-looks-previews-2`. All three of its previews landed on the
  * first submission and are committed, so its assertions are no longer
- * conditional either: all nine previews in this collection must now exist,
- * decode to contract, and carry their digests in PREVIEW-PROVENANCE.md.
+ * conditional either: all nine previews of the first three looks in this
+ * collection must now exist, decode to contract, and carry their digests in
+ * PREVIEW-PROVENANCE.md.
+ *
+ * The fourth look, Webtoon Martial Arts, was authored and rendered on
+ * 2026-10-29 on this Mac's own Studio Hub (the owner's single local exception
+ * for drawing art-style pack previews), on Qwen Image 2.1 turbo, one job in
+ * flight at a time. It is the same contract as its siblings — three distinct
+ * 1672x941 WebPs in provenance — and it names its own preview files rather than
+ * the `-hero`/`-scene`/`-face` spelling the first three use; those names are as
+ * authored, not a rule of the collection, so the contract below is read from a
+ * per-look file list rather than rebuilt from the slug.
  *
  * The three-preview rule for Visual Styles, set by the owner on 2026-09-08 and
  * applied to Royal History first, is asserted here too, so a later edit cannot
@@ -40,25 +51,47 @@ const ROOT = join(process.cwd(), 'content-packs/standalone-looks')
 const REGISTRY = join(process.cwd(), 'content-packs/authoring-registry.json')
 const FIRST_PASS_RECEIPT = 'authoring:ada3557c18e5d2448acef9340b5472a0e6eee39da2de7f3b70c3f2121931713f'
 const SECOND_PASS_RECEIPT = 'authoring:ebd1b5e09ab64e5b5f921bd6a8630358bcb69c8efb2fbcbf5739418e740c0754'
+/** Authored, rendered and registered on 2026-10-29 on this Mac's own Studio Hub. */
+const HUB_PASS_RECEIPT = 'authoring:dd8b9f217d28cea898f4eeaad442d3007dc6ca2bcc88448c9ecf61a423913577'
 /** Rendered on 2026-09-08; their previews must be on disk. */
 const RENDERED_SLUGS = ['inked-fable-cartoon', 'scratchy-editorial-poster']
 /** Authored 2026-09-09; rendered 2026-09-09 under `standalone-looks-previews-2`. */
 const PENDING_SLUGS = ['flat-colour-stick-scenes']
-const SLUGS = [...RENDERED_SLUGS, ...PENDING_SLUGS]
+/** Authored 2026-10-29; rendered 2026-10-29 on this Mac's own Studio Hub. */
+const HUB_SLUGS = ['webtoon-martial-arts']
+const SLUGS = [...RENDERED_SLUGS, ...PENDING_SLUGS, ...HUB_SLUGS]
 const RECEIPTS = Object.fromEntries([
   ...RENDERED_SLUGS.map(slug => [slug, FIRST_PASS_RECEIPT]),
   ...PENDING_SLUGS.map(slug => [slug, SECOND_PASS_RECEIPT]),
+  ...HUB_SLUGS.map(slug => [slug, HUB_PASS_RECEIPT]),
 ])
 
 const PACKS = SLUGS.map(slug => ({ kind: 'visual-style', seg: 'style', slug, docs: ['visual-style.json'] }))
 
+/**
+ * Each look's three preview files, in the owner's order: the hero (the card
+ * image, `preview_assets[0]`), a quiet wide scene with no figure, and the
+ * hardest legal case for the style.
+ */
+const PREVIEW_FILES = {
+  'inked-fable-cartoon': ['hero', 'scene', 'face'].map(kind => `inked-fable-cartoon-${kind}.webp`),
+  'scratchy-editorial-poster': ['hero', 'scene', 'face'].map(kind => `scratchy-editorial-poster-${kind}.webp`),
+  'flat-colour-stick-scenes': ['hero', 'scene', 'face'].map(kind => `flat-colour-stick-scenes-${kind}.webp`),
+  'webtoon-martial-arts': [
+    'webtoon-martial-arts.webp',
+    'webtoon-martial-arts-scene.webp',
+    'webtoon-martial-arts-hardest.webp',
+  ],
+}
+
 const previewsOf = slugs => Object.fromEntries(slugs.flatMap(slug =>
-  ['hero', 'scene', 'face'].map(kind => [`style/${slug}/assets/${slug}-${kind}.webp`, [1672, 941]])))
+  PREVIEW_FILES[slug].map(name => [`style/${slug}/assets/${name}`, [1672, 941]])))
 
 /** Preview path (collection-relative) → required dimensions. */
 const PREVIEW_CONTRACT = previewsOf(SLUGS)
 const RENDERED_PREVIEWS = previewsOf(RENDERED_SLUGS)
 const PENDING_PREVIEWS = previewsOf(PENDING_SLUGS)
+const HUB_PREVIEWS = previewsOf(HUB_SLUGS)
 
 async function json(path) { return JSON.parse(await readFile(path, 'utf8')) }
 async function exists(path) { return stat(path).then(() => true, () => false) }
@@ -108,7 +141,7 @@ test('every Standalone Looks pack is an authored, receipt-bound standalone sourc
   }
 })
 
-test('all three looks are sold with no channel attached', async () => {
+test('every look is sold with no channel attached', async () => {
   for (const slug of SLUGS) {
     const doc = await json(join(ROOT, `style/${slug}/content/visual-style.json`))
     assert.deepEqual(doc.compatible_formula_ids, [],
@@ -116,14 +149,11 @@ test('all three looks are sold with no channel attached', async () => {
   }
 })
 
-test('all three looks declare three previews — hero, empty scene, and hardest case', async () => {
+test('all four looks declare three previews — hero, empty scene, and hardest case', async () => {
   for (const slug of SLUGS) {
     const doc = await json(join(ROOT, `style/${slug}/content/visual-style.json`))
-    assert.deepEqual(doc.preview_assets, [
-      `assets/${slug}-hero.webp`,
-      `assets/${slug}-scene.webp`,
-      `assets/${slug}-face.webp`,
-    ], `${slug} declares the three-preview set the owner asked for`)
+    assert.deepEqual(doc.preview_assets, PREVIEW_FILES[slug].map(name => `assets/${name}`),
+      `${slug} declares the three-preview set the owner asked for`)
   }
 })
 
@@ -215,6 +245,15 @@ test('the third look\'s three previews landed on 2026-09-09 and are accounted fo
   }
 })
 
+test('the fourth look\'s three previews were rendered on 2026-10-29 and are accounted for', async () => {
+  const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
+  for (const [rel, size] of Object.entries(HUB_PREVIEWS)) {
+    assert.ok(await exists(join(ROOT, rel)),
+      `${rel} is declared by the fourth look and must be committed`)
+    await assertPreview(rel, size, provenance)
+  }
+})
+
 test('the provenance record states why the render was held, how it was run, which jobs ran it, and that the subjects are original', async () => {
   const provenance = await readFile(join(ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   for (const evidence of [
@@ -242,8 +281,9 @@ test('the provenance record states why the render was held, how it was run, whic
   assert.equal(bodies.length, prompts.length, 'every prompt has exactly one body')
   // The second pass is its own run id with its own three-prompt body, which is
   // what keeps it from overwriting the first pass's six files.
-  assert.ok(Buffer.byteLength(JSON.stringify(bodies.slice(RENDERED_SLUGS.length * 3))) < 16 * 1024,
-    'the second-pass request body stays under the 16 KiB cap')
+  assert.ok(Buffer.byteLength(JSON.stringify(bodies.slice(
+    RENDERED_SLUGS.length * 3, (RENDERED_SLUGS.length + PENDING_SLUGS.length) * 3))) < 16 * 1024,
+  'the second-pass request body stays under the 16 KiB cap')
 })
 
 test('the stick-figure look is rough-lined, unshaded, fully furnished, and deadpan', async () => {

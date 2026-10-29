@@ -7093,7 +7093,7 @@
     },
     {
       "revision": 352,
-      "receipt_ref": "authoring:6259c9378381399fe92c860138d93ec13292342dd82a8638ddb00be8b8565c9c",
+      "receipt_ref": "authoring:dd8b9f217d28cea898f4eeaad442d3007dc6ca2bcc88448c9ecf61a423913577",
       "request": {
         "expected_revision": 351,
         "coordinator": {
@@ -7110,7 +7110,7 @@
             "min_app_version": "{{MIN_APP_VERSION}}",
             "min_app_version_status": "release-bound",
             "kind": "visual-style",
-            "source_path": "content-packs/production-looks/style/webtoon-martial-arts",
+            "source_path": "content-packs/standalone-looks/style/webtoon-martial-arts",
             "status": "reserved",
             "dependencies": [],
             "stocking_proposal": {
@@ -12175,14 +12175,14 @@
     },
     {
       "revision": 353,
-      "transition_ref": "lifecycle:0bc3893b153c918f4a8b3638b9842d63fc97e23c636922424f47d0309f1a6445",
+      "transition_ref": "lifecycle:f780527587d2c56e0c07bc730144fa9c88bb16a43aa2d736823ef776d04828a5",
       "request": {
         "expected_revision": 352,
         "coordinator": {
           "task": "content-pack-authoring: Webtoon Martial Arts visual style",
           "branch": "content/webtoon-martial-arts-style-20261029"
         },
-        "receipt_ref": "authoring:6259c9378381399fe92c860138d93ec13292342dd82a8638ddb00be8b8565c9c",
+        "receipt_ref": "authoring:dd8b9f217d28cea898f4eeaad442d3007dc6ca2bcc88448c9ecf61a423913577",
         "pack_id": "com.storystudio.pack.style.webtoon-martial-arts",
         "version": "1.0.0",
         "changes": {
@@ -20302,7 +20302,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:6259c9378381399fe92c860138d93ec13292342dd82a8638ddb00be8b8565c9c",
+      "receipt_ref": "authoring:dd8b9f217d28cea898f4eeaad442d3007dc6ca2bcc88448c9ecf61a423913577",
       "pack_id": "com.storystudio.pack.style.webtoon-martial-arts",
       "item_id": "com.storystudio.style.webtoon-martial-arts",
       "version": "1.0.0",
@@ -20310,7 +20310,7 @@
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
       "kind": "visual-style",
-      "source_path": "content-packs/production-looks/style/webtoon-martial-arts",
+      "source_path": "content-packs/standalone-looks/style/webtoon-martial-arts",
       "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
