@@ -1336,6 +1336,22 @@ export async function generateAudioMerge(job: Job): Promise<void> {
       retry_hint: 'The invalid output will not count as complete. Retry after checking the source chapter audio.',
     })
 
+    // 1.4.368 — a translated episode's copied Scene Plan is still timed for the SOURCE language's
+    // narration. Now that this episode has its own chapter clock, retime it onto that narration.
+    // A refusal here is said plainly and left to Video Assembly to enforce (it refuses loudly); it
+    // does not undo a merge that succeeded.
+    try {
+      const { ensureTranslatedEpisodePlanRebased } = await import('../services/translation-timeline-rebase.js')
+      const rebased = await ensureTranslatedEpisodePlanRebased(project_slug, code)
+      if (rebased) {
+        job.output_lines.push(rebased.message)
+        for (const note of rebased.notes) job.output_lines.push(`Timeline: ${note}`)
+      }
+    } catch (error: any) {
+      job.output_lines.push(`⚠ The Scene Plan could not be retimed onto this narration: ${error?.message || error} `
+        + 'Video Assembly refuses this episode until it is retimed.')
+    }
+
     // A quality candidate is not "fixed" merely because the new chapter
     // bytes were selected.  The original mix must finish first, then its raw
     // candidate transcript can replace only the selected SRTs and rebuild the

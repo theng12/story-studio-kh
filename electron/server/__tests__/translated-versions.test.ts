@@ -27,6 +27,8 @@ import {
   buildChapterTranslationPrompt,
   buildIntroductionTranslationPrompt,
   buildTitleTranslationPrompt,
+  buildGlossaryPrompt,
+  parseGlossaryResponse,
   parseTranslatedChapter,
   parseTranslatedIntro,
   parseTranslatedTitle,
@@ -35,6 +37,7 @@ import {
   buildTranslateDownstreamChain,
   generateTranslateEpisode,
   resolveTranslationTarget,
+  readTranslationProvenance,
   TRANSLATION_SIDECAR,
 } from '../services/translation.js'
 import * as pm from '../services/project-manager.js'
@@ -64,22 +67,33 @@ const KH_TITLE = 'ប្រាសាទអង្គរវត្តដ៏អស�
 const KH_INTRO = 'សូមស្វាគមន៍មកកាន់អង្គរ ដែលជាត្បូងពេជ្រនៃចក្រភពខ្មែរ។'
 const KH_CH1 = '## Chapter 01: ថ្មនិងមេឃ\n\nនៅសតវត្សរ៍ទីដប់ពីរ ព្រះបាទសូរ្យវរ្ម័នបានចាប់ផ្តើមកសាងប្រាសាទអង្គរវត្ត។'
 const KH_CH2 = '## Chapter 02: គូទឹកសក្ការៈ\n\nនៅជុំវិញប្រាសាទមានកសិន្ធុដ៏ធំល្វឹងល្វើយ ដែលជះស្រមោលព្រះអាទិត្យរះយ៉ាងស្រស់ស្អាត។'
+/** The one per-episode glossary answer the mock model gives. */
+const GLOSSARY = 'Angkor Wat = អង្គរវត្ត\nSuryavarman = សូរ្យវរ្ម័ន'
+
+/**
+ * Is this the glossary-building call? Match the glossary prompt's OWN opening line, not the phrase
+ * "name glossary" — every chapter, introduction and title prompt now also carries the glossary
+ * block ("Name glossary — use EXACTLY these spellings"), so a broader test would answer them with
+ * the glossary itself.
+ */
+const isGlossaryCall = (system: string) => /preparing a name glossary/i.test(system)
 
 /**
  * The shape every translation prompt takes, answered with Khmer text. Counts
  * calls so the retry test can prove nothing was asked twice.
  */
 function khmerCaller(overrides: Record<string, string> = {}) {
-  const calls: string[] = []
-  const callAi = async (_model: string, _system: string, user: string): Promise<string> => {
-    calls.push(user)
+  const calls: Array<{ system: string; user: string }> = []
+  const callAi = async (_model: string, system: string, user: string): Promise<string> => {
+    calls.push({ system, user })
+    if (isGlossaryCall(system)) return overrides.glossary ?? GLOSSARY
     if (user.startsWith('Episode title:')) return overrides.title ?? KH_TITLE
     if (user.includes('Source Introduction Text:')) return overrides.intro ?? `# Introduction\n\n${KH_INTRO}`
     if (user.includes('Chapter 01')) return overrides.ch1 ?? KH_CH1
     if (user.includes('Chapter 02')) return overrides.ch2 ?? KH_CH2
     throw new Error(`Unexpected translation prompt: ${user}`)
   }
-  return { callAi, callsCount: () => calls.length }
+  return { callAi, calls: () => calls, callsCount: () => calls.length }
 }
 
 describe('Language pair validation', () => {
@@ -113,29 +127,72 @@ describe('Language pair validation', () => {
 })
 
 describe('Prompt construction', () => {
-  test('builds chapter translation prompt with heading and language rules', () => {
+  test('the chapter prompt adapts for a listener: same order, spoken register, no word-for-word mirroring', () => {
     const prompt = buildChapterTranslationPrompt(
       'en',
       'km',
       { number: 1, title: 'The Sacred Mountain', text: 'Long ago in the highlands, mist covered the green valleys.' },
       'Legend of Angkor',
     )
-    assert.ok(prompt.system.includes('English and Khmer'))
-    assert.ok(prompt.system.includes('## Chapter 01: <translated chapter title>'))
+    assert.ok(prompt.system.includes('English narration into Khmer'))
+    assert.match(prompt.system, /SAME ORDER/)
+    assert.match(prompt.system, /Do not mirror English word order/)
+    assert.match(prompt.system, /numbers, dates and years/)
+    assert.match(prompt.system, /warm storyteller Khmer/)
+    assert.match(prompt.system, /Add nothing\. Drop nothing\./)
+    assert.ok(prompt.system.includes('## Chapter 01: <adapted chapter title>'))
     assert.ok(prompt.system.includes('Khmer grammar, spacing, and punctuation (such as ។ and ៕)'))
     assert.ok(prompt.user.includes('Legend of Angkor'))
     assert.ok(prompt.user.includes('Chapter 01: The Sacred Mountain'))
     assert.ok(prompt.user.includes('mist covered the green valleys'))
   })
 
-  test('builds introduction translation prompt with # Introduction heading', () => {
+  test('the glossary is passed to every chapter, the introduction and the title', () => {
+    const glossary = [{ source: 'Angkor Wat', target: 'អង្គរវត្ត' }]
+    for (const prompt of [
+      buildChapterTranslationPrompt('en', 'km', { number: 1, title: 'T', text: 'x' }, 'E', glossary),
+      buildIntroductionTranslationPrompt('en', 'km', 'x', 'E', glossary),
+      buildTitleTranslationPrompt('en', 'km', 'E', glossary),
+    ]) {
+      assert.match(prompt.system, /Name glossary — use EXACTLY these spellings/)
+      assert.match(prompt.system, /- Angkor Wat = អង្គរវត្ត/)
+    }
+    assert.ok(!buildChapterTranslationPrompt('en', 'km', { number: 1, title: 'T', text: 'x' }).system.includes('Name glossary'),
+      'no glossary, no empty heading')
+  })
+
+  test('the glossary prompt asks for names only, in the one machine-readable form', () => {
+    const prompt = buildGlossaryPrompt('en', 'km', {
+      title: 'The Great Temple of Angkor',
+      chapters: [{ number: 1, title: 'Stone and Sky', text: 'King Suryavarman began building Angkor Wat.' }],
+    })
+    assert.match(prompt.system, /proper name and recurring term/)
+    assert.match(prompt.system, /<source spelling> = <target spelling>/)
+    assert.match(prompt.user, /Episode title: The Great Temple of Angkor/)
+    assert.match(prompt.user, /Chapter 01: Stone and Sky/)
+    assert.match(prompt.user, /King Suryavarman began building Angkor Wat/)
+  })
+
+  test('glossary answers parse into entries; prose and duplicates never become invented names', () => {
+    assert.deepEqual(parseGlossaryResponse(GLOSSARY), [
+      { source: 'Angkor Wat', target: 'អង្គរវត្ត' },
+      { source: 'Suryavarman', target: 'សូរ្យវរ្ម័ន' },
+    ])
+    assert.deepEqual(parseGlossaryResponse('none'), [])
+    assert.deepEqual(parseGlossaryResponse('Here is a glossary:\n- Angkor Wat = អង្គរវត្ត\n- angkor wat = អង្គរ'),
+      [{ source: 'Angkor Wat', target: 'អង្គរវត្ត' }], 'case-insensitive duplicates keep the first spelling')
+    assert.deepEqual(parseGlossaryResponse('Prose only, no entries.'), [])
+  })
+
+  test('the introduction prompt carries the same adaptation rule', () => {
     const prompt = buildIntroductionTranslationPrompt(
       'km',
       'en',
       'សូមស្វាគមន៍មកកាន់ដំណើររឿងព្រេងបុរាណ។',
       'រឿងនិទានខ្មែរ',
     )
-    assert.ok(prompt.system.includes('Khmer and English'))
+    assert.ok(prompt.system.includes('Khmer narration into English'))
+    assert.match(prompt.system, /SAME ORDER/)
     assert.ok(prompt.system.includes('# Introduction'))
     assert.ok(prompt.user.includes('រឿងនិទានខ្មែរ'))
   })
@@ -143,6 +200,7 @@ describe('Prompt construction', () => {
   test('builds the title prompt and parses a clean one-line answer', () => {
     const prompt = buildTitleTranslationPrompt('en', 'km', 'The Great Temple of Angkor')
     assert.ok(prompt.system.includes('Khmer'))
+    assert.match(prompt.system, /say aloud|says aloud|narrator would say aloud/)
     assert.ok(prompt.user.includes('Episode title: The Great Temple of Angkor'))
     assert.equal(parseTranslatedTitle(`"${KH_TITLE}"\n`), KH_TITLE)
     assert.equal(parseTranslatedTitle(`Title: ${KH_TITLE}`), KH_TITLE)
@@ -343,6 +401,31 @@ describe('End-to-end Translation Workflow (English ↔ Khmer)', () => {
     assert.equal(sidecar.source_slug, enSlug)
     assert.equal(sidecar.source_episode_id, sourceEpisodeId)
     assert.equal(sidecar.title_translated, true)
+    // The one per-episode name glossary is recorded with the model that built it (§1).
+    assert.deepEqual(sidecar.glossary.entries, [
+      { source: 'Angkor Wat', target: 'អង្គរវត្ត' },
+      { source: 'Suryavarman', target: 'សូរ្យវរ្ម័ន' },
+    ])
+    assert.equal(sidecar.glossary.built_with_model, 'mock-writing-v1')
+  })
+
+  test('every prompt of the episode carries the same glossary, and the order rule reaches the model', async () => {
+    // Re-read what the first run recorded: the same entries go to every prompt.
+    const targetPaths = await resolveEpisodePathsByCode(kmSlug, 'KH0001')
+    const sidecar = await readTranslationProvenance(targetPaths.episode_dir)
+    const entries = sidecar!.glossary!.entries
+    const chapter = buildChapterTranslationPrompt('en', 'km', { number: 1, title: 'Stone and Sky', text: 'x' }, 'Title', entries)
+    assert.match(chapter.system, /- Suryavarman = សូរ្យវរ្ម័ន/)
+    assert.match(chapter.system, /SAME ORDER/)
+    const intro = buildIntroductionTranslationPrompt('en', 'km', 'x', 'Title', entries)
+    assert.match(intro.system, /- Angkor Wat = អង្គរវត្ត/)
+    const title = buildTitleTranslationPrompt('en', 'km', 'Title', entries)
+    assert.match(title.system, /- Angkor Wat = អង្គរវត្ត/)
+    // The English direction is adapted by the same rule, not left as a word-for-word mirror.
+    const back = buildChapterTranslationPrompt('km', 'en', { number: 1, title: 'T', text: 'x' }, 'E', entries)
+    assert.match(back.system, /Khmer narration into English/)
+    assert.match(back.system, /SAME ORDER/)
+    assert.match(back.system, /warm storyteller English/)
   })
 
   test('a Retry keeps what was already translated and asks the model for nothing', async () => {
@@ -355,7 +438,7 @@ describe('End-to-end Translation Workflow (English ↔ Khmer)', () => {
       targetEpisodeId: 'KH0001',
       callAi,
     })
-    assert.equal(callsCount(), 0, 'nothing on disk should be translated again')
+    assert.equal(callsCount(), 0, 'nothing on disk should be translated again — and the recorded glossary is reused')
     assert.deepEqual(result.translatedChapters, [])
     assert.deepEqual(result.reusedChapters, [1, 2])
     assert.equal(result.hasIntro, true)
@@ -454,7 +537,8 @@ describe('End-to-end Translation Workflow (English ↔ Khmer)', () => {
   })
 
   test('translates Khmer episode back to English (km -> en)', async () => {
-    const englishCaller = async (_model: string, _system: string, user: string): Promise<string> => {
+    const englishCaller = async (_model: string, system: string, user: string): Promise<string> => {
+      if (isGlossaryCall(system)) return 'Angkor Wat = Angkor Wat'
       if (user.startsWith('Episode title:')) return 'The Great Temple of Angkor'
       if (user.includes('Chapter 01')) return '## Chapter 01: Stone and Sky\n\nIn the twelfth century, King Suryavarman began building Angkor Wat.'
       throw new Error(`Unexpected translation prompt: ${user}`)
@@ -591,7 +675,8 @@ describe('The translate_episode job', () => {
       sourceSlug: en.slug, sourceEpisodeId: 'EP0001', targetSlug: km.slug, model: 'mock-writing-v1',
     }, 'Job Source Episode')
 
-    const caller = async (_model: string, _system: string, user: string): Promise<string> => {
+    const caller = async (_model: string, system: string, user: string): Promise<string> => {
+      if (isGlossaryCall(system)) return 'Angkor = Angkor'
       if (user.startsWith('Episode title:')) return 'ចំណងជើងថ្មី'
       if (user.includes('Chapter 01')) return '## Chapter 01: មួយ\n\nជំពូកខ្លីមួយដើម្បីបកប្រែ។'
       throw new Error(`Unexpected prompt: ${user}`)

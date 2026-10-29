@@ -28,16 +28,52 @@ import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { getEffectiveFormat } from './format-loader.js'
 import { renameEpisodeFolderForTitleChange } from './episode-folder-title-sync.js'
 import { pipelineStepLabel } from '../lib/pipeline-continuation.js'
+import { isTextVariantFile, readSidecar } from './thumbnail-text-variants.js'
 import type { Job, ScenePlan } from '../models/types.js'
 
 /**
  * Provenance + resume state for a translated episode, written beside the
  * episode's own artifacts. `title_translated` is what stops a Retry from
- * translating (and re-renaming) the title a second time.
+ * translating (and re-renaming) the title a second time; `glossary` is the
+ * one per-episode name list every chapter was adapted with.
  */
 export const TRANSLATION_SIDECAR = 'translation.json'
 
-interface TranslationSidecar {
+export interface TranslationGlossaryEntry {
+  /** The name or term as the source narration says it. */
+  source: string
+  /** The spelling the target narration must use, everywhere, every time. */
+  target: string
+}
+
+export interface TranslationGlossary {
+  entries: TranslationGlossaryEntry[]
+  /** The model that built it — the user's own selection (§1), recorded for audit. */
+  built_with_model: string
+  built_at: string
+  /** Source characters sent to the model, and whether the script was capped to fit. */
+  source_characters: number
+  truncated: boolean
+}
+
+/** What the target episode's thumbnails are, and what still has to be done to them. */
+export interface TranslationThumbnailReuse {
+  /** Artwork copied from the source episode (never a headline variant). */
+  copied: string[]
+  /** `<stem>_text-<n>.png` variants found in the source and deliberately NOT copied. */
+  text_variants_skipped: string[]
+  /**
+   * True only when the source's own text-layer sidecars name this artwork as their text-free
+   * source. Nothing can inspect pixels, so "no variant exists" is reported as not proven.
+   */
+  clean_base_available: boolean
+  /** The target episode still needs its own headline before upload. */
+  needs_target_text: boolean
+  /** One sentence, fit to show a person. */
+  note: string
+}
+
+export interface TranslationProvenance {
   schema_version: 1
   source_slug: string
   source_episode_id: string
@@ -45,7 +81,13 @@ interface TranslationSidecar {
   target_language: 'en' | 'km'
   title_translated: boolean
   translated_at: string
+  /** The one per-episode name glossary; reused on Retry so no second paid call is made. */
+  glossary?: TranslationGlossary
+  thumbnails?: TranslationThumbnailReuse
 }
+
+/** The sidecar's historical name — kept so existing importers keep working. */
+export type TranslationSidecar = TranslationProvenance
 
 export interface ChapterToTranslate {
   number: number
@@ -99,6 +141,8 @@ export interface TranslateEpisodeResult {
   titleTranslated: boolean
   visualsReused: boolean
   scenePlanReused: boolean
+  /** What happened to the thumbnails — the source language's headline is never reused. */
+  thumbnails?: TranslationThumbnailReuse | null
 }
 
 /**
@@ -134,28 +178,131 @@ export function resolveTranslationLanguages(
 }
 
 /**
- * Construct prompts for translating a single chapter.
+ * How much source text the glossary pass is given. A long episode's script is
+ * capped rather than truncated silently: the prompt says so and the sidecar
+ * records it, so nobody has to guess why a late name is missing.
+ */
+export const GLOSSARY_MAX_TEXT_CHARS = 60_000
+
+const LANGUAGES: Record<'en' | 'km', string> = { en: 'English', km: 'Khmer' }
+
+/** The one instruction block every adaptation prompt shares. */
+function adaptationRules(sourceLanguage: 'en' | 'km', targetLanguage: 'en' | 'km'): string[] {
+  const sourceName = LANGUAGES[sourceLanguage]
+  const targetName = LANGUAGES[targetLanguage]
+  return [
+    `You adapt the ${sourceName} narration into ${targetName} for listeners — a storyteller, not a word-for-word translator.`,
+    `Adapt it so it sounds like a ${targetName} storyteller telling it aloud:`,
+    '- Keep every story beat, fact, name, source and variant statement, in the SAME ORDER. The pictures are timed to that order, so a reordered line moves a picture off its scene.',
+    `- Do not mirror ${sourceName} word order or idioms. Restructure sentences into natural spoken ${targetName}, and give an idiom's ${targetName} equivalent instead of a literal rendering.`,
+    `- Write numbers, dates and years the way a ${targetName} narrator says them aloud.`,
+    targetLanguage === 'km'
+      ? 'Use warm storyteller Khmer — the way someone tells a story to a friend, not bookish literary prose. Use proper Khmer grammar, spacing, and punctuation (such as ។ and ៕).'
+      : 'Use warm storyteller English — the way someone tells a story to a friend, not bookish written prose.',
+    'Add nothing. Drop nothing. Do not include markdown codeblocks (```), translator notes, explanations, or commentary.',
+  ]
+}
+
+/** The glossary as prompt lines, or an empty string when there is nothing to enforce. */
+export function formatGlossaryForPrompt(entries: TranslationGlossaryEntry[] | undefined): string {
+  const usable = (entries || []).filter(entry => entry?.source?.trim() && entry?.target?.trim())
+  if (!usable.length) return ''
+  return [
+    'Name glossary — use EXACTLY these spellings, everywhere, every time:',
+    ...usable.map(entry => `- ${entry.source.trim()} = ${entry.target.trim()}`),
+  ].join('\n')
+}
+
+/**
+ * The one per-episode glossary prompt (owner, 2026-10-28).
+ *
+ * Built before any chapter is adapted and passed to the chapters, the
+ * introduction and the title, so a god's name or a place's spelling does not
+ * change from chapter to chapter. One call per episode, through the model the
+ * user chose (§1).
+ */
+export function buildGlossaryPrompt(
+  sourceLanguage: 'en' | 'km',
+  targetLanguage: 'en' | 'km',
+  script: SourceEpisodeScript,
+): { system: string; user: string } {
+  const sourceName = LANGUAGES[sourceLanguage]
+  const targetName = LANGUAGES[targetLanguage]
+  const system = [
+    `You are preparing a name glossary for a ${targetName} spoken-narration adaptation of a ${sourceName} episode.`,
+    `List every proper name and recurring term a listener must hear spelled CONSISTENTLY: gods, people, places, dynasties, titles, festivals, texts, and recurring foreign terms.`,
+    `Give the source spelling and the ${targetName} spelling a narrator would say, one per line, in exactly this form:`,
+    '<source spelling> = <target spelling>',
+    'No numbering, no bullets, no commentary, no headings, no examples of your own.',
+    'If the episode has no proper names at all, reply with exactly: none',
+  ].join('\n')
+
+  const lines: string[] = []
+  if (script.title) lines.push(`Episode title: ${script.title}`)
+  if (script.intro?.text) lines.push('Introduction:', script.intro.text)
+  let used = lines.join('\n').length
+  const chapters: string[] = []
+  for (const chapter of script.chapters) {
+    const block = `Chapter ${String(chapter.number).padStart(2, '0')}: ${chapter.title}\n${chapter.text}`
+    if (used + block.length > GLOSSARY_MAX_TEXT_CHARS) {
+      chapters.push(`[the rest of the script was not sent: the glossary covers the first ${GLOSSARY_MAX_TEXT_CHARS} characters]`)
+      break
+    }
+    chapters.push(block)
+    used += block.length
+  }
+  const user = [lines.join('\n\n'), ...chapters].filter(Boolean).join('\n\n')
+  return { system, user }
+}
+
+/**
+ * Parse a glossary answer. Lines that are not `source = target` are ignored —
+ * a model that answers with prose yields an empty glossary, never invented
+ * entries. Case-insensitive duplicate source spellings keep the first.
+ */
+export function parseGlossaryResponse(raw: string, limit = 300): TranslationGlossaryEntry[] {
+  const text = String(raw || '')
+    .replace(/^```(?:\w+)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+  if (/^\s*none\s*\.?\s*$/i.test(text)) return []
+  const seen = new Set<string>()
+  const entries: TranslationGlossaryEntry[] = []
+  for (const line of text.split(/\r?\n/)) {
+    const cleaned = line.trim().replace(/^[-*•\d.)\s]+/, '').trim()
+    if (!cleaned) continue
+    const match = /^(.+?)\s*(?:=|→|—|\t)\s*(.+)$/.exec(cleaned)
+    if (!match) continue
+    const source = match[1]!.trim().replace(/^["'“”]+|["'“”]+$/g, '')
+    const target = match[2]!.trim().replace(/^["'“”]+|["'“”]+$/g, '')
+    if (!source || !target) continue
+    const key = source.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    entries.push({ source, target })
+    if (entries.length >= limit) break
+  }
+  return entries
+}
+
+/**
+ * Construct prompts for adapting a single chapter into spoken narration.
  */
 export function buildChapterTranslationPrompt(
   sourceLanguage: 'en' | 'km',
   targetLanguage: 'en' | 'km',
   chapter: { number: number; title: string; text: string },
   episodeTitle?: string,
+  glossary?: TranslationGlossaryEntry[],
 ): { system: string; user: string } {
-  const sourceName = sourceLanguage === 'km' ? 'Khmer' : 'English'
-  const targetName = targetLanguage === 'km' ? 'Khmer' : 'English'
   const chNumStr = String(chapter.number).padStart(2, '0')
+  const glossaryBlock = formatGlossaryForPrompt(glossary)
 
   const system = [
-    `You are an expert translator specializing in natural narrative storytelling between ${sourceName} and ${targetName}.`,
-    `Translate the provided chapter from ${sourceName} into ${targetName}.`,
+    ...adaptationRules(sourceLanguage, targetLanguage),
     'Maintain the exact chapter structure:',
-    `- First line must be the chapter heading: ## Chapter ${chNumStr}: <translated chapter title>`,
-    '- Follow with the translated narration paragraphs.',
-    targetLanguage === 'km'
-      ? 'Write natural, literary Khmer prose suitable for audio voiceover narration. Use proper Khmer grammar, spacing, and punctuation (such as ។ and ៕).'
-      : 'Write natural, engaging English prose suitable for audio voiceover narration.',
-    'Do not include markdown codeblocks (```), translator notes, explanations, or commentary. Output only the chapter markdown.',
+    `- First line must be the chapter heading: ## Chapter ${chNumStr}: <adapted chapter title>`,
+    '- Follow with the adapted narration paragraphs.',
+    ...(glossaryBlock ? ['', glossaryBlock] : []),
   ].join('\n')
 
   const user = [
@@ -169,27 +316,22 @@ export function buildChapterTranslationPrompt(
 }
 
 /**
- * Construct prompts for translating an introduction.
+ * Construct prompts for adapting an introduction into spoken narration.
  */
 export function buildIntroductionTranslationPrompt(
   sourceLanguage: 'en' | 'km',
   targetLanguage: 'en' | 'km',
   introText: string,
   episodeTitle?: string,
+  glossary?: TranslationGlossaryEntry[],
 ): { system: string; user: string } {
-  const sourceName = sourceLanguage === 'km' ? 'Khmer' : 'English'
-  const targetName = targetLanguage === 'km' ? 'Khmer' : 'English'
-
+  const glossaryBlock = formatGlossaryForPrompt(glossary)
   const system = [
-    `You are an expert translator specializing in natural narrative storytelling between ${sourceName} and ${targetName}.`,
-    `Translate the provided episode introduction from ${sourceName} into ${targetName}.`,
+    ...adaptationRules(sourceLanguage, targetLanguage),
     'Maintain the exact introduction structure:',
     '- First line must be: # Introduction',
-    '- Follow with the translated introduction paragraphs.',
-    targetLanguage === 'km'
-      ? 'Write natural, literary Khmer prose suitable for audio voiceover narration. Use proper Khmer grammar and punctuation (such as ។ and ៕).'
-      : 'Write natural, engaging English prose suitable for audio voiceover narration.',
-    'Do not include markdown codeblocks (```), translator notes, explanations, or commentary. Output only the introduction markdown.',
+    '- Follow with the adapted introduction paragraphs.',
+    ...(glossaryBlock ? ['', glossaryBlock] : []),
   ].join('\n')
 
   const user = [
@@ -303,18 +445,22 @@ export function parseTranslatedIntro(raw: string): { text: string } {
   return { text }
 }
 
-/** Prompt for translating the episode title itself. */
+/** Prompt for adapting the episode title itself. */
 export function buildTitleTranslationPrompt(
   sourceLanguage: 'en' | 'km',
   targetLanguage: 'en' | 'km',
   sourceTitle: string,
+  glossary?: TranslationGlossaryEntry[],
 ): { system: string; user: string } {
-  const sourceName = sourceLanguage === 'km' ? 'Khmer' : 'English'
-  const targetName = targetLanguage === 'km' ? 'Khmer' : 'English'
+  const sourceName = LANGUAGES[sourceLanguage] || LANGUAGES.en
+  const targetName = LANGUAGES[targetLanguage] || LANGUAGES.km
+  const glossaryBlock = formatGlossaryForPrompt(glossary)
   const system = [
-    `You are an expert translator of episode titles from ${sourceName} into ${targetName}.`,
-    'Translate the title so it reads naturally to a native speaker and still says what the episode is about.',
-    'Output ONLY the translated title on one line — no quotes, no labels, no explanation, no punctuation wrapper.',
+    `You adapt episode titles from ${sourceName} into ${targetName} for a spoken narration.`,
+    `Give a title a ${targetName} narrator would say aloud to a listener: natural, warm and spoken rather than a literal rendering of the ${sourceName} wording.`,
+    'Keep the title saying what the episode is about, and use the name spellings in the glossary below exactly.',
+    'Output ONLY the adapted title on one line — no quotes, no labels, no explanation, no punctuation wrapper.',
+    ...(glossaryBlock ? ['', glossaryBlock] : []),
   ].join('\n')
   return { system, user: `Episode title: ${sourceTitle}` }
 }
@@ -440,13 +586,29 @@ export async function loadSourceEpisodeScript(
 
 /**
  * Copy visual assets (images, thumbnails) and scene plan from source to target episode.
+ *
+ * The pictures are the whole point of translating into a second channel (owner,
+ * 2026-10-28): the target episode shows exactly these stills, clips and
+ * thumbnails, in this order. What must NOT travel is anything the source
+ * language wrote:
+ *
+ * - a rendered headline (`<stem>_text-<n>.png`) is English type over the art, so
+ *   it is skipped and named. The artwork underneath is what is wanted;
+ * - the merged narration, the timings and the scene text are NOT copied here.
+ *   `services/translation-timeline-rebase.ts` retimes the plan against the
+ *   target narration once it exists.
  */
 export async function copyVisualAssetsAndScenePlan(
   sourceSlug: string,
   sourceEpisodeCode: string,
   targetSlug: string,
   targetEpisodeCode: string,
-): Promise<{ visualsReused: boolean; scenePlanReused: boolean }> {
+  targetLanguage: 'en' | 'km' = 'km',
+): Promise<{
+  visualsReused: boolean
+  scenePlanReused: boolean
+  thumbnails: TranslationThumbnailReuse | null
+}> {
   const sourcePaths = await resolveEpisodePathsByCode(sourceSlug, sourceEpisodeCode)
   const targetPaths = await resolveEpisodePathsByCode(targetSlug, targetEpisodeCode)
 
@@ -465,15 +627,46 @@ export async function copyVisualAssetsAndScenePlan(
     }
   }
 
-  // 2. Copy thumbnails
+  // 2. Copy thumbnails — artwork only, never another language's drawn headline.
+  let thumbnails: TranslationThumbnailReuse | null = null
   if (existsSync(sourcePaths.thumb_dir)) {
     await fs.mkdir(targetPaths.thumb_dir, { recursive: true })
-    const files = await fs.readdir(sourcePaths.thumb_dir).catch(() => [] as string[])
-    for (const file of files) {
-      if (/\.(?:webp|png|jpe?g)$/i.test(file)) {
-        await fs.copyFile(path.join(sourcePaths.thumb_dir, file), path.join(targetPaths.thumb_dir, file))
-        visualsReused = true
+    const files = (await fs.readdir(sourcePaths.thumb_dir).catch(() => [] as string[]))
+      .filter(file => /\.(?:webp|png|jpe?g)$/i.test(file) && !file.startsWith('.'))
+    const variants = files.filter(file => isTextVariantFile(file))
+    const artwork = files.filter(file => !isTextVariantFile(file))
+    for (const file of artwork) {
+      await fs.copyFile(path.join(sourcePaths.thumb_dir, file), path.join(targetPaths.thumb_dir, file))
+      visualsReused = true
+    }
+    // A text-layer sidecar names the art it was drawn on and the contract requires that art to be
+    // text-free, so its presence is positive evidence a clean base exists. Without one, nothing on
+    // disk can tell whether the image model drew words into the picture — say that, never assume.
+    let provenSource: string | null = null
+    for (const variant of variants) {
+      const record = await readSidecar(path.join(sourcePaths.thumb_dir, variant)).catch(() => null)
+      if (record?.ok && artwork.includes(record.sidecar.source_filename)) {
+        provenSource = record.sidecar.source_filename
+        break
       }
+    }
+    const targetName = LANGUAGES[targetLanguage] || LANGUAGES.km
+    // Translation only ever crosses en <-> km, so the source language is the other one.
+    const sourceName = targetLanguage === 'km' ? LANGUAGES.en : LANGUAGES.km
+    const cleanBase = !!provenSource
+    thumbnails = {
+      copied: artwork,
+      text_variants_skipped: variants,
+      clean_base_available: cleanBase,
+      needs_target_text: artwork.length > 0,
+      note: !artwork.length
+        ? 'The source episode has no thumbnail artwork to copy.'
+        : cleanBase
+          ? `${artwork.length} thumbnail artwork file(s) copied text-free (${provenSource} is proven text-free by the source's own text-layer record); `
+            + `the ${targetName} headline is drawn by this channel's own thumbnail text layer, and the source language's headline was not copied.`
+          : `${artwork.length} thumbnail artwork file(s) copied, but nothing proves they are free of ${sourceName} text: `
+            + `the source never applied a text layer, so the words may be drawn into the picture itself. `
+            + `Give this ${targetName} episode its own thumbnail before upload — the source language's text is never reused.`,
     }
   }
 
@@ -495,6 +688,9 @@ export async function copyVisualAssetsAndScenePlan(
             scene.image_path = path.join(targetPaths.episode_dir, rel)
           }
         }
+        // Anything a previous retime recorded belongs to the source episode's clock, never to this one.
+        delete plan.translation_rebase
+        delete plan.source_timeline
         await fs.mkdir(targetPaths.scene_prompts_dir, { recursive: true })
         const targetPlanPath = path.join(targetPaths.scene_prompts_dir, SCENE_PLAN_SIDECAR)
         await writeJsonAtomic(targetPlanPath, plan)
@@ -505,7 +701,7 @@ export async function copyVisualAssetsAndScenePlan(
     }
   }
 
-  return { visualsReused, scenePlanReused }
+  return { visualsReused, scenePlanReused, thumbnails }
 }
 
 /**
@@ -572,7 +768,7 @@ export async function verifyTranslatedCompletion(
   }
 }
 /** Read this episode's translation sidecar, if one exists. */
-async function readTranslationSidecar(episodeDir: string): Promise<TranslationSidecar | null> {
+export async function readTranslationProvenance(episodeDir: string): Promise<TranslationProvenance | null> {
   const file = path.join(episodeDir, TRANSLATION_SIDECAR)
   if (!existsSync(file)) return null
   try {
@@ -580,6 +776,54 @@ async function readTranslationSidecar(episodeDir: string): Promise<TranslationSi
     return parsed && parsed.schema_version === 1 ? parsed : null
   } catch {
     return null
+  }
+}
+
+/**
+ * The episode's one name glossary (owner, 2026-10-28).
+ *
+ * Built ONCE, before any chapter is adapted, through the model the user chose
+ * (§1) — a glossary failure fails the job rather than letting each chapter
+ * spell a god's name its own way. On Retry the recorded glossary is reused, so
+ * the paid call is made once per episode, never once per attempt.
+ */
+async function ensureEpisodeGlossary(args: {
+  options: TranslateEpisodeOptions
+  script: SourceEpisodeScript
+  sourceLanguage: 'en' | 'km'
+  targetLanguage: 'en' | 'km'
+  aiCaller: NonNullable<TranslateEpisodeOptions['callAi']>
+  sidecar: TranslationProvenance | null
+}): Promise<{ glossary: TranslationGlossary; reused: boolean }> {
+  const { options, script, sourceLanguage, targetLanguage, aiCaller, sidecar } = args
+  const recorded = sidecar?.glossary
+  if (options.resume !== false && recorded && Array.isArray(recorded.entries)) {
+    await options.onProgress?.(0, `Name glossary already built — kept (${recorded.entries.length} name(s)).`)
+    return { glossary: recorded, reused: true }
+  }
+
+  const prompt = buildGlossaryPrompt(sourceLanguage, targetLanguage, script)
+  let raw: string
+  try {
+    raw = await aiCaller(options.model, prompt.system, prompt.user, {
+      slug: options.targetSlug, signal: options.signal,
+    })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err)
+    throw Object.assign(
+      new Error(`Failed to build the name glossary via model ${options.model}: ${message}`),
+      { code: 'TRANSLATION_PROVIDER_ERROR', cause: err },
+    )
+  }
+  return {
+    glossary: {
+      entries: parseGlossaryResponse(raw),
+      built_with_model: options.model,
+      built_at: new Date().toISOString(),
+      source_characters: prompt.user.length,
+      truncated: prompt.user.includes('the glossary covers the first'),
+    },
+    reused: false,
   }
 }
 
@@ -670,7 +914,8 @@ async function translateEpisodeTitle(
     targetLanguage: 'en' | 'km'
     code: string
     currentTitle: string
-    sidecar: TranslationSidecar | null
+    sidecar: TranslationProvenance | null
+    glossary?: TranslationGlossaryEntry[]
   },
 ): Promise<{ title: string; translated: boolean }> {
   if (options.targetTitle?.trim()) return { title: options.targetTitle.trim(), translated: true }
@@ -678,7 +923,7 @@ async function translateEpisodeTitle(
     return { title: args.currentTitle, translated: true }
   }
 
-  const prompt = buildTitleTranslationPrompt(args.sourceLanguage, args.targetLanguage, args.sourceTitle)
+  const prompt = buildTitleTranslationPrompt(args.sourceLanguage, args.targetLanguage, args.sourceTitle, args.glossary)
   let raw: string
   try {
     raw = await aiCaller(options.model, prompt.system, prompt.user, {
@@ -763,12 +1008,22 @@ export async function translateEpisodeScript(
   const ensured = await resolveTranslationTarget(options, sourceScript.title)
   const targetEpisodeCode = ensured.code
   let targetPaths = await resolveEpisodePathsByCode(options.targetSlug, targetEpisodeCode)
-  let sidecar = await readTranslationSidecar(targetPaths.episode_dir)
+  let sidecar = await readTranslationProvenance(targetPaths.episode_dir)
 
   const aiCaller: NonNullable<TranslateEpisodeOptions['callAi']> = options.callAi || ((m, s, u, ctx) =>
     callAiWithRetry(m, s, u, {}, false, ctx))
 
-  // 2. The title, through the same model. This can rename the folder, so the
+  // 2. The one per-episode name glossary, before any chapter is adapted, so every chapter, the
+  //    introduction and the title spell each name the same way. Reused on Retry (§1: one paid call).
+  const glossaryResult = await ensureEpisodeGlossary({
+    options, script: sourceScript, sourceLanguage, targetLanguage, aiCaller, sidecar,
+  })
+  const glossary = glossaryResult.glossary
+  if (!glossaryResult.reused) {
+    await options.onProgress?.(0, `Built the name glossary: ${glossary.entries.length} name(s).`)
+  }
+
+  // 3. The title, through the same model. This can rename the folder, so the
   //    target paths are re-resolved straight afterwards.
   const titleResult = await translateEpisodeTitle(options, aiCaller, {
     sourceTitle: sourceScript.title,
@@ -777,10 +1032,27 @@ export async function translateEpisodeScript(
     code: targetEpisodeCode,
     currentTitle: ensured.title,
     sidecar,
+    glossary: glossary.entries,
   })
   const targetTitle = titleResult.title
   targetPaths = await resolveEpisodePathsByCode(options.targetSlug, targetEpisodeCode)
-  if (!sidecar) sidecar = await readTranslationSidecar(targetPaths.episode_dir)
+  if (!sidecar) sidecar = await readTranslationProvenance(targetPaths.episode_dir)
+
+  // Record the glossary as soon as it exists: a chapter that fails later must not make a Retry pay
+  // for the same glossary again.
+  if (!glossaryResult.reused) {
+    await writeJsonAtomic(path.join(targetPaths.episode_dir, TRANSLATION_SIDECAR), {
+      ...(sidecar || {}),
+      schema_version: 1,
+      source_slug: options.sourceSlug,
+      source_episode_id: options.sourceEpisodeId,
+      source_language: sourceLanguage,
+      target_language: targetLanguage,
+      title_translated: sidecar?.title_translated || false,
+      translated_at: sidecar?.translated_at || new Date().toISOString(),
+      glossary,
+    } satisfies TranslationProvenance)
+  }
 
   const totalSteps = chaptersToTranslate.length + (translateIntro ? 1 : 0)
   let currentStep = 0
@@ -802,6 +1074,7 @@ export async function translateEpisodeScript(
         targetLanguage,
         sourceScript.intro!.text,
         sourceScript.title,
+        glossary.entries,
       )
       let rawIntro: string
       try {
@@ -840,7 +1113,9 @@ export async function translateEpisodeScript(
       Math.round((currentStep / totalSteps) * 100),
       `Translating Chapter ${ch.number}...`,
     )
-    const chPrompt = buildChapterTranslationPrompt(sourceLanguage, targetLanguage, ch, sourceScript.title)
+    const chPrompt = buildChapterTranslationPrompt(
+      sourceLanguage, targetLanguage, ch, sourceScript.title, glossary.entries,
+    )
     let raw: string
     try {
       raw = await aiCaller(options.model, chPrompt.system, chPrompt.user, {
@@ -884,18 +1159,22 @@ export async function translateEpisodeScript(
     translateIntro,
   )
 
-  // 8. Reuse visuals and scene plan if requested.
+  // 8. Reuse visuals and scene plan if requested. The pictures travel; the source language's
+  //    thumbnail headline and timings do not.
   let visualsReused = false
   let scenePlanReused = false
+  let thumbnails: TranslationThumbnailReuse | null = null
   if (options.reuseVisuals !== false) {
     const copied = await copyVisualAssetsAndScenePlan(
       options.sourceSlug,
       options.sourceEpisodeId,
       options.targetSlug,
       targetEpisodeCode,
+      targetLanguage,
     )
     visualsReused = copied.visualsReused
     scenePlanReused = copied.scenePlanReused
+    thumbnails = copied.thumbnails
   }
 
   // 9. Provenance + resume state, beside the episode's own artifacts.
@@ -907,7 +1186,9 @@ export async function translateEpisodeScript(
     target_language: targetLanguage,
     title_translated: titleResult.translated,
     translated_at: sidecar?.translated_at || new Date().toISOString(),
-  } satisfies TranslationSidecar)
+    glossary,
+    ...(thumbnails ? { thumbnails } : {}),
+  } satisfies TranslationProvenance)
 
   await options.onProgress?.(100, 'Translation complete.')
 
@@ -925,6 +1206,7 @@ export async function translateEpisodeScript(
     titleTranslated: titleResult.translated,
     visualsReused,
     scenePlanReused,
+    thumbnails,
   }
 }
 
@@ -1044,6 +1326,9 @@ export async function generateTranslateEpisode(
     + (result.reusedChapters.length ? `, kept ${result.reusedChapters.length} already translated` : '')
     + `; verified ${result.targetEpisodeId} complete.`,
   )
+  // The source language's drawn thumbnail headline is never reused: say what is on disk and what
+  // this episode still needs before upload.
+  if (result.thumbnails) job.output_lines.push(`Thumbnails: ${result.thumbnails.note}`)
 
   const { chain, leftOut } = await buildTranslateDownstreamChain(
     job.project_slug, result.targetEpisodeId, result.targetTitle, result.targetLanguage,

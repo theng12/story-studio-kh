@@ -4969,9 +4969,43 @@ export interface ScenePlan {
   /** Last durable Hub Chat batch IDs, useful for support and recovery. */
   visual_prompt_batch_id?: string
   motion_prompt_batch_id?: string
+  /**
+   * v1.4.368 — a translated episode's plan was retimed onto its OWN narration by
+   * `services/translation-timeline-rebase.ts`. Recorded so the rule is auditable and so a Retry
+   * recomputes from these recorded shares instead of from the times it already rewrote.
+   */
+  translation_rebase?: TranslationTimelineRebase
   /** Exact creative setup used by the visual-prompt pass. Stored with the plan
    * so retries remain reproducible even after the active preset changes. */
   creative_direction?: SceneCreativeDirection
+}
+
+/**
+ * v1.4.368 — provenance of a cross-language timeline rebase.
+ *
+ * The chapter windows are the anchor (the only points where the source and target narrations are
+ * known to coincide); each scene's `share` is its length as a fraction of its chapter's scenes in
+ * the SOURCE plan. Together they reproduce the retime from scratch, which is what makes a Retry
+ * idempotent and makes a re-merge after a re-narration land in the right place.
+ */
+export interface TranslationTimelineRebase {
+  schema_version: 1
+  /** The one rule applied: a scene keeps its share of its chapter. */
+  rule: 'chapter-share'
+  source_slug: string
+  source_episode_id: string
+  rebased_at: string
+  narration: { filename: string; duration_sec: number; lead_in_sec: number }
+  chapters: Array<{
+    slug: string
+    source_start_sec: number
+    source_end_sec: number
+    target_start_sec: number
+    target_end_sec: number
+  }>
+  scenes: Array<{ id: string; chapter: string; share: number; source_start_sec: number; source_end_sec: number }>
+  /** Scenes the target narration has no chapter for. Kept here as the audit trail, never rendered. */
+  dropped: Array<{ id: string; chapter: string; scene_index: number; image_path?: string }>
 }
 
 // ── Contextual cues (v1.0.742+) ───────────────────────────────────────────
