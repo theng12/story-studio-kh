@@ -340,4 +340,3 @@ realTest('a missing, unreadable or flat depth map means no subject phase — and
   assert.match(gradient.stderr, /subject phase on/)
   assert.notDeepEqual(gradient.digests, plain.digests)
 })
-
