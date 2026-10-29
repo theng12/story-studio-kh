@@ -21,7 +21,7 @@ function product(overrides: Partial<ContentStoreProduct> & { productId: string }
   return {
     title: overrides.productId, summary: '', description: '', kind: 'visual_style',
     entitlementFamily: `family.${overrides.productId}`, owned: true, retired: false,
-    compatible: true, compatibilityReason: '', free: false, creditPrice: 300,
+    compatible: true, compatibilityReason: '', free: false,
     currentRelease: { releaseId: `rel-${overrides.productId}`, version: '1.0.0' },
     presentation: {},
     ...overrides,

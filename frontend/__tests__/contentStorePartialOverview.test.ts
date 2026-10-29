@@ -15,23 +15,21 @@ import assert from 'node:assert/strict'
 import { beforeEach, describe, test } from 'node:test'
 
 const baseAccount = {
-  accountId: 'acct_a', contentAccountId: 'content_acct_a',
-  availableCredits: 2_400, contentSpendableCredits: 1_650, owned: [],
+  accountId: 'acct_a', contentAccountId: 'content_acct_a', owned: [],
 }
 
 const baseProduct = {
   productId: 'formula', entitlementFamily: 'formula.family', kind: 'series_formula' as const,
   title: 'Archive Formula', summary: '', description: '', publisherId: 'Story Studio',
-  creditPrice: 400, free: false, owned: false, retired: false, successorProductId: null,
+  free: false, owned: false, retired: false, successorProductId: null,
   compatible: true, compatibilityReason: null, currentRelease: null, bundleComponents: [],
-  ownedComponentCreditValue: 0, presentation: {}, discount: null,
+  presentation: {},
 }
 
 const installedPack = {
   packId: 'com.storystudio.pack.local', version: '1.0.0', active: true,
   installState: 'installed_current' as const, missingDependencies: [],
   productId: 'formula', title: 'Archive Formula', kind: 'series_formula' as const,
-  ownedByActiveAccount: false,
 }
 
 const available = { status: 'available' as const }
@@ -106,8 +104,10 @@ describe('a partial Studio Library overview', () => {
     assert.equal(store.error.value?.code, 'GATEWAY_UNREACHABLE')
     assert.match(store.error.value?.detail ?? '', /Could not reach the Gateway/)
     // The name of every part that could not be asked is available to the page.
+    // `commerce` is not reported: nothing on a download page reads the old
+    // purchase journal, so its failure is not this page's problem.
     assert.deepEqual(store.unavailableSections.value.map(section => section.section), [
-      'account', 'catalog', 'shelves', 'receipts', 'commerce',
+      'account', 'catalog', 'shelves', 'receipts', 'removals',
     ])
   })
 

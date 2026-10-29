@@ -111,11 +111,11 @@ function product(productId: string, title: string, kind: ContentStoreProduct['ki
   return {
     productId, entitlementFamily: `${productId}.family`, kind, title,
     summary: `${title} promise`, description: `${title} transformation`, publisherId: 'Story Studio',
-    creditPrice: 400, free: false, owned: false, retired: false, successorProductId: null,
+    free: false, owned: false, retired: false, successorProductId: null,
     compatible: true, compatibilityReason: null,
     currentRelease: { releaseId: `rel_${productId}`, packId: `pack_${productId}`, version: '9.9.9', archiveSha256: 'a'.repeat(64), archiveBytes: 10, archiveAvailable: true, minStoryVersion: '1.0.0', changelog: 'Published.', componentSummary: {} },
-    bundleComponents: [], ownedComponentCreditValue: 0, showcaseVideos: [],
-    presentation: { cover: null, hero: null, licenseLabel: 'Content Pack License', licenseText: null, tags: [] }, discount: null,
+    bundleComponents: [], showcaseVideos: [],
+    presentation: { cover: null, hero: null, licenseLabel: 'Content Pack License', licenseText: null, tags: [] },
   }
 }
 
@@ -128,16 +128,16 @@ function testStore(overrides: Partial<{
   recoveryError: Ref<{ action: 'check' | 'dismiss'; detail: string } | null>
   refreshRecovery: () => Promise<void>
   dismissRecovery: (incidentId: string) => Promise<void>
-  restoreOwnership: () => Promise<void>
 }> = {}) {
   return {
-    account: ref(null), products: overrides.products || ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
+    account: ref(null), products: overrides.products || ref([]), installed: ref([]), shelves: ref([]),
     catalogFreshness: ref('fresh'), ownershipResolved: ref(true), accountResolved: ref(true), installsResolved: ref(true), unavailableSections: ref([]), lastVerifiedAt: ref(null), cachedProof: ref(null),
     loading: overrides.loading || ref(false), error: overrides.error || ref(null),
     refresh: overrides.refresh || (async () => {}),
     importPack: async () => { throw new Error('not used') },
     recovery: overrides.recovery || ref(null), recoveryError: overrides.recoveryError || ref(null), refreshRecovery: overrides.refreshRecovery || (async () => {}),
-    dismissRecovery: overrides.dismissRecovery || (async () => {}), restoreOwnership: overrides.restoreOwnership || (async () => {}),
+    dismissRecovery: overrides.dismissRecovery || (async () => {}),
+    removals: ref(null), refreshRemovals: async () => {}, removePack: async () => {}, restorePack: async () => {},
   }
 }
 
@@ -206,30 +206,31 @@ describe('Studio Library rendered catalog and proof regressions', () => {
     const recovery = ref({ incidentId: 'incident-one', kind: 'invalid_state_reset' as const, detectedAt: '2026-09-20T01:00:00Z' })
     const recoveryError = ref<{ action: 'check' | 'dismiss'; detail: string } | null>(null)
     let recoveryReads = 0
-    let restores = 0
     ;(globalThis as any).__contentStoreTestRoute = { params: {} }
     ;(globalThis as any).__contentStoreNavigations = []
     ;(globalThis as any).__contentStoreTestStore = testStore({
       recovery,
       refresh: async () => { throw new Error('no key or offline') },
       refreshRecovery: async () => { recoveryReads += 1; recoveryError.value = { action: 'check', detail: 'Your Content Pack recovery notice could not be read.' } },
-      restoreOwnership: async () => { restores += 1 },
       dismissRecovery: async () => { recoveryError.value = { action: 'dismiss', detail: 'This recovery notice changed before it could be dismissed.' }; throw Object.assign(new Error('stale incident'), { status: 409 }) },
       recoveryError,
     })
     const rendered = await mount(Store)
     await Promise.resolve(); await nextTick()
     const notice = rendered.host.querySelector('.store-notice.warning')
-    assert.match(notice?.textContent || '', /Use Re-check my packs to confirm which packs this account owns/)
+    assert.match(notice?.textContent || '', /Refresh Library to see what is installed here, then install any packs still missing\./)
+    assert.doesNotMatch(notice?.textContent || '', /Re-check my packs|account owns/)
     assert.match(notice?.textContent || '', /The unreadable index was reset; pack folders were retained\. Reinstall any packs still missing\./)
     assert.match(rendered.host.textContent || '', /Your Content Pack recovery notice could not be read\./)
     assert.equal(recoveryReads, 1)
     ;([...rendered.host.querySelectorAll('button')].find(button => button.textContent === 'Refresh Library') as HTMLButtonElement).click()
     await Promise.resolve(); await nextTick()
     assert.equal(recoveryReads, 2)
-    ;([...rendered.host.querySelectorAll('button')].find(button => button.textContent === 'Re-check my packs') as HTMLButtonElement).click()
-    await Promise.resolve(); await nextTick()
-    assert.equal(restores, 1)
+    assert.equal(
+      [...rendered.host.querySelectorAll('button')].some(button => /Re-check my packs/.test(button.textContent || '')),
+      false,
+      'the shop\'s ownership re-check is gone',
+    )
     assert.equal(recovery.value?.incidentId, 'incident-one')
     ;([...rendered.host.querySelectorAll('button')].find(button => button.textContent === 'Dismiss Notice') as HTMLButtonElement).click()
     await Promise.resolve(); await nextTick()
@@ -238,15 +239,17 @@ describe('Studio Library rendered catalog and proof regressions', () => {
     rendered.unmount()
   })
 
-  test('renders local signed installed packs independently from account ownership', async () => {
+  test('renders local signed installed packs without saying who owns them', async () => {
     const Installed = await loadComponent('ContentInstalledLibraryView.vue')
     const rendered = await mount(Installed, { installed: [{
       packId: 'com.storystudio.local.withdrawn', version: '1.0.0', productId: 'withdrawn-product',
-      title: 'com.storystudio.local.withdrawn', kind: 'unknown', ownedByActiveAccount: false,
+      title: 'com.storystudio.local.withdrawn', kind: 'unknown',
       installState: 'installed_current', active: false, missingDependencies: [],
     }] })
-    assert.match(rendered.host.textContent || '', /com\.storystudio\.local\.withdrawn/)
-    assert.match(rendered.host.textContent || '', /ownership is not verified/i)
+    const text = rendered.host.textContent || ''
+    assert.match(text, /com\.storystudio\.local\.withdrawn/)
+    assert.match(text, /Retained/, 'a superseded version kept on this Mac is named as retained')
+    assert.doesNotMatch(text, /ownership/i, 'an installed pack needs no ownership statement')
     rendered.unmount()
   })
 
@@ -262,8 +265,8 @@ describe('Studio Library rendered catalog and proof regressions', () => {
       const blocked = { ...product(`blocked-${fixture.label}`, 'Blocked pack'), owned: true, ...fixture.product }
       const ownership = {
         entitlementFamily: blocked.entitlementFamily, productId: blocked.productId, title: blocked.title, kind: 'series_formula' as const,
-        grantedAt: '2026-08-14T09:12:44Z', purchaseId: 'cpur_blocked', currentRelease: blocked.currentRelease,
-        showcaseVideos: [], recalledReleaseVersions: [], receiptVerification: 'verified' as const,
+        currentRelease: blocked.currentRelease,
+        showcaseVideos: [], recalledReleaseVersions: [],
         downloadAvailable: true, installState: 'not_installed' as const, installedVersion: null, missingDependencies: [], ...fixture.ownership,
       }
       const card = await mount(Card, { product: blocked, ownership })
@@ -293,18 +296,18 @@ describe('Studio Library rendered catalog and proof regressions', () => {
     rendered.unmount()
   })
 
-  test('renders the published bundle components and whether this account already owns each', async () => {
+  test('renders the published bundle components, each plainly included', async () => {
     const Detail = await loadComponent('ContentProductDetail.vue')
     const bundle = product('bundle', 'Bundle')
     bundle.bundleComponents = [
-      { productId: 'free-component', entitlementFamily: 'free.family', title: 'Free component', kind: 'topic_pack', componentCreditValue: 0, owned: false },
-      { productId: 'owned-component', entitlementFamily: 'owned.family', title: 'Owned component', kind: 'visual_style', componentCreditValue: 400, owned: true },
+      { productId: 'first-component', entitlementFamily: 'first.family', title: 'First component', kind: 'topic_pack' },
+      { productId: 'second-component', entitlementFamily: 'second.family', title: 'Second component', kind: 'visual_style' },
     ]
     const rendered = await mount(Detail, { product: bundle })
     const proof = rendered.host.querySelector('.component-list')?.textContent || ''
-    assert.match(proof, /Free component[\s\S]*topic_pack[\s\S]*Included/)
-    assert.match(proof, /Owned component[\s\S]*visual_style[\s\S]*Owned/)
-    assert.doesNotMatch(proof, /exact quote/i)
+    assert.match(proof, /First component[\s\S]*topic_pack[\s\S]*Included/)
+    assert.match(proof, /Second component[\s\S]*visual_style[\s\S]*Included/)
+    assert.doesNotMatch(proof, /Owned|exact quote/i)
     rendered.unmount()
   })
 
@@ -378,6 +381,107 @@ describe('Studio Library rendered catalog and proof regressions', () => {
     } finally {
       window.open = originalOpen
     }
+  })
+
+  test('shows which channels use each installed pack and removes it only on request', async () => {
+    const Installed = await loadComponent('ContentInstalledLibraryView.vue')
+    const removed: string[] = []
+    const wrapper = defineComponent({
+      setup: () => () => h(Installed, {
+        installed: [{
+          packId: 'com.storystudio.style', version: '1.0.0', productId: 'p1', title: 'Archive Style',
+          kind: 'visual_style', installState: 'installed_current', active: true, missingDependencies: [],
+        }],
+        installsResolved: true,
+        removals: { channels: { 'com.storystudio.style': ['quiet-documentary', 'sleep-history'] }, packs: {}, unreadable: false },
+        onRemove: (packId: string) => { removed.push(packId) },
+      }),
+    })
+    const rendered = await mount(wrapper)
+    assert.match(rendered.host.textContent || '', /Used by 2 channels: quiet-documentary, sleep-history\./)
+    assert.deepEqual(removed, [], 'nothing is removed until the button is pressed')
+    const button = [...rendered.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find(candidate => candidate.textContent === 'Remove from this Mac')!
+    button.click()
+    await nextTick()
+    assert.deepEqual(removed, ['com.storystudio.style'])
+    rendered.unmount()
+  })
+
+  test('says plainly when a pack is used by no channel, and never guesses', async () => {
+    const Installed = await loadComponent('ContentInstalledLibraryView.vue')
+    const pack = {
+      packId: 'com.storystudio.pack', version: '1.0.0', productId: 'p2', title: 'Unused Pack',
+      kind: 'topic_pack' as const, installState: 'installed_current' as const, active: true, missingDependencies: [],
+    }
+    const unused = await mount(Installed, { installed: [pack], installsResolved: true, removals: { channels: {}, packs: {}, unreadable: false } })
+    assert.match(unused.host.textContent || '', /Not used by any channel\./)
+    unused.unmount()
+
+    const unreadable = await mount(Installed, { installed: [pack], installsResolved: true, removals: { channels: {}, packs: {}, unreadable: true } })
+    assert.match(unreadable.host.textContent || '', /could not read its Content Pack removal records/)
+    unreadable.unmount()
+
+    const notRead = await mount(Installed, { installed: [pack], installsResolved: true, removals: null })
+    assert.match(notRead.host.textContent || '', /Checking which channels use it/)
+    notRead.unmount()
+
+    const unchecked = await mount(Installed, {
+      installed: [pack], installsResolved: true,
+      removals: { channels: { 'com.storystudio.pack': ['could not check mystery-channel'] }, packs: {}, unreadable: false },
+    })
+    assert.match(unchecked.host.textContent || '', /Could not check mystery-channel — that is not the same as unused\./)
+    unchecked.unmount()
+  })
+
+  test('a Gateway removal that was kept for a channel names the channel, and a removed pack can be put back', async () => {
+    const Installed = await loadComponent('ContentInstalledLibraryView.vue')
+    const restored: string[] = []
+    const kept = await mount(Installed, {
+      installed: [{
+        packId: 'com.storystudio.kept', version: '1.0.0', productId: 'p3', title: 'Kept Pack',
+        kind: 'topic_pack', installState: 'installed_current', active: true, missingDependencies: [],
+      }],
+      installsResolved: true,
+      removals: {
+        channels: { 'com.storystudio.kept': ['quiet-documentary'] },
+        unreadable: false,
+        packs: {
+          'com.storystudio.kept': {
+            pack_id: 'com.storystudio.kept', removed_at: '2026-10-29T08:00:00Z', outcome: 'kept_in_use',
+            channels: ['quiet-documentary'], detail: 'in use', gateway_remove_at: '2026-10-29T08:00:00Z',
+            versions: [], restored_at: null, reported_at: null,
+          },
+        },
+      },
+      onRestore: (packId: string) => { restored.push(packId) },
+    })
+    assert.match(kept.host.textContent || '', /The Gateway stopped offering this pack, but a channel still uses it: quiet-documentary, so it stays installed\./)
+    kept.unmount()
+
+    const removed = await mount(Installed, {
+      installed: [], installsResolved: true,
+      removals: {
+        channels: {}, unreadable: false,
+        packs: {
+          'com.storystudio.gone': {
+            pack_id: 'com.storystudio.gone', removed_at: '2026-10-29T08:00:00Z', outcome: 'removed',
+            channels: [], detail: null, gateway_remove_at: null,
+            versions: [{ version: '1.0.0', install_path: '/tmp/x', trash_path: '/tmp/trash/x', active: true }],
+            restored_at: null, reported_at: null,
+          },
+        },
+      },
+      onRestore: (packId: string) => { restored.push(packId) },
+    })
+    assert.match(removed.host.textContent || '', /Removed from this Mac/)
+    assert.match(removed.host.textContent || '', /Story Studio never deletes a pack/)
+    const button = [...removed.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find(candidate => candidate.textContent === 'Put it back')!
+    button.click()
+    await nextTick()
+    assert.deepEqual(restored, ['com.storystudio.gone'])
+    removed.unmount()
   })
 
   test('searches the published customer-facing product kind label without shelf data', () => {

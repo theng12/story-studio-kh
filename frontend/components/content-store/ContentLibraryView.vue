@@ -7,7 +7,7 @@
 
     <!-- Sixty-five packs need sorting and a way to act on the whole set. Both
          controls are hidden until GenStudio has answered, because both are
-         about facts it has not supplied yet. -->
+         about install state it has not supplied yet. -->
     <div v-if="ownershipResolved && products.length" class="library-controls">
       <div class="library-filter" role="group" :aria-label="`Filter ${title} by install state`">
         <button
@@ -31,7 +31,7 @@
       </div>
     </div>
 
-    <div v-if="!ownershipResolved" class="library-empty" role="status" aria-live="polite"><h3>Not checked yet</h3><p>Story Studio is asking the Gateway what this account owns and what is installed on this Mac. This list appears as soon as it answers.</p></div>
+    <div v-if="!ownershipResolved" class="library-empty" role="status" aria-live="polite"><h3>Not checked yet</h3><p>Story Studio is asking the Gateway what can be installed on this Mac and what is already here. This list appears as soon as it answers.</p></div>
     <template v-else-if="visibleGroups.length">
       <section v-for="group in visibleGroups" :key="group.kind" class="library-group" :aria-label="group.label">
         <h3 class="group-heading">{{ group.label }}<span>{{ group.products.length }}</span></h3>

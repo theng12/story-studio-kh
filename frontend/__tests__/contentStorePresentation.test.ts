@@ -22,7 +22,6 @@ function product(
     summary: '',
     description: '',
     publisherId: 'publisher-story-studio',
-    creditPrice: 0,
     free: true,
     owned: false,
     retired: false,
@@ -31,10 +30,8 @@ function product(
     compatible: true,
     compatibilityReason: null,
     bundleComponents: [],
-    ownedComponentCreditValue: 0,
     showcaseVideos: [],
     presentation: { cover: null, hero: null, licenseLabel: null, licenseText: null, tags: [] },
-    discount: null,
     ...overrides,
   }
 }
@@ -47,7 +44,6 @@ const products: ContentStoreProduct[] = [
   product('kit-b', {
     title: 'History Starter',
     free: false,
-    creditPrice: 120,
   }),
   product('kit-c', {
     title: 'Incompatible Kit',
@@ -243,7 +239,7 @@ describe('the Installed tab count', () => {
   ): ContentStoreInstalledPack {
     return {
       packId, version, active, installState: 'installed_current', missingDependencies: [],
-      productId: `cprod-${packId}`, title: packId, kind: 'visual_style', ownedByActiveAccount: true,
+      productId: `cprod-${packId}`, title: packId, kind: 'visual_style',
     }
   }
 

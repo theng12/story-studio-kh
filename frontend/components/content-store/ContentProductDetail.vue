@@ -6,7 +6,7 @@
       <div class="detail-copy"><p class="detail-kind">{{ kindLabel }}</p><h1>{{ product.title }}</h1><p class="detail-promise">{{ product.summary }}</p><p v-if="product.description" class="detail-description">{{ product.description }}</p><div class="detail-status" role="status">{{ status }}</div></div>
     </header>
 
-    <p v-if="!ownershipResolved" class="detail-pending" role="status" aria-live="polite">Checking with the Gateway what this account owns, what is installed on this Mac, and whether this release works with this Story Studio version.</p>
+    <p v-if="!ownershipResolved" class="detail-pending" role="status" aria-live="polite">Checking with the Gateway what can be installed on this Mac and whether this release works with this Story Studio version.</p>
     <p v-else-if="!product.compatible" class="detail-warning" role="status"><strong>Not compatible with this Story Studio version.</strong>{{ product.compatibilityReason }}</p>
 
     <section v-if="showcaseVideos.length" class="detail-section" aria-labelledby="showcase-heading">
@@ -17,9 +17,9 @@
 
     <section class="detail-section" aria-labelledby="release-heading"><h2 id="release-heading">Release proof</h2><dl class="proof-grid"><div><dt>Publisher</dt><dd>{{ product.publisherId }}</dd></div><div><dt>Current release</dt><dd>{{ release?.version || 'Unavailable' }}</dd></div><div><dt>Minimum Story Studio version</dt><dd>{{ release?.minStoryVersion || 'Not published' }}</dd></div><div><dt>License</dt><dd>{{ product.presentation.licenseLabel || 'Not published' }}</dd></div></dl><p v-if="product.presentation.licenseText" class="license-text">{{ product.presentation.licenseText }}</p><div v-if="release?.changelog" class="changelog"><h3>Changelog</h3><p>{{ release.changelog }}</p></div></section>
 
-    <section v-if="product.bundleComponents.length || componentSummary.length" class="detail-section" aria-labelledby="components-heading"><h2 id="components-heading">Included components</h2><ul v-if="product.bundleComponents.length" class="component-list"><li v-for="component in product.bundleComponents" :key="component.productId"><span><strong>{{ component.title }}</strong><small>{{ component.kind }}</small></span><span>{{ component.owned ? 'Owned' : 'Included' }}</span></li></ul><dl v-if="componentSummary.length" class="summary-grid"><div v-for="fact in componentSummary" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl></section>
+    <section v-if="product.bundleComponents.length || componentSummary.length" class="detail-section" aria-labelledby="components-heading"><h2 id="components-heading">Included components</h2><ul v-if="product.bundleComponents.length" class="component-list"><li v-for="component in product.bundleComponents" :key="component.productId"><span><strong>{{ component.title }}</strong><small>{{ component.kind }}</small></span><span>Included</span></li></ul><dl v-if="componentSummary.length" class="summary-grid"><div v-for="fact in componentSummary" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl></section>
 
-    <section v-if="ownership?.recalledReleaseVersions.length" class="detail-warning" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><span>Ownership remains permanent. The Gateway stopped serving these exact versions.</span></section>
+    <section v-if="ownership?.recalledReleaseVersions.length" class="detail-warning" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><span>The Gateway stopped serving these exact versions.</span></section>
 
     <footer class="detail-actions"><NuxtLink to="/library" class="back-to-store">Back to Studio Library</NuxtLink><button v-if="canInstall" type="button" class="btn btn-primary" :disabled="installBusy || networkUnavailable" :aria-busy="installBusy ? 'true' : undefined" @click="$emit('install', release!.releaseId)">{{ installLabel }}</button><span v-else-if="queueStatus === 'installed'" class="detail-pending" role="status">Installed just now</span></footer>
   </article>
@@ -32,9 +32,9 @@ import { contentStoreKindLabel } from '~/content-store/catalog-presentation'
 import type { ContentStoreAccount, ContentStoreProduct, ContentStoreShowcaseVideo } from '~/composables/useContentStore'
 import type { InstallQueueStatus } from '~/composables/useInstallQueue'
 
-type OwnedContent = ContentStoreAccount['owned'][number]
+type AvailabilityRow = ContentStoreAccount['owned'][number]
 const props = withDefaults(
-  defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; queueStatus?: InstallQueueStatus; networkUnavailable?: boolean; ownershipResolved?: boolean }>(),
+  defineProps<{ product: ContentStoreProduct; ownership?: AvailabilityRow | null; busy?: boolean; queueStatus?: InstallQueueStatus; networkUnavailable?: boolean; ownershipResolved?: boolean }>(),
   { ownershipResolved: true, queueStatus: 'idle' },
 )
 defineEmits<{ install: [releaseId: string] }>()
@@ -48,12 +48,12 @@ const status = computed(() => {
   if (props.queueStatus === 'failed') return 'Install failed'
   if (!props.product.compatible) return 'Not compatible with this Story Studio version'
   if (props.product.retired) return 'Retired'
-  // Ownership is not known yet and must not be implied either way.
-  if (!props.ownershipResolved) return 'Checking ownership'
-  if (!props.product.owned) return 'Not owned by this account'
+  // Availability is not known yet and must not be implied either way.
+  if (!props.ownershipResolved) return 'Checking availability'
+  if (!props.product.owned) return 'Not available to this Mac'
   if (props.ownership?.installState === 'installed_current') return 'Installed'
-  if (props.ownership?.installState === 'update_available') return 'Owned · update available'
-  return 'Owned'
+  if (props.ownership?.installState === 'update_available') return 'Update available'
+  return 'Available'
 })
 const installBusy = computed(() => props.busy || props.queueStatus === 'queued' || props.queueStatus === 'installing')
 const installLabel = computed(() => {

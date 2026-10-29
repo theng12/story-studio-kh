@@ -166,7 +166,26 @@ export interface GenStudioContentProduct {
   tags: string[]
   license: GenStudioContentLicense | null
   discount: GenStudioContentDiscount | null
+  /**
+   * The Gateway's request that this pack be taken off every install.
+   *
+   * Absent fields are an older Gateway and mean "nothing to do". Both the
+   * product-level pair and the response-level `retired_packs` list are read;
+   * `removeFromInstallsAt` is the instant the request was made, and it is what
+   * decides "already applied".
+   */
+  removeFromInstalls: boolean
+  removeFromInstallsAt: string | null
   raw: CanonicalJsonObject
+}
+
+/** One `retired_packs[]` row: a publish-side fact, never an account fact. */
+export interface GenStudioRetiredPackRemoval {
+  packId: string
+  releaseId: string | null
+  retiredAt: string | null
+  /** Non-null: a row with no instant is not a removal request and is dropped. */
+  removeFromInstallsAt: string
 }
 
 export interface GenStudioOwnedContent {
@@ -192,6 +211,8 @@ export interface GenStudioContentAccount {
 
 export interface GenStudioContentCatalog {
   products: GenStudioContentProduct[]
+  /** Packs the Gateway asked to be taken off installs, from either published shape. */
+  retiredPacks: GenStudioRetiredPackRemoval[]
   raw: CanonicalJsonObject
 }
 
@@ -664,6 +685,11 @@ function isoInstant(record: Record<string, unknown>, key: string): string {
   return value
 }
 
+/** Absent or null stays `null` — an unpublished instant is never invented. */
+function optionalInstant(record: Record<string, unknown>, key: string): string | null {
+  return record[key] === undefined || record[key] === null ? null : isoInstant(record, key)
+}
+
 function kind(record: Record<string, unknown>, key = 'kind'): GenStudioContentProductKind {
   const value = text(record, key) as GenStudioContentProductKind
   if (!PRODUCT_KINDS.has(value)) throw new Error(`${key} is not a published Content Store product kind`)
@@ -779,6 +805,9 @@ function parseProduct(value: unknown): GenStudioContentProduct {
     tags: parseTags(row.tags),
     license: parseLicense(row.license),
     discount: parseDiscount(row.discount, free),
+    // A Gateway that does not publish these means "nothing to do", never a default removal.
+    removeFromInstalls: row.remove_from_installs === true,
+    removeFromInstallsAt: optionalInstant(row, 'remove_from_installs_at'),
     raw,
   }
 }
@@ -818,7 +847,47 @@ export function parseContentStoreCatalog(value: unknown): GenStudioContentCatalo
     if (ids.has(product.productId)) throw new Error(`products contains duplicate product_id ${product.productId}`)
     ids.add(product.productId)
   }
-  return { products, raw }
+  return { products, retiredPacks: parseRetiredPackRemovals(raw.value, products), raw }
+}
+
+/**
+ * Both published shapes of "take this pack off installs", read into one list.
+ *
+ * The product-level pair (`remove_from_installs` beside `retired`) and the
+ * response-level `retired_packs[]` list say the same thing; a Gateway may send
+ * either. Rows that do not ask for removal are dropped rather than guessed at,
+ * and the newest `remove_from_installs_at` wins when both name one pack.
+ */
+function parseRetiredPackRemovals(
+  row: Record<string, unknown>,
+  products: readonly GenStudioContentProduct[],
+): GenStudioRetiredPackRemoval[] {
+  const entries = new Map<string, GenStudioRetiredPackRemoval>()
+  const record = (entry: GenStudioRetiredPackRemoval): void => {
+    const previous = entries.get(entry.packId)
+    if (previous && Date.parse(previous.removeFromInstallsAt) >= Date.parse(entry.removeFromInstallsAt)) return
+    entries.set(entry.packId, entry)
+  }
+  for (const product of products) {
+    if (!product.removeFromInstalls || !product.removeFromInstallsAt) continue
+    const release = product.currentRelease
+    if (!release) continue
+    record({ packId: release.packId, releaseId: release.releaseId, retiredAt: null, removeFromInstallsAt: product.removeFromInstallsAt })
+  }
+  if (row.retired_packs === undefined) return [...entries.values()]
+  array(row, 'retired_packs').forEach((value, index) => {
+    const candidate = plainObject(value, `retired_packs[${index}]`)
+    if (candidate.remove_from_installs !== true) return
+    const at = optionalInstant(candidate, 'remove_from_installs_at')
+    if (!at) return
+    record({
+      packId: text(candidate, 'pack_id'),
+      releaseId: typeof candidate.release_id === 'string' && candidate.release_id ? candidate.release_id : null,
+      retiredAt: optionalInstant(candidate, 'retired_at'),
+      removeFromInstallsAt: at,
+    })
+  })
+  return [...entries.values()]
 }
 
 export function parseContentStoreShelves(

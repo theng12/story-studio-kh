@@ -30,6 +30,8 @@ export interface ContentPackLifecycleOptions {
   /** Test-only seam; production resolves the app version from its own package resource. */
   appVersion?: string
   hooks?: ContentPackLifecycleHooks
+  /** Test-only seam: which channels use a pack. Production reads channel pins from project metadata. */
+  isPinned?: (packId: string, version: string) => Promise<string[]>
 }
 
 export interface ContentPackRollbackResult {
@@ -181,7 +183,7 @@ async function findInstalledDependents(
 async function removePendingVersion(
   paths: ContentPackRuntimePaths,
   installed: ContentPackInstalledVersion,
-): Promise<'deleted' | 'already-deleted'> {
+): Promise<{ result: 'deleted' | 'already-deleted'; trashPath: string | null }> {
   const expectedInstallPath = installedVersionPath(paths, installed.manifest)
   if (installed.install_path !== expectedInstallPath) throw new Error('Content Pack state install path does not match manifest')
   const tombstone = removalPath(paths, installed)
@@ -198,13 +200,13 @@ async function removePendingVersion(
     // The deletion completed but the process died before its final state
     // checkpoint. `pending_removal` is the durable authority to finalise this
     // exact idempotent removal; never attempt a network repair.
-    return 'already-deleted'
+    return { result: 'already-deleted', trashPath: null }
   }
   await assertSafeDirectoryChain(removalRoot(paths), tombstone)
   // Owner rule: a removed version goes to Story's Trash, never a hard delete.
-  moveContentPackToTrash(tombstone, path.join('removed', path.basename(tombstone)))
+  const trashPath = moveContentPackToTrash(tombstone, path.join('removed', path.basename(tombstone)))
   await fsyncDirectory(path.dirname(tombstone))
-  return 'deleted'
+  return { result: 'deleted', trashPath }
 }
 
 async function removeAuthorisedVersion(
@@ -230,7 +232,7 @@ async function removeAuthorisedVersion(
   }
   await hooks?.beforeRemovalDelete?.()
   const deletion = await removePendingVersion(paths, installed)
-  if (deletion === 'deleted') await hooks?.afterRemovalDelete?.()
+  if (deletion.result === 'deleted') await hooks?.afterRemovalDelete?.()
   delete pack.versions[version]
   if (Object.keys(pack.versions).length === 0) delete state.packs[packId]
 }
@@ -287,6 +289,122 @@ async function uninstallContentPackVersionLocked(
     (state, transaction) => removeAuthorisedVersion(state, transaction, packId, version, isPinned, paths, policy, options.hooks),
     paths,
   )
+}
+
+/**
+ * Refused because a channel still uses the pack. The channel slugs are the
+ * whole point of the refusal: "in use" alone leaves the customer with nothing
+ * to change.
+ */
+export class ContentPackInUseError extends Error {
+  constructor(readonly packId: string, readonly channels: string[]) {
+    super(`This Content Pack is still needed by: ${channels.join(', ')}.`)
+    this.name = 'ContentPackInUseError'
+  }
+}
+
+export interface ContentPackRemovedVersion {
+  version: string
+  install_path: string
+  /** Where the bytes now sit in Story's Trash; null when they were already gone. */
+  trash_path: string | null
+  active: boolean
+  record: ContentPackInstalledVersion
+}
+
+export interface ContentPackRemovalOutcome {
+  pack_id: string
+  versions: ContentPackRemovedVersion[]
+}
+
+/**
+ * Take a whole pack off this Mac: every installed version, under the same
+ * coordination lock, refusal checks and Trash rule as a single-version
+ * uninstall. Nothing is hard-deleted and the bytes stay restorable.
+ *
+ * The caller owns the ledger and the channel reading is passed in, because
+ * "which channels use it" is a project question this module must not answer
+ * for itself.
+ */
+export async function removeContentPackVersions(
+  packId: string,
+  isPinned: (packId: string, version: string) => Promise<string[]>,
+  options: ContentPackLifecycleOptions = {},
+): Promise<ContentPackRemovalOutcome> {
+  const paths = options.paths ?? getContentPackRuntimePaths()
+  const policy = await resolvePolicy(options)
+  const pinnedBy = options.isPinned ?? isPinned
+  return withContentPackCoordinationLock(paths, () => withContentPackStateTransaction(async (state, transaction) => {
+    const pack = state.packs[packId]
+    if (!pack) throw Object.assign(new Error(`Content Pack is not installed: ${packId}`), { code: 'CONTENT_PACK_NOT_INSTALLED' })
+    const versions = Object.keys(pack.versions).sort(compareSemverDescending)
+    const channels = [...new Set((await Promise.all(versions.map(version => pinnedBy(packId, version)))).flat())].sort()
+    if (channels.length) throw new ContentPackInUseError(packId, channels)
+    const dependents: string[] = []
+    for (const version of versions) dependents.push(...await findInstalledDependents(state, packId, version, policy))
+    if (dependents.length) {
+      throw Object.assign(
+        new Error(`Content Pack is required by other installed packs: ${[...new Set(dependents)].sort().join(', ')}`),
+        { code: 'CONTENT_PACK_REQUIRED_BY_OTHERS' },
+      )
+    }
+    return finishRemoval(state, transaction, packId, paths, options)
+  }, paths))
+}
+
+/**
+ * Finish a removal that was already authorised and interrupted: every version
+ * is `pending_removal`, nothing may veto it now, and the bytes still where the
+ * last run left them. No channel or dependency check runs again — the decision
+ * was taken, and repeating it could resurrect a half-removed pack as "in use".
+ */
+export async function completeInterruptedContentPackRemoval(
+  packId: string,
+  options: ContentPackLifecycleOptions = {},
+): Promise<ContentPackRemovalOutcome> {
+  const paths = options.paths ?? getContentPackRuntimePaths()
+  return withContentPackCoordinationLock(paths, () => withContentPackStateTransaction((state, transaction) => {
+    const pack = state.packs[packId]
+    if (!pack) throw Object.assign(new Error(`Content Pack is not installed: ${packId}`), { code: 'CONTENT_PACK_NOT_INSTALLED' })
+    return finishRemoval(state, transaction, packId, paths, options)
+  }, paths))
+}
+
+/** Move every version of an already-approved removal into Story's Trash. Lock held. */
+async function finishRemoval(
+  state: ContentPackRuntimeState,
+  transaction: { checkpoint: () => Promise<void> },
+  packId: string,
+  paths: ContentPackRuntimePaths,
+  options: ContentPackLifecycleOptions,
+): Promise<ContentPackRemovalOutcome> {
+  const pack = state.packs[packId]!
+  const versions = Object.keys(pack.versions).sort(compareSemverDescending)
+  const active = new Set(pack.active_version ? [pack.active_version] : [])
+  for (const version of versions) {
+    const installed = pack.versions[version]!
+    if (installed.pending_removal) continue
+    installed.pending_removal = { operation_id: randomUUID(), started_at: new Date().toISOString() }
+  }
+  // An active version may not be pending removal, and the pack is about to
+  // stop being installed at all: clearing it is part of the same decision.
+  delete pack.active_version
+  // Every version is marked before a single directory moves, so a crash
+  // leaves durable evidence of the removal instead of half a pack.
+  await transaction.checkpoint()
+  await options.hooks?.beforeRemovalDelete?.()
+  const removed: ContentPackRemovedVersion[] = []
+  for (const version of versions) {
+    const installed = pack.versions[version]!
+    const { result, trashPath } = await removePendingVersion(paths, installed)
+    if (result === 'deleted') await options.hooks?.afterRemovalDelete?.()
+    removed.push({
+      version, install_path: installed.install_path, trash_path: trashPath,
+      active: active.has(version), record: installed,
+    })
+  }
+  delete state.packs[packId]
+  return { pack_id: packId, versions: removed }
 }
 
 /**

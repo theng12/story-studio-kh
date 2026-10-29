@@ -9,8 +9,6 @@ const completeOverview = {
   account: {
     accountId: 'acct_a',
     contentAccountId: 'content_acct_a',
-    availableCredits: 2_400,
-    contentSpendableCredits: 1_650,
     owned: [],
   },
   products: [
@@ -18,7 +16,7 @@ const completeOverview = {
       productId: 'formula', entitlementFamily: 'formula.family', kind: 'series_formula' as const,
       title: 'Archive Formula', summary: 'A repeatable documentary structure.',
       description: 'Long-form production guidance.', publisherId: 'Story Studio',
-      creditPrice: 400, free: false, owned: false, retired: false,
+      free: false, owned: false, retired: false,
       successorProductId: null, compatible: true, compatibilityReason: null,
       currentRelease: {
         releaseId: 'rel_formula', packId: 'pack_formula', version: '1.0.0',
@@ -26,21 +24,15 @@ const completeOverview = {
         archiveAvailable: true,
         minStoryVersion: '1.0.834', changelog: 'First release.', componentSummary: {},
       },
-      bundleComponents: [], ownedComponentCreditValue: 0,
+      bundleComponents: [],
       presentation: {
         cover: { src: 'https://catalog.example.test/covers/archive-formula.webp', alt: 'Archive Formula cover' },
         licenseLabel: 'Story Studio Content Pack License',
         tags: ['documentary', 'archive'],
       },
-      discount: {
-        id: 'cdsc_archive_formula', version: 1, percent: 25,
-        startsOn: null, endsOn: '2026-12-31', timezone: 'Asia/Phnom_Penh',
-        listCreditPrice: 400, discountedCreditPrice: 300,
-      },
     },
   ],
   shelves: [{ id: 'cshf_featured', title: 'Featured', productIds: ['formula'] }],
-  attempts: [],
   installed: [],
   capabilities: {
     purchase: false, receipt_verification: true, download: true,
@@ -206,25 +198,25 @@ describe('useContentStore explicit commerce state machine', () => {
     ['CONTENT_STORE_KEY_REQUIRED', 'Studio Library access is needed'],
     ['CONTENT_STORE_SCOPE_REQUIRED', 'Studio Library access is needed'],
     ['CONTENT_PRODUCT_NOT_AVAILABLE', 'This product is not available'],
-    ['CONTENT_PRODUCT_ALREADY_OWNED', 'Already owned in GenStudio'],
+    ['CONTENT_PRODUCT_ALREADY_OWNED', 'This is already available to this Mac'],
     ['CONTENT_PRODUCT_RETIRED', 'This product is retired'],
     ['CONTENT_PRODUCT_INCOMPATIBLE', 'A newer Story Studio version is needed'],
     ['CONTENT_RELEASE_NOT_AVAILABLE', 'This release is not available'],
     ['CONTENT_STORE_QUOTE_NOT_FOUND', 'This quote is no longer available'],
-    ['CONTENT_PURCHASE_NOT_SENT', 'This purchase was not sent'],
+    ['CONTENT_PURCHASE_NOT_SENT', 'This request was not sent'],
     ['CONTENT_PACK_TOO_LARGE_FOR_THIS_APP', 'This archive is too large to install safely'],
     ['CONTENT_PACK_REQUIRES_NEWER_APP', 'A newer Story Studio version is needed'],
     ['incompatible_story_version', 'A newer Story Studio version is needed'],
-    ['insufficient_credits', 'More credits are needed'],
+    ['insufficient_credits', 'Not enough balance for this request'],
     ['quote_expired', 'This quote can no longer be used'],
     ['quote_rejected', 'This quote can no longer be used'],
     ['CONTENT_PURCHASE_OUTCOME_UNCERTAIN', 'GenStudio’s answer is uncertain'],
     ['signing_unavailable', 'The Studio Library is not open yet'],
-    ['CONTENT_STORE_ACCOUNT_MISMATCH', 'Ownership could not be confirmed'],
-    ['CONTENT_PURCHASE_ACCOUNT_MISMATCH', 'Ownership could not be confirmed'],
-    ['CONTENT_PACK_NOT_OWNED', 'Ownership could not be confirmed'],
+    ['CONTENT_STORE_ACCOUNT_MISMATCH', 'This Mac could not confirm availability'],
+    ['CONTENT_PURCHASE_ACCOUNT_MISMATCH', 'This Mac could not confirm availability'],
+    ['CONTENT_PACK_NOT_OWNED', 'This Mac could not confirm availability'],
     ['CONTENT_STORE_SIGNING_KEY_MISSING', 'Studio Library access is needed'],
-    ['CONTENT_PACK_OWNED_RELEASE_MISMATCH', 'Ownership could not be confirmed'],
+    ['CONTENT_PACK_OWNED_RELEASE_MISMATCH', 'This Mac could not confirm availability'],
     ['CONTENT_PACK_ARCHIVE_UNAVAILABLE', 'This archive is not available'],
     ['CONTENT_PACK_DEPENDENCY_NOT_OWNED', 'This Content Pack cannot be installed'],
     ['CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED', 'This Content Pack cannot be installed'],
@@ -336,13 +328,13 @@ describe('useContentStore explicit commerce state machine', () => {
     assert.deepEqual(store.products.value, [])
   })
 
-  test('retains server-normalized merchandising facts without deriving a price or shelf', async () => {
+  test('retains server-normalized catalogue facts without deriving a shelf', async () => {
     const store = useContentStore()
     await store.refresh()
 
     assert.deepEqual(store.shelves.value, completeOverview.shelves)
     assert.deepEqual(store.products.value[0]?.presentation, completeOverview.products[0]?.presentation)
-    assert.deepEqual(store.products.value[0]?.discount, completeOverview.products[0]?.discount)
+    assert.equal(store.products.value[0]?.title, 'Archive Formula')
   })
 
   test('loads only on explicit refresh and never polls or purchases on its own', async () => {
@@ -362,7 +354,7 @@ describe('useContentStore explicit commerce state machine', () => {
   test('does not let an older refresh overwrite a newer explicit install overview', async () => {
     let releaseRefresh: ((value: unknown) => void) | undefined
     const installed = structuredClone(completeOverview)
-    installed.account.availableCredits = 2_399
+    installed.account.contentAccountId = 'content_acct_after_install'
     handler = (path) => {
       if (path === '/api/content-store') return new Promise(resolve => { releaseRefresh = resolve })
       if (path === '/api/content-store/releases/rel_formula/install') {
@@ -377,32 +369,30 @@ describe('useContentStore explicit commerce state machine', () => {
     await store.installRelease('rel_formula')
     releaseRefresh?.(structuredClone(completeOverview))
     await staleRefresh
-    assert.equal(store.account.value?.availableCredits, 2_399)
+    assert.equal(store.account.value?.contentAccountId, 'content_acct_after_install',
+      'the newer install overview is the one left on screen')
   })
 
-  test('restores ownership and installs only after explicit customer actions', async () => {
-    const owned = {
+  test('installs only after an explicit customer action, and never on its own', async () => {
+    const available = {
       ...structuredClone(completeOverview),
       account: {
         ...structuredClone(completeOverview.account),
         owned: [{
           entitlementFamily: 'formula.family', productId: 'formula', title: 'Archive Formula',
-          kind: 'series_formula' as const, grantedAt: '2026-08-14T09:12:44Z', purchaseId: 'cpur_1',
+          kind: 'series_formula' as const,
           currentRelease: structuredClone(completeOverview.products[0].currentRelease),
-          receiptVerification: 'verified' as const, downloadAvailable: true,
-          installState: 'not_installed' as const, installedVersion: null,
+          showcaseVideos: [], recalledReleaseVersions: [], downloadAvailable: true,
+          installState: 'not_installed' as const, installedVersion: null, missingDependencies: [],
         }],
       },
       products: [{ ...structuredClone(completeOverview.products[0]), owned: true }],
     }
     handler = (path, options) => {
-      if (path === '/api/content-store/restore') {
-        assert.equal(options.method, 'POST')
-        return owned
-      }
+      if (path === '/api/content-store') return available
       if (path === '/api/content-store/releases/rel_formula/install') {
         assert.equal(options.method, 'POST')
-        const installedOverview = structuredClone(owned)
+        const installedOverview = structuredClone(available)
         installedOverview.account.owned[0]!.installState = 'installed_current'
         installedOverview.account.owned[0]!.installedVersion = '1.0.0'
         return { install: { pack_id: 'pack_formula', version: '1.0.0', activated: true }, overview: installedOverview }
@@ -411,10 +401,10 @@ describe('useContentStore explicit commerce state machine', () => {
     }
 
     const store = useContentStore()
-    assert.equal(calls.length, 0)
-    await store.restoreOwnership()
-    assert.equal(store.account.value?.owned[0]?.receiptVerification, 'verified')
+    assert.equal(calls.length, 0, 'opening the Library installs nothing')
+    await store.refresh()
     assert.equal(calls.length, 1)
+    assert.equal(store.account.value?.owned[0]?.installState, 'not_installed')
     await store.installRelease('rel_formula')
     assert.equal(store.account.value?.owned[0]?.installState, 'installed_current')
     assert.equal(calls.length, 2)
@@ -424,9 +414,9 @@ describe('useContentStore explicit commerce state machine', () => {
     const recalledOverview = structuredClone(completeOverview) as any
     recalledOverview.account.owned = [{
       entitlementFamily: 'formula.family', productId: 'formula', title: 'Archive Formula',
-      kind: 'series_formula', grantedAt: '2026-08-14T09:12:44Z', purchaseId: 'cpur_1',
+      kind: 'series_formula',
       currentRelease: structuredClone(completeOverview.products[0]!.currentRelease),
-      recalledReleaseVersions: [], receiptVerification: 'verified', downloadAvailable: true,
+      recalledReleaseVersions: [], downloadAvailable: true,
       installState: 'not_installed', installedVersion: null, showcaseVideos: [],
     }]
     recalledOverview.products[0].owned = true
@@ -611,13 +601,12 @@ describe('Studio Library stale-while-revalidate', () => {
     assert.equal(store.catalogFreshness.value, 'fresh')
   })
 
-  test('install and restore keep forcing their own verified refetch', async () => {
-    const owned = structuredClone(completeOverview)
-    owned.products[0]!.owned = true
+  test('install keeps forcing its own verified refetch', async () => {
+    const available = structuredClone(completeOverview)
+    available.products[0]!.owned = true
     handler = (path, options) => {
-      if (path === '/api/content-store') return structuredClone(owned)
-      if (path === '/api/content-store/restore') return structuredClone(owned)
-      if (path.endsWith('/install')) return { install: { pack_id: 'pack_formula', version: '1.0.0', activated: true }, overview: structuredClone(owned) }
+      if (path === '/api/content-store') return structuredClone(available)
+      if (path.endsWith('/install')) return { install: { pack_id: 'pack_formula', version: '1.0.0', activated: true }, overview: structuredClone(available) }
       throw new Error(`Unexpected request: ${path} ${JSON.stringify(options)}`)
     }
 
@@ -627,10 +616,10 @@ describe('Studio Library stale-while-revalidate', () => {
     assert.equal(overviewReads.length, 1)
     assert.equal(overviewReads.every(call => call.options.cache === 'no-store'), true)
 
-    await store.restoreOwnership()
     await store.installRelease('rel_formula')
-    assert.equal(calls.some(call => call.path === '/api/content-store/restore'), true)
     assert.equal(calls.some(call => call.path.endsWith('/install')), true)
+    assert.equal(calls.some(call => call.path === '/api/content-store/restore'), false,
+      'the shop restore route is no longer in the install path')
     assert.equal(store.catalogFreshness.value, 'fresh')
     assert.equal(store.products.value[0]?.owned, true)
   })
@@ -671,7 +660,6 @@ describe('the Studio Library catalogue that survives a relaunch', () => {
     assert.equal(store.ownershipResolved.value, false, 'ownership is unresolved, which is not the same fact as not owned')
     assert.equal(store.account.value, null, 'no balance and no content-account id exist until GenStudio answers')
     assert.deepEqual(store.installed.value, [], 'install state is never restored from disk')
-    assert.deepEqual(store.attempts.value, [], 'purchases, quotes and receipts are never restored from disk')
     assert.equal(store.lastVerifiedAt.value, null, 'nothing here was verified in this session')
     assert.equal(store.cachedProof.value, null)
   })
@@ -721,9 +709,9 @@ describe('the Studio Library catalogue that survives a relaunch', () => {
     owned.products[0]!.owned = true
     ;(owned.account as any).owned = [{
       entitlementFamily: 'formula.family', productId: 'formula', title: 'Archive Formula',
-      kind: 'series_formula', grantedAt: '2026-08-01T00:00:00Z', purchaseId: 'purchase_secret',
+      kind: 'series_formula',
       currentRelease: null, showcaseVideos: [], recalledReleaseVersions: [],
-      receiptVerification: 'verified', downloadAvailable: true,
+      downloadAvailable: true,
       installState: 'installed_current', installedVersion: '1.0.0', missingDependencies: [],
     }]
     handler = path => { if (path === '/api/content-store') return structuredClone(owned); throw new Error(path) }
@@ -735,9 +723,9 @@ describe('the Studio Library catalogue that survives a relaunch', () => {
     assert.ok(written, 'the published catalogue is saved for the next launch')
     assert.match(written, /"Archive Formula"/)
     assert.doesNotMatch(written, /"owned"/)
-    assert.doesNotMatch(written, /purchase_secret|content_acct_a|acct_a/)
-    assert.doesNotMatch(written, /installState|installed_current|availableCredits|contentSpendableCredits|receiptVerification/)
-    assert.doesNotMatch(written, /2400|1650/, 'no balance figure reaches disk')
+    assert.doesNotMatch(written, /content_acct_a|acct_a/)
+    assert.doesNotMatch(written, /installState|installed_current/)
+    assert.doesNotMatch(written, /creditPrice|discount|listCreditPrice/, 'no price or discount reaches disk')
   })
 
   test('a catalogue written under another account is deleted the moment GenStudio names a different one', async () => {
@@ -826,12 +814,14 @@ describe('Studio Library renderer contract', () => {
       'restored reuses the existing disabled-actions machinery rather than a second flag; a catalogue without an account is not actionable either')
   })
 
-  test('separates Discover, Owned, Installed, and Updates with truthful counts and empty states', () => {
+  test('separates Discover, Installed and Updates with truthful counts and empty states', () => {
     assert.match(page, /role="tablist"/)
     assert.match(page, /label: 'Discover'/)
-    assert.match(page, /label: 'Owned'/)
     assert.match(page, /label: 'Installed'/)
     assert.match(page, /label: 'Updates'/)
+    // The Owner tab went with the shop: one list of what the Gateway publishes.
+    assert.doesNotMatch(page, /label: 'Owned'/)
+    assert.doesNotMatch(page, /activeTab === 'owned'|store-tab-owned/)
     assert.match(page, /ContentInstalledLibraryView/)
     assert.match(page, /products\.length === 0 && installed\.length === 0/)
     assert.match(page, /updateProducts/)
@@ -839,12 +829,10 @@ describe('Studio Library renderer contract', () => {
     assert.match(page, /No updates available/)
     assert.match(page, /The Studio Library is ready, but no packs have been published yet\./)
     assert.doesNotMatch(page + card, /starter entries|preview gallery|license terms|portal URL/i)
-    assert.match(page, /Re-check my packs/)
-    // The retired shop's affordances must not come back. `Purchase records` is
-    // a non-interactive section label for this Mac's own local journal in the
-    // partial-state notice — not an action — so the guard refuses purchase
-    // CONTROLS and checkout wording rather than the noun itself.
+    // The retired shop's affordances must not come back, and neither may its
+    // ownership machinery: there is nothing to re-check and nothing to own.
     assert.doesNotMatch(page, /Restore Purchases/i)
+    assert.doesNotMatch(page, /Re-check my packs|re-check my packs/i)
     assert.doesNotMatch(page, /<(?:button|a)\b[^>]*>[^<]*purchase/i, 'no control offers a purchase')
     assert.doesNotMatch(page, /\bbuy\b|checkout|purchase now/i, 'no checkout wording')
     assert.match(card, /Install on this Mac/)
@@ -853,38 +841,42 @@ describe('Studio Library renderer contract', () => {
     assert.doesNotMatch(card, /iframe|v-html/)
   })
 
-  test('describes account ownership and local install truth separately', () => {
+  test('describes availability and local install truth without ownership wording', () => {
     assert.match(page, /Visual styles, Series Formulas, topic packs and thumbnail recipes in one place/)
     assert.match(page, /Browse what your Gateway publishes and install it on this Mac/)
     assert.doesNotMatch(page, /Packs are permanently owned by your Gateway/i,
       'the header must not turn Gateway possession into the whole install story')
-    assert.match(card, /receiptVerification !== 'verified'/)
-    assert.match(card, /re-check my packs to verify on this Mac/i)
-    assert.match(card, /Verified ownership · installed on this Mac/)
-    assert.match(card, /ready to install on this Mac/)
+    assert.match(card, /Installed on this Mac\./)
+    assert.match(card, /Ready to install on this Mac\./)
+    assert.match(card, /Not available to this Mac\./)
+    // An entitlement is an install grant, so it is never described as owning.
+    assert.doesNotMatch(card, /Verified ownership|Owned in GenStudio|ownership remains permanent/i)
+    assert.doesNotMatch(card, /receiptVerification/)
   })
 
-  test('labels recalled ownership without claiming entitlement loss or offering an exact-version retry', () => {
+  test('keeps a recall notice as a plain safety warning and never offers an exact-version retry', () => {
     assert.match(card, /recalledReleaseVersions/)
-    assert.match(card, /Ownership remains permanent/i)
-    assert.match(card, /newest safe owned release/i)
+    assert.match(card, /The Gateway stopped serving those versions\./)
+    assert.match(card, /The newest release it still serves is/)
     assert.match(page, /A Content Pack release was recalled/i)
     assert.match(page, /The Gateway stopped serving that exact version/i)
     assert.doesNotMatch(page + card, /ownership (?:was|is) revoked|entitlement (?:was|is) lost/i)
     assert.doesNotMatch(page + card, /retry recalled/i)
+    assert.doesNotMatch(card, /Ownership remains permanent/i, 'a recall is a safety notice, not an ownership statement')
   })
 
-  test('shows no credit balance, price or purchase affordance on the library page', () => {
-    for (const source of [page, card, detail]) {
+  test('shows no balance, price, ownership or purchase wording on the page, cards or detail view', () => {
+    for (const source of [page, card, detail, libraryView, installedView]) {
       assert.doesNotMatch(source, /contentSpendableCredits|availableCredits|Spendable on content|Total available/)
       assert.doesNotMatch(source, /creditPrice|quoted_credits|\bcredits\b/i)
+      assert.doesNotMatch(source, /\bOwned\b|Not owned|permanently owned|Ownership remains|Purchase records|checkout|receipt/i)
     }
   })
 
-  test('states compatibility and a plain not-owned fact instead of a checkout', () => {
+  test('states compatibility and a plain availability fact instead of a checkout', () => {
     assert.match(card, /compatibilityReason/)
-    assert.match(card, /Not owned by this Gateway account\./)
-    assert.match(card, /if \(!props\.product\.owned\) return 'Not owned'/)
+    assert.match(card, /Not available to this Mac\./)
+    assert.match(card, /if \(!props\.product\.owned\) return 'Not available'/)
     assert.doesNotMatch(card, /@click="[^\"]*(purchase|quote)/i)
   })
 
@@ -897,11 +889,22 @@ describe('Studio Library renderer contract', () => {
 
   test('mounts the Studio Library page directly and loads errors in place', () => {
     assert.match(page, /useAppTitle\('Studio Library'\)/)
-    assert.match(page, /onMounted\(\(\) => \{ void loadStore\(\{ background: true \}\); void loadGatewayArchives\(\) \}\)/)
+    assert.match(page, /void loadStore\(\{ background: true \}\)\n  void loadGatewayArchives\(\)/)
+    assert.match(page, /void store\.refreshRemovals\(\)/)
     assert.match(page, /function refreshStore\(\): void \{ void loadStore\(\) \}/)
     assert.match(page, /@click="refreshStore"/)
     assert.match(page, /v-if="pageError"/)
     assert.doesNotMatch(page, /navigateTo\(['"]\/login['"]\)/)
+  })
+
+  test('offers Remove from this Mac and Restore from Trash, and never a delete', () => {
+    assert.match(installedView, /Remove from this Mac/)
+    assert.match(installedView, /Put it back/)
+    assert.match(installedView, /Story Studio never deletes a pack/)
+    assert.match(installedView, /Used by \$\{channels\.length\}/)
+    assert.doesNotMatch(page + installedView, /Delete permanently|permanently delete/i)
+    // Removing is a local action: it is not hidden behind the Gateway's answer.
+    assert.match(page, /await store\.removePack\(packId\)/)
   })
 
   test('renders shelves in server order and routes cards to proof', () => {

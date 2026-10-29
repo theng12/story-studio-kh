@@ -70,6 +70,7 @@ import { Readable, Transform } from 'node:stream'
 import { promisify } from 'node:util'
 
 import { machineName, STORY_CALLER } from '../lib/machine-name.js'
+import { markPackRemovalReportsSent, pendingPackRemovalReports } from '../content-packs/removal.js'
 import { isServerMode, resolveAppSettingsPath } from '../lib/server-mode.js'
 import { APP_TRASH, libraryTrashDir, moveToTrashSync } from '../lib/trash-move.js'
 
@@ -695,7 +696,14 @@ async function checkInOnce(force: boolean): Promise<UpdateState> {
   if (!o) return readState()
   patchState({ last_attempt_at: clock() })
   // Built before the network deadline starts, so only the Gateway's own latency can time a check-in out.
-  const body = JSON.stringify(await report())
+  // Content Packs the Gateway asked to remove: the outcome is reported here once,
+  // after a successful check-in, so a Gateway that predates the field simply
+  // ignores it and one that asks again is not told twice.
+  const packRemovals = await pendingPackRemovalReports().catch(() => [])
+  const body = JSON.stringify({
+    ...(await report()),
+    ...(packRemovals.length ? { pack_removals: packRemovals } : {}),
+  })
   const answer = await within<CheckInAnswer>(CHECKIN_TIMEOUT_MS, 'The Gateway did not answer the update check', async (signal) => {
     const { url, key } = await o.gateway()
     if (!key) return { noKey: true }
@@ -715,6 +723,11 @@ async function checkInOnce(force: boolean): Promise<UpdateState> {
   }
   if (!answer.offer) throw new Error(`The Gateway answered ${answer.status} to the update check.`)
   patchState({ last_check_at: clock(), last_check_error: null })
+  if (packRemovals.length) {
+    await markPackRemovalReportsSent(packRemovals.map(entry => entry.pack_id)).catch(() => {
+      /* the report is best effort: it is sent again on the next check-in */
+    })
+  }
   await handleOffer(answer.offer, force)
   return readState()
 }

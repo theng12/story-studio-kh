@@ -31,6 +31,7 @@ import {
   type ContentStoreInstallState,
   type ContentStoreLocalInstallState,
 } from './content-store-install-state.js'
+import { applyGatewayPackRemovals } from '../content-packs/removal.js'
 import {
   type CachedContentQuote,
   type CachedContentRefusal,
@@ -155,6 +156,7 @@ export interface PublicContentStoreShelf {
 
 export type PublicContentProduct = Omit<GenStudioContentProduct,
   'raw' | 'currentRelease' | 'bundleComponents' | 'cover' | 'hero' | 'tags' | 'license' | 'discount'
+  | 'removeFromInstalls' | 'removeFromInstallsAt'
 > & {
   currentRelease: PublicContentRelease | null
   bundleComponents: Array<Omit<GenStudioContentProduct['bundleComponents'][number], 'raw'>>
@@ -173,6 +175,8 @@ export interface ContentStoreOverviewSections {
   receipts: ContentStoreSectionStatus
   /** This Mac's own purchase journal. Local, but it needs the account to scope it. */
   commerce: ContentStoreSectionStatus
+  /** Applying the Gateway's "take this pack off installs" requests. */
+  removals: ContentStoreSectionStatus
 }
 
 export type ContentStoreSectionStatus =
@@ -412,7 +416,7 @@ async function activeKey(): Promise<string> {
     throw new ContentStoreLocalError(
       400,
       'CONTENT_STORE_KEY_REQUIRED',
-      'Save your Gateway API Key in Settings → This Mac before opening the Content Store.',
+      'Save your Gateway API Key in Settings → This Mac before opening the Studio Library.',
     )
   }
   return apiKey
@@ -724,7 +728,7 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
 
   const sections: ContentStoreOverviewSections = {
     account: SECTION_AVAILABLE, catalog: SECTION_AVAILABLE, shelves: SECTION_AVAILABLE,
-    receipts: SECTION_AVAILABLE, commerce: SECTION_AVAILABLE,
+    receipts: SECTION_AVAILABLE, commerce: SECTION_AVAILABLE, removals: SECTION_AVAILABLE,
   }
   const noteFailure = (section: keyof ContentStoreOverviewSections, error: unknown): void => {
     const failure = sectionFailure(error, section)
@@ -763,6 +767,15 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
   ]))
 
   // ── local facts ────────────────────────────────────────────────────────
+  // The Gateway's "take this pack off installs" requests land BEFORE the
+  // install snapshot is read, so the list this page draws is the list after
+  // the removal. A pack a channel still uses is kept, and the reason is
+  // recorded and shown on it; a failure here is named, never silent.
+  if (catalog && catalog.retiredPacks.length > 0) {
+    await applyGatewayPackRemovals(catalog.retiredPacks).catch(error => {
+      noteFailure('removals', error)
+    })
+  }
   // Recalls are written to pack state BEFORE the install snapshot is read, so
   // this one answer already reflects them instead of needing a second request.
   if (account && receipts) {

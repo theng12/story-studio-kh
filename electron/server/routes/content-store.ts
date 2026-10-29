@@ -82,17 +82,17 @@ function upstreamFailure(error: GenStudioContentStoreApiError, requiredScope: 'c
     } }
   }
   const safeRefusals: Record<string, string> = {
-    already_owned: 'This GenStudio account already owns this content.',
-    archive_unavailable: 'The owned Content Pack archive is not available right now.',
+    already_owned: 'This content is already available to this GenStudio account.',
+    archive_unavailable: 'The Content Pack archive is not available right now.',
     bundle_closure_missing: 'This Content Store bundle has no pinned component closure and cannot be purchased.',
     bundle_component_unavailable: 'A pinned component of this Content Store bundle is no longer available.',
     discount_misconfigured: 'GenStudio cannot safely quote this Content Store discount right now.',
     entitlement_revoked: 'GenStudio reports that this content entitlement is revoked.',
     insufficient_credits: 'This GenStudio account does not have enough content-spendable credits.',
-    not_entitled: 'This GenStudio account does not own the requested Content Pack.',
+    not_entitled: 'This Content Pack is not available to this GenStudio account.',
     product_unavailable: 'This Content Store product is not available.',
     quote_rejected: 'GenStudio rejected the saved Content Store quote.',
-    release_recalled: 'GenStudio stopped serving this exact Content Pack release. Ownership remains permanent.',
+    release_recalled: 'GenStudio stopped serving this exact Content Pack release.',
     release_unavailable: 'This Content Pack release is not available.',
     signing_unavailable: 'GenStudio cannot sign Content Store evidence right now.',
   }

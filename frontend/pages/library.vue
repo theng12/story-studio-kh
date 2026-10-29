@@ -1,8 +1,8 @@
 <template>
   <NuxtPage />
   <div v-if="!viewingDetail" class="library-page">
-    <header class="library-header"><div><PlainBackLink label="Back to Channels" fallback="/" /><h1>Studio Library</h1><p>Visual styles, Series Formulas, topic packs and thumbnail recipes in one place. Browse what your Gateway publishes and install it on this Mac, or install a .sspack file already here.</p></div><div class="library-header-actions"><button type="button" class="btn btn-secondary" title="Choose a .sspack file up to 50 MiB" :disabled="importBusy" @click="chooseContentPack">{{ importBusy ? 'Installing…' : 'Install Content Pack' }}</button><input ref="contentPackFileInput" type="file" accept=".sspack" hidden @change="onContentPackPicked" /><button type="button" class="btn btn-secondary" title="Ask the Gateway to confirm again which packs this account owns" :disabled="loading || networkActionsDisabled" @click="checkOwnership">Re-check my packs</button><button type="button" class="btn btn-secondary" :disabled="loading" @click="refreshStore">{{ loading ? 'Refreshing…' : 'Refresh Library' }}</button></div></header>
-    <div v-if="recovery" class="store-notice warning" role="status" aria-live="polite"><div><strong>A local Content Pack recovery needs your attention</strong><p>Use Re-check my packs to confirm which packs this account owns, then install them again.</p><p>The unreadable index was reset; pack folders were retained. Reinstall any packs still missing.</p><button type="button" class="notice-action" :disabled="recoveryDismissBusy" @click="dismissRecovery">{{ recoveryDismissBusy ? 'Dismissing…' : 'Dismiss Notice' }}</button></div></div>
+    <header class="library-header"><div><PlainBackLink label="Back to Channels" fallback="/" /><h1>Studio Library</h1><p>Visual styles, Series Formulas, topic packs and thumbnail recipes in one place. Browse what your Gateway publishes and install it on this Mac, or install a .sspack file already here.</p></div><div class="library-header-actions"><button type="button" class="btn btn-secondary" title="Choose a .sspack file up to 50 MiB" :disabled="importBusy" @click="chooseContentPack">{{ importBusy ? 'Installing…' : 'Install Content Pack' }}</button><input ref="contentPackFileInput" type="file" accept=".sspack" hidden @change="onContentPackPicked" /><button type="button" class="btn btn-secondary" :disabled="loading" @click="refreshStore">{{ loading ? 'Refreshing…' : 'Refresh Library' }}</button></div></header>
+    <div v-if="recovery" class="store-notice warning" role="status" aria-live="polite"><div><strong>A local Content Pack recovery needs your attention</strong><p>Refresh Library to see what is installed here, then install any packs still missing.</p><p>The unreadable index was reset; pack folders were retained. Reinstall any packs still missing.</p><button type="button" class="notice-action" :disabled="recoveryDismissBusy" @click="dismissRecovery">{{ recoveryDismissBusy ? 'Dismissing…' : 'Dismiss Notice' }}</button></div></div>
     <div v-if="recoveryError" class="store-notice warning" role="status" aria-live="polite"><div><strong>{{ recoveryError.action === 'dismiss' ? 'Content Pack recovery notice was not dismissed' : 'Content Pack recovery could not be checked' }}</strong><p>{{ recoveryError.detail }}</p></div></div>
     <div v-if="importBusy" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Installing Content Pack…</strong><p>Reading the chosen .sspack and installing it on this Mac. This local install needs no Gateway connection.</p></div></div>
     <div v-else-if="importNotice" :class="['store-notice', importNotice.tone]" role="status" aria-live="polite"><div><strong>{{ importNotice.title }}</strong><p>{{ importNotice.detail }}</p><p v-if="importNotice.recovery">{{ importNotice.recovery }}</p></div></div>
@@ -32,12 +32,10 @@
       <template v-else-if="activeTab === 'discover'"><ContentStoreFilters :products="tabProducts" :query="query" :kind="kind" :tag="tag" :compatible-only="compatibleOnly" @update:query="query = $event" @update:kind="kind = $event" @update:tag="tag = $event" @update:compatible-only="compatibleOnly = $event" />
       <div v-if="visibleShelves.length" class="shelf-list"><ContentStoreShelf v-for="shelf in visibleShelves" :key="shelf.shelf.id" :shelf="shelf.shelf" :products="shelf.products" :account="account" :busy-product-id="''" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :queue-status="installQueue.statusOf" :halt-reason="installQueue.haltReason.value" @install="enqueueInstall" /></div><div v-else class="store-state" role="status">
         <template v-if="discoverEmptyReason === 'filters'"><h2>No published products match these filters</h2><p>Clear a filter or try another catalog search.</p><button type="button" class="btn btn-secondary" @click="clearFilters">Clear Filters</button></template>
-        <template v-else-if="discoverEmptyReason === 'all-owned'"><h2>You already own every published pack</h2><p>Every pack the Gateway publishes is already permanently owned. Open Owned to install them on this Mac.</p><button type="button" class="btn btn-secondary" @click="showOwnedTab">Go to Owned</button></template>
-        <template v-else-if="discoverEmptyReason === 'nothing-published'"><h2>No packs are published yet</h2><p>The Gateway has not published anything for this account. Refresh the library later to see the catalog it publishes.</p></template>
-        <template v-else><h2>No published products are ready to show</h2><p>The Gateway publishes these packs but has not placed any of them on a shelf yet. Refresh the library later, or open Owned for the packs this account already has.</p></template>
+        <template v-else-if="discoverEmptyReason === 'nothing-published'"><h2>No packs are published yet</h2><p>The Gateway has not published anything yet. Refresh the library later to see the catalog it publishes.</p></template>
+        <template v-else><h2>No published products are ready to show</h2><p>The Gateway publishes these packs but has not placed any of them on a shelf yet. Refresh the library later.</p></template>
       </div></template>
-      <ContentLibraryView v-else-if="activeTab === 'owned'" heading-id="owned-library-heading" title="Owned" description="Packs permanently owned by this Gateway, whether or not they are installed on this Mac." :products="ownedProducts" :account="account" empty-title="No permanently owned packs yet" empty-description="Packs the Gateway grants this account appear here." :busy-product-id="''" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :show-install-all="true" :queue-status="installQueue.statusOf" :halt-reason="installQueue.haltReason.value" @install="enqueueInstall" @install-many="enqueueInstalls" />
-      <ContentInstalledLibraryView v-else-if="activeTab === 'installed'" :installed="installed" :installs-resolved="installsResolved" />
+      <ContentInstalledLibraryView v-else-if="activeTab === 'installed'" :installed="installed" :installs-resolved="installsResolved" :removals="removals" :removal-busy="removalBusy" :removal-notice="removalNotice" @remove="removeInstalled" @restore="restoreRemoved" />
       <ContentLibraryView v-else heading-id="updates-library-heading" title="Updates" description="Installed packs with a newer safe release ready for an explicit update." :products="updateProducts" :account="account" empty-title="No updates available" empty-description="Your installed packs are up to date." :busy-product-id="''" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :show-install-all="true" :queue-status="installQueue.statusOf" :halt-reason="installQueue.haltReason.value" @install="enqueueInstall" @install-many="enqueueInstalls" />
     </main>
     <div v-if="installQueue.running.value || installQueue.finished.value" class="install-queue-strip" role="status" aria-live="polite"><span v-if="installQueue.running.value">Installing {{ installQueue.batchDone.value }} of {{ installQueue.batchTotal.value }}<template v-if="installQueue.batchFailed.value"> · {{ installQueue.batchFailed.value }} failed</template><template v-if="installQueue.activeTitle.value"> · now: {{ installQueue.activeTitle.value }}</template>. You can leave this page; installs continue.</span><span v-else>Installs finished — {{ installQueue.batchInstalled.value }} installed<template v-if="installQueue.haltReason.value"> — stopped early. {{ installQueue.haltReason.value }}</template><template v-else-if="installQueue.batchFailed.value">, {{ installQueue.batchFailed.value }} failed. Open the pack and try again.</template></span><button v-if="!installQueue.running.value" type="button" class="notice-action" @click="installQueue.clearFinished()">Dismiss</button><ul v-if="installQueue.failures.value.length && !installQueue.haltReason.value" class="install-failures"><li v-for="failure in installQueue.failures.value" :key="failure.releaseId"><strong>{{ failure.title }}</strong> — {{ failure.detail }}</li></ul></div>
@@ -45,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, type ComponentPublicInstance } from 'vue'
+import { computed, onMounted, ref, type ComponentPublicInstance } from 'vue'
 import ContentStoreFilters from '~/components/content-store/ContentStoreFilters.vue'
 import ContentStoreShelf from '~/components/content-store/ContentStoreShelf.vue'
 import ContentLibraryView from '~/components/content-store/ContentLibraryView.vue'
@@ -55,12 +53,15 @@ import { useContentInstallQueue } from '~/composables/useContentInstallQueue'
 import { contentStoreErrorPresentation, CONTENT_PACK_IMPORT_MAX_BYTES, contentPackImportErrorPresentation, contentPackImportUiError, gatewayArchiveErrorPresentation, type ContentStoreProduct, type GatewayContentArchive } from '~/composables/useContentStore'
 
 useAppTitle('Studio Library')
-type StoreTab = 'discover' | 'owned' | 'installed' | 'updates'
-const tabs: Array<{ id: StoreTab; label: string }> = [{ id: 'discover', label: 'Discover' }, { id: 'owned', label: 'Owned' }, { id: 'installed', label: 'Installed' }, { id: 'updates', label: 'Updates' }]
-const store = useContentStore(); const appSettingsModal = useAppSettingsModal(); const { account, products, installed, shelves, catalogFreshness, ownershipResolved, accountResolved, installsResolved, lastVerifiedAt, loading, error, recovery, recoveryError } = store
+type StoreTab = 'discover' | 'installed' | 'updates'
+const tabs: Array<{ id: StoreTab; label: string }> = [{ id: 'discover', label: 'Discover' }, { id: 'installed', label: 'Installed' }, { id: 'updates', label: 'Updates' }]
+const store = useContentStore(); const appSettingsModal = useAppSettingsModal(); const { account, products, installed, shelves, catalogFreshness, ownershipResolved, accountResolved, installsResolved, lastVerifiedAt, loading, error, recovery, recoveryError, removals } = store
 const route = useRoute(); const viewingDetail = computed(() => typeof route.params.productId === 'string' && route.params.productId.length > 0)
 const activeTab = ref<StoreTab>('discover'); const query = ref(''); const kind = ref<ContentStoreKindFilter>('all'); const tag = ref(''); const compatibleOnly = ref(false)
 const recoveryDismissBusy = ref(false); const tabRefs = new Map<StoreTab, HTMLButtonElement>()
+/** Removing and restoring a pack are local actions with their own busy/notice state. */
+const removalBusy = ref('')
+const removalNotice = ref<{ tone: 'success' | 'warning'; detail: string } | null>(null)
 /** Local `.sspack` install is independent of Gateway state, so it has its own busy/notice state. */
 const contentPackFileInput = ref<HTMLInputElement | null>(null)
 const importBusy = ref(false)
@@ -75,28 +76,26 @@ const gatewayArchivesBusy = ref(false)
 const gatewayArchivesError = ref<{ title: string; detail: string; recovery: string } | null>(null)
 const gatewayArchiveBusyDigest = ref('')
 const gatewayArchiveNotice = ref<{ tone: 'success' | 'warning'; title: string; detail: string; recovery?: string } | null>(null)
-const discoverProducts = computed(() => products.value.filter(product => !product.owned && !product.retired)); const ownedProducts = computed(() => products.value.filter(product => product.owned)); const ownedInstallState = (product: ContentStoreProduct) => account.value?.owned.find(item => item.entitlementFamily === product.entitlementFamily)?.installState; const updateProducts = computed(() => ownedProducts.value.filter(product => product.compatible && product.currentRelease && !account.value?.owned.find(item => item.entitlementFamily === product.entitlementFamily)?.recalledReleaseVersions.includes(product.currentRelease.version) && ownedInstallState(product) === 'update_available')); const tabProducts = computed(() => activeTab.value === 'discover' ? discoverProducts.value : activeTab.value === 'owned' ? ownedProducts.value : updateProducts.value)
+/** The one list: every pack the Gateway publishes and has not retired. */
+const discoverProducts = computed(() => products.value.filter(product => !product.retired)); const availableProducts = computed(() => products.value.filter(product => product.owned)); const availableInstallState = (product: ContentStoreProduct) => account.value?.owned.find(item => item.entitlementFamily === product.entitlementFamily)?.installState; const updateProducts = computed(() => availableProducts.value.filter(product => product.compatible && product.currentRelease && !account.value?.owned.find(item => item.entitlementFamily === product.entitlementFamily)?.recalledReleaseVersions.includes(product.currentRelease.version) && availableInstallState(product) === 'update_available')); const tabProducts = computed(() => activeTab.value === 'discover' ? discoverProducts.value : updateProducts.value)
 const catalogPresentation = computed(() => Object.fromEntries(products.value.map(product => [product.productId, { productId: product.productId, ...product.presentation }])));
 const filteredProducts = computed(() => filterCatalogProducts(tabProducts.value, query.value, { kind: kind.value, compatibleOnly: compatibleOnly.value, tag: tag.value || undefined }, catalogPresentation.value))
 const visibleShelves = computed(() => { const visibleIds = new Set(filteredProducts.value.map(product => product.productId)); return shelves.value.map(shelf => ({ shelf, products: orderShelfProducts(products.value, shelf).filter(product => visibleIds.has(product.productId)) })).filter(shelf => shelf.products.length) })
-const publishedProducts = computed(() => products.value.filter(product => !product.retired))
 const filtersActive = computed(() => query.value.trim() !== '' || kind.value !== 'all' || tag.value !== '' || compatibleOnly.value)
 /**
  * Why Discover has nothing to show. Each branch is a different fact about the
  * catalog and only one of them is the customer's filters — offering to clear
  * filters that were never set is the misleading empty state this replaces.
- * Order matters: an empty Discover tab is explained by ownership before
- * filters, because with nothing left to discover there is no filter worth
- * clearing. A failed load is not an empty state at all; it is handled above by
- * the `unavailable` and `cached` branches.
+ * A failed load is not an empty state at all; it is handled above by the
+ * `unavailable` and `cached` branches.
  */
-const discoverEmptyReason = computed<'all-owned' | 'nothing-published' | 'filters' | 'unshelved'>(() => {
-  if (discoverProducts.value.length === 0) return publishedProducts.value.length > 0 ? 'all-owned' : 'nothing-published'
+const discoverEmptyReason = computed<'nothing-published' | 'filters' | 'unshelved'>(() => {
+  if (discoverProducts.value.length === 0) return 'nothing-published'
   if (filtersActive.value && filteredProducts.value.length === 0) return 'filters'
   return 'unshelved'
 })
 const networkActionsDisabled = computed(() => catalogFreshness.value !== 'fresh' || !accountResolved.value)
-const pageError = computed(() => { if (!error.value) return null; const presentation = contentStoreErrorPresentation(error.value); if (error.value.code === 'release_recalled') return { tone: 'warning', title: 'A Content Pack release was recalled', detail: error.value.recallReason ? `The Gateway stopped serving that exact version. Reason: ${error.value.recallReason}` : 'The Gateway stopped serving that exact version. Ownership remains permanent.', recovery: presentation.recovery, showSettings: false }; return { tone: error.value.code === 'signing_unavailable' ? 'neutral' : 'warning', title: presentation.title, detail: presentation.detail, recovery: presentation.recovery, showSettings: presentation.settingsAction } })
+const pageError = computed(() => { if (!error.value) return null; const presentation = contentStoreErrorPresentation(error.value); if (error.value.code === 'release_recalled') return { tone: 'warning', title: 'A Content Pack release was recalled', detail: error.value.recallReason ? `The Gateway stopped serving that exact version. Reason: ${error.value.recallReason}` : 'The Gateway stopped serving that exact version.', recovery: presentation.recovery, showSettings: false }; return { tone: error.value.code === 'signing_unavailable' ? 'neutral' : 'warning', title: presentation.title, detail: presentation.detail, recovery: presentation.recovery, showSettings: presentation.settingsAction } })
 /**
  * Every OTHER part the server could not answer, named. The notice above shows
  * the first one; a partial answer that hides the rest ("the account could not
@@ -104,9 +103,9 @@ const pageError = computed(() => { if (!error.value) return null; const presenta
  * records) is the silence this whole state exists to remove. Identical reasons
  * are shown once, because four Gateway sections share one cause.
  */
-const SECTION_LABELS: Record<'account' | 'catalog' | 'shelves' | 'receipts' | 'commerce', string> = {
-  account: 'Your account', catalog: 'The published catalogue', shelves: 'Shelves',
-  receipts: 'Recall notices', commerce: 'Purchase records',
+const SECTION_LABELS: Record<'account' | 'catalog' | 'shelves' | 'receipts' | 'removals', string> = {
+  account: 'What this Mac can install', catalog: 'The published catalogue', shelves: 'Shelves',
+  receipts: 'Recall notices', removals: 'Removing packs the Gateway retired',
 }
 const otherUnavailable = computed(() => {
   const seen = new Set<string>([pageError.value?.detail ?? ''])
@@ -233,8 +232,48 @@ async function installFromGatewayArchive(archive: GatewayContentArchive): Promis
     gatewayArchiveBusyDigest.value = ''
   }
 }
-async function showOwnedTab(): Promise<void> { activeTab.value = 'owned'; await nextTick(); tabRefs.get('owned')?.focus() }
-async function checkOwnership(): Promise<void> { if (networkActionsDisabled.value) return; try { await store.restoreOwnership(); activeTab.value = 'owned' } catch { /* exact check boundary is rendered from store.error */ } }
+/**
+ * Removing is a local action: it needs no Gateway answer, and it never deletes
+ * anything. A refusal names the channels that still use the pack; a failure
+ * says what went wrong.
+ */
+function removalFailureDetail(cause: any): string {
+  const data = cause?.data || cause?.response?._data || {}
+  if (data.code === 'CONTENT_PACK_IN_USE') {
+    const channels: string[] = Array.isArray(data.channels) ? data.channels : []
+    return `Not removed. Still needed by${channels.length ? `: ${channels.join(', ')}` : ' a channel'}. Change that selection first.`
+  }
+  if (data.code === 'CONTENT_PACK_BUILT_IN') return 'This pack ships with Story Studio, so it cannot be removed.'
+  if (typeof data.detail === 'string' && data.detail) return data.detail
+  return cause?.message || 'This pack could not be removed.'
+}
+async function removeInstalled(packId: string): Promise<void> {
+  if (removalBusy.value) return
+  removalBusy.value = packId
+  removalNotice.value = null
+  try {
+    await store.removePack(packId)
+    removalNotice.value = { tone: 'success', detail: `${packId} is off this Mac. Its files are in Story Studio's Trash until you put it back.` }
+  } catch (cause) {
+    removalNotice.value = { tone: 'warning', detail: removalFailureDetail(cause) }
+  } finally {
+    removalBusy.value = ''
+  }
+}
+async function restoreRemoved(packId: string): Promise<void> {
+  if (removalBusy.value) return
+  removalBusy.value = packId
+  removalNotice.value = null
+  try {
+    await store.restorePack(packId)
+    removalNotice.value = { tone: 'success', detail: `${packId} is back on this Mac.` }
+  } catch (cause) {
+    removalNotice.value = { tone: 'warning', detail: removalFailureDetail(cause) }
+  } finally {
+    removalBusy.value = ''
+  }
+}
+
 async function dismissRecovery(): Promise<void> { const incidentId = recovery.value?.incidentId; if (!incidentId || recoveryDismissBusy.value) return; recoveryDismissBusy.value = true; try { await store.dismissRecovery(incidentId) } catch { /* recoveryError renders the exact local failure and the notice remains */ } finally { recoveryDismissBusy.value = false } }
 
 /**
@@ -250,17 +289,16 @@ function enqueueInstalls(releaseIds: string[]): void { if (networkActionsDisable
 
 function clearFilters(): void { query.value = ''; kind.value = 'all'; tag.value = ''; compatibleOnly.value = false }
 // Every tab counts PACKS. Installed counted version records, so it could read
-// higher than Owned -- see installedPackCount for why that number was wrong.
-function tabProductCount(tab: StoreTab): number { return tab === 'discover' ? discoverProducts.value.length : tab === 'owned' ? ownedProducts.value.length : tab === 'installed' ? installedPackCount(installed.value) : updateProducts.value.length }
+// higher than another tab -- see installedPackCount for why that number was wrong.
+function tabProductCount(tab: StoreTab): number { return tab === 'discover' ? discoverProducts.value.length : tab === 'installed' ? installedPackCount(installed.value) : updateProducts.value.length }
 /**
  * Discover counts the published catalogue, which is a catalogue fact and true
- * whether or not ownership has been checked. Owned, Installed and Updates each
- * count something only the Gateway can confirm, so before it answers they show
- * an em dash rather than a zero somebody would read as "you own nothing".
+ * whether or not the Gateway has answered. Installed counts what this Mac
+ * itself reports. Updates counts something only the Gateway can confirm, so
+ * before it answers it shows an em dash rather than a zero somebody would read
+ * as "nothing to update".
  */
 function tabCountLabel(tab: StoreTab): string {
-  // Installed counts what this Mac itself reports, so it is answered even when
-  // the Gateway cannot be asked. The other three need the account.
   if (tab === 'installed') return installsResolved.value ? String(tabProductCount(tab)) : '—'
   return !ownershipResolved.value && tab !== 'discover' ? '—' : String(tabProductCount(tab))
 }
@@ -270,7 +308,12 @@ function formatVerifiedAt(value: string | null): string { if (!value) return 'be
 // Stale-while-revalidate: a verified catalog already in memory renders at once
 // and the revalidation runs unseen. `refresh` decides whether staying quiet is
 // honest; a cold start or an expired cache loads visibly instead.
-onMounted(() => { void loadStore({ background: true }); void loadGatewayArchives() })
+onMounted(() => {
+  void loadStore({ background: true })
+  void loadGatewayArchives()
+  // A local read: which channels use each installed pack, and what was removed.
+  void store.refreshRemovals().catch(() => { /* the Installed view says it could not read them */ })
+})
 </script>
 
 <style scoped>

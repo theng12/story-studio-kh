@@ -95,7 +95,7 @@ async function activeKey(): Promise<string> {
     throw new ContentStoreLocalError(
       400,
       'CONTENT_STORE_KEY_REQUIRED',
-      'Save your Gateway API Key in Settings → This Mac before restoring Content Store packs.',
+      'Save your Gateway API Key in Settings → This Mac before installing Content Packs.',
     )
   }
   return apiKey
@@ -119,7 +119,7 @@ async function fetchVerifiedOwnership(expected?: {
   const apiKey = await activeKey()
   const account = await getGenStudioContentAccount(apiKey)
   if (expected && account.accountId !== expected.accountId) {
-    throw new ContentStoreLocalError(409, 'CONTENT_STORE_ACCOUNT_MISMATCH', 'The active GenStudio account does not own this installed Content Pack.')
+    throw new ContentStoreLocalError(409, 'CONTENT_STORE_ACCOUNT_MISMATCH', 'This installed Content Pack belongs to a different GenStudio account.')
   }
   const [publicKey, receipts] = await Promise.all([
     getGenStudioContentPublicKey(apiKey),
@@ -303,7 +303,7 @@ export async function resolveOwnedContentStoreDependency(
       throw new ContentStoreLocalError(
         410,
         'release_recalled',
-        `GenStudio recalled ${packId}@${version}: ${release.recallReason}. Ownership remains permanent, but that exact version cannot be downloaded.`,
+        `GenStudio recalled ${packId}@${version}: ${release.recallReason}. That exact version cannot be downloaded.`,
       )
     }
     if (release) return { entitlement, release }
@@ -311,7 +311,7 @@ export async function resolveOwnedContentStoreDependency(
   throw new ContentStoreLocalError(
     409,
     'CONTENT_PACK_DEPENDENCY_NOT_OWNED',
-    `This pack requires owned dependency ${packId}@${version}, but that exact release is not in the verified GenStudio library.`,
+    `This pack requires ${packId}@${version}, but that exact release is not available to this Mac.`,
   )
 }
 
@@ -395,7 +395,7 @@ function deliveryAttestation(
     const currentRelease = attested.find(row =>
       restoreReceiptAttestsRelease(row, entitlement.entitlementFamily, release))
     if (!currentRelease) {
-      throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_MISSING', 'GenStudio did not return permanent signed receipt evidence for this owned release.')
+      throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_MISSING', 'GenStudio did not return signed receipt evidence for this release.')
     }
     return {
       account_id: context.account.accountId,
@@ -554,7 +554,7 @@ async function installOwnedEntitlement(
   context: DeliveryContext,
 ): Promise<ContentPackInstallResult> {
   if (!release.archiveAvailable) {
-    throw new ContentStoreLocalError(409, 'CONTENT_PACK_ARCHIVE_UNAVAILABLE', 'This owned pack has no downloadable release right now.')
+    throw new ContentStoreLocalError(409, 'CONTENT_PACK_ARCHIVE_UNAVAILABLE', 'This pack has no downloadable release right now.')
   }
   if (release.archiveBytes > STORY_CONTENT_PACK_MAX_BYTES) {
     throw new ContentStoreLocalError(
@@ -612,7 +612,7 @@ async function installOwnedEntitlement(
     context.progress?.({ phase: 'verifying', downloadedBytes: null, totalBytes: null })
     const verified = await verifyDeliveryAttestedContentPackArchive(archiveBytes)
     if (verified.manifest.pack_id !== release.packId || verified.manifest.version !== release.version) {
-      throw new ContentStoreLocalError(409, 'CONTENT_PACK_REMOTE_IDENTITY_MISMATCH', 'The downloaded signed pack identity does not match the owned release.')
+      throw new ContentStoreLocalError(409, 'CONTENT_PACK_REMOTE_IDENTITY_MISMATCH', 'The downloaded signed pack identity does not match the release.')
     }
     evidence = await bindRootClosure(evidence, verified.manifest.dependencies ?? [], context)
     for (const dependency of verified.manifest.dependencies ?? []) {
@@ -684,7 +684,7 @@ export async function installOwnedContentStoreRelease(
   await reconcileRecalledContentStoreReleases(verified)
   const entitlement = verified.receipts.entitlements.find(row => row.currentRelease?.releaseId === releaseId)
   if (!entitlement) {
-    throw new ContentStoreLocalError(404, 'CONTENT_PACK_NOT_OWNED', 'The active GenStudio account does not own this release.')
+    throw new ContentStoreLocalError(404, 'CONTENT_PACK_NOT_OWNED', 'This release is not available to this Mac.')
   }
   const release = entitlement.currentRelease!
   const paths = getContentPackRuntimePaths()

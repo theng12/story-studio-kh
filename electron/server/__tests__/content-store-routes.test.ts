@@ -646,7 +646,7 @@ describe('Content Store commerce routes', () => {
     }, { label: 'async recalled install operation', timeoutMs: 5_000 })
     assert.deepEqual(monitored.failure, {
       code: 'release_recalled',
-      detail: 'GenStudio stopped serving this exact Content Pack release. Ownership remains permanent.',
+      detail: 'GenStudio stopped serving this exact Content Pack release.',
     })
   })
 
@@ -669,7 +669,7 @@ describe('Content Store commerce routes', () => {
 
     assert.deepEqual(response.body, {
       code: 'release_recalled',
-      detail: 'GenStudio stopped serving this exact Content Pack release. Ownership remains permanent.',
+      detail: 'GenStudio stopped serving this exact Content Pack release.',
       recall_reason: 'unsafe bundled reference',
       recalled_at: '2026-08-14T09:00:00Z',
       terminal: true,
