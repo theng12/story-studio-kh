@@ -3125,7 +3125,7 @@ test('lenient: a free-fleet explicit regeneration whose one request failed submi
   })
 })
 
-test('lenient: a borrowed neighbour picture remains visible but fails the stale-image completion check', async () => {
+test('lenient: on the last automatic try a free-fleet scene that still fails borrows its neighbour\'s picture', async () => {
   await withFreeFleetContinuity('Free neighbour reuse', async ({ service, project, episodeId, paths, outDir }) => {
     const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
     const planPath = path.join(paths.scene_prompts_dir, 'scene_plan.json')
@@ -3148,11 +3148,22 @@ test('lenient: a borrowed neighbour picture remains visible but fails the stale-
     }
     await writeAuthoritativeFixture(job)
 
-    await assert.rejects(runContinuityRenderJob(job), /image was rendered from an outdated prompt/)
+    await runContinuityRenderJob(job)
     assert.ok(job.output_lines.some((line: string) => /Scene 2 could not be made; using scene 1's picture/.test(line)), job.output_lines.join('\n'))
     const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
     const borrowed = plan.scenes.find((scene: any) => scene.id === 'scene-002')
     assert.equal(borrowed.image_path, path.join(outDir, 'scene-002.png'))
     assert.notEqual(borrowed.rendered_prompt, borrowed.visual_prompt, 'Scene Review flags the borrowed picture')
+    const { auditSceneImageCompletion, checkpointSceneImage } = await import('../services/scene-media-checkpoint.js')
+    assert.equal(borrowed.stand_in_for_prompt, 'A river under moonlight.')
+    assert.deepEqual((await auditSceneImageCompletion(planPath, ['scene-002'], [outDir])).issues, [], 'every later reader accepts the stand-in')
+    borrowed.visual_prompt = 'A river at noon.'
+    await fs.writeFile(planPath, JSON.stringify(plan))
+    assert.match((await auditSceneImageCompletion(planPath, ['scene-002'], [outDir])).issues[0]!.reason!, /outdated prompt/, 'it stands in for that prompt only')
+    const real = path.join(outDir, 'scene-002-real.png')
+    await sharp({ create: { width: 16, height: 9, channels: 3, background: '#533' } }).png().toFile(real)
+    await checkpointSceneImage(planPath, 'scene-002', real, 'A river at noon.')
+    const replaced = JSON.parse(await fs.readFile(planPath, 'utf8')).scenes.find((scene: any) => scene.id === 'scene-002')
+    assert.equal(replaced.stand_in_for_prompt, undefined, 'a real picture ends the stand-in')
   })
 })

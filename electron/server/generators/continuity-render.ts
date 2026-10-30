@@ -40,7 +40,7 @@ import { resolveStyleBible } from '../lib/style-bible.js'
 import { composeSceneRenderPrompt, loadAnchorCharacters } from '../services/scene-prompt-assembly.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { auditSceneImageCompletion, checkpointSceneImage, countScenesAwaitingApproval, liveSceneAutoApprove } from '../services/scene-media-checkpoint.js'
+import { auditSceneImageCompletion, checkpointSceneImage, markSceneImageStandIn, countScenesAwaitingApproval, liveSceneAutoApprove } from '../services/scene-media-checkpoint.js'
 import { autoApproveOn } from '../services/preset-authority.js'
 import { selectSceneImageBatch } from '../services/scene-image-batch-selection.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
@@ -1912,6 +1912,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     // a scene that still could not be made borrows the nearest scene's picture instead
     // of failing the episode. Its rendered_prompt is the neighbour's, so Scene Review
     // flags it as not matching its prompt and a later regeneration replaces it.
+    // stand_in_for_prompt lets completion accept it, for this prompt only.
     // ponytail: capped at 10% of the episode; beyond that the fleet is down, keep failing.
     const lastAutomaticTry = (job.auto_retry?.attempt ?? 1) >= (job.auto_retry?.max_attempts ?? 1)
     if (freeFleet && lastAutomaticTry && failedSceneIds.length <= Math.max(1, Math.floor(scenes.length / 10))
@@ -1933,6 +1934,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
           await fs.copyFile(path.join(outDir, `${neighbour.id}.png`), outPath)
           await persistImagePath(scene.id, outPath, neighbour.visual_prompt)
         }
+        const marking = planChain.then(() => markSceneImageStandIn(planPath, scene.id, scene.visual_prompt))
+        planChain = marking.catch(() => {})
+        await marking
         failedSceneIds.splice(failedSceneIds.indexOf(sceneId), 1)
         failureReasons.delete(sceneId)
         successfulSceneIds.add(sceneId)
