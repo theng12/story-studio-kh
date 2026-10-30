@@ -70,6 +70,7 @@ import * as jq from '../services/job-queue.js'
 import * as pm from '../services/project-manager.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import type { Job, Format, Character } from '../models/types.js'
+import { answerMatchesLanguage, languageDirectiveTail, languageName, type ContentLanguage } from './content-language.js'
 import type { GenStudioRequestPreview } from './genstudio-request-preview.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 
@@ -921,6 +922,12 @@ export interface ChunkedNarrationParams {
   signal?: AbortSignal
   /** Where a chapter save reports sentences it split for narration (the job log). */
   log?: (line: string) => void
+  /**
+   * The channel's audience language, read from `project.content_language`. Used
+   * to refuse a chapter whose script is not the channel's (and to place the
+   * language instruction LAST in every prompt). Absent = never checked.
+   */
+  contentLanguage?: ContentLanguage | null
   /** Caller's cancel-checker — polled between batches so user-cancel
    *  unwinds cleanly even if the LLM SDK doesn't abort instantly. */
   isCancelled?: () => boolean
@@ -1585,6 +1592,22 @@ async function buildOutline(
       + (outOfRange.length ? ` It also returned ${outOfRange.length} entr${outOfRange.length === 1 ? 'y' : 'ies'} numbered outside 1-${params.totalChapters}.` : ''),
     )
   }
+  // The outline is audience-facing text too: its titles, hooks and synopses
+  // become the episode's chapter names. If the channel states a language and
+  // the whole plan came back in another script, NOTHING is saved — the caller
+  // writes the sidecar from this return value, so throwing here keeps the old
+  // outline intact and fails loudly (measured on the mini: English titles for a
+  // Khmer channel). An unset language is never checked.
+  const outlineAudienceText = out
+    .flatMap(entry => [entry.title, entry.hook_line, entry.synopsis, ...(entry.key_facts ?? []), ...(entry.key_beats ?? [])])
+    .filter((value): value is string => typeof value === 'string' && !!value)
+    .join('\n')
+  if (out.length && !answerMatchesLanguage(outlineAudienceText, params.contentLanguage)) {
+    throw new Error(
+      `The outline was not saved: its chapter titles came back in the wrong script for this channel, which writes in ${languageName(params.contentLanguage)}. `
+      + 'Nothing was written. Retry to build it again.',
+    )
+  }
   return out
 }
 
@@ -1637,7 +1660,7 @@ COMMIT TO SPECIFICS at outline time. When the pacing arc above asks for a SPECIF
   - GOOD: "Center on the 1971 D.B. Cooper hijacking — money never recovered."
 Specific commitments at outline time let the user review and swap items before chapter expansion (which is expensive). If any avoidance list is in effect for this channel (see the additional rules above), respect it AT OUTLINE TIME — pick a fresh item now, don't defer the choice to expansion.
 
-Output: { "chapters": [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ] }`
+Output: { "chapters": [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ] }${languageDirectiveTail('', p.contentLanguage)}`
 }
 
 function listicleOutlinePrompt(p: ChunkedNarrationParams, compact: boolean): string {
@@ -1667,7 +1690,7 @@ ${fieldHint}
 
 Each ${t.singular.toLowerCase()} must be SELF-CONTAINED (a viewer dropping in mid-video must understand it without prior context). ${t.Plural} should be DISTINCT — different subjects, no overlap. Cover the breadth of the title's promise.
 
-Output: { "chapters": [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ] }`
+Output: { "chapters": [ {"n":1, ...}, {"n":2, ...}, ..., {"n":${p.totalChapters}, ...} ] }${languageDirectiveTail('', p.contentLanguage)}`
 }
 
 // ── Narrative expansion (sequential batches with transition glue) ──────────
@@ -1951,7 +1974,7 @@ function narrativeRepairPrompt(
 ): string {
   return `${narrativeBatchPrompt(p, outline, batch, transitionWindow, useTOC)}
 
-RECOVERY INSTRUCTION: This is one bounded repair pass. Write every requested chapter in this response, and write no chapters outside the requested slots.`
+RECOVERY INSTRUCTION: This is one bounded repair pass. Write every requested chapter in this response, and write no chapters outside the requested slots.${languageDirectiveTail('', p.contentLanguage)}`
 }
 
 function narrativeBatchPrompt(
@@ -2030,7 +2053,7 @@ Rules:
   : `Each ${t.singular} hits its OWN word target (see slot Length: lines). No meta-commentary, no preamble.`}
 - Maintain the format's tone consistently with the rest of the episode.
 
-Output ONLY the ${t.singular} blocks above.`
+Output ONLY the ${t.singular} blocks above.${languageDirectiveTail('', p.contentLanguage)}`
 }
 
 // ── Listicle expansion (parallel batches) ──────────────────────────────────
@@ -2319,7 +2342,7 @@ Rules:
 - No meta-commentary, no preamble, no "in this chapter…" recap, no word counts.
 - Do not output bracketed placeholders or section headers like "Hook:" / "Beat 1:" — write flowing prose.
 
-Output ONLY the chapter blocks above.`
+Output ONLY the chapter blocks above.${languageDirectiveTail('', p.contentLanguage)}`
 }
 
 // ── Per-batch parsing + per-chapter writing ────────────────────────────────
@@ -2338,7 +2361,14 @@ interface ParseAndWriteBatchOptions {
   discardFinalParsedChapter?: boolean
 }
 
-async function parseAndWriteBatch(
+/**
+ * Parse one answer into chapters and write the ones that belong here.
+ *
+ * Exported for the script-language regression tests: the wrong-script rule is
+ * part of this write path, and a test that re-implemented the filter would not
+ * prove the file on disk is untouched.
+ */
+export async function parseAndWriteBatch(
   params: ChunkedNarrationParams, batch: OutlineEntry[], text: string,
   options: ParseAndWriteBatchOptions = {},
 ): Promise<number[]> {
@@ -2356,20 +2386,35 @@ async function parseAndWriteBatch(
       .filter(c => expected.has(c.number)),
   }
   if (filtered.chapters.length === 0) return []
+  // A chapter written in ANOTHER SCRIPT is not this channel's narration. It is
+  // not written, not marked done, and said out loud — the sidecar still lacks
+  // it, so Retry asks for exactly those chapters. An unset language is never
+  // checked. See `answerMatchesLanguage` for the measurement and its threshold
+  // (English names inside Khmer prose pass; an English chapter does not).
+  const expectedLanguage = params.contentLanguage ?? null
+  const kept = filtered.chapters.filter(chapter => answerMatchesLanguage(`${chapter.title}\n${chapter.text}`, expectedLanguage))
+  const wrongScript = filtered.chapters.filter(chapter => !kept.includes(chapter))
+  if (wrongScript.length) {
+    params.log?.(
+      `[chunked] Chapters ${wrongScript.map(chapter => chapter.number).join(', ')} were NOT written: the answer came back in the wrong script for this channel, which writes in ${languageName(expectedLanguage)}. `
+      + 'They stay unwritten, so Retry asks for only those chapters.',
+    )
+  }
+  if (kept.length === 0) return []
   const sidecar = await readSidecar(params.scriptDir, params.episode_id)
   const narrationPath = path.join(params.scriptDir, `${params.episode_id}_Script_Narration.md`)
   await withLock(narrationPath, () => writeChapterFiles(
     params.scriptDir,
     params.episode_id,
     params.title,
-    filtered,
+    { ...filtered, chapters: kept },
     {
       log: params.log,
       preserveExisting: true,
       preserveExistingSince: sidecar?.outline_completed_at,
     },
   ))
-  return filtered.chapters.map(c => c.number).sort((a, b) => a - b)
+  return kept.map(c => c.number).sort((a, b) => a - b)
 }
 
 // ── Sidecar I/O ────────────────────────────────────────────────────────────

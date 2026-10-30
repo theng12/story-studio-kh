@@ -10,7 +10,7 @@
  */
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
-import { loadTopicPack, isCompatible } from './topic-pack-loader.js'
+import { TOPIC_PACK_DROP_REASONS } from './niche-loader.js'
 import { subjectUseByPack } from './idea-campaign-planner.js'
 import { collectFormulaHistory, resolveCampaignNiche } from '../generators/idea-campaign.js'
 import { readIdeaUpgrades } from './idea-upgrades.js'
@@ -41,22 +41,12 @@ export interface IdeaSupply {
 
 const DAY_MS = 86_400_000
 
-async function ignoredPacks(formulaId: string, requested: string[], active: Set<string>, allow: string[] | undefined) {
-  const out: IdeaSupply['ignored_packs'] = []
-  for (const id of requested.filter(value => !active.has(value))) {
-    if (allow?.length && !allow.includes(id)) { out.push({ id, reason: 'not allowed by the Series Formula' }); continue }
-    const pack = await loadTopicPack(id).catch(() => null)
-    out.push({ id, reason: !pack ? 'not found' : !isCompatible(pack, formulaId) ? 'not compatible with the Series Formula' : 'not used' })
-  }
-  return out
-}
-
 export async function computeIdeaSupply(slug: string, now = Date.now()): Promise<IdeaSupply | null> {
   const project = await pm.getProject(slug)
   if (!project) return null
   const upgrades = readIdeaUpgrades(await pm.getConfig(slug).catch(() => null))
   const resolved = await resolveCampaignNiche(project)
-  const { formulaId, rawNiche, topicPackIds } = resolved
+  const { formulaId, rawNiche } = resolved
   // Same as the campaign: with #3 on, the channel's grown pack counts as one of its packs.
   const niche = upgrades.grow_packs ? await withGrownPack(resolved.niche, slug) : resolved.niche
   const ideas = await im.getIdeas(slug)
@@ -80,10 +70,11 @@ export async function computeIdeaSupply(slug: string, now = Date.now()): Promise
       per_pack,
     }
   }
-  const requested = topicPackIds === undefined ? (rawNiche?.defaultTopicPackIds || []) : topicPackIds
-  const ignored_packs = rawNiche
-    ? await ignoredPacks(formulaId, [...new Set(requested)], new Set(packs.map(pack => pack.id)), rawNiche.compatibleTopicPackIds)
-    : []
+  // The composer's own answer, so this panel and the campaign cannot disagree
+  // about which selected packs were dropped and why. A selection that reads as
+  // a listed pack (an old id now served by a merged one) is NOT "ignored".
+  const ignored_packs: IdeaSupply['ignored_packs'] = resolved.droppedTopicPacks
+    .map(dropped => ({ id: dropped.id, reason: TOPIC_PACK_DROP_REASONS[dropped.reason] }))
 
   const thresholds = { low_unused_subjects: upgrades.low_unused_subjects, low_days_of_ideas: upgrades.low_days_of_ideas }
   const reasons: string[] = []

@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.371 — 2026-10-30
+
+- Wars, Treaties & World Order works again for channels still on the older History and Archival Ledger Formulas. The merged pack named only two Formula names that no Formula ever published, so those channels loaded it, were told it did not fit their Formula, and quietly lost the Wars subjects. The pack now names the Formulas that really exist; and when the merged pack installed on this Mac is an older copy that does not fit the channel's Formula, the earlier pack is used instead, so no Mac loses the content. Where two Wars packs are installed, the picker now offers one row, not three.
+- A Topic Pack you chose can no longer disappear without a word. If it cannot be used, the job says which one and why — not allowed by the Formula, not compatible with it, or not installed on this Mac — and the channel's own idea panel says the same. When none of the chosen packs can be used, the idea job says so plainly, writes from the Formula's own example topics, and asks you to choose different packs — it no longer leaves you to guess, or later tells you your subjects are used up.
+- Removing a pack from the Library now counts the Topic Packs each episode used, not only the channel's own setting, because that is where a channel really keeps its choice. The older pack stays removable while the merged one is what your episodes read.
+- Khmer channels no longer save English chapters. A chapter written in the wrong writing system is not written, and the job log names it and says why, so Retry asks for only those chapters; English names and numbers inside Khmer prose still pass, and a channel with no language set is not checked at all. The same check covers a one-chapter rewrite and the introduction, and an outline whose titles come back in the wrong writing system is refused before anything is saved. The language instruction now comes last in the chapter, outline and introduction prompts, after any instruction that was added before it and used to win.
+- Chapters already on disk are left exactly as they are; nothing is rewritten.
+
 ## v1.4.370 — 2026-10-30
 
 - The Studio Library works again when a pack has been retired. A retired pack keeps its files on the Gateway while its download is switched off, and Story Studio used to read those two statements as a contradiction and refuse the whole Library answer — so every install and every Restore failed for as long as one retired pack existed. They are now read as what they say: a retired pack is not offered for install, and a copy already installed on this Mac keeps working exactly as before. Asking to install one says plainly that GenStudio has withdrawn the download, instead of a generic failure.

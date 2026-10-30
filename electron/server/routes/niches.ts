@@ -98,7 +98,10 @@ function topicPackListRow(pack: Record<string, any>): Record<string, any> {
 router.get('/topic-packs', async (req, res) => {
   try {
     const nicheId = typeof req.query.niche_id === 'string' ? req.query.niche_id : ''
-    const packs = await tpl.listTopicPackCatalogEntries(packOptionsFor(req))
+    // The scope lets the loader hide a superseded row only when the merged item
+    // it reads as can serve this Formula; a v1 channel on a Mac where the merged
+    // pack is still 1.0.1 keeps seeing the pack that serves it.
+    const packs = await tpl.listTopicPackCatalogEntries(packOptionsFor(req), nicheId || undefined)
     const row = req.query.view === 'list' ? topicPackListRow : (pack: any) => pack
     res.json({
       topic_packs: (nicheId ? packs.filter(entry => tpl.isCompatible(entry.value, nicheId)) : packs)
@@ -541,7 +544,10 @@ router.put('/projects/:slug/niche', async (req, res) => {
       for (const packId of topic_pack_ids || []) {
         const pack = await tpl.loadTopicPack(packId, options)
         if (!pack) return res.status(404).json({ detail: `Topic Pack '${packId}' not found` })
-        if (!tpl.isCompatible(pack, niche_id)) {
+        // Same decision the generator makes: the resolved Formula id, and the
+        // pack the stored id came from when the merged item cannot serve it.
+        if (!tpl.isCompatible(pack, niche.id)
+          && !(await tpl.loadSupersededTopicPack(packId, niche.id, options))) {
           return res.status(400).json({ detail: `Topic Pack '${packId}' is not compatible with Series Formula '${niche_id}'` })
         }
       }

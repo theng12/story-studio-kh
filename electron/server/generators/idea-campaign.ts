@@ -7,7 +7,7 @@ import { callAiWithRetry, resolveLivePipelineModel, type CallAiContext } from '.
 import { isProvenChatFailure, isProvenUncreatedChatRequest, isProvenUnusableChatAnswer, listChatModels } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
-import { composeNicheWithTopicPacks, loadNiche } from '../services/niche-loader.js'
+import { composeNicheWithTopicPacksDetailed, loadNiche, TOPIC_PACK_DROP_REASONS, type DroppedTopicPack } from '../services/niche-loader.js'
 import {
   assignmentSummary,
   planIdeaAssignments,
@@ -217,16 +217,15 @@ export async function collectFormulaHistory(
 export async function resolveCampaignNiche(
   project: { niche_id?: string; topic_pack_ids?: string[] },
   request: { series_formula_id?: string; topic_pack_ids?: string[] } = {},
-): Promise<{ formulaId: string; rawNiche: Niche | null; topicPackIds: string[] | undefined; niche: Niche | null }> {
+): Promise<{ formulaId: string; rawNiche: Niche | null; topicPackIds: string[] | undefined; niche: Niche | null; droppedTopicPacks: DroppedTopicPack[] }> {
   const formulaId = request.series_formula_id || project.niche_id || ''
   const rawNiche = formulaId ? await loadNiche(formulaId) : null
   const topicPackIds = Array.isArray(request.topic_pack_ids)
     ? request.topic_pack_ids
     : project.topic_pack_ids
-  const niche = rawNiche
-    ? await composeNicheWithTopicPacks(rawNiche, topicPackIds)
-    : null
-  return { formulaId, rawNiche, topicPackIds, niche }
+  if (!rawNiche) return { formulaId, rawNiche, topicPackIds, niche: null, droppedTopicPacks: [] }
+  const composed = await composeNicheWithTopicPacksDetailed(rawNiche, topicPackIds)
+  return { formulaId, rawNiche, topicPackIds, niche: composed.niche, droppedTopicPacks: composed.droppedTopicPacks }
 }
 
 function fallbackNiche(format: Format, request: IdeaCampaignParams): Niche {
@@ -394,7 +393,12 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
 
   const project = await pm.getProject(job.project_slug)
   if (!project) throw new Error(`Project '${job.project_slug}' not found`)
-  const { formulaId, topicPackIds, niche } = await resolveCampaignNiche(project, request)
+  const { formulaId, topicPackIds, niche, droppedTopicPacks } = await resolveCampaignNiche(project, request)
+  // A selected Topic Pack that could not be used is never silent: the job says
+  // which one and why, before any paid call.
+  for (const dropped of droppedTopicPacks) {
+    job.output_lines.push(`Topic Pack "${dropped.name || dropped.id}" was not used: ${TOPIC_PACK_DROP_REASONS[dropped.reason]}.`)
+  }
   const format = await getEffectiveFormat(job.project_slug, {
     nicheIdOverride: formulaId || null,
     topicPackIdsOverride: topicPackIds,
@@ -510,6 +514,16 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   // legacy job can no longer resolve its pack. Only an actually pack-free
   // formula changes the provider/prompt branch below.
   const isFormulaFreeform = isFormulaFreeformFor(activePackIds, topicPackIds)
+  // A channel that chose Topic Packs and ends up with none is not "freeform" —
+  // it has nothing to write from. Say so once, loudly, and keep the job's own
+  // message honest below.
+  const noUsableTopicPacks = !!topicPackIds?.length && !activePackIds.length
+  if (noUsableTopicPacks) {
+    job.output_lines.push(
+      `None of the ${topicPackIds!.length} selected Topic Pack${topicPackIds!.length === 1 ? '' : 's'} could be used with this Series Formula, so this campaign has no Topic Pack subjects. `
+      + 'It will write from the Formula\'s own example topics instead; choose different Topic Packs with "Choose Formula & Topics" to use their subjects.',
+    )
+  }
   // #5: real Wikipedia subjects for formula-only channels (pack channels get them through #3's grow).
   let referencePool: ReferencePool | null = null
   if (upgrades.real_sources && isFormulaFreeform && !replayBatch) {
@@ -939,7 +953,9 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
     // The owner reads this in Jobs. Slot ids and fingerprints mean nothing to
     // him; the count, what was kept, and the one next step do. A Retry uses
     // the project's current Topic Packs (owner decision 2026-10-03).
-    message: subjectsUsedUp
+    message: noUsableTopicPacks
+      ? `${completed} of ${wanted} ideas were saved. None of the Topic Packs selected for this channel can be used with its Series Formula (${[...new Set(droppedTopicPacks.map(dropped => TOPIC_PACK_DROP_REASONS[dropped.reason]))].join('; ')}), so there were no subjects to write ideas from. Choose different Topic Packs with "Choose Formula & Topics", then press Retry.`
+      : subjectsUsedUp
       ? `${completed} of ${wanted} ideas were saved. The subjects in your Topic Packs are all used up, so the other ${missingCount} would only repeat earlier ideas. Add another Topic Pack with "Choose Formula & Topics", then press Retry to make them.`
       : coverageShortfall
       ? `${completed} of ${wanted} ideas were saved. Your Topic Packs have no unused subjects left for the other ${missingCount}. Add another Topic Pack with "Choose Formula & Topics", then press Retry to make the rest.`

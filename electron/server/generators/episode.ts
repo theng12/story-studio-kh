@@ -15,7 +15,7 @@ import { resolveOutputTokenBudget } from '../services/output-token-budget.js'
 import { callAiWithModelPolicy, callAiWithRetry, type CallAiContext } from '../lib/ai-client.js'
 import { matchChapterFile, introMarkerPath, resolveArtifact, resolveReadPath } from '../lib/episode-artifacts.js'
 import { copyToTrashSync, trashRootFor } from '../lib/trash-move.js'
-import { projectContentLanguageDirective } from '../lib/content-language.js'
+import { answerMatchesLanguage, languageDirectiveTail, languageName, normalizeContentLanguage, projectContentLanguageDirective } from '../lib/content-language.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 import { applyRecencyToFormat, recordUsage } from '../services/recency-tracker.js'
@@ -470,7 +470,7 @@ Output format (markdown):
 
 [Body — approximately ${wordsPerChapter} words.]
 
-Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${sectionLowerPluralRegen}.`
+Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${sectionLowerPluralRegen}.${languageDirectiveTail('', project.content_language)}`
 
   const chapterSystemPrompt = sysPrompt
   const chapterPrompt = generatedChapterPrompt
@@ -496,6 +496,15 @@ Output ONLY the ${sectionLowerRegen} heading + body. No commentary, no other ${s
     const headingMatch = chapterText.trim().match(/^##\s+Chapter\s+\d+\s*[:\-–—]\s*(.+)$/im)
     const newTitle = headingMatch ? headingMatch[1].trim() : `Chapter ${chapterNumber}`
     const body = chapterText.replace(/^##\s+Chapter\s+\d+[^\n]*\n+/m, '').trim()
+    // A chapter written in another script is not this channel's narration:
+    // refuse it here, before it replaces a good file, exactly like a cut-off
+    // chapter. The previous chapter file is untouched.
+    if (!answerMatchesLanguage(`${newTitle}\n${body}`, project.content_language)) {
+      requireJobCompletion(job, {
+        label: `Chapter ${chapterNumber}`, expected: 1, completed: 0, missing: [`Chapter ${chapterNumber}`],
+        message: `Chapter ${chapterNumber} was not saved: the answer came back in the wrong script for this channel, which writes in ${languageName(project.content_language)}. The previous chapter file is unchanged. Retry to write it again.`,
+      })
+    }
     // Audit BEFORE writing, so a cut-off chapter never replaces a good one.
     const issues = auditNarrationSection(body, wordsPerChapter)
     if (issues.length) {
@@ -710,7 +719,7 @@ ${introStandardsText ? `\nFollow this intro format reference:\n${introStandardsT
 Target word count: ~${introSettings.word_target} words
 Output ONLY the introduction text. No meta-commentary. No story chapters.
 Begin immediately with the first sentence the narrator should speak.
-Do not add a heading, preface, explanation, divider, or separator.`
+Do not add a heading, preface, explanation, divider, or separator.${languageDirectiveTail('', project.content_language)}`
 
   // Per-chapter refactor: intro is now its own source file, written
   // alongside the per-chapter docx files. The unified narration is then
@@ -866,6 +875,14 @@ Do not add a heading, preface, explanation, divider, or separator.`
     const introText = await introCall
     const cleanedIntro = cleanGeneratedIntroduction(introText)
     if (!cleanedIntro) throw new Error('Introduction generation returned no usable text.')
+    // A model-written introduction in another script is refused here, before it
+    // replaces a good one — the same rule as a chapter.
+    if (!answerMatchesLanguage(cleanedIntro, project.content_language)) {
+      requireJobCompletion(job, {
+        label: 'Introduction', expected: 1, completed: 0, missing: ['introduction'],
+        message: `The introduction was not saved: the answer came back in the wrong script for this channel, which writes in ${languageName(project.content_language)}. Any previous introduction is unchanged. Retry to write it again.`,
+      })
+    }
     // Audit BEFORE writing, so a cut-off introduction never replaces a good one.
     const introIssues = auditNarrationSection(cleanedIntro, Number(introSettings.word_target) || undefined)
     if (introIssues.length) {
@@ -1148,6 +1165,7 @@ ${narratorStyle}`
     signal: controller.signal,
     isCancelled: () => jq.isCancelled(job.job_id),
     log: line => job.output_lines.push(line),
+    contentLanguage: normalizeContentLanguage(project.content_language),
     force: !!(job.params as any).force,
     manualGuidance,
     generationParams,

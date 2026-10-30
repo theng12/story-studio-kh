@@ -563,36 +563,88 @@ function mergeAxes(base: IdeaAxis[] | undefined, packs: TopicPack[]): IdeaAxis[]
  * structure remain dominant; packs supply subjects, vocabulary, examples, and
  * domain constraints. Unknown or incompatible ids are ignored with warnings so
  * deleting a custom pack never bricks an existing project.
+ *
+ * Two rules decide an id, and both compare ids the way the app reads them:
+ *
+ *  - the Formula's allow-list (`compatibleTopicPackIds`) is compared through
+ *    `resolveTopicPackAlias` on both sides, so a Formula that allowed an old
+ *    Topic Pack id allows the merged item that id now reads as — and a pack it
+ *    never allowed is still dropped;
+ *  - a merged item that is installed but not compatible with this Formula falls
+ *    back to the pack the stored id came from (`loadSupersededTopicPack`), so a
+ *    Mac still carrying an older merged version does not lose the content.
+ *
+ * `composeNicheWithTopicPacksDetailed` also reports every dropped selection, so
+ * a caller or job can say what happened instead of leaving it in the log.
  */
+export type TopicPackDropReason = 'not-allowed' | 'not-found' | 'incompatible'
+
+/** Plain words for a dropped selection, shown on a job and in the supply panel. */
+export const TOPIC_PACK_DROP_REASONS: Readonly<Record<TopicPackDropReason, string>> = Object.freeze({
+  'not-allowed': 'not allowed by the Series Formula',
+  'not-found': 'not found',
+  incompatible: 'not compatible with the Series Formula',
+})
+
+export interface DroppedTopicPack {
+  /** The id as the channel or request stores it. */
+  id: string
+  /** The pack's own name, when it could be read. */
+  name?: string
+  reason: TopicPackDropReason
+}
+
+export interface ComposedNiche {
+  niche: Niche
+  droppedTopicPacks: DroppedTopicPack[]
+}
+
 export async function composeNicheWithTopicPacks(
   niche: Niche,
   requestedIds?: string[],
   registryOptions: ContentPackRegistryOptions = {},
 ): Promise<Niche> {
+  return (await composeNicheWithTopicPacksDetailed(niche, requestedIds, registryOptions)).niche
+}
+
+export async function composeNicheWithTopicPacksDetailed(
+  niche: Niche,
+  requestedIds?: string[],
+  registryOptions: ContentPackRegistryOptions = {},
+): Promise<ComposedNiche> {
   const ids = requestedIds === undefined
     ? (niche.defaultTopicPackIds || [])
     : requestedIds
   const allow = niche.compatibleTopicPackIds?.length
-    ? new Set(niche.compatibleTopicPackIds)
+    ? new Set(niche.compatibleTopicPackIds.map(topicPackLoader.resolveTopicPackAlias))
     : null
   const packs: TopicPack[] = []
+  const droppedTopicPacks: DroppedTopicPack[] = []
   for (const id of uniqueStrings(ids)) {
-    if (allow && !allow.has(id)) {
+    const resolvedId = topicPackLoader.resolveTopicPackAlias(id)
+    if (allow && !allow.has(resolvedId)) {
+      droppedTopicPacks.push({ id, reason: 'not-allowed' })
       console.warn(`[niche-loader] topic pack '${id}' is not allowed by Series Formula '${niche.id}'`)
       continue
     }
-    const pack = await topicPackLoader.loadTopicPack(id, registryOptions)
+    let pack = await topicPackLoader.loadTopicPack(id, registryOptions)
     if (!pack) {
+      droppedTopicPacks.push({ id, reason: 'not-found' })
       console.warn(`[niche-loader] topic pack '${id}' not found for Series Formula '${niche.id}'`)
       continue
     }
     if (!topicPackLoader.isCompatible(pack, niche.id)) {
-      console.warn(`[niche-loader] topic pack '${id}' is incompatible with Series Formula '${niche.id}'`)
-      continue
+      const superseded = await topicPackLoader.loadSupersededTopicPack(id, niche.id, registryOptions)
+      if (!superseded) {
+        droppedTopicPacks.push({ id, name: pack.name, reason: 'incompatible' })
+        console.warn(`[niche-loader] topic pack '${id}' is incompatible with Series Formula '${niche.id}'`)
+        continue
+      }
+      pack = superseded
     }
     packs.push(pack)
   }
-  if (!packs.length) return { ...niche, kind: 'series-formula', activeTopicPacks: [] }
+  if (!packs.length) return { niche: { ...niche, kind: 'series-formula', activeTopicPacks: [] }, droppedTopicPacks }
 
   const packContext = packs
     .map(pack => `${pack.name}: ${pack.promptContext || pack.description}`)
@@ -606,24 +658,27 @@ export async function composeNicheWithTopicPacks(
   }
 
   return {
-    ...niche,
-    kind: 'series-formula',
-    activeTopicPacks: packs,
-    exampleTopics: uniqueStrings(
-      niche.exampleTopics,
-      ...packs.map(pack => pack.exampleTopics),
-      ...packs.map(pack => pack.subjects),
-    ),
-    ideaAxes: mergeAxes(niche.ideaAxes, packs),
-    vocabulary,
-    youtubeTagsHint: uniqueStrings(
-      niche.youtubeTagsHint,
-      ...packs.map(pack => pack.youtubeTagsHint),
-    ),
-    scriptContext: [niche.scriptContext, contextBlock].filter(Boolean).join('\n\n'),
-    ideaGuidanceText: [niche.ideaGuidanceText, contextBlock].filter(Boolean).join('\n\n'),
-    ideaSystemPromptRole: [niche.ideaSystemPromptRole, contextBlock].filter(Boolean).join('\n\n'),
-    scriptSystemPromptRole: [niche.scriptSystemPromptRole, contextBlock].filter(Boolean).join('\n\n'),
+    niche: {
+      ...niche,
+      kind: 'series-formula',
+      activeTopicPacks: packs,
+      exampleTopics: uniqueStrings(
+        niche.exampleTopics,
+        ...packs.map(pack => pack.exampleTopics),
+        ...packs.map(pack => pack.subjects),
+      ),
+      ideaAxes: mergeAxes(niche.ideaAxes, packs),
+      vocabulary,
+      youtubeTagsHint: uniqueStrings(
+        niche.youtubeTagsHint,
+        ...packs.map(pack => pack.youtubeTagsHint),
+      ),
+      scriptContext: [niche.scriptContext, contextBlock].filter(Boolean).join('\n\n'),
+      ideaGuidanceText: [niche.ideaGuidanceText, contextBlock].filter(Boolean).join('\n\n'),
+      ideaSystemPromptRole: [niche.ideaSystemPromptRole, contextBlock].filter(Boolean).join('\n\n'),
+      scriptSystemPromptRole: [niche.scriptSystemPromptRole, contextBlock].filter(Boolean).join('\n\n'),
+    },
+    droppedTopicPacks,
   }
 }
 

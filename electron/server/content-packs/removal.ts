@@ -32,6 +32,7 @@ import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runt
 import { candidateProjectSlugs, listProjectSlugsPinningContentPackVersionLocked } from './project-pins.js'
 import { aliasedVisualStyleId } from './style-aliases.js'
 import { resolveFormulaAlias } from '../services/niche-loader.js'
+import { isCompatible, loadSupersededTopicPack, loadTopicPack, resolveTopicPackAlias } from '../services/topic-pack-loader.js'
 import * as projectManager from '../services/project-manager.js'
 import { readContentPackState, withContentPackCoordinationLock, withContentPackStateTransaction } from './state.js'
 import type { GenStudioRetiredPackRemoval } from '../lib/genstudio-content-store.js'
@@ -162,6 +163,13 @@ function collectReferenceIds(value: unknown, ids: Set<string>, depth = 0): void 
   }
 }
 
+/** A stored id list, filtered exactly as `collectReferenceIds` filters one string. */
+function stringList(value: unknown): string[] {
+  const found = new Set<string>()
+  collectReferenceIds(value, found)
+  return [...found]
+}
+
 /**
  * The channel's config, parsed as written.
  *
@@ -187,9 +195,18 @@ async function readChannelConfig(slug: string): Promise<Record<string, unknown> 
 
 /**
  * Every place a channel names a pack item, read the way the app reads them:
- * the Formula/niche id, the Topic Packs, the active style and its presets,
- * every `*_presets` pool (Scene Plan, thumbnail prompts and generators,
- * Character Sheet, …), and the exact version pins.
+ * the Formula/niche id, the Topic Packs, every episode's own Topic Pack
+ * selection, the active style and its presets, every `*_presets` pool (Scene
+ * Plan, thumbnail prompts and generators, Character Sheet, …), and the exact
+ * version pins.
+ *
+ * TOPIC SELECTION IS PER EPISODE. An accepted idea writes its own
+ * `topic_pack_ids` (and `series_formula_id`) into `episode_info.json`, and many
+ * channels carry no `topic_pack_ids` in config.json at all — so the episode
+ * files are read too, and each Topic Pack selection is resolved the way a
+ * generator resolves it (the merged item first, the pack it came from when the
+ * merged one cannot serve that Formula). A pack an episode actually reads is a
+ * use, whether or not the channel config names it.
  *
  * An id that cannot be read makes the CHANNEL unreadable, not empty: a removal
  * must refuse rather than assume the channel does not use the pack.
@@ -214,6 +231,8 @@ async function channelReferences(): Promise<ChannelReference[]> {
       if (typeof meta.active_style_preset_id === 'string') ids.add(meta.active_style_preset_id)
       if (typeof meta.thumbnail_template_id === 'string') ids.add(meta.thumbnail_template_id)
     }
+    let channelFormulaId = ''
+    const topicSelections: Array<{ formulaId: string; topicIds: string[] }> = []
     try {
       const config = await readChannelConfig(slug)
       if (config) {
@@ -221,10 +240,47 @@ async function channelReferences(): Promise<ChannelReference[]> {
           const value = config[field]
           if (typeof value === 'string' && value.trim()) ids.add(value.trim())
         }
-        collectReferenceIds(config.topic_pack_ids, ids)
+        if (typeof config.niche_id === 'string' && config.niche_id.trim()) {
+          channelFormulaId = resolveFormulaAlias(config.niche_id.trim())
+        }
+        topicSelections.push({
+          formulaId: channelFormulaId,
+          topicIds: stringList(config.topic_pack_ids),
+        })
         collectReferenceIds(config.style_presets, ids)
         for (const [key, value] of Object.entries(config)) {
           if (key.endsWith('_presets')) collectReferenceIds(value, ids)
+        }
+      }
+    } catch {
+      unreadable = true
+    }
+    try {
+      const episodes = await readEpisodeSelections(slug)
+      if (episodes.unreadable) unreadable = true
+      for (const episode of episodes.selections) {
+        if (episode.formulaId) ids.add(episode.formulaId)
+        topicSelections.push({
+          formulaId: episode.formulaId ? resolveFormulaAlias(episode.formulaId) : channelFormulaId,
+          topicIds: episode.topicIds,
+        })
+      }
+    } catch {
+      unreadable = true
+    }
+    try {
+      // A Topic Pack selection is read through the alias and compatibility
+      // rules, so the id that counts is the pack the app actually loads — the
+      // superseded item an old selection names is NOT in use when the merged
+      // pack is what serves it. An id nothing resolves keeps its literal value.
+      // One resolution per (stored id, Formula): a channel's episodes repeat the
+      // same selection, and each resolve re-verifies the installed pack.
+      const resolved = new Map<string, string | null>()
+      for (const selection of topicSelections) {
+        for (const topicId of selection.topicIds) {
+          const key = `${selection.formulaId}\u0000${topicId}`
+          if (!resolved.has(key)) resolved.set(key, await effectiveTopicPackId(topicId, selection.formulaId))
+          ids.add(resolved.get(key) ?? topicId)
         }
       }
     } catch {
@@ -238,13 +294,73 @@ async function channelReferences(): Promise<ChannelReference[]> {
   return references
 }
 
+/**
+ * The pack item one Topic Pack selection actually reads for this Formula, by
+ * the same two rules the composer uses: the merged item when it is compatible,
+ * otherwise the pack the stored id came from. Null when nothing resolves.
+ */
+async function effectiveTopicPackId(topicId: string, formulaId: string): Promise<string | null> {
+  const pack = await loadTopicPack(topicId)
+  if (!pack) return null
+  if (!formulaId || isCompatible(pack, formulaId)) return pack.id
+  const superseded = await loadSupersededTopicPack(topicId, formulaId)
+  return superseded?.id ?? null
+}
+
+/** Each episode's own Topic Pack selection, from `<project>/episodes/<season>/<episode>/episode_info.json`. */
+async function readEpisodeSelections(slug: string): Promise<{
+  selections: Array<{ formulaId: string; topicIds: string[] }>
+  unreadable: boolean
+}> {
+  const projectDir = projectManager.getProjectDir(slug)
+  if (!projectDir) return { selections: [], unreadable: false }
+  const files: string[] = []
+  await collectEpisodeInfoFiles(path.join(projectDir, 'episodes'), 0, files)
+  const selections: Array<{ formulaId: string; topicIds: string[] }> = []
+  let unreadable = false
+  for (const file of files) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(await fs.readFile(file, 'utf8'))
+    } catch {
+      unreadable = true
+      continue
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue
+    const record = parsed as Record<string, unknown>
+    const formulaId = typeof record.series_formula_id === 'string' ? record.series_formula_id.trim() : ''
+    const topicIds = Array.isArray(record.topic_pack_ids)
+      ? record.topic_pack_ids.filter((value): value is string => typeof value === 'string' && !!value.trim()).map(value => value.trim())
+      : []
+    if (formulaId || topicIds.length) selections.push({ formulaId, topicIds })
+  }
+  return { selections, unreadable }
+}
+
+async function collectEpisodeInfoFiles(dir: string, depth: number, out: string[]): Promise<void> {
+  if (depth > 4) return
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => null)
+  for (const entry of entries ?? []) {
+    if (entry.name.startsWith('.')) continue
+    const target = path.join(dir, entry.name)
+    if (entry.isDirectory()) await collectEpisodeInfoFiles(target, depth + 1, out)
+    else if (entry.isFile() && entry.name === 'episode_info.json') out.push(target)
+  }
+}
+
 /** The ids a reference may name to reach this pack, aliases resolved both ways. */
 function resolvesToPack(reference: string, packIds: ReadonlySet<string>): boolean {
   if (packIds.has(reference)) return true
   const style = aliasedVisualStyleId(reference)
   if (style && packIds.has(style)) return true
   const formula = resolveFormulaAlias(reference)
-  return formula !== reference && packIds.has(formula)
+  if (formula !== reference && packIds.has(formula)) return true
+  // A stored Topic Pack id names the pack item it now reads as, so a channel
+  // still holding a bare legacy id depends on the merged pack. The old pack is
+  // reached only through its OWN id (directly above) — it stays removable while
+  // the merged pack is what is actually read.
+  const topic = resolveTopicPackAlias(reference)
+  return topic !== reference && packIds.has(topic)
 }
 
 /** Every name this pack answers to: its id, and every item and bundle it installs. */

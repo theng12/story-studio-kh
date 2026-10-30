@@ -1,5 +1,122 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.371 — the merged Wars pack fits the v1 Formulas; a wrong-script chapter is never saved (2026-10-30, release/1.4.371 from release/1.4.370 673b6cd1)
+
+**Both commits are on `release/1.4.371`; static checks pass. No test lane has run in this worktree
+(a Story gate was running on this Mac), so every backend test below is WRITTEN, NOT RUN.**
+
+- **REQUIRED ORDER: put stock pack 1.0.2 on the shelf first, then ship 1.4.371.** The app change
+  (`listTopicPackCatalogEntries`, the compatibility fallback) does not need 1.0.2, but the v1
+  Formulas' channels only get the merged content back once 1.0.2 is installed. Without that order a
+  v1 channel on a Mac with 1.0.1 sees the merged row hidden from its scoped list until the pack
+  lands.
+
+### Commit 1 — content: Wars, Treaties & World Order v2 1.0.2
+
+- Source `content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.2/`, same content as 1.0.1
+  (122 subjects), `compatible_formula_ids` = the two `-v2` ids **plus**
+  `com.storystudio.formula.archival-ledger` and `com.storystudio.formula.history-explained`.
+  `min_app_version` stays the explicit **1.4.362**. 1.0.1 is untouched and immutable.
+- Registry: reserved revision 363, authored 364 (`authoring-registry.mjs reserve|transition`,
+  `validate` passes at 364/333 records). Catalogue index regenerated. The two `-v2` ids are still
+  unpublished, so both 1.0.1 and 1.0.2 source files stay in `KNOWN_UNRESOLVED`.
+- **The defect, confirmed from the code:** the archival-ledger v1 Formula's allow-list
+  (`compatible_topic_pack_ids`) names only its own `com.…archival-ledger.*` ids — never the BARE
+  legacy id that `hidden-mechanics-of-history` episodes store — so `composeNicheWithTopicPacks`
+  dropped those episodes' Wars topic at the ALLOW-LIST check, **even with no merged pack installed
+  at all**. History's v1 Formula names its own free item id, so Boundful/History only broke once the
+  merged 1.0.1 was installed.
+
+### Commit 2 — Story code
+
+- **Allow-list compares aliases on both sides** (`composeNicheWithTopicPacksDetailed`): the
+  Formula's `compatibleTopicPackIds` and the requested id both go through `resolveTopicPackAlias`.
+  A Formula that allowed an old Wars id allows the merged item, and a pack it never allowed is still
+  dropped (`not-allowed`).
+- **THE COMPATIBILITY FALLBACK RULE** (`loadSupersededTopicPack` in `services/topic-pack-loader.ts`):
+  when the alias target is installed but cannot serve this Formula, the pre-alias sources that read
+  as the same item are tried in turn (the stored id itself and every id the alias table sends to the
+  same target) and the first compatible one is used. The merged item always wins when compatible;
+  this only runs after it has been refused; a pack that was never the selection's source is never
+  tried. So a Mac still holding 1.0.1 composes the OLD pack (free 50-subject or archival
+  100-subject) instead of losing the topic.
+- **A dropped selection is never silent.** `composeNicheWithTopicPacksDetailed` returns
+  `droppedTopicPacks` (`not-allowed` / `not-found` / `incompatible`), `resolveCampaignNiche` passes
+  them on, and the idea campaign logs one plain line per drop **before any paid call**. When every
+  selected topic was dropped, the campaign says so loudly and says what it does instead: it PROCEEDS
+  from the Formula's own example topics (the planner falls back to `exampleTopics` when no pack is
+  active), and if the run then ends short the failure message says the packs cannot be used with this
+  Formula instead of blaming "used up" subjects (§6, §8). The channel's idea-supply panel reads the
+  same list, so it cannot say "ignored: not used" about a pack that is actually serving the channel.
+  A job with no topics chosen is untouched.
+- **List offers one row per topic** (`listTopicPackCatalogEntries(options, scopeFormulaId?)`): an
+  entry whose id is an alias key is hidden only while the item it reads as is also listed AND (for a
+  scoped read) that item can serve the scoped Formula. `GET /topic-packs` passes `?niche_id=` in.
+  Data-driven from the alias table; no Wars constant; no state, pin or file changes.
+- **Removal veto now reads episodes** (`content-packs/removal.ts`): topic selection is really stored
+  per episode (`episode_info.json` `topic_pack_ids` + `series_formula_id`), so every episode file
+  under `<project>/episodes/**` is read, and each topic selection is resolved the way a generator
+  resolves it (merged item first, superseded pack second). A bare legacy id therefore vetoes the
+  merged pack; the OLD pack stays removable while the merged one is what is read; with no merged
+  pack installed the old pack IS what is read, so removing it is vetoed. An unreadable episode file
+  makes the channel "could not check", never "unused".
+- **Other readers checked:** `PUT /projects/:slug/niche` and the ideas route now compare the
+  RESOLVED Formula id and accept the superseded pack, exactly like the composer; the picker still
+  reads `compatibleNicheIds`/`compatibleFormulaIds` from the listed item, and a saved old id still
+  shows selected through `GET /topic-packs/:id` → `pack-selection.ts`. **Known limit:** the picker
+  loads `/topic-packs?view=list` UNSCOPED, so on a Mac holding merged 1.0.1 a v1 channel's saved row
+  shows but the old pack is no longer offered as a NEW choice until 1.0.2 is installed — the order
+  above is what avoids it.
+
+### Commit 3 — language: a chapter in the wrong script is not saved
+
+- `lib/content-language.ts`: `measureAnswerScript` counts Khmer letters (U+1780–U+17FF, U+19E0–U+19FF)
+  against Latin letters and ignores everything else. An answer is Khmer when it has ≥30 Khmer letters
+  and Khmer letters are ≥20% of its letters — English names, numbers and borrowed terms inside Khmer
+  prose pass; an English chapter or refusal has none. `answerMatchesLanguage` enforces the channel's
+  own `content_language`; a channel with no stated language is never checked.
+- Paths COVERED: chunked chapter batches (`parseAndWriteBatch` — wrong-script chapters are not
+  written, not marked done, and logged with the reason, so Retry asks only for them); a one-chapter
+  rewrite (`generateChapterOnly`); the introduction (`generateIntroductionOnly`); the chunked outline
+  (`buildOutlineOnly` — wrong-script titles/hooks/synopses throw before the sidecar is written).
+  Paths NOT covered, deliberately: a manual chapter edit (the owner typed it), episode import
+  (third-party text), and title/metadata generation (out of the stated scope).
+- The language instruction is now the LAST paragraph of the chapter, repair, outline and
+  introduction prompts (`languageDirectiveTail`) — an injected "reply in English" line used to come
+  after the system prompt's directive and win.
+- **Existing English chapters are NOT rewritten, and the completeness audit still counts them as
+  done:** `validChapterNumbersForOutline` proves a chapter by a non-empty file written after the
+  outline, never by its script. Making the audit report them would mean reading every chapter's text
+  and running `answerMatchesLanguage` there — the same check — which would flip DM0022 chapters
+  9–16 (and any older wrong-script chapter) from "done" to "missing" in the Board, the Pipeline and
+  every completion gate. That is a deliberate decision, not done here.
+
+### Tests written (not run)
+
+- `electron/server/__tests__/topic-pack-wars-merge-compat.test.ts` — v1 History + bare legacy id +
+  1.0.2 composes the merged pack (122 subjects pinned, non-empty text); v1 History + merged item id;
+  v1 archival-ledger + bare id + 1.0.2; 1.0.1 + old free pack composes the OLD pack (50 subjects); no
+  merged pack + archival old pack (100); never-allowed + not-installed are reported; list = one row
+  with old+old+merged, old rows without it, old row under a v1 scope with 1.0.1; composing writes no
+  file (byte-for-byte snapshot).
+- `electron/server/__tests__/content-pack-removal-episode-topics.test.ts` — an episode's bare legacy
+  id vetoes removing the merged pack; the old pack stays removable while the merged one is read; with
+  no merged pack the old pack is vetoed.
+- `electron/server/__tests__/script-language-script.test.ts` — wrong-script chapter not written and
+  named; mixed batch keeps the good ones; Khmer with English names passes; English channel
+  unaffected; no language = no check; refusal-shaped answer writes nothing and names the reason; the
+  prompt tail is last and absent when unset.
+- Focused substrings for when the gate ends: `topic-pack-wars-merge-compat`,
+  `content-pack-removal-episode-topics`, `script-language-script`, plus the existing
+  `topic-pack-legacy-alias-read-time`, `content-pack-removal`, `idea-supply`, `content-pack-user-forks`,
+  `chunked-narration-smoke`, `source-manifest-integrity`, and the content-pack lane's
+  `compatible-formula-ids-resolve` / `content-pack-registry` / `content-pack-index` guards.
+
+### Static checks on this source
+
+`npm run typecheck` (electron + frontend) exit 0; `npm run content-pack:registry -- validate`
+revision 364. Lint, typography, changelog, model-drift and the full ten-step gate are still to run.
+
 ## 1.4.370 — Library works with a retired pack; honest failure reasons; bounded Pipeline ids (2026-10-30, release/1.4.370 from main 77f433f0)
 
 **Not yet released.** Static checks and focused runs are green; the ten-step gate, prebuild and DMG

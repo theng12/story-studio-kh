@@ -26,7 +26,7 @@ import {
 } from '../lib/fresh-generation-action.js'
 import { previewCompact, compactAcceptedEpisodes } from '../services/upload-compact.js'
 import { loadNiche } from '../services/niche-loader.js'
-import { isCompatible, loadTopicPack } from '../services/topic-pack-loader.js'
+import { isCompatible, loadSupersededTopicPack, loadTopicPack } from '../services/topic-pack-loader.js'
 import { readVideoVisualSource } from '../services/video-visual-source.js'
 import { readLocalMediaCleanupStatus } from '../services/episode-media-cleanup.js'
 import { readYouTubeRetentionStores } from '../services/youtube-remote-video.js'
@@ -192,7 +192,9 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
       for (const packId of topicPackIds || []) {
         const pack = await loadTopicPack(packId)
         if (!pack) return res.status(404).json({ detail: `Topic Pack '${packId}' not found.` })
-        if (!isCompatible(pack, seriesFormulaId)) {
+        // Same decision the generator makes: the resolved Formula id, and the
+        // pack the stored id came from when the merged item cannot serve it.
+        if (!isCompatible(pack, formula.id) && !(await loadSupersededTopicPack(packId, formula.id))) {
           return res.status(400).json({
             detail: `Topic Pack '${packId}' is not compatible with Series Formula '${seriesFormulaId}'.`,
           })

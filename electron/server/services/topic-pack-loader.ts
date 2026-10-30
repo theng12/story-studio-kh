@@ -161,6 +161,45 @@ export function resolveTopicPackAlias(id: string): string {
 }
 
 /**
+ * THE COMPATIBILITY FALLBACK RULE.
+ *
+ * An alias target that is installed but does not support this Formula must not
+ * hide the pack the selection came from. Example: the merged Wars pack 1.0.1
+ * named only two Formula ids that were never published, so a channel still on
+ * the first-generation `history-explained` Formula would load 1.0.1, fail the
+ * compatibility test, and silently lose its Wars content.
+ *
+ * So when the merged item cannot serve this Formula, the pre-alias sources that
+ * read as the same item are tried in turn — the stored id itself and every id
+ * the alias table sends to the same target — and the first one that supports
+ * this Formula is used. The merged item always wins when it is compatible; this
+ * only runs after it has been refused. A pack that was never the selection's
+ * source is never tried.
+ */
+export async function loadSupersededTopicPack(
+  id: string,
+  formulaId: string,
+  registryOptions: ContentPackRegistryOptions = {},
+): Promise<TopicPack | null> {
+  const targetId = resolveTopicPackAlias(id)
+  const candidates = [id, ...Object.keys(LEGACY_TOPIC_PACK_ALIASES).filter(key => LEGACY_TOPIC_PACK_ALIASES[key] === targetId)]
+  const tried = new Set<string>()
+  for (const candidate of candidates) {
+    if (candidate === targetId || tried.has(candidate)) continue
+    tried.add(candidate)
+    let pack: TopicPack | null = null
+    try {
+      pack = await loadResolvedTopicPack(candidate, registryOptions)
+    } catch (e: any) {
+      console.warn(`[topic-pack-loader] superseded source '${candidate}' could not be read: ${e.message}`)
+      continue
+    }
+    if (pack && isCompatible(pack, formulaId)) return pack
+  }
+  return null
+}
+
+/**
  * Load a Topic Pack by id. An aliased id reads as its pack item first; a bare
  * legacy id whose pack is not installed still resolves THROUGH the alias target
  * (a newer or superseding pack) and then to its own legacy source, so a stored
@@ -235,15 +274,38 @@ export async function loadLegacyTopicPack(id: string): Promise<{ document: Topic
  * is shown as "<name> (not in a pack)" in its own picker.
  *
  * Malformed sources are skipped with a warning rather than failing the list.
+ *
+ * ONE ROW PER TOPIC, not one per stored id: an entry whose id is an alias key
+ * is hidden while the item it reads as is ALSO listed, so the merged Wars pack
+ * is not offered three times beside the two packs it supersedes. A scope
+ * narrows that: when the list is read for a Formula (`?niche_id=`), the old row
+ * stays visible unless that Formula can actually use the merged item — a v1
+ * channel on a Mac where the merged pack is still 1.0.1 keeps seeing the pack
+ * that serves it. Data-driven from the alias table; no pack is named here.
  */
-export async function listTopicPackCatalogEntries(registryOptions: ContentPackRegistryOptions = {}): Promise<Array<CatalogEntry<TopicPack>>> {
+export async function listTopicPackCatalogEntries(
+  registryOptions: ContentPackRegistryOptions = {},
+  scopeFormulaId?: string,
+): Promise<Array<CatalogEntry<TopicPack>>> {
   const found = new Map<string, CatalogEntry<TopicPack>>()
   for (const entry of await listCatalogEntries('topic-pack', registryOptions)) {
     if (entry.value.kind === 'topic-pack' && !found.has(entry.value.id)) {
       found.set(entry.value.id, { ...entry, value: contentPackDocumentToTopicPack(entry.value) })
     }
   }
-  return [...found.values()].sort((a, b) => a.value.name.localeCompare(b.value.name))
+  const entries = [...found.values()]
+  const listed = new Map(entries.map(entry => [entry.value.id, entry]))
+  return entries
+    .filter((entry) => {
+      const targetId = LEGACY_TOPIC_PACK_ALIASES[entry.value.id]
+      if (!targetId || targetId === entry.value.id) return true
+      const target = listed.get(targetId)
+      // The item this id reads as is not on this Mac, so this row is what serves
+      // the stored selection.
+      if (!target) return true
+      return !!scopeFormulaId && !isCompatible(target.value, scopeFormulaId)
+    })
+    .sort((a, b) => a.value.name.localeCompare(b.value.name))
 }
 
 export async function listTopicPacks(registryOptions: ContentPackRegistryOptions = {}): Promise<TopicPack[]> {
