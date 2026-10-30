@@ -1,4 +1,7 @@
 import { createHash } from 'crypto'
+import fs from 'fs/promises'
+import path from 'path'
+import { writeJsonAtomic } from '../lib/atomic-store.js'
 import type { ScenePlan, SoundDesignCue, SoundDesignCredit } from '../models/types.js'
 import { reanchorSounds } from './sound-cue-anchors.js'
 import { DEFAULT_SOUND_DESIGN_SETTINGS } from './sound-design.js'
@@ -33,6 +36,33 @@ export interface TransitionSettings {
   enabled: boolean
   set_id: string
   gain_db: number
+}
+
+export interface TransitionEpisodeSettings extends Partial<TransitionSettings> {
+  shuffle?: number
+}
+
+export async function readTransitionEpisodeSettings(planPath: string): Promise<TransitionEpisodeSettings> {
+  try {
+    const value = JSON.parse(await fs.readFile(path.join(path.dirname(planPath), 'transition_sounds.json'), 'utf8'))
+    return normalizeTransitionEpisodeSettings(value)
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return {}
+    throw new Error(`Could not read this episode's transition sound settings: ${error?.message || error}`)
+  }
+}
+
+export function normalizeTransitionEpisodeSettings(raw: any): TransitionEpisodeSettings {
+  return {
+    ...(typeof raw?.enabled === 'boolean' ? { enabled: raw.enabled } : {}),
+    ...(typeof raw?.set_id === 'string' && raw.set_id.trim() ? { set_id: raw.set_id.trim() } : {}),
+    ...(typeof raw?.gain_db === 'number' && Number.isFinite(raw.gain_db) ? { gain_db: Math.max(-45, Math.min(-3, raw.gain_db)) } : {}),
+    ...(Number.isSafeInteger(raw?.shuffle) && raw.shuffle >= 0 ? { shuffle: raw.shuffle } : {}),
+  }
+}
+
+export async function writeTransitionEpisodeSettings(planPath: string, value: TransitionEpisodeSettings): Promise<void> {
+  await writeJsonAtomic(path.join(path.dirname(planPath), 'transition_sounds.json'), normalizeTransitionEpisodeSettings(value))
 }
 
 /** An absent episode field inherits the channel; explicit false remains false. */

@@ -61,8 +61,47 @@ import {
 import { stitchedSrtPath } from '../services/subtitle-correction.js'
 import type { ContextualCue, ContextualCueTimeline, ScenePlan, SoundDesignCue, SoundDesignTimeline } from '../models/types.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { effectiveTransitionSettings, normalizeTransitionEpisodeSettings, readTransitionEpisodeSettings, writeTransitionEpisodeSettings } from '../services/transition-sounds.js'
 
 export const router = Router()
+
+router.get('/projects/:slug/sound-and-labels/transitions/config', async (req, res) => {
+  const config = await pm.getConfig(req.params.slug)
+  if (!config) return res.status(404).json({ detail: 'Project not found' })
+  res.json({ settings: effectiveTransitionSettings((config as any).transition_sounds, undefined), sets: (config as any).transition_sound_sets ?? null })
+})
+
+router.put('/projects/:slug/sound-and-labels/transitions/config', async (req, res) => {
+  const config = await pm.getConfig(req.params.slug)
+  if (!config) return res.status(404).json({ detail: 'Project not found' })
+  const patch: Record<string, unknown> = {}
+  if (req.body?.settings && typeof req.body.settings === 'object') {
+    patch.transition_sounds = effectiveTransitionSettings((config as any).transition_sounds, normalizeTransitionEpisodeSettings(req.body.settings))
+  }
+  if (Array.isArray(req.body?.sets)) patch.transition_sound_sets = req.body.sets
+  if (!Object.keys(patch).length) return res.status(400).json({ detail: 'Supply transition settings or sets.' })
+  await pm.updateConfig(req.params.slug, patch as any)
+  res.json({ ok: true })
+})
+
+router.get('/projects/:slug/sound-and-labels/:episodeId/transitions', async (req, res) => {
+  try {
+    const { planPath } = await loadEpisode(req.params.slug, req.params.episodeId)
+    const config = await pm.getConfig(req.params.slug)
+    const override = await readTransitionEpisodeSettings(planPath)
+    res.json({ override, settings: effectiveTransitionSettings((config as any)?.transition_sounds, override) })
+  } catch (error: any) { res.status(400).json(humanizeBackendError(error, 'Could not load transition sounds.')) }
+})
+
+router.put('/projects/:slug/sound-and-labels/:episodeId/transitions', async (req, res) => {
+  try {
+    const { planPath } = await loadEpisode(req.params.slug, req.params.episodeId)
+    const override = normalizeTransitionEpisodeSettings(req.body)
+    await writeTransitionEpisodeSettings(planPath, override)
+    const config = await pm.getConfig(req.params.slug)
+    res.json({ override, settings: effectiveTransitionSettings((config as any)?.transition_sounds, override) })
+  } catch (error: any) { res.status(400).json(humanizeBackendError(error, 'Could not save transition sounds.')) }
+})
 
 /** The two project switches, as the page reads them on load. */
 router.get('/projects/:slug/sound-and-labels/config', async (req, res) => {
