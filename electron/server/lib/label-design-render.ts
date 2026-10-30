@@ -22,8 +22,19 @@ export function labelDesignAssetPath(asset: string): string {
 }
 
 export async function readLabelDesigns(): Promise<LabelDesign[]> {
-  const raw = JSON.parse(await fs.readFile(path.join(LABEL_DIR, 'catalogue.json'), 'utf8'))
-  return Array.isArray(raw?.designs) ? raw.designs as LabelDesign[] : []
+  const directory = path.join(LABEL_DIR, 'catalogue.d')
+  const files = await fs.readdir(directory).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return []
+    throw error
+  })
+  const catalogues = [path.join(LABEL_DIR, 'catalogue.json'), ...files.filter(file => file.endsWith('.json')).sort().map(file => path.join(directory, file))]
+  const designs: LabelDesign[] = []
+  for (const file of catalogues) {
+    const raw = JSON.parse(await fs.readFile(file, 'utf8'))
+    if (!Array.isArray(raw?.designs)) throw new Error(`Invalid label catalogue: ${file}`)
+    designs.push(...raw.designs)
+  }
+  return designs
 }
 
 export async function findLabelDesign(id: string): Promise<LabelDesign | null> {

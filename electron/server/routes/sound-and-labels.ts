@@ -64,6 +64,41 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
 
+const legacyLabelDesigns = [
+  { id: 'documentary-label', name: 'Documentary label' },
+  { id: 'map-pin', name: 'Location pin' },
+  { id: 'archival-caption', name: 'Archival caption' },
+  { id: 'chapter-plate', name: 'Chapter plate' },
+].map(design => ({ ...design, family: 'Classic', theme: 'Classic', sample_url: null }))
+
+router.get('/projects/:slug/sound-and-labels/label-designs', async (req, res) => {
+  try {
+    if (!await pm.getConfig(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { readLabelDesigns } = await import('../lib/label-design-render.js')
+    const designs = await readLabelDesigns()
+    res.json({ designs: [...legacyLabelDesigns, ...designs.map(design => ({
+      id: design.id, name: design.name, family: design.family, theme: design.theme,
+      sample_url: `/api/projects/${encodeURIComponent(req.params.slug)}/sound-and-labels/label-designs/${encodeURIComponent(design.id)}/sample`,
+    }))] })
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not load label designs.'))
+  }
+})
+
+router.get('/projects/:slug/sound-and-labels/label-designs/:id/sample', async (req, res) => {
+  try {
+    if (!await pm.getConfig(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { findLabelDesign, labelDesignAssetPath } = await import('../lib/label-design-render.js')
+    const design = await findLabelDesign(req.params.id)
+    if (!design || typeof design.asset !== 'string' || path.basename(design.asset) !== design.asset || !design.asset.endsWith('.png')) {
+      return res.status(404).json({ detail: 'Label sample not found.' })
+    }
+    res.sendFile(labelDesignAssetPath(design.asset))
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not load this label sample.'))
+  }
+})
+
 /** The two project switches, as the page reads them on load. */
 router.get('/projects/:slug/sound-and-labels/config', async (req, res) => {
   const current = await pm.getConfig(req.params.slug)

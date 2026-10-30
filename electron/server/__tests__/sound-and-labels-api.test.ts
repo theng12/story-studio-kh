@@ -156,6 +156,21 @@ describe('a save cannot certify a stale time', () => {
 })
 
 describe('fixed-path routes are not read as an episode code', () => {
+  test('label designs include the catalogue, classic treatments and usable PNG samples', async () => {
+    const response = await get('/label-designs')
+    assert.equal(response.status, 200, JSON.stringify(response.body))
+    for (const id of ['documentary-label', 'map-pin', 'archival-caption', 'chapter-plate']) {
+      assert.equal(response.body.designs.find((row: any) => row.id === id)?.sample_url, null)
+    }
+    const design = response.body.designs.find((row: any) => row.id === 'label:location-pin')
+    assert.equal(design.name, 'Map pin')
+    assert.equal(design.family, 'Location pointers')
+    assert.equal(design.theme, 'exploration')
+    const sample = await request(app).get(design.sample_url)
+    assert.equal(sample.status, 200)
+    assert.match(sample.headers['content-type'], /image\/png/)
+    assert.equal((await request(app).get(`/api/projects/${slug}/sound-and-labels/label-designs/unknown/sample`)).status, 404)
+  })
   test('the config route answers on both GET and PUT', async () => {
     // This was a real bug found by running the page: `/sound-and-labels/config`
     // was declared BELOW `/sound-and-labels/:episodeId`, so Express bound "config"

@@ -209,7 +209,7 @@
                     <select v-model="row.cue.kind" class="select select-sm" @change="markDirty()"><option value="location_date">Location / date</option><option value="historical_context">Historical context</option><option value="person">Person</option><option value="chapter">Chapter</option></select>
                   </label>
                   <label>Treatment
-                    <select v-model="row.cue.template" class="select select-sm" @change="markDirty()"><option value="documentary-label">Documentary label</option><option value="map-pin">Location pin</option><option value="archival-caption">Archival caption</option><option value="chapter-plate">Chapter plate</option></select>
+                    <LabelDesignPicker v-model="row.cue.template" :project-slug="slug" @update:model-value="markDirty()" />
                   </label>
                   <label>Transition
                     <select :value="row.cue.entrance" class="select select-sm" @change="setTransition(row.cue, ($event.target as HTMLSelectElement).value)"><option value="fade">Fade</option><option value="dissolve">Dissolve</option><option value="slide">Slide</option></select>
@@ -373,7 +373,7 @@ type LabelCue = {
   start_sec: number; end_sec: number; title: string; subtitle?: string
   kind: 'location_date' | 'historical_context' | 'person' | 'chapter'; placement: ContextualCueCorner
   position_x_pct?: number | null; position_y_pct?: number | null
-  template: 'documentary-label' | 'map-pin' | 'archival-caption' | 'chapter-plate'
+  template: string
   entrance: 'fade' | 'slide' | 'dissolve'; exit: 'fade' | 'slide' | 'dissolve'
   status: LabelStatus; created_at: string; updated_at: string
 }
