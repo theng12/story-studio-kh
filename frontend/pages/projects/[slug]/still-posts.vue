@@ -502,6 +502,12 @@
                 Download {{ previewAspect }}
               </a>
             </div>
+            <div class="sp-help">
+              <p>YouTube Posts are published by you in YouTube Studio. Download the finished image above, then copy the caption and attach the image there.</p>
+              <button type="button" class="btn btn-secondary" @click="copyPostCaption">Copy caption</button>
+              <a class="sp-link" href="https://studio.youtube.com/" target="_blank" rel="noopener noreferrer">Open YouTube Studio to create a post</a>
+              <p v-if="captionCopyStatus" role="status">{{ captionCopyStatus }}</p>
+            </div>
             <p class="sp-help">
               The picture is drawn once, then fitted into every chosen frame by our renderer — a
               second frame is never a second paid render.
@@ -535,6 +541,16 @@ import {
 import { STILL_POST_LANGUAGE_SCRIPT } from '@shared/still-posts'
 
 definePageMeta({ layout: 'dashboard' })
+
+const captionCopyStatus = ref('')
+async function copyPostCaption() {
+  try {
+    await navigator.clipboard.writeText(editor.caption)
+    captionCopyStatus.value = 'Caption copied. Paste it in YouTube Studio.'
+  } catch {
+    captionCopyStatus.value = 'Could not copy the caption. Select and copy it from the caption field.'
+  }
+}
 
 interface StillPostBranding {
   handle_enabled: boolean
