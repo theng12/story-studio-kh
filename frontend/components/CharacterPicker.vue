@@ -24,6 +24,15 @@
           :checked="selectedSet.has(c.id)"
           @change="toggle(c.id)"
         />
+        <!-- The character already has a portrait on this Mac; showing the name
+             alone made a roster of faces read as a list of words. -->
+        <span class="cast-portrait" aria-hidden="true">
+          <img
+            v-if="portrait(c) && !portraitFailed.has(c.id)" :src="portrait(c)!" :alt="''"
+            loading="lazy" @error="portraitFailed.add(c.id)"
+          />
+          <span v-else class="cast-portrait-fallback">{{ c.name.slice(0, 1) }}</span>
+        </span>
         <div class="cast-info">
           <strong>{{ c.name }}</strong>
           <span class="scope-tag scope-project">channel</span>
@@ -84,6 +93,13 @@ const quickSaving = ref(false)
 const quickError = ref('')
 
 const selectedSet = computed(() => new Set(props.modelValue))
+
+/** The first reference image is the character's portrait, the same one the roster uses. */
+const portraitFailed = ref(new Set<string>())
+function portrait(character: Character): string | null {
+  const filename = character.references?.images?.[0]
+  return filename ? `/api/character-library/${encodeURIComponent(character.id)}/reference-image/${encodeURIComponent(filename)}` : null
+}
 
 async function load() {
   if (!props.projectSlug || !props.episodeCode) {
@@ -204,6 +220,30 @@ async function saveQuickCreate() {
 
 .cast-row:hover {
   background: var(--bg-tertiary);
+}
+
+.cast-portrait {
+  flex: 0 0 auto;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-accent);
+}
+
+.cast-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cast-portrait-fallback {
+  color: var(--accent);
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .cast-info {

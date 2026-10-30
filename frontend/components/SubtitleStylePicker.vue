@@ -193,6 +193,9 @@
               class="input mt-1"
               placeholder="Any font installed on your Mac (e.g. Bebas Neue)"
             />
+            <!-- A font name in a list is still a word. This is the face itself,
+                 rendered by the same engine that draws the caption. -->
+            <p class="font-specimen" :style="{ fontFamily: style.typography.font_family }" aria-hidden="true">Aa — The quick brown fox jumps</p>
           </div>
           <SubtitleSliderField label="Font size" unit="px" :min="8" :max="200" :value="style.typography.font_size_px" @change="v => set('typography','font_size_px', v)" />
           <div class="form-group">
@@ -826,6 +829,7 @@ defineExpose({ defaultSubtitleStyle })
 </script>
 
 <style scoped>
+.font-specimen { margin-top: 6px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 20px; line-height: 1.3; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .sub-style-picker { display: flex; flex-direction: column; gap: 12px; }
 
 .ssp-gallery {
