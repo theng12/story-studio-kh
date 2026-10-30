@@ -63,6 +63,12 @@ describe('song title on each picture', () => {
 })
 
 describe('music thumbnail headline (1.4.273)', () => {
+  test('text-free music thumbnails do not ask for a headline', () => {
+    const p = buildMusicThumbnailPrompt({ sceneIdea: 'Quiet cafe', headline: 'Khmer title', textFree: true },
+      (prompt, title) => enforceThumbnailPromptElements(prompt, { aspectRatio: '16:9', title, headlineMode: 'none' }))
+    assert.match(p, /No words, letters, numbers/)
+    assert.doesNotMatch(p, /Khmer title|printed once|Render the exact/)
+  })
   test('the headline is asked for once, large and spelled exactly; the default title clause is not added again', () => {
     const p = buildMusicThumbnailPrompt(
       { sceneIdea: 'Kyoto kissaten, warm atmosphere, Morning Coffee mood, no people, no text', theme: 'Morning Coffee', style: 'film grain', headline: 'Morning Coffee Jazz' },

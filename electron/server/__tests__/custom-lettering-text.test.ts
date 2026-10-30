@@ -114,15 +114,15 @@ describe('the job request carries the typed text into both builders', () => {
     )
     assert.match(directiveCall, /fontCustomText: req\.thumb_font_style_custom/,
       'the directive must receive the typed font description')
-    assert.match(directiveCall, /textCustomText: req\.thumb_text_style_custom/,
-      'and the typed treatment description')
+    assert.match(directiveCall, /textCustomText: textFree \? undefined : req\.thumb_text_style_custom/,
+      'and the typed treatment description, except when the thumbnail must be text-free')
 
     const enforceCall = generatorSource.slice(
       generatorSource.indexOf('prompt: enforceThumbnailPromptElements('),
       generatorSource.indexOf('prompt: enforceThumbnailPromptElements(') + 700,
     )
     assert.match(enforceCall, /fontCustomText: req\.thumb_font_style_custom/)
-    assert.match(enforceCall, /textCustomText: req\.thumb_text_style_custom/)
+    assert.match(enforceCall, /textCustomText: textFree \? undefined : req\.thumb_text_style_custom/)
   })
 
   test('the request type declares the two fields', () => {

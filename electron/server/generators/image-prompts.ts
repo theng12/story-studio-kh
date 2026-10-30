@@ -227,7 +227,7 @@ export function buildThumbnailDirective(opts: {
   // still supplies one when nothing has been chosen, which is what it is for --
   // but it must not overrule a deliberate choice, which is exactly the
   // "there's no proper control" this replaces.
-  const selectedHeadlineMode = opts.headlineModeId || opts.fmt?.headlineMode || DEFAULT_HEADLINE_MODE
+  const selectedHeadlineMode = opts.textStyle === 'none' ? 'none' : opts.headlineModeId || opts.fmt?.headlineMode || DEFAULT_HEADLINE_MODE
   const headlineInstructionText = headlineInstruction(selectedHeadlineMode, opts.title)
   const lines = [
     `THUMBNAIL GOAL: create a distinct, professional YouTube cover. It must communicate the episode's emotional promise at a glance on mobile.`,
@@ -245,10 +245,12 @@ export function buildThumbnailDirective(opts: {
   const font = (fontStyle && opts.fontPhrases?.[fontStyle]) || (fontStyle ? resolveFontStyle(fontStyle, opts.fontCustomText) : '')
   const text = (textStyle && opts.textPhrases?.[textStyle]) || (textStyle ? resolveTextStyle(textStyle, opts.textCustomText) : '')
   const position = !opts.textPosition || opts.textPosition === 'auto' ? '' : opts.textPosition
-  if (!font && !text && !position) {
-    lines.push('TITLE DESIGN: choose the font, text treatment, and placement that best suits each variation while keeping the title highly readable.')
-  } else {
-    lines.push(`TITLE DESIGN: ${font ? `use ${font}` : 'choose the font'}; ${text ? `use ${text}` : 'choose the text treatment'}; ${position ? `place it at the ${position}` : 'choose the strongest placement'}.`)
+  if (selectedHeadlineMode !== 'none') {
+    if (!font && !text && !position) {
+      lines.push('TITLE DESIGN: choose the font, text treatment, and placement that best suits each variation while keeping the title highly readable.')
+    } else {
+      lines.push(`TITLE DESIGN: ${font ? `use ${font}` : 'choose the font'}; ${text ? `use ${text}` : 'choose the text treatment'}; ${position ? `place it at the ${position}` : 'choose the strongest placement'}.`)
+    }
   }
   if (opts.fmt?.compositionRules?.length) {
     lines.push(`COMPOSITION:\n${opts.fmt.compositionRules.map(rule => `  - ${rule}`).join('\n')}`)
@@ -256,7 +258,7 @@ export function buildThumbnailDirective(opts: {
   if (opts.fmt?.requiredElements?.length) lines.push(`REQUIRED VISUAL ELEMENTS: ${opts.fmt.requiredElements.join('; ')}`)
   if (opts.fmt?.moodKeywords?.length) lines.push(`MOOD: ${opts.fmt.moodKeywords.join(', ')}`)
   if (opts.fmt?.visualStyleGuidance?.trim()) lines.push(`RECIPE VISUAL LANGUAGE: ${opts.fmt.visualStyleGuidance.trim()}`)
-  if (opts.fmt?.headlineGuidance?.trim()) lines.push(`HEADLINE RULES: ${opts.fmt.headlineGuidance.trim()}`)
+  if (selectedHeadlineMode !== 'none' && opts.fmt?.headlineGuidance?.trim()) lines.push(`HEADLINE RULES: ${opts.fmt.headlineGuidance.trim()}`)
   if (opts.creativeDirection?.trim()) lines.push(`USER IDEA: ${opts.creativeDirection.trim()}`)
   if (opts.referenceStyle?.trim()) lines.push(`REFERENCE DIRECTION: ${opts.referenceStyle.trim()}`)
   return lines.join('\n\n')
@@ -624,7 +626,9 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   // A text style of 'none' asks for no lettering. It is not a treatment id, and
   // resolveTextStyle would quietly turn it into gold display text (Manu, 2026-10-25),
   // so it decides the headline instead, over any recipe default.
-  const textFree = req.thumb_text_style === 'none'
+  const khmer = (await pm.getProject(projectSlug))?.content_language === 'km'
+  const textFree = khmer || req.thumb_text_style === 'none'
+  if (khmer) job.output_lines.push('Khmer thumbnails are generated without text. The optional thumbnail text layer can be enabled in Settings.')
   let headlineMode: string = textFree
     ? 'none'
     : HEADLINE_MODE_IDS.includes(String(req.thumb_headline_mode))
@@ -737,7 +741,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
     const thumbnailDirective = buildThumbnailDirective({
       thumbs: targetNumbers.length,
       title,
-      textStyle: req.thumb_text_style || 'auto',
+      textStyle: textFree ? 'none' : req.thumb_text_style || 'auto',
       fontStyle: req.thumb_font_style || 'auto',
       textPosition: req.thumb_text_position || 'auto',
       referenceStyle: req.thumb_reference_style,
@@ -747,7 +751,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       fontPhrases: letteringPhrases.font,
       textPhrases: letteringPhrases.text,
       fontCustomText: req.thumb_font_style_custom,
-      textCustomText: req.thumb_text_style_custom,
+      textCustomText: textFree ? undefined : req.thumb_text_style_custom,
     })
     job.output_lines.push(
       `Thumbnail art direction: ${recipeName ? `recipe “${recipeName}”` : thumbnailFormat ? 'format-specific' : 'generic high-CTR'}, ` +
@@ -818,14 +822,14 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       thumbnailSaveOverhead({
         aspectRatio: req.aspect_ratio || '16:9',
         title,
-        textStyle: req.thumb_text_style || 'auto',
+        textStyle: textFree ? 'none' : req.thumb_text_style || 'auto',
         fontStyle: req.thumb_font_style || 'auto',
         textPosition: req.thumb_text_position || 'auto',
         headlineMode,
         fontPhrases: letteringPhrases.font,
         textPhrases: letteringPhrases.text,
         fontCustomText: req.thumb_font_style_custom,
-        textCustomText: req.thumb_text_style_custom,
+        textCustomText: textFree ? undefined : req.thumb_text_style_custom,
       }),
       thumbnailRenderAssemblyOverhead(renderAssembly),
     )
@@ -868,6 +872,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       // Recency enrichment cannot block generation.
     }
 
+    if (khmer) prompt += '\n\nKhmer channel: every image must be completely text-free. Do not describe or draw words, letters, numbers, captions, logos, or typography. This overrides any conflicting recipe or reference guidance.'
     const controller = new AbortController()
     const cancelWatcher = setInterval(() => {
       if (jq.isCancelled(job.job_id)) controller.abort()
@@ -930,14 +935,14 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       aspectRatio: req.aspect_ratio || '16:9',
       // An inventing mode's words live in the row's own title, not the episode's.
       title: headlineInvents(headlineMode) ? String(item.title || '').trim() || title : title,
-      textStyle: req.thumb_text_style || 'auto',
+      textStyle: textFree ? 'none' : req.thumb_text_style || 'auto',
       fontStyle: req.thumb_font_style || 'auto',
       textPosition: req.thumb_text_position || 'auto',
       headlineMode,
       fontPhrases: letteringPhrases.font,
       textPhrases: letteringPhrases.text,
       fontCustomText: req.thumb_font_style_custom,
-      textCustomText: req.thumb_text_style_custom,
+      textCustomText: textFree ? undefined : req.thumb_text_style_custom,
     }),
   }))
   const missing = Array.from({ length: count }, (_, index) => index + 1)

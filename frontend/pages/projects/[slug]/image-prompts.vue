@@ -213,7 +213,11 @@
       <!-- One card for the whole lettering decision, the way Channel art style
            is one card: the letterform, the treatment and where it sits. They
            were three scattered dropdowns of words nobody can picture. -->
-      <section class="lettering-card mt-2" aria-labelledby="lettering-heading">
+      <section v-if="khmerThumbnail" class="lettering-card mt-2">
+        <h4>Thumbnail lettering</h4>
+        <p>Khmer thumbnails are generated without text. The thumbnail text layer is optional and can be enabled in Settings.</p>
+      </section>
+      <section v-else class="lettering-card mt-2" aria-labelledby="lettering-heading">
         <header class="lettering-head">
           <div><span class="lettering-eyebrow">Thumbnail lettering</span><h4 id="lettering-heading">What the words say, and how they look</h4></div>
           <button type="button" class="link-btn" title="Pick a random font, text style and title location. Nothing is generated." @click="randomizeThumbStyles">🎲 Shuffle Lettering</button>
@@ -271,7 +275,7 @@
           </div>
         </div>
       </section>
-      <div class="flex gap-2 mt-1 items-center flex-wrap">
+      <div v-if="!khmerThumbnail" class="flex gap-2 mt-1 items-center flex-wrap">
         <button
           type="button"
           class="btn btn-secondary"
@@ -353,6 +357,7 @@ const { get, post, put } = useApi()
 const freshImagePromptsAction = useFreshGenerationAction()
 const { success, info: showInfo, error: showError } = useToast()
 
+const khmerThumbnail = ref(false)
 const generating = ref(false)
 /** Thumbnail prompt numbers on disk for this episode, reported by PromptReviewPanel. */
 const existingThumbNumbers = ref<number[]>([])
@@ -495,7 +500,6 @@ type ThumbnailForm = SharedFormFields & {
   thumb_text_position: string
   thumb_font_style: string
   thumb_font_style_custom: string
-  thumb_title_mode: 'ai'
   thumb_headline_mode: string
   thumb_art_direction: string
   thumb_reference_style: string
@@ -524,7 +528,6 @@ const form = reactive({
     thumb_text_position: 'auto',
     thumb_font_style: 'auto',
     thumb_font_style_custom: '',
-    thumb_title_mode: 'ai',
     // Starts on the short option for new work; a recipe or an explicit
     // choice still wins. See PREFERRED_NEW_HEADLINE_MODE.
     thumb_headline_mode: 'short-hook' as string,
@@ -590,7 +593,6 @@ type SelectedThumbnailRecipe = {
 async function applyThumbnailRecipe(template: SelectedThumbnailRecipe): Promise<void> {
   form.thumbnail.thumbnail_template_id = template.id
   const recipe = template.recipe
-  form.thumbnail.thumb_title_mode = 'ai'
   if (recipe?.headlineMode) form.thumbnail.thumb_headline_mode = recipe.headlineMode
   if (recipe?.defaultTextStyle) form.thumbnail.thumb_text_style = recipe.defaultTextStyle
   if (recipe?.defaultFontStyle) form.thumbnail.thumb_font_style = recipe.defaultFontStyle
@@ -620,11 +622,10 @@ const SEEDABLE_KEYS = {
 const rememberedKeys = probeRememberedKeys(form, SEEDABLE_KEYS, () =>
   useRememberedForm('image-prompts', slug, form, { include: ['thumbnail'] }))
 form.thumbnail.force = false
-form.thumbnail.thumb_title_mode = 'ai'
 // The click brief describes ONE episode (AGENTS §4): never carried in from a
 // previous visit, and never saved into a preset (see thumbnailPresets).
 form.thumbnail.thumb_creative_direction = ''
-const thumbnailHeadlineMode = computed<string>(() => form.thumbnail.thumb_headline_mode)
+const thumbnailHeadlineMode = computed<string>(() => khmerThumbnail.value ? 'none' : form.thumbnail.thumb_headline_mode)
 /** True for every mode where the model chooses the words, which is all of them
  *  except the exact episode title and rendering nothing at all. */
 const thumbnailHeadlineInvents = computed<boolean>(() =>
@@ -812,6 +813,12 @@ onMounted(async () => {
     thumbnailPresets.load(),
     loadThumbnailVisionModels(),
   ])
+  try {
+    const project = await get<{ content_language?: string }>(`/projects/${slug.value}`)
+    khmerThumbnail.value = project.content_language === 'km'
+  } catch {
+    showError('Could not load the channel language. Reload to see the thumbnail text settings.')
+  }
   await applyFormatDefaultsIfNoPreset()
   try {
     const effective = await get<{ template: { id: string; name: string; recipe?: { headlineMode?: 'episode-title' | 'short-hook' | 'curiosity-hook' } } | null }>(`/projects/${slug.value}/effective-thumbnail-template`)
@@ -954,7 +961,6 @@ async function runGenerate(replaceAll = false) {
     aspect_ratio: activeForm.value.aspect_ratio,
     thumb_count: form.thumbnail.thumb_count,
     thumbnail_template_id: form.thumbnail.thumbnail_template_id || undefined,
-    thumb_title_mode: 'ai',
     thumb_headline_mode: form.thumbnail.thumb_headline_mode,
     thumb_text_style: form.thumbnail.thumb_text_style,
     thumb_text_position: form.thumbnail.thumb_text_position,

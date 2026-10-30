@@ -135,6 +135,7 @@ export const FONT_STYLE_PRESETS: ThumbnailStylePreset[] = [
  * budget.
  */
 export function resolveTextStyle(id: string | undefined, customText?: string): string {
+  if (id === 'none') return ''
   if (id === 'custom') {
     const t = (customText || '').trim()
     if (t) return truncateChars(t, 240)

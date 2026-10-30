@@ -92,6 +92,15 @@ describe('the customer chooses, not the recipe', () => {
     assert.doesNotMatch(directive, /render this exact title/)
   })
 
+  test('a text-free directive contains no title design or recipe lettering', async () => {
+    const { resolveTextStyle } = await import('../models/thumbnail-styles.js')
+    assert.equal(resolveTextStyle('none'), '')
+    const directive = buildThumbnailDirective({ thumbs: 1, title: 'A Title', textStyle: 'none', fontStyle: 'serif',
+      fmt: { headlineMode: 'episode-title', headlineGuidance: 'Use a gold headline' } as never })
+    assert.match(directive, /render no words, letters, captions/)
+    assert.doesNotMatch(directive, /TITLE DESIGN|radiant golden glow|Use a gold headline|render this exact title/i)
+  })
+
   test('an unknown mode falls back to the default rather than rendering nothing', () => {
     assert.equal(headlineMode('not-a-mode').id, DEFAULT_HEADLINE_MODE)
   })
@@ -138,7 +147,7 @@ describe('every inventing mode keeps its own words end to end', () => {
   test('the generator turns text style "none" into the no-text headline, over a recipe default', async () => {
     const { readFileSync } = await import('node:fs')
     const src = readFileSync(new URL('../generators/image-prompts.ts', import.meta.url), 'utf8')
-    assert.match(src, /const textFree = req\.thumb_text_style === 'none'\n\s+let headlineMode: string = textFree\n\s+\? 'none'/)
+    assert.match(src, /const textFree = khmer \|\| req\.thumb_text_style === 'none'[\s\S]{0,220}let headlineMode: string = textFree\n\s+\? 'none'/)
     assert.match(src, /if \(!req\.thumb_headline_mode && !textFree && recipe\?\.headlineMode\)/)
   })
 

@@ -87,7 +87,7 @@ export async function useSceneAsThumbnail(slug: string, code: string, sceneId: s
  * (with no song title), the episode theme and the channel's visual style, then the one headline the
  * model must draw: once, large, spelled exactly (CJ0027 came out "Morrting Doffee Jamz").
  */
-export function buildMusicThumbnailPrompt(input: { sceneIdea: string; theme?: string; style?: string; headline: string }, enforce: (prompt: string, title: string) => string): string {
+export function buildMusicThumbnailPrompt(input: { sceneIdea: string; theme?: string; style?: string; headline: string; textFree?: boolean }, enforce: (prompt: string, title: string) => string): string {
   const idea = input.sceneIdea
     .replace(/,?\s*no people,?\s*no text\s*$/i, '')
     .replace(/[.\s,]+$/, '')
@@ -99,6 +99,7 @@ export function buildMusicThumbnailPrompt(input: { sceneIdea: string; theme?: st
     input.style?.trim() || '',
     'one strong focal point, rich colour and light, no people',
   ].filter(Boolean).join(', ')
+  if (input.textFree) return enforce(`${base}. No words, letters, numbers, captions, logos or typography anywhere in the image.`, '')
   const headline = input.headline.trim().replace(/"/g, "'")
   return enforce(`${base}. The headline "${headline}" printed once, large, in big clean legible letters, `
     + `spelled exactly "${headline}" letter for letter, no other text`, headline)
@@ -136,13 +137,15 @@ export async function writeMusicThumbnailPrompts(
   const { enforceThumbnailPromptElements } = await import('../generators/image-prompts.js')
   const { resolveStyleBible } = await import('../lib/style-bible.js')
   const style = (await resolveStyleBible({ slug, episodeDir: await episodeDirFor(slug, upper) }).catch(() => ({ text: '' }))).text || ''
-  const enforce = (prompt: string, headline: string) => enforceThumbnailPromptElements(prompt, { aspectRatio: '16:9', title: headline })
+  const { getContentLanguage } = await import('../lib/content-language.js')
+  const textFree = await getContentLanguage(slug) === 'km'
+  const enforce = (prompt: string, headline: string) => enforceThumbnailPromptElements(prompt, { aspectRatio: '16:9', title: headline, ...(textFree ? { headlineMode: 'none', textStyle: 'none' } : {}) })
   // A titled scene's prompt asks for its song's title; the thumbnail carries only the episode headline.
   const untitled = doc.settings.scenes.title_on_scene ? await untitledScenePrompts(slug, upper, doc) : null
   let markdown = '# Thumbnail Prompts\n\n'
   wanted.forEach((scene, i) => {
     const sceneIdea = untitled?.get(scene.id) ?? scene.prompt
-    const prompt = buildMusicThumbnailPrompt({ sceneIdea, theme: doc.settings.theme, style, headline: title }, enforce)
+    const prompt = buildMusicThumbnailPrompt({ sceneIdea, theme: doc.settings.theme, style, headline: title, textFree }, enforce)
     markdown += `## Thumbnail ${i + 1}: ${title}\n\n${prompt}\n\n`
   })
   await fs.mkdir(path.dirname(target), { recursive: true })
