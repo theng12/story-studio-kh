@@ -29,6 +29,22 @@ export const DEFAULT_TRANSITION_SETS: TransitionSet[] = [
   { id: 'paper-pencil', name: 'Paper & Pencil', terms: ['paper', 'pencil'], enabled: true, pinned: [], excluded: [] },
 ]
 
+export interface TransitionSettings {
+  enabled: boolean
+  set_id: string
+  gain_db: number
+}
+
+/** An absent episode field inherits the channel; explicit false remains false. */
+export function effectiveTransitionSettings(channel: Partial<TransitionSettings> | undefined, episode: Partial<TransitionSettings> | undefined): TransitionSettings {
+  const gain = episode?.gain_db ?? channel?.gain_db
+  return {
+    enabled: episode?.enabled ?? channel?.enabled ?? false,
+    set_id: episode?.set_id ?? channel?.set_id ?? 'mixed',
+    gain_db: typeof gain === 'number' && Number.isFinite(gain) ? Math.max(-45, Math.min(-3, gain)) : -12,
+  }
+}
+
 export function transitionClipKey(clip: Pick<TransitionClip, 'source' | 'pool_id' | 'clip'>): string {
   return JSON.stringify([clip.source, clip.pool_id || '', clip.clip])
 }

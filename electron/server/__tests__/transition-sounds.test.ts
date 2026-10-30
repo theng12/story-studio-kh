@@ -1,10 +1,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DEFAULT_TRANSITION_SETS, placeTransitionSounds, resolveTransitionSet, transitionClipKey, type TransitionClip } from '../services/transition-sounds.js'
+import { DEFAULT_TRANSITION_SETS, effectiveTransitionSettings, placeTransitionSounds, resolveTransitionSet, transitionClipKey, type TransitionClip } from '../services/transition-sounds.js'
 import type { ScenePlan } from '../models/types.js'
 
 const clips: TransitionClip[] = ['soft whoosh', 'bright whoosh', 'click'].map(label => ({ source: 'pool', pool_id: 'sounds', clip: `${label}.wav`, label, tags: [] }))
 const plan = { generated_at: 'now', scenes: Array.from({ length: 16 }, (_, i) => ({ id: `scene-${i}`, start_sec: i * 5, end_sec: (i + 1) * 5 })) } as ScenePlan
+
+test('episodes inherit channel settings unless they explicitly override them', () => {
+  assert.equal(effectiveTransitionSettings(undefined, undefined).enabled, false)
+  assert.deepEqual(effectiveTransitionSettings({ enabled: true, set_id: 'whooshes', gain_db: -18 }, undefined), { enabled: true, set_id: 'whooshes', gain_db: -18 })
+  assert.deepEqual(effectiveTransitionSettings({ enabled: true, set_id: 'mixed' }, { enabled: false, set_id: 'paper-pencil' }), { enabled: false, set_id: 'paper-pencil', gain_db: -12 })
+})
 
 test('sets resolve live, honour pins and exclusions, and report missing clips', () => {
   const set = { ...DEFAULT_TRANSITION_SETS[1]!, pinned: [{ ...clips[2]! }, { source: 'pool' as const, pool_id: 'sounds', clip: 'gone.wav', label: 'Gone' }], excluded: [transitionClipKey(clips[0]!)] }
