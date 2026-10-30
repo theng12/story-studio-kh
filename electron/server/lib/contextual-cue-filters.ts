@@ -295,6 +295,14 @@ export function buildLabelOverlayFilters(
   return { input_args, filters, output }
 }
 
+export function labelCueForRender(cue: ContextualCue, pointing: boolean, log: (message: string) => void): ContextualCue {
+  if (cue.motion === 'line-draw' && (!pointing || cue.target_x_pct == null || cue.target_y_pct == null)) {
+    log(`Label ${cue.id} has no usable target; no line was drawn. Showing the label with a pop entrance.`)
+    return { ...cue, motion: 'pop' }
+  }
+  return cue
+}
+
 export function labelOverlayGeometry(
   cue: ContextualCue,
   label: { width: number; height: number; anchor: { x: number; y: number } },

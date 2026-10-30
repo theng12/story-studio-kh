@@ -86,7 +86,7 @@ import {
 import { logoCornerRadiusPct, logoShapeOf, writeShapedLogo } from '../lib/logo-shape.js'
 import { displayAspectRatio, frameTextUnit, resolveRenderCanvas } from '../lib/render-canvas.js'
 import { inspectSourceAspect } from '../lib/source-aspect.js'
-import { buildContextualCueDrawtextFilters, buildLabelOverlayFilters, labelOverlayGeometry } from '../lib/contextual-cue-filters.js'
+import { buildContextualCueDrawtextFilters, buildLabelOverlayFilters, labelOverlayGeometry, labelCueForRender } from '../lib/contextual-cue-filters.js'
 import { findLabelDesign, renderLabelDesign, renderLeaderLine, renderLabelWipe, writeLabelRevealFrames } from '../lib/label-design-render.js'
 import { measureOpeningSec } from '../lib/opening-duration.js'
 import {
@@ -7501,7 +7501,8 @@ async function runFinalComposition(
         const rendered = await renderLabelDesign({
           design, title: cue.title, subtitle: cue.subtitle, frame_w: w, frame_h: h,
         })
-        const geometry = labelOverlayGeometry(cue, rendered, w, h, cueOffset)
+        const renderCue = labelCueForRender(cue, !!design.pointing, message => job.output_lines.push(message))
+        const geometry = labelOverlayGeometry(renderCue, rendered, w, h, cueOffset)
         const safeId = cue.id.replace(/[^a-zA-Z0-9-]/g, '-')
         const labelPath = cue.motion === 'wipe'
           ? await writeLabelRevealFrames(path.join(path.dirname(videoInputPath), `label-${safeId}-wipe`), quality.fps, generatedSubtitleFiles,
@@ -7512,9 +7513,6 @@ async function runFinalComposition(
           await fs.writeFile(labelPath, rendered.png)
         }
 
-        if (cue.motion === 'line-draw' && (!design.pointing || cue.target_x_pct == null || cue.target_y_pct == null)) {
-          throw new Error(`Label ${cue.id} needs a pointing design and target position for line-draw.`)
-        }
         // A separate target point: the label can sit away from what it points at.
         // Old cues carry none and simply draw nothing extra.
         if (design.pointing && cue.target_x_pct != null && cue.target_y_pct != null) {

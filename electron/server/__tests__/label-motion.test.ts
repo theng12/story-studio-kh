@@ -37,7 +37,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { buildLabelOverlayFilters, labelOverlayGeometry } from '../lib/contextual-cue-filters.js'
+import { buildLabelOverlayFilters, labelOverlayGeometry, labelCueForRender } from '../lib/contextual-cue-filters.js'
 import { escapeFilterArgValue } from '../lib/ffmpeg-filter-escape.js'
 import { findLabelDesign, renderLabelDesign, renderLabelWipe, renderLeaderLine, writeLabelRevealFrames } from '../lib/label-design-render.js'
 import type { ContextualCue } from '../models/types.js'
@@ -250,6 +250,26 @@ describe('label motions, verified on rendered pixels', { skip: FFMPEG ? false : 
       } finally { await fs.rm(dir, { recursive: true, force: true }) }
     })
   }
+
+  test('line-draw without a usable target shows a pop and logs why', async () => {
+    const design = (await findLabelDesign('label:location-pin'))!
+    const rendered = await renderLabelDesign({ design, title: 'BERLIN', frame_w: WIDTH, frame_h: HEIGHT })
+    for (const [candidate, pointing] of [
+      [cue({ motion: 'line-draw' }), true],
+      [cue({ motion: 'line-draw', target_x_pct: 70, target_y_pct: 70 }), false],
+    ] as const) {
+      const messages: string[] = []
+      const resolved = labelCueForRender(candidate, pointing, message => messages.push(message))
+      assert.equal(resolved.motion, 'pop')
+      assert.equal(candidate.motion, 'line-draw')
+      assert.match(messages[0]!, /cue-1.*no usable target.*no line was drawn/i)
+      assert.ok(labelOverlayGeometry(resolved, rendered, WIDTH, HEIGHT).motion_exprs?.scale)
+    }
+    const messages: string[] = []
+    const valid = cue({ motion: 'line-draw', target_x_pct: 70, target_y_pct: 70 })
+    assert.equal(labelCueForRender(valid, true, message => messages.push(message)), valid)
+    assert.deepEqual(messages, [])
+  })
 
   test('a cue with no motion emits exactly the filter string it always has', async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'label-still-'))
