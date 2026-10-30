@@ -76,6 +76,16 @@
       <p v-for="missing in selectedTransitionSet?.missing || []" :key="missing" role="status">Pinned sound unavailable: {{ missing }}</p>
       <p v-for="note in transitionNotes" :key="note">{{ note }}</p>
       <div v-if="selectedTransitionSet?.clips.length"><button class="btn btn-secondary btn-sm" @click="playTransition(selectedTransitionSet.clips[0]!)">Hear a sample</button></div>
+      <details><summary>Manage sets</summary>
+        <div v-for="(set, index) in transitionSets" :key="set.id" class="sl-transition-clip">
+          <label><input type="checkbox" :checked="set.enabled" @change="updateTransitionSet(index, { enabled: ($event.target as HTMLInputElement).checked })" /> Enabled</label>
+          <input class="input" :value="set.name" :aria-label="`Name of ${set.name}`" @change="updateTransitionSet(index, { name: ($event.target as HTMLInputElement).value })" />
+          <button class="btn btn-secondary btn-sm" :disabled="index === 0" @click="moveTransitionSet(index, -1)">Move up</button>
+          <button class="btn btn-secondary btn-sm" :disabled="index === transitionSets.length - 1" @click="moveTransitionSet(index, 1)">Move down</button>
+          <button class="btn btn-secondary btn-sm" @click="copyTransitionSet(index)">Copy</button>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="newTransitionSet">New set</button>
+      </details>
       <details v-if="selectedTransitionSet"><summary>Choose sounds in this set</summary><div v-for="clip in transitionClips" :key="transitionKey(clip)" class="sl-transition-clip"><span>{{ clip.label }}</span><button class="btn btn-secondary btn-sm" @click="playTransition(clip)">Play</button><button class="btn btn-secondary btn-sm" @click="toggleTransitionClip(clip)">{{ selectedTransitionSet.clips.some(c => transitionKey(c) === transitionKey(clip)) ? 'Remove' : 'Pin' }}</button></div></details>
     </section>
 
@@ -484,6 +494,35 @@ function playTransition(clip: TransitionClip): void {
   const url = clip.source === 'gateway' ? `${root}/library-audio/${encodeURIComponent(clip.clip)}` : `${root}/pool-audio/${encodeURIComponent(clip.pool_id || '')}/${encodeURIComponent(clip.clip)}`
   audio = new Audio(url)
   void audio.play().catch(() => showError(`Could not play ${clip.label}.`))
+}
+async function persistTransitionSets(sets: Array<Omit<TransitionSet, 'clips' | 'missing'>>): Promise<void> {
+  try { await put(`/projects/${encodeURIComponent(slug.value)}/sound-and-labels/transitions/config`, { sets }); await loadTransitions() }
+  catch (error: any) { transitionError.value = error?.data?.detail || error?.message || 'Could not save the sets.' }
+}
+function editableTransitionSets(): Array<Omit<TransitionSet, 'clips' | 'missing'>> {
+  return transitionSets.value.map(({ clips: _clips, missing: _missing, ...set }) => set)
+}
+function updateTransitionSet(index: number, patch: Partial<TransitionSet>): void {
+  const sets = editableTransitionSets()
+  if (!sets[index]) return
+  if (patch.name !== undefined && !patch.name.trim()) { transitionError.value = 'A set needs a name.'; return }
+  sets[index] = { ...sets[index]!, ...patch }
+  void persistTransitionSets(sets)
+}
+function moveTransitionSet(index: number, direction: number): void {
+  const sets = editableTransitionSets(), target = index + direction
+  if (!sets[index] || !sets[target]) return
+  ;[sets[index], sets[target]] = [sets[target]!, sets[index]!]
+  void persistTransitionSets(sets)
+}
+function copyTransitionSet(index: number): void {
+  const sets = editableTransitionSets(), set = sets[index]
+  if (!set) return
+  sets.splice(index + 1, 0, { ...set, id: crypto.randomUUID(), name: `${set.name} copy`, pinned: [...set.pinned], excluded: [...set.excluded] })
+  void persistTransitionSets(sets)
+}
+function newTransitionSet(): void {
+  void persistTransitionSets([...editableTransitionSets(), { id: crypto.randomUUID(), name: 'New set', enabled: true, terms: [], pinned: [], excluded: [] }])
 }
 async function toggleTransitionClip(clip: TransitionClip): Promise<void> {
   const current = selectedTransitionSet.value
