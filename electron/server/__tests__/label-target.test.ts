@@ -7,7 +7,7 @@ import { useTempDataDir } from './_helpers.js'
 
 const temp = await useTempDataDir()
 after(async () => { await temp.cleanup() })
-const { resolveLabelTargets } = await import('../lib/label-target.js')
+const { resolveLabelTargets, sceneNames } = await import('../lib/label-target.js')
 const client = await import('../lib/scene-vision-client.js')
 const { setApiKey } = await import('../services/app-secrets-store.js')
 
@@ -32,9 +32,15 @@ test('label targets follow the scene image and fail soft', async () => {
   }) as any)
   const logs: string[] = []
   const cue = { id: 'cue', scene_id: 'scene-42', title: 'Bell', point_at: 'the bell', template: 'label:location-pin' } as any
-  const plan = { scenes: [{ id: 'scene-42', scene_index: 42 }] } as any
+  const plan = { scenes: [{ id: 'scene-42', scene_index: 42, visual_prompt: 'A bronze bell hangs in a stone tower' }] } as any
   const resolve = (item = cue) => resolveLabelTargets({ episodeDir, plan, cues: [item], sceneImages: new Map([['scene-42', image]]), log: line => logs.push(line) })
   try {
+    const [unnamed] = await resolve({ ...cue, point_at: 'the spaceship' })
+    assert.equal(unnamed!.target_x_pct, undefined)
+    assert.match(logs.at(-1)!, /does not name "the spaceship".*without a pointer/)
+    assert.equal(calls, 0, 'something the prompt never drew is not looked for')
+    assert.equal(sceneNames('Two canoes on a river', 'the canoe'), true)
+    assert.equal(sceneNames('Two canoes on a river', 'the'), false)
     const [found] = await resolve()
     assert.ok(Math.abs(found!.target_x_pct! - 30) < 1e-8)
     assert.ok(Math.abs(found!.target_y_pct! - 50) < 1e-8)

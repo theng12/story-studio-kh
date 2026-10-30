@@ -10,6 +10,19 @@ import { mapWithConcurrency } from './map-with-concurrency.js'
 
 type TargetResult = { x: number; y: number } | { reason: string }
 
+/**
+ * The locator will box its nearest guess at anything (asked for a spaceship, it boxed a canoe),
+ * so it is only asked about something the scene's own prompt says was drawn.
+ * shortcut: whole words with a plural -s dropped, so a synonym is refused rather than guessed at.
+ */
+export function sceneNames(prompt: string | undefined, phrase: string): boolean {
+  const stem = (word: string) => word.length > 3 ? word.replace(/s$/, '') : word
+  const words = (text: string) => text.toLowerCase().match(/\p{L}[\p{L}\p{M}'-]*/gu) ?? []
+  const said = new Set(words(prompt ?? '').map(stem))
+  const wanted = words(phrase).filter(word => !['the', 'a', 'an', 'of', 'in', 'on', 'at', 'and', 'this', 'that', 'its', 'their'].includes(word))
+  return wanted.length > 0 && wanted.some(word => said.has(stem(word)))
+}
+
 /** Resolve once per cue, phrase and image bytes; a manual target always takes precedence. */
 export async function resolveLabelTargets(input: {
   episodeDir: string; plan: ScenePlan; cues: ContextualCue[]; sceneImages: Map<string, string>;
@@ -22,6 +35,7 @@ export async function resolveLabelTargets(input: {
       if (!(await findLabelDesign(cue.template))?.pointing) return cue
       const scene = input.plan.scenes.find(item => item.id === cue.scene_id)
       if (!scene) throw new Error('the scene is missing from the plan')
+      if (!sceneNames(scene.visual_prompt, cue.point_at)) throw new Error(`the scene's image prompt does not name "${cue.point_at.trim()}"`)
       const still = input.sceneImages.get(scene.id)
       if (!still || /\.(mp4|mov|webm|mkv|m4v)$/i.test(still)) throw new Error(`scene ${scene.scene_index} has no image`)
       const bytes = await fs.readFile(still)
