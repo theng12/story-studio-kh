@@ -7,6 +7,32 @@ import {
   pacingBandAt,
 } from '../contracts/pacing.js'
 
+import { splitScenesBySentence } from '../services/scene-planner.js'
+import { buildSentenceSidecar } from '../lib/sentence-timing.js'
+
+test('sentence scenes require every chapter and use stitched episode offsets', () => {
+  const chapters = { sections: [{ slug: 'a', duration_s: 4 }, { slug: 'b', duration_s: 3 }], gap_duration_s: 2 }
+  const narration = [{ slug: 'a', text: 'Hi. A longer sentence.' }, { slug: 'b', text: 'Last sentence.' }]
+  const sidecar = { schemaVersion: 1, ...buildSentenceSidecar(chapters.sections, narration) }
+  const timeline = { complete: true, sections: [{ slug: 'a', duration_sec: 4, offset_sec: 5 }, { slug: 'b', duration_sec: 3, offset_sec: 11 }] }
+  const input = { chapters, narration, sidecar, timeline, opening_sec: 0, idGen: (i: number) => String(i) }
+  const scenes = splitScenesBySentence(input)
+  assert.equal(scenes.length, 3)
+  assert.deepEqual(scenes.map(s => s.transcript_segment), ['Hi.', 'A longer sentence.', 'Last sentence.'])
+  assert.equal(scenes[2]!.start_sec, 11)
+  assert.equal(scenes[1]!.end_sec, 11)
+  assert.throws(() => splitScenesBySentence({ ...input, sidecar: null }), /audio_sentences.json is missing or invalid/)
+  assert.throws(() => splitScenesBySentence({ ...input, sidecar: { ...sidecar, sections: sidecar.sections.slice(0, 1) } }), /missing one or more audio chapters/)
+  assert.throws(() => splitScenesBySentence({ ...input, sidecar: { ...sidecar, sections: [{ ...sidecar.sections[0]!, sentences: sidecar.sections[0]!.sentences.slice(0, 1) }, sidecar.sections[1]!] } }), /incomplete/)
+  assert.throws(() => splitScenesBySentence({ ...input, timeline: { ...timeline, sections: [timeline.sections[0]!, { ...timeline.sections[1]!, offset_sec: 10 }] } }), /chapter offset/)
+})
+
+test('sentence choice is opt-in and old rhythms remain unchanged', () => {
+  assert.deepEqual(parseScenePacing({ min_sec: 4, max_sec: 8 }), { min_sec: 4, max_sec: 8 })
+  assert.deepEqual(parseScenePacing({ min_sec: 4, max_sec: 8, one_scene_per_sentence: false }), { min_sec: 4, max_sec: 8 })
+  assert.deepEqual(parseScenePacing({ min_sec: 4, max_sec: 8, one_scene_per_sentence: true }), { min_sec: 4, max_sec: 8, one_scene_per_sentence: true })
+})
+
 describe('scene pacing contract', () => {
   test('keeps the current 1–3 second uniform default and legacy uniform shape', () => {
     assert.deepEqual(DEFAULT_SCENE_PACING, { min_sec: 1, max_sec: 3 })

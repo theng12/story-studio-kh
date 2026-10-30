@@ -25,6 +25,7 @@ export interface ScenePlanPacing {
   max_sec: number
   mode: 'live' | 'documentary' | 'variable'
   periods?: ScenePacingPeriod[]
+  one_scene_per_sentence?: boolean
   opening_duration_sec?: number
   settled_min_sec?: number
   settled_max_sec?: number
@@ -78,7 +79,15 @@ export async function resolveScenePlanPacing(
 ): Promise<ScenePlanPacingContext> {
   const format = resolvedFormat ?? await getEffectiveFormat(slug)
   const formula_motion_profile = format?.script.motionProfile
-  if (format?.visualSource !== 'continuity-chain') return { formula_motion_profile }
+  if (format?.visualSource !== 'continuity-chain') {
+    const continuityPath = path.join(episodeDir, 'continuity.json')
+    if (!existsSync(continuityPath)) return { formula_motion_profile }
+    try {
+      const config = JSON.parse(await fs.readFile(continuityPath, 'utf-8'))
+      const saved = parseScenePacing(config?.pacing)
+      return { formula_motion_profile, ...(saved.one_scene_per_sentence ? { pacing: scenePlanPacing(saved) } : {}) }
+    } catch (error) { throw continuityError(error) }
+  }
 
   // No saved episode pacing: the channel's starting pacing (set from its
   // Formula at creation), else the one app-wide default.
@@ -98,7 +107,7 @@ export async function resolveScenePlanPacing(
 
 function scenePlanPacing(pacing: ScenePacing): ScenePlanPacing {
   if (pacing.mode !== 'variable') {
-    return { min_sec: pacing.min_sec, max_sec: pacing.max_sec, mode: 'live' }
+    return { min_sec: pacing.min_sec, max_sec: pacing.max_sec, mode: 'live', ...(pacing.one_scene_per_sentence ? { one_scene_per_sentence: true } : {}) }
   }
   const legacy = pacing.opening_duration_sec !== undefined
   return {
@@ -106,6 +115,7 @@ function scenePlanPacing(pacing: ScenePacing): ScenePlanPacing {
     max_sec: pacing.max_sec,
     mode: legacy ? 'documentary' : 'variable',
     periods: pacing.periods,
+    ...(pacing.one_scene_per_sentence ? { one_scene_per_sentence: true } : {}),
     ...(legacy ? {
       opening_duration_sec: pacing.opening_duration_sec,
       settled_min_sec: pacing.settled_min_sec,

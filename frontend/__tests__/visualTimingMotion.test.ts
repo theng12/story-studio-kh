@@ -139,6 +139,28 @@ describe('Visual timing and motion', () => {
     assert.match(continuityConfig, /motion_scope: current\.motion_scope/)
   })
 
+  test('sentence choice is saved with a pacing claim and carried by Scene Plan presets', async () => {
+    globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
+    globals.__visualTimingMotionToasts = []
+    let body: any
+    globals.__visualTimingMotionApi = {
+      async get<T>() { return { exists: true, config: config(4, 8) } as T },
+      async put<T>(_path: string, value: any) { body = value; return { ok: true, config: value } as T },
+    }
+    const mounted = await mountPanel()
+    try {
+      const checkbox = mounted.host.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+      assert.equal(checkbox.checked, false)
+      checkbox.click()
+      await flush()
+      assert.equal((mounted.panel.value!.snapshotPreset().pacing as any).one_scene_per_sentence, true)
+      mounted.host.querySelector<HTMLButtonElement>('button.btn-primary')!.click()
+      await flush()
+      assert.equal(body.claim_pacing, true)
+      assert.equal(body.pacing.one_scene_per_sentence, true)
+    } finally { mounted.unmount(); delete globals.__visualTimingMotionApi }
+  })
+
   test('saves the actual continuity response config rather than its wrapper', async () => {
     globals.__visualTimingMotionRoute = { params: { slug: 'project-one' } }
     globals.__visualTimingMotionToasts = []

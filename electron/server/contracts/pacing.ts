@@ -13,6 +13,8 @@ export const LEGACY_SNAPSHOTLESS_REPAIR_PACING = { min_sec: 3, max_sec: 12 } as 
 export interface ScenePacingBand {
   min_sec: number
   max_sec: number
+  /** Opt in to one scene for every narrated sentence. */
+  one_scene_per_sentence?: boolean
 }
 
 export interface ScenePacingPeriod extends ScenePacingBand {
@@ -156,6 +158,10 @@ function periods(value: unknown): ScenePacingPeriod[] {
 export function parseScenePacing(value: unknown): ScenePacing {
   if (value === undefined) return { ...DEFAULT_SCENE_PACING }
   const source = record(value, 'pacing')
+  if (source.one_scene_per_sentence !== undefined && typeof source.one_scene_per_sentence !== 'boolean') {
+    throw new ScenePacingValidationError('pacing.one_scene_per_sentence must be true or false')
+  }
+  const sentenceChoice = source.one_scene_per_sentence === true ? { one_scene_per_sentence: true } : {}
 
   if (source.mode === 'variable') {
     const normalizedPeriods = periods(source.periods)
@@ -166,6 +172,7 @@ export function parseScenePacing(value: unknown): ScenePacing {
       min_sec: normalizedPeriods[0]!.min_sec,
       max_sec: normalizedPeriods[0]!.max_sec,
       periods: normalizedPeriods,
+      ...sentenceChoice,
     }
   }
   if (source.mode !== undefined && source.mode !== 'uniform') {
@@ -190,7 +197,7 @@ export function parseScenePacing(value: unknown): ScenePacing {
 
   const openingBand = band(source, 'pacing')
   if (!hasEveryOpeningField) {
-    return source.mode === 'uniform' ? { mode: 'uniform', ...openingBand } : openingBand
+    return source.mode === 'uniform' ? { mode: 'uniform', ...openingBand, ...sentenceChoice } : { ...openingBand, ...sentenceChoice }
   }
 
   const opening_duration_sec = finiteNumber(source.opening_duration_sec, 'pacing.opening_duration_sec')
@@ -215,6 +222,7 @@ export function parseScenePacing(value: unknown): ScenePacing {
     opening_duration_sec,
     settled_min_sec: settledBand.min_sec,
     settled_max_sec: settledBand.max_sec,
+    ...sentenceChoice,
   }
 }
 
