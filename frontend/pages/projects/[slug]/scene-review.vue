@@ -373,16 +373,13 @@
         <div v-if="visionCheckConfig.enabled" class="sr-vision-check">
           <label class="sr-vision-model">
             <span>Model for the stronger check</span>
-            <select
-              :value="visionCheckConfig.model || ''"
+            <ModelMenu
+              :model-value="visionCheckConfig.model || ''"
               :disabled="visionCheckSaving || visionCheckModelsLoading"
-              @change="selectVisionModel"
-            >
-              <option value="" disabled>
-                {{ visionCheckModelsLoading ? 'Loading Gateway models…' : 'Select a model' }}
-              </option>
-              <option v-for="option in visionModels" :key="option.id" :value="option.id">{{ visionModelLabel(option) }}</option>
-            </select>
+              :options="visionModels.map(option => ({ id: option.id, label: visionModelLabel(option), provider: option.provider_name || '' }))"
+              media-type="llm" title="Choose vision model" placeholder="Select a model"
+              @update:model-value="selectVisionModel"
+            />
           </label>
           <!-- Whose row this is, and what it costs. The provider is DISPLAYED
                where the catalogue publishes it and never used to route (§2). -->
@@ -1321,8 +1318,7 @@ async function toggleVisionCheckEnabled(event: Event): Promise<void> {
   await saveVisionConfig({ enabled: next }, 'Could not save the stronger vision check switch.')
   if (next && !visionModels.value.length) void loadVisionModels()
 }
-async function selectVisionModel(event: Event): Promise<void> {
-  const next = (event.target as HTMLSelectElement).value
+async function selectVisionModel(next: string): Promise<void> {
   await saveVisionConfig({ model: next }, 'Could not save the vision model.')
 }
 async function toggleVisionAxis(axis: SceneVisionAxis, event: Event): Promise<void> {

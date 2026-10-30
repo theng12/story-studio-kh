@@ -578,8 +578,37 @@ function boundedPlainText(value: unknown, field: string, min: number, max: numbe
   return value
 }
 
+/**
+ * Cover/hero image address. Two shapes are accepted:
+ *
+ * - a canonical public HTTPS URL (marketing art the shop publishes), exactly as
+ *   before; and
+ * - a path on the Gateway's own content API, because a pack cover is served by
+ *   the one paired Gateway — a LAN address with `http://` and a port — which
+ *   the public-URL rule would reject. Story proxies that path through its own
+ *   server (`routes/content-store-covers.ts`), so the renderer never loads a
+ *   cross-origin image the CSP would block.
+ *
+ * A relative path is held to the same safety bar: no dot segments, no
+ * backslash, no query or fragment, and never the gated archive path.
+ */
 function canonicalMarketingUrl(value: unknown, field: string): string {
   if (typeof value !== 'string' || [...value].length > 2_048) throw new Error(`${field} must be an HTTPS URL no longer than 2048 characters`)
+  if (value.startsWith('/')) {
+    if (value.startsWith('//') || value.includes('\\') || value.includes('?') || value.includes('#')) {
+      throw new Error(`${field} must be a canonical content path`)
+    }
+    let path: string
+    try {
+      path = decodeURIComponent(value)
+    } catch {
+      throw new Error(`${field} must contain a valid URL path`)
+    }
+    if (path.includes('..') || path.includes('/v1/content/archives')) {
+      throw new Error(`${field} must not reference gated content archives`)
+    }
+    return value
+  }
   let parsed: URL
   try {
     parsed = new URL(value)

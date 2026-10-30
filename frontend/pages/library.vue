@@ -16,19 +16,8 @@
     <div v-if="recoveryError" class="store-notice warning" role="status" aria-live="polite"><div><strong>{{ recoveryError.action === 'dismiss' ? 'Content Pack recovery notice was not dismissed' : 'Content Pack recovery could not be checked' }}</strong><p>{{ recoveryError.detail }}</p></div></div>
     <div v-if="importBusy" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Installing Content Pack…</strong><p>Reading the chosen .sspack and installing it on this Mac. This local install needs no Gateway connection.</p></div></div>
     <div v-else-if="importNotice" :class="['store-notice', importNotice.tone]" role="status" aria-live="polite"><div><strong>{{ importNotice.title }}</strong><p>{{ importNotice.detail }}</p><p v-if="importNotice.recovery">{{ importNotice.recovery }}</p></div></div>
-    <section class="gateway-archives" aria-labelledby="gateway-archives-heading" :aria-busy="gatewayArchivesBusy">
-      <div class="gateway-archives-head"><div><h2 id="gateway-archives-heading">Gateway archives</h2><p>Install the exact .sspack your Gateway keeps in its Archive Bank. Nothing needs to be on a shelf first. Story Studio checks app compatibility, document schemas and the exact SHA-256 during install.</p></div><button type="button" class="btn btn-secondary" :disabled="gatewayArchivesBusy" @click="loadGatewayArchives">{{ gatewayArchivesBusy ? 'Checking…' : 'Refresh archives' }}</button></div>
-      <div v-if="gatewayArchivesError" class="store-notice warning" role="status" aria-live="polite"><div><strong>{{ gatewayArchivesError.title }}</strong><p>{{ gatewayArchivesError.detail }}</p><p v-if="gatewayArchivesError.recovery">{{ gatewayArchivesError.recovery }}</p><button type="button" class="notice-action" :disabled="gatewayArchivesBusy" @click="loadGatewayArchives">Retry Gateway archives</button></div></div>
-      <div v-if="gatewayArchiveNotice" :class="['store-notice', gatewayArchiveNotice.tone]" role="status" aria-live="polite"><div><strong>{{ gatewayArchiveNotice.title }}</strong><p>{{ gatewayArchiveNotice.detail }}</p><p v-if="gatewayArchiveNotice.recovery">{{ gatewayArchiveNotice.recovery }}</p></div></div>
-      <p v-if="!gatewayArchivesLoaded && !gatewayArchivesError" class="gateway-archives-state" role="status" aria-live="polite">Checking the Gateway archive bank…</p>
-      <p v-else-if="gatewayArchivesLoaded && gatewayArchives.length === 0" class="gateway-archives-state" role="status">No archives are in the Gateway Archive Bank yet. Add a .sspack in the Gateway, then refresh here.</p>
-      <ul v-else-if="gatewayArchives.length" class="gateway-archive-list">
-        <li v-for="archive in gatewayArchives" :key="archive.archiveSha256" class="gateway-archive-row">
-          <div class="gateway-archive-copy"><strong>{{ gatewayArchiveTitle(archive) }}</strong><span>{{ gatewayArchiveIdentity(archive) }}</span><span>{{ gatewayArchiveMeta(archive) }}</span><span class="gateway-archive-compatibility">{{ gatewayCompatibilityLabel(archive) }}</span></div>
-          <button type="button" class="btn btn-secondary" :aria-label="`Install ${gatewayArchiveTitle(archive)}`" :disabled="!!gatewayArchiveBusyDigest" @click="installFromGatewayArchive(archive)">{{ gatewayArchiveBusyDigest === archive.archiveSha256 ? 'Installing…' : 'Install' }}</button>
-        </li>
-      </ul>
-    </section>
+    <div v-if="gatewayArchivesError" class="store-notice warning" role="status" aria-live="polite"><div><strong>{{ gatewayArchivesError.title }}</strong><p>{{ gatewayArchivesError.detail }}</p><p v-if="gatewayArchivesError.recovery">{{ gatewayArchivesError.recovery }}</p><button type="button" class="notice-action" :disabled="gatewayArchivesBusy" @click="loadGatewayArchives">Retry Gateway archives</button></div></div>
+    <div v-if="gatewayArchiveNotice" :class="['store-notice', gatewayArchiveNotice.tone]" role="status" aria-live="polite"><div><strong>{{ gatewayArchiveNotice.title }}</strong><p>{{ gatewayArchiveNotice.detail }}</p><p v-if="gatewayArchiveNotice.recovery">{{ gatewayArchiveNotice.recovery }}</p></div></div>
     <div v-if="catalogFreshness === 'restored' && !pageError" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Showing the published catalogue saved on this Mac</strong><p>Checking with the Gateway now. Gateway download stays off until it answers. Install Content Pack still works from a local file.</p></div></div>
     <div v-if="catalogFreshness === 'cached'" class="store-notice neutral" role="status" aria-live="polite"><div><strong>Showing the last verified catalog</strong><p>The Gateway is unavailable, so Gateway download is disabled. Install Content Pack still works from a local file. Last verified {{ formatVerifiedAt(lastVerifiedAt) }}.</p></div></div>
     <div v-if="pageError" :class="['store-notice', pageError.tone]" role="status" aria-live="polite"><div><strong>{{ pageError.title }}</strong><p>{{ pageError.detail }}</p><p v-for="entry in otherUnavailable" :key="entry.section">{{ SECTION_LABELS[entry.section] }}: {{ entry.reason }}</p><p v-if="pageError.recovery">{{ pageError.recovery }}</p><button v-if="pageError.showSettings" type="button" class="notice-action" @click="appSettingsModal.open('connections')">Open Connection Settings</button></div></div>
@@ -37,8 +26,15 @@
       <div v-if="loading && catalogFreshness === 'unavailable'" class="store-state" aria-live="polite"><LoadingSpinner size="sm" /><p>Loading the Gateway catalog…</p></div>
       <!-- The Installed tab reads this Mac, not the Gateway, so a catalog that
            could not be read never hides what is actually installed here. -->
-      <div v-else-if="catalogFreshness === 'unavailable' && activeTab !== 'installed'" class="store-state" role="status" aria-live="polite"><h2>The Studio Library is unavailable</h2><p>{{ pageError?.detail || 'Refresh the Library to try again.' }}</p><p v-if="installed.length">The {{ installed.length }} Content Pack{{ installed.length === 1 ? '' : 's' }} installed on this Mac {{ installed.length === 1 ? 'is' : 'are' }} still listed under Installed.</p><p>Install Content Pack still works from a local file.</p><button type="button" class="btn btn-secondary" @click="refreshStore">Retry Studio Library</button></div>
-      <div v-else-if="catalogFreshness === 'fresh' && products.length === 0 && installed.length === 0" class="store-state" role="status"><h2>The Studio Library is ready, but no packs have been published yet.</h2><p>Refresh later to see the catalog the Gateway publishes.</p></div>
+      <div v-else-if="catalogFreshness === 'unavailable' && activeTab !== 'installed' && activeTab !== 'archives'" class="store-state" role="status" aria-live="polite"><h2>The Studio Library is unavailable</h2><p>{{ pageError?.detail || 'Refresh the Library to try again.' }}</p><p v-if="installed.length">The {{ installed.length }} Content Pack{{ installed.length === 1 ? '' : 's' }} installed on this Mac {{ installed.length === 1 ? 'is' : 'are' }} still listed under Installed.</p><p>Install Content Pack still works from a local file.</p><button type="button" class="btn btn-secondary" @click="refreshStore">Retry Studio Library</button></div>
+      <div v-else-if="catalogFreshness === 'fresh' && products.length === 0 && installed.length === 0 && gatewayArchives.length === 0" class="store-state" role="status"><h2>The Studio Library is ready, but no packs have been published yet.</h2><p>Refresh later to see the catalog the Gateway publishes.</p></div>
+      <template v-else-if="activeTab === 'archives'"><ContentPackBrowser
+        :archives="gatewayArchives" :products="discoverProducts" :installed="installed"
+        :installs-resolved="installsResolved" :network-unavailable="networkActionsDisabled"
+        :busy-digest="gatewayArchiveBusyDigest" :removing="removalBusy"
+        :loading="!gatewayArchivesLoaded" :busy="gatewayArchivesBusy"
+        @install="installFromGatewayArchive" @remove="removeInstalled" @refresh="loadGatewayArchives"
+      /></template>
       <template v-else-if="activeTab === 'discover'"><ContentStoreFilters :products="tabProducts" :query="query" :kind="kind" :tag="tag" :compatible-only="compatibleOnly" @update:query="query = $event" @update:kind="kind = $event" @update:tag="tag = $event" @update:compatible-only="compatibleOnly = $event" />
       <div v-if="visibleShelves.length" class="shelf-list"><ContentStoreShelf v-for="shelf in visibleShelves" :key="shelf.shelf.id" :shelf="shelf.shelf" :products="shelf.products" :account="account" :busy-product-id="''" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :queue-status="installQueue.statusOf" :halt-reason="installQueue.haltReason.value" @install="enqueueInstall" /></div><div v-else class="store-state" role="status">
         <template v-if="discoverEmptyReason === 'filters'"><h2>No published products match these filters</h2><p>Clear a filter or try another catalog search.</p><button type="button" class="btn btn-secondary" @click="clearFilters">Clear Filters</button></template>
@@ -58,13 +54,14 @@ import ContentStoreFilters from '~/components/content-store/ContentStoreFilters.
 import ContentStoreShelf from '~/components/content-store/ContentStoreShelf.vue'
 import ContentLibraryView from '~/components/content-store/ContentLibraryView.vue'
 import ContentInstalledLibraryView from '~/components/content-store/ContentInstalledLibraryView.vue'
+import ContentPackBrowser from '~/components/content-store/ContentPackBrowser.vue'
 import { filterCatalogProducts, installedPackCount, orderShelfProducts, type ContentStoreKindFilter } from '~/content-store/catalog-presentation'
 import { useContentInstallQueue } from '~/composables/useContentInstallQueue'
 import { contentStoreErrorPresentation, CONTENT_PACK_IMPORT_MAX_BYTES, contentPackImportErrorPresentation, contentPackImportUiError, gatewayArchiveErrorPresentation, type ContentStoreProduct, type GatewayContentArchive } from '~/composables/useContentStore'
 
 useAppTitle('Studio Library')
-type StoreTab = 'discover' | 'installed' | 'updates'
-const tabs: Array<{ id: StoreTab; label: string }> = [{ id: 'discover', label: 'Discover' }, { id: 'installed', label: 'Installed' }, { id: 'updates', label: 'Updates' }]
+type StoreTab = 'discover' | 'archives' | 'installed' | 'updates'
+const tabs: Array<{ id: StoreTab; label: string }> = [{ id: 'discover', label: 'Discover' }, { id: 'archives', label: 'Gateway archives' }, { id: 'installed', label: 'Installed' }, { id: 'updates', label: 'Updates' }]
 const store = useContentStore(); const appSettingsModal = useAppSettingsModal(); const { account, products, installed, shelves, catalogFreshness, ownershipResolved, accountResolved, installsResolved, lastVerifiedAt, loading, error, recovery, recoveryError, removals } = store
 const route = useRoute(); const viewingDetail = computed(() => typeof route.params.productId === 'string' && route.params.productId.length > 0)
 const activeTab = ref<StoreTab>('discover'); const query = ref(''); const kind = ref<ContentStoreKindFilter>('all'); const tag = ref(''); const compatibleOnly = ref(false)
@@ -172,32 +169,6 @@ async function onContentPackPicked(event: Event): Promise<void> {
     importBusy.value = false
   }
 }
-function gatewayArchiveTitle(archive: GatewayContentArchive): string {
-  return archive.title || archive.packId || `Archive ${archive.archiveSha256.slice(0, 12)}…`
-}
-function gatewayArchiveIdentity(archive: GatewayContentArchive): string {
-  const identity = [archive.packId, archive.version].filter(Boolean).join(' ')
-  return identity || `SHA-256 ${archive.archiveSha256.slice(0, 16)}…`
-}
-function gatewayArchiveMeta(archive: GatewayContentArchive): string {
-  const size = archive.bytes === null ? 'Size not reported' : formatBytes(archive.bytes)
-  const integrity = archive.integrity === 'verified' ? 'Gateway verified'
-    : archive.integrity === 'unavailable' ? 'Gateway could not verify this copy'
-      : 'Unreadable archive record'
-  const kinds = archive.itemKinds.length ? ` · ${archive.itemKinds.join(', ')}` : ''
-  return `${size} · ${integrity}${kinds}`
-}
-function gatewayCompatibilityLabel(archive: GatewayContentArchive): string {
-  return archive.minAppVersion
-    ? `Compatibility checked during install · requires Story Studio ${archive.minAppVersion} or newer`
-    : 'Compatibility and document schemas checked during install'
-}
-function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`
-  const kib = value / 1024
-  if (kib < 1024) return `${kib.toFixed(1)} KiB`
-  return `${(kib / 1024).toFixed(1)} MiB`
-}
 async function loadGatewayArchives(): Promise<void> {
   if (gatewayArchivesBusy.value) return
   const listArchives = store.listGatewayArchives
@@ -232,6 +203,9 @@ async function installFromGatewayArchive(archive: GatewayContentArchive): Promis
       title: 'Content Pack installed from the Gateway',
       detail: `${install.packId} ${install.version} is installed on this Mac and available in the library pickers.`,
     }
+    // The archive-bank install path answers with the install only, so the card
+    // that just changed would otherwise keep reading "Not installed".
+    void store.refresh({ background: true }).catch(() => { /* the next read catches up */ })
   } catch (cause) {
     const ui = contentPackImportUiError(cause, 'This Gateway archive could not be installed.')
     const presentation = ui.code.startsWith('CONTENT_PACK_GATEWAY_')
@@ -300,7 +274,8 @@ function enqueueInstalls(releaseIds: string[]): void { if (networkActionsDisable
 function clearFilters(): void { query.value = ''; kind.value = 'all'; tag.value = ''; compatibleOnly.value = false }
 // Every tab counts PACKS. Installed counted version records, so it could read
 // higher than another tab -- see installedPackCount for why that number was wrong.
-function tabProductCount(tab: StoreTab): number { return tab === 'discover' ? discoverProducts.value.length : tab === 'installed' ? installedPackCount(installed.value) : updateProducts.value.length }
+const archivePackCount = computed(() => new Set(gatewayArchives.value.map(archive => archive.packId || archive.archiveSha256)).size)
+function tabProductCount(tab: StoreTab): number { return tab === 'discover' ? discoverProducts.value.length : tab === 'archives' ? archivePackCount.value : tab === 'installed' ? installedPackCount(installed.value) : updateProducts.value.length }
 /**
  * Discover counts the published catalogue, which is a catalogue fact and true
  * whether or not the Gateway has answered. Installed counts what this Mac
@@ -310,6 +285,7 @@ function tabProductCount(tab: StoreTab): number { return tab === 'discover' ? di
  */
 function tabCountLabel(tab: StoreTab): string {
   if (tab === 'installed') return installsResolved.value ? String(tabProductCount(tab)) : '—'
+  if (tab === 'archives') return gatewayArchivesLoaded.value ? String(archivePackCount.value) : '—'
   return !ownershipResolved.value && tab !== 'discover' ? '—' : String(tabProductCount(tab))
 }
 function setTabRef(id: StoreTab, element: Element | ComponentPublicInstance | null): void { if (element instanceof HTMLButtonElement) tabRefs.set(id, element); else tabRefs.delete(id) }
@@ -332,22 +308,23 @@ onMounted(() => {
    catalogue" is not a warning. It shares the panel but not the warning colour,
    which `.store-notice strong` would otherwise give every tone. */
 .store-notice.neutral strong { color: var(--text-primary); }.store-notice p { margin-top: 3px; color: var(--text-secondary); }.notice-action { margin-top: 8px; border: 0; background: transparent; color: var(--accent); cursor: pointer; font: inherit; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
-.gateway-archives { display: grid; gap: 12px; margin-top: 18px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
-.gateway-archives-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.gateway-archives-head h2 { font-size: var(--font-xl); letter-spacing: -.02em; }
-.gateway-archives-head p { max-width: 720px; margin-top: 5px; color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.5; }
-.gateway-archives-head .btn { flex: 0 0 auto; }
-.gateway-archives .store-notice { margin-top: 0; }
-.gateway-archives-state { color: var(--text-secondary); font-size: var(--font-sm); }
-.gateway-archive-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.gateway-archive-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-primary); }
-.gateway-archive-row .btn { flex: 0 0 auto; }
-.gateway-archive-copy { display: grid; gap: 2px; min-width: 0; }
-.gateway-archive-copy strong { overflow-wrap: anywhere; }
-.gateway-archive-copy span { color: var(--text-secondary); font-size: var(--font-sm); overflow-wrap: anywhere; }
-.gateway-archive-copy .gateway-archive-compatibility { color: var(--text-muted); font-size: var(--font-xs); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 .store-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 24px; padding: 5px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.store-tabs button { display: inline-flex; min-width: 0; min-height: var(--control-height-sm); align-items: center; gap: 7px; padding: 7px 10px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-weight: 650; overflow-wrap: anywhere; }.store-tabs button:focus-visible, .notice-action:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: none; }.store-tabs button[aria-selected='true'] { background: var(--accent-dim); color: var(--text-primary); }.store-tabs span { color: var(--accent); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }.store-content { display: grid; gap: 20px; margin-top: 18px; }.install-failures { grid-column: 1 / -1; display: grid; gap: 4px; margin: 6px 0 0; padding-left: 18px; color: var(--text-secondary); font-size: var(--font-sm); }.shelf-list { display: grid; gap: 28px; }
 .install-queue-strip { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 18px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); color: var(--text-secondary); font-size: var(--font-sm); }
 .install-queue-strip .notice-action { margin-top: 0; }.store-state { display: grid; justify-items: start; gap: 9px; padding: 26px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.store-state h2 { font-size: var(--font-2xl); letter-spacing: -.02em; }.store-state p { color: var(--text-secondary); }
 @media (max-width: 720px) { .gateway-archives-head { flex-direction: column; }.gateway-archive-row { align-items: stretch; flex-direction: column; } } @media (max-width: 560px) { .store-tabs button, .library-header-actions .btn, .store-state .btn { min-height: 44px; } } @media (max-width: 420px) { .store-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.store-tabs button { justify-content: center; } } @media (prefers-reduced-motion: reduce) { .store-tabs button { transition: none; } }
+@media (max-width: 720px) { .library-header { align-items: stretch; flex-direction: column; }.library-header-actions { flex-wrap: wrap; }} @media (max-width: 560px) { .store-tabs button, .library-header-actions .btn, .store-state .btn { min-height: 44px; } } @media (max-width: 420px) { .library-page { width: min(100% - 24px, 1180px); padding-top: 20px; }.library-header-actions .btn { flex: 1 1 130px; justify-content: center; }.store-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }.store-tabs button { justify-content: center; } } @media (prefers-reduced-motion: reduce) { .store-tabs button { transition: none; } }
 </style>

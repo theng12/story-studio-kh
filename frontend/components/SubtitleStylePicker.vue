@@ -182,10 +182,12 @@
         <template v-if="group.id === 'typography'">
           <div class="form-group">
             <label>Font family</label>
-            <select :value="isCustomFont ? '__custom__' : style.typography.font_family" @change="onFontSelect(($event.target as HTMLSelectElement).value)" class="select">
-              <option v-for="f in FONT_CHOICES" :key="f" :value="f">{{ f }}</option>
-              <option value="__custom__">Custom…</option>
-            </select>
+            <FontPicker
+              :model-value="isCustomFont ? CUSTOM_FONT : style.typography.font_family"
+              :options="fontOptions"
+              title="Choose a caption font"
+              @select="onFontSelect"
+            />
             <input
               v-if="isCustomFont"
               :value="style.typography.font_family"
@@ -193,6 +195,9 @@
               class="input mt-1"
               placeholder="Any font installed on your Mac (e.g. Bebas Neue)"
             />
+            <!-- A font name in a list is still a word. This is the face itself,
+                 rendered by the same engine that draws the caption. -->
+            <p class="font-specimen" :style="{ fontFamily: style.typography.font_family }" aria-hidden="true">Aa — The quick brown fox jumps</p>
           </div>
           <SubtitleSliderField label="Font size" unit="px" :min="8" :max="200" :value="style.typography.font_size_px" @change="v => set('typography','font_size_px', v)" />
           <div class="form-group">
@@ -508,6 +513,16 @@ function onFontSelect(value: string) {
     set('typography', 'font_family', value)
   }
 }
+
+/**
+ * The named faces, plus the custom slot. The custom row draws whatever this
+ * style already holds, so a family typed by hand still shows itself in the
+ * list instead of the row claiming a face it has not got.
+ */
+const fontOptions = computed(() => [
+  ...FONT_CHOICES.map(f => ({ value: f, label: f, family: f })),
+  { value: CUSTOM_FONT, label: 'Custom…', family: isCustomFont.value ? props.style.typography.font_family : undefined },
+])
 
 /** Every edit funnels through the shared normaliser, so the panel can never
  *  emit a value the renderer would have to defend against. */
@@ -826,6 +841,7 @@ defineExpose({ defaultSubtitleStyle })
 </script>
 
 <style scoped>
+.font-specimen { margin-top: 6px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 20px; line-height: 1.3; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .sub-style-picker { display: flex; flex-direction: column; gap: 12px; }
 
 .ssp-gallery {

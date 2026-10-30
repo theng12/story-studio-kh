@@ -47,6 +47,7 @@ async function loadComponent(name: SfcName): Promise<Component> {
     const ContentStoreShelf = { render: () => null }
     const ContentLibraryView = { render: () => null }
     const ContentInstalledLibraryView = { render: () => null }
+    const ContentPackBrowser = { render: () => null }
     const NuxtPage = { render: () => null }
     const useAppSettingsModal = () => ({ open: () => undefined })
     const useContentInstallQueue = () => ({ statusOf: () => 'idle', enqueue: () => undefined, enqueueAll: () => undefined, clearFinished: () => undefined, running: ref(false), finished: ref(false), batchDone: ref(0), batchTotal: ref(0), batchFailed: ref(0), haltReason: ref(''), activeTitle: ref(''), batchInstalled: ref(0), failures: ref([]) })

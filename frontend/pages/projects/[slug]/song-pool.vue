@@ -76,10 +76,7 @@
           </label>
           <label class="mp-lbl" style="flex: 1">
             Music model
-            <select v-model="manualMusicModelId" class="mp-inp" style="width: 100%">
-              <option value="">Choose a current model…</option>
-              <option v-for="model in musicModels" :key="model.id" :value="model.id">{{ model.display_name }}</option>
-            </select>
+            <ModelMenu v-model="manualMusicModelId" :options="musicModels.map(model => ({ id: model.id, label: model.display_name, provider: model.provider_name || '' }))" media-type="music" title="Choose music model" placeholder="Choose a current model…" />
           </label>
         </div>
         <p v-if="manualMusicModel" class="mp-hint" style="margin-top: 8px">
@@ -294,6 +291,7 @@ const genCount = ref(0)
 const batchBusy = ref(false)
 interface SongPoolMusicModel extends PricedMusicModel {
   id: string
+  provider_name?: string | null
   display_name: string
   price_version: string
   chargeable?: boolean

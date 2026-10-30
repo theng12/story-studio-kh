@@ -108,16 +108,13 @@
         </label>
         <label class="tte-prop tte-prop-wide">
           <span class="tte-prop-label">Font</span>
-          <select
-            class="select"
-            :value="selectedZone.fontFamily"
-            @change="updateZone({ fontFamily: ($event.target as HTMLSelectElement).value })"
-          >
-            <option v-if="!FONT_CHOICES.some(f => f.value === selectedZone!.fontFamily)" :value="selectedZone.fontFamily">
-              Current: {{ selectedZone.fontFamily }}
-            </option>
-            <option v-for="f in FONT_CHOICES" :key="f.value" :value="f.value">{{ f.label }}</option>
-          </select>
+          <FontPicker
+            :model-value="selectedZone.fontFamily"
+            :options="fontOptions"
+            title="Choose a font"
+            :sample="zoneSample"
+            @select="value => updateZone({ fontFamily: value })"
+          />
           <span class="tte-prop-hint">Fonts every Mac has, so the saved thumbnail can use them too.</span>
         </label>
         <label class="tte-prop">
@@ -363,6 +360,23 @@ const selectedZone = computed(() => {
   const zones = workingTemplate.value?.textZones || []
   return zones[selectedIdx.value] || null
 })
+
+/**
+ * The font field's list. A zone that already holds a family outside the six
+ * every Mac has stays here as its own row: the value is saved with the
+ * template, so it must remain visible and selectable rather than silently
+ * falling back to the first row (AGENTS §4 — an episode's own value is never
+ * left standing next to a list that does not contain it).
+ */
+const fontOptions = computed(() => {
+  const current = selectedZone.value?.fontFamily
+  const choices = FONT_CHOICES.map(f => ({ value: f.value, label: f.label, family: f.value }))
+  if (!current || FONT_CHOICES.some(f => f.value === current)) return choices
+  return [{ value: current, label: `Current: ${current}`, family: current }, ...choices]
+})
+
+/** What each face is drawn with: this zone's own words, else the preview title. */
+const zoneSample = computed(() => (selectedZone.value?.defaultText || '').trim() || sampleTitle.value)
 
 /**
  * The zone's box on the scaled canvas — the block its text occupies, from the

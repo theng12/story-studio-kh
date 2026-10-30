@@ -150,7 +150,7 @@ interface ModelMenuOption {
 const props = withDefaults(defineProps<{
   modelValue: string
   options: ModelMenuOption[]
-  mediaType?: 'llm' | 'image' | 'tts' | 'video' | 'transcription'
+  mediaType?: 'llm' | 'image' | 'tts' | 'video' | 'transcription' | 'music'
   title?: string
   placeholder?: string
   searchPlaceholder?: string
@@ -223,6 +223,7 @@ const kindLabel = computed(() => ({
   tts: 'TTS',
   video: 'I2V',
   transcription: 'STT',
+  music: 'MUS',
 })[props.mediaType])
 const selectedOption = computed(() => props.options.find(option => option.id === props.modelValue) || null)
 /**

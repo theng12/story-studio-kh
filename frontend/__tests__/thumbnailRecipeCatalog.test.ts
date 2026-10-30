@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import test from 'node:test'
 import { createApp, defineComponent, h, nextTick, ref, type Component } from 'vue'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
@@ -202,6 +202,7 @@ test('thumbnail prompts can choose a catalog recipe without replacing visual art
   assert.match(page, /<label>Visual art style<\/label>/)
   // The page's own headline-mode field (b6e156cd replaced the old `thumb_title_mode: 'ai'`).
   assert.match(page, /thumb_headline_mode: 'short-hook'/)
+  assert.match(page, /if \(recipe\?\.headlineMode\) form\.thumbnail\.thumb_headline_mode = recipe\.headlineMode/)
   assert.match(page, /The episode title is drawn directly into every thumbnail/i)
   assert.match(page, /its own short text, written to suit it/i)
   assert.match(page, /thumbnailHeadlineMode/)
