@@ -12,7 +12,8 @@ import { listFormats, getEffectiveFormatFor } from '../services/format-loader.js
 import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
 import type { ProjectMeta } from '../models/types.js'
 import type { JobType } from '../models/types.js'
-import { createProjectWithContentSelections } from '../content-packs/project-pins.js'
+import { createProjectWithContentSelections, updateProjectContentConfigSelections } from '../content-packs/project-pins.js'
+import { copyableConfigSettings, copyableCreateRequest } from '../services/channel-settings-copy.js'
 import { loadNiche, withFormulaLabels } from '../services/niche-loader.js'
 import { seedFormulaStartingDefaults } from '../services/formula-starting-defaults.js'
 import { getIdeas } from '../services/idea-manager.js'
@@ -324,6 +325,69 @@ router.post('/projects', validateBody(CreateProjectSchema), async (req, res) => 
     res.status(201).json(project)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Project creation failed'))
+  }
+})
+
+/**
+ * Start a NEW channel from this one's settings — the owner's "save the settled
+ * look as a template, then 1 click the pipeline" (2026-10-30).
+ *
+ * Reusable settings cross (services/channel-settings-copy.ts is the allow
+ * list): every preset family and last-preset pointer, the Series Formula and
+ * its Topic Packs, the art style, the channel's voice choices and its idea
+ * upgrades. Nothing else does — no episode, idea, file, sheet, anchor or any
+ * episode-specific key — and this channel is left byte-for-byte untouched.
+ *
+ * The copy goes through the ordinary creation and signed-selection paths, so a
+ * Formula is seeded exactly as it is for any other new channel before the
+ * source's settings land on top. If that second step fails, the channel just
+ * made is unregistered again (non-destructively — its folder stays on disk)
+ * rather than left behind as a channel that claims to be a copy and is not.
+ */
+router.post('/projects/:slug/duplicate-settings', async (req, res) => {
+  const sourceSlug = req.params.slug
+  const source = await pm.getProject(sourceSlug)
+  if (!source) return res.status(404).json({ detail: 'Project not found' })
+
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''
+  if (!name || name.length > 120) {
+    return res.status(400).json({ detail: 'Give the new channel a name — 1 to 120 characters.' })
+  }
+  // A name is how the owner recognises a channel on the start page, so a second
+  // one under the same name is refused outright rather than silently renamed.
+  const clash = (await pm.listProjects()).find(p => p.name.trim().toLowerCase() === name.toLowerCase())
+  if (clash) {
+    return res.status(409).json({ detail: `A channel named "${clash.name}" already exists. Choose a different name.` })
+  }
+
+  let created: Awaited<ReturnType<typeof createProjectWithContentSelections>>
+  try {
+    created = await createProjectWithContentSelections(copyableCreateRequest(name, source))
+  } catch (e: any) {
+    return res.status(400).json(humanizeBackendError(e, 'Could not start a channel from this one'))
+  }
+
+  try {
+    // Same Formula seed every other new channel gets, before the copy lands.
+    if (created.niche_id) {
+      await loadNiche(created.niche_id, req.app.locals.contentPackOptions || {})
+        .then(niche => seedFormulaStartingDefaults(created.slug, niche))
+        .catch(() => { /* non-fatal: without it the channel simply starts plain */ })
+    }
+    const sourceConfig = (await pm.getConfig(sourceSlug)) as Record<string, unknown> | null
+    const patch = copyableConfigSettings(sourceConfig ?? {})
+    if (Object.keys(patch).length) {
+      await updateProjectContentConfigSelections(
+        created.slug,
+        patch as any,
+        req.app.locals.contentPackOptions || {},
+      )
+    }
+    return res.status(201).json(await pm.getProject(created.slug) ?? created)
+  } catch (e: any) {
+    await pm.deleteProject(created.slug).catch(() => { /* the reason is the error below */ })
+    return res.status(typeof e?.statusCode === 'number' ? e.statusCode : 400)
+      .json(humanizeBackendError(e, 'Could not carry this channel\'s settings over'))
   }
 })
 

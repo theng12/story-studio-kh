@@ -616,6 +616,48 @@
             <IdeaQualitySettings :slug="slug" />
           </section>
 
+          <!-- The owner's template (2026-10-30): after a first episode settles
+               the look, start the next channel from it instead of setting every
+               page up again. Reusable settings cross; this channel is untouched
+               and brings no episodes, ideas or files with it. -->
+          <section class="card settings-panel" data-setting="duplicate-settings">
+            <header class="settings-card-head">
+              <h3>Start a new channel from this one</h3>
+              <p>
+                Carries this channel's saved presets, Series Formula and Topic Packs, art style, voice
+                choices and idea upgrades into a brand-new channel. This channel stays exactly as it is,
+                and no episodes, ideas or files come with it.
+              </p>
+            </header>
+            <div class="form-group">
+              <label for="new-channel-name">New channel name</label>
+              <input
+                id="new-channel-name"
+                v-model="newChannelName"
+                class="input"
+                placeholder="The name the new channel shows under"
+                autocomplete="off"
+                maxlength="120"
+                :disabled="startingChannel"
+                @keydown.enter="startChannelFromSettings"
+              />
+            </div>
+            <div class="button-row">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="!newChannelName.trim() || startingChannel"
+                @click="startChannelFromSettings"
+              >
+                <LoadingSpinner v-if="startingChannel" size="sm" />
+                {{ startingChannel ? 'Starting…' : 'Start new channel' }}
+              </button>
+            </div>
+            <p v-if="startChannelError" class="text-danger" role="alert" style="font-size: 13px;">
+              {{ startChannelError }}
+            </p>
+          </section>
+
           <section class="card settings-panel" data-setting="content-language">
             <header class="settings-card-head">
               <h3>Language &amp; introductions</h3>
@@ -4649,6 +4691,28 @@ async function deleteProject() {
     navigateTo('/')
   } catch (e: any) {
     showError(e.data?.detail || 'Failed to hide channel')
+  }
+}
+
+// ── Start a new channel from this one's settings ────────────────────────
+const newChannelName = ref('')
+const startingChannel = ref(false)
+const startChannelError = ref('')
+
+async function startChannelFromSettings(): Promise<void> {
+  const name = newChannelName.value.trim()
+  if (!name || startingChannel.value) return
+  startingChannel.value = true
+  startChannelError.value = ''
+  try {
+    const created = await post<{ slug?: string }>(`/projects/${slug.value}/duplicate-settings`, { name })
+    if (!created?.slug) throw new Error('The new channel did not return a valid project identifier.')
+    success(`"${name}" started from this channel's settings.`)
+    await navigateTo(`/projects/${created.slug}`)
+  } catch (e: any) {
+    startChannelError.value = e?.data?.detail || e?.message || 'Could not start the new channel.'
+  } finally {
+    startingChannel.value = false
   }
 }
 </script>
