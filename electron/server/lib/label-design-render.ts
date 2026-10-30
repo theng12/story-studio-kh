@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,7 +15,13 @@ import type { LabelDesign } from '../contracts/label-design.js'
  * clamped to a cap and a readable floor.
  */
 
-const LABEL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'label-designs')
+// Packaged, the designs are an extra resource: the compiled server carries only code.
+const SOURCE_LABEL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'electron', 'server', 'label-designs')
+const LABEL_DIR = [
+  path.join(process.resourcesPath || '/nonexistent', 'label-designs'),
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'label-designs'),
+  SOURCE_LABEL_DIR,
+].find(dir => existsSync(path.join(dir, 'catalogue.json'))) ?? SOURCE_LABEL_DIR
 
 /** Where the built-in design assets live. Exported so tests can point elsewhere. */
 export function labelDesignAssetPath(asset: string): string {

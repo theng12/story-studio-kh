@@ -399,3 +399,9 @@ describe('a motion is a saved setting, not a value that evaporates', () => {
     assert.equal(preset.data.motion, 'pop', 'the preset must keep the motion it was saved with')
   })
 })
+
+test('the label designs ship in the packaged app, as code alone would not carry them', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const builder = JSON.parse(await readFile(new URL('../../../electron-builder.json', import.meta.url), 'utf8'))
+  assert.ok(builder.extraResources.some((entry: any) => entry.from === 'electron/server/label-designs' && entry.to === 'label-designs'))
+})
