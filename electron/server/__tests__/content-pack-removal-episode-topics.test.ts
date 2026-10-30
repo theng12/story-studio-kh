@@ -49,7 +49,7 @@ const FREE_PACK_ID = 'com.storystudio.pack.topic.historical-wars-treaties-world-
 const FREE_ITEM_ID = 'com.storystudio.topic.historical-wars-treaties-world-order'
 
 const SOURCES = {
-  merged_1_0_2: 'content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.2/content/topic-pack.json',
+  merged: 'content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1/content/topic-pack.json',
   free_old: 'content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.3/content/topic-pack.json',
 }
 
@@ -109,10 +109,13 @@ async function episode(slug: string, code: string, info: Record<string, unknown>
 describe('an episode-level Topic Pack selection counts as a use', () => {
   test('a bare legacy id on an episode vetoes removing the merged pack it reads', async () => {
     const paths = await isolated()
-    await install(paths, SOURCES.merged_1_0_2, MERGED_PACK_ID, '1.0.2')
-    await channel('hidden-mechanics', { niche_id: 'hidden-mechanics-history' })
+    await install(paths, SOURCES.merged, MERGED_PACK_ID, '1.0.1')
+    // The channel has moved to the v2 Formula (owner, 2026-10-30); its episodes
+    // still store the BARE legacy id, which the merged pack accepts through the
+    // v2 Formula id it publishes.
+    await channel('hidden-mechanics', { niche_id: 'com.storystudio.formula.archival-ledger-v2' })
     await episode('hidden-mechanics', 'HMH0001', {
-      series_formula_id: 'com.storystudio.formula.archival-ledger',
+      series_formula_id: 'com.storystudio.formula.archival-ledger-v2',
       topic_pack_ids: [LEGACY_SHORT_ID],
     })
 
@@ -127,8 +130,8 @@ describe('an episode-level Topic Pack selection counts as a use', () => {
   test('the old pack stays removable while the merged pack is what the episode reads', async () => {
     const paths = await isolated()
     await install(paths, SOURCES.free_old, FREE_PACK_ID, '1.0.3')
-    await install(paths, SOURCES.merged_1_0_2, MERGED_PACK_ID, '1.0.2')
-    await channel('boundful', { niche_id: 'history-narration' })
+    await install(paths, SOURCES.merged, MERGED_PACK_ID, '1.0.1')
+    await channel('boundful', { niche_id: 'com.storystudio.formula.history-explained-v2' })
     await episode('boundful', 'EP0145', { topic_pack_ids: [FREE_ITEM_ID] })
 
     assert.deepEqual((await contentPackUsage([FREE_PACK_ID], paths))[FREE_PACK_ID], [],
@@ -138,9 +141,11 @@ describe('an episode-level Topic Pack selection counts as a use', () => {
       'the merged pack is the one the episode actually reads')
   })
 
-  test('with no merged pack installed the old pack IS what the episode reads, so it cannot be removed', async () => {
+  test('a channel not yet moved, with no merged pack, still reads the old pack, so it cannot be removed', async () => {
     const paths = await isolated()
     await install(paths, SOURCES.free_old, FREE_PACK_ID, '1.0.3')
+    // The safe state during the move: a v1 Formula channel with no merged pack
+    // falls back to the pack it came from.
     await channel('boundful', { niche_id: 'history-narration' })
     await episode('boundful', 'EP0145', { topic_pack_ids: [LEGACY_SHORT_ID] })
 

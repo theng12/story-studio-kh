@@ -1,33 +1,36 @@
 # HANDOFF — Story Studio KH
 
-## 1.4.371 — the merged Wars pack fits the v1 Formulas; a wrong-script chapter is never saved (2026-10-30, release/1.4.371 from release/1.4.370 673b6cd1)
+## 1.4.371 — old Wars ids keep working while every channel moves to the v2 Formulas; a wrong-script chapter is never saved (2026-10-30, release/1.4.371 from release/1.4.370 673b6cd1)
 
-**Both commits are on `release/1.4.371`; static checks pass. No test lane has run in this worktree
+**Three commits on `release/1.4.371`; static checks pass. No test lane has run in this worktree
 (a Story gate was running on this Mac), so every backend test below is WRITTEN, NOT RUN.**
 
-- **REQUIRED ORDER: put stock pack 1.0.2 on the shelf first, then ship 1.4.371.** The app change
-  (`listTopicPackCatalogEntries`, the compatibility fallback) does not need 1.0.2, but the v1
-  Formulas' channels only get the merged content back once 1.0.2 is installed. Without that order a
-  v1 channel on a Mac with 1.0.1 sees the merged row hidden from its scoped list until the pack
-  lands.
+- **OWNER DECISION 2026-10-30, superseding the first plan: every channel moves to the v2 Formulas,
+  and script changes are accepted — v1 Formulas are no longer first-class.** The Wars 1.0.2 pack
+  authored for the v1 Formula ids was therefore **withdrawn before publication**: its registry
+  record is `retired` (transition revision **365**, reason recorded), the source moved to
+  `_trash/content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.2/`, the catalogue index is
+  back to 1.0.1, and no `KNOWN_UNRESOLVED` line refers to it. **Do not re-author 1.0.2 under this
+  identity** — the record is retired and burns that version.
+- **What the move relies on:** episodes store old Wars ids (Boundful the free item id,
+  hidden-mechanics-of-history the BARE legacy id), and a v2 Formula's allow-list must accept them.
+  The allow-list check resolves the alias table on BOTH sides, so it does — whether the v2 Formula
+  names the old Wars id (free item, archival item or bare) or the merged item itself.
+- **Unverifiable here:** the published v2 Formula sources are not in this repository (the only `-v2`
+  Formula ids appear as strings in packs and `KNOWN_UNRESOLVED`), so their live
+  `compatible_topic_pack_ids` could not be read. The mechanism is pinned by tests with both
+  spellings. If a live v2 Formula names NO Wars id at all, that is a content gap and its allow-list
+  needs widening on the shelf — the code cannot admit a pack the Formula never allowed.
+- **The defect that started this, for the record:** the archival-ledger v1 Formula's allow-list names
+  only its own `com.…archival-ledger.*` ids — never the BARE legacy id — so
+  `composeNicheWithTopicPacks` dropped those episodes' Wars topic at the ALLOW-LIST check, even with
+  no merged pack installed. History's v1 Formula names its own free item id, so Boundful/History only
+  broke once the merged 1.0.1 was installed. The both-sides fix covers both.
+- **Safe state during the move:** with 1.0.1 installed (it names only the `-v2` ids), a channel that
+  has not moved yet composes its OLD pack through `loadSupersededTopicPack` instead of losing the
+  topic. That fallback stays until every channel has moved.
 
-### Commit 1 — content: Wars, Treaties & World Order v2 1.0.2
-
-- Source `content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.2/`, same content as 1.0.1
-  (122 subjects), `compatible_formula_ids` = the two `-v2` ids **plus**
-  `com.storystudio.formula.archival-ledger` and `com.storystudio.formula.history-explained`.
-  `min_app_version` stays the explicit **1.4.362**. 1.0.1 is untouched and immutable.
-- Registry: reserved revision 363, authored 364 (`authoring-registry.mjs reserve|transition`,
-  `validate` passes at 364/333 records). Catalogue index regenerated. The two `-v2` ids are still
-  unpublished, so both 1.0.1 and 1.0.2 source files stay in `KNOWN_UNRESOLVED`.
-- **The defect, confirmed from the code:** the archival-ledger v1 Formula's allow-list
-  (`compatible_topic_pack_ids`) names only its own `com.…archival-ledger.*` ids — never the BARE
-  legacy id that `hidden-mechanics-of-history` episodes store — so `composeNicheWithTopicPacks`
-  dropped those episodes' Wars topic at the ALLOW-LIST check, **even with no merged pack installed
-  at all**. History's v1 Formula names its own free item id, so Boundful/History only broke once the
-  merged 1.0.1 was installed.
-
-### Commit 2 — Story code
+### Commits 1–2 — Story code
 
 - **Allow-list compares aliases on both sides** (`composeNicheWithTopicPacksDetailed`): the
   Formula's `compatibleTopicPackIds` and the requested id both go through `resolveTopicPackAlias`.
@@ -64,9 +67,9 @@
   RESOLVED Formula id and accept the superseded pack, exactly like the composer; the picker still
   reads `compatibleNicheIds`/`compatibleFormulaIds` from the listed item, and a saved old id still
   shows selected through `GET /topic-packs/:id` → `pack-selection.ts`. **Known limit:** the picker
-  loads `/topic-packs?view=list` UNSCOPED, so on a Mac holding merged 1.0.1 a v1 channel's saved row
-  shows but the old pack is no longer offered as a NEW choice until 1.0.2 is installed — the order
-  above is what avoids it.
+  loads `/topic-packs?view=list` UNSCOPED, so while a channel is still on a v1 Formula its saved row
+  shows but the old pack is not offered as a NEW choice (the merged row is listed and the old rows
+  are hidden). It resolves itself as soon as the channel moves to its v2 Formula.
 
 ### Commit 3 — language: a chapter in the wrong script is not saved
 
@@ -93,12 +96,14 @@
 
 ### Tests written (not run)
 
-- `electron/server/__tests__/topic-pack-wars-merge-compat.test.ts` — v1 History + bare legacy id +
-  1.0.2 composes the merged pack (122 subjects pinned, non-empty text); v1 History + merged item id;
-  v1 archival-ledger + bare id + 1.0.2; 1.0.1 + old free pack composes the OLD pack (50 subjects); no
-  merged pack + archival old pack (100); never-allowed + not-installed are reported; list = one row
-  with old+old+merged, old rows without it, old row under a v1 scope with 1.0.1; composing writes no
-  file (byte-for-byte snapshot).
+- `electron/server/__tests__/topic-pack-wars-merge-compat.test.ts` — a v2 History Formula that
+  allows the old free item id + that stored id → merged 1.0.1 (122 subjects pinned, non-empty text);
+  a v2 Formula (History and archival-ledger) whose allow-list names the merged item accepts the BARE
+  legacy id; a v2 archival Formula allowing its archival item accepts the bare id; v1 History +
+  merged 1.0.1 + old free pack composes the OLD pack (50 subjects); v1 archival + bare id + no
+  merged + old archival pack (100); never-allowed + not-installed are reported; list = one row with
+  old+old+merged, old rows without it, old row kept for a v1 scope and hidden for a v2 scope;
+  composing writes no file (byte-for-byte snapshot).
 - `electron/server/__tests__/content-pack-removal-episode-topics.test.ts` — an episode's bare legacy
   id vetoes removing the merged pack; the old pack stays removable while the merged one is read; with
   no merged pack the old pack is vetoed.

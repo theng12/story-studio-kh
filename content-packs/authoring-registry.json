@@ -1,5 +1,5 @@
 {
-  "revision": 364,
+  "revision": 365,
   "batches": [
     {
       "revision": 2,
@@ -12496,6 +12496,24 @@
           "status": "authored"
         }
       }
+    },
+    {
+      "revision": 365,
+      "transition_ref": "lifecycle:f10d7ae1daf7239fdcabbdd63ea707c0cf0d6a03520b4a8a62027c4a5b5265ae",
+      "request": {
+        "expected_revision": 364,
+        "coordinator": {
+          "task": "wars-topic-pack-v1-formula-compatibility",
+          "branch": "release/1.4.371"
+        },
+        "receipt_ref": "authoring:9acdcc3a0a9bc98039e1091ba0d07b56548ec98b88b601dcf94cd6f734f57215",
+        "pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
+        "version": "1.0.2",
+        "changes": {
+          "status": "retired"
+        },
+        "reason": "Owner decision 2026-10-30: every channel moves to the v2 Formulas, so the v1 Formula compatibility widening is not needed. 1.0.2 was never published or shipped; 1.0.1 stays the published pack."
+      }
     }
   ],
   "records": [
@@ -20756,7 +20774,7 @@
       "min_app_version_status": "fixed",
       "kind": "topic-pack",
       "source_path": "content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.2",
-      "status": "authored",
+      "status": "retired",
       "dependencies": [],
       "stocking_proposal": {
         "family": {

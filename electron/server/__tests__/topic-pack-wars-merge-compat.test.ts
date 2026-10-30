@@ -1,26 +1,28 @@
 /**
- * The merged Wars, Treaties & World Order Topic Pack and the Formulas that read it.
+ * The merged Wars, Treaties & World Order Topic Pack, the Formulas that read it,
+ * and the move every channel is making to the v2 Formulas.
  *
- * DEFECT THIS PINS. `LEGACY_TOPIC_PACK_ALIASES` sends the old Wars ids to the
- * merged `…-v2` item. Merged 1.0.1 named only two `-v2` Formula ids that no
- * published Series Formula carries, so a channel on a first-generation Formula
- * loaded 1.0.1, failed the compatibility test, and silently lost its Wars topic.
- * Worse, the merged pack's row is COMPATIBLE with nothing those Formulas allow,
- * while `hidden-mechanics-of-history` channels store the BARE legacy id, which
- * the archival-ledger Formula's allow-list never named — dropped even with no
- * merged pack installed.
+ * OWNER DECISION 2026-10-30: every channel moves to the v2 Formulas and script
+ * changes are accepted, so v1 Formulas are no longer first-class and the 1.0.2
+ * compatibility widening was retired before publication. What still has to hold:
  *
- * The rules pinned here:
- *   1. the allow-list is compared through `resolveTopicPackAlias` on both sides;
- *   2. a merged item that cannot serve this Formula falls back to the pack the
- *      stored id came from (never to a pack that was not the selection's source);
- *   3. the list offers one row per topic, unless the merged item cannot serve the
- *      Formula it is read for;
- *   4. every dropped selection is reported, so a job can say what happened;
- *   5. composing writes nothing.
+ *   - EPISODES STORE OLD WARS IDS (Boundful stores the free item id;
+ *     hidden-mechanics-of-history stores the BARE legacy id). A v2 Formula must
+ *     accept them, which is why the allow-list compares `resolveTopicPackAlias`
+ *     on BOTH sides — the old id and the Formula's own allow entry both read as
+ *     the merged item.
+ *   - Before a channel moves, the merged pack must not vanish from it: the
+ *     pre-alias pack answers when the merged item cannot serve that Formula
+ *     (`loadSupersededTopicPack`) — including the bare legacy id, which the
+ *     archival-ledger v1 Formula's allow-list never named.
+ *   - A pack the Formula never allowed is still dropped, and every drop is said.
+ *   - The list offers one row per topic; the removal veto reads each episode's
+ *     own selection; composing writes nothing.
  *
  * The pack documents are the REAL authored sources, so the 122-subject figure is
- * the shipped content, not a fixture.
+ * the shipped content, not a fixture. The v2 Formula sources are published from
+ * the shelf and are not in this repository, so the two synthetic v2 Formulas
+ * below pin the MECHANISM (either allow-list spelling), not their live content.
  */
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
@@ -60,7 +62,6 @@ const ARCHIVAL_ITEM_ID = 'com.storystudio.topic.archival-ledger.wars-treaties-wo
 
 const SOURCES = {
   merged_1_0_1: 'content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1/content/topic-pack.json',
-  merged_1_0_2: 'content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.2/content/topic-pack.json',
   free_old: 'content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.3/content/topic-pack.json',
   archival_old: 'content-packs/paid/archival-ledger/topic/wars-treaties-world-order-v1.0.2/content/topic-pack.json',
   history_formula: 'content-packs/free-starters/formula/history-explained-v1.0.2/content/series-formula.json',
@@ -107,12 +108,27 @@ async function install(options: Awaited<ReturnType<typeof freshDataDir>>['option
   await installContentPack({ archiveBytes, source: 'local-import' }, options)
 }
 
-async function historyFormula() {
-  return contentPackDocumentToNiche((await sourceDocument(SOURCES.history_formula)) as never)
+/** A v1 Formula, as a channel that has not moved yet still reads it. */
+async function v1Formula(which: 'history' | 'archival') {
+  return contentPackDocumentToNiche((await sourceDocument(which === 'history' ? SOURCES.history_formula : SOURCES.archival_formula)) as never)
 }
 
-async function archivalFormula() {
-  return contentPackDocumentToNiche((await sourceDocument(SOURCES.archival_formula)) as never)
+/**
+ * A v2 Formula. The published sources are not in this repository, so each one is
+ * the v1 document under the v2 id with a chosen allow-list — the two spellings
+ * that exist in the wild: the old Wars id an episode stores, and the merged item
+ * its packed successor names.
+ */
+async function v2Formula(which: 'history' | 'archival', allowedWarsId: string) {
+  const base = await sourceDocument(which === 'history' ? SOURCES.history_formula : SOURCES.archival_formula)
+  const document = {
+    ...base,
+    id: which === 'history'
+      ? 'com.storystudio.formula.history-explained-v2'
+      : 'com.storystudio.formula.archival-ledger-v2',
+    compatible_topic_pack_ids: [...new Set([...(base as unknown as { compatible_topic_pack_ids: string[] }).compatible_topic_pack_ids, allowedWarsId])],
+  }
+  return contentPackDocumentToNiche(document as never)
 }
 
 function assertUsableSubjects(pack: { subjects?: string[] } | undefined, expected: number): void {
@@ -122,73 +138,77 @@ function assertUsableSubjects(pack: { subjects?: string[] } | undefined, expecte
     'the subjects are real text, not an empty list that happens to count')
 }
 
-// ── 1. the merged pack serves the v1 Formulas ──────────────────────────────
+// ── 1. a v2 Formula accepts the ids episodes already store ────────────────
 
-test('a v1 History channel with the bare legacy Wars id composes merged 1.0.2 (122 subjects)', async t => {
+test('a v2 History Formula allows the old Wars item id its episodes store', async t => {
   const { temporary, options } = await freshDataDir()
   t.after(temporary.cleanup)
-  await install(options, SOURCES.merged_1_0_2, MERGED_PACK_ID, '1.0.2')
+  await install(options, SOURCES.merged_1_0_1, MERGED_PACK_ID, '1.0.1')
 
+  // The allow-list names the OLD free item id; the merged pack names the v2
+  // Formula. Both sides of the check resolve the old Wars ids through the table.
   const composed = await niches.composeNicheWithTopicPacksDetailed(
-    await historyFormula(), [LEGACY_SHORT_ID], options)
+    await v2Formula('history', FREE_ITEM_ID), [FREE_ITEM_ID], options)
 
-  assert.deepEqual(composed.droppedTopicPacks, [], 'nothing was dropped')
-  assert.equal(composed.niche.activeTopicPacks?.length, 1)
+  assert.deepEqual(composed.droppedTopicPacks, [], 'the old id is allowed')
   assert.equal(composed.niche.activeTopicPacks?.[0]?.id, MERGED_ITEM_ID)
   assertUsableSubjects(composed.niche.activeTopicPacks?.[0], 122)
 })
 
-test('a v1 History channel naming the merged item id composes merged 1.0.2', async t => {
+test('a v2 Formula whose allow-list names the merged item still accepts the BARE legacy id', async t => {
   const { temporary, options } = await freshDataDir()
   t.after(temporary.cleanup)
-  await install(options, SOURCES.merged_1_0_2, MERGED_PACK_ID, '1.0.2')
+  await install(options, SOURCES.merged_1_0_1, MERGED_PACK_ID, '1.0.1')
 
-  const composed = await niches.composeNicheWithTopicPacksDetailed(
-    await historyFormula(), [MERGED_ITEM_ID], options)
-
-  assert.equal(composed.niche.activeTopicPacks?.[0]?.id, MERGED_ITEM_ID)
-  assertUsableSubjects(composed.niche.activeTopicPacks?.[0], 122)
+  for (const which of ['history', 'archival'] as const) {
+    for (const stored of [LEGACY_SHORT_ID, MERGED_ITEM_ID]) {
+      const composed = await niches.composeNicheWithTopicPacksDetailed(
+        await v2Formula(which, MERGED_ITEM_ID), [stored], options)
+      assert.deepEqual(composed.droppedTopicPacks, [], `${which} + ${stored}`)
+      assert.equal(composed.niche.activeTopicPacks?.[0]?.id, MERGED_ITEM_ID, `${which} + ${stored} reads the merged pack`)
+    }
+  }
 })
 
-test('a v1 archival-ledger channel with the bare legacy Wars id composes merged 1.0.2', async t => {
+test('a v2 archival Formula allows the bare legacy id through its archival-ledger allow entry', async t => {
   const { temporary, options } = await freshDataDir()
   t.after(temporary.cleanup)
-  await install(options, SOURCES.merged_1_0_2, MERGED_PACK_ID, '1.0.2')
+  await install(options, SOURCES.merged_1_0_1, MERGED_PACK_ID, '1.0.1')
 
-  // `hidden-mechanics-of-history` channels store the BARE legacy id, and the
-  // archival-ledger Formula's allow-list names only its own `archival-ledger.*`
-  // ids — so before this fix the id was dropped by the allow-list check itself.
+  // The archival v1 Formula's allow-list names its own `archival-ledger.*` Wars
+  // id, never the bare legacy id that its episodes store. Aliases on both sides
+  // are what makes the bare id pass.
   const composed = await niches.composeNicheWithTopicPacksDetailed(
-    await archivalFormula(), [LEGACY_SHORT_ID], options)
+    await v2Formula('archival', ARCHIVAL_ITEM_ID), [LEGACY_SHORT_ID], options)
 
   assert.deepEqual(composed.droppedTopicPacks, [])
   assert.equal(composed.niche.activeTopicPacks?.[0]?.id, MERGED_ITEM_ID)
   assertUsableSubjects(composed.niche.activeTopicPacks?.[0], 122)
 })
 
-// ── 2. the compatibility fallback ──────────────────────────────────────────
+// ── 2. the safe state before a channel moves ──────────────────────────────
 
-test('with merged 1.0.1 installed a v1 History channel composes the OLD pack instead of losing the topic', async t => {
+test('a v1 History channel with the merged pack installed composes the OLD pack instead of losing the topic', async t => {
   const { temporary, options } = await freshDataDir()
   t.after(temporary.cleanup)
   await install(options, SOURCES.merged_1_0_1, MERGED_PACK_ID, '1.0.1')
   await install(options, SOURCES.free_old, 'com.storystudio.pack.topic.historical-wars-treaties-world-order', '1.0.3')
 
   for (const stored of [LEGACY_SHORT_ID, FREE_ITEM_ID]) {
-    const composed = await niches.composeNicheWithTopicPacksDetailed(await historyFormula(), [stored], options)
+    const composed = await niches.composeNicheWithTopicPacksDetailed(await v1Formula('history'), [stored], options)
     assert.deepEqual(composed.droppedTopicPacks, [], `${stored}: the fallback is not a drop`)
     assert.equal(composed.niche.activeTopicPacks?.[0]?.id, FREE_ITEM_ID, `${stored}: the old pack answers`)
     assertUsableSubjects(composed.niche.activeTopicPacks?.[0], 50)
   }
 })
 
-test('with no merged pack at all a v1 archival-ledger channel composes the OLD archival pack', async t => {
+test('a v1 archival-ledger channel composes the OLD archival pack (its allow-list never named the bare id)', async t => {
   const { temporary, options } = await freshDataDir()
   t.after(temporary.cleanup)
   await install(options, SOURCES.archival_old, 'com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order', '1.0.2')
 
   const composed = await niches.composeNicheWithTopicPacksDetailed(
-    await archivalFormula(), [LEGACY_SHORT_ID], options)
+    await v1Formula('archival'), [LEGACY_SHORT_ID], options)
 
   assert.deepEqual(composed.droppedTopicPacks, [])
   assert.equal(composed.niche.activeTopicPacks?.[0]?.id, ARCHIVAL_ITEM_ID)
@@ -207,7 +227,7 @@ test('a pack the Formula never allowed is dropped and reported, not substituted'
   }, options)
 
   const composed = await niches.composeNicheWithTopicPacksDetailed(
-    await historyFormula(), [foreign.id, 'com.storystudio.topic.not-installed'], options)
+    await v2Formula('history', MERGED_ITEM_ID), [foreign.id, 'com.storystudio.topic.not-installed'], options)
 
   assert.deepEqual(composed.niche.activeTopicPacks, [], 'nothing served a Formula it was never allowed by')
   assert.deepEqual(composed.droppedTopicPacks, [
@@ -223,7 +243,7 @@ test('the list hides the two superseded rows while the merged pack is listed', a
   t.after(temporary.cleanup)
   await install(options, SOURCES.free_old, 'com.storystudio.pack.topic.historical-wars-treaties-world-order', '1.0.3')
   await install(options, SOURCES.archival_old, 'com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order', '1.0.2')
-  await install(options, SOURCES.merged_1_0_2, MERGED_PACK_ID, '1.0.2')
+  await install(options, SOURCES.merged_1_0_1, MERGED_PACK_ID, '1.0.1')
 
   const listed = (await topics.listTopicPackCatalogEntries(options)).map(entry => entry.value.id)
   assert.deepEqual(listed, [MERGED_ITEM_ID], 'one row for one topic')
@@ -239,20 +259,20 @@ test('the list keeps the old rows while the merged pack is not installed', async
   assert.deepEqual(listed, [ARCHIVAL_ITEM_ID, FREE_ITEM_ID].sort())
 })
 
-test('a v1 Formula scope keeps the old row visible when the merged pack cannot serve it', async t => {
+test('a v1 Formula scope keeps the old row visible while the merged pack cannot serve it', async t => {
   const { temporary, options } = await freshDataDir()
   t.after(temporary.cleanup)
   await install(options, SOURCES.free_old, 'com.storystudio.pack.topic.historical-wars-treaties-world-order', '1.0.3')
   await install(options, SOURCES.merged_1_0_1, MERGED_PACK_ID, '1.0.1')
 
-  const formulaId = (await historyFormula()).id
+  const formulaId = (await v1Formula('history')).id
   const scoped = (await topics.listTopicPackCatalogEntries(options, formulaId)).map(entry => entry.value.id)
   assert.ok(scoped.includes(FREE_ITEM_ID), 'the pack that serves this Formula is still offered')
 
-  // Once the merged pack can serve the Formula, the old row is hidden again.
-  await install(options, SOURCES.merged_1_0_2, MERGED_PACK_ID, '1.0.2')
-  const after = (await topics.listTopicPackCatalogEntries(options, formulaId)).map(entry => entry.value.id)
-  assert.deepEqual(after, [MERGED_ITEM_ID])
+  // A v2 Formula can use the merged pack, so the old row is hidden there.
+  const v2 = (await topics.listTopicPackCatalogEntries(options, 'com.storystudio.formula.history-explained-v2'))
+    .map(entry => entry.value.id)
+  assert.deepEqual(v2, [MERGED_ITEM_ID])
 })
 
 // ── 4. composing writes nothing ────────────────────────────────────────────
@@ -273,11 +293,11 @@ async function snapshot(root: string): Promise<Record<string, string>> {
 test('composing a channel writes no project metadata and no pack state', async t => {
   const { temporary, options } = await freshDataDir()
   t.after(temporary.cleanup)
-  await install(options, SOURCES.merged_1_0_2, MERGED_PACK_ID, '1.0.2')
+  await install(options, SOURCES.merged_1_0_1, MERGED_PACK_ID, '1.0.1')
 
   const before = await snapshot(temporary.dir)
   const composed = await niches.composeNicheWithTopicPacksDetailed(
-    await historyFormula(), [LEGACY_SHORT_ID], options)
+    await v2Formula('history', FREE_ITEM_ID), [FREE_ITEM_ID], options)
   assert.equal(composed.niche.activeTopicPacks?.[0]?.id, MERGED_ITEM_ID)
   assert.deepEqual(await snapshot(temporary.dir), before,
     'resolving a stored id rewrites no file: no state, no pin, no project metadata')
