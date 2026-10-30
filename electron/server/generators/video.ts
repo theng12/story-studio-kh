@@ -88,6 +88,7 @@ import { displayAspectRatio, frameTextUnit, resolveRenderCanvas } from '../lib/r
 import { inspectSourceAspect } from '../lib/source-aspect.js'
 import { buildContextualCueDrawtextFilters, buildLabelOverlayFilters, labelOverlayGeometry, labelCueForRender } from '../lib/contextual-cue-filters.js'
 import { findLabelDesign, renderLabelDesign, renderLeaderLine, renderLabelWipe, writeLabelRevealFrames } from '../lib/label-design-render.js'
+import { resolveLabelTargets } from '../lib/label-target.js'
 import { measureOpeningSec } from '../lib/opening-duration.js'
 import {
   buildColorGradingFilters,
@@ -2608,12 +2609,16 @@ export async function prepareUnifiedVideoAssemblyInputs(
       + 'captions already follow the merged audio. Nothing is re-made.',
     )
   }
-  await hydrateEpisodeRenderCues(slug, episodeId, req, job, false, leadInShiftSec)
+  await hydrateEpisodeRenderCues(slug, episodeId, req, job, false, leadInShiftSec, new Map(
+    available.filter(scene => scene.plan_scene_id && scene.still_path)
+      .map(scene => [scene.plan_scene_id!, scene.still_path!]),
+  ))
   return assets
 }
 
 async function hydrateEpisodeRenderCues(
   slug: string, episodeId: string, req: GenerateVideoRequest, job?: Job, allowMissing = false, leadInShiftSec = 0,
+  sceneImages: Map<string, string> = new Map(),
 ): Promise<void> {
   // Cues are reviewed on the plan's clock; a lead-in shift moves them with their scenes.
   const onAudioClock = <T extends { start_sec: number; end_sec?: number }>(cue: T): T => (leadInShiftSec > 0
@@ -2657,6 +2662,12 @@ async function hydrateEpisodeRenderCues(
   try {
     const renderable = resolveRenderableContextualCues(cueConfig, cueTimeline, plan, req.subtitles)
     req.contextual_cues = renderable.cues.map(onAudioClock)
+    if (req.scene_pool_mode !== 'image_pool') {
+      req.contextual_cues = await resolveLabelTargets({
+        episodeDir: cuePaths.episode_dir, plan, cues: req.contextual_cues, sceneImages,
+        log: message => job?.output_lines.push(message),
+      })
+    }
     for (const skip of renderable.skipped) {
       job?.output_lines.push(`Sound & Labels: label "${labelOf(cueTimeline, skip.cue_id)}" ${skip.detail}`)
     }

@@ -5150,8 +5150,7 @@ export interface ContextualCue {
   target_y_pct?: number | null
   /**
    * 2026-10-30 — what a POINTING design should point at, in a few plain words
-   * ("the cracked bell", "the north gate"). Stored on the cue and read by
-   * nothing yet: locating the pointer in the frame is a separate job.
+   * ("the cracked bell", "the north gate"). Resolved against the current scene image at assembly.
    */
   point_at?: string
   template: ContextualCueTemplate
