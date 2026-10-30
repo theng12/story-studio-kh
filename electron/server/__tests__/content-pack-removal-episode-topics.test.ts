@@ -153,7 +153,7 @@ describe('an episode-level Topic Pack selection counts as a use', () => {
       topic_pack_ids: [LEGACY_SHORT_ID],
     })
 
-    const usage = await contentPackUsage([MERGED_PACK_ID], paths)
+    const usage = await contentPackUsage([MERGED_PACK_ID], paths, { policy, appVersion: '1.4.371' })
     assert.deepEqual(usage[MERGED_PACK_ID], ['hidden-mechanics'], 'the episode names it through the alias')
     await assert.rejects(
       removeContentPack(MERGED_PACK_ID, { paths, policy }),
@@ -168,10 +168,10 @@ describe('an episode-level Topic Pack selection counts as a use', () => {
     await channel('boundful', { niche_id: 'com.storystudio.formula.history-explained-v2' })
     await episode('boundful', 'EP0145', { topic_pack_ids: [FREE_ITEM_ID] })
 
-    assert.deepEqual((await contentPackUsage([FREE_PACK_ID], paths))[FREE_PACK_ID], [],
+    assert.deepEqual((await contentPackUsage([FREE_PACK_ID], paths, { policy, appVersion: '1.4.371' }))[FREE_PACK_ID], [],
       'nothing reads the superseded pack any more')
     await removeContentPack(FREE_PACK_ID, { paths, policy })
-    assert.deepEqual((await contentPackUsage([MERGED_PACK_ID], paths))[MERGED_PACK_ID], ['boundful'],
+    assert.deepEqual((await contentPackUsage([MERGED_PACK_ID], paths, { policy, appVersion: '1.4.371' }))[MERGED_PACK_ID], ['boundful'],
       'the merged pack is the one the episode actually reads')
   })
 
@@ -186,9 +186,9 @@ describe('an episode-level Topic Pack selection counts as a use', () => {
     await channel('sleep-history', { niche_id: 'com.storystudio.formula.sleep-history-compilation-v2' })
     await episode('sleep-history', 'SH0001', { topic_pack_ids: [v1Item] })
 
-    assert.deepEqual((await contentPackUsage([v1Pack], paths))[v1Pack], [],
+    assert.deepEqual((await contentPackUsage([v1Pack], paths, { policy, appVersion: '1.4.371' }))[v1Pack], [],
       'the v1 pack is not what the episode reads any more')
-    assert.deepEqual((await contentPackUsage([v2Pack], paths))[v2Pack], ['sleep-history'],
+    assert.deepEqual((await contentPackUsage([v2Pack], paths, { policy, appVersion: '1.4.371' }))[v2Pack], ['sleep-history'],
       'the v2 item is what it reads')
     await assert.rejects(
       removeContentPack(v2Pack, { paths, policy }),
@@ -204,7 +204,7 @@ describe('an episode-level Topic Pack selection counts as a use', () => {
     await channel('boundful', { niche_id: 'history-narration' })
     await episode('boundful', 'EP0145', { topic_pack_ids: [LEGACY_SHORT_ID] })
 
-    assert.deepEqual((await contentPackUsage([FREE_PACK_ID], paths))[FREE_PACK_ID], ['boundful'],
+    assert.deepEqual((await contentPackUsage([FREE_PACK_ID], paths, { policy, appVersion: '1.4.371' }))[FREE_PACK_ID], ['boundful'],
       'the stored id falls back to this pack, so removing it would take the episode\'s subjects away')
     await assert.rejects(
       removeContentPack(FREE_PACK_ID, { paths, policy }),

@@ -30,7 +30,7 @@ import {
   PROMPT_CHARS_PER_TOKEN_ESTIMATE,
 } from '../services/output-token-budget.js'
 
-function catalog(contextWindowTokens: number, maxOutputTokens: number | null) {
+function catalog(contextWindowTokens: number | null, maxOutputTokens: number | null) {
   return [{
     id: 'writer-alpha',
     display_name: 'Writer Alpha',
@@ -84,7 +84,7 @@ interface Submission {
 /** Run one chat call against a fixture product and report what it ASKED for. */
 async function submitted(
   request: Parameters<typeof callChatWithGenStudio>[1],
-  product: { contextWindowTokens: number; maxOutputTokens: number | null },
+  product: { contextWindowTokens: number | null; maxOutputTokens: number | null },
 ): Promise<Submission> {
   const originalFetch = globalThis.fetch
   let maxOutputTokens: number | undefined
@@ -191,7 +191,7 @@ test('a product that publishes no output ceiling still sends none', async () => 
 })
 
 test('a product that publishes no context window behaves exactly as before', async () => {
-  const result = await submitted(request(400), { contextWindowTokens: 0, maxOutputTokens: 65_536 })
+  const result = await submitted(request(400), { contextWindowTokens: null, maxOutputTokens: 65_536 })
   assert.equal(result.submitted, true)
   // 'long' of 65,536 is 32,768 — the value this workflow asked for before the rule.
   assert.equal(result.maxOutputTokens, 32_768)

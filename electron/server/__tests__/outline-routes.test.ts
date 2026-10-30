@@ -1184,7 +1184,7 @@ describe('an outline edit keeps the outline it replaces (owner rule, 2026-10-30)
     edit.outline = edit.outline.map((entry: any) => ({ ...entry, title: `${entry.title} (edited)` }))
 
     const res = await request(app)
-      .put(`/api/projects/${slug}/episodes/${episodeId}/outline`)
+      .put(`/api/projects/${slug}/episodes/${episodeId}/outline?title=${encodeURIComponent(TITLE)}`)
       .send({ outline: edit.outline })
     assert.equal(res.status, 200, JSON.stringify(res.body))
     assert.notEqual(await fs.readFile(sidecarFile, 'utf-8'), before, 'the sidecar really was replaced')

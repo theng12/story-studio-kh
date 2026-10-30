@@ -1718,7 +1718,7 @@ async function buildOutline(
 export function stripOutlineTitlePrefix(title: string, sectionLabel?: string): string {
   const labels = [...new Set([sectionLabel, 'Chapter', 'ជំពូក', 'ភាគ'].filter((label): label is string => !!label && !!label.trim()))]
   const escaped = labels.map(label => label.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
-  const match = new RegExp(`^\\s*(?:${escaped})\\s*[0-9\u17E0-\u17E9]{1,4}\\s*(?:[:：.៖។\-–—)]\\s*|\\s+)(\\S.*)$`, 'i').exec(title)
+  const match = new RegExp(`^\\s*(?:${escaped})\\s*[0-9\u17E0-\u17E9]{1,4}\\s*(?:[:：.៖។–—)-]\\s*|\\s+)(\\S.*)$`, 'i').exec(title)
   return match ? match[1]!.trim() : title
 }
 

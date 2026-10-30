@@ -287,7 +287,7 @@ describe('what a channel actually selects counts as a use', () => {
     // A hand-written preset id the alias table maps onto the Store style.
     await channel('style-channel', { active_style_preset_id: 'night-atlas-woodcut' })
 
-    const usage = await contentPackUsage([PACK_ID], paths)
+    const usage = await contentPackUsage([PACK_ID], paths, { policy })
     assert.deepEqual(usage[PACK_ID], ['style-channel'])
     await assert.rejects(
       removeContentPack(PACK_ID, { paths, policy }),
@@ -305,7 +305,7 @@ describe('what a channel actually selects counts as a use', () => {
       thumbnail_prompts_presets: [{ id: 'thumb', data: { styleId: 'kh.art-styles.golden-hour-painterly' } }],
     })
 
-    const usage = await contentPackUsage([PACK_ID], paths)
+    const usage = await contentPackUsage([PACK_ID], paths, { policy })
     assert.deepEqual(usage[PACK_ID], ['preset-channel'], 'the thumbnail preset names an aliased style of this pack too')
   })
 
@@ -314,7 +314,7 @@ describe('what a channel actually selects counts as a use', () => {
     await install(PACK_ID, '1.0.0', paths)
     await channel('unreadable-channel', '{ this is not json')
 
-    const usage = await contentPackUsage([PACK_ID], paths)
+    const usage = await contentPackUsage([PACK_ID], paths, { policy })
     assert.deepEqual(usage[PACK_ID], ['could not check unreadable-channel'])
     await assert.rejects(
       removeContentPack(PACK_ID, { paths, policy }),
@@ -330,7 +330,7 @@ describe('what a channel actually selects counts as a use', () => {
     const paths = await isolated()
     await install(PACK_ID, '1.0.0', paths, 'com.storystudio.style.some-other-style')
     await channel('unrelated-channel', { niche_id: 'history-narration', topic_pack_ids: ['com.storystudio.topic.other'] })
-    const usage = await contentPackUsage([PACK_ID], paths)
+    const usage = await contentPackUsage([PACK_ID], paths, { policy })
     assert.deepEqual(usage[PACK_ID], [])
     await removeContentPack(PACK_ID, { paths, policy })
     assert.equal((await readContentPackState(paths)).packs[PACK_ID], undefined)

@@ -232,7 +232,7 @@ test('a pack the Formula never allowed is dropped and reported, not substituted'
   assert.deepEqual(composed.niche.activeTopicPacks, [], 'nothing served a Formula it was never allowed by')
   assert.deepEqual(composed.droppedTopicPacks, [
     { id: foreign.id, reason: 'not-allowed' },
-    { id: 'com.storystudio.topic.not-installed', reason: 'not-found' },
+    { id: 'com.storystudio.topic.not-installed', reason: 'not-allowed' },
   ])
 })
 

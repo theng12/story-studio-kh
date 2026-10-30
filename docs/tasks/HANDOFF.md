@@ -4,9 +4,7 @@
 
 **Commits on `release/1.4.371`: `96277a72` (Story + script-language), `1ef599b8` (withdraw Wars 1.0.2),
 the output-budget rule, and the v2-successor / outline-preservation / title-prefix / sizing batch that
-follows it (`5fc548ca` is the withdrawn content commit, kept in history on purpose). Static checks
-pass; no test lane has run in this worktree (a Story gate was running on this Mac), so every backend
-test below is WRITTEN, NOT RUN.**
+follows it (`5fc548ca` is the withdrawn content commit, kept in history on purpose). Focused backend and content-pack runs are now green (PARTIAL RUN, not the gate): 17/17 backend files, 190/190 tests, 0 failures; typecheck and lint exit 0.**
 
 - **OWNER DECISION 2026-10-30, superseding the first plan: every channel moves to the v2 Formulas,
   and script changes are accepted — v1 Formulas are no longer first-class.** The Wars 1.0.2 pack
@@ -190,7 +188,7 @@ test below is WRITTEN, NOT RUN.**
   `script-completeness-audit` (complete, wrong-script + reason, mixed, no language, English names in
   Khmer, English channel).
 
-### Tests written (not run)
+### Tests (focused run green; full gate still to run)
 
 - `electron/server/__tests__/topic-pack-wars-merge-compat.test.ts` — a v2 History Formula that
   allows the old free item id + that stored id → merged 1.0.1 (122 subjects pinned, non-empty text);
@@ -218,10 +216,9 @@ test below is WRITTEN, NOT RUN.**
   `source-manifest-integrity`, `output-token-budget`, `chat-expected-output-tokens`, and the content-pack
   lane's `compatible-formula-ids-resolve` / `content-pack-registry` guards.
 
-### Static checks on this source
+### Verification on this source
 
-`npm run typecheck` (electron + frontend) exit 0; `npm run content-pack:registry -- validate`
-revision 364. Lint, typography, changelog, model-drift and the full ten-step gate are still to run.
+`npm run typecheck` (electron + frontend) exit 0; `npm run lint` 0 errors; `npm run check:changelog` ok; `npm run content-pack:registry -- validate` revision 365; focused backend run 17/17 files, 190/190 tests passing (PARTIAL RUN). The prebuild, ten-step gate and DMG from `main` are still to run.
 
 ## 1.4.370 — Library works with a retired pack; honest failure reasons; bounded Pipeline ids (2026-10-30, release/1.4.370 from main 77f433f0)
 

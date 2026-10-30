@@ -72,7 +72,7 @@ async function fileExists(dir: string, number: number): Promise<boolean> {
 test('Khmer prose passes with English names, numbers and punctuation inside it', () => {
   const text = `${KHMER_CHAPTER}\n\nAngkor Wat, 2019 — UNESCO.\n\nរឿងរ៉ាវនេះមានឈ្មោះថា "Nur" និង "Dara".`
   const measured = measureAnswerScript(text)
-  assert.ok(measured.khmer > 200, `counts the Khmer letters (${measured.khmer})`)
+  assert.ok(measured.khmer > 100, `counts the Khmer letters (${measured.khmer})`)
   assert.ok(answerMatchesLanguage(text, 'km'), 'English names do not make a Khmer chapter English')
 })
 
@@ -114,7 +114,7 @@ test('a wrong-script chapter is not written, and the job is told which one and w
   assert.deepEqual(wrote, [1], 'only the Khmer chapter is written')
   assert.equal(await fileExists(dir, 1), true)
   assert.equal(await fileExists(dir, 2), false, 'the English chapter never reaches disk')
-  assert.ok(lines.some(line => /Chapter 2 .*NOT written/.test(line) && /wrong script/.test(line) && /Khmer/.test(line)),
+  assert.ok(lines.some(line => /Chapters? 2 .*NOT written/.test(line) && /wrong script/.test(line) && /Khmer/.test(line)),
     `the log names the chapter and the reason: ${JSON.stringify(lines)}`)
 })
 

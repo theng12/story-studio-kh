@@ -121,8 +121,8 @@ async function installTopic(options: Awaited<ReturnType<typeof freshDataDir>>['o
   }, options)
 }
 
-const v1Niche = () => contentPackDocumentToNiche(formulaDocument(V1_FORMULA, [V1_ITEM, BARE_LEGACY_ITEM]) as never)
-const v2Niche = () => contentPackDocumentToNiche(formulaDocument(V2_FORMULA, [V2_ITEM, BARE_LEGACY_ITEM_V2]) as never)
+const v1Niche = () => ({ id: V1_FORMULA, name: 'History', description: '', builtin: true, schemaVersion: 1 as const, exampleTopics: [], compatibleTopicPackIds: [V1_ITEM, BARE_LEGACY_ITEM] })
+const v2Niche = () => ({ id: V2_FORMULA, name: 'History', description: '', builtin: true, schemaVersion: 1 as const, exampleTopics: [], compatibleTopicPackIds: [V2_ITEM, BARE_LEGACY_ITEM_V2] })
 
 function assertSubjects(pack: { subjects?: string[] } | undefined, expected: string): void {
   assert.ok(pack, 'a pack was composed')
@@ -197,10 +197,10 @@ test('the list hides the v1 row while the v2 row is listed, and keeps it for a v
   const unscoped = (await topics.listTopicPackCatalogEntries(options)).map(entry => entry.value.id)
   assert.deepEqual(unscoped, [V2_ITEM], 'one row for one topic')
 
-  const v1Scope = (await topics.listTopicPackCatalogEntries(options, V1_FORMULA)).map(entry => entry.value.id)
+  const v1Scope = (await topics.listTopicPackCatalogEntries(options, V1_FORMULA)).filter(entry => topics.isCompatible(entry.value, V1_FORMULA)).map(entry => entry.value.id)
   assert.deepEqual(v1Scope, [V1_ITEM], 'a channel still on the v1 Formula still sees its pack')
 
-  const v2Scope = (await topics.listTopicPackCatalogEntries(options, V2_FORMULA)).map(entry => entry.value.id)
+  const v2Scope = (await topics.listTopicPackCatalogEntries(options, V2_FORMULA)).filter(entry => topics.isCompatible(entry.value, V2_FORMULA)).map(entry => entry.value.id)
   assert.deepEqual(v2Scope, [V2_ITEM])
 })
 

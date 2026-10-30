@@ -211,7 +211,7 @@ async function readChannelConfig(slug: string): Promise<Record<string, unknown> 
  * An id that cannot be read makes the CHANNEL unreadable, not empty: a removal
  * must refuse rather than assume the channel does not use the pack.
  */
-async function channelReferences(): Promise<ChannelReference[]> {
+async function channelReferences(options: ContentPackLifecycleOptions = {}): Promise<ChannelReference[]> {
   const references: ChannelReference[] = []
   for (const slug of await candidateProjectSlugs()) {
     const ids = new Set<string>()
@@ -279,7 +279,7 @@ async function channelReferences(): Promise<ChannelReference[]> {
       for (const selection of topicSelections) {
         for (const topicId of selection.topicIds) {
           const key = `${selection.formulaId}\u0000${topicId}`
-          if (!resolved.has(key)) resolved.set(key, await effectiveTopicPackId(topicId, selection.formulaId))
+          if (!resolved.has(key)) resolved.set(key, await effectiveTopicPackId(topicId, selection.formulaId, options))
           ids.add(resolved.get(key) ?? topicId)
         }
       }
@@ -299,14 +299,14 @@ async function channelReferences(): Promise<ChannelReference[]> {
  * the same two rules the composer uses: the merged item when it is compatible,
  * otherwise the pack the stored id came from. Null when nothing resolves.
  */
-async function effectiveTopicPackId(topicId: string, formulaId: string): Promise<string | null> {
-  const pack = await loadTopicPack(topicId)
+async function effectiveTopicPackId(topicId: string, formulaId: string, options: ContentPackLifecycleOptions): Promise<string | null> {
+  const pack = await loadTopicPack(topicId, options)
   if (pack && (!formulaId || isCompatible(pack, formulaId))) return pack.id
   // A channel that has moved to the v2 Formula reads the V2 item for the v1 id its
   // episodes stored, so that is the pack a removal must refuse to take away.
-  const successor = await loadTopicPackV2Successor(topicId, formulaId)
+  const successor = await loadTopicPackV2Successor(topicId, formulaId, options)
   if (successor) return successor.id
-  const superseded = await loadSupersededTopicPack(topicId, formulaId)
+  const superseded = await loadSupersededTopicPack(topicId, formulaId, options)
   return superseded?.id ?? null
 }
 
@@ -398,12 +398,13 @@ function channelLabels(references: readonly ChannelReference[], packIds: Readonl
 export async function contentPackUsage(
   packIds: readonly string[],
   paths: ContentPackRuntimePaths = getContentPackRuntimePaths(),
+  options: ContentPackLifecycleOptions = {},
 ): Promise<Record<string, string[]>> {
   const usage: Record<string, string[]> = {}
   for (const packId of packIds) usage[packId] = []
   if (packIds.length === 0) return usage
   const state = await readContentPackState(paths)
-  const references = await channelReferences()
+  const references = await channelReferences({ ...options, paths })
   for (const packId of packIds) usage[packId] = channelLabels(references, packReferenceIds(state, packId))
   return usage
 }
@@ -445,7 +446,7 @@ export async function removeContentPack(
     }
     throw new ContentPackRemovalError('CONTENT_PACK_NOT_INSTALLED', 'This pack is not installed on this Mac.')
   }
-  const channels = (await contentPackUsage([packId], paths))[packId] ?? []
+  const channels = (await contentPackUsage([packId], paths, options))[packId] ?? []
   try {
     // The live pin reader runs under the removal's own lock as well; the scan
     // above is what catches a Formula, Topic Pack or style selected in config.
@@ -566,7 +567,7 @@ export async function applyGatewayPackRemovals(
     if (previous && previous.gateway_remove_at === entry.removeFromInstallsAt) continue
     const state = await readContentPackState(paths)
     if (!state.packs[entry.packId]) continue
-    const channels = (await contentPackUsage([entry.packId], paths))[entry.packId] ?? []
+    const channels = (await contentPackUsage([entry.packId], paths, options))[entry.packId] ?? []
     try {
       const outcome = await removeContentPackVersions(entry.packId, listProjectSlugsPinningContentPackVersionLocked, {
         ...options,
