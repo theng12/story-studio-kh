@@ -17,6 +17,7 @@
 
 import { Router } from 'express'
 import { existsSync } from 'fs'
+import sharp from 'sharp'
 import path from 'path'
 import { respondWithError } from '../lib/humanize-backend-error.js'
 import { referenceImagePath } from '../services/character-manager.js'
@@ -41,6 +42,7 @@ import {
   presetFontPools,
   readPost,
   redrawFile,
+  resolveLogoPath,
   renderPostFinals,
   resolveRoster,
   setPostApproval,
@@ -165,7 +167,9 @@ router.put('/projects/:slug/still-posts/config', async (req, res) => {
 
     if (Object.prototype.hasOwnProperty.call(body, 'logo_path')) {
       const value = typeof body.logo_path === 'string' ? body.logo_path.trim() : ''
-      if (value && !existsSync(value)) {
+      // A portable path (`${CHANNEL}/assets/…`) is what the app's file picker writes now that typed
+      // paths are retired; it is stored as given and resolved wherever the logo is drawn.
+      if (value && !resolveLogoPath(value, pm.getProjectDir(slug))) {
         return res.status(400).json({ detail: `There is no logo file at ${value}.` })
       }
       patch.logo_path = value || null
@@ -364,7 +368,7 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
     const branding = brandingFrom(preset.branding, DEFAULT_BRANDING)
     const mark = brandingFor(branding!, {
       handle: channelHandle(raw, config),
-      logoPath: channelLogoPath(raw, config),
+      logoPath: channelLogoPath(raw, config, pm.getProjectDir(slug)),
       language: post.language,
       format,
     })
@@ -395,6 +399,71 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
     res.json({ post: saved, state: await postStateFor(slug, saved), render_error: renderError, font_note: fontNote })
   } catch (error: any) {
     respondWithError(res, error, 'Failed to save the post')
+  }
+})
+
+// ── The channel's logo ─────────────────────────────────────────────────────
+
+/** The channel's logo art, so the picker can show the file it stored instead of naming a path. */
+router.get('/projects/:slug/still-posts/logo', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const raw = (await pm.getConfig(slug)) || {}
+    const file = channelLogoPath(raw, stillPostsConfig(raw), pm.getProjectDir(slug))
+    if (!file) return res.status(404).json({ detail: 'This channel has no logo file in place.' })
+    res.sendFile(path.resolve(file), { dotfiles: 'allow' })
+  } catch (error: any) {
+    respondWithError(res, error, 'Failed to load the logo')
+  }
+})
+
+// ── Font samples ───────────────────────────────────────────────────────────
+
+/**
+ * One line of text drawn by the REAL lettering renderer in a bundled face, so the font picker shows
+ * the face itself and not a label. No image model is involved: this is our own text renderer.
+ *
+ * A face that cannot draw the line is refused in words (AGENTS §1) — the picker then says so for that
+ * face instead of showing a sample in a substituted font.
+ */
+router.get('/projects/:slug/still-posts/font-sample', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const fontId = String(req.query.font_id || '').trim()
+    if (!fontId) return res.status(400).json({ detail: 'Choose a font to sample.' })
+    const language = isStillPostsLanguage(req.query.language) ? req.query.language : 'en'
+    const text = String(req.query.text || '').slice(0, 120) || 'Your words sit here'
+    const scale = Math.max(0.5, Math.min(2, Number(req.query.scale) || 1))
+    const canvas = { width: 900, height: 180 }
+    const base = canvas.height / 180
+    const { renderThumbnailText } = await import('../lib/thumbnail-text-render.js')
+    const rendered = await renderThumbnailText({
+      sourceBytes: await sharp({ create: { width: canvas.width, height: canvas.height, channels: 3, background: '#14161d' } }).png().toBuffer(),
+      text,
+      canvas,
+      style: {
+        font_id: fontId,
+        weight: 600,
+        size: { mode: 'fit', min_px: Math.round(22 * scale * base), max_px: Math.round(64 * scale * base) },
+        max_lines: 1,
+        align: 'center',
+        line_height: 1.15,
+        letter_spacing: 0,
+        uppercase: false,
+        fill: { type: 'solid', color: '#F4EFE6' },
+        opacity: 1,
+        outline: { enabled: false, color: '#000000', width_px: 0 },
+        shadow: { enabled: false, color: '#000000', opacity: 0, dx: 0, dy: 0, blur_px: 0 },
+        background: { enabled: false, color: '#000000', opacity: 0, padding_px: 0, radius_px: 0 },
+        placement: { anchor: 'center', x_pct: 50, y_pct: 50, width_pct: 92, height_pct: 70 },
+      },
+    })
+    res.setHeader('Cache-Control', 'private, max-age=3600')
+    res.type('png').send(rendered.png)
+  } catch (error: any) {
+    const status = typeof error?.statusCode === 'number' ? error.statusCode : 400
+    res.status(status).json({ detail: error?.message || 'Could not draw this font sample.' })
   }
 })
 

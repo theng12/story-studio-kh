@@ -22,6 +22,7 @@ import sharp from 'sharp'
 import * as pm from './project-manager.js'
 import { listCharacters, referenceImagePath } from './character-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { isPortablePath, resolveAssetPath } from './path-resolver.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { renderThumbnailText, type RenderBranding } from '../lib/thumbnail-text-render.js'
 import { listThumbnailFonts } from '../lib/thumbnail-fonts.js'
@@ -162,11 +163,36 @@ export function channelHandle(raw: Record<string, any> | null | undefined, confi
   return own || null
 }
 
+/**
+ * Resolve a stored logo value to a real file on disk, or null.
+ *
+ * The value may be absolute or portable (`${CHANNEL}/assets/logo.png`), which is what the app's file
+ * picker writes now that typed paths are retired. A portable path is resolved against this channel's
+ * folders; a value that still does not name a real file draws nothing at all.
+ */
+export function resolveLogoPath(value: unknown, channelDir?: string | null): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const raw = value.trim()
+  if (path.isAbsolute(raw)) return existsSync(raw) ? raw : null
+  if (!channelDir || !isPortablePath(raw)) return null
+  try {
+    const resolved = resolveAssetPath(raw, path.join(channelDir, 'episodes'))
+    return existsSync(resolved) ? resolved : null
+  } catch {
+    return null
+  }
+}
+
 /** The logo file to draw, or null. A path that no longer exists draws nothing at all. */
-export function channelLogoPath(raw: Record<string, any> | null | undefined, config: StillPostsProjectConfig): string | null {
+export function channelLogoPath(
+  raw: Record<string, any> | null | undefined,
+  config: StillPostsProjectConfig,
+  channelDir?: string | null,
+): string | null {
   const candidates = [config.logo_path, raw && typeof raw === 'object' ? (raw as any).channel_logo_path : null]
   for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim() && existsSync(candidate.trim())) return candidate.trim()
+    const resolved = resolveLogoPath(candidate, channelDir)
+    if (resolved) return resolved
   }
   return null
 }
@@ -977,7 +1003,7 @@ export async function buildWorkspace(slug: string): Promise<StillPostsWorkspace>
   const characters = await listChannelCharacters(slug)
   const roster = resolveRoster(config.character_ids, characters)
   const posts = await listPosts(slug)
-  const logo = channelLogoPath(raw, config)
+  const logo = channelLogoPath(raw, config, projectRootFor(slug))
   const handle = channelHandle(raw, config)
   return {
     config: {

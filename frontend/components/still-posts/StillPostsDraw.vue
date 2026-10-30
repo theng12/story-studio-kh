@@ -8,20 +8,18 @@
 
     <section class="card sp-section">
       <div class="sp-two">
-        <label class="sp-field sp-grow">
-          <span class="sp-label">Image model</span>
-          <select v-model="preset.image_model" class="select">
-            <option :value="null" disabled>Choose a live Gateway model…</option>
-            <option v-for="model in imageModels" :key="model.id" :value="model.id" :disabled="model.available === false">
-              {{ model.display_name }}{{ model.supports_reference_images ? ' · references' : '' }}
-            </option>
-          </select>
+        <div class="sp-field sp-grow">
+          <ImageModelPicker
+            v-model="imageModelChoice"
+            :project-slug="slug"
+            default-label="Pick an image model…"
+          />
           <span class="sp-help">{{ imageModelHelp }}</span>
-        </label>
+        </div>
       </div>
 
       <p
-        v-if="preset.image_model && drawingsForBatch > 0"
+        v-if="imageModelChoice && drawingsForBatch > 0"
         class="sp-help sp-cost"
         :class="`basis-${drawCost.basis}`"
         :title="drawCost.title"
@@ -75,7 +73,7 @@ import { CREDIT_BASIS_LABEL } from '../../utils/genstudio-credit-cost'
 import { useStillPosts } from '../../composables/useStillPostsWorkspace'
 
 const {
-  workspace, preset, imageModels, imageModelHelp, drawingsForBatch, drawCost, canDraw, drawing, drawError, draw,
+  slug, workspace, preset, imageModelChoice, imageModelHelp, drawingsForBatch, drawCost, canDraw, drawing, drawError, draw,
   posts, postState,
 } = useStillPosts()
 </script>

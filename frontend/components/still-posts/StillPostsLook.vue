@@ -1,7 +1,7 @@
 <!--
-  Step 1 — Channel look. The cast, the handle and logo, the preset, the format and layout, the lettering
-  fonts and the placement. A group that is already set collapses to one line that says what is chosen,
-  so the page reads as a summary until someone opens a group to change it.
+  Step 1 — Channel look. The cast, the preset, the look (format), the layout (option), the frames, the
+  lettering fonts and the placement. Everything that can be shown is shown: samples, shapes and
+  diagrams, not names in a dropdown. A settled group collapses to one line that says what is chosen.
 -->
 <template>
   <div class="sp-step">
@@ -54,7 +54,7 @@
       </div>
     </details>
 
-    <details class="card sp-section sp-fold" :open="!presetChosen">
+    <details class="card sp-section sp-fold">
       <summary class="sp-fold-summary">
         <span class="sp-h3">Preset</span>
         <span class="sp-fold-line">{{ presetLine }}</span>
@@ -85,21 +85,11 @@
         <span class="sp-fold-line">{{ formatLine }}</span>
       </summary>
       <div class="sp-fold-body">
+        <div class="sp-visual-row">
+          <StillPostsFormatPicker />
+          <StillPostsLayoutPicker />
+        </div>
         <div class="sp-grid">
-          <label class="sp-field">
-            <span class="sp-label">Format (the look)</span>
-            <select v-model="preset.format_id" class="select">
-              <option v-for="format in workspace?.formats" :key="format.id" :value="format.id">{{ format.name }}</option>
-            </select>
-            <span class="sp-help">{{ draftFormat?.description }}</span>
-          </label>
-          <label class="sp-field">
-            <span class="sp-label">Option (the layout)</span>
-            <select v-model="preset.option_id" class="select">
-              <option v-for="option in workspace?.options" :key="option.id" :value="option.id">{{ option.name }}</option>
-            </select>
-            <span class="sp-help">{{ draftOption?.description }}</span>
-          </label>
           <label class="sp-field">
             <span class="sp-label">Language</span>
             <select v-model="preset.language" class="select">
@@ -107,26 +97,9 @@
             </select>
             <span class="sp-help">{{ letteringFontLabel }}</span>
           </label>
-          <div class="sp-field">
-            <span class="sp-label">Export frames</span>
-            <div class="sp-checks">
-              <label v-for="aspect in aspects" :key="aspect" class="sp-check">
-                <input v-model="preset.aspects" type="checkbox" :value="aspect"> {{ aspect }}
-              </label>
-            </div>
-            <label class="sp-draw-mode">
-              <span class="sp-label">Drawings</span>
-              <select v-model="preset.fresh_drawing_per_size" class="select" aria-label="Drawings per post">
-                <option :value="false">One drawing, fitted to each size (default)</option>
-                <option :value="true">A fresh drawing for each size (up to 3× the drawings)</option>
-              </select>
-            </label>
-            <span class="sp-help">Every chosen frame is rendered for every post before a batch is complete.</span>
-          </div>
-          <label class="sp-field">
-            <span class="sp-label">Text size <span class="sp-count">{{ preset.text_scale.toFixed(2) }}×</span></span>
-            <input v-model.number="preset.text_scale" class="sp-range" type="range" min="0.6" max="1.6" step="0.05">
-          </label>
+          <StillPostsFramePicker v-model="preset.aspects" />
+          <StillPostsDrawModePicker v-model="preset.fresh_drawing_per_size" />
+          <StillPostsTextSize v-model="preset.text_scale" />
         </div>
       </div>
     </details>
@@ -140,7 +113,8 @@
         <p class="sp-help sp-fold-intro">
           Choose the faces your posts are lettered in, one pool per writing system. One font means every post
           uses it; several rotate — one after another by default, or by percentage. With no pool, posts use the
-          format's own face. A font that cannot draw the language is not offered.
+          format's own face. A font that cannot draw the language is not offered, and each face is shown with a
+          sample line in this language.
         </p>
         <div v-for="row in poolRows" :key="row.script" class="sp-pool" :data-script="row.script">
           <div class="sp-pool-head">
@@ -166,11 +140,12 @@
 
           <p v-if="!row.faces.length" class="sp-help">No bundled font covers {{ row.label }}, so no pool can be set here.</p>
 
-          <div v-for="(choice, index) in row.pool.fonts" :key="`${row.script}-${index}`" class="sp-pool-row">
+          <div v-for="(choice, index) in row.pool.fonts" :key="`${row.script}-${index}`" class="sp-pool-row sp-pool-row-visual">
             <span class="sp-pool-order">{{ row.pool.usage_mode === 'serial' ? `#${index + 1}` : `${percentagesFor(row.pool)[index] ?? 0}%` }}</span>
-            <select v-model="choice.font_id" class="select sp-pool-face" :aria-label="`${row.label} font ${index + 1}`">
-              <option v-for="face in facesForChoice(row, index)" :key="face.id" :value="face.id">{{ face.label }}</option>
-            </select>
+            <div class="sp-pool-face">
+              <StillPostsFontSample :font-id="choice.font_id" :label="fontLabel(choice.font_id)" />
+              <span class="sp-font-name">{{ fontLabel(choice.font_id) }}</span>
+            </div>
             <label v-if="row.pool.usage_mode === 'weighted'" class="sp-pool-weight">
               <span class="sp-label">Weight</span>
               <input v-model.number="choice.weight" class="input input-sm" type="number" min="1" max="100" step="1">
@@ -180,19 +155,20 @@
           </div>
 
           <div class="sp-row">
-            <select
-              class="select"
-              :aria-label="`Add a ${row.label} font to the pool`"
-              :value="''"
-              :disabled="!row.faces.length"
-              @change="onAddPoolFont(row.script, $event)"
-            >
-              <option value="">Add a font…</option>
-              <option v-for="face in freeFaces(row)" :key="face.id" :value="face.id">{{ face.label }}</option>
-            </select>
+            <button type="button" class="btn btn-sm btn-secondary" :disabled="!freeFaces(row).length" @click="openFontPicker(row)">
+              Add a font…
+            </button>
             <span class="sp-help">Percentages are of the pool, and are what the rotation uses.</span>
           </div>
         </div>
+
+        <StillPostsFontPicker
+          :visible="!!fontPicker"
+          :language-label="fontPicker?.label || ''"
+          :faces="fontPicker?.faces || []"
+          @close="fontPicker = null"
+          @choose="chooseFont"
+        />
       </div>
     </details>
 
@@ -208,21 +184,14 @@
             <input v-model="handleDraft" class="input" maxlength="60" :placeholder="workspace?.config.handle ? `@${workspace.config.handle}` : 'no handle set on this channel'">
             <span class="sp-help">Blank uses the channel's own handle. Drawn by our renderer, in the post's own language font.</span>
           </label>
-          <label class="sp-field">
-            <span class="sp-label">Logo file</span>
-            <input v-model="logoDraft" class="input" placeholder="Leave empty until you have a logo PNG">
-            <span class="sp-help">
-              The logo layer is built and simply draws nothing until a file is set.
-              <template v-if="workspace?.config.logo_ready">A logo is set and found.</template>
-              <template v-else>No logo file is in place yet.</template>
-            </span>
-          </label>
+          <StillPostsLogoField />
         </div>
         <div class="sp-row">
           <button type="button" class="btn btn-sm btn-secondary" :disabled="savingConfig" @click="saveConfig">
             {{ savingConfig ? 'Saving…' : 'Save channel' }}
           </button>
         </div>
+
         <h4 class="sp-h4">Handle and logo placement</h4>
         <div class="sp-grid">
           <label class="sp-check">
@@ -235,12 +204,7 @@
           <label class="sp-check">
             <input v-model="preset.branding.logo_enabled" type="checkbox"> Burn the logo in
           </label>
-          <label class="sp-field">
-            <span class="sp-label">Position</span>
-            <select v-model="preset.branding.position" class="select">
-              <option v-for="anchor in anchors" :key="anchor" :value="anchor">{{ anchor }}</option>
-            </select>
-          </label>
+          <StillPostsPositionPicker v-model="preset.branding.position" />
           <label class="sp-field">
             <span class="sp-label">Handle size <span class="sp-count">{{ preset.branding.handle_size_px }}px</span></span>
             <input v-model.number="preset.branding.handle_size_px" class="sp-range" type="range" min="12" max="80" step="1">
@@ -264,15 +228,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useStillPosts } from '../../composables/useStillPostsWorkspace'
 
 const ws = useStillPosts()
 const {
-  slug, workspace, configNote, configError, savingConfig, saveConfig, castDraft, handleDraft, logoDraft, toggleCast,
+  slug, workspace, configNote, configError, savingConfig, saveConfig, castDraft, handleDraft, toggleCast,
   presetId, presetName, presetNote, presetError, savingPreset, applyPreset, savePreset, preset,
-  draftFormat, draftOption, letteringFontLabel, languages, aspects, anchors,
-  poolRows, usageModes, usageModeLabels, poolSummary, freeFaces, facesForChoice, removePoolFont, onAddPoolFont, percentagesFor,
+  draftFormat, draftOption, letteringFontLabel, languages,
+  poolRows, usageModes, usageModeLabels, poolSummary, freeFaces, removePoolFont, percentagesFor, fontLabel,
+  addPoolFont,
 } = ws
 
 const castCount = computed(() => workspace.value?.config.character_ids.length ?? 0)
@@ -282,7 +247,6 @@ const castLine = computed(() => {
     .map(character => character.name)
   return names.length ? names.join(', ') : 'No characters chosen yet'
 })
-const presetChosen = computed(() => !!presetId.value)
 const presetLine = computed(() => {
   const found = workspace.value?.presets.find(entry => entry.id === presetId.value)
   return found ? found.name : 'No preset loaded'
@@ -302,4 +266,19 @@ const brandingLine = computed(() => {
   const logo = workspace.value?.config.logo_ready ? 'logo set' : 'no logo'
   return `${handle ? `@${handle.replace(/^@/, '')}` : 'no handle'} · ${logo} · ${preset.branding.position}`
 })
+
+// The add-a-font popup: the faces this pool may still take, for this row's script.
+const fontPicker = ref<{ script: string, label: string, faces: Array<{ id: string, label: string }> } | null>(null)
+function openFontPicker(row: { script: string, label: string }): void {
+  const pool = poolRows.value.find(entry => entry.script === row.script)
+  if (!pool) return
+  fontPicker.value = { script: row.script, label: row.label, faces: freeFaces(pool).map(face => ({ id: face.id, label: face.label })) }
+}
+function chooseFont(fontId: string): void {
+  const target = fontPicker.value
+  if (!target) return
+  // The pool's own add rule: a face the manifest does not list for this script is refused.
+  addPoolFont(target.script, fontId)
+  fontPicker.value = null
+}
 </script>

@@ -110,8 +110,10 @@ test('nothing is published unless it was approved, and posting that is off is sa
 test('the page keeps the owner rules visible: batches, characters, and a live model choice', () => {
   assert.match(page, /Write a batch|Describe a batch/)
   assert.match(page, /Characters/)
-  // A model is never assumed: the image picker starts on a "choose" option and is refused server-side.
-  assert.match(page, /Choose a live Gateway model/)
+  // A model is never assumed: the shared image picker starts on its "pick one" label, nothing is
+  // drawn until a model is really selected, and the server refuses a render without one.
+  assert.match(page, /Pick an image model…/)
+  assert.match(page, /const canDraw = computed\(\(\) => !!imageModelChoice\.value\)/)
   // The words are burned in by our renderer, and the page says so.
   assert.match(page, /never drawn by/)
   assert.doesNotMatch(page, /window\.confirm/)

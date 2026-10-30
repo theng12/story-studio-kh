@@ -17,15 +17,14 @@
           <input v-model.number="count" class="input" type="number" min="1" max="40">
         </label>
       </div>
-      <label class="sp-field sp-model">
-        <span class="sp-label">Writing model</span>
-        <select v-model="preset.writing_model" class="select">
-          <option :value="null">This Mac's default writing model</option>
-          <option v-for="model in writingModels" :key="model.id" :value="model.id" :disabled="!model.available">
-            {{ model.label }}{{ model.available ? '' : ' (unavailable)' }}
-          </option>
-        </select>
-      </label>
+      <div class="sp-model">
+        <ModelSelector
+          v-model="writingModelChoice"
+          :project-slug="slug"
+          label="Writing model"
+          writing-step
+        />
+      </div>
       <div class="sp-row">
         <button type="button" class="btn btn-primary" :disabled="!canWrite || writing" @click="writeBatch">
           {{ writing ? 'Writing…' : `Write ${count} post${count === 1 ? '' : 's'}` }}
@@ -40,7 +39,5 @@
 <script setup lang="ts">
 import { useStillPosts } from '../../composables/useStillPostsWorkspace'
 
-const {
-  brief, count, writing, writeError, writeJob, writeBatch, canWrite, activeJobLine, preset, writingModels,
-} = useStillPosts()
+const { slug, brief, count, writing, writeError, writeJob, writeBatch, canWrite, activeJobLine, writingModelChoice } = useStillPosts()
 </script>

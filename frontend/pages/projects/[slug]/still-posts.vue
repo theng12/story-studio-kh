@@ -173,6 +173,72 @@ onMounted(() => {
 .sp-preview-panel { display: flex; flex-direction: column; gap: 4px; }
 .sp-preview-image { width: 100%; border-radius: 10px; display: block; }
 
+/* Visual pickers: a chosen sample stays on the page, a popup lists the cards */
+.sp-visual-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin: 10px 0 4px; }
+.sp-visual-field { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.sp-visual-current { display: grid; grid-template-columns: 116px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px; text-align: left; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; }
+.sp-visual-current:hover { border-color: var(--accent); }
+.sp-visual-current > img, .sp-visual-sample { width: 116px; height: 116px; object-fit: cover; border-radius: 8px; display: block; }
+.sp-visual-noimage { display: grid; width: 116px; height: 116px; place-items: center; border-radius: 8px; background: var(--bg-tertiary); color: var(--text-secondary); font-size: var(--font-xs); text-align: center; padding: 6px; }
+.sp-visual-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.sp-visual-copy strong { font-size: 14px; }
+.sp-visual-copy span { color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.4; }
+.sp-visual-action { align-self: start; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); font-size: var(--font-xs); white-space: nowrap; }
+.sp-visual-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; padding: 14px 18px; overflow: auto; }
+.sp-visual-card { display: flex; flex-direction: column; gap: 8px; padding: 8px; text-align: left; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; }
+.sp-visual-card.is-selected { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.sp-visual-card-image { display: block; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px; background: var(--bg-tertiary); }
+.sp-visual-card-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sp-visual-card-image .sp-visual-noimage { width: 100%; height: 100%; }
+.sp-visual-card-copy { display: flex; flex-direction: column; gap: 2px; }
+.sp-visual-card-copy strong { font-size: 13px; }
+.sp-visual-card-copy span { color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.4; }
+
+/* Export frames as shapes */
+.sp-frame-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.sp-frame { display: flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font-size: var(--font-xs); }
+.sp-frame.is-on { border-color: var(--accent); color: var(--text-primary); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.sp-frame-shape { display: inline-block; border: 1.5px solid currentColor; border-radius: 2px; }
+.shape-1-1 { width: 14px; height: 14px; }
+.shape-9-16 { width: 10px; height: 17px; }
+.shape-16-9 { width: 18px; height: 10px; }
+
+/* The drawing choice as two pictures */
+.sp-drawmode-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.sp-drawmode { display: flex; gap: 10px; padding: 9px; text-align: left; border: 1px solid var(--border); border-radius: 11px; background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; }
+.sp-drawmode.is-selected { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.sp-drawmode-art { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.sp-drawmode-source { display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-tertiary); font-size: var(--font-xs); font-weight: 700; }
+.sp-drawmode-source.is-many { border-radius: 5px; box-shadow: 3px 3px 0 -1px var(--bg-tertiary), 3px 3px 0 0 var(--border); }
+.sp-drawmode-frames { display: flex; align-items: center; gap: 4px; color: var(--text-secondary); }
+.sp-drawmode-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.sp-drawmode-copy strong { font-size: var(--font-xs); }
+.sp-drawmode-copy span { color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.35; }
+
+/* Font samples */
+.sp-font-sample { display: block; width: 100%; overflow: hidden; border-radius: 7px; background: #14161d; }
+.sp-font-sample img { display: block; width: 100%; height: auto; }
+.sp-font-sample-fallback { display: grid; min-height: 34px; place-items: center; padding: 4px 8px; color: var(--text-secondary); font-size: var(--font-xs); text-align: center; }
+.sp-font-name { display: block; margin-top: 3px; color: var(--text-secondary); font-size: var(--font-xs); overflow-wrap: anywhere; }
+.sp-pool-row-visual { align-items: flex-start; }
+.sp-pool-row-visual .sp-pool-face { flex: 1 1 220px; min-width: 0; }
+.sp-font-grid { display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; overflow: auto; }
+.sp-font-card { display: grid; grid-template-columns: minmax(0, 1fr) 140px; align-items: center; gap: 12px; padding: 8px 10px; text-align: left; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; }
+.sp-font-card:hover { border-color: var(--accent); }
+
+/* Placement as a diagram */
+.sp-pos-grid { display: grid; grid-template-columns: repeat(3, 34px); grid-auto-rows: 26px; gap: 3px; padding: 6px; width: fit-content; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
+.sp-pos-cell { position: relative; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 4px; background: var(--bg-secondary); cursor: pointer; }
+.sp-pos-cell.is-blank { visibility: hidden; }
+.sp-pos-cell.is-selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.sp-pos-mark { width: 12px; height: 5px; border-radius: 2px; background: currentColor; opacity: .75; }
+
+/* Logo picked as a file */
+.sp-logo-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.sp-logo-preview { width: 64px; height: 64px; object-fit: contain; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-tertiary); }
+.sp-logo-placeholder { display: grid; width: 64px; height: 64px; place-items: center; border: 1px dashed var(--border); border-radius: 8px; color: var(--text-secondary); font-size: var(--font-xs); text-align: center; }
+.sp-logo-controls { display: flex; min-width: 0; flex: 1 1 260px; flex-direction: column; gap: 5px; }
+
 /* Review — the board, its filters and the lightbox */
 .sp-review-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .sp-review-filters { display: flex; gap: 6px; flex-wrap: wrap; }

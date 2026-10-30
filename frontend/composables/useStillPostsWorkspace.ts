@@ -11,6 +11,7 @@ import { useJobs } from './useJobs'
 import { useConfirm } from './useConfirm'
 import type { Job } from './useJobs'
 import { describeImageBatchEstimate, type PricedImageModel } from '../utils/genstudio-credit-cost'
+import { emptyDefaultModels, normalizeDefaultModels } from '../utils/live-genstudio-model-selection'
 import {
   emptyFontPool,
   normaliseFontPools,
@@ -96,7 +97,15 @@ export interface StillPostsWorkspaceData {
   config: { character_ids: string[], logo_path: string | null, handle: string | null, logo_ready: boolean }
   characters: Array<{ id: string, name: string, description: string, has_reference: boolean, reference_count: number, portrait_url: string | null }>
   formats: Array<{ id: string, name: string, description: string, lettering: { fonts: Record<string, string> } }>
-  options: Array<{ id: string, name: string, description: string, panels: 1 | 2 }>
+  /** The layout catalogue: the boxes the sample draws are the boxes the renderer uses. */
+  options: Array<{
+    id: string
+    name: string
+    description: string
+    panels: 1 | 2
+    text: Array<{ anchor: string, x_pct: number, y_pct: number, width_pct: number, height_pct: number, align: 'left' | 'center' | 'right', max_lines: number }>
+    text_background: boolean
+  }>
   /** The bundled font catalogue, read live from the manifest — only these faces can be chosen. */
   fonts: Array<{ id: string, label: string, scripts: string[], role?: string }>
   presets: Array<{ id: string, name: string, builtin: boolean, data: StillPostPresetData }>
@@ -199,6 +208,40 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
   // ── Models (live from the Gateway; nothing is chosen for the customer) ──
   const writingModels = ref<Array<{ id: string, label: string, available: boolean }>>([])
   const imageModels = ref<ImageModelRow[]>([])
+  /** Settings → Default models for this Mac: the LAST link of the chain, read only, never written back. */
+  const appDefaults = ref(emptyDefaultModels())
+
+  /**
+   * What the picking controls show. The preset's own saved model wins; with none, Settings' default
+   * fills the field for display. A value that merely EQUALS the default is never written into the
+   * preset (AGENTS §7), so a later change of default still reaches this channel.
+   */
+  const writingModelChoice = computed({
+    get: () => preset.writing_model || appDefaults.value.writing || '',
+    set: (value: string) => {
+      if (!value) { preset.writing_model = null; return }
+      if (!preset.writing_model && value === appDefaults.value.writing) return
+      preset.writing_model = value
+    },
+  })
+  const imageModelChoice = computed({
+    get: () => preset.image_model || appDefaults.value.image || '',
+    set: (value: string) => {
+      if (!value) { preset.image_model = null; return }
+      if (!preset.image_model && value === appDefaults.value.image) return
+      preset.image_model = value
+    },
+  })
+
+  /** A format's own sample picture, or the plain "no sample yet" the card shows when it is absent. */
+  function formatSampleUrl(formatId: string): string {
+    return `/still-post-formats/${encodeURIComponent(formatId)}.webp`
+  }
+  /** A face's sample line, drawn by the real renderer, in the post's own language. */
+  function fontSampleUrl(fontId: string, language: string, scale = 1): string {
+    const query = new URLSearchParams({ font_id: fontId, language, scale: String(scale) })
+    return `/api/projects/${slug.value}/still-posts/font-sample?${query.toString()}`
+  }
 
   // ── Writing and drawing ──
   const brief = ref('')
@@ -225,10 +268,11 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
   const posts = computed<StillPost[]>(() => workspace.value?.posts || [])
   const castCharacters = computed(() => (workspace.value?.characters || []).filter(character => castDraft.value.includes(character.id)))
   const canWrite = computed(() => !!workspace.value && brief.value.trim().length > 0)
-  const canDraw = computed(() => !!preset.image_model)
+  // The model actually used: the preset's, or this Mac's default when the preset names none (§7).
+  const canDraw = computed(() => !!imageModelChoice.value)
   const selected = computed(() => posts.value.find(entry => entry.id === selectedId.value) || null)
   const selectedPublish = computed(() => selected.value ? publishes.value[selected.value.id] : undefined)
-  const imageModelInfo = computed(() => imageModels.value.find(model => model.id === preset.image_model) || null)
+  const imageModelInfo = computed(() => imageModels.value.find(model => model.id === imageModelChoice.value) || null)
   const writeJob = computed(() => jobs.value.find(job => job.job_id === writeJobId.value) || null)
   const socialOn = computed(() => socialPlatforms.value.includes('facebook'))
 
@@ -340,17 +384,22 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
     return (workspace.value?.fonts || []).find(font => font.id === id)?.label || id
   }
 
+  /** Add one face to a pool. Refuses a face the manifest does not list for this script (§1). */
+  function addPoolFont(script: string, id: string): boolean {
+    if (!id) return false
+    const pool = preset.font_pools[script] || emptyFontPool()
+    if (!facesFor(script).some(face => face.id === id)) return false
+    if (pool.fonts.some(choice => choice.font_id === id)) return false
+    preset.font_pools[script] = { ...pool, fonts: [...pool.fonts, { font_id: id, weight: 100 }] }
+    return true
+  }
+
+  /** The old `<select>` wiring, kept for callers that still hand over the change event. */
   function onAddPoolFont(script: string, event: Event): void {
     const select = event.target as HTMLSelectElement
     const id = select.value
     select.value = ''
-    if (!id) return
-    const pool = preset.font_pools[script] || emptyFontPool()
-    const faces = facesFor(script)
-    // Refuse a face the manifest does not list for this script — never add it and hope.
-    if (!faces.some(face => face.id === id)) return
-    if (pool.fonts.some(choice => choice.font_id === id)) return
-    preset.font_pools[script] = { ...pool, fonts: [...pool.fonts, { font_id: id, weight: 100 }] }
+    addPoolFont(script, id)
   }
 
   function removePoolFont(script: string, index: number): void {
@@ -375,8 +424,8 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
   })
 
   const imageModelHelp = computed(() => {
-    const model = imageModels.value.find(entry => entry.id === preset.image_model)
-    if (!preset.image_model) return 'Pick a live Gateway model. Nothing is chosen for you.'
+    const model = imageModels.value.find(entry => entry.id === imageModelChoice.value)
+    if (!imageModelChoice.value) return 'Pick a live Gateway model. Nothing is chosen for you.'
     if (!model) return 'That model is not in the live catalogue right now.'
     return model.supports_reference_images
       ? `References: up to ${model.max_reference_images ?? '?'} character portrait(s).`
@@ -495,6 +544,12 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
       // Kept whole: the price fields feed the batch estimate, and capabilities drive the help text.
       imageModels.value = (Array.isArray(response.models) ? response.models : []) as ImageModelRow[]
     } catch { imageModels.value = [] }
+    try {
+      appDefaults.value = normalizeDefaultModels(await get('/app-settings/default-models', { cache: 'no-store' }))
+    } catch {
+      // An unreadable setting is "no default"; the pickers then ask for a real choice.
+      appDefaults.value = emptyDefaultModels()
+    }
   }
 
   async function saveConfig(): Promise<void> {
@@ -579,7 +634,7 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
       await post(`/projects/${slug.value}/still-posts/render`, {
         ...(batchId ? { batch_id: batchId } : {}),
         ...(postIds?.length ? { post_ids: postIds } : {}),
-        image_model: preset.image_model,
+        image_model: imageModelChoice.value,
         redraw,
         fresh_drawing_per_size: preset.fresh_drawing_per_size,
         preset: { branding: preset.branding, text_scale: preset.text_scale },
@@ -647,7 +702,8 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
     draftFormat, draftOption, imageModelHelp, letteringFontLabel,
     aspects, anchors, languages, writingModels, imageModels,
     usageModes, usageModeLabels, poolRows, freeFaces, facesForChoice, poolSummary, fontLabel,
-    onAddPoolFont, removePoolFont, percentagesFor, scriptForLanguage,
+    appDefaults, writingModelChoice, imageModelChoice, formatSampleUrl, fontSampleUrl,
+    onAddPoolFont, addPoolFont, removePoolFont, percentagesFor, scriptForLanguage,
     brief, count, writing, writeError, writeJob, writeBatch, canWrite,
     drawing, drawError, draw, canDraw, drawCost, drawingsForBatch, imageModelInfo,
     posts, selected, selectedId, selectedPublish, completePostCount, approvedCount, approvedPostIds, needsReviewCount, postState,

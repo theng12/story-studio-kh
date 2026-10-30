@@ -294,3 +294,78 @@ describe('still posts — a replaced drawing is kept under this post', () => {
     }
   })
 })
+
+describe('still posts — visual pickers, server side', () => {
+  test('a font sample is drawn by the real renderer, and a face that cannot draw the language says so', async () => {
+    const isolated = await useTempDataDir()
+    try {
+      const pm = await import('../services/project-manager.js')
+      const project = await pm.createProject({ name: 'Font samples' })
+      const { router } = await import('../routes/still-posts.js')
+      const app = express().use(express.json()).use('/api', router)
+      const fonts = await (await import('../lib/thumbnail-fonts.js')).listThumbnailFonts()
+      const latinOnly = fonts.find(font => !font.scripts.includes('khmr'))
+      const khmer = fonts.find(font => font.scripts.includes('khmr'))
+      assert.ok(latinOnly, 'a Latin-only face exists to prove the refusal')
+
+      // A real PNG, drawn by our own renderer, for a face that covers the line.
+      const drawn = await request(app)
+        .get(`/api/projects/${project.slug}/still-posts/font-sample`)
+        .query({ font_id: (khmer || fonts[0]!).id, language: khmer ? 'km' : 'en', text: 'សួស្តី' })
+      assert.equal(drawn.status, 200)
+      assert.match(String(drawn.headers['content-type']), /image\/png/)
+      assert.ok(Number(drawn.headers['content-length'] || 0) > 512, 'the sample is a real picture')
+
+      // A face that cannot draw the language is refused in words, never drawn in a substitute.
+      const refused = await request(app)
+        .get(`/api/projects/${project.slug}/still-posts/font-sample`)
+        .query({ font_id: latinOnly!.id, language: 'km', text: 'សួស្តី' })
+      assert.equal(refused.status, 400)
+      assert.match(String(refused.body.detail), /cannot draw/i)
+
+      // No font at all is a plain refusal, not an empty picture.
+      const missing = await request(app).get(`/api/projects/${project.slug}/still-posts/font-sample`)
+      assert.equal(missing.status, 400)
+    } finally {
+      await isolated.cleanup()
+    }
+  })
+
+  test('a logo is stored and read as a portable path, and the page can show it', async () => {
+    const isolated = await useTempDataDir()
+    try {
+      const pm = await import('../services/project-manager.js')
+      const project = await pm.createProject({ name: 'Logo picker' })
+      const slug = project.slug
+      const channelDir = pm.getProjectDir(slug)!
+      await fs.mkdir(`${channelDir}/assets`, { recursive: true })
+      const bytes = await artBytes('#ABCDEF')
+      await fs.writeFile(`${channelDir}/assets/logo.png`, bytes)
+
+      const { router } = await import('../routes/still-posts.js')
+      const app = express().use(express.json()).use('/api', router)
+
+      // The picker writes a portable path — never an absolute path.
+      const saved = await request(app).put(`/api/projects/${slug}/still-posts/config`)
+        .send({ logo_path: '${CHANNEL}/assets/logo.png' })
+      assert.equal(saved.status, 200)
+      assert.equal(saved.body.config.logo_path, '${CHANNEL}/assets/logo.png')
+
+      // The workspace reports it as ready, and the picture route serves exactly those bytes.
+      const workspace = await request(app).get(`/api/projects/${slug}/still-posts`)
+      assert.equal(workspace.body.config.logo_ready, true)
+      const shown = await request(app).get(`/api/projects/${slug}/still-posts/logo`)
+        .buffer(true).parse((res, done) => { const chunks: Buffer[] = []; res.on('data', (c: Buffer) => chunks.push(c)); res.on('end', () => done(null, Buffer.concat(chunks))) })
+      assert.equal(shown.status, 200)
+      assert.deepEqual(Buffer.from(shown.body), bytes)
+
+      // A path that points at nothing is refused when saved, so the field cannot lie.
+      const gone = await request(app).put(`/api/projects/${slug}/still-posts/config`)
+        .send({ logo_path: '${CHANNEL}/assets/missing.png' })
+      assert.equal(gone.status, 400)
+      assert.match(gone.body.detail, /no logo file/i)
+    } finally {
+      await isolated.cleanup()
+    }
+  })
+})
