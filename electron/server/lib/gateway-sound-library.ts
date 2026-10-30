@@ -26,7 +26,7 @@ import { createHash } from 'crypto'
 import { getGenStudioUrl } from '../services/app-settings.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { STORY_CALLER } from './machine-name.js'
-import type { SoundDesignCredit } from '../models/types.js'
+import type { SoundDesignCredit, SoundDesignCueKind } from '../models/types.js'
 
 /** What the page draws in its picker. Structurally the Gateway's search result. */
 export interface GatewaySoundResult {
@@ -263,7 +263,7 @@ export async function keepSoundInLibrary(source: string, sourceId: string): Prom
 }
 
 /** Every clip already kept in the Gateway library, so a cached pick costs no download. */
-export async function listKeptSounds(): Promise<Array<{ sha256: string; credit: SoundDesignCredit; duration_sec?: number; tags: string[] }>> {
+export async function listKeptSounds(): Promise<Array<{ sha256: string; credit: SoundDesignCredit; duration_sec?: number; kind?: SoundDesignCueKind; tags: string[] }>> {
   const body = await gatewayRequest<{ clips?: Array<Record<string, unknown>> }>('/v1/sounds/library')
   return (body?.clips || []).flatMap(clip => {
     const licence = typeof clip.licence === 'string' ? clip.licence.trim() : ''
@@ -280,6 +280,7 @@ export async function listKeptSounds(): Promise<Array<{ sha256: string; credit: 
         ...(typeof clip.title === 'string' && clip.title ? { title: clip.title } : {}),
       },
       ...(typeof clip.duration_seconds === 'number' ? { duration_sec: clip.duration_seconds } : {}),
+      ...(clip.kind === 'bed' || clip.kind === 'spot' ? { kind: clip.kind } : {}),
       // Tags describe the sound itself. Absent on rows kept before the Gateway
       // published them, so a missing list reads as "no tags", never as an error.
       tags: Array.isArray(clip.tags) ? clip.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '') : [],

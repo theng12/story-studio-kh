@@ -1038,6 +1038,7 @@ async function loadSoundCandidates(): Promise<SoundCandidate[]> {
         // (a title alone often says nothing about the sound).
         description: [clip.credit.title, clip.credit.author, clip.credit.source, ...(clip.tags || [])].filter(Boolean).join(' '),
         duration_sec: clip.duration_sec,
+        kind: clip.kind,
         credit: clip.credit,
       })
     }

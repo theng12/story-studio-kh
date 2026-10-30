@@ -127,6 +127,18 @@ test('shuffle seed produces different selections for same episode', () => {
   assert.notDeepEqual(shuffle1.map(c => c.clip), shuffle2.map(c => c.clip))
 })
 
+test('known beds cannot be placed at cuts, including pinned clips', () => {
+  const library: TransitionClip[] = [
+    { source: 'gateway', clip: 'bed', label: 'whoosh bed', tags: [], kind: 'bed' },
+    { source: 'gateway', clip: 'spot', label: 'whoosh spot', tags: [], kind: 'spot' },
+    { source: 'gateway', clip: 'old', label: 'whoosh old', tags: [] },
+  ]
+  const set = { ...DEFAULT_TRANSITION_SETS[1]!, pinned: [{ source: 'gateway' as const, clip: 'bed', label: 'whoosh bed' }] }
+  const resolved = resolveTransitionSet(set, library)
+  assert.deepEqual(resolved.clips.map(clip => clip.clip).sort(), ['old', 'spot'])
+  assert.deepEqual(resolved.missing, ['whoosh bed'])
+})
+
 test('a clip tagged sfx stays out of a cut pool unless it is pinned, and a clip tagged transition joins Mixed', () => {
   const library: TransitionClip[] = [
     { source: 'gateway', clip: 'a', label: 'A pencil writing fast on paper', tags: ['sfx', 'pencil'] },
