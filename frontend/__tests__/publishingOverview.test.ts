@@ -68,6 +68,17 @@ async function mount(options: MountOptions = {}) {
   // tag resolves to nothing, so stub it as a real anchor (class falls through) the
   // same way the sibling suites do — otherwise a.plan-link is always absent.
   app.component('NuxtLink', defineComponent({ props: ['to'], setup: (p, { slots }) => () => h('a', { href: p.to }, slots.default?.()) }))
+  // The page's heading now comes from the shared <PageTitle> (v1.4.371); the real
+  // component is auto-imported under Nuxt, so the test provides the same slots.
+  app.component('PageTitle', defineComponent({
+    props: ['title', 'eyebrow', 'description'],
+    setup: (p: any, { slots }: any) => () => h('header', [
+      p.eyebrow ? h('span', p.eyebrow) : null,
+      h('h1', p.title),
+      p.description ? h('p', p.description) : null,
+      slots.actions ? slots.actions() : null,
+    ]),
+  }))
   app.mount(host)
   await flush()
   return { host, refreshCalls, close: () => { app.unmount(); host.remove() } }

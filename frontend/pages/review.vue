@@ -16,15 +16,12 @@
   no job stream would announce.
 -->
 <template>
-  <div class="rv-page">
-    <header class="rv-head">
-      <PlainBackLink />
-      <h1 class="rv-title">Review finals</h1>
-      <p class="rv-sub">
-        Finished videos, newest first, across every channel with review on. A mark here is a
-        review note only — it does not upload, schedule or publish anything.
-      </p>
-    </header>
+  <div class="rv-page page-frame">
+    <PlainBackLink />
+    <PageTitle
+      title="Review finals"
+      description="Finished videos, newest first, across every channel with review on. A mark here is a review note only — it does not upload, schedule or publish anything."
+    />
 
     <p v-if="loadError" class="rv-alert" role="alert">{{ loadError }}</p>
 

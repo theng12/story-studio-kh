@@ -25,13 +25,12 @@ test('both application shells render one shared standing strip in their persiste
     region(dashboard, '<header class="top-bar">', '</header>'),
     /<GenStudioStandingStrip variant="inline"/,
   )
-  // Channels and Content Store: the standing band pinned directly under the
-  // titlebar, outside the scrolling page content. That layout has no sidebar,
-  // so the strip has always been on top there.
-  assert.match(
-    region(defaultLayout, '<div v-if="!signingIn" class="account-standing">', '</div>'),
-    /<GenStudioStandingStrip/,
-  )
+  // Channels and Content Store: the one shared header (v1.4.371), which the
+  // default layout renders at the top of every non-channel page. The separate
+  // account-standing band is gone, so the facts cannot be shown twice.
+  const header = readFileSync(new URL('../components/AppHeader.vue', import.meta.url), 'utf8')
+  assert.match(defaultLayout, /<AppHeader \/>/)
+  assert.match(region(header, '<div class="app-header-tools">', '</div>'), /<GenStudioStandingStrip variant="inline"/)
 
   // And nowhere else. The sidebar footer used to be its second home.
   assert.doesNotMatch(

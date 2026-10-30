@@ -400,6 +400,13 @@ export async function listNiches(registryOptions: ContentPackRegistryOptions = {
 export const GENERIC_FORMULA_LABEL = 'Generic — no Formula'
 /** No choice was ever recorded (channels made before the choice was required). */
 export const NO_FORMULA_LABEL = 'No Formula chosen'
+/**
+ * A resolved Formula whose name cannot be read — a fork whose file is gone, a
+ * pack that has been removed. Owner, 2026-10-30: a channel card must never
+ * show a raw id ("user:c0293626-…", "kh.owner.formula.…"); if the name cannot
+ * be found, say the honest thing instead.
+ */
+export const CUSTOM_FORMULA_LABEL = 'Custom Formula'
 
 export interface FormulaChoiceRow {
   niche_id?: string
@@ -464,7 +471,9 @@ export function formulaCardLabel(
   names: ReadonlyMap<string, string>,
 ): string {
   const resolved = formulaResolvedId(row)
-  if (resolved) return names.get(resolved) || String(row?.niche_id || '').trim() || NO_FORMULA_LABEL
+  // Never a stored id on a card: an id the person cannot read is a raw identifier,
+  // not a Formula name (§6, owner 2026-10-30).
+  if (resolved) return names.get(resolved) || CUSTOM_FORMULA_LABEL
   return row?.formula_choice === 'generic' ? GENERIC_FORMULA_LABEL : NO_FORMULA_LABEL
 }
 

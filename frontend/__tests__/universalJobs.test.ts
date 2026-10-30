@@ -18,7 +18,7 @@ const composable = readFileSync(
 
 describe('universal Jobs workspace', () => {
   test('offers explicit project and all-project scopes from the sidebar and page', () => {
-    assert.match(layout, /title="This channel's jobs"\s*>\s*Jobs/)
+    assert.match(layout, /title="This channel's jobs"[\s\S]{0,200}>Jobs</)
     assert.match(layout, /All Jobs/)
     assert.match(page, />This channel</)
     assert.match(page, />All channels</)

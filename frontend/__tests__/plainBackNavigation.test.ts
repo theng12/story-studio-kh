@@ -37,7 +37,9 @@ test('the back link goes back in history, else home, and sits top-left on plain 
   assert.match(link, /window\.history\.state\?\.back\) router\.back\(\)/)
   assert.match(link, /else void router\.push\(props\.fallback\)/)
   // Its own row above the header (1.4.258): inside the header it ran into the eyebrow ("← BackGENSTUDIO").
-  assert.match(source('../pages/usage.vue'), /<div class="usage-page">\s*(<!--[\s\S]*?-->\s*)?<PlainBackLink \/>\s*<header class="usage-header">/)
+  // v1.4.371 — the page's heading is the shared <PageTitle>; the back link still
+  // sits at the top left, on its own row.
+  assert.match(source('../pages/usage.vue'), /<div class="usage-page page-frame">\s*(<!--[\s\S]*?-->\s*)?<PlainBackLink \/>\s*<PageTitle/)
   assert.match(link, /\.plain-back-link \{\s*display: flex;\s*width: fit-content;/)
   assert.match(source('../pages/remote.vue'), /<header class="rm-head">\s*<PlainBackLink \/>/)
   assert.match(source('../layouts/default.vue'), /<NuxtLink to="\/" class="top-bar-brand">Story Studio KH<\/NuxtLink>/)

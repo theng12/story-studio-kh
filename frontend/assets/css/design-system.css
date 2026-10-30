@@ -24,6 +24,19 @@
   margin: 0 auto;
 }
 
+/* ONE frame for an application page (owner, 2026-10-30). Every non-channel
+   page measured itself: four widths, two alignments, two title colours. This
+   is the same width and gutter the workspace pages already use, so a wide
+   table still gets the full frame and a narrow one keeps its reading measure.
+   Compose it with <PageTitle> for the heading and the page's actions. */
+.page-frame {
+  display: grid;
+  gap: var(--workspace-section-gap);
+  width: min(100%, var(--workspace-max));
+  margin: 0 auto;
+  padding: var(--workspace-gutter);
+}
+
 .workspace-hero {
   position: relative;
   display: flex;

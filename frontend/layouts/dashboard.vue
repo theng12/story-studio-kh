@@ -48,18 +48,31 @@
           </div>
         </NuxtLink>
 
+        <!-- The one thing that stays pinned (owner, 2026-10-30): every other
+             destination is a normal row inside the scrolling list. -->
+        <NuxtLink to="/" class="sidebar-home-row" exact-active-class="active" title="Every channel">
+          <span aria-hidden="true">🏠</span>
+          <span>All Channels</span>
+        </NuxtLink>
+
         <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#channel`" class="channel-identity-card">
           <span class="channel-identity-label">Channel identity</span>
           <strong>{{ channelFormulaName }}</strong>
           <span>{{ productionPathName }}</span>
         </NuxtLink>
 
-        <nav class="sidebar-nav" aria-label="Channel workspace">
+        <nav ref="navList" class="sidebar-nav" aria-label="Channel workspace">
           <div class="nav-group">
             <span class="nav-section-label">Overview</span>
-            <NuxtLink :to="`/projects/${slug}`" class="nav-item" exact-active-class="active">Dashboard</NuxtLink>
-            <NuxtLink :to="`/projects/${slug}/pipeline`" class="nav-item" active-class="active">Pipeline</NuxtLink>
-            <NuxtLink :to="`/projects/${slug}/board`" class="nav-item" active-class="active">Production Board</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}`" class="nav-item" exact-active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">📊</span>Dashboard</span>
+            </NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/pipeline`" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">🧭</span>Pipeline</span>
+            </NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/board`" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">🗂️</span>Production Board</span>
+            </NuxtLink>
           </div>
 
           <div class="nav-group nav-workflow">
@@ -83,49 +96,75 @@
 
           <div class="nav-group">
             <span class="nav-section-label">Publish</span>
-            <NuxtLink :to="`/projects/${slug}/upload`" class="nav-item" active-class="active">YouTube Upload</NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/upload`" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">▶️</span>YouTube Upload</span>
+            </NuxtLink>
           </div>
 
           <div class="nav-group">
-            <span class="nav-section-label">Manage</span>
-            <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="nav-item" active-class="active">Channel Characters</NuxtLink>
-            <NuxtLink :to="`/projects/${slug}/effects-library`" class="nav-item" active-class="active">Effects Library</NuxtLink>
-            <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active">Presets</NuxtLink>
-            <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }" class="nav-item" active-class="active">Assets Library</NuxtLink>
-            <NuxtLink :to="`/projects/${slug}/image-pool`" class="nav-item" active-class="active">Image Pool</NuxtLink>
-          </div>
-        </nav>
-
-        <footer class="sidebar-credits" aria-label="Story Studio status">
-          <!-- Pinned, not in the scrolling list: at 1280×800 Jobs and All Channels were
-               below the fold of the workflow steps. -->
-          <nav class="sidebar-utilities" aria-label="Application utilities">
+            <span class="nav-section-label">Studio</span>
             <NuxtLink
               :to="`/projects/${slug}/jobs`"
-              class="sidebar-utility"
+              class="nav-item"
               :class="{ active: isJobsScope('project') }"
               title="This channel's jobs"
             >
-              Jobs
+              <span class="nav-item-main"><span aria-hidden="true">🛠️</span>Jobs</span>
               <span v-if="activeJobCount > 0" class="nav-badge">{{ activeJobCount }}</span>
             </NuxtLink>
             <NuxtLink
               :to="{ path: `/projects/${slug}/jobs`, query: { scope: 'all' } }"
-              class="sidebar-utility"
+              class="nav-item"
               :class="{ active: isJobsScope('all') }"
+              title="Jobs across every channel"
             >
-              All Jobs
+              <span class="nav-item-main"><span aria-hidden="true">🧾</span>All Jobs</span>
               <span v-if="allActiveJobCount > 0" class="nav-badge">{{ allActiveJobCount }}</span>
             </NuxtLink>
-            <NuxtLink to="/library" class="sidebar-utility" active-class="active">Studio Library</NuxtLink>
-            <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#free-up-space`" class="sidebar-utility">Free Up Space</NuxtLink>
-            <NuxtLink to="/trash" class="sidebar-utility" active-class="active">Trash</NuxtLink>
-            <NuxtLink v-if="slug" :to="`/projects/${slug}/settings`" class="sidebar-utility" active-class="active">Settings</NuxtLink>
-            <button v-else type="button" class="sidebar-utility" @click="appSettingsModal.open()">Settings</button>
-            <NuxtLink to="/" class="sidebar-utility all-projects-link">All Channels</NuxtLink>
-            <NuxtLink to="/publishing" class="sidebar-utility" active-class="active" title="Schedules across every channel">Publishing</NuxtLink>
-            <NuxtLink to="/review" class="sidebar-utility" active-class="active" title="Finished videos, mark them approved or needing changes">Review finals</NuxtLink>
-          </nav>
+            <NuxtLink to="/library" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">📚</span>Studio Library</span>
+            </NuxtLink>
+            <NuxtLink v-if="slug" :to="`/projects/${slug}/settings#free-up-space`" class="nav-item">
+              <span class="nav-item-main"><span aria-hidden="true">🧹</span>Free Up Space</span>
+            </NuxtLink>
+            <NuxtLink to="/trash" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">🗑️</span>Trash</span>
+            </NuxtLink>
+            <NuxtLink v-if="slug" :to="`/projects/${slug}/settings`" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">⚙️</span>Settings</span>
+            </NuxtLink>
+            <NuxtLink v-else to="/settings" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">⚙️</span>Settings</span>
+            </NuxtLink>
+            <NuxtLink to="/publishing" class="nav-item" active-class="active" title="Schedules across every channel">
+              <span class="nav-item-main"><span aria-hidden="true">📅</span>Publishing</span>
+            </NuxtLink>
+            <NuxtLink to="/review" class="nav-item" active-class="active" title="Finished videos, mark them approved or needing changes">
+              <span class="nav-item-main"><span aria-hidden="true">📺</span>Review finals</span>
+            </NuxtLink>
+          </div>
+
+          <div class="nav-group">
+            <span class="nav-section-label">Manage</span>
+            <NuxtLink :to="{ path: '/character-library', query: { channel: slug, project: slug } }" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">🎭</span>Channel Characters</span>
+            </NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/effects-library`" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">✨</span>Effects Library</span>
+            </NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/presets`" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">📋</span>Presets</span>
+            </NuxtLink>
+            <NuxtLink :to="{ path: '/broll-library', query: { project: slug } }" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">📁</span>Assets Library</span>
+            </NuxtLink>
+            <NuxtLink :to="`/projects/${slug}/image-pool`" class="nav-item" active-class="active">
+              <span class="nav-item-main"><span aria-hidden="true">🖼️</span>Image Pool</span>
+            </NuxtLink>
+          </div>
+        </nav>
+
+        <footer class="sidebar-credits" aria-label="Story Studio status">
           <div class="network-status" :class="connection.tone" role="status">
             <span class="network-dot" aria-hidden="true" />
             <span>{{ connection.label }}</span>
@@ -178,6 +217,22 @@ const slug = computed(() => (
 const mobileNavOpen = ref(false)
 const menuToggle = ref<HTMLButtonElement | null>(null)
 const sidebar = ref<HTMLElement | null>(null)
+const navList = ref<HTMLElement | null>(null)
+
+/**
+ * The row for the page you are on stays where you can see it (owner,
+ * 2026-10-30: "current page kept in view"). The list scrolls; this brings the
+ * active row fully into it without moving anything else, and the CSS
+ * `scroll-margin-block` keeps it clear of the card above the list.
+ */
+function keepActiveRowInView() {
+  const nav = navList.value
+  if (!nav) return
+  const active = nav.querySelector<HTMLElement>('.nav-item.active')
+  active?.scrollIntoView({ block: 'nearest' })
+}
+onMounted(() => nextTick(keepActiveRowInView))
+watch(() => route.fullPath, () => nextTick(keepActiveRowInView))
 
 const { project, loadProject, clearProject } = useProject()
 const projectLoadError = ref('')
@@ -190,7 +245,6 @@ const { public: pubCfg } = useRuntimeConfig()
 const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
 const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
 const whatsNewModal = useWhatsNewModal()
-const appSettingsModal = useAppSettingsModal()
 function openWhatsNew(): void { whatsNewModal.open() }
 
 const visualSource = ref<VisualSource | null>(null)
@@ -433,6 +487,22 @@ onUnmounted(() => {
 .brand-name { color: var(--accent); font-size: var(--font-md); font-weight: 750; }
 .project-name { overflow: hidden; color: var(--text-secondary); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
 
+.sidebar-home-row {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 10px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: 600;
+}
+.sidebar-home-row:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sidebar-home-row.active { border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); background: var(--accent-dim); color: var(--text-primary); }
+
 .channel-identity-card {
   display: flex;
   margin: 12px 10px 4px;
@@ -457,6 +527,7 @@ onUnmounted(() => {
   gap: 14px;
   padding: 12px 8px;
   overflow-y: auto;
+  scroll-padding-block: 14px;
   scrollbar-width: thin;
 }
 .nav-group { display: grid; gap: 3px; }
@@ -481,15 +552,23 @@ onUnmounted(() => {
 }
 .nav-item {
   display: flex;
+  width: 100%;
   min-height: 38px;
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
+  background: transparent;
   color: var(--text-secondary);
+  font: inherit;
   font-size: var(--font-sm);
   font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+  /* scrollIntoView leaves this much room so the row is never half under the
+     Channel identity card above the list. */
+  scroll-margin-block: 14px;
 }
 .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-item.active { border-color: color-mix(in srgb, var(--accent) 34%, transparent); background: var(--accent-dim); color: var(--text-primary); }
@@ -510,27 +589,6 @@ onUnmounted(() => {
   padding: 10px;
   border-top: 1px solid var(--border);
 }
-.sidebar-utilities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.sidebar-utility {
-  display: inline-flex;
-  min-height: 34px;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--font-xs);
-  gap: 6px;
-  cursor: pointer;
-}
-.sidebar-utility { white-space: nowrap; }
-.sidebar-utility .nav-badge { min-width: 18px; padding: 0 5px; }
-.all-projects-link { color: var(--text-primary); }
-.sidebar-utility:hover, .sidebar-utility.active { border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); background: var(--bg-hover); color: var(--text-primary); }
-.sidebar-utility:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .network-status {
   display: flex;
   min-height: 32px;

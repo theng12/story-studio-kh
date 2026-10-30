@@ -1,14 +1,15 @@
 <template>
-  <div class="trash-page">
+  <div class="trash-page page-frame">
     <PlainBackLink />
-    <header class="trash-header">
-      <div>
-        <span class="eyebrow">Story Studio</span>
-        <h1>Trash</h1>
-        <p>Everything Story Studio removes, from every channel, waits here. Nothing in it is used. Restore puts an item back where it was; the space comes back when you delete items permanently. Only you can do that; Story Studio and its agents never do.</p>
-      </div>
-      <button class="btn btn-secondary btn-sm" :disabled="loading" @click="load">{{ loading ? 'Measuring…' : 'Refresh' }}</button>
-    </header>
+    <PageTitle
+      eyebrow="Story Studio"
+      title="Trash"
+      description="Everything Story Studio removes, from every channel, waits here. Nothing in it is used. Restore puts an item back where it was; the space comes back when you delete items permanently. Only you can do that; Story Studio and its agents never do."
+    >
+      <template #actions>
+        <button class="btn btn-secondary btn-sm" :disabled="loading" @click="load">{{ loading ? 'Measuring…' : 'Refresh' }}</button>
+      </template>
+    </PageTitle>
 
     <p v-if="error" class="trash-error" role="alert">{{ error }}</p>
     <p v-if="notice" class="trash-notice" role="status">{{ notice }}</p>

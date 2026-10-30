@@ -65,12 +65,16 @@ function vueFiles(dir: string): string[] {
 }
 
 describe('the titlebar strip reserves the traffic lights', () => {
-  const layout = source('layouts/default.vue')
-  const css = stripComments(layout)
+  // v1.4.371 — the strip and the version chip moved into ONE shared header
+  // (components/AppHeader.vue) that every non-channel page renders. The rule
+  // under test is unchanged; only the file that owns it changed.
+  const header = source('components/AppHeader.vue')
+  const css = stripComments(header)
 
   test('the top bar is sticky, because that is what keeps the strip at the top', () => {
-    const bar = rules(css).find(([selector]) => selector === '.top-bar')
-    assert.ok(bar, '.top-bar has no style rule in layouts/default.vue')
+    // The first rule in the style block carries the tag before it, so match on the end.
+    const bar = rules(css).find(([selector]) => selector.endsWith('.app-header'))
+    assert.ok(bar, '.app-header has no style rule in components/AppHeader.vue')
     assert.match(bar![1], /position:\s*sticky/,
       'the top bar must be sticky: it is the strip that keeps the page content clear of the '
       + "window's traffic lights, which are OS chrome and cannot move")
@@ -79,20 +83,25 @@ describe('the titlebar strip reserves the traffic lights', () => {
   test('the top bar does not also declare a position that would override it', () => {
     // The exact defect: a second `position` in the same rule wins, and the minifier drops the
     // first — so the reserved strip scrolls away and the logo lands under the traffic lights.
-    const bar = rules(css).find(([selector]) => selector === '.top-bar')!
+    const bar = rules(css).find(([selector]) => selector.endsWith('.app-header'))!
     const declared = [...bar[1].matchAll(/position:\s*([a-z-]+)/g)].map(m => m[1])
     assert.equal(declared.length, 1,
-      `.top-bar declares position ${declared.length} times (${declared.join(', ')}); only the last `
+      `.app-header declares position ${declared.length} times (${declared.join(', ')}); only the last `
       + 'one takes effect, so the others are dead code that reads as if it works')
     assert.equal(declared[0], 'sticky')
   })
 
-  test('the version chip still has a positioned ancestor to resolve against', () => {
-    // `sticky` is a positioned value, so removing `relative` did not orphan the absolute chip.
-    const chip = rules(css).find(([selector]) => selector === '.top-bar-version')!
-    assert.match(chip[1], /position:\s*absolute/)
-    assert.match(css, /\.top-bar\s*\{[^}]*position:\s*sticky/,
-      'the chip is absolutely positioned, so its containing block must remain positioned')
+  test('the version chip is inside that sticky bar', () => {
+    // The chip needs no absolute positioning any more: it sits in the bar's
+    // right-hand cluster, so it scrolls with the bar and cannot outlive it.
+    assert.match(header, /class="app-header-tools"[\s\S]{0,600}version-badge/,
+      'the version chip lives in the header bar itself')
+    assert.match(css, /\.app-header\s*\{[^}]*position:\s*sticky/)
+  })
+
+  test('the bar keeps clear of the traffic lights', () => {
+    assert.match(css, /\.app-header-bar\s*\{[^}]*padding:[^;]*84px/,
+      'the left padding is the reserved strip the hidden-inset traffic lights sit in')
   })
 })
 

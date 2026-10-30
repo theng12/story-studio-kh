@@ -11,7 +11,7 @@ test('the Trash page lists totals per channel and per kind, items with Restore, 
   assert.match(page, /<h2>By channel<\/h2>/)
   assert.match(page, /<h2>By kind<\/h2>/)
   assert.match(page, /post<\{ restored_to: string \}>\('\/trash\/restore', \{ id: item\.id \}\)/)
-  assert.match(layout, /<NuxtLink to="\/trash" class="sidebar-utility"/)
+  assert.match(layout, /<NuxtLink to="\/trash" class="nav-item"/, 'Trash is an ordinary sidebar row (v1.4.371)')
 })
 
 test('Empty Trash is retired (2026-10-16): the page never calls /trash/empty; Delete all permanently replaces it', () => {

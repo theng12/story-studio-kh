@@ -42,20 +42,23 @@ test('dashboard and channel identity offer honest first actions', () => {
   assert.match(banner, /grid-column: 1 \/ -1/)
 })
 
-test('sidebar keeps the Studio Library and Settings in its fixed utility footer', () => {
+test('the sidebar reaches the Studio Library and Settings as ordinary rows (v1.4.371)', () => {
+  // Owner, 2026-10-30: only All Channels stays pinned; every other destination
+  // is a normal row in its own section after Publish. The old footer grid is
+  // gone, so these must be reachable from the scrolling list.
   const layout = source('../layouts/dashboard.vue')
-  const manageStart = layout.indexOf('<span class="nav-section-label">Manage</span>')
-  const manageEnd = layout.indexOf('</div>', manageStart)
+  const navStart = layout.indexOf('<nav ref="navList" class="sidebar-nav"')
+  const navEnd = layout.indexOf('</nav>', navStart)
+  const nav = layout.slice(navStart, navEnd)
   const footerStart = layout.indexOf('<footer class="sidebar-credits"')
   const footerEnd = layout.indexOf('</footer>', footerStart)
-  const manage = layout.slice(manageStart, manageEnd)
   const footer = layout.slice(footerStart, footerEnd)
 
-  assert.doesNotMatch(manage, />Studio Library</)
-  assert.doesNotMatch(manage, />Settings</)
-  assert.match(footer, /to="\/library"[^>]*>Studio Library</)
-  assert.match(footer, /\/projects\/\$\{slug\}\/settings/)
-  assert.match(footer, /v-else type="button"[^>]*appSettingsModal\.open\(\)/)
+  assert.match(nav, /to="\/library"[\s\S]{0,80}Studio Library/)
+  assert.match(nav, /\/projects\/\$\{slug\}\/settings`[^>]*class="nav-item"/)
+  assert.match(nav, /to="\/settings"[^>]*class="nav-item"/, 'no channel: Settings is the page')
+  assert.doesNotMatch(nav, /appSettingsModal\.open\(\)/, 'the list no longer opens a popup')
+  assert.doesNotMatch(footer, /Studio Library|Free Up Space|>Trash</, 'the footer is status and version only')
 })
 
 test('an empty LLM catalog distinguishes missing setup from a search miss', () => {

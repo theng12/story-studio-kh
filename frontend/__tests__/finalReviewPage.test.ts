@@ -109,6 +109,17 @@ async function mount(list: ListFixture, postResult?: any) {
     props: ['to'],
     setup: (props: any, { slots }: any) => () => h('a', { href: props.to }, slots.default?.()),
   }))
+  // The page's heading now comes from the shared <PageTitle> (v1.4.371); the real
+  // component is auto-imported under Nuxt, so the test provides the same slots.
+  app.component('PageTitle', defineComponent({
+    props: ['title', 'eyebrow', 'description'],
+    setup: (p: any, { slots }: any) => () => h('header', [
+      p.eyebrow ? h('span', p.eyebrow) : null,
+      h('h1', p.title),
+      p.description ? h('p', p.description) : null,
+      slots.actions ? slots.actions() : null,
+    ]),
+  }))
   app.mount(host)
   await flush()
   return { host, app, calls }

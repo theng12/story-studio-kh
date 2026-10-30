@@ -103,7 +103,7 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
   assert.match(usage, /v-if="snapshot\?\.overview\.app_links\?\.billing"/)
   assert.doesNotMatch(usage, /will link directly|localhost.*billing|GenStudioUrl/i)
   assert.doesNotMatch(usage, /Current plan|Manage plan · coming soon/)
-  assert.match(usage, /<div class="usage-page">\s*(<!--[\s\S]*?-->\s*)?<PlainBackLink \/>\s*<header class="usage-header">/, 'the back link sits at the top left, on its own row')
+  assert.match(usage, /<div class="usage-page page-frame">\s*(<!--[\s\S]*?-->\s*)?<PlainBackLink \/>\s*<PageTitle/, 'the back link sits at the top left, on its own row')
   assert.doesNotMatch(usage, /Back to Projects/)
   assert.doesNotMatch(usage, /<small>\{\{\s*job\.model_id\s*\}\}<\/small>/)
   // voice_tier is published metadata carried beside the job for history —

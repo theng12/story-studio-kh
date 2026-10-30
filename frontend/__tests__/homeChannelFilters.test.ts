@@ -251,11 +251,11 @@ describe('the channel list can be searched, filtered and sorted', () => {
     const h = await mountHome()
     await h.type('sleep')
     assert.deepEqual(h.titles(), ['Sleep Stories', 'Khmer Sleep'])
-    assert.match(h.host.querySelector('.channel-list-header')!.textContent!, /2 of 4 channels/)
+    assert.match(h.host.querySelector('.channels-head')!.textContent!, /2 of 4 channels/)
 
     await h.type('')
     assert.equal(h.titles().length, 4)
-    assert.match(h.host.querySelector('.channel-list-header')!.textContent!, /4 channels/)
+    assert.match(h.host.querySelector('.channels-head')!.textContent!, /4 channels/)
   })
 
   test('KHMER text finds Khmer channels, with or without the zero-width characters a paste carries', async () => {
@@ -444,11 +444,20 @@ describe('labelling a channel from its card', () => {
     assert.equal(h.labelsAction('Animals Explained').textContent, 'Labels', 'nothing changed on the card')
   })
 
-  test('the card stays one link, with the labels action outside it', async () => {
+  test('the card stays one link, with Edit profile and Labels as its own action row', async () => {
     const h = await mountHome()
     const card = h.host.querySelector('a[href="/projects/khmer-history"]') as HTMLElement
     assert.equal(card.querySelectorAll('button, a').length, 0, 'a link inside a link is a trap')
-    assert.equal(card.querySelectorAll('.project-tag').length, 2,
-      'two labels; the language "Khmer" is not repeated beside the "Khmer" label')
+
+    // v1.4.371 — the card body carries the Formula and (unless a label already
+    // says it) the language; the labels themselves live in the card's action
+    // row, where you label channels in a row and compare them.
+    const facts = card.querySelector('.project-facts')!
+    assert.ok(facts, 'the Formula and language sit on one line')
+    assert.equal(card.querySelectorAll('.project-tag[data-kind="language"]').length, 0,
+      'the Khmer channel is labelled "Khmer", so the language is not repeated')
+    const wrap = card.closest('.project-card-wrap') as HTMLElement
+    assert.match(wrap.querySelector('.project-card-actions')!.textContent || '', /Edit profile/)
+    assert.equal(h.labelsAction('Khmer History').textContent, 'Labels · 2')
   })
 })

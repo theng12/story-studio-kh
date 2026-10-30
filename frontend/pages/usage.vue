@@ -1,14 +1,13 @@
 <template>
-  <div class="usage-page">
+  <div class="usage-page page-frame">
     <!-- Its own row, top-left, above everything: it used to share a line with the eyebrow ("← BackGENSTUDIO"). -->
     <PlainBackLink />
-    <header class="usage-header">
-      <div>
-        <span class="eyebrow">Gateway</span>
-        <h1>Usage</h1>
-        <p>Credits and recent work, exactly as your Gateway reports them. Story Studio does not calculate rates or balances.</p>
-      </div>
-      <div class="usage-actions">
+    <PageTitle
+      eyebrow="Gateway"
+      title="Usage"
+      description="Credits and recent work, exactly as your Gateway reports them. Story Studio does not calculate rates or balances."
+    >
+      <template #actions>
         <a
           v-if="snapshot?.overview.app_links?.billing"
           class="btn btn-secondary btn-sm"
@@ -17,8 +16,8 @@
           rel="noopener noreferrer"
         >Buy Credits</a>
         <button class="btn btn-secondary btn-sm" :disabled="loading" @click="load">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
-      </div>
-    </header>
+      </template>
+    </PageTitle>
 
     <p v-if="loading && !snapshot && !error" class="empty" role="status">Loading usage from your Gateway…</p>
 

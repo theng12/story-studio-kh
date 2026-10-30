@@ -66,7 +66,9 @@ const reachableRoutes = [
 describe('feature help center', () => {
   test('is available in project and project-selection layouts', () => {
     assert.match(dashboardLayout, /<FeatureHelpCenter\s*\/>/)
-    assert.match(defaultLayout, /<FeatureHelpCenter\s*\/>/)
+    // v1.4.371 — the non-channel layout renders the one shared header, which owns it.
+    assert.match(defaultLayout, /<AppHeader\s*\/>/)
+    assert.match(readFileSync(new URL('../components/AppHeader.vue', import.meta.url), 'utf8'), /<FeatureHelpCenter\s*\/>/)
   })
 
   test('provides an accessible searchable page guide', () => {

@@ -1,23 +1,18 @@
 <template>
-  <div class="publishing-page">
+  <div class="publishing-page page-frame">
     <PlainBackLink />
-    <header class="publishing-header">
-      <div class="publishing-title">
-        <span class="eyebrow">Publishing</span>
-        <h1>Publishing Overview</h1>
-        <p>
-          Every channel in one place: what YouTube has <em>confirmed</em>, what Story Studio
-          <em>plans</em>, and which channel needs you next. A local plan never covers a confirmed gap —
-          a channel whose next slot YouTube has not confirmed reads as at risk.
-        </p>
-      </div>
-      <div class="publishing-actions">
+    <PageTitle
+      eyebrow="Publishing"
+      title="Publishing Overview"
+      description="Every channel in one place: what YouTube has confirmed, what Story Studio plans, and which channel needs you next. A local plan never covers a confirmed gap — a channel whose next slot YouTube has not confirmed reads as at risk."
+    >
+      <template #actions>
         <span v-if="generatedAt" class="publishing-generated">Overview updated {{ generatedAt }}</span>
         <button class="btn btn-secondary btn-sm" :disabled="refreshing" @click="refresh">
           {{ refreshing ? 'Checking YouTube…' : 'Check YouTube Now' }}
         </button>
-      </div>
-    </header>
+      </template>
+    </PageTitle>
 
     <p v-if="loading && !overview" class="empty" role="status">Loading the publishing overview…</p>
 

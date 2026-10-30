@@ -175,7 +175,7 @@ describe('the page itself', () => {
 
   test('the sidebar and the Presets page reach it', () => {
     const layout = fs.readFileSync(new URL('../layouts/dashboard.vue', import.meta.url), 'utf-8')
-    assert.match(layout, /effects-library`[^>]*>Effects Library</)
+    assert.match(layout, /effects-library`[^>]*>[\s\S]{0,120}Effects Library</)
     const presets = fs.readFileSync(new URL('../pages/projects/[slug]/presets.vue', import.meta.url), 'utf-8')
     assert.match(presets, /configKey: 'effect_stack'/)
   })

@@ -1,37 +1,7 @@
 <template>
-  <div class="home-page">
-    <header class="home-header">
-      <NuxtLink to="/" class="home-brand" aria-label="Story Studio home">
-        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="12" cy="12" r="10" stroke="var(--accent)" stroke-width="1.5" />
-          <path d="M15.5 12a5.5 5.5 0 0 1-9 4.24A7 7 0 0 0 12 5a5.5 5.5 0 0 1 3.5 7Z" fill="var(--accent)" opacity=".65" />
-        </svg>
-        <span>
-          <strong>Story Studio KH</strong>
-          <small>Channels and production</small>
-        </span>
-      </NuxtLink>
-
-      <nav class="home-actions" aria-label="Application">
-        <NuxtLink to="/publishing" class="home-action">Publishing</NuxtLink>
-        <NuxtLink to="/review" class="home-action">Review</NuxtLink>
-        <NuxtLink to="/library" class="home-action">Studio Library</NuxtLink>
-        <NuxtLink to="/usage" class="home-action">Usage</NuxtLink>
-        <NuxtLink to="/trash" class="home-action">Trash</NuxtLink>
-        <button type="button" class="home-action" @click="appSettingsModal.open()">Settings</button>
-      </nav>
-    </header>
+  <div class="home-page page-frame">
 
     <main class="home-main">
-      <section class="home-intro" aria-labelledby="home-title">
-        <div>
-          <span class="home-eyebrow">Production workspace</span>
-          <h1 id="home-title">Your channels</h1>
-          <p>Open a channel to continue production, or create a clean workspace for a new series.</p>
-        </div>
-        <button type="button" class="btn btn-primary home-create" @click="openCreate">New Channel</button>
-      </section>
-
       <section v-if="loading && projects.length === 0" class="home-state" aria-live="polite">
         <LoadingSpinner size="sm" />
         <p>Loading channels…</p>
@@ -74,16 +44,69 @@
       </section>
 
       <section v-if="projects.length" aria-labelledby="channels-heading">
-        <div class="channel-list-header">
-          <h2 id="channels-heading">Channels</h2>
-          <!-- The count says "N of M" the moment anything is filtered away. A
-               number that silently means "what you can see" is how someone
-               concludes the app has lost a channel. -->
-          <span>{{ channelCountLine }}</span>
-          <!-- Deliberately quiet, and deliberately not a spinner over the list.
-               The rows are usable while this is up; the only thing it changes is
-               that a slow read is visible instead of invisible. -->
-          <span v-if="refreshingChannels" class="channel-refreshing" aria-live="polite">Refreshing…</span>
+        <!-- One line: the title, how many channels it means, and the controls
+             that change what you see (owner, 2026-10-30: "a small title and
+             count share one line with search, sort, a Cards / List switch and
+             New Channel"). The old "Production workspace / Your channels" block
+             is gone; it said nothing the list did not say. -->
+        <div class="channels-head">
+          <div class="channels-head-title">
+            <h1 id="channels-heading">Channels</h1>
+            <span class="channels-count">{{ channelCountLine }}</span>
+            <span v-if="refreshingChannels" class="channel-refreshing" aria-live="polite">Refreshing…</span>
+          </div>
+          <div class="channel-tools">
+            <div class="channel-search">
+              <svg class="channel-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.8" />
+                <path d="m15.5 15.5 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+              <input
+                id="channel-search"
+                ref="searchInput"
+                v-model="search"
+                class="channel-search-field"
+                type="search"
+                placeholder="Search channels"
+                aria-label="Search channels by name, label, Formula or language"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <kbd v-if="!search" class="channel-search-key" aria-hidden="true">/</kbd>
+              <button v-else type="button" class="channel-search-clear" aria-label="Clear the search" @click="search = ''">&times;</button>
+            </div>
+            <label class="channel-sort" for="channel-sort" :title="CHANNEL_SORT_HINTS[sort]">
+              <span>Sort</span>
+              <select id="channel-sort" v-model="sort" class="input channel-sort-select" :title="CHANNEL_SORT_HINTS[sort]">
+                <option v-for="option in CHANNEL_SORTS" :key="option" :value="option">
+                  {{ CHANNEL_SORT_LABELS[option] }}
+                </option>
+              </select>
+            </label>
+            <div class="channel-view-switch" role="group" aria-label="How channels are shown">
+              <button
+                type="button"
+                class="channel-view-button"
+                :class="{ active: viewMode === 'cards' }"
+                :aria-pressed="viewMode === 'cards'"
+                title="Show channels as cards"
+                @click="viewMode = 'cards'"
+              >
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="9" y="9" width="5.5" height="5.5" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+              </button>
+              <button
+                type="button"
+                class="channel-view-button"
+                :class="{ active: viewMode === 'list' }"
+                :aria-pressed="viewMode === 'list'"
+                title="Show channels as a list"
+                @click="viewMode = 'list'"
+              >
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1.5" y="2" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="1.5" y="6.5" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/><rect x="1.5" y="11" width="13" height="3" rx="1" stroke="currentColor" stroke-width="1.3"/></svg>
+              </button>
+            </div>
+            <button type="button" class="btn btn-primary channels-new" @click="openCreate">New Channel</button>
+          </div>
         </div>
 
         <p v-if="showingUnconfirmedChannels" class="channel-stale-notice" role="status">
@@ -101,53 +124,6 @@
             </NuxtLink>
           </span>
         </p>
-
-        <!-- Finding a channel among two dozen. The search reads the card, not
-             the disk: it matches the name, the labels, the Series Formula, the
-             episode prefix and the audience language — the things each card
-             already says, so every result has a visible reason for being in it. -->
-        <div class="channel-tools">
-          <div class="channel-search">
-            <svg class="channel-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.8" />
-              <path d="m15.5 15.5 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-            </svg>
-            <input
-              id="channel-search"
-              ref="searchInput"
-              v-model="search"
-              class="channel-search-field"
-              type="search"
-              placeholder="Search channels"
-              aria-label="Search channels by name, label, Formula or language"
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <!-- The shortcut is advertised on the control it works on, and the
-                 slot changes to a clear button as soon as there is something to
-                 clear — one slot, one job at a time. -->
-            <kbd v-if="!search" class="channel-search-key" aria-hidden="true">/</kbd>
-            <button
-              v-else
-              type="button"
-              class="channel-search-clear"
-              aria-label="Clear the search"
-              @click="search = ''"
-            >&times;</button>
-          </div>
-          <!-- The tooltip says what the chosen sort actually measures. "Recently
-               worked on" is measured through the episode tree, not by the
-               channel folder's own timestamp, and a person cannot see that from
-               the label alone. -->
-          <label class="channel-sort" for="channel-sort" :title="CHANNEL_SORT_HINTS[sort]">
-            <span>Sort</span>
-            <select id="channel-sort" v-model="sort" class="input channel-sort-select" :title="CHANNEL_SORT_HINTS[sort]">
-              <option v-for="option in CHANNEL_SORTS" :key="option" :value="option">
-                {{ CHANNEL_SORT_LABELS[option] }}
-              </option>
-            </select>
-          </label>
-        </div>
 
         <!-- Labels, with how many channels each one would leave. The counts are
              read over the channels the search currently matches, so a chip never
@@ -179,6 +155,47 @@
           <h3>No channels match</h3>
           <p>{{ noMatchLine }}</p>
           <button type="button" class="btn btn-primary" @click="clearFilters">Clear search and labels</button>
+        </div>
+
+        <!-- List view: one compact row per channel. The row itself opens the
+             channel; the lesser columns drop at narrow widths so the ones that
+             decide anything (name, Formula, being made now) are never squeezed
+             out. -->
+        <div v-else-if="viewMode === 'list'" class="project-list" role="list">
+          <div v-for="project in visibleProjects" :key="`list-${String(project.slug || project.name)}`" class="project-row" role="listitem">
+            <NuxtLink
+              v-if="projectHref(project)"
+              :to="projectHref(project)"
+              class="project-row-main"
+              :aria-label="`Open ${project.name || project.slug}`"
+            >
+              <span class="project-row-mark" aria-hidden="true">
+                <img v-if="logoUrl(project)" :src="logoUrl(project)" alt="" @error="markArtFailed(project, 'logo', logoUrl(project))" />
+                <template v-else>{{ projectInitials(project) }}</template>
+              </span>
+              <span class="project-row-name">{{ project.name || project.slug }}</span>
+              <span class="project-row-fact" :title="formulaLabel(project) || undefined">{{ formulaLabel(project) }}</span>
+              <span class="project-row-fact project-row-language">{{ cardLanguage(project) || '—' }}</span>
+              <span class="project-row-stats">
+                <template v-for="(part, i) in (countsView(project)?.parts || [])" :key="i">
+                  <span v-if="i > 0" aria-hidden="true"> · </span>
+                  <span :class="{ 'project-counts-warn': part.warn }">{{ part.text }}</span>
+                </template>
+              </span>
+              <span
+                v-if="isFolderUnreadable(project) || project.output_root_exists === false"
+                class="project-row-key"
+                data-ready="false"
+              >{{ isFolderUnreadable(project) ? 'Can’t read this channel’s folder' : 'Folder missing' }}</span>
+              <span v-else class="project-row-key" :data-ready="Boolean(project.has_api_keys)">
+                {{ project.has_api_keys ? 'Key connected' : 'Needs Gateway API Key' }}
+              </span>
+            </NuxtLink>
+            <div class="project-row-actions">
+              <NuxtLink class="project-edit" :to="`/projects/${projectSlug(project.slug)}/settings#identity`">Edit profile</NuxtLink>
+              <button type="button" class="project-edit project-label-action" @click="openLabels(project)">{{ labelActionText(project) }}</button>
+            </div>
+          </div>
         </div>
 
         <div v-else class="project-grid">
@@ -224,13 +241,18 @@
                      owner's labels, and the audience language when it has one.
                      Both are what the search box reads, so a match always has
                      something on the card to point at. -->
-                <span v-if="cardTags(project).length" class="project-tags">
-                  <span
-                    v-for="tag in cardTags(project)"
-                    :key="tag.text"
-                    class="project-tag"
-                    :data-kind="tag.kind"
-                  >{{ tag.text }}</span>
+                <!-- Formula and language on one line, the Formula truncating
+                     with its full name on hover (owner, 2026-10-30). Labels live
+                     in the card's own action row, where you label channels in a
+                     row and compare them. -->
+                <span class="project-facts">
+                  <!-- No name means the row's metadata could not be read (a timed-out
+                       folder). That says nothing about its Formula, so nothing is shown
+                       rather than an invented "No Formula chosen" (§6). -->
+                  <span v-if="formulaLabel(project)" class="project-tag project-formula" data-kind="formula" :title="formulaLabel(project)">{{ formulaLabel(project) }}</span>
+                  <!-- The language is skipped when a label already says it: saying
+                       "Khmer" twice is noise, not a second fact. -->
+                  <span v-if="cardLanguage(project)" class="project-tag project-language" data-kind="language">{{ cardLanguage(project) }}</span>
                 </span>
                 <span v-if="isFolderUnreadable(project)" class="project-missing-path">
                   This folder did not answer in time. Check that its drive is connected, then reload.
@@ -537,7 +559,6 @@ import {
 useAppTitle()
 
 const { get, post, put } = useApi()
-const appSettingsModal = useAppSettingsModal()
 
 /**
  * The channel list paints from the last known one, then reconciles.
@@ -673,6 +694,23 @@ const showingUnconfirmedChannels = computed(() => (
 const rememberedView = readChannelViewPrefs()
 const search = ref('')
 const sort = ref<ChannelSort>(rememberedView.sort)
+
+/**
+ * Cards or a list, remembered like the sort and the labels (owner, 2026-10-30:
+ * "a Cards / List switch (two small icons, remembered like similar choices,
+ * default cards)"). A store that cannot be read leaves the default; it never
+ * blocks the page.
+ */
+const CHANNEL_LAYOUT_KEY = 'story-studio:channels-layout:v1'
+function readLayout(): 'cards' | 'list' {
+  try {
+    return localStorage.getItem(CHANNEL_LAYOUT_KEY) === 'list' ? 'list' : 'cards'
+  } catch { return 'cards' }
+}
+const viewMode = ref<'cards' | 'list'>(readLayout())
+watch(viewMode, (now) => {
+  try { localStorage.setItem(CHANNEL_LAYOUT_KEY, now) } catch { /* best effort */ }
+})
 const activeLabels = ref<string[]>(rememberedView.labels)
 const searchInput = ref<HTMLInputElement | null>(null)
 
@@ -792,6 +830,13 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
  * duplicate rather than as two facts. The search still matches the language
  * either way — this is about what is worth reading, not about what is indexed.
  */
+/** The audience language, unless one of the channel's own labels already says it. */
+function cardLanguage(project: any): string {
+  const language = languageLabel(project?.content_language)
+  if (!language) return ''
+  return channelLabels(project).some(label => sameLabel(label, language)) ? '' : language
+}
+
 function cardTags(project: any): Array<{ text: string; kind: 'formula' | 'label' | 'language' }> {
   const tags: Array<{ text: string; kind: 'formula' | 'label' | 'language' }> = []
   const formula = formulaLabel(project)
@@ -1158,10 +1203,11 @@ onMounted(async () => {
 }
 .home-action:hover { border-color: var(--border); background: var(--bg-hover); color: var(--text-primary); }
 
+/* The shared page frame sets width and gutter now; the page keeps only a
+   readable measure for the card grid and the state blocks. */
 .home-main {
-  width: min(1180px, calc(100% - 36px));
-  margin: 0 auto;
-  padding: clamp(38px, 7vw, 86px) 0 64px;
+  width: 100%;
+  min-width: 0;
 }
 
 .home-intro {
@@ -1186,6 +1232,34 @@ onMounted(async () => {
 .create-heading p { max-width: 650px; margin-top: 12px; color: var(--text-secondary); font-size: var(--font-lg); line-height: 1.6; }
 .home-create { min-height: 44px; flex: 0 0 auto; }
 
+.channels-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.channels-head-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.channels-head-title h1 { margin: 0; font-size: var(--font-xl); line-height: 1.2; }
+.channels-count { color: var(--text-secondary); font-size: var(--font-sm); }
+.channels-head .channel-refreshing { color: var(--text-muted); font-size: var(--font-xs); font-style: italic; }
+.channel-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.channel-view-switch { display: inline-flex; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm, 6px); }
+.channel-view-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.channel-view-button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.channel-view-button.active { background: var(--accent-dim); color: var(--text-primary); }
+.channels-new { min-height: 34px; }
 .channel-list-header {
   display: flex;
   align-items: baseline;
@@ -1222,19 +1296,32 @@ onMounted(async () => {
   grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
   gap: 14px;
 }
-.project-card-wrap { display: flex; min-width: 0; flex-direction: column; gap: 7px; }
+.project-card-wrap {
+  display: flex;
+  min-width: 0;
+  /* Uniform height: every card offers the same slots in the same order, so a
+     long name or a banner never makes one card taller than its neighbours. */
+  min-height: 268px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-secondary);
+}
+.project-card-wrap:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); box-shadow: var(--shadow-lg); }
 .project-card {
   display: flex;
   min-width: 0;
-  min-height: 190px;
+  flex: 1 1 auto;
+  min-height: 0;
   flex-direction: column;
   justify-content: space-between;
-  padding: 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
-  box-shadow: var(--shadow);
+  padding: 18px 18px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--text-primary);
+  text-decoration: none;
   overflow: hidden;
   transition: border-color var(--motion-fast), transform var(--motion-fast), box-shadow var(--motion-fast);
 }
@@ -1318,13 +1405,93 @@ onMounted(async () => {
 .home-state-path code { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .notice-error { margin-top: 10px; padding: 10px 12px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--error) 11%, transparent); color: var(--error); }
 .project-copy { gap: 4px; }
-.project-copy strong { overflow-wrap: anywhere; font-size: var(--font-xl); }
+.project-copy strong {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: var(--font-xl);
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .project-copy span { color: var(--text-secondary); font-size: var(--font-sm); }
 .project-copy .project-counts { margin-top: 4px; overflow-wrap: anywhere; }
 .project-copy .project-counts .project-counts-warn { color: var(--warning); font-weight: 650; }
-.project-open { display: flex; justify-content: space-between; color: var(--accent); font-size: var(--font-sm); font-weight: 650; }
+.project-open { display: flex; justify-content: space-between; margin-top: 10px; color: var(--accent); font-size: var(--font-sm); font-weight: 650; }
+
+/* Formula and language, one line, Formula truncated with the full name on hover. */
+.project-facts { display: flex; min-width: 0; align-items: baseline; gap: 6px; color: var(--text-secondary); font-size: var(--font-sm); }
+.project-facts .project-tag { min-width: 0; overflow: hidden; padding: 0; border: 0; background: none; color: inherit; text-overflow: ellipsis; white-space: nowrap; }
+.project-formula { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-language { flex: none; color: var(--text-muted); }
+.project-language::before { content: '· '; }
+
+/* One compact row per channel. */
+.project-list { display: grid; gap: 6px; }
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-secondary);
+  padding-right: 10px;
+}
+.project-row:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.project-row-main {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: 30px minmax(140px, 1.3fr) minmax(120px, 1fr) 48px minmax(160px, 1.4fr) auto;
+  padding: 9px 4px 9px 10px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.project-row-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-tertiary, var(--bg-primary));
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  font-weight: 750;
+}
+.project-row-mark img { width: 100%; height: 100%; object-fit: cover; }
+.project-row-name { overflow: hidden; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.project-row-fact { overflow: hidden; color: var(--text-secondary); font-size: var(--font-sm); text-overflow: ellipsis; white-space: nowrap; }
+.project-row-language { color: var(--text-muted); }
+.project-row-stats { overflow: hidden; color: var(--text-secondary); font-size: var(--font-xs); text-overflow: ellipsis; white-space: nowrap; }
+.project-row-key { color: var(--text-muted); font-size: var(--font-xs); white-space: nowrap; }
+.project-row-key[data-ready="false"] { color: var(--warning); }
+.project-row-actions { display: flex; flex: none; gap: 10px; }
+@media (max-width: 1080px) {
+  .project-row-main { grid-template-columns: 30px minmax(120px, 1fr) minmax(110px, 1fr) minmax(140px, 1.2fr) auto; }
+  .project-row-language { display: none; }
+}
+@media (max-width: 820px) {
+  .project-row-main { grid-template-columns: 30px minmax(110px, 1fr) minmax(150px, 1fr); }
+  .project-row-key { display: none; }
+}
+@media (max-width: 640px) {
+  .project-row-main { grid-template-columns: 30px minmax(0, 1fr); }
+  .project-row-fact, .project-row-stats { display: none; }
+  .project-row-actions { flex-direction: column; gap: 4px; }
+}
 /* The edit route lives outside the card's own link — a link inside a link is a
    trap, not a shortcut. */
+.project-card-actions {
+  display: flex;
+  flex: none;
+  gap: 14px;
+  margin-top: auto;
+  padding: 10px 18px 14px;
+  border-top: 1px solid var(--border);
+}
 .project-edit {
   align-self: flex-start;
   color: var(--text-secondary);

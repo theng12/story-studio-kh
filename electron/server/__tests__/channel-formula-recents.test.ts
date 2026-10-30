@@ -132,10 +132,24 @@ describe('channel Formula names and real recency', () => {
       )
     })
 
-    test('a Formula that is not installed here shows its stored id plainly — never a guessed name', () => {
+    test('a Formula whose name cannot be read says "Custom Formula", never a raw id (owner, 2026-10-30)', () => {
       assert.equal(
         niches.formulaCardLabel({ niche_id: 'prayer', formula_choice: 'selected' }, new Map()),
-        'prayer',
+        'Custom Formula',
+      )
+      // The two shapes the owner saw on his own cards.
+      assert.equal(
+        niches.formulaCardLabel({ niche_id: 'user:c0293626-1111-2222-3333-444455556666', formula_choice: 'selected' }, new Map()),
+        'Custom Formula',
+      )
+      assert.equal(
+        niches.formulaCardLabel({ niche_id: 'kh.owner.formula.illustrated-history-for-sleep', formula_choice: 'selected' }, new Map()),
+        'Custom Formula',
+      )
+      // A name that IS readable still wins.
+      assert.equal(
+        niches.formulaCardLabel({ niche_id: 'sleep', formula_choice: 'selected' }, installed),
+        'Sleep Story',
       )
     })
 

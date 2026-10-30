@@ -25,11 +25,15 @@ test('the dashboard footer keeps operational status and shows the running build'
   assert.doesNotMatch(dashboard, /release-card|What’s new|buildDateLabel|copyVersion/)
 })
 
-test('the footer badge reports the same build facts as the channels top bar', () => {
+test('the footer badge reports the same build facts as the shared header', () => {
+  // v1.4.371 — the top bar moved into components/AppHeader.vue, rendered by the
+  // default layout for every non-channel page.
+  const header = readFileSync(new URL('../components/AppHeader.vue', import.meta.url), 'utf8')
   const defaultLayout = readFileSync(new URL('../layouts/default.vue', import.meta.url), 'utf8')
   const title = /:title="`Story Studio KH v\$\{appVersion\} · built \$\{buildDate\} — click for What's New`"/
   assert.match(footer, title)
-  assert.match(defaultLayout, title)
+  assert.match(header, title)
+  assert.match(defaultLayout, /<AppHeader \/>/)
 })
 
 test('the project sidebar reaches the existing Image Pool beside Assets Library', () => {
@@ -40,7 +44,7 @@ test('the project sidebar reaches the existing Image Pool beside Assets Library'
   assert.ok(imagePool > assets, 'Image Pool belongs after Assets Library in the Manage group')
   assert.match(
     dashboard.slice(assets, imagePool + '>Image Pool</NuxtLink>'.length),
-    /:to="`\/projects\/\$\{slug\}\/image-pool`"[^>]*>Image Pool<\/NuxtLink>/,
+    /:to="`\/projects\/\$\{slug\}\/image-pool`"[\s\S]{0,120}>Image Pool</,
   )
 })
 

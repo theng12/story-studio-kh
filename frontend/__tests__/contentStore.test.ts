@@ -780,6 +780,7 @@ describe('Studio Library renderer contract', () => {
   const shelf = readFileSync(fileURLToPath(new URL('../components/content-store/ContentStoreShelf.vue', import.meta.url)), 'utf8')
   const home = readFileSync(fileURLToPath(new URL('../pages/index.vue', import.meta.url)), 'utf8')
   const dashboard = readFileSync(fileURLToPath(new URL('../layouts/dashboard.vue', import.meta.url)), 'utf8')
+  const appHeader = readFileSync(fileURLToPath(new URL('../components/AppHeader.vue', import.meta.url)), 'utf8')
 
   const libraryView = readFileSync(fileURLToPath(new URL('../components/content-store/ContentLibraryView.vue', import.meta.url)), 'utf8')
   const detail = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductDetail.vue', import.meta.url)), 'utf8')
@@ -889,8 +890,11 @@ describe('Studio Library renderer contract', () => {
   })
 
   test('adds global and project navigation without disturbing the existing mobile trap', () => {
-    assert.match(home, /to="\/library"[^>]*>Studio Library</)
-    assert.match(dashboard, /to="\/library"[^>]*>Studio Library</)
+    // v1.4.371 — the link lives in the one shared header for non-channel pages,
+    // and in the channel sidebar as an ordinary row.
+    assert.match(appHeader, /to="\/library"[\s\S]{0,60}Studio Library/)
+    assert.doesNotMatch(home, /home-actions/, 'All Channels has no header of its own')
+    assert.match(dashboard, /to="\/library"[\s\S]{0,80}Studio Library/)
     assert.match(dashboard, /closeMobileNav/)
     assert.match(dashboard, /focusableSidebarItems/)
   })
