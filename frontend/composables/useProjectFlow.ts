@@ -27,6 +27,21 @@ import { useRoute } from 'vue-router'
  * Library/Jobs/Settings are intentionally NOT steps — they're tools, not
  * stages of the creation chain.
  */
+/**
+ * The five Still Posts steps. Defined HERE, not in a utility this file imports: the frontend tests
+ * compile this composable in-process, and an import of a sibling module by relative path cannot resolve
+ * from that compiled form. `utils/still-posts-flow` re-exports them.
+ */
+export const STILL_POST_TABS = ['look', 'write', 'draw', 'review', 'publish'] as const
+export type StillPostTab = typeof STILL_POST_TABS[number]
+export const STILL_POST_TAB_LABELS: Record<StillPostTab, string> = {
+  look: 'Channel look',
+  write: 'Write',
+  draw: 'Draw',
+  review: 'Review',
+  publish: 'Publish',
+}
+
 export type VisualSource = 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes' | 'music' | 'still-posts'
 export type EpisodeVisualSource = 'scene_plan' | 'image_pool'
 
@@ -102,7 +117,7 @@ export interface FlowStep {
   /** Production phase used to orient long workflow views without hiding steps. */
   phase: FlowPhaseKey
   /** For pages that share a path via ?tab=. */
-  tab?: 'thumbnails'
+  tab?: 'thumbnails' | StillPostTab
   /** Visible in the workflow, but never blocks an episode from being done. */
   optional?: boolean
 }
@@ -145,9 +160,6 @@ const STEP = {
   songPool:     { key: 'song-pool', label: 'Song Pool', icon: '🎼', path: '/song-pool', phase: 'music' },
   episodeBuilder: { key: 'episode-builder', label: 'Episode Builder', icon: '🧩', path: '/episode-builder', phase: 'episode' },
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
-  // Still Posts (owner, 2026-10-27): one workspace is the whole production path — the batch writer,
-  // the channel's characters, the per-post editor and the export all live on one page.
-  stillPosts: { key: 'still-posts', label: 'Still Posts', icon: '🖼', path: '/still-posts', phase: 'story' },
 } satisfies Record<string, FlowStep>
 const FLOW_TIMESTAMP: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.introduction,
@@ -184,7 +196,23 @@ const FLOW_MUSIC: FlowStep[] = [
 ]
 
 // A Still Posts channel makes pictures, not episodes: no story, media or video stages at all.
-const FLOW_STILL_POSTS: FlowStep[] = [STEP.stillPosts]
+// Owner, 2026-10-30: the production path is five steps, each a sidebar entry and a tab of the one
+// Still Posts page (the Thumbnails pattern). Old `/still-posts` links land on the step with the work.
+const STILL_POST_STEP_KEYS: Record<StillPostTab, string> = {
+  look: 'still-look',
+  write: 'still-write',
+  draw: 'still-draw',
+  review: 'still-review',
+  publish: 'still-publish',
+}
+const FLOW_STILL_POSTS: FlowStep[] = STILL_POST_TABS.map(tab => ({
+  key: STILL_POST_STEP_KEYS[tab],
+  label: STILL_POST_TAB_LABELS[tab],
+  icon: { look: '🎭', write: '✍️', draw: '🎨', review: '✅', publish: '📤' }[tab],
+  path: '/still-posts',
+  phase: 'story' as const,
+  tab,
+}))
 
 export function flowForVisualSource(vs: VisualSource): FlowStep[] {
   if (vs === 'still-posts') return FLOW_STILL_POSTS

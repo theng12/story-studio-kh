@@ -7,8 +7,10 @@ import { afterEach, describe, test } from 'node:test'
 import { FakeSocial } from './fixtures/fake-social.js'
 import { __resetSocialTransportForTests, __setSocialTransportForTests } from '../lib/social-publish/types.js'
 import {
+  facebookPhotoSpecViolation,
   facebookSpecViolation,
   instagramSpecViolation,
+  publishFacebookPhoto,
   publishFacebookVideo,
   publishInstagramReel,
 } from '../lib/social-publish/meta.js'
@@ -137,6 +139,37 @@ describe('Facebook adapter', () => {
       () => publishFacebookVideo(input(file, { sizeBytes: 999 })),
       /The video changed while it was being posted/,
     )
+  })
+})
+
+describe('Facebook Page photo adapter', () => {
+  test('the photo spec refuses an empty or over-10 MB image and accepts a normal one', () => {
+    assert.match(facebookPhotoSpecViolation({ sizeBytes: 0 }) || '', /empty/)
+    assert.match(facebookPhotoSpecViolation({ sizeBytes: 11 * MB }) || '', /up to 10 MB/)
+    assert.equal(facebookPhotoSpecViolation({ sizeBytes: 2 * MB }), null)
+  })
+
+  test('uploads the local image as multipart and returns the post id', async () => {
+    const file = await tempFile(2048)
+    const fake = new FakeSocial()
+    fake.respond({ method: 'POST', url: '/page-1/photos', body: { id: 'photo-9', post_id: 'page-1_photo-9' } })
+    __setSocialTransportForTests(fake.transport)
+
+    const output = await publishFacebookPhoto(input(file, { sizeBytes: 2048 }))
+    assert.equal(output.post_id, 'page-1_photo-9')
+    assert.match(output.permalink || '', /facebook\.com\/page-1_photo-9/)
+    assert.equal(fake.callsTo('/page-1/photos').length, 1)
+  })
+
+  test('a file that changed under the photo upload is refused, not posted', async () => {
+    const file = await tempFile(2048)
+    const fake = new FakeSocial()
+    __setSocialTransportForTests(fake.transport)
+    await assert.rejects(
+      () => publishFacebookPhoto(input(file, { sizeBytes: 2047 })),
+      /The image changed while it was being posted/,
+    )
+    assert.equal(fake.calls.length, 0)
   })
 })
 

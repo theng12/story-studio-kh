@@ -283,6 +283,51 @@ export const facebookAdapter: SocialAdapter = {
   publish: publishFacebookVideo,
 }
 
+// ── Facebook Page photo (Still Posts) ───────────────────────────────────────
+//
+// A photo is uploaded as multipart `source`, so it needs no public address —
+// the same reason the video path exists. Meta's published photo limits are
+// 10 MB and JPEG/PNG/GIF/BMP/TIFF; Story's renderer writes PNG.
+
+export const FACEBOOK_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
+export function facebookPhotoSpecViolation(input: { sizeBytes: number }): string | null {
+  if (input.sizeBytes <= 0) return 'The image file is empty.'
+  if (input.sizeBytes > FACEBOOK_PHOTO_MAX_BYTES) {
+    return `Facebook accepts photos up to 10 MB; this image is ${(input.sizeBytes / (1024 * 1024)).toFixed(1)} MB.`
+  }
+  return null
+}
+
+/** Facebook Page photo: one multipart POST to `/{page-id}/photos`. */
+export async function publishFacebookPhoto(input: SocialPostInput): Promise<SocialPostOutput> {
+  const { pageId, token } = requirePage(input)
+  const { readFile } = await import('node:fs/promises')
+  const bytes = await readFile(input.filePath)
+  if (bytes.byteLength !== input.sizeBytes) {
+    throw new Error(`The image changed while it was being posted (${bytes.byteLength} bytes on disk, ${input.sizeBytes} expected). Nothing was published.`)
+  }
+  input.onProgress?.(0, input.sizeBytes)
+  const form = new FormData()
+  form.append('caption', input.caption)
+  form.append('published', 'true')
+  form.append('access_token', token)
+  form.append('source', new Blob([new Uint8Array(bytes)], { type: 'image/png' }), input.filePath.split('/').pop() || 'post.png')
+
+  const response = await socialTransport(`${GRAPH}/${encodeURIComponent(pageId)}/photos`, {
+    method: 'POST',
+    body: form,
+    ...(input.signal ? { signal: input.signal } : {}),
+  })
+  if (!response.ok) throw await graphFailure(response, 'Facebook refused the photo')
+  const published = await readJson<{ id?: string, post_id?: string }>(response)
+  const postId = published.post_id || published.id
+  if (!postId) throw new Error('Facebook accepted the photo but returned no post id.')
+
+  input.log(`Facebook published photo ${postId}.`)
+  return { post_id: postId, permalink: `https://www.facebook.com/${postId}` }
+}
+
 export const instagramAdapter: SocialAdapter = {
   specViolation: instagramSpecViolation,
   publish: publishInstagramReel,

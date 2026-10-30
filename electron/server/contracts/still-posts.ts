@@ -236,8 +236,26 @@ export interface StillPost {
    * which is exactly how every post written before the pool existed is lettered.
    */
   font_id?: string
+  /**
+   * When a reviewer approved this post. Approval belongs to the exact words and pictures that were
+   * approved, so any change to them (the words, the look, the layout, or a redrawn picture) clears it.
+   * Absent or null = not approved. Only a complete post can be approved (AGENTS §8).
+   */
+  approved_at?: string | null
+  /** The drawings a redo replaced. Each one is kept in the channel's Trash, never deleted (§ repo rule). */
+  redraws?: StillPostRedraw[]
   /** Reserved for the posting phase. Absent means never published. */
   published_at?: string | null
+}
+
+/** One drawing a redo replaced, kept in Trash so the old and new pictures can be compared. */
+export interface StillPostRedraw {
+  at: string
+  panel_id: string
+  /** The frame the replaced drawing was made for, or null for the one drawing fitted to every frame. */
+  aspect: StillPostAspect | null
+  /** Where the replaced file is, relative to the channel's Trash root (always under `still-posts/redraws/<post>/`). */
+  trash_path: string
 }
 
 /** The channel's own Still Posts settings (config.json → `still_posts`). */

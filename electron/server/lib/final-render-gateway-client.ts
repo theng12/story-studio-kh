@@ -198,6 +198,9 @@ const ASSET_HANDLE = /^[0-9a-f]{32}$/
 const UPLOAD_ID = /^[0-9a-f]{32}$/
 const HUB_OWNER_SCOPE = /^[A-Za-z0-9._-]{1,128}:[A-Za-z0-9._-]{1,128}:fleet$/
 const MAX_JSON_BYTES = 1024 * 1024
+/** The Hub's own bound on a display label (`render_jobs._DISPLAY_MAX_CHARACTERS`). */
+const DISPLAY_MAX_CHARACTERS = 256
+const DISPLAY_KEYS = ['channel', 'episode'] as const
 const MAX_CHUNK_BYTES = 8 * 1024 * 1024
 const JOB_STATES = new Set(['staging', 'hub_prepared', 'send_may_start', 'send_unknown', 'accepted', 'output_ready', 'acknowledged'])
 const REMOTE_STATES = new Set(['accepted', 'launch_pending', 'rendering', 'cancel_requested', 'uncertain', 'stopped', 'cancelled', 'failed', 'output_ready'])
@@ -950,15 +953,57 @@ export interface SubmitContext {
   inboundDigest: string
 }
 
+/** The channel and episode labels the Hub's Render tab shows. Display only — never dispatch. */
+export interface FinalRenderDisplay {
+  channel?: string
+  episode?: string
+}
+
+/**
+ * One display label, or undefined when there is nothing the Hub would be able to show.
+ *
+ * The rule is the Hub's own (`render_jobs._display`): non-empty, at most 256 characters, no NUL.
+ * It is deliberately the only rule: a channel or episode name is the customer's own words in
+ * whatever script and with whatever punctuation, and a label that would fail a stricter test is
+ * **left out** rather than allowed to fail a render — display must never be a reason a render is
+ * refused. Nothing routes, dispatches, hashes or accepts on the result.
+ */
+export function finalRenderDisplayLabel(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const label = value.trim()
+  if (!label || label.length > DISPLAY_MAX_CHARACTERS || label.includes('\0')) return undefined
+  return label
+}
+
+/** The `display` object of a request Gateway envelope, validated as a label and nothing else. */
+export function validateFinalRenderDisplay(value: unknown): FinalRenderDisplay {
+  const display = closedRecord(value, [], DISPLAY_KEYS, 'request Gateway display')
+  const result: FinalRenderDisplay = {}
+  for (const key of DISPLAY_KEYS) {
+    if (!Object.hasOwn(display, key)) continue
+    const label = display[key]
+    if (typeof label !== 'string' || !label || label.length > DISPLAY_MAX_CHARACTERS
+      || label.includes('\0')) {
+      invalid(`request Gateway display ${key} is not a display label`)
+    }
+    result[key] = label
+  }
+  if (Object.keys(result).length === 0) invalid('request Gateway display names no channel or episode')
+  return result
+}
+
 export function validateSubmitBytes(bytes: Uint8Array): SubmitContext {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > MAX_JSON_BYTES) {
     invalid('request Gateway envelope bytes are empty or too large')
   }
   const value = decodeStrictJson(bytes, 'request Gateway envelope')
-  const envelope = exactRecord(value, [
+  const envelope = closedRecord(value, [
     'format', 'story_uuid', 'intent_id', 'attempt_no', 'packet', 'assets',
-  ], 'request Gateway envelope')
+  ], ['display'], 'request Gateway envelope')
   if (envelope.format !== 'studio.render.gateway-request.v1') invalid('request Gateway envelope format is invalid')
+  // Optional and display only: the presentation a render travels with, never anything the
+  // Gateway or Hub decides with.
+  if (Object.hasOwn(envelope, 'display')) validateFinalRenderDisplay(envelope.display)
   const storyUuid = uuid(envelope.story_uuid, 'request Gateway envelope story_uuid')
   const intent = intentId(envelope.intent_id, 'request Gateway envelope intent_id')
   const attemptNo = positiveSafeInteger(envelope.attempt_no, 'request Gateway envelope attempt_no')

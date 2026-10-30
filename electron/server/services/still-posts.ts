@@ -22,6 +22,7 @@ import sharp from 'sharp'
 import * as pm from './project-manager.js'
 import { listCharacters, referenceImagePath } from './character-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { isPortablePath, resolveAssetPath } from './path-resolver.js'
 import { moveToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import { renderThumbnailText, type RenderBranding } from '../lib/thumbnail-text-render.js'
 import { listThumbnailFonts } from '../lib/thumbnail-fonts.js'
@@ -58,6 +59,7 @@ import {
   type StillPostsWorkspace,
   type StillPostPreset,
   type StillPostPresetData,
+  type StillPostRedraw,
 } from '../contracts/still-posts.js'
 
 export const STILL_POSTS_DIRNAME = 'still-posts'
@@ -161,11 +163,36 @@ export function channelHandle(raw: Record<string, any> | null | undefined, confi
   return own || null
 }
 
+/**
+ * Resolve a stored logo value to a real file on disk, or null.
+ *
+ * The value may be absolute or portable (`${CHANNEL}/assets/logo.png`), which is what the app's file
+ * picker writes now that typed paths are retired. A portable path is resolved against this channel's
+ * folders; a value that still does not name a real file draws nothing at all.
+ */
+export function resolveLogoPath(value: unknown, channelDir?: string | null): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const raw = value.trim()
+  if (path.isAbsolute(raw)) return existsSync(raw) ? raw : null
+  if (!channelDir || !isPortablePath(raw)) return null
+  try {
+    const resolved = resolveAssetPath(raw, path.join(channelDir, 'episodes'))
+    return existsSync(resolved) ? resolved : null
+  } catch {
+    return null
+  }
+}
+
 /** The logo file to draw, or null. A path that no longer exists draws nothing at all. */
-export function channelLogoPath(raw: Record<string, any> | null | undefined, config: StillPostsProjectConfig): string | null {
+export function channelLogoPath(
+  raw: Record<string, any> | null | undefined,
+  config: StillPostsProjectConfig,
+  channelDir?: string | null,
+): string | null {
   const candidates = [config.logo_path, raw && typeof raw === 'object' ? (raw as any).channel_logo_path : null]
   for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim() && existsSync(candidate.trim())) return candidate.trim()
+    const resolved = resolveLogoPath(candidate, channelDir)
+    if (resolved) return resolved
   }
   return null
 }
@@ -262,6 +289,47 @@ export async function writePost(slug: string, post: StillPost): Promise<StillPos
   return record
 }
 
+/**
+ * One more post, typed by hand before any drawing is paid for. It carries no artwork and no finals, so
+ * its state is honestly "not drawn yet" until the Draw step runs.
+ */
+export async function createSinglePost(
+  slug: string,
+  input: {
+    text: string
+    scenePrompt?: string
+    caption?: string
+    batchId: string
+    format: StillPostFormat
+    option: StillPostOption
+    language: StillPostsLanguage
+    aspects: readonly StillPostAspect[]
+    characterIds: readonly string[]
+  },
+): Promise<StillPost> {
+  const id = await nextPostId(slug)
+  const now = new Date().toISOString()
+  const panels = panelsForOption(input.option).map((panel, index) => ({
+    ...panel,
+    text: index === 0 ? input.text.trim() : '',
+    scene_prompt: index === 0 ? (input.scenePrompt || '').trim() : '',
+  }))
+  return writePost(slug, {
+    id,
+    batch_id: input.batchId,
+    created_at: now,
+    updated_at: now,
+    format_id: input.format.id,
+    option_id: input.option.id,
+    language: input.language,
+    character_ids: [...input.characterIds],
+    caption: (input.caption || input.text).trim().slice(0, 2000),
+    panels,
+    finals: [],
+    aspects: [...input.aspects],
+  })
+}
+
 /** Next free `post-NNNN` for the channel. Sequenced on disk so ids stay readable. */
 export async function nextPostId(slug: string): Promise<string> {
   const posts = await listPosts(slug)
@@ -279,6 +347,103 @@ export async function trashPost(slug: string, postId: string): Promise<void> {
   if (!existsSync(dir)) return
   const trash = path.join(trashRootFor(dir, projectRootFor(slug), slug), 'still-posts', path.basename(dir))
   moveToTrashSync(dir, trash, 'still-post')
+}
+
+// ── Review: approval and redraws (owner, 2026-10-30) ───────────────────────
+
+/** The Trash root every removed or replaced file of this channel goes under. */
+function trashRootForChannel(slug: string, postId: string): string {
+  return trashRootFor(postDir(slug, postId), projectRootFor(slug), slug)
+}
+
+/** Relative to the Trash root: where a redo's replaced drawings go. Kept apart from removed posts. */
+export function redrawTrashDir(postId: string): string {
+  return path.join('still-posts', 'redraws', validatePostId(postId))
+}
+
+/**
+ * The fields a reviewer approves: the words, the scene text, the look, the frames and the characters.
+ * A change to any of them makes the post a different post to approve.
+ */
+export function approvalKey(post: Pick<StillPost, 'format_id' | 'option_id' | 'language' | 'aspects' | 'character_ids' | 'panels'>): string {
+  return JSON.stringify({
+    format: post.format_id,
+    option: post.option_id,
+    language: post.language,
+    aspects: post.aspects,
+    characters: post.character_ids,
+    panels: post.panels.map(panel => [panel.text, panel.scene_prompt]),
+  })
+}
+
+/**
+ * Move a drawing a redo is about to replace into the channel's Trash, and return where it went.
+ *
+ * Called only once the replacement exists on disk, so the old drawing is never gone before its
+ * successor is ready. The record keeps a path relative to the Trash root, so the old and the new can
+ * be compared later and the route can refuse anything outside this post's own folder.
+ */
+export function retireDrawing(
+  slug: string,
+  post: Pick<StillPost, 'id'>,
+  file: string,
+  panelId: string,
+  aspect: StillPostAspect | null,
+): StillPostRedraw {
+  const at = new Date().toISOString()
+  const stamp = at.replace(/[-:.TZ]/g, '').slice(0, 17)
+  const root = trashRootForChannel(slug, post.id)
+  const folder = path.join(redrawTrashDir(post.id), stamp)
+  const moved = moveToTrashSync(file, path.join(root, folder, path.basename(file)), 'still-post-drawing')
+  return { at, panel_id: panelId, aspect, trash_path: path.relative(root, moved) }
+}
+
+/** The file of one recorded redraw, or null when it is no longer in Trash or is not this post's. */
+export function redrawFile(slug: string, postId: string, record: StillPostRedraw): string | null {
+  const relative = path.normalize(String(record.trash_path || ''))
+  const folder = redrawTrashDir(postId)
+  if (path.isAbsolute(relative) || !relative.startsWith(folder + path.sep)) return null
+  const file = path.join(trashRootForChannel(slug, postId), relative)
+  return existsSync(file) ? file : null
+}
+
+export interface StillPostApprovalOutcome {
+  approved: string[]
+  cleared: string[]
+  /** Each post that could not be approved, with the sentence that says why. Nothing else changed. */
+  refused: Array<{ id: string, reason: string }>
+}
+
+/**
+ * Approve or clear the approval of posts. Approval is only ever granted to a post that is complete in
+ * every frame it asks for, verified from its files (AGENTS §8) — never because the page says so.
+ */
+export async function setPostApproval(slug: string, ids: readonly string[], approved: boolean): Promise<StillPostApprovalOutcome> {
+  const outcome: StillPostApprovalOutcome = { approved: [], cleared: [], refused: [] }
+  for (const raw of ids) {
+    const id = validatePostId(raw)
+    const post = await readPost(slug, id)
+    if (!post) {
+      outcome.refused.push({ id, reason: 'No such post in this channel.' })
+      continue
+    }
+    if (!approved) {
+      if (post.approved_at) await writePost(slug, { ...post, approved_at: null })
+      outcome.cleared.push(id)
+      continue
+    }
+    const state = await postStateFor(slug, post)
+    if (!state.complete) {
+      outcome.refused.push({
+        id,
+        reason: `Not finished: ${state.problems[0] || 'its drawing and finals are not complete.'} Fix it, then approve.`,
+      })
+      continue
+    }
+    await writePost(slug, { ...post, approved_at: new Date().toISOString() })
+    outcome.approved.push(id)
+  }
+  return outcome
 }
 
 // ── The lettering font pool ────────────────────────────────────────────────
@@ -879,7 +1044,7 @@ export async function buildWorkspace(slug: string): Promise<StillPostsWorkspace>
   const characters = await listChannelCharacters(slug)
   const roster = resolveRoster(config.character_ids, characters)
   const posts = await listPosts(slug)
-  const logo = channelLogoPath(raw, config)
+  const logo = channelLogoPath(raw, config, projectRootFor(slug))
   const handle = channelHandle(raw, config)
   return {
     config: {

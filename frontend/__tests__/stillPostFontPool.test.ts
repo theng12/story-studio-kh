@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { stillPostSource } from './_stillPostSource'
 import {
   DEFAULT_FONT_USAGE_MODE,
   STILL_POST_FONT_USAGE_LABELS,
@@ -23,10 +24,7 @@ import {
   type StillPostFontPool,
 } from '../../electron/server/contracts/still-post-fonts.js'
 
-const page = readFileSync(
-  fileURLToPath(new URL('../pages/projects/[slug]/still-posts.vue', import.meta.url)),
-  'utf8',
-)
+const page = stillPostSource()
 const tsconfig = readFileSync(fileURLToPath(new URL('../tsconfig.json', import.meta.url)), 'utf8')
 
 function weighted(pairs: Array<[string, number]>): StillPostFontPool {
@@ -81,7 +79,8 @@ test('the pool offers only faces the font manifest lists for that script', () =>
   assert.match(page, /font\.scripts\.includes\(script\)/, 'faces are filtered by the script the manifest declares')
   assert.match(page, /freeFaces\(row\)/, 'a face already in the pool is not offered twice')
   assert.match(page, /No bundled font covers/, 'a script with no bundled face says so instead of offering one')
-  assert.match(page, /never add it and hope/, 'adding a face the manifest does not cover is refused in the page too')
+  assert.match(page, /function addPoolFont\(script: string, id: string\)/, 'adding a face goes through one rule')
+  assert.match(page, /facesFor\(script\)\.some\(face => face\.id === id\)/, 'and that rule refuses a face the manifest does not cover')
 })
 
 test('the pool is preset content, and it travels on the batch request', () => {

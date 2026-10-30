@@ -817,7 +817,7 @@ test('compute ownership and every authority reread fence stale work while stage-
   }
 })
 
-test('seals exact six-key bytes and constructibly promotes V2 to request_persisted', async t => {
+test('seals exact envelope bytes and constructibly promotes V2 to request_persisted', async t => {
   const prepared = await prepareCase('seal')
   let refusedSendPromotion = false
   const restore = queue._setJobFileLockProbeForTesting(async operation => {
@@ -835,7 +835,12 @@ test('seals exact six-key bytes and constructibly promotes V2 to request_persist
   assert.equal(refusedSendPromotion, true)
   const request = await requestBytes(prepared)
   const body = JSON.parse(request.toString('utf8'))
-  assert.deepEqual(Object.keys(body), ['format', 'story_uuid', 'intent_id', 'attempt_no', 'packet', 'assets'])
+  assert.deepEqual(Object.keys(body).sort(),
+    ['assets', 'attempt_no', 'display', 'format', 'intent_id', 'packet', 'story_uuid'])
+  // Display only: the Hub's Renders tab names the render with these. The channel is the
+  // project's own name (this fixture project has no project.json, so it states none) and the
+  // episode is the code and title the staged manifest recorded.
+  assert.deepEqual(body.display, { episode: 'EP1 Title seal' })
   assert.doesNotThrow(() => requireValidateSubmitBytes()(request))
   assert.equal(body.format, 'studio.render.gateway-request.v1')
   assert.equal(body.story_uuid, storyInstanceId)
@@ -2283,4 +2288,43 @@ test('a refused error row without exactly one answer keeps its error and every f
     assert.equal(await fs.readFile(extraRender, 'utf8'), 'the new render that could not replace the accepted final',
       `${value.label}: the extra render in the work folder is never touched`)
   }
+})
+
+test('display labels are optional, bounded, and never identity', async () => {
+  // The label rules are the Hub's own (`render_jobs._display`): a name it could not show is left
+  // out here, so a customer's title can never be the reason a render is refused.
+  assert.equal(gatewayClient.finalRenderDisplayLabel('  EP1 The Fall  '), 'EP1 The Fall')
+  assert.equal(gatewayClient.finalRenderDisplayLabel('EP1 ការធ្លាក់ចុះ'), 'EP1 ការធ្លាក់ចុះ')
+  for (const unusable of ['', '   ', 'x'.repeat(257), 'a\0b', 7, null, undefined, {}]) {
+    assert.equal(gatewayClient.finalRenderDisplayLabel(unusable), undefined,
+      `a label the Hub cannot show is left out: ${String(unusable)}`)
+  }
+  const prepared = await prepareCase('display-labels')
+  await requireAdvance()(prepared.job.project_slug, prepared.job.job_id)
+  const sealed = await requestBytes(prepared)
+  const body = JSON.parse(sealed.toString('utf8'))
+  assert.deepEqual(body.display, { episode: 'EP1 Title display-labels' })
+  assert.doesNotThrow(() => gatewayClient.validateSubmitBytes(sealed))
+
+  const envelope = (display?: unknown) => Buffer.from(JSON.stringify({
+    format: 'studio.render.gateway-request.v1', story_uuid: storyInstanceId,
+    intent_id: prepared.receipt.intent_id, attempt_no: 1,
+    packet: prepared.manifest.packet, assets: body.assets,
+    ...(display === undefined ? {} : { display }),
+  }), 'utf8')
+  // Absent display is exactly the envelope a build before this one sends.
+  assert.doesNotThrow(() => gatewayClient.validateSubmitBytes(envelope()))
+  assert.doesNotThrow(() => gatewayClient.validateSubmitBytes(envelope({ channel: 'Khmer History' })))
+  for (const bad of [{}, [], 'channel', { channel: '' }, { channel: 'a\0b' },
+                     { channel: 'x'.repeat(257) }, { channel: 7 },
+                     { channel: 'EP1', host: 'node-m4-a' }]) {
+    assert.throws(() => gatewayClient.validateSubmitBytes(envelope(bad)), /display/i,
+      `display is a bounded label and nothing else: ${JSON.stringify(bad)}`)
+  }
+  // Display is display: the request identity is still the exact sealed bytes, label included,
+  // and the submission records that digest.
+  const submission = JSON.parse(await fs.readFile(
+    path.join(prepared.intentDir, 'transport', 'submission.json'), 'utf8'))
+  assert.equal(submission.request_body_sha256, sha256(sealed))
+  assert.equal(submission.request_body_bytes, sealed.byteLength)
 })

@@ -17,6 +17,7 @@
 
 import { Router } from 'express'
 import { existsSync } from 'fs'
+import sharp from 'sharp'
 import path from 'path'
 import { respondWithError } from '../lib/humanize-backend-error.js'
 import { referenceImagePath } from '../services/character-manager.js'
@@ -24,6 +25,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import {
   allowedArtifactNames,
+  approvalKey,
   artFilenameFor,
   artModeOf,
   assertFontPoolCoversScript,
@@ -32,6 +34,7 @@ import {
   channelHandle,
   channelLogoPath,
   commitFinals,
+  createSinglePost,
   listChannelCharacters,
   lookForPost,
   panelsForOption,
@@ -39,8 +42,11 @@ import {
   postStateFor,
   presetFontPools,
   readPost,
+  redrawFile,
+  resolveLogoPath,
   renderPostFinals,
   resolveRoster,
+  setPostApproval,
   stillPostsConfig,
   trashPost,
   validatePostId,
@@ -54,12 +60,23 @@ import {
   isStillPostAspect,
   isStillPostsLanguage,
   type StillPostAspect,
+  type StillPost,
   type StillPostBranding,
   type StillPostPanel,
 } from '../contracts/still-posts.js'
 import type { JobType } from '../models/types.js'
+import { SocialError } from '../contracts/social-publishing.js'
+import { publishStillPost, readStillPostPublishes } from '../services/still-post-publish.js'
 
 export const router = Router()
+
+function failSocial(res: import('express').Response, error: unknown, fallback: string): void {
+  if (error instanceof SocialError) {
+    res.status(error.statusCode).json(error.toPublic())
+    return
+  }
+  respondWithError(res, error, fallback)
+}
 
 function badRequest(message: string): never {
   throw Object.assign(new Error(message), { status: 400 })
@@ -116,7 +133,7 @@ function scriptLabel(script: string): string {
 router.get('/projects/:slug/still-posts', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    res.json(await buildWorkspace(req.params.slug))
+    res.json({ ...(await buildWorkspace(req.params.slug)), publishes: await readStillPostPublishes(req.params.slug) })
   } catch (error: any) {
     respondWithError(res, error, 'Failed to load Still Posts')
   }
@@ -151,7 +168,9 @@ router.put('/projects/:slug/still-posts/config', async (req, res) => {
 
     if (Object.prototype.hasOwnProperty.call(body, 'logo_path')) {
       const value = typeof body.logo_path === 'string' ? body.logo_path.trim() : ''
-      if (value && !existsSync(value)) {
+      // A portable path (`${CHANNEL}/assets/…`) is what the app's file picker writes now that typed
+      // paths are retired; it is stored as given and resolved wherever the logo is drawn.
+      if (value && !resolveLogoPath(value, pm.getProjectDir(slug))) {
         return res.status(400).json({ detail: `There is no logo file at ${value}.` })
       }
       patch.logo_path = value || null
@@ -327,7 +346,7 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
       }
     }
 
-    const post = await writePost(slug, {
+    const draft: StillPost = {
       ...existing,
       format_id: format.id,
       option_id: option.id,
@@ -338,7 +357,10 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
       character_ids: [...new Set<string>(rawCharacters.filter((id: unknown): id is string => typeof id === 'string' && !!id))],
       caption: typeof body.caption === 'string' ? body.caption.slice(0, 2000) : existing.caption,
       panels,
-    })
+    }
+    // Approval belongs to the exact words and look that were approved: a change to any of them clears
+    // it, so the post goes back to review. A caption-only edit keeps it.
+    const post = await writePost(slug, approvalKey(draft) !== approvalKey(existing) ? { ...draft, approved_at: null } : draft)
 
     // Re-render now, with the branding the page is showing.
     const raw = (await pm.getConfig(slug)) || {}
@@ -347,7 +369,7 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
     const branding = brandingFrom(preset.branding, DEFAULT_BRANDING)
     const mark = brandingFor(branding!, {
       handle: channelHandle(raw, config),
-      logoPath: channelLogoPath(raw, config),
+      logoPath: channelLogoPath(raw, config, pm.getProjectDir(slug)),
       language: post.language,
       format,
     })
@@ -378,6 +400,163 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
     res.json({ post: saved, state: await postStateFor(slug, saved), render_error: renderError, font_note: fontNote })
   } catch (error: any) {
     respondWithError(res, error, 'Failed to save the post')
+  }
+})
+
+// ── The channel's logo ─────────────────────────────────────────────────────
+
+/** The channel's logo art, so the picker can show the file it stored instead of naming a path. */
+router.get('/projects/:slug/still-posts/logo', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const raw = (await pm.getConfig(slug)) || {}
+    const file = channelLogoPath(raw, stillPostsConfig(raw), pm.getProjectDir(slug))
+    if (!file) return res.status(404).json({ detail: 'This channel has no logo file in place.' })
+    res.sendFile(path.resolve(file), { dotfiles: 'allow' })
+  } catch (error: any) {
+    respondWithError(res, error, 'Failed to load the logo')
+  }
+})
+
+// ── Font samples ───────────────────────────────────────────────────────────
+
+/**
+ * One line of text drawn by the REAL lettering renderer in a bundled face, so the font picker shows
+ * the face itself and not a label. No image model is involved: this is our own text renderer.
+ *
+ * A face that cannot draw the line is refused in words (AGENTS §1) — the picker then says so for that
+ * face instead of showing a sample in a substituted font.
+ */
+router.get('/projects/:slug/still-posts/font-sample', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const fontId = String(req.query.font_id || '').trim()
+    if (!fontId) return res.status(400).json({ detail: 'Choose a font to sample.' })
+    const language = isStillPostsLanguage(req.query.language) ? req.query.language : 'en'
+    const text = String(req.query.text || '').slice(0, 120) || 'Your words sit here'
+    const scale = Math.max(0.5, Math.min(2, Number(req.query.scale) || 1))
+    const canvas = { width: 900, height: 180 }
+    const base = canvas.height / 180
+    const { renderThumbnailText } = await import('../lib/thumbnail-text-render.js')
+    const rendered = await renderThumbnailText({
+      sourceBytes: await sharp({ create: { width: canvas.width, height: canvas.height, channels: 3, background: '#14161d' } }).png().toBuffer(),
+      text,
+      canvas,
+      style: {
+        font_id: fontId,
+        weight: 600,
+        size: { mode: 'fit', min_px: Math.round(22 * scale * base), max_px: Math.round(64 * scale * base) },
+        max_lines: 1,
+        align: 'center',
+        line_height: 1.15,
+        letter_spacing: 0,
+        uppercase: false,
+        fill: { type: 'solid', color: '#F4EFE6' },
+        opacity: 1,
+        outline: { enabled: false, color: '#000000', width_px: 0 },
+        shadow: { enabled: false, color: '#000000', opacity: 0, dx: 0, dy: 0, blur_px: 0 },
+        background: { enabled: false, color: '#000000', opacity: 0, padding_px: 0, radius_px: 0 },
+        placement: { anchor: 'center', x_pct: 50, y_pct: 50, width_pct: 92, height_pct: 70 },
+      },
+    })
+    res.setHeader('Cache-Control', 'private, max-age=3600')
+    res.type('png').send(rendered.png)
+  } catch (error: any) {
+    const status = typeof error?.statusCode === 'number' ? error.statusCode : 400
+    res.status(status).json({ detail: error?.message || 'Could not draw this font sample.' })
+  }
+})
+
+/**
+ * Add one post by hand, before anything is drawn — so the batch can be read, edited, added to and
+ * trimmed before a single picture is paid for.
+ */
+router.post('/projects/:slug/still-posts/posts', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const body = asRecord(req.body)
+    const text = String(body.text || '').trim()
+    if (!text) return res.status(400).json({ detail: 'Type the line this post should carry.' })
+    const format = stillPostFormat(String(body.format_id || ''))
+    if (!format) return res.status(400).json({ detail: 'Choose a format for this post.' })
+    const option = stillPostOption(String(body.option_id || ''))
+    if (!option) return res.status(400).json({ detail: 'Choose a layout for this post.' })
+    const language = isStillPostsLanguage(body.language) ? body.language : 'en'
+    const aspects = aspectsFrom(body.aspects)
+
+    const characters = await listChannelCharacters(slug)
+    const roster = resolveRoster(stillPostsConfig(await pm.getConfig(slug)).character_ids, characters)
+    const chosen = Array.isArray(body.character_ids)
+      ? [...new Set<string>(body.character_ids.filter((id: unknown): id is string => typeof id === 'string' && !!id))]
+      : [...roster.ids]
+    const foreign = chosen.filter(id => !roster.ids.includes(id))
+    if (foreign.length) {
+      return res.status(400).json({
+        detail: `These characters are not in this channel's Still Posts cast: ${foreign.join(', ')}. Add them on the channel first.`,
+      })
+    }
+
+    const batchId = typeof body.batch_id === 'string' && /^batch-[a-z0-9][a-z0-9-]{0,79}$/.test(body.batch_id.trim())
+      ? body.batch_id.trim()
+      : `batch-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}-${Math.random().toString(36).slice(2, 6)}`
+    const post = await createSinglePost(slug, {
+      text,
+      scenePrompt: typeof body.scene_prompt === 'string' ? body.scene_prompt : '',
+      caption: typeof body.caption === 'string' ? body.caption : '',
+      batchId,
+      format,
+      option,
+      language,
+      aspects,
+      characterIds: chosen,
+    })
+    res.status(201).json({ post, state: await postStateFor(slug, post) })
+  } catch (error: any) {
+    respondWithError(res, error, 'Failed to add the post')
+  }
+})
+
+// ── Review ─────────────────────────────────────────────────────────────────
+
+/**
+ * Approve (or clear the approval of) several posts at once. A post is approved only when it is complete
+ * in every frame it asks for; each one that is not comes back with the sentence that says why.
+ */
+router.put('/projects/:slug/still-posts/approvals', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const body = asRecord(req.body)
+    if (!Array.isArray(body.post_ids) || !body.post_ids.length) {
+      return res.status(400).json({ detail: 'Choose at least one post to approve or clear.' })
+    }
+    if (typeof body.approved !== 'boolean') {
+      return res.status(400).json({ detail: 'Say whether these posts are approved (true) or not (false).' })
+    }
+    const ids = [...new Set<string>(body.post_ids.map((id: unknown) => validatePostId(String(id))))]
+    res.json({ ok: true, ...(await setPostApproval(slug, ids, body.approved)) })
+  } catch (error: any) {
+    respondWithError(res, error, 'Failed to update the approval')
+  }
+})
+
+/**
+ * One drawing a redo replaced, read from Trash so the old and the new can be compared. The record
+ * decides which file; a path that is not this post's own is refused, never read.
+ */
+router.get('/projects/:slug/still-posts/posts/:postId/redraws/:index', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const postId = validatePostId(req.params.postId)
+    const post = await readPost(slug, postId)
+    if (!post) return res.status(404).json({ detail: 'No such post in this channel.' })
+    const index = Number(req.params.index)
+    const record = Number.isInteger(index) ? post.redraws?.[index] : undefined
+    const file = record ? redrawFile(slug, postId, record) : null
+    if (!file) return res.status(404).json({ detail: 'That earlier drawing is no longer in the Trash.' })
+    res.sendFile(path.resolve(file), { dotfiles: 'allow' })
+  } catch (error: any) {
+    respondWithError(res, error, 'Failed to load the earlier drawing')
   }
 })
 
@@ -487,5 +666,23 @@ router.post('/projects/:slug/still-posts/render', async (req, res) => {
     res.status(202).json({ job })
   } catch (error: any) {
     respondWithError(res, error, 'Failed to start drawing the batch')
+  }
+})
+
+/**
+ * Post one rendered Still Post to a platform the channel has turned on.
+ *
+ * Nothing posts by itself: the channel's own `social_platforms` list is the
+ * switch, and an empty list refuses here in words. The answer says exactly
+ * what happened — posted, already posted from this exact image, or why not.
+ */
+router.post('/projects/:slug/still-posts/posts/:id/publish', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const result = await publishStillPost(slug, req.params.id, asRecord(req.body).platform)
+    res.json(result)
+  } catch (error: any) {
+    failSocial(res, error, 'Failed to post this image')
   }
 })
