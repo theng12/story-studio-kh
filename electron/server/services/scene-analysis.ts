@@ -675,7 +675,7 @@ export async function saveAnalysis(opts: {
 }
 
 /** The 640 px JPEG sent for analysis (never the full picture). */
-export async function analysisCopy(stillPath: string): Promise<Buffer> {
+export async function analysisCopy(stillPath: string | Buffer): Promise<Buffer> {
   return sharp(stillPath).rotate().resize({ width: ANALYSIS_LONG_SIDE, height: ANALYSIS_LONG_SIDE, fit: 'inside', withoutEnlargement: true })
     .flatten({ background: '#000000' }).jpeg({ quality: ANALYSIS_JPEG_QUALITY }).toBuffer()
 }
