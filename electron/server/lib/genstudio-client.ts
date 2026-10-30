@@ -3630,6 +3630,28 @@ async function recordGenStudioCreditRefusal(
   })
 }
 
+async function recordGenStudioSubmissionFailure(
+  operation: GenStudioOperation,
+  preview: GenStudioRequestPreview,
+  error: unknown,
+  state: 'failed' | 'reconciling',
+  dispatchState: 'pre_dispatch' | 'dispatched',
+): Promise<void> {
+  const queue = await import('../services/job-queue.js')
+  const storyJobId = queue.currentJobId()
+  if (!storyJobId || !preview.idempotency_key) return
+  await queue.recordGenStudioJob(storyJobId, {
+    id: pendingGenStudioEntryId(preview.idempotency_key),
+    operation,
+    state,
+    dispatch_state: dispatchState,
+    model_id: preview.model_id,
+    failure_code: error instanceof GenStudioApiError ? error.code || null : null,
+    updated_at: new Date().toISOString(),
+    request: preview,
+  })
+}
+
 export function catalogHasVoice(voices: GenStudioVoice[], voiceId: unknown): boolean {
   if (typeof voiceId !== 'string' || !voiceId.trim()) return false
   return voices.some(voice => voice.id === voiceId.trim() && voice.generation_enabled !== false)
@@ -8699,8 +8721,18 @@ async function callChatViaResponsesOnce(
       error instanceof GenStudioApiError
       && error.status !== 502
       && error.status !== 504
-    ) throw error
-    return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview, baseUrl)
+    ) {
+      await recordGenStudioSubmissionFailure('chat.response', requestPreview, error, 'failed', 'pre_dispatch')
+      throw error
+    }
+    try {
+      return await recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview, baseUrl)
+    } catch (recoveryError) {
+      if (recoveryError instanceof GenStudioChatRecoveryUnresolvedError) {
+        await recordGenStudioSubmissionFailure('chat.response', requestPreview, recoveryError, 'reconciling', 'dispatched')
+      }
+      throw recoveryError
+    }
   }
   await recordGenStudioEvidence('chat.response', chatJobEvidence(submitted), requestPreview)
   // Only a key Story derived from content: a caller-supplied key (exact replay,
