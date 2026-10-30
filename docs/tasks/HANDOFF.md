@@ -1,5 +1,11 @@
 # HANDOFF — Story Studio KH
 
+### Release 1.4.371 — work still open (2026-10-30)
+
+- Scene image completion now rejects an image whose recorded `rendered_prompt` differs from `visual_prompt`, matching Scene Review. Legacy images without a recorded prompt remain unchecked. Retry targets the unresolved scenes and keeps completed images. Focused `scene-media-checkpoint`: PARTIAL RUN, exit 0, 19 tests passed, 1/1 file completed. This is not the release gate.
+- Owner's latest Khmer decision: thumbnail images stay text-free and plain on Khmer channels; the optional thumbnail text layer remains off when unset and can be switched on. Implementation is not complete: enforce this in prompt generation, including recipe/custom guidance and the independent music-thumbnail path, and explain it in the picker without rewriting presets or existing thumbnails.
+- Still open: preserve replaced scene images in Story Trash; investigate pause on running audio, failed dispatch evidence, empty project job history, provider-state reconciliation, audio concurrency and cover preflight warning. No release gate, install, publication or production contact was performed in this work.
+
 ## 1.4.371 — old Wars ids keep working while every channel moves to the v2 Formulas; a wrong-script chapter is never saved (2026-10-30, release/1.4.371 from release/1.4.370 673b6cd1)
 
 **Commits on `release/1.4.371`: `96277a72` (Story + script-language), `1ef599b8` (withdraw Wars 1.0.2),

@@ -311,7 +311,7 @@ export function unresolvedSceneImagesMessage(
     `Scene images incomplete: ${scenes.length - issues.length} of ${scenes.length} made; finished images are saved.`,
     ...shown,
     issues.length > shown.length ? `${issues.length - shown.length} more scene(s) couldn't be made either.` : '',
-    retriesLeft ? 'Story Studio will try again automatically.' : 'Press Retry to try again.',
+    retriesLeft ? 'Story Studio will try again automatically.' : 'Press Retry to replace the listed images; completed images are kept.',
   ].filter(Boolean).join(' ')
 }
 

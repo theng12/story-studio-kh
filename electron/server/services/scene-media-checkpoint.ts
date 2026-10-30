@@ -452,7 +452,10 @@ export async function auditSceneImageCompletion(
       }
       foundEmpty = true
     }
-    if (!foundUsable) {
+    if (foundUsable && typeof scene.rendered_prompt === 'string' && scene.rendered_prompt !== scene.visual_prompt) {
+      invalid.push(`${sceneId} (image was rendered from an outdated prompt)`)
+      issues.push({ item_id: sceneId, state: 'invalid', reason: 'image was rendered from an outdated prompt' })
+    } else if (!foundUsable) {
       if (foundCorrupt) {
         invalid.push(`${sceneId} (corrupt image)`)
         issues.push({ item_id: sceneId, state: 'invalid', reason: 'corrupt image' })

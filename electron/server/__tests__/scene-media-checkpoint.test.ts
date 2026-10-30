@@ -315,6 +315,25 @@ describe('scene media checkpoints', () => {
     })
   })
 
+  it('reports an image rendered from an older prompt and accepts a repaired or legacy image', async () => {
+    const { dir, planPath } = await fixture()
+    const images = path.join(dir, 'images')
+    await fs.mkdir(images)
+    await writeValidImage(path.join(images, 'scene-1.png'))
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    plan.scenes[0]!.rendered_prompt = 'older prompt'
+    await fs.writeFile(planPath, JSON.stringify(plan))
+    const stale = await auditSceneImageCompletion(planPath, ['scene-1'], [images])
+    assert.equal(stale.completed, 0)
+    assert.deepEqual(stale.issues, [{ item_id: 'scene-1', state: 'invalid', reason: 'image was rendered from an outdated prompt' }])
+    plan.scenes[0]!.rendered_prompt = plan.scenes[0]!.visual_prompt
+    await fs.writeFile(planPath, JSON.stringify(plan))
+    assert.equal((await auditSceneImageCompletion(planPath, ['scene-1'], [images])).completed, 1)
+    delete plan.scenes[0]!.rendered_prompt
+    await fs.writeFile(planPath, JSON.stringify(plan))
+    assert.equal((await auditSceneImageCompletion(planPath, ['scene-1'], [images])).completed, 1)
+  })
+
   it('rejects stale, empty, and unselected motion clips', async () => {
     const { dir, planPath } = await fixture()
     const clipsDir = path.join(dir, 'clips')

@@ -6,6 +6,9 @@ What's new in each release. Newest first.
 
 ## v1.4.371 — 2026-10-30
 
+- A scene image made from an older prompt no longer passes a render's completion check as current. The job names the affected scene and Retry replaces it while keeping the completed images; older images with no recorded prompt remain unchecked.
+- This update also includes the Library and Pipeline fixes listed under 1.4.370 below, for anyone updating directly from 1.4.369.
+
 - Wars, Treaties & World Order keeps working while every channel moves to the v2 Formulas. An episode that still names an old Wars id keeps its topic: a Formula that lists an old Wars id now accepts it wherever that id is written, so the v2 Formulas take the ids the episodes already store, and a channel that has not moved yet uses the pack it came from instead of losing its subjects. Where two Wars packs are installed, the picker now offers one row, not three. A compatibility update of the merged pack was withdrawn before release, because no channel needs it once it has moved; the published pack is unchanged.
 - A Topic Pack you chose can no longer disappear without a word. If it cannot be used, the job says which one and why — not allowed by the Formula, not compatible with it, or not installed on this Mac — and the channel's own idea panel says the same. When none of the chosen packs can be used, the idea job says so plainly, writes from the Formula's own example topics, and asks you to choose different packs — it no longer leaves you to guess, or later tells you your subjects are used up.
 - Removing a pack from the Library now counts the Topic Packs each episode used, not only the channel's own setting, because that is where a channel really keeps its choice. The older pack stays removable while the merged one is what your episodes read.
