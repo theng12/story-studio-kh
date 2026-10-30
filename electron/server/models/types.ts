@@ -5148,6 +5148,12 @@ export interface ContextualCue {
   /** Independent target for a pointing design, measured from the frame's top left. */
   target_x_pct?: number | null
   target_y_pct?: number | null
+  /**
+   * 2026-10-30 — what a POINTING design should point at, in a few plain words
+   * ("the cracked bell", "the north gate"). Stored on the cue and read by
+   * nothing yet: locating the pointer in the frame is a separate job.
+   */
+  point_at?: string
   template: ContextualCueTemplate
   entrance: ContextualCueTransition
   exit: ContextualCueTransition
@@ -5217,6 +5223,15 @@ export interface ContextualCueProposalSettings {
    */
   position_x_pct?: number | null
   position_y_pct?: number | null
+  /**
+   * Reusable, optional (2026-10-30): the label themes a proposal may choose a
+   * design from, and the motions it may choose from. Both are preset data —
+   * a reusable look, never episode state (AGENTS.md §5) — so both travel with
+   * the preset and neither names anything episode-specific. Absent means today's
+   * behaviour exactly: the four text templates and a fixed fade.
+   */
+  label_themes?: string[]
+  label_motions?: string[]
   /**
    * Explicit opt-in for trusted presets, remembered per browser/preset —
    * independent from the persisted project default `auto_approve_cues`

@@ -70,6 +70,29 @@ export function normalizeCuePositionPair(
     : { position_x_pct, position_y_pct }
 }
 
+/**
+ * The two reusable label-choice lists a preset may carry, or NOTHING.
+ *
+ * Absent when the preset named no real value, so a default settings object
+ * stays exactly what it was before these fields existed and an empty list
+ * cannot be mistaken for a deliberate choice of "none of them".
+ */
+function normalizeLabelChoiceLists(
+  raw: Record<string, unknown>,
+): Pick<ContextualCueProposalSettings, 'label_themes' | 'label_motions'> {
+  const pick = (value: unknown): string[] | undefined => {
+    if (!Array.isArray(value)) return undefined
+    const list = [...new Set(
+      value.filter((item): item is string => typeof item === 'string')
+        .map(item => item.trim()).filter(Boolean),
+    )]
+    return list.length ? list : undefined
+  }
+  const label_themes = pick(raw.label_themes)
+  const label_motions = pick(raw.label_motions)
+  return { ...(label_themes ? { label_themes } : {}), ...(label_motions ? { label_motions } : {}) }
+}
+
 /** Keep user-facing proposal controls independent from old project config. */
 export function normalizeContextualCueProposalSettings(value: unknown): ContextualCueProposalSettings {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
@@ -83,6 +106,7 @@ export function normalizeContextualCueProposalSettings(value: unknown): Contextu
     // sits in a top corner.
     placement: normalizeCuePlacement(raw.placement),
     ...normalizeCuePositionPair(raw.position_x_pct, raw.position_y_pct),
+    ...normalizeLabelChoiceLists(raw),
     auto_approve: raw.auto_approve === true,
   }
 }
@@ -157,6 +181,12 @@ export function contextualCueProgressFingerprint(
     density: settings.density,
     placement: settings.placement,
     auto_approve: settings.auto_approve,
+    // A preset that names its own designs or motions bought its batches under
+    // those choices, so its saved progress must not be reused for a run that
+    // would choose differently. JSON.stringify drops both when unset, which
+    // keeps today's fingerprint byte for byte.
+    label_themes: settings.label_themes,
+    label_motions: settings.label_motions,
   })
   return createHash('sha256').update(input).digest('hex')
 }
