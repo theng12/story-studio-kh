@@ -28,6 +28,7 @@ import {
   readYouTubeChannelConnectStatus,
   startYouTubeChannelConnect,
 } from '../services/youtube-channel-connect.js'
+import { refreshStaleYouTubeChannelDetails } from '../services/youtube-channel-details.js'
 import { registryCredentialFor } from '../lib/youtube-client.js'
 import { readAppSecrets, youtubeSecretRecoveryRequired } from '../services/app-secrets-store.js'
 
@@ -81,7 +82,12 @@ router.get('/youtube/connections', async (_req, res) => {
         'The local YouTube credential store needs repair. Remove only its unusable YouTube credentials, then reconnect the retained channels.',
       )
     }
-    const registry = await readYouTubeConnectionRegistry()
+    let registry = await readYouTubeConnectionRegistry()
+    // A channel can be renamed on YouTube at any time. Re-read each channel's
+    // own details at most once a day, so the list shows the current name.
+    if (await refreshStaleYouTubeChannelDetails(Object.values(registry.channels))) {
+      registry = await readYouTubeConnectionRegistry()
+    }
     const secretBucket = (await readAppSecrets()).youtube
     const oauthClient = registry.application
       && secretBucket?.oauth_client?.application_id === registry.application.application_id
