@@ -133,6 +133,8 @@ export interface GenStudioVoice {
   is_saved?: boolean
   tts_model_id?: string | null
   tts_model_name?: string | null
+  /** Tags published by the Gateway for this voice. Absent or empty means no tags. */
+  tags?: string[]
 }
 
 export interface GenStudioLibraryVoice {
@@ -151,6 +153,8 @@ export interface GenStudioLibraryVoice {
   genstudio_voice_id?: string | null
   is_saved?: boolean
   credits_per_1000_characters?: number
+  /** Tags published by the Gateway for this voice. Absent or empty means no tags. */
+  tags?: string[]
 }
 
 export interface GenStudioVoiceLibrary {

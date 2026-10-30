@@ -243,6 +243,7 @@ const matchingVoices = computed(() => {
   if (!q) return voices.value
   return voices.value.filter(voice => [
     voice.display_name, voice.language, voice.description, voice.engine_name, voice.provider,
+    ...(voice.tags || []),
   ].filter(Boolean).join(' ').toLowerCase().includes(q))
 })
 // `cloned` needs no local filter — the server already returned only clones.
@@ -301,6 +302,7 @@ function rowProps(voice: GenStudioVoice) {
     disabled: !generable,
     disabledReason: unavailableReason(voice),
     saving: savingVoiceId.value === voice.id,
+    tags: voice.tags || [],
   }
 }
 

@@ -19,6 +19,9 @@
         </template>
       </span>
       <span v-if="description" class="vp-description">{{ description }}</span>
+      <div v-if="tags && tags.length" class="vp-tags">
+        <span v-for="tag in tags" :key="tag" class="vp-tag">{{ tag }}</span>
+      </div>
       <span v-if="disabled && disabledReason" class="vp-unavailable">{{ disabledReason }}</span>
     </button>
     <button
@@ -53,6 +56,8 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   disabledReason?: string
   saving?: boolean
+  /** Tags published by the Gateway for this voice. */
+  tags?: string[]
 }>(), {
   providerLabel: '',
   language: '',
@@ -63,6 +68,7 @@ const props = withDefaults(defineProps<{
   disabled: false,
   disabledReason: '',
   saving: false,
+  tags: () => [],
 })
 
 defineEmits<{
@@ -92,4 +98,6 @@ const saveTitle = computed(() => props.favourite ? 'Remove from your saved voice
 .vp-unavailable { color: rgb(245,158,11); }
 .vp-preview { padding: 3px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--accent); cursor: pointer; }
 .vp-preview:disabled { color: var(--text-muted); cursor: not-allowed; opacity: .45; }
+.vp-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.vp-tag { display: inline-block; padding: 1px 6px; border-radius: 8px; background: var(--bg-secondary); color: var(--text-secondary); font-size: 10px; line-height: 1.4; border: 1px solid var(--border); }
 </style>
