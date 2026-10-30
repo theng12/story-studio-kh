@@ -84,6 +84,45 @@ describe('label design rendering', () => {
     }
   })
 
+  test('named fonts affect sizing and the measured words are the words drawn', async () => {
+    const design = (await findLabelDesign('label:jungle-bamboo-frame'))!
+    const input = { design, title: 'Amazon Forest', frame_w: 1920, frame_h: 1080 }
+    const named = await renderLabelDesign(input)
+    const fallback = await renderLabelDesign({ ...input, design: { ...design, font: undefined } })
+    assert.notEqual(named.width, fallback.width, 'the selected face must affect measured width')
+    assert.notDeepEqual(named.png, fallback.png, 'the selected face must affect the drawn words')
+    const { fontById, fontFilePath } = await import('../lib/thumbnail-fonts.js')
+    const face = (await fontById(design.font!))!
+    const ink = await sharp({ text: { text: input.title, font: `${face.family}, 72`, fontfile: fontFilePath(face), rgba: true } }).trim({ threshold: 1 }).png().toBuffer()
+    const inkMeta = await sharp(ink).metadata()
+    const expectedWidth = Math.round(Math.max(1920 * 0.16, (inkMeta.width ?? 0) / design.text_box.width))
+    assert.equal(named.width, expectedWidth, 'asset width follows the same face used for the ink')
+    const base = await sharp((await import('../lib/label-design-render.js')).labelDesignAssetPath(design.asset)).resize(named.width, named.height, { fit: 'fill' }).png().toBuffer()
+    const box = design.text_box
+    const expected = await sharp(base).composite([{ input: ink, left: Math.round(box.x * named.width) + Math.round((Math.round(box.width * named.width) - (inkMeta.width ?? 0)) / 2), top: Math.round(box.y * named.height) + Math.max(0, Math.round((Math.round(box.height * named.height) - (inkMeta.height ?? 0)) / 2)) }]).png().toBuffer()
+    assert.deepEqual(named.png, expected, 'the measured ink is composited without changing face')
+  })
+
+  test('missing fonts fall back once and Khmer skips Latin-only fonts', async () => {
+    const design = (await findLabelDesign('label:jungle-bamboo-frame'))!
+    const input = { design, title: 'Amazon Rainforest', frame_w: 1920, frame_h: 1080 }
+    const fallback = await renderLabelDesign({ ...input, design: { ...design, font: undefined } })
+    const messages: string[] = []
+    const warn = console.warn
+    console.warn = (...args: unknown[]) => { messages.push(args.join(' ')) }
+    try {
+      const missing = { ...design, font: 'missing-test-font' }
+      assert.deepEqual((await renderLabelDesign({ ...input, design: missing })).png, fallback.png)
+      assert.deepEqual((await renderLabelDesign({ ...input, design: missing })).png, fallback.png)
+      assert.equal(messages.length, 1)
+      assert.match(messages[0], /missing-test-font.*default font/)
+    } finally { console.warn = warn }
+    const khmer = { ...input, title: 'ប្រាសាទអង្គរវត្ត' }
+    const named = await renderLabelDesign(khmer)
+    const normal = await renderLabelDesign({ ...khmer, design: { ...design, font: undefined } })
+    assert.deepEqual(named.png, normal.png)
+  })
+
   test('the leader line is a full-frame transparent image ending at the target', async () => {
     const png = await renderLeaderLine({
       frame_w: 640, frame_h: 360,

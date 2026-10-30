@@ -12,6 +12,8 @@ export interface LabelDesign {
   anchor?: { x: number; y: number }
   /** Empty area of the asset the cue's words are drawn into. */
   text_box: { x: number; y: number; width: number; height: number }
+  /** Bundled font folder name; omitted designs use the default face. */
+  font?: string
   /** Nominal cap height as a fraction of the asset height. */
   font_size: number
   text_color: string
