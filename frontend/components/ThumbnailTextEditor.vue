@@ -69,7 +69,17 @@
           <p v-if="!style && !loading" class="text-muted">No built-in look is available. Reload the editor when the thumbnail text service is available.</p>
           <template v-if="style">
             <details class="tte-group" open><summary>Font</summary><div class="tte-fields">
-              <label class="form-group">Font<select v-model="style.font_id" class="select"><option v-for="font in availableFonts" :key="font.id" :value="font.id">{{ font.label }}</option></select></label>
+              <div class="form-group">
+                <label>Font</label>
+                <FontPicker
+                  :model-value="style.font_id"
+                  :options="fontOptions"
+                  title="Choose a font"
+                  description="Only faces that cover this headline are listed."
+                  :sample="text"
+                  @select="value => (style!.font_id = value)"
+                />
+              </div>
               <label class="form-group">Weight<select v-model.number="style.weight" class="select"><option v-for="weight in selectedFont?.weights || []" :key="weight" :value="weight">{{ weight }}</option></select></label>
             </div></details>
             <details class="tte-group" open><summary>Size &amp; typography</summary><div class="tte-fields">
@@ -156,6 +166,8 @@ const emit = defineEmits<{ close: []; applied: [variant: ThumbnailTextVariant]; 
 const editor = useThumbnailText({ slug: props.projectSlug, episode: toRef(props, 'episodeCode'), visible: toRef(props, 'visible'), sources: toRef(props, 'sources'), initialSource: computed(() => props.initialSource || '') })
 const { text, source, style, availableFonts, selectedFont, builtins, presets, variants, suggestions, exactUrl, report, error, suggestionError, notice, loading, rendering, applying, suggesting, saved, canApply, initialize, renderExact, moreSuggestions, chooseSuggestion, reapply, presetAction, languageOverride, effectiveLanguage, followsChannel, setLanguageOverride } = editor
 const languageOptions = CONTENT_LANGUAGE_OPTIONS
+/** The faces this headline can use, offered as faces rather than as names in a list. */
+const fontOptions = computed(() => availableFonts.value.map(font => ({ value: font.id, label: font.label, family: font.label })))
 /** Which language is in effect and why, so the owner can see whether the channel or this episode decides. */
 const languageStatus = computed(() => {
   const effective = contentLanguageLabel(effectiveLanguage.value)

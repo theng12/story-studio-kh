@@ -40,8 +40,13 @@ describe('the caption font picker shows the face, not only its name', () => {
     assert.match(subtitles, /fontFamily: style\.typography\.font_family/)
   })
 
-  test('the native select stays, because it is the control that works on this platform', () => {
-    assert.match(subtitles, /onFontSelect\(\(\$event\.target as HTMLSelectElement\)\.value\)/)
+  test('the font field opens the shared popup rather than listing names in a select', () => {
+    // Owner, 2026-10-30: a font choice has to be visual. The panel's other
+    // selects (wrap, animation, word mode) are not choices among pictures and
+    // stay native; the font list was the one that had to change.
+    assert.match(subtitles, /<FontPicker/)
+    assert.match(subtitles, /@select="onFontSelect"/)
+    assert.doesNotMatch(subtitles, /<select[^>]*>[\s\S]{0,160}?value="__custom__"/)
     assert.match(subtitles, /__custom__/)
   })
 
