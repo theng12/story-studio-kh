@@ -58,8 +58,18 @@ import {
   type StillPostPanel,
 } from '../contracts/still-posts.js'
 import type { JobType } from '../models/types.js'
+import { SocialError } from '../contracts/social-publishing.js'
+import { publishStillPost, readStillPostPublishes } from '../services/still-post-publish.js'
 
 export const router = Router()
+
+function failSocial(res: import('express').Response, error: unknown, fallback: string): void {
+  if (error instanceof SocialError) {
+    res.status(error.statusCode).json(error.toPublic())
+    return
+  }
+  respondWithError(res, error, fallback)
+}
 
 function badRequest(message: string): never {
   throw Object.assign(new Error(message), { status: 400 })
@@ -116,7 +126,7 @@ function scriptLabel(script: string): string {
 router.get('/projects/:slug/still-posts', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    res.json(await buildWorkspace(req.params.slug))
+    res.json({ ...(await buildWorkspace(req.params.slug)), publishes: await readStillPostPublishes(req.params.slug) })
   } catch (error: any) {
     respondWithError(res, error, 'Failed to load Still Posts')
   }
@@ -487,5 +497,23 @@ router.post('/projects/:slug/still-posts/render', async (req, res) => {
     res.status(202).json({ job })
   } catch (error: any) {
     respondWithError(res, error, 'Failed to start drawing the batch')
+  }
+})
+
+/**
+ * Post one rendered Still Post to a platform the channel has turned on.
+ *
+ * Nothing posts by itself: the channel's own `social_platforms` list is the
+ * switch, and an empty list refuses here in words. The answer says exactly
+ * what happened — posted, already posted from this exact image, or why not.
+ */
+router.post('/projects/:slug/still-posts/posts/:id/publish', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
+    const result = await publishStillPost(slug, req.params.id, asRecord(req.body).platform)
+    res.json(result)
+  } catch (error: any) {
+    failSocial(res, error, 'Failed to post this image')
   }
 })

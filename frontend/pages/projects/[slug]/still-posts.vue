@@ -508,6 +508,32 @@
               <a class="sp-link" href="https://studio.youtube.com/" target="_blank" rel="noopener noreferrer">Open YouTube Studio to create a post</a>
               <p v-if="captionCopyStatus" role="status">{{ captionCopyStatus }}</p>
             </div>
+            <div class="sp-help">
+              <p class="sp-label">Post this image</p>
+              <template v-if="socialPlatforms.includes('facebook')">
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  :disabled="publishBusy"
+                  @click="postSelectedToFacebook"
+                >{{ publishBusy ? 'Posting…' : (selectedPublish?.facebook ? 'Post to Facebook again (new image only)' : 'Post to Facebook') }}</button>
+                <p v-if="selectedPublish?.facebook" class="sp-help">
+                  Posted {{ new Date(selectedPublish.facebook.posted_at).toLocaleString() }}
+                  (<a :href="selectedPublish.facebook.permalink || '#'" target="_blank" rel="noopener noreferrer">{{ selectedPublish.facebook.post_id }}</a>).
+                </p>
+              </template>
+              <p v-else class="sp-help">
+                Facebook posting is off for this channel. Turn it on in Settings → Publishing; nothing posts by itself.
+              </p>
+              <p class="sp-help">
+                Instagram needs a public image address, and Story Studio has no public image hosting, so it cannot post an image from this Mac.
+                Post it by hand, or configure a public image host for this channel.
+              </p>
+              <p v-if="publishMessage" role="status">{{ publishMessage }}</p>
+              <p v-else-if="selectedPublish?.last_failure?.facebook" class="sp-help">
+                Last attempt failed: {{ selectedPublish.last_failure.facebook.message }}
+              </p>
+            </div>
             <p class="sp-help">
               The picture is drawn once, then fitted into every chosen frame by our renderer — a
               second frame is never a second paid render.
@@ -606,6 +632,14 @@ interface Workspace {
   last_preset_id: string | null
   posts: StillPost[]
   batches: Array<{ batch_id: string, aspects: string[], total: number, complete_count: number, complete: boolean, posts: StillPostState[], missing: string[] }>
+  /** Receipts and the last refusal per platform, keyed by post id. */
+  publishes?: Record<string, PublishRecord>
+}
+interface PublishReceipt { post_id: string, permalink?: string, file: string, file_sha256: string, posted_at: string }
+interface PublishRecord {
+  facebook?: PublishReceipt
+  instagram?: PublishReceipt
+  last_failure?: Record<string, { message: string, at: string }>
 }
 
 const route = useRoute()
@@ -627,6 +661,41 @@ const languages = [
 const workspace = ref<Workspace | null>(null)
 const loading = ref(true)
 const loadError = ref('')
+
+// Publishing is the channel's own switch: nothing here is on until the owner
+// turns the platform on in Settings → Publishing.
+const socialPlatforms = ref<string[]>([])
+const publishes = ref<Record<string, PublishRecord>>({})
+const publishBusy = ref(false)
+const publishMessage = ref('')
+async function loadPublishing(): Promise<void> {
+  try {
+    const settings = await get<{ platforms: string[] }>(`/projects/${slug.value}/social/settings`)
+    socialPlatforms.value = Array.isArray(settings.platforms) ? settings.platforms : []
+  } catch { socialPlatforms.value = [] }
+}
+async function postSelectedToFacebook(): Promise<void> {
+  const entry = selected.value
+  if (!entry) return
+  publishBusy.value = true
+  publishMessage.value = ''
+  try {
+    const result = await post<{ already: boolean, receipt: PublishReceipt }>(
+      `/projects/${slug.value}/still-posts/posts/${entry.id}/publish`, { platform: 'facebook' },
+    )
+    publishes.value = {
+      ...publishes.value,
+      [entry.id]: { ...(publishes.value[entry.id] || {}), facebook: result.receipt },
+    }
+    publishMessage.value = result.already
+      ? `Already posted from this exact image (${result.receipt.post_id}). Nothing was sent again.`
+      : `Posted to Facebook (${result.receipt.post_id}).`
+  } catch (error: any) {
+    publishMessage.value = error?.data?.detail || error?.message || 'Facebook did not accept the image.'
+  } finally {
+    publishBusy.value = false
+  }
+}
 
 const castDraft = ref<string[]>([])
 const handleDraft = ref('')
@@ -813,6 +882,7 @@ const castCharacters = computed(() => (workspace.value?.characters || []).filter
 const canWrite = computed(() => !!workspace.value && brief.value.trim().length > 0)
 const canDraw = computed(() => !!preset.image_model)
 const selected = computed(() => workspace.value?.posts.find(entry => entry.id === selectedId.value) || null)
+const selectedPublish = computed(() => selected.value ? publishes.value[selected.value.id] : undefined)
 const writeJob = computed(() => jobs.value.find(job => job.job_id === writeJobId.value) || null)
 const imageModelInfo = computed(() => imageModels.value.find(model => model.id === preset.image_model) || null)
 /**
@@ -904,6 +974,7 @@ async function load(): Promise<void> {
   try {
     const data = await get<Workspace>(`/projects/${slug.value}/still-posts`)
     workspace.value = data
+    publishes.value = data.publishes || {}
     castDraft.value = [...data.config.character_ids]
     handleDraft.value = data.config.handle && data.config.handle !== '' ? `@${data.config.handle}` : ''
     logoDraft.value = data.config.logo_path || ''
@@ -1102,6 +1173,7 @@ watch(() => jobs.value.map(job => `${job.job_id}:${job.status}`).join('|'), () =
 onMounted(() => {
   void load()
   void loadModels()
+  void loadPublishing()
 })
 </script>
 
