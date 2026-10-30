@@ -180,6 +180,50 @@ export interface LabelOverlayGeometry {
   enable: string
   /** The design anchor's pixel position — the leader line starts here. */
   anchor: { x: number; y: number }
+  /** FFmpeg expressions for motion (scale, x_offset, y_offset). */
+  motion_exprs?: { scale?: string; x_offset?: string; y_offset?: string }
+}
+
+/**
+ * Motion expressions for image-backed labels.
+ * Returns FFmpeg expressions for scale or positional offsets over time.
+ * Dropped: 'wipe' (geq alpha manipulation is prohibitively slow for HD/4K),
+ * 'line-draw' (leader line growth requires brittle runtime mask filters).
+ */
+function labelMotionExprs(
+  motion: string | undefined,
+  start: number,
+  end: number,
+  w: number,
+  h: number,
+  labelW: number,
+  labelH: number,
+): { scale?: string; x_offset?: string; y_offset?: string } | undefined {
+  if (!motion) return undefined
+  const dur = 0.3 // entrance duration
+  const tStart = start.toFixed(3)
+  const tEnd = (start + dur).toFixed(3)
+
+  switch (motion) {
+    case 'pop':
+      // Scale from 0.8 to 1.0 with slight overshoot then settle
+      return { scale: `if(lt(t,${tEnd}),0.8+0.25*sin((t-${tStart})/${dur}*3.14159),1)` }
+    case 'slide':
+      // Slide in from left (negative x_offset resolving to 0)
+      return { x_offset: `if(lt(t,${tEnd}),-${labelW}*(1-(t-${tStart})/${dur}),0)` }
+    case 'float':
+      // Gentle vertical float (±3px)
+      return { y_offset: `sin((t-${tStart})*2)*3` }
+    case 'pulse':
+      // Gentle scale pulse during hold
+      return { scale: `1+0.05*sin((t-${tStart})*6.28)` }
+    case 'wipe':
+    case 'line-draw':
+      // Dropped: unreliable or prohibitively slow in FFmpeg overlay pipeline.
+      return undefined
+    default:
+      return undefined
+  }
 }
 
 export function labelOverlayGeometry(
@@ -199,6 +243,7 @@ export function labelOverlayGeometry(
   const y = Math.round(Math.min(frameH - label.height - minY, Math.max(minY, anchorY - label.anchor.y * label.height)))
   const start = cue.start_sec + offsetSec
   const end = cue.end_sec + offsetSec
-  return { x, y, enable: `between(t,${start.toFixed(3)},${end.toFixed(3)})`, anchor: { x: anchorX, y: anchorY } }
+  const motionExprs = labelMotionExprs(cue.motion, start, end, frameW, frameH, label.width, label.height)
+  return { x, y, enable: `between(t,${start.toFixed(3)},${end.toFixed(3)})`, anchor: { x: anchorX, y: anchorY }, motion_exprs }
 }
 

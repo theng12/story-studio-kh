@@ -7492,8 +7492,23 @@ async function runFinalComposition(
 
         args.push('-i', labelPath)
         const labelIdx = nextInputIdx++
+        let vLabelInput = `[${labelIdx}:v]`
+        if (geometry.motion_exprs) {
+          const { scale, x_offset, y_offset } = geometry.motion_exprs
+          if (scale) {
+            const nextMotion = vn()
+            filterParts.push(`${vLabelInput}scale=iw*(${escapeFilterArgValue(scale)}):ih*(${escapeFilterArgValue(scale)})${nextMotion}`)
+            vLabelInput = nextMotion
+          }
+        }
         const nextLabel = vn()
-        filterParts.push(`${vLabel}[${labelIdx}:v]overlay=x=${geometry.x}:y=${geometry.y}:eof_action=repeat:enable=${escapeFilterArgValue(geometry.enable)}${nextLabel}`)
+        const overlayX = geometry.motion_exprs?.x_offset
+          ? `${geometry.x}+(${escapeFilterArgValue(geometry.motion_exprs.x_offset)})`
+          : geometry.x
+        const overlayY = geometry.motion_exprs?.y_offset
+          ? `${geometry.y}+(${escapeFilterArgValue(geometry.motion_exprs.y_offset)})`
+          : geometry.y
+        filterParts.push(`${vLabel}${vLabelInput}overlay=x=${overlayX}:y=${overlayY}:eof_action=repeat:enable=${escapeFilterArgValue(geometry.enable)}${nextLabel}`)
         vLabel = nextLabel
         continue
       }
