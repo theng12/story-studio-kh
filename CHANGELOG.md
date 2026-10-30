@@ -17,6 +17,7 @@ What's new in each release. Newest first.
 - A failed job says "Repair missing output before Retry" only for the two kinds the Jobs page can repair; every other kind says plainly that it has no Repair action and that Retry runs it again.
 - Scene Plan can now create one scene for each narrated sentence, using estimated sentence timing from Audio Assembly. Turn it on in Visual timing & motion for an episode.
 
+- Voice tags published by the Gateway now pass through to the frontend and display in the Voice Picker rows, where they can also be searched.
 - A scene image made from an older prompt no longer passes a render's completion check as current. The job names the affected scene and Retry replaces it while keeping the completed images; older images with no recorded prompt remain unchecked.
 - This update also includes the Library and Pipeline fixes listed under 1.4.370 below, for anyone updating directly from 1.4.369.
 

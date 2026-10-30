@@ -1759,6 +1759,8 @@ export interface GenStudioVoice {
   /** The TTS model this voice runs on — the compatibility key for the picker. */
   tts_model_id?: string | null
   tts_model_name?: string | null
+  /** Tags published by the Gateway for this voice. Absent or empty means no tags. */
+  tags?: string[]
 }
 
 /** `TTSModelResponse` — the selection and pricing axis for speech. */
@@ -1924,6 +1926,8 @@ export interface GenStudioLibraryVoice {
   genstudio_voice_id?: string | null
   is_saved?: boolean
   credits_per_1000_characters?: number
+  /** Tags published by the Gateway for this voice. Absent or empty means no tags. */
+  tags?: string[]
 }
 
 export interface GenStudioLibraryPage {
@@ -5288,6 +5292,9 @@ export async function listVoicesSnapshot(
     is_saved: typeof value?.is_saved === 'boolean' ? value.is_saved : undefined,
     tts_model_id: nullableText(value?.tts_model_id),
     tts_model_name: nullableText(value?.tts_model_name),
+    tags: Array.isArray(value?.tags)
+      ? value.tags.filter((t: any): t is string => typeof t === 'string' && !!t.trim()).map((t: string) => t.trim())
+      : undefined,
   })).filter((voice: GenStudioVoice) => voice.id && voice.display_name)
   }, { displayFallback: options.displayFallback, baseUrl, apiKey })
 }
@@ -5531,6 +5538,9 @@ export async function listGenStudioVoiceLibrary(
         genstudio_voice_id: nullableText(value?.genstudio_voice_id),
         is_saved: typeof value?.is_saved === 'boolean' ? value.is_saved : undefined,
         credits_per_1000_characters: optionalCount(value?.credits_per_1000_characters),
+        tags: Array.isArray(value?.tags)
+          ? value.tags.filter((t: any): t is string => typeof t === 'string' && !!t.trim()).map((t: string) => t.trim())
+          : undefined,
       }]
     }),
   }

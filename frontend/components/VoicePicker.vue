@@ -137,7 +137,7 @@
  * would drift from the account it claims to describe.
  */
 import type { GenStudioVoice } from '~/composables/useGenStudioVoices'
-import { voiceIsGenerable, voiceSourceText } from '~/composables/useGenStudioVoices'
+import { voiceIsGenerable, voiceMatchesQuery, voiceSourceText } from '~/composables/useGenStudioVoices'
 import { unverifiedSelectionLabel } from '~/utils/picker-trigger-label'
 
 const props = withDefaults(defineProps<{
@@ -238,13 +238,8 @@ const cloneHint = computed(() => {
   return `Clone a voice in the Gateway; once its compatible copy is ready, it appears here for ${props.ttsModelName}.`
 })
 
-const matchingVoices = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  if (!q) return voices.value
-  return voices.value.filter(voice => [
-    voice.display_name, voice.language, voice.description, voice.engine_name, voice.provider,
-  ].filter(Boolean).join(' ').toLowerCase().includes(q))
-})
+const matchingVoices = computed(() =>
+  voices.value.filter(voice => voiceMatchesQuery(voice, search.value)))
 // `cloned` needs no local filter — the server already returned only clones.
 const visibleVoices = computed(() => voiceFilter.value === 'saved'
   ? matchingVoices.value.filter(voice => voice.is_saved === true)
@@ -301,6 +296,7 @@ function rowProps(voice: GenStudioVoice) {
     disabled: !generable,
     disabledReason: unavailableReason(voice),
     saving: savingVoiceId.value === voice.id,
+    tags: voice.tags || [],
   }
 }
 

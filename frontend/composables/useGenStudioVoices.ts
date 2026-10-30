@@ -133,6 +133,8 @@ export interface GenStudioVoice {
   is_saved?: boolean
   tts_model_id?: string | null
   tts_model_name?: string | null
+  /** Tags published by the Gateway for this voice. Absent or empty means no tags. */
+  tags?: string[]
 }
 
 export interface GenStudioLibraryVoice {
@@ -151,6 +153,8 @@ export interface GenStudioLibraryVoice {
   genstudio_voice_id?: string | null
   is_saved?: boolean
   credits_per_1000_characters?: number
+  /** Tags published by the Gateway for this voice. Absent or empty means no tags. */
+  tags?: string[]
 }
 
 export interface GenStudioVoiceLibrary {
@@ -276,6 +280,20 @@ export function voiceSourceText(voice: Pick<GenStudioVoice, 'id' | 'provider' | 
   if (voice.provider === GATEWAY_VOICE_LIBRARY
     || (voice.voice_tier === 'custom' && voice.id.startsWith('studio-hub-local::'))) return GATEWAY_VOICE_LIBRARY
   return [...new Set([voice.provider, voice.engine_name].filter(Boolean) as string[])].join(' · ')
+}
+
+/**
+ * The picker's search box, as one predicate. A query matches a voice when it
+ * appears in any field the row shows — `tags` included, so a tag the Gateway
+ * publishes is as searchable as language or engine name. An empty query
+ * matches everything, so the filter narrows rather than hides.
+ */
+export function voiceMatchesQuery(voice: GenStudioVoice, rawQuery: string): boolean {
+  const query = rawQuery.trim().toLowerCase()
+  if (!query) return true
+  return [voice.display_name, voice.language, voice.description, voice.engine_name, voice.provider,
+    ...(Array.isArray(voice.tags) ? voice.tags : []),
+  ].filter(Boolean).join(' ').toLowerCase().includes(query)
 }
 
 export function useGenStudioVoices() {
