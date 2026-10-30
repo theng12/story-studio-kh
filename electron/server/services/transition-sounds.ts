@@ -75,6 +75,31 @@ export function effectiveTransitionSettings(channel: Partial<TransitionSettings>
   }
 }
 
+export async function listTransitionClips(): Promise<{ clips: TransitionClip[]; notes: string[] }> {
+  const pools = await import('./broll-pool-manager.js')
+  const clips: TransitionClip[] = []
+  const notes: string[] = []
+  for (const pool of await pools.listPools()) {
+    if (pools.poolMedia(pool) !== 'audio') continue
+    if (!await pools.isPoolOnline(pool.id)) {
+      notes.push(`Sound folder "${pool.name || pool.id}" is unavailable.`)
+      continue
+    }
+    for (const clip of await pools.listClips(pool.id, { includeMissing: false })) {
+      clips.push({ source: 'pool', pool_id: pool.id, clip: clip.filename, label: clip.filename, tags: clip.tags || [] })
+    }
+  }
+  try {
+    const { listKeptSounds } = await import('../lib/gateway-sound-library.js')
+    for (const clip of await listKeptSounds()) {
+      clips.push({ source: 'gateway', clip: clip.sha256, label: clip.credit.title || clip.sha256, tags: clip.tags, credit: clip.credit })
+    }
+  } catch (error: any) {
+    notes.push(`Gateway sound library unavailable: ${error?.message || error}`)
+  }
+  return { clips, notes }
+}
+
 export function transitionClipKey(clip: Pick<TransitionClip, 'source' | 'pool_id' | 'clip'>): string {
   return JSON.stringify([clip.source, clip.pool_id || '', clip.clip])
 }

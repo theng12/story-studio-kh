@@ -61,9 +61,19 @@ import {
 import { stitchedSrtPath } from '../services/subtitle-correction.js'
 import type { ContextualCue, ContextualCueTimeline, ScenePlan, SoundDesignCue, SoundDesignTimeline } from '../models/types.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { effectiveTransitionSettings, normalizeTransitionEpisodeSettings, readTransitionEpisodeSettings, writeTransitionEpisodeSettings } from '../services/transition-sounds.js'
+import { DEFAULT_TRANSITION_SETS, effectiveTransitionSettings, listTransitionClips, normalizeTransitionEpisodeSettings, readTransitionEpisodeSettings, resolveTransitionSet, writeTransitionEpisodeSettings } from '../services/transition-sounds.js'
 
 export const router = Router()
+
+router.get('/projects/:slug/sound-and-labels/transitions/library', async (req, res) => {
+  try {
+    const config = await pm.getConfig(req.params.slug)
+    if (!config) return res.status(404).json({ detail: 'Project not found' })
+    const sets = Array.isArray((config as any).transition_sound_sets) ? (config as any).transition_sound_sets : DEFAULT_TRANSITION_SETS
+    const library = await listTransitionClips()
+    res.json({ ...library, sets: sets.map((set: any) => ({ ...set, ...resolveTransitionSet(set, library.clips) })) })
+  } catch (error: any) { res.status(500).json(humanizeBackendError(error, 'Could not load transition sounds.')) }
+})
 
 router.get('/projects/:slug/sound-and-labels/transitions/config', async (req, res) => {
   const config = await pm.getConfig(req.params.slug)
