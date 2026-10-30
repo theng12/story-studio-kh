@@ -1,0 +1,216 @@
+{
+  "designs": [
+    {
+      "id": "label:science-atom-badge",
+      "name": "Atom badge",
+      "family": "Badges",
+      "theme": "science",
+      "asset": "science-atom-badge.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.286,
+        "y": 0.064,
+        "width": 0.554,
+        "height": 0.872
+      },
+      "font": "patrick-hand",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:science-beaker",
+      "name": "Beaker",
+      "family": "Banners",
+      "theme": "science",
+      "asset": "science-beaker.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.202,
+        "y": 0.089,
+        "width": 0.756,
+        "height": 0.855
+      },
+      "font": "patrick-hand",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:science-clipboard",
+      "name": "Clipboard",
+      "family": "Paper and notes",
+      "theme": "science",
+      "asset": "science-clipboard.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.131,
+        "y": 0.05,
+        "width": 0.823,
+        "height": 0.907
+      },
+      "font": "patrick-hand",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:science-dna-frame",
+      "name": "Dna frame",
+      "family": "Frames",
+      "theme": "science",
+      "asset": "science-dna-frame.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.111,
+        "y": 0.147,
+        "width": 0.828,
+        "height": 0.731
+      },
+      "font": "patrick-hand",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:science-flask-pointer",
+      "name": "Flask pointer",
+      "family": "Location pointers",
+      "theme": "science",
+      "asset": "science-flask-pointer.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.175,
+        "y": 0.29,
+        "width": 0.68,
+        "height": 0.411
+      },
+      "font": "patrick-hand",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.998,
+        "y": 0.495
+      }
+    },
+    {
+      "id": "label:science-fossil-slab",
+      "name": "Fossil slab",
+      "family": "Signs",
+      "theme": "science",
+      "asset": "science-fossil-slab.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.212,
+        "y": 0.218,
+        "width": 0.695,
+        "height": 0.575
+      },
+      "font": "patrick-hand",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:science-graph-paper",
+      "name": "Graph paper",
+      "family": "Paper and notes",
+      "theme": "science",
+      "asset": "science-graph-paper.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.07,
+        "y": 0.332,
+        "width": 0.844,
+        "height": 0.365
+      },
+      "font": "patrick-hand",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:science-microscope",
+      "name": "Microscope",
+      "family": "Banners",
+      "theme": "science",
+      "asset": "science-microscope.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.066,
+        "y": 0.259,
+        "width": 0.764,
+        "height": 0.53
+      },
+      "font": "patrick-hand",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:science-petri-dish",
+      "name": "Petri dish",
+      "family": "Banners",
+      "theme": "science",
+      "asset": "science-petri-dish.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.322,
+        "y": 0.027,
+        "width": 0.665,
+        "height": 0.944
+      },
+      "font": "patrick-hand",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    }
+  ]
+}

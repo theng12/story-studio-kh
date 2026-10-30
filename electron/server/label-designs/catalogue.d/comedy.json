@@ -1,0 +1,170 @@
+{
+  "designs": [
+    {
+      "id": "label:comedy-banana",
+      "name": "Banana",
+      "family": "Banners",
+      "theme": "comedy",
+      "asset": "comedy-banana.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.054,
+        "y": 0.085,
+        "width": 0.79,
+        "height": 0.802
+      },
+      "font": "gochi-hand",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:comedy-bandage",
+      "name": "Bandage",
+      "family": "Banners",
+      "theme": "comedy",
+      "asset": "comedy-bandage.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.3,
+        "y": 0.2,
+        "width": 0.4,
+        "height": 0.6
+      },
+      "font": "gochi-hand",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:comedy-pizza-tag",
+      "name": "Pizza tag",
+      "family": "Location pointers",
+      "theme": "comedy",
+      "asset": "comedy-pizza-tag.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.143,
+        "y": 0.048,
+        "width": 0.844,
+        "height": 0.879
+      },
+      "font": "gochi-hand",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.002,
+        "y": 0.53
+      }
+    },
+    {
+      "id": "label:comedy-rubber-duck",
+      "name": "Rubber duck",
+      "family": "Banners",
+      "theme": "comedy",
+      "asset": "comedy-rubber-duck.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.057,
+        "y": 0.37,
+        "width": 0.89,
+        "height": 0.53
+      },
+      "font": "gochi-hand",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:comedy-sticky-note",
+      "name": "Sticky note",
+      "family": "Paper and notes",
+      "theme": "comedy",
+      "asset": "comedy-sticky-note.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.078,
+        "y": 0.106,
+        "width": 0.823,
+        "height": 0.834
+      },
+      "font": "gochi-hand",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:comedy-whoopee",
+      "name": "Whoopee",
+      "family": "Banners",
+      "theme": "comedy",
+      "asset": "comedy-whoopee.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.182,
+        "y": 0.096,
+        "width": 0.741,
+        "height": 0.807
+      },
+      "font": "gochi-hand",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:comedy-zigzag",
+      "name": "Zigzag",
+      "family": "Banners",
+      "theme": "comedy",
+      "asset": "comedy-zigzag.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.023,
+        "y": 0.075,
+        "width": 0.956,
+        "height": 0.851
+      },
+      "font": "gochi-hand",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    }
+  ]
+}

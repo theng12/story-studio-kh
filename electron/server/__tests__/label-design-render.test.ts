@@ -93,7 +93,7 @@ describe('label design rendering', () => {
     assert.notDeepEqual(named.png, fallback.png, 'the selected face must affect the drawn words')
     const { fontById, fontFilePath } = await import('../lib/thumbnail-fonts.js')
     const face = (await fontById(design.font!))!
-    const ink = await sharp({ text: { text: input.title, font: `${face.family}, 72`, fontfile: fontFilePath(face), rgba: true } }).trim({ threshold: 1 }).png().toBuffer()
+    const ink = await sharp({ text: { text: `<span foreground="${design.text_color}">${input.title}</span>`, font: `${face.family}, 72`, fontfile: fontFilePath(face), rgba: true } }).trim({ threshold: 1 }).png().toBuffer()
     const inkMeta = await sharp(ink).metadata()
     const expectedWidth = Math.round(Math.max(1920 * 0.16, (inkMeta.width ?? 0) / design.text_box.width))
     assert.equal(named.width, expectedWidth, 'asset width follows the same face used for the ink')
@@ -133,4 +133,35 @@ describe('label design rendering', () => {
     assert.equal(meta.height, 360)
     assert.equal(meta.hasAlpha, true)
   })
+})
+
+test('a design\'s text colour is what is drawn, and the cue\'s words are never read as markup', async () => {
+  const { readLabelDesigns, renderLabelDesign } = await import('../lib/label-design-render.js')
+  const sharp = (await import('sharp')).default
+  const design = (await readLabelDesigns()).find(item => item.text_color === '#ffffff' && item.font)!
+  const brightest = async (color: string) => {
+    const { png } = await renderLabelDesign({ design: { ...design, text_color: color }, title: 'AT&T <Tower>', subtitle: '', frame_w: 1920, frame_h: 1080 } as any)
+    const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+    let red = 0
+    for (let i = 0; i < data.length; i += info.channels) if (data[i] === 255 && data[i + 1] === 0 && data[i + 2] === 0) red++
+    return red
+  }
+  const red = await brightest('#ff0000')
+  assert.ok(red > 50, 'the words are drawn in the design colour')
+  assert.ok(await brightest('#00ff00') < red / 10, 'and in no other (the artwork itself may hold a stray red pixel)')
+})
+
+test('every registered design is complete', async () => {
+  const fs = await import('node:fs/promises')
+  const { readLabelDesigns, labelDesignAssetPath } = await import('../lib/label-design-render.js')
+  const { isLabelDesignId } = await import('../contracts/label-design.js')
+  const { fontById } = await import('../lib/thumbnail-fonts.js')
+  const designs = await readLabelDesigns()
+  assert.equal(new Set(designs.map(item => item.id)).size, designs.length, 'ids are unique')
+  for (const design of designs) {
+    assert.ok(isLabelDesignId(design.id), design.id)
+    if (design.asset) await fs.access(labelDesignAssetPath(design.asset))
+    if (design.pointing && design.asset) assert.ok(design.anchor, `${design.id} points, so it needs an anchor`)
+    if (design.font) assert.ok(await fontById(design.font), `${design.id} names a bundled font`)
+  }
 })

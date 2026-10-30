@@ -1,0 +1,249 @@
+{
+  "designs": [
+    {
+      "id": "label:ocean-anchor-tag",
+      "name": "Anchor tag",
+      "family": "Location pointers",
+      "theme": "ocean and the sea",
+      "asset": "ocean-anchor-tag.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.254,
+        "y": 0.08,
+        "width": 0.721,
+        "height": 0.84
+      },
+      "font": "caveat-brush",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.003,
+        "y": 0.25
+      }
+    },
+    {
+      "id": "label:ocean-buoy-plaque",
+      "name": "Buoy plaque",
+      "family": "Badges",
+      "theme": "ocean and the sea",
+      "asset": "ocean-buoy-plaque.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.17,
+        "y": 0.198,
+        "width": 0.757,
+        "height": 0.634
+      },
+      "font": "caveat-brush",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:ocean-coral-tag",
+      "name": "Coral tag",
+      "family": "Location pointers",
+      "theme": "ocean and the sea",
+      "asset": "ocean-coral-tag.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.113,
+        "y": 0.142,
+        "width": 0.809,
+        "height": 0.696
+      },
+      "font": "caveat-brush",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.002,
+        "y": 0.385
+      }
+    },
+    {
+      "id": "label:ocean-driftwood",
+      "name": "Driftwood",
+      "family": "Banners",
+      "theme": "ocean and the sea",
+      "asset": "ocean-driftwood.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.08,
+        "y": 0.22,
+        "width": 0.72,
+        "height": 0.55
+      },
+      "font": "caveat-brush",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:ocean-fish-pointer",
+      "name": "Fish pointer",
+      "family": "Location pointers",
+      "theme": "ocean and the sea",
+      "asset": "ocean-fish-pointer.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.08,
+        "y": 0.213,
+        "width": 0.733,
+        "height": 0.576
+      },
+      "font": "caveat-brush",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.997,
+        "y": 0.488
+      }
+    },
+    {
+      "id": "label:ocean-message-bottle",
+      "name": "Message bottle",
+      "family": "Banners",
+      "theme": "ocean and the sea",
+      "asset": "ocean-message-bottle.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.179,
+        "y": 0.287,
+        "width": 0.705,
+        "height": 0.603
+      },
+      "font": "caveat-brush",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:ocean-porthole",
+      "name": "Porthole",
+      "family": "Banners",
+      "theme": "ocean and the sea",
+      "asset": "ocean-porthole.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.119,
+        "y": 0.111,
+        "width": 0.809,
+        "height": 0.717
+      },
+      "font": "caveat-brush",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:ocean-rope-ring",
+      "name": "Rope ring",
+      "family": "Frames",
+      "theme": "ocean and the sea",
+      "asset": "ocean-rope-ring.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.058,
+        "y": 0.262,
+        "width": 0.885,
+        "height": 0.596
+      },
+      "font": "caveat-brush",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:ocean-shell-frame",
+      "name": "Shell frame",
+      "family": "Frames",
+      "theme": "ocean and the sea",
+      "asset": "ocean-shell-frame.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.16,
+        "y": 0.279,
+        "width": 0.561,
+        "height": 0.437
+      },
+      "font": "caveat-brush",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:ocean-wave-banner",
+      "name": "Wave banner",
+      "family": "Banners",
+      "theme": "ocean and the sea",
+      "asset": "ocean-wave-banner.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.051,
+        "y": 0.017,
+        "width": 0.892,
+        "height": 0.845
+      },
+      "font": "caveat-brush",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    }
+  ]
+}

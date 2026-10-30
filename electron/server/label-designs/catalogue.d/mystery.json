@@ -1,0 +1,170 @@
+{
+  "designs": [
+    {
+      "id": "label:mystery-evidence-tag",
+      "name": "Evidence tag",
+      "family": "Location pointers",
+      "theme": "mystery and detective",
+      "asset": "mystery-evidence-tag.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.157,
+        "y": 0.207,
+        "width": 0.788,
+        "height": 0.521
+      },
+      "font": "architects-daughter",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.017,
+        "y": 0.743
+      }
+    },
+    {
+      "id": "label:mystery-keyhole",
+      "name": "Keyhole",
+      "family": "Banners",
+      "theme": "mystery and detective",
+      "asset": "mystery-keyhole.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.067,
+        "y": 0.043,
+        "width": 0.86,
+        "height": 0.872
+      },
+      "font": "architects-daughter",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:mystery-lantern-sign",
+      "name": "Lantern sign",
+      "family": "Signs",
+      "theme": "mystery and detective",
+      "asset": "mystery-lantern-sign.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.21,
+        "y": 0.073,
+        "width": 0.664,
+        "height": 0.71
+      },
+      "font": "architects-daughter",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:mystery-magnifier",
+      "name": "Magnifier",
+      "family": "Banners",
+      "theme": "mystery and detective",
+      "asset": "mystery-magnifier.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.033,
+        "y": 0.08,
+        "width": 0.687,
+        "height": 0.586
+      },
+      "font": "architects-daughter",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:mystery-red-string",
+      "name": "Red string",
+      "family": "Frames",
+      "theme": "mystery and detective",
+      "asset": "mystery-red-string.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.072,
+        "y": 0.166,
+        "width": 0.865,
+        "height": 0.78
+      },
+      "font": "architects-daughter",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:mystery-torn-photo",
+      "name": "Torn photo",
+      "family": "Paper and notes",
+      "theme": "mystery and detective",
+      "asset": "mystery-torn-photo.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.091,
+        "y": 0.192,
+        "width": 0.841,
+        "height": 0.708
+      },
+      "font": "architects-daughter",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:mystery-wax-seal",
+      "name": "Wax seal",
+      "family": "Badges",
+      "theme": "mystery and detective",
+      "asset": "mystery-wax-seal.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.195,
+        "y": 0.161,
+        "width": 0.555,
+        "height": 0.782
+      },
+      "font": "architects-daughter",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    }
+  ]
+}

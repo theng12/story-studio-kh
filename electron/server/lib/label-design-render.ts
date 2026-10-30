@@ -66,8 +66,14 @@ function warnMissingFont(id: string): void {
   console.warn(`Label font "${id}" is unavailable; using the default font.`)
 }
 
-async function measure(text: string, fontPx: number, face?: { family: string; file: string }): Promise<{ width: number; height: number; png: Buffer }> {
-  const png = await sharp({ text: { text, font: `${face?.family ?? 'sans-serif'}, ${Math.round(fontPx)}`, ...(face ? { fontfile: face.file } : {}), rgba: true } }).png().toBuffer()
+// sharp reads text as Pango markup, so the cue's own words must be escaped and the colour set here.
+function textMarkup(text: string, color: string): string {
+  const safe = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return /^#[0-9a-f]{6}$/i.test(color) ? `<span foreground="${color}">${safe}</span>` : safe
+}
+
+async function measure(text: string, fontPx: number, color: string, face?: { family: string; file: string }): Promise<{ width: number; height: number; png: Buffer }> {
+  const png = await sharp({ text: { text: textMarkup(text, color), font: `${face?.family ?? 'sans-serif'}, ${Math.round(fontPx)}`, ...(face ? { fontfile: face.file } : {}), rgba: true } }).png().toBuffer()
   let trimmed = png
   try { trimmed = await sharp(png).trim({ threshold: 1 }).png().toBuffer() } catch { /* blank line */ }
   const meta = await sharp(trimmed).metadata()
@@ -150,7 +156,7 @@ export async function renderLabelDesign(input: LabelRenderInput): Promise<LabelR
     for (const line of lines) {
       let m: Awaited<ReturnType<typeof measure>>
       try {
-        m = await measure(line, fontPx, face)
+        m = await measure(line, fontPx, design.text_color, face)
       } catch (error) {
         if (!face || !design.font) throw error
         warnMissingFont(design.font)

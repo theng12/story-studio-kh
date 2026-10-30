@@ -1,0 +1,221 @@
+{
+  "designs": [
+    {
+      "id": "label:space-alien-sign",
+      "name": "Alien sign",
+      "family": "Signs",
+      "theme": "space",
+      "asset": "space-alien-sign.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.021,
+        "y": 0.293,
+        "width": 0.957,
+        "height": 0.683
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:space-astronaut-board",
+      "name": "Astronaut board",
+      "family": "Signs",
+      "theme": "space",
+      "asset": "space-astronaut-board.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.038,
+        "y": 0.069,
+        "width": 0.829,
+        "height": 0.877
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:space-control-panel",
+      "name": "Control panel",
+      "family": "Frames",
+      "theme": "space",
+      "asset": "space-control-panel.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.043,
+        "y": 0.159,
+        "width": 0.921,
+        "height": 0.694
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:space-planet-ring",
+      "name": "Planet ring",
+      "family": "Frames",
+      "theme": "space",
+      "asset": "space-planet-ring.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.108,
+        "y": 0.052,
+        "width": 0.81,
+        "height": 0.9
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:space-rocket-pointer",
+      "name": "Rocket pointer",
+      "family": "Location pointers",
+      "theme": "space",
+      "asset": "space-rocket-pointer.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.314,
+        "y": 0.281,
+        "width": 0.569,
+        "height": 0.454
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.984,
+        "y": 0.25
+      }
+    },
+    {
+      "id": "label:space-satellite-tag",
+      "name": "Satellite tag",
+      "family": "Location pointers",
+      "theme": "space",
+      "asset": "space-satellite-tag.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.185,
+        "y": 0.239,
+        "width": 0.77,
+        "height": 0.699
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.002,
+        "y": 0.358
+      }
+    },
+    {
+      "id": "label:space-signal-bubble",
+      "name": "Signal bubble",
+      "family": "Bubbles",
+      "theme": "space",
+      "asset": "space-signal-bubble.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.083,
+        "y": 0.115,
+        "width": 0.812,
+        "height": 0.724
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:space-star-burst",
+      "name": "Star burst",
+      "family": "Banners",
+      "theme": "space",
+      "asset": "space-star-burst.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.109,
+        "y": 0.237,
+        "width": 0.786,
+        "height": 0.551
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:space-ufo-beam",
+      "name": "Ufo beam",
+      "family": "Banners",
+      "theme": "space",
+      "asset": "space-ufo-beam.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.151,
+        "y": 0.534,
+        "width": 0.695,
+        "height": 0.45
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    }
+  ]
+}

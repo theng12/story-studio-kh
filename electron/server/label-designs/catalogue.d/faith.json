@@ -1,0 +1,193 @@
+{
+  "designs": [
+    {
+      "id": "label:faith-bell-sign",
+      "name": "Bell sign",
+      "family": "Signs",
+      "theme": "faith",
+      "asset": "faith-bell-sign.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.151,
+        "y": 0.088,
+        "width": 0.723,
+        "height": 0.538
+      },
+      "font": "eb-garamond",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:faith-candle-row",
+      "name": "Candle row",
+      "family": "Banners",
+      "theme": "faith",
+      "asset": "faith-candle-row.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.01,
+        "y": 0.071,
+        "width": 0.981,
+        "height": 0.593
+      },
+      "font": "eb-garamond",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:faith-dove-tag",
+      "name": "Dove tag",
+      "family": "Location pointers",
+      "theme": "faith",
+      "asset": "faith-dove-tag.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.052,
+        "y": 0.189,
+        "width": 0.758,
+        "height": 0.737
+      },
+      "font": "eb-garamond",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.009,
+        "y": 0.25
+      }
+    },
+    {
+      "id": "label:faith-light-rays",
+      "name": "Light rays",
+      "family": "Banners",
+      "theme": "faith",
+      "asset": "faith-light-rays.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.073,
+        "y": 0.103,
+        "width": 0.854,
+        "height": 0.751
+      },
+      "font": "eb-garamond",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:faith-lotus-plaque",
+      "name": "Lotus plaque",
+      "family": "Badges",
+      "theme": "faith",
+      "asset": "faith-lotus-plaque.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.128,
+        "y": 0.132,
+        "width": 0.755,
+        "height": 0.631
+      },
+      "font": "eb-garamond",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:faith-olive-branch",
+      "name": "Olive branch",
+      "family": "Banners",
+      "theme": "faith",
+      "asset": "faith-olive-branch.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.133,
+        "y": 0.056,
+        "width": 0.788,
+        "height": 0.877
+      },
+      "font": "eb-garamond",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:faith-open-book",
+      "name": "Open book",
+      "family": "Banners",
+      "theme": "faith",
+      "asset": "faith-open-book.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.239,
+        "y": 0.12,
+        "width": 0.596,
+        "height": 0.751
+      },
+      "font": "eb-garamond",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:faith-parchment-ribbon",
+      "name": "Parchment ribbon",
+      "family": "Banners",
+      "theme": "faith",
+      "asset": "faith-parchment-ribbon.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.126,
+        "y": 0.181,
+        "width": 0.747,
+        "height": 0.619
+      },
+      "font": "eb-garamond",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    }
+  ]
+}

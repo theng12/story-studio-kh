@@ -1,0 +1,249 @@
+{
+  "designs": [
+    {
+      "id": "label:war-maps-ammo-crate",
+      "name": "Ammo crate",
+      "family": "Signs",
+      "theme": "war and maps",
+      "asset": "war-maps-ammo-crate.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.094,
+        "y": 0.256,
+        "width": 0.82,
+        "height": 0.512
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:war-maps-arrow-march",
+      "name": "Arrow march",
+      "family": "Location pointers",
+      "theme": "war and maps",
+      "asset": "war-maps-arrow-march.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.018,
+        "y": 0.369,
+        "width": 0.894,
+        "height": 0.298
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.999,
+        "y": 0.53
+      }
+    },
+    {
+      "id": "label:war-maps-binocular-tag",
+      "name": "Binocular tag",
+      "family": "Location pointers",
+      "theme": "war and maps",
+      "asset": "war-maps-binocular-tag.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.15,
+        "y": 0.072,
+        "width": 0.799,
+        "height": 0.87
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.002,
+        "y": 0.522
+      }
+    },
+    {
+      "id": "label:war-maps-campaign-map",
+      "name": "Campaign map",
+      "family": "Paper and notes",
+      "theme": "war and maps",
+      "asset": "war-maps-campaign-map.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.043,
+        "y": 0.07,
+        "width": 0.806,
+        "height": 0.851
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:war-maps-dog-tag",
+      "name": "Dog tag",
+      "family": "Location pointers",
+      "theme": "war and maps",
+      "asset": "war-maps-dog-tag.png",
+      "pointing": true,
+      "text_box": {
+        "x": 0.321,
+        "y": 0.127,
+        "width": 0.593,
+        "height": 0.751
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe",
+        "line-draw"
+      ],
+      "anchor": {
+        "x": 0.002,
+        "y": 0.46
+      }
+    },
+    {
+      "id": "label:war-maps-field-telegram",
+      "name": "Field telegram",
+      "family": "Paper and notes",
+      "theme": "war and maps",
+      "asset": "war-maps-field-telegram.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.038,
+        "y": 0.052,
+        "width": 0.922,
+        "height": 0.902
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:war-maps-medal-bar",
+      "name": "Medal bar",
+      "family": "Badges",
+      "theme": "war and maps",
+      "asset": "war-maps-medal-bar.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.141,
+        "y": 0.123,
+        "width": 0.777,
+        "height": 0.731
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:war-maps-pennant",
+      "name": "Pennant",
+      "family": "Banners",
+      "theme": "war and maps",
+      "asset": "war-maps-pennant.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.082,
+        "y": 0.216,
+        "width": 0.799,
+        "height": 0.446
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:war-maps-sandbag-sign",
+      "name": "Sandbag sign",
+      "family": "Signs",
+      "theme": "war and maps",
+      "asset": "war-maps-sandbag-sign.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.076,
+        "y": 0.086,
+        "width": 0.839,
+        "height": 0.603
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#24160a",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    },
+    {
+      "id": "label:war-maps-stencil-plate",
+      "name": "Stencil plate",
+      "family": "Signs",
+      "theme": "war and maps",
+      "asset": "war-maps-stencil-plate.png",
+      "pointing": false,
+      "text_box": {
+        "x": 0.069,
+        "y": 0.105,
+        "width": 0.831,
+        "height": 0.767
+      },
+      "font": "anton",
+      "font_size": 0.34,
+      "text_color": "#ffffff",
+      "motions": [
+        "pop",
+        "slide",
+        "float",
+        "wipe"
+      ]
+    }
+  ]
+}
