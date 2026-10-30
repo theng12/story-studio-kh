@@ -71,7 +71,7 @@ test('the notice clears on a hand edit and on an episode change, and never fires
   assert.match(page, /function onAutoApproveEdited\(\): void \{ autoApproveNotice\.value = null \}/)
   // Switching episode makes the announcement stale — it described the episode
   // you just left.
-  assert.match(page, /watch\(\[slug, episodeId\], \(\) => \{ scopeEpoch\+\+; autoApproveNotice\.value = null; void loadEpisode\(\) \}, \{ flush: 'sync' \}\)/)
+  assert.match(page, /watch\(\[slug, episodeId\], \(\) => \{ scopeEpoch\+\+; autoApproveNotice\.value = null; void loadEpisode\(\); void loadTransitions\(\) \}, \{ flush: 'sync' \}\)/)
   // `usePresets.load()` re-applies the active preset on every mount. That is a
   // restore, not something the customer just did, so it announces nothing.
   assert.match(page, /await Promise\.all\(\[activePresets\.load\(\), soundPresets\.load\(\)\]\)[\s\S]{0,400}?autoApproveNotice\.value = null/)

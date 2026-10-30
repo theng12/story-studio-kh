@@ -892,9 +892,10 @@ describe('Studio Library renderer contract', () => {
   test('adds global and project navigation without disturbing the existing mobile trap', () => {
     // v1.4.371 — the link lives in the one shared header for non-channel pages,
     // and in the channel sidebar as an ordinary row.
-    assert.match(appHeader, /to="\/library"[\s\S]{0,60}Studio Library/)
-    assert.doesNotMatch(home, /home-actions/, 'All Channels has no header of its own')
-    assert.match(dashboard, /to="\/library"[\s\S]{0,80}Studio Library/)
+    assert.match(appHeader, /\{ to: '\/library', label: 'Studio Library' \}/)
+    assert.match(appHeader, /v-for="link in links"[\s\S]*?:to="link\.to"/)
+    assert.doesNotMatch(home, /<header[^>]*class="home-actions"/, 'All Channels has no header of its own')
+    assert.match(dashboard, /<NuxtLink to="\/library"[^>]*>[\s\S]*?Studio Library[\s\S]*?<\/NuxtLink>/)
     assert.match(dashboard, /closeMobileNav/)
     assert.match(dashboard, /focusableSidebarItems/)
   })

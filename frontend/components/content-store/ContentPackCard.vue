@@ -123,7 +123,7 @@ h3 { display: -webkit-box; min-width: 0; overflow: hidden; overflow-wrap: anywhe
 .pack-card[data-mode='list'] { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px 10px; }
 .pack-card[data-mode='list'] .pack-open { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 12px; }
 .pack-card[data-mode='list'] .pack-media { aspect-ratio: 16 / 10; width: 96px; }
-.pack-card[data-mode='list'] .pack-kind { right: 4px; bottom: 4px; left: 4px; padding: 2px 6px; font-size: 10px; }
+.pack-card[data-mode='list'] .pack-kind { right: 4px; bottom: 4px; left: 4px; padding: 2px 6px; font-size: var(--font-xs); }
 .pack-card[data-mode='list'] .pack-initial { font-size: 24px; }
 .pack-card[data-mode='list'] .pack-media-note { display: none; }
 .pack-card[data-mode='list'] .pack-title-row { align-items: center; }

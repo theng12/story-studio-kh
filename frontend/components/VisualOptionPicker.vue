@@ -88,7 +88,7 @@ function pick(value: string) {
   cursor: pointer;
 }
 .vop-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vop-caret { flex: 0 0 auto; color: var(--text-muted); font-size: 11px; }
+.vop-caret { flex: 0 0 auto; color: var(--text-muted); font-size: var(--font-xs); }
 .vop-grid {
   display: grid;
   min-height: 0;

@@ -110,7 +110,7 @@ test('Remote ignores an older load after switching away and back', async () => {
 
 test('Art-style selection is route-aware and disabled while its captured project save is pending', () => {
   assert.match(settings, /const artStyleSaving = ref\(false\)/)
-  assert.match(settings, /<select v-model="artStyleSelection" class="input" :disabled="artStyleSaving">/)
+  assert.match(settings, /<button[^>]*:disabled="artStyleSaving" @click="artStylePickerOpen = true"/)
   assert.match(settings, /const targetSlug = slug\.value/)
   assert.match(settings, /await put\(`\/projects\/\$\{targetSlug\}\/settings\/config`, payload\)/)
   assert.match(settings, /if \(artStyleSaving\.value\) return/)
