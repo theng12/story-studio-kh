@@ -1,0 +1,15 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.bold-line-field-explainer",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Bold-Line Field Explainer visual style.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.bold-line-field-explainer",
+    "family": "com.storystudio.family.style.bold-line-field-explainer"
+  },
+  "dependencies": []
+}

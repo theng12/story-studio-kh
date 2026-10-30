@@ -1,5 +1,17 @@
 # Standalone Looks preview provenance
 
+## Bold-Line Field Explainer, 2026-10-30
+
+The owner supplied and approved these original Qwen Image 2.1 Turbo images from `/build/Developer/_orchestra/explainer-style-20261030/`; generation cost and underlying license terms were not independently verified. No new generation, overlay, compositing or repair was performed. Each 1280×720 PNG was resized as a whole using cover and Lanczos3 to 1672×941 and encoded as WebP quality 90, method 6. All three outputs decoded successfully and have distinct SHA-256 hashes.
+
+| Role | Original | Original bytes | Original SHA-256 | WebP bytes | WebP SHA-256 |
+| --- | --- | ---: | --- | ---: | --- |
+| Hero | `1-hero.png` | 1339727 | `6181b1a429458abf97c096e66be67d9c721f255cc5205ef957b5d56e51182037` | 268816 | `e6e3651322d8a286b8618f269c8725db16c98a91a83616a5e83ba534b4f02987` |
+| Quiet scene, no figure | `2-quiet-b.png` | 1133124 | `e151b6b7837e92d2228eea796cabfec1cae6c0df59dd74ef1f22fcb3cfbb1793` | 166322 | `9ac08788bb92c8e2d1e9045642f794711c280cb177106d657dd233f635a9f32e` |
+| Hard case | `3-hard-b.png` | 1220711 | `a5f924aaaea97bc254f3856655e3e02743b7f7a1f066430ebee8c0b0df2e8d16` | 226694 | `8e570a20aab4320fe06e8e039bad83a3970e79ac90698a5ad94dd9f5ab4010db` |
+
+The hero shows a group with props in dense foliage; the quiet image shows an empty forest and river; the hard image shows a figure and map among dense foliage. The approved images show some texture and tonal shading despite the written contract's flat-fill direction; approval applies to these exact images. Independent visual and commercial rights review remains open.
+
 **Twelve previews are now declared by this collection's four standalone Content Packs, and all twelve exist.** A third Visual Style, `com.storystudio.style.flat-colour-stick-scenes`, was authored on 2026-09-09 and declares three previews of its own; they were rendered on 2026-09-09 under a second owner authorisation, under the run id `standalone-looks-previews-2`, and the record of that pass is at the end of this file under "A third look, authored 2026-09-09". A fourth, `com.storystudio.style.webtoon-martial-arts`, was authored on 2026-10-29 and rendered on this Mac's own Studio Hub; its record is under "A fourth look, authored 2026-10-29". Everything between here and those sections is the record of the first pass and is left exactly as it was written.
 
 Six previews are declared by this collection's first two standalone Content Packs. **All six now exist, and all six passed review.** They were rendered on 2026-09-08 by two Story Studio Image Pool jobs against the `pack-previews` project, under the owner authorisation given in chat that day — `c55d3e01` (run id `standalone-looks-previews-1`) returned five of the six, and `da15eecf` (run id `standalone-looks-previews-1b`) returned the sixth after a provider submission failure on that one item, for the reason recorded under "One item failed in transport" below. Every returned original was accepted; the accepted bytes, their digests and the conversion applied to each are in "Retained bytes" at the end of this file. Both packs build, sign and pass `validateContentPack` under an ephemeral authoring key.

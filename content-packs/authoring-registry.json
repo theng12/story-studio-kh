@@ -1,5 +1,5 @@
 {
-  "revision": 365,
+  "revision": 367,
   "batches": [
     {
       "revision": 2,
@@ -7314,6 +7314,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 366,
+      "receipt_ref": "authoring:3f5f65161dd89381a7ccb37ba519524376273ddf4f5e175095dda23f6edc6f68",
+      "request": {
+        "expected_revision": 365,
+        "coordinator": {
+          "task": "Bold-Line Field Explainer",
+          "branch": "release/1.4.371"
+        },
+        "proposal_ref": "owner request 2026-10-30; re-issued on the release branch because revisions 363-364 were taken by the Wars 1.0.2 work",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.bold-line-field-explainer",
+            "item_id": "com.storystudio.style.bold-line-field-explainer",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/standalone-looks/style/bold-line-field-explainer",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.bold-line-field-explainer",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.bold-line-field-explainer",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -12513,6 +12549,23 @@
           "status": "retired"
         },
         "reason": "Owner decision 2026-10-30: every channel moves to the v2 Formulas, so the v1 Formula compatibility widening is not needed. 1.0.2 was never published or shipped; 1.0.1 stays the published pack."
+      }
+    },
+    {
+      "revision": 367,
+      "transition_ref": "lifecycle:56321d191601392b464ccee647286068a03f5c55cd6be0fce557f80cf2509256",
+      "request": {
+        "expected_revision": 366,
+        "coordinator": {
+          "task": "Bold-Line Field Explainer",
+          "branch": "release/1.4.371"
+        },
+        "receipt_ref": "authoring:3f5f65161dd89381a7ccb37ba519524376273ddf4f5e175095dda23f6edc6f68",
+        "pack_id": "com.storystudio.pack.style.bold-line-field-explainer",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
       }
     }
   ],
@@ -20783,6 +20836,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.wars-treaties-world-order-v2",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:3f5f65161dd89381a7ccb37ba519524376273ddf4f5e175095dda23f6edc6f68",
+      "pack_id": "com.storystudio.pack.style.bold-line-field-explainer",
+      "item_id": "com.storystudio.style.bold-line-field-explainer",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/standalone-looks/style/bold-line-field-explainer",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.bold-line-field-explainer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.bold-line-field-explainer",
           "status": "proposed"
         }
       }
