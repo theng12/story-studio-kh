@@ -93,9 +93,17 @@
           <div class="eb-field">
             <label class="eb-label" for="eb-change">Scene change</label>
             <div class="eb-inline">
-              <select id="eb-change" v-model="settings.scene_change.transition" class="select eb-change" @change="saveSettings">
-                <option v-for="t in transitionOptions" :key="t.id" :value="t.id">{{ t.label }}</option>
-              </select>
+              <VisualOptionPicker
+                v-model="settings.scene_change.transition"
+                class="eb-change"
+                trigger-id="eb-change"
+                :options="transitionOptionList"
+                title="Scene change transition"
+                description="How one scene hands over to the next."
+                @pick="() => saveSettings()"
+              >
+                <template #sample="{ option }"><TransitionSample :kind="option.value" /></template>
+              </VisualOptionPicker>
               <input v-model.number="settings.scene_change.seconds" type="number" min="0" max="10" step="0.5" class="input eb-num" aria-label="Scene change seconds" @change="saveSettings"> s
             </div>
           </div>
@@ -462,6 +470,9 @@ const promptDraft = ref('')
 const dragFrom = ref(-1)
 const settings = ref<Settings>(blankSettings())
 const transitionOptions = ref<Array<{ id: string; label: string }>>([{ id: 'none', label: 'Hard cut' }, { id: 'crossfade', label: 'Crossfade' }])
+
+/** Same list the select showed, in the shape the card picker takes. */
+const transitionOptionList = computed(() => transitionOptions.value.map(t => ({ value: t.id, label: t.label })))
 
 function blankSettings(): Settings {
   return {

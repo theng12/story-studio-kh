@@ -727,15 +727,14 @@
             </div>
             <div class="form-group">
               <label>Transition Type</label>
-              <select v-model="titleImage.transition_type" class="select">
-                <option value="">Use main transition</option>
-                <option value="crossfade">Crossfade</option>
-                <option value="fade-black">Fade to Black</option>
-                <option value="dissolve">Dissolve</option>
-                <option value="wipe-left">Wipe Left</option>
-                <option value="wipe-right">Wipe Right</option>
-                <option value="none">None</option>
-              </select>
+              <VisualOptionPicker
+                v-model="titleImage.transition_type"
+                :options="TITLE_IMAGE_TRANSITION_OPTIONS"
+                title="Title image transition"
+                description="How the title image hands over to scene 1."
+              >
+                <template #sample="{ option }"><TransitionSample :kind="option.value" /></template>
+              </VisualOptionPicker>
             </div>
             <div class="form-group">
               <label>Transition Duration ({{ titleImage.transition_duration || transition.duration }}s)</label>
@@ -2029,20 +2028,33 @@
             </div>
             <div class="form-group">
               <label>Style</label>
-              <select v-model="titleCard.style" class="select" :disabled="!titleCard.enabled">
-                <option value="gold">Gold</option>
-                <option value="white">White</option>
-                <option value="neon">Neon</option>
-                <option value="minimal">Minimal</option>
-              </select>
+              <VisualOptionPicker
+                v-model="titleCard.style"
+                :options="TITLE_CARD_STYLE_OPTIONS"
+                :disabled="!titleCard.enabled"
+                title="Title card style"
+                description="The colour the episode title is drawn in."
+              >
+                <template #sample="{ option }">
+                  <span class="tc-style-sample" :class="`tc-style--${option.value}`">{{ option.label }}</span>
+                </template>
+              </VisualOptionPicker>
             </div>
             <div class="form-group">
               <label>Background</label>
-              <select v-model="titleCard.background" class="select" :disabled="!titleCard.enabled">
-                <option value="black">Black</option>
-                <option value="dark_blur">Dark Blur</option>
-                <option value="gradient">Gradient</option>
-              </select>
+              <VisualOptionPicker
+                v-model="titleCard.background"
+                :options="TITLE_CARD_BACKGROUND_OPTIONS"
+                :disabled="!titleCard.enabled"
+                title="Title card background"
+                description="The fill behind the title when no background media is picked."
+              >
+                <template #sample="{ option }">
+                  <span class="tc-bg-sample" :class="`tc-bg--${option.value}`">
+                    <code>{{ TITLE_CARD_BACKGROUND_COLORS[option.value as keyof typeof TITLE_CARD_BACKGROUND_COLORS] }}</code>
+                  </span>
+                </template>
+              </VisualOptionPicker>
             </div>
           </div>
           <div class="form-group mt-1">
@@ -3590,6 +3602,17 @@ const titleImage = reactive({
   transition_duration: 0,
 })
 
+/** The title image's own transition list — same values the select always offered. */
+const TITLE_IMAGE_TRANSITION_OPTIONS = [
+  { value: '', label: 'Use main transition' },
+  { value: 'crossfade', label: 'Crossfade' },
+  { value: 'fade-black', label: 'Fade to Black' },
+  { value: 'dissolve', label: 'Dissolve' },
+  { value: 'wipe-left', label: 'Wipe Left' },
+  { value: 'wipe-right', label: 'Wipe Right' },
+  { value: 'none', label: 'None' },
+]
+
 const sceneRecycling = reactive({
   seconds_per_scene: 10,
   shuffle: false,
@@ -4719,6 +4742,24 @@ const titleCard = reactive({
   background: 'black',
   background_media_path: '',
 })
+
+const TITLE_CARD_STYLE_OPTIONS = [
+  { value: 'gold', label: 'Gold' },
+  { value: 'white', label: 'White' },
+  { value: 'neon', label: 'Neon' },
+  { value: 'minimal', label: 'Minimal' },
+]
+const TITLE_CARD_BACKGROUND_OPTIONS = [
+  { value: 'black', label: 'Black' },
+  { value: 'dark_blur', label: 'Dark Blur' },
+  { value: 'gradient', label: 'Gradient' },
+]
+/**
+ * The exact fill `prepareTextCardClip` paints for each background. Two of the
+ * three names promise more than the renderer currently draws, so the sample
+ * shows the flat colour the render actually produces (and says which one).
+ */
+const TITLE_CARD_BACKGROUND_COLORS = { black: '#000000', dark_blur: '#101014', gradient: '#111827' } as const
 
 // Said before Generate: whether the opening will keep scenes on their narration.
 const openingSyncNote = computed(() => describeOpeningSync({
@@ -6958,6 +6999,37 @@ onUnmounted(() => {
 /* Title image preview */
 .title-image-preview { }
 .preview-frame { width: 480px; max-width: 100%; aspect-ratio: 16/9; border-radius: var(--radius-md); border: 1px solid var(--border); overflow: hidden; background: var(--bg-tertiary); }
+
+/* Title card option samples — the renderer's own colours, so the card shows
+   what the render paints rather than an idealised version of it. */
+.tc-style-sample {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  background: #000;
+  font-size: 15px;
+}
+.tc-style--gold { color: gold; }
+.tc-style--white { color: #fff; }
+.tc-style--neon { color: #00ffcc; }
+.tc-style--minimal { color: rgba(255, 255, 255, .8); }
+.tc-bg-sample {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  align-content: end;
+  justify-content: start;
+  padding: 5px 6px;
+}
+.tc-bg-sample code {
+  color: rgba(255, 255, 255, .55);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+}
+.tc-bg--black { background: #000; }
+.tc-bg--dark_blur { background: #101014; }
+.tc-bg--gradient { background: #111827; }
 .preview-img { width: 100%; height: 100%; object-fit: cover; }
 
 /* Audio list */
