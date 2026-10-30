@@ -187,8 +187,12 @@ export interface LabelOverlayGeometry {
 /**
  * Motion expressions for image-backed labels.
  * Returns FFmpeg expressions for scale or positional offsets over time.
- * Dropped: 'wipe' (geq alpha manipulation is prohibitively slow for HD/4K),
- * 'line-draw' (leader line growth requires brittle runtime mask filters).
+ *
+ * `wipe` (geq alpha manipulation is prohibitively slow for HD/4K) and
+ * `line-draw` (leader-line growth needs brittle runtime mask filters) were
+ * prototyped and dropped, so neither — and no name nobody ever declared —
+ * may quietly become a still: a customer who picked a motion and got none
+ * has no way to tell. A name the renderer cannot perform fails here, by name.
  */
 function labelMotionExprs(
   motion: string | undefined,
@@ -217,13 +221,71 @@ function labelMotionExprs(
     case 'pulse':
       // Gentle scale pulse during hold
       return { scale: `1+0.05*sin((t-${tStart})*6.28)` }
-    case 'wipe':
-    case 'line-draw':
-      // Dropped: unreliable or prohibitively slow in FFmpeg overlay pipeline.
-      return undefined
     default:
-      return undefined
+      throw new Error(
+        `Label motion "${motion}" is not supported. Pick pop, slide, pulse or float — or clear the motion — and save this label again.`,
+      )
   }
+}
+
+/**
+ * The filter chain for ONE image-backed label, plus any demuxer flags its own
+ * input needs.
+ *
+ * Split out of `generators/video.ts` so a test can drive the exact string the
+ * composition writes instead of a second copy of it that could drift — AGENTS.md
+ * §3's "dev wiring that points somewhere plausible but wrong".
+ *
+ * A scale motion needs three things a plain overlay does not give it, and each
+ * one fails in a way nothing else reports (verified against the real binary in
+ * `__tests__/label-motion.test.ts`):
+ *
+ *   - `scale` resolves its output size at init time by default, and FFmpeg
+ *     REFUSES frame variables there (`Expressions with frame variables 'n', 't',
+ *     'pos' are not valid in init eval mode`), so the whole graph fails to
+ *     start. `eval=frame` moves it onto per-frame evaluation.
+ *   - A PNG input yields exactly one frame, which `eof_action=repeat` then holds
+ *     for the rest of the video — one evaluation, one frozen size, no motion.
+ *     `-loop 1` at the OUTPUT's frame rate gives the expression a frame per tick
+ *     on the same clock the cue window and the overlay offsets already use.
+ *   - A looped input never reaches EOF, so the overlay would wait for it
+ *     forever. `shortest=1` ends this overlay with the video instead.
+ *
+ * Offset-only motions need none of that: `overlay`'s own `x`/`y` are evaluated
+ * per frame against the PRIMARY input's timestamp, so a single repeated still
+ * already slides and floats correctly. And a cue with no motion takes none of
+ * these branches, so it emits byte-for-byte the filter it always has.
+ */
+export function buildLabelOverlayFilters(
+  geometry: LabelOverlayGeometry,
+  opts: { base: string; labelInputIdx: number; fps: number; allocLabel: () => string },
+): { input_args: string[]; filters: string[]; output: string } {
+  const filters: string[] = []
+  const input_args: string[] = []
+  let labelInput = `[${opts.labelInputIdx}:v]`
+
+  const scale = geometry.motion_exprs?.scale
+  if (scale) {
+    input_args.push('-loop', '1', '-framerate', String(opts.fps))
+    const nextScale = opts.allocLabel()
+    const escaped = escapeFilterArgValue(scale)
+    filters.push(`${labelInput}scale=iw*(${escaped}):ih*(${escaped}):eval=frame${nextScale}`)
+    labelInput = nextScale
+  }
+
+  const x = geometry.motion_exprs?.x_offset
+    ? `${geometry.x}+(${escapeFilterArgValue(geometry.motion_exprs.x_offset)})`
+    : `${geometry.x}`
+  const y = geometry.motion_exprs?.y_offset
+    ? `${geometry.y}+(${escapeFilterArgValue(geometry.motion_exprs.y_offset)})`
+    : `${geometry.y}`
+
+  const output = opts.allocLabel()
+  const shortest = scale ? ':shortest=1' : ''
+  filters.push(
+    `${opts.base}${labelInput}overlay=x=${x}:y=${y}${shortest}:eof_action=repeat:enable=${escapeFilterArgValue(geometry.enable)}${output}`,
+  )
+  return { input_args, filters, output }
 }
 
 export function labelOverlayGeometry(
@@ -244,6 +306,6 @@ export function labelOverlayGeometry(
   const start = cue.start_sec + offsetSec
   const end = cue.end_sec + offsetSec
   const motionExprs = labelMotionExprs(cue.motion, start, end, frameW, frameH, label.width, label.height)
-  return { x, y, enable: `between(t,${start.toFixed(3)},${end.toFixed(3)})`, anchor: { x: anchorX, y: anchorY }, motion_exprs }
+  return { x, y, enable: `between(t,${start.toFixed(3)},${end.toFixed(3)})`, anchor: { x: anchorX, y: anchorY }, motion_exprs: motionExprs }
 }
 
