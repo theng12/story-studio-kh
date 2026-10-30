@@ -117,6 +117,19 @@ describe('one read answers for both halves', () => {
     assert.equal(resolved.cues.length, res.body.readiness.labels.will_render)
   })
 
+  test('saves and reloads a separate target, and clears an incomplete target', async () => {
+    const saved = await put(`/${episode}/labels`, { cues: [label({ template: 'label:location-pin', target_x_pct: 28, target_y_pct: 72 })] })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    const read = await get(`/${episode}`)
+    assert.equal(read.body.labels.cues[0].template, 'label:location-pin')
+    assert.equal(read.body.labels.cues[0].target_x_pct, 28)
+    assert.equal(read.body.labels.cues[0].target_y_pct, 72)
+    const cleared = await put(`/${episode}/labels`, { cues: [label({ target_x_pct: 28, target_y_pct: null })] })
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.body))
+    assert.equal(cleared.body.timeline.cues[0].target_x_pct, null)
+    assert.equal(cleared.body.timeline.cues[0].target_y_pct, null)
+  })
+
   test('a save that would draw a label outside its scene is refused, with the cue named', async () => {
     const res = await put(`/${episode}/labels`, { cues: [label({ start_sec: 18, end_sec: 24 })] })
     assert.equal(res.status, 422, JSON.stringify(res.body))
@@ -159,6 +172,21 @@ describe('a save cannot certify a stale time', () => {
 })
 
 describe('fixed-path routes are not read as an episode code', () => {
+  test('label designs include the catalogue, classic treatments and usable PNG samples', async () => {
+    const response = await get('/label-designs')
+    assert.equal(response.status, 200, JSON.stringify(response.body))
+    for (const id of ['documentary-label', 'map-pin', 'archival-caption', 'chapter-plate']) {
+      assert.equal(response.body.designs.find((row: any) => row.id === id)?.sample_url, null)
+    }
+    const design = response.body.designs.find((row: any) => row.id === 'label:location-pin')
+    assert.equal(design.name, 'Map pin')
+    assert.equal(design.family, 'Location pointers')
+    assert.equal(design.theme, 'exploration')
+    const sample = await request(app).get(design.sample_url)
+    assert.equal(sample.status, 200)
+    assert.match(sample.headers['content-type'], /image\/png/)
+    assert.equal((await request(app).get(`/api/projects/${slug}/sound-and-labels/label-designs/unknown/sample`)).status, 404)
+  })
   test('the config route answers on both GET and PUT', async () => {
     // This was a real bug found by running the page: `/sound-and-labels/config`
     // was declared BELOW `/sound-and-labels/:episodeId`, so Express bound "config"

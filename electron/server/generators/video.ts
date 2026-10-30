@@ -26,7 +26,7 @@ import { resolveSubfolderNames, resolveScenePlanPath, resolveEpisodePathsByCodeW
 import { findEpisodeDir, findSubfolder as resolveSubfolder } from '../lib/folder-resolver.js'
 import { findEpisodeSubfolderDir, resolveEpisodeSubfolderDir } from '../services/media-root.js'
 import { homogenizeForConcat } from '../lib/audio-concat.js'
-import { runFfmpeg, lowerFfmpegPriority, withX264ThreadCap, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, lowerFfmpegPriority, withX264ThreadCap, getAudioDuration, checkFfmpeg, hasDrawtextFilter, formatConcatFileLine, appendCappedTail, stillDecoderArgs, escapeFilterPath, escapeFilterArgValue } from '../lib/ffmpeg-utils.js'
 import { renderRevealClip, revealClipPath } from '../lib/reveal-render.js'
 import {
   plannedRevealForScene,
@@ -86,7 +86,8 @@ import {
 import { logoCornerRadiusPct, logoShapeOf, writeShapedLogo } from '../lib/logo-shape.js'
 import { displayAspectRatio, frameTextUnit, resolveRenderCanvas } from '../lib/render-canvas.js'
 import { inspectSourceAspect } from '../lib/source-aspect.js'
-import { buildContextualCueDrawtextFilters } from '../lib/contextual-cue-filters.js'
+import { buildContextualCueDrawtextFilters, labelOverlayGeometry } from '../lib/contextual-cue-filters.js'
+import { findLabelDesign, renderLabelDesign, renderLeaderLine } from '../lib/label-design-render.js'
 import { measureOpeningSec } from '../lib/opening-duration.js'
 import {
   buildColorGradingFilters,
@@ -7482,6 +7483,50 @@ async function runFinalComposition(
   if (contextualCues?.length) {
     const cueOffset = sceneTimelineOffsetSec || 0
     for (const cue of contextualCues) {
+      // Image-backed designs: the words are fitted into the design's own box
+      // and the finished PNG is overlaid. Everything is placed in output pixels,
+      // so the preview and this render cannot disagree. A design that is not
+      // installed fails the job by name rather than falling back to another
+      // treatment the customer never picked (AGENTS.md §8).
+      if (cue.template.startsWith('label:')) {
+        const design = await findLabelDesign(cue.template)
+        if (!design) {
+          throw new Error(`Label design ${cue.template} is not installed on this Mac. Pick a different design for this label, or restore the pack it came from.`)
+        }
+        const rendered = await renderLabelDesign({
+          design, title: cue.title, subtitle: cue.subtitle, frame_w: w, frame_h: h,
+        })
+        const geometry = labelOverlayGeometry(cue, rendered, w, h, cueOffset)
+        const safeId = cue.id.replace(/[^a-zA-Z0-9-]/g, '-')
+        const labelPath = path.join(path.dirname(videoInputPath), `label-${safeId}.png`)
+        await fs.writeFile(labelPath, rendered.png)
+        generatedSubtitleFiles.push(labelPath)
+
+        // A separate target point: the label can sit away from what it points at.
+        // Old cues carry none and simply draw nothing extra.
+        if (design.pointing && cue.target_x_pct != null && cue.target_y_pct != null) {
+          const linePng = await renderLeaderLine({
+            frame_w: w, frame_h: h,
+            from: { x: geometry.anchor.x / w, y: geometry.anchor.y / h },
+            to: { x: cue.target_x_pct / 100, y: cue.target_y_pct / 100 },
+          })
+          const linePath = path.join(path.dirname(videoInputPath), `label-line-${safeId}.png`)
+          await fs.writeFile(linePath, linePng)
+          generatedSubtitleFiles.push(linePath)
+          args.push('-i', linePath)
+          const lineIdx = nextInputIdx++
+          const nextLine = vn()
+          filterParts.push(`${vLabel}[${lineIdx}:v]overlay=x=0:y=0:eof_action=repeat:enable=${escapeFilterArgValue(geometry.enable)}${nextLine}`)
+          vLabel = nextLine
+        }
+
+        args.push('-i', labelPath)
+        const labelIdx = nextInputIdx++
+        const nextLabel = vn()
+        filterParts.push(`${vLabel}[${labelIdx}:v]overlay=x=${geometry.x}:y=${geometry.y}:eof_action=repeat:enable=${escapeFilterArgValue(geometry.enable)}${nextLabel}`)
+        vLabel = nextLabel
+        continue
+      }
       for (const filter of buildContextualCueDrawtextFilters(cue, cueOffset)) {
         const next = vn()
         filterParts.push(`${vLabel}${filter}${next}`)

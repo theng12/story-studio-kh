@@ -5102,7 +5102,7 @@ export type ContextualCueTransition = 'fade' | 'slide' | 'dissolve'
 export type ContextualCueStatus = 'proposed' | 'approved' | 'disabled'
 export type ContextualCueDensity = 'restrained' | 'standard' | 'editorial'
 /** A reviewed visual treatment; never an instruction for Video Assembly to reinterpret a cue. */
-export type ContextualCueTemplate = 'documentary-label' | 'map-pin' | 'archival-caption' | 'chapter-plate'
+export type ContextualCueTemplate = 'documentary-label' | 'map-pin' | 'archival-caption' | 'chapter-plate' | `label:${string}`
 
 export interface ContextualCue {
   id: string
@@ -5145,6 +5145,9 @@ export interface ContextualCue {
    */
   position_x_pct?: number | null
   position_y_pct?: number | null
+  /** Independent target for a pointing design, measured from the frame's top left. */
+  target_x_pct?: number | null
+  target_y_pct?: number | null
   template: ContextualCueTemplate
   entrance: ContextualCueTransition
   exit: ContextualCueTransition

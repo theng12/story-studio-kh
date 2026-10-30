@@ -126,6 +126,9 @@ export function buildContextualCueDrawtextFilters(cue: ContextualCue, offsetSec 
   const cornerY = pos.custom ? customAxis(pos.yPct, 'text_h', 'h') : (top ? '56' : 'h-text_h-56')
   const common = (x = cornerX, y = cornerY) => shared(cue, x, y, left)
 
+  if (cue.template.startsWith('label:')) {
+    throw new Error(`Label design ${cue.template} is drawn as an image overlay, not as drawtext.`)
+  }
   switch (cue.template) {
     case 'map-pin': {
       // A compact geographic marker, intentionally not a fabricated map.
@@ -162,3 +165,40 @@ export function buildContextualCueDrawtextFilters(cue: ContextualCue, offsetSec 
       ]
   }
 }
+
+/**
+ * Where an image-backed label is drawn, in output pixels.
+ *
+ * The cue's own anchor is the point the design's pointer sits on, so a pin's
+ * tip lands exactly where the customer placed the cue — not the bounding box's
+ * top-left corner. Works in pixels of the real canvas, which is why the preview
+ * and the render agree across aspect ratios.
+ */
+export interface LabelOverlayGeometry {
+  x: number
+  y: number
+  enable: string
+  /** The design anchor's pixel position — the leader line starts here. */
+  anchor: { x: number; y: number }
+}
+
+export function labelOverlayGeometry(
+  cue: ContextualCue,
+  label: { width: number; height: number; anchor: { x: number; y: number } },
+  frameW: number,
+  frameH: number,
+  offsetSec = 0,
+): LabelOverlayGeometry {
+  const pos = resolveContextualCuePosition(cue)
+  const anchorX = (pos.xPct / 100) * frameW
+  const anchorY = (pos.yPct / 100) * frameH
+  const margin = CUE_SAFE_MARGIN_PCT / 100
+  const minX = frameW * margin
+  const minY = frameH * margin
+  const x = Math.round(Math.min(frameW - label.width - minX, Math.max(minX, anchorX - label.anchor.x * label.width)))
+  const y = Math.round(Math.min(frameH - label.height - minY, Math.max(minY, anchorY - label.anchor.y * label.height)))
+  const start = cue.start_sec + offsetSec
+  const end = cue.end_sec + offsetSec
+  return { x, y, enable: `between(t,${start.toFixed(3)},${end.toFixed(3)})`, anchor: { x: anchorX, y: anchorY } }
+}
+

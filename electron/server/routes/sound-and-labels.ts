@@ -113,6 +113,41 @@ router.put('/projects/:slug/sound-and-labels/:episodeId/transitions', async (req
   } catch (error: any) { res.status(400).json(humanizeBackendError(error, 'Could not save transition sounds.')) }
 })
 
+const legacyLabelDesigns = [
+  { id: 'documentary-label', name: 'Documentary label' },
+  { id: 'map-pin', name: 'Location pin' },
+  { id: 'archival-caption', name: 'Archival caption' },
+  { id: 'chapter-plate', name: 'Chapter plate' },
+].map(design => ({ ...design, family: 'Classic', theme: 'Classic', sample_url: null }))
+
+router.get('/projects/:slug/sound-and-labels/label-designs', async (req, res) => {
+  try {
+    if (!await pm.getConfig(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { readLabelDesigns } = await import('../lib/label-design-render.js')
+    const designs = await readLabelDesigns()
+    res.json({ designs: [...legacyLabelDesigns, ...designs.map(design => ({
+      id: design.id, name: design.name, family: design.family, theme: design.theme,
+      sample_url: `/api/projects/${encodeURIComponent(req.params.slug)}/sound-and-labels/label-designs/${encodeURIComponent(design.id)}/sample`,
+    }))] })
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not load label designs.'))
+  }
+})
+
+router.get('/projects/:slug/sound-and-labels/label-designs/:id/sample', async (req, res) => {
+  try {
+    if (!await pm.getConfig(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { findLabelDesign, labelDesignAssetPath } = await import('../lib/label-design-render.js')
+    const design = await findLabelDesign(req.params.id)
+    if (!design || typeof design.asset !== 'string' || path.basename(design.asset) !== design.asset || !design.asset.endsWith('.png')) {
+      return res.status(404).json({ detail: 'Label sample not found.' })
+    }
+    res.sendFile(labelDesignAssetPath(design.asset))
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not load this label sample.'))
+  }
+})
+
 /** The two project switches, as the page reads them on load. */
 router.get('/projects/:slug/sound-and-labels/config', async (req, res) => {
   const current = await pm.getConfig(req.params.slug)
@@ -266,6 +301,10 @@ router.put('/projects/:slug/sound-and-labels/:episodeId/labels', async (req, res
       kind: cue.kind === 'location_date' || cue.kind === 'person' || cue.kind === 'chapter' ? cue.kind : 'historical_context',
       placement: normalizeCuePlacement(cue.placement),
       ...normalizeCuePositionPair(cue.position_x_pct, cue.position_y_pct),
+      ...(cue.target_x_pct != null || cue.target_y_pct != null ? (() => {
+        const target = normalizeCuePositionPair(cue.target_x_pct, cue.target_y_pct)
+        return { target_x_pct: target.position_x_pct, target_y_pct: target.position_y_pct }
+      })() : {}),
       template: normalizeContextualCueTemplate(cue.template), entrance: cue.entrance === 'slide' || cue.entrance === 'dissolve' ? cue.entrance : 'fade',
       exit: cue.exit === 'slide' || cue.exit === 'dissolve' ? cue.exit : 'fade',
       status: cue.status === 'approved' || cue.status === 'disabled' ? cue.status : 'proposed',
