@@ -9,7 +9,7 @@
     @click="appSettingsModal.open('connections')"
   >
     <span class="gateway-dot" aria-hidden="true" />
-    <strong>Gateway not reachable</strong>
+    <strong>{{ variant === 'inline' ? 'Gateway unavailable' : 'Gateway not reachable' }}</strong>
     <small>{{ variant === 'inline' ? 'Open the Gateway app' : connection.hint }}</small>
   </button>
   <NuxtLink
@@ -133,4 +133,5 @@ onUnmounted(() => { releasePolling?.() })
 .standing-strip-inline { min-height: 26px; flex-wrap: nowrap; justify-content: flex-start; gap: 7px; padding: 3px 9px; white-space: nowrap; }
 .standing-strip-inline > * { overflow: hidden; text-overflow: ellipsis; }
 .standing-strip-inline small { width: auto; min-width: 0; }
+.gateway-down.standing-strip-inline small { display: none; }
 </style>

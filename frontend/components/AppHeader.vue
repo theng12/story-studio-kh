@@ -1,25 +1,16 @@
 <template>
-  <!-- ONE header for every non-channel page (owner, 2026-10-30).
-       Before this, each page drew its own: a top strip with a name and a
-       sometimes-clipped box, a separate Gateway band, and on All Channels a
-       third band with links that existed nowhere else. The links sat at
-       different sizes and colours and there was no way to reach the other
-       pages from any of them.
-
-       This header is the whole navigation: the mark, every destination spread
-       evenly at one target size with the current page marked, then the live
-       Gateway facts, the page guide and the running version. The Gateway facts
-       here are the same component the channel pages use, so the two cannot
-       disagree about jobs or capacity. -->
   <header class="app-header">
     <div class="app-header-bar">
-      <NuxtLink to="/" class="app-header-brand" aria-label="Story Studio KH — All Channels">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="12" cy="12" r="10" stroke="var(--accent)" stroke-width="1.5" />
-          <path d="M15.5 12a5.5 5.5 0 0 1-9 4.24A7 7 0 0 0 12 5a5.5 5.5 0 0 1 3.5 7Z" fill="var(--accent)" opacity=".65" />
-        </svg>
-        <span>Story Studio KH</span>
-      </NuxtLink>
+      <div class="app-header-identity">
+        <slot name="leading" />
+        <NuxtLink to="/" class="app-header-brand" aria-label="Story Studio KH — All Channels">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" stroke="var(--accent)" stroke-width="1.5" />
+            <path d="M15.5 12a5.5 5.5 0 0 1-9 4.24A7 7 0 0 0 12 5a5.5 5.5 0 0 1 3.5 7Z" fill="var(--accent)" opacity=".65" />
+          </svg>
+          <span>Story Studio KH</span>
+        </NuxtLink>
+      </div>
 
       <nav class="app-header-nav" aria-label="Application">
         <NuxtLink
@@ -44,6 +35,7 @@
           v{{ appVersion }}
           <span class="version-build">· {{ buildDate }}</span>
         </button>
+        <slot name="actions" />
       </div>
     </div>
   </header>
@@ -95,10 +87,11 @@ function openWhatsNew() { _whatsNew.open() }
   display: flex;
   min-height: 50px;
   align-items: center;
-  gap: var(--space-3, 16px);
+  gap: var(--space-2, 8px);
   padding: 0 16px 0 84px;
   -webkit-app-region: drag;
 }
+.app-header-identity { display: flex; flex: none; align-items: center; gap: 8px; }
 .app-header-brand {
   display: flex;
   flex: none;
@@ -115,17 +108,18 @@ function openWhatsNew() { _whatsNew.open() }
   flex: 1 1 auto;
   min-width: 0;
   align-items: stretch;
-  justify-content: space-evenly;
-  gap: var(--space-1, 4px);
+  justify-content: flex-start;
+  overflow-x: auto;
+  scrollbar-width: thin;
   -webkit-app-region: no-drag;
 }
 .app-header-link {
   display: inline-flex;
   min-height: 34px;
-  flex: 0 1 auto;
+  flex: 0 0 104px;
   align-items: center;
   justify-content: center;
-  padding: 6px 12px;
+  padding: 6px 8px;
   border-radius: var(--radius-md, 8px);
   color: var(--text-secondary);
   font-size: var(--font-sm);
@@ -147,7 +141,7 @@ function openWhatsNew() { _whatsNew.open() }
   gap: var(--space-2, 8px);
   -webkit-app-region: no-drag;
 }
-.app-header-standing { max-width: 340px; }
+.app-header-standing { max-width: 180px; }
 .version-badge {
   display: inline-flex;
   align-items: center;
@@ -160,21 +154,17 @@ function openWhatsNew() { _whatsNew.open() }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--font-xs);
   line-height: 1.2;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .version-badge:hover { border-color: var(--accent); background: rgba(255, 255, 255, 0.08); color: var(--text-primary); }
 .version-build { color: var(--text-muted); font-size: var(--font-xs); }
 
-/* Narrow widths: the links stay one evenly spread row and scroll instead of
-   overflowing the bar; the standing strip drops its words before the links do. */
-@media (max-width: 1180px) {
-  .app-header-standing { display: none; }
-}
-@media (max-width: 900px) {
-  .app-header-bar { padding-left: 16px; }
-  .app-header-nav { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
-  .app-header-link { padding: 6px 9px; }
+@media (max-width: 1500px) {
   .version-build { display: none; }
+}
+@media (max-width: 1300px) {
+  .app-header-brand span { display: none; }
 }
 </style>

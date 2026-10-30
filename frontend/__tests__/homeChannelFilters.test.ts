@@ -39,6 +39,7 @@ async function loadComponent(file: string, id: string, support: string) {
     .replace("'~/utils/project-slug'", util('project-slug'))
     .replace("'~/utils/last-known-list'", util('last-known-list'))
     .replace("'~/utils/channel-view'", util('channel-view'))
+    .replace("'~/utils/content-language'", util('content-language'))
     // `@shared/*` has no import map inside a data: module — point the page's
     // slug rule (the same module the server uses) at the real file.
     .replace("'@shared/project-slug'", shared('project-slug'))

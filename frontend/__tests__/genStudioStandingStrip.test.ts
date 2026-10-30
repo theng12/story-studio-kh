@@ -19,26 +19,12 @@ function region(source: string, open: string, close: string): string {
 test('both application shells render one shared standing strip in their persistent top region', () => {
   assert.equal(existsSync(fileURLToPath(componentUrl)), true, 'shared standing strip must exist')
 
-  // Project pages (v1.2.3): inside the top bar itself, beside Page guide and
-  // the notification bell, so credits and lanes never move between views.
-  assert.match(
-    region(dashboard, '<header class="top-bar">', '</header>'),
-    /<GenStudioStandingStrip variant="inline"/,
-  )
-  // Channels and Content Store: the one shared header (v1.4.371), which the
-  // default layout renders at the top of every non-channel page. The separate
-  // account-standing band is gone, so the facts cannot be shown twice.
   const header = readFileSync(new URL('../components/AppHeader.vue', import.meta.url), 'utf8')
   assert.match(defaultLayout, /<AppHeader \/>/)
+  assert.match(dashboard, /<AppHeader>/)
   assert.match(region(header, '<div class="app-header-tools">', '</div>'), /<GenStudioStandingStrip variant="inline"/)
-
-  // And nowhere else. The sidebar footer used to be its second home.
-  assert.doesNotMatch(
-    region(dashboard, '<footer class="sidebar-credits"', '</footer>'),
-    /<GenStudioStandingStrip/,
-  )
-  assert.equal(dashboard.match(/<GenStudioStandingStrip/g)?.length, 1)
-  assert.equal(defaultLayout.match(/<GenStudioStandingStrip/g)?.length, 1)
+  assert.equal(header.match(/<GenStudioStandingStrip/g)?.length, 1)
+  assert.doesNotMatch(dashboard + defaultLayout, /<GenStudioStandingStrip/)
   assert.doesNotMatch(dashboard + defaultLayout, /startCreditPolling|stopCreditPolling/)
 })
 

@@ -123,6 +123,7 @@ watch(() => route.fullPath, () => {
   color: var(--text-primary);
   font-size: var(--font-sm);
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
   -webkit-app-region: no-drag;
 }

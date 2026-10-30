@@ -1749,7 +1749,7 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.project-card-actions { display: flex; flex-wrap: wrap; gap: 12px; align-self: flex-start; }
+.project-card-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .project-label-action {
   padding: 0;
   border: none;

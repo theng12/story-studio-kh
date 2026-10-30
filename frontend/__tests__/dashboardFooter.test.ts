@@ -37,18 +37,19 @@ test('the footer badge reports the same build facts as the shared header', () =>
 })
 
 test('the project sidebar reaches the existing Image Pool beside Assets Library', () => {
-  const assets = dashboard.indexOf('>Assets Library</NuxtLink>')
-  const imagePool = dashboard.indexOf('>Image Pool</NuxtLink>')
+  const assets = dashboard.indexOf('>Assets Library</span>')
+  const imagePool = dashboard.indexOf('>Image Pool</span>')
   assert.notEqual(assets, -1)
   assert.notEqual(imagePool, -1)
   assert.ok(imagePool > assets, 'Image Pool belongs after Assets Library in the Manage group')
   assert.match(
-    dashboard.slice(assets, imagePool + '>Image Pool</NuxtLink>'.length),
-    /:to="`\/projects\/\$\{slug\}\/image-pool`"[\s\S]{0,120}>Image Pool</,
+    dashboard.slice(assets, imagePool + '>Image Pool</span>'.length),
+    /:to="`\/projects\/\$\{slug\}\/image-pool`"[\s\S]{0,160}>Image Pool<\/span>/,
   )
 })
 
 test('the collapsed-sidebar Menu button sits clear of the macOS traffic lights', () => {
-  const narrow = dashboard.slice(dashboard.indexOf('@media (max-width: 900px)'))
-  assert.match(narrow, /\.menu-toggle \{[^}]*padding-left: 78px/)
+  assert.match(dashboard, /<template #leading>[\s\S]*class="menu-toggle"/)
+  const header = readFileSync(new URL('../components/AppHeader.vue', import.meta.url), 'utf8')
+  assert.match(header, /\.app-header-bar\s*\{[^}]*padding:[^;]*84px/)
 })

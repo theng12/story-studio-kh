@@ -2,28 +2,24 @@
   <div class="dashboard-layout">
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
-    <header class="top-bar">
-      <button
-        ref="menuToggle"
-        type="button"
-        class="menu-toggle"
-        :aria-expanded="mobileNavOpen"
-        aria-controls="project-navigation"
-        :aria-label="mobileNavOpen ? 'Close navigation' : 'Open navigation'"
-        @click="toggleMobileNav"
-      >
-        <span aria-hidden="true">{{ mobileNavOpen ? 'Close' : 'Menu' }}</span>
-      </button>
-      <div class="titlebar-drag" />
-      <!-- Credits and lanes sit in the top bar on every view, so account
-           standing reads the same on a project page as it does on channels
-           and the Studio Library. -->
-      <div class="top-bar-actions">
-        <GenStudioStandingStrip variant="inline" class="top-bar-standing-strip" />
-        <FeatureHelpCenter />
+    <AppHeader>
+      <template #leading>
+        <button
+          ref="menuToggle"
+          type="button"
+          class="menu-toggle"
+          :aria-expanded="mobileNavOpen"
+          aria-controls="project-navigation"
+          :aria-label="mobileNavOpen ? 'Close navigation' : 'Open navigation'"
+          @click="toggleMobileNav"
+        >
+          <span aria-hidden="true">{{ mobileNavOpen ? 'Close' : 'Menu' }}</span>
+        </button>
+      </template>
+      <template #actions>
         <NotificationCenter v-if="slug" :slug="slug" />
-      </div>
-    </header>
+      </template>
+    </AppHeader>
 
     <FfmpegSetupDialog />
 
@@ -422,30 +418,6 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.top-bar {
-  z-index: 200;
-  display: flex;
-  flex: 0 0 38px;
-  background: var(--bg-secondary);
-}
-.titlebar-drag {
-  flex: 1;
-  border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
-}
-.top-bar-actions {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border);
-  -webkit-app-region: no-drag;
-}
-/* The strip yields the bar's width to the Page guide and notification
-   controls before it yields anything of its own; below the 900px minimum
-   window width the bar is tight enough that it steps aside entirely. */
-.top-bar-standing-strip { min-width: 0; flex: 0 1 auto; }
 .menu-toggle {
   display: none;
   min-width: 60px;
@@ -638,9 +610,7 @@ onUnmounted(() => {
 .sidebar-overlay { display: none; }
 
 @media (max-width: 900px) {
-  /* Clear of the macOS traffic lights (x 16, ~52 px wide): at the 900 px minimum window the sidebar
-     collapses here, and a Menu button under the lights could not be clicked at all. */
-  .menu-toggle { display: inline-flex; align-items: center; justify-content: center; padding-left: 78px; min-width: 138px; }
+  .menu-toggle { display: inline-flex; align-items: center; justify-content: center; }
   .sidebar {
     position: fixed;
     z-index: 300;

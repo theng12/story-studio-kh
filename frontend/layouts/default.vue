@@ -1,10 +1,6 @@
 <template>
   <div class="layout">
     <a href="#main-content" class="skip-link">Skip to main content</a>
-    <!-- One header for every non-channel page (see components/AppHeader.vue).
-         It carries the links, the live Gateway facts, the page guide and the
-         running version — the same Gateway component the channel pages use,
-         so the two cannot disagree. -->
     <AppHeader />
     <ContentInstallStrip v-if="!signingIn" class="default-install-strip" />
     <main id="main-content" class="page-content" tabindex="-1">
