@@ -6,6 +6,16 @@ What's new in each release. Newest first.
 
 ## v1.4.371 — 2026-10-30
 
+- Labels have themes. 94 designs across jungle, ocean, space, ancient worlds, mystery, science, sleep, war and maps, faith and comedy, each with its own font, chosen from samples. You can hide a design for a channel and restore it later; a hidden design still renders wherever it is already used.
+- A label's words now use the colour its design names. They were always black, so they vanished on a dark panel. Words with & or < in them no longer break the label.
+- Labels can wipe in, or draw a line to what they point at. A label with nothing to point at shows without a line and the job log says so; it never stops a render.
+- Labels can point on their own. The writing model names the thing, and the Gateway finds it in the scene image, only if the scene's prompt says it was drawn and the box is not most of the frame. Otherwise the label draws with no pointer and the job log says why. It can still pick a wrong object of a believable size, so a position dragged by hand always wins.
+- Drag a label and its target on the scene image, or move them with the arrow keys. Typed coordinates are gone.
+- A cue preset can name label themes and motions, and a Pipeline run uses them with nobody clicking.
+- Cut sounds and video sound effects are separate pools. A cue never picks a cut sound, and a sound effect joins a cut pool only if you pin it.
+- Video Assembly's layout and the thumbnail artwork are chosen from samples.
+- The label designs now ship inside the installed app, which is where a real render reads them.
+
 - Choosing a file no longer means typing a path. Every file and folder field opens a picker: the card, the subtitle and intro clips, the music and ambience files, B-Roll pools, Ideas import folders, Video Assembly's clip, title, logo and green-screen fields, and a channel's heavy-media folder. What you see is the file's own name, with the full path on hover; a file that is gone says "File not found" instead of looking chosen. Used from another Mac's browser, the picker browses this Mac's folders in the app itself — a native dialog would open on a screen nobody is looking at — and adds "Upload from this Mac" so a file on your own machine can be chosen at all. "Show in Finder" is hidden there, because it would reveal a folder on the other machine.
 - A Gateway sound used in Sound & Labels now reaches the Mac that renders it. Story keeps its copy of the clip once, checks it against the Gateway's own hash before mixing, and says plainly — naming the sound — when it cannot fetch it, instead of mixing without the sound you approved. A clip's tags now reach the picker's description, so it is found by what it is rather than by its title alone.
 - Sound & Labels is one step in the workflow and the sidebar. Its two halves both opened the same page, so Next went from the page to itself; the step is still optional and still reads the same one board cell, which is pending while either labels or sounds have work.
