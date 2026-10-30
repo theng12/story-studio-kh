@@ -1047,6 +1047,7 @@ export async function generateAudio(job: Job): Promise<void> {
       chunkFilename, effectiveVoice, submissionIdentity,
       inputHash, recoveryEntry, announceRecoveryFromTerminal,
     } = options
+    jq.throwIfPauseRequested(job.job_id)
     sectionQualityByFile.delete(chunkFilename)
     {
       const prepared = buildGenStudioSubmission({
@@ -1350,6 +1351,10 @@ export async function generateAudio(job: Job): Promise<void> {
           return
         } catch (e: any) {
           if (isGenStudioInsufficientCredits(e)) throw e
+          if (e instanceof jq.JobPausedError) {
+            notePause()
+            return
+          }
           // A user cancel is NOT a chunk failure. Recording it in errors[]
           // makes the run end with a misleading "N section(s) failed: …
           // Cancelled by user". Skip it — the queue stamps the job 'cancelled'
@@ -1498,6 +1503,7 @@ export async function generateAudio(job: Job): Promise<void> {
             job.output_lines.push('  Cancelled.')
             return
           }
+          jq.throwIfPauseRequested(job.job_id)
           activeTasks.set(chunkFilename, {
             label: task.sectionLabel,
             key: task.sectionSlug,
@@ -1516,10 +1522,16 @@ export async function generateAudio(job: Job): Promise<void> {
 
   let cursor = 0
   let creditFailure: unknown
+  let pauseAnnounced = false
+  const notePause = () => {
+    if (pauseAnnounced) return
+    pauseAnnounced = true
+    job.output_lines.push('Pause requested — no new narration requests will be sent; requests already sent will finish.')
+  }
   async function worker(): Promise<void> {
     while (cursor < tasks.length) {
       if (isCancelled() || creditFailure) return
-      if (jq.isPauseRequested(job.job_id)) return
+      if (jq.isPauseRequested(job.job_id)) { notePause(); return }
       const i = cursor++
       try {
         await processTask(tasks[i]!)

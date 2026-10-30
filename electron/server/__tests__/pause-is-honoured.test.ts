@@ -92,6 +92,22 @@ describe('every place that can start paid work reads the pause signal', () => {
       'the item loop must not start another paid submit after Pause')
   })
 
+  test('a 41-part narration really can have 41 requests in flight at once', async () => {
+    const { resolveGenStudioTtsFanout } = await import('../lib/genstudio-runtime.js')
+    assert.equal(resolveGenStudioTtsFanout(41, 41, 41), 41,
+      'this is why a pause read only between whole tasks let all 41 requests go out')
+  })
+
+  test('narration stops sending new voice requests on pause', async () => {
+    const body = await read('generators/audio.ts')
+    assert.match(body, /async function attemptTask[\s\S]{0,1200}?throwIfPauseRequested\(job\.job_id\)/,
+      'a part already claimed by a worker must not POST after Pause')
+    assert.match(body, /e instanceof jq\.JobPausedError[\s\S]{0,80}?notePause\(\)/,
+      'a paused part is not counted as a failed chapter')
+    assert.match(body, /Pause requested — no new narration requests will be sent/,
+      'the job says plainly that in-flight requests settle and no new ones start')
+  })
+
   test('contextual cues honours pause during its pacing and cooldown waits', async () => {
     const body = await read('generators/contextual-cues.ts')
     assert.match(body, /async function waitWhileActive[\s\S]{0,400}?throwIfPauseRequested\(jobId\)/,
