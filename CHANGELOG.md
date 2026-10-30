@@ -6,6 +6,11 @@ What's new in each release. Newest first.
 
 ## v1.4.371 — 2026-10-30
 
+- A channel's finished videos can schedule themselves. The starting default is three a week on random days, never back to back and never two on one day, each at a random time. Once drawn, an episode's day and time stay put, and you can change the channel's pattern.
+- Start a new channel from an existing one: it takes the presets, Series Formula, Topic Packs, art style, voices and idea settings, and none of that channel's episodes.
+- A connected YouTube channel keeps its current name, handle and picture. A channel renamed on YouTube used to keep showing its old name.
+- Every cut can play a transition sound from a pool, shuffled, and set per channel or per episode.
+- The SSD kit installs Story and checks the EmbeddingGemma files as it copies them, so a new Mac with no internet is ready.
 - Labels have themes. 94 designs across jungle, ocean, space, ancient worlds, mystery, science, sleep, war and maps, faith and comedy, each with its own font, chosen from samples. You can hide a design for a channel and restore it later; a hidden design still renders wherever it is already used.
 - A label's words now use the colour its design names. They were always black, so they vanished on a dark panel. Words with & or < in them no longer break the label.
 - Labels can wipe in, or draw a line to what they point at. A label with nothing to point at shows without a line and the job log says so; it never stops a render.
