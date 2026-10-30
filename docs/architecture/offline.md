@@ -1,55 +1,37 @@
 # Offline-first notes
 
-**Supported desktop artifact:** macOS arm64 only. The Electron app is a thin
-Apple Silicon build; the bundled FFmpeg helper is universal2 so it can also be
-reused if an x64 or universal Electron target is deliberately added later.
-Windows and Linux targets were removed from `electron-builder.json` on
-2026-04-24 — the FFmpeg bundle is fused with `lipo`, and the runtime
-auto-download fallback (`ffmpeg-manager.ts::DOWNLOAD_URLS`) only has darwin
-sources. Re-enabling a non-Mac target requires bundling per-platform FFmpeg
-builds (gyan.dev for Windows, johnvansickle.com for Linux) with matching
-SHA-256 pins in both `scripts/fetch-ffmpeg.mjs` and `ffmpeg-manager.ts`.
+Story Studio's supported desktop build is macOS arm64. The app and its local
+project data can be used without internet access. Some operations also need a
+reachable service; that service can be on the local network and does not
+necessarily need the public internet.
 
-Story Studio is a desktop Electron app. We bundle static resources
-locally so the UI renders correctly on a plane, in a café with flaky
-wifi, or in any environment where the public internet is flaky or
-blocked. This doc lists **what ships locally**, **what stays remote**
-(and why), and **how to regenerate the bundled data**.
+## Available locally
 
-## Bundled locally — no network required
+- **Interface font:** Inter is bundled in `frontend/public/fonts/inter/` and
+  loaded by `frontend/assets/css/fonts.css`.
+- **Audio and video tools:** FFmpeg and ffprobe are packaged from
+  `bundled/ffmpeg/` into the app's `Contents/Resources/ffmpeg/` for local
+  audio and video work.
+- **Optional duplicate screening:** EmbeddingGemma 2 ONNX (8-bit text, FP32
+  vision) runs on the Mac running Story. It compares scene images and titles;
+  it is off by default and provides warnings, not a requirement to upload.
+  If screening is off, unavailable or fails, the result is `not_checked`, not
+  a pass.
 
-| Resource | Path | Why bundled |
-|---|---|---|
-| Inter typeface (latin subset, variable weight) | `frontend/public/fonts/inter/inter-latin.woff2` + `frontend/assets/css/fonts.css` | Previously loaded from `fonts.googleapis.com` on every startup. Now shipped; zero network on cold boot. ~48 KB. |
-| IANA timezone database (419 zones, 10 regions, offsets for Jan + Jul) | `frontend/data/timezones.json` | Used by the Plans editor's timezone picker. Generated once from Node's `Intl.supportedValuesOf('timeZone')`; renders as a fast grouped `<select>` instead of a 400+ option datalist. ~68 KB raw, ~10 KB gzipped. |
-| ElevenLabs voice snapshot fallback | `electron/server/data/voices-snapshot.json` | Shown on first run or when the ElevenLabs API is unreachable. Refreshed 24h-TTL from the live API when online. |
-| FFmpeg + ffprobe | `bundled/ffmpeg/` at build time, copied to `Contents/Resources/ffmpeg/` | Audio/video assembly works on first launch without a system install, Pinokio, Homebrew, or an internet download. |
+The model weights and native ONNX runtime are separate from the app's DMG. The
+SSD kit carries them in its `EmbeddingGemma` folder. Run
+`packaging/kit-story/Install Story Studio.command` from the kit: it installs
+the app and copies the model and runtime into Story's `embedding-models` data
+folder, checking each file against the kit's SHA-256 list. It does not enable
+screening. If the kit lacks the folder, the app is still installed, but the
+model must be obtained separately before screening can run. The app also offers
+a download of the pinned model and runtime when internet access is available.
 
-## Must remain remote
+## Services
 
-These are genuinely user-specific or per-request and can't be bundled:
-
-- **YouTube Data API** — OAuth token refresh, video upload, playlist read/write, reconcile. Per-account, per-channel, quota-tracked locally.
-- **ElevenLabs TTS + subscription** — user's keyed account, per-synthesis charge; character cap lookups are user-specific.
-- **GenAIPro TTS / kie.ai image generation / Claude completions** — all generator jobs that produce new content.
-- **GenStudio generation** — the desktop UI and local project data still start
-  offline, but catalog discovery and generation require the configured GenStudio
-  service to be reachable.
-
-## Regenerating bundled data
-
-**Timezones** — run once after a Node upgrade or when IANA publishes a tzdata revision (rare; typically twice a year):
-
-```
-node scripts/build-tz-db.mjs
-```
-
-Output: `frontend/data/timezones.json`. Commit the result.
-
-**Inter font** — the WOFF2 file under `frontend/public/fonts/inter/` is a direct copy of the `inter/v20` latin subset from Google's CDN. It only needs to change if we upgrade to a newer Inter release, which is infrequent and manual — re-download the URL referenced in the comment at the top of `frontend/assets/css/fonts.css`.
-
-**Voice snapshot** — regenerated automatically on any successful ElevenLabs voice fetch. The bundled fallback doesn't need manual maintenance.
-
-## Audit trail
-
-The audit that led to this setup is captured in `new-ideas-for-storystudio-giggly-manatee.md` under the Round 5 section. The short version: only Google Fonts was truly wasted bandwidth. The timezone list felt like a network fetch to users because rendering 418 datalist options stalled the plan editor, but the list had always come from the JS runtime's bundled tzdata. Both are now eliminated.
+- **GenStudio:** catalog requests and generation use the configured GenStudio
+  service. The default address is `http://127.0.0.1:8787`; a reachable local
+  service can be used without public internet. If it is unavailable, those
+  requests cannot complete.
+- **YouTube:** uploading and other YouTube account operations require access to
+  YouTube's services.
