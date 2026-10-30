@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import type { LabelDesign } from '../contracts/label-design.js'
+import { fontById, fontFilePath } from './thumbnail-fonts.js'
 
 /**
  * Renders an image-backed label: the design's transparent PNG, scaled to a
@@ -50,8 +51,16 @@ export function labelFrameBase(frameW: number): number {
   return Math.max(1, Math.round(frameW))
 }
 
-async function measure(text: string, fontPx: number): Promise<{ width: number; height: number; png: Buffer }> {
-  const png = await sharp({ text: { text, font: `sans-serif, ${Math.round(fontPx)}`, rgba: true } }).png().toBuffer()
+const missingFonts = new Set<string>()
+
+function warnMissingFont(id: string): void {
+  if (missingFonts.has(id)) return
+  missingFonts.add(id)
+  console.warn(`Label font "${id}" is unavailable; using the default font.`)
+}
+
+async function measure(text: string, fontPx: number, face?: { family: string; file: string }): Promise<{ width: number; height: number; png: Buffer }> {
+  const png = await sharp({ text: { text, font: `${face?.family ?? 'sans-serif'}, ${Math.round(fontPx)}`, ...(face ? { fontfile: face.file } : {}), rgba: true } }).png().toBuffer()
   let trimmed = png
   try { trimmed = await sharp(png).trim({ threshold: 1 }).png().toBuffer() } catch { /* blank line */ }
   const meta = await sharp(trimmed).metadata()
@@ -108,6 +117,20 @@ export async function renderLabelDesign(input: LabelRenderInput): Promise<LabelR
   const minWidth = Math.min(base * 0.16, capWidth)
   const raw = input.subtitle ? `${input.title}\n${input.subtitle}` : input.title
   const lines = splitLines(raw.replace(/\n+/g, ' '))
+  let face: { family: string; file: string } | undefined
+  if (design.font) {
+    try {
+      const entry = await fontById(design.font)
+      if (!entry) throw new Error('missing font')
+      const file = fontFilePath(entry)
+      await fs.access(file)
+      if (!/[ក-៿᧠-᧿]/u.test(raw) || entry.scripts.includes('khmr')) {
+        face = { family: entry.family, file }
+      }
+    } catch {
+      warnMissingFont(design.font)
+    }
+  }
 
   let fontPx = nominal
   let textW = 0
@@ -118,11 +141,22 @@ export async function renderLabelDesign(input: LabelRenderInput): Promise<LabelR
     textW = 0
     textH = 0
     for (const line of lines) {
-      const m = await measure(line, fontPx)
+      let m: Awaited<ReturnType<typeof measure>>
+      try {
+        m = await measure(line, fontPx, face)
+      } catch (error) {
+        if (!face || !design.font) throw error
+        warnMissingFont(design.font)
+        face = undefined
+        // Restart so every line is measured in the same fallback face.
+        renderedLines = []
+        break
+      }
       renderedLines.push(m)
       textW = Math.max(textW, m.width)
       textH += m.height
     }
+    if (renderedLines.length !== lines.length) continue
     // The width the asset needs for this text at its own proportions.
     const needed = Math.max(textW / Math.max(0.05, box.width), (textH / Math.max(0.05, box.height)) * aspect)
     if (needed <= capWidth || fontPx <= floor) break
