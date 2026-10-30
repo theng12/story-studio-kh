@@ -156,6 +156,19 @@ router.put('/projects/:slug/sound-and-labels/label-designs/:id/visibility', asyn
   }
 })
 
+router.post('/projects/:slug/sound-and-labels/label-preview', async (req, res) => {
+  try {
+    if (!await pm.getConfig(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const { findLabelDesign, renderLabelDesign } = await import('../lib/label-design-render.js')
+    const design = await findLabelDesign(String(req.body?.template || ''))
+    if (!design) return res.status(404).json({ detail: 'Label design not found.' })
+    const rendered = await renderLabelDesign({ design, title: String(req.body?.title || '').slice(0, 80), subtitle: String(req.body?.subtitle || '').slice(0, 100), frame_w: 1920, frame_h: 1080 })
+    res.json({ image: `data:image/png;base64,${rendered.png.toString('base64')}`, width: rendered.width, height: rendered.height, anchor: rendered.anchor, pointing: design.pointing })
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not preview this label.'))
+  }
+})
+
 router.get('/projects/:slug/sound-and-labels/label-designs/:id/sample', async (req, res) => {
   try {
     if (!await pm.getConfig(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })

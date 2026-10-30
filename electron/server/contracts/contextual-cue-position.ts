@@ -140,6 +140,19 @@ export function resolveContextualCuePosition(cue: CuePositionInput): ResolvedCue
  * rather than to whatever corner it was proposed with. Mirrors the
  * `horizontalAnchor`/`verticalAnchor` thirds split in `SubtitleStylePicker`.
  */
+export function labelImagePosition(cue: CuePositionInput, label: { width: number; height: number; anchor: { x: number; y: number } }, frameW: number, frameH: number) {
+  const pos = resolveContextualCuePosition(cue)
+  const anchorX = pos.xPct / 100 * frameW
+  const anchorY = pos.yPct / 100 * frameH
+  const minX = frameW * CUE_SAFE_MARGIN_PCT / 100
+  const minY = frameH * CUE_SAFE_MARGIN_PCT / 100
+  return {
+    x: Math.round(Math.min(frameW - label.width - minX, Math.max(minX, anchorX - label.anchor.x * label.width))),
+    y: Math.round(Math.min(frameH - label.height - minY, Math.max(minY, anchorY - label.anchor.y * label.height))),
+    anchor: { x: anchorX, y: anchorY },
+  }
+}
+
 export function nearestCueCorner(xPct: number, yPct: number): ContextualCueCorner {
   return `${yPct < 50 ? 'top' : 'bottom'}-${xPct < 50 ? 'left' : 'right'}` as ContextualCueCorner
 }

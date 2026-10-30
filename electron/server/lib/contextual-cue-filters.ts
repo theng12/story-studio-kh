@@ -1,6 +1,6 @@
 import type { ContextualCue } from '../models/types.js'
 import { escapeFilterArgValue } from './ffmpeg-utils.js'
-import { CUE_SAFE_MARGIN_PCT, resolveContextualCuePosition } from '../contracts/contextual-cue-position.js'
+import { CUE_SAFE_MARGIN_PCT, labelImagePosition, resolveContextualCuePosition } from '../contracts/contextual-cue-position.js'
 
 // Cue text is LLM-drafted and human-approved. `validateContextualCueTimeline`
 // caps its length but deliberately does not restrict which characters it may
@@ -310,17 +310,11 @@ export function labelOverlayGeometry(
   frameH: number,
   offsetSec = 0,
 ): LabelOverlayGeometry {
-  const pos = resolveContextualCuePosition(cue)
-  const anchorX = (pos.xPct / 100) * frameW
-  const anchorY = (pos.yPct / 100) * frameH
-  const margin = CUE_SAFE_MARGIN_PCT / 100
-  const minX = frameW * margin
-  const minY = frameH * margin
-  const x = Math.round(Math.min(frameW - label.width - minX, Math.max(minX, anchorX - label.anchor.x * label.width)))
-  const y = Math.round(Math.min(frameH - label.height - minY, Math.max(minY, anchorY - label.anchor.y * label.height)))
+  const position = labelImagePosition(cue, label, frameW, frameH)
   const start = cue.start_sec + offsetSec
   const end = cue.end_sec + offsetSec
   const motionExprs = labelMotionExprs(cue.motion, start, end, frameW, frameH, label.width, label.height)
+  const { x, y } = position
   return { x, y, enable: `between(t,${start.toFixed(3)},${end.toFixed(3)})`, anchor: { x: x + label.anchor.x * label.width, y: y + label.anchor.y * label.height }, motion_exprs: motionExprs, ...(cue.motion === 'wipe' ? { reveal_start: start } : {}) }
 }
 
