@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { stillPostSource } from './_stillPostSource'
 import {
   DEFAULT_FONT_USAGE_MODE,
   STILL_POST_FONT_USAGE_LABELS,
@@ -23,10 +24,7 @@ import {
   type StillPostFontPool,
 } from '../../electron/server/contracts/still-post-fonts.js'
 
-const page = readFileSync(
-  fileURLToPath(new URL('../pages/projects/[slug]/still-posts.vue', import.meta.url)),
-  'utf8',
-)
+const page = stillPostSource()
 const tsconfig = readFileSync(fileURLToPath(new URL('../tsconfig.json', import.meta.url)), 'utf8')
 
 function weighted(pairs: Array<[string, number]>): StillPostFontPool {
