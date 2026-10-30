@@ -11,18 +11,10 @@
     <p v-if="note" class="hint" role="status">{{ note }}</p>
     <fieldset :disabled="saving">
       <label>Depth model (3D photo, rack focus)
-        <select v-model="form.depth" class="input">
-          <option value="">None — depth moves use their plain version</option>
-          <option v-for="model in depthModels" :key="model.id" :value="model.id" :disabled="!model.available">{{ model.display_name }}{{ model.available ? '' : ' (not available now)' }}</option>
-          <option v-if="form.depth && !depthModels.some(model => model.id === form.depth)" :value="form.depth">{{ form.depth }} (not offered right now)</option>
-        </select>
+        <ModelMenu v-model="form.depth" :disabled="saving" media-type="llm" title="Depth model" placeholder="None — depth moves use their plain version" :options="[{ id: '', label: 'None — depth moves use their plain version' }, ...depthModels.map(model => ({ id: model.id, label: model.display_name, disabled: !model.available }))]" />
       </label>
       <label>Vision model (main subject, places of interest, outlines of sky, water, flames)
-        <select v-model="form.vision" class="input">
-          <option value="">None — zoom to subject uses depth only; nothing follows the picture</option>
-          <option v-for="model in visionModels" :key="model.id" :value="model.id" :disabled="!model.available">{{ model.display_name }}{{ model.available ? '' : ' (not available now)' }}</option>
-          <option v-if="form.vision && !visionModels.some(model => model.id === form.vision)" :value="form.vision">{{ form.vision }} (not offered right now)</option>
-        </select>
+        <ModelMenu v-model="form.vision" :disabled="saving" media-type="llm" title="Vision model" placeholder="None — zoom to subject uses depth only" :options="[{ id: '', label: 'None — zoom to subject uses depth only; nothing follows the picture' }, ...visionModels.map(model => ({ id: model.id, label: model.display_name, disabled: !model.available }))]" />
       </label>
     </fieldset>
     <div class="row">
