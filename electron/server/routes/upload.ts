@@ -411,12 +411,16 @@ router.put('/projects/:slug/publishing-schedule', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const body = req.body || {}
-    if (!body.schedule || typeof body.schedule !== 'object') return res.status(400).json({ detail: 'schedule required' })
+    // The switch alone is a valid save: the starting schedule is not on disk,
+    // so flipping the switch must not write it there.
+    const hasSchedule = !!body.schedule && typeof body.schedule === 'object'
+    const hasSwitch = typeof body.auto_schedule_on_render === 'boolean'
+    if (!hasSchedule && !hasSwitch) return res.status(400).json({ detail: 'schedule required' })
     const { saveChannelSchedule } = await import('../services/publish-cadence.js')
     res.json(await saveChannelSchedule(req.params.slug, {
-      schedule: body.schedule,
+      ...(hasSchedule ? { schedule: body.schedule } : {}),
       name: typeof body.name === 'string' ? body.name : undefined,
-      auto_schedule_on_render: typeof body.auto_schedule_on_render === 'boolean' ? body.auto_schedule_on_render : undefined,
+      auto_schedule_on_render: hasSwitch ? body.auto_schedule_on_render : undefined,
     }))
   } catch (e: any) {
     const status = e?.statusCode === 400 || e?.status === 400 ? 400 : 500

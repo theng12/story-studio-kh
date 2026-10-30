@@ -37,6 +37,7 @@ import path from 'node:path'
 import { withLock } from '../lib/atomic-store.js'
 import * as plans from './upload-plans.js'
 import * as im from './idea-manager.js'
+import { defaultSchedule, readCadence } from './publish-cadence.js'
 import { getProjectDir } from './project-manager.js'
 import { readSidecarRaw, readSidecarStrict, setScheduledFor } from './upload-sidecar.js'
 import type { UploadPlatform } from './upload-store.js'
@@ -144,22 +145,15 @@ export async function scheduleEpisodeWithActivePlan(
   const account_id = platform === 'youtube'
     ? credential?.accountId || ''
     : await store.getDefaultAccountId(slug, platform)
-  if (!account_id) {
-    return {
-      scheduled: false, episode_code: code,
-      reason: 'This channel has no connected YouTube account yet, so there is no schedule to draw a slot from.',
-    }
-  }
 
-  const planId = await plans.getActivePlanId(slug, platform, account_id)
+  const planId = account_id ? await plans.getActivePlanId(slug, platform, account_id) : ''
   const plan = planId ? await plans.getPlan(slug, planId) : null
-  if (!plan) {
-    return {
-      scheduled: false, episode_code: code,
-      reason: 'This channel has no upload schedule yet. Set one in Settings → Publishing '
-        + '(the Upload Center shows the same plan).',
-    }
-  }
+  // No saved plan? The channel's own cadence, else the default every channel
+  // starts on (2026-10-31): three a week on random days at a random time.
+  // Nothing is written for the default — it is read at use time.
+  const cadence = plan ? null : await readCadence(slug)
+  const schedule = plan?.schedule ?? cadence?.schedule ?? defaultSchedule(slug)
+  const planName = plan?.name ?? (cadence ? 'Channel cadence' : 'Default schedule')
 
   // Never move an episode that is already live. This is the same rule the
   // apply route has enforced since v1.0.46, restated here because this path
@@ -182,19 +176,20 @@ export async function scheduleEpisodeWithActivePlan(
   if (scheduledFor) {
     return {
       scheduled: false, episode_code: code, publish_at: scheduledFor,
-      plan_id: plan.id, plan_name: plan.name,
+      ...(plan ? { plan_id: plan.id } : {}), plan_name: planName,
       reason: 'This episode already has a publish time; it was left as it is.',
     }
   }
 
   const write = async (): Promise<AutoScheduleResult> => {
     const minStartDate = await latestFutureClaim(slug, platform, code)
-    const slots = plans.computeSlots(plan.schedule, 1, { minStartDate })
+    const slots = plans.computeSlots(schedule, 1, { minStartDate })
     if (!slots.length) {
       return {
-        scheduled: false, episode_code: code, plan_id: plan.id, plan_name: plan.name,
-        reason: `Plan "${plan.name}" has no free slot left within its horizon. `
-          + 'Extend its end date, or add weekdays so it produces slots more often.',
+        scheduled: false, episode_code: code,
+        ...(plan ? { plan_id: plan.id } : {}), plan_name: planName,
+        reason: `The schedule "${planName}" has no free slot left within its horizon. `
+          + 'Extend its end date, or add days so it produces slots more often.',
       }
     }
     let publish_at = slots[0]!
@@ -207,7 +202,8 @@ export async function scheduleEpisodeWithActivePlan(
     publish_at = shifts[code] ?? publish_at
     const order_shifted = Object.keys(shifts).filter(other => other !== code)
     return {
-      scheduled: true, episode_code: code, publish_at, plan_id: plan.id, plan_name: plan.name,
+      scheduled: true, episode_code: code, publish_at,
+      ...(plan ? { plan_id: plan.id } : {}), plan_name: planName,
       ...(order_shifted.length ? { order_shifted: plans.orderEpisodeCodes(order_shifted) } : {}),
     }
   }

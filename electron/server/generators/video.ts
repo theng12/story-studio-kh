@@ -254,6 +254,9 @@ async function selfHealFinalPromotion(
  * Best-effort by construction. A render that produced a good video must not be
  * reported as failed because a schedule could not be written, so every outcome
  * — including "no plan yet" — is a line in the job log, not an error.
+ *
+ * The switch is ON unless the channel says otherwise (2026-10-31): a channel
+ * that never touched it still gives every finished episode its slot.
  */
 async function autoScheduleFinishedEpisode(
   job: Job, project_slug: string, code: string,
@@ -261,9 +264,10 @@ async function autoScheduleFinishedEpisode(
   try {
     const pm = await import('../services/project-manager.js')
     const config = (await pm.getConfig(project_slug)) as any
-    // Off unless the channel says otherwise — publishing cadence is the
-    // owner's, and a schedule appearing on its own would be a surprise.
-    if (config?.auto_schedule_on_render !== true) return
+    const { autoScheduleEnabled } = await import('../services/publish-cadence.js')
+    // On unless the channel says otherwise (2026-10-31): the owner wants every
+    // finished video to take a slot, and only an explicit `false` turns it off.
+    if (!autoScheduleEnabled(config)) return
 
     const { scheduleEpisodeWithActivePlan } = await import('../services/episode-autoschedule.js')
     const result = await scheduleEpisodeWithActivePlan(project_slug, code, 'youtube')
