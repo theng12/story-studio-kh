@@ -18,4 +18,5 @@ const lines = [
   ...LOCAL_RUNTIME_FILES.map(f => `${f.sha256}  ${runtime}/${f.path}`),
 ]
 await fs.writeFile(path.join(destination, 'SHA256SUMS'), lines.join('\n') + '\n')
+await fs.writeFile(path.join(destination, 'FILECOUNT'), `${lines.length}\n`)
 console.log(`\nVerified ${lines.length} files; installed: true; ${status.bytes_present} bytes.\n${destination}`)
