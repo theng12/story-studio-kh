@@ -1387,10 +1387,15 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       job.output_lines.push('The Gateway confirmed cancellation. Provider work that had already finished before the cancel was kept.')
     } else if (evidence.some(entry => entry.cancelled === true)) {
       // A mixed success/cancellation is not a complete output set. Preserve
-      // every artifact and make the existing Repair path explicit.
+      // every artifact. Only a type the Jobs page can repair (REPAIR_ENDPOINTS in
+      // frontend/pages/projects/[slug]/jobs.vue) may be told to Repair; any other
+      // type has no repair step, so its message says Retry is the way forward.
+      const repairable = job.type === 'audio' || job.type === 'thumb_images'
       job.status = 'error'
-      job.error = 'Provider work settled with mixed completed and cancelled tasks. Repair missing output before Retry.'
-      job.result = { ...(job.result || {}), provider_settled: 'mixed', repair_required: true }
+      job.error = repairable
+        ? 'Provider work settled with mixed completed and cancelled tasks. Repair missing output before Retry.'
+        : 'Provider work settled with mixed completed and cancelled tasks. This step has no Repair action, so Retry runs it again.'
+      job.result = { ...(job.result || {}), provider_settled: 'mixed', ...(repairable ? { repair_required: true } : {}) }
       job.output_lines.push(job.error)
     } else if (evidence.some(isNeverCreatedProviderTask)) {
       // v1.2.8 — GenStudio has no record of at least one request this job was

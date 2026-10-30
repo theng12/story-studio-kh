@@ -403,56 +403,69 @@ describe('remote cancellation checkpoints', () => {
     )
   })
 
-  test('does not terminalize while an excluded accepted provider sibling still settles', async () => {
-    const project = await pm.createProject({ name: 'AllProviderTargetsMustSettle' })
-    let release!: () => void
-    const hold = new Promise<void>(resolve => { release = resolve })
-    jq.registerExecutor('audio', async () => await hold)
-    registerJobCancellationAuditor('audio', async () => 'complete')
-    const job = jq.enqueuePreparedForTest({
-      project_slug: project.slug, type: 'audio', episode_id: 'ALL_TARGETS', title: 'all targets', params: {},
+  for (const scenario of [
+    { type: 'audio', repairable: true },
+    { type: 'research_run', repairable: false },
+  ] as const) {
+    test(`does not terminalize while an excluded accepted provider sibling still settles (${scenario.type})`, async () => {
+      const project = await pm.createProject({ name: `AllProviderTargetsMustSettle ${scenario.type}` })
+      let release!: () => void
+      const hold = new Promise<void>(resolve => { release = resolve })
+      jq.registerExecutor(scenario.type, async () => await hold)
+      registerJobCancellationAuditor(scenario.type, async () => 'complete')
+      const job = jq.enqueuePreparedForTest({
+        project_slug: project.slug, type: scenario.type, episode_id: 'ALL_TARGETS', title: 'all targets', params: {},
+      })
+      const deadline = Date.now() + 2_000
+      while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
+        await new Promise(resolve => setTimeout(resolve, 20))
+      }
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'eligible-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
+        updated_at: new Date().toISOString(),
+      })
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'already-running-sibling', operation: 'voice.tts', state: 'running', dispatch_state: 'dispatched', cancellable: false,
+        updated_at: new Date().toISOString(),
+      })
+      await jq.requestJobCancellation(project.slug, job.job_id)
+      await jq.recordRemoteCancellation(job.job_id, 'voice.tts', 'eligible-target', {
+        status: 'confirmed', state: 'failed', cancelled: true,
+      })
+      release()
+      await new Promise(resolve => setTimeout(resolve, 60))
+      const whileSiblingRuns = jq.getJob(job.job_id)
+      assert.equal(whileSiblingRuns?.status, 'running')
+      assert.equal(whileSiblingRuns?.finished_at, null)
+      assert.equal(jq.hasUnsettledProviderWork(whileSiblingRuns!), true)
+  
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'already-running-sibling', operation: 'voice.tts', state: 'succeeded', cancellable: false,
+        updated_at: new Date().toISOString(),
+      })
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'eligible-target', operation: 'voice.tts', state: 'failed', cancelled: true,
+        updated_at: new Date().toISOString(),
+      })
+      assert.equal(jq.hasUnsettledProviderWork(jq.getJob(job.job_id)!), false)
+      const finalDeadline = Date.now() + 2_000
+      while (Date.now() < finalDeadline && jq.getJob(job.job_id)?.status === 'running') {
+        await new Promise(resolve => setTimeout(resolve, 20))
+      }
+      const final = jq.getJob(job.job_id)!
+      assert.equal(final.status, 'error')
+      assert.match(final.error || '', /mixed completed and cancelled/i)
+      if (scenario.repairable) {
+        assert.match(final.error || '', /Repair missing output before Retry/)
+        assert.deepEqual(final.result, { provider_settled: 'mixed', repair_required: true })
+      } else {
+        // Research has no Repair action on the Jobs page, so the row must not promise one.
+        assert.doesNotMatch(final.error || '', /Repair missing output before Retry/)
+        assert.match(final.error || '', /This step has no Repair action, so Retry runs it again/)
+        assert.deepEqual(final.result, { provider_settled: 'mixed' })
+      }
     })
-    const deadline = Date.now() + 2_000
-    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
-      await new Promise(resolve => setTimeout(resolve, 20))
-    }
-    await jq.recordGenStudioJob(job.job_id, {
-      id: 'eligible-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
-      updated_at: new Date().toISOString(),
-    })
-    await jq.recordGenStudioJob(job.job_id, {
-      id: 'already-running-sibling', operation: 'voice.tts', state: 'running', dispatch_state: 'dispatched', cancellable: false,
-      updated_at: new Date().toISOString(),
-    })
-    await jq.requestJobCancellation(project.slug, job.job_id)
-    await jq.recordRemoteCancellation(job.job_id, 'voice.tts', 'eligible-target', {
-      status: 'confirmed', state: 'failed', cancelled: true,
-    })
-    release()
-    await new Promise(resolve => setTimeout(resolve, 60))
-    const whileSiblingRuns = jq.getJob(job.job_id)
-    assert.equal(whileSiblingRuns?.status, 'running')
-    assert.equal(whileSiblingRuns?.finished_at, null)
-    assert.equal(jq.hasUnsettledProviderWork(whileSiblingRuns!), true)
-
-    await jq.recordGenStudioJob(job.job_id, {
-      id: 'already-running-sibling', operation: 'voice.tts', state: 'succeeded', cancellable: false,
-      updated_at: new Date().toISOString(),
-    })
-    await jq.recordGenStudioJob(job.job_id, {
-      id: 'eligible-target', operation: 'voice.tts', state: 'failed', cancelled: true,
-      updated_at: new Date().toISOString(),
-    })
-    assert.equal(jq.hasUnsettledProviderWork(jq.getJob(job.job_id)!), false)
-    const finalDeadline = Date.now() + 2_000
-    while (Date.now() < finalDeadline && jq.getJob(job.job_id)?.status === 'running') {
-      await new Promise(resolve => setTimeout(resolve, 20))
-    }
-    const final = jq.getJob(job.job_id)!
-    assert.equal(final.status, 'error')
-    assert.match(final.error || '', /mixed completed and cancelled/i)
-    assert.deepEqual(final.result, { provider_settled: 'mixed', repair_required: true })
-  })
+  }
 
   test('provider settlement chooses cancelled, error, or audited repair outcomes after local work returns', async () => {
     const settle = async (episode: string, state: 'failed' | 'succeeded', cancelled = false) => {
