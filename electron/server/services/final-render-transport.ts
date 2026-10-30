@@ -106,10 +106,10 @@ async function renderDisplayLabels(
   projectSlug: string, manifest: Record<string, unknown>,
 ): Promise<FinalRenderDisplay> {
   const channel = finalRenderDisplayLabel((await getProject(projectSlug).catch(() => null))?.name)
-  const destination = (manifest.destination ?? {}) as { code?: unknown; title?: unknown }
+  const route = (manifest.destination as { route?: { code?: unknown; title?: unknown } } | undefined)?.route
   const episode = finalRenderDisplayLabel([
-    typeof destination.code === 'string' ? destination.code.trim() : '',
-    typeof destination.title === 'string' ? destination.title.trim() : '',
+    typeof route?.code === 'string' ? route.code.trim() : '',
+    typeof route?.title === 'string' ? route.title.trim() : '',
   ].filter(Boolean).join(' '))
   return {
     ...(channel === undefined ? {} : { channel }),
