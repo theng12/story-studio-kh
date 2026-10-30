@@ -30,6 +30,7 @@ import {
   type StillPostTab,
 } from '../utils/still-posts-flow'
 
+// model-drift-allow: the post canvases Story composes itself (contracts/still-posts.ts), not a model's published ratios
 export const STILL_POST_ASPECTS = ['1:1', '9:16', '16:9'] as const
 export const STILL_POST_ANCHORS = ['bottom', 'bottom-left', 'bottom-right', 'top', 'top-left', 'top-right', 'center']
 export const STILL_POST_LANGUAGES = [

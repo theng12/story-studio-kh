@@ -146,6 +146,7 @@ withDefaults(defineProps<{ disabled?: boolean; showName?: boolean; showDates?: b
 })
 
 /** Starting times for a second slot a day — the customer changes them. */
+// model-drift-allow: clock times for a publishing slot; no model is involved
 const TIME_SUGGESTIONS = ['20:00', '09:00', '14:00', '12:00', '18:00', '10:00', '16:00']
 
 const intervalChoices = computed(() => {
