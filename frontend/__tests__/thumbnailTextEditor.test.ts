@@ -13,6 +13,17 @@
  */
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+test('source artwork picker uses episode image previews and retains filenames', () => {
+  const component = readFileSync(new URL('../components/ThumbnailTextEditor.vue', import.meta.url), 'utf8')
+  const picker = component.slice(component.indexOf('<label for="thumbnail-source-picker">'), component.indexOf('<!-- Headline language'))
+  assert.match(picker, /<VisualOptionPicker/)
+  assert.match(picker, /value: image\.filename/)
+  assert.match(picker, /image\.filename === option\.value\)\?\.url/)
+  assert.match(picker, /@update:model-value="source = \$event"/)
+  assert.doesNotMatch(picker, /<select/)
+})
 import { nextTick, ref } from 'vue'
 
 const POLL_MS = 10

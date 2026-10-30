@@ -1233,16 +1233,24 @@
           <strong>Standard</strong> renders scene images full-frame as the base video — the sleep-story default.
           <strong>Compilation</strong> uses a looping background (e.g. starfield) as the base and composites each chapter's icon as a foreground overlay — the compilation-mode / listicle / explainer layout.
         </p>
-        <div class="flex gap-2 mt-1">
-          <label class="checkbox-label" style="display: inline-flex; gap: 6px; align-items: center;">
-            <input type="radio" v-model="compilationLayout.layout" value="standard">
-            Standard (scene-clip base)
-          </label>
-          <label class="checkbox-label" style="display: inline-flex; gap: 6px; align-items: center;">
-            <input type="radio" v-model="compilationLayout.layout" value="compilation">
-            Compilation (looping bg + foreground overlays)
-          </label>
-        </div>
+        <VisualOptionPicker
+          :model-value="compilationLayout.layout"
+          @update:model-value="value => compilationLayout.layout = value as 'standard' | 'compilation'"
+          :options="[{ value: 'standard', label: 'Standard (scene-clip base)' }, { value: 'compilation', label: 'Compilation (background + foreground)' }]"
+          title="Video layout"
+          description="Choose how scene images appear in the video."
+        >
+          <template #sample="{ option }">
+            <svg viewBox="0 0 160 90" width="100%" height="100%" aria-hidden="true">
+              <rect width="160" height="90" fill="#354b5b" />
+              <path d="M0 80 L42 35 L70 60 L105 23 L160 80 V90 H0Z" fill="#71949a" />
+              <template v-if="option.value === 'compilation'">
+                <rect x="52" y="20" width="56" height="50" rx="4" fill="#eadcbf" />
+                <circle cx="80" cy="45" r="14" fill="#b9865c" />
+              </template>
+            </svg>
+          </template>
+        </VisualOptionPicker>
 
         <div v-if="compilationLayout.layout === 'compilation'" class="mt-2" style="border-top: 1px solid var(--border); padding-top: 12px;">
           <p class="text-muted text-xs">
