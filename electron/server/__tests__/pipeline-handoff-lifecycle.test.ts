@@ -350,7 +350,9 @@ async function persistenceFaultFixture(
   failPersistIndexes: ReadonlySet<number>,
 ) {
   const f = await retainedFixture(t, name)
-  const episode = name.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 18)
+  // §8 admission needs a code the resolver can read (letters then digits,
+  // `storedEpisodeNumber`); the test name alone has none.
+  const episode = `${name.replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 17)}1`
   const jobsFile = path.join(tempDir, 'projects', f.project.slug, 'jobs.json')
   let armed = false
   let postAuditPersists = 0
@@ -1142,7 +1144,7 @@ test('boot keeps unresolved provider ownership on every mismatching stable child
   const rows: Array<Record<string, unknown>> = []
 
   for (const [index, scenario] of cases.entries()) {
-    const episode = `OWNED-CONFLICT-${index + 1}`
+    const episode = `OWNEDCONFLICT${index + 1}`
     const parentId = `provider-conflict-parent-${scenario.id}`
     const childId = `provider-conflict-child-${scenario.id}`
     const expectedParams = {
@@ -1330,7 +1332,7 @@ test('provider settlement drains once only after finalizer ownership is released
   const parent = await jq.enqueue({
     project_slug: f.project.slug,
     type: 'outline_only',
-    episode_id: 'SETTLE-OWNER-001',
+    episode_id: 'SETTLEOWNER001',
     title: 'provider-owned outline',
     params: {
       model: WRITING_MODEL,
@@ -1339,7 +1341,7 @@ test('provider settlement drains once only after finalizer ownership is released
       pipeline_chain: [{
         type: 'expand_chapters',
         title: 'post-finalizer expansion',
-        params: { episode_id: 'SETTLE-OWNER-001', model: WRITING_MODEL, auto_approve: true },
+        params: { episode_id: 'SETTLEOWNER001', model: WRITING_MODEL, auto_approve: true },
       }],
     },
   })

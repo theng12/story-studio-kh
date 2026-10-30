@@ -110,6 +110,8 @@ const MACHINERY_FLOOR = 10
 interface Fingerprint {
   digest: string
   fieldCount: number
+  /** `music_format` is the pack's own marker for a music channel: worlds and scenes, no script. */
+  isMusicFormat: boolean
 }
 
 function fingerprint(doc: any): Fingerprint {
@@ -120,6 +122,7 @@ function fingerprint(doc: any): Fingerprint {
   }
   return {
     fieldCount: Object.keys(present).length,
+    isMusicFormat: 'music_format' in normalized,
     digest: createHash('sha256').update(JSON.stringify(present)).digest('hex').slice(0, 16),
   }
 }
@@ -173,11 +176,27 @@ test('every signed Formula exposes enough machinery to be compared at all', () =
   // match nothing, every such component would hash identically, and the
   // collision check below would fire for the wrong reason. Catch that here,
   // where the message says what actually happened. Measured 2026-08-28, the
-  // thinnest signed Formula carries 13 of these fields.
+  // thinnest narrative signed Formula carries 13 of these fields.
+  //
+  // A music-format Formula is the exception the built-in test below already
+  // documents: `music_format` marks a channel of worlds and scenes with no
+  // script and no narration, so there is no narrative machine to compare.
+  // Derived from the pack's own data, not from an id list.
   const thin = SIGNED_FORMULAS
+    .filter(formula => !formula.print.isMusicFormat)
     .filter(formula => formula.print.fieldCount < MACHINERY_FLOOR)
     .map(formula => `${formula.id} (${formula.print.fieldCount} machinery fields, ${formula.path})`)
   assert.deepEqual(thin, [], 'these signed Formulas expose too little machinery to be compared — the allowlist has drifted')
+  // Pinned: only a music format may skip the floor, and these are the signed
+  // ones that do — so a REAL Formula quietly losing its machinery still shows
+  // up here instead of silently dropping out of the duplicate check.
+  assert.deepEqual(
+    SIGNED_FORMULAS
+      .filter(formula => formula.print.isMusicFormat && formula.print.fieldCount < MACHINERY_FLOOR)
+      .map(formula => formula.id),
+    ['com.storystudio.formula.music-mix'],
+    'a signed Formula may skip the machinery floor only by being a music format',
+  )
 })
 
 test('the built-ins excluded from comparison are the ones that were never narrative', () => {

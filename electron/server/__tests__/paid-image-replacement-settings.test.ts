@@ -225,6 +225,11 @@ test('only supported image enqueue snapshots the machine policy outside request 
     additional_credit_ceiling: 1,
     snapshotted_at: 'caller-controlled',
   }
+  // §8 admission reads the episode code the way the resolver does
+  // (`storedEpisodeNumber`: letters then digits). These fixtures only need a
+  // distinct, code-shaped id — the paid-policy boundary never reads it.
+  let episodeSeq = 0
+  const nextEpisode = () => `EP${++episodeSeq}`
   const serverSnapshot = async (type: any, episode: string) => queue.enqueue({
     project_slug: project.slug,
     type,
@@ -234,8 +239,8 @@ test('only supported image enqueue snapshots the machine policy outside request 
     paid_image_replacement: callerPolicy,
   } as any)
 
-  for (const [index, type] of ['continuity_render', 'image_pool_generate', 'thumb_images'].entries()) {
-    const job = await serverSnapshot(type, `SUPPORTED-${index}`)
+  for (const type of ['continuity_render', 'image_pool_generate', 'thumb_images']) {
+    const job = await serverSnapshot(type, nextEpisode())
     assert.equal(job.params.paid_image_replacement, undefined, 'caller params must not persist paid authority')
     assert.equal(job.paid_image_replacement?.enabled, true)
     assert.equal(job.paid_image_replacement?.additional_credit_ceiling, 50)
@@ -245,12 +250,12 @@ test('only supported image enqueue snapshots the machine policy outside request 
   }
 
   await settings.setPaidImageReplacementSetting({ enabled: false, additional_credit_ceiling: null })
-  const disabled = await serverSnapshot('continuity_render', 'SUPPORTED-OFF')
+  const disabled = await serverSnapshot('continuity_render', nextEpisode())
   assert.equal(disabled.paid_image_replacement?.enabled, false)
   assert.equal(disabled.paid_image_replacement?.additional_credit_ceiling, null)
 
-  for (const [index, type] of ['audio', 'subtitles_transcribe', 'music_generate', 'scene_clips_batch', 'broll_normalize', 'image_prompts'].entries()) {
-    const job = await serverSnapshot(type, `UNSUPPORTED-${index}`)
+  for (const type of ['audio', 'subtitles_transcribe', 'music_generate', 'scene_clips_batch', 'broll_normalize', 'image_prompts']) {
+    const job = await serverSnapshot(type, nextEpisode())
     assert.equal(job.paid_image_replacement, undefined, `${type} must never receive the paid image policy`)
     assert.equal(job.params.paid_image_replacement, undefined, `${type} must not persist caller policy params`)
   }
@@ -282,7 +287,7 @@ test('machine setting and eligible enqueue leave project and preset bytes unchan
   await queue.enqueue({
     project_slug: project.slug,
     type: 'continuity_render',
-    episode_id: 'BYTES',
+    episode_id: 'EPBYTES1',
     title: 'eligible image job',
     params: {},
   })

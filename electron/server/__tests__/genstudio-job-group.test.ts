@@ -92,8 +92,13 @@ test('each job kind carries the running job group; outside a job the field is ab
       tts: 'audio', image: 'scene_image_generate', music: 'music_generate',
       chat: 'expand_chapters', transcription: 'subtitles_transcribe', video: 'scene_clip_generate',
     }
+    // Real episode codes are letters-then-digits (`storedEpisodeNumber`); the
+    // queue refuses a fixture id no generator could resolve.
+    const episodeCodes: Record<string, string> = {
+      tts: 'EP1', image: 'EP2', music: '', chat: 'EP3', transcription: 'EP4', video: 'EP5',
+    }
     for (const [kind, call] of Object.entries(calls)) {
-      const episode = kind === 'music' ? '' : `EP_${kind}`
+      const episode = episodeCodes[kind]!
       const done = new Promise<void>(resolve => {
         jq.registerExecutor(jobTypes[kind]!, async () => { service.requests.length = 0; await call().catch(() => {}); resolve() })
       })

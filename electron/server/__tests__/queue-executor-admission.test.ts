@@ -721,7 +721,9 @@ describe('queue executor-settlement admission', () => {
 
   test('a repeated same-type Pipeline link is still handed off while its terminal parent settles', async () => {
     const project = await newProject('Queue Admission Chain Repeat')
-    const episode = 'EP-CHAIN'
+    // A real episode code is letters-then-digits; the chain link re-enqueues
+    // through `enqueue`, which now asks §8 admission.
+    const episode = 'EPCHAIN1'
     const ranIds: string[] = []
     useExecutor('broll_assemble', async job => {
       ranIds.push(job.job_id)
@@ -923,7 +925,7 @@ describe('queue executor-settlement admission', () => {
 
   test('enqueueOrRun async admission is refused during the terminal-active window, then admitted after settlement', async () => {
     const project = await newProject('Queue Admission EnqueueOrRun')
-    const episode = 'EP-ORUN'
+    const episode = 'EPORUN1'
     const gate = fixtureGate()
     const entered = signal()
     let heldId = ''

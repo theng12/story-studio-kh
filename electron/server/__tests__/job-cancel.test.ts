@@ -1257,7 +1257,7 @@ test('rejects deterministic episode-recovery ID reuse until the retired worker e
   const originalId = 'recovery-held-worker'
   const originalOptions = {
     project_slug: project.slug,
-    episode_id: 'RECOVERY_HELD',
+    episode_id: 'RECOVERYHELD1',
     type: 'video_assembly' as const,
     params: { episode_recovery_id: 'recovery-held-plan' },
   }
@@ -1311,7 +1311,7 @@ test('rejects deterministic episode-recovery ID reuse until the retired worker e
     const markerId = 'recovery-held-marker'
     const marker = await jq.enqueueEpisodeRecoveryOnce(markerId, {
       ...originalOptions,
-      episode_id: 'RECOVERY_HELD_MARKER',
+      episode_id: 'RECOVERYHELDMARKER1',
       params: { episode_recovery_id: 'recovery-held-marker-plan' },
     })
     release()

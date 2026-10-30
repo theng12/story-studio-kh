@@ -23,6 +23,10 @@ test('unchanged image polls save nothing; a state change saves once', { timeout:
     const project = await pm.createProject({ name: 'Image Poll Guard' })
 
     /** jobs.json writes made while one image is polled through `states`. */
+    // §8 admission reads the episode code the way the resolver does
+    // (`storedEpisodeNumber`: letters then digits). This fixture only needs
+    // three distinct, code-shaped ids.
+    let episodeSeq = 0
     const writesFor = async (label: string, states: MockGenStudioState[]): Promise<{ writes: number, polls: number }> => {
       service.queueScenario('image', { states })
       let measured = { writes: -1, polls: 0 }
@@ -42,7 +46,7 @@ test('unchanged image polls save nothing; a state change saves once', { timeout:
           resolve()
         })
       })
-      await jq.enqueue({ project_slug: project.slug, type: 'scene_image_generate', episode_id: `EP-${label}`, title: label })
+      await jq.enqueue({ project_slug: project.slug, type: 'scene_image_generate', episode_id: `EP${++episodeSeq}`, title: label })
       await done
       return measured
     }
