@@ -75,6 +75,15 @@ describe('label design rendering', () => {
     }
   })
 
+  test('a tall design stays within 30% of the frame height at both aspect ratios', async () => {
+    const design = (await findLabelDesign('label:jungle-trail-sign'))!
+    assert.ok(design, 'the tall jungle design is in the catalogue')
+    for (const [frame_w, frame_h] of [[1920, 1080], [1080, 1920]] as const) {
+      const out = await renderLabelDesign({ design, title: 'The Amazon River Basin, Brazil', frame_w, frame_h })
+      assert.ok(out.height <= Math.ceil(frame_h * 0.3) + 1, `${out.height} tall in a ${frame_h} frame`)
+    }
+  })
+
   test('the leader line is a full-frame transparent image ending at the target', async () => {
     const png = await renderLeaderLine({
       frame_w: 640, frame_h: 360,

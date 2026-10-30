@@ -103,8 +103,9 @@ export async function renderLabelDesign(input: LabelRenderInput): Promise<LabelR
 
   const nominal = clamp(base * 0.042, 14, 72)
   const floor = Math.max(11, base * 0.014)
-  const capWidth = base * 0.32
-  const minWidth = base * 0.16
+  // A tall design is limited by its height: width alone let one run past the frame.
+  const capWidth = Math.min(base * 0.32, input.frame_h * 0.3 * aspect)
+  const minWidth = Math.min(base * 0.16, capWidth)
   const raw = input.subtitle ? `${input.title}\n${input.subtitle}` : input.title
   const lines = splitLines(raw.replace(/\n+/g, ' '))
 
