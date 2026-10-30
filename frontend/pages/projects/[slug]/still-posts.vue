@@ -172,6 +172,45 @@ onMounted(() => {
 .sp-tab.is-active { border-color: var(--accent); color: var(--text-primary); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .sp-preview-panel { display: flex; flex-direction: column; gap: 4px; }
 .sp-preview-image { width: 100%; border-radius: 10px; display: block; }
+
+/* Review — the board, its filters and the lightbox */
+.sp-review-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sp-review-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.sp-review-line { margin: 0; font-size: 13px; font-weight: 600; }
+.sp-review-batch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.sp-review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin-top: 14px; }
+.sp-review-card { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 13px; background: var(--bg-secondary); }
+.sp-review-card.is-approved { border-color: color-mix(in srgb, #2e7d32 45%, var(--border)); }
+.sp-review-card.is-failed { border-color: color-mix(in srgb, #c0392b 45%, var(--border)); }
+.sp-review-card.is-ticked { box-shadow: var(--focus-ring); }
+.sp-review-tick { position: absolute; top: 12px; left: 12px; z-index: 1; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; background: color-mix(in srgb, #000 55%, transparent); }
+.sp-review-picture { display: block; width: 100%; padding: 0; border: 0; border-radius: 9px; overflow: hidden; background: var(--bg-tertiary); cursor: zoom-in; }
+.sp-review-picture img { display: block; width: 100%; height: auto; }
+.sp-review-meta { display: flex; flex-direction: column; gap: 3px; }
+.sp-review-id { margin: 0; }
+.sp-review-problem { margin: 0; color: color-mix(in srgb, #c0392b 78%, var(--text-secondary)); }
+.sp-review-actions { display: flex; gap: 6px; }
+
+.sp-lightbox { position: fixed; inset: 0; z-index: 2500; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, #000 72%, transparent); }
+.sp-lightbox-panel { position: relative; display: flex; max-width: min(1500px, 100%); max-height: 100%; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-primary); }
+.sp-lightbox-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.sp-lightbox-body { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); gap: 18px; padding: 16px 18px; overflow: auto; }
+.sp-lightbox-pictures { display: flex; min-width: 0; flex-direction: column; gap: 10px; }
+.sp-lightbox-frames { display: flex; gap: 6px; }
+.sp-lightbox-frame-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+.sp-lightbox-outframe { display: flex; min-width: 0; flex: 1 1 300px; flex-direction: column; gap: 6px; }
+.sp-lightbox-frame { display: flex; min-width: 0; flex: 1 1 280px; flex-direction: column; gap: 4px; }
+.sp-lightbox-image { display: block; width: 100%; height: auto; border-radius: 10px; }
+.sp-lightbox-old { max-width: 240px; opacity: 0.85; outline: 2px dashed var(--warning, #d97706); outline-offset: 2px; }
+.sp-lightbox-previous { display: flex; flex-direction: column; gap: 6px; }
+.sp-lightbox-fields { display: flex; min-width: 0; flex-direction: column; gap: 10px; }
+.sp-lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); display: grid; width: 46px; height: 46px; place-items: center; border: 1px solid var(--border); border-radius: 50%; background: var(--bg-primary); color: var(--text-primary); font-size: 24px; cursor: pointer; }
+.sp-lightbox-nav:disabled { opacity: 0.4; cursor: default; }
+.sp-lightbox-nav-prev { left: 8px; }
+.sp-lightbox-nav-next { right: 8px; }
+@media (max-width: 900px) {
+  .sp-lightbox-body { grid-template-columns: 1fr; }
+}
 @media (max-width: 1100px) {
   .sp-editor-grid { grid-template-columns: 1fr; }
   .sp-rail-list { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }

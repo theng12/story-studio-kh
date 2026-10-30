@@ -85,6 +85,10 @@ export interface StillPost {
   aspects: string[]
   /** Absent = a single drawing fitted to every size (the original behaviour). */
   art_mode?: 'single' | 'per-size'
+  /** When a reviewer approved the exact words and pictures on this post. Absent = not approved. */
+  approved_at?: string | null
+  /** The drawings a redo replaced, kept in the channel's Trash. Newest last. */
+  redraws?: Array<{ at: string, panel_id: string, aspect: string | null, trash_path: string }>
   updated_at: string
 }
 
@@ -117,6 +121,25 @@ export type ImageModelRow = PricedImageModel & {
   max_reference_images?: number
 }
 
+
+/** The script a language is drawn in. Module-level so nothing in a component initializer depends on order. */
+export function scriptForLanguage(language: string): string {
+  return STILL_POST_LANGUAGE_SCRIPT[language as keyof typeof STILL_POST_LANGUAGE_SCRIPT] || 'latn'
+}
+
+/**
+ * The pools the page edits: every script the page's languages use has a real entry, so a pool can be
+ * built from empty. Empty pools are dropped by the server and mean "the format's own face".
+ */
+export function poolsForEditing(value: unknown): StillPostFontPools {
+  const pools = normaliseFontPools(value)
+  for (const entry of STILL_POST_LANGUAGES) {
+    const script = scriptForLanguage(entry.id)
+    if (!pools[script]) pools[script] = emptyFontPool()
+  }
+  return pools
+}
+
 export function useStillPostsWorkspace(slug: ComputedRef<string>) {
   const { get, put, post, del } = useApi()
   // The dashboard layout already keeps this channel's job stream open; this only reads it.
@@ -143,6 +166,10 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
 
   // ── The preset (the reusable look, layout, language, frames, fonts, placement and models) ──
   const presetId = ref('clean-handle')
+  const languages = STILL_POST_LANGUAGES
+  const aspects = STILL_POST_ASPECTS
+  const anchors = STILL_POST_ANCHORS
+
   const preset = reactive<StillPostPresetData>({
     writing_model: null,
     image_model: null,
@@ -182,12 +209,16 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
   const drawing = ref(false)
   const drawError = ref('')
 
-  // ── The post in focus ──
+  // ── The post in focus, and the review board's own selection ──
   const selectedId = ref<string | null>(null)
-
-  const languages = STILL_POST_LANGUAGES
-  const aspects = STILL_POST_ASPECTS
-  const anchors = STILL_POST_ANCHORS
+  /**
+   * Review's filter: which posts the board shows. `complete` is the honest "finished but not yet
+   * approved" list — a post that is still missing a frame cannot be reviewed, so it is not offered
+   * here; Draw is the step that finishes it.
+   */
+  const reviewFilter = ref<'needs-review' | 'approved' | 'complete' | 'failed'>('needs-review')
+  /** The posts ticked for a batch Approve or Redo. Selection never outlives a change of filter. */
+  const reviewSelected = ref<string[]>([])
 
   const draftFormat = computed(() => workspace.value?.formats.find(format => format.id === preset.format_id) || null)
   const draftOption = computed(() => workspace.value?.options.find(option => option.id === preset.option_id) || null)
@@ -221,14 +252,32 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
   }
 
   const completePostCount = computed(() => posts.value.filter(entry => postState(entry.id)?.complete).length)
+  const approvedPostIds = computed(() => posts.value.filter(entry => !!entry.approved_at).map(entry => entry.id))
+  const approvedCount = computed(() => approvedPostIds.value.length)
+  const needsReviewCount = computed(() => posts.value.filter(entry => postState(entry.id)?.complete && !entry.approved_at).length)
 
   /** The five steps, derived from the server's verification and the jobs in the stream. */
+  /** One post's review verdict, from the server's verification and its recorded approval. */
+  function reviewStatus(entry: StillPost): 'needs-review' | 'approved' | 'failed' | 'undrawn' {
+    const state = postState(entry.id)
+    if (!state?.complete) return 'failed'
+    return entry.approved_at ? 'approved' : 'needs-review'
+  }
+  const reviewPosts = computed(() => posts.value.filter(entry => {
+    if (reviewFilter.value === 'approved') return reviewStatus(entry) === 'approved'
+    if (reviewFilter.value === 'failed') return reviewStatus(entry) === 'failed'
+    if (reviewFilter.value === 'complete') return !!postState(entry.id)?.complete
+    return reviewStatus(entry) === 'needs-review'
+  }))
+  watch(reviewFilter, () => { reviewSelected.value = [] })
+
   const stepStates = computed<StillPostStepStatus[]>(() => {
     const facts: StillPostFlowFacts = {
       castCount: workspace.value?.config.character_ids.length ?? 0,
       postCount: posts.value.length,
       completePostCount: completePostCount.value,
-      approvedCount: 0,
+      needsReviewCount: needsReviewCount.value,
+      approvedCount: approvedCount.value,
       publishedCount: 0,
       socialOn: socialOn.value,
       writeJob: latestOf('still_post_write'),
@@ -253,24 +302,6 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
   /** Every face the bundled manifest lists for one script. Nothing else can be offered. */
   function facesFor(script: string): Array<{ id: string, label: string, scripts: string[] }> {
     return (workspace.value?.fonts || []).filter(font => font.scripts.includes(script))
-  }
-
-  /** Pools keyed by the script each language is drawn in, never by the language's own name. */
-  function scriptForLanguage(language: string): string {
-    return STILL_POST_LANGUAGE_SCRIPT[language as keyof typeof STILL_POST_LANGUAGE_SCRIPT] || 'latn'
-  }
-
-  /**
-   * The pools the page edits: every script the page's languages use has a real entry, so a pool can be
-   * built from empty. Empty pools are dropped by the server and mean "the format's own face".
-   */
-  function poolsForEditing(value: unknown): StillPostFontPools {
-    const pools = normaliseFontPools(value)
-    for (const entry of languages) {
-      const script = scriptForLanguage(entry.id)
-      if (!pools[script]) pools[script] = emptyFontPool()
-    }
-    return pools
   }
 
   const poolRows = computed(() => languages.map(entry => {
@@ -619,7 +650,8 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
     onAddPoolFont, removePoolFont, percentagesFor, scriptForLanguage,
     brief, count, writing, writeError, writeJob, writeBatch, canWrite,
     drawing, drawError, draw, canDraw, drawCost, drawingsForBatch, imageModelInfo,
-    posts, selected, selectedId, selectedPublish, completePostCount, postState,
+    posts, selected, selectedId, selectedPublish, completePostCount, approvedCount, approvedPostIds, needsReviewCount, postState,
+    reviewStatus, reviewFilter, reviewPosts, reviewSelected,
     finalName, fileBase, postImageUrl, finalUrl, finalState, activeJobLine,
     socialPlatforms, socialOn, publishes, publishBusy, publishMessage, postSelectedToFacebook,
     deletePost, stepStates, landing, latestJob,

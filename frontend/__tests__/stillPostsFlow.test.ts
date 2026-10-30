@@ -21,6 +21,7 @@ const EMPTY: StillPostFlowFacts = {
   castCount: 0,
   postCount: 0,
   completePostCount: 0,
+  needsReviewCount: 0,
   approvedCount: 0,
   publishedCount: 0,
   socialOn: false,

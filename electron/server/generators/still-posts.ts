@@ -53,7 +53,7 @@ import {
   writePost,
 } from '../services/still-posts.js'
 import { shortBatchMessage, writeStillPosts } from '../services/still-post-writer.js'
-import { channelHandle, channelLogoPath } from '../services/still-posts.js'
+import { channelHandle, channelLogoPath, redrawFile, retireDrawing } from '../services/still-posts.js'
 import { STILL_POST_LANGUAGE_SCRIPT, STILL_POST_LANGUAGE_LABELS } from '../contracts/still-posts.js'
 import type { StillPostFontPools } from '../contracts/still-post-fonts.js'
 import {
@@ -528,7 +528,20 @@ export async function generateStillPostsRender(job: Job): Promise<void> {
           if (!result.urls.length) throw new Error(`${provider.meta.name} returned no image for ${post.id}`)
 
           const stagingPath = await stageGenStudioImage(result.urls[0]!, artPath)
-          await fs.rename(stagingPath, artPath)
+          // A redo keeps the drawing it replaces in the channel's Trash. It is moved only now, with its
+          // replacement staged, and a failed promotion puts it straight back (AGENTS §8: nothing is lost).
+          const retired = existsSync(artPath)
+            ? retireDrawing(slug, post, artPath, panel.id, mode === 'per-size' && isStillPostAspect(aspect) ? aspect : null)
+            : null
+          try {
+            await fs.rename(stagingPath, artPath)
+          } catch (error) {
+            if (retired) {
+              const back = redrawFile(slug, post.id, retired)
+              if (back) await fs.rename(back, artPath).catch(() => {})
+            }
+            throw error
+          }
           const bytes = await fs.readFile(artPath)
           if (bytes.length < 512) throw new Error(`The downloaded image for ${post.id} is empty.`)
 
@@ -545,8 +558,12 @@ export async function generateStillPostsRender(job: Job): Promise<void> {
             mode,
             ...(isStillPostAspect(aspect) ? { aspect } : {}),
           }
+          const redraws = retired ? [...(post.redraws || []), retired] : post.redraws
+          // A new drawing is a new picture to approve, so any earlier approval of this post is cleared.
           const withImage: StillPost = {
             ...post,
+            ...(redraws ? { redraws } : {}),
+            approved_at: null,
             panels: post.panels.map((entry, position) => {
               if (position !== panelIndex) return entry
               if (mode !== 'per-size' || !isStillPostAspect(aspect)) return { ...entry, image: drawn }
@@ -554,6 +571,8 @@ export async function generateStillPostsRender(job: Job): Promise<void> {
             }),
           }
           post.panels = withImage.panels
+          post.redraws = withImage.redraws
+          post.approved_at = null
           await writePost(slug, withImage)
           items.push({
             label: mode === 'per-size' ? `${post.id} panel ${panelIndex + 1} ${aspect}` : `${post.id} panel ${panelIndex + 1}`,

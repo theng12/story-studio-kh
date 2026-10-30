@@ -24,6 +24,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import {
   allowedArtifactNames,
+  approvalKey,
   artFilenameFor,
   artModeOf,
   assertFontPoolCoversScript,
@@ -39,8 +40,10 @@ import {
   postStateFor,
   presetFontPools,
   readPost,
+  redrawFile,
   renderPostFinals,
   resolveRoster,
+  setPostApproval,
   stillPostsConfig,
   trashPost,
   validatePostId,
@@ -54,6 +57,7 @@ import {
   isStillPostAspect,
   isStillPostsLanguage,
   type StillPostAspect,
+  type StillPost,
   type StillPostBranding,
   type StillPostPanel,
 } from '../contracts/still-posts.js'
@@ -337,7 +341,7 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
       }
     }
 
-    const post = await writePost(slug, {
+    const draft: StillPost = {
       ...existing,
       format_id: format.id,
       option_id: option.id,
@@ -348,7 +352,10 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
       character_ids: [...new Set<string>(rawCharacters.filter((id: unknown): id is string => typeof id === 'string' && !!id))],
       caption: typeof body.caption === 'string' ? body.caption.slice(0, 2000) : existing.caption,
       panels,
-    })
+    }
+    // Approval belongs to the exact words and look that were approved: a change to any of them clears
+    // it, so the post goes back to review. A caption-only edit keeps it.
+    const post = await writePost(slug, approvalKey(draft) !== approvalKey(existing) ? { ...draft, approved_at: null } : draft)
 
     // Re-render now, with the branding the page is showing.
     const raw = (await pm.getConfig(slug)) || {}
@@ -388,6 +395,49 @@ router.put('/projects/:slug/still-posts/posts/:postId', async (req, res) => {
     res.json({ post: saved, state: await postStateFor(slug, saved), render_error: renderError, font_note: fontNote })
   } catch (error: any) {
     respondWithError(res, error, 'Failed to save the post')
+  }
+})
+
+// ── Review ─────────────────────────────────────────────────────────────────
+
+/**
+ * Approve (or clear the approval of) several posts at once. A post is approved only when it is complete
+ * in every frame it asks for; each one that is not comes back with the sentence that says why.
+ */
+router.put('/projects/:slug/still-posts/approvals', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const body = asRecord(req.body)
+    if (!Array.isArray(body.post_ids) || !body.post_ids.length) {
+      return res.status(400).json({ detail: 'Choose at least one post to approve or clear.' })
+    }
+    if (typeof body.approved !== 'boolean') {
+      return res.status(400).json({ detail: 'Say whether these posts are approved (true) or not (false).' })
+    }
+    const ids = [...new Set<string>(body.post_ids.map((id: unknown) => validatePostId(String(id))))]
+    res.json({ ok: true, ...(await setPostApproval(slug, ids, body.approved)) })
+  } catch (error: any) {
+    respondWithError(res, error, 'Failed to update the approval')
+  }
+})
+
+/**
+ * One drawing a redo replaced, read from Trash so the old and the new can be compared. The record
+ * decides which file; a path that is not this post's own is refused, never read.
+ */
+router.get('/projects/:slug/still-posts/posts/:postId/redraws/:index', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const postId = validatePostId(req.params.postId)
+    const post = await readPost(slug, postId)
+    if (!post) return res.status(404).json({ detail: 'No such post in this channel.' })
+    const index = Number(req.params.index)
+    const record = Number.isInteger(index) ? post.redraws?.[index] : undefined
+    const file = record ? redrawFile(slug, postId, record) : null
+    if (!file) return res.status(404).json({ detail: 'That earlier drawing is no longer in the Trash.' })
+    res.sendFile(path.resolve(file), { dotfiles: 'allow' })
+  } catch (error: any) {
+    respondWithError(res, error, 'Failed to load the earlier drawing')
   }
 })
 

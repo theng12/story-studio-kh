@@ -36,6 +36,8 @@ export interface StillPostFlowFacts {
   postCount: number
   /** Posts whose artwork and finals are verified complete in every chosen frame. */
   completePostCount: number
+  /** Complete posts a reviewer has not approved yet — the review board's "needs review" count. */
+  needsReviewCount: number
   approvedCount: number
   /** Approved posts that have a receipt on every platform the channel has turned on. */
   publishedCount: number
@@ -116,15 +118,18 @@ function reviewStep(facts: StillPostFlowFacts): Omit<StillPostStepStatus, 'tab'>
   if (facts.postCount === 0) {
     return { state: 'not-started', reason: 'Nothing to review yet. Write and draw a batch first.' }
   }
-  if (facts.completePostCount < facts.postCount) {
-    const missing = facts.postCount - facts.completePostCount
-    return { state: 'not-started', reason: `${plural(missing, 'post')} must be drawn before review.` }
-  }
+  const undrawn = facts.postCount - facts.completePostCount
   if (facts.approvedCount >= facts.postCount) {
     return { state: 'done', reason: `All ${facts.postCount} approved.` }
   }
   if (facts.approvedCount > 0) {
-    return { state: 'in-progress', reason: `${facts.approvedCount} of ${facts.postCount} approved. Review the rest.` }
+    return {
+      state: 'in-progress',
+      reason: [`${facts.approvedCount} of ${facts.postCount} approved.`, undrawn > 0 ? `${plural(undrawn, 'post')} still to draw.` : 'Review the rest.'].join(' '),
+    }
+  }
+  if (undrawn > 0) {
+    return { state: 'not-started', reason: `${plural(undrawn, 'post')} must be drawn before review.` }
   }
   return { state: 'not-started', reason: 'Review each post and approve it. Only approved posts are published.' }
 }
