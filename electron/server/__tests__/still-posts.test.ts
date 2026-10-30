@@ -322,6 +322,24 @@ describe('still posts — drawing a batch', () => {
       await generateStillPostsRender(job(slug, 'still_post_render', { image_model: 'mock-image-v1', batch_id: 'batch-draw-1' }))
       assert.equal(draws, drawsIdle, 'a retry of a complete batch must not buy another render')
 
+      // 3b. The verdict follows the scope. The second post's art is damaged and its redraw
+      // fails, so the batch is incomplete. A run scoped to the first post alone is judged on that
+      // post and succeeds; a whole-batch run still fails and names the sibling.
+      const batchPosts = (await store.listPosts(slug)).filter(post => post.batch_id === 'batch-draw-1')
+      const [firstId, secondId] = batchPosts.map(post => post.id).sort()
+      assert.ok(firstId && secondId, 'the batch has two posts')
+      const damaged = (await store.readPost(slug, secondId!))!
+      await fs.writeFile(path.join(store.postDir(slug, secondId!), damaged.panels[0]!.image!.filename), Buffer.from('torn'))
+      failNext = true
+      const drawsScoped = draws
+      await generateStillPostsRender(job(slug, 'still_post_render', { image_model: 'mock-image-v1', post_ids: [firstId!] }))
+      assert.equal(draws, drawsScoped, 'a scoped run over a complete post draws nothing')
+      await assert.rejects(
+        generateStillPostsRender(job(slug, 'still_post_render', { image_model: 'mock-image-v1', batch_id: 'batch-draw-1' })),
+        new RegExp(secondId!),
+      )
+      failNext = false
+
       // 4. Writing refuses a character that is not part of this channel.
       const otherProject = await pm.createProject({ name: 'Someone else channel' })
       const library = await import('../services/character-library.js')

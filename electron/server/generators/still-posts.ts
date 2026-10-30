@@ -579,9 +579,13 @@ export async function generateStillPostsRender(job: Job): Promise<void> {
 
   job.progress = 95
   // §8 — the verdict comes from the files, not from the loop above having finished.
-  const states = await listBatchStates(slug, await listPosts(slug))
-  const relevant = states.filter(state => posts.some(post => post.batch_id === state.batch_id))
-  const incomplete = relevant.filter(state => !state.complete)
+  // Judged over THIS run's own scope: a redraw of one post is not failed by a
+  // sibling that this run never asked for (AGENTS §8). The scope is re-read because
+  // the loop wrote new art and finals to these posts after `selectPosts` returned them.
+  const latest = await listPosts(slug)
+  const scope = posts.map(post => latest.find(entry => entry.id === post.id) || post)
+  const states = await listBatchStates(slug, scope)
+  const incomplete = states.filter(state => !state.complete)
   const missing = incomplete.flatMap(state => state.missing)
 
   job.result = { ...(job.result || {}), batch_complete: incomplete.length === 0, missing }
