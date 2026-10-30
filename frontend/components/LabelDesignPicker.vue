@@ -1,5 +1,32 @@
 <template>
-  <div class="label-picker">
+  <div v-if="preset" class="label-picker">
+    <p>Choose any themes and motions for proposals. If none are chosen, labels use the usual designs and fade.</p>
+    <p v-if="loading" role="status">Loading label themes…</p>
+    <p v-else-if="error" role="alert">{{ error }} <button type="button" class="btn btn-sm btn-secondary" @click="load">Try again</button></p>
+    <p v-else-if="!themeSamples.length">No visible label themes are available.</p>
+    <fieldset v-else class="preset-choices">
+      <legend>Label themes</legend>
+      <div class="label-picker-grid">
+        <button v-for="design in themeSamples" :key="design.theme" type="button" class="label-picker-card" :aria-pressed="selectedThemes.includes(design.theme)" @click="toggle('themes', design.theme)">
+          <span class="label-picker-sample"><img v-if="design.sample_url && !failedSamples.has(design.id)" :src="design.sample_url" alt="" @error="failedSamples.add(design.id); failedSamples = new Set(failedSamples)" /><span v-else>Sample unavailable</span></span>
+          <strong>{{ design.theme }}</strong>
+        </button>
+      </div>
+    </fieldset>
+    <div v-if="selectedThemes.some(theme => !themeSamples.some(design => design.theme === theme))" class="preset-choices">
+      <p>Selected themes that are unavailable:</p>
+      <button v-for="theme in selectedThemes.filter(theme => !themeSamples.some(design => design.theme === theme))" :key="theme" type="button" class="btn btn-sm btn-secondary" @click="toggle('themes', theme)">Remove {{ theme }}</button>
+    </div>
+    <fieldset class="preset-choices">
+      <legend>Label motions</legend>
+      <div class="motion-list">
+        <button v-for="item in motions.filter(item => item.id)" :key="item.id" type="button" class="motion-choice" :aria-pressed="selectedMotions.includes(item.id)" @click="toggle('motions', item.id)">
+          <span class="motion-sample"><span v-if="item.id === 'line-draw'" class="sample-line" /><span :class="`sample-${item.id}`">Label</span></span>{{ item.name }}
+        </button>
+      </div>
+    </fieldset>
+  </div>
+  <div v-else class="label-picker">
     <button type="button" class="btn btn-sm btn-secondary label-picker-trigger" aria-haspopup="dialog" :aria-expanded="open" @click="show">
       {{ designs.find(design => design.id === modelValue)?.name || modelValue }} · Change
     </button>
@@ -42,10 +69,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
-const props = defineProps<{ modelValue: string; projectSlug: string; motion?: string }>()
-const emit = defineEmits<{ 'update:modelValue': [value: string]; 'update:motion': [value: string] }>()
+const props = withDefaults(defineProps<{ modelValue?: string; projectSlug: string; motion?: string; preset?: boolean; selectedThemes?: string[]; selectedMotions?: string[] }>(), { modelValue: '', selectedThemes: () => [], selectedMotions: () => [] })
+const emit = defineEmits<{ 'update:modelValue': [value: string]; 'update:motion': [value: string]; 'update:selectedThemes': [value: string[]]; 'update:selectedMotions': [value: string[]] }>()
 const motions = [
   { id: '', name: 'Still' }, { id: 'pop', name: 'Pop' }, { id: 'slide', name: 'Slide' },
   { id: 'pulse', name: 'Pulse' }, { id: 'float', name: 'Float' },
@@ -65,6 +92,17 @@ const theme = ref('')
 const failedSamples = ref(new Set<string>())
 const families = computed(() => [...new Set(designs.value.map(design => design.family))].sort())
 const themes = computed(() => [...new Set(designs.value.map(design => design.theme))].sort())
+const themeSamples = computed(() => themes.value.flatMap(theme => {
+  const design = designs.value.find(item => item.theme === theme && !item.hidden)
+  return design ? [design] : []
+}))
+function toggle(kind: 'themes' | 'motions', value: string) {
+  const current = kind === 'themes' ? props.selectedThemes : props.selectedMotions
+  const next = current.includes(value) ? current.filter(item => item !== value) : [...current, value]
+  if (kind === 'themes') emit('update:selectedThemes', next)
+  else emit('update:selectedMotions', next)
+}
+watch(() => [props.preset, props.projectSlug] as const, ([preset]) => { if (preset) void load() }, { immediate: true })
 const visibleDesigns = computed(() => designs.value.filter(design =>
   !design.hidden && (!family.value || design.family === family.value) && (!theme.value || design.theme === theme.value)
   && [design.name, design.family, design.theme].join(' ').toLowerCase().includes(search.value.trim().toLowerCase()),
@@ -96,6 +134,10 @@ function choose(id: string) { emit('update:modelValue', id); open.value = false 
 </script>
 
 <style scoped>
+.preset-choices { border: 0; padding: 0; margin: .75rem 0; min-width: 0; }
+.preset-choices legend { font-weight: 600; }
+.label-picker-card[aria-pressed="true"] { border-color: var(--accent); }
+.motion-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .motion-list { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .5rem; }
 .motion-choice { display: grid; gap: .2rem; text-align: center; color: inherit; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: .35rem; cursor: pointer; }
 .motion-choice[aria-pressed="true"] { border-color: var(--accent); }

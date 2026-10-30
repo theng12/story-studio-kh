@@ -36,6 +36,15 @@ test('Contextual Cues pipeline params preserve the preset review decision', () =
     id: 'cue-auto', name: 'Trusted automated', data: { model: 'genstudio-text', auto_approve: true },
   } as any, null)
   assert.equal(trusted.auto_approve, true)
+  assert.equal('label_themes' in trusted, false)
+  assert.equal('label_motions' in trusted, false)
+  const designed = resolveStepParams('contextual_cues' as any, 'EP0042', 'Berlin story', {
+    id: 'cue-design', name: 'Designed labels', data: {
+      model: 'genstudio-text', label_themes: ['comedy', 'exploration'], label_motions: ['slide', 'wipe'],
+    },
+  } as any, null)
+  assert.deepEqual(designed.label_themes, ['comedy', 'exploration'])
+  assert.deepEqual(designed.label_motions, ['slide', 'wipe'])
 })
 
 /**

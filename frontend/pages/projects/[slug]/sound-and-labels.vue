@@ -131,6 +131,7 @@
               <option v-for="corner in CORNERS" :key="corner" :value="corner">{{ cornerLabel(corner) }}</option>
             </select>
           </label>
+          <LabelDesignPicker preset :project-slug="slug" v-model:selected-themes="form.label_themes" v-model:selected-motions="form.label_motions" />
           <label class="sl-auto-approve">
             <input v-model="form.auto_approve" type="checkbox" @change="onAutoApproveEdited" />
             <span>
@@ -406,7 +407,7 @@ type Row = {
   | { side: 'label'; cue: LabelCue; subtitle?: string; scene_id?: string }
   | { side: 'sound'; cue: SoundCue; kind: 'bed' | 'spot'; scene_id?: string; clip?: string; credit?: Credit }
 )
-type ProbeForm = { model: string; density: 'restrained' | 'standard' | 'editorial'; placement: ContextualCueCorner; auto_approve: boolean }
+type ProbeForm = { model: string; density: 'restrained' | 'standard' | 'editorial'; placement: ContextualCueCorner; auto_approve: boolean; label_themes: string[]; label_motions: string[] }
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
@@ -537,7 +538,7 @@ const savedAt = ref('')
 const saveError = ref('')
 const proposing = ref(false)
 const playing = ref('')
-const form = ref<ProbeForm>({ model: '', density: 'restrained', placement: 'top-right', auto_approve: false })
+const form = ref<ProbeForm>({ model: '', density: 'restrained', placement: 'top-right', auto_approve: false, label_themes: [], label_motions: [] })
 useRememberedForm('sound-and-labels', slug, form, { include: ['model', 'density', 'placement', 'auto_approve'], version: 1 })
 const autoApproveNotice = ref<{ on: boolean; changed: boolean } | null>(null)
 function onAutoApproveEdited(): void { autoApproveNotice.value = null }
@@ -1006,6 +1007,8 @@ const activePresets = usePresets<ProbeForm>({
     if (typeof data?.model === 'string') form.value.model = data.model
     if (data?.density === 'restrained' || data?.density === 'standard' || data?.density === 'editorial') form.value.density = data.density
     if (isContextualCueCorner(data?.placement)) form.value.placement = data.placement
+    form.value.label_themes = Array.isArray(data?.label_themes) ? data.label_themes.filter((item): item is string => typeof item === 'string') : []
+    form.value.label_motions = Array.isArray(data?.label_motions) ? data.label_motions.filter((item): item is string => typeof item === 'string') : []
     const stored = storedPresetAutoApprove(data)
     autoApproveNotice.value = stored === null ? null : { on: stored, changed: form.value.auto_approve !== stored }
     if (stored !== null) form.value.auto_approve = stored

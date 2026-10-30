@@ -19,6 +19,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { transformSync } from 'esbuild'
+import ts from 'typescript'
 
 import { storedPresetAutoApprove } from '../utils/contextual-cues.js'
 
@@ -26,6 +28,24 @@ const page = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/sound-and-labels.vue', import.meta.url)),
   'utf8',
 )
+
+test('applying and saving a Contextual Cues preset round-trips label choices', () => {
+  const script = page.split('<script setup lang="ts">')[1]!.split('</script>')[0]!
+  const ast = ts.createSourceFile('sound-and-labels.ts', script, ts.ScriptTarget.Latest, true)
+  const declaration = ast.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(d => d.name.getText(ast) === 'activePresets'))!
+  const code = transformSync(declaration.getText(ast), { loader: 'ts', format: 'cjs' }).code
+  const form = { value: { model: '', density: 'restrained', placement: 'top-right', auto_approve: false, label_themes: [], label_motions: [] } }
+  const options = new Function('usePresets', 'slug', 'form', 'isContextualCueCorner', 'storedPresetAutoApprove', 'autoApproveNotice', `${code}; return activePresets`)(
+    (value: unknown) => value, { value: 'project' }, form, () => true, storedPresetAutoApprove, { value: null },
+  )
+  const saved = { model: 'test', label_themes: ['comedy', 'exploration'], label_motions: ['slide', 'wipe'] }
+  options.apply(saved)
+  assert.deepEqual(options.snapshot().label_themes, saved.label_themes)
+  assert.deepEqual(options.snapshot().label_motions, saved.label_motions)
+  options.apply({ model: 'old preset' })
+  assert.deepEqual(options.snapshot().label_themes, [])
+  assert.deepEqual(options.snapshot().label_motions, [])
+})
 
 // ── Part A: what the preset actually says ───────────────────────────────────
 
