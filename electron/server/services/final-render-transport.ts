@@ -27,10 +27,12 @@ import {
   lookupFinalRenderByKey,
   putFinalRenderBlob,
   submitFinalRender,
+  finalRenderDisplayLabel,
   validateSubmitBytes,
   type FinalRenderBlobStatus,
   type FinalRenderCapabilities,
   type FinalRenderCancelView,
+  type FinalRenderDisplay,
   type FinalRenderEncodeEntry,
   type FinalRenderJobView,
 } from '../lib/final-render-gateway-client.js'
@@ -43,6 +45,7 @@ import type {
 } from '../models/types.js'
 import { parseFinalRenderRemoteWaitReceipt, sameFinalRenderRemoteWaitIdentity } from '../lib/final-render-remote-wait.js'
 import { getPrivateFinalRenderSetting } from './app-settings.js'
+import { getProject } from './project-manager.js'
 import {
   checkpointJobState,
   commitFinalRenderTransportTransition,
@@ -88,6 +91,29 @@ function destinationFacts(opts: PrepareOpts): {
     title: opts.titleHint,
     format: opts.format,
     project_tree_video_dir: opts.videoDir,
+  }
+}
+
+/**
+ * The channel and episode labels the Hub's Renders tab shows, or `{}` when neither can be stated.
+ *
+ * The channel is the project's own name — the one the customer knows — read live at the moment the
+ * request is sealed; the episode is the code and title the staged manifest already fenced. This is
+ * **display only**: nothing dispatches, routes, hashes or accepts on it, and a name the Hub could
+ * not show is left out rather than allowed to fail a render.
+ */
+async function renderDisplayLabels(
+  projectSlug: string, manifest: Record<string, unknown>,
+): Promise<FinalRenderDisplay> {
+  const channel = finalRenderDisplayLabel((await getProject(projectSlug).catch(() => null))?.name)
+  const destination = (manifest.destination ?? {}) as { code?: unknown; title?: unknown }
+  const episode = finalRenderDisplayLabel([
+    typeof destination.code === 'string' ? destination.code.trim() : '',
+    typeof destination.title === 'string' ? destination.title.trim() : '',
+  ].filter(Boolean).join(' '))
+  return {
+    ...(channel === undefined ? {} : { channel }),
+    ...(episode === undefined ? {} : { episode }),
   }
 }
 
@@ -1369,10 +1395,15 @@ export async function advanceSealedPrivateFinalRenderTransport(
         manifest: reopened.manifest, sourceIdentities: reopened.source_identities,
         evidence, chain, owner,
       })
+      // Display only — the Hub's Renders tab names the render with these instead of its job id.
+      // They are not identity: nothing here routes, dispatches, hashes or accepts on them, and the
+      // dispatch/idempotency keys the Hub and Gateway use are unchanged.
+      const display = await renderDisplayLabels(projectSlug, reopened.manifest)
       const body = {
         format: 'studio.render.gateway-request.v1', story_uuid: staged.story_instance_id,
         intent_id: staged.intent_id, attempt_no: staged.story_attempt,
         packet: reopened.manifest.packet, assets,
+        ...(Object.keys(display).length === 0 ? {} : { display }),
       }
       const request = Buffer.from(JSON.stringify(body), 'utf8')
       validateSubmitBytes(request)
