@@ -363,17 +363,7 @@
           </div>
           <div class="form-group">
             <label>Intended image model <span class="text-muted text-xs">— writing hint</span></label>
-            <select v-model="form.intended_image_model" class="select">
-              <option value="">Not chosen yet — no limit</option>
-              <option
-                v-for="model in usableImageModels"
-                :key="model.id"
-                :value="model.id"
-                :title="imageModelCapHint(model)"
-              >
-                {{ model.display_name }} · {{ imageModelCapLabel(model) }}
-              </option>
-            </select>
+            <ModelMenu v-model="form.intended_image_model" media-type="image" title="Intended image model" placeholder="Not chosen yet — no limit" :options="[{ id: '', label: 'Not chosen yet — no limit' }, ...usableImageModels.map(model => ({ id: model.id, label: model.display_name, description: imageModelCapLabel(model), provider: model.provider_name || '' }))]" />
             <p class="scene-setting-help">
               Prompts are shaped to suit this model. It only sets the character limit below — you can still render with a
               different model in Scene Review, and this does not change what Scene Review is set to.
