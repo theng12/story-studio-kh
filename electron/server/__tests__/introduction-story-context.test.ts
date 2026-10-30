@@ -16,7 +16,7 @@ const { trashRootFor } = await import('../lib/trash-move.js')
 const { clearGenStudioCatalogCache, listChatModels } = await import('../lib/genstudio-client.js')
 const originalFetch = globalThis.fetch
 const MODEL = 'genstudio-chat-intro-context-fixture'
-const RESPONSE = 'Welcome to this story of a gardener who shares her harvest with the village. Today we follow her journey from the first seed to a generous feast. Join us as we discover what grows when neighbors work together. Tell us what you would plant for your own community, and let us begin.'
+const RESPONSE = 'សូមស្វាគមន៍មកកាន់រឿងរ៉ាវរបស់អ្នកថែសួនម្នាក់ ដែលចែករំលែកផលដំណាំជាមួយអ្នកភូមិ។ ថ្ងៃនេះយើងនឹងតាមដានដំណើររបស់នាង ចាប់ពីគ្រាប់ពូជដំបូងរហូតដល់ពិធីជប់លៀងដ៏រីករាយ។ សូមប្រាប់យើងថាអ្នកចង់ដាំអ្វីសម្រាប់សហគមន៍របស់អ្នក ហើយឥឡូវនេះសូមចាប់ផ្តើម។'
 const requests: TextGenerationRequest[] = []
 let cap: number | undefined
 
@@ -170,7 +170,7 @@ test('regeneration copies old intro and replaced derivatives into Story Trash wi
   }
   // Copy-based preservation: the intro is rewritten by the successful generation,
   // but the legacy .docx remains in place (copyToTrashSync does not delete originals).
-  assert.match(await fs.readFile(intro, 'utf8'), /Welcome to this story/)
+  assert.ok((await fs.readFile(intro, 'utf8')).includes(RESPONSE))
   assert.ok(job.output_lines.includes('Previous introduction (5 words) kept in Trash'))
 })
 
