@@ -413,30 +413,16 @@
         </div>
         <div class="form-group">
           <label>Folder path <span class="req">*</span></label>
-          <!-- v1.0.118+ — Browse… button wired to usePathPicker so the
-               user gets a native folder dialog (Electron desktop) or the
-               in-app FileBrowserModal (server mode) instead of having to
-               hand-type the path. The .path-input-row wrapper was sitting
-               here in the original markup waiting for the button — just
-               needed the click handler + styles. -->
-          <div class="path-input-row">
-            <input
-              v-model="createDraft.folder_path"
-              class="input"
-              placeholder="/Volumes/Media/b-roll"
-            />
-            <button
-              type="button"
-              class="btn btn-secondary btn-sm"
-              :disabled="picking"
-              @click="onBrowseFolder"
-            >
-              📁 {{ picking ? 'Opening…' : 'Browse…' }}
-            </button>
-          </div>
+          <FolderField
+            v-model="createDraft.folder_path"
+            picker-title="Choose B-Roll pool folder"
+            picker-button-label="Use this folder"
+            placeholder="No folder chosen"
+            :max-length="56"
+          />
           <span class="hint">
-            Click <strong>Browse…</strong> to pick the folder, or paste the full absolute path.
-            Tip: open the folder in Finder, right-click → Get Info, copy the "Where:" value.
+            Choose the folder that holds the clips or images. A folder you pick from
+            this browser is uploaded to the machine running Story Studio.
           </span>
         </div>
         <!-- v1.0.403 — pool media type. 'image' makes an Image Pool (slideshow). -->
@@ -522,12 +508,13 @@
         </div>
         <div class="form-group">
           <label>Folder path <span class="req">*</span></label>
-          <div class="path-input-row">
-            <input v-model="editDraft.folder_path" class="input" placeholder="/Volumes/Media/b-roll" />
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="picking" @click="onBrowseEditFolder">
-              📁 {{ picking ? 'Opening…' : 'Browse…' }}
-            </button>
-          </div>
+          <FolderField
+            v-model="editDraft.folder_path"
+            picker-title="Repoint pool to folder"
+            picker-button-label="Use this folder"
+            placeholder="No folder chosen"
+            :max-length="56"
+          />
           <span class="hint">
             <strong>Repoint</strong> to a different folder if you moved the drive. The clip/image tags live
             <em>inside</em> the folder, so a moved-intact folder keeps its tags; an empty new folder starts
@@ -714,11 +701,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { customerSafeJobText, jobRequestIds } from '~/utils/job-presentation'
-// v1.0.118+ — pickFolder() branches between Electron's native dialog
-// and the in-app FileBrowserModal (server mode) so the same callsite
-// works in both modes. Not auto-imported (it's a bare named export,
-// not a useX composable) — needs explicit import.
-import { pickFolder } from '~/composables/usePathPicker'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Assets Library')
@@ -726,26 +708,6 @@ useAppTitle('Assets Library')
 const broll = useBrollPools()
 const { ask } = useConfirm()
 const { success, error: showError } = useToast()
-
-// v1.0.118+ — Folder-picker state for the Register pool modal. `picking`
-// is true while the dialog is open so the Browse button shows a loading
-// label and ignores double-clicks.
-const picking = ref(false)
-async function onBrowseFolder() {
-  picking.value = true
-  try {
-    const picked = await pickFolder({
-      title: 'Choose B-Roll pool folder',
-      initial_path: createDraft.value.folder_path || undefined,
-      button_label: 'Use this folder',
-    })
-    if (picked) createDraft.value.folder_path = picked
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Folder picker failed')
-  } finally {
-    picking.value = false
-  }
-}
 
 // ── Edit pool (rename + repoint folder) — v1.0.405 ──────────────────────
 const editModalOpen = ref(false)
@@ -758,22 +720,6 @@ function openEditModal(): void {
   editDraft.value = { name: selectedPool.value.name, folder_path: selectedPool.value.folder_path }
   editError.value = ''
   editModalOpen.value = true
-}
-
-async function onBrowseEditFolder() {
-  picking.value = true
-  try {
-    const picked = await pickFolder({
-      title: 'Repoint pool to folder',
-      initial_path: editDraft.value.folder_path || undefined,
-      button_label: 'Use this folder',
-    })
-    if (picked) editDraft.value.folder_path = picked
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Folder picker failed')
-  } finally {
-    picking.value = false
-  }
 }
 
 async function submitEdit(): Promise<void> {
@@ -1716,9 +1662,6 @@ function onThumbError(e: Event): void {
    The input grows; the button sits flush on the right with a fixed
    intrinsic size. align-items keeps the button height matched to the
    input so they share a baseline. */
-.path-input-row { display: flex; gap: 6px; align-items: stretch; }
-.path-input-row .input { flex: 1; min-width: 0; }
-.path-input-row .btn { flex: 0 0 auto; white-space: nowrap; }
 .radio-row { display: flex; gap: 16px; font-size: 12px; }
 .create-error {
   padding: 6px 10px;

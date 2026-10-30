@@ -21,15 +21,21 @@
 
         <section class="fbm-main">
           <div class="fbm-toolbar">
+            <button
+              v-if="picker.mode !== 'dir'"
+              class="btn btn-secondary btn-sm"
+              :disabled="uploading"
+              @click="fileInput?.click()"
+              title="Choose a file on the computer you are browsing from"
+            >{{ uploading ? 'Uploading…' : 'Upload from this Mac' }}</button>
             <input
-              v-model="manualPath"
-              class="input fbm-path-input"
-              placeholder="Type or paste a path…"
-              @keydown.enter="loadDir(manualPath)"
+              ref="fileInput"
+              type="file"
+              class="fbm-file-input"
+              :multiple="picker.mode === 'files'"
+              :accept="acceptAttribute"
+              @change="onFilesChosen"
             >
-            <button class="btn btn-secondary btn-sm" @click="loadDir(manualPath)" :disabled="loading">
-              Go
-            </button>
             <label class="fbm-hidden-toggle">
               <input type="checkbox" v-model="showHidden" @change="reload">
               Show hidden
@@ -111,12 +117,20 @@ const picker = usePickerState()
 const currentPath = ref<string>('')
 const entries = ref<BrowseEntry[]>([])
 const breadcrumbs = ref<Array<{ label: string; path: string }>>([])
-const manualPath = ref('')
 const showHidden = ref(false)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const quickLocations = ref<QuickLocation[]>([])
 const selected = ref<string[]>([])
+const uploading = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+
+/** The browser's own chooser is filtered to what this picker accepts. */
+const acceptAttribute = computed(() => {
+  const exts = picker.options.extensions
+  if (!exts?.length) return undefined
+  return exts.map(e => (e.startsWith('.') ? e : `.${e}`)).join(',')
+})
 
 const title = computed(() => {
   if (picker.options.title) return picker.options.title
@@ -160,7 +174,6 @@ watch(() => picker.isOpen, async (open) => {
   if (!open) return
   selected.value = []
   error.value = null
-  manualPath.value = ''
   // Determine initial path: caller-provided, else first quick location, else home.
   const initial = picker.options.initial_path
     || quickLocations.value[0]?.path
@@ -178,7 +191,6 @@ async function loadDir(p: string) {
       { method: 'POST', body: { path: p, show_hidden: showHidden.value } },
     ) as { path: string; parent: string | null; entries: BrowseEntry[] }
     currentPath.value = r.path
-    manualPath.value = r.path
     entries.value = filterEntriesByExtension(r.entries)
     selected.value = []
     breadcrumbs.value = computeCrumbs(r.path)
@@ -257,6 +269,41 @@ function onDoubleClickEntry(entry: BrowseEntry) {
       selected.value = [joinPath(currentPath.value, entry.name)]
       onConfirm()
     }
+  }
+}
+
+/**
+ * A file on the machine running this browser cannot be opened by the server, so
+ * its BYTES are sent and the server answers with a path of its own — the same
+ * shape a native pick returns. In single-file mode that pick IS the answer; in
+ * multi-file mode it joins the selection and the footer counts it.
+ */
+async function onFilesChosen(evt: Event) {
+  const input = evt.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+  if (!files.length) return
+  uploading.value = true
+  error.value = null
+  try {
+    const uploaded: string[] = []
+    for (const file of files) {
+      const r = await $fetch(`/api/system/upload-file?filename=${encodeURIComponent(file.name)}`, {
+        method: 'POST',
+        body: file,
+        headers: { 'content-type': 'application/octet-stream' },
+      }) as { path?: string }
+      if (r?.path) uploaded.push(r.path)
+    }
+    if (picker.mode === 'file' && uploaded[0]) {
+      resolvePicker(uploaded[0])
+      return
+    }
+    selected.value = [...selected.value, ...uploaded]
+  } catch (e: any) {
+    error.value = e?.data?.detail || e?.message || 'The file could not be uploaded'
+  } finally {
+    uploading.value = false
   }
 }
 
@@ -363,7 +410,7 @@ function formatSize(bytes: number): string {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
 }
-.fbm-path-input { flex: 1; }
+.fbm-file-input { display: none; }
 .fbm-hidden-toggle {
   display: flex;
   align-items: center;

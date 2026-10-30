@@ -803,8 +803,7 @@
         <!-- Single-folder mode -->
         <template v-if="importMode === 'single'">
         <div class="flex gap-2 mt-2">
-          <input v-model="importPath" class="input flex-1" placeholder="Path to episode folder" />
-          <button class="btn btn-sm btn-secondary" @click="browseImportFolder">Browse…</button>
+          <FolderField v-model="importPath" class="flex-1" placeholder="No episode folder chosen" picker-title="Choose the episode folder" :max-length="56" @change="doInspect" />
           <button class="btn btn-sm btn-secondary" :disabled="!importPath || inspecting" @click="doInspect">
             {{ inspecting ? 'Inspecting…' : 'Inspect' }}
           </button>
@@ -900,8 +899,7 @@
         <!-- Parent-folder mode -->
         <template v-else>
           <div class="flex gap-2 mt-2">
-            <input v-model="parentPath" class="input flex-1" placeholder="Path to parent folder" :disabled="parentImporting" />
-            <button class="btn btn-sm btn-secondary" :disabled="parentImporting" @click="browseParentFolder">Browse…</button>
+            <FolderField v-model="parentPath" class="flex-1" placeholder="No parent folder chosen" picker-title="Choose the parent folder" :disabled="parentImporting" :max-length="56" @change="scanParentSubfolders" />
             <button class="btn btn-sm btn-secondary" :disabled="!parentPath || parentScanning || parentImporting" @click="scanParentSubfolders">
               {{ parentScanning ? 'Scanning…' : 'Scan' }}
             </button>
@@ -2449,20 +2447,6 @@ function openImportFolder() {
 
 const parentSelectedCount = computed(() => parentSubfolders.value.filter(r => r.selected).length)
 
-async function browseParentFolder() {
-  try {
-    const r = await post<{ path: string | null }>('/system/pick-folder', {
-      title: 'Choose a parent folder — each subfolder will become its own episode',
-      buttonLabel: 'Use This Parent',
-    })
-    if (!r.path) return
-    parentPath.value = r.path
-    await scanParentSubfolders()
-  } catch (e: any) {
-    showError(e.data?.detail || 'Folder picker failed')
-  }
-}
-
 async function scanParentSubfolders() {
   if (!parentPath.value) return
   parentScanning.value = true
@@ -2552,18 +2536,6 @@ async function doParentImport() {
     }
   } finally {
     parentImporting.value = false
-  }
-}
-
-async function browseImportFolder() {
-  try {
-    const r = await post<{ path: string | null }>('/system/pick-folder', {})
-    if (r.path) {
-      importPath.value = r.path
-      await doInspect()
-    }
-  } catch (e: any) {
-    showError(e.data?.detail || 'Folder picker failed')
   }
 }
 

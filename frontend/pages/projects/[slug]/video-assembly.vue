@@ -485,7 +485,7 @@
             <label>Intro Video Path <span class="text-muted text-xs">(.mp4, .mov, .mkv, .webm)</span></label>
             <FilePicker
               v-model="intro.video_path"
-              placeholder="Path to intro video file"
+              placeholder="No intro video chosen"
               :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
               title="Choose an intro video"
               aria-label="Intro video path"
@@ -511,7 +511,7 @@
             <label>Outro Video Path <span class="text-muted text-xs">(.mp4, .mov, .mkv, .webm)</span></label>
             <FilePicker
               v-model="outro.video_path"
-              placeholder="Path to outro video file"
+              placeholder="No outro video chosen"
               :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
               title="Choose an outro video"
               aria-label="Outro video path"
@@ -575,7 +575,7 @@
           <FilePicker
             v-if="(clip.kind || 'video') === 'video'"
             v-model="clip.video_path"
-            placeholder="Path to video file"
+            placeholder="No video chosen"
             :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
             title="Choose a timeline clip"
             :aria-label="`Timeline clip ${i + 1} path`"
@@ -589,7 +589,7 @@
           <template v-else>
             <FilePicker
               v-model="(clip as TimelineClipStatic).image_path"
-              placeholder="Path to still image"
+              placeholder="No still image chosen"
               :filters="[{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]"
               title="Choose a still image for the static segment"
               :aria-label="`Timeline clip ${i + 1} image path`"
@@ -687,7 +687,7 @@
             <label>Custom Image Path</label>
             <FilePicker
               v-model="titleImage.image_path"
-              placeholder="Path to title image (or pick from thumbnails above)"
+              placeholder="No title image chosen (or pick one from thumbnails above)"
               :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
               title="Choose a title image"
               aria-label="Title image path"
@@ -1396,7 +1396,7 @@
             <label>Logo Image Path <span class="text-muted text-xs">(PNG recommended)</span></label>
             <FilePicker
               v-model="logo.image_path"
-              placeholder="Path to logo image (e.g. /path/to/logo.png)"
+              placeholder="No logo image chosen"
               :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
               title="Choose a logo image"
               aria-label="Logo image path"
@@ -1640,7 +1640,7 @@
             <label>Green Screen Source <span class="text-muted text-xs">(video or image with green background)</span></label>
             <FilePicker
               v-model="chromaKey.source_path"
-              placeholder="Path to green screen video/image"
+              placeholder="No green screen source chosen"
               :filters="[{ name: 'Media', extensions: ['mp4', 'mov', 'mkv', 'webm', 'png', 'jpg', 'jpeg', 'webp'] }]"
               title="Choose a green screen source"
               aria-label="Green screen source path"

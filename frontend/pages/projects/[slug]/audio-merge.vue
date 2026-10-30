@@ -308,8 +308,7 @@
 
       <div v-if="intro.enabled" class="mt-2">
         <div class="flex gap-2">
-          <input v-model="intro.file" class="input flex-1" placeholder="Path to intro audio file" />
-          <button class="btn btn-sm btn-secondary" @click="browseIntroFile">Browse…</button>
+          <FilePicker v-model="intro.file" class="flex-1" placeholder="No intro clip chosen" choose-label="Choose Clip" :filters="AUDIO_FILTERS" clearable />
           <button v-if="intro.file"
             :class="['btn btn-sm', playingPath === intro.file ? 'btn-primary' : 'btn-secondary']"
             @click="togglePreview(intro.file)">
@@ -471,8 +470,7 @@
 
         <!-- Add music file -->
         <div class="flex gap-2 mt-1">
-          <input v-model="newMusicPath" class="input flex-1" placeholder="Path to audio file" />
-          <button class="btn btn-sm btn-secondary" @click="browseMusicFile">Browse…</button>
+          <FilePicker v-model="newMusicPath" class="flex-1" placeholder="No music file chosen" choose-label="Choose Music" :filters="AUDIO_FILTERS" />
           <button class="btn btn-sm btn-secondary" @click="addMusicFile" :disabled="!newMusicPath">Add</button>
         </div>
 
@@ -583,8 +581,7 @@
         <!-- Custom file -->
         <div v-if="backgroundNoise.mode === 'custom'" class="mt-2">
           <div class="flex gap-2">
-            <input v-model="backgroundNoise.custom_file" class="input flex-1" placeholder="Path to ambience audio file" />
-            <button class="btn btn-sm btn-secondary" @click="browseNoiseFile">Browse…</button>
+            <FilePicker v-model="backgroundNoise.custom_file" class="flex-1" placeholder="No ambience file chosen" choose-label="Choose Ambience" :filters="AUDIO_FILTERS" clearable />
             <button v-if="backgroundNoise.custom_file"
               :class="['btn btn-sm', playingPath === backgroundNoise.custom_file ? 'btn-primary' : 'btn-secondary']"
               @click="togglePreview(backgroundNoise.custom_file)">

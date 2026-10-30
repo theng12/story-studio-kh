@@ -4,10 +4,9 @@
        Shows the folder as a short friendly path (~/Documents/…/episodes) with the
        full path on hover, a "Choose…" button that opens the Mac's own folder
        picker (Electron's dialog via POST /system/pick-folder; the in-app browser
-       in server mode — both through usePathPicker), "Show in Finder", and a
-       typed-path fallback for when no native picker exists (dev server, plain
-       browser). The full path is what is emitted and saved; the short one is
-       display only.
+       in server mode — both through usePathPicker) and "Show in Finder". A folder
+       that is no longer there says so. The full path is what is emitted and
+       saved; what is shown is the folder's own name.
 
        Usage:
          <FolderField
@@ -57,6 +56,7 @@
         :class="{ 'is-placeholder': !modelValue }"
         :title="modelValue || undefined"
       >{{ display || placeholder }}</span>
+      <span v-if="!editing && missing" class="folder-field-missing">Folder not found</span>
       <div class="folder-field-actions">
         <template v-if="editing">
           <button type="button" class="btn btn-sm btn-primary" :disabled="!draft.trim()" @click="commitTyped">Use This Path</button>
@@ -66,7 +66,7 @@
           <button type="button" class="btn btn-sm btn-secondary" :disabled="disabled || picking" @click="choose">
             {{ picking ? 'Choosing…' : chooseLabel }}
           </button>
-          <button v-if="modelValue && revealable" type="button" class="btn btn-sm btn-quiet" :disabled="revealing" @click="reveal">Show in Finder</button>
+          <button v-if="modelValue && canReveal" type="button" class="btn btn-sm btn-quiet" :disabled="revealing" @click="reveal">Show in Finder</button>
           <button v-if="allowTyping" type="button" class="btn btn-sm btn-quiet" :disabled="disabled" @click="startTyping">Type a Path</button>
           <button v-if="clearable && modelValue" type="button" class="btn btn-sm btn-quiet" :disabled="disabled" @click="clear">{{ clearLabel }}</button>
         </template>
@@ -81,6 +81,7 @@
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import { pickFolder } from '../composables/usePathPicker'
 import { friendlyPath } from '../utils/friendly-path'
+import { isServerMode } from '../composables/useServerMode'
 
 const props = withDefaults(defineProps<{
   modelValue?: string | null
@@ -93,6 +94,7 @@ const props = withDefaults(defineProps<{
   chooseLabel?: string
   clearLabel?: string
   disabled?: boolean
+  /** A typed path is a fallback only; the picker is the control. Off unless a caller asks. */
   allowTyping?: boolean
   revealable?: boolean
   clearable?: boolean
@@ -109,7 +111,7 @@ const props = withDefaults(defineProps<{
   chooseLabel: 'Choose…',
   clearLabel: 'Clear',
   disabled: false,
-  allowTyping: true,
+  allowTyping: false,
   revealable: true,
   clearable: false,
   maxLength: 48,
@@ -128,8 +130,38 @@ const picking = ref(false)
 const revealing = ref(false)
 const message = ref('')
 const messageTone = ref<'info' | 'error'>('info')
+const missing = ref(false)
 
-const display = computed(() => friendlyPath(props.modelValue, props.maxLength))
+/** "Show in Finder" reveals a folder on the machine RUNNING the app; a remote browser would open a Finder window nobody can see. */
+const canReveal = computed(() => props.revealable && !isServerMode())
+
+/** The folder's own name — the last part of the path — with the full path on hover. */
+const display = computed(() => {
+  const raw = String(props.modelValue || '').trim()
+  if (!raw) return ''
+  const name = raw.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || raw
+  return name || friendlyPath(props.modelValue, props.maxLength)
+})
+
+let checkToken = 0
+/** Does this folder still exist? A check that fails is "not checked", never "missing". */
+async function checkExists() {
+  const raw = String(props.modelValue || '').trim()
+  if (!raw) { missing.value = false; return }
+  const token = ++checkToken
+  try {
+    const r = await $fetch('/api/system/validate-path', {
+      method: 'POST',
+      body: { path: raw, must_exist: true, must_be_dir: true },
+    }) as { valid?: boolean; reason?: string }
+    if (token !== checkToken) return
+    missing.value = r?.valid === false && /does not exist/.test(String(r?.reason || ''))
+  } catch {
+    if (token === checkToken) missing.value = false
+  }
+}
+
+watch(() => props.modelValue, () => { void checkExists() }, { immediate: true })
 
 watch(() => props.modelValue, () => { message.value = '' })
 
@@ -158,8 +190,8 @@ async function choose() {
     const noNativePicker = /not detected|not available/i.test(detail) || (e?.status ?? e?.response?.status) === 503
     messageTone.value = noNativePicker ? 'info' : 'error'
     message.value = noNativePicker
-      ? 'The folder picker only opens inside the Story Studio app. Type or paste the folder path instead.'
-      : `The folder picker did not open: ${detail || 'unknown error'}. You can type or paste the path instead.`
+      ? 'The folder picker is not available here. Open Story Studio in the app or its browser page and try again.'
+      : `The folder picker did not open: ${detail || 'unknown error'}.`
     if (props.allowTyping) startTyping()
   } finally {
     picking.value = false
@@ -233,4 +265,5 @@ function clear() {
 .folder-field-actions { display: flex; flex: none; flex-wrap: wrap; gap: var(--space-1); margin-left: auto; }
 .folder-field.is-disabled .folder-field-row { opacity: 0.6; }
 .folder-field-message[data-tone='error'] { color: var(--error); }
+.folder-field-missing { flex: none; color: var(--warning, #d97706); font-size: var(--font-xs); }
 </style>

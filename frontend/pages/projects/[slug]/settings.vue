@@ -1539,11 +1539,15 @@
           and once cleared this cannot be turned on again.
         </p>
         <div class="external-root-row">
-          <input
+          <FolderField
             v-model="mediaRootInput"
-            class="input"
-            placeholder="(not set — media stays in the channel folder)   e.g. ${ASSET}/Media"
-            spellcheck="false"
+            class="flex-1"
+            placeholder="Not set — media stays in the channel folder"
+            picker-title="Choose the folder for this channel's heavy media"
+            picker-button-label="Use This Folder"
+            :max-length="56"
+            clearable
+            clear-label="Not set"
           />
           <button
             class="btn btn-secondary btn-sm"

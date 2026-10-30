@@ -144,7 +144,7 @@ describe('Folder pickers', () => {
     const template = settings.slice(0, settings.indexOf('<script setup')).replace(/<!--[\s\S]*?-->/g, '')
     assert.doesNotMatch(template, /v-model="archiveSource" class="input"|v-model="archiveDest" class="input"/)
     assert.doesNotMatch(template, /aria-label="Browse archive (source|destination) folder"/)
-    assert.equal(template.match(/<FolderField/g)?.length, 4, 'Library, finished videos, and both archive folders use FolderField')
+    assert.equal(template.match(/<FolderField/g)?.length, 5, 'Library, finished videos, both archive folders, and the media root use FolderField')
   })
 })
 

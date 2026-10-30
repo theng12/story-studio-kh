@@ -14,7 +14,7 @@
  * the iCloud case the legacy migrator misclassified as "hidden".)
  */
 
-import { Router } from 'express'
+import express, { Router } from 'express'
 import { createRequire } from 'module'
 import fs from 'fs/promises'
 import path from 'path'
@@ -325,6 +325,42 @@ router.post('/system/validate-path', async (req, res) => {
 
   res.json({ valid: true, normalized })
 })
+
+/**
+ * The browser cannot hand the server a path it can open: a file on the user's
+ * own Mac lives on another machine entirely. This route accepts the file's
+ * BYTES so the picker can offer it as a choice at all — the remote case for
+ * "Browse for a file". It writes a copy into the app's own uploads folder and
+ * returns that absolute server path, which is exactly what a native pick would
+ * have returned; the caller's existing adopt step then copies it into the
+ * channel when the field stores a portable path.
+ *
+ * Raw body, not base64 JSON: the global JSON parser's 10 MB limit exists for
+ * prompts, and base64 inflates a file by a third. The bound here is explicit.
+ */
+const MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+
+router.post('/system/upload-file',
+  express.raw({ type: 'application/octet-stream', limit: MAX_UPLOAD_BYTES }),
+  async (req, res) => {
+    try {
+      const raw = typeof req.query.filename === 'string' ? req.query.filename : ''
+      // The name is display and extension only; a path in it is never honoured.
+      const base = path.basename(raw.replace(/\\/g, '/')).replace(/[\u0000-\u001f]/g, '').trim()
+      if (!base || base === '.' || base === '..') return res.status(400).json({ detail: 'filename is required' })
+      const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
+      if (bytes.length === 0) return res.status(400).json({ detail: 'The uploaded file is empty.' })
+      const { dataDir } = await import('../services/app-update.js')
+      const dir = path.join(dataDir(), 'uploads')
+      await fs.mkdir(dir, { recursive: true })
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const target = path.join(dir, `${stamp}-${base}`)
+      await fs.writeFile(target, bytes)
+      res.json({ path: target, bytes: bytes.length })
+    } catch (e: any) {
+      res.status(500).json({ detail: humanizeBackendError(e, 'The upload could not be saved') })
+    }
+  })
 
 router.get('/system/quick-locations', async (_req, res) => {
   // Sidebar shortcuts shown in the FileBrowserModal — common starting points

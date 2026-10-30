@@ -162,7 +162,7 @@ describe('FolderField', () => {
     }
   })
 
-  test('shows a short path with the full path on hover, and saves the full path the picker returns', async () => {
+  test('shows the folder by name with the full path on hover, and saves the full path the picker returns', async () => {
     const Field = await loadSfc('../components/FolderField.vue')
     const emitted: string[] = []
     const changes: string[] = []
@@ -176,20 +176,21 @@ describe('FolderField', () => {
     })
     await settle()
     const shown = host.querySelector('.folder-field-path') as HTMLElement
-    assert.match(shown.textContent || '', /^~\/Documents\/…\/.*finished$/)
+    assert.equal(shown.textContent, 'finished', 'a folder shows by its own name, not by a path')
     assert.equal(shown.getAttribute('title'), '/Users/theng/Documents/Story Studio KH/Library/kh-boundless/exports/finished')
 
     const choose = [...host.querySelectorAll('button')].find(b => /Choose…/.test(b.textContent || ''))!
     choose.click()
     await settle()
-    assert.equal(calls[0].url, '/api/system/pick-folder')
-    assert.equal(calls[0].body.title, 'Where should finished videos go?')
+    const pick = calls.find(call => call.url.endsWith('/system/pick-folder'))
+    assert.ok(pick, 'the picker route was called')
+    assert.equal(pick!.body.title, 'Where should finished videos go?')
     assert.deepEqual(emitted, ['/Users/theng/Movies/Finished'])
     assert.deepEqual(changes, ['/Users/theng/Movies/Finished'])
     unmount()
   })
 
-  test('with no native picker (dev server / browser) it says so and opens the typed-path field', async () => {
+  test('with no picker it says so, and a typed path is not offered unless a caller asks for it', async () => {
     const Field = await loadSfc('../components/FolderField.vue')
     const emitted: string[] = []
     respond = () => Object.assign(new Error('503'), { status: 503, data: { detail: 'Folder picker not available — Electron main process not detected (are you running the server standalone?).' } })
@@ -198,7 +199,19 @@ describe('FolderField', () => {
     assert.match(host.querySelector('.folder-field-path')?.textContent || '', /No folder chosen/)
     ;[...host.querySelectorAll('button')].find(b => /Choose…/.test(b.textContent || ''))!.click()
     await settle()
-    assert.match(host.querySelector('.folder-field-message')?.textContent || '', /only opens inside the Story Studio app\. Type or paste/)
+    assert.match(host.querySelector('.folder-field-message')?.textContent || '', /The folder picker is not available here/)
+    assert.equal(host.querySelector('input.folder-field-input'), null, 'no typed-path fallback by default')
+    unmount()
+  })
+
+  test('a caller that still wants the typed fallback gets it, and it saves', async () => {
+    const Field = await loadSfc('../components/FolderField.vue')
+    const emitted: string[] = []
+    respond = () => Object.assign(new Error('503'), { status: 503, data: { detail: 'Folder picker not available — Electron main process not detected (are you running the server standalone?).' } })
+    const { host, unmount } = mount(Field, { modelValue: '', allowTyping: true, 'onUpdate:modelValue': (v: string) => emitted.push(v) })
+    await settle()
+    ;[...host.querySelectorAll('button')].find(b => /Choose…/.test(b.textContent || ''))!.click()
+    await settle()
     const input = host.querySelector('input.folder-field-input') as HTMLInputElement
     assert.ok(input, 'typed-path field is open')
     input.value = '  /Volumes/Archive/Finished  '
@@ -210,6 +223,21 @@ describe('FolderField', () => {
     unmount()
   })
 
+  test('a folder that is no longer there says so, and a check that fails does not', async () => {
+    const Field = await loadSfc('../components/FolderField.vue')
+    respond = url => url.endsWith('/system/validate-path') ? { valid: false, reason: 'path does not exist' } : {}
+    const gone = mount(Field, { modelValue: '/Volumes/Gone' })
+    await settle()
+    assert.equal(gone.host.querySelector('.folder-field-missing')?.textContent, 'Folder not found')
+    gone.unmount()
+
+    respond = () => { throw Object.assign(new Error('offline'), { status: 500 }) }
+    const unknown = mount(Field, { modelValue: '/Volumes/Gone' })
+    await settle()
+    assert.equal(unknown.host.querySelector('.folder-field-missing'), null, 'could not check is not missing')
+    unknown.unmount()
+  })
+
   test('Show in Finder reveals the full path and shows the server sentence when it cannot', async () => {
     const Field = await loadSfc('../components/FolderField.vue')
     respond = () => Object.assign(new Error('404'), { status: 404, data: { detail: 'Path does not exist: /Volumes/Gone' } })
@@ -217,7 +245,8 @@ describe('FolderField', () => {
     await settle()
     ;[...host.querySelectorAll('button')].find(b => /Show in Finder/.test(b.textContent || ''))!.click()
     await settle()
-    assert.deepEqual(calls[0], { url: '/api/system/reveal-folder', body: { path: '/Volumes/Gone' } })
+    const reveal = calls.find(call => call.url.endsWith('/system/reveal-folder'))
+    assert.deepEqual(reveal, { url: '/api/system/reveal-folder', body: { path: '/Volumes/Gone' } })
     assert.equal(host.querySelector('.folder-field-message')?.textContent, 'Path does not exist: /Volumes/Gone')
     unmount()
   })

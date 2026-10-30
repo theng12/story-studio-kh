@@ -335,7 +335,7 @@
             <div class="flex gap-2 mt-1 items-center">
               <FilePicker
                 v-model="importPath"
-                placeholder="/path/to/subtitles.srt"
+                placeholder="No subtitle file chosen"
                 :filters="[{ name: 'Subtitles', extensions: ['srt', 'vtt'] }]"
                 title="Choose a subtitle file"
                 :episodes-root="episodesRoot"
