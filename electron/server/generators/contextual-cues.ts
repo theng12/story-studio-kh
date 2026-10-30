@@ -86,7 +86,7 @@ interface CueCandidate {
 const LEGACY_CUE_TEMPLATES = ['documentary-label', 'map-pin', 'archival-caption', 'chapter-plate'] as const
 
 /** The motions a cue can actually be drawn with; a name outside these cannot render. */
-const LEGAL_CUE_MOTIONS = new Set(['fade', 'slide', 'dissolve'])
+const LEGAL_CUE_MOTIONS = new Set(['fade', 'slide', 'dissolve', 'pop', 'wipe', 'line-draw', 'pulse', 'float'])
 
 /**
  * What ONE run's preset lets the model name \u2014 real ids, resolved from the live
@@ -180,7 +180,7 @@ export async function resolveCueChoiceAllowlist(
   const motions = settings.label_motions ?? []
   const illegal = motions.filter(motion => !LEGAL_CUE_MOTIONS.has(motion))
   if (illegal.length) {
-    throw new Error(`label_motions names ${illegal.join(', ')}, which is not a cue motion (fade, slide, dissolve). Nothing was requested.`)
+    throw new Error(`label_motions names ${illegal.join(', ')}, which is not a cue motion supported by this app. Nothing was requested.`)
   }
   if (!themes.length) return { ...TEXT_ONLY_ALLOW, motions: new Set(motions) }
   let designs: LabelDesign[]
@@ -388,7 +388,7 @@ function candidateTemplate(candidate: CueCandidate, kind: ContextualCueKind = ca
  * that named none takes a motion from the list (fade when the list has it), so
  * the cue never lands on a motion the preset ruled out.
  */
-function candidateMotion(candidate: CueCandidate, allow: CueChoiceAllowlist): ContextualCueTransition | null {
+function candidateMotion(candidate: CueCandidate, allow: CueChoiceAllowlist): string | null {
   if (!allow.motions.size) return 'fade'
   const asked = String(candidate.motion || '').replace(/\s+/g, ' ').trim()
   if (asked) return allow.motions.has(asked) ? asked as ContextualCueTransition : null
@@ -459,7 +459,9 @@ function safeCandidate(
     placement: defaults.placement,
     ...normalizeCuePositionPair(defaults.position_x_pct, defaults.position_y_pct),
     template,
-    entrance: motion,
+    entrance: (motion === 'fade' || motion === 'dissolve' || motion === 'slide') ? motion : 'fade',
+    ...(template.startsWith('label:') && ['pop', 'slide', 'wipe', 'line-draw', 'pulse', 'float'].includes(motion)
+      ? { motion: motion as NonNullable<ContextualCue['motion']> } : {}),
     exit: 'dissolve',
     status: 'proposed',
     created_at: now,

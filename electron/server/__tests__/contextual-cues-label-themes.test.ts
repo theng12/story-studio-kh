@@ -105,6 +105,16 @@ describe('Contextual Cues label choices', () => {
     assert.match(dropped[1]!.reason, /its motion "bounce" is not one of this run's allowed motions/)
   })
 
+  test('new label motions reach generated cues from presets', async () => {
+    for (const motion of ['wipe', 'line-draw']) {
+      const preset = { label_themes: ['comedy'], label_motions: [motion] }
+      const allow = await resolveCueChoiceAllowlist(normalizeContextualCueProposalSettings(preset))
+      const { proposed, dropped } = await account([{ scene_id: 's1', title: 'A label', template: 'label:comic-burst', motion }], preset, allow)
+      assert.deepEqual(dropped, [])
+      assert.equal(proposed[0]?.motion, motion)
+    }
+  })
+
   test('point_at is stored on the cue, and the contract accepts the new fields', async () => {
     const { proposed, dropped } = await account([
       { scene_id: 's1', title: 'The cracked bell', kind: 'historical_context', point_at: '  the   cracked   tower ' },

@@ -39,7 +39,7 @@ import { fileURLToPath } from 'node:url'
 
 import { buildLabelOverlayFilters, labelOverlayGeometry } from '../lib/contextual-cue-filters.js'
 import { escapeFilterArgValue } from '../lib/ffmpeg-filter-escape.js'
-import { findLabelDesign, renderLabelDesign } from '../lib/label-design-render.js'
+import { findLabelDesign, renderLabelDesign, renderLabelWipe, renderLeaderLine, writeLabelRevealFrames } from '../lib/label-design-render.js'
 import type { ContextualCue } from '../models/types.js'
 
 const run = promisify(execFile)
@@ -214,6 +214,43 @@ describe('label motions, verified on rendered pixels', { skip: FFMPEG ? false : 
     })
   }
 
+  for (const motion of ['wipe', 'line-draw'] as const) {
+    test(`${motion} reveals and holds at the target`, async () => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'label-reveal-'))
+      try {
+        const design = (await findLabelDesign('label:location-pin'))!
+        const rendered = await renderLabelDesign({ design, title: 'BERLIN', frame_w: WIDTH, frame_h: HEIGHT })
+        const geometry = labelOverlayGeometry(cue({ motion }), rendered, WIDTH, HEIGHT)
+        const files: string[] = []
+        const label = path.join(dir, 'label.png')
+        writeFileSync(label, rendered.png)
+        const line = { frame_w: WIDTH, frame_h: HEIGHT, from: { x: geometry.anchor.x / WIDTH, y: geometry.anchor.y / HEIGHT }, to: { x: 0.7, y: 0.7 } }
+        const sequence = await writeLabelRevealFrames(path.join(dir, 'frame'), FPS, files, progress => motion === 'wipe'
+          ? renderLabelWipe(rendered.png, rendered.width, rendered.height, progress)
+          : renderLeaderLine({ ...line, progress }))
+        let names = 0
+        const plan = buildLabelOverlayFilters(geometry, { base: '[0:v]', labelInputIdx: motion === 'wipe' ? 1 : 2, fps: FPS, allocLabel: () => `[v${++names}]` })
+        const out = path.join(dir, `${motion}.mp4`)
+        const input = motion === 'wipe' ? [...plan.input_args, '-i', sequence] : ['-framerate', String(FPS), '-i', sequence, '-i', label]
+        const prefix = motion === 'line-draw' ? `[1:v]setpts=PTS+${START_SEC}/TB[line];[0:v][line]overlay=x=0:y=0:eof_action=repeat:enable='between(t,${START_SEC},${END_SEC})'[base];` : ''
+        if (motion === 'line-draw') plan.filters[0] = plan.filters[0].replace('[0:v]', '[base]')
+        await run(FFMPEG!, ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', `color=c=red:s=${WIDTH}x${HEIGHT}:d=${WINDOW_SEC}:r=${FPS}`, ...input, '-filter_complex', prefix + plan.filters.join(';'), '-map', plan.output, '-pix_fmt', 'yuv420p', out], { timeout: 120_000 })
+        const raw = path.join(dir, 'out.raw')
+        await run(FFMPEG!, ['-hide_banner', '-loglevel', 'error', '-y', '-i', out, '-f', 'rawvideo', '-pix_fmt', 'rgb24', raw], { timeout: 120_000 })
+        const frames = readFileSync(raw)
+        assert.equal(frames.length / STRIDE, WINDOW_SEC * FPS)
+        assert.ok(diffPixels(frameAt(frames, START_IDX), frameAt(frames, START_IDX + 3)) > 100, 'entrance must change visible pixels')
+        assert.ok(diffPixels(frameAt(frames, START_IDX + 4), frameAt(frames, START_IDX + 10)) < 100, 'final frame must hold')
+        if (motion === 'line-draw') {
+          const target = ((Math.round(HEIGHT * .7) * WIDTH) + Math.round(WIDTH * .7)) * 3
+          assert.ok(frameAt(frames, START_IDX + 4)[target + 1] > 100, 'line must reach the target')
+        }
+        const evidence = process.env.LABEL_MOTION_EVIDENCE_DIR
+        if (evidence) { await fs.mkdir(evidence, { recursive: true }); await fs.copyFile(out, path.join(evidence, `${motion}.mp4`)) }
+      } finally { await fs.rm(dir, { recursive: true, force: true }) }
+    })
+  }
+
   test('a cue with no motion emits exactly the filter string it always has', async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'label-still-'))
     try {
@@ -250,16 +287,7 @@ describe('label motions, verified on rendered pixels', { skip: FFMPEG ? false : 
         /"spin"/,
         'a motion nobody declared must name itself, not quietly become a still the customer reads as working',
       )
-      // wipe and line-draw were prototyped and dropped, so the type still
-      // carries them but the renderer cannot perform them — same rule, and the
-      // message has to say which one was refused.
-      for (const dropped of ['wipe', 'line-draw'] as const) {
-        assert.throws(
-          () => labelOverlayGeometry(cue({ motion: dropped }), rendered, WIDTH, HEIGHT),
-          new RegExp(`"${dropped}"`),
-          `a dropped motion must fail by name rather than render a still`,
-        )
-      }
+      // New motions are backed by reveal frames and accepted by geometry.
     } finally {
       await fs.rm(dir, { recursive: true, force: true })
     }

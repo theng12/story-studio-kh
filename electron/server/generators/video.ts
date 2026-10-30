@@ -87,7 +87,7 @@ import { logoCornerRadiusPct, logoShapeOf, writeShapedLogo } from '../lib/logo-s
 import { displayAspectRatio, frameTextUnit, resolveRenderCanvas } from '../lib/render-canvas.js'
 import { inspectSourceAspect } from '../lib/source-aspect.js'
 import { buildContextualCueDrawtextFilters, buildLabelOverlayFilters, labelOverlayGeometry } from '../lib/contextual-cue-filters.js'
-import { findLabelDesign, renderLabelDesign, renderLeaderLine } from '../lib/label-design-render.js'
+import { findLabelDesign, renderLabelDesign, renderLeaderLine, renderLabelWipe, writeLabelRevealFrames } from '../lib/label-design-render.js'
 import { measureOpeningSec } from '../lib/opening-duration.js'
 import {
   buildColorGradingFilters,
@@ -7023,6 +7023,7 @@ async function runFinalComposition(
   const args: string[] = ['-y']
   const filterParts: string[] = []
   const generatedSubtitleFiles: string[] = []
+  try {
   let nextInputIdx = 0
 
   // Input 0: intermediate video (pre-concatenated)
@@ -7502,25 +7503,45 @@ async function runFinalComposition(
         })
         const geometry = labelOverlayGeometry(cue, rendered, w, h, cueOffset)
         const safeId = cue.id.replace(/[^a-zA-Z0-9-]/g, '-')
-        const labelPath = path.join(path.dirname(videoInputPath), `label-${safeId}.png`)
-        await fs.writeFile(labelPath, rendered.png)
-        generatedSubtitleFiles.push(labelPath)
+        const labelPath = cue.motion === 'wipe'
+          ? await writeLabelRevealFrames(path.join(path.dirname(videoInputPath), `label-${safeId}-wipe`), quality.fps, generatedSubtitleFiles,
+            progress => renderLabelWipe(rendered.png, rendered.width, rendered.height, progress))
+          : path.join(path.dirname(videoInputPath), `label-${safeId}.png`)
+        if (cue.motion !== 'wipe') {
+          generatedSubtitleFiles.push(labelPath)
+          await fs.writeFile(labelPath, rendered.png)
+        }
 
+        if (cue.motion === 'line-draw' && (!design.pointing || cue.target_x_pct == null || cue.target_y_pct == null)) {
+          throw new Error(`Label ${cue.id} needs a pointing design and target position for line-draw.`)
+        }
         // A separate target point: the label can sit away from what it points at.
         // Old cues carry none and simply draw nothing extra.
         if (design.pointing && cue.target_x_pct != null && cue.target_y_pct != null) {
-          const linePng = await renderLeaderLine({
+          const lineInput = {
             frame_w: w, frame_h: h,
             from: { x: geometry.anchor.x / w, y: geometry.anchor.y / h },
             to: { x: cue.target_x_pct / 100, y: cue.target_y_pct / 100 },
-          })
-          const linePath = path.join(path.dirname(videoInputPath), `label-line-${safeId}.png`)
-          await fs.writeFile(linePath, linePng)
-          generatedSubtitleFiles.push(linePath)
+          }
+          const linePath = cue.motion === 'line-draw'
+            ? await writeLabelRevealFrames(path.join(path.dirname(videoInputPath), `label-line-${safeId}`), quality.fps, generatedSubtitleFiles,
+              progress => renderLeaderLine({ ...lineInput, progress }))
+            : path.join(path.dirname(videoInputPath), `label-line-${safeId}.png`)
+          if (cue.motion !== 'line-draw') {
+            generatedSubtitleFiles.push(linePath)
+            await fs.writeFile(linePath, await renderLeaderLine(lineInput))
+          }
+          if (cue.motion === 'line-draw') args.push('-framerate', String(quality.fps))
           args.push('-i', linePath)
           const lineIdx = nextInputIdx++
+          let lineLabel = `[${lineIdx}:v]`
+          if (cue.motion === 'line-draw') {
+            const shifted = vn()
+            filterParts.push(`${lineLabel}setpts=PTS+${(cue.start_sec + cueOffset).toFixed(3)}/TB${shifted}`)
+            lineLabel = shifted
+          }
           const nextLine = vn()
-          filterParts.push(`${vLabel}[${lineIdx}:v]overlay=x=0:y=0:eof_action=repeat:enable=${escapeFilterArgValue(geometry.enable)}${nextLine}`)
+          filterParts.push(`${vLabel}${lineLabel}overlay=x=0:y=0:eof_action=repeat:enable=${escapeFilterArgValue(geometry.enable)}${nextLine}`)
           vLabel = nextLine
         }
 
@@ -7695,10 +7716,6 @@ async function runFinalComposition(
   })
   const { lastError, succeededTier } = chain
 
-  // The filter graph no longer needs generated ASS documents after all encode
-  // attempts finish. Best-effort cleanup covers success and recovery failure.
-  await Promise.all(generatedSubtitleFiles.map(file => fs.rm(file, { force: true }).catch(() => undefined)))
-
   if (chain.cancelled) {
     job.output_lines.push('Render cancelled — encoding stopped; no fallback encode was started.')
     throw new Error('Cancelled by user')
@@ -7729,6 +7746,9 @@ async function runFinalComposition(
       survived: succeededTier.dropsBurnedInFeatures ? [] : requestedBurnIns,
       dropped: succeededTier.dropsBurnedInFeatures ? requestedBurnIns : [],
     })
+  }
+  } finally {
+    await Promise.all(generatedSubtitleFiles.map(file => fs.rm(file, { force: true }).catch(() => undefined)))
   }
 }
 

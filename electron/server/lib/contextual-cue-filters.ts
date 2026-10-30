@@ -182,17 +182,14 @@ export interface LabelOverlayGeometry {
   anchor: { x: number; y: number }
   /** FFmpeg expressions for motion (scale, x_offset, y_offset). */
   motion_exprs?: { scale?: string; x_offset?: string; y_offset?: string }
+  reveal_start?: number
 }
 
 /**
  * Motion expressions for image-backed labels.
  * Returns FFmpeg expressions for scale or positional offsets over time.
  *
- * `wipe` (geq alpha manipulation is prohibitively slow for HD/4K) and
- * `line-draw` (leader-line growth needs brittle runtime mask filters) were
- * prototyped and dropped, so neither — and no name nobody ever declared —
- * may quietly become a still: a customer who picked a motion and got none
- * has no way to tell. A name the renderer cannot perform fails here, by name.
+ * Wipe and line-draw use pre-rendered frames instead of expressions.
  */
 function labelMotionExprs(
   motion: string | undefined,
@@ -209,6 +206,9 @@ function labelMotionExprs(
   const tEnd = (start + dur).toFixed(3)
 
   switch (motion) {
+    case 'wipe':
+    case 'line-draw':
+      return undefined
     case 'pop':
       // Scale from 0.8 to 1.0 with slight overshoot then settle
       return { scale: `if(lt(t,${tEnd}),0.8+0.25*sin((t-${tStart})/${dur}*3.14159),1)` }
@@ -223,7 +223,7 @@ function labelMotionExprs(
       return { scale: `1+0.05*sin((t-${tStart})*6.28)` }
     default:
       throw new Error(
-        `Label motion "${motion}" is not supported. Pick pop, slide, pulse or float — or clear the motion — and save this label again.`,
+        `Label motion "${motion}" is not supported. Pick pop, slide, wipe, line-draw, pulse or float — or clear the motion — and save this label again.`,
       )
   }
 }
@@ -263,6 +263,13 @@ export function buildLabelOverlayFilters(
   const filters: string[] = []
   const input_args: string[] = []
   let labelInput = `[${opts.labelInputIdx}:v]`
+
+  if (geometry.reveal_start != null) {
+    input_args.push('-framerate', String(opts.fps))
+    const shifted = opts.allocLabel()
+    filters.push(`${labelInput}setpts=PTS+${geometry.reveal_start.toFixed(3)}/TB${shifted}`)
+    labelInput = shifted
+  }
 
   const scale = geometry.motion_exprs?.scale
   if (scale) {
@@ -306,6 +313,6 @@ export function labelOverlayGeometry(
   const start = cue.start_sec + offsetSec
   const end = cue.end_sec + offsetSec
   const motionExprs = labelMotionExprs(cue.motion, start, end, frameW, frameH, label.width, label.height)
-  return { x, y, enable: `between(t,${start.toFixed(3)},${end.toFixed(3)})`, anchor: { x: anchorX, y: anchorY }, motion_exprs: motionExprs }
+  return { x, y, enable: `between(t,${start.toFixed(3)},${end.toFixed(3)})`, anchor: { x: x + label.anchor.x * label.width, y: y + label.anchor.y * label.height }, motion_exprs: motionExprs, ...(cue.motion === 'wipe' ? { reveal_start: start } : {}) }
 }
 
