@@ -3,6 +3,11 @@
     <button type="button" class="btn btn-sm btn-secondary label-picker-trigger" aria-haspopup="dialog" :aria-expanded="open" @click="show">
       {{ designs.find(design => design.id === modelValue)?.name || modelValue }} · Change
     </button>
+    <div v-if="modelValue.startsWith('label:')" class="motion-list" aria-label="Label motion">
+      <button v-for="item in motions" :key="item.id" type="button" class="motion-choice" :aria-pressed="(motion || '') === item.id" @click="emit('update:motion', item.id)">
+        <span class="motion-sample"><span v-if="item.id === 'line-draw'" class="sample-line" /><span :class="`sample-${item.id}`">Label</span></span>{{ item.name }}
+      </button>
+    </div>
     <PickerDialog :visible="open" title="Label designs" description="Choose a treatment for this label." size="xl" close-label="Close label designs" @close="open = false">
       <div class="label-picker-toolbar">
         <input v-model="search" class="input" type="search" aria-label="Search label designs" placeholder="Search designs" />
@@ -27,8 +32,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-const props = defineProps<{ modelValue: string; projectSlug: string }>()
-const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const props = defineProps<{ modelValue: string; projectSlug: string; motion?: string }>()
+const emit = defineEmits<{ 'update:modelValue': [value: string]; 'update:motion': [value: string] }>()
+const motions = [
+  { id: '', name: 'Still' }, { id: 'pop', name: 'Pop' }, { id: 'slide', name: 'Slide' },
+  { id: 'pulse', name: 'Pulse' }, { id: 'float', name: 'Float' },
+  { id: 'wipe', name: 'Wipe' }, { id: 'line-draw', name: 'Line draw' },
+]
 type Design = { id: string; name: string; family: string; theme: string; sample_url: string | null }
 const { get } = useApi()
 const open = ref(false)
@@ -61,6 +71,24 @@ function choose(id: string) { emit('update:modelValue', id); open.value = false 
 </script>
 
 <style scoped>
+.motion-list { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .5rem; }
+.motion-choice { display: grid; gap: .2rem; text-align: center; color: inherit; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: .35rem; cursor: pointer; }
+.motion-choice[aria-pressed="true"] { border-color: var(--accent); }
+.motion-sample { width: 72px; height: 35px; display: grid; place-items: center; overflow: hidden; position: relative; background: var(--bg-tertiary); }
+.motion-sample > span:not(.sample-line) { background: #f4c75d; color: #242322; padding: 2px 5px; }
+.sample-wipe { animation: wipe 2s infinite; }
+.sample-slide { animation: slide 2s infinite; }
+.sample-pop { animation: pop 2s infinite; }
+.sample-pulse { animation: pulse 2s infinite; }
+.sample-float { animation: float 2s infinite; }
+.sample-line { position: absolute; left: 48%; top: 65%; width: 45%; height: 2px; background: #f4c75d; transform-origin: left; animation: line-draw 2s infinite; }
+@keyframes wipe { 0%, 10% { clip-path: inset(0 100% 0 0); } 30%, 100% { clip-path: inset(0); } }
+@keyframes line-draw { 0%, 10% { transform: scaleX(0); } 30%, 100% { transform: scaleX(1); } }
+@keyframes slide { 0%, 10% { transform: translateX(-80px); } 30%, 100% { transform: translateX(0); } }
+@keyframes pop { 0%, 10% { transform: scale(.8); } 25% { transform: scale(1.05); } 35%, 100% { transform: scale(1); } }
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+@keyframes float { 0%, 100% { transform: translateY(-3px); } 50% { transform: translateY(3px); } }
+@media (prefers-reduced-motion: reduce) { .motion-sample span { animation: none; } }
 .label-picker-trigger { width: 100%; text-align: left; }
 .label-picker-toolbar { display: flex; flex-wrap: wrap; gap: .75rem; padding: 1rem; }
 .label-picker-toolbar > input { flex: 1 1 12rem; min-width: 0; }

@@ -173,13 +173,15 @@ export async function renderLeaderLine(input: {
   from: { x: number; y: number }
   to: { x: number; y: number }
   color?: string
+  progress?: number
 }): Promise<Buffer> {
   const { frame_w, frame_h, from, to } = input
   const color = input.color ?? '#f4c75d'
   const x1 = from.x * frame_w
   const y1 = from.y * frame_h
-  const x2 = to.x * frame_w
-  const y2 = to.y * frame_h
+  const progress = clamp(input.progress ?? 1, 0, 1)
+  const x2 = (from.x + (to.x - from.x) * progress) * frame_w
+  const y2 = (from.y + (to.y - from.y) * progress) * frame_h
   const stroke = Math.max(3, Math.round(Math.min(frame_w, frame_h) * 0.005))
   const dot = stroke * 2.4
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${frame_w}" height="${frame_h}" viewBox="0 0 ${frame_w} ${frame_h}">
@@ -187,4 +189,26 @@ export async function renderLeaderLine(input: {
   <circle cx="${x2.toFixed(1)}" cy="${y2.toFixed(1)}" r="${dot.toFixed(1)}" fill="${color}" stroke="#242322" stroke-width="${Math.max(1, Math.round(stroke / 2))}"/>
 </svg>`
   return sharp(Buffer.from(svg)).png().toBuffer()
+}
+
+/** Write the short entrance at output frame rate; FFmpeg repeats its last frame. */
+export async function writeLabelRevealFrames(
+  prefix: string, fps: number, files: string[],
+  frame: (progress: number) => Promise<Buffer>,
+): Promise<string> {
+  const count = Math.max(2, Math.ceil(fps * 0.3) + 1)
+  for (let i = 0; i < count; i++) {
+    const filename = `${prefix}-${String(i).padStart(4, '0')}.png`
+    files.push(filename)
+    await fs.writeFile(filename, await frame(i / (count - 1)))
+  }
+  return `${prefix}-%04d.png`
+}
+
+export async function renderLabelWipe(png: Buffer, width: number, height: number, progress: number): Promise<Buffer> {
+  const visible = Math.round(width * progress)
+  if (visible <= 0) return sharp({ create: { width, height, channels: 4, background: '#00000000' } }).png().toBuffer()
+  if (visible >= width) return png
+  const left = await sharp(png).extract({ left: 0, top: 0, width: visible, height }).png().toBuffer()
+  return sharp({ create: { width, height, channels: 4, background: '#00000000' } }).composite([{ input: left, left: 0, top: 0 }]).png().toBuffer()
 }

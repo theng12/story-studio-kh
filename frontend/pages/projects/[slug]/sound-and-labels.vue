@@ -240,7 +240,7 @@
                     <select v-model="row.cue.kind" class="select select-sm" @change="markDirty()"><option value="location_date">Location / date</option><option value="historical_context">Historical context</option><option value="person">Person</option><option value="chapter">Chapter</option></select>
                   </label>
                   <label>Treatment
-                    <LabelDesignPicker v-model="row.cue.template" :project-slug="slug" @update:model-value="markDirty()" />
+                    <LabelDesignPicker v-model="row.cue.template" :motion="row.cue.motion" :project-slug="slug" @update:model-value="markDirty()" @update:motion="row.cue.motion = ($event || undefined) as LabelCue['motion']; markDirty()" />
                   </label>
                   <label>Transition
                     <select :value="row.cue.entrance" class="select select-sm" @change="setTransition(row.cue, ($event.target as HTMLSelectElement).value)"><option value="fade">Fade</option><option value="dissolve">Dissolve</option><option value="slide">Slide</option></select>
@@ -405,6 +405,7 @@ type LabelCue = {
   kind: 'location_date' | 'historical_context' | 'person' | 'chapter'; placement: ContextualCueCorner
   position_x_pct?: number | null; position_y_pct?: number | null
   template: string
+  motion?: 'pop' | 'slide' | 'wipe' | 'line-draw' | 'pulse' | 'float'
   entrance: 'fade' | 'slide' | 'dissolve'; exit: 'fade' | 'slide' | 'dissolve'
   status: LabelStatus; created_at: string; updated_at: string
 }
