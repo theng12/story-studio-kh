@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import test from 'node:test'
 import { createApp, defineComponent, h, nextTick, ref, type Component } from 'vue'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
