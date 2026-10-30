@@ -949,7 +949,13 @@ export class MockGenStudioService {
       purchase_id: this.ownershipRecord(accountId, product)?.purchaseId ?? `cpur_seed_${index + 1}`,
       retired: product.retired === true,
       current_release: product.current_release,
-      download_available: Boolean((product.current_release as Record<string, unknown> | null)?.archive_available),
+      // A RETIRED family publishes `download_available: false` while its archive
+      // bytes remain (Gateway 0.2.213, 2026-10-27). A product may state that
+      // fact explicitly; without it the mock derives the field as the live
+      // Gateway does for every non-retired family.
+      download_available: typeof product.download_available === 'boolean'
+        ? product.download_available
+        : Boolean((product.current_release as Record<string, unknown> | null)?.archive_available),
       recalled_release_versions: product.recalled_release_versions || [],
       showcase_videos: product.showcase_videos || [],
     }))

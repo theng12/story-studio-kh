@@ -384,6 +384,7 @@ async function publicAccount(
   installStates: ReadonlyArray<ContentStoreLocalInstallState>,
   recalledVersionsByFamily: ReadonlyMap<string, string[]>,
   compatibleByProduct: ReadonlyMap<string, boolean>,
+  downloadableByFamily: ReadonlyMap<string, boolean>,
 ): Promise<PublicContentAccount> {
   return {
     accountId: account.accountId,
@@ -401,7 +402,16 @@ async function publicAccount(
       showcaseVideos: owned.showcaseVideos,
       recalledReleaseVersions: [...(recalledVersionsByFamily.get(owned.entitlementFamily) ?? [])],
       receiptVerification: verifiedFamilies.has(owned.entitlementFamily) ? 'verified' as const : 'unverified' as const,
-      downloadAvailable: owned.currentRelease?.archiveAvailable === true,
+      // GenStudio's own `download_available` is the authority, not the archive's
+      // existence: a RETIRED family publishes `false` while its bytes remain, and
+      // deriving this from `archive_available` offered that family for install
+      // again (2026-10-30). The archive test stays only as the answer when this
+      // load had no signed receipts to read at all — that answer is already
+      // marked `unverified`, the receipts section says why it is unavailable,
+      // and an install attempt it wrongly offers is refused, loudly, before any
+      // download grant is asked for (`CONTENT_PACK_DOWNLOAD_WITHDRAWN`).
+      downloadAvailable: downloadableByFamily.get(owned.entitlementFamily)
+        ?? owned.currentRelease?.archiveAvailable === true,
       ...((compatibleByProduct.get(owned.productId) === false
         || (owned.currentRelease && recalledVersionsByFamily.get(owned.entitlementFamily)?.includes(owned.currentRelease.version)))
         ? { installState: 'unavailable' as const, installedVersion: null, missingDependencies: [] }
@@ -765,6 +775,13 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     entitlement.entitlementFamily,
     entitlement.recalledReleaseVersions,
   ]))
+  // Whether GenStudio currently serves a download, exactly as the signed
+  // receipts state it. The account endpoint does not publish this fact at all,
+  // so without it a retired family whose bytes remain looked installable.
+  const downloadableByFamily = new Map((receipts?.entitlements ?? []).map(entitlement => [
+    entitlement.entitlementFamily,
+    entitlement.downloadAvailable,
+  ]))
 
   // ── local facts ────────────────────────────────────────────────────────
   // The Gateway's "take this pack off installs" requests land BEFORE the
@@ -861,7 +878,7 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     origin,
     account: account
       ? await publicAccount(account, verifiedFamilies, installSnapshot.owned, recalledVersionsByFamily,
-        new Map(products.map(product => [product.productId, product.compatible])))
+        new Map(products.map(product => [product.productId, product.compatible])), downloadableByFamily)
       : null,
     installed,
     products: products.map(publicProduct),

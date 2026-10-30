@@ -1,7 +1,7 @@
 {
   "name": "story-studio-kh",
   "productName": "Story Studio KH",
-  "version": "1.4.369",
+  "version": "1.4.370",
   "private": true,
   "description": "Story Studio KH \u2014 continuity-first video pipeline for YouTube channels. Research, scripts, voice, narration-timed scenes, optional motion, and assembly across scenes, listicle, and character-locked formats.",
   "author": "",
@@ -74,5 +74,10 @@
     "typescript": "~5.8.0",
     "typescript-eslint": "~8.59.0",
     "wait-on": "~8.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "fsevents@2.3.3": true,
+    "electron-winstaller@5.4.0": true
   }
 }

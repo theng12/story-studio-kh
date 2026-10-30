@@ -427,6 +427,9 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_PACK_TOO_LARGE_FOR_THIS_APP': return failure('This archive is too large to install safely', 'Choose another published release or contact the publisher.')
     case 'CONTENT_PACK_REQUIRES_NEWER_APP': return failure('A newer Story Studio version is needed', 'Update Story Studio before installing this release.')
     case 'CONTENT_PACK_ARCHIVE_UNAVAILABLE': return failure('This archive is not available', 'Refresh the Library and try again later.')
+    // A retired family keeps its bytes but GenStudio withdraws the download.
+    // Saying "retired" is the true reason; refreshing cannot change it.
+    case 'CONTENT_PACK_DOWNLOAD_WITHDRAWN': return failure('This Content Pack can no longer be downloaded', 'GenStudio retired this pack. A copy already installed on this Mac keeps working.')
     case 'CONTENT_PACK_SIGNATURE_INVALID':
     case 'CONTENT_PACK_ARCHIVE_HASH_MISMATCH':
     case 'CONTENT_PACK_SCHEMA_INVALID':
@@ -450,6 +453,10 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_STORE_REQUEST_INVALID':
     case 'CONTENT_STORE_REQUEST_TOO_LARGE': return failure('This Studio Library request is invalid', 'Refresh the Library and try the action again.')
     case 'CONTENT_STORE_UPSTREAM_REFUSED': return failure('GenStudio could not complete this request', 'Refresh the Library before trying again.')
+    // The install failed for a reason Story could not classify. That is NOT a
+    // refusal by GenStudio, and calling it one told the customer the Gateway had
+    // said no when nothing was ever refused (2026-10-30).
+    case 'CONTENT_STORE_INSTALL_FAILED': return failure('This Content Pack could not be installed', 'Try again. If it keeps happening, check the Gateway in Settings → Connections.')
     // The limit lives in the installed build, so refreshing cannot clear it --
     // only a version with a larger bound can. On 2026-08-25 this fell to the
     // default below and told the owner his whole Store was "unavailable" while
@@ -931,7 +938,7 @@ export function useContentStore(): {
           }
         }
         if (operation.phase === 'failed' || !operation.install) {
-          const failure = operation.failure || { code: 'CONTENT_STORE_UPSTREAM_REFUSED', detail: 'This Content Pack could not be installed.' }
+          const failure = operation.failure || { code: 'CONTENT_STORE_INSTALL_FAILED', detail: 'This Content Pack could not be installed.' }
           throw Object.assign(new Error(failure.detail), { data: failure })
         }
         return operation.install

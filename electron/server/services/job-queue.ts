@@ -5700,9 +5700,47 @@ class PipelineHandoffCheckpointError extends Error {
 
 class PipelineHandoffIdentityError extends Error {}
 
+const PIPELINE_HANDOFF_PREFIX = 'pipeline-handoff-'
+const PIPELINE_HANDOFF_CHILD_DIGEST_CHARS = 24
+
+/**
+ * The id a Pipeline handoff child is enqueued under.
+ *
+ * This id IS the handoff's idempotency key: `enqueuePipelineHandoffOnce` keys
+ * its lock on it and re-queues the same child from the retained marker, so the
+ * same parent and the same next step must always produce the same id. It also
+ * becomes the child's `job_id` and `episode_recovery_job_id`.
+ *
+ * The first level keeps the readable `pipeline-handoff-<parent>` — several
+ * tests and saved markers are written against that shape. A parent that is ITSELF
+ * a handoff used to get another full prefix, so a chain grew by one 17-character
+ * segment per step: a 17-step Pipeline produced ids like
+ * `pipeline-handoff-pipeline-handoff-…-5ac0507d` (2026-10-30, the mini's failed
+ * rows). Nothing loops — the chain is bounded by the Pipeline's own steps — but
+ * each segment is a name every job row, lock key and generated filename has to
+ * carry, and `generators/scene-clip.ts` uses the job id inside a filename that
+ * must stay under the filesystem's 255-byte component limit. An already-handoff
+ * parent is therefore named by a fixed-width digest of its full id and the next
+ * step: deterministic (the idempotency key holds), collision-safe at 96 bits,
+ * and bounded at 41 characters however long the chain is. A collision cannot
+ * silently reuse a child either — `exactPipelineHandoffChild` refuses an id that
+ * names different work. Nothing on disk is rewritten; existing markers keep the
+ * ids they were saved with.
+ */
 function pipelineHandoffChildId(job: Job, nextStep: { type?: unknown }): string {
   if (job.type === 'subtitles_transcribe' && nextStep.type === 'metadata') return subtitleFinalizerJobId(job)
-  return `pipeline-handoff-${job.job_id}`
+  if (!job.job_id.startsWith(PIPELINE_HANDOFF_PREFIX)) return `${PIPELINE_HANDOFF_PREFIX}${job.job_id}`
+  const step = typeof nextStep.type === 'string' ? nextStep.type : ''
+  const digest = createHash('sha256').update(`${job.job_id}\u0000${step}`, 'utf8').digest('hex')
+  return `${PIPELINE_HANDOFF_PREFIX}${digest.slice(0, PIPELINE_HANDOFF_CHILD_DIGEST_CHARS)}`
+}
+
+/** Test-only: the id a handoff from this parent would use, without queueing anything. */
+export function _pipelineHandoffChildIdForTesting(
+  job: { job_id: string; type?: string },
+  nextStep: { type?: unknown },
+): string {
+  return pipelineHandoffChildId(job as Job, nextStep)
 }
 
 function pipelineHandoffNextParams(job: Job, nextStep: any, rest: unknown[]): Record<string, any> {

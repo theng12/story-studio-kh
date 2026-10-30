@@ -490,6 +490,29 @@ describe('GenStudio Content Store 1.6 delivery trust boundary', () => {
     })), /download|release/i)
   })
 
+  test('accepts a retired family that keeps its archive while the download is withdrawn', () => {
+    // The live shape from Gateway 0.2.213 (2026-10-27). Both fields are true
+    // statements about different things, and demanding they agree refused the
+    // whole receipts answer — every install and every Restore.
+    const parsed = parseContentStoreReceipts(receipts({
+      entitlements: [{
+        ...receipts().entitlements[0], retired: true, download_available: false,
+        current_release: release({ archive_available: true }),
+      }],
+    }))
+    assert.equal(parsed.entitlements[0].retired, true)
+    assert.equal(parsed.entitlements[0].downloadAvailable, false)
+    assert.equal(parsed.entitlements[0].currentRelease?.archiveAvailable, true)
+
+    // The impossible direction is still a refusal: a download with no bytes.
+    assert.throws(() => parseContentStoreReceipts(receipts({
+      entitlements: [{
+        ...receipts().entitlements[0], download_available: true,
+        current_release: release({ archive_available: false }),
+      }],
+    })), /download_available requires a current release archive/)
+  })
+
   test('verifies a short-lived grant against every expected immutable release fact', () => {
     const key = parseContentStorePublicKey(publicKey())
     const parsed = parseContentStoreDownloadGrant(grant())

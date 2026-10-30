@@ -11,7 +11,11 @@ import {
   restoreContentStoreOwnership,
   startOwnedContentStoreReleaseInstall,
 } from '../services/content-store-delivery.js'
-import { GenStudioContentStoreApiError, GenStudioContentStoreLimitError } from '../lib/genstudio-content-store.js'
+import {
+  GenStudioContentStoreApiError,
+  GenStudioContentStoreLimitError,
+  GenStudioContentStoreResponseError,
+} from '../lib/genstudio-content-store.js'
 import { gatewayConnectionFailure, humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { redactSecrets } from '../lib/redact-secrets.js'
 import { logLine } from '../services/logger.js'
@@ -163,6 +167,22 @@ function projectFailure(
     })
     return { status: 502, body: { code: error.code, detail: error.message } }
   }
+  // The Gateway ANSWERED, but not with a response this build can read. It used
+  // to fall through to the generic 500, so a Gateway that published one field
+  // this build refuses read to the customer as "the install failed" with no
+  // reason at all. The validator's detail describes the RESPONSE (endpoint and
+  // field path), never a local path or a secret, so it can be said out loud —
+  // in the same words the Studio Library's per-section answer already uses.
+  if (error instanceof GenStudioContentStoreResponseError) {
+    logLine('error', 'GenStudio answered a Content Store request with an unreadable response', {
+      fallback,
+      raw: redactSecrets(error.message),
+    })
+    return { status: 502, body: {
+      code: error.code,
+      detail: `The Gateway answered, but not with a Studio Library response: ${error.message}`,
+    } }
+  }
   // The commerce journal and client carry paths and signed evidence internally,
   // so the RESPONSE stays the generic fallback -- none of that reaches the
   // renderer. The log is a different audience: it is local, redacted below, and
@@ -223,7 +243,11 @@ router.post('/content-store/releases/:releaseId/install', async (req, res) => {
         { presentFailure: error => {
           const failure = projectFailure(error, 'Failed to install the owned Content Pack.', 'content:read').body
           return {
-            code: typeof failure.code === 'string' ? failure.code : 'CONTENT_STORE_UPSTREAM_REFUSED',
+            // A failure this app could not classify was NOT a refusal. Labelling
+            // it CONTENT_STORE_UPSTREAM_REFUSED told the customer GenStudio had
+            // said no when nothing was ever refused (2026-10-30), and it hid the
+            // difference between "the Gateway said no" and "this build broke".
+            code: typeof failure.code === 'string' ? failure.code : 'CONTENT_STORE_INSTALL_FAILED',
             detail: typeof failure.detail === 'string' ? failure.detail : 'This Content Pack could not be installed.',
           }
         } },

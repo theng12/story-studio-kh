@@ -1,5 +1,57 @@
 # HANDOFF — Story Studio KH
 
+## 1.4.370 — Library works with a retired pack; honest failure reasons; bounded Pipeline ids (2026-10-30, release/1.4.370 from main 77f433f0)
+
+**Not yet released.** Static checks and focused runs are green; the ten-step gate, prebuild and DMG
+are still to run (the owner runs the gate).
+
+- **One bad row no longer blocks the Store** (`lib/genstudio-content-store.ts`,
+  `parseContentStoreReceipts`). A retired family publishes `download_available: false` while its
+  release archive stays on disk (Gateway 0.2.213, 2026-10-27 — `oil-painting-classical-v2`, folded
+  into `academic-classical-oil-v2`). The parser demanded the two fields agree and refused the WHOLE
+  `/v1/content/receipts` answer, so every install and every Restore failed. It now rejects only the
+  impossible direction: `download_available: true` with no current-release archive. Both are
+  statements about different things, and both are true for a retired family.
+- **A retired row is not offered for install and not installable** (`services/content-store.ts`,
+  `services/content-store-delivery.ts`). The public account derived `downloadAvailable` from
+  `archive_available`, which re-offered a retired family; it now reads the signed receipts'
+  own `download_available` per family (the account endpoint does not publish it). The archive
+  fallback remains only for a load that had no receipts to read, and that answer is already
+  `unverified`. Delivery refuses a needed download with `409 CONTENT_PACK_DOWNLOAD_WITHDRAWN` —
+  placed AFTER the local-copy check, so an installed copy keeps working and a dependency that is
+  already installed is not refused. Nothing on disk is rewritten.
+- **Say the real reason** (`routes/content-store.ts`). `projectFailure` maps
+  `GenStudioContentStoreResponseError` to `502 CONTENT_STORE_RESPONSE_INVALID` with
+  `The Gateway answered, but not with a Studio Library response: …`, the same wording
+  `contentStoreSectionFailure` already uses. The async route's `presentFailure` fallback (and
+  `startOwnedContentStoreReleaseInstall`'s last resort) used `CONTENT_STORE_UPSTREAM_REFUSED` for an
+  unclassified failure — a refusal that never happened. Both now report
+  `CONTENT_STORE_INSTALL_FAILED` with the safe detail; the frontend maps both new codes.
+- **Pipeline handoff ids are bounded** (`services/job-queue.ts`, `pipelineHandoffChildId`). A parent
+  that is itself a handoff gets `pipeline-handoff-<24 hex of sha256(parent_id + step)>` instead of
+  another 17-character prefix. Deterministic (same parent + step = same child, which is the
+  idempotency key), 96-bit, 41 characters flat. A first-level child keeps
+  `pipeline-handoff-<parent>`. Saved markers carry `child_job_id`, so existing markers and queued
+  children keep working and nothing is rewritten.
+- **The loop question: there is no loop.** Production evidence (EP0017, 2026-10-28
+  `finish-november-20261028`): `research_run 1813dc57` (chain 9) → `pipeline-handoff-1813dc57`
+  outline (chain 8) → `pipeline-handoff-pipeline-handoff-1813dc57` expansion (chain 7) →
+  `pipeline-handoff-pipeline-handoff-pipeline-handoff-1813dc57` audio (chain 6). One segment per
+  successfully completed step and the chain shrinks by exactly one, so the length is the Pipeline's
+  own step count (max 17 links today, after `script-only` expands to outline + expansion). Retry does
+  not compound it: a job with a saved handoff marker refuses Retry, and a fresh retry gets a random
+  id. The real cost was that `generators/scene-clip.ts` embeds the child id in
+  `.${scene_id}.${job_id}.candidate.mp4`; a long chain reached ~280 bytes and the 255-byte filesystem
+  component limit. No reader parses the id (checked); it is only compared whole.
+- **Tests.** New `pipeline-handoff-child-id.test.ts` (stability, distinctness, bounded length, the
+  scene-clip filename bound). `pipeline-handoff-lifecycle.test.ts` also asserts the real chain's ids.
+  `content-store-routes.test.ts` covers the live retired shape end to end (another pack installs,
+  retired row not offered, install refused, installed copy kept) and the unreadable answer / unknown
+  failure reasons; `genstudio-content-store-delivery.test.ts` pins the parse rule.
+- **Not yet proven (owner).** The ten-step gate and the DMG from `main`. `package.json` gained
+  `allowScripts` for esbuild/fsevents/electron-winstaller because npm 11 blocks those postinstalls on
+  a clean `npm ci` (the electron binary was installed with `node node_modules/electron/install.js`).
+
 ## 1.4.369 — six branches in one release: font pool, Library removal, settling jobs, one copy per pack, Formula packs (2026-10-30, release/1.4.369 from release/1.4.368 052c04e1)
 
 **Not yet released.** Merged and static-checked (typecheck, lint 0 errors, typography, security,

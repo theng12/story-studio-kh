@@ -801,6 +801,107 @@ describe('Content Store commerce routes', () => {
       .send({ padding: 'x'.repeat(20_000) }).expect(413)
   })
 
+  test('a retired family that keeps its bytes does not block the rest of the Store', async () => {
+    // The live shape (Gateway 0.2.213, 2026-10-27): a retired family publishes
+    // `download_available: false` while its release archive is still on disk.
+    // Demanding the two fields agree refused the WHOLE receipts answer, which
+    // refused every Restore and every install for as long as one retired family
+    // existed. Keep rejecting only "you may download it" with no archive.
+    const bytes = await asStoreDeliveryArchive(await fs.readFile(
+      new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url),
+    ))
+    const { app: localApp } = await setup({ products: [
+      product({
+        product_id: 'cprod_live', entitlement_family: 'com.storystudio.family.free-recovery-test',
+        owned: true, current_release: release({ pack_id: 'com.storystudio.pack.free-recovery-test', archive_available: true }),
+      }),
+      product({
+        product_id: 'cprod_retired', entitlement_family: 'com.storystudio.family.retired', title: 'Retired Formula',
+        owned: true, retired: true, download_available: false,
+        current_release: release({ release_id: 'crel_retired', pack_id: 'com.storystudio.pack.retired', archive_available: true }),
+      }),
+    ] })
+    mock.setContentArchive('crel_a', bytes)
+
+    await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+
+    const overview = await request(localApp).get('/api/content-store').expect(200)
+    const retired = overview.body.account.owned.find((row: any) => row.entitlementFamily === 'com.storystudio.family.retired')
+    const live = overview.body.account.owned.find((row: any) => row.entitlementFamily === 'com.storystudio.family.free-recovery-test')
+    assert.equal(retired?.downloadAvailable, false, 'the bytes existing is not GenStudio offering a download')
+    assert.equal(retired?.installState, 'not_installed', 'a withdrawn download is not an installable row')
+    assert.equal(live?.downloadAvailable, true, 'an ordinary family is unaffected')
+
+    // Another pack installs normally with the retired row present in the answer.
+    await request(localApp).post('/api/content-store/releases/crel_a/install').send({}).expect(200)
+
+    const downloadsBefore = mock.contentDownloadPostCount
+    const archivesBefore = mock.contentArchiveGetCount
+    const refused = await request(localApp).post('/api/content-store/releases/crel_retired/install').send({}).expect(409)
+    assert.equal(refused.body.code, 'CONTENT_PACK_DOWNLOAD_WITHDRAWN')
+    assert.match(refused.body.detail, /withdrawn/i)
+    assert.equal(mock.contentDownloadPostCount, downloadsBefore, 'no download grant is asked for a withdrawn download')
+    assert.equal(mock.contentArchiveGetCount, archivesBefore)
+  })
+
+  test('an installed pack keeps working when GenStudio later retires its family', async () => {
+    const { app: localApp } = await setupPinnedOwnedPack()
+    const source = mock.contentProducts[0]!
+    source.retired = true
+    source.download_available = false
+
+    const overview = await request(localApp).get('/api/content-store').expect(200)
+    const installed = overview.body.installed.find((pack: any) => pack.packId === 'com.storystudio.pack.free-recovery-test')
+    assert.equal(installed?.installState, 'installed_current', 'retirement withdraws the download, not the installed copy')
+    const owned = overview.body.account.owned[0]
+    assert.equal(owned.downloadAvailable, false)
+    assert.equal(owned.installState, 'installed_current')
+    assert.equal((await readContentPackState()).packs['com.storystudio.pack.free-recovery-test']?.active_version, '1.0.0')
+  })
+
+  test('a Gateway answer this build cannot read is a 502 that names the response, not a silent 500', async () => {
+    const { app: localApp } = await setup({ products: [product({ owned: true, current_release: release({ archive_available: true }) })] })
+    const original = globalThis.fetch
+    globalThis.fetch = (async (input: any, init?: any) => {
+      const url = typeof input === 'string' ? input : input?.url ?? String(input)
+      if (new URL(url).pathname === '/v1/content/receipts') {
+        return new Response('{"entitlements": "not an array"}', {
+          status: 200, headers: { 'content-type': 'application/json' },
+        })
+      }
+      return original(input, init)
+    }) as typeof fetch
+    try {
+      const response = await request(localApp).post('/api/content-store/restore').send({}).expect(502)
+      assert.equal(response.body.code, 'CONTENT_STORE_RESPONSE_INVALID')
+      assert.match(response.body.detail, /^The Gateway answered, but not with a Studio Library response: /)
+      assert.match(response.body.detail, /\/v1\/content\/receipts/, 'the answer names which response was unreadable')
+    } finally { globalThis.fetch = original }
+  })
+
+  test('an async install that fails for a reason this build cannot name is not called a GenStudio refusal', async () => {
+    const { app: localApp } = await setup({ products: [product({
+      owned: true, current_release: release({ archive_available: true }),
+    })] })
+    // A valid signing path delivering bytes that are not a Content Pack: the
+    // failure is real and local, and has no refusal code to report.
+    mock.setContentArchive('crel_a', Buffer.from('this is not a content-pack archive'))
+    await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+
+    const started = await request(localApp)
+      .post('/api/content-store/releases/crel_a/install?overview=0&async=1').send({}).expect(202)
+    const operationId = started.body.operation.operationId as string
+    let monitored: any
+    await waitFor(async () => {
+      const response = await request(localApp).get(`/api/content-store/installs/${encodeURIComponent(operationId)}`).expect(200)
+      monitored = response.body.operation
+      return monitored.phase === 'failed'
+    }, { label: 'async install with an unreadable archive', timeoutMs: 5_000 })
+    assert.equal(monitored.failure.code, 'CONTENT_STORE_INSTALL_FAILED',
+      'nothing was refused, so the row must not say GenStudio refused it')
+    assert.doesNotMatch(monitored.failure.detail, /GenStudio (?:could not|refused)/i)
+  })
+
   test('keeps the financial service independent from installer, lifecycle, queue, and admission modules', async () => {
     const serviceSource = await fs.readFile(new URL('../services/content-store.ts', import.meta.url), 'utf8')
     const routeSource = await fs.readFile(new URL('../routes/content-store.ts', import.meta.url), 'utf8')

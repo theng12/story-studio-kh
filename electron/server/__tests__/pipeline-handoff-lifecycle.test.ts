@@ -263,6 +263,22 @@ test('native research → outline → expansion → audio starts no child before
     assert.equal(jobs.filter(job => job.episode_id === episode && job.type === 'expand_chapters').length, 1,
       'the queue owns the only expansion admission; the test supplies no second expansion')
     assert.equal(jobs.filter(job => job.episode_id === episode && job.type === 'audio').length, 1)
+    // The child id is the handoff's idempotency key AND a name every row and
+    // generated file carries. Only the FIRST continuation keeps the readable
+    // `pipeline-handoff-<parent>` shape; a handoff's own child is a fixed-width
+    // digest, so the id cannot grow by a segment per step (EP0017, 2026-10-28).
+    const rootJob = jobs.find(job => job.episode_id === episode && job.type === 'research_run')!
+    const continuations = jobs
+      .filter(job => job.episode_id === episode && job.type !== 'research_run')
+      .sort((left, right) => left.job_id.localeCompare(right.job_id))
+    const firstContinuation = jobs.find(job => job.episode_id === episode && job.type === 'outline_only')!
+    assert.equal(firstContinuation.job_id, `pipeline-handoff-${rootJob.job_id}`)
+    for (const child of continuations) {
+      if (child.job_id === firstContinuation.job_id) continue
+      assert.match(child.job_id, /^pipeline-handoff-[0-9a-f]{24}$/,
+        `${child.type} must not repeat the prefix: ${child.job_id}`)
+      assert.ok(child.job_id.length <= 41, `${child.type} id is ${child.job_id.length} characters`)
+    }
     const captured = audioParams.get(episode)
     assert.equal(captured?.episode_id, episode)
     assert.equal(captured?.pipeline_batch_id, batch)

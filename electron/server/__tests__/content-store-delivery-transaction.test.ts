@@ -299,7 +299,9 @@ test('keeps an async install monitor terminal when its failure projector throws'
     label: 'async install after failure projection error', timeoutMs: 5_000,
   })
   assert.deepEqual(readContentStoreInstallOperation(operation.operationId)?.failure, {
-    code: 'CONTENT_STORE_UPSTREAM_REFUSED', detail: 'GenStudio could not complete this Content Store install.',
+    // Nothing was refused; the projector itself threw. The terminal record must
+    // say the install failed, not put words in GenStudio's mouth.
+    code: 'CONTENT_STORE_INSTALL_FAILED', detail: 'This Content Pack could not be installed.',
   })
 })
 

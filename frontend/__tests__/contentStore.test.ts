@@ -218,6 +218,7 @@ describe('useContentStore explicit commerce state machine', () => {
     ['CONTENT_STORE_SIGNING_KEY_MISSING', 'Studio Library access is needed'],
     ['CONTENT_PACK_OWNED_RELEASE_MISMATCH', 'This Mac could not confirm availability'],
     ['CONTENT_PACK_ARCHIVE_UNAVAILABLE', 'This archive is not available'],
+    ['CONTENT_PACK_DOWNLOAD_WITHDRAWN', 'This Content Pack can no longer be downloaded'],
     ['CONTENT_PACK_DEPENDENCY_NOT_OWNED', 'This Content Pack cannot be installed'],
     ['CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED', 'This Content Pack cannot be installed'],
     ['CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'GenStudio has not attested to the versions this pack requires'],
@@ -226,6 +227,8 @@ describe('useContentStore explicit commerce state machine', () => {
     ['CONTENT_STORE_REQUEST_INVALID', 'This Studio Library request is invalid'],
     ['CONTENT_STORE_REQUEST_TOO_LARGE', 'This Studio Library request is invalid'],
     ['CONTENT_STORE_UPSTREAM_REFUSED', 'GenStudio could not complete this request'],
+    // An unclassified failure was NOT a refusal, and must not read as one.
+    ['CONTENT_STORE_INSTALL_FAILED', 'This Content Pack could not be installed'],
     ['download_grant_expired', 'The download authorization expired'],
     ['archive_limit_exceeded', 'This archive is too large to install safely'],
     ['CONTENT_PACK_SIGNATURE_INVALID', 'This Content Pack could not be verified'],

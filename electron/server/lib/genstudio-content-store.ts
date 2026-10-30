@@ -1303,8 +1303,17 @@ export function parseContentStoreReceipts(value: unknown): GenStudioContentRecei
       const entitlement = entitlementRaw.value
       const currentRelease = parseOptionalRelease(entitlement.current_release, `entitlements[${index}].current_release`)
       const downloadAvailable = bool(entitlement, 'download_available')
-      if (downloadAvailable !== Boolean(currentRelease?.archiveAvailable)) {
-        throw new Error(`entitlements[${index}] download_available must match current release archive availability`)
+      // A RETIRED family (Gateway 0.2.213, 2026-10-27) publishes
+      // `download_available: false` while the release archive is still on disk,
+      // because retirement withdraws the download, not the bytes. Both fields
+      // are then true statements about different things, and demanding they
+      // agree refused the WHOLE receipts payload — which refused every install
+      // and every Restore for as long as one retired family existed (2026-10-30:
+      // oil-painting-classical-v2, retired when it was folded into
+      // academic-classical-oil-v2). Only the impossible direction is a lie this
+      // build must reject: "you may download it" with no archive to download.
+      if (downloadAvailable && !currentRelease?.archiveAvailable) {
+        throw new Error(`entitlements[${index}] download_available requires a current release archive that exists`)
       }
       return {
         entitlementId: text(entitlement, 'entitlement_id'),

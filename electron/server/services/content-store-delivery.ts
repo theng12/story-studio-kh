@@ -589,6 +589,21 @@ async function installOwnedEntitlement(
       context.completed.set(key, local.install)
       return local.install
     }
+    // The signed receipts publish `download_available: false` for a RETIRED
+    // family even while its archive bytes remain (a retired family is not a
+    // deleted one; see `parseContentStoreReceipts`). The bytes existing is not
+    // permission to download them: only GenStudio's own field is. Refusing here,
+    // after a local copy was ruled out, is what keeps an install from being
+    // attempted against a download GenStudio has withdrawn — while a pack that
+    // is already on this Mac (above) is untouched and keeps working.
+    if (!entitlement.downloadAvailable) {
+      throw new ContentStoreLocalError(
+        409,
+        'CONTENT_PACK_DOWNLOAD_WITHDRAWN',
+        'GenStudio has withdrawn the download for this Content Pack, so its current release cannot be installed. '
+        + 'A copy already installed on this Mac keeps working.',
+      )
+    }
     const grant = await issueGenStudioContentDownload(context.apiKey, {
       entitlementFamily: entitlement.entitlementFamily,
       version: release.version,
@@ -743,7 +758,10 @@ export function startOwnedContentStoreReleaseInstall(
     if (activeInstallOperationsByRelease.get(releaseId) === operation.operationId) activeInstallOperationsByRelease.delete(releaseId)
   }).catch(error => {
     const fallbackFailure = {
-      code: 'CONTENT_STORE_UPSTREAM_REFUSED', detail: 'GenStudio could not complete this Content Store install.',
+      // Nothing was refused here: this is the monitoring record's own last
+      // resort when the failure could not be projected at all. It must not tell
+      // the customer that GenStudio said no (2026-10-30).
+      code: 'CONTENT_STORE_INSTALL_FAILED', detail: 'This Content Pack could not be installed.',
     }
     let failure = fallbackFailure
     try { failure = operationOptions.presentFailure?.(error) ?? fallbackFailure } catch { /* monitoring must still reach a terminal state */ }
