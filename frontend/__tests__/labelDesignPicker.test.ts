@@ -15,7 +15,8 @@ test('label gallery filters samples and selects the existing cue value', async (
   const output = await transform(code, { loader: 'ts', format: 'esm' })
   const vueUrl = await import.meta.resolve('vue')
   const Component = (await import(`data:text/javascript;base64,${Buffer.from(output.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
-  ;(globalThis as any).__labelPickerApi = { get: async () => ({ designs: [
+  const writes: any[] = []
+  ;(globalThis as any).__labelPickerApi = { put: async (url: string, body: any) => { writes.push({ url, body }) }, get: async () => ({ designs: [
     { id: 'map-pin', name: 'Location pin', family: 'Classic', theme: 'Classic', sample_url: null },
     { id: 'label:location-pin', name: 'Map pin', family: 'Location pointers', theme: 'exploration', sample_url: '/sample.png' },
   ] }) }
@@ -31,6 +32,15 @@ test('label gallery filters samples and selects the existing cue value', async (
     assert.equal(host.querySelectorAll('.label-picker-card').length, 2)
     assert.match(host.textContent!, /No sample yet/)
     assert.equal(host.querySelector('img')?.getAttribute('src'), '/sample.png')
+    host.querySelector<HTMLButtonElement>('[aria-label="Hide Map pin"]')!.click()
+    await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
+    assert.equal(host.querySelectorAll('.label-picker-card').length, 1)
+    assert.match(host.querySelector('.label-picker-hidden')!.textContent!, /Map pin/)
+    assert.equal(writes[0].body.hidden, true)
+    host.querySelector<HTMLButtonElement>('[aria-label="Restore Map pin"]')!.click()
+    await new Promise(resolve => setTimeout(resolve, 0)); await nextTick()
+    assert.equal(host.querySelectorAll('.label-picker-card').length, 2)
+    assert.equal(writes[1].body.hidden, false)
     const family = host.querySelectorAll('select')[0]!
     family.value = 'Location pointers'; family.dispatchEvent(new Event('change'))
     await nextTick()

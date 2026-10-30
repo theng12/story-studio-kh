@@ -5192,6 +5192,7 @@ export interface ContextualCueTimeline {
 
 export interface ContextualCueProjectConfig {
   enabled: boolean
+  hidden_label_designs?: string[]
   /**
    * READ-ONLY COMPATIBILITY. Ignored: nothing in the app reads it any more.
    *
