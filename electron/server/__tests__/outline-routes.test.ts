@@ -1170,3 +1170,38 @@ describe('POST /expand-chapters — sidecar probe', () => {
     if (res.body.job_id) await clearExpandJob(res.body.job_id)
   })
 })
+
+describe('an outline edit keeps the outline it replaces (owner rule, 2026-10-30)', () => {
+  test('PUT copies the previous sidecar to Story Trash before writing', async () => {
+    const episodeId = 'EP003'
+    await createSidecar({ approved: true, episodeId })
+    const sidecarFile = path.join(
+      (await (await import('../services/utils.js')).resolveEpisodePaths(slug, episodeId, TITLE)).script_dir,
+      `${episodeId}_chunked-progress.json`,
+    )
+    const before = await fs.readFile(sidecarFile, 'utf-8')
+    const edit = JSON.parse(before)
+    edit.outline = edit.outline.map((entry: any) => ({ ...entry, title: `${entry.title} (edited)` }))
+
+    const res = await request(app)
+      .put(`/api/projects/${slug}/episodes/${episodeId}/outline`)
+      .send({ outline: edit.outline })
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.notEqual(await fs.readFile(sidecarFile, 'utf-8'), before, 'the sidecar really was replaced')
+
+    // The previous outline is in Story's Trash under its script-versions folder.
+    const trashRoot = path.join(tempDir, 'projects', '_trash', slug, 'script-versions')
+    const preserved: string[] = []
+    const walk = async (dir: string): Promise<void> => {
+      for (const entry of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+        const target = path.join(dir, entry.name)
+        if (entry.isDirectory()) await walk(target)
+        else if (entry.isFile() && entry.name === `${episodeId}_chunked-progress.json`) preserved.push(target)
+      }
+    }
+    await walk(trashRoot)
+    assert.equal(preserved.length, 1, `one preserved outline, found ${JSON.stringify(preserved)}`)
+    assert.match(preserved[0]!, /[\\/]outline-edit-[0-9]+[\\/]/)
+    assert.equal(await fs.readFile(preserved[0]!, 'utf-8'), before, 'the copy is the outline that was replaced')
+  })
+})

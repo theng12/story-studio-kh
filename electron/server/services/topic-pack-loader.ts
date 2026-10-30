@@ -161,6 +161,101 @@ export function resolveTopicPackAlias(id: string): string {
 }
 
 /**
+ * THE V2 TOPIC FAMILY (owner decision, 2026-10-30 — every channel moves to the v2
+ * Formulas). A v2 Formula's allow-list names the `-v2` topic items, and a v2 Topic
+ * Pack accepts only `-v2` Formulas. Episodes keep the v1 item id they were written
+ * with (`episode_info.json`; AGENTS §5 forbids rewriting them), so after a channel
+ * moves, its episodes' stored ids must read the v2 item.
+ *
+ * THIS IS DATA, NOT STRING PARSING (AGENTS §4): the successor is looked up here and
+ * nowhere else; no code appends `-v2`. The ids are the published successors under
+ * the naming the merged Wars wave used (`…archival-ledger.wars-treaties-world-order`
+ * → `…archival-ledger.wars-treaties-world-order-v2`, recorded in the 2026-10-27 merge
+ * record). An entry is INERT unless a pack publishes that exact id: a topic with no
+ * v2 pack never resolves, so a stale row can hide nothing and use nothing. The two
+ * Wars v1 ids are deliberately absent — `LEGACY_TOPIC_PACK_ALIASES` already sends
+ * them to the merged pack, which is the successor that actually exists.
+ *
+ * A channel still on a v1 Formula keeps its v1 pack: the v2 pack is not compatible
+ * with a v1 Formula, and this table is only consulted after the stored pack has been
+ * refused. Extend this table (a data edit) when a new v2 topic pack is published
+ * under any other id.
+ */
+export const TOPIC_PACK_V2_SUCCESSORS: Readonly<Record<string, string>> = Object.freeze({
+  'com.storystudio.topic.ancient-humans-environments': 'com.storystudio.topic.ancient-humans-environments-v2',
+  'com.storystudio.topic.ancient-humans-social-life': 'com.storystudio.topic.ancient-humans-social-life-v2',
+  'com.storystudio.topic.ancient-humans-survival': 'com.storystudio.topic.ancient-humans-survival-v2',
+  'com.storystudio.topic.ancient-humans-technology': 'com.storystudio.topic.ancient-humans-technology-v2',
+  'com.storystudio.topic.archival-ledger.empires-trade-extraction': 'com.storystudio.topic.archival-ledger.empires-trade-extraction-v2',
+  'com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power': 'com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power-v2',
+  'com.storystudio.topic.archival-ledger.money-debt-financial-institutions': 'com.storystudio.topic.archival-ledger.money-debt-financial-institutions-v2',
+  'com.storystudio.topic.archival-ledger.states-revolutions-collapse': 'com.storystudio.topic.archival-ledger.states-revolutions-collapse-v2',
+  'com.storystudio.topic.audience-question-seeder': 'com.storystudio.topic.audience-question-seeder-v2',
+  'com.storystudio.topic.backyard-creatures': 'com.storystudio.topic.backyard-creatures-v2',
+  'com.storystudio.topic.backyard-plants': 'com.storystudio.topic.backyard-plants-v2',
+  'com.storystudio.topic.deep-time-earth-systems': 'com.storystudio.topic.deep-time-earth-systems-v2',
+  'com.storystudio.topic.deep-time-field-record.ancient-oceans-deep-sea': 'com.storystudio.topic.deep-time-field-record.ancient-oceans-deep-sea-v2',
+  'com.storystudio.topic.deep-time-field-record.human-origins-ancient-worlds': 'com.storystudio.topic.deep-time-field-record.human-origins-ancient-worlds-v2',
+  'com.storystudio.topic.deep-time-field-record.prehistoric-life-extinction': 'com.storystudio.topic.deep-time-field-record.prehistoric-life-extinction-v2',
+  'com.storystudio.topic.deep-time-speculative-earth': 'com.storystudio.topic.deep-time-speculative-earth-v2',
+  'com.storystudio.topic.drinks-and-spices-histories': 'com.storystudio.topic.drinks-and-spices-histories-v2',
+  'com.storystudio.topic.economics-ancient-civilizations': 'com.storystudio.topic.economics-ancient-civilizations-v2',
+  'com.storystudio.topic.economics-businesses': 'com.storystudio.topic.economics-businesses-v2',
+  'com.storystudio.topic.empires-and-civilisations-entire': 'com.storystudio.topic.empires-and-civilisations-entire-v2',
+  'com.storystudio.topic.everyday-calm': 'com.storystudio.topic.everyday-calm-v2',
+  'com.storystudio.topic.everyday-object-histories': 'com.storystudio.topic.everyday-object-histories-v2',
+  'com.storystudio.topic.food-histories': 'com.storystudio.topic.food-histories-v2',
+  'com.storystudio.topic.gods-heroes-and-epics': 'com.storystudio.topic.gods-heroes-and-epics-v2',
+  'com.storystudio.topic.habits-momentum': 'com.storystudio.topic.habits-momentum-v2',
+  'com.storystudio.topic.human-behavior-social-dynamics': 'com.storystudio.topic.human-behavior-social-dynamics-v2',
+  'com.storystudio.topic.legends-across-every-civilisation': 'com.storystudio.topic.legends-across-every-civilisation-v2',
+  'com.storystudio.topic.lost-voyages': 'com.storystudio.topic.lost-voyages-v2',
+  'com.storystudio.topic.mysteries-and-cover-ups': 'com.storystudio.topic.mysteries-and-cover-ups-v2',
+  'com.storystudio.topic.natural-world-animals': 'com.storystudio.topic.natural-world-animals-v2',
+  'com.storystudio.topic.natural-world-fungi': 'com.storystudio.topic.natural-world-fungi-v2',
+  'com.storystudio.topic.natural-world-insects': 'com.storystudio.topic.natural-world-insects-v2',
+  'com.storystudio.topic.natural-world-plants': 'com.storystudio.topic.natural-world-plants-v2',
+  'com.storystudio.topic.night-journeys': 'com.storystudio.topic.night-journeys-v2',
+  'com.storystudio.topic.obscure-history-horrors': 'com.storystudio.topic.obscure-history-horrors-v2',
+  'com.storystudio.topic.pastoral-daily-reflection': 'com.storystudio.topic.pastoral-daily-reflection-v2',
+  'com.storystudio.topic.pastoral-expository-teaching': 'com.storystudio.topic.pastoral-expository-teaching-v2',
+  'com.storystudio.topic.pov-criminal-hierarchies': 'com.storystudio.topic.pov-criminal-hierarchies-v2',
+  'com.storystudio.topic.pov-historical-occupations': 'com.storystudio.topic.pov-historical-occupations-v2',
+  'com.storystudio.topic.pov-law-enforcement': 'com.storystudio.topic.pov-law-enforcement-v2',
+  'com.storystudio.topic.rulers-and-dynasties': 'com.storystudio.topic.rulers-and-dynasties-v2',
+  'com.storystudio.topic.the-real-story-is-worse': 'com.storystudio.topic.the-real-story-is-worse-v2',
+  'com.storystudio.topic.turning-points-and-eras': 'com.storystudio.topic.turning-points-and-eras-v2',
+})
+
+/** The v2 item id that supersedes this v1 item id, or null. Exact-id lookup only. */
+export function resolveTopicPackV2Successor(id: string): string | null {
+  return TOPIC_PACK_V2_SUCCESSORS[id] ?? null
+}
+
+/**
+ * The v2 successor of a stored Topic Pack id, when it is installed AND can serve
+ * this Formula. The stored id is alias-resolved first (`historical-wars-…` reads as
+ * the merged pack, which has no separate v2 row). Null means "no v2 item for this
+ * selection on this Mac", which leaves the caller's existing behaviour.
+ */
+export async function loadTopicPackV2Successor(
+  id: string,
+  formulaId: string,
+  registryOptions: ContentPackRegistryOptions = {},
+): Promise<TopicPack | null> {
+  const successorId = resolveTopicPackV2Successor(resolveTopicPackAlias(id))
+  if (!successorId) return null
+  let pack: TopicPack | null = null
+  try {
+    pack = await loadResolvedTopicPack(successorId, registryOptions)
+  } catch (e: any) {
+    console.warn(`[topic-pack-loader] v2 successor '${successorId}' could not be read: ${e.message}`)
+    return null
+  }
+  return pack && isCompatible(pack, formulaId) ? pack : null
+}
+
+/**
  * THE COMPATIBILITY FALLBACK RULE.
  *
  * An alias target that is installed but does not support this Formula must not
@@ -295,15 +390,21 @@ export async function listTopicPackCatalogEntries(
   }
   const entries = [...found.values()]
   const listed = new Map(entries.map(entry => [entry.value.id, entry]))
+  /** The row that supersedes this one: an alias target first, then a v2 item. */
+  const successorRowId = (id: string): string | null => {
+    const aliased = LEGACY_TOPIC_PACK_ALIASES[id]
+    if (aliased && aliased !== id) return aliased
+    return resolveTopicPackV2Successor(id)
+  }
   return entries
     .filter((entry) => {
-      const targetId = LEGACY_TOPIC_PACK_ALIASES[entry.value.id]
-      if (!targetId || targetId === entry.value.id) return true
-      const target = listed.get(targetId)
+      const successorId = successorRowId(entry.value.id)
+      if (!successorId) return true
+      const successor = listed.get(successorId)
       // The item this id reads as is not on this Mac, so this row is what serves
       // the stored selection.
-      if (!target) return true
-      return !!scopeFormulaId && !isCompatible(target.value, scopeFormulaId)
+      if (!successor) return true
+      return !!scopeFormulaId && !isCompatible(successor.value, scopeFormulaId)
     })
     .sort((a, b) => a.value.name.localeCompare(b.value.name))
 }

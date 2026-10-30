@@ -26,6 +26,7 @@ import test from 'node:test'
 import { callChatWithGenStudio } from '../lib/genstudio-client.js'
 import {
   boundOutputTokensToContext,
+  estimatePromptTokens,
   PROMPT_CHARS_PER_TOKEN_ESTIMATE,
 } from '../services/output-token-budget.js'
 
@@ -194,6 +195,23 @@ test('a product that publishes no context window behaves exactly as before', asy
   assert.equal(result.submitted, true)
   // 'long' of 65,536 is 32,768 — the value this workflow asked for before the rule.
   assert.equal(result.maxOutputTokens, 32_768)
+})
+
+test('a Khmer prompt is counted against the window at one token per character', async () => {
+  // Characters ÷ 4 under-counts Khmer (written without spaces, several tokens per
+  // character), so each non-ASCII character is a whole token. The same LENGTH in
+  // English keeps the old ÷4 estimate, byte for byte.
+  const characters = 100
+  const khmer = await submitted({ modelId: 'writer-alpha', system: '', userMessage: 'ក'.repeat(characters), outputBudget: 'long', outputContract: jsonContract },
+    { contextWindowTokens: 32_768, maxOutputTokens: 128_000 })
+  const english = await submitted({ modelId: 'writer-alpha', system: '', userMessage: 'x'.repeat(characters), outputBudget: 'long', outputContract: jsonContract },
+    { contextWindowTokens: 32_768, maxOutputTokens: 128_000 })
+  assert.equal(khmer.maxOutputTokens, 32_768 - characters, 'every Khmer character is a token')
+  assert.equal(english.maxOutputTokens, 32_768 - Math.ceil(characters / 4), 'English is unchanged')
+  // The same arithmetic, measured directly.
+  assert.equal(estimatePromptTokens(100, 100), 100)
+  assert.equal(estimatePromptTokens(100, 0), 25)
+  assert.equal(estimatePromptTokens(200, 100), 125, 'only the ASCII share is divided')
 })
 
 test('a model switch recomputes the bound from the newly selected product', async () => {

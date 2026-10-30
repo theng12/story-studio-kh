@@ -27,9 +27,11 @@ import path from 'path'
 import { createHash } from 'node:crypto'
 import {
   chapterBelongsToOutline,
+  chapterMatchesLanguage,
   inspectChunkedScriptCompletion,
   readSidecar,
 } from '../lib/chunked-narration.js'
+import { languageName, type ContentLanguage } from '../lib/content-language.js'
 import {
   chapterFilePath,
   introductionFilePath,
@@ -178,15 +180,14 @@ export async function inspectOutlineCompletion(
 /**
  * The chapter count the outline run was actually asked for.
  *
- * THE GENERATOR'S OWN RESOLUTION (generators/episode.ts:889, outline-only
- * runs read the request, not the sidecar):
- *
- *   `chapters = snapshotTotalChapters ?? req.chapters ?? format.script.defaultChapterCount`
- *
- * so `params.chapters` is the request-side count ONLY when the request named
- * one. When it named none, the run used the project's format default, which
- * this audit cannot reconstruct honestly (the format may have changed since
- * the run, and reading it live would measure today's format, not the run's).
+ * THE GENERATOR'S OWN RESOLUTION (`resolveScriptSizing` in lib/script-sizing.ts,
+ * 2026-10-30): the request, then this episode's own recorded outline, then the
+ * Formula's default — and the job log names which one it used. So
+ * `params.chapters` is the request-side count ONLY when the request named one;
+ * when it named none the run used the episode's plan or the Formula default,
+ * neither of which this audit can reconstruct honestly (the episode's sidecar
+ * may have been rebuilt since, and reading the Formula live would measure
+ * today's, not the run's).
  *
  * The count the run REALLY used is in the run's own completion declaration —
  * `requireJobCompletion(job, { expected: params.totalChapters, … })`
@@ -228,6 +229,7 @@ export async function inspectExpandedScriptCompletion(
   scriptDir: string,
   code: string,
   chaptersToExpand?: readonly number[] | null,
+  contentLanguage?: ContentLanguage | null,
 ): Promise<TextCompletionAudit> {
   const selection = Array.isArray(chaptersToExpand)
     ? chaptersToExpand.filter(n => Number.isInteger(n) && n > 0)
@@ -235,6 +237,7 @@ export async function inspectExpandedScriptCompletion(
   if (selection.length) {
     const sidecar = await readSidecar(scriptDir, code)
     const missing: number[] = []
+    const wrongScript: number[] = []
     for (const number of selection) {
       // `resolveReadPath`: a legacy episode still has `_Chapter_NN.docx` and
       // no `.md` sibling, and looking only for the modern name reported a
@@ -242,20 +245,32 @@ export async function inspectExpandedScriptCompletion(
       const file = resolveReadPath(chapterFilePath(scriptDir, code, number))
       const stat = await fs.stat(file).catch(() => null)
       if (!stat?.isFile() || stat.size <= 0) { missing.push(number); continue }
-      if (sidecar && !chapterBelongsToOutline(sidecar, file)) missing.push(number)
+      if (sidecar && !chapterBelongsToOutline(sidecar, file)) { missing.push(number); continue }
+      // A chapter in another writing system counts as missing here too, and the
+      // reason is named rather than left to read as "not on disk yet".
+      if (!await chapterMatchesLanguage(file, contentLanguage ?? null)) wrongScript.push(number)
+    }
+    if (wrongScript.length) {
+      return NOT_COMPLETE(true,
+        `Chapter ${wrongScript.join(', ')} ${wrongScript.length === 1 ? 'is' : 'are'} not in this channel's writing system (${languageName(contentLanguage)}), so ${wrongScript.length === 1 ? 'it does' : 'they do'} not count as done.`)
     }
     if (missing.length) {
       return NOT_COMPLETE(true, `Chapter ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not on disk yet.`)
     }
     return { authoritative: true, complete: true }
   }
-  const completion = await inspectChunkedScriptCompletion(scriptDir, code)
+  const completion = await inspectChunkedScriptCompletion(scriptDir, code, contentLanguage ?? null)
   if (completion.complete) return { authoritative: true, complete: true }
   if (!completion.approved) {
     return NOT_COMPLETE(true, 'The current outline is not approved, so the chapters cannot be counted as done.')
   }
   if (!completion.outline_valid) {
     return NOT_COMPLETE(true, `The outline holds an invalid chapter count (${completion.present}/${completion.expected} present).`)
+  }
+  if (completion.wrong_script.length) {
+    return NOT_COMPLETE(true,
+      `Chapter ${completion.wrong_script.join(', ')} ${completion.wrong_script.length === 1 ? 'is' : 'are'} not in this channel's writing system (${languageName(contentLanguage)}). `
+      + 'Generate those chapters again, or switch the channel\'s language if that is what changed.')
   }
   if (!completion.has_unified) {
     return NOT_COMPLETE(true, 'The assembled narration is not on disk.')

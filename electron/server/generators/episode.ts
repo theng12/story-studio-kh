@@ -55,7 +55,7 @@ import { freshGenerationRequestIdentity } from '../lib/fresh-generation-action.j
 import { pipelinePolicyForJob, pipelinePolicyCheckpointStore } from '../lib/pipeline-model-policy.js'
 import { MAX_NARRATION_SENTENCE_CHARS } from '../lib/tts-text.js'
 import { auditNarrationSection } from '../lib/narration-section-audit.js'
-import { formulaWordsPerChapter } from '../lib/script-sizing.js'
+import { describeScriptSizingSource, formulaWordsPerChapter, resolveScriptSizing, type ScriptSizingFields } from '../lib/script-sizing.js'
 import { scriptLengthMinutes } from '../lib/episode-length.js'
 import { withLock } from '../lib/atomic-store.js'
 import { resolveDefaultModel } from '../services/genstudio-default-model.js'
@@ -1002,12 +1002,34 @@ async function setupChunkedJobContext(
   // through the schema bump.
   let snapshot: GenerationParams | null = null
   let snapshotTotalChapters: number | undefined
-  if (source === 'sidecar') {
+  /**
+   * THIS EPISODE'S OWN SIZING, for an outline (re)build that names none.
+   *
+   * THE DEFECT (2026-10-30, DM0021). Its outline was 20 chapters. A `force`
+   * rebuild carrying only `force`, `model`, `title` and `episode_id` produced 6
+   * with no word of explanation: an outline build reads the REQUEST, not the
+   * snapshot, so the episode's own recorded plan (sidecar `total_chapters` +
+   * `generation_params`) was ignored and the count fell through to whatever the
+   * Formula resolved that day. A rebuild is still the same episode, so its own
+   * sizing is the normal sizing; the Formula default is only the last resort,
+   * and whichever one is used is now said out loud in the job log.
+   */
+  let episodeSizing: ScriptSizingFields | null = null
+  {
     const paths = await resolveEpisodePaths(project_slug, episode_id, title)
     const sidecar = await readSidecar(paths.script_dir, episode_id)
     if (sidecar) {
-      snapshot = sidecar.generation_params
-      snapshotTotalChapters = sidecar.total_chapters
+      if (source === 'sidecar') {
+        snapshot = sidecar.generation_params
+        snapshotTotalChapters = sidecar.total_chapters
+      } else if (sidecar.generation_params || sidecar.total_chapters) {
+        episodeSizing = {
+          chapters: sidecar.total_chapters,
+          length: sidecar.generation_params?.length,
+          total_words: sidecar.generation_params?.total_words,
+          words_per_chapter: sidecar.generation_params?.words_per_chapter,
+        }
+      }
     }
   }
 
@@ -1055,27 +1077,43 @@ async function setupChunkedJobContext(
       `No model in the request — falling back to the outline's recorded model "${snapshotModel}".`,
     )
   }
-  const length = snapshot?.length ?? req.length
-    ?? scriptLengthMinutes(format.script) ?? format.script.defaultLengthMinutes
-  const chapters = snapshotTotalChapters ?? req.chapters ?? format.script.defaultChapterCount
-  // v1.0.168 — word sizing is chapters × words-per-chapter, never a
-  // duration-keyed guess. Prefer explicit per-chapter target; derive total
-  // from it. When the caller sends neither (a headless/API outline — the UI
-  // always sends sizing), take the Formula's own length × pace instead of a
-  // neutral long-form 550. A Quote Shorts Formula asks for 1 chapter of
-  // 45 s / 120 wpm (0.75 min), so its Short is ~90 words; 550 was the
-  // long-form default leaking in
-  // (AGENTS.md §1). Only a Formula that publishes no usable pace keeps 550.
-  const requestedTotalWords = snapshot?.total_words ?? req.total_words
-  const wordsPerChapter = snapshot?.words_per_chapter ?? req.words_per_chapter
-    ?? (requestedTotalWords
-      ? Math.floor(requestedTotalWords / chapters)
-      : (formulaWordsPerChapter({
-          minutes: length,
-          wordsPerMinute: format.script.defaultWordsPerMinute,
-          chapters,
-        }) ?? 550))
-  const totalWords = snapshot?.total_words ?? req.total_words ?? (wordsPerChapter * chapters)
+  // ONE resolution for every script path (build, rebuild, expansion). The chain is
+  // the request, then this episode's own recorded plan, then the Formula, and the
+  // chosen source is logged below. Word sizing stays chapters × words-per-chapter,
+  // never a duration-keyed guess (v1.0.168): an explicit per-chapter target wins,
+  // else the total is divided, else the Formula's own length × pace is used, and
+  // only a Formula that publishes no usable pace keeps the neutral 550 (AGENTS §1).
+  const sizing = resolveScriptSizing({
+    prefer: source === 'sidecar' ? 'episode' : 'request',
+    requested: {
+      chapters: req.chapters,
+      length: req.length,
+      total_words: req.total_words,
+      words_per_chapter: req.words_per_chapter,
+    },
+    episode: source === 'sidecar'
+      ? {
+          chapters: snapshotTotalChapters,
+          length: snapshot?.length,
+          total_words: snapshot?.total_words,
+          words_per_chapter: snapshot?.words_per_chapter,
+        }
+      : episodeSizing,
+    formula: {
+      chapters: format.script.defaultChapterCount,
+      length: scriptLengthMinutes(format.script) ?? format.script.defaultLengthMinutes,
+      wordsPerMinute: format.script.defaultWordsPerMinute,
+    },
+  })
+  const chapters = sizing.chapters
+  const length = sizing.length
+  const wordsPerChapter = sizing.wordsPerChapter
+  const totalWords = sizing.totalWords
+  job.output_lines.push(
+    `Script sizing: ${chapters} chapter${chapters === 1 ? '' : 's'} × ~${wordsPerChapter.toLocaleString()} words`
+    + `${length ? ` (${length} min)` : ''} — chapters ${describeScriptSizingSource(sizing.sources.chapters)}, `
+    + `chapter length ${describeScriptSizingSource(sizing.sources.words)}, episode length ${describeScriptSizingSource(sizing.sources.length)}.`,
+  )
   const requestedStyle = snapshot?.style ?? req.style ?? format.script.defaultNarratorStyleId
   const style = requestedStyle === 'auto'
     ? await automaticNarratorStyleForEpisode(format, project_slug, episode_id)
@@ -1283,7 +1321,7 @@ export async function generateExpandChapters(job: Job): Promise<void> {
     // One-click self-healing: providers occasionally return only part of a
     // requested batch without throwing. Retry the still-missing slots once in
     // the same job instead of reporting a misleading successful completion.
-    let completion = await inspectChunkedScriptCompletion(params.scriptDir, job.episode_id)
+    let completion = await inspectChunkedScriptCompletion(params.scriptDir, job.episode_id, params.contentLanguage ?? null)
     if (!chaptersFilter?.length && completion.missing.length > 0 && isLocalTextModel(params.model)) {
       job.output_lines.push(
         `Self-healing incomplete expansion: retrying missing chapters ${completion.missing.join(', ')} once…`,
@@ -1292,7 +1330,7 @@ export async function generateExpandChapters(job: Job): Promise<void> {
         chaptersToExpand: completion.missing,
         auto_approve: autoApprove,
       })
-      completion = await inspectChunkedScriptCompletion(params.scriptDir, job.episode_id)
+      completion = await inspectChunkedScriptCompletion(params.scriptDir, job.episode_id, params.contentLanguage ?? null)
     }
     job.output_lines.push(
       `Expansion pass complete: ${completion.present}/${completion.expected} chapter file(s) on disk ` +
@@ -1309,7 +1347,7 @@ export async function generateExpandChapters(job: Job): Promise<void> {
     })
     job.output_lines.push(`Re-assembled: ${path.basename(paths.narration_docx)}`)
 
-    completion = await inspectChunkedScriptCompletion(paths.script_dir, job.episode_id)
+    completion = await inspectChunkedScriptCompletion(paths.script_dir, job.episode_id, params.contentLanguage ?? null)
 
     // 1.4.359 — a run that was ASKED for specific chapters must never report
     // success while one of them is missing. This is the check that was absent

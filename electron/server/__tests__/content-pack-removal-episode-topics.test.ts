@@ -106,6 +106,40 @@ async function episode(slug: string, code: string, info: Record<string, unknown>
   await fs.writeFile(path.join(dir, 'episode_info.json'), JSON.stringify({ episode_code: code, ...info }))
 }
 
+/** A minimal topic document, for the v2-successor case. */
+function topicDocument(id: string, compatibleFormulaIds: string[]): ContentPackDocument {
+  return {
+    kind: 'topic-pack', schema_version: 1, id, name: `Test ${id.split('.').pop()}`, description: 'A test topic pack.',
+    compatible_formula_ids: compatibleFormulaIds, subjects: ['A subject'],
+    episode_objects: ['object'], time_place_scopes: ['scope'], mechanisms: ['mechanism'],
+    evidence_lenses: ['lens'], exclusions: [], max_siblings_per_subject: 20,
+    prompt_context: 'Explain causes, not spectacle.',
+  } as unknown as ContentPackDocument
+}
+
+async function installDocument(
+  paths: ReturnType<typeof getContentPackRuntimePaths>,
+  document: ContentPackDocument,
+  packId: string,
+): Promise<void> {
+  const content = Buffer.from(JSON.stringify(document))
+  const contentPath = 'content/topic-pack.json'
+  const manifest = Buffer.from(JSON.stringify({
+    pack_format: 1, pack_id: packId, publisher_id: PUBLISHER_ID, key_id: KEY_ID, version: '1.0.0',
+    min_app_version: '1.0.0', lifecycle: 'active',
+    entitlement: { sku: `${packId}.sku`, family: `${packId}.family` },
+    bundles: [],
+    items: [{ id: (document as unknown as { id: string }).id, kind: 'topic-pack', schema_version: 1, path: contentPath }],
+    files: [{ path: contentPath, sha256: sha256(content), bytes: content.byteLength, mime: 'application/json' }],
+  }))
+  const zip = new JSZip()
+  zip.file('manifest.json', manifest, { createFolders: false })
+  zip.file('signature.ed25519', sign(null, manifest, keyPair.privateKey), { createFolders: false })
+  zip.file(contentPath, content, { createFolders: false })
+  const archiveBytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
+  await installContentPack({ archiveBytes, source: 'local-import' }, { paths, policy, appVersion: '1.4.371' })
+}
+
 describe('an episode-level Topic Pack selection counts as a use', () => {
   test('a bare legacy id on an episode vetoes removing the merged pack it reads', async () => {
     const paths = await isolated()
@@ -139,6 +173,27 @@ describe('an episode-level Topic Pack selection counts as a use', () => {
     await removeContentPack(FREE_PACK_ID, { paths, policy })
     assert.deepEqual((await contentPackUsage([MERGED_PACK_ID], paths))[MERGED_PACK_ID], ['boundful'],
       'the merged pack is the one the episode actually reads')
+  })
+
+  test('a moved channel reads the v2 item for the v1 id its episodes stored', async () => {
+    const paths = await isolated()
+    const v1Pack = 'com.storystudio.pack.topic.food-histories'
+    const v2Pack = 'com.storystudio.pack.topic.food-histories-v2'
+    const v1Item = 'com.storystudio.topic.food-histories'
+    const v2Item = 'com.storystudio.topic.food-histories-v2'
+    await installDocument(paths, topicDocument(v1Item, ['com.storystudio.formula.sleep-history-compilation']), v1Pack)
+    await installDocument(paths, topicDocument(v2Item, ['com.storystudio.formula.sleep-history-compilation-v2']), v2Pack)
+    await channel('sleep-history', { niche_id: 'com.storystudio.formula.sleep-history-compilation-v2' })
+    await episode('sleep-history', 'SH0001', { topic_pack_ids: [v1Item] })
+
+    assert.deepEqual((await contentPackUsage([v1Pack], paths))[v1Pack], [],
+      'the v1 pack is not what the episode reads any more')
+    assert.deepEqual((await contentPackUsage([v2Pack], paths))[v2Pack], ['sleep-history'],
+      'the v2 item is what it reads')
+    await assert.rejects(
+      removeContentPack(v2Pack, { paths, policy }),
+      (error: unknown) => error instanceof ContentPackRemovalError && error.code === 'CONTENT_PACK_IN_USE',
+    )
   })
 
   test('a channel not yet moved, with no merged pack, still reads the old pack, so it cannot be removed', async () => {

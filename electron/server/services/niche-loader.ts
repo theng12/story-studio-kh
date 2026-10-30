@@ -622,7 +622,13 @@ export async function composeNicheWithTopicPacksDetailed(
   const droppedTopicPacks: DroppedTopicPack[] = []
   for (const id of uniqueStrings(ids)) {
     const resolvedId = topicPackLoader.resolveTopicPackAlias(id)
-    if (allow && !allow.has(resolvedId)) {
+    // A v2 Formula names its own `-v2` topic items; an episode still stores the
+    // v1 id it was written with. Both are the same topic, so the allow-list check
+    // accepts either spelling (the successor is a data lookup, never string
+    // parsing). A pack the Formula never allowed under either id is still dropped.
+    const successorId = topicPackLoader.resolveTopicPackV2Successor(resolvedId)
+    const allowed = !allow || allow.has(resolvedId) || (!!successorId && allow.has(successorId))
+    if (!allowed) {
       droppedTopicPacks.push({ id, reason: 'not-allowed' })
       console.warn(`[niche-loader] topic pack '${id}' is not allowed by Series Formula '${niche.id}'`)
       continue
@@ -634,7 +640,11 @@ export async function composeNicheWithTopicPacksDetailed(
       continue
     }
     if (!topicPackLoader.isCompatible(pack, niche.id)) {
-      const superseded = await topicPackLoader.loadSupersededTopicPack(id, niche.id, registryOptions)
+      // A channel that has MOVED to the v2 Formula reads the v2 item for the v1
+      // id its episodes stored; a channel still on v1 keeps its v1 pack (the v2
+      // pack is not compatible with it, so this returns null).
+      const successor = await topicPackLoader.loadTopicPackV2Successor(id, niche.id, registryOptions)
+      const superseded = successor ?? await topicPackLoader.loadSupersededTopicPack(id, niche.id, registryOptions)
       if (!superseded) {
         droppedTopicPacks.push({ id, name: pack.name, reason: 'incompatible' })
         console.warn(`[niche-loader] topic pack '${id}' is incompatible with Series Formula '${niche.id}'`)

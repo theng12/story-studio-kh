@@ -250,8 +250,41 @@ export function describeOutputBudget(budget: OutputBudget | undefined): string |
 //   - when the prompt alone leaves no room, the call is refused BEFORE it is
 //     made, with both figures, rather than being sent to be cut off.
 
-/** Characters per prompt token, used everywhere a prompt's size is estimated. */
+/**
+ * Characters per prompt token for ASCII text, used everywhere a prompt's size is
+ * estimated.
+ *
+ * WHY A CHARACTER IS NOT A TOKEN IN EVERY SCRIPT (2026-10-30). Characters ÷ 4 is
+ * roughly right for English, but Khmer is written without spaces and takes
+ * several tokens per character, so the same ratio UNDER-counts a Khmer prompt —
+ * which leaves too much output room and can overrun the context window in the
+ * other direction. The estimate therefore errs HIGH for non-Latin text: every
+ * non-ASCII character counts as one whole token, and only the ASCII remainder is
+ * divided. That is still an estimate of OUR OWN input (never a words→tokens
+ * conversion of the answer), it changes nothing for an English prompt, and it is
+ * conservative in the one direction that cannot hurt: a smaller answer allowance,
+ * never a context overrun.
+ */
 export const PROMPT_CHARS_PER_TOKEN_ESTIMATE = 4
+
+/** How many characters of this text are non-ASCII (counted as one token each). */
+export function nonAsciiCharacterCount(text: string): number {
+  let count = 0
+  for (const character of text) {
+    if ((character.codePointAt(0) ?? 0) > 0x7f) count++
+  }
+  return count
+}
+
+/**
+ * A prompt's own estimated tokens, from its length and its non-ASCII count.
+ * ASCII: `ceil(ascii ÷ 4)`. Non-ASCII: one token per character, added.
+ */
+export function estimatePromptTokens(promptCharacters: number, promptNonAsciiCharacters = 0): number {
+  const nonAscii = Math.max(0, Math.floor(promptNonAsciiCharacters))
+  const ascii = Math.max(0, promptCharacters - nonAscii)
+  return Math.ceil(ascii / PROMPT_CHARS_PER_TOKEN_ESTIMATE) + nonAscii
+}
 
 export interface ContextBoundedOutput {
   /** The ceiling to send after the window bound. `null` = send no ceiling at all. */
@@ -273,8 +306,9 @@ export function boundOutputTokensToContext(
   requestedTokens: number | null,
   contextWindowTokens: unknown,
   promptCharacters: number,
+  promptNonAsciiCharacters = 0,
 ): ContextBoundedOutput {
-  const promptTokens = Math.max(0, Math.ceil(Math.max(0, promptCharacters) / PROMPT_CHARS_PER_TOKEN_ESTIMATE))
+  const promptTokens = estimatePromptTokens(promptCharacters, promptNonAsciiCharacters)
   const window = Number.isInteger(contextWindowTokens) && (contextWindowTokens as number) >= 1
     ? contextWindowTokens as number
     : null

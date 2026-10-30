@@ -32,7 +32,7 @@ import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runt
 import { candidateProjectSlugs, listProjectSlugsPinningContentPackVersionLocked } from './project-pins.js'
 import { aliasedVisualStyleId } from './style-aliases.js'
 import { resolveFormulaAlias } from '../services/niche-loader.js'
-import { isCompatible, loadSupersededTopicPack, loadTopicPack, resolveTopicPackAlias } from '../services/topic-pack-loader.js'
+import { isCompatible, loadSupersededTopicPack, loadTopicPack, loadTopicPackV2Successor, resolveTopicPackAlias } from '../services/topic-pack-loader.js'
 import * as projectManager from '../services/project-manager.js'
 import { readContentPackState, withContentPackCoordinationLock, withContentPackStateTransaction } from './state.js'
 import type { GenStudioRetiredPackRemoval } from '../lib/genstudio-content-store.js'
@@ -301,8 +301,11 @@ async function channelReferences(): Promise<ChannelReference[]> {
  */
 async function effectiveTopicPackId(topicId: string, formulaId: string): Promise<string | null> {
   const pack = await loadTopicPack(topicId)
-  if (!pack) return null
-  if (!formulaId || isCompatible(pack, formulaId)) return pack.id
+  if (pack && (!formulaId || isCompatible(pack, formulaId))) return pack.id
+  // A channel that has moved to the v2 Formula reads the V2 item for the v1 id its
+  // episodes stored, so that is the pack a removal must refuse to take away.
+  const successor = await loadTopicPackV2Successor(topicId, formulaId)
+  if (successor) return successor.id
   const superseded = await loadSupersededTopicPack(topicId, formulaId)
   return superseded?.id ?? null
 }

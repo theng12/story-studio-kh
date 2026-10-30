@@ -2963,7 +2963,10 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         const scriptDefault = defaultModelForStep('script-only', defaults)
         if (scriptDefault && !String(outlineParams.model || '').trim()) outlineParams.model = scriptDefault
         const episodePaths = await resolveEpisodePathsByCode(slug, episodeId)
-        const completion = await inspectChunkedScriptCompletion(episodePaths.script_dir, episodeId)
+        // Cached per request by `projectMetaOnce`: the channel's audience language
+        // is what makes a wrong-script chapter count as missing here too.
+        const scriptProjectMeta = await projectMetaOnce(slug, preflight.projectFacts)
+        const completion = await inspectChunkedScriptCompletion(episodePaths.script_dir, episodeId, scriptProjectMeta?.content_language ?? null)
         // 1.4.359 — the channel's "Chapters per request" setting is reusable
         // configuration from the Script preset, and the expand links below are
         // hand-built (they take every OTHER sizing field from the outline

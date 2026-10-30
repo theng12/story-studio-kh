@@ -3,9 +3,10 @@
 ## 1.4.371 — old Wars ids keep working while every channel moves to the v2 Formulas; a wrong-script chapter is never saved (2026-10-30, release/1.4.371 from release/1.4.370 673b6cd1)
 
 **Commits on `release/1.4.371`: `96277a72` (Story + script-language), `1ef599b8` (withdraw Wars 1.0.2),
-and the output-budget rule that follows it (`5fc548ca` is the withdrawn content commit, kept in
-history on purpose). Static checks pass; no test lane has run in this worktree (a Story gate was
-running on this Mac), so every backend test below is WRITTEN, NOT RUN.**
+the output-budget rule, and the v2-successor / outline-preservation / title-prefix / sizing batch that
+follows it (`5fc548ca` is the withdrawn content commit, kept in history on purpose). Static checks
+pass; no test lane has run in this worktree (a Story gate was running on this Mac), so every backend
+test below is WRITTEN, NOT RUN.**
 
 - **OWNER DECISION 2026-10-30, superseding the first plan: every channel moves to the v2 Formulas,
   and script changes are accepted — v1 Formulas are no longer first-class.** The Wars 1.0.2 pack
@@ -101,6 +102,63 @@ running on this Mac), so every backend test below is WRITTEN, NOT RUN.**
   field; no-window product unchanged; a model switch recomputes. `--only` substring:
   `chat-context-window-output-cap`.
 
+### Topic Packs: v1 ids read their v2 item on a moved channel (2026-10-30)
+
+- **The gap the v2 Formula comparison found.** Every v2 Formula's allow-list names `-v2` topic items and every
+  v2 Topic Pack accepts only `-v2` Formulas, but EPISODES keep the v1 item id they were written with
+  (`episode_info.json`, never rewritten — §5). Without a successor lookup every moved channel would
+  lose its topics on the first read.
+- **Data, not parsing** (`TOPIC_PACK_V2_SUCCESSORS` in `services/topic-pack-loader.ts`): a literal table of
+  v1 item id → v2 item id, looked up exactly; no code appends `-v2` (AGENTS §4). The ids follow the
+  naming the merged Wars wave used (the 2026-10-27 merge record names
+  `…archival-ledger.wars-treaties-world-order-v2`). **An entry is inert unless a pack publishes that exact
+  id** — a topic with no v2 pack never resolves, so a stale row can hide nothing and use nothing. The two
+  Wars v1 ids are absent on purpose: `LEGACY_TOPIC_PACK_ALIASES` already sends them to the merged pack.
+- **Covered**: every topic item id this repository publishes (43 rows) — the 4 other archival topics,
+  ancient-humans-survival, deep-time-earth-systems, night-journeys, food-histories,
+  drinks-and-spices-histories, everyday-object-histories, economics-businesses and the rest. **Not
+  verifiable here**: the published v2 Topic Packs are not in this repository, so which topics have a v2
+  pack at all could not be confirmed; the table must be extended (a data edit) if a v2 pack publishes
+  under any other id.
+- **Resolution rules**: the allow-list accepts either spelling (v1 id or its v2 successor); a stored id
+  reads its v2 item when that pack is installed AND compatible with the channel's Formula; a channel
+  still on a v1 Formula keeps its v1 pack (the v2 pack is not compatible, so the successor is never
+  used); already-v2 ids pass through; a v2 pack that is not installed leaves today's behaviour and the
+  drop is reported. The list hides a v1 row while its v2 row is listed and can serve the scoped Formula.
+  The removal veto resolves the same way, so a moved channel vetoes removing the pack it actually reads
+  and leaves the v1 pack removable.
+- **Tests**: `topic-pack-v2-successors` (each spelling composes the v2 pack with its real subject text;
+  v1 Formula keeps v1; v2 missing is reported; never-allowed stays dropped; one list row; no file
+  written) and the v2 case in `content-pack-removal-episode-topics`.
+
+### Outline copies, title prefixes, and the sizing a rebuild keeps (2026-10-30)
+
+- **Nothing deleted for good** (`preserveOutlineSidecar` in `lib/chunked-narration.ts`). A `force` rebuild
+  and `PUT /outline` used to overwrite the progress sidecar in place. Both now copy the outline they
+  replace into Story's Trash under `script-versions/outline-<rebuild|edit>-<ms>/`, the same shape the
+  chapter writes use (`copyToTrashSync`, never a move); a first build copies nothing and creates no
+  folder, and progress writes (`chapters_done`) are untouched so a long episode does not fill Trash.
+  Tests: `outline-preservation` (helper: copy exists, original untouched, two rebuilds keep two copies,
+  first build adds nothing) and the PUT case in `outline-routes`.
+- **Outline titles** (`stripOutlineTitlePrefix`): Haiku put "Chapter 1 " inside each title, producing
+  "## Chapter 01: Chapter 1 …". The leading label + number is stripped at parse time only — the format's
+  own section label, "Chapter", ជំពូក and ភាគ, with ASCII or Khmer numerals, and only when a separator or
+  space and a real title follow. Khmer prose with no numeral, a title that merely contains the words,
+  and a title that is only the label are left exactly as written. Test: `outline-title-prefix`.
+- **THE DM0021 SIZING DEFECT.** Its outline was 20 chapters; a `force` rebuild carrying only `force`,
+  `model`, `title` and `episode_id` produced 6 with no message. Cause: an outline BUILD reads the
+  REQUEST (`setupChunkedJobContext`, source `'request'`), so the episode's own recorded plan (sidecar
+  `total_chapters` + `generation_params`) was ignored and the count fell through to
+  `format.script.defaultChapterCount` — the Formula's default as resolved that day, which is how the
+  original 20 and the rebuild's 6 could differ with the same absent input. Fix: ONE resolution
+  (`resolveScriptSizing`, `lib/script-sizing.ts`) used by every script path — the request, then this
+  episode's existing outline, then the Formula — with words as chapters × words-per-chapter (per-chapter
+  target, else total ÷ chapters, else the Formula's length × pace, else the neutral 550). The job log now
+  prints the resolved count, chapter length and episode length WITH the source of each, so a default is
+  never silent. A UI path can still omit `chapters` (the review panel forwards the form, which is empty
+  until the Formula loads; a Script preset may name none) — the episode's own sizing now covers it.
+  Tests: `script-sizing-resolution`.
+
 ### Commit `96277a72` (continued) — language: a chapter in the wrong script is not saved
 
 - `lib/content-language.ts`: `measureAnswerScript` counts Khmer letters (U+1780–U+17FF, U+19E0–U+19FF)
@@ -117,12 +175,20 @@ running on this Mac), so every backend test below is WRITTEN, NOT RUN.**
 - The language instruction is now the LAST paragraph of the chapter, repair, outline and
   introduction prompts (`languageDirectiveTail`) — an injected "reply in English" line used to come
   after the system prompt's directive and win.
-- **Existing English chapters are NOT rewritten, and the completeness audit still counts them as
-  done:** `validChapterNumbersForOutline` proves a chapter by a non-empty file written after the
-  outline, never by its script. Making the audit report them would mean reading every chapter's text
-  and running `answerMatchesLanguage` there — the same check — which would flip DM0022 chapters
-  9–16 (and any older wrong-script chapter) from "done" to "missing" in the Board, the Pipeline and
-  every completion gate. That is a deliberate decision, not done here.
+- **The completeness audit IS script-aware now (owner decision, 2026-10-30).** A chapter in the wrong
+  writing system counts as MISSING wherever the channel states a language — one rule shared by the Board
+  (`asset-status` → `inspectChunkedScriptCompletion`), the Pipeline preflight, Resume, the job-completion
+  audits (`inspectExpandedScriptCompletion`) and `expandChapters` — so all of them agree (§8). Nothing on
+  disk is rewritten, a channel with no stated language is never checked, and an unreadable file is never
+  failed for its script alone. COST: a verdict is cached by (path, language, mtime, size) in
+  `chunked-narration` (`chapterMatchesLanguage`, capped at 4,096 entries), so a Board load reads each
+  chapter's text at most once per edit and the episode status itself is cached above this; an English or
+  language-less channel reads no chapter text at all. `domnak-kmouch` and `pronom` had NO
+  `content_language` set and were being set to `km` during the repair — **by design a channel with no
+  language is unchecked, so this fix does nothing for either until that setting is saved.** Production's
+  read found only DM0021, DM0022 and PR0040 in the wrong script (being repaired). Test:
+  `script-completeness-audit` (complete, wrong-script + reason, mixed, no language, English names in
+  Khmer, English channel).
 
 ### Tests written (not run)
 
@@ -141,11 +207,16 @@ running on this Mac), so every backend test below is WRITTEN, NOT RUN.**
   named; mixed batch keeps the good ones; Khmer with English names passes; English channel
   unaffected; no language = no check; refusal-shaped answer writes nothing and names the reason; the
   prompt tail is last and absent when unset.
-- Focused substrings for when the gate ends: `topic-pack-wars-merge-compat`,
-  `content-pack-removal-episode-topics`, `script-language-script`, plus the existing
-  `topic-pack-legacy-alias-read-time`, `content-pack-removal`, `idea-supply`, `content-pack-user-forks`,
-  `chunked-narration-smoke`, `source-manifest-integrity`, and the content-pack lane's
-  `compatible-formula-ids-resolve` / `content-pack-registry` / `content-pack-index` guards.
+- Also written: `topic-pack-v2-successors`, `script-completeness-audit`, `chat-context-window-output-cap`,
+  `outline-preservation`, `outline-title-prefix`, `script-sizing-resolution`, and the PUT case added to
+  `outline-routes`.
+- Focused substrings for when the gate ends: `topic-pack-wars-merge-compat`, `topic-pack-v2-successors`,
+  `content-pack-removal-episode-topics`, `script-language-script`, `script-completeness-audit`,
+  `chat-context-window-output-cap`, `outline-preservation`, `outline-title-prefix`,
+  `script-sizing-resolution`, `outline-routes`, plus the existing `topic-pack-legacy-alias-read-time`,
+  `content-pack-removal`, `idea-supply`, `content-pack-user-forks`, `chunked-narration-smoke`,
+  `source-manifest-integrity`, `output-token-budget`, `chat-expected-output-tokens`, and the content-pack
+  lane's `compatible-formula-ids-resolve` / `content-pack-registry` guards.
 
 ### Static checks on this source
 

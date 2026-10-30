@@ -46,6 +46,7 @@ import { requireJobCompletion, completionErrorMessage } from '../services/job-co
 import { registerJobCancellationAuditor, type JobCancellationAudit } from '../services/job-cancellation-auditors.js'
 import { getAudioStatus } from '../services/audio-reconciler.js'
 import { getImageStatus } from '../services/asset-status.js'
+import { scriptLanguageForChannel } from '../lib/chunked-narration.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { inspectPromptCompletion } from '../services/prompt-completion.js'
 import { inspectMetadataCompletion } from '../services/metadata-completion.js'
@@ -338,6 +339,7 @@ function registerCancellationAuditors(): void {
       paths.script_dir,
       job.episode_id,
       requestedChapterSelection(job.params),
+      await scriptLanguageForChannel(job.project_slug),
     )
     return audit.complete ? 'complete' : 'repair-required'
   })

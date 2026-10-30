@@ -25,6 +25,7 @@ import {
   resolveEpisodePathsByCodeWithSidecar,
   resolveSubfolderNames,
   projectConfigOnce,
+  projectMetaOnce,
   projectOutputRootOnce,
   projectFactsFor,
   type ProjectFactsCache,
@@ -1205,6 +1206,10 @@ export async function computeEpisodeStatus(
   const projectConfig = await projectConfigOnce(slug, cache)
   const cueConfig = normalizeContextualCueConfig(projectConfig?.contextual_cues)
   const soundConfig = normalizeSoundDesignConfig(projectConfig?.sound_design)
+  // The channel's audience language, for the script-aware chapter audit below.
+  // Read through the request-scoped facts cache: once per response, not once per
+  // episode, and nothing at all for a channel that states no language.
+  const contentLanguage = (await projectMetaOnce(slug, cache).catch(() => null))?.content_language ?? null
 
   const status = emptyStatus()
   status.contextual_cues = !cueConfig.enabled
@@ -1255,7 +1260,7 @@ export async function computeEpisodeStatus(
     const metadataFiles = metadataR.files
 
     const scriptState = deriveScriptFolderState(scriptFiles)
-    const scriptCompletion = await inspectChunkedScriptCompletion(paths.script_dir, code)
+    const scriptCompletion = await inspectChunkedScriptCompletion(paths.script_dir, code, contentLanguage)
     const thumbPromptCompletion = await inspectPromptCompletion(paths.thumb_prompts_dir, code, 'thumbnail')
     status.script = scriptCompletion.complete
     // No marker is not the same as no introduction — see
@@ -1543,7 +1548,7 @@ export async function computeEpisodeStatus(
             // Script folder: contains both chapters + (optional) intro sidecar.
             if ((cleanSub.endsWith('script') || cleanSub.includes('01 script')) && !cleanSub.includes('prompt') && !cleanSub.includes('description')) {
               const state = deriveScriptFolderState(files)
-              const completion = await inspectChunkedScriptCompletion(subPath, code)
+              const completion = await inspectChunkedScriptCompletion(subPath, code, contentLanguage)
               if (completion.complete) status.script = true
               if (await computeScriptFolderIntroduction(subPath, code, files)) status.introduction = true
             }

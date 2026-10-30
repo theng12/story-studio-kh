@@ -48,6 +48,7 @@ import {
 import {
   boundOutputTokensToContext,
   chatAllowanceSeconds,
+  nonAsciiCharacterCount,
   describeOutputBudget,
   effectiveChatTimeoutMs,
   expectedOutputTokensFor,
@@ -7807,13 +7808,19 @@ async function prepareChatSubmission(
   // prompt size is what this submission will actually carry, so a long pack is not measured
   // against a short one's input.
   const promptCharacters = request.system.length + request.userMessage.length
+  // The same text, counted for the non-ASCII share: Khmer (and any other non-Latin
+  // script) takes far more tokens per character than the ASCII ÷4 estimate
+  // assumes, so each non-ASCII character is counted as a whole token.
+  const promptNonAsciiCharacters = nonAsciiCharacterCount(request.system) + nonAsciiCharacterCount(request.userMessage)
   // THE CONTEXT-WINDOW BOUND (services/output-token-budget.ts). A product's published output
   // ceiling can be larger than its whole context window — the local product in the 2026-10-30
   // report publishes 128,000 output tokens in a 32,768-token window — so "under its published
   // output limit" is not "fits beside this prompt". This is the ONE place every writing request
   // (research, outline, chapters, metadata) passes through with the product's LIVE figures, so the
   // bound is applied here and nowhere else; a product that publishes no window is unchanged.
-  const contextBounded = boundOutputTokensToContext(maxOutputTokens, product.context_window_tokens, promptCharacters)
+  const contextBounded = boundOutputTokensToContext(
+    maxOutputTokens, product.context_window_tokens, promptCharacters, promptNonAsciiCharacters,
+  )
   if (contextBounded.overflow) {
     throw new Error(
       `This request's instructions are about ${contextBounded.promptTokens.toLocaleString()} tokens, and ${product.display_name} publishes a `

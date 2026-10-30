@@ -49,7 +49,7 @@ import path from 'path'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
 import { assertPipelineModelRequestCapabilities, callAi, callAiWithRetry, executePipelineModelPolicy, parseStructuredJson, resolveLivePipelineModel } from './ai-client.js'
-import { boundOutputTokensToContext } from '../services/output-token-budget.js'
+import { boundOutputTokensToContext, nonAsciiCharacterCount } from '../services/output-token-budget.js'
 import { pipelinePolicyInputFingerprint, type AssignedPipelineModelPolicy, type PipelinePolicyCheckpointStore } from './pipeline-model-policy.js'
 import { freshGenerationRequestIdentity } from './fresh-generation-action.js'
 import { GenStudioChatIncompleteError, isGenStudioInsufficientCredits, listChatModels } from './genstudio-client.js'
@@ -71,7 +71,7 @@ import * as jq from '../services/job-queue.js'
 import * as pm from '../services/project-manager.js'
 import { safetyGate, safetyMode } from '../services/safety-checks.js'
 import type { Job, Format, Character } from '../models/types.js'
-import { answerMatchesLanguage, languageDirectiveTail, languageName, type ContentLanguage } from './content-language.js'
+import { answerMatchesLanguage, languageDirectiveTail, languageName, normalizeContentLanguage, type ContentLanguage } from './content-language.js'
 import type { GenStudioRequestPreview } from './genstudio-request-preview.js'
 import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 
@@ -219,13 +219,14 @@ const TYPICAL_PROMPT_TOKENS = 2000
 export function expansionOutputTokenCap(
   budget: ChunkingBudget,
   promptCharacters: number,
+  promptNonAsciiCharacters = 0,
 ): number | null {
   // The SAME bound every writing request now uses
   // (`boundOutputTokensToContext`): the published output ceiling, capped by the
   // product's published context window minus this prompt. Only the wording of a
   // refusal is local; the numbers are computed in one place.
   const bounded = boundOutputTokensToContext(
-    chunkingOutputBudget(budget.outputTokenCap), budget.contextWindowTokens, promptCharacters,
+    chunkingOutputBudget(budget.outputTokenCap), budget.contextWindowTokens, promptCharacters, promptNonAsciiCharacters,
   )
   if (bounded.overflow) {
     throw new Error(
@@ -251,8 +252,9 @@ export function expansionOutputTokenCap(
 export function expansionRequestOutputBudget(
   budget: ChunkingBudget,
   promptCharacters: number,
+  promptNonAsciiCharacters = 0,
 ): { outputBudget: 'maximum'; maxTokens?: number } {
-  const cap = expansionOutputTokenCap(budget, promptCharacters)
+  const cap = expansionOutputTokenCap(budget, promptCharacters, promptNonAsciiCharacters)
   return cap === null ? { outputBudget: 'maximum' } : { outputBudget: 'maximum', maxTokens: cap }
 }
 
@@ -262,6 +264,15 @@ export function expansionRequestOutputBudget(
  */
 export function expansionPromptCharacters(systemPrompt: string, batchPrompt: string): number {
   return systemPrompt.length + batchPrompt.length
+}
+
+/**
+ * The NON-ASCII share of that same prompt. Khmer takes several tokens per
+ * character, so those characters are counted as whole tokens in the bound
+ * (`estimatePromptTokens`); an English prompt adds 0 and is unchanged.
+ */
+export function expansionPromptNonAsciiCharacters(systemPrompt: string, batchPrompt: string): number {
+  return nonAsciiCharacterCount(systemPrompt) + nonAsciiCharacterCount(batchPrompt)
 }
 
 export function chunkingSafetyMarginTokens(outputTokenCap: number): number {
@@ -648,14 +659,70 @@ export function chapterBelongsToOutline(sidecar: Pick<ChunkedSidecar, 'outline_c
   }
 }
 
-function validChapterNumbersForOutline(scriptDir: string, sidecar: ChunkedSidecar): number[] {
-  return sidecar.outline
-    .map(entry => entry.n)
-    .filter(n => {
-      const file = resolveReadPath(chapterFilePath(scriptDir, sidecar.episode_id, n))
-      return chapterFileLooksValid(file) && chapterBelongsToOutline(sidecar, file)
-    })
-    .sort((a, b) => a - b)
+/**
+ * 2026-10-30. Does this saved chapter belong to the channel's WRITING SYSTEM?
+ *
+ * A chapter written in the wrong script is not this channel's narration, so the
+ * completeness audit counts it as MISSING — the same rule that stops a
+ * wrong-script chapter from being written in the first place, read back from the
+ * file (Board, Pipeline and Resume all come through here, AGENTS §8). A channel
+ * with no stated language is never checked, and NOTHING is rewritten.
+ *
+ * COST. A Board load walks every episode's chapters, so a verdict is cached by
+ * (path, language) and re-read only when the file's own mtime or size changes.
+ * That is at most one text read per chapter per edit, and the episode's status is
+ * itself cached above this; an English (or language-less) channel reads nothing
+ * at all. A file that cannot be read is NOT marked wrong: the presence checks
+ * already refuse an unreadable chapter, and this check must never invent one.
+ */
+const CHAPTER_SCRIPT_CACHE_LIMIT = 4096
+const chapterScriptVerdicts = new Map<string, { mtimeMs: number; size: number; matches: boolean }>()
+
+/** The channel's audience language, for an audit caller that holds only a slug. */
+export async function scriptLanguageForChannel(slug: string): Promise<ContentLanguage | null> {
+  const project = await pm.getProject(slug).catch(() => null)
+  return normalizeContentLanguage(project?.content_language)
+}
+
+export async function chapterMatchesLanguage(filePath: string, language: unknown): Promise<boolean> {
+  const expected = normalizeContentLanguage(language)
+  if (!expected) return true
+  const stat = await fs.stat(filePath).catch(() => null)
+  if (!stat?.isFile() || stat.size <= 0) return false
+  const key = `${filePath}\u0000${expected}`
+  const cached = chapterScriptVerdicts.get(key)
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.matches
+  let text: string
+  try {
+    text = /\.docx$/i.test(filePath)
+      ? await (await import('./docx-parser.js')).narrationDocxToMarkdown(filePath)
+      : await fs.readFile(filePath, 'utf-8')
+  } catch {
+    return true
+  }
+  const matches = answerMatchesLanguage(text, expected)
+  if (chapterScriptVerdicts.size >= CHAPTER_SCRIPT_CACHE_LIMIT) {
+    const oldest = chapterScriptVerdicts.keys().next().value
+    if (oldest !== undefined) chapterScriptVerdicts.delete(oldest)
+  }
+  chapterScriptVerdicts.set(key, { mtimeMs: stat.mtimeMs, size: stat.size, matches })
+  return matches
+}
+
+async function validChapterNumbersForOutline(
+  scriptDir: string,
+  sidecar: ChunkedSidecar,
+  contentLanguage: ContentLanguage | null = null,
+): Promise<number[]> {
+  const present: number[] = []
+  for (const entry of sidecar.outline) {
+    const n = entry.n
+    const file = resolveReadPath(chapterFilePath(scriptDir, sidecar.episode_id, n))
+    if (!chapterFileLooksValid(file) || !chapterBelongsToOutline(sidecar, file)) continue
+    if (!await chapterMatchesLanguage(file, contentLanguage)) continue
+    present.push(n)
+  }
+  return present.sort((a, b) => a - b)
 }
 
 /**
@@ -727,6 +794,12 @@ export interface ChunkedScriptCompletion {
   complete: boolean
   approved: boolean
   has_unified: boolean
+  /**
+   * Chapters on disk whose own text is not in the channel's writing system.
+   * They count as MISSING (AGENTS §8) so the Board, the Pipeline and Resume agree
+   * on one answer; absent when the channel states no language.
+   */
+  wrong_script: number[]
   expected: number
   present: number
   missing: number[]
@@ -746,12 +819,15 @@ export interface ChunkedScriptCompletion {
 export async function inspectChunkedScriptCompletion(
   scriptDir: string,
   episodeId: string,
+  contentLanguage: ContentLanguage | null | undefined = null,
 ): Promise<ChunkedScriptCompletion> {
   const unified = resolveReadPath(path.join(scriptDir, `${episodeId}_Script_Narration.md`))
   const hasUnified = chapterFileLooksValid(unified)
   const sidecar = await readSidecar(scriptDir, episodeId)
 
   if (!sidecar) {
+    // A legacy single-call episode has no numbered chapter sources to judge, so
+    // the script-aware rule (which is about CHAPTERS) does not apply to it.
     return {
       complete: hasUnified,
       approved: true,
@@ -761,6 +837,7 @@ export async function inspectChunkedScriptCompletion(
       missing: [],
       resumable: false,
       outline_valid: true,
+      wrong_script: [],
     }
   }
 
@@ -773,13 +850,18 @@ export async function inspectChunkedScriptCompletion(
     && expectedNumbers.length === sidecar.total_chapters
 
   const presentNumbers = new Set<number>()
+  const wrongScript: number[] = []
   let files: string[] = []
   try { files = await fs.readdir(scriptDir) } catch { /* missing directory */ }
   for (const filename of files) {
     const n = matchChapterFile(filename, episodeId)
     if (n === null) continue
     const file = path.join(scriptDir, filename)
-    if (chapterFileLooksValid(file) && chapterBelongsToOutline(sidecar, file)) presentNumbers.add(n)
+    if (!chapterFileLooksValid(file) || !chapterBelongsToOutline(sidecar, file)) continue
+    // A chapter in another writing system is not this channel's narration: it
+    // counts as missing, so Board, Pipeline and Resume answer alike (§8).
+    if (!await chapterMatchesLanguage(file, contentLanguage)) { wrongScript.push(n); continue }
+    presentNumbers.add(n)
   }
 
   const missing = expectedNumbers.filter(n => !presentNumbers.has(n))
@@ -796,6 +878,7 @@ export async function inspectChunkedScriptCompletion(
     missing,
     resumable: approved,
     outline_valid: outlineValid,
+    wrong_script: wrongScript.sort((a, b) => a - b),
   }
 }
 
@@ -1114,6 +1197,10 @@ export async function buildOutlineOnly(
     params_hash: paramsHash,
     last_updated: nowIso,
   }
+  // The previous outline (a forced rebuild, or a rebuild after the form changed)
+  // goes to Story's Trash before it is replaced — never only the new one.
+  const preservedOutline = preserveOutlineSidecar(job.project_slug, params.scriptDir, params.episode_id, 'rebuild')
+  if (preservedOutline) job.output_lines.push('[chunked] Previous outline kept in Story Trash.')
   await writeSidecar(params.scriptDir, sidecar, job)
   job.output_lines.push(
     `[chunked] Outline ready: ${outline.length} chapter slots` +
@@ -1190,7 +1277,7 @@ export async function expandChapters(
   // only chapters_done would regenerate and overwrite that valid chapter.
   // resolveReadPath: a legacy episode's chapter may be .docx, not .md —
   // it must still count as done so resume doesn't re-generate it.
-  const verifiedDone = new Set(validChapterNumbersForOutline(params.scriptDir, sidecar))
+  const verifiedDone = new Set(await validChapterNumbersForOutline(params.scriptDir, sidecar, params.contentLanguage ?? null))
   const recordedDone = [...sidecar.chapters_done].sort((a, b) => a - b)
   const actualDone = Array.from(verifiedDone).sort((a, b) => a - b)
   if (actualDone.length !== recordedDone.length || actualDone.some((n, i) => n !== recordedDone[i])) {
@@ -1253,7 +1340,7 @@ export async function expandChapters(
   // Final sidecar sweep.
   let finalSidecar = await readSidecar(params.scriptDir, params.episode_id)
   const finalDone = finalSidecar
-    ? validChapterNumbersForOutline(params.scriptDir, finalSidecar)
+    ? await validChapterNumbersForOutline(params.scriptDir, finalSidecar, params.contentLanguage ?? null)
     : Array.from(verifiedDone).sort((a, b) => a - b)
   const recordedFinalDone = finalSidecar?.chapters_done || []
   if (finalSidecar && (finalDone.length !== recordedFinalDone.length || finalDone.some((n, i) => n !== recordedFinalDone[i]))) {
@@ -1554,7 +1641,13 @@ async function buildOutline(
     }
     byN.set(n, {
       n,
-      title: String(item.title || `Chapter ${n}`).trim() || `Chapter ${n}`,
+      // A model that puts its own "Chapter 1 " prefix inside the title would make
+      // the composed heading read "## Chapter 01: Chapter 1 …". Strip only that
+      // leading label+number; the rest of the title is untouched.
+      title: stripOutlineTitlePrefix(
+        String(item.title || `Chapter ${n}`).trim() || `Chapter ${n}`,
+        sectionTerms(params).Singular,
+      ),
       synopsis: typeof item.synopsis === 'string' ? item.synopsis.trim() : undefined,
       key_beats: Array.isArray(item.key_beats) ? item.key_beats.map(String) : undefined,
       hook_line: typeof item.hook_line === 'string' ? item.hook_line.trim() : undefined,
@@ -1604,6 +1697,29 @@ async function buildOutline(
     )
   }
   return out
+}
+
+/**
+ * Strip a leading SECTION LABEL + NUMBER from a model-written outline title.
+ *
+ * 2026-10-30, from the Khmer repair: Haiku put a literal "Chapter 1 " prefix
+ * inside each outline title, so the heading the app composes read
+ * "## Chapter 01: Chapter 1 …". Only the PREFIX is removed — the rest of the
+ * title is kept exactly as written, and a title without one is returned
+ * unchanged.
+ *
+ * The labels are DATA: the format's own section label (Chapter / Topic / Reason
+ * / …), the generic English word, and the two Khmer words for a chapter/part.
+ * The number may be ASCII or Khmer digits (០–៩), and must be followed by a
+ * separator or a space before the real title — so "Chapter One", a title that
+ * merely CONTAINS "Chapter 1", and Khmer prose that begins "ជំពូកដំបូង" (with no
+ * numeral) are all left alone.
+ */
+export function stripOutlineTitlePrefix(title: string, sectionLabel?: string): string {
+  const labels = [...new Set([sectionLabel, 'Chapter', 'ជំពូក', 'ភាគ'].filter((label): label is string => !!label && !!label.trim()))]
+  const escaped = labels.map(label => label.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  const match = new RegExp(`^\\s*(?:${escaped})\\s*[0-9\u17E0-\u17E9]{1,4}\\s*(?:[:：.៖។\-–—)]\\s*|\\s+)(\\S.*)$`, 'i').exec(title)
+  return match ? match[1]!.trim() : title
 }
 
 function sectionTerms(p: ChunkedNarrationParams): { Singular: string; Plural: string; singular: string; plural: string } {
@@ -1729,7 +1845,7 @@ async function expandNarrativeSequential(
     // product's published context window) — see expansionRequestOutputBudget.
     // A truncated answer is split and retried below, never written half.
     const requestOutput = expansionRequestOutputBudget(
-      budget, expansionPromptCharacters(params.systemPrompt, prompt),
+      budget, expansionPromptCharacters(params.systemPrompt, prompt), expansionPromptNonAsciiCharacters(params.systemPrompt, prompt),
     )
     const ctx = {
       slug: job.project_slug, jobId: job.job_id, signal: params.signal,
@@ -1879,7 +1995,7 @@ async function expandNarrativeSequential(
       // chapter that needed more (job 0857b744, 2026-10-25).
       const repairCtx = {
         ...ctx,
-        ...expansionRequestOutputBudget(budget, expansionPromptCharacters(params.systemPrompt, repairPrompt)),
+        ...expansionRequestOutputBudget(budget, expansionPromptCharacters(params.systemPrompt, repairPrompt), expansionPromptNonAsciiCharacters(params.systemPrompt, repairPrompt)),
       }
       const repairCheckpointKey = `${chapterCheckpointKey}:repair-${repairBatch.map(entry => entry.n).join('-')}`
       const repairInputFingerprint = pipelinePolicyInputFingerprint({
@@ -2096,7 +2212,7 @@ async function expandListicleParallel(
         // Same as the narrative request: EVERY output token the selected
         // product publishes, bounded only by its published context window.
         const requestOutput = expansionRequestOutputBudget(
-          budget, expansionPromptCharacters(params.systemPrompt, prompt),
+          budget, expansionPromptCharacters(params.systemPrompt, prompt), expansionPromptNonAsciiCharacters(params.systemPrompt, prompt),
         )
         const ctx = {
           slug: job.project_slug, jobId: job.job_id, signal: params.signal,
@@ -2416,6 +2532,43 @@ export async function parseAndWriteBatch(
 
 export function sidecarPath(scriptDir: string, episode_id: string): string {
   return path.join(scriptDir, `${episode_id}_chunked-progress.json`)
+}
+
+/**
+ * Keep the outline that is about to be replaced — owner rule: nothing deleted for
+ * good (2026-10-30). A `force` rebuild of a good outline and `PUT /outline` both
+ * used to overwrite the sidecar in place; the previous file now goes to Story's
+ * Trash first, in the same `script-versions/` shape the chapter writes use, so it
+ * can be restored by hand. A first build has nothing to copy and adds no folder.
+ *
+ * NOT on every progress write: only an outline REPLACEMENT calls this (a rebuild
+ * and an edit), never a chapters_done update — otherwise a long episode would fill
+ * Trash with one copy per chapter.
+ */
+export function preserveOutlineSidecar(
+  projectSlug: string,
+  scriptDir: string,
+  episodeId: string,
+  reason: 'rebuild' | 'edit',
+): string | null {
+  const source = sidecarPath(scriptDir, episodeId)
+  if (!existsSync(source)) return null
+  const projectDir = pm.getProjectDir(projectSlug)
+  if (!projectDir) return null
+  const rel = path.relative(projectDir, source)
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
+  try {
+    const destination = path.join(
+      trashRootFor(projectDir, projectDir, projectSlug),
+      'script-versions', `outline-${reason}-${Date.now()}`, rel,
+    )
+    copyToTrashSync(source, destination, 'script-version')
+    return destination
+  } catch {
+    // A preserved copy is an extra safety net, never a reason to refuse the new
+    // outline write; the failure is not silent because the caller logs the result.
+    return null
+  }
 }
 
 /**

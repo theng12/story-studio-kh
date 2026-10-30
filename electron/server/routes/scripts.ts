@@ -515,7 +515,7 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     && priorManualRedo?.source_job_id === manualRedoIntent?.source_job_id
     && Array.isArray(priorManualRedo?.target_chapters)
   const missingChapters = manualRedoIntent && !priorManualAction
-    ? (await inspectChunkedScriptCompletion(paths.script_dir, episode_id)).missing
+    ? (await inspectChunkedScriptCompletion(paths.script_dir, episode_id, project.content_language)).missing
     : []
   if (manualRedoIntent && !priorManualAction && missingChapters.length === 0) {
     return res.status(409).json({ detail: `All chapters for ${episode_id} are already on disk.` })
@@ -667,7 +667,7 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     if (!project) return res.status(404).json({ detail: 'Project not found' })
     const titleParam = (req.query.title as string) || ''
     const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
-    const { sidecarPath } = await import('../lib/chunked-narration.js')
+    const { sidecarPath, preserveOutlineSidecar } = await import('../lib/chunked-narration.js')
     const sidecarFile = sidecarPath(paths.script_dir, episodeId)
     if (!existsSync(sidecarFile)) {
       return res.status(404).json({ detail: 'No outline to edit (run outline-only first).' })
@@ -744,6 +744,9 @@ router.put('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
       outline_approved_at: approvedAt,
       last_updated: nowIso,
     }
+      // Owner rule, 2026-10-30: nothing deleted for good. The outline this edit
+      // replaces goes to Story's Trash before the new one is written.
+      preserveOutlineSidecar(slug, paths.script_dir, episodeId, 'edit')
       await writeJsonAtomic(sidecarFile, updated)
       res.json({
         ok: true,
