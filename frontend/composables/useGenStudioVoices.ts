@@ -282,6 +282,20 @@ export function voiceSourceText(voice: Pick<GenStudioVoice, 'id' | 'provider' | 
   return [...new Set([voice.provider, voice.engine_name].filter(Boolean) as string[])].join(' · ')
 }
 
+/**
+ * The picker's search box, as one predicate. A query matches a voice when it
+ * appears in any field the row shows — `tags` included, so a tag the Gateway
+ * publishes is as searchable as language or engine name. An empty query
+ * matches everything, so the filter narrows rather than hides.
+ */
+export function voiceMatchesQuery(voice: GenStudioVoice, rawQuery: string): boolean {
+  const query = rawQuery.trim().toLowerCase()
+  if (!query) return true
+  return [voice.display_name, voice.language, voice.description, voice.engine_name, voice.provider,
+    ...(Array.isArray(voice.tags) ? voice.tags : []),
+  ].filter(Boolean).join(' ').toLowerCase().includes(query)
+}
+
 export function useGenStudioVoices() {
   const { get, post, del } = useApi()
 

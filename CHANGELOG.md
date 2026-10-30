@@ -6,6 +6,7 @@ What's new in each release. Newest first.
 
 ## v1.4.371 — 2026-10-30
 
+- Voice tags published by the Gateway now pass through to the frontend and display in the Voice Picker rows, where they can also be searched.
 - A scene image made from an older prompt no longer passes a render's completion check as current. The job names the affected scene and Retry replaces it while keeping the completed images; older images with no recorded prompt remain unchecked.
 - This update also includes the Library and Pipeline fixes listed under 1.4.370 below, for anyone updating directly from 1.4.369.
 
