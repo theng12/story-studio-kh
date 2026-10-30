@@ -4843,6 +4843,9 @@ export interface ScenePlanEntry {
    *  edited+saved in Scene Review without re-rendering), the image is STALE —
    *  Scene Review flags it. Absent on images rendered before this shipped. */
   rendered_prompt?: string
+  /** The `visual_prompt` a lenient run knowingly kept a borrowed or earlier picture for. It satisfies
+   *  completion only while the prompt is unchanged; Scene Review still flags the mismatch. */
+  stand_in_for_prompt?: string
   /** Changes whenever the still is replaced, even when the prompt is identical. */
   image_version?: string
   /** SHA-256 of the registered still's bytes, so re-registering the same file never touches approval. */

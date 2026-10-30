@@ -40,7 +40,7 @@ import { resolveStyleBible } from '../lib/style-bible.js'
 import { composeSceneRenderPrompt, loadAnchorCharacters } from '../services/scene-prompt-assembly.js'
 import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integrity.js'
 import { requireJobCompletion } from '../services/job-completion.js'
-import { auditSceneImageCompletion, checkpointSceneImage, countScenesAwaitingApproval, liveSceneAutoApprove } from '../services/scene-media-checkpoint.js'
+import { auditSceneImageCompletion, checkpointSceneImage, markSceneImageStandIn, countScenesAwaitingApproval, liveSceneAutoApprove } from '../services/scene-media-checkpoint.js'
 import { autoApproveOn } from '../services/preset-authority.js'
 import { selectSceneImageBatch } from '../services/scene-image-batch-selection.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
@@ -1207,6 +1207,11 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               // AND has not already settled. Hash equality alone once let a
               // six-day-old failed job satisfy every future Retry.
               const hashMatches = manifestEntry?.input_hash === expectedInputHash
+              // Finish has a new action scope; compare recovery against the scope that actually submitted the saved request.
+              const savedScope = manifestEntry?.request_scope || ''
+              const savedPromptMatches = !!savedScope && (manifestEntry?.original_output_selector && originalSelector && capturedReferences
+                ? manifestEntry.input_hash === buildPaidImageOriginalIdentity({ prompt: finalPrompt, selector: originalSelector, references: capturedReferences.inputs, baseScope: logicalPaidScope(manifestEntry, savedScope) }).inputHash
+                : manifestEntry?.input_hash === hashRequest(savedScope))
               const hasDurableSavedIdentity = Boolean(manifestEntry?.task_id || manifestEntry?.idempotency_key)
               const explicitFreshAction = Boolean(freshGenerationAction)
               const freshActionId = freshGenerationAction?.id || ''
@@ -1631,7 +1636,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 () => persistImagePath(
                   scene.id,
                   outPath,
-                  sceneManualFinish && recovery.kind === 'recovered' && !hashMatches ? '' : scene.visual_prompt,
+                  sceneManualFinish && recovery.kind === 'recovered' && !hashMatches && !savedPromptMatches ? '' : scene.visual_prompt,
                 ),
                 path.join(trashRootFor(outDir, pm.getProjectDir(job.project_slug) ?? outDir, job.project_slug), 'scene-images'),
               )
@@ -1907,6 +1912,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     // a scene that still could not be made borrows the nearest scene's picture instead
     // of failing the episode. Its rendered_prompt is the neighbour's, so Scene Review
     // flags it as not matching its prompt and a later regeneration replaces it.
+    // stand_in_for_prompt lets completion accept it, for this prompt only.
     // ponytail: capped at 10% of the episode; beyond that the fleet is down, keep failing.
     const lastAutomaticTry = (job.auto_retry?.attempt ?? 1) >= (job.auto_retry?.max_attempts ?? 1)
     if (freeFleet && lastAutomaticTry && failedSceneIds.length <= Math.max(1, Math.floor(scenes.length / 10))
@@ -1928,6 +1934,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
           await fs.copyFile(path.join(outDir, `${neighbour.id}.png`), outPath)
           await persistImagePath(scene.id, outPath, neighbour.visual_prompt)
         }
+        const marking = planChain.then(() => markSceneImageStandIn(planPath, scene.id, scene.visual_prompt))
+        planChain = marking.catch(() => {})
+        await marking
         failedSceneIds.splice(failedSceneIds.indexOf(sceneId), 1)
         failureReasons.delete(sceneId)
         successfulSceneIds.add(sceneId)

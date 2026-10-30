@@ -412,6 +412,20 @@ async function assertUsableFile(filePath: string, label: string): Promise<void> 
 /** Re-read the plan and verify the exact scene IDs against files downstream
  * Scene Review can resolve. This catches omitted callbacks, empty downloads,
  * deleted plan rows, and stale stored paths before a job can report success. */
+/**
+ * Owner, 1.4.296: a free-fleet scene that still fails on its last automatic try keeps a stand-in
+ * rather than failing the episode. This records that decision for this exact prompt.
+ */
+export async function markSceneImageStandIn(planPath: string, sceneId: string, visualPrompt: string): Promise<void> {
+  await withLock(planPath, async () => {
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    const scene = plan.scenes.find(item => item.id === sceneId)
+    if (!scene) throw new Error(`Scene ${sceneId} disappeared before its stand-in picture could be recorded.`)
+    scene.stand_in_for_prompt = visualPrompt
+    await writeJsonAtomic(planPath, plan, { compact: true })
+  })
+}
+
 export async function auditSceneImageCompletion(
   planPath: string,
   sceneIds: string[],
@@ -452,7 +466,8 @@ export async function auditSceneImageCompletion(
       }
       foundEmpty = true
     }
-    if (foundUsable && typeof scene.rendered_prompt === 'string' && scene.rendered_prompt !== scene.visual_prompt) {
+    if (foundUsable && typeof scene.rendered_prompt === 'string' && scene.rendered_prompt !== scene.visual_prompt
+      && scene.stand_in_for_prompt !== scene.visual_prompt) {
       invalid.push(`${sceneId} (image was rendered from an outdated prompt)`)
       issues.push({ item_id: sceneId, state: 'invalid', reason: 'image was rendered from an outdated prompt' })
     } else if (!foundUsable) {
@@ -570,6 +585,8 @@ export async function checkpointSceneImage(
     // image: whatever the owner decided since (approval, motion choice) stands. Approval is only
     // ever added here, never cleared. A genuinely different image still waits for the owner below.
     if (scene.image_path === imagePath && scene.image_sha256 === sha256) {
+      scene.rendered_prompt = renderedPrompt
+      delete scene.stand_in_for_prompt
       if (autoApproveGenerated === true) {
         plan.auto_approve_generated = true
         scene.approved = true
@@ -584,6 +601,7 @@ export async function checkpointSceneImage(
     if (autoApproveGenerated === true) plan.auto_approve_generated = true
     scene.image_path = imagePath
     scene.rendered_prompt = renderedPrompt
+    delete scene.stand_in_for_prompt
     scene.image_version = new Date().toISOString()
     scene.image_sha256 = sha256
     scene.motion_choice = 'pending'
