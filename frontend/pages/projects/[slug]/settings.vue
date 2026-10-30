@@ -1085,15 +1085,21 @@
         <label>Art style</label>
         <p class="settings-hint">Added to every image prompt for this channel. You can still change it for one run on the Image Prompts page.</p>
         <div class="art-style-picker">
-          <select v-model="artStyleSelection" class="input" :disabled="artStyleSaving">
-            <option value="">— None (use format / niche default) —</option>
-            <optgroup v-if="savedStylePresets.length" label="Saved styles">
-              <option v-for="s in savedStylePresets" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </optgroup>
-            <optgroup label="Style library">
-              <option v-for="s in visualStyles" :key="s.id" :value="s.id">{{ s.name }}</option>
-            </optgroup>
-          </select>
+          <button type="button" class="btn btn-secondary" :disabled="artStyleSaving" @click="artStylePickerOpen = true">
+            {{ visualStyles.find(s => s.id === artStyleSelection)?.name || savedStylePresets.find((s: any) => s.id === artStyleSelection)?.name || (artStyleSelection || 'None (use format / niche default)') }} · Choose style
+          </button>
+          <PickerDialog :visible="artStylePickerOpen" title="Choose art style" size="xl" @close="artStylePickerOpen = false">
+            <div class="art-style-options">
+              <button type="button" class="art-style-option" @click="artStyleSelection = ''; artStylePickerOpen = false">None · use format / niche default</button>
+              <button v-for="style in visualStyles" :key="style.id" type="button" class="art-style-option" :aria-pressed="artStyleSelection === style.id" @click="artStyleSelection = style.id; artStylePickerOpen = false">
+                <img v-if="style.preview_image" :src="style.preview_image" :alt="`${style.name} preview`" />
+                <span v-else>No sample yet</span><strong>{{ style.name }}</strong>
+              </button>
+              <button v-for="style in savedStylePresets.filter((s: any) => !visualStyles.some(v => v.id === s.id))" :key="style.id" type="button" class="art-style-option" :aria-pressed="artStyleSelection === style.id" @click="artStyleSelection = style.id; artStylePickerOpen = false">
+                <span>No sample yet</span><strong>{{ style.name }}</strong>
+              </button>
+            </div>
+          </PickerDialog>
         </div>
         <p v-if="visualStylesLoading" class="text-muted text-sm mt-1">
           Loading installed Content Pack styles…
@@ -4002,6 +4008,7 @@ const projectForm = reactive<{
 // image prompt and feeds its preview image into img2img renders. A legacy
 // project-local style already lives in config.style_presets. A signed
 // catalog style resolves through its immutable Content Pack pin instead.
+const artStylePickerOpen = ref(false)
 const artStyleSelection = ref('')
 const artStyleSaveMessage = ref('')
 const artStyleSaving = ref(false)
@@ -5032,6 +5039,11 @@ async function deleteProject() {
 .notification-quiet-control strong { font-size: var(--font-xs); }
 .notification-last-fired strong { margin-top: auto; color: var(--settings-gold); font-size: var(--font-xs); }
 .notification-digest-actions { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 10px; }
+.art-style-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; padding: 16px; overflow-y: auto; }
+.art-style-option { display: grid; gap: 8px; text-align: left; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
+.art-style-option[aria-pressed="true"] { border-color: var(--accent); }
+.art-style-option img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.art-style-option span { color: var(--text-muted); }
 .notification-preview { margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 11px; background: color-mix(in srgb, var(--bg-primary) 62%, transparent); }
 .notification-preview > strong { display: block; margin: 4px 0 7px; font-size: var(--font-xs); }
 .notification-preview pre { max-height: 280px; margin: 0; overflow: auto; color: var(--text-muted); font-family: var(--font-mono, monospace); font-size: var(--font-xs); line-height: 1.55; white-space: pre-wrap; }
