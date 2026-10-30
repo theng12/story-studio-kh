@@ -60,8 +60,12 @@ test('label targets follow the scene image and fail soft', async () => {
     const [failed] = await resolve()
     assert.equal(failed!.target_x_pct, undefined)
     assert.match(logs.at(-1)!, /offline.*without a pointer/)
+    reply = { subject: { source: 'grounding', box: [0.2, 0.3, 0.2, 0.4] } }
+    const [retried] = await resolve()
+    assert.ok(Math.abs(retried!.target_x_pct! - 30) < 1e-8)
+    assert.equal(calls, 4, 'the failed call is retried and succeeds on the second call for this image')
     await resolve()
-    assert.equal(calls, 3, 'a Gateway failure is recorded once for this picture')
+    assert.equal(calls, 4, 'the successful retry is cached')
 
     await fs.writeFile(image, await picture('white'))
     reply = { subject: null }

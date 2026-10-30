@@ -30,7 +30,7 @@ export async function resolveLabelTargets(input: {
       const result = await withLock(cachePath, async (): Promise<TargetResult> => {
         try {
           const cached = JSON.parse(await fs.readFile(cachePath, 'utf8')) as TargetResult
-          if (('reason' in cached && typeof cached.reason === 'string')
+          if (('reason' in cached && ['no target found', 'the target box was invalid', 'the target covered too much of the image'].includes(cached.reason))
             || ('x' in cached && Number.isFinite(cached.x) && cached.x >= 0 && cached.x <= 100
               && Number.isFinite(cached.y) && cached.y >= 0 && cached.y <= 100)) return cached
         } catch { /* No usable cached result. */ }
@@ -49,7 +49,7 @@ export async function resolveLabelTargets(input: {
             else found = { x: (x + w / 2) * 100, y: (y + h / 2) * 100 }
           }
         } catch (error) {
-          found = { reason: `the Gateway could not find the target (${error instanceof Error ? error.message : String(error)})` }
+          return { reason: `the Gateway could not find the target (${error instanceof Error ? error.message : String(error)})` }
         }
         await writeJsonAtomic(cachePath, found)
         return found
