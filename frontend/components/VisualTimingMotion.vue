@@ -26,12 +26,14 @@
 
     <fieldset class="vtm-section" :disabled="loading || saving || !!loadError">
       <legend>Scene timing</legend>
-      <div class="vtm-choice-row" role="radiogroup" aria-label="Scene timing mode">
+      <label class="vtm-choice-row"><input type="checkbox" :checked="draft.pacing.one_scene_per_sentence === true" @change="setSentenceMode(($event.target as HTMLInputElement).checked)" /> One scene per narrated sentence</label>
+      <p v-if="draft.pacing.one_scene_per_sentence" class="text-muted text-sm">Uses estimated sentence timings from Audio Assembly. Every sentence gets its own scene.</p>
+      <div v-if="!draft.pacing.one_scene_per_sentence" class="vtm-choice-row" role="radiogroup" aria-label="Scene timing mode">
         <label><input :checked="draft.pacing.mode !== 'variable'" type="radio" name="timing-mode" @change="setPacingMode('uniform')" /> Uniform</label>
         <label><input :checked="draft.pacing.mode === 'variable'" type="radio" name="timing-mode" @change="setPacingMode('variable')" /> Ordered periods</label>
       </div>
 
-      <div v-if="draft.pacing.mode !== 'variable'" class="vtm-band">
+      <div v-if="!draft.pacing.one_scene_per_sentence && draft.pacing.mode !== 'variable'" class="vtm-band">
         <label>Shortest scene
           <input :value="draft.pacing.min_sec" class="input" type="number" min="1" max="60" step="1" @input="setUniformBand('min_sec', inputNumber($event))" /> seconds
         </label>
@@ -40,7 +42,7 @@
         </label>
       </div>
 
-      <div v-else class="vtm-periods">
+      <div v-else-if="!draft.pacing.one_scene_per_sentence && draft.pacing.mode === 'variable'" class="vtm-periods">
         <div v-for="(period, index) in draft.pacing.periods" :key="`${period.start_sec}-${index}`" class="vtm-period">
           <strong>Period {{ index + 1 }}</strong>
           <span>From {{ period.start_sec }}s</span>
@@ -228,9 +230,15 @@ function clearPresetNotice(): void {
 }
 
 function pacingLabel(pacing: ScenePacing): string {
+  if (pacing.one_scene_per_sentence) return 'one scene per narrated sentence'
   return pacing.mode === 'variable'
     ? `${pacing.periods.length} ordered periods`
     : `uniform ${pacing.min_sec}–${pacing.max_sec} second scenes`
+}
+
+function setSentenceMode(enabled: boolean): void {
+  clearPresetNotice()
+  draft.value.pacing = { ...draft.value.pacing, one_scene_per_sentence: enabled }
 }
 
 function setPacingMode(mode: 'uniform' | 'variable'): void {

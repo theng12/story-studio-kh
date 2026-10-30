@@ -1080,7 +1080,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const saved = parseScenePacing(params.pacing)
     pacing = { min_sec: saved.min_sec, max_sec: saved.max_sec,
       mode: saved.mode === 'variable' ? 'variable' : 'live',
-      ...(saved.mode === 'variable' ? { periods: saved.periods } : {}) }
+      ...(saved.mode === 'variable' ? { periods: saved.periods } : {}),
+      ...(saved.one_scene_per_sentence ? { one_scene_per_sentence: true } : {}) }
   }
   // Jobs accepted by older versions have no scope field. Their explicit motion
   // request remains authorized; migrate it once after reading its saved plan.
@@ -1100,8 +1101,8 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   const motionScope = normalizeMotionScope(params.motion_scope ?? motionSettings.motion_scope)
   const episodeMotionLevel = params.motion_level ?? motionSettings.motion_level
   const planPacing: ScenePacing = pacing?.periods
-    ? { mode: 'variable', min_sec: pacing.min_sec, max_sec: pacing.max_sec, periods: pacing.periods }
-    : { min_sec: pacing?.min_sec ?? DEFAULT_SCENE_PACING.min_sec, max_sec: pacing?.max_sec ?? DEFAULT_SCENE_PACING.max_sec }
+    ? { mode: 'variable', min_sec: pacing.min_sec, max_sec: pacing.max_sec, periods: pacing.periods, ...(pacing.one_scene_per_sentence ? { one_scene_per_sentence: true } : {}) }
+    : { min_sec: pacing?.min_sec ?? DEFAULT_SCENE_PACING.min_sec, max_sec: pacing?.max_sec ?? DEFAULT_SCENE_PACING.max_sec, ...(pacing?.one_scene_per_sentence ? { one_scene_per_sentence: true } : {}) }
 
   // v1.0.337 — per-project guide cast density (config.json `character_density`).
   // Only meaningful for continuity (pacing set). Unset → undefined: single-pass
@@ -1284,7 +1285,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       }
       const cues = allCues.filter(c => c.end_sec > openingReserved + 0.001)
       if (!cues.length) throw new Error(`The ${openingReserved.toFixed(1)}s opening covers the entire subtitle timeline.`)
-      const { splitScenesDeterministically } = await import('../services/scene-planner.js')
+      const { splitScenesDeterministically, splitScenesBySentence } = await import('../services/scene-planner.js')
       const minSec = pacing?.min_sec ?? DEFAULT_SCENE_PACING.min_sec
       const maxSec = pacing?.max_sec ?? DEFAULT_SCENE_PACING.max_sec
       const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episode_id, {
@@ -1312,17 +1313,38 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           'Open Subtitles, re-stitch, and recheck before creating the Scene Plan.',
         )
       }
-      const splitScenes = splitScenesDeterministically({
+      const idGen = (i: number) => `${episode_id.toLowerCase()}-scene-${String(i + 1).padStart(4, '0')}`
+      let splitScenes
+      if (pacing?.one_scene_per_sentence) {
+        const readRequired = async (file: string, label: string) => {
+          try { return JSON.parse(await fs.readFile(file, 'utf8')) }
+          catch { throw nonRetryable(new Error(`Cannot create one scene per sentence: ${label} is missing or invalid. Re-run Audio Assembly and re-stitch Subtitles, then Retry.`)) }
+        }
+        const { findNarrationFile } = await import('./audio.js')
+        const { parseNarrationDocx } = await import('../lib/docx-parser.js')
+        let narration
+        try { narration = await parseNarrationDocx(await findNarrationFile(job.project_slug, episode_id)) }
+        catch { throw nonRetryable(new Error('Cannot create one scene per sentence: the episode narration is missing or unreadable. Restore it, re-run Audio Assembly, then Retry.')) }
+        try {
+          splitScenes = splitScenesBySentence({
+            sidecar: await readRequired(path.join(paths.episode_dir, 'audio_sentences.json'), 'audio_sentences.json'),
+            chapters: await readRequired(path.join(paths.episode_dir, 'audio_chapters.json'), 'audio_chapters.json'),
+            timeline: await readRequired(`${stitchedSrtPath(paths.subtitles_dir, episode_id)}.json`, 'stitched subtitle timing'),
+            narration, opening_sec: openingReserved, idGen,
+          })
+        } catch (error) { throw nonRetryable(error instanceof Error ? error : new Error(String(error))) }
+      } else splitScenes = splitScenesDeterministically({
         cues,
         min_sec: minSec,
         max_sec: maxSec,
         target_sec: (minSec + maxSec) / 2,
         pacing_periods: pacing?.periods,
         initial_start_sec: openingReserved,
-        idGen: i => `${episode_id.toLowerCase()}-scene-${String(i + 1).padStart(4, '0')}`,
+        idGen,
       })
       const timelineCleanup = removeNonRenderableScenes(splitScenes)
       const scenes = timelineCleanup.scenes
+      if (pacing?.one_scene_per_sentence && scenes.length !== splitScenes.length) throw nonRetryable(new Error('Cannot create one scene per sentence: some sentence timings cannot be rendered. Re-run Audio Assembly, then Retry.'))
       let totalDuration = allCues[allCues.length - 1]!.end_sec
       let mergedAudioSec = 0
       try {

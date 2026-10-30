@@ -46,6 +46,7 @@ import type {
   ScenePlanRunOptions,
   SceneType,
 } from '../models/types.js'
+import { parseSentenceSidecar, splitIntoSentences } from '../lib/sentence-timing.js'
 import { endsSentence } from '../lib/sentence-ends.js'
 import { unrenderableSceneProblem } from '../lib/scene-plan-timeline.js'
 import { truncateChars } from '../lib/well-formed-text.js'
@@ -1204,6 +1205,59 @@ export function episodePromptContextBlock(context?: EpisodePromptContext | null)
  *
  * Returns scenes with empty `visual_prompt` strings — pass 2 fills those in.
  */
+export function splitScenesBySentence(opts: {
+  sidecar: unknown
+  chapters: { sections?: Array<{ slug: string; duration_s: number }>; gap_duration_s?: number }
+  timeline: { complete?: boolean; sections?: Array<{ slug: string; offset_sec: number; duration_sec: number }> }
+  narration: Array<{ slug: string; text: string }>
+  opening_sec: number
+  idGen: (index: number) => string
+}): ScenePlanEntry[] {
+  const fail = (detail: string): never => { throw new Error(`Cannot create one scene per sentence: ${detail}. Re-run Audio Assembly and re-stitch Subtitles, then Retry.`) }
+  const sidecar = parseSentenceSidecar(opts.sidecar)
+  if (!sidecar) return fail('audio_sentences.json is missing or invalid')
+  const chapters = opts.chapters?.sections
+  const timeline = opts.timeline?.sections
+  if (!chapters?.length || !timeline?.length || opts.timeline.complete !== true) return fail('chapter durations or stitched timeline details are missing')
+  if (chapters.length !== timeline.length || sidecar.sections.length !== chapters.length) return fail('sentence data is missing one or more audio chapters')
+  const gap = opts.chapters.gap_duration_s ?? 0
+  if (!Number.isFinite(gap) || gap < 0) return fail('the chapter gap is invalid')
+  const narration = new Map(opts.narration.map(section => [section.slug, section.text]))
+  const seen = new Set<string>()
+  const sentences: Array<{ start: number; end: number; text: string }> = []
+  for (let i = 0; i < chapters.length; i++) {
+    const chapter = chapters[i]!
+    const section = sidecar.sections.find(item => item.slug === chapter.slug)
+    const stitched = timeline[i]!
+    const text = narration.get(chapter.slug)
+    if (seen.has(chapter.slug) || !section || text === undefined || stitched.slug !== chapter.slug) return fail(`sentence data or narration is missing for ${chapter.slug}`)
+    seen.add(chapter.slug)
+    if (!Number.isFinite(chapter.duration_s) || chapter.duration_s <= 0 || !Number.isFinite(stitched.offset_sec) || stitched.offset_sec < 0 || !Number.isFinite(stitched.duration_sec) || Math.abs(stitched.duration_sec - chapter.duration_s) > 0.01 || Math.abs(section.duration_s - chapter.duration_s) > 0.01) return fail(`chapter timing for ${chapter.slug} is invalid or out of date`)
+    if (i > 0 && Math.abs(stitched.offset_sec - (timeline[i - 1]!.offset_sec + chapters[i - 1]!.duration_s + gap)) > 0.01) return fail(`chapter offset for ${chapter.slug} is invalid`)
+    const expected = splitIntoSentences(text)
+    if (!expected.length || expected.length !== section.sentences.length) return fail(`sentence data for ${chapter.slug} is incomplete`)
+    let end = 0
+    for (const [index, sentence] of section.sentences.entries()) {
+      if (sentence.index !== index || sentence.text !== expected[index] || sentence.char_count !== sentence.text.length || Math.abs(sentence.start_s - end) > 0.01 || sentence.end_s <= sentence.start_s || sentence.end_s > chapter.duration_s + 0.01) return fail(`sentence ${index + 1} in ${chapter.slug} is missing, invalid, or out of date`)
+      sentences.push({ start: stitched.offset_sec + sentence.start_s, end: stitched.offset_sec + sentence.end_s, text: sentence.text })
+      end = sentence.end_s
+    }
+    if (Math.abs(end - chapter.duration_s) > 0.01) return fail(`sentence timing for ${chapter.slug} is incomplete`)
+  }
+  if (opts.opening_sec > sentences[0]!.start + 0.001) return fail('the opening overlaps narrated sentences')
+  const scenes = sentences.map((sentence, index) => ({
+    id: opts.idGen(index), scene_index: index + 1,
+    start_sec: index === 0 ? opts.opening_sec : sentence.start,
+    end_sec: sentences[index + 1]?.start ?? sentence.end,
+    transcript_segment: sentence.text, visual_prompt: '',
+    boundary_reason: 'one scene per narrated sentence',
+  }))
+  if (scenes.length !== sentences.length || scenes.some(scene => scene.end_sec <= scene.start_sec)) return fail('sentence timing cannot produce one scene for every sentence')
+  const renderProblem = unrenderableSceneProblem(scenes)
+  if (renderProblem) return fail(renderProblem)
+  return scenes
+}
+
 export function splitScenesDeterministically(opts: {
   cues: SrtCue[]
   /** Target scene duration (seconds). Used as the "close scene when we
