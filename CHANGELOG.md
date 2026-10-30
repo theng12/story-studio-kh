@@ -17,6 +17,7 @@ What's new in each release. Newest first.
 - Labels can point on their own. The writing model names the thing, and the Gateway finds it in the scene image, only if the scene's prompt says it was drawn and the box is not most of the frame. Otherwise the label draws with no pointer and the job log says why. It can still pick a wrong object of a believable size, so a position dragged by hand always wins.
 - Drag a label and its target on the scene image, or move them with the arrow keys. Typed coordinates are gone.
 - A cue preset can name label themes and motions, and a Pipeline run uses them with nobody clicking.
+- A long background slot now picks a background clip, and a one-off moment picks a one-off clip, wherever the library says which is which. A background clip can no longer play as a cut sound; if one was pinned to a cut pool, the page reports it as unavailable. Older clips that say neither work as before.
 - Cut sounds and video sound effects are separate pools. A cue never picks a cut sound, and a sound effect joins a cut pool only if you pin it.
 - Video Assembly's layout and the thumbnail artwork are chosen from samples.
 - The label designs now ship inside the installed app, which is where a real render reads them.
