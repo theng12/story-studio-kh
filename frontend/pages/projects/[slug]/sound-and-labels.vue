@@ -251,33 +251,8 @@
                   <label>End (s)
                     <input v-model.number="row.cue.end_sec" class="input input-time" type="number" step="0.1" @input="markDirty()" />
                   </label>
-                  <label>Across (%)
-                    <input class="input input-time" type="number" :min="CUE_SAFE_MARGIN_PCT" :max="100 - CUE_SAFE_MARGIN_PCT" step="0.5" :value="cuePosition(row.cue).xPct" @input="setCueAxis(row.cue, 'x', Number(($event.target as HTMLInputElement).value))" />
-                  </label>
-                  <label>Down (%)
-                    <input class="input input-time" type="number" :min="CUE_SAFE_MARGIN_PCT" :max="100 - CUE_SAFE_MARGIN_PCT" step="0.5" :value="cuePosition(row.cue).yPct" @input="setCueAxis(row.cue, 'y', Number(($event.target as HTMLInputElement).value))" />
-                  </label>
                 </div>
-                <div class="sl-label-preview">
-                  <span class="sl-preview-caption">Preview over the real scene image</span>
-                  <div class="sl-frame">
-                    <!-- An image that fails to load falls back to the same
-                         honest empty state as one that does not exist. A
-                         broken-image icon would read as a bug, not as "this
-                         scene has no picture yet". -->
-                    <img
-                      v-if="sceneImageUrl(row.cue.scene_id) && !failedPreviews.has(row.cue.scene_id)"
-                      :src="sceneImageUrl(row.cue.scene_id)" alt="" class="sl-frame-image"
-                      @error="failedPreviews.add(row.cue.scene_id); failedPreviews = new Set(failedPreviews)"
-                    />
-                    <div v-else class="sl-frame-empty">{{ sceneImageUrl(row.cue.scene_id) ? 'No scene image yet' : 'No scene chosen' }}</div>
-                    <div class="sl-frame-cue" :class="`preview-${row.cue.template}`" :style="cueChipStyle(row.cue)">
-                      <span>{{ row.cue.template === 'map-pin' ? '●' : row.cue.template === 'chapter-plate' ? 'CHAPTER' : row.cue.template === 'archival-caption' ? 'ARCHIVE' : 'CONTEXT' }}</span>
-                      <strong>{{ row.cue.title || 'Cue title' }}</strong>
-                      <small v-if="row.cue.subtitle">{{ row.cue.subtitle }}</small>
-                    </div>
-                  </div>
-                </div>
+                <LabelPlacement :key="`${episodeId}:${row.cue.id}:${row.cue.scene_id}`" :cue="row.cue" :project-slug="slug" :image-url="sceneImageUrl(row.cue.scene_id)" @change="markDirty" />
               </AdvancedDisclosure>
             </div>
 
@@ -384,12 +359,8 @@ import { storedPresetAutoApprove } from '../../../utils/contextual-cues.js'
 import {
   CONTEXTUAL_CUE_CORNERS,
   CONTEXTUAL_CUE_CORNER_LABELS,
-  CUE_SAFE_MARGIN_PCT,
-  clampCuePct,
   hasPreciseCuePosition,
   isContextualCueCorner,
-  nearestCueCorner,
-  resolveContextualCuePosition,
   type ContextualCueCorner,
 } from '@shared/contextual-cue-position'
 
@@ -404,6 +375,7 @@ type LabelCue = {
   start_sec: number; end_sec: number; title: string; subtitle?: string
   kind: 'location_date' | 'historical_context' | 'person' | 'chapter'; placement: ContextualCueCorner
   position_x_pct?: number | null; position_y_pct?: number | null
+  target_x_pct?: number | null; target_y_pct?: number | null
   template: string
   entrance: 'fade' | 'slide' | 'dissolve'; exit: 'fade' | 'slide' | 'dissolve'
   status: LabelStatus; created_at: string; updated_at: string
@@ -564,8 +536,6 @@ const savedAt = ref('')
 const saveError = ref('')
 const proposing = ref(false)
 const playing = ref('')
-/** Scene ids whose preview image did not load. Never retried on every render. */
-const failedPreviews = ref<Set<string>>(new Set())
 const form = ref<ProbeForm>({ model: '', density: 'restrained', placement: 'top-right', auto_approve: false })
 useRememberedForm('sound-and-labels', slug, form, { include: ['model', 'density', 'placement', 'auto_approve'], version: 1 })
 const autoApproveNotice = ref<{ on: boolean; changed: boolean } | null>(null)
@@ -663,13 +633,6 @@ function soundForLabel(cue: LabelCue): SoundCue | undefined {
   return sounds.value?.cues.find(sound => sound.scene_id === cue.scene_id && sound.status !== 'excluded'
     && Math.abs(sound.start_sec - cue.start_sec) < 0.75)
 }
-function cuePosition(cue: Pick<LabelCue, 'placement' | 'position_x_pct' | 'position_y_pct'>) { return resolveContextualCuePosition(cue) }
-function cueChipStyle(cue: Pick<LabelCue, 'placement' | 'position_x_pct' | 'position_y_pct'>) {
-  const { xPct, yPct } = cuePosition(cue)
-  const tx = xPct <= 33 ? '0%' : xPct >= 67 ? '-100%' : '-50%'
-  const ty = yPct <= 33 ? '0%' : yPct >= 67 ? '-100%' : '-50%'
-  return { left: `${xPct}%`, top: `${yPct}%`, transform: `translate(${tx}, ${ty})` }
-}
 const ignoresCorner = (cue: LabelCue): boolean => cue.template === 'chapter-plate' && !hasPreciseCuePosition(cue)
 function clipKey(cue: SoundCue): string { return cue.clip ? `${cue.source === 'gateway' ? 'gateway' : 'pool'}:${cue.source === 'gateway' ? cue.clip : `${cue.pool_id || ''}:${cue.clip}`}` : '' }
 
@@ -688,6 +651,8 @@ function setLabelScene(cue: LabelCue, sceneId: string): void {
   // keeping absolute seconds that now point outside it.
   const duration = Math.max(2.25, Math.min(cue.end_sec - cue.start_sec, scene.end_sec - scene.start_sec))
   cue.scene_id = scene.id
+  cue.position_x_pct = null; cue.position_y_pct = null; cue.target_x_pct = null; cue.target_y_pct = null
+  info('Label placement cleared for the new scene.')
   cue.anchor_offset_sec = 0.15
   cue.start_sec = Number((scene.start_sec + 0.15).toFixed(3))
   cue.end_sec = Number((cue.start_sec + duration).toFixed(3))
@@ -709,18 +674,8 @@ function setAnchorWord(cue: LabelCue | SoundCue, value: string): void {
   else delete cue.anchor_word
   markDirty()
 }
-function setCuePosition(cue: LabelCue, xPct: number, yPct: number): void {
-  cue.position_x_pct = Number(clampCuePct(xPct).toFixed(1))
-  cue.position_y_pct = Number(clampCuePct(yPct).toFixed(1))
-  cue.placement = nearestCueCorner(cue.position_x_pct, cue.position_y_pct)
-  markDirty()
-}
 function useCueCorner(cue: LabelCue, corner: ContextualCueCorner): void {
   cue.placement = corner; cue.position_x_pct = null; cue.position_y_pct = null; markDirty()
-}
-function setCueAxis(cue: LabelCue, axis: 'x' | 'y', value: number): void {
-  const current = cuePosition(cue)
-  setCuePosition(cue, axis === 'x' ? value : current.xPct, axis === 'y' ? value : current.yPct)
 }
 function setTransition(cue: LabelCue, value: string): void {
   const transition = value === 'slide' || value === 'dissolve' ? value : 'fade'
@@ -833,6 +788,7 @@ function ensureSounds(): SoundTimeline {
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 let editSeq = 0
 let saveTail: Promise<void> = Promise.resolve()
+let timelineOwner: { project: string; episode: string } | null = null
 
 function isCurrentScope(project: string, episode: string, epoch: number): boolean {
   return scopeEpoch === epoch && slug.value === project && episodeId.value === episode
@@ -897,9 +853,7 @@ async function loadEpisode(): Promise<void> {
   // are read from it — the leak the audit found was a remembered form carrying
   // one episode's settings into another, which is why they are not remembered.
   labels.value = null; sounds.value = null; scenes.value = []; movedNotes.value = []
-  // §4 — a preview that FAILED for one episode must not suppress the same
-  // scene id in the next one, which may well have its own picture.
-  failedPreviews.value = new Set()
+  timelineOwner = null
   validation.value = { labels: [], sound: [] }
   poolClips.value = []; unavailablePools.value = []; libraryHits.value = []; libraryNote.value = ''
   settings.value = { max_spots_per_minute: 3, default_bed_gain_db: -20, default_spot_gain_db: -12, ducking_profile: 'gentle' }
@@ -915,6 +869,7 @@ async function loadEpisode(): Promise<void> {
     if (request !== loadSequence || !isCurrentScope(project, episode, epoch)) return
     config.value = { on_screen_text: data.config?.on_screen_text === true, sound: data.config?.sound === true }
     labels.value = data.labels || null
+    timelineOwner = { project, episode }
     sounds.value = data.sounds || null
     if (sounds.value?.settings) settings.value = { ...sounds.value.settings }
     scenes.value = data.scenes || []
@@ -951,8 +906,9 @@ async function writeTimeline(announce: boolean): Promise<void> {
     }
     return
   }
-  const project = slug.value
-  const episode = episodeId.value
+  const project = timelineOwner?.project
+  const episode = timelineOwner?.episode
+  if (!project || !episode) return
   const epoch = scopeEpoch
   const sentAt = editSeq
   const labelPayload = labels.value ? JSON.parse(JSON.stringify(labels.value.cues)) : null
