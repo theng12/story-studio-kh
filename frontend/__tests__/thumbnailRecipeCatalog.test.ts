@@ -200,7 +200,8 @@ test('thumbnail prompts can choose a catalog recipe without replacing visual art
   assert.match(page, /ThumbnailRecipePicker/)
   assert.match(page, /thumbnail_template_id/)
   assert.match(page, /<label>Visual art style<\/label>/)
-  assert.match(page, /thumb_title_mode: 'ai'/)
+  // The page's own headline-mode field (b6e156cd replaced the old `thumb_title_mode: 'ai'`).
+  assert.match(page, /thumb_headline_mode: 'short-hook'/)
   assert.match(page, /The episode title is drawn directly into every thumbnail/i)
   assert.match(page, /its own short text, written to suit it/i)
   assert.match(page, /thumbnailHeadlineMode/)
