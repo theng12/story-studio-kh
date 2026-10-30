@@ -71,6 +71,20 @@ describe('Choosing a sound', () => {
     assert.equal(long?.candidate.label, 'temple-bells.wav')
   })
 
+  test('known kinds must match before lexical ranking', () => {
+    const bed = candidate({ label: 'bed.wav', description: 'temple', kind: 'bed', duration_sec: 30 })
+    const spot = candidate({ label: 'spot.wav', description: 'temple bells', kind: 'spot', duration_sec: 1 })
+    assert.equal(selectSound('temple bells', 'bed', [spot, bed])?.candidate.label, 'bed.wav')
+    assert.equal(selectSound('temple bells', 'spot', [bed, spot])?.candidate.label, 'spot.wav')
+    assert.equal(selectSound('temple bells', 'bed', [spot]), null)
+    assert.equal(selectSound('temple bells', 'spot', [bed]), null)
+  })
+
+  test('older clips without a kind keep their existing eligibility', () => {
+    assert.equal(selectSound('temple bells', 'spot', [candidate()])?.candidate.label, 'temple-bells.wav')
+    assert.equal(selectSound('temple bells', 'bed', [candidate({ duration_sec: 30 })])?.candidate.label, 'temple-bells.wav')
+  })
+
   test('the P4 ranker overrides order but cannot invent a candidate', () => {
     const chosen: SoundRanker = {
       id: 'test-ranker',

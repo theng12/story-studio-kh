@@ -31,6 +31,7 @@ export interface SoundCandidate {
   /** Where the bytes live, for the mixer. Absent for a gateway clip until kept. */
   local_path?: string
   duration_sec?: number
+  kind?: SoundDesignCueKind
   /** Credits the clip published. Never synthesised for a pool clip. */
   credit?: SoundDesignCredit
 }
@@ -101,7 +102,7 @@ export function selectSound(
   kind: SoundDesignCueKind,
   candidates: readonly SoundCandidate[],
 ): { candidate: SoundCandidate; score: number; ranker: string | null } | null {
-  const usable = candidates.filter(candidate => (kind === 'bed' ? candidate.duration_sec !== undefined : true))
+  const usable = candidates.filter(candidate => (!candidate.kind || candidate.kind === kind) && (kind === 'bed' ? candidate.duration_sec !== undefined : true))
   if (!usable.length) return null
   let ranked: readonly SoundCandidate[] = usable
   if (ranker) {

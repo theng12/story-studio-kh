@@ -161,7 +161,7 @@ describe('tags', () => {
     answer = url => url.endsWith('/v1/sounds/library')
       ? json({
         clips: [
-          { sha256: 'a'.repeat(64), licence: 'cc0', title: 'Temple bells', source: 'freesound', tags: ['bell', 'temple'] },
+          { sha256: 'a'.repeat(64), licence: 'cc0', title: 'Temple bells', source: 'freesound', tags: ['bell', 'temple'], kind: 'spot' },
           { sha256: 'b'.repeat(64), licence: 'cc0', title: 'Old row', source: 'freesound' },
         ],
       })
@@ -171,7 +171,10 @@ describe('tags', () => {
     assert.deepEqual(kept.find(clip => clip.sha256.startsWith('a'))!.tags, ['bell', 'temple'])
     assert.deepEqual(kept.find(clip => clip.sha256.startsWith('b'))!.tags, [], 'absent tags are no tags, not an error')
 
+    assert.equal(kept.find(clip => clip.sha256.startsWith('a'))!.kind, 'spot')
+    assert.equal(kept.find(clip => clip.sha256.startsWith('b'))!.kind, undefined)
     const source = await fs.readFile(new URL('../generators/contextual-cues.ts', import.meta.url), 'utf8')
+    assert.match(source, /kind: clip\.kind/, 'the candidate carries the kind')
     assert.match(source, /\.\.\.\(clip\.tags \|\| \[\]\)/, 'the candidate description reads the tags')
   })
 })

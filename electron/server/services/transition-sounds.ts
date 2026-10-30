@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
-import type { ScenePlan, SoundDesignCue, SoundDesignCredit } from '../models/types.js'
+import type { ScenePlan, SoundDesignCue, SoundDesignCredit, SoundDesignCueKind } from '../models/types.js'
 import { reanchorSounds } from './sound-cue-anchors.js'
 import { DEFAULT_SOUND_DESIGN_SETTINGS } from './sound-design.js'
 
@@ -12,6 +12,7 @@ export interface TransitionClip {
   pool_id?: string
   label: string
   tags: string[]
+  kind?: SoundDesignCueKind
   credit?: SoundDesignCredit
 }
 
@@ -92,7 +93,7 @@ export async function listTransitionClips(): Promise<{ clips: TransitionClip[]; 
   try {
     const { listKeptSounds } = await import('../lib/gateway-sound-library.js')
     for (const clip of await listKeptSounds()) {
-      clips.push({ source: 'gateway', clip: clip.sha256, label: clip.credit.title || clip.sha256, tags: clip.tags, credit: clip.credit })
+      clips.push({ source: 'gateway', clip: clip.sha256, label: clip.credit.title || clip.sha256, tags: clip.tags, kind: clip.kind, credit: clip.credit })
     }
   } catch (error: any) {
     notes.push(`Gateway sound library unavailable: ${error?.message || error}`)
@@ -106,7 +107,7 @@ export function transitionClipKey(clip: Pick<TransitionClip, 'source' | 'pool_id
 
 /** Resolve against the current library; a missing pinned item is never silently substituted. */
 export function resolveTransitionSet(set: TransitionSet, library: TransitionClip[]): { clips: TransitionClip[]; missing: string[] } {
-  const available = new Map(library.map(clip => [transitionClipKey(clip), clip]))
+  const available = new Map(library.filter(clip => clip.kind !== 'bed').map(clip => [transitionClipKey(clip), clip]))
   const pinned = new Set(set.pinned.map(transitionClipKey))
   const excluded = new Set(set.excluded)
   const terms = set.terms.map(term => term.trim().toLowerCase()).filter(Boolean)
