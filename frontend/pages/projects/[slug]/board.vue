@@ -280,6 +280,7 @@
             </th>
             <th class="phase-head">Publishing</th>
             <th class="phase-head" colspan="3">Episode cost</th>
+            <th class="phase-head">YouTube analytics</th>
           </tr>
           <tr>
             <th
@@ -307,6 +308,7 @@
             <th class="col-cost sticky-head stage-head">Paid<br /><small>Gateway charge</small></th>
             <th class="col-cost sticky-head stage-head">Local<br /><small>Mac time · power</small></th>
             <th class="col-cost sticky-head stage-head">Waste<br /><small>Redone / failed</small></th>
+            <th class="col-cost sticky-head stage-head">Watch time<br /><small>{{ analyticsWindow }}</small></th>
           </tr>
         </thead>
         <tbody>
@@ -405,6 +407,9 @@
                 {{ formatWaste(costFor(ep.episode_code)?.waste) }}
               </span>
             </td>
+            <td class="col-cost">
+              <NuxtLink :to="`/projects/${slug}/upload/analytics`">{{ watchTimeFor(ep.episode_code) }}</NuxtLink>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -497,6 +502,43 @@ const route = useRoute()
 const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 const { get, patch, post } = useApi()
+interface BoardAnalytics {
+  empty_reason: string | null
+  partial_reason: string | null
+  start_date: string | null
+  end_date: string | null
+  episodes: Array<{ episode_code: string, metrics: { watch_minutes: { state: string, value?: number, reason?: string } } }>
+}
+const analytics = ref<BoardAnalytics | null>(null)
+const analyticsError = ref('')
+async function loadBoardAnalytics() {
+  const requestedSlug = slug.value
+  analytics.value = null
+  analyticsError.value = ''
+  try {
+    const result = await get<BoardAnalytics>(`/projects/${requestedSlug}/youtube/analytics`)
+    if (slug.value === requestedSlug) analytics.value = result
+  } catch {
+    if (slug.value === requestedSlug) analyticsError.value = 'Analytics could not be loaded'
+  }
+}
+const analyticsWindow = computed(() => analytics.value?.start_date && analytics.value.end_date
+  ? `${analytics.value.start_date} to ${analytics.value.end_date}` : 'Saved figures')
+function watchTimeFor(code: string): string {
+  if (analyticsError.value) return analyticsError.value
+  const data = analytics.value
+  if (!data) return 'Loading…'
+  if (data.empty_reason === 'no_channel_assigned' || data.partial_reason === 'not_connected') return 'Not connected'
+  const metric = data.episodes.find(episode => episode.episode_code === code)?.metrics.watch_minutes
+  if (!metric) return data.partial_reason === 'scope_missing' ? 'Analytics permission needed' : 'Not checked'
+  if (metric.state === 'value' && typeof metric.value === 'number' && Number.isFinite(metric.value)) return `${metric.value.toLocaleString()} min`
+  if (metric.state === 'no_data') return 'No data yet'
+  if (metric.state === 'not_available') return metric.reason || 'Not available'
+  if (data.partial_reason === 'scope_missing') return 'Analytics permission needed'
+  return 'Not checked'
+}
+onMounted(() => { void loadBoardAnalytics() })
+watch(slug, () => { void loadBoardAnalytics() })
 const { success, error: showError, info: showInfo } = useToast()
 const { ask } = useConfirm()
 // Search, filters and page live in the URL too, so Back and reload keep the owner's place.
