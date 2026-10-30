@@ -58,6 +58,37 @@
       </div>
     </section>
 
+    <section class="card sl-transitions">
+      <h2>Transition sounds</h2>
+      <p>Automatically plays a short sound at each scene change. Separate from scene sound effects; no review is needed.</p>
+      <div v-if="transitionError" role="alert">{{ transitionError }}</div>
+      <div class="sl-transition-controls">
+        <label><input type="checkbox" :checked="transitionChannel.enabled" @change="saveTransitionChannel({ enabled: ($event.target as HTMLInputElement).checked })" /> On for this channel</label>
+        <label>Channel set <select class="select" :value="transitionChannel.set_id" @change="saveTransitionChannel({ set_id: ($event.target as HTMLSelectElement).value })"><option v-for="set in transitionSets.filter(s => s.enabled)" :key="set.id" :value="set.id">{{ set.name }}</option></select></label>
+        <template v-if="episodeId">
+          <label>Episode <select class="select" :value="transitionOverride.enabled === undefined ? 'channel' : String(transitionOverride.enabled)" @change="setTransitionEnabled(($event.target as HTMLSelectElement).value)"><option value="channel">Follow channel</option><option value="true">On</option><option value="false">Off</option></select></label>
+          <label>Episode set <select class="select" :value="transitionOverride.set_id || ''" @change="saveTransitionOverride({ set_id: ($event.target as HTMLSelectElement).value || undefined })"><option value="">Follow channel</option><option v-for="set in transitionSets.filter(s => s.enabled)" :key="set.id" :value="set.id">{{ set.name }}</option></select></label>
+          <label>Volume (dB, -45 to -3) <input class="input" type="number" min="-45" max="-3" :value="transitionEffective.gain_db" @change="saveTransitionOverride({ gain_db: Number(($event.target as HTMLInputElement).value) })" /></label>
+          <button class="btn btn-secondary btn-sm" @click="saveTransitionOverride({ shuffle: (transitionOverride.shuffle || 0) + 1 })">Shuffle sounds</button>
+        </template>
+      </div>
+      <p v-if="selectedTransitionSet">{{ selectedTransitionSet.clips.length }} clips in {{ selectedTransitionSet.name }}<span v-if="!selectedTransitionSet.clips.length"> — this set is empty, so nothing will play.</span></p>
+      <p v-for="missing in selectedTransitionSet?.missing || []" :key="missing" role="status">Pinned sound unavailable: {{ missing }}</p>
+      <p v-for="note in transitionNotes" :key="note">{{ note }}</p>
+      <div v-if="selectedTransitionSet?.clips.length"><button class="btn btn-secondary btn-sm" @click="playTransition(selectedTransitionSet.clips[0]!)">Hear a sample</button></div>
+      <details><summary>Manage sets</summary>
+        <div v-for="(set, index) in transitionSets" :key="set.id" class="sl-transition-clip">
+          <label><input type="checkbox" :checked="set.enabled" @change="updateTransitionSet(index, { enabled: ($event.target as HTMLInputElement).checked })" /> Enabled</label>
+          <input class="input" :value="set.name" :aria-label="`Name of ${set.name}`" @change="updateTransitionSet(index, { name: ($event.target as HTMLInputElement).value })" />
+          <button class="btn btn-secondary btn-sm" :disabled="index === 0" @click="moveTransitionSet(index, -1)">Move up</button>
+          <button class="btn btn-secondary btn-sm" :disabled="index === transitionSets.length - 1" @click="moveTransitionSet(index, 1)">Move down</button>
+          <button class="btn btn-secondary btn-sm" @click="copyTransitionSet(index)">Copy</button>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="newTransitionSet">New set</button>
+      </details>
+      <details v-if="selectedTransitionSet"><summary>Choose sounds in this set</summary><div v-for="clip in transitionClips" :key="transitionKey(clip)" class="sl-transition-clip"><span>{{ clip.label }}</span><button class="btn btn-secondary btn-sm" @click="playTransition(clip)">Play</button><button class="btn btn-secondary btn-sm" @click="toggleTransitionClip(clip)">{{ selectedTransitionSet.clips.some(c => transitionKey(c) === transitionKey(clip)) ? 'Remove' : 'Pin' }}</button></div></details>
+    </section>
+
     <WorkspaceNotice v-if="!config.on_screen_text && !config.sound" tone="info" title="Both layers are off">
       Pick an episode and save a preset whenever you like. Turn a layer on only when its
       approved items should become part of the finished video.
@@ -410,6 +441,102 @@ const { get, post, put } = useApi()
 const freshAction = useFreshGenerationAction()
 const { success, info, error: showError, showAction } = useToast()
 const { isJobActiveFor } = useJobs()
+
+type TransitionClip = { source: 'pool' | 'gateway'; pool_id?: string; clip: string; label: string; tags: string[] }
+type TransitionSet = { id: string; name: string; enabled: boolean; terms: string[]; pinned: TransitionClip[]; excluded: string[]; clips: TransitionClip[]; missing: string[] }
+type TransitionSettings = { enabled: boolean; set_id: string; gain_db: number; shuffle?: number }
+const transitionChannel = ref<TransitionSettings>({ enabled: false, set_id: 'mixed', gain_db: -12 })
+const transitionEffective = ref<TransitionSettings>({ enabled: false, set_id: 'mixed', gain_db: -12 })
+const transitionOverride = ref<Partial<TransitionSettings>>({})
+const transitionSets = ref<TransitionSet[]>([])
+const transitionClips = ref<TransitionClip[]>([])
+const transitionNotes = ref<string[]>([])
+const transitionError = ref('')
+const selectedTransitionSet = computed(() => transitionSets.value.find(set => set.id === (episodeId.value ? transitionEffective.value.set_id : transitionChannel.value.set_id)))
+const transitionKey = (clip: TransitionClip) => JSON.stringify([clip.source, clip.pool_id || '', clip.clip])
+let transitionEpoch = 0
+async function loadTransitions(): Promise<void> {
+  const epoch = ++transitionEpoch
+  const project = slug.value, episode = episodeId.value
+  transitionOverride.value = {}
+  transitionSets.value = []
+  transitionClips.value = []
+  transitionNotes.value = []
+  transitionError.value = ''
+  try {
+    const base = `/projects/${encodeURIComponent(project)}/sound-and-labels`
+    const [configResult, library, episodeResult] = await Promise.all([
+      get<any>(`${base}/transitions/config`), get<any>(`${base}/transitions/library`),
+      episode ? get<any>(`${base}/${encodeURIComponent(episode)}/transitions`) : Promise.resolve(null),
+    ])
+    if (epoch !== transitionEpoch) return
+    transitionChannel.value = configResult.settings
+    transitionSets.value = library.sets
+    transitionClips.value = library.clips
+    transitionNotes.value = library.notes
+    transitionOverride.value = episodeResult?.override || {}
+    transitionEffective.value = episodeResult?.settings || configResult.settings
+  } catch (error: any) { if (epoch === transitionEpoch) transitionError.value = error?.data?.detail || error?.message || 'Could not load transition sounds.' }
+}
+async function saveTransitionChannel(settings: Partial<TransitionSettings>): Promise<void> {
+  try { await put(`/projects/${encodeURIComponent(slug.value)}/sound-and-labels/transitions/config`, { settings }); await loadTransitions() }
+  catch (error: any) { transitionError.value = error?.data?.detail || error?.message || 'Could not save channel settings.' }
+}
+async function saveTransitionOverride(patch: Partial<TransitionSettings>): Promise<void> {
+  if (!episodeId.value) return
+  try { await put(`/projects/${encodeURIComponent(slug.value)}/sound-and-labels/${encodeURIComponent(episodeId.value)}/transitions`, { ...transitionOverride.value, ...patch }); await loadTransitions() }
+  catch (error: any) { transitionError.value = error?.data?.detail || error?.message || 'Could not save episode settings.' }
+}
+function setTransitionEnabled(value: string): void { void saveTransitionOverride({ enabled: value === 'channel' ? undefined : value === 'true' }) }
+function playTransition(clip: TransitionClip): void {
+  audio?.pause()
+  const root = `/projects/${encodeURIComponent(slug.value)}/sound-and-labels/sounds`
+  const url = clip.source === 'gateway' ? `${root}/library-audio/${encodeURIComponent(clip.clip)}` : `${root}/pool-audio/${encodeURIComponent(clip.pool_id || '')}/${encodeURIComponent(clip.clip)}`
+  audio = new Audio(url)
+  void audio.play().catch(() => showError(`Could not play ${clip.label}.`))
+}
+async function persistTransitionSets(sets: Array<Omit<TransitionSet, 'clips' | 'missing'>>): Promise<void> {
+  try { await put(`/projects/${encodeURIComponent(slug.value)}/sound-and-labels/transitions/config`, { sets }); await loadTransitions() }
+  catch (error: any) { transitionError.value = error?.data?.detail || error?.message || 'Could not save the sets.' }
+}
+function editableTransitionSets(): Array<Omit<TransitionSet, 'clips' | 'missing'>> {
+  return transitionSets.value.map(({ clips: _clips, missing: _missing, ...set }) => set)
+}
+function updateTransitionSet(index: number, patch: Partial<TransitionSet>): void {
+  const sets = editableTransitionSets()
+  if (!sets[index]) return
+  if (patch.name !== undefined && !patch.name.trim()) { transitionError.value = 'A set needs a name.'; return }
+  sets[index] = { ...sets[index]!, ...patch }
+  void persistTransitionSets(sets)
+}
+function moveTransitionSet(index: number, direction: number): void {
+  const sets = editableTransitionSets(), target = index + direction
+  if (!sets[index] || !sets[target]) return
+  ;[sets[index], sets[target]] = [sets[target]!, sets[index]!]
+  void persistTransitionSets(sets)
+}
+function copyTransitionSet(index: number): void {
+  const sets = editableTransitionSets(), set = sets[index]
+  if (!set) return
+  sets.splice(index + 1, 0, { ...set, id: crypto.randomUUID(), name: `${set.name} copy`, pinned: [...set.pinned], excluded: [...set.excluded] })
+  void persistTransitionSets(sets)
+}
+function newTransitionSet(): void {
+  void persistTransitionSets([...editableTransitionSets(), { id: crypto.randomUUID(), name: 'New set', enabled: true, terms: [], pinned: [], excluded: [] }])
+}
+async function toggleTransitionClip(clip: TransitionClip): Promise<void> {
+  const current = selectedTransitionSet.value
+  if (!current) return
+  const key = transitionKey(clip)
+  const included = current.clips.some(item => transitionKey(item) === key)
+  const sets = transitionSets.value.map(({ clips: _clips, missing: _missing, ...set }) => set.id === current.id ? {
+    ...set,
+    pinned: included ? set.pinned.filter(item => transitionKey(item) !== key) : [...set.pinned.filter(item => transitionKey(item) !== key), clip],
+    excluded: included ? [...new Set([...set.excluded, key])] : set.excluded.filter(item => item !== key),
+  } : set)
+  try { await put(`/projects/${encodeURIComponent(slug.value)}/sound-and-labels/transitions/config`, { sets }); await loadTransitions() }
+  catch (error: any) { transitionError.value = error?.data?.detail || error?.message || 'Could not save the set.' }
+}
 
 const episodeId = ref('')
 const config = ref({ on_screen_text: false, sound: false })
@@ -954,19 +1081,27 @@ const saveStateLabel = computed(() => {
 })
 
 watch(slug, () => { projectEpoch++; void loadConfig() }, { flush: 'sync' })
-watch([slug, episodeId], () => { scopeEpoch++; autoApproveNotice.value = null; void loadEpisode() }, { flush: 'sync' })
+watch([slug, episodeId], () => { scopeEpoch++; autoApproveNotice.value = null; void loadEpisode(); void loadTransitions() }, { flush: 'sync' })
 watch(() => config.value.on_screen_text, () => { void loadEpisode() })
 watch(() => config.value.sound, () => { void loadEpisode() })
 watch(jobActive, (active, was) => { if (was && !active) void loadEpisode() })
 onBeforeUnmount(() => { void saveNow(false); audio?.pause() })
 onMounted(async () => {
   await loadConfig()
+  await loadTransitions()
   await Promise.all([activePresets.load(), soundPresets.load()])
   autoApproveNotice.value = null
 })
 </script>
 
 <style scoped>
+.sl-transitions { margin: 1rem 0; padding: 1.25rem 1.5rem; }
+.sl-transitions h2 { font-size: 1.1rem; }
+.sl-transitions p { color: var(--text-muted); }
+.sl-transition-controls { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; }
+.sl-transition-controls label { display: grid; gap: .35rem; }
+.sl-transition-clip { display: flex; align-items: center; gap: .5rem; margin: .4rem 0; }
+.sl-transition-clip span { flex: 1; overflow-wrap: anywhere; }
 .sound-labels-workspace :deep(.workspace-command-surface .top-action-bar) { margin: 0; border: 0; background: transparent; box-shadow: none; }
 .section-kicker { display: block; color: var(--accent-gold); text-transform: uppercase; letter-spacing: .09em; font-weight: 700; font-size: .72rem; }
 .sl-switches { display: flex; align-items: center; justify-content: space-between; gap: 2rem; margin: 1rem 0; padding: 1.25rem 1.5rem; }

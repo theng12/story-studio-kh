@@ -2688,10 +2688,40 @@ async function hydrateEpisodeRenderCues(
   } else if (soundConfig.enabled && !soundFailure && job) {
     job.output_lines.push(`Sound: mixing ${approvedSoundCues.length} approved sound${approvedSoundCues.length === 1 ? '' : 's'}.`)
   }
+  const transitionCues: SoundDesignCue[] = []
+  try {
+    const transitions = await import('../services/transition-sounds.js')
+    const channel = await pm.getConfig(slug)
+    const episode = await transitions.readTransitionEpisodeSettings(planPath)
+    const settings = transitions.effectiveTransitionSettings((channel as any)?.transition_sounds, episode)
+    if (settings.enabled) {
+      const sets = Array.isArray((channel as any)?.transition_sound_sets) ? (channel as any).transition_sound_sets : transitions.DEFAULT_TRANSITION_SETS
+      const set = sets.find((item: any) => item.id === settings.set_id && item.enabled)
+      if (!set) job?.output_lines.push('Transition sounds: selected set is missing or off; no transition sounds were mixed.')
+      else {
+        const library = await transitions.listTransitionClips()
+        for (const note of library.notes) job?.output_lines.push(`Transition sounds: ${note}`)
+        const resolved = transitions.resolveTransitionSet(set, library.clips)
+        for (const missing of resolved.missing) job?.output_lines.push(`Transition sounds: pinned clip "${missing}" is unavailable.`)
+        const placed = transitions.placeTransitionSounds(plan, episodeId, episode.shuffle || 0, resolved.clips, settings.gain_db)
+        for (const cue of placed) {
+          try {
+            await approvedSoundDesignMixCues([cue])
+            transitionCues.push(onAudioClock(cue))
+          } catch (error: any) {
+            job?.output_lines.push(`Transition sounds: "${cue.label}" could not be mixed: ${error?.message || error}`)
+          }
+        }
+        if (!placed.length) job?.output_lines.push('Transition sounds: the selected set is empty, so no transition sounds were mixed.')
+      }
+    }
+  } catch (error: any) {
+    job?.output_lines.push(`Transition sounds could not be prepared: ${error?.message || error}. Rendering without them.`)
+  }
   // Per-clip credits for the Gateway library's licences. Recorded on the job
   // result so the credits survive into the publish record, and printed here so
   // an episode that used one says so where the render is reviewed.
-  const credits = formatSoundCredits(approvedSoundCues)
+  const credits = formatSoundCredits([...approvedSoundCues, ...transitionCues])
   if (credits.length) {
     job?.output_lines.push(`Sound credits (${credits.length} clip${credits.length === 1 ? '' : 's'}):`)
     for (const line of credits) job?.output_lines.push(`  ${line}`)
@@ -2701,9 +2731,9 @@ async function hydrateEpisodeRenderCues(
   // reaches here instead of throwing — so the ducking profile falls back to the
   // shipped default rather than dereferencing null. With no approved cues the
   // mixer is a no-op either way; the field only exists to keep the shape stable.
-  req.sound_design = soundConfig.enabled
+  req.sound_design = soundConfig.enabled || transitionCues.length
     ? {
-        cues: approvedSoundCues,
+        cues: [...approvedSoundCues, ...transitionCues],
         ducking_profile: soundTimeline?.settings.ducking_profile ?? DEFAULT_SOUND_DESIGN_SETTINGS.ducking_profile,
       }
     : undefined

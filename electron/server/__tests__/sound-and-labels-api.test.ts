@@ -76,6 +76,22 @@ after(async () => {
   await isolated.cleanup()
 })
 
+describe('transition settings storage', () => {
+  test('channel settings are inherited and explicit episode values survive channel changes', async () => {
+    const initial = await get(`/${episode}/transitions`)
+    assert.equal(initial.body.settings.enabled, false)
+    assert.equal((await put('/transitions/config', { settings: { enabled: true, set_id: 'whooshes' } })).status, 200)
+    const inherited = await get(`/${episode}/transitions`)
+    assert.equal(inherited.body.settings.enabled, true)
+    assert.equal(inherited.body.settings.set_id, 'whooshes')
+    assert.equal((await put(`/${episode}/transitions`, { enabled: false, set_id: 'paper-pencil' })).status, 200)
+    await put('/transitions/config', { settings: { enabled: false, set_id: 'mixed' } })
+    const saved = await get(`/${episode}/transitions`)
+    assert.equal(saved.body.settings.enabled, false)
+    assert.equal(saved.body.settings.set_id, 'paper-pencil')
+  })
+})
+
 describe('one read answers for both halves', () => {
   test('the switches, the timelines, the scenes and one readiness block come back together', async () => {
     const res = await get(`/${episode}`)
