@@ -570,6 +570,7 @@ export async function checkpointSceneImage(
     // image: whatever the owner decided since (approval, motion choice) stands. Approval is only
     // ever added here, never cleared. A genuinely different image still waits for the owner below.
     if (scene.image_path === imagePath && scene.image_sha256 === sha256) {
+      scene.rendered_prompt = renderedPrompt
       if (autoApproveGenerated === true) {
         plan.auto_approve_generated = true
         scene.approved = true

@@ -1207,6 +1207,11 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
               // AND has not already settled. Hash equality alone once let a
               // six-day-old failed job satisfy every future Retry.
               const hashMatches = manifestEntry?.input_hash === expectedInputHash
+              // Finish has a new action scope; compare recovery against the scope that actually submitted the saved request.
+              const savedScope = manifestEntry?.request_scope || ''
+              const savedPromptMatches = !!savedScope && (manifestEntry?.original_output_selector && originalSelector && capturedReferences
+                ? manifestEntry.input_hash === buildPaidImageOriginalIdentity({ prompt: finalPrompt, selector: originalSelector, references: capturedReferences.inputs, baseScope: logicalPaidScope(manifestEntry, savedScope) }).inputHash
+                : manifestEntry?.input_hash === hashRequest(savedScope))
               const hasDurableSavedIdentity = Boolean(manifestEntry?.task_id || manifestEntry?.idempotency_key)
               const explicitFreshAction = Boolean(freshGenerationAction)
               const freshActionId = freshGenerationAction?.id || ''
@@ -1631,7 +1636,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                 () => persistImagePath(
                   scene.id,
                   outPath,
-                  sceneManualFinish && recovery.kind === 'recovered' && !hashMatches ? '' : scene.visual_prompt,
+                  sceneManualFinish && recovery.kind === 'recovered' && !hashMatches && !savedPromptMatches ? '' : scene.visual_prompt,
                 ),
                 path.join(trashRootFor(outDir, pm.getProjectDir(job.project_slug) ?? outDir, job.project_slug), 'scene-images'),
               )

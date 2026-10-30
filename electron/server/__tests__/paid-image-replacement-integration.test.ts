@@ -748,7 +748,7 @@ test('Image Pool and paid thumbnails each retry one released exhausted failover 
   }
 })
 
-test('manual Finish rejoins an accepted image through recovery without another provider POST', async () => {
+for (const matchingPrompt of [true, false]) test(`manual Finish rejoins an accepted image without another POST; ${matchingPrompt ? 'matching' : 'changed'} prompt`, async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   try {
@@ -784,9 +784,10 @@ test('manual Finish rejoins an accepted image through recovery without another p
     assert.equal(submitted.status, 202)
     const accepted = await submitted.json() as { id: string; state: string }
     assert.equal(accepted.state, 'accepted')
+    const { hashInput } = await import('../services/task-manifest.js')
     await recordTaskStrict(outDir, 'scene-001.png', {
       provider: 'genstudio-image', task_id: accepted.id, submitted_at: new Date().toISOString(),
-      input_hash: 'old-active-input', idempotency_key: idempotencyKey, operation: 'image',
+      input_hash: hashInput(`old-active-scope\n${matchingPrompt ? 'A lantern in a quiet archive.' : 'An older scene.'}`), idempotency_key: idempotencyKey, operation: 'image',
       last_state: 'accepted', request_scope: 'old-active-scope',
     })
     const postsBeforeFinish = service.providerSubmissionCount('image')
@@ -805,7 +806,8 @@ test('manual Finish rejoins an accepted image through recovery without another p
     }
     await writeAuthoritativeFixture(finishJob)
 
-    assert.equal(await runContinuityRenderJob(finishJob), undefined)
+    if (matchingPrompt) assert.equal(await runContinuityRenderJob(finishJob), undefined)
+    else await assert.rejects(runContinuityRenderJob(finishJob), /image was rendered from an outdated prompt/)
     assert.equal(service.providerSubmissionCount('image'), postsBeforeFinish, 'Finish only rejoins the accepted request')
     await sharp(path.join(outDir, 'scene-001.png')).stats()
     const completed = (await readManifest(outDir)).tasks['scene-001.png']!
@@ -1081,7 +1083,7 @@ for (const control of ['throws', 'succeeded'] as const) {
           await assert.rejects(runContinuityRenderJob(job), (error: any) => {
             assert.equal(error.message,
               "Scene images incomplete: 0 of 1 made; finished images are saved. Scene 1 couldn't be made after 1 try: "
-              + 'The original task may still be recoverable; no replacement was submitted. Press Retry to try again.')
+              + 'The original task may still be recoverable; no replacement was submitted. Press Retry to replace the listed images; completed images are kept.')
             return true
           })
           assert.equal(service.providerSubmissionCount('image'), 0, 'paid work never resubmits while the original may be recoverable')
@@ -3052,7 +3054,7 @@ test('an unfinished scene image is explained in plain words with what to do next
   const issues = [{ item_id: 'tn0355-scene-0065', reason: 'No free Mac answered in time.' }]
   assert.equal(
     unresolvedSceneImagesMessage({ auto_retry: { eligible: true, reason: '', attempt: 3, max_attempts: 3 } }, scenes, issues),
-    "Scene images incomplete: 1 of 2 made; finished images are saved. Scene 65 couldn't be made after 3 tries: No free Mac answered in time. Press Retry to try again.",
+    "Scene images incomplete: 1 of 2 made; finished images are saved. Scene 65 couldn't be made after 3 tries: No free Mac answered in time. Press Retry to replace the listed images; completed images are kept.",
   )
   assert.match(
     unresolvedSceneImagesMessage({ auto_retry: { eligible: true, reason: '', attempt: 1, max_attempts: 3 } }, scenes, issues),
@@ -3123,7 +3125,7 @@ test('lenient: a free-fleet explicit regeneration whose one request failed submi
   })
 })
 
-test('lenient: on the last automatic try a free-fleet scene that still fails borrows its neighbour\'s picture', async () => {
+test('lenient: a borrowed neighbour picture remains visible but fails the stale-image completion check', async () => {
   await withFreeFleetContinuity('Free neighbour reuse', async ({ service, project, episodeId, paths, outDir }) => {
     const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
     const planPath = path.join(paths.scene_prompts_dir, 'scene_plan.json')
@@ -3146,7 +3148,7 @@ test('lenient: on the last automatic try a free-fleet scene that still fails bor
     }
     await writeAuthoritativeFixture(job)
 
-    await runContinuityRenderJob(job)
+    await assert.rejects(runContinuityRenderJob(job), /image was rendered from an outdated prompt/)
     assert.ok(job.output_lines.some((line: string) => /Scene 2 could not be made; using scene 1's picture/.test(line)), job.output_lines.join('\n'))
     const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
     const borrowed = plan.scenes.find((scene: any) => scene.id === 'scene-002')

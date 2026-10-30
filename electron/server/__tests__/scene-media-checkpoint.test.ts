@@ -98,6 +98,18 @@ describe('scene media checkpoints', () => {
     assert.equal(plan.scenes.find(scene => scene.id === 'scene-1')?.approved, false, 'unapproved stays unapproved')
   })
 
+  it('records the new prompt when a render produces identical image bytes', async () => {
+    const { dir, planPath } = await fixture()
+    const image = path.join(dir, 'scene-1.png')
+    await writeValidImage(image)
+    await checkpointSceneImage(planPath, 'scene-1', image, 'older prompt', false)
+    await ownerSetApproved(planPath, 'scene-1', true)
+    const plan = await checkpointSceneImage(planPath, 'scene-1', image, 'Prompt one', false)
+    assert.equal(plan.scenes[0]?.rendered_prompt, 'Prompt one')
+    assert.equal(plan.scenes[0]?.approved, true)
+    assert.equal((await auditSceneImageCompletion(planPath, ['scene-1'], [dir])).completed, 1)
+  })
+
   it('a re-registered image keeps its motion choice and still follows auto_approve_generated', async () => {
     const { dir, planPath } = await fixture()
     const image = path.join(dir, 'scene-1.png')
