@@ -40,6 +40,8 @@ import os from 'os'
 import { hashInput, readManifest, recordTask, recordTaskStrict, type TaskManifestEntry } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import { getApiKey } from '../services/app-secrets-store.js'
+import * as pm from '../services/project-manager.js'
+import { copyToTrashSync, trashRootFor } from '../lib/trash-move.js'
 import {
   buildGenStudioVideoIdempotencyKey,
   cheapestGenStudioVideoVariant,
@@ -888,6 +890,10 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
   const outputStat = await fs.stat(candidatePath)
   if (!outputStat.isFile() || outputStat.size <= 0) throw new Error(`Downloaded clip is empty for scene ${scene_id}`)
   const measuredDurationSeconds = await assertPlayableSceneClip(candidatePath, durationSeconds)
+  const previous = await fs.stat(outPath).catch(() => null)
+  if (previous?.isFile() && previous.size > 0) {
+    copyToTrashSync(outPath, path.join(trashRootFor(outDir, pm.getProjectDir(job.project_slug) ?? outDir, job.project_slug), 'scene-clips', path.basename(outPath)), 'scene-clips')
+  }
   await fs.rename(candidatePath, outPath)
   job.progress = 95
 

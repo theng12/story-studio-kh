@@ -14,6 +14,7 @@ import { isDecodableImage } from '../lib/image-validation.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { registry } from '../providers/registry.js'
 import { recordTask, recordTaskStrict, hashInput, type TaskManifestEntry } from '../services/task-manifest.js'
+import { trashRootFor } from '../lib/trash-move.js'
 import { resolveSubfolderNames, resolveEpisodePathsByCode } from '../services/utils.js'
 import { resolveReadPath } from '../lib/episode-artifacts.js'
 import * as pm from '../services/project-manager.js'
@@ -621,6 +622,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
     ? ((req as any).thumbnail_reference_asset || (config as any).thumbnail_reference_asset || null)
     : null
   const projectRootDir = pm.getProjectDir(project_slug) || path.join(pm.projectsRoot(), project_slug)
+  const trashDirFor = (anchor: string, kind: string) => path.join(trashRootFor(anchor, projectRootDir, project_slug), kind)
   const savedThumbnailReferencePath = savedThumbnailReference?.id && typeof savedThumbnailReference?.filename === 'string'
     ? path.join(projectRootDir, 'thumbnail-reference-assets', savedThumbnailReference.filename)
     : ''
@@ -1263,7 +1265,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (current.recovery.kind === 'recovered') {
             const recovered = current.recovery
             for (let i = 0; i < recovered.urls.length; i++) {
-              await saveGenStudioImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!sceneOutputFormat })
+              await saveGenStudioImage(recovered.urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!sceneOutputFormat, trashDir: trashDirFor(bgDir, 'scene-images') })
             }
             await recordImageState(bgDir, filename, current, 'succeeded', recovered.taskId, '')
             completedCount++
@@ -1306,7 +1308,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             )))
           }
           for (let i = 0; i < urls.length; i++) {
-            await saveGenStudioImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!sceneOutputFormat })
+            await saveGenStudioImage(urls[i], path.join(bgDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!sceneOutputFormat, trashDir: trashDirFor(bgDir, 'scene-images') })
           }
           completedCount++
           job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
@@ -1626,7 +1628,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
           if (current.recovery.kind === 'recovered') {
             const recovered = current.recovery
             for (let i = 0; i < recovered.urls.length; i++) {
-              await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!thumbOutputFormat })
+              await saveGenStudioImage(recovered.urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!thumbOutputFormat, trashDir: trashDirFor(thumbDir, 'thumbnails') })
             }
             if (current.paidRecovery) {
               await jq.checkpointPaidImageReplacementAttempt(job, filename, {
@@ -1719,7 +1721,7 @@ export async function generateImages(job: Job): Promise<jq.JobExecutorResult> {
             )))
           }
           for (let i = 0; i < urls.length; i++) {
-            await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!thumbOutputFormat })
+            await saveGenStudioImage(urls[i], path.join(thumbDir, `${stem}_v${i + 1}.png`), makeChunkCb(), { compress: !!thumbOutputFormat, trashDir: trashDirFor(thumbDir, 'thumbnails') })
           }
           if (current.paidReplacement) {
             const actualSettledCredits = authoritativePaidImageSettledCredits(result.settledCredits)

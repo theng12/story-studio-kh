@@ -22,6 +22,7 @@ import { resolveOutputFormat } from '../services/generation-compression.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import * as pm from '../services/project-manager.js'
+import { trashRootFor } from '../lib/trash-move.js'
 import * as jq from '../services/job-queue.js'
 import {
   compareAndRecordImageTaskStrict,
@@ -1632,6 +1633,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
                   outPath,
                   sceneManualFinish && recovery.kind === 'recovered' && !hashMatches ? '' : scene.visual_prompt,
                 ),
+                path.join(trashRootFor(outDir, pm.getProjectDir(job.project_slug) ?? outDir, job.project_slug), 'scene-images'),
               )
               if (!promoted) throw new Error('A newer image request owns this scene; the late result was not applied.')
               if (isPaidReplacement) {

@@ -31,6 +31,7 @@ import { resolveEpisodePathsByCode, resolveSubfolderNames, resolveScenePlanPath,
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as pm from '../services/project-manager.js'
+import { trashRootFor } from '../lib/trash-move.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { Job, ScenePlan } from '../models/types.js'
 import { assertScenePromptsRenderable } from '../services/scene-prompt-integrity.js'
@@ -378,6 +379,7 @@ export async function generateSceneImageJob(job: Job): Promise<void> {
     async () => {
       await checkpointSceneImage(planPath, scene_id, outPath, scene.visual_prompt, autoApproveOn(params.auto_approve_generated), liveSceneAutoApprove(job.project_slug))
     },
+    path.join(trashRootFor(outDir, pm.getProjectDir(job.project_slug) ?? outDir, job.project_slug), 'scene-images'),
   )
   if (!promoted) throw new Error('A newer image request owns this scene; the late result was not applied.')
   const outputStat = await fs.stat(outPath)

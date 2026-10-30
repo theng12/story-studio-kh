@@ -159,6 +159,31 @@ test('recordTask: writes to different dirs do not block each other', async () =>
   }
 })
 
+test('a replaced scene image is copied to Trash; a first render copies nothing', async t => {
+  const dir = await fs.mkdtemp(path.join(testData.dir, 'scene-image-trash-'))
+  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  const trashDir = path.join(dir, '_trash', 'scene-images')
+  const filename = 'scene-001.png'
+  const outputPath = path.join(dir, filename)
+  const owner = {
+    provider: 'genstudio', task_id: 'task-a', submitted_at: 'ts-a', operation: 'image' as const,
+    idempotency_key: 'key-a', input_hash: 'hash-a', request_scope: 'scope-a', last_state: 'prepared',
+  }
+  await recordTaskStrict(dir, filename, owner)
+  const firstStage = path.join(dir, '.first.png')
+  await fs.writeFile(firstStage, 'first')
+  assert.equal(await promoteCurrentImageTaskArtifactStrict(dir, filename, owner, firstStage, outputPath, async () => {}, trashDir), true)
+  assert.equal(await fs.readdir(trashDir).catch(() => []).then(rows => rows.length), 0, 'a first render keeps no copy')
+
+  const nextStage = path.join(dir, '.next.png')
+  await fs.writeFile(nextStage, 'next')
+  assert.equal(await promoteCurrentImageTaskArtifactStrict(dir, filename, owner, nextStage, outputPath, async () => {}, trashDir), true)
+  const kept = await fs.readdir(trashDir)
+  assert.equal(kept.length, 1)
+  assert.equal(await fs.readFile(path.join(trashDir, kept[0]!), 'utf8'), 'first')
+  assert.equal(await fs.readFile(outputPath, 'utf8'), 'next')
+})
+
 test('a superseded scene attempt cannot reclaim ownership or replace the winner', async t => {
   const dir = await fs.mkdtemp(path.join(testData.dir, 'scene-image-owner-'))
   t.after(() => fs.rm(dir, { recursive: true, force: true }))

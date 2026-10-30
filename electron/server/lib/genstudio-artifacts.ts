@@ -2,6 +2,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import sharp from 'sharp'
 import { assertDecodableImage, clearImageValidationCache } from './image-validation.js'
+import { copyToTrashSync } from './trash-move.js'
 
 export interface GenStudioImageSaveOptions {
   /**
@@ -11,6 +12,8 @@ export interface GenStudioImageSaveOptions {
    * many places, exactly as "Free up space" already does.
    */
   compress?: boolean
+  /** Where a replaced image is copied before the new one takes its place. First renders copy nothing. */
+  trashDir?: string
 }
 
 /**
@@ -47,6 +50,10 @@ export async function saveGenStudioImage(
 ): Promise<void> {
   const temporaryPath = await stageGenStudioImage(artifact, savePath, options)
   try {
+    const previous = options.trashDir ? await fs.stat(savePath).catch(() => null) : null
+    if (previous?.isFile() && previous.size > 0) {
+      copyToTrashSync(savePath, path.join(options.trashDir!, path.basename(savePath)), 'images')
+    }
     await fs.rename(temporaryPath, savePath)
     clearImageValidationCache(savePath)
     const bytes = await fs.stat(savePath).then(stat => stat.size)

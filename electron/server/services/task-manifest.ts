@@ -26,6 +26,7 @@ import { createHash } from 'crypto'
 import { withCrossProcessLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import type { TtsProvenanceFacts } from '../contracts/tts-provenance.js'
 import { clearImageValidationCache, isDecodableImage } from '../lib/image-validation.js'
+import { copyToTrashSync } from '../lib/trash-move.js'
 
 const FILENAME = '.task-manifest.json'
 
@@ -413,12 +414,17 @@ export async function promoteCurrentImageTaskArtifactStrict(
   stagingPath: string,
   outputPath: string,
   checkpoint: () => Promise<void>,
+  trashDir?: string,
 ): Promise<boolean> {
   return withCrossProcessLock(manifestPath(assetDir), async () => {
     const current = (await readManifestStrict(assetDir)).tasks[filename]
     if (!sameImageAttempt(current, expected)) {
       await fs.rm(stagingPath, { force: true }).catch(() => {})
       return false
+    }
+    const previous = await fs.stat(outputPath).catch(() => null)
+    if (trashDir && previous?.isFile() && previous.size > 0) {
+      copyToTrashSync(outputPath, path.join(trashDir, path.basename(outputPath)), 'scene-images')
     }
     await fs.rename(stagingPath, outputPath)
     clearImageValidationCache(outputPath)
