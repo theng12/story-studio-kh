@@ -192,6 +192,7 @@ test('a save serializes on one tail and keeps edits made during the first write'
   const runtime = new Function('pending', 'writes', compiled(`
     const slug = { value: 'alpha' }
     const episodeId = { value: 'episode-a' }
+    const timelineOwner = { project: 'alpha', episode: 'episode-a' }
     const labels = { value: { cues: [{ id: 'cue-1', title: 'first' }] } }
     const sounds = { value: null }
     const settings = { value: { max_spots_per_minute: 3 } }
