@@ -291,6 +291,7 @@ const genCount = ref(0)
 const batchBusy = ref(false)
 interface SongPoolMusicModel extends PricedMusicModel {
   id: string
+  provider_name?: string | null
   display_name: string
   price_version: string
   chargeable?: boolean

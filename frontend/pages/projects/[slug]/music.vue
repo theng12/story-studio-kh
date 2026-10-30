@@ -314,6 +314,7 @@ interface MixPlan {
 }
 interface MusicModel extends PricedMusicModel {
   id: string
+  provider_name?: string | null
   display_name: string
   price_version: string
   chargeable?: boolean
