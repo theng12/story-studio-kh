@@ -52,6 +52,14 @@ test('skips a model file already correct', () => {
 test('continues without a kit model', () => {
   const f = fixture(); const r = f.run(); assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /download/)
 })
+test('reports a missing kit model file', () => {
+  const f = fixture(); const m = model(f); fs.renameSync(m.source, `${m.source}.moved`)
+  const r = f.run(); assert.equal(r.status, 1); assert.match(r.stderr, /missing: .*model\.onnx/); assert.ok(fs.existsSync(f.env.STORY_STUDIO_INSTALL_TARGET))
+})
+test('refuses an incomplete hash list', () => {
+  const f = fixture(); model(f); fs.writeFileSync(path.join(f.kit, 'EmbeddingGemma/FILECOUNT'), '2\n')
+  const r = f.run(); assert.equal(r.status, 1); assert.match(r.stderr, /expected 2/)
+})
 test('preserves the old app when replacing it', () => {
   const f = fixture(); assert.equal(f.run().status, 0); const r = f.run(); assert.equal(r.status, 0, r.stderr); assert.ok(fs.existsSync(path.join(f.env.STORY_STUDIO_INSTALL_TRASH, 'Story Studio KH 1.2.3.app')))
 })
