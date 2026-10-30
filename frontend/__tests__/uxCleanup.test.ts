@@ -35,12 +35,16 @@ describe('focused workspace UX', () => {
     assert.match(dashboard, /v-for="step in phase\.steps"/)
     assert.match(dashboard, /FLOW_PHASES/)
     assert.match(dashboard, /useProjectFlow\(slug, visualSource\)/)
-    // v1.4.365 — the two optional layers are one page with two steps in the
-    // flow, named for the half each stands for. Both still appear, and both
-    // open the merged page; the labels changed, the presence did not.
-    for (const workflowStage of ['Research', 'Thumbnail Prompts', 'Audio Assembly', 'Subtitles', 'Character Sheet', 'Scene Plan', 'Labels', 'Sound', 'Scene Review', 'Motion Review', 'Video Assembly']) {
+    // v1.4.371 — ONE step for the two optional layers (owner, 2026-10-30:
+    // "one step"). v1.4.365's two steps both opened /sound-and-labels, so Next
+    // went from the page to itself; the label and the presence now agree.
+    for (const workflowStage of ['Research', 'Thumbnail Prompts', 'Audio Assembly', 'Subtitles', 'Character Sheet', 'Scene Plan', 'Sound & Labels', 'Scene Review', 'Motion Review', 'Video Assembly']) {
       assert.ok(projectFlow.includes(`label: '${workflowStage}'`), `missing workflow stage: ${workflowStage}`)
     }
+    assert.doesNotMatch(projectFlow, /label: 'Labels'|label: 'Sound'/, 'the two old half-steps are gone')
+    const labels = projectFlow.match(/label: 'Sound & Labels'/g) || []
+    assert.equal(labels.length, 1, 'one definition, referenced by every flow')
+    assert.doesNotMatch(projectFlow, /key: 'contextual-cues'|key: 'sound-design'/, 'no second key still points at the same page')
     assert.match(dashboard, /step\.optional/)
     assert.match(dashboard, /step\.key === 'ideas'[\s\S]*Start here/)
     assert.match(flow, /v-if="currentStep"/)
