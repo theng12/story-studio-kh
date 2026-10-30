@@ -39,11 +39,13 @@ import {
   writeSoundDesignTimeline,
 } from '../services/sound-design.js'
 import { anchorPhraseAt } from '../contracts/cue-anchor.js'
+import { readLabelDesigns } from '../lib/label-design-render.js'
+import type { LabelDesign } from '../contracts/label-design.js'
 import { applySound, selectSound, type SoundCandidate } from '../services/sound-resolver.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type {
   ContextualCue, ContextualCueAutoApprovalHold, ContextualCueKind, ContextualCueProposalSettings,
-  ContextualCueTemplate, ContextualCueTimeline, Job, ScenePlan, SoundDesignCue, SoundDesignCueKind,
+  ContextualCueTemplate, ContextualCueTimeline, ContextualCueTransition, Job, ScenePlan, SoundDesignCue, SoundDesignCueKind,
 } from '../models/types.js'
 import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.js'
 import {
@@ -69,11 +71,42 @@ interface CueCandidate {
   subtitle?: string
   kind?: ContextualCueKind
   template?: ContextualCueTemplate
+  /** 2026-10-30 — what a POINTING design should point at, in a few plain words. */
+  point_at?: string
+  /** 2026-10-30 — the preset's motion for this cue, when its `label_motions` named any. */
+  motion?: string
   /** v1.4.365 — the words the narration says as this label appears. */
   anchor_word?: string
   anchor_offset_sec?: number
   /** v1.4.365 — the sound this moment wants, chosen for the same moment. */
   sound?: { kind: SoundDesignCueKind; description: string; with_label?: boolean }
+}
+
+/** The four text templates a run with no `label_themes` uses, exactly as before. */
+const LEGACY_CUE_TEMPLATES = ['documentary-label', 'map-pin', 'archival-caption', 'chapter-plate'] as const
+
+/** The motions a cue can actually be drawn with; a name outside these cannot render. */
+const LEGAL_CUE_MOTIONS = new Set(['fade', 'slide', 'dissolve'])
+
+/**
+ * What ONE run's preset lets the model name \u2014 real ids, resolved from the live
+ * `label-designs` catalogue at run time. Nothing here is a catalogue copy: a
+ * design added or renamed upstream is picked up by the next run on its own.
+ */
+export interface CueChoiceAllowlist {
+  /** Template ids in play: the four text templates, or the designs the preset's themes select. */
+  templates: Set<string>
+  /** Motions the preset allowed; empty means today's fixed fade. */
+  motions: Set<string>
+  /** The selected designs, described for the prompt. Empty when no themes were named. */
+  designs: Pick<LabelDesign, 'id' | 'name' | 'theme'>[]
+}
+
+/** No fields set: what every proposal has always done. */
+const TEXT_ONLY_ALLOW: CueChoiceAllowlist = {
+  templates: new Set(LEGACY_CUE_TEMPLATES),
+  motions: new Set(),
+  designs: [],
 }
 
 /**
@@ -88,22 +121,80 @@ interface CueCandidate {
  * what puts the label where the words are instead of on a fixed pad, and what
  * lets a Scene Plan re-run carry it along.
  */
-const SYSTEM_PROMPT = 'You are a restrained documentary editor. Return strict JSON only: '
+const SYSTEM_PROMPT_HEAD = 'You are a restrained documentary editor. Return strict JSON only: '
   + '{"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line",'
   + '"kind":"location_date|historical_context|person|chapter",'
-  + '"template":"documentary-label|map-pin|archival-caption|chapter-plate",'
+  + '"template":"id of the treatment that should draw this label",'
+  + '"point_at":"short plain phrase for what a pointing design points at",'
   + '"anchor_word":"the exact 2-5 words the narration says as this label appears",'
   + '"anchor_offset_sec":0.2,'
   + '"sound":{"kind":"bed|spot","description":"what we would hear, e.g. wind across dry grass"}}]}. '
   + 'Propose only genuinely useful on-screen context: location/date, historical event or era, '
-  + 'important institution/person, or a short explanatory label. Use map-pin only for a real place, '
-  + 'archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, '
-  + 'and documentary-label otherwise. '
+  + 'important institution/person, or a short explanatory label. '
+
+/**
+ * What a label is FOR (2026-10-30, owner: a one-click run chooses labels with
+ * nobody picking anything, and not every scene gets one).
+ */
+const LABEL_SELECTION_RULE = 'Label only what the viewer gains from: a named place, or a named person the '
+  + 'first time they appear, a jump in time, a striking number, something in the picture worth pointing at, '
+  + 'or a new chapter or question. Never a repeat, never an unnamed everyday thing, never words the narrator '
+  + 'is saying with nothing added, and never anything uncertain. '
+
+const SYSTEM_PROMPT_TAIL = 'point_at is optional: give it only when the design points, naming what in the '
+  + 'frame it should point at. '
   + 'anchor_word must appear VERBATIM in that scene\u2019s narration \u2014 copy it, do not paraphrase. '
   + 'sound is optional: give one only when a specific sound genuinely serves the moment, name a '
   + '`bed` for continuous ambience that should sit under the scene or a `spot` for one brief effect. '
   + 'Do not repeat narration, do not label every scene, never use more than one cue per scene, '
   + 'and prefer no cue when uncertain.'
+
+/**
+ * The system prompt for one run: the same editorial rules always, plus the
+ * choices THIS preset actually allows. Nothing in it is a stored catalogue \u2014
+ * the design ids come from the read that `resolveCueChoiceAllowlist` just did.
+ */
+export function cueSystemPrompt(allow: CueChoiceAllowlist = TEXT_ONLY_ALLOW): string {
+  const templateGuidance = allow.designs.length
+    ? `template MUST be one of these label design ids, chosen for what the moment is: `
+      + `${allow.designs.map(design => `${design.id} (${design.name}, ${design.theme})`).join(', ')}. `
+    : 'Use map-pin only for a real place, archival-caption for historic people/documents/eras, '
+      + 'chapter-plate only for a major new chapter, and documentary-label otherwise. '
+  const motionGuidance = allow.motions.size
+    ? `motion MUST be one of: ${[...allow.motions].join(', ')} \u2014 give it as "motion":"<id>" on each cue. `
+    : ''
+  return SYSTEM_PROMPT_HEAD + templateGuidance + LABEL_SELECTION_RULE + motionGuidance + SYSTEM_PROMPT_TAIL
+}
+
+/**
+ * Resolve one run's allowed designs and motions from the preset, reading the
+ * catalogue live. A choice this app cannot draw is refused HERE, by name and
+ * before the first paid request, rather than silently narrowed to the subset it
+ * happens to like \u2014 a customer who asked for a theme that no design carries
+ * must be told so, not shown a run that quietly used something else.
+ */
+export async function resolveCueChoiceAllowlist(
+  settings: ContextualCueProposalSettings,
+): Promise<CueChoiceAllowlist> {
+  const themes = settings.label_themes ?? []
+  const motions = settings.label_motions ?? []
+  const illegal = motions.filter(motion => !LEGAL_CUE_MOTIONS.has(motion))
+  if (illegal.length) {
+    throw new Error(`label_motions names ${illegal.join(', ')}, which is not a cue motion (fade, slide, dissolve). Nothing was requested.`)
+  }
+  if (!themes.length) return { ...TEXT_ONLY_ALLOW, motions: new Set(motions) }
+  let designs: LabelDesign[]
+  try {
+    designs = await readLabelDesigns()
+  } catch (error) {
+    throw new Error(`The label designs could not be read: ${error instanceof Error ? error.message : String(error)}. Nothing was requested.`, { cause: error })
+  }
+  const selected = designs.filter(design => themes.includes(design.theme))
+  if (!selected.length) {
+    throw new Error(`No label design carries any of this preset's label_themes (${themes.join(', ')}). Nothing was requested.`)
+  }
+  return { templates: new Set(selected.map(design => design.id)), motions: new Set(motions), designs: selected }
+}
 
 function chunk<T>(items: T[], size: number): T[][] {
   const result: T[][] = []
@@ -265,6 +356,45 @@ function parseCandidates(raw: string): CueCandidate[] {
   ))
 }
 
+/** The kind this candidate earns; anything unrecognised is the neutral default. */
+function candidateKind(candidate: CueCandidate): ContextualCueKind {
+  return candidate.kind === 'location_date' || candidate.kind === 'person' || candidate.kind === 'chapter'
+    ? candidate.kind
+    : 'historical_context'
+}
+
+/**
+ * The treatment this candidate asks for, or the editorial default for its kind.
+ * The model may propose one, but a missing answer still gets a predictable
+ * default — and whichever it is, it has to be on this run's allowlist before
+ * the cue is kept.
+ */
+function candidateTemplate(candidate: CueCandidate, kind: ContextualCueKind = candidateKind(candidate)): ContextualCueTemplate {
+  const inferred: ContextualCueTemplate = kind === 'location_date'
+    ? 'map-pin'
+    : kind === 'chapter'
+      ? 'chapter-plate'
+      : kind === 'person' ? 'archival-caption' : 'documentary-label'
+  return candidate.template ? normalizeContextualCueTemplate(candidate.template) : inferred
+}
+
+/**
+ * The entrance this candidate earns, or null when it named a motion this run's
+ * preset does not allow.
+ *
+ * With no `label_motions` the answer is today's fixed fade and any volunteered
+ * motion is ignored — exactly as it was before the field existed. With a list,
+ * a motion outside it is refused rather than quietly coerced, and a candidate
+ * that named none takes a motion from the list (fade when the list has it), so
+ * the cue never lands on a motion the preset ruled out.
+ */
+function candidateMotion(candidate: CueCandidate, allow: CueChoiceAllowlist): ContextualCueTransition | null {
+  if (!allow.motions.size) return 'fade'
+  const asked = String(candidate.motion || '').replace(/\s+/g, ' ').trim()
+  if (asked) return allow.motions.has(asked) ? asked as ContextualCueTransition : null
+  return (allow.motions.has('fade') ? 'fade' : [...allow.motions][0]!) as ContextualCueTransition
+}
+
 function safeCandidate(
   candidate: CueCandidate,
   plan: ScenePlan,
@@ -276,6 +406,8 @@ function safeCandidate(
    */
   defaults: Pick<ContextualCueProposalSettings, 'placement' | 'position_x_pct' | 'position_y_pct'>,
   now: string,
+  /** This run's allowed designs and motions. Defaults to no preset fields set. */
+  allow: CueChoiceAllowlist = TEXT_ONLY_ALLOW,
 ): ContextualCue | null {
   const scene = plan.scenes.find(row => row.id === candidate.scene_id)
   if (!scene) return null
@@ -301,19 +433,18 @@ function safeCandidate(
   const offset = Math.max(0, Math.min(sceneDuration - dwell, Number(candidate.anchor_offset_sec) || 0.15))
   const start = Number((scene.start_sec + offset).toFixed(3))
   const end = Number((start + dwell).toFixed(3))
-  const kind: ContextualCueKind = candidate.kind === 'location_date' || candidate.kind === 'person' || candidate.kind === 'chapter'
-    ? candidate.kind : 'historical_context'
-  // The model may propose a treatment, but a missing or invalid answer gets a
-  // predictable editorial default. Every choice remains proposed until a
-  // human reviews it in the Sound & Labels workspace.
-  const inferredTemplate: ContextualCueTemplate = kind === 'location_date'
-    ? 'map-pin'
-    : kind === 'chapter'
-      ? 'chapter-plate'
-      : kind === 'person' ? 'archival-caption' : 'documentary-label'
-  const template = candidate.template
-    ? normalizeContextualCueTemplate(candidate.template)
-    : inferredTemplate
+  const kind = candidateKind(candidate)
+  // A treatment outside this run's allowlist is refused here, not coerced:
+  // substituting one would give the customer a design he never chose (and a
+  // run whose preset named themes would silently draw something else).
+  const template = candidateTemplate(candidate, kind)
+  if (!allow.templates.has(template)) return null
+  const motion = candidateMotion(candidate, allow)
+  if (motion === null) return null
+  // What a POINTING design should aim at. Stored, not placed: nothing locates
+  // it in the frame yet, and inventing a position here would be an editorial
+  // decision made by the machine.
+  const pointAt = truncateChars((candidate.point_at || '').replace(/\s+/g, ' ').trim(), 80) || undefined
   return {
     id: `cue-${scene.id}`,
     scene_id: scene.id,
@@ -323,11 +454,12 @@ function safeCandidate(
     end_sec: end,
     title,
     ...(subtitle ? { subtitle } : {}),
+    ...(pointAt ? { point_at: pointAt } : {}),
     kind,
     placement: defaults.placement,
     ...normalizeCuePositionPair(defaults.position_x_pct, defaults.position_y_pct),
     template,
-    entrance: 'fade',
+    entrance: motion,
     exit: 'dissolve',
     status: 'proposed',
     created_at: now,
@@ -353,6 +485,25 @@ function applySafePacing(cues: ContextualCue[], density: 'restrained' | 'standar
 export interface DroppedCueCandidate { scene_id: string; title: string; reason: string }
 
 /**
+ * Why `safeCandidate` refused this candidate, mirroring its checks in the same
+ * order so the reason the customer reads names the check that actually fired —
+ * including the two new ones, an unknown design id and a motion the preset
+ * never allowed.
+ */
+function cueDropReason(candidate: CueCandidate, plan: ScenePlan, allow: CueChoiceAllowlist): string {
+  const scene = plan.scenes.find(row => row.id === candidate.scene_id)
+  if (!scene) return 'its scene is not in the Scene Plan'
+  if (!String(candidate.title || '').trim()) return 'it has no title'
+  if (scene.end_sec - scene.start_sec < CUE_MIN_DURATION_SEC) return `its scene is shorter than ${CUE_MIN_DURATION_SEC}s`
+  const template = candidateTemplate(candidate)
+  if (!allow.templates.has(template)) return `its label design "${template}" is not one of this run's allowed label designs`
+  if (candidateMotion(candidate, allow) === null) {
+    return `its motion "${String(candidate.motion || '').replace(/\s+/g, ' ').trim()}" is not one of this run's allowed motions`
+  }
+  return 'it did not pass the proposal rules'
+}
+
+/**
  * Every candidate the model returned, split into the cues that will be saved
  * and the ones dropped — each with its reason (2026-10-07). This used to drop
  * silently, and the job certified a constant 1/1 whatever happened.
@@ -363,21 +514,17 @@ export function accountCueCandidates(
   settings: ContextualCueProposalSettings,
   now: string,
   resolvedIds: Set<string>,
+  allow: CueChoiceAllowlist = TEXT_ONLY_ALLOW,
 ): { proposed: ContextualCue[]; dropped: DroppedCueCandidate[] } {
   const dropped: DroppedCueCandidate[] = []
   const safe: ContextualCue[] = []
   for (const candidate of candidates) {
-    const cue = safeCandidate(candidate, plan, settings.density, settings, now)
+    const cue = safeCandidate(candidate, plan, settings.density, settings, now, allow)
     if (cue) { safe.push(cue); continue }
-    const scene = plan.scenes.find(row => row.id === candidate.scene_id)
     dropped.push({
       scene_id: String(candidate.scene_id || ''),
       title: String(candidate.title || ''),
-      reason: !scene
-        ? 'its scene is not in the Scene Plan'
-        : !String(candidate.title || '').trim()
-          ? 'it has no title'
-          : `its scene is shorter than ${CUE_MIN_DURATION_SEC}s`,
+      reason: cueDropReason(candidate, plan, allow),
     })
   }
   const paced = applySafePacing(safe, settings.density, plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0)
@@ -419,6 +566,10 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const config = normalizeContextualCueConfig((await getConfig(job.project_slug))?.contextual_cues)
   if (!config.enabled) throw new Error('Contextual Cues are disabled for this project. Enable them first.')
   const settings = normalizeContextualCueProposalSettings(job.params)
+  // Resolved BEFORE the first request: the designs are read live from the
+  // catalogue, and a preset naming a theme or motion this app cannot draw is
+  // refused here by name rather than after paying for batches it must reject.
+  const allow = await resolveCueChoiceAllowlist(settings)
   let model = settings.model
   // Last of all, this Mac's app-wide writing default (Settings → Default models). Read only: it is
   // not written into the preset or the channel.
@@ -539,7 +690,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
       try {
         lastSubmissionAt = Date.now()
         const raw = await (cuesPolicy ? callAiWithModelPolicy(cuesPolicy,
-          SYSTEM_PROMPT + await noEmojiDirective(),
+          cueSystemPrompt(allow) + await noEmojiDirective(),
           cueUserPrompt, {}, false,
           {
             slug: job.project_slug,
@@ -560,7 +711,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
           },
         ) : callAi(
           model,
-          SYSTEM_PROMPT + await noEmojiDirective(),
+          cueSystemPrompt(allow) + await noEmojiDirective(),
           cueUserPrompt,
           {}, false,
           { slug: job.project_slug, jobId: job.job_id, requestIdentity: cueRequestIdentity, outputBudget: 'standard', outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
@@ -649,7 +800,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
       ...progress,
       completed_batches: [...completed.values()].sort((a, b) => a.index - b.index),
       provisional_cues: applySafePacing(
-        candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings, new Date().toISOString())).filter((cue): cue is ContextualCue => !!cue),
+        candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings, new Date().toISOString(), allow)).filter((cue): cue is ContextualCue => !!cue),
         settings.density,
         plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0,
       ),
@@ -680,7 +831,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const latest = await readContextualCueTimeline(planPath)
   const protectedCues = latest?.cues.filter(cue => cue.status !== 'proposed') || []
   const resolvedIds = new Set(protectedCues.map(cue => cue.id))
-  const accounted = accountCueCandidates(candidates, plan, settings, now, resolvedIds)
+  const accounted = accountCueCandidates(candidates, plan, settings, now, resolvedIds, allow)
   let proposed = accounted.proposed
   const dropped = accounted.dropped
   let autoApprovalHolds: ContextualCueAutoApprovalHold[] = []
@@ -755,7 +906,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
     for (const candidate of candidates) {
       if (!candidate.sound?.description) continue
       soundCandidatesSeen++
-      const cue = safeCandidate(candidate, plan, settings.density, settings, now)
+      const cue = safeCandidate(candidate, plan, settings.density, settings, now, allow)
       if (!cue) continue
       const id = `sound-${cue.scene_id}`
       if (resolvedSoundIds.has(id) || proposedSounds.some(row => row.id === id)) continue

@@ -198,9 +198,22 @@ export const CONTEXTUAL_CUES_OUTPUT_CONTRACT: TextOutputContract = {
                 enum: ['location_date', 'historical_context', 'person', 'chapter'],
               },
               template: {
+                /**
+                 * Deliberately NOT an enum any more (2026-10-30). The designs a
+                 * run may name are read from the live `label-designs` catalogue
+                 * when its preset names themes, so the allowed ids cannot be
+                 * written here — a fixed list would refuse exactly the answers
+                 * the preset asked for. `safeCandidate` refuses anything outside
+                 * the run's own allowlist and reports the drop with its reason.
+                 */
                 type: 'string',
-                enum: ['documentary-label', 'map-pin', 'archival-caption', 'chapter-plate'],
+                minLength: 1,
+                maxLength: 90,
               },
+              /** 2026-10-30 — what a pointing design should point at, in plain words. */
+              point_at: { type: 'string', maxLength: 80 },
+              /** 2026-10-30 — the preset's motion for this cue, when it named any. */
+              motion: { type: 'string', maxLength: 20 },
               /** v1.4.365 — the words the narration says as this label appears. */
               anchor_word: { type: 'string', maxLength: 80 },
               anchor_offset_sec: { type: 'number', minimum: 0 },
