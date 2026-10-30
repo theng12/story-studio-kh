@@ -126,3 +126,14 @@ test('shuffle seed produces different selections for same episode', () => {
   assert.notDeepEqual(shuffle0.map(c => c.clip), shuffle1.map(c => c.clip))
   assert.notDeepEqual(shuffle1.map(c => c.clip), shuffle2.map(c => c.clip))
 })
+
+test('a clip tagged sfx stays out of a cut pool unless it is pinned, and a clip tagged transition joins Mixed', () => {
+  const library: TransitionClip[] = [
+    { source: 'gateway', clip: 'a', label: 'A pencil writing fast on paper', tags: ['sfx', 'pencil'] },
+    { source: 'gateway', clip: 'b', label: 'A tape measure lock', tags: ['transition'] },
+  ]
+  const mixed = DEFAULT_TRANSITION_SETS.find(set => set.id === 'mixed')!
+  assert.deepEqual(resolveTransitionSet(mixed, library).clips.map(clip => clip.clip), ['b'])
+  const pinned = { ...mixed, pinned: [{ source: 'gateway' as const, clip: 'a', label: 'pinned' }] }
+  assert.deepEqual(resolveTransitionSet(pinned, library).clips.map(clip => clip.clip), ['a', 'b'])
+})

@@ -1030,6 +1030,8 @@ async function loadSoundCandidates(): Promise<SoundCandidate[]> {
   try {
     const { listKeptSounds } = await import('../lib/gateway-sound-library.js')
     for (const clip of await listKeptSounds()) {
+      // Cut sounds are their own pool: a cue never picks one as a sound effect.
+      if ((clip.tags || []).some(tag => tag.toLowerCase() === 'transition')) continue
       out.push({
         source: 'gateway', key: clip.sha256, label: clip.credit.title || clip.sha256.slice(0, 12),
         // The clip's own tags describe what it IS, which is what a picker ranks on

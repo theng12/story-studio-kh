@@ -25,7 +25,7 @@ export interface TransitionSet {
 }
 
 export const DEFAULT_TRANSITION_SETS: TransitionSet[] = [
-  { id: 'mixed', name: 'Mixed', terms: ['whoosh', 'click', 'shutter', 'strum', 'pluck', 'paper', 'pencil'], enabled: true, pinned: [], excluded: [] },
+  { id: 'mixed', name: 'Mixed', terms: ['transition', 'whoosh', 'click', 'shutter', 'strum', 'pluck', 'paper', 'pencil'], enabled: true, pinned: [], excluded: [] },
   { id: 'whooshes', name: 'Whooshes', terms: ['whoosh', 'swoosh'], enabled: true, pinned: [], excluded: [] },
   { id: 'clicks-shutters', name: 'Clicks & Shutters', terms: ['click', 'shutter'], enabled: true, pinned: [], excluded: [] },
   { id: 'strums-plucks', name: 'Strums & Plucks', terms: ['strum', 'pluck'], enabled: true, pinned: [], excluded: [] },
@@ -113,7 +113,10 @@ export function resolveTransitionSet(set: TransitionSet, library: TransitionClip
   const clips = [...available.values()].filter(clip => {
     const key = transitionClipKey(clip)
     if (excluded.has(key)) return false
-    return pinned.has(key) || terms.some(term => [clip.label, ...clip.tags].some(text => text.toLowerCase().includes(term)))
+    if (pinned.has(key)) return true
+    // A library clip tagged as a video sound effect never joins a cut pool by a word in its name.
+    if (clip.tags.some(tag => tag.toLowerCase() === 'sfx')) return false
+    return terms.some(term => [clip.label, ...clip.tags].some(text => text.toLowerCase().includes(term)))
   }).sort((a, b) => transitionClipKey(a).localeCompare(transitionClipKey(b)))
   return { clips, missing: set.pinned.filter(clip => !available.has(transitionClipKey(clip))).map(clip => clip.label || clip.clip) }
 }
