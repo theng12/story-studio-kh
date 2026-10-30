@@ -54,6 +54,7 @@ type Record_ = {
   pack_id: string
   version: string
   kind: string
+  status: string
   source_path: string
   dependencies: Array<{ pack_id: string, version: string }>
   stocking_proposal?: { family?: { id?: string, status?: string }, sku?: { id?: string, status?: string } }
@@ -164,10 +165,11 @@ function subjectEchoFrameShare(
 
 test('every Topic Pack we sell reaches its idea count by authorship, not by template', async () => {
   const registry = JSON.parse(await readFile(REGISTRY_PATH, 'utf8')) as { records: Record_[] }
-  const byIdentity = new Map(registry.records.map(record => [`${record.pack_id}@${record.version}`, record]))
+  const activeRecords = registry.records.filter(record => record.status !== 'retired')
+  const byIdentity = new Map(activeRecords.map(record => [`${record.pack_id}@${record.version}`, record]))
 
   const newestKits = new Map<string, Record_>()
-  for (const record of registry.records) {
+  for (const record of activeRecords) {
     if (record.kind !== 'channel-kit') continue
     const current = newestKits.get(record.pack_id)
     if (!current || newer(record.version, current.version)) newestKits.set(record.pack_id, record)
@@ -192,7 +194,7 @@ test('every Topic Pack we sell reaches its idea count by authorship, not by temp
   }
 
   const newestTopics = new Map<string, Record_>()
-  for (const record of registry.records) {
+  for (const record of activeRecords) {
     if (record.kind !== 'topic-pack') continue
     if (!record.stocking_proposal) continue
     const current = newestTopics.get(record.pack_id)

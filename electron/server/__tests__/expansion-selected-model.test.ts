@@ -361,7 +361,9 @@ describe('resume across a model change', () => {
     const helperBlock = source.slice(helperStart, helperEnd)
     assert.match(helperBlock, /sidecar\.outline/)
     assert.match(helperBlock, /resolveReadPath\(chapterFilePath\(scriptDir, sidecar\.episode_id, n\)\)/)
-    assert.match(helperBlock, /chapterFileLooksValid\(file\) && chapterBelongsToOutline\(sidecar, file\)/)
+    assert.match(helperBlock, /if \(!chapterFileLooksValid\(file\) \|\| !chapterBelongsToOutline\(sidecar, file\)\) continue/)
+    assert.match(helperBlock, /if \(!await chapterMatchesLanguage\(file, contentLanguage\)\) continue/)
+    assert.match(helperBlock, /present\.push\(n\)/)
     assert.ok(!/\bmodel\b/.test(helperBlock),
       'the current-outline chapter verifier must not consult a model')
 
@@ -371,7 +373,7 @@ describe('resume across a model change', () => {
       'resume block not found — this guard needs updating')
     const resumeBlock = source.slice(resumeStart, resumeEnd)
     assert.match(resumeBlock,
-      /const verifiedDone = new Set\(validChapterNumbersForOutline\(params\.scriptDir, sidecar\)\)/)
+      /const verifiedDone = new Set\(await validChapterNumbersForOutline\(params\.scriptDir, sidecar, params\.contentLanguage \?\? null\)\)/)
     assert.match(resumeBlock, /chapters_done: actualDone/)
     assert.match(resumeBlock, /sidecar\.outline\.filter\(e => !verifiedDone\.has\(e\.n\)\)/)
     assert.ok(!/\bmodel\b/.test(resumeBlock),
