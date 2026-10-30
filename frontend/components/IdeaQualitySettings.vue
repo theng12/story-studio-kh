@@ -34,11 +34,7 @@
           </select>
         </label>
         <label>Embeddings model
-          <select v-model="form.embedding_model" class="input">
-            <option value="">None — use the improved word check</option>
-            <option v-for="model in embeddingModels" :key="model.id" :value="model.id" :disabled="!model.available">{{ model.display_name }}{{ model.available ? '' : ' (not available now)' }}</option>
-            <option v-if="form.embedding_model && !embeddingModels.some(model => model.id === form!.embedding_model)" :value="form.embedding_model">{{ form.embedding_model }} (not offered right now)</option>
-          </select>
+          <ModelMenu v-model="form.embedding_model" :disabled="saving" media-type="llm" title="Embeddings model" placeholder="None — use the improved word check" :options="[{ id: '', label: 'None — use the improved word check' }, ...embeddingModels.map(model => ({ id: model.id, label: model.display_name, disabled: !model.available }))]" />
         </label>
         <p v-if="embeddingNote" class="hint">{{ embeddingNote }}</p>
         <p class="hint">The model you choose must be able to tell this channel’s ideas apart — including in the language you write them in. Watch-only mode rejects nothing, so it only reports scores. When the meaning check cannot be used, the run log says so and the improved word check is used instead.</p>
