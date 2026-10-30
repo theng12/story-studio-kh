@@ -31,15 +31,19 @@
           <span class="schedule-plan-name">{{ shownName }}</span>
           <span v-if="state.plan" class="schedule-chip">Active plan</span>
           <span v-else-if="state.channel" class="schedule-chip warn">No plan yet</span>
+          <span v-else-if="isDefault" class="schedule-chip">Starting schedule</span>
         </div>
         <p class="schedule-when">{{ summary }}</p>
+        <p v-if="isDefault" class="schedule-muted">
+          Nothing saved yet — this is what every channel starts with. Save to choose your own days and times.
+        </p>
         <p v-if="perMonth" class="schedule-muted">About {{ perMonth }} {{ perMonth === 1 ? 'episode' : 'episodes' }} a month.</p>
         <p v-if="otherPlans" class="schedule-muted">
           {{ otherPlans }} other saved {{ otherPlans === 1 ? 'plan' : 'plans' }} for this channel —
           switch in the <NuxtLink :to="`/projects/${slug}/upload/plans`">Upload Center</NuxtLink>.
         </p>
         <div class="schedule-actions">
-          <button type="button" class="btn btn-primary btn-sm" @click="startEdit">{{ hasSchedule ? 'Edit Plan' : 'Set Schedule' }}</button>
+          <button type="button" class="btn btn-primary btn-sm" @click="startEdit">{{ isDefault || !hasSchedule ? 'Set Schedule' : 'Edit Plan' }}</button>
         </div>
       </div>
 
@@ -56,7 +60,7 @@
         <input type="checkbox" :checked="state.auto_schedule_on_render" :disabled="saving || (!hasSchedule && !editing)" @change="toggleAuto($event.target as HTMLInputElement)" />
         <span>
           Give each episode a publish time as soon as it finishes rendering
-          <small>Nothing is sent to YouTube — the episode only gets its slot, and you still press upload. An episode that is already live, or already has a time, is left alone.</small>
+          <small>On unless you turn it off. Nothing is sent to YouTube — the episode only gets its slot, and you still press upload. An episode that is already live, or already has a time, is left alone.</small>
         </span>
       </label>
       <p v-if="notice" class="schedule-ok" role="status">{{ notice }}</p>
@@ -74,6 +78,8 @@ interface ChannelSchedule {
   plan: PlanLite | null
   plans: PlanLite[]
   cadence: { schedule: UploadScheduleShape } | null
+  /** What this channel publishes on until it saves its own (2026-10-31). */
+  default_schedule?: UploadScheduleShape | null
   auto_schedule_on_render: boolean
 }
 
@@ -89,10 +95,12 @@ const formError = ref('')
 const notice = ref('')
 const draft = ref<ScheduleDraft>(emptyDraft())
 
-const shownSchedule = computed(() => state.value?.plan?.schedule || state.value?.cadence?.schedule || null)
+const shownSchedule = computed(() => state.value?.plan?.schedule || state.value?.cadence?.schedule || state.value?.default_schedule || null)
 const hasSchedule = computed(() => !!shownSchedule.value)
+/** Nothing saved yet: the card shows the default every channel starts on. */
+const isDefault = computed(() => !state.value?.plan && !state.value?.cadence?.schedule && !!state.value?.default_schedule)
 const shownName = computed(() => state.value?.plan?.name
-  || (state.value?.channel ? `${state.value.channel.title} schedule` : 'Channel schedule'))
+  || (isDefault.value ? 'Starting schedule' : (state.value?.channel ? `${state.value.channel.title} schedule` : 'Channel schedule')))
 const summary = computed(() => hasSchedule.value ? scheduleSummary(shownSchedule.value) : 'No days chosen yet.')
 const perMonth = computed(() => episodesPerMonth(shownSchedule.value))
 const otherPlans = computed(() => Math.max(0, (state.value?.plans?.length || 0) - (state.value?.plan ? 1 : 0)))
@@ -152,7 +160,11 @@ async function toggleAuto(box: HTMLInputElement): Promise<void> {
   const parsed = editing.value ? scheduleFromDraft(draft.value) : null
   const schedule = parsed ? (parsed.ok ? parsed.schedule : null) : shownSchedule.value
   if (!schedule) { box.checked = !box.checked; formError.value = 'Set the schedule first.'; return }
-  const ok = await send({ schedule, auto_schedule_on_render: box.checked },
+  // The starting schedule is not saved on disk, so flipping the switch must
+  // not write it there — only the switch itself.
+  const body: Record<string, unknown> = { auto_schedule_on_render: box.checked }
+  if (editing.value || !isDefault.value) body.schedule = schedule
+  const ok = await send(body,
     box.checked ? 'Finished episodes now get the next free slot.' : 'Finished episodes no longer get a slot by themselves.')
   if (!ok) box.checked = !box.checked
 }

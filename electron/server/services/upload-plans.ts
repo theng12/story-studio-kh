@@ -12,6 +12,11 @@
  *                          with weekdays; if both provided, weekdays win).
  *   4. Phases (1.4.268)  — later rhythms that take over on a date
  *                          ("then from 2027-01-01: Mon, Wed, Fri at 20:00").
+ *   5. Counted weeks     — `random_weekly` videos a week (2026-10-31). With no
+ *                          days chosen it is THE DEFAULT: three days drawn from
+ *                          a seed, never back to back, each at a random time in
+ *                          the channel's window. With days chosen it hands out
+ *                          the customer's own fixed day/time slots in order.
  *
  * Computed output: list of `{ position, publishAt }` tuples for a given
  * queue of N items, starting from the plan's start_date (or "now") and
@@ -59,6 +64,40 @@ export interface UploadSchedule {
    * means the single-pattern schedule, unchanged.
    */
   phases?: UploadSchedulePhase[]
+  /**
+   * How many videos a week (2026-10-31). Any whole number ≥ 1; 3 is the
+   * default every channel starts on. Absent leaves the weekday/monthly modes
+   * above exactly as they are.
+   *
+   * WITH `weekdays` EMPTY this is the random default: three days a week drawn
+   * from `random_seed` — never back to back, never two on one day — each at a
+   * random time inside `random_time_window`. Random timing belongs to that
+   * default alone (the owner: *"random timing is for the 3 video per week
+   * defaults only"*), so a random schedule with any other count is refused at
+   * the save boundary.
+   *
+   * WITH `weekdays` SET it is the customer's own count: the days and
+   * `times_local` are theirs, nothing is drawn, and the walk hands out those
+   * fixed slots in date order until the week's count is met.
+   */
+  random_weekly?: number
+  /**
+   * The window the default's random time of day is drawn from, "HH:MM" to
+   * "HH:MM" on 5-minute marks. Absent means the starting value 08:00–22:00,
+   * read at use time and never written until one is saved.
+   */
+  random_time_window?: { start: string; end: string }
+  /**
+   * Fixed times of day for a counted schedule: a day uses them in order, so
+   * 14 a week (7 days) needs two. Absent means the single `time_local`.
+   */
+  times_local?: string[]
+  /**
+   * Per-channel seed for the default's day and time draws, assigned from the
+   * project slug when a random schedule is saved, so a re-read or a re-render
+   * never moves a week's slots.
+   */
+  random_seed?: string
 }
 
 export interface UploadSchedulePhase {
@@ -209,8 +248,12 @@ export function validateUploadPlanDraft(value: unknown): string | null {
   if (hasMonthlyDay && (!Number.isInteger(schedule.monthly_day) || schedule.monthly_day < 1 || schedule.monthly_day > 31)) {
     return 'schedule.monthly_day must be an integer from 1 to 31'
   }
-  if (schedule.weekdays.length === 0 && !hasMonthlyDay) {
+  if (schedule.weekdays.length === 0 && !hasMonthlyDay && !isOptionalValue(schedule.random_weekly)) {
     return 'schedule requires weekdays or monthly_day'
+  }
+  if (isOptionalValue(schedule.random_weekly)) {
+    const counted = validateCountedWeeks(schedule, hasMonthlyDay)
+    if (counted) return counted
   }
   if (isOptionalValue(schedule.interval_weeks)
     && (!Number.isInteger(schedule.interval_weeks) || schedule.interval_weeks < 1)) {
@@ -240,6 +283,76 @@ export function validateUploadPlanDraft(value: unknown): string | null {
   }
   if (typeof defaults.made_for_kids !== 'undefined' && typeof defaults.made_for_kids !== 'boolean') {
     return 'defaults.made_for_kids must be a boolean'
+  }
+  return null
+}
+
+/**
+ * The counted-weeks mode (2026-10-31), checked at the save boundary.
+ *
+ * Two shapes share the `random_weekly` count:
+ *
+ *   NO DAYS CHOSEN — the default every channel starts on: three videos a week
+ *   on days drawn from the seed, each at a random time in the window. Random
+ *   timing belongs to that default alone, so any other count has to come with
+ *   the customer's own days.
+ *
+ *   DAYS CHOSEN — the customer's own slots: their days, their times, nothing
+ *   drawn. The count says how many of those slots a week hands out, so the
+ *   days and times must add up to at least that many.
+ */
+function validateCountedWeeks(schedule: Record<string, any>, hasMonthlyDay: boolean): string | null {
+  const perWeek = schedule.random_weekly
+  if (!Number.isInteger(perWeek) || perWeek < 1) {
+    return 'schedule.random_weekly must be a whole number of videos a week, 1 or more'
+  }
+  const days = Array.isArray(schedule.weekdays) ? schedule.weekdays.length : 0
+  const randomMode = days === 0 && !hasMonthlyDay
+  if (randomMode && perWeek !== 3) {
+    return 'Random days and a random time are the 3-videos-a-week default. '
+      + 'Pick the days to use another count.'
+  }
+  if (randomMode && Array.isArray(schedule.times_local) && schedule.times_local.length) {
+    return 'Random days take a random time. Remove the fixed times, or pick your days.'
+  }
+  if (isOptionalValue(schedule.random_time_window)) {
+    const window = schedule.random_time_window
+    if (!isRecord(window)) return 'schedule.random_time_window must be a start and an end time'
+    for (const edge of ['start', 'end']) {
+      if (typeof window[edge] !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(window[edge])
+        || Number(window[edge].slice(3)) % 5 !== 0) {
+        return `schedule.random_time_window.${edge} must be a time on a 5-minute mark`
+      }
+    }
+    if (window.end <= window.start) {
+      return 'schedule.random_time_window must end after it starts'
+    }
+  }
+  if (isOptionalValue(schedule.times_local)) {
+    if (!Array.isArray(schedule.times_local) || !schedule.times_local.length
+      || !schedule.times_local.every((time: unknown) =>
+        typeof time === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time))) {
+      return 'schedule.times_local must be a list of 24-hour HH:MM times'
+    }
+    if (new Set(schedule.times_local).size !== schedule.times_local.length) {
+      return 'schedule.times_local must not repeat a time'
+    }
+  }
+  if (!randomMode) {
+    const times = Array.isArray(schedule.times_local) && schedule.times_local.length
+      ? schedule.times_local.length : 1
+    const capacity = days * times
+    if (capacity < perWeek) {
+      return `${perWeek} videos a week needs days and times that add up to ${perWeek} — `
+        + `yours give ${capacity}.`
+    }
+  }
+  if (Array.isArray(schedule.phases) && schedule.phases.length) {
+    return 'A counted schedule cannot also have later phases — remove one of them.'
+  }
+  if (isOptionalValue(schedule.random_seed)
+    && (typeof schedule.random_seed !== 'string' || !schedule.random_seed.trim())) {
+    return 'schedule.random_seed must be a non-empty string'
   }
   return null
 }
@@ -360,6 +473,17 @@ export async function removePlan(slug: string, id: string): Promise<boolean> {
   return true
 }
 
+/**
+ * A random schedule needs a seed, or every channel would draw the same days.
+ * The project slug is that seed: per channel, stable, and written nowhere
+ * else. A schedule that already carries one keeps it.
+ */
+export function ensureRandomSeed(schedule: UploadSchedule, slug: string): UploadSchedule {
+  if (!isOptionalValue(schedule.random_weekly)) return schedule
+  if (typeof schedule.random_seed === 'string' && schedule.random_seed.trim()) return schedule
+  return { ...schedule, random_seed: slug }
+}
+
 export async function upsertPlan(slug: string, partial: Partial<UploadPlan> & { name: string; platform: UploadPlatform; account_id: string; schedule: UploadSchedule; defaults: UploadPlanDefaults }): Promise<UploadPlan> {
   const plans = await listPlans(slug)
   const now = new Date().toISOString()
@@ -380,6 +504,7 @@ export async function upsertPlan(slug: string, partial: Partial<UploadPlan> & { 
       updated_at: now,
     }
   }
+  plan.schedule = ensureRandomSeed(plan.schedule, slug)
   const nextList = partial.id
     ? plans.map(p => (p.id === plan.id ? plan : p))
     : [...plans, plan]
@@ -499,6 +624,10 @@ export function computeSlots(
     blockedDays?: ReadonlySet<string> | readonly string[]
   },
 ): string[] {
+  // The counted-weeks mode (2026-10-31) has its own walk: it counts a week's
+  // slots rather than matching weekdays, and it draws the default's days and
+  // time from the channel's seed.
+  if (isOptionalValue(schedule.random_weekly)) return countedWeekSlots(schedule, count, options)
   // Validate the timezone up front so `new Intl.DateTimeFormat({ timeZone })`
   // never throws mid-loop. An invalid tz (typo, legacy "America/Buenos_Aires"
   // style) falls back to UTC so compute proceeds with reasonable behavior
@@ -588,10 +717,249 @@ export function computeSlots(
         daysWalked++
         continue
       }
-      const slot = isoAtTz(cursor, phase.time[0], phase.time[1], tz)
-      if (!options?.notBefore || Date.parse(slot) > options.notBefore.getTime()) slots.push(slot)
+      // A day can carry more than one time of day (2026-10-31): the
+      // customer's own list, or the phase's single time.
+      const dayTimes = phase === phases[0] && Array.isArray(schedule.times_local) && schedule.times_local.length
+        ? [...schedule.times_local].sort().map(time => parseTime(time))
+        : [[phase.time[0], phase.time[1]]]
+      for (const [hours, minutes] of dayTimes) {
+        if (slots.length >= count) break
+        const slot = isoAtTz(cursor, hours, minutes, tz)
+        if (!options?.notBefore || Date.parse(slot) > options.notBefore.getTime()) slots.push(slot)
+      }
     }
 
+    cursor = addDays(cursor, 1, tz)
+    daysWalked++
+  }
+  return slots
+}
+
+// ── Counted weeks (2026-10-31) ────────────────────────────────────────────
+//
+// The owner's default for every channel: three videos a week on days drawn
+// from the channel's seed — never back to back, never two on one day — each
+// at a random time inside the channel's window.
+//
+// Two shapes share the count:
+//   NO DAYS CHOSEN — the default above.
+//   DAYS CHOSEN    — the customer's own slots: their days and their times,
+//                    handed out in date order until the week's count is met.
+
+/** The window the default's random time of day is drawn from. */
+export const RANDOM_TIME_WINDOW_DEFAULT = { start: '08:00', end: '22:00' }
+
+function randomTimeWindow(schedule: UploadSchedule): { start: string; end: string } {
+  const window = schedule.random_time_window
+  if (window && typeof window.start === 'string' && typeof window.end === 'string'
+    && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(window.start)
+    && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(window.end)
+    && window.end > window.start) {
+    return { start: window.start, end: window.end }
+  }
+  return { ...RANDOM_TIME_WINDOW_DEFAULT }
+}
+
+function minutesOf(hhmm: string): number | null {
+  const match = /^(\d{2}):(\d{2})$/.exec(hhmm || '')
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours > 23 || minutes > 59) return null
+  return hours * 60 + minutes
+}
+
+function hhmmOf(minutes: number): string {
+  const hours = Math.floor(minutes / 60)
+  return `${String(hours).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+}
+
+/** A stable 32-bit hash, so the same seed and week always draw the same days. */
+function hash32(text: string): number {
+  let hash = 2166136261
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+/** A tiny seeded generator, so a day's random time is repeatable. */
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0 || 1
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+    return state / 4294967296
+  }
+}
+
+/** The local calendar day number, so weeks can be counted without a clock. */
+function dayNumberInTz(d: Date, tz: string): number {
+  const [year, month, day] = localDayKeyInTz(d, tz).split('-').map(Number)
+  return Math.floor(Date.UTC(year!, month! - 1, day!) / 86_400_000)
+}
+
+/** 0 = Monday … 6 = Sunday. */
+function mondayOffsetInTz(d: Date, tz: string): number {
+  return (weekdayInTz(d, tz) + 6) % 7
+}
+
+/** 1969-12-29 was a Monday, so its day number anchors the week count. */
+const EPOCH_MONDAY_DAY = Math.floor(Date.UTC(1969, 11, 29) / 86_400_000)
+
+function weekIndexInTz(d: Date, tz: string): number {
+  return Math.floor((dayNumberInTz(d, tz) - mondayOffsetInTz(d, tz) - EPOCH_MONDAY_DAY) / 7)
+}
+
+/** Every way of picking `count` days out of a Monday-to-Sunday week. */
+function subsetsOfWeek(count: number): number[][] {
+  const out: number[][] = []
+  const walk = (start: number, picked: number[]): void => {
+    if (picked.length === count) { out.push([...picked]); return }
+    for (let day = start; day < 7; day++) { picked.push(day); walk(day + 1, picked); picked.pop() }
+  }
+  walk(0, [])
+  return out
+}
+
+/**
+ * How well a set of days spreads: the number of back-to-back pairs. The
+ * previous week's last day counts as a pair too, so a Sunday video and a
+ * Monday video are neighbours across the week boundary.
+ */
+function weekSpreadScore(days: number[], previousLast: number | null): number {
+  let backToBack = 0
+  let previous = previousLast === null ? null : previousLast - 7
+  for (const day of days) {
+    if (previous !== null && day - previous === 1) backToBack++
+    previous = day
+  }
+  return backToBack
+}
+
+/**
+ * This week's days, drawn from the seed.
+ *
+ * The days that never sit back to back win; the seed picks between them, so
+ * the same channel and week always give the same days and a re-read never
+ * moves them.
+ */
+function pickWeekDays(seed: string, week: number, count: number, previousLast: number | null): number[] {
+  if (count <= 0) return []
+  if (count >= 7) return [0, 1, 2, 3, 4, 5, 6]
+  let best: number[][] = []
+  let bestScore = Number.POSITIVE_INFINITY
+  for (const candidate of subsetsOfWeek(count)) {
+    const score = weekSpreadScore(candidate, previousLast)
+    if (score < bestScore) {
+      bestScore = score
+      best = [candidate]
+    } else if (score === bestScore) {
+      best.push(candidate)
+    }
+  }
+  return best[hash32(`${seed}|${week}`) % best.length]!
+}
+
+/**
+ * Every week's days from the start of the count to the end of the walk.
+ *
+ * The chain starts at a fixed Monday (1969-12-29) because the days of one
+ * week depend on the last day of the week before it — that is what keeps a
+ * Sunday video and a Monday video from landing next to each other.
+ */
+function weekPicks(seed: string, count: number, fromWeek: number, toWeek: number): Map<number, number[]> {
+  const picks = new Map<number, number[]>()
+  let previousLast: number | null = null
+  for (let week = 0; week <= toWeek; week++) {
+    const days = pickWeekDays(seed, week, count, previousLast)
+    if (week >= fromWeek) picks.set(week, days)
+    previousLast = days.length ? days[days.length - 1]! : null
+  }
+  return picks
+}
+
+/** One random time of day inside the window, on a 5-minute mark. */
+function randomTimeInWindow(seed: string, dayKey: string, window: { start: string; end: string }): string {
+  const start = minutesOf(window.start) ?? 480
+  const end = minutesOf(window.end) ?? 1320
+  if (end <= start) return window.start
+  const steps = Math.floor((end - start) / 5)
+  const random = seededRandom(hash32(`${seed}|${dayKey}|time`))
+  return hhmmOf(start + Math.floor(random() * (steps + 1)) * 5)
+}
+
+/**
+ * The counted-weeks walk.
+ *
+ * NO DAYS CHOSEN — the default: three days a week drawn from the seed, each
+ * at a random time inside the window.
+ *
+ * DAYS CHOSEN — the customer's own slots: their days and their times, handed
+ * out in date order until the week's count is met.
+ */
+function countedWeekSlots(
+  schedule: UploadSchedule,
+  count: number,
+  options?: { minStartDate?: Date; notBefore?: Date; blockedDays?: ReadonlySet<string> | readonly string[] },
+): string[] {
+  const tz = isValidTimezone(schedule.timezone) ? schedule.timezone : 'UTC'
+  const perWeek = Math.max(1, Math.floor(Number(schedule.random_weekly) || 1))
+  const days = Array.isArray(schedule.weekdays) ? schedule.weekdays : []
+  const randomMode = days.length === 0
+  const seed = typeof schedule.random_seed === 'string' ? schedule.random_seed : ''
+  const window = randomTimeWindow(schedule)
+  const fixedTimes = Array.isArray(schedule.times_local) && schedule.times_local.length
+    ? [...schedule.times_local].sort()
+    : [schedule.time_local]
+
+  const planStartDate = schedule.start_date
+    ? parseDateInTz(schedule.start_date, tz)
+    : startOfDayInTz(new Date(), tz)
+  let startDate = planStartDate
+  if (options?.minStartDate) {
+    const minDayAfter = addDays(startOfDayInTz(options.minStartDate, tz), 1, tz)
+    if (minDayAfter > startDate) startDate = minDayAfter
+  }
+  if (options?.notBefore) {
+    const cutoffDay = startOfDayInTz(options.notBefore, tz)
+    if (cutoffDay > startDate) startDate = cutoffDay
+  }
+  const endDate = schedule.end_date ? parseDateInTz(schedule.end_date, tz) : null
+  const blocked = options?.blockedDays
+    ? (options.blockedDays instanceof Set ? options.blockedDays : new Set(options.blockedDays))
+    : null
+  const MAX_DAYS = 365 * 2
+
+  const startWeek = weekIndexInTz(startDate, tz)
+  const endWeek = weekIndexInTz(endDate || addDays(startDate, MAX_DAYS, tz), tz)
+  const picks = randomMode ? weekPicks(seed, perWeek, startWeek, endWeek) : null
+
+  const slots: string[] = []
+  let cursor = new Date(startDate)
+  let daysWalked = 0
+  let week = startWeek
+  let left = perWeek
+  while (slots.length < count && daysWalked < MAX_DAYS) {
+    if (endDate && cursor > endDate) break
+    const thisWeek = weekIndexInTz(cursor, tz)
+    if (thisWeek !== week) { week = thisWeek; left = perWeek }
+    const dayKey = localDayKeyInTz(cursor, tz)
+    const chosen = randomMode
+      ? (picks?.get(thisWeek) || []).includes(mondayOffsetInTz(cursor, tz))
+      : days.includes(weekdayInTz(cursor, tz))
+    if (chosen && left > 0 && !blocked?.has(dayKey)) {
+      const times = randomMode ? [randomTimeInWindow(seed, dayKey, window)] : fixedTimes
+      for (const time of times) {
+        if (left <= 0 || slots.length >= count) break
+        const [hours, minutes] = parseTime(time)
+        const slot = isoAtTz(cursor, hours, minutes, tz)
+        if (!options?.notBefore || Date.parse(slot) > options.notBefore.getTime()) {
+          slots.push(slot)
+          left--
+        }
+      }
+    }
     cursor = addDays(cursor, 1, tz)
     daysWalked++
   }

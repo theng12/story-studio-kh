@@ -45,19 +45,49 @@ export interface PublishCadence {
   defaults: UploadPlanDefaults
 }
 
-/** Sensible starting point for a new channel: three a week, evening, private. */
+/**
+ * The starting point for a new channel (2026-10-31).
+ *
+ * The owner: *"all channels should default to 3 videos per week randomly but
+ * not back to back"* and *"let's make the time random per the new default.
+ * but once done. it's saved."* So the default is three videos a week on days
+ * drawn from the channel's seed, each at a random time inside the window.
+ */
 export function defaultCadence(timezone?: string): PublishCadence {
   return {
     schedule: {
-      weekdays: [1, 3, 5],
-      time_local: '18:00',
-      timezone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      weekdays: [],
+      random_weekly: 3,
+      random_time_window: { ...plans.RANDOM_TIME_WINDOW_DEFAULT },
+      // Unused while the days are random, but the shape needs a valid time.
+      time_local: plans.RANDOM_TIME_WINDOW_DEFAULT.start,
+      timezone: timezone || 'Asia/Phnom_Penh',
     },
     // Private, because a plan publishes by handing YouTube a `publishAt` and
     // letting YouTube flip it live. A public default would publish on upload
     // and make the schedule meaningless.
     defaults: { privacy_status: 'private', made_for_kids: false },
   }
+}
+
+/**
+ * What this channel publishes on until it saves its own schedule.
+ *
+ * Read at use time and never written: a channel with no saved plan keeps its
+ * file exactly as it is, and the default simply applies.
+ */
+export function defaultSchedule(slug: string): UploadSchedule {
+  return { ...defaultCadence().schedule, random_seed: slug }
+}
+
+/**
+ * The switch that gives a finished episode its slot.
+ *
+ * Absent means ON: the owner (2026-10-31) wants every finished video to
+ * schedule itself, and only an explicit `false` turns that off.
+ */
+export function autoScheduleEnabled(config: unknown): boolean {
+  return (config as { auto_schedule_on_render?: unknown } | null | undefined)?.auto_schedule_on_render !== false
 }
 
 function isUsableSchedule(value: unknown): value is UploadSchedule {
@@ -67,9 +97,11 @@ function isUsableSchedule(value: unknown): value is UploadSchedule {
   if (typeof s.timezone !== 'string' || !s.timezone) return false
   const hasWeekdays = Array.isArray(s.weekdays) && s.weekdays.length > 0
   const hasMonthly = typeof s.monthly_day === 'number' && s.monthly_day >= 1 && s.monthly_day <= 31
+  // The counted default (2026-10-31) draws its own days, so it needs neither.
+  const hasCount = typeof s.random_weekly === 'number' && s.random_weekly >= 1
   // Neither means no slot can ever be computed — a cadence that produces
   // nothing is worse than no cadence, because it looks configured.
-  return hasWeekdays || hasMonthly
+  return hasWeekdays || hasMonthly || hasCount
 }
 
 export async function readCadence(slug: string): Promise<PublishCadence | null> {
@@ -90,7 +122,9 @@ export async function writeCadence(slug: string, cadence: PublishCadence): Promi
       { statusCode: 400, expose: true },
     )
   }
-  await pm.updateConfig(slug, { [CADENCE_CONFIG_KEY]: cadence } as any)
+  await pm.updateConfig(slug, {
+    [CADENCE_CONFIG_KEY]: { ...cadence, schedule: plans.ensureRandomSeed(cadence.schedule, slug) },
+  } as any)
 }
 
 /**
@@ -150,6 +184,11 @@ function seedScheduleFrom(schedule: UploadSchedule): UploadSchedule {
   }
   if (schedule.interval_weeks) seed.interval_weeks = schedule.interval_weeks
   if (!seed.weekdays.length && schedule.monthly_day) seed.monthly_day = schedule.monthly_day
+  // The counted default (2026-10-31) and the customer's own days and times.
+  if (schedule.random_weekly) seed.random_weekly = schedule.random_weekly
+  if (schedule.random_time_window) seed.random_time_window = { ...schedule.random_time_window }
+  if (schedule.times_local?.length) seed.times_local = [...schedule.times_local]
+  if (schedule.random_seed) seed.random_seed = schedule.random_seed
   return seed
 }
 
@@ -177,6 +216,12 @@ export interface ChannelSchedule {
   plans: UploadPlan[]
   /** The channel's rhythm before YouTube is connected (also kept equal to the active plan). */
   cadence: PublishCadence | null
+  /**
+   * What this channel publishes on until it saves its own schedule (2026-10-31):
+   * three a week on random days at a random time. Read at use time — nothing
+   * on disk is written for it.
+   */
+  default_schedule: UploadSchedule
   auto_schedule_on_render: boolean
 }
 
@@ -203,9 +248,13 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
   if (channel) await ensurePlanForAccount(slug, 'youtube', channel.account_id, channel.title)
   const config = (await pm.getConfig(slug)) as any
   const cadence = await readCadence(slug)
-  const auto = config?.auto_schedule_on_render === true
+  const auto = autoScheduleEnabled(config)
+  const fallback = defaultSchedule(slug)
   if (!channel) {
-    return { channel: null, account_id: '', plan: null, plans: [], cadence, auto_schedule_on_render: auto }
+    return {
+      channel: null, account_id: '', plan: null, plans: [], cadence,
+      default_schedule: fallback, auto_schedule_on_render: auto,
+    }
   }
   const own = (await plans.listPlans(slug)).filter(p => p.platform === 'youtube' && p.account_id === channel.account_id)
   const activeId = await plans.getActivePlanId(slug, 'youtube', channel.account_id)
@@ -215,12 +264,14 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
     plan: own.find(p => p.id === activeId) || null,
     plans: own,
     cadence,
+    default_schedule: fallback,
     auto_schedule_on_render: auto,
   }
 }
 
 export interface ChannelScheduleInput {
-  schedule: UploadSchedule
+  /** Absent when only the auto-schedule switch is being flipped. */
+  schedule?: UploadSchedule
   /** Plan name; only used when a plan is created or renamed. */
   name?: string
   auto_schedule_on_render?: boolean
@@ -236,6 +287,9 @@ export async function saveChannelSchedule(slug: string, input: ChannelScheduleIn
   if (typeof input.auto_schedule_on_render === 'boolean') {
     await pm.updateConfig(slug, { auto_schedule_on_render: input.auto_schedule_on_render } as any)
   }
+  // Only the switch was sent: the starting schedule is not on disk and must
+  // not be written there.
+  if (!input.schedule) return readChannelSchedule(slug)
   const channel = await assignedChannel(slug)
   if (!channel) {
     const current = await readCadence(slug)
@@ -263,6 +317,15 @@ export async function saveChannelSchedule(slug: string, input: ChannelScheduleIn
   if (!input.schedule.end_date) delete (draft.schedule as any).end_date
   if (!input.schedule.interval_weeks) delete (draft.schedule as any).interval_weeks
   if (!input.schedule.phases?.length) delete draft.schedule.phases
+  // The counted default and the customer's own days are different modes, so
+  // one set of fields must not survive the other.
+  if (!input.schedule.random_weekly) {
+    delete (draft.schedule as any).random_weekly
+    delete (draft.schedule as any).random_time_window
+  } else {
+    delete (draft.schedule as any).interval_weeks
+  }
+  if (!input.schedule.times_local?.length) delete (draft.schedule as any).times_local
   const problem = plans.validateUploadPlanDraft(draft)
   if (problem) throw badRequest(problem)
   const saved = await plans.upsertPlan(slug, draft)

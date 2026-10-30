@@ -1473,7 +1473,9 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // Found because he asked "do i need to tick somewhere?" and the honest
     // answer required reading the setting back, which nothing could do.
     publish_cadence: (config as any).publish_cadence,
-    auto_schedule_on_render: (config as any).auto_schedule_on_render === true,
+    // On unless the channel says otherwise (2026-10-31) — the same rule
+    // `autoScheduleEnabled` applies in publish-cadence.ts.
+    auto_schedule_on_render: (config as any).auto_schedule_on_render !== false,
     // Fall back to defaults when the project was created before defaults
     // were seeded (keeps the Settings → Models tab populated for old projects).
     image_models: (config.image_models && Object.keys(config.image_models).length)
