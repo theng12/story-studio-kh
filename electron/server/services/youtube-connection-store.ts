@@ -133,6 +133,7 @@ function decodeChannel(value: unknown, expectedChannelId: string): YouTubeChanne
   assertNonEmptyString(value.connected_at)
   assertNonEmptyString(value.updated_at)
   if (value.last_refresh_at !== undefined) assertNonEmptyString(value.last_refresh_at)
+  if (value.details_checked_at !== undefined) assertNonEmptyString(value.details_checked_at)
   if (value.authorized_at !== undefined) assertNonEmptyString(value.authorized_at)
   if (!Array.isArray(value.granted_scopes) || !value.granted_scopes.every(scope => typeof scope === 'string')) {
     throw corruptRegistryError()
@@ -149,6 +150,7 @@ function decodeChannel(value: unknown, expectedChannelId: string): YouTubeChanne
     connected_at: value.connected_at,
     updated_at: value.updated_at,
     ...(value.last_refresh_at !== undefined ? { last_refresh_at: value.last_refresh_at } : {}),
+    ...(value.details_checked_at !== undefined ? { details_checked_at: value.details_checked_at } : {}),
     ...(value.authorized_at !== undefined ? { authorized_at: value.authorized_at } : {}),
     ...(value.seven_day_sign_in === true ? { seven_day_sign_in: true } : {}),
     granted_scopes: [...value.granted_scopes],
@@ -644,6 +646,9 @@ export async function saveYouTubeChannelGrant(input: {
       connected_at: existing?.connected_at ?? now,
       updated_at: now,
       last_refresh_at: now,
+      // The grant's title, handle and thumbnail were read from YouTube moments
+      // ago, so the channel's details are current as of now.
+      details_checked_at: now,
       authorized_at: now,
       // A reconnect keeps what was learned about this OAuth app's token lifetime.
       ...(existing?.seven_day_sign_in ? { seven_day_sign_in: true } : {}),
@@ -711,6 +716,45 @@ export async function saveYouTubeChannelTokens(input: {
     })
     return true
   })
+}
+
+/**
+ * Record what YouTube says about a channel, and when it was last asked.
+ *
+ * `details` is omitted when the read failed: the saved title, handle and
+ * thumbnail stay exactly as they were, and only the check time moves, so a
+ * broken read is retried the next day rather than on every page load.
+ *
+ * The channel id is the identity. The assignment is never touched — a rename
+ * on YouTube must not move a project.
+ */
+export async function updateYouTubeChannelDetails(input: {
+  channel_id: string
+  details?: { title: string; handle?: string; thumbnail_url?: string }
+}): Promise<boolean> {
+  const channelId = requireCredential(input.channel_id, 'channel_id')
+  if (!isWritableMapKey(channelId)) return false
+  const filePath = youtubeConnectionsPath()
+  let updated = false
+  await withCrossProcessLock(filePath, async () => {
+    await recoverPendingRegistryTransaction(filePath)
+    const registry = await readRegistryUnlocked(filePath)
+    if (!Object.prototype.hasOwnProperty.call(registry.channels, channelId)) return
+    const next = cloneRegistry(registry)
+    const channel = next.channels[channelId]!
+    if (input.details) {
+      channel.title = input.details.title
+      if (input.details.handle !== undefined) channel.handle = input.details.handle
+      if (input.details.thumbnail_url !== undefined) channel.thumbnail_url = input.details.thumbnail_url
+    }
+    channel.details_checked_at = new Date().toISOString()
+    // `updated_at` is left alone on purpose: it dates the GRANT, and the
+    // 7-day sign-in window is measured from it on records that predate
+    // `authorized_at`. A display refresh must not reset that clock.
+    await writeRegistryUnlocked(filePath, next)
+    updated = true
+  })
+  return updated
 }
 
 export async function readYouTubeChannelTokensForServer(channel_id: string): Promise<OAuthTokenBundle | null> {

@@ -22,6 +22,15 @@ export interface YouTubeChannelRecord {
    * into it; an always-absent field would read as "never synchronized".
    */
   last_refresh_at?: string
+  /**
+   * When Story Studio last asked YouTube for this channel's own title, handle
+   * and thumbnail. Optional: a registry written before this field existed is
+   * valid, and a missing value means "never checked", not "checked just now".
+   *
+   * It records the CHECK, not the outcome — a failed read moves it too, so a
+   * broken read is retried the next day rather than on every page load.
+   */
+  details_checked_at?: string
   /** When the owner last completed Google consent (Connect or Reconnect). Optional: older records use `updated_at`. */
   authorized_at?: string
   /**

@@ -327,10 +327,20 @@ async function refreshAndPersist(
       expected_access_token: credential.tokens.access_token,
       tokens: fresh,
     })
-    if (saved) return {
-      access_token: fresh.access_token,
-      application_id: credential.application_id,
-      channel_id: channelId,
+    if (saved) {
+      // The grant is fresh, so this is the moment to re-read the channel's own
+      // name: YouTube owns it, and the owner can rename a channel at any time.
+      // It must never fail the request that happened to trigger the refresh.
+      await import('../services/youtube-channel-details.js')
+        .then(({ refreshYouTubeChannelDetails }) => refreshYouTubeChannelDetails(channelId))
+        .catch((error: unknown) => {
+          logLine('warn', `[youtube-channel-details] could not refresh the channel name: ${(error as Error)?.message || 'unknown'}`, { channel_id: channelId })
+        })
+      return {
+        access_token: fresh.access_token,
+        application_id: credential.application_id,
+        channel_id: channelId,
+      }
     }
     const winner = await connections.readYouTubeRequestCredentialForServer(slug, channelId)
     if (winner?.application_id === credential.application_id) return {
@@ -1467,6 +1477,41 @@ export async function listVideoSnippetStatus(
     }
   }
   return out
+}
+
+export interface YouTubeChannelDetails {
+  title: string
+  handle?: string
+  thumbnail_url?: string
+}
+
+/**
+ * One channel's own details, read by channel id.
+ *
+ * The id is the identity: this never reads "whatever channel this token
+ * happens to serve", so a token that drifted cannot rename another channel.
+ * Returns null when YouTube has no such channel.
+ */
+export async function readYouTubeChannelDetails(
+  accessToken: string,
+  channelId: string,
+): Promise<YouTubeChannelDetails | null> {
+  const url = `${CHANNELS_URL}?${new URLSearchParams({ part: 'snippet', id: channelId })}`
+  const resp = await youtubeFetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+  if (!resp.ok) throw new Error(`channels.list failed (${resp.status})`)
+  const data = await resp.json() as any
+  const item = data?.items?.[0]
+  if (!item || item.id !== channelId) return null
+  const snippet = item.snippet || {}
+  const title = typeof snippet.title === 'string' ? snippet.title.trim() : ''
+  if (!title) return null
+  const handle = typeof snippet.customUrl === 'string' ? snippet.customUrl.trim() : ''
+  const thumbnail = typeof snippet.thumbnails?.default?.url === 'string' ? snippet.thumbnails.default.url.trim() : ''
+  return {
+    title,
+    ...(handle ? { handle } : {}),
+    ...(thumbnail ? { thumbnail_url: thumbnail } : {}),
+  }
 }
 
 export async function getUploadsPlaylistId(slug: string, accountId: string): Promise<string> {
