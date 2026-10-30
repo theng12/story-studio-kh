@@ -20,6 +20,9 @@
  * CC0-first ordering is the Gateway's, not ours: it sorts by
  * `(0 if cc0 else 1, title)` before answering, so this file never re-ranks.
  */
+import fs from 'fs/promises'
+import path from 'path'
+import { createHash } from 'crypto'
 import { getGenStudioUrl } from '../services/app-settings.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { STORY_CALLER } from './machine-name.js'
@@ -76,6 +79,120 @@ async function gatewayRequest<T>(path: string, init: RequestInit = {}): Promise<
   } finally {
     clearTimeout(timer)
   }
+}
+
+/** The Gateway's stored clip, as bytes. Same one-Gateway, read-only GET as the listing. */
+async function gatewayRequestBytes(pathname: string): Promise<{ bytes: Buffer; contentType: string }> {
+  const [baseUrl, apiKey] = await Promise.all([getGenStudioUrl(), getApiKey('genstudio')])
+  if (!apiKey.trim()) throw new Error('No Gateway API Key configured. Open Settings → This Mac → Gateway API Key.')
+  const url = `${baseUrl.trim().replace(/\/+$/, '')}${pathname}`
+  const controller = new AbortController()
+  // A clip is a download, not a query: the listing's 20 s is too tight for a big one.
+  const timer = setTimeout(() => controller.abort(), 120_000)
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey.trim()}`, 'X-Caller': STORY_CALLER },
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({})) as any
+      const detail = body?.detail || body?.message
+      throw new Error(typeof detail === 'string' && detail ? detail : `The Gateway answered ${response.status}.`)
+    }
+    const bytes = Buffer.from(await response.arrayBuffer())
+    return { bytes, contentType: String(response.headers.get('content-type') || '') }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * The per-Mac cache of Gateway clips this Mac has actually used.
+ *
+ * The Gateway is another machine and its data folder is not ours to mount, so a
+ * clip it stored has no local path until this Mac downloads it once. The cache
+ * lives beside the app's other data and is safe to empty — every file in it can
+ * be fetched again by its hash.
+ */
+export const SOUND_CLIP_EXTENSIONS = ['mp3', 'wav', 'ogg', 'flac', 'm4a'] as const
+
+export async function soundClipCacheDir(): Promise<string> {
+  const { dataDir } = await import('../services/app-update.js')
+  return path.join(dataDir(), 'sound-library')
+}
+
+const MIME_EXTENSION: Record<string, string> = {
+  'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav',
+  'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'm4a', 'audio/ogg': 'ogg', 'audio/flac': 'flac',
+}
+
+function sha256Of(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+/**
+ * A cached clip, matched on what its filename ENDS with (`<sha256>.<ext>`), never
+ * on a bare prefix — a prefix test would claim any sidecar beside the clip
+ * (AGENTS §6). The bytes are hashed before they are returned: a torn or replaced
+ * file is moved aside (nothing is deleted) and the next download replaces it.
+ */
+export async function cachedSoundClipPath(sha256: string): Promise<string | null> {
+  if (!/^[0-9a-f]{64}$/.test(sha256)) return null
+  const dir = await soundClipCacheDir()
+  let names: string[] = []
+  try {
+    names = await fs.readdir(dir)
+  } catch {
+    return null
+  }
+  for (const name of names) {
+    const match = /^([0-9a-f]{64})\.([a-z0-9]+)$/.exec(name)
+    if (!match || match[1] !== sha256) continue
+    const filePath = path.join(dir, name)
+    try {
+      const bytes = await fs.readFile(filePath)
+      if (sha256Of(bytes) === sha256) return filePath
+    } catch {
+      continue
+    }
+    // Corrupt or replaced: keep it, rename it aside, never `rm`.
+    await fs.rename(filePath, `${filePath}.corrupt-${Date.now()}`).catch(() => {})
+    return null
+  }
+  return null
+}
+
+/**
+ * The local file for a Gateway clip, downloading it once if this Mac has never
+ * used it. The render path needs the bytes BEFORE mixing, so a failure here is a
+ * loud, named error — never a cue that quietly disappears from the mix.
+ */
+export async function ensureSoundClipCached(sha256: string, label?: string): Promise<string> {
+  const named = label?.trim() || sha256.slice(0, 12)
+  if (!/^[0-9a-f]{64}$/.test(sha256)) {
+    throw new Error(`The Gateway clip "${named}" has no valid identifier (${sha256 || 'empty'}), so it cannot be fetched. Open Sound & Labels and choose another sound, or turn it off.`)
+  }
+  const cached = await cachedSoundClipPath(sha256)
+  if (cached) return cached
+  let downloaded: { bytes: Buffer; contentType: string }
+  try {
+    downloaded = await gatewayRequestBytes(`/v1/sounds/library/${sha256}/audio`)
+  } catch (error: any) {
+    throw new Error(`The Gateway clip "${named}" could not be fetched from the Gateway (${error?.message || 'no answer'}). Nothing was mixed. Retry when the Gateway is reachable, or choose another sound in Sound & Labels.`)
+  }
+  if (!downloaded.bytes.length) throw new Error(`The Gateway sent no bytes for "${named}". Nothing was mixed. Choose another sound in Sound & Labels, or retry.`)
+  const actual = sha256Of(downloaded.bytes)
+  if (actual !== sha256) {
+    throw new Error(`The Gateway clip "${named}" arrived with the wrong content (expected ${sha256.slice(0, 12)}…, received ${actual.slice(0, 12)}…), so it was refused and nothing was mixed. Retry the download, or choose another sound.`)
+  }
+  const ext = MIME_EXTENSION[downloaded.contentType.split(';')[0]!.trim().toLowerCase()] || 'mp3'
+  const dir = await soundClipCacheDir()
+  await fs.mkdir(dir, { recursive: true })
+  const target = path.join(dir, `${sha256}.${ext}`)
+  const staging = `${target}.part-${process.pid}-${Date.now()}`
+  await fs.writeFile(staging, downloaded.bytes)
+  await fs.rename(staging, target)
+  return target
 }
 
 /**
@@ -146,7 +263,7 @@ export async function keepSoundInLibrary(source: string, sourceId: string): Prom
 }
 
 /** Every clip already kept in the Gateway library, so a cached pick costs no download. */
-export async function listKeptSounds(): Promise<Array<{ sha256: string; credit: SoundDesignCredit; duration_sec?: number }>> {
+export async function listKeptSounds(): Promise<Array<{ sha256: string; credit: SoundDesignCredit; duration_sec?: number; tags: string[] }>> {
   const body = await gatewayRequest<{ clips?: Array<Record<string, unknown>> }>('/v1/sounds/library')
   return (body?.clips || []).flatMap(clip => {
     const licence = typeof clip.licence === 'string' ? clip.licence.trim() : ''
@@ -163,6 +280,9 @@ export async function listKeptSounds(): Promise<Array<{ sha256: string; credit: 
         ...(typeof clip.title === 'string' && clip.title ? { title: clip.title } : {}),
       },
       ...(typeof clip.duration_seconds === 'number' ? { duration_sec: clip.duration_seconds } : {}),
+      // Tags describe the sound itself. Absent on rows kept before the Gateway
+      // published them, so a missing list reads as "no tags", never as an error.
+      tags: Array.isArray(clip.tags) ? clip.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '') : [],
     }]
   })
 }

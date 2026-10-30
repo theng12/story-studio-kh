@@ -396,9 +396,10 @@ router.post('/projects/:slug/sound-and-labels/:episodeId/sounds/keep', async (re
 /** One kept clip's bytes, so a row can be played without downloading it again. */
 router.get('/projects/:slug/sound-and-labels/sounds/library-audio/:sha256', async (req, res) => {
   try {
+    // The clip may not be on this Mac yet: the Gateway is usually another machine.
+    // Fetch it once (hash-checked into this Mac's cache) so a kept row can play.
     const { gatewaySoundClipPath } = await import('../services/sound-design-resolver.js')
-    const file = gatewaySoundClipPath(req.params.sha256)
-    if (!file) return res.status(404).json({ detail: 'That library sound is not on this Mac. Play it in the Gateway, or pick another.' })
+    const file = await gatewaySoundClipPath(req.params.sha256)
     const AUDIO_MIME: Record<string, string> = {
       '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4',
       '.aac': 'audio/aac', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.opus': 'audio/ogg',

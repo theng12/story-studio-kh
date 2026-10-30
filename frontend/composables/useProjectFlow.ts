@@ -127,16 +127,12 @@ const STEP = {
   subtitles:    { key: 'subtitles',    label: 'Subtitles',      icon: '🔤', path: '/subtitles', phase: 'media' },
   characterSheet: { key: 'character-sheet', label: 'Character Sheet', icon: '🎭', path: '/character-sheet', phase: 'video' },
   scenePlan:    { key: 'scene-plan',   label: 'Scene Plan',     icon: '📚', path: '/scene-plan', phase: 'video' },
-  // v1.4.365 — one PAGE for both optional layers. The two steps stay, with
-  // their own keys, because a key is what a flow spec and its tests address a
-  // step by and two steps sharing one key breaks that contract. Both now point
-  // at the merged page, and each says which half it stands for.
-  contextualCues: { key: 'contextual-cues', label: 'Labels', icon: '🏷️', path: '/sound-and-labels', phase: 'video', optional: true },
-  // One board CELL is the rule (see STEP_STATUS_FIELD and the Sound & Labels
-  // decision): the board dedupes its columns by field, and only the Labels step
-  // maps to a field. This step exists so the sidebar shows the Sound half beside
-  // the Labels half; the board shows the single merged cell.
-  soundDesign: { key: 'sound-design', label: 'Sound', icon: '🎵', path: '/sound-and-labels', phase: 'video', optional: true },
+  // v1.4.365 — one PAGE for both optional layers. v1.4.371 — ONE STEP for it.
+  // Two steps at the same path made Next go from the page to itself (owner,
+  // 2026-10-30: "one step"), so the two halves are one row that is pending while
+  // EITHER enabled layer has work. The board's single cell is unchanged: it
+  // reads the status field below, not this key.
+  soundAndLabels: { key: 'sound-and-labels', label: 'Sound & Labels', icon: '🎵', path: '/sound-and-labels', phase: 'video', optional: true },
   // v1.4.37 — the music library. `optional` because a scripted channel never
   // touches it, and a music channel touches almost nothing else.
   musicLibrary: { key: 'music', label: 'Music Library', icon: '🎼', path: '/music', phase: 'media', optional: true },
@@ -158,14 +154,14 @@ const FLOW_TIMESTAMP: FlowStep[] = [
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,
-  STEP.scenePlan, STEP.contextualCues, STEP.soundDesign, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
+  STEP.scenePlan, STEP.soundAndLabels, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 const FLOW_CONTINUITY: FlowStep[] = [
   STEP.ideas, STEP.research, STEP.script, STEP.introduction,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,
-  STEP.characterSheet, STEP.scenePlan, STEP.contextualCues, STEP.soundDesign, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
+  STEP.characterSheet, STEP.scenePlan, STEP.soundAndLabels, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 // v1.0.300 — narrated-scenes: story/fiction on the audio-paced flow.
 // v1.0.301 — Research + Character Sheet exposed as OPTIONAL steps (non-
@@ -176,7 +172,7 @@ const FLOW_NARRATED_SCENES: FlowStep[] = [
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,
-  STEP.characterSheet, STEP.scenePlan, STEP.contextualCues, STEP.soundDesign, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
+  STEP.characterSheet, STEP.scenePlan, STEP.soundAndLabels, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 
 // A music channel: no narration, so no story steps. The thumbnail and Finalizer
@@ -282,12 +278,12 @@ export const STEP_STATUS_FIELD: Readonly<Record<string, string>> = {
   subtitles: 'subtitles',
   'character-sheet': 'character_sheet',
   'scene-plan': 'scene_plan',
-  // v1.4.365 — ONE board cell for both halves of Sound & Labels. The two flow
-  // steps above still point at their own pages and their own preset pools, but
-  // a board column is a status FIELD, and there is exactly one cell: the backend
-  // derives `contextual_cues` from BOTH halves (labels will render, sounds will
-  // mix) using the same resolvers the renderer refuses over.
-  'contextual-cues': 'contextual_cues',
+  // v1.4.365 — ONE board cell for both halves of Sound & Labels, and v1.4.371
+  // made the flow agree: one step, one field. The backend derives
+  // `contextual_cues` from BOTH halves (labels will render, sounds will mix)
+  // using the same resolvers the renderer refuses over, so the step is pending
+  // while either enabled layer has work.
+  'sound-and-labels': 'contextual_cues',
   'scene-review': 'scene_review',
   'motion-review': 'motion_review',
   'image-pool': 'broll_picked',

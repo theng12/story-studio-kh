@@ -247,30 +247,31 @@ export const featureGuides: Record<string, FeatureGuide> = {
     ],
     tips: ['Generate visual prompts only after the timeline looks structurally correct.', 'A missing or duplicate prompt blocks image generation rather than silently reusing another scene.'],
   },
-  'contextual-cues': {
-    title: 'Sound & Labels — On-screen text',
-    summary: 'Optionally place reviewed location, date, map, or documentary context labels against the Scene Plan timeline.',
-    workflow: ['Turn on On-screen text only for channels that need it.', 'Review the proposed labels.', 'Approve the ones you want; the rest are simply not drawn.'],
+  'sound-and-labels': {
+    title: 'Sound & Labels',
+    summary: 'One optional page for both layers: reviewed on-screen labels against the Scene Plan timeline, and ambient beds or spot effects under the narration. Turn on either or both; nothing here blocks a render.',
+    workflow: [
+      'Turn on On-screen text and/or Sound only for channels that need them.',
+      'Review the proposed labels and sounds, or let the proposal pick them from your folders and the Gateway library.',
+      'Approve the ones you want; the rest are simply not drawn or not played, and the page says so.',
+      'Failure to provide either is a stated note, never a reason to refuse the render.',
+    ],
     topics: [
       { title: 'Cue type', purpose: 'Defines the information being presented, such as place, time, or context.' },
       { title: 'Timing', purpose: 'Each label carries its scene and the words spoken as it appears, so it follows the narration through a Scene Plan re-run.' },
       { title: 'Approval', purpose: 'Approved labels are drawn; anything left unreviewed is reported and skipped, never a reason to refuse the render.' },
       { title: 'Turn off', purpose: 'Keeps the label on file without drawing it.' },
-    ],
-    tips: ['Keep documentary labels concise and readable.', 'A blank “Starts on the words” falls back to the scene start plus a small offset.'],
-  },
-  'sound-design': {
-    title: 'Sound & Labels — Sound',
-    summary: 'Optionally place ambient beds and spot effects while protecting narration clarity.',
-    workflow: ['Choose safe mix defaults.', 'Add or review sounds, or let a proposal pick them from your folders and the Gateway library.', 'Approve the ones you want; the rest are silence and a stated note.'],
-    topics: [
       { title: 'Maximum spots per minute', purpose: 'Caps brief effects so narration does not become crowded.' },
       { title: 'Ambient bed level', purpose: 'Sets continuous background loudness in decibels.' },
       { title: 'Spot effect level', purpose: 'Sets brief effect loudness in decibels.' },
       { title: 'Bed ducking', purpose: 'Lowers ambience under speech to preserve intelligibility.' },
       { title: 'Credits', purpose: 'A sound from the Gateway library records its licence, author and source page with the cue, so the credit line is exact.' },
     ],
-    tips: ['More-negative dB values are quieter.', '-20 dB beds, -12 dB spots, and Gentle ducking are safe narration-first starting points.'],
+    tips: [
+      'Keep documentary labels concise and readable.',
+      'A blank “Starts on the words” falls back to the scene start plus a small offset.',
+      'More-negative dB values are quieter. -20 dB beds, -12 dB spots and Gentle ducking are safe narration-first starting points.',
+    ],
   },
   'scene-review': {
     title: 'Scene Review',
@@ -511,9 +512,10 @@ const suffixToGuide: Record<string, string> = {
   subtitles: 'subtitles',
   'character-sheet': 'character-sheet',
   'scene-plan': 'scene-plan',
-  'contextual-cues': 'contextual-cues',
-  'sound-design': 'sound-design',
-  'sound-and-labels': 'contextual-cues',
+  'sound-and-labels': 'sound-and-labels',
+  // The two old addresses redirect here; their keys still resolve to this guide.
+  'contextual-cues': 'sound-and-labels',
+  'sound-design': 'sound-and-labels',
   'scene-review': 'scene-review',
   'motion-review': 'motion-review',
   'video-assembly': 'video-assembly',

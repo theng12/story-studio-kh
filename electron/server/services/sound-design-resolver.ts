@@ -5,40 +5,18 @@ import type { SoundDesignCue } from '../models/types.js'
 import type { SoundDesignMixCue } from '../lib/sound-design-mixer.js'
 
 /**
- * Where a Gateway-library clip's bytes live, or `null`.
+ * Where a Gateway-library clip's bytes live on THIS Mac.
  *
- * The Gateway owns the store (`DATA_DIR/sound-library/<sha256>.<ext>`), keeps
- * the bytes hashed and the licence sidecar beside them, and serves the listing
- * over `/v1/sounds/library`. This module never re-fetches: a clip is added to
- * the library ONCE, when the customer picks it, and from then on this is a
- * local path just like a pool clip. A missing file is a clear error naming the
- * clip, never a silent skip.
- *
- * `STORY_STUDIO_GATEWAY_SOUND_LIBRARY` names the directory explicitly for a
- * setup where the Gateway's data folder is somewhere this app cannot guess
- * (a remote Gateway, a different volume). It is read here and nowhere else.
+ * The Gateway owns the store and serves the clip over
+ * `/v1/sounds/library/{sha256}/audio`. The Gateway is usually another machine,
+ * so this Mac downloads a clip once, into its own cache, and from then on it is
+ * a local path just like a pool clip. The bytes are hashed before use, the
+ * filename is matched on what it ENDS with (AGENTS §6), and a clip that cannot
+ * be fetched is a loud error naming it — never a silent skip in the mix.
  */
-export function gatewaySoundLibraryDir(): string | null {
-  const configured = process.env.STORY_STUDIO_GATEWAY_SOUND_LIBRARY
-  if (configured && configured.trim()) return configured.trim()
-  return null
-}
-
-/**
- * The path for a library clip.
- *
- * Deliberately `startsWith(`${sha256}.`)` and never `startsWith(sha256)`:
- * a bare prefix test would claim any sidecar or any clip whose hash merely
- * begins with these characters (AGENTS.md §6).
- */
-export function gatewaySoundClipPath(sha256: string): string | null {
-  const dir = gatewaySoundLibraryDir()
-  if (!dir || !/^[0-9a-f]{64}$/.test(sha256)) return null
-  for (const ext of ['mp3', 'wav', 'ogg', 'flac', 'm4a'] as const) {
-    const candidate = path.join(dir, `${sha256}.${ext}`)
-    if (existsSync(candidate)) return candidate
-  }
-  return null
+export async function gatewaySoundClipPath(sha256: string, label?: string): Promise<string> {
+  const { ensureSoundClipCached } = await import('../lib/gateway-sound-library.js')
+  return await ensureSoundClipCached(sha256, label)
 }
 
 /**
@@ -66,7 +44,7 @@ export async function approvedSoundDesignMixCues(cues: SoundDesignCue[]): Promis
 
 async function clipPathFor(cue: SoundDesignCue): Promise<string> {
   if (!cue.clip) return ''
-  if (cue.source === 'gateway') return gatewaySoundClipPath(cue.clip) || ''
+  if (cue.source === 'gateway') return await gatewaySoundClipPath(cue.clip, cue.label)
   if (!cue.pool_id) return ''
   const pool = await pools.getPool(cue.pool_id)
   if (!pool) return ''

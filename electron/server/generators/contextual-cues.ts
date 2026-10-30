@@ -874,7 +874,9 @@ async function loadSoundCandidates(): Promise<SoundCandidate[]> {
     for (const clip of await listKeptSounds()) {
       out.push({
         source: 'gateway', key: clip.sha256, label: clip.credit.title || clip.sha256.slice(0, 12),
-        description: [clip.credit.title, clip.credit.author, clip.credit.source].filter(Boolean).join(' '),
+        // The clip's own tags describe what it IS, which is what a picker ranks on
+        // (a title alone often says nothing about the sound).
+        description: [clip.credit.title, clip.credit.author, clip.credit.source, ...(clip.tags || [])].filter(Boolean).join(' '),
         duration_sec: clip.duration_sec,
         credit: clip.credit,
       })
