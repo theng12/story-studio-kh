@@ -1704,6 +1704,8 @@ export function resolveStepParams(
       density: data.density === 'standard' || data.density === 'editorial' ? data.density : 'restrained',
       placement: normalizeCuePlacement(data.placement),
       ...normalizeCuePositionPair(data.position_x_pct, data.position_y_pct),
+      ...(data.label_themes !== undefined ? { label_themes: data.label_themes } : {}),
+      ...(data.label_motions !== undefined ? { label_motions: data.label_motions } : {}),
       auto_approve: data.auto_approve === true,
     }
   }
