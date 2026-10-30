@@ -94,7 +94,7 @@ export interface LabelRenderOutput {
 export async function renderLabelDesign(input: LabelRenderInput): Promise<LabelRenderOutput> {
   const { design, frame_w } = input
   const base = labelFrameBase(frame_w)
-  const asset = await sharp(input.asset_path ?? labelDesignAssetPath(design.asset))
+  const asset = sharp(input.asset_path ?? labelDesignAssetPath(design.asset))
   const meta = await asset.metadata()
   const naturalW = meta.width ?? 1
   const naturalH = meta.height ?? 1

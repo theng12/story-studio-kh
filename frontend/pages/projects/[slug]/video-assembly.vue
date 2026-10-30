@@ -7033,7 +7033,7 @@ onUnmounted(() => {
 .tc-bg-sample code {
   color: rgba(255, 255, 255, .55);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 .tc-bg--black { background: #000; }
 .tc-bg--dark_blur { background: #101014; }

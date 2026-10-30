@@ -12,7 +12,8 @@ describe('GenStudio-only project onboarding', () => {
   test('keeps service credentials out of channel creation', () => {
     // v1.4.371 — Settings is a page; the channel list links to it instead of
     // opening the popup, and still carries no credential fields of its own.
-    assert.match(source, /<AppHeader|to="\/settings"/)
+    assert.match(readFileSync(new URL('../layouts/default.vue', import.meta.url), 'utf8'), /<AppHeader\s*\/>/)
+    assert.match(readFileSync(new URL('../components/AppHeader.vue', import.meta.url), 'utf8'), /\{ to: '\/settings', label: 'Settings' \}/)
     assert.doesNotMatch(source, /KeyProvider|apiKeys|Scoped Gateway API Key/)
 
     for (const retired of [
@@ -31,7 +32,7 @@ describe('GenStudio-only project onboarding', () => {
   })
 
   test('links to the Studio Library instead of embedding a shop in onboarding', () => {
-    assert.match(readFileSync(new URL('../components/AppHeader.vue', import.meta.url), 'utf8'), /to="\/library"/)
+    assert.match(readFileSync(new URL('../components/AppHeader.vue', import.meta.url), 'utf8'), /\{ to: '\/library', label: 'Studio Library' \}/)
     assert.doesNotMatch(source, /content-store\/quotes|purchase/i)
   })
 })

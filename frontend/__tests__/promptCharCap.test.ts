@@ -188,9 +188,9 @@ describe('Scene Plan workspace control', () => {
   })
 
   test('the intended image model shows its published limit at the point of choosing', () => {
-    assert.match(scenePlan, /v-for="model in usableImageModels"/)
-    assert.match(scenePlan, /\{\{ model\.display_name \}\} · \{\{ imageModelCapLabel\(model\) \}\}/)
-    assert.match(scenePlan, /:title="imageModelCapHint\(model\)"/)
+    assert.match(scenePlan, /<ModelMenu v-model="form\.intended_image_model"[^>]*usableImageModels\.map\(model => \(\{ id: model\.id, label: model\.display_name, description: imageModelCapLabel\(model\)/)
+    const modelMenu = readFileSync(new URL('../components/ModelMenu.vue', import.meta.url), 'utf8')
+    assert.match(modelMenu, /v-if="option\.description"[^>]*>\{\{ option\.description \}\}/)
     assert.match(scenePlan, /return cap \? `up to \$\{cap\.toLocaleString\(\)\} characters` : 'prompt limit not published'/)
   })
 

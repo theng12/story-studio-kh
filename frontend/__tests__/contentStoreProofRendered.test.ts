@@ -113,6 +113,7 @@ async function mount(component: Component, props: Record<string, unknown> = {}) 
   app.component('NuxtPage', NuxtPageStub)
   app.component('PlainBackLink', PlainBackLinkStub)
   app.component('LoadingSpinner', LoadingSpinnerStub)
+  app.component('PageTitle', defineComponent({ setup(_, { slots }) { return () => h('header', [slots.default?.(), slots.actions?.()]) } }))
   app.mount(host)
   await nextTick()
   return { host, unmount: () => app.unmount() }

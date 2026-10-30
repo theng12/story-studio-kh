@@ -97,7 +97,8 @@ describe('scalable Content Pack style library', () => {
   })
 
   test('reloads a persisted signed style as the selected Settings option', () => {
-    assert.match(settings, /:value="s\.id"/)
+    assert.match(settings, /v-for="style in visualStyles"[^>]*:aria-pressed="artStyleSelection === style\.id"[^>]*@click="artStyleSelection = style\.id/)
+    assert.match(settings, /visualStyles\.find\(s => s\.id === artStyleSelection\)\?\.name/)
     assert.match(settings, /visualStyles\.value\.find\(style => style\.id === next\)/)
     assert.doesNotMatch(settings, /`catalog:\$\{s\.id\}`/)
   })

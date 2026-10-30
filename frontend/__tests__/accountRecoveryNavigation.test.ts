@@ -54,7 +54,7 @@ test('the sidebar reaches the Studio Library and Settings as ordinary rows (v1.4
   const footerEnd = layout.indexOf('</footer>', footerStart)
   const footer = layout.slice(footerStart, footerEnd)
 
-  assert.match(nav, /to="\/library"[\s\S]{0,80}Studio Library/)
+  assert.match(nav, /<NuxtLink to="\/library"[^>]*class="nav-item"[^>]*>[\s\S]*?<\/NuxtLink>/)
   assert.match(nav, /\/projects\/\$\{slug\}\/settings`[^>]*class="nav-item"/)
   assert.match(nav, /to="\/settings"[^>]*class="nav-item"/, 'no channel: Settings is the page')
   assert.doesNotMatch(nav, /appSettingsModal\.open\(\)/, 'the list no longer opens a popup')
