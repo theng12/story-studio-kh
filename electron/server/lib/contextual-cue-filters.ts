@@ -126,6 +126,9 @@ export function buildContextualCueDrawtextFilters(cue: ContextualCue, offsetSec 
   const cornerY = pos.custom ? customAxis(pos.yPct, 'text_h', 'h') : (top ? '56' : 'h-text_h-56')
   const common = (x = cornerX, y = cornerY) => shared(cue, x, y, left)
 
+  if (cue.template.startsWith('label:')) {
+    throw new Error(`Label design ${cue.template} cannot be rendered: image-backed labels are not yet available.`)
+  }
   switch (cue.template) {
     case 'map-pin': {
       // A compact geographic marker, intentionally not a fabricated map.

@@ -15,6 +15,7 @@ import type {
 } from '../models/types.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { isContextualCueCorner, resolveContextualCuePosition } from '../contracts/contextual-cue-position.js'
+import { isLabelDesignId } from '../contracts/label-design.js'
 
 export const CONTEXTUAL_CUES_FILENAME = 'contextual_cues.json'
 export const CONTEXTUAL_CUES_PROGRESS_FILENAME = 'contextual_cues.progress.json'
@@ -311,7 +312,7 @@ export const CUE_MIN_DURATION_SEC = 2.25
 export const CUE_LONG_DURATION_SEC = 12
 
 export function normalizeContextualCueTemplate(value: unknown): ContextualCueTemplate {
-  return value === 'map-pin' || value === 'archival-caption' || value === 'chapter-plate'
+  return value === 'map-pin' || value === 'archival-caption' || value === 'chapter-plate' || isLabelDesignId(value)
     ? value
     : 'documentary-label'
 }

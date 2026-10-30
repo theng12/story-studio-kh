@@ -12,6 +12,7 @@ import {
   isReleasedContextualCueBackpressure,
   normalizeContextualCueConfig,
   normalizeContextualCueProposalSettings,
+  normalizeContextualCueTemplate,
   resolveContextualCueBatchSize,
   readContextualCueProgress,
   removeContextualCueProgress,
@@ -250,6 +251,12 @@ describe('Contextual Cues contract', () => {
     } as any
     const issues = validateContextualCueTimeline(timeline, plan, { subtitles: { enabled: true } } as any)
     assert.equal(issues.filter(issue => /subtitles are drawn/.test(issue.detail)).length, 0)
+  })
+
+  test('preserves image-backed design identifiers without accepting paths', () => {
+    assert.equal(normalizeContextualCueTemplate('label:location-pin'), 'label:location-pin')
+    assert.equal(normalizeContextualCueTemplate('label:../../secret'), 'documentary-label')
+    assert.equal(normalizeContextualCueTemplate('map-pin'), 'map-pin')
   })
 
   test('all reviewed visual treatments are accepted, while unknown treatments are rejected', () => {

@@ -217,6 +217,10 @@ router.put('/projects/:slug/sound-and-labels/:episodeId/labels', async (req, res
       kind: cue.kind === 'location_date' || cue.kind === 'person' || cue.kind === 'chapter' ? cue.kind : 'historical_context',
       placement: normalizeCuePlacement(cue.placement),
       ...normalizeCuePositionPair(cue.position_x_pct, cue.position_y_pct),
+      ...(cue.target_x_pct != null || cue.target_y_pct != null ? (() => {
+        const target = normalizeCuePositionPair(cue.target_x_pct, cue.target_y_pct)
+        return { target_x_pct: target.position_x_pct, target_y_pct: target.position_y_pct }
+      })() : {}),
       template: normalizeContextualCueTemplate(cue.template), entrance: cue.entrance === 'slide' || cue.entrance === 'dissolve' ? cue.entrance : 'fade',
       exit: cue.exit === 'slide' || cue.exit === 'dissolve' ? cue.exit : 'fade',
       status: cue.status === 'approved' || cue.status === 'disabled' ? cue.status : 'proposed',
