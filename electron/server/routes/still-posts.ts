@@ -34,6 +34,7 @@ import {
   channelHandle,
   channelLogoPath,
   commitFinals,
+  createSinglePost,
   listChannelCharacters,
   lookForPost,
   panelsForOption,
@@ -464,6 +465,55 @@ router.get('/projects/:slug/still-posts/font-sample', async (req, res) => {
   } catch (error: any) {
     const status = typeof error?.statusCode === 'number' ? error.statusCode : 400
     res.status(status).json({ detail: error?.message || 'Could not draw this font sample.' })
+  }
+})
+
+/**
+ * Add one post by hand, before anything is drawn — so the batch can be read, edited, added to and
+ * trimmed before a single picture is paid for.
+ */
+router.post('/projects/:slug/still-posts/posts', async (req, res) => {
+  try {
+    const slug = req.params.slug
+    const body = asRecord(req.body)
+    const text = String(body.text || '').trim()
+    if (!text) return res.status(400).json({ detail: 'Type the line this post should carry.' })
+    const format = stillPostFormat(String(body.format_id || ''))
+    if (!format) return res.status(400).json({ detail: 'Choose a format for this post.' })
+    const option = stillPostOption(String(body.option_id || ''))
+    if (!option) return res.status(400).json({ detail: 'Choose a layout for this post.' })
+    const language = isStillPostsLanguage(body.language) ? body.language : 'en'
+    const aspects = aspectsFrom(body.aspects)
+
+    const characters = await listChannelCharacters(slug)
+    const roster = resolveRoster(stillPostsConfig(await pm.getConfig(slug)).character_ids, characters)
+    const chosen = Array.isArray(body.character_ids)
+      ? [...new Set<string>(body.character_ids.filter((id: unknown): id is string => typeof id === 'string' && !!id))]
+      : [...roster.ids]
+    const foreign = chosen.filter(id => !roster.ids.includes(id))
+    if (foreign.length) {
+      return res.status(400).json({
+        detail: `These characters are not in this channel's Still Posts cast: ${foreign.join(', ')}. Add them on the channel first.`,
+      })
+    }
+
+    const batchId = typeof body.batch_id === 'string' && /^batch-[a-z0-9][a-z0-9-]{0,79}$/.test(body.batch_id.trim())
+      ? body.batch_id.trim()
+      : `batch-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}-${Math.random().toString(36).slice(2, 6)}`
+    const post = await createSinglePost(slug, {
+      text,
+      scenePrompt: typeof body.scene_prompt === 'string' ? body.scene_prompt : '',
+      caption: typeof body.caption === 'string' ? body.caption : '',
+      batchId,
+      format,
+      option,
+      language,
+      aspects,
+      characterIds: chosen,
+    })
+    res.status(201).json({ post, state: await postStateFor(slug, post) })
+  } catch (error: any) {
+    respondWithError(res, error, 'Failed to add the post')
   }
 })
 

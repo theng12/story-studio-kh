@@ -239,6 +239,37 @@ onMounted(() => {
 .sp-logo-placeholder { display: grid; width: 64px; height: 64px; place-items: center; border: 1px dashed var(--border); border-radius: 8px; color: var(--text-secondary); font-size: var(--font-xs); text-align: center; }
 .sp-logo-controls { display: flex; min-width: 0; flex: 1 1 260px; flex-direction: column; gap: 5px; }
 
+/* Write — the batch as an editable list, before any drawing is paid for */
+.sp-batch-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+.sp-batch-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: start; gap: 10px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.sp-batch-number { display: grid; height: 28px; place-items: center; border-radius: 50%; background: var(--bg-tertiary); color: var(--text-secondary); font-size: var(--font-xs); font-weight: 700; }
+.sp-batch-text { min-height: 44px; resize: vertical; }
+.sp-batch-state { align-self: center; }
+@media (max-width: 640px) {
+  .sp-batch-row { grid-template-columns: 24px minmax(0, 1fr); }
+  .sp-batch-state, .sp-batch-row > button { grid-column: 2; justify-self: start; }
+}
+
+/* Publish — only approved posts, each with what went where */
+.sp-publish-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.sp-publish-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 12px; }
+.sp-publish-row.is-selected { border-color: var(--accent); }
+.sp-publish-thumb { padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--bg-tertiary); cursor: pointer; }
+.sp-publish-thumb img { display: block; width: 96px; height: 96px; object-fit: cover; }
+.sp-publish-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.sp-publish-status { display: flex; gap: 14px; flex-wrap: wrap; margin: 4px 0 0; padding: 0; list-style: none; }
+.sp-publish-status li { display: inline-flex; align-items: center; gap: 6px; }
+.sp-publish-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.sp-publish-frames { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0; }
+.sp-publish-frame { display: flex; width: 220px; flex-direction: column; gap: 4px; margin: 0; }
+.sp-publish-frame img { width: 100%; border-radius: 10px; display: block; }
+.sp-publish-helpers { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 8px; }
+@media (max-width: 720px) {
+  .sp-publish-row { grid-template-columns: 72px minmax(0, 1fr); }
+  .sp-publish-thumb img { width: 72px; height: 72px; }
+  .sp-publish-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+
 /* Review — the board, its filters and the lightbox */
 .sp-review-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .sp-review-filters { display: flex; gap: 6px; flex-wrap: wrap; }

@@ -18,15 +18,18 @@
         </div>
       </div>
 
+      <!-- Before anything is spent: which model, how many drawings, and whether that costs money. -->
       <p
         v-if="imageModelChoice && drawingsForBatch > 0"
         class="sp-help sp-cost"
         :class="`basis-${drawCost.basis}`"
         :title="drawCost.title"
+        role="status"
       >
-        {{ CREDIT_BASIS_LABEL[drawCost.basis] }}: {{ drawCost.text }} for
+        <strong>{{ imageModelInfo?.display_name || imageModelChoice }}</strong> ·
         {{ drawingsForBatch }} drawing{{ drawingsForBatch === 1 ? '' : 's' }}
-        ({{ preset.fresh_drawing_per_size ? 'one per ticked size' : 'one per post, fitted to each size' }}).
+        ({{ preset.fresh_drawing_per_size ? 'one per ticked size' : 'one per post, fitted to each size' }}) ·
+        {{ CREDIT_BASIS_LABEL[drawCost.basis] }}: {{ drawCost.text }}
       </p>
 
       <div class="sp-row sp-draw-actions">
@@ -36,6 +39,10 @@
         <span class="sp-help">A batch is complete only when every post has its artwork and a final in every chosen frame.</span>
       </div>
       <p v-if="drawError" class="sp-notice sp-notice-error" role="alert">{{ drawError }}</p>
+      <p v-if="drawing" class="sp-help" role="status">Drawing. Each post shows up above as soon as its pictures are done; the finished ones are kept.</p>
+      <p v-else-if="writeJob && writeJob.status !== 'done'" class="sp-help">
+        The writer is still running. Its posts arrive here as they are written.
+      </p>
 
       <div v-if="workspace?.batches.length" class="sp-batches">
         <div v-for="batch in workspace?.batches" :key="batch.batch_id" class="sp-batch">
@@ -55,7 +62,11 @@
 
     <section class="card sp-section">
       <h4 class="sp-h4">Posts <span class="sp-count">{{ posts.length }}</span></h4>
-      <ul v-if="posts.length" class="sp-draw-list">
+      <div v-if="!posts.length" class="sp-empty-state">
+        <p class="sp-help">Nothing to draw yet. Write posts on the Write step first.</p>
+        <NuxtLink :to="stillPostTabRoute(slug, 'write')" class="btn btn-sm btn-secondary">Go to Write</NuxtLink>
+      </div>
+      <ul v-else class="sp-draw-list">
         <li v-for="post in posts" :key="post.id" class="sp-draw-row">
           <span class="sp-post-text">{{ post.panels[0]?.text }}</span>
           <span class="sp-pill" :class="postState(post.id)?.complete ? 'is-done' : 'is-in-progress'">
@@ -63,17 +74,17 @@
           </span>
         </li>
       </ul>
-      <StillPostsPostGrid v-else />
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { CREDIT_BASIS_LABEL } from '../../utils/genstudio-credit-cost'
+import { stillPostTabRoute } from '../../utils/still-posts-flow'
 import { useStillPosts } from '../../composables/useStillPostsWorkspace'
 
 const {
-  slug, workspace, preset, imageModelChoice, imageModelHelp, drawingsForBatch, drawCost, canDraw, drawing, drawError, draw,
-  posts, postState,
+  slug, workspace, preset, imageModelChoice, imageModelInfo, imageModelHelp, drawingsForBatch, drawCost, canDraw, drawing, drawError, draw,
+  posts, postState, writeJob,
 } = useStillPosts()
 </script>

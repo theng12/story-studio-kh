@@ -369,3 +369,52 @@ describe('still posts — visual pickers, server side', () => {
     }
   })
 })
+
+describe('still posts — adding a post before any drawing', () => {
+  test('a typed post is created undrawn, refused when empty, and refused a foreign character', async () => {
+    const isolated = await useTempDataDir()
+    try {
+      const pm = await import('../services/project-manager.js')
+      const store = await import('../services/still-posts.js')
+      const library = await import('../services/character-library.js')
+      const project = await pm.createProject({ name: 'Typed posts' })
+      const other = await pm.createProject({ name: 'Elsewhere' })
+      const slug = project.slug
+      await library.createLibraryCharacter({ name: 'Ours', description: 'ours', projects: [slug] })
+      await library.createLibraryCharacter({ name: 'Theirs', description: 'theirs', projects: [other.slug] })
+
+      const { router } = await import('../routes/still-posts.js')
+      const app = express().use(express.json()).use('/api', router)
+      // The character must be in THIS channel's cast before a post may name it.
+      const cast = await request(app).put(`/api/projects/${slug}/still-posts/config`).send({ character_ids: ['ours'] })
+      assert.equal(cast.status, 200)
+
+      const created = await request(app).post(`/api/projects/${slug}/still-posts/posts`).send({
+        text: 'the light stays on', format_id: 'night-painterly', option_id: 'quote-bottom',
+        language: 'en', aspects: ['1:1'], character_ids: ['ours'],
+      })
+      assert.equal(created.status, 201)
+      assert.equal(created.body.post.panels[0].text, 'the light stays on')
+      // Undrawn, honestly: no art and no final, and the state says so.
+      assert.equal(created.body.post.panels[0].image ?? null, null)
+      assert.equal(created.body.state.complete, false)
+      assert.match(created.body.state.problems.join(' '), /artwork is missing/i)
+      // It is a real post on disk, in the channel's own folder.
+      assert.equal((await store.listPosts(slug)).length, 1)
+
+      const blank = await request(app).post(`/api/projects/${slug}/still-posts/posts`)
+        .send({ text: '   ', format_id: 'night-painterly', option_id: 'quote-bottom' })
+      assert.equal(blank.status, 400)
+      assert.match(blank.body.detail, /Type the line/)
+
+      const foreign = await request(app).post(`/api/projects/${slug}/still-posts/posts`).send({
+        text: 'elsewhere', format_id: 'night-painterly', option_id: 'quote-bottom', character_ids: ['theirs'],
+      })
+      assert.equal(foreign.status, 400)
+      assert.match(foreign.body.detail, /not in this channel/)
+      assert.equal((await store.listPosts(slug)).length, 1, 'a refused post is never created')
+    } finally {
+      await isolated.cleanup()
+    }
+  })
+})

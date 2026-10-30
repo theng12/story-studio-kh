@@ -289,6 +289,47 @@ export async function writePost(slug: string, post: StillPost): Promise<StillPos
   return record
 }
 
+/**
+ * One more post, typed by hand before any drawing is paid for. It carries no artwork and no finals, so
+ * its state is honestly "not drawn yet" until the Draw step runs.
+ */
+export async function createSinglePost(
+  slug: string,
+  input: {
+    text: string
+    scenePrompt?: string
+    caption?: string
+    batchId: string
+    format: StillPostFormat
+    option: StillPostOption
+    language: StillPostsLanguage
+    aspects: readonly StillPostAspect[]
+    characterIds: readonly string[]
+  },
+): Promise<StillPost> {
+  const id = await nextPostId(slug)
+  const now = new Date().toISOString()
+  const panels = panelsForOption(input.option).map((panel, index) => ({
+    ...panel,
+    text: index === 0 ? input.text.trim() : '',
+    scene_prompt: index === 0 ? (input.scenePrompt || '').trim() : '',
+  }))
+  return writePost(slug, {
+    id,
+    batch_id: input.batchId,
+    created_at: now,
+    updated_at: now,
+    format_id: input.format.id,
+    option_id: input.option.id,
+    language: input.language,
+    character_ids: [...input.characterIds],
+    caption: (input.caption || input.text).trim().slice(0, 2000),
+    panels,
+    finals: [],
+    aspects: [...input.aspects],
+  })
+}
+
 /** Next free `post-NNNN` for the channel. Sequenced on disk so ids stay readable. */
 export async function nextPostId(slug: string): Promise<string> {
   const posts = await listPosts(slug)

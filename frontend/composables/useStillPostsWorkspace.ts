@@ -5,7 +5,7 @@
  * the batch and the posts are one state, not five copies. Every rule that decides what is "done" is on
  * the server (AGENTS §8); this file only reads it, and the step states come from `still-posts-flow`.
  */
-import { computed, inject, provide, reactive, ref, watch, type ComputedRef, type InjectionKey } from 'vue'
+import { computed, inject, onUnmounted, provide, reactive, ref, watch, type ComputedRef, type InjectionKey } from 'vue'
 import { useApi } from './useApi'
 import { useJobs } from './useJobs'
 import { useConfirm } from './useConfirm'
@@ -81,7 +81,7 @@ export interface StillPost {
   language: 'en' | 'km' | 'zh'
   character_ids: string[]
   caption: string
-  panels: Array<{ id: string, role: string, text: string, scene_prompt: string }>
+  panels: Array<{ id: string, role: string, text: string, scene_prompt: string, image?: { filename: string } | null }>
   finals: Array<{ aspect: string, panel_id: string, filename: string, text: string }>
   aspects: string[]
   /** Absent = a single drawing fitted to every size (the original behaviour). */
@@ -299,6 +299,13 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
   const approvedPostIds = computed(() => posts.value.filter(entry => !!entry.approved_at).map(entry => entry.id))
   const approvedCount = computed(() => approvedPostIds.value.length)
   const needsReviewCount = computed(() => posts.value.filter(entry => postState(entry.id)?.complete && !entry.approved_at).length)
+  /** Approved posts that have really been sent, on every platform this channel has turned on. */
+  const publishedCount = computed(() => {
+    const platforms = socialOn.value ? ['facebook'] : []
+    if (!platforms.length) return 0
+    return posts.value.filter(entry => entry.approved_at
+      && platforms.every(platform => !!(publishes.value[entry.id] as any)?.[platform])).length
+  })
 
   /** The five steps, derived from the server's verification and the jobs in the stream. */
   /** One post's review verdict, from the server's verification and its recorded approval. */
@@ -322,7 +329,7 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
       completePostCount: completePostCount.value,
       needsReviewCount: needsReviewCount.value,
       approvedCount: approvedCount.value,
-      publishedCount: 0,
+      publishedCount: publishedCount.value,
       socialOn: socialOn.value,
       writeJob: latestOf('still_post_write'),
       drawJob: latestOf('still_post_render'),
@@ -627,6 +634,41 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
     }
   }
 
+  /** The newest batch's id, which is where a hand-typed post joins. */
+  const newestBatchId = computed(() => posts.value[0]?.batch_id || '')
+
+  /**
+   * Save one quote typed or edited before any drawing: an existing post is re-saved without touching
+   * its picture (there is none yet), and a new row becomes a real post through the add route.
+   */
+  async function saveQuote(postId: string | null, text: string): Promise<{ ok: boolean, post?: StillPost, message: string }> {
+    const trimmed = text.trim()
+    if (!trimmed) return { ok: false, message: 'Type the line this post should carry.' }
+    try {
+      const response = postId
+        ? await put<{ post: StillPost, render_error: string | null }>(
+          `/projects/${slug.value}/still-posts/posts/${postId}`, { panels: [{ text: trimmed }] },
+        )
+        : await post<{ post: StillPost }>(`/projects/${slug.value}/still-posts/posts`, {
+          text: trimmed,
+          batch_id: newestBatchId.value || undefined,
+          format_id: preset.format_id,
+          option_id: preset.option_id,
+          language: preset.language,
+          aspects: preset.aspects,
+          character_ids: castDraft.value,
+        })
+      await load()
+      // An undrawn post is expected to have nothing to letter; that is not an error here.
+      const warning = postId && (response as any).render_error && (response as any).post?.panels?.[0]?.image
+        ? String((response as any).render_error)
+        : ''
+      return { ok: true, post: (response as any).post, message: warning }
+    } catch (error: any) {
+      return { ok: false, message: error?.data?.detail || error?.message || 'Could not save that line.' }
+    }
+  }
+
   async function draw(batchId?: string, postIds?: string[], redraw = false): Promise<void> {
     drawing.value = true
     drawError.value = ''
@@ -688,12 +730,25 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
   }
 
   // A finished Still Posts job changes the files on disk, so the workspace is re-read rather than
-  // patched from the job payload.
+  // patched from the job payload. While one is RUNNING the workspace is re-read every few seconds, so
+  // finished posts appear as they are made instead of only when the whole batch ends.
+  let poll: ReturnType<typeof setInterval> | null = null
+  function stopPolling(): void {
+    if (poll) { clearInterval(poll); poll = null }
+  }
   watch(() => jobs.value.map(job => `${job.job_id}:${job.status}`).join('|'), () => {
+    const active = jobs.value.some(job =>
+      (job.type === 'still_post_write' || job.type === 'still_post_render')
+      && ['queued', 'running', 'paused'].includes(job.status))
+    if (active && !poll) poll = setInterval(() => { void load() }, 4000)
+    if (!active) stopPolling()
     const finished = jobs.value.some(job =>
       (job.type === 'still_post_write' || job.type === 'still_post_render') && job.status === 'done')
     if (finished) void load()
   })
+  // The page owns the instance for its whole life, but a poll must never outlive it.
+  onUnmounted?.(stopPolling)
+
 
   const state = {
     slug, workspace, loading, loadError, load, loadModels, loadPublishing,
@@ -705,8 +760,8 @@ export function useStillPostsWorkspace(slug: ComputedRef<string>) {
     appDefaults, writingModelChoice, imageModelChoice, formatSampleUrl, fontSampleUrl,
     onAddPoolFont, addPoolFont, removePoolFont, percentagesFor, scriptForLanguage,
     brief, count, writing, writeError, writeJob, writeBatch, canWrite,
-    drawing, drawError, draw, canDraw, drawCost, drawingsForBatch, imageModelInfo,
-    posts, selected, selectedId, selectedPublish, completePostCount, approvedCount, approvedPostIds, needsReviewCount, postState,
+    drawing, drawError, draw, canDraw, drawCost, drawingsForBatch, imageModelInfo, newestBatchId, saveQuote,
+    posts, selected, selectedId, selectedPublish, completePostCount, approvedCount, approvedPostIds, needsReviewCount, publishedCount, postState,
     reviewStatus, reviewFilter, reviewPosts, reviewSelected,
     finalName, fileBase, postImageUrl, finalUrl, finalState, activeJobLine,
     socialPlatforms, socialOn, publishes, publishBusy, publishMessage, postSelectedToFacebook,
