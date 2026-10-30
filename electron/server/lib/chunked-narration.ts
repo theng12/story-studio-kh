@@ -49,6 +49,7 @@ import path from 'path'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
 import { assertPipelineModelRequestCapabilities, callAi, callAiWithRetry, executePipelineModelPolicy, parseStructuredJson, resolveLivePipelineModel } from './ai-client.js'
+import { boundOutputTokensToContext } from '../services/output-token-budget.js'
 import { pipelinePolicyInputFingerprint, type AssignedPipelineModelPolicy, type PipelinePolicyCheckpointStore } from './pipeline-model-policy.js'
 import { freshGenerationRequestIdentity } from './fresh-generation-action.js'
 import { GenStudioChatIncompleteError, isGenStudioInsufficientCredits, listChatModels } from './genstudio-client.js'
@@ -174,13 +175,6 @@ const OUTPUT_TOKENS_PER_WORD = 1.6
  *  check below uses the REAL prompt sizes instead. */
 const TYPICAL_PROMPT_TOKENS = 2000
 
-/** Characters per prompt token, for the context-window bound on one request.
- *  The same approximation Studio Hub uses for its prompt estimate
- *  (`chat_deadline.CHARS_PER_TOKEN`) and this app uses for its
- *  "available input" readout. Deliberately a PROMPT estimate: it never turns a
- *  token limit into a word limit. */
-const CHARS_PER_TOKEN_ESTIMATE = 4
-
 // ── One expansion request's output budget ─────────────────────────────────
 //
 // THE SELECTED MODEL'S FULL PUBLISHED `max_output_tokens`, every request.
@@ -226,20 +220,21 @@ export function expansionOutputTokenCap(
   budget: ChunkingBudget,
   promptCharacters: number,
 ): number | null {
-  const cap = chunkingOutputBudget(budget.outputTokenCap)
-  if (cap === null) return null
-  const contextWindow = budget.contextWindowTokens
-  if (contextWindow === null) return cap
-  const promptTokens = Math.max(0, Math.ceil(Math.max(0, promptCharacters) / CHARS_PER_TOKEN_ESTIMATE))
-  const available = contextWindow - promptTokens
-  if (available < 1) {
+  // The SAME bound every writing request now uses
+  // (`boundOutputTokensToContext`): the published output ceiling, capped by the
+  // product's published context window minus this prompt. Only the wording of a
+  // refusal is local; the numbers are computed in one place.
+  const bounded = boundOutputTokensToContext(
+    chunkingOutputBudget(budget.outputTokenCap), budget.contextWindowTokens, promptCharacters,
+  )
+  if (bounded.overflow) {
     throw new Error(
-      `This chapter request's instructions are about ${promptTokens.toLocaleString()} tokens, which leaves no room `
-      + `inside ${budget.productName || 'the selected writing model'}'s published ${contextWindow.toLocaleString()}-token `
+      `This chapter request's instructions are about ${bounded.promptTokens.toLocaleString()} tokens, which leaves no room `
+      + `inside ${budget.productName || 'the selected writing model'}'s published ${(bounded.contextWindowTokens as number).toLocaleString()}-token `
       + 'context window. Shorten the outline or pick a model with a larger window. Nothing was requested.',
     )
   }
-  return Math.min(cap, available)
+  return bounded.maxTokens
 }
 
 /**

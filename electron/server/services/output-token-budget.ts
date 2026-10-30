@@ -221,6 +221,78 @@ export function describeOutputBudget(budget: OutputBudget | undefined): string |
     : budget.tier
 }
 
+// ── The context-window bound: the ONE rule for every writing request ────────
+//
+// THE DEFECT THIS EXISTS FOR (2026-10-30). Story sent `max_output_tokens: 64,000`
+// to `studio-hub::mlx-community/gemma-4-26B-A4B-it-qat-4bit`, a product whose
+// published `context_window_tokens` is 32,768. The published OUTPUT ceiling was
+// larger than the whole window, so the pre-network ceiling check passed and the
+// request asked for more answer tokens than the product could hold beside its
+// prompt. Chapters already bounded this (chunked-narration's
+// `expansionOutputTokenCap`); research, outline and metadata did not, because
+// each of them sizes its own budget and only the ONE submission boundary sees
+// the product's live figures.
+//
+// So the rule lives here, once: **the requested output never exceeds the
+// product's published context window minus this prompt**, read live at the
+// moment of the call. It is `min(max_output_tokens, context_window_tokens −
+// prompt tokens)`, with nothing else guessed:
+//
+//   - the prompt's size is the same characters ÷ 4 estimate every prompt readout
+//     in the app uses. It estimates OUR input; it is never a words→tokens
+//     conversion of the answer (AGENTS §1 forbids that), and a Khmer prompt is
+//     under-estimated by it in the safe direction for the ANSWER's allowance.
+//   - a product that publishes no `context_window_tokens` (or publishes 0, the
+//     parser's "not published") is NOT bounded here — it behaves exactly as it
+//     did before this rule existed.
+//   - a product that publishes no output ceiling keeps sending NO ceiling
+//     (owner decision #6): this bound never invents a number to send.
+//   - when the prompt alone leaves no room, the call is refused BEFORE it is
+//     made, with both figures, rather than being sent to be cut off.
+
+/** Characters per prompt token, used everywhere a prompt's size is estimated. */
+export const PROMPT_CHARS_PER_TOKEN_ESTIMATE = 4
+
+export interface ContextBoundedOutput {
+  /** The ceiling to send after the window bound. `null` = send no ceiling at all. */
+  maxTokens: number | null
+  /** The prompt's own estimated tokens. */
+  promptTokens: number
+  /** The product's published window, or `null` when it states none. */
+  contextWindowTokens: number | null
+  /** True when the prompt alone leaves no room for any answer. */
+  overflow: boolean
+}
+
+/**
+ * The context-window bound described above. Callers format their own refusal —
+ * a chapter request and a chat request say the same thing in their own words —
+ * but the NUMBERS are computed here and nowhere else.
+ */
+export function boundOutputTokensToContext(
+  requestedTokens: number | null,
+  contextWindowTokens: unknown,
+  promptCharacters: number,
+): ContextBoundedOutput {
+  const promptTokens = Math.max(0, Math.ceil(Math.max(0, promptCharacters) / PROMPT_CHARS_PER_TOKEN_ESTIMATE))
+  const window = Number.isInteger(contextWindowTokens) && (contextWindowTokens as number) >= 1
+    ? contextWindowTokens as number
+    : null
+  if (window === null) {
+    return { maxTokens: requestedTokens, promptTokens, contextWindowTokens: null, overflow: false }
+  }
+  const available = window - promptTokens
+  if (available < 1) {
+    return { maxTokens: requestedTokens === null ? null : 1, promptTokens, contextWindowTokens: window, overflow: true }
+  }
+  return {
+    maxTokens: requestedTokens === null ? null : Math.min(requestedTokens, available),
+    promptTokens,
+    contextWindowTokens: window,
+    overflow: false,
+  }
+}
+
 // ── How long the expected answer takes, for this side's own socket ──────────
 //
 // **The same arithmetic Studio Hub uses, mirrored here on purpose.** The Gateway forwards the
@@ -252,8 +324,8 @@ export const CHAT_ALLOWANCE_LOAD_SECONDS = 15
  *  which makes prefill look slower than it is and so makes this allowance longer. */
 export const CHAT_ALLOWANCE_PREFILL_FASTER_THAN_DECODE = 5
 
-/** The Hub's prompt approximation (`chat_deadline.CHARS_PER_TOKEN`). */
-export const CHAT_ALLOWANCE_CHARS_PER_TOKEN = 4
+/** The Hub's prompt approximation (`chat_deadline.CHARS_PER_TOKEN`), the same estimate used above. */
+export const CHAT_ALLOWANCE_CHARS_PER_TOKEN = PROMPT_CHARS_PER_TOKEN_ESTIMATE
 
 /**
  * How long this answer is expected to take, in seconds, on the fleet's slowest measured Mac.

@@ -2,8 +2,10 @@
 
 ## 1.4.371 — old Wars ids keep working while every channel moves to the v2 Formulas; a wrong-script chapter is never saved (2026-10-30, release/1.4.371 from release/1.4.370 673b6cd1)
 
-**Three commits on `release/1.4.371`; static checks pass. No test lane has run in this worktree
-(a Story gate was running on this Mac), so every backend test below is WRITTEN, NOT RUN.**
+**Commits on `release/1.4.371`: `96277a72` (Story + script-language), `1ef599b8` (withdraw Wars 1.0.2),
+and the output-budget rule that follows it (`5fc548ca` is the withdrawn content commit, kept in
+history on purpose). Static checks pass; no test lane has run in this worktree (a Story gate was
+running on this Mac), so every backend test below is WRITTEN, NOT RUN.**
 
 - **OWNER DECISION 2026-10-30, superseding the first plan: every channel moves to the v2 Formulas,
   and script changes are accepted — v1 Formulas are no longer first-class.** The Wars 1.0.2 pack
@@ -30,7 +32,7 @@
   has not moved yet composes its OLD pack through `loadSupersededTopicPack` instead of losing the
   topic. That fallback stays until every channel has moved.
 
-### Commits 1–2 — Story code
+### Commit `96277a72` — Story code (Topic Packs and script language)
 
 - **Allow-list compares aliases on both sides** (`composeNicheWithTopicPacksDetailed`): the
   Formula's `compatibleTopicPackIds` and the requested id both go through `resolveTopicPackAlias`.
@@ -71,7 +73,35 @@
   shows but the old pack is not offered as a NEW choice (the merged row is listed and the old rows
   are hidden). It resolves itself as soon as the channel moves to its v2 Formula.
 
-### Commit 3 — language: a chapter in the wrong script is not saved
+### The output-budget rule — the request is bounded by the model's own context window, everywhere
+
+- **The defect (owner, 2026-10-30):** Story sent `max_output_tokens: 64,000` to
+  `studio-hub::mlx-community/gemma-4-26B-A4B-it-qat-4bit`, whose published
+  `context_window_tokens` is **32,768**. The published OUTPUT ceiling is larger than the whole window, so the
+  "within its published output limit" guard passed. Chapters already bounded this
+  (`expansionOutputTokenCap`); research, outline and metadata each size their own budget and only the
+  submission boundary sees the live figures.
+- **The one rule** (`boundOutputTokensToContext` in `services/output-token-budget.ts`):
+  `min(published output ceiling, context_window_tokens − this prompt's tokens)`. The prompt's size is
+  the app's one characters÷4 prompt estimate (`PROMPT_CHARS_PER_TOKEN_ESTIMATE`, the same number
+  `CHAT_ALLOWANCE_CHARS_PER_TOKEN` now derives from) — an estimate of OUR input, never a
+  words→tokens conversion of the answer. No product id and no fixed ratio to the answer.
+- **Where it is applied:** `prepareChatSubmission` in `lib/genstudio-client.ts`, the single place
+  every writing request passes through (research, outline/chapters via `callAi`/`callForJsonArray`,
+  metadata, idea campaigns, scene packs). The clamp precedes the wire body AND the idempotency
+  digest. A prompt that leaves no room throws before submission with both figures and
+  "No request or credit charge was made."; `expansionOutputTokenCap` now calls the same function, so
+  the chapter path and every other path cannot disagree. A product publishing no window (or `0`, the
+  parser's "not published") is unchanged; a product publishing no output ceiling still sends none
+  (owner decision #6). Recompute is free: the catalogue read already happens per submission, so a
+  model switch is measured afresh.
+- **Tests:** `electron/server/__tests__/chat-context-window-output-cap.test.ts` — the reported
+  product's numbers on the wire (`32,768 − prompt`); the arithmetic (window vs ceiling, no ceiling,
+  no window, overflow); refusal before any submit with both figures; no-ceiling product omits the
+  field; no-window product unchanged; a model switch recomputes. `--only` substring:
+  `chat-context-window-output-cap`.
+
+### Commit `96277a72` (continued) — language: a chapter in the wrong script is not saved
 
 - `lib/content-language.ts`: `measureAnswerScript` counts Khmer letters (U+1780–U+17FF, U+19E0–U+19FF)
   against Latin letters and ignores everything else. An answer is Khmer when it has ≥30 Khmer letters

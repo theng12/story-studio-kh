@@ -46,6 +46,7 @@ import {
   type TtsControlValues,
 } from './tts-controls.js'
 import {
+  boundOutputTokensToContext,
   chatAllowanceSeconds,
   describeOutputBudget,
   effectiveChatTimeoutMs,
@@ -7806,6 +7807,20 @@ async function prepareChatSubmission(
   // prompt size is what this submission will actually carry, so a long pack is not measured
   // against a short one's input.
   const promptCharacters = request.system.length + request.userMessage.length
+  // THE CONTEXT-WINDOW BOUND (services/output-token-budget.ts). A product's published output
+  // ceiling can be larger than its whole context window — the local product in the 2026-10-30
+  // report publishes 128,000 output tokens in a 32,768-token window — so "under its published
+  // output limit" is not "fits beside this prompt". This is the ONE place every writing request
+  // (research, outline, chapters, metadata) passes through with the product's LIVE figures, so the
+  // bound is applied here and nowhere else; a product that publishes no window is unchanged.
+  const contextBounded = boundOutputTokensToContext(maxOutputTokens, product.context_window_tokens, promptCharacters)
+  if (contextBounded.overflow) {
+    throw new Error(
+      `This request's instructions are about ${contextBounded.promptTokens.toLocaleString()} tokens, and ${product.display_name} publishes a `
+      + `${(contextBounded.contextWindowTokens as number).toLocaleString()}-token context window, so there is no room left for an answer. `
+      + 'Shorten the request or choose a model with a larger window. No request or credit charge was made.',
+    )
+  }
   const outputContract = request.outputContract
     ?? (request.jsonObject === true ? JSON_OBJECT_OUTPUT_CONTRACT : PROSE_OUTPUT_CONTRACT)
   const { responseFormat, wrapperInstruction } = productResponseFormat(
@@ -7823,7 +7838,7 @@ async function prepareChatSubmission(
   return {
     modelId,
     product,
-    maxOutputTokens,
+    maxOutputTokens: contextBounded.maxTokens,
     expectedOutputTokens,
     chatAllowanceSeconds: chatAllowanceSeconds(expectedOutputTokens, promptCharacters),
     outputContract,
