@@ -48,6 +48,10 @@ const KNOWN_UNRESOLVED = new Set([
   'content-packs/rebuilt/style/academic-classical-oil-v2-v1.0.1/content/visual-style.json::com.storystudio.formula.human-behavior-explained-v2',
   'content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1/content/topic-pack.json::com.storystudio.formula.archival-ledger-v2',
   'content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.1/content/topic-pack.json::com.storystudio.formula.history-explained-v2',
+  // 1.0.2 adds the two live un-suffixed Formula ids and keeps the two never-published ones (same debt
+  // as 1.0.1 above; both archives are published-immutable).
+  'content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.2/content/topic-pack.json::com.storystudio.formula.archival-ledger-v2',
+  'content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.2/content/topic-pack.json::com.storystudio.formula.history-explained-v2',
   'content-packs/free-starters/thumbnail/centered-hero-headline/content/thumbnail-recipe.json::com.storystudio.formula.motivation',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon/content/thumbnail-recipe.json::com.storystudio.formula.fungi',
   'content-packs/free-starters/thumbnail/curiosity-question-cartoon/content/thumbnail-recipe.json::com.storystudio.formula.insects',

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-29T17:57:27.223Z",
+  "generated": "2026-10-30T06:59:55.225Z",
   "count": 236,
   "items": [
     {
@@ -1756,10 +1756,10 @@
       "kind": "topic-pack",
       "id": "com.storystudio.topic.wars-treaties-world-order-v2",
       "name": "Wars, Treaties & World Order",
-      "collection_dir": "rebuilt/topic/wars-treaties-world-order-v2-v1.0.1",
+      "collection_dir": "rebuilt/topic/wars-treaties-world-order-v2-v1.0.2",
       "axis": "war history, diplomacy, treaties, world order, geopolitics",
       "description": "Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "lifecycle": "active"
     },
     {

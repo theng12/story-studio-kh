@@ -1,5 +1,5 @@
 {
-  "revision": 362,
+  "revision": 364,
   "batches": [
     {
       "revision": 2,
@@ -7278,6 +7278,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 363,
+      "receipt_ref": "authoring:9acdcc3a0a9bc98039e1091ba0d07b56548ec98b88b601dcf94cd6f734f57215",
+      "request": {
+        "expected_revision": 362,
+        "coordinator": {
+          "task": "wars-topic-pack-v1-formula-compatibility",
+          "branch": "release/1.4.371"
+        },
+        "proposal_ref": "Defect in 1.4.370: the merged Wars, Treaties & World Order topic pack named only the two -v2 Formula ids, which no published Series Formula carries, so a channel still on the first-generation archival-ledger or history-explained Formula silently lost its Wars topic. 1.0.2 adds the two live Formula ids; content is unchanged.",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
+            "item_id": "com.storystudio.topic.wars-treaties-world-order-v2",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "1.4.362",
+            "min_app_version_status": "fixed",
+            "kind": "topic-pack",
+            "source_path": "content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.wars-treaties-world-order-v2",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.wars-treaties-world-order-v2",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -12439,6 +12475,23 @@
         "receipt_ref": "authoring:a6199e910d9c43be876d96c7261479ec23e51d9309c54310364aa8c145618503",
         "pack_id": "com.storystudio.pack.formula.music-mix",
         "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 364,
+      "transition_ref": "lifecycle:a4d6e431736df5332795b087bd43beed120081e30caf4b06e9f746c035e730e3",
+      "request": {
+        "expected_revision": 363,
+        "coordinator": {
+          "task": "wars-topic-pack-v1-formula-compatibility",
+          "branch": "release/1.4.371"
+        },
+        "receipt_ref": "authoring:9acdcc3a0a9bc98039e1091ba0d07b56548ec98b88b601dcf94cd6f734f57215",
+        "pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
+        "version": "1.0.2",
         "changes": {
           "status": "authored"
         }
@@ -20689,6 +20742,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.formula.music-mix",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:9acdcc3a0a9bc98039e1091ba0d07b56548ec98b88b601dcf94cd6f734f57215",
+      "pack_id": "com.storystudio.pack.topic.wars-treaties-world-order-v2",
+      "item_id": "com.storystudio.topic.wars-treaties-world-order-v2",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "1.4.362",
+      "min_app_version_status": "fixed",
+      "kind": "topic-pack",
+      "source_path": "content-packs/rebuilt/topic/wars-treaties-world-order-v2-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.wars-treaties-world-order-v2",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.wars-treaties-world-order-v2",
           "status": "proposed"
         }
       }
