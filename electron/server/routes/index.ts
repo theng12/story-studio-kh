@@ -36,6 +36,7 @@ import { router as thumbnailTextRouter } from './thumbnail-text.js'
 import { router as contentPacksRouter } from './content-packs.js'
 import { router as contentPackGatewayArchivesRouter } from './content-pack-gateway-archives.js'
 import { router as contentStoreRouter } from './content-store.js'
+import { router as contentStoreCoversRouter } from './content-store-covers.js'
 import { router as recencyRouter } from './recency.js'
 import { router as musicPoolRouter } from './music-pool.js'
 import { router as musicLibraryRouter } from './music-library.js'
@@ -112,6 +113,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', contentPacksRouter)
   app.use('/api', contentPackGatewayArchivesRouter)
   app.use('/api', contentStoreRouter)
+  app.use('/api', contentStoreCoversRouter)
   app.use('/api', recencyRouter)
   app.use('/api', musicPoolRouter)
   app.use('/api', musicLibraryRouter)
