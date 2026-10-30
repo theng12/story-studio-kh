@@ -2,6 +2,7 @@
 
 ### Release 1.4.371 — work still open (2026-10-30)
 
+- **Lenient stand-in pictures (`stand_in_for_prompt`).** The stale-image check in `auditSceneImageCompletion` would have failed the episode on the picture the 1.4.296 lenient rule deliberately keeps (borrowed from a neighbour, or the scene's own earlier one, on a free-fleet last try). The run now records the prompt it stands in for; completion accepts it for that exact prompt only, Scene Review still flags the mismatch, and a real picture clears it. Do not "fix" the lenient test to expect failure.
 - **Labels (2026-10-31).** Ten `catalogue.d/<theme>.json` files plus six base designs: 94 in all. Source art, keying and registration scripts are in `_orchestra/explainer-style-20261030/labels/art/` (`key_themes.py`, `register_themes.py`); they are not in the repo. Art that came out magenta inside was recoloured teal, so many panels are teal. `label-designs` is an electron-builder extra resource: before this it was not packaged at all, and no test could see that. Confirm it in the built app.
 - **`renderLabelDesign` ignored `text_color` until now**, and passed the cue's words to sharp unescaped as Pango markup. Both fixed.
 - **Pointing limits:** `sceneNames` is whole words with a plural -s dropped, so a synonym is refused. A wrong object of a plausible size is not caught by anything. No real Gateway call has been made through `resolveLabelTargets` yet.
