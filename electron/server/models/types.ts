@@ -5152,6 +5152,8 @@ export interface ContextualCue {
   entrance: ContextualCueTransition
   exit: ContextualCueTransition
   status: ContextualCueStatus
+  /** Animation for image-backed labels. */
+  motion?: 'pop' | 'slide' | 'wipe' | 'line-draw' | 'pulse' | 'float'
   created_at: string
   updated_at: string
 }

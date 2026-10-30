@@ -86,7 +86,7 @@ import {
 import { logoCornerRadiusPct, logoShapeOf, writeShapedLogo } from '../lib/logo-shape.js'
 import { displayAspectRatio, frameTextUnit, resolveRenderCanvas } from '../lib/render-canvas.js'
 import { inspectSourceAspect } from '../lib/source-aspect.js'
-import { buildContextualCueDrawtextFilters, labelOverlayGeometry } from '../lib/contextual-cue-filters.js'
+import { buildContextualCueDrawtextFilters, buildLabelOverlayFilters, labelOverlayGeometry } from '../lib/contextual-cue-filters.js'
 import { findLabelDesign, renderLabelDesign, renderLeaderLine } from '../lib/label-design-render.js'
 import { measureOpeningSec } from '../lib/opening-duration.js'
 import {
@@ -7520,11 +7520,13 @@ async function runFinalComposition(
           vLabel = nextLine
         }
 
-        args.push('-i', labelPath)
-        const labelIdx = nextInputIdx++
-        const nextLabel = vn()
-        filterParts.push(`${vLabel}[${labelIdx}:v]overlay=x=${geometry.x}:y=${geometry.y}:eof_action=repeat:enable=${escapeFilterArgValue(geometry.enable)}${nextLabel}`)
-        vLabel = nextLabel
+        const overlayPlan = buildLabelOverlayFilters(geometry, {
+          base: vLabel, labelInputIdx: nextInputIdx, fps: quality.fps, allocLabel: vn,
+        })
+        args.push(...overlayPlan.input_args, '-i', labelPath)
+        nextInputIdx++
+        filterParts.push(...overlayPlan.filters)
+        vLabel = overlayPlan.output
         continue
       }
       for (const filter of buildContextualCueDrawtextFilters(cue, cueOffset)) {
