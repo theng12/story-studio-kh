@@ -3,7 +3,7 @@
 ## 1.4.370 — Library works with a retired pack; honest failure reasons; bounded Pipeline ids (2026-10-30, release/1.4.370 from main 77f433f0)
 
 **Not yet released.** Static checks and focused runs are green; the ten-step gate, prebuild and DMG
-are still to run (the owner runs the gate).
+are still to run.
 
 - **One bad row no longer blocks the Store** (`lib/genstudio-content-store.ts`,
   `parseContentStoreReceipts`). A retired family publishes `download_available: false` while its
@@ -54,8 +54,7 @@ are still to run (the owner runs the gate).
 
 ## 1.4.369 — six branches in one release: font pool, Library removal, settling jobs, one copy per pack, Formula packs (2026-10-30, release/1.4.369 from release/1.4.368 052c04e1)
 
-**Not yet released.** Merged and static-checked (typecheck, lint 0 errors, typography, security,
-model-drift, registry validate, `git diff --check`); the ten-step gate and the DMG are still to run.
+**Released.** 1.4.369 passed the ten-step gate and is live on the mini.
 
 Merged with `--no-ff`: `feat/still-post-font-pool-20261029`, `fix/library-download-only-20261029`,
 `fix/job-settle-and-admission-20261029`, `fix/one-copy-per-pack-20261029`,

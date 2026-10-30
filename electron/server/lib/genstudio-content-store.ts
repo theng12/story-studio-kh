@@ -1303,7 +1303,7 @@ export function parseContentStoreReceipts(value: unknown): GenStudioContentRecei
       const entitlement = entitlementRaw.value
       const currentRelease = parseOptionalRelease(entitlement.current_release, `entitlements[${index}].current_release`)
       const downloadAvailable = bool(entitlement, 'download_available')
-      // A RETIRED family (Gateway 0.2.213, 2026-10-27) publishes
+      // A RETIRED family (Gateway commit 6729f29, 2026-10-27) publishes
       // `download_available: false` while the release archive is still on disk,
       // because retirement withdraws the download, not the bytes. Both fields
       // are then true statements about different things, and demanding they
