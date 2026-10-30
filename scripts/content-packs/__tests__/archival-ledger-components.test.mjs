@@ -147,7 +147,35 @@ const SUCCESSORS = [
   },
 ]
 
-const STOCKABLE = [...COMPONENTS, ...SUCCESSORS]
+// Owner ruling 2026-10-29 — "it's either install or update". A version may exist
+// ONLY to carry `lifecycle: "replaced"` + `successor_pack_id` to the Store, its
+// bytes unchanged from the version it retires. Wars, Treaties & World Order 1.0.2
+// is exactly that: the merged v2 pack supersedes the paid expansion, and this
+// source exists so an installed 1.0.1 keeps resolving while the Store stops
+// listing it. It is deliberately in neither list above:
+//   - not COMPONENTS: the eight active sources still reproduce the retired
+//     monolith, and this entry adds no content (same 125-subject total would be
+//     double-counted);
+//   - not SUCCESSORS: a successor there must be `active` and ship MORE content
+//     than its predecessor, and this one is replaced and byte-identical.
+// It is still a stockable source, so it is registered and built like any other,
+// and pinned by its own shape test below.
+const REPLACED = [
+  {
+    kind: 'topic',
+    slug: 'wars-treaties-world-order-v1.0.2',
+    predecessorSlug: 'wars-treaties-world-order-v1.0.1',
+    version: '1.0.2',
+    document: 'topic-pack.json',
+    packId: 'com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order',
+    itemId: 'com.storystudio.topic.archival-ledger.wars-treaties-world-order',
+    family: 'com.storystudio.family.topic.archival-ledger.wars-treaties-world-order',
+    sku: 'com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order',
+    successorPackId: 'com.storystudio.pack.topic.wars-treaties-world-order-v2',
+  },
+]
+
+const STOCKABLE = [...COMPONENTS, ...SUCCESSORS, ...REPLACED]
 
 function sourceDirectory(component) {
   return new URL(`${component.kind}/${component.slug}/`, PAID_SOURCE)
@@ -366,5 +394,36 @@ test('a versioned successor ships beside its predecessor rather than replacing i
       : ['previews', document => document.preview_assets.length]
     assert.ok(countOf(successorSource.document) > countOf(predecessorSource.document),
       `${successor.slug} must not ship fewer ${measure} than ${predecessor.slug}`)
+  }
+})
+
+test('a replaced version retires its predecessor without changing one byte of content', async () => {
+  for (const replaced of REPLACED) {
+    const predecessor = [...COMPONENTS, ...SUCCESSORS].find(component => component.slug === replaced.predecessorSlug)
+    assert.ok(predecessor, `${replaced.slug} must name the version it replaces`)
+
+    const predecessorSource = await readComponentSource(predecessor)
+    const replacedSource = await readComponentSource(replaced)
+
+    // Same product and same entitlement — the Store sees one thing, updated.
+    assert.equal(replacedSource.manifest.pack_id, predecessorSource.manifest.pack_id)
+    assert.equal(replacedSource.manifest.entitlement.sku, predecessorSource.manifest.entitlement.sku)
+    assert.equal(replacedSource.manifest.entitlement.family, predecessorSource.manifest.entitlement.family)
+    assert.equal(replacedSource.document.id, predecessorSource.document.id)
+    assert.equal(replacedSource.directory.pathname === predecessorSource.directory.pathname, false)
+
+    // What makes it a replaced version rather than a successor: it announces the
+    // pack that supersedes it, and it adds no content of its own.
+    assert.equal(replacedSource.manifest.version, replaced.version)
+    assert.equal(replacedSource.manifest.lifecycle, 'replaced')
+    assert.equal(replacedSource.manifest.successor_pack_id, replaced.successorPackId)
+    assert.notEqual(replacedSource.manifest.successor_pack_id, replacedSource.manifest.pack_id)
+    assert.deepEqual(replacedSource.documents, predecessorSource.documents)
+    assert.deepEqual(replacedSource.assetNames, predecessorSource.assetNames)
+
+    // Still a first-class stockable source with the family's conventions.
+    assert.equal(replacedSource.manifest.key_id, 'com.storystudio.key.archival-ledger')
+    assert.equal(replacedSource.manifest.min_app_version, '{{MIN_APP_VERSION}}')
+    assert.equal(replacedSource.documents.length, 1)
   }
 })

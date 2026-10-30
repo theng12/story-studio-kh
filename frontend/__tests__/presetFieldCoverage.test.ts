@@ -305,6 +305,16 @@ const CLASSIFIED: Record<string, Record<string, Classification>> = {
     recencyLookbackInput: { verdict: 'saved-elsewhere', reason: 'a project-level recency setting at /recency/lookback, not a preset value' },
     translateTargetSlug: { verdict: 'run-only', reason: 'the target channel for ONE translation job; the job, not a preset, records it' },
     useCharacters: { verdict: 'transient', reason: 'a disclosure toggle over `character_ids`, which IS saved' },
+    // 1.4.369 — the Quote Shorts starting-length range. The "Episode length" card
+    // is the CHANNEL's setting (`config.json` `episode_length`, written through
+    // /settings/config and read by the idea generator for each new episode). A
+    // script preset restores how one episode's script is written; letting it
+    // rewrite the channel's range would re-decide a property of the channel,
+    // which §5 forbids. Existing episodes keep their own length either way.
+    episodeLengthRandom: { verdict: 'saved-elsewhere', reason: 'the channel\'s starting-length mode in config.json `episode_length`, saved via /settings/config — not script-preset content' },
+    episodeLengthMin: { verdict: 'saved-elsewhere', reason: 'the channel\'s shortest starting length in config.json `episode_length`, saved via /settings/config' },
+    episodeLengthMax: { verdict: 'saved-elsewhere', reason: 'the channel\'s longest starting length in config.json `episode_length`, saved via /settings/config' },
+    episodeLengthFixed: { verdict: 'saved-elsewhere', reason: 'the channel\'s fixed starting length in config.json `episode_length`, saved via /settings/config' },
   },
   'subtitles.vue': {
     importPath: { verdict: 'transient', reason: 'the import dialog\'s scratch path' },
