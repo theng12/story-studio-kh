@@ -50,6 +50,7 @@ async function loadStorePage(): Promise<Component> {
     const ContentStoreShelf = { props: ['products'], setup: (props) => () => props.products?.[0] ? h('div', { 'data-test': 'catalog-item' }, props.products[0].title) : null }
     const ContentLibraryView = { render: () => null }
     const ContentInstalledLibraryView = { render: () => null }
+    const ContentPackBrowser = { render: () => null }
     const filterCatalogProducts = (items, query) => query ? items.filter(item => String(item.title || '').toLowerCase().includes(String(query).toLowerCase())) : items
     // Real implementation, not a simplification: the tab counts are asserted
     // here, and a stub would let them agree with something nothing ships.
@@ -132,15 +133,15 @@ describe('Studio Library proof route contract', () => {
     }
     const rendered = await mount(Page, {})
     const tabs = [...rendered.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
-    assert.equal(tabs.length, 3, 'Discover, Installed and Updates -- the Owner tab went with the shop')
+    assert.equal(tabs.length, 4, 'Discover, Gateway archives, Installed and Updates')
     tabs[0]!.focus()
     tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     await nextTick()
-    assert.equal(document.activeElement?.id, 'library-tab-installed')
+    assert.equal(document.activeElement?.id, 'library-tab-archives')
     tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
     await nextTick()
     assert.equal(document.activeElement?.id, 'library-tab-updates')
-    tabs[2]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    tabs[3]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
     await nextTick()
     assert.equal(document.activeElement?.id, 'library-tab-discover')
     rendered.unmount()
@@ -242,6 +243,7 @@ describe('Studio Library proof route contract', () => {
       // the install list is known, so their tab counts must stay "—".
       accountResolved: ref(false), installsResolved: ref(false),
       lastVerifiedAt: ref(null), loading: ref(true),
+      listGatewayArchives: () => new Promise(() => {}),
       products: ref([catalogProduct({})]), shelves: ref([{ id: 's1', productIds: ['p1'] }]),
     })
     const rendered = await mount(Page, {})
@@ -255,10 +257,10 @@ describe('Studio Library proof route contract', () => {
     assert.doesNotMatch(text, /content_a/, 'no account id before GenStudio answers')
 
     const tabCounts = [...rendered.host.querySelectorAll('[role="tab"] span')].map(node => node.textContent)
-    assert.deepEqual(tabCounts, ['1', '—', '—'], 'the published count is a catalogue fact; the rest are not counted yet')
+    assert.deepEqual(tabCounts, ['1', '—', '—', '—'], 'the published count is a catalogue fact; the rest are not counted yet')
 
     const tabLabels = [...rendered.host.querySelectorAll('[role="tab"]')].map(node => (node.textContent || '').replace(/\d|—/g, '').trim())
-    assert.deepEqual(tabLabels, ['Discover', 'Installed', 'Updates'])
+    assert.deepEqual(tabLabels, ['Discover', 'Gateway archives', 'Installed', 'Updates'])
     rendered.unmount()
   })
 

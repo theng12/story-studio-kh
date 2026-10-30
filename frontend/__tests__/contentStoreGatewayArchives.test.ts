@@ -132,17 +132,16 @@ describe('Gateway archive shelf', () => {
       fileURLToPath(new URL('../pages/library.vue', import.meta.url)),
       'utf8',
     )
+    const browser = readFileSync(fileURLToPath(new URL('../components/content-store/ContentPackBrowser.vue', import.meta.url)), 'utf8')
+    const detail = readFileSync(fileURLToPath(new URL('../components/content-store/ContentPackDetail.vue', import.meta.url)), 'utf8')
     assert.match(page, /Gateway archives/)
-    assert.match(page, /Gateway Archive Bank/)
-    assert.match(page, /@click="loadGatewayArchives"/)
-    assert.match(page, /@click="installFromGatewayArchive\(archive\)"/)
-    assert.match(page, /:disabled="!!gatewayArchiveBusyDigest"/)
-    assert.match(page, /gatewayCompatibilityLabel/)
+    assert.match(page, /<ContentPackBrowser/)
+    assert.match(page, /@refresh="loadGatewayArchives"/)
+    assert.match(page, /@install="installFromGatewayArchive"/)
+    assert.match(browser, /busyDigest === card\.newest\.archiveSha256/)
+    assert.match(detail, /minAppVersion/)
     assert.match(page, /gatewayArchivesError/)
-    assert.match(page, /Nothing needs to be on a shelf first\./)
-    // The shelf itself must not be rendered behind the account/ownership gates
-    // used by Gateway Store products.
-    assert.doesNotMatch(page, /v-if="account"[^>]*>\s*<section class="gateway-archives"/)
-    assert.doesNotMatch(page, /v-if="ownershipResolved"[^>]*>\s*<section class="gateway-archives"/)
+    // The archive tab remains available even if the catalogue is unavailable.
+    assert.match(page, /activeTab !== 'installed' && activeTab !== 'archives'/)
   })
 })
