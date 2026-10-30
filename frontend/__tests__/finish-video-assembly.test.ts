@@ -7,6 +7,17 @@ const page = readFileSync(new URL('../pages/projects/[slug]/video-assembly.vue',
 const template = page.slice(0, page.indexOf('<script setup'))
 const script = page.slice(page.indexOf('<script setup'))
 
+test('video layout picker preserves the saved layout values and shows both samples', () => {
+  const section = template.slice(template.indexOf('<!-- ─── Video Layout'), template.indexOf('<!-- Background plate picker'))
+  assert.match(section, /<VisualOptionPicker[\s\S]*:model-value="compilationLayout\.layout"/)
+  assert.match(section, /@update:model-value="value => compilationLayout\.layout = value as 'standard' \| 'compilation'"/)
+  assert.match(section, /value: 'standard'/)
+  assert.match(section, /value: 'compilation'/)
+  assert.match(section, /#sample/)
+  assert.match(script, /layout: compilationLayout\.layout/)
+  assert.match(script, /compilationLayout\.layout = cl\.layout/)
+})
+
 function fnSource(name: string): string {
   const start = script.indexOf(`function ${name}(`)
   assert.ok(start >= 0, `expected ${name}`)

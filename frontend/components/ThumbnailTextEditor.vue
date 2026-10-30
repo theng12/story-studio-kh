@@ -10,12 +10,22 @@
       <p v-if="loading" role="status">Loading fonts, looks and variants…</p>
       <div class="tte-layout">
         <section class="tte-preview-column" aria-label="Headline and previews">
-          <label class="form-group">Source artwork
-            <select v-model="source" class="select" :disabled="applying">
-              <option value="">Choose this episode’s text-free artwork</option>
-              <option v-for="image in sources" :key="image.filename" :value="image.filename">{{ image.filename }}</option>
-            </select>
-          </label>
+          <div class="form-group">
+            <label for="thumbnail-source-picker">Source artwork</label>
+            <VisualOptionPicker
+              :model-value="source || 'Choose artwork…'"
+              @update:model-value="source = $event"
+              :options="sources.map(image => ({ value: image.filename, label: image.filename }))"
+              title="Choose source artwork"
+              description="Choose this episode’s text-free artwork."
+              trigger-id="thumbnail-source-picker"
+              :disabled="applying"
+            >
+              <template #sample="{ option }">
+                <img class="tte-source-sample" :src="sources.find(image => image.filename === option.value)?.url" alt="" />
+              </template>
+            </VisualOptionPicker>
+          </div>
           <!-- Headline language: defaults to the channel's own language and says so. An override
                applies to THIS episode's thumbnail text only and never changes the channel. -->
           <label class="form-group">Headline language
@@ -243,6 +253,7 @@ const liveTextStyle = computed<CSSProperties>(() => {
 .tte-preview-column { display: flex; flex-direction: column; gap: 10px; }
 .tte-preview-column .form-group { margin: 0; display: grid; gap: 6px; }
 .tte-preview-column textarea { width: 100%; resize: vertical; min-height: 76px; max-height: 220px; }
+.tte-source-sample { width: 100%; height: 100%; object-fit: contain; }
 .tte-suggestions-head, .tte-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .tte-preview-heading { margin-top: 8px; }
 .tte-preview-heading h3 { margin: 0; }
