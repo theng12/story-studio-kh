@@ -8583,6 +8583,19 @@ export async function queryJobHistory(
   const scopeSet = new Set(scopes)
   const scopeJobs: Job[] = []
   for (const job of jobs.values()) if (scopeSet.has(job.project_slug)) scopeJobs.push(job)
+  // A history read is the one place that must not answer "none" because this
+  // process never loaded the rows (AGENTS §6). If the live map has nothing for
+  // the scope, read the channel's own saved jobs file once, read-only.
+  if (!scopeJobs.length) {
+    for (const scope of scopes) {
+      try {
+        const saved = JSON.parse(await fs.readFile(jobsPath(scope), 'utf-8')) as { jobs?: Job[] }
+        for (const job of Array.isArray(saved.jobs) ? saved.jobs : []) {
+          if (job && job.project_slug === scope) scopeJobs.push(job)
+        }
+      } catch { /* no saved history is an empty history */ }
+    }
+  }
 
   const matches = scopeJobs.filter(job => matchesHistoryFilter(job, filter)).sort(compareHistoryRows)
   const total = matches.length
