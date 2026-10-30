@@ -30,7 +30,8 @@ export function normalizeContextualCueConfig(value: unknown): ContextualCueProje
   // is the only one, and a stale channel config must not be able to keep
   // approving cues nobody asked to auto-approve. The key is tolerated on read
   // and simply has no effect; nothing rewrites the stored file.
-  return { enabled: raw.enabled === true }
+  const hidden = Array.isArray(raw.hidden_label_designs) ? raw.hidden_label_designs.filter((id): id is string => typeof id === 'string') : []
+  return { enabled: raw.enabled === true, ...(hidden.length ? { hidden_label_designs: hidden } : {}) }
 }
 
 /**

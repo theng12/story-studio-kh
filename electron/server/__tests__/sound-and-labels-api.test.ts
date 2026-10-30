@@ -176,7 +176,11 @@ describe('fixed-path routes are not read as an episode code', () => {
     const response = await get('/label-designs')
     assert.equal(response.status, 200, JSON.stringify(response.body))
     for (const id of ['documentary-label', 'map-pin', 'archival-caption', 'chapter-plate']) {
-      assert.equal(response.body.designs.find((row: any) => row.id === id)?.sample_url, null)
+      const classic = response.body.designs.find((row: any) => row.id === id)
+      assert.equal(classic.hidden, false)
+      const sample = await request(app).get(classic.sample_url)
+      assert.equal(sample.status, 200)
+      assert.match(sample.headers['content-type'], /image\/png/)
     }
     const design = response.body.designs.find((row: any) => row.id === 'label:location-pin')
     assert.equal(design.name, 'Map pin')
@@ -186,6 +190,28 @@ describe('fixed-path routes are not read as an episode code', () => {
     assert.equal(sample.status, 200)
     assert.match(sample.headers['content-type'], /image\/png/)
     assert.equal((await request(app).get(`/api/projects/${slug}/sound-and-labels/label-designs/unknown/sample`)).status, 404)
+  })
+  test('hiding and restoring is per channel and leaves saved labels renderable', async () => {
+    const id = 'label:location-pin'
+    const endpoint = `/label-designs/${encodeURIComponent(id)}/visibility`
+    const pm = await import('../services/project-manager.js')
+    const other = await pm.createProject({ name: 'Other labels fixture', episode_prefix: 'EP', episode_digits: 4 })
+    assert.equal((await put(`/${episode}/labels`, { cues: [label({ template: id })] })).status, 200)
+    const before = await fs.readFile(path.join(path.dirname(planPath), 'contextual_cues.json'), 'utf8')
+    assert.equal((await put(endpoint, { hidden: true })).status, 200)
+    assert.equal((await get('/label-designs')).body.designs.find((row: any) => row.id === id).hidden, true)
+    const otherList = await request(app).get(`/api/projects/${other.slug}/sound-and-labels/label-designs`)
+    assert.equal(otherList.body.designs.find((row: any) => row.id === id).hidden, false)
+    const read = await get(`/${episode}`)
+    assert.equal(read.body.labels.cues[0].template, id)
+    assert.equal(read.body.readiness.labels.will_render, 1)
+    assert.equal(await fs.readFile(path.join(path.dirname(planPath), 'contextual_cues.json'), 'utf8'), before)
+    const { findLabelDesign, renderLabelDesign } = await import('../lib/label-design-render.js')
+    const design = await findLabelDesign(id)
+    assert.ok(design)
+    assert.ok((await renderLabelDesign({ design, title: 'The temple', frame_w: 1280, frame_h: 720 })).png.length > 0)
+    assert.equal((await put(endpoint, { hidden: false })).status, 200)
+    assert.equal((await get('/label-designs')).body.designs.find((row: any) => row.id === id).hidden, false)
   })
   test('the config route answers on both GET and PUT', async () => {
     // This was a real bug found by running the page: `/sound-and-labels/config`

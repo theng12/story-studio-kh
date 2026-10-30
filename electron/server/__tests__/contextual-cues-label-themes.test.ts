@@ -80,12 +80,24 @@ describe('Contextual Cues label choices', () => {
     // A choice this app cannot draw is refused before any request is made.
     await assert.rejects(
       resolveCueChoiceAllowlist(normalizeContextualCueProposalSettings({ label_themes: ['no-such-theme'] })),
-      /No label design carries any of this preset's label_themes/,
+      /No visible label design carries any of this preset's label_themes/,
     )
     await assert.rejects(
       resolveCueChoiceAllowlist(normalizeContextualCueProposalSettings({ label_motions: ['bounce'] })),
       /not a cue motion/,
     )
+  })
+
+  test('hidden designs are excluded from themed and classic automatic choices', async () => {
+    const themed = normalizeContextualCueProposalSettings({ label_themes: ['exploration'] })
+    const visible = await resolveCueChoiceAllowlist(themed, ['label:location-pin'])
+    assert.ok(!visible.templates.has('label:location-pin'))
+    assert.ok(visible.templates.size > 0)
+    assert.ok(!cueSystemPrompt(visible).includes('label:location-pin'))
+    const classic = await resolveCueChoiceAllowlist(normalizeContextualCueProposalSettings({}), ['map-pin'])
+    assert.ok(!classic.templates.has('map-pin'))
+    assert.ok(!cueSystemPrompt(classic).includes('map-pin'))
+    await assert.rejects(resolveCueChoiceAllowlist(normalizeContextualCueProposalSettings({}), ['map-pin', 'chapter-plate', 'archival-caption', 'documentary-label']), /Restore one/)
   })
 
   test('a design id or motion outside the allowed list is dropped with its reason, never substituted', async () => {

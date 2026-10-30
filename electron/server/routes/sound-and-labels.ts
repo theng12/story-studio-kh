@@ -118,19 +118,41 @@ const legacyLabelDesigns = [
   { id: 'map-pin', name: 'Location pin' },
   { id: 'archival-caption', name: 'Archival caption' },
   { id: 'chapter-plate', name: 'Chapter plate' },
-].map(design => ({ ...design, family: 'Classic', theme: 'Classic', sample_url: null }))
+].map(design => ({ ...design, family: 'Classic', theme: 'Classic' }))
 
 router.get('/projects/:slug/sound-and-labels/label-designs', async (req, res) => {
   try {
-    if (!await pm.getConfig(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
+    const config = await pm.getConfig(req.params.slug)
+    if (!config) return res.status(404).json({ detail: 'Project not found' })
     const { readLabelDesigns } = await import('../lib/label-design-render.js')
     const designs = await readLabelDesigns()
-    res.json({ designs: [...legacyLabelDesigns, ...designs.map(design => ({
+    const hidden = new Set(normalizeContextualCueConfig(config.contextual_cues).hidden_label_designs ?? [])
+    res.json({ designs: [...legacyLabelDesigns, ...designs].map(design => ({
       id: design.id, name: design.name, family: design.family, theme: design.theme,
+      hidden: hidden.has(design.id),
       sample_url: `/api/projects/${encodeURIComponent(req.params.slug)}/sound-and-labels/label-designs/${encodeURIComponent(design.id)}/sample`,
-    }))] })
+    })) })
   } catch (error: any) {
     res.status(500).json(humanizeBackendError(error, 'Could not load label designs.'))
+  }
+})
+
+router.put('/projects/:slug/sound-and-labels/label-designs/:id/visibility', async (req, res) => {
+  try {
+    const config = await pm.getConfig(req.params.slug)
+    if (!config) return res.status(404).json({ detail: 'Project not found' })
+    if (typeof req.body?.hidden !== 'boolean') return res.status(400).json({ detail: 'Supply hidden as true or false.' })
+    const { readLabelDesigns } = await import('../lib/label-design-render.js')
+    if (![...legacyLabelDesigns, ...await readLabelDesigns()].some(design => design.id === req.params.id)) {
+      return res.status(404).json({ detail: 'Label design not found.' })
+    }
+    const hidden = new Set(normalizeContextualCueConfig(config.contextual_cues).hidden_label_designs ?? [])
+    if (req.body.hidden) hidden.add(req.params.id)
+    else hidden.delete(req.params.id)
+    await pm.updateConfig(req.params.slug, { contextual_cues: { ...config.contextual_cues, enabled: config.contextual_cues?.enabled === true, hidden_label_designs: [...hidden] } } as any)
+    res.json({ hidden: req.body.hidden })
+  } catch (error: any) {
+    res.status(500).json(humanizeBackendError(error, 'Could not change label visibility.'))
   }
 })
 
@@ -138,6 +160,9 @@ router.get('/projects/:slug/sound-and-labels/label-designs/:id/sample', async (r
   try {
     if (!await pm.getConfig(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
     const { findLabelDesign, labelDesignAssetPath } = await import('../lib/label-design-render.js')
+    if (legacyLabelDesigns.some(design => design.id === req.params.id)) {
+      return res.sendFile(labelDesignAssetPath(`classic-${req.params.id}.png`))
+    }
     const design = await findLabelDesign(req.params.id)
     if (!design || typeof design.asset !== 'string' || path.basename(design.asset) !== design.asset || !design.asset.endsWith('.png')) {
       return res.status(404).json({ detail: 'Label sample not found.' })

@@ -158,8 +158,7 @@ export function cueSystemPrompt(allow: CueChoiceAllowlist = TEXT_ONLY_ALLOW): st
   const templateGuidance = allow.designs.length
     ? `template MUST be one of these label design ids, chosen for what the moment is: `
       + `${allow.designs.map(design => `${design.id} (${design.name}, ${design.theme})`).join(', ')}. `
-    : 'Use map-pin only for a real place, archival-caption for historic people/documents/eras, '
-      + 'chapter-plate only for a major new chapter, and documentary-label otherwise. '
+    : `template MUST be one of: ${[...allow.templates].join(', ')}. `
   const motionGuidance = allow.motions.size
     ? `motion MUST be one of: ${[...allow.motions].join(', ')} \u2014 give it as "motion":"<id>" on each cue. `
     : ''
@@ -175,23 +174,29 @@ export function cueSystemPrompt(allow: CueChoiceAllowlist = TEXT_ONLY_ALLOW): st
  */
 export async function resolveCueChoiceAllowlist(
   settings: ContextualCueProposalSettings,
+  hiddenDesigns: string[] = [],
 ): Promise<CueChoiceAllowlist> {
+  const hidden = new Set(hiddenDesigns)
   const themes = settings.label_themes ?? []
   const motions = settings.label_motions ?? []
   const illegal = motions.filter(motion => !LEGAL_CUE_MOTIONS.has(motion))
   if (illegal.length) {
     throw new Error(`label_motions names ${illegal.join(', ')}, which is not a cue motion supported by this app. Nothing was requested.`)
   }
-  if (!themes.length) return { ...TEXT_ONLY_ALLOW, motions: new Set(motions) }
+  if (!themes.length) {
+    const templates = new Set(LEGACY_CUE_TEMPLATES.filter(id => !hidden.has(id)))
+    if (!templates.size) throw new Error('All classic label designs are hidden. Restore one to propose labels.')
+    return { ...TEXT_ONLY_ALLOW, templates, motions: new Set(motions) }
+  }
   let designs: LabelDesign[]
   try {
     designs = await readLabelDesigns()
   } catch (error) {
     throw new Error(`The label designs could not be read: ${error instanceof Error ? error.message : String(error)}. Nothing was requested.`, { cause: error })
   }
-  const selected = designs.filter(design => themes.includes(design.theme))
+  const selected = designs.filter(design => themes.includes(design.theme) && !hidden.has(design.id))
   if (!selected.length) {
-    throw new Error(`No label design carries any of this preset's label_themes (${themes.join(', ')}). Nothing was requested.`)
+    throw new Error(`No visible label design carries any of this preset's label_themes (${themes.join(', ')}). Nothing was requested.`)
   }
   return { templates: new Set(selected.map(design => design.id)), motions: new Set(motions), designs: selected }
 }
@@ -571,7 +576,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
   // Resolved BEFORE the first request: the designs are read live from the
   // catalogue, and a preset naming a theme or motion this app cannot draw is
   // refused here by name rather than after paying for batches it must reject.
-  const allow = await resolveCueChoiceAllowlist(settings)
+  const allow = await resolveCueChoiceAllowlist(settings, config.hidden_label_designs)
   let model = settings.model
   // Last of all, this Mac's app-wide writing default (Settings → Default models). Read only: it is
   // not written into the preset or the channel.
