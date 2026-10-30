@@ -40,17 +40,28 @@ function imagePool(job: Job): ImagePool {
   return raw === 'scenes' || raw === 'thumbnails' ? raw : 'all'
 }
 
-/** When each of a post's artwork and finals was drawn, as the records on disk say. */
-function postArtifactTimes(post: StillPost): number[] {
+/**
+ * When each artifact the post shows for its CURRENT art mode and aspects was
+ * drawn or rendered, as the records on disk say. A per-size drawing or a final
+ * for an aspect the post no longer has is not something it shows, so it is not
+ * judged here (a stale 1:1 final must not block a post now framed 9:16 only).
+ */
+function postArtifactTimes(post: StillPost, perSize: boolean): number[] {
   const times: number[] = []
   for (const panel of post.panels) {
-    if (panel.image?.rendered_at) times.push(Date.parse(panel.image.rendered_at))
-    for (const drawn of Object.values(panel.images || {})) {
+    if (!perSize) {
+      if (panel.image?.rendered_at) times.push(Date.parse(panel.image.rendered_at))
+      continue
+    }
+    for (const aspect of post.aspects) {
+      const drawn = panel.images?.[aspect]
       if (drawn?.rendered_at) times.push(Date.parse(drawn.rendered_at))
     }
   }
-  for (const final of post.finals) times.push(Date.parse(final.rendered_at))
-  return times.filter(Number.isFinite)
+  for (const final of post.finals) {
+    if (post.aspects.includes(final.aspect)) times.push(Date.parse(final.rendered_at))
+  }
+  return times
 }
 
 /**
@@ -60,23 +71,29 @@ function postArtifactTimes(post: StillPost): number[] {
  *
  * A `redraw` wanted NEW artwork, so old files being complete proves nothing
  * (`force` above, and the assembly rule below): it settles only when every
- * artifact the post now shows was rendered AFTER the failure.
+ * artifact the post now shows for its current frames was rendered since the
+ * redraw was requested (the job's start, or its creation if it never started).
+ * The row's own partial draw counts; a row whose post is still missing a piece
+ * stays, because `listBatchStates` must be complete first.
  */
 async function stillPostRenderComplete(job: Job): Promise<boolean> {
-  const { listPosts, listBatchStates } = await import('./still-posts.js')
+  const { listBatchStates, artModeOf } = await import('./still-posts.js')
   const { selectPosts } = await import('../generators/still-posts.js')
   // `selectPosts` refuses an unknown id; that is "cannot prove", not "complete".
   const posts = await selectPosts(job.project_slug, (job.params || {}) as Parameters<typeof selectPosts>[1])
   if (!posts.length) return false
-  const states = await listBatchStates(job.project_slug, await listPosts(job.project_slug))
-  const relevant = states.filter(state => posts.some(post => post.batch_id === state.batch_id))
-  if (!(relevant.length > 0 && relevant.every(state => state.complete))) return false
+  // The same scope the generator judged (AGENTS §8): a post_ids redraw is complete on its own posts.
+  const states = await listBatchStates(job.project_slug, posts)
+  if (!(states.length > 0 && states.every(state => state.complete))) return false
   if (job.params?.redraw !== true) return true
-  const failedAt = Date.parse(job.finished_at || job.created_at || '')
-  if (!Number.isFinite(failedAt)) return false
+  // A redraw wanted artwork drawn for THIS request. The row's own run began after it was asked
+  // for, so anything from that run (or later) counts, including a post whose later run finished
+  // it after this row failed. Files from before the request prove nothing.
+  const requestedAt = Date.parse(job.started_at || job.created_at || '')
+  if (!Number.isFinite(requestedAt)) return false
   return posts.every(post => {
-    const times = postArtifactTimes(post)
-    return times.length > 0 && times.every(time => time > failedAt)
+    const times = postArtifactTimes(post, artModeOf(post) === 'per-size')
+    return times.length > 0 && times.every(time => Number.isFinite(time) && time >= requestedAt)
   })
 }
 

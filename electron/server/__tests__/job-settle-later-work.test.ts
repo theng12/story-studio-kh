@@ -48,10 +48,11 @@ test('later work settles a failed still_post_render, motion clip and Scene Plan 
 
   /** One failed history row, exactly as a real failure leaves it. */
   const failedRow = async (slug: string, type: any, episodeId: string, params: Record<string, unknown> = {},
-    finishedAt = new Date().toISOString()) => {
+    finishedAt = new Date().toISOString(), startedAt: string | null = null) => {
     const job = jq.enqueuePreparedForTest({ project_slug: slug, type, episode_id: episodeId, title: type, params })
     await jq.mutateAuthoritativeJob(slug, job.job_id, current => ({
       ...current, status: 'error', finished_at: finishedAt, error: 'incomplete',
+      ...(startedAt ? { started_at: startedAt } : {}),
     }))
     return job.job_id
   }
@@ -173,7 +174,7 @@ test('later work settles a failed still_post_render, motion clip and Scene Plan 
       await fs.writeFile(path.join(dir, 'final-p0-1x1.png'), PNG)
 
       const row = await failedRow(slug, 'still_post_render', '', { batch_id: 'batch-1', redraw: true },
-        '2026-10-05T00:00:00.000Z')
+        '2026-10-05T00:00:00.000Z', '2026-10-04T00:00:00.000Z')
       assert.deepEqual(await settleCompletedFailures(slug), [], 'a redraw wanted NEW artwork; the older files prove nothing')
       assert.equal(await isSettled(slug, row), false)
 
@@ -181,6 +182,46 @@ test('later work settles a failed still_post_render, motion clip and Scene Plan 
       await sp.writePost(slug, record('2026-10-10T00:00:00.000Z'))
       assert.deepEqual(await settleCompletedFailures(slug), [row], 'new artwork after the failure is the redraw it was for')
       assert.equal(await isSettled(slug, row), true)
+    })
+
+    await t.test('Still Posts: a redraw that failed after drawing its own post settles once the rest of its scope is finished', async () => {
+      const project = await pm.createProject({ name: 'Still post redraw partial' })
+      const slug = project.slug
+      const sp = await import('../services/still-posts.js')
+      const drawn = (id: string, renderedAt: string) => ({
+        id, batch_id: 'batch-2',
+        created_at: '2026-10-01T00:00:00.000Z', updated_at: renderedAt,
+        format_id: 'quote-card', option_id: 'single', language: 'en' as const,
+        character_ids: [], caption: '',
+        panels: [{
+          id: 'p0', role: 'single' as const, text: 'Words.', scene_prompt: 'a scene',
+          image: { filename: 'p0.png', rendered_at: renderedAt, sha256: 'a'.repeat(64), model_id: 'm', model_label: 'M', prompt: 'p', reference_character_ids: [], reference_names: [], mode: 'single' as const },
+        }],
+        finals: [{ aspect: '1:1' as const, panel_id: 'p0', filename: 'final-p0-1x1.png', rendered_at: renderedAt, text: 'Words.', style_hash: 'h', font_id: 'f' }],
+        aspects: ['1:1' as const],
+        published_at: null,
+      })
+      const pending = (id: string) => ({ ...drawn(id, '2026-10-01T00:00:00.000Z'), panels: [{ id: 'p0', role: 'single' as const, text: 'Words.', scene_prompt: 'a scene', image: null }], finals: [] })
+      // The run began at 10:00 and drew post-0002 at 10:30, then post-0003 failed. Its row failed at 11:00.
+      await sp.writePost(slug, drawn('post-0002', '2026-10-04T10:30:00.000Z'))
+      await sp.writePost(slug, pending('post-0003'))
+      for (const id of ['post-0002', 'post-0003']) {
+        const dir = sp.postDir(slug, id)
+        await fs.mkdir(dir, { recursive: true })
+        await fs.writeFile(path.join(dir, 'p0.png'), PNG)
+        await fs.writeFile(path.join(dir, 'final-p0-1x1.png'), PNG)
+      }
+      // A made-up model fails in preflight, so the fixture's queued row never draws in the background.
+      const row = await failedRow(slug, 'still_post_render', '', { batch_id: 'batch-2', redraw: true, image_model: 'made-up' },
+        '2026-10-04T11:00:00.000Z', '2026-10-04T10:00:00.000Z')
+      assert.deepEqual(await settleCompletedFailures(slug), [], 'post-0003 is still missing its art')
+
+      // A later run drew post-0003 at 12:00. Post-0002's artwork from the failed run is still the redraw it was for.
+      await sp.writePost(slug, drawn('post-0003', '2026-10-04T12:00:00.000Z'))
+      await fs.writeFile(path.join(sp.postDir(slug, 'post-0003'), 'p0.png'), PNG)
+      assert.deepEqual(await settleCompletedFailures(slug), [row], 'the failed run\'s own drawing does not block its settle')
+      assert.equal(await isSettled(slug, row), true)
+      await jq._waitForJobPersistenceForTesting()
     })
 
     await t.test('Motion clips: every covered clip must be on disk, fresh and selected', async () => {
