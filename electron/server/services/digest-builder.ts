@@ -191,9 +191,9 @@ export async function buildDigest(): Promise<DigestData> {
 
   // shortcut: project folders only, a separate media drive is not measured; add output roots if one fills up.
   const { measureFreeBytes } = await import('./storage-audit.js')
-  const free = (await Promise.all(projects.map(proj => {
+  const free = (await Promise.all(projects.map(async proj => {
     const dir = pm.getProjectDir(proj.slug)
-    return dir ? measureFreeBytes(dir) : null
+    return dir ? await measureFreeBytes(dir) : null
   }))).filter((bytes): bytes is number => bytes !== null)
 
   return {
