@@ -244,7 +244,7 @@ export async function getEpisodeAnalytics(
  * via the Data API (`videos.list`). Batches in groups of 50 (the API
  * limit per request). Returns a map keyed by video id.
  */
-async function fetchVideoMetadata(
+export async function fetchVideoMetadata(
   slug: string,
   accountId: string,
   videoIds: string[],

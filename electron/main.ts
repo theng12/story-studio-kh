@@ -794,6 +794,13 @@ void electronApp.whenReady().then(async () => {
       logCrash('digest-scheduler', e)
     }
 
+    try {
+      const { startWeeklyResultsScheduler } = await import('./server/services/youtube-weekly-results.js')
+      startWeeklyResultsScheduler()
+    } catch (e) {
+      logCrash('youtube-weekly-results', e)
+    }
+
     // 1.4.285 — idea supply running low. Opt-in per channel (idea_upgrades.supply_alerts); sends
     // only when a channel's status gets worse, at most once per channel per day. Hourly is plenty.
     try {
