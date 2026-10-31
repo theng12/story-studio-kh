@@ -354,15 +354,15 @@ test('Start sees contextual cues enabled after a disabled-cue preflight cache wa
   }))
   // v1.4.365 — an UNREVIEWED cue no longer holds Scene Review (it is simply
   // not drawn), so the freshness signal has to be a cue the renderer genuinely
-  // refuses over. Two approved labels crowding inside 0.5s is that defect: it
-  // is visibly wrong on screen and no amount of approving fixes it.
+  // refuses over. An approved label too short to read is that defect; since
+  // 1.4.373 a crowded label is only skipped, so it no longer refuses.
   await fs.writeFile(path.join(paths.scene_prompts_dir, 'contextual_cues.json'), JSON.stringify({
     schema_version: 1,
     generated_at: '2026-10-06T00:00:00.000Z',
     source_scene_plan_generated_at: '2026-10-06T00:00:00.000Z',
     cues: [
       { id: 'cue-1', scene_id: 'scene-1', start_sec: 0.2, end_sec: 2.6, title: 'One', kind: 'location_date', placement: 'top-right', template: 'documentary-label', entrance: 'fade', exit: 'fade', status: 'approved', created_at: '2026-10-06T00:00:00.000Z', updated_at: '2026-10-06T00:00:00.000Z' },
-      { id: 'cue-2', scene_id: 'scene-1', start_sec: 2.7, end_sec: 5.2, title: 'Two', kind: 'location_date', placement: 'top-right', template: 'documentary-label', entrance: 'fade', exit: 'fade', status: 'approved', created_at: '2026-10-06T00:00:00.000Z', updated_at: '2026-10-06T00:00:00.000Z' },
+      { id: 'cue-2', scene_id: 'scene-1', start_sec: 3.2, end_sec: 4.2, title: 'Two', kind: 'location_date', placement: 'top-right', template: 'documentary-label', entrance: 'fade', exit: 'fade', status: 'approved', created_at: '2026-10-06T00:00:00.000Z', updated_at: '2026-10-06T00:00:00.000Z' },
     ],
   }))
 

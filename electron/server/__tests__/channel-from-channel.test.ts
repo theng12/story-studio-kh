@@ -245,3 +245,10 @@ describe('the source channel is untouched', () => {
     assert.deepEqual((await readJson(path.join(sourceDir, 'ideas.json'))).ideas, [{ id: 'idea-1' }])
   })
 })
+
+test('a published topic pack id longer than 80 characters is accepted when setting a channel Formula', async () => {
+  const { SetProjectNicheSchema } = await import('../contracts/index.js')
+  const id = 'com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power-v2'
+  assert.equal(id.length, 83)
+  assert.equal(SetProjectNicheSchema.safeParse({ niche_id: 'x', topic_pack_ids: [id] }).success, true)
+})
