@@ -1,5 +1,6 @@
 <template>
   <div class="uc-analytics">
+    <WeeklyResults :slug="slug" />
     <p v-if="loading" class="hint">Loading analytics…</p>
     <p v-else-if="loadError" class="result err">{{ loadError }}</p>
 
