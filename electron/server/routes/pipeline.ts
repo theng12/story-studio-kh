@@ -1681,6 +1681,7 @@ export function resolveStepParams(
       prompt_max_tokens: parseScenePromptTokenSetting(reusable.prompt_max_tokens),
       intended_image_model: reusable.intended_image_model,
       prompt_char_cap: reusable.prompt_char_cap,
+      prompt_char_cap_selection: reusable.prompt_char_cap ?? 'auto',
       creative_direction: reusable.creative_direction && typeof reusable.creative_direction === 'object'
         ? reusable.creative_direction : undefined,
       custom_instructions: typeof reusable.reusable_guidance === 'string' && reusable.reusable_guidance.trim()
@@ -2707,7 +2708,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     const sceneData = scenePlanPresetReceipt(presetByStep.scene_plan).data
     // The SELECTION and its intended model travel with the job so the executor
     // re-resolves the ceiling live. The number below is the admission receipt.
-    pipelineScenePlanCapSelection = sceneData.prompt_char_cap
+    pipelineScenePlanCapSelection = sceneData.prompt_char_cap ?? 'auto'
     pipelineScenePlanImageModel = typeof sceneData.intended_image_model === 'string' ? sceneData.intended_image_model : ''
     if (sceneData.intended_image_model) {
       const apiKey = await getApiKey('genstudio').catch(() => '')
@@ -2715,7 +2716,7 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
         return res.status(400).json({ detail: 'Add the Gateway API Key in Settings before Pipeline generates Scene Plan visual prompts. Nothing was started.' })
       }
       try {
-        pipelineScenePlanPromptCap = resolveScenePlanPromptCharCap(sceneData, await listImageModels(apiKey))
+        pipelineScenePlanPromptCap = resolveScenePlanPromptCharCap({ ...sceneData, prompt_char_cap: pipelineScenePlanCapSelection }, await listImageModels(apiKey))
       } catch (error: any) {
         return res.status(400).json({ detail: `${error.message} Nothing was started.` })
       }

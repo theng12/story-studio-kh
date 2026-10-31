@@ -176,7 +176,7 @@ describe('scene plan wiring', () => {
     assert.equal(scenePlanRoutes.match(/\.\.\.capFields,/g)?.length, 3,
       'both repair endpoints forward the exact parsed fields to the job (replay + storage)')
     assert.match(scenePlanRoutes, /prompt_char_cap: promptCharCap,/)
-    assert.match(scenePlanRoutes, /prompt_char_cap_selection: presetData\.prompt_char_cap,/)
+    assert.match(scenePlanRoutes, /prompt_char_cap_selection: presetData\.prompt_char_cap \?\? 'auto',/)
   })
 
   test('a token allowance is never reused as a character ceiling', () => {

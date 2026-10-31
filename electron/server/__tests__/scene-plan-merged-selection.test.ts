@@ -154,6 +154,29 @@ test('status.scene_plan is false when the record describes the SELECTED file and
   assert.equal(status.scene_plan, false, 'a genuinely stale plan must still be refused')
 })
 
+test('Scene Plan and subtitles status agree on changed captions and narration', async () => {
+  const { slug, code, paths } = await seedEpisode('Timeline route agreement')
+  const { stampFromCues } = await import('../lib/scene-plan-timeline.js')
+  const { parseSrt } = await import('../lib/subtitle-builder.js')
+  const stitched = path.join(paths.subtitles_dir, `${code}_stitched.srt`)
+  const original = '1\n00:00:00,000 --> 00:00:01,000\nok\n'
+  const planPath = path.join(paths.scene_prompts_dir, 'scene_plan.json')
+  await fs.writeFile(planPath, JSON.stringify(plan({ source_timeline: stampFromCues(parseSrt(original)) })))
+  await writeMerges(paths, code, { recordNames: 'base', recordDuration: 952.582 })
+  const check = async (expected: boolean) => {
+    const scene = await request(app).get(`/api/projects/${slug}/scene-plan/${code}?render_overhead=0`).expect(200)
+    const video = await request(app).get(`/api/projects/${slug}/video-editor/subtitles/status/${code}`).expect(200)
+    assert.equal(scene.body.plan_stale_vs_stitched, expected)
+    assert.equal(video.body.scene_plan_timeline.stale, expected)
+  }
+  await check(false)
+  await fs.writeFile(stitched, `${original}\n2\n00:00:02,000 --> 00:00:03,000\nmore\n`)
+  await check(true)
+  await fs.writeFile(stitched, original)
+  await writeMerges(paths, code, { recordNames: 'base', recordDuration: 996 })
+  await check(true)
+})
+
 test('GET video-editor/subtitles/status reports drift for the SELECTED merged file only', async () => {
   const { slug, code, paths } = await seedEpisode('Subtitles status merged selection')
   // A plan with no caption stamp, so this pins the merged-audio branch alone.
