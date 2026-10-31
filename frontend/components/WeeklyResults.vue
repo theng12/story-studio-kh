@@ -7,7 +7,7 @@
       </div>
       <label v-if="enabled !== null" class="setting">
         <input type="checkbox" :checked="enabled" :disabled="saving" @change="changeSetting">
-        Collect weekly results
+        Collect weekly results for all channels
       </label>
     </div>
     <p v-if="settingsError" class="error" role="alert">{{ settingsError }}</p>
