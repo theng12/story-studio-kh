@@ -65,6 +65,18 @@ import type { JobType, ScenePlan } from '../models/types.js'
 
 export const router = Router()
 
+router.post('/projects/:slug/episodes/:code/shorts', async (req, res) => {
+  const count = req.body?.count === undefined ? 3 : req.body.count
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > 3) return res.status(400).json({ detail: 'count must be a whole number from 1 to 3.' })
+  try {
+    const { enqueueEpisodeShorts } = await import('../services/episode-shorts.js')
+    const job = await enqueueEpisodeShorts(req.params.slug, req.params.code, count)
+    return res.json({ job_id: job.job_id, status: job.status })
+  } catch (error: any) {
+    return res.status(error?.statusCode || 500).json({ detail: error?.message || 'Could not start Shorts.' })
+  }
+})
+
 function parseCreativeDirection(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   return normalizeCreativeDirection(value as Record<string, unknown>)

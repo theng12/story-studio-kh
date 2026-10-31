@@ -2673,7 +2673,7 @@ export interface UpdateConfigRequest {
 export const JOB_TYPES = [
   'idea_campaign', 'broll_select', 'introduction-only', 'chapter-only',
   'outline_only', 'expand_chapters', 'image_prompts', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
-  'metadata', 'video_assembly',
+  'metadata', 'video_assembly', 'episode_shorts',
   'subtitles_transcribe', 'youtube_upload', 'youtube_playlist_update',
   'youtube_thumbnail_refresh', 'broll_normalize', 'broll_assemble',
   /** Post one finished episode to the Facebook / Instagram / TikTok accounts the owner ticked. */

@@ -203,7 +203,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   image_prompts: 'Image prompts', images: 'Images', scene_images: 'Scene images',
   thumb_images: 'Thumbnail images', images_repair: 'Image repair',
   audio: 'Audio', audio_merge: 'Audio merge', metadata: 'Metadata',
-  video_assembly: 'Video assembly',
+  video_assembly: 'Video assembly', episode_shorts: 'Episode Shorts',
   subtitles_transcribe: 'Subtitles', scene_plan_run: 'Scene plan',
   contextual_cues: 'Contextual cues',
   scene_image_generate: 'Scene image', scene_images_batch: 'Scene images (batch)', scene_clips_batch: 'Motion clips', continuity_render: 'Scene render',

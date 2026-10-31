@@ -1611,6 +1611,7 @@ const queues: Record<JobType, QueueState> = {
   music_scene_polish: { pending: [], running: false, executor: null },
   metadata: { pending: [], running: false, executor: null },
   video_assembly: { pending: [], running: false, executor: null },
+  episode_shorts: { pending: [], running: false, executor: null },
   subtitles_transcribe: { pending: [], running: false, executor: null },
   // Upload Center — YouTube video upload (resumable) + metadata PATCH.
   youtube_upload: { pending: [], running: false, executor: null },
@@ -7999,7 +8000,7 @@ export const EPISODE_CODE_JOB_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'broll_select', 'broll_assemble',
   'introduction-only', 'chapter-only', 'outline_only', 'expand_chapters',
   'image_prompts', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
-  'metadata', 'video_assembly', 'subtitles_transcribe',
+  'metadata', 'video_assembly', 'episode_shorts', 'subtitles_transcribe',
   'youtube_upload', 'youtube_playlist_update', 'youtube_thumbnail_refresh',
   'social_publish', 'research_run', 'scene_plan_run',
   'scene_image_generate', 'scene_clip_generate', 'scene_clips_batch', 'continuity_render',

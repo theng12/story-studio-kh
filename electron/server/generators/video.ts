@@ -631,6 +631,7 @@ async function finishFinalVideo(ctx: {
   visualSource: Parameters<typeof writeVideoAssemblySourceStamp>[2]
   imagePool: Parameters<typeof writeVideoAssemblySourceStamp>[3]
   loudness: LoudnessTarget
+  narrationOffsetSec?: number
   /** What this render was asked to produce; the final check measures the file against it. */
   expected: FinalCheckExpectation
 }): Promise<void> {
@@ -724,7 +725,7 @@ async function finishFinalVideo(ctx: {
     await verifyFinalVideo(job, resolvedOutputPath, finalName, totalRenderDuration, ctx.loudness)
   }
   await deleteFinalSegments(tempDir, job)
-  await finishImportedFinalVideo(job, code, resolvedOutputPath, visualSource, imagePool)
+  await finishImportedFinalVideo(job, code, resolvedOutputPath, visualSource, imagePool, ctx.narrationOffsetSec)
 }
 
 /**
@@ -796,6 +797,7 @@ export async function finishImportedFinalVideo(
   finalPath: string,
   visualSource: Parameters<typeof writeVideoAssemblySourceStamp>[2],
   imagePool: Parameters<typeof writeVideoAssemblySourceStamp>[3],
+  narrationOffsetSec?: number,
 ): Promise<void> {
   const project_slug = job.project_slug
   await writeVideoAssemblySourceStamp(
@@ -803,6 +805,8 @@ export async function finishImportedFinalVideo(
     code,
     visualSource,
     imagePool,
+    undefined,
+    narrationOffsetSec,
   )
   job.progress = 100
   job.output_lines.push(`Video saved: ${path.basename(finalPath)}`)
@@ -820,6 +824,12 @@ export async function finishImportedFinalVideo(
   } catch { /* best-effort — not worth failing the job over */ }
 
   await autoScheduleFinishedEpisode(job, project_slug, code, finalPath)
+  try {
+    const { autoEnqueueEpisodeShorts } = await import('../services/episode-shorts.js')
+    await autoEnqueueEpisodeShorts(job, project_slug, code)
+  } catch (error: any) {
+    job.output_lines.push(`Could not start Shorts: ${error?.message || error}. The final video is fine.`)
+  }
   await recordMusicEpisodePlays(job, project_slug, code)
 }
 
@@ -4456,7 +4466,7 @@ export async function generateVideo(job: Job): Promise<VideoAssemblyDisposition>
     await finishFinalVideo({
       job, project_slug, code, titleHint: titleHint || '', videoDir, format, tempDir, outputFile, totalRenderDuration,
       visualSource: authoritativeAssets.visual_source || 'scene_plan', imagePool: authoritativeAssets.image_pool, loudness,
-      expected: finalCheckExpected,
+      expected: finalCheckExpected, narrationOffsetSec: narrationLeadInSec,
     })
 
     succeeded = true

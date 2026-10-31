@@ -35,6 +35,7 @@ import { generateBrollAutotag } from '../generators/broll-autotag.js'
 import { generateImagePoolImages } from '../generators/image-pool-generate.js'
 import { runResearchJob } from '../generators/research.js'
 import { runScenePlanJob } from '../generators/scene-plan.js'
+import { generateEpisodeShorts } from '../services/episode-shorts.js'
 import { generateContextualCues } from '../generators/contextual-cues.js'
 import { generateSceneImageJob } from '../generators/scene-image.js'
 import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/scene-clip.js'
@@ -457,6 +458,7 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   // word-count overrides.
   registerExecutor('outline_only', generateOutlineOnly)
   registerExecutor('expand_chapters', generateExpandChapters)
+  registerExecutor('episode_shorts', generateEpisodeShorts)
   registerExecutor('image_prompts', generateImagePrompts)
   registerExecutor('thumb_images', guardMedia(generateImages))
   // Repair = recover already-paid-for results from the provider's stored
