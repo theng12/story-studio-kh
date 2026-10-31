@@ -29,6 +29,38 @@ import { waitForValue } from './_timing.js'
 const PASSAGE_SECONDS = 20
 let channelCounter = 0
 
+/**
+ * Wait until every upload job this test admitted has stopped running.
+ *
+ * The queue runs admitted jobs AROUND a test, not when the test asks: a job
+ * left running at the end of one test runs under the NEXT test's fake
+ * transport, where it consumes that test's queued responses and is recorded
+ * in its `fake.calls`. The test that follows then reads a request it did not
+ * make — which is how a scheduled test once read a private insert with no
+ * publish date. A job with no fake transport at all would reach the real
+ * network instead. So a test that admits one owes the queue a drain.
+ */
+async function settleUploads(slug: string): Promise<void> {
+  const { getJobs } = await import('../services/job-queue.js')
+  await waitForValue(async () => {
+    const jobs = await getJobs(slug, { type: 'youtube_upload' })
+    return jobs.every(job => ['done', 'error', 'cancelled'].includes(job.status)) ? jobs : undefined
+  }, { timeoutMs: 15_000 })
+}
+
+/** Queue one accepting upload: an init that hands back a session, then the PUT. */
+function acceptingUpload(fake: { respond: Function, respondMatching: Function },
+  sessionUrl: string, videoId: string): void {
+  fake.respond({
+    method: 'POST',
+    path: '/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+    body: {},
+    headers: { Location: sessionUrl },
+  })
+  fake.respond({ method: 'PUT', path: sessionUrl.replace(/^https?:\/\/[^/]+/, ''), body: { id: videoId } })
+  fake.respondMatching({ method: 'POST', match: /\/thumbnails\/set/, body: {} })
+}
+
 let cleanup: () => Promise<void>
 let app: any
 let pm: typeof import('../services/project-manager.js')
@@ -273,8 +305,6 @@ describe('a Short really goes up private, under its own title', () => {
     }, { automatic: true })
     assert.equal(admission.status, 200, JSON.stringify(admission.json))
 
-    const { generateYoutubeUpload } = await import('../generators/youtube-upload.js')
-    // Run the job the admission queued.
     // The queue runs the admitted job; wait for it to settle.
     const { getJobs } = await import('../services/job-queue.js')
     await waitForValue(async () => {
@@ -316,6 +346,7 @@ describe('a Short really goes up private, under its own title', () => {
     // …so a retry of the same episode finishes only what is missing: the
     // uploaded Short is never sent again, the one that never went up is.
     const { uploadShortsForEpisode } = await import('../services/shorts-uploader.js')
+    acceptingUpload(fake, 'https://fake.youtube.test/resumable/short-session-2', 'short-video-2')
     const retry = await uploadShortsForEpisode(ready.slug, ready.code)
     assert.equal(
       retry.outcomes.some(outcome => outcome.file === `${ready.code}-short-1.mp4`),
@@ -323,6 +354,9 @@ describe('a Short really goes up private, under its own title', () => {
       'the uploaded Short is not uploaded again',
     )
     assert.ok(retry.lines.some(line => /already on YouTube/.test(line)), retry.lines.join('\n'))
+    // The retry admitted a job for the missing Short. Drain it HERE, under this
+    // test's fake — otherwise it runs under the next test's.
+    await settleUploads(ready.slug)
     const episodeSidecar = path.join(
       (await utils.resolveEpisodePaths(ready.slug, ready.code, ready.title)).episode_dir,
       'youtube_upload.json',
@@ -338,6 +372,12 @@ describe('a Short really goes up private, under its own title', () => {
     const ready = await project('Shorts never public')
     await withShorts(ready)
     await withFinalVideo(ready)
+
+    // A fake transport BEFORE the admission: the job this test enqueues must
+    // never reach the real network, and must not outlive the test.
+    const fake = new FakeYouTube()
+    acceptingUpload(fake, 'https://fake.youtube.test/resumable/never-public', 'short-video-never-public')
+    youtube.__setYouTubeTransportForTests(fake.transport())
 
     const { admitYouTubeUpload } = await import('../routes/youtube-upload-center.js')
     const admission = await admitYouTubeUpload(ready.slug, {
@@ -355,6 +395,14 @@ describe('a Short really goes up private, under its own title', () => {
     assert.ok(queued, 'the admission queued the Short upload')
     assert.equal(queued!.params.privacy_status, 'private')
     assert.equal(queued!.params.scheduled_for, undefined, 'no publish date was invented')
+
+    // The admitted payload is one thing; what actually LEFT is the proof.
+    await settleUploads(ready.slug)
+    const init = fake.calls.find(call => call.method === 'POST' && call.path.includes('uploadType=resumable'))
+    assert.ok(init, 'the upload was started')
+    const sent = JSON.parse(init!.body || '{}')
+    assert.equal(sent.status.privacyStatus, 'private', 'a public request still sends private')
+    assert.equal(sent.status.publishAt, undefined, 'no date was invented for an undated Short')
   })
 
   test('scheduled uploads the Short private with the publish date YouTube will use', async () => {
@@ -385,27 +433,27 @@ describe('a Short really goes up private, under its own title', () => {
     const report = await uploadShortsForEpisode(ready.slug, ready.code)
     assert.equal(report.uploaded, 2, report.lines.join('\n'))
 
-    // The admission queues the uploads; running them is the queue's job.
-    // The queue runs the admitted jobs; wait for them to settle.
-    const { getJobs } = await import('../services/job-queue.js')
-    await waitForValue(async () => {
-      const jobs = await getJobs(ready.slug, { type: 'youtube_upload' })
-      const settled = jobs.filter(entry => entry.status === 'done' || entry.status === 'error')
-      return settled.length === 2 ? settled : undefined
-    })
+    // The admission queues the uploads; the queue runs them. Drain both HERE,
+    // under this test's fake — otherwise they run under the next test's.
+    await settleUploads(ready.slug)
 
-    // The insert body is the proof: PRIVATE, with a publish date in the
-    // future, and never a visibility change afterwards.
-    const init = fake.calls.find(call => call.method === 'POST' && call.path.includes('uploadType=resumable'))
-    assert.ok(init, 'the upload was started')
-    const sent = JSON.parse(init!.body || '{}')
-    assert.equal(sent.status.privacyStatus, 'private', 'a scheduled Short is still uploaded private')
-    assert.ok(sent.status.publishAt, 'the Short carries a publish date')
-    assert.ok(Date.parse(sent.status.publishAt) > Date.now(), 'the publish date is in the future')
-    for (const call of fake.calls) {
-      if (!call.body) continue
-      assert.doesNotMatch(call.body, /"privacyStatus"\s*:\s*"public"/, call.path)
+    // The inserts are the proof: exactly the two Shorts this test admitted,
+    // each PRIVATE, each carrying a publish date in the future, and never a
+    // visibility change. Asserted over ALL of them rather than the first —
+    // an insert from a job this test did not admit must fail the test
+    // loudly instead of quietly answering it.
+    const inits = fake.calls.filter(call => call.method === 'POST' && call.path.includes('uploadType=resumable'))
+    assert.equal(inits.length, 2, `expected exactly the two Shorts of this episode; got ${inits.length}`)
+    for (const init of inits) {
+      const sent = JSON.parse(init.body || '{}')
+      assert.equal(sent.status.privacyStatus, 'private', 'a scheduled Short is still uploaded private')
+      assert.ok(sent.status.publishAt, 'the Short carries a publish date')
+      assert.ok(Date.parse(sent.status.publishAt) > Date.now(), 'the publish date is in the future')
+      assert.doesNotMatch(init.body || '', /"privacyStatus"\s*:\s*"public"/, init.path)
     }
+    // …and the report the Shorts job logs agrees with what was sent.
+    assert.equal(report.outcomes.length, 2)
+    for (const outcome of report.outcomes) assert.ok(outcome.publish_at, `${outcome.file} was admitted with a date`)
   })
 })
 
@@ -415,7 +463,11 @@ describe('the automatic upload after the Shorts are verified', () => {
     await withShorts(ready)
     await pm.updateConfig(ready.slug, { shorts_auto_upload: 'private' } as any)
 
-    // The provider refuses the upload, so the Short cannot go up.
+    // This episode's final has no Final Check of its own, and a Short is cut
+    // from that final — so the admission refuses the upload before anything
+    // is sent, and says so in the Shorts job's log. The refusal, not the
+    // network, is what fails here; what the test pins is that a refused
+    // upload is loud and reaches neither the Shorts nor the episode.
     const fake = new FakeYouTube()
     fake.respond({
       method: 'POST',
