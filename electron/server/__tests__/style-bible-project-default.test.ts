@@ -283,6 +283,24 @@ describe('style-bible — project default', () => {
       assert.equal(resolved.source, 'project')
     })
 
+    test('a chosen style with no bible written still gives the plan its look', async () => {
+      const proj = await pm.createProject({ name: 'StyleChosenOnly' })
+      await pm.updateConfig(proj.slug, {
+        default_style_bible: '',
+        style_presets: [{ id: 'wd', name: 'Doodle', description: 'Thick black marker outlines.', created_at: '2026-07-05T00:00:00Z' }],
+        active_style_preset_id: 'wd',
+      } as any)
+      const dir = await episodeDirWith('ep-chosen-style', '')
+
+      const resolved = await sb.resolveStyleBible({ slug: proj.slug, episodeDir: dir })
+      assert.equal(resolved.text, 'Thick black marker outlines.')
+      assert.equal(resolved.source, 'style')
+
+      await pm.updateConfig(proj.slug, { default_style_bible: 'channel default look' } as any)
+      assert.equal((await sb.resolveStyleBible({ slug: proj.slug, episodeDir: dir })).source, 'project',
+        'a written channel look keeps winning over the chosen style')
+    })
+
     test('neither tier set resolves to nothing — unchanged legacy behaviour', async () => {
       const proj = await pm.createProject({ name: 'StyleNeither' })
       const dir = await episodeDirWith('ep-nothing', undefined)

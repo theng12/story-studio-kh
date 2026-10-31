@@ -502,7 +502,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   // "+ negative prompt", which told him something had been applied when nothing
   // had been sent.
   if (characterDescs.length || styleBible) {
-    const styleLabel = resolvedStyle.source === 'project' ? 'style bible (project default)' : 'style bible'
+    const styleLabel = resolvedStyle.source === 'project' ? 'style bible (project default)' : resolvedStyle.source === 'style' ? 'style bible (chosen style)' : 'style bible'
     job.output_lines.push(
       `Prompt layer: ${[characterDescs.length && 'character text', styleBible && styleLabel].filter(Boolean).join(' + ')}.`,
     )

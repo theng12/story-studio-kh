@@ -30,7 +30,8 @@
  *   1. an explicit per-run `style_prompt`     (one run, highest precedence)
  *   2. the episode's continuity.json          (this episode looks different)
  *   3. the project's `default_style_bible`    (the channel's standing look)
- *   4. nothing                                (unchanged legacy behaviour)
+ *   4. the channel's chosen visual style      (its own `style_bible`)
+ *   5. nothing                                (unchanged legacy behaviour)
  *
  * Tier 2 still wins over tier 3, so an episode that deliberately breaks format
  * keeps doing so; tier 3 only fills the silence that used to mean "no art
@@ -62,7 +63,7 @@ import * as pm from '../services/project-manager.js'
  */
 
 /** Where a resolved Style Bible came from. Used for operator-facing job log lines. */
-export type StyleBibleSource = 'episode' | 'project' | 'none'
+export type StyleBibleSource = 'episode' | 'project' | 'style' | 'none'
 
 export interface ResolvedStyleBible {
   /** Trimmed, capped text. Empty string when nothing is set anywhere. */
@@ -99,6 +100,17 @@ export async function readProjectStyleBible(slug: string): Promise<string> {
   }
 }
 
+/** The bible of the channel's chosen visual style, or `''` when none is chosen or it cannot be read. */
+async function readChosenStyleBible(slug: string): Promise<string> {
+  try {
+    const { resolveProjectArtStyle } = await import('../services/art-style-resolver.js')
+    const { style } = await resolveProjectArtStyle(slug)
+    return style?.source === 'preset' ? style.description.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
 /** The episode's own Style Bible (continuity.json `style_bible`), or `''`. */
 export async function readEpisodeStyleBible(episodeDir: string): Promise<string> {
   try {
@@ -127,5 +139,9 @@ export async function resolveStyleBible(input: {
   if (episode) return { text: episode, source: 'episode' }
   const project = await readProjectStyleBible(input.slug)
   if (project) return { text: project, source: 'project' }
+  // A style chosen with no bible written used to plan with no look at all while the art-style
+  // resolver reported it applied (The Curious Why, 2026-10-31: realistic images on a line-art style).
+  const style = await readChosenStyleBible(input.slug)
+  if (style) return { text: style, source: 'style' }
   return { text: '', source: 'none' }
 }
