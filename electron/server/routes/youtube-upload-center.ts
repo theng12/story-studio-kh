@@ -3463,7 +3463,17 @@ router.post('/projects/:slug/youtube/final-check', async (req, res) => {
     }
     const { started } = startFinalCheck(sourceVideoPath, expected, {}, async () => {
       const { readAutoScheduleHold, scheduleCheckedEpisode } = await import('../services/episode-autoschedule.js')
-      if (await readAutoScheduleHold(sourceVideoPath)) await scheduleCheckedEpisode(slug, episodeCode, sourceVideoPath)
+      if (await readAutoScheduleHold(sourceVideoPath)) {
+        const scheduled = await scheduleCheckedEpisode(slug, episodeCode, sourceVideoPath)
+        if (scheduled.auto_upload_log) {
+          const queue = await import('../services/job-queue.js')
+          const jobs = await queue.getJobs(slug, { type: 'video_assembly' })
+          const render = jobs.filter(job => job.episode_id === episodeCode && ['done', 'error', 'cancelled'].includes(job.status))
+            .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))[0]
+          if (render) await queue.noteOnFinishedJob(slug, render.job_id, [scheduled.auto_upload_log])
+          else console.warn(`[automatic upload] ${episodeCode}: ${scheduled.auto_upload_log}`)
+        }
+      }
     })
     res.status(202).json({
       episode_code: episodeCode,
@@ -3576,9 +3586,7 @@ router.get('/projects/:slug/youtube/freeze-states', async (req, res) => {
 /**
  * Publish -> Upload. The one route that puts a video on YouTube.
  *
- * MANUAL only. It never touches `executeScheduledYouTubeUpload`; the automatic
- * scheduled boundary stays uncalled and default-off, and a tripwire test asserts
- * this path cannot reach it.
+ * Manual and opt-in automatic uploads share the same admission guards.
  *
  * Sibling-diffed against `/playlists/apply` and `/comments/moderate` before it
  * was written, and it carries every guard both of them have:
@@ -3595,25 +3603,37 @@ router.get('/projects/:slug/youtube/freeze-states', async (req, res) => {
  * open is refused and NAMES the operation, because "nothing happened" and
  * "something is already happening" are different answers.
  */
-router.post('/projects/:slug/youtube/upload', async (req, res) => {
-  const slug = req.params.slug
+export async function admitYouTubeUpload(
+  slug: string, input: any, { automatic = false }: { automatic?: boolean } = {},
+): Promise<{ status: number; json: any }> {
+  const body = automatic ? {
+    episode_code: input?.episode_code,
+    privacy_status: 'private',
+    ...(typeof input?.publish_at === 'string' && input.publish_at ? { publish_at: input.publish_at } : {}),
+  } : input
+  let result: { status: number; json: any } = { status: 200, json: null }
+  const res = {
+    status(status: number) { result.status = status; return this },
+    json(json: any) { result.json = json; return this },
+  } as import('express').Response
+  await (async () => {
   try {
-    const episodeCode = typeof req.body?.episode_code === 'string' ? req.body.episode_code.trim() : ''
+    const episodeCode = typeof body?.episode_code === 'string' ? body.episode_code.trim() : ''
     if (!episodeCode) {
       res.status(400).json({ detail: 'Choose an episode to upload.' })
       return
     }
-    if (req.body?.confirm !== true) {
+    if (!automatic && body?.confirm !== true) {
       res.status(400).json({
         code: 'YOUTUBE_CONFIRMATION_REQUIRED',
         detail: 'Uploading publishes to YouTube. Confirm the episode and channel first.',
       })
       return
     }
-    const expectedChannelId = typeof req.body?.expected_channel_id === 'string'
-      ? req.body.expected_channel_id.trim()
+    const expectedChannelId = typeof body?.expected_channel_id === 'string'
+      ? body.expected_channel_id.trim()
       : ''
-    if (!expectedChannelId) {
+    if (!automatic && !expectedChannelId) {
       res.status(400).json({
         code: 'YOUTUBE_CONFIRMATION_REQUIRED',
         detail: 'Preview the upload and confirm its YouTube channel first.',
@@ -3622,15 +3642,20 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     }
     // The channel this will publish to, and the credential that signs in to it.
     const { accountId, channelId } = await accountForCurrentChannel(slug)
+    if (automatic && (await getJobs(slug, { type: 'youtube_upload' })).some(job =>
+      job.episode_id === episodeCode && ['queued', 'running', 'paused'].includes(job.status))) {
+      res.status(409).json({ code: 'YOUTUBE_UPLOAD_ALREADY_IN_FLIGHT', detail: `${episodeCode} already has an upload in progress.` })
+      return
+    }
     // 1.4.300 safety checks: Block refuses as before; Off/Warn let the upload go and the job logs it
     // (Warn also lists it on the job).
     const passedChecks: Array<{ check: string; message: string }> = []
     const letThrough = async (check: string, message: string): Promise<boolean> => {
-      if (await safetyMode(slug, check) === 'block') return false
+      if (automatic || await safetyMode(slug, check) === 'block') return false
       passedChecks.push({ check, message })
       return true
     }
-    if (expectedChannelId !== channelId && !await letThrough('right_channel',
+    if (!automatic && expectedChannelId !== channelId && !await letThrough('right_channel',
       'The assigned YouTube channel changed after preview; uploading to the channel assigned now.')) {
       res.status(409).json({
         code: 'YOUTUBE_CHANNEL_CHANGED',
@@ -3680,8 +3705,8 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // claims read as "episode unknown" and can never match).
     // 1.4.300 "episode number used by another project" safety check: Warn (default) asks as
     // above, Off does not ask, Block refuses even when confirmed.
-    const claimMode = await safetyMode(slug, 'episode_number_claim')
-    if (claimMode !== 'off' && (claimMode === 'block' || req.body?.acknowledge_foreign_episode !== true)) {
+    const claimMode = automatic ? 'block' : await safetyMode(slug, 'episode_number_claim')
+    if (claimMode !== 'off' && (claimMode === 'block' || body?.acknowledge_foreign_episode !== true)) {
       const foreign = await findForeignEpisodeClaim({
         project_slug: slug,
         channel_id: channelId,
@@ -3745,8 +3770,8 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // THAT file: a re-render, or a check run again since the owner looked, means they answered about
     // something that is no longer there. A body that names no verdict is admitted exactly as before,
     // so nothing older than this field changes behaviour.
-    const reviewedCheckAt = typeof req.body?.final_check_checked_at === 'string'
-      ? req.body.final_check_checked_at.trim()
+    const reviewedCheckAt = typeof body?.final_check_checked_at === 'string'
+      ? body.final_check_checked_at.trim()
       : ''
     if (reviewedCheckAt && !finalCheckIdentityMatches(storedCheck, reviewedCheckAt)) {
       res.status(409).json({
@@ -3768,10 +3793,12 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       })
       return
     }
-    const checkReason = finalCheckVerdict(storedCheck)
+    const checkReason = automatic && !storedCheck
+      ? 'has no stored final check'
+      : finalCheckVerdict(storedCheck)
     if (checkReason) {
-      const checkMode = await safetyMode(slug, 'final_check')
-      if (checkMode !== 'off' && (checkMode === 'block' || req.body?.acknowledge_final_check !== true)) {
+      const checkMode = automatic ? 'block' : await safetyMode(slug, 'final_check')
+      if (checkMode !== 'off' && (checkMode === 'block' || body?.acknowledge_final_check !== true)) {
         res.status(409).json({
           code: 'YOUTUBE_FINAL_CHECK_FAILED',
           detail: `${episodeCode}'s finished video ${checkReason}. Upload it anyway to publish it as it is.`,
@@ -3814,9 +3841,9 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // single byte is sent. So the request path keeps the cheap question (is
     // there a rendered file at all — above) and the exact one moves to the
     // bytes actually sent.
-    const reviewedSourceRevision = typeof req.body?.expected_source_revision === 'string'
-      ? req.body.expected_source_revision.trim()
-      : ''
+    const reviewedSourceRevision = automatic
+      ? await resolveYouTubeSourceRevisionCached(sourceVideoPath)
+      : typeof body?.expected_source_revision === 'string' ? body.expected_source_revision.trim() : ''
     if (!reviewedSourceRevision) {
       res.status(400).json({
         code: 'YOUTUBE_CONFIRMATION_REQUIRED',
@@ -3832,10 +3859,10 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     // saw was built by the same builder from the same resolver; rebuilding is
     // what makes a model or limit change since then impossible to smuggle
     // through, and is why no package is frozen and replayed (tell 6).
-    const expectedPackageRevision = typeof req.body?.expected_package_revision === 'string'
-      ? req.body.expected_package_revision.trim()
+    const expectedPackageRevision = typeof body?.expected_package_revision === 'string'
+      ? body.expected_package_revision.trim()
       : ''
-    if (!expectedPackageRevision) {
+    if (!automatic && !expectedPackageRevision) {
       res.status(400).json({
         code: 'YOUTUBE_CONFIRMATION_REQUIRED',
         detail: 'Preview the exact YouTube upload details before confirming.',
@@ -3857,7 +3884,7 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
     const preflight = await preflightYouTubeChannel({
       project_slug: slug, account_id: accountId, channel_id: channelId, file_path: sourceVideoPath,
     })
-    if (preflight.refusal && req.body?.acknowledge_unverified_channel !== true) {
+    if (preflight.refusal && body?.acknowledge_unverified_channel !== true) {
       res.status(409).json({
         code: 'YOUTUBE_CHANNEL_NOT_VERIFIED_FOR_LONG_VIDEOS',
         detail: preflight.refusal,
@@ -3889,18 +3916,18 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       const built = await buildYouTubeMetadataPackage({
         project_slug: slug,
         episode_code: episodeCode,
-        privacy_status: req.body?.privacy_status === 'public' || req.body?.privacy_status === 'unlisted'
-          ? req.body.privacy_status
+        privacy_status: body?.privacy_status === 'public' || body?.privacy_status === 'unlisted'
+          ? body.privacy_status
           : 'private',
-        ...(typeof req.body?.publish_at === 'string' && req.body.publish_at ? { publish_at: req.body.publish_at } : {}),
+        ...(typeof body?.publish_at === 'string' && body.publish_at ? { publish_at: body.publish_at } : {}),
         // Same resolver the preview used, so the two cannot disagree.
         ...(await resolveYouTubeUploadSettings(slug)),
         fallback_title: episodeTitle,
-        ...(typeof req.body?.thumbnail_filename === 'string' || req.body?.thumbnail_filename === null
-          ? { thumbnail_filename: req.body.thumbnail_filename }
+        ...(typeof body?.thumbnail_filename === 'string' || body?.thumbnail_filename === null
+          ? { thumbnail_filename: body.thumbnail_filename }
           : {}),
       })
-      if (expectedPackageRevision !== built.package_revision && !await letThrough('reviewed_unchanged',
+      if (!automatic && expectedPackageRevision !== built.package_revision && !await letThrough('reviewed_unchanged',
         'The YouTube upload details changed after preview; uploading the details as they are now.')) {
         return {
           refusal: {
@@ -3912,13 +3939,18 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
       }
       // A reviewed publish_at is an explicit scheduling choice for THIS upload.
       // Keep ordinary no-date uploads on the configured private/apply-plan mode.
-      const approvedUploadMode = built.status.publishAt ? 'apply-plan' : await getUploadMode(slug, 'youtube')
+      const approvedUploadMode = built.status.publishAt ? 'apply-plan' : automatic ? 'private' : await getUploadMode(slug, 'youtube')
+      if (automatic && (await getJobs(slug, { type: 'youtube_upload' })).some(job =>
+        job.episode_id === episodeCode && ['queued', 'running', 'paused'].includes(job.status))) {
+        return { refusal: { status: 409, code: 'YOUTUBE_UPLOAD_ALREADY_IN_FLIGHT', detail: `${episodeCode} already has an upload in progress.` } }
+      }
       const job = await enqueueOrRun({
         project_slug: slug,
         type: 'youtube_upload',
         episode_id: episodeCode,
         params: {
           episode_id: episodeCode,
+          ...(automatic ? { automatic: true } : {}),
           account_id: accountId,
           expected_channel_id: channelId,
           expected_package_revision: built.package_revision,
@@ -3959,6 +3991,13 @@ router.post('/projects/:slug/youtube/upload', async (req, res) => {
   } catch (error) {
     fail(res, error, 'Failed to start that upload.')
   }
+  })()
+  return result
+}
+
+router.post('/projects/:slug/youtube/upload', async (req, res) => {
+  const result = await admitYouTubeUpload(req.params.slug, req.body)
+  res.status(result.status).json(result.json)
 })
 
 type UploadCenterPlanAssignment = { episode_code: string, publishAt: string, previous_publish_at?: string }

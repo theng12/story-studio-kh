@@ -1476,6 +1476,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // On unless the channel says otherwise (2026-10-31) — the same rule
     // `autoScheduleEnabled` applies in publish-cadence.ts.
     auto_schedule_on_render: (config as any).auto_schedule_on_render !== false,
+    auto_upload: (await import('./publish-cadence.js')).autoUploadMode(config),
     // Fall back to defaults when the project was created before defaults
     // were seeded (keeps the Settings → Models tab populated for old projects).
     image_models: (config.image_models && Object.keys(config.image_models).length)

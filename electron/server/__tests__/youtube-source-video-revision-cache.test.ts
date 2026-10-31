@@ -85,22 +85,19 @@ describe('YouTube source revision cache', () => {
     assert.equal(await resolveYouTubeSourceRevisionCached(missing), sha256(Buffer.from('now present')))
   })
 
-  test('the upload REQUEST never reads the rendered bytes; the upload itself re-hashes them, and moves to the Trash use the cache', async () => {
+  test('manual upload carries its reviewed revision, automatic admission hashes, and the job re-hashes', async () => {
     const read = (rel: string) => fs.readFile(new URL(rel, import.meta.url), 'utf8')
     const center = await read('../routes/youtube-upload-center.ts')
     const previewStart = center.indexOf("router.post('/projects/:slug/youtube/preview'")
-    const uploadStart = center.indexOf("router.post('/projects/:slug/youtube/upload'")
-    const uploadEnd = center.indexOf("router.post('/projects/:slug/youtube/plan/preview'")
+    const uploadStart = center.indexOf('export async function admitYouTubeUpload(')
+    const uploadEnd = center.indexOf("router.post('/projects/:slug/youtube/upload'", uploadStart)
     assert.ok(previewStart > 0 && uploadStart > previewStart && uploadEnd > uploadStart)
     // Preview is an explicit Review click: hashing there is what the owner reviews.
     assert.match(center.slice(previewStart, uploadStart), /resolveYouTubeSourceRevisionCached\(sourcePath\)/)
-    // The upload POST must NOT hash. It carried a whole-file SHA-256 of the
-    // rendered final on the request path — 115.6 s on the Mac mini for a
-    // 96-minute final whose bytes were not in the page cache (2026-10-18,
-    // PR0011), past the caller's 120 s timeout. The reviewed revision now
-    // travels to the job, which hashes the open handle it uploads from.
-    assert.doesNotMatch(center.slice(uploadStart, uploadEnd), /await resolveYouTubeSourceRevision/)
-    assert.match(center.slice(uploadStart, uploadEnd), /expected_source_revision: reviewedSourceRevision/)
+    // Only automatic uploads hash on admission; manual uploads carry the revision reviewed in Preview.
+    const admission = center.slice(uploadStart, uploadEnd)
+    assert.match(admission, /automatic\s*\? await resolveYouTubeSourceRevisionCached\(sourceVideoPath\)/)
+    assert.match(admission, /expected_source_revision: reviewedSourceRevision/)
     // 1.4.289: Clear Uploaded Videos and Free up space only MOVE a final to Story's Trash (undoable), so the
     // match with its upload is read once and re-checked by size, mtime and inode (it read each final three times).
     const remote = await read('../services/youtube-remote-video.ts')

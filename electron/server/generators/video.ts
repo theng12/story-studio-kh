@@ -247,10 +247,8 @@ async function selfHealFinalPromotion(
  * pressing apply. A render already knows which episode it just made, so there
  * is nothing to pick.
  *
- * NEVER TOUCHES YOUTUBE. It writes a local publish time and stops, which the
- * owner chose ("enqueue and schedule only — you press upload") and which is
- * also what makes it safe to run unattended: a bad render cannot reach a
- * channel. It also declines to move an episode that is already public or
+ * Gives the finished episode a local publish time and optionally queues its upload.
+ * It declines to move an episode that is already public or
  * already scheduled, so re-rendering never disturbs a date you have set.
  *
  * Best-effort by construction. A render that produced a good video must not be
@@ -276,12 +274,12 @@ async function autoScheduleFinishedEpisode(
     if (result.hold) job.result = { ...(job.result || {}), auto_schedule_hold: result.hold }
     if (result.scheduled) {
       job.output_lines.push(
-        `Scheduled for ${result.publish_at} by plan "${result.plan_name}". `
-        + 'Nothing has been sent to YouTube — upload it from Upload Center when you are ready.',
+        `Scheduled for ${result.publish_at} by plan "${result.plan_name}".`,
       )
     } else if (result.reason) {
       job.output_lines.push(`Not scheduled: ${result.reason}`)
     }
+    if (result.auto_upload_log) job.output_lines.push(result.auto_upload_log)
   } catch (e: any) {
     job.output_lines.push(`Could not write a publish time (${e?.message || e}) — the video is fine.`)
   }
