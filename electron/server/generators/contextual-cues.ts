@@ -38,7 +38,9 @@ import {
   validateSoundDesignTimeline,
   writeSoundDesignTimeline,
 } from '../services/sound-design.js'
-import { anchorPhraseAt } from '../contracts/cue-anchor.js'
+import { anchorPhraseAt, reconcileAnchoredCues, type CueTiming } from '../contracts/cue-anchor.js'
+import { readEpisodeCueTiming } from '../services/sound-cue-anchors.js'
+import { stitchedSrtPath } from '../services/subtitle-correction.js'
 import { readLabelDesigns } from '../lib/label-design-render.js'
 import type { LabelDesign } from '../contracts/label-design.js'
 import { applySound, selectSound, type SoundCandidate } from '../services/sound-resolver.js'
@@ -521,6 +523,7 @@ export function accountCueCandidates(
   now: string,
   resolvedIds: Set<string>,
   allow: CueChoiceAllowlist = TEXT_ONLY_ALLOW,
+  subtitles: readonly CueTiming[] = [],
 ): { proposed: ContextualCue[]; dropped: DroppedCueCandidate[] } {
   const dropped: DroppedCueCandidate[] = []
   const safe: ContextualCue[] = []
@@ -533,9 +536,10 @@ export function accountCueCandidates(
       reason: cueDropReason(candidate, plan, allow),
     })
   }
+  const anchored = reconcileAnchoredCues(safe, plan, subtitles).cues
   const minGap = normalizeContextualCueProposalSettings(settings).min_gap_sec!
-  const paced = applySafePacing(safe, settings.density, plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0, minGap)
-  for (const cue of safe) {
+  const paced = applySafePacing(anchored, settings.density, plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0, minGap)
+  for (const cue of anchored) {
     if (!paced.includes(cue)) {
       const previous = paced.filter(row => row.start_sec <= cue.start_sec).at(-1)
       const reason = previous && cue.start_sec < previous.end_sec + minGap
@@ -575,6 +579,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const planPath = await resolveScenePlanPath(job.project_slug, episodeId, paths.episode_dir)
   if (!existsSync(planPath)) throw new Error('Build Scene Plan before proposing contextual cues.')
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
+  const subtitles = await readEpisodeCueTiming(stitchedSrtPath(paths.subtitles_dir, episodeId))
   if (!plan.scenes?.length) throw new Error('Scene Plan has no scenes to annotate.')
   const config = normalizeContextualCueConfig((await getConfig(job.project_slug))?.contextual_cues)
   if (!config.enabled) throw new Error('Contextual Cues are disabled for this project. Enable them first.')
@@ -813,7 +818,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
       ...progress,
       completed_batches: [...completed.values()].sort((a, b) => a.index - b.index),
       provisional_cues: applySafePacing(
-        candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings, new Date().toISOString(), allow)).filter((cue): cue is ContextualCue => !!cue),
+        reconcileAnchoredCues(candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings, new Date().toISOString(), allow)).filter((cue): cue is ContextualCue => !!cue), plan, subtitles).cues,
         settings.density,
         plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0,
         settings.min_gap_sec!,
@@ -845,7 +850,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const latest = await readContextualCueTimeline(planPath)
   const protectedCues = latest?.cues.filter(cue => cue.status !== 'proposed') || []
   const resolvedIds = new Set(protectedCues.map(cue => cue.id))
-  const accounted = accountCueCandidates(candidates, plan, settings, now, resolvedIds, allow)
+  const accounted = accountCueCandidates(candidates, plan, settings, now, resolvedIds, allow, subtitles)
   let proposed = accounted.proposed
   const dropped = accounted.dropped
   let autoApprovalHolds: ContextualCueAutoApprovalHold[] = []

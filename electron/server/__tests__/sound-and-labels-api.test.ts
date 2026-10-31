@@ -113,6 +113,23 @@ describe('one read answers for both halves', () => {
     assert.equal(saved.status, 200, JSON.stringify(saved.body))
     assert.deepEqual(saved.body.timeline.cues.map((cue: any) => [cue.start_sec, cue.end_sec]), [[4, 7], [9, 12]])
   })
+  test('an edited anchored start survives save and read with its end intact', async () => {
+    const original = label({ anchor_word: 'temple', anchor_offset_sec: 1, start_sec: 1, end_sec: 4.5 })
+    await fs.writeFile(path.join(path.dirname(planPath), 'contextual_cues.json'), JSON.stringify({ schema_version: 2, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [original] }))
+    const before = await get(`/${episode}`)
+    const edited = { ...before.body.labels.cues[0], start_sec: 12.493, end_sec: 16 }
+    const saved = await put(`/${episode}/labels`, { cues: [edited] })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    assert.equal(saved.body.timeline.cues[0].anchor_offset_sec, 12.493)
+    assert.equal(saved.body.timeline.cues[0].anchor_word, undefined)
+    const read = await get(`/${episode}`)
+    assert.equal(read.body.labels.cues[0].start_sec, 12.493)
+    assert.equal(read.body.labels.cues[0].end_sec, 16)
+    const refused = await put(`/${episode}/labels`, { cues: [{ ...read.body.labels.cues[0], start_sec: 21, end_sec: 25 }] })
+    assert.equal(refused.status, 422)
+    assert.match(refused.body.detail, /inside its scene/)
+  })
+
   test('readiness reports a crowded later label without refusing the episode', async () => {
     const rows = [label({ start_sec: 4, end_sec: 7 }), label({ id: 'second', title: 'Crowded', start_sec: 7.2, end_sec: 10 })]
     await fs.writeFile(path.join(path.dirname(planPath), 'contextual_cues.json'), JSON.stringify({ schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: rows }))

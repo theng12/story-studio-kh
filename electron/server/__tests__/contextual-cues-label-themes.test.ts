@@ -20,6 +20,7 @@ import {
   cueSystemPrompt,
   resolveCueChoiceAllowlist,
 } from '../generators/contextual-cues.js'
+import { reconcileAnchoredCues } from '../contracts/cue-anchor.js'
 import { normalizeContextualCueProposalSettings } from '../services/contextual-cues.js'
 import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.js'
 import { validateStructuredOutput } from '../lib/json-output-contract.js'
@@ -51,6 +52,22 @@ const account = async (
 )
 
 describe('Contextual Cues label choices', () => {
+  test('pacing uses the spoken anchor times that read-back uses', () => {
+    const timedPlan = { total_duration_sec: 600, scenes: [
+      { id: 'a', start_sec: 0, end_sec: 20 },
+      { id: 'b', start_sec: 20, end_sec: 40 },
+      { id: 'c', start_sec: 40, end_sec: 60 },
+    ] } as any
+    const subtitles = [{ start_sec: 16, end_sec: 19, text: 'first' }, { start_sec: 20, end_sec: 23, text: 'second' }, { start_sec: 40, end_sec: 43, text: 'third' }]
+    const candidates = [{ scene_id: 'a', title: 'first', anchor_word: 'first' }, { scene_id: 'b', title: 'second', anchor_word: 'second' }, { scene_id: 'c', title: 'third', anchor_word: 'third' }]
+    const result = accountCueCandidates(candidates, timedPlan, normalizeContextualCueProposalSettings({ min_gap_sec: 10 }), NOW, new Set(), undefined, subtitles)
+    assert.deepEqual(result.proposed.map(cue => cue.title), ['first', 'third'])
+    assert.match(result.dropped[0]!.reason, /10s/)
+    const read = reconcileAnchoredCues(result.proposed, timedPlan, subtitles).cues
+    assert.ok(read[1]!.start_sec - read[0]!.end_sec >= 10)
+    assert.deepEqual(read.map(cue => cue.start_sec), result.proposed.map(cue => cue.start_sec))
+  })
+
   test('proposal gaps follow the preset while density still caps the total', () => {
     const spacedPlan = { total_duration_sec: 600, scenes: [
       { id: 'a', start_sec: 0, end_sec: 10 },
