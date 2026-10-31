@@ -55,6 +55,29 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, />Clear<\/button>/)
   })
 
+  test('restores only available saved steps and announces what was dropped', () => {
+    const source = `
+      const visualSource = { value: 'music' }
+      const rememberedSteps = { value: ['metadata', 'scene_plan', 'removed-step'] }
+      const visibleSteps = { value: [{ id: 'metadata', label: 'Metadata' }] }
+      const stepsMeta = [{ id: 'metadata', label: 'Metadata' }, { id: 'scene_plan', label: 'Scene Plan' }]
+      const stepChecked = { metadata: false, scene_plan: true }
+      const droppedStepNotice = { value: '' }
+      function clearSelectedSteps() { for (const step of stepsMeta) stepChecked[step.id] = false }
+      function syncDerivedSteps() {}
+      ${extractFunction('restoreRememberedSteps')}
+      restoreRememberedSteps()
+      return { stepChecked, notice: droppedStepNotice.value, rememberedSteps }
+    `
+    const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+    const result = new Function(js)()
+    assert.deepEqual(result.stepChecked, { metadata: true, scene_plan: false })
+    assert.match(result.notice, /Scene Plan, removed-step/)
+    assert.equal(result.rememberedSteps.value, null)
+    assert.match(pipeline, /watch\(slug, async \(\) => \{[\s\S]*?clearSelectedSteps\(\)[\s\S]*?rememberedSteps\.value = null/)
+    assert.match(pipeline, /request !== rememberedRequest \|\| targetSlug !== slug\.value/)
+  })
+
   test('the Introduction follows the channel rather than a box that can be forgotten', () => {
     // v1.4.73 — this used to be a normal optional checkbox, and four episodes
     // reached paid audio with no opening because it happened not to be ticked

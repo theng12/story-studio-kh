@@ -172,6 +172,24 @@ test('bulk preflight overlaps independent episode reads with bounded fanout', as
   }
 })
 
+test('admission remembers only selected steps and refusal leaves config untouched', async () => {
+  const fixture = await seedBulkFixture('Pipeline remembered steps')
+  const before = JSON.parse(await fs.readFile(fixture.configPath, 'utf8'))
+  const refused = await request(app).post(`/api/projects/${fixture.slug}/pipeline/run-batch`)
+    .send({ episode_ids: [], steps: ['metadata'], episode_path: '/private/episode' })
+  assert.equal(refused.status, 400)
+  assert.deepEqual(JSON.parse(await fs.readFile(fixture.configPath, 'utf8')), before)
+
+  const accepted = await request(app).post(`/api/projects/${fixture.slug}/pipeline/run-batch`)
+    .send({ episode_ids: fixture.episodeIds, steps: ['metadata'], episode_path: '/private/episode' })
+  assert.equal(accepted.status, 201, JSON.stringify(accepted.body))
+  const saved = JSON.parse(await fs.readFile(fixture.configPath, 'utf8'))
+  assert.deepEqual(saved, { ...before, pipeline_last_steps: ['metadata'] })
+  const config = await request(app).get(`/api/projects/${fixture.slug}/settings/config`)
+  assert.equal(config.status, 200)
+  assert.deepEqual(config.body.pipeline_last_steps, ['metadata'])
+})
+
 test('run-batch reuses the status snapshot computed by its own preflight', async () => {
   const fixture = await seedBulkFixture('Pipeline status reuse')
   const realReadFile = fs.readFile.bind(fs)

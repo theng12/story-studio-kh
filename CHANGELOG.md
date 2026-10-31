@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.372 — 2026-10-31
+
+- Pipeline remembers each channel's last submitted steps and selects them when you return. Steps no longer available for that channel are named and left out.
+
 ## v1.4.371 — 2026-10-30
 
 - A channel's finished videos can schedule themselves. The starting default is three a week on random days, never back to back and never two on one day, each at a random time. Once drawn, an episode's day and time stay put, and you can change the channel's pattern.

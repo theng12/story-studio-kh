@@ -3300,6 +3300,12 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
     }
   }
 
+  try {
+    if (!await pm.savePipelineLastSteps(slug, requestedSteps)) throw new Error('Channel config is unavailable')
+  } catch (error) {
+    runWarnings.push(`Could not remember these Pipeline steps: ${error instanceof Error ? error.message : 'unknown error'}. The batch was accepted; choose the steps again next time.`)
+  }
+
   res.status(201).json({
     batch_id,
     enqueued: enqueued.length,

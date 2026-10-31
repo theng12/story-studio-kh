@@ -1684,7 +1684,7 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
       key.startsWith('custom_') ||
       key === 'script_custom_styles' ||
       // Video Assembly's last-render settings (per episode + channel starting point).
-      key === 'video_assembly_last_used'
+      key === 'video_assembly_last_used' || key === 'pipeline_last_steps'
     if (shouldPassThrough) safe[key] = migratePresetField(key, raw[key])
   }
 
@@ -1745,6 +1745,20 @@ function applyConfigRequest(data: Record<string, any>, req: UpdateConfigRequest)
       ;(data as any)[key] = migratePresetField(key, requested)
     }
   }
+}
+
+export async function savePipelineLastSteps(slug: string, steps: string[]): Promise<boolean> {
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return false
+  const configPath = path.join(projectDir, 'config.json')
+  if (!existsSync(configPath)) return false
+  await withLock(configPath, async () => {
+    const data = await readJson(configPath)
+    if (JSON.stringify(data.pipeline_last_steps) === JSON.stringify(steps)) return
+    data.pipeline_last_steps = steps
+    await writeJsonAtomic(configPath, data)
+  })
+  return true
 }
 
 export async function updateConfig(slug: string, req: UpdateConfigRequest): Promise<boolean> {
