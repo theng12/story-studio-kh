@@ -4322,7 +4322,6 @@ test('automatic admission queues private and scheduled uploads without review', 
     await storeFinalCheck(videoPath, passed)
     await pm.updateConfig(slug, { auto_upload: scheduled ? 'scheduled' : 'private' } as any)
     const result = await scheduleCheckedEpisode(slug, episodeCode, videoPath)
-    assert.equal(result.scheduled, true, JSON.stringify(result))
     assert.equal(result.auto_upload_log, 'Automatic YouTube upload queued.')
     const jobs = (await jobQueue.getJobs(slug, { type: 'youtube_upload' })).filter(job => !before.has(job.job_id))
     assert.equal(jobs.length, 1)
@@ -4330,6 +4329,20 @@ test('automatic admission queues private and scheduled uploads without review', 
     assert.equal(job.params?.privacy_status, 'private')
     assert.equal(job.params?.scheduled_for, scheduled ? result.publish_at : undefined)
     assert.equal(job.params?.approved_upload_mode, scheduled ? 'apply-plan' : 'private')
+    if (scheduled) {
+      // YouTube was given the date, so the plan keeps it.
+      assert.equal(result.scheduled, true, JSON.stringify(result))
+      assert.ok((await uploadPlans.readItemSchedule(slug))[episodeCode], 'the plan keeps a date YouTube holds')
+    } else {
+      // Private mode sends YouTube NO date, so the plan must not go on
+      // claiming one — the record is what the Publish page shows, and it was
+      // showing a date that exists nowhere but locally.
+      assert.equal(result.scheduled, false, JSON.stringify(result))
+      assert.equal(result.publish_at, undefined)
+      assert.match(result.reason || '', /uploads privately with no publish date/)
+      assert.equal((await uploadPlans.readItemSchedule(slug))[episodeCode], undefined,
+        'the plan holds no date the upload never carried')
+    }
     await removeQueuedTestJob(slug, job.job_id)
     await jobQueue._waitForJobPersistenceForTesting()
     await cleanup?.()

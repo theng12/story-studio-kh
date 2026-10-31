@@ -46,6 +46,7 @@ import { resolveYouTubeCredential } from './youtube-credential.js'
 import { listYouTubeOperations } from './youtube-operation-store.js'
 import { readYouTubeProjectPublishingState } from './youtube-project-publishing-store.js'
 import { remoteVideoFor } from './youtube-remote-video.js'
+import { checkYouTubePublishDate, YOUTUBE_PUBLISH_LEAD_TIME_MS } from './youtube-publish-guard.js'
 
 export interface AutoScheduleResult {
   scheduled: boolean
@@ -71,15 +72,26 @@ export async function readAutoScheduleHold(videoPath: string): Promise<AutoSched
   } catch { return null }
 }
 
-/** True unless we can show this episode has no video on the assigned channel. */
-async function knownOnYouTube(slug: string, code: string): Promise<boolean> {
+/**
+ * Whether this episode already has a video on the assigned channel.
+ *
+ * Three answers, not two. `null` means WE CANNOT TELL — no channel is
+ * assigned, or the record could not be read — and that is not the same answer
+ * as "there is no video" (AGENTS.md §6: "I could not work out the answer"
+ * must never share a value with "the answer is none"). A project with no
+ * channel must keep scheduling every episode exactly as it does today; a
+ * project that HAS a channel and can see the video must not be handed a
+ * publish date for something that is already uploaded.
+ */
+async function knownOnYouTube(slug: string, code: string): Promise<boolean | null> {
   try {
     const channelId = (await getProjectYouTubeAssignment(slug))?.channel_id
-    if (!channelId) return true
+    if (!channelId) return null
     const title = (await im.getIdeas(slug, 'accepted')).find(idea => idea.episode_code === code)?.title || ''
-    return !!await remoteVideoFor(slug, code, title, channelId, await listYouTubeOperations(slug),
+    const remote = await remoteVideoFor(slug, code, title, channelId, await listYouTubeOperations(slug),
       await readYouTubeProjectPublishingState(slug), createProjectFactsCache(slug))
-  } catch { return true }
+    return !!remote
+  } catch { return null }
 }
 
 async function clearLocalDate(slug: string, code: string): Promise<void> {
@@ -87,7 +99,9 @@ async function clearLocalDate(slug: string, code: string): Promise<void> {
   await setScheduledFor(slug, code, title, 'youtube', null)
 }
 
-async function tryAutomaticUpload(slug: string, code: string, mode: string, publishAt?: string): Promise<string> {
+async function tryAutomaticUpload(
+  slug: string, code: string, mode: string, publishAt?: string,
+): Promise<{ log: string; admitted: boolean }> {
   try {
     if (mode === 'scheduled' && !publishAt) throw new Error('The episode has no scheduled publish time.')
     const { admitYouTubeUpload } = await import('../routes/youtube-upload-center.js')
@@ -96,10 +110,52 @@ async function tryAutomaticUpload(slug: string, code: string, mode: string, publ
       ...(mode === 'scheduled' ? { publish_at: publishAt } : {}),
     }, { automatic: true })
     return admission.status < 300
-      ? 'Automatic YouTube upload queued.'
-      : `Automatic YouTube upload skipped: ${admission.json?.detail || 'Upload admission failed.'}`
+      ? { log: 'Automatic YouTube upload queued.', admitted: true }
+      : { log: `Automatic YouTube upload skipped: ${admission.json?.detail || 'Upload admission failed.'}`, admitted: false }
   } catch (error) {
-    return `Automatic YouTube upload skipped: ${error instanceof Error ? error.message : String(error)}`
+    return {
+      log: `Automatic YouTube upload skipped: ${error instanceof Error ? error.message : String(error)}`,
+      admitted: false,
+    }
+  }
+}
+
+/**
+ * Queue the automatic upload, then make the local plan agree with what was
+ * actually handed to YouTube. `auto_upload: private` admits the upload with NO
+ * publish date — the owner sets the schedule in YouTube Studio — so its plan
+ * date has to go, and a SKIPPED upload keeps it, because then nothing was
+ * sent and the plan is still just a plan.
+ */
+async function uploadAndReconcilePlan(
+  slug: string, code: string, mode: string, plannedDate: string | undefined, result: AutoScheduleResult,
+): Promise<AutoScheduleResult> {
+  const { log, admitted } = await tryAutomaticUpload(slug, code, mode, plannedDate)
+  result.auto_upload_log = log
+  if (mode === 'private' && admitted) return dropUnsentPlanDate(slug, code, result)
+  return result
+}
+
+/**
+ * `auto_upload: private` leaves the plan holding a date YouTube was never
+ * given. That is a promise the video cannot keep: the Publish page shows a
+ * date and YouTube holds none (AGENTS.md §6), so it is a lie about the
+ * provider. The date is dropped from the plan AND from the result, and both
+ * are said out loud.
+ *
+ * DROPPED, not corrected: the upload is already queued, and re-dating it here
+ * would be the hidden edit this product refuses to make.
+ */
+async function dropUnsentPlanDate(
+  slug: string, code: string, result: AutoScheduleResult,
+): Promise<AutoScheduleResult> {
+  await clearLocalDate(slug, code)
+  return {
+    ...result,
+    scheduled: false,
+    publish_at: undefined,
+    reason: 'This episode uploads privately with no publish date, so the planned date was dropped. '
+      + 'Set the schedule in YouTube Studio.',
   }
 }
 
@@ -111,23 +167,40 @@ export async function scheduleCheckedEpisode(
   if (config.auto_schedule_on_render === false) return { scheduled: false, episode_code: code }
   const existing = await plans.readItemPublicationStates(slug)
   let scheduled = (await plans.readItemSchedule(slug))[code] || existing[code]?.scheduled_for
-  // A local date that passed with no video on YouTube promises nothing, and keeping it would
-  // block this episode for good (The Curious Why EP0001 and EP0002, 2026-10-31).
-  const onYouTube = scheduled ? await knownOnYouTube(slug, code) : true
-  if (scheduled && !onYouTube && !(Date.parse(scheduled) > Date.now())) {
+  const mode = autoUploadMode(config)
+  // Asked BEFORE the scheduling decision, not only when a date already
+  // exists: an episode already on YouTube as a private video has no date, and
+  // the old code planned one for it — a publish date for a video that was
+  // never going to be given to YouTube. `null` means we cannot tell (no
+  // channel assigned, or the record could not be read), and that must not
+  // start refusing every episode, which is why unknown schedules as before.
+  const onYouTube = await knownOnYouTube(slug, code)
+  // A local date that has passed — or that is inside the publish lead time,
+  // so it would pass before any upload could finish — promises nothing, and
+  // keeping it would block this episode for good (The Curious Why EP0001 and
+  // EP0002, 2026-10-31). Left alone when the video IS on YouTube: there the
+  // date describes a live schedule, not a plan.
+  if (scheduled && onYouTube === false && !checkYouTubePublishDate(scheduled).ok) {
     await clearLocalDate(slug, code)
     scheduled = undefined
   }
-  if (existing[code]?.privacy_status === 'public' || (scheduled && onYouTube)) {
+  if (existing[code]?.privacy_status === 'public' || (scheduled && onYouTube !== false)) {
     const reason = 'This episode already has a publish time or is public; it was left as it is.'
     return { scheduled: false, episode_code: code, reason,
-      ...(autoUploadMode(config) !== 'off' ? { auto_upload_log: `Automatic YouTube upload skipped: ${reason}` } : {}) }
+      ...(mode !== 'off' ? { auto_upload_log: `Automatic YouTube upload skipped: ${reason}` } : {}) }
+  }
+  // Already uploaded, privately, with no date: no new date is planned for it.
+  if (onYouTube === true) {
+    const reason = 'This episode is already on YouTube with no publish date, so no new date was planned for it. '
+      + 'Set the schedule in YouTube Studio.'
+    return { scheduled: false, episode_code: code, reason,
+      ...(mode !== 'off' ? { auto_upload_log: `Automatic YouTube upload skipped: ${reason}` } : {}) }
   }
   // Dated but never uploaded (the upload was refused earlier): keep the date and ask again.
   if (scheduled) {
     const kept: AutoScheduleResult = { scheduled: false, episode_code: code, publish_at: scheduled,
       reason: 'This episode already has a publish time; it was left as it is.' }
-    if (autoUploadMode(config) !== 'off') kept.auto_upload_log = await tryAutomaticUpload(slug, code, autoUploadMode(config), scheduled)
+    if (mode !== 'off') return uploadAndReconcilePlan(slug, code, mode, scheduled, kept)
     return kept
   }
   if (config.auto_schedule_require_final_check !== false) {
@@ -144,7 +217,7 @@ export async function scheduleCheckedEpisode(
     if (status) {
       const reason = hold.reason
       return { scheduled: false, episode_code: code, reason, hold,
-        ...(autoUploadMode(config) !== 'off' ? { auto_upload_log: `Automatic YouTube upload skipped: ${descriptions[status]}` } : {}) }
+        ...(mode !== 'off' ? { auto_upload_log: `Automatic YouTube upload skipped: ${descriptions[status]}` } : {}) }
     }
   }
   const result = await scheduleEpisodeWithActivePlan(slug, code, 'youtube')
@@ -155,11 +228,11 @@ export async function scheduleCheckedEpisode(
     const prior = await readAutoScheduleHold(videoPath)
     if (prior) await writeJsonAtomic(holdPath(videoPath), { hold: { ...prior, reason: `Final check passed, but the episode could not be scheduled: ${result.reason}` } })
   }
-  if (!result.scheduled && autoUploadMode(config) !== 'off' && !result.auto_upload_log) {
+  if (!result.scheduled && mode !== 'off' && !result.auto_upload_log) {
     result.auto_upload_log = `Automatic YouTube upload skipped: ${result.reason || 'The episode could not be scheduled.'}`
   }
-  if (result.scheduled && autoUploadMode(config) !== 'off') {
-    result.auto_upload_log = await tryAutomaticUpload(slug, code, autoUploadMode(config), result.publish_at)
+  if (result.scheduled && mode !== 'off') {
+    return uploadAndReconcilePlan(slug, code, mode, result.publish_at, result)
   }
   return result
 }
@@ -293,7 +366,13 @@ export async function scheduleEpisodeWithActivePlan(
         reason: 'This episode already has a publish time or is public; it was left as it is.' }
     }
     const minStartDate = await latestFutureClaim(slug, platform, code)
-    const slots = plans.computeSlots(schedule, 1, { minStartDate, notBefore: new Date() })
+    // The slot itself is held to the same lead time the upload admission is:
+    // a slot minutes away would be refused at admission, or would reach
+    // YouTube after the date it names had passed — which publishes the video
+    // immediately instead of on that date.
+    const slots = plans.computeSlots(schedule, 1, {
+      minStartDate, notBefore: new Date(Date.now() + YOUTUBE_PUBLISH_LEAD_TIME_MS),
+    })
     if (!slots.length) {
       return {
         scheduled: false, episode_code: code,

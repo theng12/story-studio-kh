@@ -110,6 +110,15 @@ describe('youtube metadata package', () => {
     assert.equal(past.warnings.some(w => /past/i.test(w)), true)
     // The value is still exactly what was asked for — nothing was rewritten.
     assert.equal(past.status.publishAt, PAST)
+    // The words matter: YouTube does NOT reject a past publishAt, it publishes
+    // the video immediately with no error. A warning that promises a rejection
+    // reads as a guarantee the video stays safe, so it has to say what the
+    // provider actually does.
+    // (https://developers.google.com/youtube/data/revision_history)
+    assert.equal(past.warnings.some(w => /publishes a video immediately/i.test(w)), true,
+      'the warning names what YouTube does, not what it used to be believed to do')
+    assert.equal(past.warnings.some(w => /reject/i.test(w)), false,
+      'a rejected publishAt is the one behaviour YouTube does not have')
 
     const malformed = await buildYouTubeMetadataPackage({
       project_slug: episode.slug,
@@ -118,7 +127,16 @@ describe('youtube metadata package', () => {
       publish_at: 'not-a-time',
       mark_as_ai_generated: false,
     })
-    assert.equal(malformed.warnings.some(w => /schedul/i.test(w)), true)
+    assert.equal(malformed.warnings.some(w => /is not a valid date/i.test(w)), true)
+    // A date inside the lead time is refused too, and the preview says why.
+    const soon = await buildYouTubeMetadataPackage({
+      project_slug: episode.slug,
+      episode_code: episode.episode_code,
+      privacy_status: 'private',
+      publish_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      mark_as_ai_generated: false,
+    })
+    assert.equal(soon.warnings.some(w => /less than 6 hours away/i.test(w)), true)
   })
 
   test('strips the finalizer-s private description markers and angle brackets', async () => {

@@ -19,6 +19,7 @@ import path from 'node:path'
 import { resolveUploadMetadata, snippetFromMeta } from '../lib/upload-metadata.js'
 import * as pm from './project-manager.js'
 import { getYoutubeDefaults } from './app-settings.js'
+import { checkYouTubePublishDate, describeYouTubePublishDateProblem } from './youtube-publish-guard.js'
 import type { PrivacyStatus, VideoSnippet, VideoStatus } from '../lib/youtube-client.js'
 
 export interface YouTubeMetadataModification {
@@ -220,11 +221,15 @@ export async function buildYouTubeMetadataPackage(input: {
   }
 
   if (scheduled) {
-    const at = Date.parse(input.publish_at!)
     // Reported, never corrected: rewriting the owner's schedule silently is
-    // exactly the hidden edit this package exists to prevent.
-    if (!Number.isFinite(at)) warnings.push('the scheduled publish time is not a valid date and YouTube will reject it')
-    else if (at <= Date.now()) warnings.push('the scheduled publish time is in the past and YouTube will reject it')
+    // exactly the hidden edit this package exists to prevent. The words are
+    // the provider's own, not a guess — a publishAt in the past is NOT
+    // rejected by YouTube, it publishes the video right away
+    // (https://developers.google.com/youtube/data/revision_history). Saying
+    // "YouTube will reject it" was simply wrong, and a wrong warning is worse
+    // than none: it reads as a guarantee that the video stays safe.
+    const verdict = checkYouTubePublishDate(input.publish_at)
+    if (!verdict.ok) warnings.push(describeYouTubePublishDateProblem(verdict.problem!, verdict.value))
   }
 
   const status: VideoStatus = {

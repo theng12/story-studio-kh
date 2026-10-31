@@ -78,6 +78,7 @@ import {
   readYouTubeChannelEligibility,
 } from '../services/youtube-channel-eligibility.js'
 import { buildYouTubeMetadataPackage, resanitizeStoredSnippet, resolveYouTubeUploadSettings } from '../services/youtube-metadata-package.js'
+import { youTubePublishDateRefusal } from '../services/youtube-publish-guard.js'
 import { enqueueOrRun, getJobs, isDuplicate } from '../services/job-queue.js'
 import type { Job } from '../models/types.js'
 import { listUploadThumbnails, resolveUploadMetadata, snippetFromMeta, YT_TITLE_MAX } from '../lib/upload-metadata.js'
@@ -3637,6 +3638,29 @@ export async function admitYouTubeUpload(
       res.status(400).json({
         code: 'YOUTUBE_CONFIRMATION_REQUIRED',
         detail: 'Preview the upload and confirm its YouTube channel first.',
+      })
+      return
+    }
+    // The publish date, checked HERE rather than only inside the package.
+    //
+    // A `publishAt` that has already passed is not rejected by YouTube — it
+    // publishes the video at once, with no error
+    // (https://developers.google.com/youtube/data/revision_history). So a date
+    // the owner typed an hour ago would go PUBLIC, not fail. The package
+    // builder already warns about this, but a warning that only reaches a job
+    // log is not a guard: the job is queued long before anyone reads it.
+    //
+    // One shared rule, so the automatic path cannot drift from the manual one
+    // and the generator re-checking later cannot be stricter than the promise
+    // this admission made. Absent means "no date, upload private now" — that
+    // is a real choice and is never refused here.
+    const requestedPublishAt = typeof body?.publish_at === 'string' ? body.publish_at.trim() : ''
+    const publishAtRefusal = requestedPublishAt ? youTubePublishDateRefusal(requestedPublishAt) : null
+    if (publishAtRefusal) {
+      res.status(400).json({
+        code: 'YOUTUBE_PUBLISH_AT_REFUSED',
+        detail: publishAtRefusal,
+        publish_at: requestedPublishAt,
       })
       return
     }

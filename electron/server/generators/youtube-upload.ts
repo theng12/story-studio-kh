@@ -24,6 +24,7 @@ import { isCancelled } from '../services/job-queue.js'
 import { probeForUpload } from '../lib/ffprobe-check.js'
 import { resolveUploadMetadata, assertUploadMetadataComplete } from '../lib/upload-metadata.js'
 import { resolveYouTubeUploadSettings, buildYouTubeMetadataPackage, metadataPackageFromFinalPayload } from '../services/youtube-metadata-package.js'
+import { youTubePublishDateRefusal } from '../services/youtube-publish-guard.js'
 import { uploadVideo, setThumbnail, type PrivacyStatus } from '../lib/youtube-client.js'
 import {
   beginYouTubeOperation,
@@ -103,6 +104,87 @@ function hasReviewedFreshUploadParams(params: YouTubeUploadParams): boolean {
     && !!params.expected_package_revision?.trim()
     && !!params.approved_final_payload
     && (params.approved_upload_mode === 'private' || params.approved_upload_mode === 'apply-plan')
+}
+
+/**
+ * The publish date, checked one last time before anything leaves this machine.
+ *
+ * Admission already refused a date that was unusable then. A queued job can
+ * wait long enough for a date that was safe to become unsafe, and YouTube does
+ * not report the difference: a publishAt in the past publishes the video
+ * immediately, with no error. The refusal therefore belongs here too, on the
+ * date the package will actually carry — not on the request that was accepted
+ * hours ago.
+ *
+ * No date is not a failure: a private upload with no schedule is a normal
+ * upload and has nothing to check.
+ */
+function assertPublishDateUsable(pkg: YouTubeMetadataPackage, episodeId: string): void {
+  const publishAt = pkg.status.publishAt
+  if (!publishAt) return
+  const refusal = youTubePublishDateRefusal(publishAt)
+  if (!refusal) return
+  throw new Error(`${refusal} Nothing was uploaded for ${episodeId}.`)
+}
+
+/**
+ * Ask the status read back one more question: does YouTube hold what we sent?
+ *
+ * Two answers matter, and neither can be repaired by Story Studio once the
+ * video exists — so both are reported on the job rather than acted on:
+ *
+ *   - a scheduled upload that comes back NOT private has published already.
+ *     That is the exact failure the publish-date guard exists to prevent, and
+ *     nothing in the queue would ever say so.
+ *   - a publishAt that differs from the one we sent means the date on the
+ *     Upload Center screen is not the date on the video.
+ *
+ * The comparison is by INSTANT, not by string: YouTube formats its own
+ * timestamps, and a different string for the same moment is not a mismatch.
+ */
+function reportPublishedScheduleMismatch(
+  job: Job,
+  sent: { privacyStatus: PrivacyStatus; publishAt?: string | null },
+  readBack: { privacyStatus?: string; publishAt?: string | null } | undefined,
+  videoId: string,
+): void {
+  if (!readBack || !readBack.privacyStatus) return
+  const problems: string[] = []
+  if (readBack.privacyStatus !== sent.privacyStatus) {
+    problems.push(`YouTube has it as ${readBack.privacyStatus}, but ${sent.privacyStatus} was sent`)
+  }
+  if (!sameInstant(readBack.publishAt, sent.publishAt)) {
+    problems.push(
+      `YouTube's publish date is ${readBack.publishAt ?? 'none'}, but ${sent.publishAt ?? 'none'} was sent`,
+    )
+  }
+  if (!problems.length) return
+  const warning = `YouTube did not keep the schedule this upload sent for ${videoId} — ${problems.join('; ')}. `
+    + 'The video was not uploaded under a different schedule on purpose, and Story Studio did not change it; '
+    + 'open it in YouTube Studio to see or correct what is live.'
+  job.output_lines.push(`⚠ ${warning}`)
+  job.result = {
+    ...(job.result || {}),
+    schedule_readback: {
+      video_id: videoId,
+      sent_privacy_status: sent.privacyStatus,
+      sent_publish_at: sent.publishAt ?? null,
+      youtube_privacy_status: readBack.privacyStatus,
+      youtube_publish_at: readBack.publishAt ?? null,
+      problems,
+    },
+    warnings: [...((job.result?.warnings as string[] | undefined) || []), warning],
+  }
+}
+
+/** True when two ISO dates name the same moment. Null and undefined are equal. */
+function sameInstant(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a && !b) return true
+  if (!a || !b) return false
+  const at = Date.parse(a)
+  const bt = Date.parse(b)
+  if (!Number.isFinite(at) || !Number.isFinite(bt)) return a === b
+  return at === bt
 }
 
 /**
@@ -327,6 +409,11 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
         const record = matches[0]!
         operationHandle = { operation_id: record.operation_id, channel_id: record.channel_id, revision: record.revision }
         metadataPackage = metadataPackageFromFinalPayload(record.final_payload!)
+        // Re-checked here, not only at admission: a job can sit in the queue
+        // for hours, and the date that was safe when it was admitted can have
+        // passed by the time the bytes are sent. A past publishAt does not
+        // fail at YouTube — it publishes the video immediately.
+        assertPublishDateUsable(metadataPackage, episodeId)
         // uploadVideo persists the credential-bearing sidecar before it calls
         // the operation checkpoint. A process/store failure in that narrow
         // window leaves a valid session beside the one matching uploading
@@ -405,6 +492,11 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
           ...(params.thumbnail_filename !== undefined ? { thumbnail_filename: params.thumbnail_filename } : {}),
         })
       }
+      // Same check, before ANY durable record is opened: a refused date must
+      // leave nothing behind that later reads as an upload in flight. Legacy
+      // jobs — no approved package — resolve their date above and go through
+      // exactly the same rule; a retry re-checks it.
+      assertPublishDateUsable(metadataPackage, episodeId)
       operationHandle = await beginYouTubeOperation({
         project_slug: slug,
         episode_code: episodeId,
@@ -581,6 +673,16 @@ export async function generateYoutubeUpload(job: Job): Promise<void> {
     try {
       const checked = await syncYouTubePublicationState({ project_slug: slug, operation_id: operationHandle.operation_id, account_id: accountId })
       job.output_lines.push(`YouTube status right after upload: ${checked.state.lifecycle}.`)
+      // Same read, asked one more question: is the video actually holding the
+      // privacy and the date this job sent it? A scheduled upload that comes
+      // back public has already published — the very outcome the publish-date
+      // guard exists to prevent — and a different publishAt means the plan on
+      // the Upload Center screen is not the plan on the video.
+      //
+      // Reported, never repaired. The upload succeeded and the video is
+      // somebody's content; silently changing a live video's visibility is the
+      // kind of write this product refuses to make on its own.
+      reportPublishedScheduleMismatch(job, metadataPackage.status, checked.details, videoId)
     } catch (e: any) {
       job.output_lines.push(`YouTube status not checked yet (${e?.message || e}); Story Studio checks again in the background.`)
     }
