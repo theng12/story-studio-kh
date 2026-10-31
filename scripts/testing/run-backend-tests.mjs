@@ -423,6 +423,8 @@ async function snapshotConfiguredProjects(root) {
  * Anything that flakes in a proof run joins this list, and the run is repeated.
  */
 export const SERIAL_TEST_FILES = [
+  // MEASURED, 2026-10-31 — "a dropped connection keeps its part" failed in the 1.4.373 pooled gate; passed alone 3 of 3.
+  'app-update-resume.test.ts',
   // MEASURED, 2026-10-31 — "serialises quote saves across Node processes" timed out on the persistence lock in the 1.4.372 pooled gate; passes alone.
   'content-store-commerce-state.test.ts',
   // MEASURED — "download aborted part way" holds a real child process and a real timer open.
