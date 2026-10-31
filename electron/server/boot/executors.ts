@@ -461,6 +461,13 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('episode_shorts', generateEpisodeShorts)
   registerExecutor('image_prompts', generateImagePrompts)
   registerExecutor('thumb_images', guardMedia(generateImages))
+  // Thumbnail scoring (owner 2026-11-01). Optional and own-lane: it scores
+  // the rendered candidates and picks one. Its failure never fails the
+  // episode — the generator records "not scored" and finishes.
+  registerExecutor('thumbnail_score', guardMedia(async (job) => {
+    const { generateThumbnailScores } = await import('../generators/thumbnail-scores.js')
+    await generateThumbnailScores(job)
+  }))
   // Repair = recover already-paid-for results from the provider's stored
   // task records. Wraps `reconcileImages` so the existing job-queue lifecycle
   // (cancel / retry / log streaming) covers it just like a normal generation.

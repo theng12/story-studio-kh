@@ -66,6 +66,8 @@
           :image-path="imageByNumber.get(row.number)?.path || null"
           :show-pin="true"
           :pinned-for-upload="imageByNumber.get(row.number)?.filename === pinnedFilename"
+          :score="scoreFor(imageByNumber.get(row.number)?.filename || '')"
+          :auto-picked="imageByNumber.get(row.number)?.filename === autoPickedFilename"
           :slug="projectSlug"
           :cache-key="cacheKey"
           :busy="busy.has(row.number)"
@@ -131,6 +133,21 @@ const props = defineProps<{
   modelLabel?: string
   /** The thumbnail currently selected for upload, if the user pinned one. */
   pinnedFilename?: string | null
+  /**
+   * The filename the automatic pick chose, if any (owner, 2026-11-01). The
+   * row marks it so the owner can see at a glance which one won.
+   */
+  autoPickedFilename?: string | null
+  /**
+   * This episode's scores, by filename. A candidate with no entry here was
+   * never measured, so the row says "Not scored" rather than showing nothing.
+   */
+  scores?: Record<string, {
+    state: 'scored' | 'rejected_by_rule' | 'not_scored'
+    score?: number
+    reason?: string
+    text_issue?: string
+  }>
   /** Channel has the thumbnail text layer on — shows each row's Add text button. */
   showTextLayer?: boolean
 }>()
@@ -260,6 +277,18 @@ const imageByNumber = computed<Map<number, ScannedImage>>(() => {
 // Only images that belong to a prompt on this board count as "ready".
 const renderedCount = computed(() => prompts.value.filter(row => imageByNumber.value.has(row.number)).length)
 const missingCount = computed(() => Math.max(0, prompts.value.length - renderedCount.value))
+
+/**
+ * One candidate's score, or null when it was never measured.
+ *
+ * `null` is not the same as a score of 0: a picture with no entry here was
+ * never looked at, and the row says so plainly (§6).
+ */
+function scoreFor(filename: string) {
+  if (!filename) return null
+  return props.scores?.[filename] || null
+}
+
 function togglePinForRow(filename: string | null): void {
   if (filename) emit('pin-toggle', filename)
 }

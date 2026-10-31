@@ -12,6 +12,7 @@ import { router as settingsRouter } from './settings.js'
 import { router as jobsRouter } from './jobs.js'
 import { router as scriptsRouter } from './scripts.js'
 import { router as imagesRouter } from './images.js'
+import { router as thumbnailScoresRouter } from './thumbnail-scores.js'
 import { router as audioRouter } from './audio.js'
 import { router as videoAssemblyRouter } from './video.js'
 import { router as audioMergeRouter } from './audio-merge.js'
@@ -90,6 +91,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', scriptsRouter)
 
   app.use('/api', imagesRouter)
+  app.use('/api', thumbnailScoresRouter)
   app.use('/api', audioRouter)
   app.use('/api', videoAssemblyRouter)
   app.use('/api', soundDesignRouter)

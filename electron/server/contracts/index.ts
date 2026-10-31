@@ -534,6 +534,16 @@ export const UpdateConfigSchema = z.object({
       }).optional(),
     }).optional(),
   }).optional(),
+  /**
+   * 1.4.374 — thumbnail scoring (owner, 2026-11-01). The channel's switch and
+   * its selection of a free, vision-capable Gateway chat product. Only the
+   * SELECTION is stored: the capability, price and limits behind it are read
+   * live from the catalogue on every run (AGENTS.md §1).
+   */
+  thumbnail_auto_pick: z.object({
+    enabled: z.boolean().optional(),
+    model: z.string().trim().max(240).optional(),
+  }).optional(),
 }).passthrough().transform((value) => {
   // Legacy Story Studio releases persisted a project-owned TTS catalog. Keep
   // accepting those payloads so old clients can save unrelated settings, but
@@ -599,6 +609,15 @@ export interface SafeProjectConfigResponse {
       model?: string
       auto_remake?: { anatomy?: boolean; face?: boolean; text?: boolean }
     }
+  }
+  /**
+   * 1.4.374 — thumbnail scoring (owner, 2026-11-01): the channel's switch and
+   * its selection of a free, vision-capable Gateway chat product. Only the
+   * SELECTION is stored; every capability behind it is read live (§1).
+   */
+  thumbnail_auto_pick?: {
+    enabled?: boolean
+    model?: string
   }
   image_models: Record<string, any>
   voice_presets: Array<{

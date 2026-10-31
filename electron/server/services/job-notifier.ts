@@ -202,6 +202,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   outline_only: 'Outline', expand_chapters: 'Chapter expansion',
   image_prompts: 'Image prompts', images: 'Images', scene_images: 'Scene images',
   thumb_images: 'Thumbnail images', images_repair: 'Image repair',
+  thumbnail_score: 'Thumbnail scoring',
   audio: 'Audio', audio_merge: 'Audio merge', metadata: 'Metadata',
   video_assembly: 'Video assembly', episode_shorts: 'Episode Shorts',
   subtitles_transcribe: 'Subtitles', scene_plan_run: 'Scene plan',
