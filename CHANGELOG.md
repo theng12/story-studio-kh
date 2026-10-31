@@ -7,6 +7,11 @@ What's new in each release. Newest first.
 ## v1.4.372 — 2026-10-31
 
 - Pipeline remembers each channel's last submitted steps and selects them when you return. Steps no longer available for that channel are named and left out.
+- Automatic upload, off for every channel until you choose it on the publishing schedule card. Private keeps the video private; Scheduled uploads it private with its date, and YouTube makes it public on that date. It runs only for an episode that got its slot by itself and passed its final check. Anything that would ask you first stops the upload, and the job says why.
+- Automatic scheduling waits for a passed final check, on by default. A held episode says why in Publish, and a pass schedules it.
+- Weekly results in Upload Center analytics: each saved week's top videos with views, watch time, click-through rate and impressions. Partial weeks are labelled, and missing data says so instead of showing 0.
+- Shorts from a finished episode, off for every channel. A channel can ask for up to 3: self-contained passages of 20 to 58 seconds, cut from the finished video only. The Shorts are not uploaded.
+- The daily brief states free disk, or says it could not be read.
 
 ## v1.4.371 — 2026-10-30
 
