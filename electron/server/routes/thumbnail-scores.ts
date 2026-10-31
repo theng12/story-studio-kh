@@ -110,6 +110,7 @@ router.post('/projects/:slug/episodes/:code/thumbnail-scores', async (req, res) 
       return res.status(200).json({
         record: { schema: 1, episode_code: code, scored_at: '', candidates: {} },
         picked: '',
+        resolved: '',
         summary: 'This episode has no thumbnail artwork to score.',
         not_scored: true,
       })
@@ -128,7 +129,11 @@ router.post('/projects/:slug/episodes/:code/thumbnail-scores', async (req, res) 
 
     res.json({
       record: run.record,
+      // `picked` is what SCORING chose — empty when nothing could be scored,
+      // so "no score" never reads as a pick. `resolved` is what the upload
+      // will take (a pin, the scored pick, or today's newest-version rule).
       picked: run.pick,
+      resolved: run.resolved,
       summary: run.summary,
       not_scored: run.notScored,
     })
@@ -138,6 +143,7 @@ router.post('/projects/:slug/episodes/:code/thumbnail-scores', async (req, res) 
     res.status(200).json({
       record: null,
       picked: '',
+      resolved: '',
       summary: `The thumbnails were not scored (${e?.message || 'unknown error'}).`,
       not_scored: true,
     })

@@ -68,5 +68,10 @@ export async function generateThumbnailScores(job: Job): Promise<void> {
       job.output_lines.push(`— ${candidate.filename}: not scored — ${candidate.reason}`)
     }
   }
-  job.result = { picked: run.pick, scored: run.record.scored_at, not_scored: run.notScored }
+  job.result = {
+    picked: run.pick,
+    resolved: run.resolved,
+    scored: run.record.scored_at,
+    not_scored: run.notScored,
+  }
 }

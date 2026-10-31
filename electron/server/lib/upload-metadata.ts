@@ -106,9 +106,9 @@ export async function listUploadThumbnails(input: ResolveUploadMetadataInput): P
   )
   if (!existsSync(paths.thumb_dir)) return []
 
-  const filenames = (await fsp.readdir(paths.thumb_dir))
-    .filter(filename => /\.(png|jpe?g)$/i.test(filename))
-    .sort((a, b) => versionOf(b) - versionOf(a) || b.localeCompare(a))
+  const filenames = sortByNewestVersion(
+    (await fsp.readdir(paths.thumb_dir)).filter(filename => /\.(png|jpe?g)$/i.test(filename)),
+  )
 
   let pinned = ''
   const overridesPath = path.join(paths.episode_dir, OVERRIDES_FILENAME)
@@ -508,6 +508,19 @@ function pickUsableTitle(candidates: string[]): string {
 function versionOf(filename: string): number {
   const m = filename.match(/_v(\d+)\./i)
   return m ? parseInt(m[1], 10) : 0
+}
+
+/**
+ * Today's newest-version rule, as ONE function.
+ *
+ * Highest `_v{N}` first, then lexicographic descending — the order
+ * `listUploadThumbnails` puts the files in, and the order the upload takes
+ * when nothing else chose. Exported so every other reader of "which file
+ * would the upload pick" applies the SAME rule instead of carrying its own
+ * copy: a second copy is how the picker and the uploader drift apart.
+ */
+export function sortByNewestVersion(filenames: string[]): string[] {
+  return filenames.slice().sort((a, b) => versionOf(b) - versionOf(a) || b.localeCompare(a))
 }
 
 // ── snippetFromMeta sanitization ──────────────────────────────────────────

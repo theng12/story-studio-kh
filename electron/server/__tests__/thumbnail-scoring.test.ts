@@ -42,6 +42,7 @@ import {
   type ThumbnailScoreEvaluatorInput,
 } from '../services/thumbnail-scoring.js'
 import { applyThumbnailRules } from '../services/thumbnail-score-rules.js'
+import { sortByNewestVersion } from '../lib/upload-metadata.js'
 import {
   normalizeThumbnailScore,
   thumbnailScoreBand,
@@ -251,15 +252,33 @@ test('the pick is: a human pin, then the highest score, then the newest version'
     { filename: 'low.png', entry: { filename: 'low.png', state: 'scored' as const, score: 20 } },
     { filename: 'high.png', entry: { filename: 'high.png', state: 'scored' as const, score: 90 } },
   ]
-  const all = ['low.png', 'high.png', 'newest.png']
+  // The candidates carry real `_vN` versions, because the newest-version rule
+  // is the UPLOAD's rule — highest `_vN` first, then lexicographic descending.
+  // The fallback must apply THAT rule, not the order the caller happened to
+  // pass: a record that names a different file from the one the upload takes
+  // is a record that lies.
+  const all = ['EP0001_Thumb01_v1.png', 'EP0001_Thumb03_v2.png', 'EP0001_Thumb02_v3.png']
 
-  assert.equal(chooseThumbnailPick({ pinned: 'low.png', scored, all })?.filename, 'low.png')
-  assert.equal(chooseThumbnailPick({ pinned: 'low.png', scored, all })?.basis, 'manual_pin')
+  assert.equal(chooseThumbnailPick({ pinned: 'EP0001_Thumb01_v1.png', scored, all })?.filename, 'EP0001_Thumb01_v1.png')
+  assert.equal(chooseThumbnailPick({ pinned: 'EP0001_Thumb01_v1.png', scored, all })?.basis, 'manual_pin')
   assert.equal(chooseThumbnailPick({ scored, all })?.filename, 'high.png')
   assert.equal(chooseThumbnailPick({ scored, all })?.basis, 'score')
-  assert.equal(chooseThumbnailPick({ scored: [], all })?.filename, 'newest.png')
+  // The newest version wins the fallback, and the caller's array order does
+  // NOT decide it — 'EP0001_Thumb01_v1.png' is first in `all` and is the OLDEST.
+  assert.equal(chooseThumbnailPick({ scored: [], all })?.filename, 'EP0001_Thumb02_v3.png')
   assert.equal(chooseThumbnailPick({ scored: [], all })?.basis, 'newest_version')
   assert.equal(chooseThumbnailPick({ scored: [], all: [] }), null)
+})
+
+test('the newest-version fallback names the file the upload will actually take', () => {
+  // The same rule the upload resolver applies, on the same files: the record's
+  // fallback and the upload's choice must be ONE answer.
+  const all = ['EP0001_Thumb01_v1.png', 'EP0001_Thumb03_v2.png', 'EP0001_Thumb02_v3.png']
+  assert.equal(
+    chooseThumbnailPick({ scored: [], all })?.filename,
+    sortByNewestVersion(all)[0],
+    'the record names the file the upload takes',
+  )
 })
 
 // ── The whole run ──────────────────────────────────────────────────────────
@@ -323,7 +342,8 @@ test('an empty run records nothing and picks nothing', async (t) => {
     config: config(),
   })
   assert.deepEqual(run.record.candidates, {})
-  assert.equal(run.pick, '')
+  assert.equal(run.pick, '', 'scoring chose nothing')
+  assert.equal(run.resolved, '', 'and there is nothing to resolve to')
 })
 
 test('a malformed model answer is not scored, never a zero', async (t) => {
@@ -344,6 +364,8 @@ test('a malformed model answer is not scored, never a zero', async (t) => {
     assert.equal(entry.score, undefined, 'a malformed answer never becomes a 0')
   }
   assert.equal(run.notScored, true)
+  assert.equal(run.pick, '', 'scoring chose nothing when every answer was unreadable')
+  assert.equal(run.resolved, f.candidates[0]!.filename, "today's newest-version rule still stands")
 })
 
 test('a provider failure is not scored, and a RETRY scores what is left', async (t) => {
@@ -362,6 +384,13 @@ test('a provider failure is not scored, and a RETRY scores what is left', async 
     config: config(),
   })
   assert.equal(first.notScored, true)
+  assert.equal(first.pick, '', 'scoring chose nothing when nothing could be measured')
+  // Today's newest-version rule still stands — it is the upload's rule, not
+  // scoring's — so the record names the file the upload will take.
+  assert.equal(first.resolved, f.candidates[0]!.filename,
+    "today's newest-version rule still resolves the upload")
+  assert.equal(first.record.pick?.basis, 'newest_version')
+  assert.equal(first.record.pick?.score, undefined, 'the fallback names no score, and none is not a 0')
   for (const entry of Object.values(first.record.candidates)) {
     assert.equal(entry.state, 'not_scored')
     assert.equal(entry.score, undefined)
@@ -423,9 +452,37 @@ test('a human pin always wins and is never overwritten', async (t) => {
     config: config(),
     pinned: f.candidates[2]!.filename,
   })
-  assert.equal(run.pick, f.candidates[2]!.filename)
+  // The pin wins. `pick` is what SCORING chose, so it is empty here — the pin
+  // is the owner's own choice, not scoring's answer.
+  assert.equal(run.pick, '', 'scoring chose nothing; the owner chose')
+  // `resolved` is what the upload will take, and that IS the pinned file.
+  assert.equal(run.resolved, f.candidates[2]!.filename, 'the pinned file is what the upload takes')
   assert.equal(run.record.pick?.basis, 'manual_pin')
-  assert.equal(run.record.pick?.score, undefined, 'a pin has no score, and a missing score is not a 0')
+  assert.equal(run.record.pick?.filename, f.candidates[2]!.filename)
+  // The pinned file was also SCORED, and that score is kept: it is a fact
+  // about the picture, and the owner asked for the scores to be kept so they
+  // can be compared with real click-through. It is not a claim that the
+  // score chose the file — `basis` says what did.
+  assert.equal(run.record.pick?.score, 10, 'the pinned file keeps its own honest score')
+  assert.equal(run.record.pick?.reason, 'The owner pinned this thumbnail.',
+    'the reason says what actually chose it, not the score')
+})
+
+test('a pinned file that was never measured carries no score, and a missing score is not a 0', async (t) => {
+  const f = await fixture(t)
+  // The model call fails, so nothing is measured — including the pinned file.
+  useSeams(t, [visionRow()], async () => { throw new Error('the provider is down') })
+  const run = await runThumbnailScoring({
+    slug: f.slug,
+    episodeCode: 'EP0001',
+    fallbackTitle: '',
+    candidates: f.candidates,
+    title: 'The title',
+    config: config(),
+    pinned: f.candidates[2]!.filename,
+  })
+  assert.equal(run.record.pick?.basis, 'manual_pin')
+  assert.equal(run.record.pick?.score, undefined, 'an unmeasured file carries no score, and none is not a 0')
 })
 
 test('a Khmer channel skips every text check', async (t) => {
@@ -464,7 +521,7 @@ test('the switch off keeps today\'s behaviour — nothing is scored', async (t) 
   })
   assert.equal(called, false, 'no model call happens when the switch is off')
   assert.equal(run.notScored, true)
-  assert.equal(run.pick, '')
+  assert.equal(run.pick, '', 'scoring chose nothing')
   assert.deepEqual(run.record.candidates, {})
 })
 

@@ -141,7 +141,14 @@ test('a scoring failure answers 200 with "not scored" and the reason — never a
   const res = await request(app).post(`/api/projects/${slug}/episodes/${episodeCode}/thumbnail-scores`).send({})
   assert.equal(res.status, 200, JSON.stringify(res.body))
   assert.equal(res.body.not_scored, true)
-  assert.equal(res.body.picked, '')
+  assert.equal(res.body.picked, '', 'scoring chose nothing — nothing could be measured')
+  // Today's newest-version rule still stands: it is the UPLOAD's rule, and it
+  // was never scoring's to change. `resolved` says what the upload will take,
+  // and it is a different fact from `picked`.
+  assert.equal(res.body.resolved, 'EP0001_Thumb02_v1.png',
+    "today's newest-version rule still resolves the upload")
+  assert.equal(res.body.record.pick.basis, 'newest_version')
+  assert.equal(res.body.record.pick.score, undefined, 'the fallback names no score, and none is not a 0')
   for (const entry of Object.values<any>(res.body.record.candidates)) {
     assert.equal(entry.state, 'not_scored')
     assert.equal(entry.score, undefined, 'a failed scoring never becomes a 0')
@@ -165,8 +172,14 @@ test('the record is the episode\'s own, and one episode\'s scores never reach an
 test('a human pin is never overwritten by a score', async () => {
   const { slug, episodeCode } = await seededEpisode('Scoring Pin Wins')
   _setThumbnailScoreCatalogForTesting(async () => [visionRow()])
-  // The first candidate would win on score; the pin names the other one.
-  _setThumbnailScoreEvaluatorForTesting(async () => JSON.stringify({ score: 95, reason: 'Highest.' }))
+  // The OTHER candidate scores higher. The pin must still win — a human pin
+  // is never overwritten by a score.
+  _setThumbnailScoreEvaluatorForTesting(async (input) => {
+    const name = path.basename(input.imagePath)
+    return name.includes('Thumb01')
+      ? JSON.stringify({ score: 98, reason: 'Highest.' })
+      : JSON.stringify({ score: 20, reason: 'Weak.' })
+  })
   _setThumbnailScoreLanguageForTesting(async () => 'en')
 
   const overrides = await import('../services/upload-overrides.js')
@@ -174,7 +187,19 @@ test('a human pin is never overwritten by a score', async () => {
 
   const res = await request(app).post(`/api/projects/${slug}/episodes/${episodeCode}/thumbnail-scores`).send({})
   assert.equal(res.status, 200, JSON.stringify(res.body))
-  assert.equal(res.body.picked, 'EP0001_Thumb02_v1.png', 'the pin wins over the highest score')
+  assert.equal(res.body.picked, '', 'scoring chose nothing — the owner chose')
+  assert.equal(res.body.resolved, 'EP0001_Thumb02_v1.png',
+    'the pin wins over a higher score on another candidate')
   assert.equal(res.body.record.pick.basis, 'manual_pin')
-  assert.equal(res.body.record.pick.score, undefined, 'a pin has no score, and a missing score is not a 0')
+  assert.equal(res.body.record.pick.filename, 'EP0001_Thumb02_v1.png',
+    'the chosen file stays the human\'s')
+  // The pinned file was also scored, and that score is kept: it is a fact
+  // about the picture, kept so the scores can be compared with real
+  // click-through. It is not a claim that the score chose the file.
+  assert.equal(res.body.record.pick.score, 20, 'the pinned file keeps its own honest score')
+  assert.equal(res.body.record.pick.reason, 'The owner pinned this thumbnail.',
+    'the reason says what actually chose it, not the score')
+  // The higher-scoring candidate is still recorded — the owner's choice
+  // overrules the pick, it does not erase the measurement.
+  assert.equal(res.body.record.candidates['EP0001_Thumb01_v1.png'].score, 98)
 })

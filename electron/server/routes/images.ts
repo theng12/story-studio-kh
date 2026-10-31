@@ -13,6 +13,7 @@ import { getImagesReconcileStatus, reconcileImages } from '../services/image-rec
 import { settleCompletedFailures } from '../services/stale-failures.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { readSelectedThumbnail, writeSelectedThumbnail, resolveOverrideEpisodePaths } from '../services/upload-overrides.js'
+import { sortByNewestVersion } from '../lib/upload-metadata.js'
 import { readThumbnailScoreRecord, thumbnailAutoPickEnabled } from '../services/thumbnail-scoring.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { freshActionMatch } from '../lib/fresh-generation-action.js'
@@ -319,8 +320,10 @@ router.get('/projects/:slug/episodes/:code/thumbnails', async (req, res) => {
       }
       // Sort matches the Images-page render order (auto-pick = first
       // entry after sort), so the picker grid + auto-resolve preview
-      // line up visually.
-      files.sort((a, b) => versionOf(b.filename) - versionOf(a.filename) || b.filename.localeCompare(a.filename))
+      // line up visually. The rule itself lives with the uploader, so the
+      // picker and the upload can never disagree about which file is newest.
+      const order = sortByNewestVersion(files.map(file => file.filename))
+      files.sort((a, b) => order.indexOf(a.filename) - order.indexOf(b.filename))
     }
 
     const pinned = await readSelectedThumbnail(slug, code, fallbackTitle, platform as any)
@@ -415,13 +418,3 @@ router.post('/projects/:slug/episodes/:code/thumbnails/pin', async (req, res) =>
     res.status(500).json(humanizeBackendError(e, 'Failed to pin thumbnail'))
   }
 })
-
-/**
- * Mirrors the resolver in lib/upload-metadata.ts. Pulls the `_v{N}`
- * version off a thumbnail filename so the picker can sort by version
- * the same way uploads will. Returns 0 when no `_v{N}` suffix is found.
- */
-function versionOf(filename: string): number {
-  const m = /_v(\d+)/.exec(filename)
-  return m ? parseInt(m[1]!, 10) : 0
-}

@@ -56,6 +56,7 @@ import {
 } from '../contracts/thumbnail-scores.js'
 import { applyThumbnailRules } from './thumbnail-score-rules.js'
 import { resolveOverrideEpisodePaths } from './upload-overrides.js'
+import { sortByNewestVersion } from '../lib/upload-metadata.js'
 
 /** The picture sent to the model: a small JPEG, like the other vision calls. */
 const SCORE_IMAGE_WIDTH = 640
@@ -450,9 +451,9 @@ async function askTheModel(input: ThumbnailScoreEvaluatorInput & { model: GenStu
 export interface ThumbnailPickInput {
   /** The human's pin, when there is one. It always wins. */
   pinned?: string | null
-  /** The scored candidates, in the picker's order. */
+  /** The scored candidates. */
   scored: ScoredCandidate[]
-  /** Every candidate, in the picker's order (the newest-version fallback). */
+  /** Every candidate's filename. */
   all: string[]
 }
 
@@ -473,7 +474,11 @@ export function chooseThumbnailPick(input: ThumbnailPickInput): { filename: stri
     return { filename: measured[0]!.filename, basis: 'score' }
   }
   if (input.all.length) {
-    return { filename: input.all[0]!, basis: 'newest_version' }
+    // Today's newest-version rule — the SAME rule the upload applies, not
+    // "whatever order the caller happened to pass". The two must agree: this
+    // record's fallback names the file the upload will actually take.
+    const newest = sortByNewestVersion(input.all)[0]
+    if (newest) return { filename: newest, basis: 'newest_version' }
   }
   return null
 }
@@ -484,8 +489,25 @@ export function chooseThumbnailPick(input: ThumbnailPickInput): { filename: stri
 export interface ThumbnailScoringRun {
   /** The record as it now stands on disk. */
   record: ThumbnailScoreRecord
-  /** The candidate that wins, when there is one. */
+  /**
+   * The candidate SCORING chose, or '' when scoring chose nothing.
+   *
+   * This is the SCORING feature's answer, not the upload's. When nothing
+   * could be scored it is '' — the upload still falls back to today's
+   * newest-version rule on its own, but that rule did not come from
+   * scoring, and saying otherwise would claim a pick that never happened
+   * (§6 — "the answer is none" and "we could not work out the answer" are
+   * different facts).
+   */
   pick: string
+  /**
+   * The file the upload will actually take, whatever chose it.
+   *
+   * A human pin, then the scored pick, then today's newest-version rule.
+   * This is what the record's `pick` names, and it is what the upload
+   * resolver does too — so the record and the upload cannot disagree.
+   */
+  resolved: string
   /** One line for the job log. */
   summary: string
   /** True when nothing could be scored — the reason is on the record. */
@@ -525,6 +547,9 @@ export async function runThumbnailScoring(input: {
     return {
       record: await readThumbnailScoreRecord(episodeDir, input.episodeCode),
       pick: '',
+      // Today's newest-version rule still resolves the upload — the switch
+      // turns SCORING off, not the uploader's own rule.
+      resolved: sortByNewestVersion(input.candidates.map(candidate => candidate.filename))[0] || '',
       summary: 'Automatic thumbnail picking is off for this channel, so nothing was scored.',
       notScored: true,
     }
@@ -625,13 +650,24 @@ export async function runThumbnailScoring(input: {
     const chosen = nextCandidates[pick.filename]
     nextRecord.pick = {
       filename: pick.filename,
-      // The score is PRESENT only when there is one. A pin or a newest-version
-      // fallback has no score, and a missing score must not be written as 0
-      // (§6 — a zero that means two things is a defect).
+      // The score is the CHOSEN FILE's own honest score, whenever it has one.
+      //
+      // A pinned file that was also scored carries that score: it is a fact
+      // about the picture, and the owner asked for the scores to be kept so
+      // they can be compared with real click-through. It is NOT a claim that
+      // the score chose it — `basis` says what did.
+      //
+      // A file that was never measured carries NO score, and a missing score
+      // is not a 0 (§6 — a zero that means two things is a defect).
       ...(typeof chosen?.score === 'number' ? { score: chosen.score } : {}),
-      reason: chosen?.reason || (pick.basis === 'manual_pin'
-        ? 'The owner pinned this thumbnail.'
-        : 'No picture could be scored, so the newest version was used.'),
+      // The reason says what ACTUALLY chose it. A pinned pick never borrows
+      // the score's reason, because that would read as "the score chose
+      // this" when the owner overruled it.
+      reason: pick.basis === 'score'
+        ? (chosen?.reason || 'The highest-scoring thumbnail.')
+        : pick.basis === 'manual_pin'
+          ? 'The owner pinned this thumbnail.'
+          : 'No picture could be scored, so the newest version was used.',
       at: now,
       basis: pick.basis,
     }
@@ -644,7 +680,20 @@ export async function runThumbnailScoring(input: {
     : `Scored ${scored.length} thumbnail candidate(s); ${nextRecord.pick?.filename || 'none'} was picked`
       + ` (${nextRecord.pick?.basis === 'score' ? 'highest score' : nextRecord.pick?.basis === 'manual_pin' ? 'owner’s pin' : 'newest version'}).`
 
-  return { record: nextRecord, pick: nextRecord.pick?.filename || '', summary, notScored: nothingScored }
+  // SCORING chose a file only when a score did. A pin is the owner's own
+  // choice (not scoring's), and the newest-version fallback is today's rule
+  // (not scoring's either) — so neither is reported as scoring's pick. The
+  // `resolved` field carries what the upload will actually take, so both
+  // facts are available and neither is confused with the other.
+  const scoredPick = pick?.basis === 'score' ? pick.filename : ''
+
+  return {
+    record: nextRecord,
+    pick: scoredPick,
+    resolved: nextRecord.pick?.filename || '',
+    summary,
+    notScored: nothingScored,
+  }
 }
 
 /**
