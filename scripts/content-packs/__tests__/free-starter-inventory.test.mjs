@@ -210,8 +210,9 @@ test('declared preview redirects cannot cross a Style or Recipe provenance ident
 // for Sleep) — so the floor was 42. Owner ruling 2026-10-29 ("no custom, no
 // built in, all from packs") adopted the free built-in Formulas, Quote Shorts,
 // Still Posts and Music Mix, so the floor is 45. The four components each Kit
-// used to coordinate are all still here and still sold.
-test('free Starter sources preserve 45 lineages and every versioned successor', async () => {
+// used to coordinate are all still here and still sold. The two published sleep
+// v2 Formula identities bring the source total to 47.
+test('free Starter sources preserve 47 lineages and every versioned successor', async () => {
   const sourceRoots = ['formula', 'topic', 'style', 'thumbnail']
   const packSources = []
   for (const root of sourceRoots) {
@@ -223,7 +224,7 @@ test('free Starter sources preserve 45 lineages and every versioned successor', 
       packSources.push({ relative, source })
     }
   }
-  assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 45)
+  assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 47)
   assert.equal(
     new Set(packSources.map(row => `${row.source.pack_id}@${row.source.version}`)).size,
     packSources.length,
@@ -290,7 +291,9 @@ test('free Starter sources preserve 45 lineages and every versioned successor', 
     'content-packs/free-starters/formula/natural-world-explained-v1.0.2/pack.json',
     'content-packs/free-starters/formula/pov-your-life-as-v1.0.2/pack.json',
     'content-packs/free-starters/formula/practical-motivation-v1.0.2/pack.json',
+    'content-packs/free-starters/formula/sleep-history-compilation-v2-v1.0.2/pack.json',
     'content-packs/free-starters/formula/sleep-story-v1.0.2/pack.json',
+    'content-packs/free-starters/formula/sleep-story-v2-v1.0.2/pack.json',
     'content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.2/pack.json',
     'content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.2/pack.json',
     'content-packs/free-starters/topic/habits-momentum-v1.0.2/pack.json',
