@@ -523,6 +523,8 @@ test('an accepted Continuity scene publishes its durable filename as the active 
     const taskId = service.submissions.find(submission => submission.operation === 'image')!.jobId
     const manifest = await readManifest(outDir)
     const active = job.item_progress?.active[0]
+    assert.equal(job.item_progress?.completed, 1, 'resume counts the existing image')
+    assert.equal(job.progress, 50)
     const activeSnapshot = { key: active?.key, label: active?.label, state: active?.state }
     const checkpointTaskId = active?.key ? job.params.genstudio_recovery.assets[active.key].job_id : undefined
     const manifestTaskId = active?.key ? manifest.tasks[active.key]?.task_id : undefined
@@ -552,6 +554,59 @@ test('an accepted Continuity scene publishes its durable filename as the active 
       active_asset_keys: [filename],
       provider_task_ids: [taskId],
     })
+  } finally {
+    releasePoll?.()
+    globalThis.fetch = originalFetch
+    if (restoreCatalog) await restoreCatalog()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a forced redraw does not count old images as completed', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  let restoreCatalog: (() => Promise<void>) | null = null
+  let releasePoll!: () => void
+  let signalPoll!: () => void
+  const pollStarted = new Promise<void>(resolve => { signalPoll = resolve })
+  const pollRelease = new Promise<void>(resolve => { releasePoll = resolve })
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    await import('../providers/image/genstudio.js')
+    restoreCatalog = await withReferenceCapableCatalog(service.baseUrl, REFERENCE_CAPABLE)
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      const method = init?.method || (input instanceof Request ? input.method : 'GET')
+      if (url.origin === service.baseUrl && method === 'GET' && /^\/v1\/images\/[^/]+$/.test(url.pathname)) {
+        signalPoll()
+        await pollRelease
+      }
+      return originalFetch(input, init)
+    }
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { project, episodeId, paths } = await createEpisode('Forced redraw progress')
+    await writeScenePrerequisites(paths, episodeId, [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' },
+      { id: 'scene-002', scene_index: 2, visual_prompt: 'A clock in a quiet archive.' },
+    ])
+    await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({ schema_version: 1 }))
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await png(outDir, 'scene-001.png', 1, 1)
+    await png(outDir, 'scene-002.png', 1, 1)
+    const job = renderJob(project.slug, episodeId)
+    job.params.force = true
+    const rendering = runContinuityRenderJob(job)
+    await Promise.race([pollStarted, rendering.then(() => { throw new Error('render finished before the held poll') })])
+    assert.equal(job.item_progress?.completed, 0)
+    assert.equal(job.progress, 0)
+    releasePoll()
+    await rendering
+    assert.equal(job.item_progress?.completed, 2)
   } finally {
     releasePoll?.()
     globalThis.fetch = originalFetch
