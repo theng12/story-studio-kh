@@ -1210,6 +1210,7 @@ export function findActivePreset(
 const PRESET_MODEL_READERS: Partial<Record<BatchStep, (body: Record<string, any>) => unknown>> = {
   'script-only': body => body.form?.model ?? body.model,
   scene_plan: body => body.model,
+  contextual_cues: body => body.model,
   // The two thumbnail steps (AGENTS §7: thumbnail_prompts_* / thumbnail_generator_*).
   //
   // Their readers are the SAME functions the two enqueue routes use
@@ -1247,6 +1248,20 @@ export function presetHasNoWritingModel(step: BatchStep, preset: StoredPreset | 
   if (!body || typeof body !== 'object' || Array.isArray(body)) return true
   const model = reader(body)
   return !(typeof model === 'string' && model.trim())
+}
+
+export async function recoverMissingPipelineModel(job: { project_slug: string; params: Record<string, any> }): Promise<void> {
+  const params = job.params
+  if (!params.pipeline_batch_id || (!params.pipeline_model_retry && !params.episode_recovery_id)
+    || (typeof params.model === 'string' && params.model.trim())) return
+  const step = params.pipeline_step as BatchStep
+  const reader = PRESET_MODEL_READERS[step]
+  if (!reader) return
+  const config = await pm.getConfig(job.project_slug)
+  const { preset } = findActivePreset(config, step, params.pipeline_preset_id || undefined)
+  const body = (preset?.data ?? preset) as Record<string, any> | undefined
+  const model = body && reader(body)
+  if (typeof model === 'string' && model.trim()) params.model = model
 }
 
 /** The two thumbnail steps, for the places that phrase their refusal differently. */
@@ -3188,6 +3203,12 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
       link.params = { ...link.params, ...episodeVisualSettings }
     }
     stampPipelineStepFacts(chain, visualSettings.visual_source, preflight.musicChannel)
+    for (const link of chain) {
+      const preset = presetByStep[link.params.pipeline_step as BatchStep]
+      if (preset?.id && PRESET_MODEL_READERS[link.params.pipeline_step as BatchStep]) {
+        link.params.pipeline_preset_id = preset.id
+      }
+    }
 
     if (repairMissing) {
       for (const link of chain) {
@@ -3218,6 +3239,14 @@ async function runBatch(req: Request<{ slug: string }>, res: Response) {
 
     // Freeze the complete run before any asynchronous handoff or config edit.
     const [first, ...rest] = chain
+
+    if (force) {
+      const active = jq.getActiveSameStepJob(slug, episodeId, first.type)
+      if (active && active.params?.generation_action?.id !== first.params.generation_action?.id) {
+        skipped.push({ episode_id: episodeId, reason: `${pipelineStepLabel(CHAIN_LINK_STEP[first.type] || first.type)} is already queued or running (job ${active.job_id}). Wait for it to finish or cancel it, then run again.` })
+        continue
+      }
+    }
 
     // Scene Review and Pipeline share one episode-wide render owner. If the
     // user already started images from Scene Review, join this Pipeline's

@@ -6149,6 +6149,11 @@ async function drainPendingPipelineHandoff(parentJobId: string): Promise<void> {
       })
       emitUpdate(parent)
 
+      const active = getActiveSameStepJob(marker.options.project_slug, marker.options.episode_id, marker.options.type)
+      if (marker.options.params?.force === true && active
+        && active.params?.generation_action?.id !== marker.options.params?.generation_action?.id) {
+        throw new Error(`${marker.options.type} is already queued or running (job ${active.job_id}). Wait for it to finish or cancel it, then retry this step.`)
+      }
       const joined = marker.options.type === 'continuity_render' && !marker.options.params?.single_scene_id
         ? await joinActiveBulkSceneRender({
           project_slug: marker.options.project_slug,
@@ -6201,6 +6206,9 @@ export async function _drainPendingPipelineHandoffForTesting(parentJobId: string
  * failure (its own chain would be overwritten).
  */
 async function joinDuplicateChainLink(job: Job, nextStep: any, rest: unknown[]): Promise<boolean> {
+  const active = getActiveSameStepJob(job.project_slug, job.episode_id, nextStep.type)
+  if (nextStep.params?.force === true && active
+    && active.params?.generation_action?.id !== nextStep.params?.generation_action?.id) return false
   if (await safetyMode(job.project_slug, 'same_step_queued') === 'block') return false
   const joined = await joinActiveSameStep({
     project_slug: job.project_slug,
@@ -6345,6 +6353,12 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           if (cancelled.has(job.job_id)) throw new Error('Cancelled by user')
           throwIfPauseRequested(job.job_id)
           await assertQueuedVisualSource(job)
+          if (job.params?.pipeline_batch_id && (job.params.pipeline_model_retry || job.params.episode_recovery_id)) {
+            const previousModel = job.params.model
+            const { recoverMissingPipelineModel } = await import('../routes/pipeline.js')
+            await recoverMissingPipelineModel(job)
+            if (job.params.model !== previousModel) await persistJob(job)
+          }
           if (persistenceFenced(job.project_slug)) { deferUncertain(); return }
           // Run the executor inside a per-job AsyncLocalStorage context so any
           // child processes spawned deep in the call tree register against this
@@ -7617,6 +7631,14 @@ export async function resumeJob(jobId: string): Promise<Job | null> {
  * per (episode, chapter) instead of per (episode, type), so the user can
  * queue multiple chapter regens in a row without each one rejecting the next.
  */
+export function getActiveSameStepJob(projectSlug: string, episodeId: string, jobType: string): Job | null {
+  for (const job of jobs.values()) {
+    if (job.project_slug === projectSlug && job.episode_id === episodeId && job.type === jobType
+      && (job.status === 'queued' || job.status === 'running' || job.status === 'paused')) return serializeJob(job)
+  }
+  return null
+}
+
 export function isDuplicate(
   projectSlug: string,
   episodeId: string,
@@ -9285,6 +9307,9 @@ export function retryTerminalJob(
   }
 
   const savedParams = structuredClone(replacementParams || original.params || {})
+  if (savedParams.pipeline_batch_id && !(typeof savedParams.model === 'string' && savedParams.model.trim())) {
+    savedParams.pipeline_model_retry = true
+  }
   if (original.type === 'music_scene_polish') {
     const originalRef = readMusicScenePolishSnapshot(original)
     if (originalRef.state !== 'valid') {
