@@ -126,6 +126,12 @@
               <option value="editorial">Editorial — more frequent labels</option>
             </select>
           </label>
+          <label>Minimum gap between labels
+            <select v-model.number="form.min_gap_sec" class="select">
+              <option v-if="![10, 20, 30, 45, 60].includes(form.min_gap_sec)" :value="form.min_gap_sec">At least {{ form.min_gap_sec }} seconds apart</option>
+              <option v-for="seconds in [10, 20, 30, 45, 60]" :key="seconds" :value="seconds">At least {{ seconds }} seconds apart</option>
+            </select>
+          </label>
           <label>Default corner
             <select v-model="form.placement" class="select">
               <option v-for="corner in CORNERS" :key="corner" :value="corner">{{ cornerLabel(corner) }}</option>
@@ -407,7 +413,7 @@ type Row = {
   | { side: 'label'; cue: LabelCue; subtitle?: string; scene_id?: string }
   | { side: 'sound'; cue: SoundCue; kind: 'bed' | 'spot'; scene_id?: string; clip?: string; credit?: Credit }
 )
-type ProbeForm = { model: string; density: 'restrained' | 'standard' | 'editorial'; placement: ContextualCueCorner; auto_approve: boolean; label_themes: string[]; label_motions: string[] }
+type ProbeForm = { model: string; density: 'restrained' | 'standard' | 'editorial'; min_gap_sec: number; placement: ContextualCueCorner; auto_approve: boolean; label_themes: string[]; label_motions: string[] }
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug))
@@ -538,7 +544,7 @@ const savedAt = ref('')
 const saveError = ref('')
 const proposing = ref(false)
 const playing = ref('')
-const form = ref<ProbeForm>({ model: '', density: 'restrained', placement: 'top-right', auto_approve: false, label_themes: [], label_motions: [] })
+const form = ref<ProbeForm>({ model: '', density: 'restrained', min_gap_sec: 10, placement: 'top-right', auto_approve: false, label_themes: [], label_motions: [] })
 useRememberedForm('sound-and-labels', slug, form, { include: ['model', 'density', 'placement', 'auto_approve'], version: 1 })
 const autoApproveNotice = ref<{ on: boolean; changed: boolean } | null>(null)
 function onAutoApproveEdited(): void { autoApproveNotice.value = null }
@@ -1006,6 +1012,7 @@ const activePresets = usePresets<ProbeForm>({
   apply: (data) => {
     if (typeof data?.model === 'string') form.value.model = data.model
     if (data?.density === 'restrained' || data?.density === 'standard' || data?.density === 'editorial') form.value.density = data.density
+    form.value.min_gap_sec = typeof data?.min_gap_sec === 'number' && Number.isFinite(data.min_gap_sec) && data.min_gap_sec >= 1 && data.min_gap_sec <= 600 ? data.min_gap_sec : 10
     if (isContextualCueCorner(data?.placement)) form.value.placement = data.placement
     form.value.label_themes = Array.isArray(data?.label_themes) ? data.label_themes.filter((item): item is string => typeof item === 'string') : []
     form.value.label_motions = Array.isArray(data?.label_motions) ? data.label_motions.filter((item): item is string => typeof item === 'string') : []

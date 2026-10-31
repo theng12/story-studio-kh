@@ -323,7 +323,7 @@ router.post('/projects/:slug/sound-and-labels/:episodeId/accept-moves', async (r
 
 router.put('/projects/:slug/sound-and-labels/:episodeId/labels', async (req, res) => {
   try {
-    const { planPath, plan } = await loadEpisode(req.params.slug, req.params.episodeId)
+    const { planPath, plan, anchored } = await loadEpisode(req.params.slug, req.params.episodeId)
     const raw = Array.isArray(req.body?.cues) ? req.body.cues : null
     if (!raw) return res.status(400).json({ detail: 'cues array is required.' })
     const now = new Date().toISOString()
@@ -348,6 +348,21 @@ router.put('/projects/:slug/sound-and-labels/:episodeId/labels', async (req, res
       status: cue.status === 'approved' || cue.status === 'disabled' ? cue.status : 'proposed',
       created_at: typeof cue.created_at === 'string' ? cue.created_at : now, updated_at: now,
     }))
+    const previous = new Map((anchored.labels?.cues || []).map(cue => [cue.id, cue]))
+    for (const cue of cues) {
+      const old = previous.get(cue.id)
+      if (!old || (old.anchor_word === undefined && old.anchor_offset_sec === undefined) || cue.start_sec === old.start_sec) continue
+      const scene = plan.scenes.find(row => row.id === cue.scene_id)
+      if (!scene || !Number.isFinite(cue.start_sec) || cue.start_sec < scene.start_sec || cue.end_sec > scene.end_sec || cue.start_sec > scene.end_sec) {
+        return res.status(422).json({ detail: `Label "${cue.title}" cannot be placed at that time. Choose a time inside its scene.` })
+      }
+      const offset = Number((cue.start_sec - scene.start_sec).toFixed(3))
+      if (Math.abs(scene.start_sec + offset - cue.start_sec) > 0.000001) {
+        return res.status(422).json({ detail: `Label "${cue.title}" needs a start time rounded to milliseconds.` })
+      }
+      delete cue.anchor_word
+      cue.anchor_offset_sec = offset
+    }
     // A hold reason stays with its cue while that cue is still awaiting review.
     const stillProposed = new Set(cues.filter((cue: ContextualCue) => cue.status === 'proposed').map((cue: ContextualCue) => cue.id))
     const holds = ((await readContextualCueTimeline(planPath))?.auto_approval_holds || []).filter(hold => stillProposed.has(hold.cue_id))

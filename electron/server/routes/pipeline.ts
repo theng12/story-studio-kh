@@ -1703,6 +1703,7 @@ export function resolveStepParams(
       episode_id: episodeId,
       model: typeof data.model === 'string' ? data.model : '',
       density: data.density === 'standard' || data.density === 'editorial' ? data.density : 'restrained',
+      min_gap_sec: data.min_gap_sec,
       placement: normalizeCuePlacement(data.placement),
       ...normalizeCuePositionPair(data.position_x_pct, data.position_y_pct),
       ...(data.label_themes !== undefined ? { label_themes: data.label_themes } : {}),
