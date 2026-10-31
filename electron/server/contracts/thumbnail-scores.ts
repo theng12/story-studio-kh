@@ -100,10 +100,10 @@ export interface ThumbnailScoreRecord {
   pick?: {
     filename: string
     /**
-     * The score that chose it.
+     * The chosen file's own score, when it has one. `basis` says what chose it:
+     * a pinned file keeps its score, but the pin chose it, not the score.
      *
-     * ABSENT when the winner was NOT chosen by a score — a human pin, or the
-     * newest-version fallback. A missing score is not a 0 (§6).
+     * ABSENT when the chosen file was never measured. A missing score is not a 0 (§6).
      */
     score?: number
     reason: string
