@@ -294,7 +294,10 @@ export async function reconcilePendingJobCancellation(
         reason = errorReason
         continue
       }
-      records[key] = asRecord(record, provider, observedStatus(provider))
+      const status = observedStatus(provider)
+      // An unclaimed intent must stay queued so the next pass can own its POST.
+      const preserveClaim = status === 'reconciling' && (record.status === 'queued' || (record.status === 'submitting' && claim === 'other'))
+      records[key] = asRecord(record, provider, preserveClaim ? record.status : status)
       providerJobs.push({ operation: record.operation, evidence_id: record.provider_job_id, job: provider })
     } catch (error) {
       // v1.2.8 — GenStudio ANSWERED, and the answer is that it has no such

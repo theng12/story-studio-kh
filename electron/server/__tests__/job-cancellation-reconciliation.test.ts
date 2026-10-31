@@ -82,6 +82,47 @@ test('reconciles only the existing provider task and sends cancellation only aft
   }
 })
 
+test('a cancellation queued during a reconciliation is retained for the next claim', async () => {
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async (input, init) => {
+    const method = (init?.method || 'GET').toUpperCase()
+    requests.push(`${method} ${new URL(String(input)).pathname}`)
+    return Response.json(method === 'POST'
+      ? { id: 'provider-1', state: 'running', cancellable: false, cancellation_requested: true, cancelled: false }
+      : { id: 'provider-1', state: 'running', dispatch_state: 'dispatched', cancellable: true, cancellation_requested: false, cancelled: false })
+  }
+  try {
+    const first = await reconcilePendingJobCancellation(job('queued'), 'test-key')
+    assert.equal(first.records['voice.tts:provider-1']?.status, 'queued')
+    const next = job('submitting')
+    next.remote_cancellations!['voice.tts:provider-1'] = { ...first.records['voice.tts:provider-1']!, status: 'submitting' }
+    const second = await reconcilePendingJobCancellation(next, 'test-key', { claimOf: () => 'own' })
+    assert.equal(second.records['voice.tts:provider-1']?.status, 'requested')
+    const again = { ...next, remote_cancellations: second.records }
+    await reconcilePendingJobCancellation(again, 'test-key')
+    assert.equal(requests.filter(request => request.startsWith('POST ')).length, 1)
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('a queued cancellation does not send a POST when the task already finished', async () => {
+  const original = globalThis.fetch
+  const methods: string[] = []
+  globalThis.fetch = async (_input, init) => {
+    methods.push((init?.method || 'GET').toUpperCase())
+    return Response.json({ id: 'provider-1', state: 'succeeded', cancellable: true, cancelled: false })
+  }
+  try {
+    const result = await reconcilePendingJobCancellation(job('submitting'), 'test-key', { claimOf: () => 'own' })
+    assert.equal(result.kind, 'succeeded')
+    assert.deepEqual(methods, ['GET'])
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
 test('unknown outcomes remain nonterminal and never send a blind cancellation retry', async () => {
   const original = globalThis.fetch
   const requests: string[] = []

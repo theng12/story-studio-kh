@@ -598,6 +598,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
   const failureReasons = new Map<string, string>()
   const cancelledSceneIds = new Set<string>()
   const successfulSceneIds = new Set<string>()
+  const standInSceneIds = new Set<string>()
 
   // Live status sidecar — shared serialization prevents terminal cleanup from
   // overwriting a newer render marker after it has checked ownership.
@@ -772,8 +773,9 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
     // and nothing is wrong — the one case a bare spinner misreports as a hang.
     const fleetWaiting = new Map<number, { attempt: number; maxAttempts: number; retryAt: string; reason: string }>()
     const capacityWaiting = new Set<number>()
+    const completedCount = () => force ? successfulSceneIds.size - standInSceneIds.size : usableRenderedIds.size
     const syncItemProgress = () => {
-      const completed = usableRenderedIds.size
+      const completed = completedCount()
       const settling = inFlight.size
       const failed = failedSceneIds.length
       const customerCancelled = cancelledSceneIds.size
@@ -810,7 +812,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
       model,
       total: scenes.length,
       to_render: toRender.length,
-      rendered_so_far: usableRenderedIds.size,
+      rendered_so_far: completedCount(),
       in_flight: [...inFlight.keys()].sort((a, b) => a - b),
       updated_at: new Date().toISOString(),
     })
@@ -1939,6 +1941,7 @@ export async function runContinuityRenderJob(job: Job): Promise<jq.JobExecutorRe
         await marking
         failedSceneIds.splice(failedSceneIds.indexOf(sceneId), 1)
         failureReasons.delete(sceneId)
+        standInSceneIds.add(sceneId)
         successfulSceneIds.add(sceneId)
         usableRenderedIds.add(sceneId)
         job.output_lines.push(neighbour === scene
