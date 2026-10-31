@@ -60,7 +60,7 @@
         <input type="checkbox" :checked="state.auto_schedule_on_render" :disabled="saving || (!hasSchedule && !editing)" @change="toggleAuto($event.target as HTMLInputElement)" />
         <span>
           Give each episode a publish time as soon as it finishes rendering
-          <small>On unless you turn it off. Nothing is sent to YouTube — the episode only gets its slot, and you still press upload. An episode that is already live, or already has a time, is left alone.</small>
+          <small>On unless you turn it off. The episode only gets its slot; nothing goes to YouTube unless automatic upload below is on. An episode that is already live, or already has a time, is left alone.</small>
         </span>
       </label>
       <label class="schedule-auto">
@@ -68,6 +68,16 @@
         <span>Require a passed final check before automatic scheduling
           <small>On by default. Run Final Check in Publish to release a held episode.</small>
         </span>
+      </label>
+      <label class="schedule-auto schedule-upload">
+        <span>Automatic upload
+          <small>Off by default. Only an episode that gets its slot by itself and passed its final check goes up. Anything that would ask you first stops the upload, and the job says why.</small>
+        </span>
+        <select :value="state.auto_upload || 'off'" :disabled="saving" @change="setAutoUpload($event.target as HTMLSelectElement)">
+          <option value="off">Off: you press upload</option>
+          <option value="private">Private: stays private until you change it</option>
+          <option value="scheduled">Scheduled: private, YouTube makes it public on its date</option>
+        </select>
       </label>
       <p v-if="notice" class="schedule-ok" role="status">{{ notice }}</p>
     </template>
@@ -88,6 +98,7 @@ interface ChannelSchedule {
   default_schedule?: UploadScheduleShape | null
   auto_schedule_on_render: boolean
   auto_schedule_require_final_check?: boolean
+  auto_upload?: 'off' | 'private' | 'scheduled'
 }
 
 const props = defineProps<{ slug: string }>()
@@ -169,6 +180,14 @@ async function toggleCheck(box: HTMLInputElement): Promise<void> {
   if (!ok) box.checked = !box.checked
 }
 
+async function setAutoUpload(box: HTMLSelectElement): Promise<void> {
+  const before = state.value?.auto_upload || 'off'
+  const ok = await send({ auto_upload: box.value }, box.value === 'off' ? 'Automatic upload is off.'
+    : box.value === 'private' ? 'Finished episodes now upload as private.'
+      : 'Finished episodes now upload as private, and YouTube makes each one public on its date.')
+  if (!ok) box.value = before
+}
+
 async function toggleAuto(box: HTMLInputElement): Promise<void> {
   const parsed = editing.value ? scheduleFromDraft(draft.value) : null
   const schedule = parsed ? (parsed.ok ? parsed.schedule : null) : shownSchedule.value
@@ -186,6 +205,8 @@ watch(() => props.slug, () => { editing.value = false; void load() }, { immediat
 </script>
 
 <style scoped>
+.schedule-upload { align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.schedule-upload select { max-width: 100%; }
 .schedule-card { display: grid; gap: 12px; }
 .schedule-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .schedule-head h3 { margin: 0 0 4px; font-size: 16px; }

@@ -229,6 +229,7 @@ export interface ChannelSchedule {
   default_schedule: UploadSchedule
   auto_schedule_on_render: boolean
   auto_schedule_require_final_check: boolean
+  auto_upload: 'off' | 'private' | 'scheduled'
 }
 
 async function assignedChannel(slug: string): Promise<{ channel_id: string; title: string; account_id: string } | null> {
@@ -259,7 +260,7 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
   if (!channel) {
     return {
       channel: null, account_id: '', plan: null, plans: [], cadence,
-      default_schedule: fallback, auto_schedule_on_render: auto, auto_schedule_require_final_check: config?.auto_schedule_require_final_check !== false,
+      default_schedule: fallback, auto_schedule_on_render: auto, auto_schedule_require_final_check: config?.auto_schedule_require_final_check !== false, auto_upload: autoUploadMode(config),
     }
   }
   const own = (await plans.listPlans(slug)).filter(p => p.platform === 'youtube' && p.account_id === channel.account_id)
@@ -272,7 +273,7 @@ export async function readChannelSchedule(slug: string): Promise<ChannelSchedule
     cadence,
     default_schedule: fallback,
     auto_schedule_on_render: auto,
-    auto_schedule_require_final_check: config?.auto_schedule_require_final_check !== false,
+    auto_schedule_require_final_check: config?.auto_schedule_require_final_check !== false, auto_upload: autoUploadMode(config),
   }
 }
 
@@ -283,6 +284,7 @@ export interface ChannelScheduleInput {
   name?: string
   auto_schedule_on_render?: boolean
   auto_schedule_require_final_check?: boolean
+  auto_upload?: 'off' | 'private' | 'scheduled'
 }
 
 /**
@@ -295,6 +297,7 @@ export async function saveChannelSchedule(slug: string, input: ChannelScheduleIn
   if (typeof input.auto_schedule_on_render === 'boolean') {
     await pm.updateConfig(slug, { auto_schedule_on_render: input.auto_schedule_on_render } as any)
   }
+  if (input.auto_upload) await pm.updateConfig(slug, { auto_upload: input.auto_upload } as any)
   if (typeof input.auto_schedule_require_final_check === 'boolean') {
     await pm.updateConfig(slug, { auto_schedule_require_final_check: input.auto_schedule_require_final_check } as any)
   }

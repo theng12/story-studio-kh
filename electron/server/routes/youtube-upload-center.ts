@@ -3705,7 +3705,7 @@ export async function admitYouTubeUpload(
     // claims read as "episode unknown" and can never match).
     // 1.4.300 "episode number used by another project" safety check: Warn (default) asks as
     // above, Off does not ask, Block refuses even when confirmed.
-    const claimMode = await safetyMode(slug, 'episode_number_claim')
+    const claimMode = automatic ? 'block' : await safetyMode(slug, 'episode_number_claim')
     if (claimMode !== 'off' && (claimMode === 'block' || body?.acknowledge_foreign_episode !== true)) {
       const foreign = await findForeignEpisodeClaim({
         project_slug: slug,

@@ -151,3 +151,18 @@ describe('channel with no YouTube channel yet', () => {
     assert.equal((await plansOf(unassignedSlug)).length, 0)
   })
 })
+
+describe('automatic upload switch', () => {
+  test('reads off by default, saves the three values, refuses others, and is reachable alone', async () => {
+    const read = await request(app).get(`/api/projects/${unassignedSlug}/publishing-schedule`)
+    assert.equal(read.body.auto_upload, 'off')
+    const bad = await request(app).put(`/api/projects/${unassignedSlug}/publishing-schedule`).send({ auto_upload: 'public' })
+    assert.equal(bad.status, 400)
+    assert.equal((await pm.getConfig(unassignedSlug) as any).auto_upload, undefined)
+    for (const value of ['scheduled', 'private', 'off']) {
+      const saved = await request(app).put(`/api/projects/${unassignedSlug}/publishing-schedule`).send({ auto_upload: value })
+      assert.equal(saved.status, 200, JSON.stringify(saved.body))
+      assert.equal(saved.body.auto_upload, value)
+    }
+  })
+})
