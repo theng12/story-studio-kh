@@ -64,6 +64,7 @@ import { truncateChars } from '../lib/well-formed-text.js'
 import { applyEmojiPolicy, noEmojiDirective } from '../lib/emoji-policy.js'
 import { pipelinePolicyCheckpointStore, pipelinePolicyForJob } from '../lib/pipeline-model-policy.js'
 import { resolveDefaultModel } from '../services/genstudio-default-model.js'
+import { nonRetryable } from '../services/job-retry-policy.js'
 
 interface CueCandidate {
   scene_id: string
@@ -581,7 +582,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
   // Last of all, this Mac's app-wide writing default (Settings → Default models). Read only: it is
   // not written into the preset or the channel.
   if (!model) model = await resolveDefaultModel(await getApiKey('genstudio').catch(() => ''), 'writing') || ''
-  if (!model) throw new Error('Choose a live Gateway model in Contextual Cues before proposing cues.')
+  if (!model) throw nonRetryable(new Error('Choose a live Gateway model in Contextual Cues before proposing cues.'))
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) throw new Error('Contextual Cues needs a configured Gateway API Key.')

@@ -306,7 +306,7 @@ test('captions_missing: Block stops an episode whose captions are on but has no 
 test('cue_review: Off carries the run on to Scene Review; Block pauses after Contextual Cues', async () => {
   const config = {
     contextual_cues: { enabled: true },
-    ...preset('contextual_cues_presets', 'contextual_cues_last_preset_contextual-cues', { settings: {} }),
+    ...preset('contextual_cues_presets', 'contextual_cues_last_preset_contextual-cues', { model: 'test-model' }),
     ...preset('scene_review_genstudio_presets', 'scene_review_genstudio_last_preset_scene-review'),
   }
   for (const mode of ['off', 'block']) {
@@ -346,6 +346,22 @@ test('same_step_queued: Off joins a run-batch to the step already queued; Block 
   }
 })
 
+test('a forced Pipeline run skips an older active job and names it', async () => {
+  await jq.setQueuePaused(true)
+  try {
+    const { slug, episodeId } = await seed(SCRIPT, { same_step_queued: 'off' })
+    const existing = jq.enqueuePreparedForTest({ project_slug: slug, type: 'outline_only', episode_id: episodeId, title: 'older', params: {} })
+    const res = await request(app).post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['script-only'], force: true, operation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    assert.equal(res.body.reused, 0)
+    assert.ok(res.body.skipped.some((item: any) => item.reason.includes(existing.job_id) && /wait.*cancel/i.test(item.reason)))
+    assert.equal(jq.getJob(existing.job_id)!.params.pipeline_chain, undefined)
+  } finally {
+    await jq.setQueuePaused(false)
+  }
+})
+
 const TERMINAL_JOB_STATES = ['done', 'error', 'cancelled']
 
 test('same_step_queued: a chain handoff joins the job already queued (Off) instead of failing (Block)', async () => {
@@ -359,15 +375,15 @@ test('same_step_queued: a chain handoff joins the job already queued (Off) inste
   const projectSlugs: string[] = []
   let assertionFailure: unknown
   try {
-    for (const mode of ['off', 'block']) {
+    for (const mode of ['off', 'block', 'forced']) {
       const project = await pm.createProject({ name: `Safety handoff ${mode}` })
       projectSlugs.push(project.slug)
-      await pm.updateConfig(project.slug, { safety_checks: { same_step_queued: mode } } as any)
+      await pm.updateConfig(project.slug, { safety_checks: { same_step_queued: mode === 'forced' ? 'off' : mode } } as any)
       const busy = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'broll_assemble', episode_id: 'EP001', title: 'busy', params: {} })
       const rest = [{ type: 'youtube_playlist_update', title: 'later', params: {} }]
       jq.enqueuePreparedForTest({
         project_slug: project.slug, type: 'chapter-only', episode_id: 'EP001', title: 'head',
-        params: { pipeline_chain: [{ type: 'broll_assemble', title: 'dup', params: {} }, ...rest] },
+        params: { pipeline_chain: [{ type: 'broll_assemble', title: 'dup', params: mode === 'forced' ? { force: true, generation_action: { id: 'new', kind: 'fresh' } } : {} }, ...rest] },
       })
       const head = await waitForValue(async () => {
         const job = (await jq.getJobs(project.slug)).find(candidate => candidate.title === 'head')
@@ -382,7 +398,7 @@ test('same_step_queued: a chain handoff joins the job already queued (Off) inste
         const state = (jq.getJob(head.job_id) as any)?.pipeline_handoff?.state
         return state === 'dispatched' || state === 'failed' ? state : undefined
       }, { label: 'the chain handoff to be dispatched', timeoutMs: 5000 })
-      if (mode === 'block') {
+      if (mode === 'block' || mode === 'forced') {
         // The failure record is written after the handoff is marked failed.
         await waitForValue(async () => {
           const recorded = (await jq.getJobs(project.slug)).some(job => (job.params as any)?.pipeline_handoff_failed === true)
@@ -390,8 +406,9 @@ test('same_step_queued: a chain handoff joins the job already queued (Off) inste
         }, { label: 'the handoff failure record', timeoutMs: 5000 })
       }
       const failed = (await jq.getJobs(project.slug)).find(job => (job.params as any)?.pipeline_handoff_failed === true)
-      if (mode === 'block') {
-        assert.ok(failed, 'Block keeps the handoff failure')
+      if (mode === 'block' || mode === 'forced') {
+        assert.ok(failed, 'the handoff failure is recorded')
+        if (mode === 'forced') assert.match(failed.error || '', new RegExp(`${busy.job_id}.*[Ww]ait.*cancel`))
       } else {
         assert.equal(failed, undefined)
         assert.deepEqual(jq.getJob(busy.job_id)!.params.pipeline_chain, rest)

@@ -109,6 +109,16 @@ async function savePartialRunFromActionA(sourcePlan = plan): Promise<void> {
 }
 
 describe('Contextual Cues proposal runs', () => {
+  test('a missing model is a non-retryable refusal', async () => {
+    const policy = await import('../services/job-retry-policy.js')
+    const settings = await import('../services/app-settings.js')
+    await settings.setDefaultModels({})
+    await assert.rejects(generator.generateContextualCues(job('missing', { model: '' })), error => {
+      assert.match((error as Error).message, /Choose a live Gateway model/)
+      assert.equal(policy.isNonRetryableError(error), true)
+      return true
+    })
+  })
   test('a new Propose cues click continues a partial run and pays only for the missing batches', async () => {
     await reset()
     await savePartialRunFromActionA()

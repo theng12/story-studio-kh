@@ -162,6 +162,60 @@ describe('Pipeline preflight and the app-wide default models', () => {
     assert.equal(scenePlanJob!.params.model, 'preset-own-model')
   })
 
+  test('retry resolves only a missing model from the named preset', async () => {
+    const project = await pm.createProject({ name: 'Cue retry preset' })
+    await pm.updateConfig(project.slug, {
+      contextual_cues: { enabled: true },
+      contextual_cues_presets: [
+        { id: 'original', name: 'Original', data: { model: 'fixed-model' } },
+        { id: 'other', name: 'Other', data: { model: 'other-model' } },
+      ],
+      'contextual_cues_last_preset_contextual-cues': 'other',
+    } as any)
+    const { recoverMissingPipelineModel } = await import('../routes/pipeline.js')
+    const params: Record<string, any> = { pipeline_batch_id: 'batch', pipeline_step: 'contextual_cues', pipeline_preset_id: 'original', pipeline_model_retry: true, model: '' }
+    await recoverMissingPipelineModel({ project_slug: project.slug, params })
+    assert.equal(params.model, 'fixed-model')
+    params.model = 'frozen-model'
+    await recoverMissingPipelineModel({ project_slug: project.slug, params })
+    assert.equal(params.model, 'frozen-model')
+    params.model = ''
+    delete params.pipeline_preset_id
+    params.episode_recovery_id = 'recovery'
+    delete params.pipeline_model_retry
+    await recoverMissingPipelineModel({ project_slug: project.slug, params })
+    assert.equal(params.model, 'other-model')
+
+    const failed = jq.enqueuePreparedForTest({ project_slug: project.slug, episode_id: 'EP0001', type: 'contextual_cues', title: 'retry cue', params: {
+      pipeline_batch_id: 'batch', pipeline_step: 'contextual_cues', pipeline_preset_id: 'original', model: '',
+    } })
+    await jq.requestJobCancellation(project.slug, failed.job_id)
+    const retried = jq.retryTerminalJob(project.slug, failed.job_id)
+    rememberJobs(project.slug, [retried])
+    assert.equal(retried.params.pipeline_model_retry, true)
+    await recoverMissingPipelineModel({ project_slug: project.slug, params: retried.params })
+    assert.equal(retried.params.model, 'fixed-model')
+  })
+
+  test('Contextual Cues preflight refuses a model-less preset unless a writing default exists', async () => {
+    const project = await pm.createProject({ name: 'Cue model preflight' })
+    await pm.updateConfig(project.slug, {
+      contextual_cues: { enabled: true },
+      contextual_cues_presets: [{ id: 'cues', name: 'Cues', data: {} }],
+      'contextual_cues_last_preset_contextual-cues': 'cues',
+    } as any)
+    const episode = await addEpisode(project.slug, 'Cue model row')
+    await im.setEpisodeStatusOverrides(project.slug, episode.code, { scene_plan: true })
+    await settings.setDefaultModels({})
+    const absent = await request(app).post(`/api/projects/${project.slug}/pipeline/preflight`)
+      .send({ episode_ids: [episode.code], steps: ['contextual_cues'] })
+    assert.match(JSON.stringify(absent.body), /no writing model chosen/i)
+    await settings.setDefaultModels({ writing: 'app-default-writing' })
+    const withDefault = await request(app).post(`/api/projects/${project.slug}/pipeline/preflight`)
+      .send({ episode_ids: [episode.code], steps: ['contextual_cues'] })
+    assert.doesNotMatch(JSON.stringify(withDefault.body), /no writing model chosen/i)
+  })
+
   test('the thumbnail-render step takes the IMAGE default, never the writing one', async () => {
     await settings.setDefaultModels({ writing: 'app-default-writing', image: 'app-default-image' })
     const project = await pm.createProject({ name: 'Default models image family' })
