@@ -1,5 +1,9 @@
 # HANDOFF — Story Studio KH
 
+### Pipeline remembered steps — 1.4.372 (2026-10-31)
+
+- An admitted Pipeline batch saves only its requested step IDs in the channel's `pipeline_last_steps`; the existing safe config GET exposes the list. The page restores applicable steps and names unavailable ones. Batch requests still require explicit steps. Focused checks only; release gate, build, integration and deployment remain outstanding.
+
 ### Release 1.4.371 — work still open (2026-10-30)
 
 - **Lenient stand-in pictures (`stand_in_for_prompt`).** The stale-image check in `auditSceneImageCompletion` would have failed the episode on the picture the 1.4.296 lenient rule deliberately keeps (borrowed from a neighbour, or the scene's own earlier one, on a free-fleet last try). The run now records the prompt it stands in for; completion accepts it for that exact prompt only, Scene Review still flags the mismatch, and a real picture clears it. Do not "fix" the lenient test to expect failure.

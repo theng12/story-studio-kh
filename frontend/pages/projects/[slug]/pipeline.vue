@@ -88,7 +88,7 @@
     <WorkspaceSection
       eyebrow="Stage selection"
       title="Steps to run"
-      description="Nothing is selected automatically. Choose stages manually or use a safe shortcut; every selected stage keeps its channel-level preset until you change it."
+      description="Your last run's steps are selected when available. Choose stages manually or use a shortcut; each stage keeps its channel-level preset until you change it."
     >
       <template #actions>
         <div class="step-selection-actions" role="group" aria-label="Stage selection shortcuts">
@@ -117,6 +117,7 @@
         </div>
       </template>
 
+      <p v-if="droppedStepNotice" role="status" class="mt-2">{{ droppedStepNotice }}</p>
       <div class="steps-grid mt-2">
         <template v-for="entry in chainEntries" :key="entry.kind === 'step' ? entry.id : entry.key">
           <!-- Batchable step → checkbox tile (enqueued by Run Batch).
@@ -1170,6 +1171,41 @@ watch(slug, () => { void loadChannelIntroduction() }, { immediate: true })
 function clearSelectedSteps(): void {
   for (const step of stepsMeta) stepChecked[step.id] = false
 }
+
+const droppedStepNotice = ref('')
+const rememberedSteps = ref<unknown>(null)
+let rememberedRequest = 0
+function restoreRememberedSteps(): void {
+  if (!visualSource.value || !Array.isArray(rememberedSteps.value)) return
+  const saved = rememberedSteps.value.filter((step): step is string => typeof step === 'string')
+  rememberedSteps.value = null
+  clearSelectedSteps()
+  const available = new Set(visibleSteps.value.map(step => step.id as string))
+  for (const step of visibleSteps.value) stepChecked[step.id] = saved.includes(step.id)
+  const dropped = saved.filter(step => !available.has(step))
+  if (dropped.length) {
+    const names = dropped.map(id => stepsMeta.find(step => step.id === id)?.label || id)
+    droppedStepNotice.value = `These previously selected steps are no longer available for this channel: ${names.join(', ')}.`
+  }
+  syncDerivedSteps()
+}
+watch(visualSource, restoreRememberedSteps)
+watch(slug, async () => {
+  const targetSlug = slug.value
+  const request = ++rememberedRequest
+  clearSelectedSteps()
+  droppedStepNotice.value = ''
+  rememberedSteps.value = null
+  if (!targetSlug || targetSlug === 'undefined') return
+  try {
+    const saved = await get<{ pipeline_last_steps?: unknown }>(`/projects/${targetSlug}/settings/config`, { cache: 'no-store' })
+    if (request !== rememberedRequest || targetSlug !== slug.value) return
+    rememberedSteps.value = saved.pipeline_last_steps
+    restoreRememberedSteps()
+  } catch {
+    if (request === rememberedRequest && targetSlug === slug.value) showError('Could not load the last Pipeline steps for this channel.')
+  }
+}, { immediate: true })
 
 /**
  * The Introduction is not a selection — it is what the channel already said.
@@ -2546,6 +2582,9 @@ async function submit(retry?: PipelineSubmission) {
     const r = await post<any>(`/projects/${targetSlug}/pipeline/run-batch`, body)
     if (requestId !== submitRequestId || slug.value !== targetSlug) return
     const completedRepair = submittedRepair
+    for (const warning of Array.isArray(r?.warnings) ? r.warnings : []) {
+      if (typeof warning === 'string' && warning.startsWith('Could not remember these Pipeline steps:')) showError(warning)
+    }
     if (submittedCapture && submittedCapture.captureId === pendingPipelineSubmission.value?.captureId) {
       pendingPipelineSubmission.value = null
     }
