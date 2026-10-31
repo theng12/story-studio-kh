@@ -42,6 +42,7 @@ const jq = await import('../services/job-queue.js')
 const { resolveEpisodePathsByCode } = await import('../services/utils.js')
 const { createCharacter } = await import('../services/character-manager.js')
 const { router } = await import('../routes/scene-plan.js')
+const { resolveStepParams } = await import('../routes/pipeline.js')
 const {
   measureAssemblyOverhead, PromptAssemblyTooLargeError, promptCharacterCount,
 } = await import('../services/prompt-char-cap.js')
@@ -210,6 +211,34 @@ describe('the generator hands the writer the body budget', () => {
     assert.match(text, /character descriptions and Style Bible text the render appends/)
     assert.ok(run.output_lines.some((line: string) => line.includes(expectedBody.toLocaleString())),
       'the job log states the body budget it gave the writer')
+  })
+
+  test('Pipeline carries its image model and default selection into a live budget', async () => {
+    service.reset()
+    const f = await fixture({ scenePrompts: ['s1 existing prompt'] })
+    const params = resolveStepParams('scene_plan', f.episodeId, 'Budget', {
+      id: 'budget', name: 'Budget', data: { model: 'mock-chat-v1', intended_image_model: 'mock-image-v1' },
+    } as any)
+    assert.equal(params.prompt_char_cap_selection, 'auto')
+    assert.equal(params.intended_image_model, 'mock-image-v1')
+    service.queueScenario('chat', {
+      states: ['succeeded'],
+      outputText: JSON.stringify({ results: [{ scene_id: 's2', visual_prompt: 'A hall lit by one lamp.' }] }),
+    })
+    const run = job(f, { ...params, model: 'genstudio-chat:mock-chat-v1', stage: 'visual', regenerate_empty_prompts: true, auto_repair_missing_prompts: true }, `budget-pipeline-${sequence}`)
+    await runScenePlanJob(run)
+    assert.match(writerText(), new RegExp(`${(PUBLISHED_CAP - RENDER_OVERHEAD).toLocaleString()} is a hard ceiling`))
+  })
+
+  test('a selected-prompt rewrite follows the live image limit', async () => {
+    service.reset()
+    const f = await fixture({ scenePrompts: ['s1 existing prompt', 's2 existing prompt'] })
+    service.queueScenario('chat', { states: ['succeeded'], outputText: 'A quiet hall in warm light.' })
+    const run = job(f, {
+      regenerate_prompt_scene_ids: ['s1'], prompt_char_cap_selection: 'auto', intended_image_model: 'mock-image-v1',
+    }, `budget-selected-${sequence}`)
+    await runScenePlanJob(run)
+    assert.match(writerText(), new RegExp((PUBLISHED_CAP - RENDER_OVERHEAD - STYLE_LEAD).toLocaleString()))
   })
 
   test('a corrupt continuity file still reserves the Style Bible the renderer WILL append', async () => {

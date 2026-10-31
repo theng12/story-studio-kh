@@ -22,7 +22,8 @@ import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { findIncompleteSubtitleSections } from '../services/subtitle-stitcher.js'
 import { resolveTranscriptSrt, resolveTranscriptSrtPath, stitchedSrtPath } from '../services/subtitle-correction.js'
-import { planEndSec } from '../lib/scene-plan-timeline.js'
+import { inspectPlanTimelineDrift, planEndSec } from '../lib/scene-plan-timeline.js'
+import { scanEpisodeAssets } from '../generators/video.js'
 import { inspectSubtitleText } from '../lib/subtitle-quality.js'
 import { readSubtitleTimelineIntegrity } from '../services/scene-timeline-integrity.js'
 import { parseSavedScenePlanPacing, parseScenePacing } from '../contracts/pacing.js'
@@ -370,7 +371,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     // preset's own cap unclamped; the page is where a dead model is dropped and
     // where "choose another" is said. Refusing here turned a stale saved id into
     // a failed generation the customer had already committed to.
-    promptCharCap = resolveScenePlanPromptCharCap(presetData, await listImageModels(apiKey))
+    promptCharCap = resolveScenePlanPromptCharCap({ ...presetData, prompt_char_cap: presetData.prompt_char_cap ?? 'auto' }, await listImageModels(apiKey))
   }
   const creativeDirection = parseCreativeDirection(presetData.creative_direction)
   // v1.0.794 — SCENE prompts only; the frontend sends the current state of
@@ -414,7 +415,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       // it against the LIVE catalogue when it runs, so a model or catalogue
       // change between admission and execution follows the selected model.
       // Older queued jobs have no selection; the generator keeps their number.
-      prompt_char_cap_selection: presetData.prompt_char_cap,
+      prompt_char_cap_selection: presetData.prompt_char_cap ?? 'auto',
       creative_direction: creativeDirection,
       avoid_legible_text: avoidLegibleText,
       intended_image_model: presetData.intended_image_model,
@@ -1387,17 +1388,13 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
       } catch { /* best-effort — no subtitles dir / unreadable */ }
     }
 
-    // v1.0.250 — second staleness link: the scene plan is OLDER than the
-    // stitched SRT it should be built from (you re-stitched but didn't re-run
-    // the plan). This is the other half of "my old plan won't update".
-    let planStaleVsStitched = false
-    if (existsSync(scenePlanPath) && existsSync(stitchedPath)) {
-      try {
-        const planMs = (await fs.stat(scenePlanPath)).mtimeMs
-        const stitchedMs = (await fs.stat(stitchedPath)).mtimeMs
-        if (stitchedMs > planMs + 2000) planStaleVsStitched = true
-      } catch { /* best-effort */ }
-    }
+    const assets = await scanEpisodeAssets(slug, episodeId)
+    const merged = assets.merged_audio[0]
+    const planStaleVsStitched = (await inspectPlanTimelineDrift(
+      scenePlanPath, stitchedPath,
+      merged && path.join(path.dirname(merged.path), `${episodeId.toUpperCase()}_merged_audio.completion.json`),
+      merged?.filename ?? null,
+    )).stale
 
     // What the planner will actually read, and why. Surfaced rather than left
     // implicit: a correction the operator cannot see is a correction they
