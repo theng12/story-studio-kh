@@ -19,6 +19,12 @@ const page = readFileSync(
   'utf8',
 )
 
+test('the minimum gap select retains a custom preset value', () => {
+  assert.match(page, /v-model\.number="form\.min_gap_sec"/)
+  assert.match(page, /v-if="!\[10, 20, 30, 45, 60\]\.includes\(form\.min_gap_sec\)" :value="form\.min_gap_sec"/)
+  assert.match(page, /form\.value\.min_gap_sec = typeof data\?\.min_gap_sec === 'number'/)
+})
+
 test('the mix settings are read from THIS episode, never remembered across episodes', () => {
   // The audit's leak: `useRememberedForm` carried one episode's density, gains
   // and ducking into the next one. AGENTS.md §4 — an episode change REPLACES.

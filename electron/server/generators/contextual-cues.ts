@@ -475,8 +475,7 @@ function safeCandidate(
 }
 
 /** Keep a conservative, non-overlapping proposal set before it reaches review. */
-function applySafePacing(cues: ContextualCue[], density: 'restrained' | 'standard' | 'editorial', totalDuration: number): ContextualCue[] {
-  const minGap = density === 'editorial' ? 1 : density === 'standard' ? 2.5 : 5
+function applySafePacing(cues: ContextualCue[], density: 'restrained' | 'standard' | 'editorial', totalDuration: number, minGap: number): ContextualCue[] {
   const targetSpacing = density === 'editorial' ? 35 : density === 'standard' ? 60 : 90
   const maximum = Math.max(1, Math.ceil(totalDuration / targetSpacing))
   const out: ContextualCue[] = []
@@ -534,9 +533,16 @@ export function accountCueCandidates(
       reason: cueDropReason(candidate, plan, allow),
     })
   }
-  const paced = applySafePacing(safe, settings.density, plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0)
+  const minGap = normalizeContextualCueProposalSettings(settings).min_gap_sec!
+  const paced = applySafePacing(safe, settings.density, plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0, minGap)
   for (const cue of safe) {
-    if (!paced.includes(cue)) dropped.push({ scene_id: cue.scene_id, title: cue.title, reason: `too close to another cue for "${settings.density}" density` })
+    if (!paced.includes(cue)) {
+      const previous = paced.filter(row => row.start_sec <= cue.start_sec).at(-1)
+      const reason = previous && cue.start_sec < previous.end_sec + minGap
+        ? `less than ${minGap}s after the previous kept label`
+        : `exceeds the "${settings.density}" density limit`
+      dropped.push({ scene_id: cue.scene_id, title: cue.title, reason })
+    }
   }
   // One cue per scene: a scene the reviewer already resolved keeps that cue.
   return { proposed: paced.filter(cue => !resolvedIds.has(cue.id)), dropped }
@@ -691,7 +697,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
       // Hoisted so it can be handed to the emoji policy as the source text:
       // it carries his narration, and an emoji he wrote into the script means
       // the cues proposed from it are left alone.
-      const cueUserPrompt = `PACING: ${settings.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: truncateChars(scene.transcript_segment, 420) })) )}`
+      const cueUserPrompt = `PACING: ${settings.density}. Leave at least ${settings.min_gap_sec} seconds between one label ending and the next starting. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: truncateChars(scene.transcript_segment, 420) })) )}`
       const cueRequestIdentity = freshGenerationRequestIdentity(job, `contextual-cues-${fingerprint}-batch-${index}-scope-${progress.retry_scopes?.[String(index)] || 'initial'}`)
         ?? `${job.project_slug}:${episodeId}:contextual-cues:${fingerprint}:batch-${index}:scope-${progress.retry_scopes?.[String(index)] || 'initial'}`
       try {
@@ -810,6 +816,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
         candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings, new Date().toISOString(), allow)).filter((cue): cue is ContextualCue => !!cue),
         settings.density,
         plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0,
+        settings.min_gap_sec!,
       ),
       updated_at: new Date().toISOString(),
     }

@@ -5220,6 +5220,7 @@ export interface ContextualCueProjectConfig {
 export interface ContextualCueProposalSettings {
   model: string
   density: ContextualCueDensity
+  min_gap_sec?: number
   placement: ContextualCuePlacement
   /**
    * Default precise anchor stamped onto every cue a proposal creates, exactly

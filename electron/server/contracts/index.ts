@@ -480,6 +480,9 @@ export interface AccountSummaryResponse {
 export const UpdateConfigSchema = z.object({
   image_models: z.record(z.string(), z.any()).optional(),
   voice_presets: z.array(z.any()).optional(),
+  contextual_cues_presets: z.array(z.object({
+    data: z.object({ min_gap_sec: z.number().min(1, 'Minimum label gap must be between 1 and 600 seconds').max(600, 'Minimum label gap must be between 1 and 600 seconds').optional() }).passthrough(),
+  }).passthrough()).optional(),
   style_presets: z.array(z.any()).optional(),
   active_style_preset_id: z.string().max(200).optional(),
   confirmation_preferences: z.record(z.string(), z.any()).optional(),

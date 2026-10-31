@@ -93,6 +93,37 @@ describe('transition settings storage', () => {
 })
 
 describe('one read answers for both halves', () => {
+  test('preset gap saves within range and rejects invalid values', async () => {
+    const url = `/api/projects/${slug}/settings/config`
+    for (const value of [20, 30]) {
+      const saved = await request(app).put(url).send({ contextual_cues_presets: [{ id: 'gap', name: 'Gap', data: { min_gap_sec: value } }] })
+      assert.equal(saved.status, 200, JSON.stringify(saved.body))
+      const read = await request(app).get(url)
+      assert.equal(read.body.contextual_cues_presets[0].data.min_gap_sec, value)
+    }
+    for (const value of [0, 601, '20']) {
+      const rejected = await request(app).put(url).send({ contextual_cues_presets: [{ id: 'gap', name: 'Gap', data: { min_gap_sec: value } }] })
+      assert.equal(rejected.status, 400, JSON.stringify(rejected.body))
+    }
+  })
+
+  test('hand-placed labels less than the preset gap apart are saved unchanged', async () => {
+    const rows = [label({ start_sec: 4, end_sec: 7 }), label({ id: 'second', title: 'Second', start_sec: 9, end_sec: 12 })]
+    const saved = await put(`/${episode}/labels`, { cues: rows })
+    assert.equal(saved.status, 200, JSON.stringify(saved.body))
+    assert.deepEqual(saved.body.timeline.cues.map((cue: any) => [cue.start_sec, cue.end_sec]), [[4, 7], [9, 12]])
+  })
+  test('readiness reports a crowded later label without refusing the episode', async () => {
+    const rows = [label({ start_sec: 4, end_sec: 7 }), label({ id: 'second', title: 'Crowded', start_sec: 7.2, end_sec: 10 })]
+    await fs.writeFile(path.join(path.dirname(planPath), 'contextual_cues.json'), JSON.stringify({ schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: rows }))
+    const res = await get(`/${episode}`)
+    assert.equal(res.status, 200)
+    assert.equal(res.body.readiness.labels.will_render, 1)
+    assert.equal(res.body.readiness.labels.refuses, undefined)
+    assert.equal(res.body.readiness.labels.skipped[0].cue_id, 'second')
+    assert.ok(res.body.validation.labels.some((issue: any) => /overlaps or crowds/.test(issue.detail)))
+  })
+
   test('the switches, the timelines, the scenes and one readiness block come back together', async () => {
     const res = await get(`/${episode}`)
     assert.equal(res.status, 200, JSON.stringify(res.body))

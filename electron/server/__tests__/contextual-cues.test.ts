@@ -19,6 +19,7 @@ import {
   validateContextualCueTimeline,
   writeContextualCueProgress,
 } from '../services/contextual-cues.js'
+import { UpdateConfigSchema } from '../contracts/index.js'
 import { GenStudioChatTerminalFailureError } from '../lib/genstudio-client.js'
 
 const plan = {
@@ -126,13 +127,13 @@ describe('Contextual Cues contract', () => {
 
   test('proposal controls use their own safe defaults instead of Scene Plan settings', () => {
     assert.deepEqual(normalizeContextualCueProposalSettings(undefined), {
-      model: '', density: 'restrained', placement: 'top-right',
+      model: '', density: 'restrained', min_gap_sec: 10, placement: 'top-right',
       position_x_pct: null, position_y_pct: null, auto_approve: false,
     })
     assert.deepEqual(normalizeContextualCueProposalSettings({
       model: 'genstudio-current-text', density: 'editorial', placement: 'top-left', auto_approve: true,
     }), {
-      model: 'genstudio-current-text', density: 'editorial', placement: 'top-left',
+      model: 'genstudio-current-text', density: 'editorial', min_gap_sec: 10, placement: 'top-left',
       position_x_pct: null, position_y_pct: null, auto_approve: true,
     })
   })
@@ -190,6 +191,33 @@ describe('Contextual Cues contract', () => {
     assert.equal(result.cues[0]!.id, 'cue-scene-1')
     assert.equal(result.skipped.length, 1, 'the unreviewed one is named, not silently dropped')
     assert.equal(result.skipped[0]!.cue_id, 'cue-scene-2')
+  })
+
+  test('preset save accepts the gap range and rejects invalid values', () => {
+    for (const value of [1, 20, 30, 600]) assert.equal(UpdateConfigSchema.safeParse({ contextual_cues_presets: [{ data: { min_gap_sec: value } }] }).success, true)
+    for (const value of [0, 601, null, '20']) assert.equal(UpdateConfigSchema.safeParse({ contextual_cues_presets: [{ data: { min_gap_sec: value } }] }).success, false)
+  })
+
+  test('gap defaults safely and changes proposal identity', () => {
+    for (const value of [undefined, null, 0, 601, '20']) assert.equal(normalizeContextualCueProposalSettings({ min_gap_sec: value }).min_gap_sec, 10)
+    const twenty = normalizeContextualCueProposalSettings({ min_gap_sec: 20 })
+    const thirty = normalizeContextualCueProposalSettings({ min_gap_sec: 30 })
+    assert.equal(twenty.min_gap_sec, 20)
+    assert.notEqual(contextualCueProgressFingerprint(plan, twenty), contextualCueProgressFingerprint(plan, thirty))
+  })
+
+  test('render skips only a crowded label and retains later labels', () => {
+    const longPlan = { generated_at: plan.generated_at, scenes: [{ id: 'scene-1', start_sec: 0, end_sec: 30 }] } as any
+    const timeline = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [
+      cue({ title: 'First', start_sec: 0, end_sec: 3 }),
+      cue({ id: 'second', title: 'Crowded', start_sec: 3.2, end_sec: 8 }),
+      cue({ id: 'third', title: 'Kept', start_sec: 6, end_sec: 9 }),
+    ] } as any
+    assert.ok(validateContextualCueTimeline(timeline, longPlan).some(issue => /overlaps or crowds/.test(issue.detail)))
+    const result = resolveRenderableContextualCues({ enabled: true }, timeline, longPlan)
+    assert.deepEqual(result.cues.map(row => row.title), ['First', 'Kept'])
+    assert.deepEqual(result.skipped.map(row => row.cue_id), ['second'])
+    assert.match(result.skipped[0]!.detail, /First/)
   })
 
   test('a label whose timing is broken still refuses, and is named without its id', () => {

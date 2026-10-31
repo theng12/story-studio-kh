@@ -100,6 +100,7 @@ export function normalizeContextualCueProposalSettings(value: unknown): Contextu
   return {
     model: typeof raw.model === 'string' ? raw.model.trim() : '',
     density: raw.density === 'standard' || raw.density === 'editorial' ? raw.density : 'restrained',
+    min_gap_sec: typeof raw.min_gap_sec === 'number' && Number.isFinite(raw.min_gap_sec) && raw.min_gap_sec >= 1 && raw.min_gap_sec <= 600 ? raw.min_gap_sec : 10,
     // All four corners, because all four render and all four always have.
     // This used to collapse anything that was not 'top-left' to 'top-right',
     // which is what made the bottom half of a fully implemented, fully
@@ -180,6 +181,7 @@ export function contextualCueProgressFingerprint(
     })),
     model: settings.model,
     density: settings.density,
+    min_gap_sec: normalizeContextualCueProposalSettings(settings).min_gap_sec,
     placement: settings.placement,
     auto_approve: settings.auto_approve,
     // A preset that names its own designs or motions bought its batches under
@@ -509,8 +511,9 @@ export function assertContextualCueReadiness(
  * pending decision, and no amount of approving fixes them:
  *
  *   - a cue whose timing is invalid or that escapes its scene,
- *   - a cue shorter than `CUE_MIN_DURATION_SEC` (it flashes past unread),
- *   - two approved cues crowding within 0.5s (they overlap on screen).
+ *   - a cue shorter than `CUE_MIN_DURATION_SEC` (it flashes past unread).
+ *
+ * Crowded approved cues are skipped individually, keeping earlier labels.
  *
  * A cue with broken text or an invalid template is skipped with its reason
  * rather than refusing everything, because that IS something a reviewer fixes
@@ -541,7 +544,7 @@ export function resolveRenderableContextualCues(
   // else — a cue still waiting on a person, broken text, an invalid treatment —
   // is that ONE cue's problem and is skipped below with its reason.
   const unfixable = (issue: ContextualCueIssue) => issue.severity !== 'warning'
-    && (/timing is invalid|inside its scene timing|readable for at least|overlaps or crowds/.test(issue.detail))
+    && (/timing is invalid|inside its scene timing|readable for at least/.test(issue.detail))
   const hard = issues.filter(issue => !issue.cue_id && issue.severity !== 'warning')
     .concat(issues.filter(issue => !!issue.cue_id && unfixable(issue)))
   if (hard.length) {
@@ -549,7 +552,7 @@ export function resolveRenderableContextualCues(
   }
   const cues: ContextualCue[] = []
   const skipped: ContextualCueIssue[] = []
-  for (const cue of timeline.cues) {
+  for (const cue of [...timeline.cues].sort((a, b) => a.start_sec - b.start_sec)) {
     if (cue.status !== 'approved') {
       skipped.push({
         cue_id: cue.id,
@@ -560,9 +563,14 @@ export function resolveRenderableContextualCues(
       })
       continue
     }
-    const mine = (byCue.get(cue.id) || []).filter(issue => issue.severity !== 'warning')
+    const mine = (byCue.get(cue.id) || []).filter(issue => issue.severity !== 'warning' && !/overlaps or crowds/.test(issue.detail))
     if (mine.length) {
       for (const issue of mine) skipped.push({ cue_id: cue.id, severity: 'warning', detail: issue.detail })
+      continue
+    }
+    const previous = cues[cues.length - 1]
+    if (previous && cue.start_sec < previous.end_sec + 0.5) {
+      skipped.push({ cue_id: cue.id, severity: 'warning', detail: `overlaps or crowds ${cueName(timeline, previous.id)}; keep at least 0.5s clear.` })
       continue
     }
     cues.push(cue)
