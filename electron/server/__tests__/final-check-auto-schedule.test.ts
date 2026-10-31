@@ -1,3 +1,4 @@
+import { waitFor } from './_timing.js'
 import assert from 'node:assert/strict'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -90,10 +91,7 @@ test('the background recheck invokes scheduling when a later verdict passes', as
     checks.startFinalCheck(item.video, {} as any, {}, async () => {
       if (await scheduling.readAutoScheduleHold(item.video)) await scheduling.scheduleCheckedEpisode(slug, item.code, item.video)
     })
-    for (let i = 0; i < 100 && checks.finalCheckProgress(item.video).running; i++) {
-      await new Promise(resolve => setTimeout(resolve, 10))
-    }
-    assert.equal(checks.finalCheckProgress(item.video).running, false)
+    await waitFor(() => !checks.finalCheckProgress(item.video).running)
     assert.ok((await plans.readItemSchedule(slug))[item.code])
     assert.equal(await scheduling.readAutoScheduleHold(item.video), null)
   } finally { checks.__setFinalCheckRunnerForTests(null) }
