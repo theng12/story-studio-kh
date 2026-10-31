@@ -147,7 +147,7 @@ import {
   type VideoSnippet,
 } from '../lib/youtube-client.js'
 import { ANALYTICS_METRICS, VIDEO_FACTS, fetchProjectAnalytics } from '../services/youtube-analytics-cache.js'
-import { allWeeklyResults, listWeeklyResults, readWeeklyResult, recomputeWeeklyResult } from '../services/youtube-weekly-results.js'
+import { allWeeklyResults, listWeeklyResults, readWeeklyResult, recomputeWeeklyResult, setWeeklyResultsEnabled, weeklyResultsEnabled } from '../services/youtube-weekly-results.js'
 import { cursorKey } from '../services/youtube-page-cursor.js'
 import { metricNotFetched } from '../services/youtube-analytics-value.js'
 import {
@@ -2435,6 +2435,13 @@ async function analyticsResponseFor(slug: string): Promise<Record<string, unknow
   }
 }
 
+router.get('/youtube/weekly-results/settings', async (_req, res) => {
+  try { res.json({ enabled: await weeklyResultsEnabled() }) } catch (error) { fail(res, error, 'Failed to read weekly results settings.') }
+})
+router.put('/youtube/weekly-results/settings', async (req, res) => {
+  if (typeof req.body?.enabled !== 'boolean') { res.status(400).json({ detail: 'enabled must be a boolean' }); return }
+  try { await setWeeklyResultsEnabled(req.body.enabled); res.json({ enabled: await weeklyResultsEnabled() }) } catch (error) { fail(res, error, 'Failed to save weekly results settings.') }
+})
 router.get('/youtube/weekly-results', async (_req, res) => {
   try { res.json({ channels: await allWeeklyResults() }) } catch (error) { fail(res, error, 'Failed to read weekly results.') }
 })

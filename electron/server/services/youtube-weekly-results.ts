@@ -5,10 +5,20 @@ import { asKeyed, fetchVideoMetadata, runReport } from '../lib/youtube-analytics
 import { registryCredentialFor } from '../lib/youtube-client.js'
 import { tokenHasAnalyticsScope } from '../lib/youtube-oauth.js'
 import { getProjectDir } from './project-manager.js'
+import { getAppSetting, setAppSetting } from './app-settings.js'
 import { getProjectYouTubeAssignment, readYouTubeChannelTokensForServer, readYouTubeConnectionRegistry } from './youtube-connection-store.js'
 
 // Weeks are Monday through Sunday, using UTC calendar dates.
 const DAY = 86_400_000
+const RETRY_WAIT = 6 * 60 * 60 * 1000
+const MAX_ATTEMPTS = 3
+const SETTING = 'youtube_weekly_results_enabled'
+export async function weeklyResultsEnabled(): Promise<boolean> {
+  return (await getAppSetting(SETTING)) !== false
+}
+export async function setWeeklyResultsEnabled(enabled: boolean): Promise<void> {
+  await setAppSetting(SETTING, enabled)
+}
 const names = ['views', 'watch_minutes', 'avg_view_seconds', 'impressions', 'click_through_rate', 'subscribers_gained'] as const
 type Name = typeof names[number]
 type State = 'measured' | 'no_data' | 'not_fetched' | 'reconnect_required' | 'unavailable'
@@ -21,6 +31,8 @@ export interface WeeklyResult {
   week: string
   end_date: string
   attempted_at: string
+  attempts: number
+  warnings: string[]
   complete: boolean
   metrics: Metrics
   top_videos: Array<{ video_id: string; title: string | null; title_reason: string | null; metrics: Metrics }>
@@ -64,7 +76,7 @@ export async function readWeeklyResult(slug: string, week: string): Promise<Week
   weekTime(week)
   return (await listWeeklyResults(slug)).find(r => r.week === week) ?? null
 }
-export async function recomputeWeeklyResult(slug: string, week: string, fetchReport: typeof runReport = runReport): Promise<WeeklyResult> {
+export async function recomputeWeeklyResult(slug: string, week: string, fetchReport: typeof runReport = runReport, now = new Date()): Promise<WeeklyResult> {
   const start = weekTime(week)
   const assignmentAtStart = await getProjectYouTubeAssignment(slug)
   if (!assignmentAtStart) throw Object.assign(new Error('Assign a YouTube channel first.'), { statusCode: 409, expose: true })
@@ -75,7 +87,12 @@ export async function recomputeWeeklyResult(slug: string, week: string, fetchRep
     if (!assignment || assignment.channel_id !== assignmentAtStart.channel_id) throw Object.assign(new Error('YouTube channel assignment changed.'), { statusCode: 409, expose: true })
     const channel = assignment.channel_id
     const account = registryCredentialFor(channel)
-    const result: WeeklyResult = { project_slug: slug, channel_id: channel, week, end_date: date(start + 6 * DAY), attempted_at: new Date().toISOString(), complete: false, metrics: blank('not_fetched', 'Not fetched yet.'), top_videos: [], reason: null }
+    let previous: WeeklyResult | undefined
+    try { previous = JSON.parse(await fs.readFile(file, 'utf8')) as WeeklyResult } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const attempts = previous?.reason === 'Reconnect this channel and grant YouTube Analytics access.' ? 0 : Number.isSafeInteger(previous?.attempts) && previous!.attempts >= 0 ? previous!.attempts : 0
+    const result: WeeklyResult = { project_slug: slug, channel_id: channel, week, end_date: date(start + 6 * DAY), attempted_at: now.toISOString(), attempts: attempts + 1, warnings: [], complete: false, metrics: blank('not_fetched', 'Not fetched yet.'), top_videos: [], reason: null }
     const fail = (state: State, reason: string) => { result.metrics = blank(state, reason); result.reason = reason }
     try {
       const tokens = await readYouTubeChannelTokensForServer(channel)
@@ -117,10 +134,10 @@ export async function recomputeWeeklyResult(slug: string, week: string, fetchRep
               Object.assign(metrics, convert(report.videos, row, report.names))
             }
             const title = titles[id]?.title || null
-            if (!title) result.reason = 'Some video titles could not be read; retry this week.'
+            if (!title) result.warnings.push(`YouTube did not return a title for video ${id}.`)
             return { video_id: id, title, title_reason: title ? null : 'YouTube did not return a title.', metrics }
           })
-          if (primary.rows.length >= 200) result.reason = 'YouTube returned the first 200 videos; results may be truncated.'
+          if (primary.rows.length >= 200) result.warnings.push('YouTube returned the first 200 videos; results may be truncated.')
         }
         result.complete = result.reason === null
       }
@@ -136,21 +153,33 @@ export async function recomputeWeeklyResult(slug: string, week: string, fetchRep
   })
 }
 let running = false
-export async function weeklyResultsTick(now = new Date()): Promise<void> {
+export async function weeklyResultsTick(now = new Date(), fetchReport: typeof runReport = runReport): Promise<void> {
   if (running) return
   running = true
   try {
+    if (!await weeklyResultsEnabled()) return
     const registry = await readYouTubeConnectionRegistry()
     for (const assignment of Object.values(registry.assignments)) {
       try {
-        const latest = Date.parse(`${monday(now)}T00:00:00Z`) - 7 * DAY
+        // YouTube's analytics data can lag by 48–72 hours; wait four full days after Sunday.
+        const latest = Date.parse(`${monday(new Date(now.getTime() - 4 * DAY))}T00:00:00Z`) - 7 * DAY
         const assignedWeek = Date.parse(`${monday(new Date(assignment.assigned_at))}T00:00:00Z`)
-        const first = Math.min(assignedWeek, latest)
+        const first = assignedWeek - 7 * DAY
         const records = await listWeeklyResults(assignment.project_slug)
-        const completed = new Set(records.filter(r => r.complete).map(r => r.week))
+        const byWeek = new Map(records.map(r => [r.week, r]))
         for (let current = first; current <= latest; current += 7 * DAY) {
           const week = date(current)
-          if (!completed.has(week)) await recomputeWeeklyResult(assignment.project_slug, week)
+          const existing = byWeek.get(week)
+          if (existing?.complete) continue
+          if (existing?.metrics?.views?.state === 'reconnect_required' && existing.reason === 'Reconnect this channel and grant YouTube Analytics access.') {
+            const tokens = await readYouTubeChannelTokensForServer(assignment.channel_id)
+            if (!tokens || !tokenHasAnalyticsScope(tokens.scope)) continue
+          } else if (existing) {
+            const attempted = Date.parse(existing.attempted_at)
+            if ((existing.attempts ?? 1) >= MAX_ATTEMPTS || !Number.isFinite(attempted) || now.getTime() - attempted < RETRY_WAIT) continue
+          }
+          if (!await weeklyResultsEnabled()) return
+          await recomputeWeeklyResult(assignment.project_slug, week, fetchReport, now)
         }
       } catch { console.error('[youtube-weekly-results] channel read failed; will retry on a later tick') }
     }
