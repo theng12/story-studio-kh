@@ -71,7 +71,7 @@ export const CreateProjectSchema = z.object({
   // nothing keeps the pre-ruling behaviour for old clients; the wizard always
   // sends one of the two so "chose generic" and "never chose" stay distinct.
   formula_choice: z.enum(['selected', 'generic']).optional(),
-  topic_pack_ids: z.array(z.string().min(1).max(80)).max(24).optional(),
+  topic_pack_ids: z.array(z.string().min(1).max(200)).max(24).optional(),
   // Audience-facing language. Absent keeps legacy prompts byte-identical;
   // the two-value catalogue is deliberate (extend when a third language is
   // actually needed).
@@ -376,7 +376,7 @@ export const SetProjectNicheSchema = z.object({
   // `'generic'` records a deliberate "Generic — no Formula" choice, which is
   // what stops the in-app prompt. A selected id records `'selected'` itself.
   formula_choice: z.enum(['selected', 'generic']).optional(),
-  topic_pack_ids: z.array(z.string().min(1).max(80)).max(24).optional(),
+  topic_pack_ids: z.array(z.string().min(1).max(200)).max(24).optional(),
 }).strict()
 export type SetProjectNicheBody = z.infer<typeof SetProjectNicheSchema>
 
