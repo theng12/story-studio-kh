@@ -12,6 +12,7 @@ What's new in each release. Newest first.
 - Weekly results in Upload Center analytics: each saved week's top videos with views, watch time, click-through rate and impressions. Partial weeks are labelled, and missing data says so instead of showing 0.
 - Shorts from a finished episode, off for every channel. A channel can ask for up to 3: self-contained passages of 20 to 58 seconds, cut from the finished video only. The Shorts are not uploaded.
 - The daily brief states free disk, or says it could not be read.
+- One scene per sentence no longer stops an episode over one sentence too short to play. It joins the next sentence's scene, and the scene records why.
 - A channel's chosen visual style now reaches its scene plans even when no Style Bible is written. Before, the plan had no look to follow and could describe photographs while the style read as applied.
 
 ## v1.4.371 — 2026-10-30

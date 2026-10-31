@@ -48,7 +48,7 @@ import type {
 } from '../models/types.js'
 import { parseSentenceSidecar, splitIntoSentences } from '../lib/sentence-timing.js'
 import { endsSentence } from '../lib/sentence-ends.js'
-import { unrenderableSceneProblem } from '../lib/scene-plan-timeline.js'
+import { MIN_RENDERABLE_SCENE_SEC, unrenderableSceneProblem } from '../lib/scene-plan-timeline.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 import { pacingBandAt, type ScenePacing, type ScenePacingBand, type ScenePacingPeriod } from '../contracts/pacing.js'
 
@@ -1245,14 +1245,32 @@ export function splitScenesBySentence(opts: {
     if (Math.abs(end - chapter.duration_s) > 0.01) return fail(`sentence timing for ${chapter.slug} is incomplete`)
   }
   if (opts.opening_sec > sentences[0]!.start + 0.001) return fail('the opening overlaps narrated sentences')
-  const scenes = sentences.map((sentence, index) => ({
+  // A fragment too short to play ("Why?", a stray quote) joins its neighbour rather than failing the
+  // whole episode: The Curious Why EP0003 stopped twice on one 0.125 s sentence out of 254.
+  const playable: Array<{ start: number; end: number; text: string; joined?: boolean }> = []
+  let carry: (typeof playable)[number] | null = null
+  for (const [index, sentence] of sentences.entries()) {
+    const current: (typeof playable)[number] = carry
+      ? { start: carry.start, end: sentence.end, text: `${carry.text} ${sentence.text}`, joined: true }
+      : sentence
+    carry = null
+    if ((sentences[index + 1]?.start ?? sentence.end) - current.start < MIN_RENDERABLE_SCENE_SEC) carry = current
+    else playable.push(current)
+  }
+  if (carry) {
+    const last = playable.pop()
+    playable.push(last ? { start: last.start, end: carry.end, text: `${last.text} ${carry.text}`, joined: true } : carry)
+  }
+  const scenes = playable.map((sentence, index) => ({
     id: opts.idGen(index), scene_index: index + 1,
     start_sec: index === 0 ? opts.opening_sec : sentence.start,
-    end_sec: sentences[index + 1]?.start ?? sentence.end,
+    end_sec: playable[index + 1]?.start ?? sentence.end,
     transcript_segment: sentence.text, visual_prompt: '',
-    boundary_reason: 'one scene per narrated sentence',
+    boundary_reason: sentence.joined
+      ? 'one scene per narrated sentence; a sentence too short to play joined it'
+      : 'one scene per narrated sentence',
   }))
-  if (scenes.length !== sentences.length || scenes.some(scene => scene.end_sec <= scene.start_sec)) return fail('sentence timing cannot produce one scene for every sentence')
+  if (scenes.some(scene => scene.end_sec <= scene.start_sec)) return fail('sentence timing cannot produce one scene for every sentence')
   const renderProblem = unrenderableSceneProblem(scenes)
   if (renderProblem) return fail(renderProblem)
   return scenes

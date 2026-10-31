@@ -27,6 +27,27 @@ test('sentence scenes require every chapter and use stitched episode offsets', (
   assert.throws(() => splitScenesBySentence({ ...input, timeline: { ...timeline, sections: [timeline.sections[0]!, { ...timeline.sections[1]!, offset_sec: 10 }] } }), /chapter offset/)
 })
 
+test('a sentence too short to play joins its neighbour instead of failing the episode', () => {
+  const words = 'A long enough sentence that takes most of this chapter to say out loud here.'
+  const run = (text: string, duration: number) => {
+    const chapters = { sections: [{ slug: 'a', duration_s: duration }], gap_duration_s: 0 }
+    const narration = [{ slug: 'a', text }]
+    const sidecar = { schemaVersion: 1, ...buildSentenceSidecar(chapters.sections, narration) }
+    const timeline = { complete: true, sections: [{ slug: 'a', duration_sec: duration, offset_sec: 0 }] }
+    return splitScenesBySentence({ chapters, narration, sidecar, timeline, opening_sec: 0, idGen: (i: number) => String(i) })
+  }
+  const middle = run(`${words} Why? ${words}`, 8)
+  assert.deepEqual(middle.map(s => s.transcript_segment), [words, `Why? ${words}`])
+  assert.match(middle[1]!.boundary_reason!, /too short to play joined/)
+  assert.doesNotMatch(middle[0]!.boundary_reason!, /joined/)
+  assert.equal(middle[1]!.end_sec, 8)
+  const end = run(`${words} Why?`, 4)
+  assert.deepEqual(end.map(s => s.transcript_segment), [`${words} Why?`])
+  assert.equal(end[0]!.end_sec, 4)
+  assert.ok(middle.every(s => s.end_sec - s.start_sec >= 0.5))
+  assert.equal(run(`${words} ${words}`, 8).length, 2, 'playable sentences keep a scene each')
+})
+
 test('sentence choice is opt-in and old rhythms remain unchanged', () => {
   assert.deepEqual(parseScenePacing({ min_sec: 4, max_sec: 8 }), { min_sec: 4, max_sec: 8 })
   assert.deepEqual(parseScenePacing({ min_sec: 4, max_sec: 8, one_scene_per_sentence: false }), { min_sec: 4, max_sec: 8 })
